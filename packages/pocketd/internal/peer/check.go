@@ -53,6 +53,7 @@ var Needs = map[string]Scope{
 	"ws:git.diff":             Observe,
 	"ws:git.log":              Observe,
 	"ws:git.commit":           Observe,
+	"ws:git.compare":          Observe,
 	"ws:gh.status":            Observe,
 	"ws:gh.pr":                Observe,
 	"ws:gh.prs":               Observe,

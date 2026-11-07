@@ -35,6 +35,17 @@ func TestTheWorktreeRootLoadsFromItsOwnKey(t *testing.T) {
 	}
 }
 
+func TestGitSettingsLoadAndUnsetOnesTakeTheDesktopsDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "desktop.json")
+	write(t, path, `{"git":{"remote":"fork","commit_all":false,"force_with_lease":true}}`, time.Now())
+	if g := New(path).Load().Git; g.PushRemote() != "fork" || g.CommitsAll() {
+		t.Fatalf("got %+v", g)
+	}
+	if g := (Git{}); g.PushRemote() != "origin" || !g.CommitsAll() {
+		t.Fatalf("defaults %+v", g)
+	}
+}
+
 func TestARewriteWithANewMtimeReloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "desktop.json")
 	at := time.Now()

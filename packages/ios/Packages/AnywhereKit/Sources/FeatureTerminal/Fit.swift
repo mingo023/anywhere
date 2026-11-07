@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreText
+import DesignSystem
 
 #if canImport(UIKit)
     import UIKit
@@ -40,6 +41,19 @@ public enum Fit {
         let rows = Int((area.height / cell.height).rounded(.down))
         return (min(max(cols, 20), 1000), min(max(rows, 5), 1000))
     }
+
+    /// The cols × rows a terminal screen of `area` shows without scrolling, inside its padding.
+    public static func screen(_ area: CGSize, cell: CGSize) -> (cols: Int, rows: Int) {
+        grid(CGSize(width: area.width - 2 * inset, height: area.height - 2 * inset), cell: cell)
+    }
+
+    /// The cols × rows a terminal created on a phone opens at: its screen takes the terminal list's `area`, less the key bar.
+    public static func newTerminal(in area: CGSize, fontSize: CGFloat) -> (cols: Int, rows: Int) {
+        screen(CGSize(width: area.width, height: area.height - KeyBar.height), cell: cell(fontSize: fontSize))
+    }
+
+    /// Around the screen, inside its scroll view.
+    public static let inset = Space.xs
 
     /// The font size after a pinch by `scale`, from `start`.
     public static func zoom(_ start: CGFloat, by scale: CGFloat) -> CGFloat {

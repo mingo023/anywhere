@@ -191,16 +191,18 @@ func (it Item) MarshalJSON() ([]byte, error) {
 }
 
 type AgentSummary struct {
-	ID                string `json:"id"`
-	TerminalID        string `json:"terminalId"`
-	Title             string `json:"title"`
-	Cwd               string `json:"cwd"`
-	Provider          string `json:"provider"`
-	Model             string `json:"model,omitempty"`
-	Effort            string `json:"effort,omitempty"`
-	Access            string `json:"access,omitempty"`
-	Status            string `json:"status"`
-	Failed            bool   `json:"failed,omitempty"`
+	ID         string `json:"id"`
+	TerminalID string `json:"terminalId"`
+	Title      string `json:"title"`
+	Cwd        string `json:"cwd"`
+	Provider   string `json:"provider"`
+	Model      string `json:"model,omitempty"`
+	Effort     string `json:"effort,omitempty"`
+	Access     string `json:"access,omitempty"`
+	Status     string `json:"status"`
+	Failed     bool   `json:"failed,omitempty"`
+	// Error is the first line of the failed turn's error; only with Failed.
+	Error             string `json:"error,omitempty"`
 	Attached          bool   `json:"attached"`
 	Restore           string `json:"restore,omitempty"`
 	Compacting        bool   `json:"compacting,omitempty"`

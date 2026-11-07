@@ -23,6 +23,7 @@ public struct PushType: Equatable {
 public struct ActivityContent<State>: CustomStringConvertible, Sendable where State: Decodable, State: Encodable, State: Hashable {
     public init(state: State, staleDate: Date?, relevanceScore: Double = 0.0) { fatalError() }
     public var state: State { fatalError() }
+    public var staleDate: Date? { fatalError() }
     public var description: String { "" }
 }
 

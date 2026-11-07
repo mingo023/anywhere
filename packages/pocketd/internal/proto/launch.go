@@ -25,7 +25,7 @@ const MaxPrompt = 64 << 10
 var (
 	// "settings" leaves access to the agent's own settings.
 	Accesses      = []string{"settings", "ask", "edits", "auto", "full"}
-	PhoneAccesses = []string{"ask", "edits", "auto"}
+	PhoneAccesses = []string{"ask", "edits", "auto", "full"}
 )
 
 type LaunchSpec struct {

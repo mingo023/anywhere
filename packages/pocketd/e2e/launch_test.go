@@ -105,7 +105,7 @@ func TestPocketdConfigSetGoesThroughTheRunningPocketd(t *testing.T) {
 	if out, code := h.Pocketd("config", "set", "phone.maxAccess", "auto"); code != 0 || out != "phone.maxAccess = auto\n" {
 		t.Fatalf("exit %d: %q", code, out)
 	}
-	if out, code := h.Pocketd("config", "set", "phone.maxAccess", "full"); code != 1 || !strings.Contains(out, "pocketd: phone.maxAccess is ask, edits or auto") {
+	if out, code := h.Pocketd("config", "set", "phone.maxAccess", "settings"); code != 1 || !strings.Contains(out, "pocketd: phone.maxAccess is ask, edits, auto or full") {
 		t.Fatalf("exit %d: %q", code, out)
 	}
 	o := h.Owner()

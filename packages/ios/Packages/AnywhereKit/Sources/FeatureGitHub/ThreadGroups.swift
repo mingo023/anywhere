@@ -1,12 +1,15 @@
+import Stores
 import Wire
 
-/// How far a review thread has got (`Thread::state` in github.rs). The phone hands nothing to agents, so never Sent.
+/// How far a review thread has got (`Thread::state` in github.rs). `sent`: its agent still works on it.
 public enum ThreadState: Hashable, Sendable {
-    case open, replied, resolved
+    case open, sent, replied, resolved
 
-    public init(_ t: ReviewThread) {
+    public init(_ t: ReviewThread, sent: Bool = false) {
         if t.resolved {
             self = .resolved
+        } else if sent {
+            self = .sent
         } else if let first = t.comments.first?.author, let last = t.comments.last?.author, first != last {
             self = .replied
         } else {
@@ -55,16 +58,27 @@ public enum ThreadGroups {
         threads.count { !$0.resolved }
     }
 
-    /// The last `n` lines of a comment's hunk, which ends at the line it's on (`hunk_tail`).
-    public static func hunkTail(_ hunk: String?, _ n: Int = 3) -> [String] {
-        var lines = (hunk ?? "").split(separator: "\n", omittingEmptySubsequences: false)
-        if lines.last == "" { lines.removeLast() }
-        return lines.filter { !$0.hasPrefix("@@") }.suffix(n).map(String.init)
+    /// What the agent could still be sent: failed checks and open threads it isn't `fixing` (`to_fix`).
+    public static func unsent(_ pr: PullRequest, fixing: SentFixes?) -> (checks: [CheckRun], threads: [ReviewThread]) {
+        let checks = pr.runs.filter { $0.outcome == "failed" && !(fixing?.checks.contains($0.name) ?? false) }
+        let threads = pr.threads.filter { ThreadState($0, sent: fixing?.threads.contains($0.id) ?? false) == .open }
+        return (checks, threads)
     }
 
-    /// `path:line`, or the path alone for a thread on the whole file (`place`).
-    public static func place(_ t: ReviewThread) -> String {
-        t.line.map { "\(t.path):\($0)" } ?? t.path
+    /// Why the Comments screen lists nothing.
+    public enum Empty: Hashable, Sendable {
+        case noComments
+        /// Threads the filter hides only for being outdated; Show turns outdated back on.
+        case outdatedHidden(Int)
+        case allResolved
+    }
+
+    /// Why `filter` shows none of `threads`, or nil when it shows some.
+    public static func empty(_ threads: [ReviewThread], _ filter: ThreadFilter) -> Empty? {
+        guard !threads.contains(where: filter.shows) else { return nil }
+        if threads.isEmpty { return .noComments }
+        let hidden = threads.count { $0.outdated && (filter.resolved || !$0.resolved) }
+        return hidden > 0 ? .outdatedHidden(hidden) : .allResolved
     }
 
     /// The reply box's prompt: whom the reply answers.

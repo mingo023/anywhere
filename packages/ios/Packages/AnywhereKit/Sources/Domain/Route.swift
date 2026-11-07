@@ -5,18 +5,27 @@ public enum Route: Hashable, Codable, Sendable {
     case worktree(mac: String, path: String)
     case local(mac: String, id: String)
     case chat(mac: String, agentId: String)
-    case newSession(mac: String, project: String?)
+    /// The sub-agent the agent's call `callId` spawned, followed as it works.
+    case subAgent(mac: String, agentId: String, callId: String)
+    /// `place` is a worktree's path or a Local's id, as `.worktree` and `.local` carry them; `prompt` fills the draft.
+    case newSession(mac: String, project: String?, place: String? = nil, prompt: String? = nil)
     case terminals(mac: String)
     case terminal(mac: String, terminalId: String)
-    case changes(mac: String, tree: String)
-    case diff(mac: String, tree: String, path: String, staged: Bool)
+    /// `chat` is the agent whose chat opened Changes, which takes quotes from its diffs.
+    case changes(mac: String, tree: String, chat: String? = nil)
+    case diff(mac: String, tree: String, path: String, staged: Bool, chat: String? = nil)
     case history(mac: String, tree: String)
     case commit(mac: String, tree: String, sha: String)
     case branches(mac: String, tree: String)
-    case pullRequest(mac: String, tree: String)
+    /// `chat` is the agent whose chat opened the PR, which takes what's sent to fix it.
+    case pullRequest(mac: String, tree: String, chat: String? = nil)
     case pullRequests(mac: String, project: String)
-    case files(mac: String, tree: String, dir: String)
-    case file(mac: String, tree: String, path: String)
+    /// The review threads of the tree's pull request; `chat` as `.pullRequest` carries it.
+    case reviewThreads(mac: String, tree: String, chat: String? = nil)
+    /// `chat` is the agent whose chat opened Files, which takes its mentions and quotes.
+    case files(mac: String, tree: String, dir: String, chat: String? = nil)
+    /// `line` is 1-based, for a link that names one.
+    case file(mac: String, tree: String, path: String, line: Int? = nil, chat: String? = nil)
     case automations(mac: String)
     case pairing
     case settings
@@ -24,12 +33,24 @@ public enum Route: Hashable, Codable, Sendable {
     /// The Mac a route is on; pairing and settings belong to none.
     public var mac: String? {
         switch self {
-        case .sessions(let mac), .project(let mac, _), .worktree(let mac, _), .local(let mac, _), .chat(let mac, _), .newSession(let mac, _),
-            .terminals(let mac), .terminal(let mac, _), .changes(let mac, _), .diff(let mac, _, _, _), .history(let mac, _),
-            .commit(let mac, _, _), .branches(let mac, _), .pullRequest(let mac, _), .pullRequests(let mac, _), .files(let mac, _, _),
-            .file(let mac, _, _), .automations(let mac):
+        case .sessions(let mac), .project(let mac, _), .worktree(let mac, _), .local(let mac, _), .chat(let mac, _), .subAgent(let mac, _, _), .newSession(let mac, _, _, _),
+            .terminals(let mac), .terminal(let mac, _), .changes(let mac, _, _), .diff(let mac, _, _, _, _), .history(let mac, _),
+            .commit(let mac, _, _), .branches(let mac, _), .pullRequest(let mac, _, _), .pullRequests(let mac, _), .files(let mac, _, _, _),
+            .reviewThreads(let mac, _, _), .file(let mac, _, _, _, _), .automations(let mac):
             mac
         case .pairing, .settings:
+            nil
+        }
+    }
+
+    /// The worktree or Local a route is about: a tree screen's path or id, or the checkout a git or files screen reads.
+    public var tree: String? {
+        switch self {
+        case .worktree(_, let tree), .local(_, let tree), .changes(_, let tree, _), .diff(_, let tree, _, _, _), .history(_, let tree),
+            .commit(_, let tree, _), .branches(_, let tree), .pullRequest(_, let tree, _), .reviewThreads(_, let tree, _), .files(_, let tree, _, _),
+            .file(_, let tree, _, _, _):
+            tree
+        case .sessions, .project, .chat, .subAgent, .newSession, .terminals, .terminal, .pullRequests, .automations, .pairing, .settings:
             nil
         }
     }

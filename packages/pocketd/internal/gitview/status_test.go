@@ -55,7 +55,7 @@ func TestStatusReadsRenamesSpacesUnicodeAndBinaries(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
 	}
-	if st.Totals != (proto.GitTotals{Files: 6, Added: 2, Removed: 1, Staged: 1}) || st.Branch != "main" || st.Rev == "" {
+	if st.Totals != (proto.GitTotals{Files: 6, Added: 2, Removed: 1, Staged: 1, Unstaged: 6}) || st.Branch != "main" || st.Rev == "" {
 		t.Fatalf("%+v", st)
 	}
 }
@@ -151,6 +151,30 @@ func TestUnpushedIsNoneBeforeTheFirstPushThenCountsCommitsPastTheUpstream(t *tes
 	st, _ = s.Status(repo, 0, 0)
 	if st.Unpushed == nil || *st.Unpushed != 1 || st.Upstream != "main" {
 		t.Fatalf("%+v", st)
+	}
+}
+
+func TestUnpulledCountsTheUpstreamsCommitsHeadLacks(t *testing.T) {
+	repo := scratch(t)
+	sh(t, repo, "commit", "-q", "--allow-empty", "-m", "landed")
+	sh(t, repo, "branch", "landed")
+	sh(t, repo, "reset", "-q", "--hard", "HEAD~1")
+	sh(t, repo, "branch", "--set-upstream-to", "landed")
+	st, _ := service().Status(repo, 0, 0)
+	if st.Unpulled == nil || *st.Unpulled != 1 || *st.Unpushed != 0 {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestTheUnstagedTotalCountsAFileStagedAndEditedAgainOnBothSides(t *testing.T) {
+	repo := scratch(t)
+	write(t, repo, "a", "staged\n")
+	sh(t, repo, "add", "a")
+	write(t, repo, "a", "staged\nthen edited\n")
+	write(t, repo, "b", "new\n")
+	st, _ := service().Status(repo, 0, 0)
+	if st.Totals.Files != 2 || st.Totals.Staged != 1 || st.Totals.Unstaged != 2 {
+		t.Fatalf("%+v", st.Totals)
 	}
 }
 

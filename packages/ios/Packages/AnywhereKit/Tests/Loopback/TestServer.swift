@@ -3,25 +3,25 @@ import Network
 import Wire
 
 /// A real WebSocket server on loopback, standing in for pocketd. `script` answers each text frame the phone sends.
-final class TestServer: @unchecked Sendable {
-    final class Peer: @unchecked Sendable {
+public final class TestServer: @unchecked Sendable {
+    public final class Peer: @unchecked Sendable {
         let connection: NWConnection
 
         init(_ connection: NWConnection) { self.connection = connection }
 
-        func send(_ frame: ServerFrame) {
+        public func send(_ frame: ServerFrame) {
             send(try! frame.encoded(), .text)
         }
 
-        func sendRaw(_ text: String) {
+        public func sendRaw(_ text: String) {
             send(Data(text.utf8), .text)
         }
 
-        func sendBinary(_ data: Data) {
+        public func sendBinary(_ data: Data) {
             send(data, .binary)
         }
 
-        func close(code: UInt16, reason: String = "") {
+        public func close(code: UInt16, reason: String = "") {
             let metadata = NWProtocolWebSocket.Metadata(opcode: .close)
             metadata.closeCode = .privateCode(code)
             let context = NWConnection.ContentContext(identifier: "close", metadata: [metadata])
@@ -29,8 +29,23 @@ final class TestServer: @unchecked Sendable {
             connection.send(content: Data(reason.utf8), contentContext: context, isComplete: true, completion: .idempotent)
         }
 
+        /// Sends one text message in `pieces` spread over `over`, as a big reply crawls over a slow link.
+        public func sendSlowly(_ frame: ServerFrame, pieces: Int, over: Duration) {
+            let data = try! frame.encoded()
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+            let context = NWConnection.ContentContext(identifier: "slow", metadata: [metadata])
+            let size = (data.count + pieces - 1) / pieces
+            let gap = (Double(over.components.seconds) + Double(over.components.attoseconds) / 1e18) / Double(pieces)
+            for i in 0..<pieces {
+                let piece = data.subdata(in: min(i * size, data.count)..<min((i + 1) * size, data.count))
+                DispatchQueue.global().asyncAfter(deadline: .now() + gap * Double(i)) { [connection] in
+                    connection.send(content: piece, contentContext: context, isComplete: i == pieces - 1, completion: .idempotent)
+                }
+            }
+        }
+
         /// Drops the socket without a close frame, as a sleeping Mac would.
-        func cut() { connection.cancel() }
+        public func cut() { connection.cancel() }
 
         private func send(_ data: Data, _ opcode: NWProtocolWebSocket.Opcode) {
             let metadata = NWProtocolWebSocket.Metadata(opcode: opcode)
@@ -46,14 +61,15 @@ final class TestServer: @unchecked Sendable {
     private var _received: [ClientFrame] = []
     private var _accepted = 0
 
-    var received: [ClientFrame] { lock.withLock { _received } }
-    var accepted: Int { lock.withLock { _accepted } }
-    var host: String { "127.0.0.1:\(listener.port!.rawValue)" }
+    public var received: [ClientFrame] { lock.withLock { _received } }
+    public var accepted: Int { lock.withLock { _accepted } }
+    public var host: String { "127.0.0.1:\(listener.port!.rawValue)" }
 
-    init(script: @escaping @Sendable (Peer, ClientFrame) -> Void) async throws {
+    /// `answersPings` false stands in for a Mac that went away without closing the socket.
+    public init(answersPings: Bool = true, script: @escaping @Sendable (Peer, ClientFrame) -> Void) async throws {
         let parameters = NWParameters.tcp
         let ws = NWProtocolWebSocket.Options()
-        ws.autoReplyPing = true
+        ws.autoReplyPing = answersPings
         parameters.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
         listener = try NWListener(using: parameters, on: .any)
         self.script = script
@@ -67,7 +83,7 @@ final class TestServer: @unchecked Sendable {
         }
     }
 
-    func stop() { listener.cancel() }
+    public func stop() { listener.cancel() }
 
     private func accept(_ connection: NWConnection) {
         lock.withLock { _accepted += 1 }
@@ -104,5 +120,3 @@ final class Once: @unchecked Sendable {
         }
     }
 }
-
-let helloOk = HelloOk(serverId: "mac-1", hostname: "Mingo's Mac", protocolVersion: 3, caps: Caps.phone, protocol: .phone)

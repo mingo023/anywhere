@@ -9,6 +9,7 @@ import Wire
 struct PullRequestListScreen: View {
     let store: GitHubStore
     let mac: String
+    var macName = ErrorText.unnamedMac
     let project: String
     var load = true
 
@@ -16,31 +17,55 @@ struct PullRequestListScreen: View {
 
     var body: some View {
         let items = store.lists[project]
+        let problem = store.listProblems[project]
         Group {
             if let items, !items.isEmpty {
-                List(items, id: \.tree) { item in
-                    NavigationLink(value: Route.pullRequest(mac: mac, tree: item.tree)) { PullRequestRow(item: item) }
+                List {
+                    if let problem {
+                        Section { problemRow(problem) }
+                    }
+                    ForEach(items, id: \.tree) { item in
+                        NavigationLink(value: Route.pullRequest(mac: mac, tree: item.tree)) { PullRequestRow(item: item) }
+                    }
                 }
                 .groupedList()
+                .refreshable { await reload() }
+            } else if let problem {
+                Pullable(refresh: reload) { GhProblemView(problem: problem, mac: macName) { Task { await reload() } } }
             } else if items != nil {
-                Placeholder("No pull requests", systemImage: "arrow.triangle.pull", detail: "No worktree of this project has an open pull request.")
+                Pullable(refresh: reload) {
+                    Placeholder("No pull requests", systemImage: "arrow.triangle.pull", detail: "No worktree of this project has an open pull request.")
+                }
             } else if let error {
-                Placeholder("Couldn't load pull requests", systemImage: "exclamationmark.triangle", detail: error)
+                Pullable(refresh: reload) {
+                    Placeholder("Couldn't load pull requests", systemImage: "exclamationmark.triangle", detail: error) { Task { await reload() } }
+                }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()
             }
         }
         .navigationTitle("Pull requests")
-        .refreshable { await reload() }
         .task(id: project) { if load { await reload() } }
+    }
+
+    private func problemRow(_ problem: GhState) -> some View {
+        let (title, detail) = GhProblemView.text(problem, mac: macName)
+        return HStack(spacing: Space.m) {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(title).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.waitingText.color)
+                Text("\(detail) Until then this list isn't kept fresh.").font(Typography.footnote).foregroundStyle(Palette.text3.color)
+            }
+            Spacer(minLength: 0)
+            Button { Task { await reload() } } label: { Text("Check Again").hitTarget() }.buttonStyle(.borderless)
+        }
     }
 
     private func reload() async {
         do {
-            try await store.refreshList(project)
+            try await store.recheckList(project)
             error = nil
         } catch {
-            self.error = GitHubStore.describe(error)
+            self.error = store.describe(error)
         }
     }
 }

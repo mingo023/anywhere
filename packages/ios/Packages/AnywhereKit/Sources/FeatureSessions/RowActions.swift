@@ -7,8 +7,8 @@ import SwiftUI
 enum RowAction: Identifiable, Hashable {
     case rename(HomeList.Tree)
     case delete(HomeList.Tree)
-    /// Deleting the worktree's branch was refused: `count` commits on it are nowhere else.
-    case forceDelete(HomeList.Tree, count: Int)
+    /// Deleting the worktree's branch was refused: `removal.unpushed` commits on it are nowhere else.
+    case forceDelete(Removal)
     case close(sessionId: String, title: String)
     case newLocal(project: String)
     case pin(sessionId: String, on: Bool)
@@ -17,7 +17,7 @@ enum RowAction: Identifiable, Hashable {
         switch self {
         case .rename(let t): "rename:" + t.id
         case .delete(let t): "delete:" + t.id
-        case .forceDelete(let t, _): "force:" + t.id
+        case .forceDelete(let r): "force:" + r.id
         case .close(let id, _): "close:" + id
         case .newLocal(let project): "local:" + project
         case .pin(let id, _): "pin:" + id
@@ -34,12 +34,19 @@ enum RowAction: Identifiable, Hashable {
 }
 
 /// The asks behind row menus and swipes: a name for a rename, a confirm before deleting or closing, and what went wrong.
+/// While its list is on screen it also says what happened out of sight: a worktree or Local being deleted, or failing
+/// to be, and a session that started after its sheet was hidden. `deleting` runs before a delete goes out, so a screen
+/// of the tree being deleted can leave first.
 @MainActor
 struct RowActions: ViewModifier {
     let host: HostModel
     @Binding var action: RowAction?
+    var deleting: (() -> Void)?
     @State private var name = ""
     @State private var failure: String?
+    @State private var toast: Toast?
+    @State private var visible = false
+    @Environment(\.openURL) private var openURL
 
     func body(content: Content) -> some View {
         content
@@ -55,8 +62,12 @@ struct RowActions: ViewModifier {
                     if let branch = tree.branch { Button("Delete Worktree and \(branch)", role: .destructive) { delete(tree, branch: true) } }
                 case .delete(let tree):
                     Button("Delete \(tree.label)", role: .destructive) { delete(tree, branch: false) }
-                case .forceDelete(let tree, _):
-                    Button("Delete Anyway", role: .destructive) { delete(tree, branch: true, force: true) }
+                case .forceDelete(let removal):
+                    Button("Delete Anyway", role: .destructive) {
+                        var forced = removal
+                        forced.force = true
+                        remove(forced)
+                    }
                 case .close(let id, _):
                     Button("Close Session", role: .destructive) { close(id) }
                 case .rename, .newLocal, .pin:
@@ -66,7 +77,7 @@ struct RowActions: ViewModifier {
                 switch action {
                 case .delete(let tree) where tree.kind == .worktree: Text("Its terminals close and its folder is removed.")
                 case .delete: Text("Its terminals close. The project's files stay.")
-                case .forceDelete(_, let count): Text(Self.lostMessage(count))
+                case .forceDelete(let removal): Text(Self.lostMessage(removal.unpushed ?? 0))
                 case .close: Text("The agent and its terminal end.")
                 case .rename, .newLocal, .pin: EmptyView()
                 }
@@ -76,6 +87,14 @@ struct RowActions: ViewModifier {
             } message: {
                 Text(failure ?? "")
             }
+            .toast($toast)
+            .onAppear {
+                visible = true
+                notice()
+            }
+            .onDisappear { visible = false }
+            .onChange(of: host.workspace.removals) { notice() }
+            .onChange(of: host.workspace.creations) { notice() }
             .onChange(of: action) { _, new in
                 switch new {
                 case .rename(let tree)?:
@@ -95,7 +114,7 @@ struct RowActions: ViewModifier {
     private var title: String {
         switch action {
         case .delete(let tree)?: "Delete \(tree.label)?"
-        case .forceDelete(let tree, let count)?: Self.lostTitle(count, branch: tree.branch ?? tree.label)
+        case .forceDelete(let removal)?: Self.lostTitle(removal.unpushed ?? 0, branch: removal.branch ?? removal.label)
         case .close(_, let title)?: "Close \(title)?"
         default: ""
         }
@@ -115,6 +134,32 @@ struct RowActions: ViewModifier {
         Binding(get: { action.map(matches) ?? false }, set: { if !$0 { action = nil } })
     }
 
+    /// Says what happened while this list was out of sight, or since: one list says it, the one on screen.
+    private func notice() {
+        guard visible else { return }
+        let workspace = host.workspace
+        if let failed = workspace.takeFailedRemoval() {
+            Haptics.warning()
+            if failed.unpushed != nil {
+                toast = nil
+                action = .forceDelete(failed)
+            } else {
+                toast = Toast(failed.error ?? "", lasts: .seconds(6), actionTitle: "Try Again") { remove(failed) }
+            }
+        } else if let going = workspace.removals.values.first(where: { !$0.failed }) {
+            let text = "Deleting \(going.label)…"
+            if toast?.text != text { toast = Toast(text, lasts: nil) }
+        } else if toast?.lasts == nil {
+            toast = nil
+        }
+        for started in workspace.takeStarted() {
+            guard let agentId = started.agentId else { continue }
+            Haptics.success()
+            let mac = host.mac
+            toast = Toast("Session started", actionTitle: "Open") { openURL(DeepLink.agent(mac: mac, agentId: agentId).url) }
+        }
+    }
+
     private func rename(_ tree: HomeList.Tree) {
         let title = name
         run {
@@ -126,21 +171,16 @@ struct RowActions: ViewModifier {
         }
     }
 
-    private func delete(_ tree: HomeList.Tree, branch: Bool, force: Bool = false) {
-        run {
-            if tree.kind == .local {
-                try await host.workspace.deleteLocal(id: tree.id)
-            } else {
-                do {
-                    try await host.workspace.deleteWorktree(path: tree.id, deleteBranch: branch, force: force)
-                } catch {
-                    guard let count = WorkspaceStore.unpushedCommits(error) else { throw error }
-                    // Nothing was removed yet; ask again, naming what would be lost.
-                    action = .forceDelete(tree, count: count)
-                    return
-                }
-            }
-            Haptics.success()
+    private func delete(_ tree: HomeList.Tree, branch: Bool) {
+        deleting?()
+        remove(Removal(id: tree.id, label: tree.label, local: tree.kind == .local, branch: tree.branch, deleteBranch: branch))
+    }
+
+    private func remove(_ removal: Removal) {
+        let workspace = host.workspace
+        Task {
+            await workspace.remove(removal)
+            if workspace.removals[removal.id] == nil { Haptics.success() }
         }
     }
 
@@ -151,8 +191,9 @@ struct RowActions: ViewModifier {
     private func run(_ work: @escaping @MainActor () async throws -> Void) {
         Task {
             do { try await work() } catch {
+                guard let text = ErrorText.describe(error, mac: host.name) else { return }
                 Haptics.warning()
-                failure = WorkspaceStore.serverError(error).message
+                failure = text
             }
         }
     }
@@ -160,8 +201,8 @@ struct RowActions: ViewModifier {
 
 extension View {
     @MainActor
-    func rowActions(_ host: HostModel, _ action: Binding<RowAction?>) -> some View {
-        modifier(RowActions(host: host, action: action))
+    func rowActions(_ host: HostModel, _ action: Binding<RowAction?>, deleting: (() -> Void)? = nil) -> some View {
+        modifier(RowActions(host: host, action: action, deleting: deleting))
     }
 }
 

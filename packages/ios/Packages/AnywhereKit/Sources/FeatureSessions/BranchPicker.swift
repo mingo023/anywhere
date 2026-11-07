@@ -36,20 +36,9 @@ struct BranchPicker: View {
     }
 
     private func row(_ value: String?, label: String, detail: String?) -> some View {
-        Button {
+        BranchRow(label, detail: detail, picked: selection == value) {
             selection = value
             dismiss()
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(label).font(Typography.code).foregroundStyle(Palette.text.color)
-                    if let detail { Text(detail).font(Typography.caption).foregroundStyle(Palette.text3.color) }
-                }
-                Spacer()
-                if selection == value { Image(systemName: "checkmark").foregroundStyle(Palette.accent.color) }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 }

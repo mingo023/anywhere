@@ -5,7 +5,8 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A tree's changes: its branch, the commit composer, then Staged and Changes, flat or as a tree.
+/// A tree's changes: its branch, the commit composer, then Staged and Changes, flat or as a tree; or, in the Compare
+/// scope, what the branch committed since it left its base.
 ///
 /// The files are a lazy stack of fixed-height rows rather than a `List`, which rediffs every row on each status read
 /// (~300 ms a refresh at 1500 files on the Mac). Lines are made once per read and fold, and each row reads only its own
@@ -15,66 +16,73 @@ struct ChangesScreen: View {
     let host: HostModel
     let mac: String
     let tree: String
+    /// The agent whose chat opened Changes, which takes quotes from its diffs.
+    let chat: String?
+    let open: ((Route) -> Void)?
     @AppStorage("git.changes.tree") private var asTree = false
+    /// The branch this worktree's Compare is against; nil is its base.
+    @AppStorage private var picked: String?
+    @State private var comparing = false
+    @State private var choosing = false
     @State private var folded: Set<String> = []
     @State private var selection = ChangeSelection()
     @State private var swiped = SwipeOpen()
     @State private var lines = ChangeLines()
     @State private var discarding: [String]?
 
+    init(host: HostModel, mac: String, tree: String, chat: String? = nil, open: ((Route) -> Void)? = nil) {
+        self.host = host
+        self.mac = mac
+        self.tree = tree
+        self.chat = chat
+        self.open = open
+        _picked = AppStorage("git.compare.\(tree)")
+    }
+
     var body: some View {
         let _ = BodyCount.hit("ChangesScreen")
         let store = host.git
         let changes = store.changes(tree)
-        let lines = lines.lines(changes, tree: asTree, folded: folded)
-        let actions = ChangeActions(
-            fold: { ChangeTree.toggleFold(&folded, $0) }, stage: { stage($0, staged: $1) }, discard: { discarding = $0 })
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                VStack(spacing: Space.l) {
-                    if let head = changes.head {
-                        HeadRow(store: store, changes: changes, head: head, mac: mac).card()
-                    } else if changes.loading {
-                        HStack { ProgressView(); Text("Reading changes…").foregroundStyle(Palette.text3.color) }.card()
-                    }
-                    if let error = changes.error {
-                        ErrorRow(message: error) { changes.error = nil }.card()
-                    }
-                    if changes.head != nil {
-                        CommitComposer(store: store, changes: changes).card()
-                    }
-                    if changes.head != nil, changes.files.isEmpty {
-                        Label("No changes", systemImage: "checkmark.circle").foregroundStyle(Palette.text3.color).card()
-                    }
+        let offline = host.link != .online
+        let against = host.hello?.has(Caps.compare) == true ? picked ?? changes.head?.base : nil
+        Group {
+            if changes.head == nil, !changes.loading, offline || changes.error != nil {
+                Placeholder(offline ? "Can't reach \(host.name)" : "Couldn't read the changes", systemImage: offline ? "wifi.slash" : "exclamationmark.triangle",
+                            detail: offline ? nil : changes.error) {
+                    changes.error = nil
+                    Task { await store.refresh(tree) }
                 }
-                .padding(.top, Space.l)
-                ForEach(lines) { line in
-                    ChangeLineView(
-                        line: line, mac: mac, tree: tree, nameOnly: asTree, folded: line.header.map { folded.contains($0.rawValue) } ?? false,
-                        selection: selection, swiped: swiped, actions: actions
-                    )
-                    .equatable()
-                }
-                if changes.nextCursor != nil {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, Space.l)
-                        .onAppear { Task { await store.loadMore(tree) } }
-                }
+            } else if comparing, let against {
+                CompareList(host: host, tree: tree, against: against) { if picked != nil { picked = nil } }
+            } else {
+                uncommitted(changes, writable: !offline)
             }
-            .padding(.bottom, Space.xl)
         }
         .screenBackground()
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                if offline, changes.head != nil {
+                    StaleStrip(mac: host.name, asOf: host.offlineSince.map { Int($0.timeIntervalSince1970 * 1000) })
+                }
+                if let against, changes.head != nil {
+                    ScopeBar(comparing: $comparing, against: against, picked: picked != nil, choose: { choosing = true }, reset: { picked = nil })
+                }
+            }
+        }
         #if os(iOS)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(selection.selecting ? "Done" : "Edit") {
-                        swiped.close()
-                        selection.selecting.toggle()
-                        if !selection.selecting { selection.ids = [] }
+                if !comparing {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(selection.selecting ? "Done" : "Edit") {
+                            swiped.close()
+                            selection.selecting.toggle()
+                            if !selection.selecting { selection.ids = [] }
+                        }
+                        .fontWeight(selection.selecting ? .semibold : .regular)
                     }
-                    .fontWeight(selection.selecting ? .semibold : .regular)
-                }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    SelectionBar(selection: selection, stage: { stage($0, staged: $1) }, discard: { discarding = $0 })
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        SelectionBar(selection: selection, stage: { stage($0, staged: $1) }, discard: { discarding = $0 }).disabled(offline)
+                    }
                 }
             }
         #endif
@@ -92,7 +100,12 @@ struct ChangesScreen: View {
             }
         }
         .navigationTitle("Changes")
-        .refreshable { await store.refresh(tree) }
+        .navigationDestination(for: CompareFileRoute.self) { r in
+            DiffScreen(host: host, tree: r.tree, path: r.path, at: .base(rev: r.against), files: .compare(against: r.against), chat: chat, open: open)
+        }
+        .sheet(isPresented: $choosing) {
+            ComparePicker(host: host, tree: tree, base: changes.head?.base, picked: $picked)
+        }
         .confirmationDialog(
             discardTitle, isPresented: Binding(get: { discarding != nil }, set: { if !$0 { discarding = nil } }), titleVisibility: .visible
         ) {
@@ -103,10 +116,55 @@ struct ChangesScreen: View {
                 Task { await store.discard(tree, paths: paths) }
             }
         } message: {
-            Text("This can't be undone.")
+            Text(GitText.discardFacts(discarding ?? [], files: changes.files))
         }
+        .onChange(of: picked) { if picked != nil { comparing = true } }
         .onAppear { store.show(tree) }
         .onDisappear { store.hide(tree) }
+    }
+
+    private func uncommitted(_ changes: TreeChanges, writable: Bool) -> some View {
+        let store = host.git
+        let lines = lines.lines(changes, tree: asTree, folded: folded)
+        let actions = ChangeActions(
+            fold: { ChangeTree.toggleFold(&folded, $0) }, stage: { stage($0, staged: $1) }, stageAll: { stageAll($0) }, discard: { discarding = $0 })
+        let busy = changes.busy != nil || changes.bulk != nil || !writable
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                VStack(spacing: Space.l) {
+                    if let head = changes.head {
+                        HeadRow(store: store, changes: changes, head: head, mac: mac).card().disabled(!writable)
+                    } else if changes.loading {
+                        HStack { ProgressView(); Text("Reading changes…").foregroundStyle(Palette.text3.color) }.card()
+                    }
+                    if let error = changes.error {
+                        ErrorRow(message: error) { changes.error = nil }.card()
+                    }
+                    if changes.head != nil {
+                        CommitComposer(store: store, changes: changes).card().disabled(!writable)
+                    }
+                    if changes.head != nil, changes.files.isEmpty {
+                        Label("No changes", systemImage: "checkmark.circle").foregroundStyle(Palette.text3.color).card()
+                    }
+                }
+                .padding(.top, Space.l)
+                ForEach(lines) { line in
+                    let section = line.header
+                    ChangeLineView(
+                        line: line, mac: mac, tree: tree, chat: chat, nameOnly: asTree, folded: section.map { folded.contains($0.rawValue) } ?? false,
+                        stageAll: section.map { GitText.stageAll($0, count: changes.count($0), bulk: changes.bulk) }, count: section.map(changes.count) ?? 0,
+                        writable: writable, busy: busy, selection: selection, swiped: swiped, actions: actions
+                    )
+                    .equatable()
+                }
+                if changes.nextCursor != nil {
+                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, Space.l)
+                        .onAppear { Task { await store.loadMore(tree) } }
+                }
+            }
+            .padding(.bottom, Space.xl)
+        }
+        .refreshable { await store.refresh(tree) }
     }
 
     private var discardTitle: String {
@@ -120,6 +178,11 @@ struct ChangesScreen: View {
         selection.ids = []
         Task { await host.git.stage(tree, paths: paths, staged: staged) }
     }
+
+    private func stageAll(_ section: ChangeSection) {
+        Haptics.tap()
+        Task { await host.git.stageAll(tree, section: section) }
+    }
 }
 
 /// What a row asks of the screen.
@@ -127,6 +190,7 @@ struct ChangesScreen: View {
 struct ChangeActions {
     let fold: (String) -> Void
     let stage: (_ paths: [String], _ staged: Bool) -> Void
+    let stageAll: (ChangeSection) -> Void
     let discard: ([String]) -> Void
 }
 
@@ -146,7 +210,7 @@ struct ChangeActions {
                 Spacer()
                 Button("Unstage \(staged.count)") { stage(staged, false) }.disabled(staged.isEmpty)
                 Spacer()
-                Button("Discard", role: .destructive) { discard(changed) }.disabled(changed.isEmpty)
+                Button("Discard \(changed.count)", role: .destructive) { discard(changed) }.disabled(changed.isEmpty)
             }
         }
     }
@@ -159,8 +223,17 @@ private struct ChangeLineView: View, Equatable {
     let line: ChangeLine
     let mac: String
     let tree: String
+    let chat: String?
     let nameOnly: Bool
     let folded: Bool
+    /// A header's Stage All or Unstage All, with its count.
+    let stageAll: String?
+    /// A header's file count over the whole tree.
+    let count: Int
+    /// Stage and Discard are offered; not while the Mac is offline.
+    let writable: Bool
+    /// A write is under way, so Stage All waits.
+    let busy: Bool
     let selection: ChangeSelection
     let swiped: SwipeOpen
     let actions: ChangeActions
@@ -174,15 +247,17 @@ private struct ChangeLineView: View, Equatable {
     #endif
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.line == b.line && a.nameOnly == b.nameOnly && a.folded == b.folded && a.mac == b.mac && a.tree == b.tree
+        a.line == b.line && a.nameOnly == b.nameOnly && a.folded == b.folded && a.mac == b.mac && a.tree == b.tree && a.chat == b.chat && a.stageAll == b.stageAll
+            && a.count == b.count && a.writable == b.writable && a.busy == b.busy
     }
 
     var body: some View {
         switch line.row {
-        case .header(let section, let paths):
+        case .header(let section, _):
             SectionHeader(
-                section: section, count: paths.count, folded: folded, fold: { actions.fold(section.rawValue) },
-                stageAll: { actions.stage(paths, section == .changes) })
+                section: section, count: count, folded: folded, stageAll: stageAll ?? "", busy: busy, fold: { actions.fold(section.rawValue) },
+                stage: { actions.stageAll(section) }
+            )
         case .folder(_, let key, let label, let depth, let open):
             Button {
                 actions.fold(key)
@@ -197,9 +272,11 @@ private struct ChangeLineView: View, Equatable {
                 .swipe(line.id, open: swiped, leading: stageAction(section, f), trailing: discardAction(section, f))
                 .contextMenu {
                     let staged = section == .staged
-                    Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { actions.stage([f.path], !staged) }
-                    if !staged {
-                        Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { actions.discard([f.path]) }
+                    if writable {
+                        Button(staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle") { actions.stage([f.path], !staged) }
+                        if !staged {
+                            Button("Discard Changes…", systemImage: "arrow.uturn.backward", role: .destructive) { actions.discard([f.path]) }
+                        }
                     }
                     Button("Copy Path", systemImage: "doc.on.doc") { Pasteboard.copy(f.path) }
                 }
@@ -230,7 +307,7 @@ private struct ChangeLineView: View, Equatable {
             .buttonStyle(.plain)
             .accessibilityAddTraits(picked ? .isSelected : [])
         } else {
-            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: section == .staged)) {
+            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: section == .staged, chat: chat)) {
                 HStack(spacing: Space.s) {
                     row
                     #if os(iOS)
@@ -246,7 +323,7 @@ private struct ChangeLineView: View, Equatable {
     }
 
     private func stageAction(_ section: ChangeSection, _ f: GitFile) -> SwipeAction? {
-        guard !selection.selecting else { return nil }
+        guard !selection.selecting, writable else { return nil }
         let staged = section == .staged
         return SwipeAction(
             title: staged ? "Unstage" : "Stage", systemImage: staged ? "minus.circle" : "plus.circle",
@@ -255,7 +332,7 @@ private struct ChangeLineView: View, Equatable {
     }
 
     private func discardAction(_ section: ChangeSection, _ f: GitFile) -> SwipeAction? {
-        guard !selection.selecting, section == .changes else { return nil }
+        guard !selection.selecting, writable, section == .changes else { return nil }
         return SwipeAction(title: "Discard", systemImage: "arrow.uturn.backward", tint: Palette.failed.color) { actions.discard([f.path]) }
     }
 }
@@ -296,24 +373,33 @@ extension View {
     }
 }
 
-/// The branch, its distance from the base and upstream, and Push and Pull.
+/// The branch against its base, Push and Pull against the upstream, and the commits since the base.
 @MainActor
 private struct HeadRow: View {
     let store: GitStore
     let changes: TreeChanges
     let head: GitHead
     let mac: String
+    @State private var forcing = false
 
     var body: some View {
+        let force = GitText.forcePush(head)
         VStack(alignment: .leading, spacing: Space.m) {
             BranchIndicator(head: head)
             HStack(spacing: Space.s) {
                 if let push = GitText.push(head) {
-                    Button(push, systemImage: "arrow.up") { run { await store.push(changes.tree) } }
-                        .buttonStyle(.bordered)
+                    Button(push, systemImage: "arrow.up") {
+                        if force != nil { forcing = true } else { run { await store.push(changes.tree) } }
+                    }
+                    .buttonStyle(.bordered)
+                    .confirmationDialog(force?.title ?? "", isPresented: $forcing, titleVisibility: .visible) {
+                        Button("Force Push", role: .destructive) { run { await store.push(changes.tree, lease: true) } }
+                    } message: {
+                        Text(force?.message ?? "")
+                    }
                 }
-                if head.upstream != nil {
-                    Button("Pull", systemImage: "arrow.down") { run { await store.pull(changes.tree) } }
+                if let pull = GitText.pull(head) {
+                    Button(pull, systemImage: "arrow.down") { run { await store.pull(changes.tree) } }
                         .buttonStyle(.bordered)
                 }
                 Spacer()
@@ -322,16 +408,19 @@ private struct HeadRow: View {
                     .foregroundStyle(Palette.text3.color)
             }
             .disabled(changes.busy != nil)
-            .controlSize(.small)
-            if !head.commits.isEmpty {
-                DisclosureGroup("\(head.commits.count) commit\(head.commits.count == 1 ? "" : "s") since \(head.base ?? "base")") {
+            if head.base != nil, head.ahead > 0 {
+                DisclosureGroup(GitText.sinceBase(head)) {
                     ForEach(head.commits, id: \.sha) { c in
                         NavigationLink(value: Route.commit(mac: mac, tree: changes.tree, sha: c.sha)) {
                             HStack {
                                 Text(GitText.short(c.sha)).font(Typography.codeSmall).foregroundStyle(Palette.text3.color)
                                 Text(c.subject).lineLimit(1)
                             }
+                            .frame(minHeight: HitTarget.minimum)
                         }
+                    }
+                    NavigationLink(value: Route.history(mac: mac, tree: changes.tree)) {
+                        Text("Show all in History").foregroundStyle(Palette.link.color).frame(minHeight: HitTarget.minimum)
                     }
                 }
                 .font(Typography.subheadline)
@@ -348,14 +437,16 @@ private struct HeadRow: View {
     }
 }
 
-/// A section's title with its count, a fold chevron and Stage All or Unstage All.
+/// A section's title with its count over the whole tree, a fold chevron and Stage All or Unstage All.
 @MainActor
 private struct SectionHeader: View {
     let section: ChangeSection
     let count: Int
     let folded: Bool
+    let stageAll: String
+    let busy: Bool
     let fold: () -> Void
-    let stageAll: () -> Void
+    let stage: () -> Void
 
     var body: some View {
         HStack {
@@ -363,21 +454,25 @@ private struct SectionHeader: View {
                 HStack(spacing: Space.xs) {
                     Image(systemName: "chevron.right").rotationEffect(.degrees(folded ? 0 : 90)).font(.caption2.weight(.bold))
                     Text(section.title)
-                    Text("\(count)").monospacedDigit().foregroundStyle(Palette.text3.color)
+                    Text(count.formatted()).monospacedDigit().foregroundStyle(Palette.text3.color)
                 }
+                .frame(minHeight: HitTarget.minimum)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityValue(folded ? "Folded" : "Open")
             Spacer()
-            Button(section == .staged ? "Unstage All" : "Stage All", action: stageAll)
-                .font(Typography.caption)
-                .buttonStyle(.borderless)
+            Button(action: stage) {
+                Text(stageAll).monospacedDigit().hitTarget()
+            }
+            .font(Typography.footnote)
+            .buttonStyle(.borderless)
+            .disabled(busy)
         }
         .font(Typography.footnote)
         .foregroundStyle(Palette.text2.color)
         .padding(.horizontal, Space.l * 2)
-        .padding(.top, Space.xl)
-        .padding(.bottom, Space.s)
+        .padding(.top, Space.m)
     }
 }
 
@@ -391,7 +486,9 @@ struct ErrorRow: View {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.failed.color)
             Text(message).font(Typography.subheadline).foregroundStyle(Palette.failedText.color).textSelection(.enabled)
             Spacer()
-            Button("Dismiss", systemImage: "xmark", action: dismiss).labelStyle(.iconOnly).buttonStyle(.borderless)
+            Button(action: dismiss) { Image(systemName: "xmark").hitTarget() }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Dismiss")
         }
     }
 }

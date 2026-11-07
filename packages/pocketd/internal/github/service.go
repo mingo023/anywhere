@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"pocketd/internal/gitview"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/worktree"
@@ -25,10 +26,6 @@ const (
 )
 
 var errBusy = errors.New("GitHub CLI is busy with other requests; try again in a moment")
-
-// pushArgv is the desktop's PUSH (crates/git/src/git.rs): a branch never
-// pushed gets its upstream on the way.
-var pushArgv = []string{"git", "-c", "push.autoSetupRemote=true", "push"}
 
 // Error is a failed verb with protocol.md's code: gh_failed, gh_missing,
 // gh_signed_out, or git_failed for the push before a create.
@@ -148,7 +145,7 @@ func (s *Service) poll(ctx context.Context) {
 			changed := s.cache.apply(tree, started, pr, problem, s.now())
 			s.mu.Unlock()
 			if changed {
-				s.changed(tree, problem != "")
+				s.changed(tree, problem.EveryTree())
 			}
 			continue
 		}
@@ -267,7 +264,8 @@ func (s *Service) Status(ctx context.Context, tree string) Status {
 }
 
 // PR is tree's PR: the cached one while it is fresh for a watched tree, else
-// gh is asked now. A missing or signed-out gh is its problem.
+// gh is asked now. With Failed, a PR is the last one gh reported, now stale,
+// and gh is asked again at once, as a phone's Retry expects.
 func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 	now := s.now()
 	s.mu.Lock()
@@ -278,29 +276,27 @@ func (s *Service) PR(ctx context.Context, tree string) (*proto.PR, Problem) {
 	}
 	s.mu.Unlock()
 	switch {
-	case had && now.Sub(a.at) < WatchedEvery:
-		return wire(a.pr), ""
+	case had && a.problem != Failed && now.Sub(a.at) < WatchedEvery:
+		return wire(a.pr), a.problem
 	case problem != "" && !had:
 		return nil, problem
 	}
 	pr, problem, err := s.ask(ctx, true, tree)
 	if err != nil {
 		// Busy: what is cached, however old, rather than another gh at once.
-		return wire(a.pr), ""
+		return wire(a.pr), a.problem
 	}
 	if ctx.Err() != nil {
 		return nil, ""
 	}
 	s.mu.Lock()
 	changed := s.cache.record(tree, pr, problem, s.now())
-	if problem != "" {
-		if old, ok := s.cache.get(tree); ok {
-			pr, problem = old, ""
-		}
+	if a, ok := s.cache.byTree[tree]; ok {
+		pr, problem = a.pr, a.problem
 	}
 	s.mu.Unlock()
 	if changed {
-		s.changed(tree, problem != "")
+		s.changed(tree, problem.EveryTree())
 	}
 	return wire(pr), problem
 }
@@ -312,8 +308,9 @@ func wire(pr *PR) *proto.PR {
 	return pr.Wire()
 }
 
-// PRs are the cached PRs of project's Worktrees, in the order they are listed.
-func (s *Service) PRs(project string) []proto.PRItem {
+// PRs are the cached PRs of project's Worktrees, in the order they are
+// listed, and a missing or signed-out gh that keeps them from being asked.
+func (s *Service) PRs(project string) ([]proto.PRItem, Problem) {
 	ws, _ := worktree.List(project)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -323,7 +320,7 @@ func (s *Service) PRs(project string) []proto.PRItem {
 			items = append(items, pr.Item(w.Path))
 		}
 	}
-	return items
+	return items, s.cache.problem
 }
 
 // act runs a gh verb in tree; its failure is coded for the phone.
@@ -370,7 +367,7 @@ func (s *Service) after(tree string, edit func(*PR)) {
 // Create pushes tree's branch, then opens a PR for it into base, or the
 // repo's default branch without one.
 func (s *Service) Create(ctx context.Context, tree, title, body, base string, draft bool) (int, string, error) {
-	if _, err := s.env.run(ctx, tree, pushArgv, "", pushTimeout); err != nil {
+	if _, err := s.env.run(ctx, tree, s.pushArgv(ctx, tree), "", pushTimeout); err != nil {
 		msg, detail := failure(err)
 		if f, ok := errors.AsType[*Failure](err); ok {
 			detail = strings.TrimSpace(f.Stderr)
@@ -391,6 +388,16 @@ func (s *Service) Create(ctx context.Context, tree, title, body, base string, dr
 	s.changed(tree, false)
 	s.poke()
 	return number, url, nil
+}
+
+// pushArgv is git.push's: to desktop.json's git.remote when tree has a remote
+// by that name, else where git picks.
+func (s *Service) pushArgv(ctx context.Context, tree string) []string {
+	remote := s.reg.Load().Git.PushRemote()
+	if out, err := s.env.run(ctx, tree, []string{"git", "remote"}, "", actTimeout); err != nil || !slices.Contains(strings.Split(out, "\n"), remote) {
+		remote = ""
+	}
+	return append([]string{"git"}, gitview.PushArgs(remote, false)...)
 }
 
 // Merge merges PR number by method, never deleting its branch.

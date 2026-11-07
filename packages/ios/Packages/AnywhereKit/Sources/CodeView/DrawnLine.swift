@@ -29,8 +29,24 @@ public struct LineRuns: Equatable, Sendable {
         length += n
     }
 
-    /// A line of code with its syntax colours and changed-word tints; ranges outside the line are dropped.
-    mutating func code(_ text: String, spans: [HighlightSpan], words: [Range<Int>] = [], word: UInt32? = nil, dark: Bool) {
+    /// A line of code with its syntax colours and changed-word tints; ranges outside the line are dropped. With `part`,
+    /// only that UTF-16 range of the line, its colours and tints clipped to it.
+    mutating func code(
+        _ text: String, spans: [HighlightSpan], words: [Range<Int>] = [], word: UInt32? = nil, dark: Bool, part: Range<Int>? = nil
+    ) {
+        if let part {
+            func clip(_ r: Range<Int>) -> Range<Int>? {
+                let lo = max(r.lowerBound, part.lowerBound)
+                let hi = min(r.upperBound, part.upperBound)
+                return lo < hi ? (lo - part.lowerBound)..<(hi - part.lowerBound) : nil
+            }
+            let u = text.utf16
+            let lo = u.index(u.startIndex, offsetBy: part.lowerBound)
+            return code(
+                String(text[lo..<u.index(lo, offsetBy: part.count)]),
+                spans: spans.overlapping(part, \.range).compactMap { s in clip(s.range).map { HighlightSpan(range: $0, kind: s.kind) } },
+                words: words.overlapping(part, \.self).compactMap(clip), word: word, dark: dark)
+        }
         let n = text.utf16.count
         let at = length
         func inside(_ r: Range<Int>) -> Range<Int>? {
@@ -46,6 +62,22 @@ public struct LineRuns: Equatable, Sendable {
         }
         string += text
         length += n
+    }
+}
+
+extension Array {
+    /// The elements whose ranges overlap `part`, found by bisection: one row of a long wrapped line mustn't walk every
+    /// span of the line. The ranges must be in order and not overlap one another.
+    func overlapping(_ part: Range<Int>, _ range: (Element) -> Range<Int>) -> ArraySlice<Element> {
+        var lo = 0
+        var hi = count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if range(self[mid]).upperBound <= part.lowerBound { lo = mid + 1 } else { hi = mid }
+        }
+        var end = lo
+        while end < count, range(self[end]).lowerBound < part.upperBound { end += 1 }
+        return self[lo..<end]
     }
 }
 
@@ -76,9 +108,15 @@ public final class DrawnText: @unchecked Sendable {
         }
     }
 
-    /// Draws the line centred in `height`, in a context whose y runs down, as a `Canvas`'s does.
-    func draw(in cg: CGContext, height: CGFloat) {
+    /// Draws the line centred in `height`, in a context whose y runs down, as a `Canvas`'s does, with `marks` behind
+    /// their UTF-16 ranges.
+    func draw(in cg: CGContext, height: CGFloat, marks: [Cell.Mark] = []) {
         let top = (height - ascent - descent) / 2
+        for m in marks {
+            let from = CTLineGetOffsetForStringIndex(line, m.range.lowerBound, nil)
+            cg.setFillColor(m.color)
+            cg.fill(CGRect(x: from, y: 0, width: CTLineGetOffsetForStringIndex(line, m.range.upperBound, nil) - from, height: height))
+        }
         for t in tints {
             cg.setFillColor(t.color)
             cg.fill(CGRect(x: t.from, y: top, width: t.to - t.from, height: ascent + descent))
@@ -98,6 +136,15 @@ public final class DrawnText: @unchecked Sendable {
         #else
             NSFont.monospacedSystemFont(ofSize: size, weight: .regular) as CTFont
         #endif
+    }
+
+    /// How far one character of the monospaced font advances at `size`.
+    static func advance(_ size: CGFloat) -> CGFloat {
+        var glyph = CGGlyph()
+        var zero: UniChar = 0x30
+        let font = font(size)
+        CTFontGetGlyphsForCharacters(font, &zero, &glyph, 1)
+        return CTFontGetAdvancesForGlyphs(font, .horizontal, &glyph, nil, 1)
     }
 
     static func cgColor(_ rgba: UInt32) -> CGColor {
@@ -131,6 +178,13 @@ struct Cell {
     var fill: CGColor?
     var text: DrawnText?
     var inset: CGFloat = 0
+    var marks: [Mark] = []
+
+    /// A fill behind a UTF-16 range of the text, such as a find match.
+    struct Mark {
+        let range: Range<Int>
+        let color: CGColor
+    }
 }
 
 /// A block of fixed-height rows drawn in one `Canvas`: a screen of code costs a draw or two rather than a view, a text
@@ -179,7 +233,7 @@ struct DrawnRows: View {
                         cg.saveGState()
                         cg.clip(to: rect)
                         cg.translateBy(x: c.x + c.inset, y: y)
-                        text.draw(in: cg, height: rowHeight)
+                        text.draw(in: cg, height: rowHeight, marks: c.marks)
                         cg.restoreGState()
                     }
                 }

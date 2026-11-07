@@ -31,7 +31,8 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		{"phone new worktree", phone, newTree(proto.NewWorktree{Name: "n"}), "ask", ""},
 		{"phone edits above ask", phone, spec("claude", "edits", false), "ask", "On your Mac: ⌘K → Phone access level"},
 		{"phone auto above edits", phone, spec("claude", "auto", false), "edits", "On your Mac: ⌘K → Phone access level"},
-		{"phone full", phone, spec("claude", "full", false), "auto", "Full access starts only from your Mac"},
+		{"phone full above auto", phone, spec("claude", "full", false), "auto", "Full access starts only from your Mac"},
+		{"phone full under full", phone, spec("claude", "full", false), "full", "Full access starts only from your Mac"},
 		{"phone settings", phone, spec("codex", "settings", false), "auto", "Only your Mac starts agents with their own settings"},
 		{"phone base", phone, newTree(proto.NewWorktree{Name: "n", Base: "dev"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
 		{"phone branch", phone, newTree(proto.NewWorktree{Branch: "fix/login"}), "ask", "Only your Mac picks the base, branch, PR, copy or setup"},
@@ -46,5 +47,15 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		case c.want != "" && (f == nil || f.Code != "access_not_allowed" || f.Message != c.want):
 			t.Errorf("%s: got %+v, want %q", c.name, f, c.want)
 		}
+	}
+}
+
+func TestThePhoneSwitchesARunningAgentToFullOnlyUnderAFullCeiling(t *testing.T) {
+	phone := Who{Key: "device:d1"}
+	if f := CheckAccess(phone, "full", "full"); f != nil {
+		t.Errorf("under full: refused %+v", f)
+	}
+	if f := CheckAccess(phone, "full", "auto"); f == nil || f.Message != "On your Mac: ⌘K → Phone access level" {
+		t.Errorf("under auto: got %+v", f)
 	}
 }

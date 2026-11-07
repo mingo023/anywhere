@@ -104,7 +104,7 @@ public struct TerminalScreenView: View {
                 Screen(session: session) { bytes in send(session.sticky.typed(bytes)) }
                     .frame(width: session.surface.width, height: session.surface.height, alignment: .topLeading)
                     .scaleEffect(pinch, anchor: .topLeading)
-                    .padding(Space.xs)
+                    .padding(Fit.inset)
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.topLeading)
@@ -127,13 +127,17 @@ public struct TerminalScreenView: View {
     @ToolbarContentBuilder
     private var menu: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            Toggle(isOn: Binding(get: { fit }, set: { on in
+                fit = on
+                if on, let session { fitNow(session) }
+            })) {
+                Label("Fit to Phone", systemImage: "arrow.down.right.and.arrow.up.left")
+            }
+            .toggleStyle(.button)
+            .disabled(store.writesOff)
+        }
+        ToolbarItem(placement: .primaryAction) {
             Menu {
-                Toggle(isOn: Binding(get: { fit }, set: { on in
-                    fit = on
-                    if on, let session { fitNow(session) }
-                })) {
-                    Label("Fit to Phone", systemImage: "arrow.down.right.and.arrow.up.left")
-                }
                 Button("Paste", systemImage: "doc.on.clipboard", action: paste).disabled(!writable)
                 if let session {
                     Button("Larger Text", systemImage: "textformat.size.larger") { zoom(to: session.fontSize + 1, session) }
@@ -178,7 +182,7 @@ public struct TerminalScreenView: View {
 
     private func fitNow(_ session: TerminalSession) {
         guard area.width > 0, area.height > 0 else { return }
-        let grid = Fit.grid(CGSize(width: area.width - 2 * Space.xs, height: area.height - 2 * Space.xs), cell: session.cell)
+        let grid = Fit.screen(area, cell: session.cell)
         guard grid.cols != session.cols || grid.rows != session.rows else { return }
         store.resize(terminalId, cols: grid.cols, rows: grid.rows)
     }

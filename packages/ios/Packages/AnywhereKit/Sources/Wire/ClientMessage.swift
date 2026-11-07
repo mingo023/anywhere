@@ -10,11 +10,12 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case agentCompact(ClientMessage.AgentRef)
     case agentClose(ClientMessage.AgentRef)
     case agentCommands(ClientMessage.AgentRef)
+    case skillsList(ClientMessage.SkillsList)
     case agentMcp(ClientMessage.AgentMcp)
     case agentBtw(ClientMessage.AgentText)
     case agentSettings(ClientMessage.AgentSettings)
     case agentPin(ClientMessage.AgentPin)
-    case agentView(ClientMessage.AgentIds)
+    case agentView(ClientMessage.AgentView)
     case agentSeen(ClientMessage.AgentIds)
     case agentTimeline(ClientMessage.AgentTimeline)
     case permissionResolve(ClientMessage.PermissionResolve)
@@ -52,6 +53,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case gitCommitCreate(ClientMessage.GitCommitCreate)
     case gitPush(ClientMessage.GitPush)
     case gitPull(ClientMessage.TreeRef)
+    case gitCompare(ClientMessage.GitCompare)
     case ghStatus(ClientMessage.GhStatus)
     case ghPr(ClientMessage.TreeRef)
     case ghPrs(ClientMessage.GhPrs)
@@ -82,11 +84,12 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "agent.compact": self = .agentCompact(try ClientMessage.AgentRef(from: decoder))
         case "agent.close": self = .agentClose(try ClientMessage.AgentRef(from: decoder))
         case "agent.commands": self = .agentCommands(try ClientMessage.AgentRef(from: decoder))
+        case "skills.list": self = .skillsList(try ClientMessage.SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try ClientMessage.AgentMcp(from: decoder))
         case "agent.btw": self = .agentBtw(try ClientMessage.AgentText(from: decoder))
         case "agent.settings": self = .agentSettings(try ClientMessage.AgentSettings(from: decoder))
         case "agent.pin": self = .agentPin(try ClientMessage.AgentPin(from: decoder))
-        case "agent.view": self = .agentView(try ClientMessage.AgentIds(from: decoder))
+        case "agent.view": self = .agentView(try ClientMessage.AgentView(from: decoder))
         case "agent.seen": self = .agentSeen(try ClientMessage.AgentIds(from: decoder))
         case "agent.timeline": self = .agentTimeline(try ClientMessage.AgentTimeline(from: decoder))
         case "permission.resolve": self = .permissionResolve(try ClientMessage.PermissionResolve(from: decoder))
@@ -124,6 +127,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "git.commit.create": self = .gitCommitCreate(try ClientMessage.GitCommitCreate(from: decoder))
         case "git.push": self = .gitPush(try ClientMessage.GitPush(from: decoder))
         case "git.pull": self = .gitPull(try ClientMessage.TreeRef(from: decoder))
+        case "git.compare": self = .gitCompare(try ClientMessage.GitCompare(from: decoder))
         case "gh.status": self = .ghStatus(try ClientMessage.GhStatus(from: decoder))
         case "gh.pr": self = .ghPr(try ClientMessage.TreeRef(from: decoder))
         case "gh.prs": self = .ghPrs(try ClientMessage.GhPrs(from: decoder))
@@ -159,6 +163,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .agentCompact(let m): try m.encode(to: encoder)
         case .agentClose(let m): try m.encode(to: encoder)
         case .agentCommands(let m): try m.encode(to: encoder)
+        case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
         case .agentBtw(let m): try m.encode(to: encoder)
         case .agentSettings(let m): try m.encode(to: encoder)
@@ -201,6 +206,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .gitCommitCreate(let m): try m.encode(to: encoder)
         case .gitPush(let m): try m.encode(to: encoder)
         case .gitPull(let m): try m.encode(to: encoder)
+        case .gitCompare(let m): try m.encode(to: encoder)
         case .ghStatus(let m): try m.encode(to: encoder)
         case .ghPr(let m): try m.encode(to: encoder)
         case .ghPrs(let m): try m.encode(to: encoder)
@@ -233,6 +239,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .agentCompact: "agent.compact"
         case .agentClose: "agent.close"
         case .agentCommands: "agent.commands"
+        case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"
         case .agentBtw: "agent.btw"
         case .agentSettings: "agent.settings"
@@ -275,6 +282,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .gitCommitCreate: "git.commit.create"
         case .gitPush: "git.push"
         case .gitPull: "git.pull"
+        case .gitCompare: "git.compare"
         case .ghStatus: "gh.status"
         case .ghPr: "gh.pr"
         case .ghPrs: "gh.prs"

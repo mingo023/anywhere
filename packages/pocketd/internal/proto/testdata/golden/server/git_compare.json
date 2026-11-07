@@ -1,0 +1,25 @@
+{
+  "type": "git.compare",
+  "id": "gx",
+  "tree": "/Users/me/dev/pocket",
+  "against": "origin/main",
+  "totals": {
+    "files": 3,
+    "added": 11,
+    "removed": 4
+  },
+  "files": [
+    {
+      "path": "logo.png",
+      "status": "A"
+    },
+    {
+      "path": "src/new.rs",
+      "oldPath": "src/old.rs",
+      "status": "R",
+      "added": 10,
+      "removed": 3
+    }
+  ],
+  "nextCursor": 2
+}

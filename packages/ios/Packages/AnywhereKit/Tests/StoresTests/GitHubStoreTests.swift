@@ -40,14 +40,64 @@ struct GitHubStoreTests {
         #expect(s.pullRequest("/b").loaded && s.pullRequest("/b").pr == nil && s.pullRequest("/b").problem == nil)
     }
 
-    @Test("a reply shows at once and a failed one is taken back out")
+    @Test("a gh failure keeps the PR the phone holds, marked stale, instead of saying there is none")
+    func blipKeepsPr() {
+        let s = store()
+        s.show(Sample.tree, GhPr(tree: Sample.tree, problem: .failed))
+        let t = s.pullRequest(Sample.tree)
+        #expect(t.pr?.number == 118 && t.stale && t.problem == nil)
+        s.show(Sample.tree, GhPr(tree: Sample.tree, pr: Sample.pullRequest))
+        #expect(!t.stale)
+    }
+
+    @Test("a stale answer marks the PR stale, and a failure before any PR is the tree's problem")
+    func staleAndFailed() {
+        let s = GitHubStore()
+        s.show("/a", GhPr(tree: "/a", pr: Sample.pullRequest, stale: true))
+        s.show("/b", GhPr(tree: "/b", problem: .failed))
+        s.show("/c", GhPr(tree: "/c", problem: .noRemote))
+        #expect(s.pullRequest("/a").stale && s.pullRequest("/a").at != nil)
+        #expect(s.pullRequest("/b").problem == .failed && s.pullRequest("/b").pr == nil)
+        #expect(s.pullRequest("/c").problem == .noRemote)
+    }
+
+    @Test("only a missing or signed-out gh is gh's own problem, which Check again asks about first")
+    func unready() {
+        #expect(GitHubStore.ghUnready(.missing) && GitHubStore.ghUnready(.signedOut))
+        #expect(!GitHubStore.ghUnready(.noRemote) && !GitHubStore.ghUnready(.failed) && !GitHubStore.ghUnready(nil))
+    }
+
+    @Test("a project's list keeps why gh isn't keeping it fresh")
+    func listProblem() {
+        let s = GitHubStore()
+        s.showList("/p", GhPrs(items: Sample.pullRequests, problem: .signedOut))
+        #expect(s.lists["/p"]?.count == Sample.pullRequests.count && s.listProblems["/p"] == .signedOut)
+        s.showList("/p", GhPrs(items: []))
+        #expect(s.listProblems["/p"] == nil)
+    }
+
+    @Test("a reply shows at once, and a failed one leaves the thread but stays as not posted")
     func reply() async {
         let s = store()
         let before = s.pullRequest(Sample.tree).pr?.threads[0].comments.count
+        s.pullRequest(Sample.tree).drafts["PRRT_a"] = "Capped at 5."
         await s.reply(Sample.tree, thread: "PRRT_a", body: "  Capped at 5.  ", at: 1)
         let t = s.pullRequest(Sample.tree)
         #expect(t.pr?.threads[0].comments.count == before)
-        #expect(t.error == "Couldn't post the reply: Not connected to the Mac")
+        #expect(t.unposted["PRRT_a"] == "Capped at 5." && t.drafts["PRRT_a"] == nil)
+        #expect(t.error == nil)
+    }
+
+    @Test("a reply that didn't post goes back to its draft to edit, or is dropped")
+    func unpost() async {
+        let s = store()
+        await s.reply(Sample.tree, thread: "PRRT_a", body: "one", at: 1)
+        await s.reply(Sample.tree, thread: "PRRT_b", body: "two", at: 1)
+        s.unpost(Sample.tree, thread: "PRRT_a", edit: true)
+        s.unpost(Sample.tree, thread: "PRRT_b", edit: false)
+        let t = s.pullRequest(Sample.tree)
+        #expect(t.unposted.isEmpty)
+        #expect(t.drafts == ["PRRT_a": "one"])
     }
 
     @Test("a resolve shows at once with Undo, and a failed one flips back")
@@ -85,7 +135,7 @@ struct GitHubStoreTests {
         await s.merge(Sample.tree, method: .squash)
         let t = s.pullRequest(Sample.tree)
         #expect(t.pr?.state == "OPEN" && t.busy == nil)
-        #expect(t.error == "Not connected to the Mac")
+        #expect(t.error == "Not connected to your Mac")
     }
 
     @Test("acting on a PR edits it as gh will report it next")
@@ -105,8 +155,37 @@ struct GitHubStoreTests {
     func describesDetail() {
         let push = ServerError(message: "To github.com:acme/app.git", code: "git_failed",
                                detail: "To github.com:acme/app.git\n ! [rejected]        fix -> fix (non-fast-forward)")
-        #expect(GitHubStore.describe(DaemonError.server(push)) == push.detail)
-        #expect(GitHubStore.describe(DaemonError.server(ServerError(message: "Unknown project"))) == "Unknown project")
+        #expect(GitHubStore.describe(DaemonError.server(push), mac: "Studio") == push.detail)
+        #expect(GitHubStore.describe(DaemonError.server(ServerError(message: "Unknown project")), mac: "Studio") == "Unknown project")
+        #expect(GitHubStore.describe(DaemonError.offline, mac: "Studio") == "Not connected to Studio")
+    }
+
+    @Test("what was sent to the agent is fixing until the PR shows it done or its head moves")
+    func sentFixes() {
+        let s = store()
+        s.markSent(Sample.tree, threads: ["PRRT_a"], checks: ["test (macos-14)"])
+        s.markSent(Sample.tree, conflict: true)
+        let t = s.pullRequest(Sample.tree)
+        #expect(t.fixing?.threads == ["PRRT_a"] && t.fixing?.checks == ["test (macos-14)"] && t.fixing?.items == 2)
+        // The PR merges cleanly, so the conflict is done once sent.
+        #expect(t.fixing?.conflict == false)
+        s.show(Sample.tree, GhPr(tree: Sample.tree, pr: Sample.pullRequest { $0.threads[0].resolved = true }))
+        #expect(t.fixing?.threads.isEmpty == true && t.fixing?.items == 1)
+        s.show(Sample.tree, GhPr(tree: Sample.tree, pr: Sample.pullRequest { $0.head = "bbb" }))
+        #expect(t.fixing == nil)
+        s.markSent(Sample.tree, threads: ["PRRT_b"])
+        #expect(t.fixing?.threads == ["PRRT_b"] && t.fixing?.checks.isEmpty == true)
+    }
+
+    @Test("a sent check is fixed once every run of it passed or skipped, and a sent conflict once the PR merges cleanly")
+    func sentLeft() {
+        var sent = SentFixes(head: Sample.pullRequest.head)
+        sent.checks = ["test (macos-14)", "build", "gone"]
+        sent.conflict = true
+        let left = sent.left(in: Sample.conflictingPullRequest)
+        #expect(left?.checks == ["test (macos-14)", "gone"])
+        #expect(left?.conflict == true)
+        #expect(SentFixes(head: "x").left(in: Sample.pullRequest) == nil)
     }
 
     @Test("merge methods read as the desktop's menu")

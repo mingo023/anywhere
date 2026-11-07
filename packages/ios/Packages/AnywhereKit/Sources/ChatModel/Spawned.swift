@@ -29,3 +29,24 @@ private func push(_ map: inout [Spawned], _ call: Call, _ agent: SubAgent, _ par
         }
     }
 }
+
+/// The sub-agent the call `id` spawned, wherever in `t` it sits, and the sub-agent that spawned it: nil for the main agent.
+public func subAgent(_ t: Transcript, _ id: String) -> (call: Call, agent: SubAgent, by: SubAgent?)? {
+    find(t, id, by: nil)
+}
+
+private func find(_ t: Transcript, _ id: String, by: SubAgent?) -> (call: Call, agent: SubAgent, by: SubAgent?)? {
+    for call in t.turns.lazy.flatMap(\.blocks).compactMap(\.call) {
+        guard let agent = call.agent else { continue }
+        if call.id == id { return (call, agent, by) }
+        if let found = find(agent.transcript, id, by: agent) { return found }
+    }
+    return nil
+}
+
+/// The main agent's call the sub-agent `id` was spawned under, however deep: where the chat shows it.
+public func spawnedUnder(_ t: Transcript, _ id: String) -> String? {
+    t.turns.lazy.flatMap(\.blocks).compactMap(\.call).first { call in
+        call.id == id || call.agent.map { subAgent($0.transcript, id) != nil } == true
+    }?.id
+}

@@ -90,13 +90,19 @@ struct SidebarSessionsTests {
         #expect(got == [0, 1, 1, 2, 3, 4])
     }
 
-    @Test("rolls up the most urgent status, counting Failed as Done")
+    @Test("rolls up the most urgent status and counts only the sessions that have it")
     func rollUp() {
-        #expect(Sidebar.rollUp([.working, .done, .failed, .idle]).map { [$0.status: $0.count] } == [.failed: 2])
+        #expect(Sidebar.rollUp([.working, .done, .failed, .done, .idle]).map { [$0.status: $0.count] } == [.failed: 1])
         #expect(Sidebar.rollUp([.working, .needsYou, .done, .needsYou]).map { [$0.status: $0.count] } == [.needsYou: 2])
         #expect(Sidebar.rollUp([.idle, .working]).map { [$0.status: $0.count] } == [.working: 1])
         #expect(Sidebar.rollUp([.idle]) == nil)
         #expect(Sidebar.rollUp([]) == nil)
+    }
+
+    @Test("a breakdown counts each status but Idle, most urgent first")
+    func breakdown() {
+        #expect(Sidebar.breakdown([.done, .working, .failed, .done, .idle]).map { "\($0.count) \($0.status)" } == ["1 failed", "2 done", "1 working"])
+        #expect(Sidebar.breakdown([.idle]).isEmpty)
     }
 
     @Test("search keeps the sessions whose title matches in any case, and a status change keeps their order")

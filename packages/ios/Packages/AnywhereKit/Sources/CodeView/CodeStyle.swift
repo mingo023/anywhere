@@ -7,7 +7,12 @@ import SwiftUI
 public enum CodeStyle {
     static let font = Typography.codeSmall
     /// The longest a line is drawn; the Mac cuts at 1024 characters already.
-    static let maxChars = 1024
+    public static let maxChars = 1024
+    /// Points a reader can add to or take from the Dynamic Type size of code.
+    public static let textSizes = -4...8
+
+    static let match = Palette.waitingBackground
+    static let currentMatch = Token.fixed(0xffb22480)
 
     /// A line number right-aligned in `digits` columns of the monospaced font, and the gap after it.
     nonisolated static func number(_ n: Int?, digits: Int, dark: Bool, into runs: inout LineRuns) {
@@ -15,42 +20,60 @@ public enum CodeStyle {
         runs.append(String(repeating: " ", count: max(digits - s.count, 0)) + s + " ", rgba: Palette.text4.rgba(dark: dark))
     }
 
-    /// A source line: its number, then its coloured code.
-    nonisolated static func codeRow(_ text: String, number: Int?, digits: Int, spans: [HighlightSpan], dark: Bool) -> LineRuns {
+    /// Where a source row's code starts in its string: after the gutter, when there is one.
+    nonisolated static func codeStart(digits: Int?) -> Int { digits.map { $0 + 2 } ?? 0 }
+
+    /// A source row: its number (blank on a wrapped line's later rows), then its coloured code, or only `part` of it,
+    /// and an ellipsis when the line goes on past what's drawn.
+    nonisolated static func codeRow(
+        _ text: String, number: Int?, digits: Int?, spans: [HighlightSpan], dark: Bool, part: Range<Int>? = nil, cut: Bool = false
+    ) -> LineRuns {
         var runs = LineRuns()
-        if let number {
+        if let digits {
             self.number(number, digits: digits, dark: dark, into: &runs)
             runs.append(" ")
         }
-        runs.code(text, spans: spans, dark: dark)
+        runs.code(text, spans: spans, dark: dark, part: part)
+        if cut { runs.append(" …", rgba: Palette.text4.rgba(dark: dark)) }
         return runs
     }
 
-    /// Which numbers a diff row's gutter shows: both in a unified diff, one side's in a side-by-side half.
+    /// Which numbers a diff row's gutter shows: both in a unified diff, one side's in a side-by-side half, or `one`
+    /// (the new line's, or the old one's for a deletion) when a narrow screen wraps.
     public enum Gutter: Hashable, Sendable {
-        case both, old, new
+        case both, old, new, one
+    }
+
+    /// Where a diff row's code starts in its string, after its numbers and sign.
+    nonisolated static func diffCodeStart(_ gutter: Gutter, digits: Int) -> Int {
+        (gutter == .both ? 2 : 1) * (digits + 1) + 2
     }
 
     /// A diff row: its numbers, its sign, its coloured code with changed words tinted, and an ellipsis when the Mac
-    /// cut the line.
-    public nonisolated static func diffRow(_ line: UnifiedLine, gutter: Gutter, digits: Int, spans: [HighlightSpan], dark: Bool) -> LineRuns {
+    /// cut the line. With `part`, that piece of a wrapped line; pieces after the first leave the gutter blank.
+    public nonisolated static func diffRow(
+        _ line: UnifiedLine, gutter: Gutter, digits: Int, spans: [HighlightSpan], dark: Bool, part: Range<Int>? = nil
+    ) -> LineRuns {
         var runs = LineRuns()
+        let first = (part?.lowerBound ?? 0) == 0
+        func num(_ n: Int?) { number(first ? n : nil, digits: digits, dark: dark, into: &runs) }
         switch gutter {
         case .both:
-            number(line.old, digits: digits, dark: dark, into: &runs)
-            number(line.new, digits: digits, dark: dark, into: &runs)
-        case .old: number(line.old, digits: digits, dark: dark, into: &runs)
-        case .new: number(line.new, digits: digits, dark: dark, into: &runs)
+            num(line.old)
+            num(line.new)
+        case .old: num(line.old)
+        case .new: num(line.new)
+        case .one: num(line.new ?? line.old)
         }
-        runs.append(sign(line.kind) + " ", rgba: signColor(line.kind).rgba(dark: dark))
+        runs.append((first ? sign(line.kind) : " ") + " ", rgba: signColor(line.kind).rgba(dark: dark))
         let word: Token? =
             switch line.kind {
             case .added: Palette.diffAddWord
             case .deleted: Palette.diffDelWord
             default: nil
             }
-        runs.code(line.text, spans: spans, words: line.words, word: word?.rgba(dark: dark), dark: dark)
-        if line.cut { runs.append(" …", rgba: Palette.text4.rgba(dark: dark)) }
+        runs.code(line.text, spans: spans, words: line.words, word: word?.rgba(dark: dark), dark: dark, part: part)
+        if line.cut, (part?.upperBound ?? .max) >= line.text.utf16.count { runs.append(" …", rgba: Palette.text4.rgba(dark: dark)) }
         return runs
     }
 

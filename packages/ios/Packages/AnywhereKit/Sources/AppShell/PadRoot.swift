@@ -17,7 +17,7 @@ struct PadRoot: View {
         var tab: Tab
         /// nil for Settings, which belongs to no Mac.
         var mac: String?
-        /// The worktree or Local the sessions list is narrowed to.
+        /// The project, worktree or Local the sessions list is narrowed to.
         var tree: Route?
     }
 
@@ -47,9 +47,15 @@ struct PadRoot: View {
             .navigationTitle("Anywhere")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
         } content: {
-            Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, pair: pair)
+            Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, upNext: true, pair: pair, open: navigator.push,
+                             leave: navigator.leave)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if navigator.tab != .settings, let host { ConnectionBanner(host: host) }
+                    VStack(spacing: 0) {
+                        if navigator.tab != .settings, let host { ConnectionBanner(host: host) }
+                        if navigator.tab == .sessions, let text = HeldLinkRow.text(navigator.held, app: app) {
+                            HeldLinkRow(text: text, dismiss: navigator.dropHeld)
+                        }
+                    }
                 }
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380)
         } detail: {

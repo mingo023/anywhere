@@ -122,7 +122,7 @@ func (c *conn) worktreeCreate(m proto.ClientMessage) error {
 	w := launchWho(c.who)
 	n := launch.NewWorktree{Project: m.Project, Name: m.Name, Base: m.Base, Branch: m.Branch, PR: m.Number, Setup: m.Setup}
 	go func() {
-		made, fl := c.s.Launch.Worktree(w, n, func(step, note string) {
+		made, fl := c.s.Launch.Worktree(w, m.RequestID, n, func(step, note string) {
 			c.send(proto.NewWorktreeProgress(m.ID, m.RequestID, step, note))
 		})
 		if fl != nil {

@@ -27,7 +27,7 @@ public enum NotificationsGallery {
     @MainActor static var rows: [NotificationsSection.Row] {
         [
             .init(id: "m1", name: "Mingo's MacBook Pro", state: .registered, test: {}),
-            .init(id: "m2", name: "Studio", state: .failed("The push relay refused this phone (RateLimited)."), test: {}),
+            .init(id: "m2", name: "Studio", state: .failed("The push relay couldn't be reached."), test: {}),
             .init(id: "m3", name: "Old iMac", state: .unsupported, test: {}),
         ]
     }

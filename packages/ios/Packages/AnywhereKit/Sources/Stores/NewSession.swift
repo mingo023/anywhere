@@ -123,15 +123,6 @@ public struct NewSessionDraft: Hashable, Sendable {
         return create
     }
 
-    /// After a launch that failed past making its Local or worktree: start in what it made, so trying again doesn't make another.
-    public mutating func resume(after creation: Creation) {
-        if let tree = creation.madeTree {
-            place = .tree(tree)
-        } else if let local = creation.madeLocal {
-            place = .local(local)
-        }
-    }
-
     /// Picking another agent drops the model, effort and account picked for the last one; access holds for any.
     /// Another project: the last one's base, branch or pull request and name don't carry over, as the desktop's
     /// `pick_repo`; nor does a workspace of it.
@@ -156,10 +147,10 @@ public struct NewSessionDraft: Hashable, Sendable {
     }
 
     /// The access a draft starts with: the Mac's own default when this phone may pick it, else Edits, or the most
-    /// allowed below it.
+    /// allowed below it. Never Full, which starts only from the Mac.
     public static func defaultAccess(max: String, mac: String? = nil) -> Access {
         let allowed = accesses(max: max)
-        if let mac, allowed.contains(Access(rawValue: mac)) { return Access(rawValue: mac) }
+        if let mac, Access(rawValue: mac) != .full, allowed.contains(Access(rawValue: mac)) { return Access(rawValue: mac) }
         return allowed.last { $0 != .auto && $0 != .full } ?? .ask
     }
 

@@ -1,4 +1,5 @@
 import DesignSystem
+import DiffModel
 import Foundation
 import Stores
 import Wire
@@ -21,10 +22,21 @@ enum GitText {
         }
     }
 
-    /// "↑2 ↓1" against the base, or nothing when level.
-    nonisolated static func aheadBehind(_ head: GitHead) -> String? {
-        let parts = [head.ahead > 0 ? "↑\(head.ahead)" : nil, head.behind > 0 ? "↓\(head.behind)" : nil].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    /// "calm-otter → main": the branch and the base it's measured against.
+    nonisolated static func branchLine(_ head: GitHead) -> String {
+        let branch = head.detached ? "Detached HEAD" : head.branch ?? "No branch"
+        return head.base.map { "\(branch) → \($0)" } ?? branch
+    }
+
+    /// "5 ahead · 12 behind main", against the base, not the upstream.
+    nonisolated static func distance(_ head: GitHead) -> String? {
+        guard let base = head.base else { return nil }
+        return "\(head.ahead) ahead · \(head.behind) behind \(base)"
+    }
+
+    /// "4 commits since main", counting every one, though the status lists at most 20.
+    nonisolated static func sinceBase(_ head: GitHead) -> String {
+        "\(head.ahead) commit\(head.ahead == 1 ? "" : "s") since \(head.base ?? "base")"
     }
 
     /// What Push says: how many commits it sends, or that it publishes the branch.
@@ -32,6 +44,41 @@ enum GitText {
         guard !head.detached, head.branch != nil else { return nil }
         guard let unpushed = head.unpushed else { return "Publish Branch" }
         return unpushed > 0 ? "Push \(unpushed)" : nil
+    }
+
+    /// The confirm before a Push that replaces commits on the remote, the one the upstream is on; nil when Push needs none.
+    nonisolated static func forcePush(_ head: GitHead) -> (title: String, message: String)? {
+        guard let n = head.forceReplaces, let branch = head.branch else { return nil }
+        let remote = head.upstream.flatMap { $0.split(separator: "/", maxSplits: 1).first }.map(String.init) ?? "the remote"
+        return ("Force push \(branch)?", "Replaces \(n) commit\(n == 1 ? "" : "s") on \(remote).")
+    }
+
+    /// "Pull 3" when the upstream has commits this branch lacks; a plain Pull from a pocketd that doesn't count them.
+    nonisolated static func pull(_ head: GitHead) -> String? {
+        guard head.upstream != nil else { return nil }
+        guard let unpulled = head.unpulled else { return "Pull" }
+        return unpulled > 0 ? "Pull \(unpulled)" : nil
+    }
+
+    /// "Stage All 1,200", or "Staging 1,200…" while that runs.
+    nonisolated static func stageAll(_ section: ChangeSection, count: Int, bulk: BulkStage?) -> String {
+        let staged = section == .staged
+        if let bulk, bulk.section == section { return "\(staged ? "Unstaging" : "Staging") \(bulk.count.formatted())…" }
+        return "\(staged ? "Unstage All" : "Stage All") \(count.formatted())"
+    }
+
+    /// The desktop's discard facts: edits are lost, and untracked files among `paths` are deleted.
+    nonisolated static func discardFacts(_ paths: [String], files: [GitFile]) -> String {
+        let picked = Set(paths)
+        let untracked = files.count { $0.status == .untracked && picked.contains($0.path) }
+        let deletes = untracked > 0 ? "\nDeletes \(untracked) untracked file\(untracked == 1 ? "" : "s")" : ""
+        return "Unstaged edits can't be restored" + deletes
+    }
+
+    /// "3 of 42" once a change is stepped to, else how many there are.
+    nonisolated static func position(_ current: Int?, of count: Int) -> String {
+        if let current, count > 0 { return "\(current + 1) of \(count)" }
+        return count == 1 ? "1 change" : "\(count) changes"
     }
 
     /// The file's name and the folder it sits in, apart.

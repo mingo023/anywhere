@@ -5,7 +5,8 @@ import SwiftUI
 import Wire
 
 /// The new session sheet, prompt first as on the desktop: what to build in a composer whose pills pick the agent, its
-/// model and access, over where it runs. Starting shows pocketd's steps, then opens the chat.
+/// model and access, over where it runs. Starting shows pocketd's steps, then opens the chat; hidden, the start goes on
+/// as a row under its project. Offline, the prompt can still be written, and Start waits for the Mac.
 @MainActor
 struct NewSessionView: View {
     let host: HostModel
@@ -13,15 +14,16 @@ struct NewSessionView: View {
     @State private var draft: NewSessionDraft
     @State private var requestId: String?
     @State private var worktreeOptions = false
+    @State private var providersError: String?
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
 
-    init(host: HostModel, mac: String, project: String?, place: NewSessionDraft.Place?) {
+    init(host: HostModel, mac: String, project: String?, place: NewSessionDraft.Place?, prompt: String = "") {
         self.host = host
         self.mac = mac
         var draft = NewSessionDraft(project: project ?? host.workspace.projects.first?.path ?? "", place: place ?? .newWorktree)
         draft.seed = Int.random(in: 0..<1_000_000)
+        draft.prompt = prompt
         _draft = State(initialValue: draft)
     }
 
@@ -44,30 +46,17 @@ struct NewSessionView: View {
     var body: some View {
         Group {
             if let requestId {
-                Form {
-                    CreationProgress(creation: workspace.creations[requestId]) {
-                        if let creation = workspace.creations[requestId] { draft.resume(after: creation) }
-                        workspace.forget(creation: requestId)
-                        self.requestId = nil
-                    }
-                }
-                .formStyle(.grouped)
+                LaunchProgress(host: host, mac: mac, requestId: requestId)
             } else {
-                compose
+                compose.toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                }
             }
         }
         .navigationTitle("New Session")
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    if let requestId { workspace.forget(creation: requestId) }
-                    dismiss()
-                }
-            }
-        }
         .sheet(isPresented: $worktreeOptions) {
             NavigationStack {
                 Form {
@@ -82,6 +71,9 @@ struct NewSessionView: View {
             .presentationDetents([.medium, .large])
         }
         .task { await load() }
+        .onChange(of: online) { _, online in
+            if online && providers == nil { Task { await load() } }
+        }
         .onAppear { focused = true }
         .onChange(of: draft.provider) { _, provider in Task { try? await workspace.loadAccounts(provider: provider.rawValue) } }
         .onChange(of: draft.project) { _, _ in Task { await loadBranches() } }
@@ -99,7 +91,15 @@ struct NewSessionView: View {
             Spacer()
             box
             where_
-            if let problem {
+            if let wait = Self.waiting(online: online, providers: providers != nil, failed: providersError != nil, mac: host.name) {
+                Text(wait).font(Typography.footnote).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, alignment: .leading)
+            } else if let providersError {
+                HStack {
+                    Text(providersError).font(Typography.footnote).foregroundStyle(Palette.failedText.color)
+                    Spacer(minLength: Space.s)
+                    Button { Task { await load() } } label: { Text("Try Again").hitTarget() }.font(Typography.footnote.weight(.semibold))
+                }
+            } else if let problem {
                 Text(problem).font(Typography.footnote).foregroundStyle(Palette.failedText.color).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -133,13 +133,14 @@ struct NewSessionView: View {
     }
 
     private var startButton: some View {
-        let blocked = requestId != nil || providers == nil || problem != nil
+        let blocked = requestId != nil || !online || providers == nil || problem != nil
         return Button(action: start) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle((blocked ? Palette.text4 : Palette.onText).color)
                 .frame(width: 34, height: 34)
                 .background((blocked ? Palette.fill3 : Palette.text).color, in: Circle())
+                .hitTarget()
         }
         .buttonStyle(.plain)
         .disabled(blocked)
@@ -256,12 +257,17 @@ struct NewSessionView: View {
     }
 
     private func load() async {
-        if let providers = try? await workspace.loadProviders() {
+        providersError = nil
+        do {
+            let providers = try await workspace.loadProviders()
             draft.access = NewSessionDraft.defaultAccess(max: providers.phoneMaxAccess, mac: providers.defaultAccess)
             if !providers.providers.contains(where: { $0.id == draft.provider.rawValue && $0.available }),
                let first = providers.providers.first(where: \.available) {
                 draft.pick(provider: ProviderId(rawValue: first.id))
             }
+        } catch {
+            // Offline says so on its own line, and loads again once the Mac is back.
+            if online && providers == nil { providersError = ErrorText.describe(error, mac: host.name) }
         }
         _ = try? await workspace.loadAccounts(provider: draft.provider.rawValue)
         await loadBranches()
@@ -275,22 +281,37 @@ struct NewSessionView: View {
     private func start() {
         let id = WorkspaceStore.newRequestId()
         let plan = draft.plan(taken: taken, localId: Sidebar.newLocalId(), localName: workspace.nextLocalName(project: draft.project))
+        workspace.add(plan, requestId: id, title: Self.title(draft.prompt), place: Self.key(plan.spec.checkout, makesWorktree: plan.worktree != nil))
         requestId = id
-        Task {
-            do {
-                let made = try await workspace.launch(plan, requestId: id)
-                Haptics.success()
-                workspace.forget(creation: id)
-                dismiss()
-                openURL(DeepLink.agent(mac: mac, agentId: made.agentId).url)
-            } catch {
-                Haptics.warning()
-            }
-        }
+        workspace.runKept(id)
     }
+
+    private var online: Bool { host.link == .online }
 
     static func main(of project: Project?) -> String? {
         project.map { $0.worktrees.first(where: \.isMain)?.path ?? $0.path }
+    }
+
+    /// Why Start waits, when it waits on the Mac rather than on the draft.
+    nonisolated static func waiting(online: Bool, providers: Bool, failed: Bool, mac: String) -> String? {
+        if !online { return "\(mac) isn't connected. Start turns on when it's back." }
+        if !providers && !failed { return "Loading agents from \(mac)…" }
+        return nil
+    }
+
+    /// A start's row title: the prompt's first line.
+    nonisolated static func title(_ prompt: String) -> String {
+        prompt.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+    }
+
+    /// The worktree or Local a plan starts in when it isn't a new worktree, as `.worktree` and `.local` routes key them.
+    /// `makesWorktree`: a `worktree.create` runs first, and the checkout is only a stand-in until it has.
+    nonisolated static func key(_ checkout: Checkout, makesWorktree: Bool) -> String? {
+        switch checkout {
+        case .worktree(let path): makesWorktree ? nil : path
+        case .local(let id): id
+        case .new: nil
+        }
     }
 }
 
@@ -310,7 +331,7 @@ private struct ComposerPill<Icon: View>: View {
         }
         .foregroundStyle(Palette.text2.color)
         .padding(.horizontal, 8)
-        .frame(height: 28)
+        .frame(minHeight: HitTarget.minimum)
         .contentShape(Rectangle())
     }
 }

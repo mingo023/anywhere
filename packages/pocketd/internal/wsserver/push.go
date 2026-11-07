@@ -23,8 +23,9 @@ type PushService interface {
 }
 
 // pushConn is a conn's state for this area. A phone's app is in front from
-// its hello until it sends agent.view([]), as it does on going to the
-// background, and again from its next non-empty view or hello.
+// its hello until an agent.view says otherwise: front:false from a front.v1
+// phone, or, without front, a view of nothing, as older phones send on going
+// to the background.
 type pushConn struct {
 	background atomic.Bool
 }
@@ -33,8 +34,14 @@ func (c *conn) helloPush() { c.push.background.Store(false) }
 
 func (c *conn) closePush() {}
 
-// viewed notes whether the phone still shows anything; see pushConn.
-func (c *conn) viewed(ids []string) { c.push.background.Store(len(ids) == 0) }
+// viewed notes whether the phone's app is in front; see pushConn.
+func (c *conn) viewed(m proto.ClientMessage) {
+	if m.Front != nil && slices.Contains(c.caps, proto.CapFront) {
+		c.push.background.Store(!*m.Front)
+		return
+	}
+	c.push.background.Store(len(m.AgentIDs) == 0)
+}
 
 // Foreground is whether device has a connection with the app in front.
 func (s *Server) Foreground(device string) bool {

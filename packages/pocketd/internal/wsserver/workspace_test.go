@@ -144,6 +144,37 @@ func TestAWorkspacePhoneGetsTheProjectListAfterHelloThenAPushForEachChange(t *te
 	}
 }
 
+func TestAWorktreeCreateSentAgainAfterTheLinkDropsGetsTheFirstWorktreeNotASecond(t *testing.T) {
+	var b bench
+	_, _, p := local(t, aPhone, withWorkspace(t, &b))
+	helloWith(p, proto.CapWorkspace)
+	create := func(id, name string) string {
+		return `{"type":"worktree.create","id":"` + id + `","requestId":"r1","project":"` + b.project + `","name":"` + name + `","setup":false}`
+	}
+	p.send(create("w1", "calm-otter"))
+	p.ws.CloseNow()
+	ws, _, err := p.dial(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := &phone{t: t, ws: ws, url: p.url}
+	helloWith(q, proto.CapWorkspace)
+	wt := filepath.Join(b.root, "pocket", "calm-otter")
+	for _, id := range []string{"w2", "w3"} {
+		q.send(create(id, "calm-otter"))
+		if m, _ := q.untilType("worktree.created"); m["id"] != id || m["path"] != wt || m["branch"] != "calm-otter" {
+			t.Fatalf("%v", m)
+		}
+	}
+	q.send(create("w4", "bold-fox"))
+	if m, _ := q.untilType("error"); m["id"] != "w4" || m["code"] != "duplicate" {
+		t.Fatalf("%v", m)
+	}
+	if n := strings.Count(gitOut(t, b.project, "worktree", "list", "--porcelain"), "worktree "); n != 2 {
+		t.Fatalf("%d worktrees", n)
+	}
+}
+
 func TestANewWorktreeRunsTheProjectsSetupInATerminalOfItsOwn(t *testing.T) {
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))

@@ -46,7 +46,9 @@ type Service struct {
 	locks  map[string]*sync.Mutex
 	bases  map[string]baseEntry
 	last   map[string]cached
-	watch  watchers
+	// compared is each tree and ref's last compare read, keyed tree NUL ref.
+	compared map[string]comparison
+	watch    watchers
 }
 
 func New(env func() []string) *Service { return &Service{Env: env} }

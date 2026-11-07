@@ -1,8 +1,10 @@
 import DesignSystem
+import DiffModel
 import SwiftUI
 import Wire
 
-/// Scenes for the gallery: source text, and an agent's edit as a chat shows it inline.
+/// Scenes for the gallery: source text, unwrapped and wrapped, a wrapped diff, and an agent's edit as a chat shows it
+/// inline.
 public enum CodeGallery {
     static let source = """
         /// Lays out the next commit, newest first.
@@ -27,12 +29,30 @@ public enum CodeGallery {
             DiffLine(number: 63, kind: .add, text: "        defer { next += 1 }"),
         ], additions: 3, deletions: 2)
 
+    static let diff = DiffDocument(
+        GitDiff(
+            tree: "/r", path: "src/graph.rs", language: "rust", added: 2, removed: 1,
+            lines: [
+                Wire.DiffRow(k: .hunk, t: "@@ -30,4 +30,5 @@ impl Lanes"),
+                Wire.DiffRow(k: .context, o: 30, n: 30, t: "    /// Lays out the next commit, newest first."),
+                Wire.DiffRow(k: .deleted, o: 31, t: "    pub fn push(&mut self, sha: &str, parents: &[String]) -> GraphRow {"),
+                Wire.DiffRow(k: .added, n: 31, t: "    pub fn push(&mut self, sha: &str, parents: &[String], label: impl Fn(&str) -> Option<LaneColor>) -> GraphRow {"),
+                Wire.DiffRow(k: .added, n: 32, t: "        let input = std::mem::take(&mut self.open);"),
+                Wire.DiffRow(k: .context, o: 32, n: 33, t: "        let column = input.iter().position(|l| l.sha == sha);"),
+            ]))
+
     @MainActor public static var scenes: [GalleryScene] {
         [false, true].flatMap { dark in
             let suffix = dark ? "-dark" : ""
             return [
                 GalleryScene("code-text\(suffix)", size: CGSize(width: 393, height: 240), dark: dark) {
                     AnyView(CodeTextView(text: source, language: "rust"))
+                },
+                GalleryScene("code-text-wrapped\(suffix)", size: CGSize(width: 393, height: 300), dark: dark) {
+                    AnyView(CodeTextView(text: source, language: "rust", wrap: true))
+                },
+                GalleryScene("code-diff-wrapped\(suffix)", size: CGSize(width: 393, height: 240), dark: dark) {
+                    AnyView(DiffView(diff, wrap: true))
                 },
                 GalleryScene("code-edit-inline\(suffix)", size: CGSize(width: 393, height: 240), dark: dark) {
                     AnyView(EditDiffView(path: "Sources/DiffModel/Lanes.swift", diff: edit).padding(16).frame(maxHeight: .infinity, alignment: .top)

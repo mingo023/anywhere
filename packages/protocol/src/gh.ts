@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 export const CAP_GITHUB = "gh.v1";
+export const CAP_GH_STATE = "ghstate.v1";
 
 const Tree = Schema.NonEmptyString;
 const Number_ = Schema.Int.pipe(Schema.positive());
@@ -91,8 +92,9 @@ export const GhServer = [
     type: Schema.Literal("gh.pr"),
     id: Schema.String,
     tree: Schema.String,
-    problem: Schema.optional(Schema.Literal("missing", "signedOut")),
+    problem: Schema.optional(Schema.Literal("missing", "signedOut", "noRemote", "failed")),
     pr: Schema.optional(PR),
+    stale: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("gh.prs"),
@@ -108,6 +110,7 @@ export const GhServer = [
         checks: Checks,
       }),
     ),
+    problem: Schema.optional(Schema.Literal("missing", "signedOut")),
   }),
   Schema.Struct({ type: Schema.Literal("gh.pr.created"), id: Schema.String, number: Schema.Int, url: Schema.String }),
 ] as const;

@@ -73,24 +73,16 @@ struct NewSessionTests {
         #expect(NewSessionDraft.defaultAccess(max: "full", mac: "settings") == .edits)
     }
 
+    @Test("a draft never starts on Full, even when the Mac's default is Full and the phone may pick it")
+    func neverStartsOnFull() {
+        #expect(NewSessionDraft.defaultAccess(max: "full", mac: "full") == .edits)
+    }
+
     @Test("picking another agent drops the model, effort and account picked for the last")
     func provider() {
         var d = draft(.tree("/w")) { $0.model = "opus"; $0.effort = "max"; $0.account = "a"; $0.access = .ask }
         d.pick(provider: .codex)
         #expect(d.provider == .codex && d.model == nil && d.effort == nil && d.account == nil && d.access == .ask)
-    }
-
-    @Test("trying again after a failed start begins in the worktree or Local it already made")
-    func resume() {
-        var d = draft(.newWorktree) { $0.source = .branch("fix/login") }
-        d.resume(after: Creation(kind: .session, madeTree: "/w/fix-login"))
-        #expect(d.place == .tree("/w/fix-login"))
-        var l = draft(.newLocal)
-        l.resume(after: Creation(kind: .session, madeLocal: "local-1f"))
-        #expect(l.place == .local("local-1f"))
-        var nothing = draft(.newLocal)
-        nothing.resume(after: Creation(kind: .session))
-        #expect(nothing.place == .newLocal)
     }
 
     @Test("another project starts a fresh worktree: the last one's base, branch, name and workspace don't carry over")

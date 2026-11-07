@@ -83,6 +83,23 @@ struct FileTreeTests {
         #expect(tree.listings.keys.sorted() == ["", "ab"])
         #expect(tree.open == ["ab"])
     }
+
+    @Test("an open folder that couldn't be listed says why instead of loading, until it is asked again or listed")
+    func folderFailure() {
+        var tree = FileTree(listings: ["": [entry("a", dir: true)]], open: ["a"])
+        let changed = [tree.failed("a", "Studio didn't answer in time"), tree.failed("a", "Studio didn't answer in time")]
+        #expect(changed == [true, false])
+        let row = tree.rows(FileFilter())[0]
+        #expect(row.failure == "Studio didn't answer in time")
+        #expect(!row.loading)
+        let retried = tree.retrying("a")
+        #expect(retried)
+        #expect(tree.rows(FileFilter())[0].loading)
+        tree.failed("a", "Studio didn't answer in time")
+        tree.listed("a", [])
+        #expect(tree.failures.isEmpty)
+        #expect(tree.rows(FileFilter())[0].failure == nil)
+    }
 }
 
 @Suite("Files store")
@@ -119,18 +136,28 @@ struct FilesStoreTests {
         model.listed("a", [entry("b.rs")])
         _ = model.toggle("a")
         model.asked("a")
-        model.failed("a", "Your Mac is offline", refused: false)
+        model.failed("a", "Not connected to Studio", refused: false)
         #expect(model.rows.map(\.path) == ["a", "a/b.rs"])
+        #expect(model.hasFailures)
         model.failed("a", "That folder is gone", refused: true)
         #expect(model.rows.map(\.path) == ["a"])
         #expect(model.waiting.isEmpty)
-        model.failed("", "Your Mac is offline", refused: false)
-        #expect(model.failure == "Your Mac is offline")
+        model.failed("", "Not connected to Studio", refused: false)
+        #expect(model.failure == "Not connected to Studio")
         model.listed("", [entry("a", dir: true)])
         #expect(model.failure == nil)
     }
 
-    @Test("a preview changes only when the file did, and a failed reload keeps what showed")
+    @Test("a folder whose listing was cancelled keeps waiting, so a reconnect lists it")
+    func cancelledListing() {
+        let model = FileTreeModel(tree: "/t")
+        model.asked("a")
+        model.failed("a", nil, refused: false)
+        #expect(model.waiting == ["a"])
+        #expect(!model.hasFailures)
+    }
+
+    @Test("a preview changes only when the file did, and a failed reload keeps what showed with a notice over it")
     func previews() {
         let store = FilesStore()
         let preview = store.preview(tree: Sample.fileTree, path: "src/explorer.rs")
@@ -139,13 +166,39 @@ struct FilesStoreTests {
         let read = Sample.fileRead("src/explorer.rs")
         #expect(store.apply(.fsRead(read)))
         #expect(!store.apply(.fsRead(read)))
-        preview.failed("Your Mac is offline")
+        preview.failed("Not connected to Studio")
         #expect(preview.phase == .loaded(read))
+        #expect(preview.notice == "Not connected to Studio")
         var edited = read
         edited.mtime += 1
         edited.text = "fn main() {}\n"
         #expect(store.apply(.fsRead(edited)))
         #expect(preview.phase == .loaded(edited))
+        #expect(preview.notice == nil)
+    }
+
+    @Test("reconnecting reads a failed preview again, and errors name the Mac by its hostname")
+    func reconnectRereadsFailedPreviews() {
+        let store = FilesStore()
+        let preview = store.preview(tree: "/t", path: "a.rs")
+        preview.failed("Not connected to the Mac")
+        #expect(preview.phase == .failed("Not connected to the Mac"))
+        store.connected(Sample.hello)
+        #expect(preview.phase == .loading)
+        #expect(store.describe(DaemonError.offline) == "Not connected to \(Sample.hello.hostname)")
+    }
+
+    @Test("an agent's change to a tree reads its open previews again, all but images")
+    func gitChangedRereadsPreviews() async throws {
+        let store = FilesStore()
+        let code = store.preview(tree: Sample.fileTree, path: "src/explorer.rs")
+        let image = store.preview(tree: Sample.fileTree, path: "docs/logo.png")
+        store.apply(.fsRead(Sample.fileRead("src/explorer.rs")))
+        store.apply(.fsRead(Sample.fileRead("docs/logo.png")))
+        store.apply(.gitChanged(GitChanged(tree: Sample.fileTree, rev: "r2")))
+        // With no connection the read fails, which shows it was asked for.
+        try await waitFor { code.notice != nil }
+        #expect(image.notice == nil)
     }
 
     @Test("only the most recently opened previews stay cached")
@@ -156,22 +209,38 @@ struct FilesStoreTests {
         #expect(store.preview(tree: "/t", path: "0.rs") !== first)
     }
 
-    @Test("a mention for the composer is new each time, even for the same file")
-    func mentions() {
+    @Test("mentions and quotes queue in order without repeats, and each chat takes only its own")
+    func additions() {
         let store = FilesStore()
-        store.mention(tree: "/t", path: "a.rs")
-        let first = store.mention
-        store.mention(tree: "/t", path: "a.rs")
-        #expect(store.mention?.path == "a.rs")
-        #expect(store.mention != first)
+        store.mention(tree: "/t", path: "a.rs", for: "a1")
+        store.mention(tree: "/t", path: "b.rs", for: "a1")
+        store.mention(tree: "/t", path: "a.rs", for: "a1")
+        store.quote("a.rs:2-3\n```rust\nlet x = 1;\n```", tree: "/t", for: "a2")
+        store.mention(tree: "/t", path: "c.rs")
+        #expect(store.takeAdditions(for: "a1", in: "/t") == ["@a.rs", "@b.rs", "@c.rs"])
+        #expect(store.takeAdditions(for: "a1", in: "/t") == [])
+        #expect(store.takeAdditions(for: "a2", in: "/t") == ["a.rs:2-3\n```rust\nlet x = 1;\n```"])
+        #expect(store.additions.isEmpty)
     }
 
-    @Test("requests without a connection fail as offline")
+    @Test("a mention joins the draft after a space, and a quote takes lines of its own")
+    func draft() {
+        #expect(FilesStore.draft("", adding: ["@a.rs", "@b.rs"]) == "@a.rs @b.rs ")
+        #expect(FilesStore.draft("look at", adding: ["@a.rs"]) == "look at @a.rs ")
+        #expect(FilesStore.draft("why", adding: ["a.rs:1\n```\nx\n```"]) == "why\n\na.rs:1\n```\nx\n```\n")
+        #expect(FilesStore.draft("", adding: ["a.rs:1\n```\nx\n```", "@b.rs"]) == "a.rs:1\n```\nx\n```\n@b.rs ")
+    }
+
+    @Test("requests without a connection fail as offline, and errors name the Mac")
     func offline() async {
         let store = FilesStore()
         await #expect(throws: DaemonError.offline) { try await store.search(tree: "/t", query: "a") }
         await #expect(throws: AttachmentError.unsupportedType) { try await store.upload(Data([1]), name: "notes.txt") }
-        #expect(FilesStore.describe(DaemonError.server(ServerError(message: "That path is outside the project", code: .outsideTree))) == "That path is outside the project")
+        #expect(store.describe(DaemonError.server(ServerError(message: "That path is outside the project", code: .outsideTree))) == "That path is outside the project")
+        store.macName = "Studio"
+        #expect(store.describe(DaemonError.timedOut) == "Studio didn't answer in time")
+        #expect(store.describe(AttachmentError.empty) == "That image is empty")
+        #expect(store.describe(DaemonError.cancelled) == nil)
     }
 }
 
@@ -236,12 +305,12 @@ struct FileSearchTests {
 
     @Test("a failed search says why, over what the query narrowed to")
     func failure() {
-        let search = FileSearch(tree: "/t") { _ in [] }
+        let search = FileSearch(tree: "/t", mac: "Studio") { _ in [] }
         search.query = "a"
         search.answer(1, .success(["a.rs"]))
         search.query = "ab"
         search.answer(2, .failure(DaemonError.timedOut))
-        #expect(search.failure == "Your Mac didn't answer in time")
+        #expect(search.failure == "Studio didn't answer in time")
         #expect(search.results == [])
     }
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func TestADuplicateReturnsTheFirstResult(t *testing.T) {
-	r := newReceipts(time.Now)
+	r := newReceipts[Result](time.Now)
 	s := spec("claude", "ask", false)
 	x, fresh := r.take("owner\x00r1", s)
 	if !fresh {
@@ -27,7 +27,7 @@ func TestADuplicateReturnsTheFirstResult(t *testing.T) {
 }
 
 func TestADifferentSpecUnderTheSameRequestIsADuplicate(t *testing.T) {
-	r := newReceipts(time.Now)
+	r := newReceipts[Result](time.Now)
 	r.take("owner\x00r1", spec("claude", "ask", false))
 	if x, _ := r.take("owner\x00r1", spec("claude", "full", false)); x != nil {
 		t.Fatal("a different spec joined the first create")
@@ -39,7 +39,7 @@ func TestADifferentSpecUnderTheSameRequestIsADuplicate(t *testing.T) {
 
 func TestAReceiptExpiresAfterTenMinutes(t *testing.T) {
 	now := time.Unix(0, 0)
-	r := newReceipts(func() time.Time { return now })
+	r := newReceipts[Result](func() time.Time { return now })
 	s := proto.LaunchSpec{Provider: "claude"}
 	x, _ := r.take("k", s)
 	now = now.Add(time.Hour)
@@ -54,7 +54,7 @@ func TestAReceiptExpiresAfterTenMinutes(t *testing.T) {
 }
 
 func TestAReceiptIsInFlightUntilItFinishes(t *testing.T) {
-	r := newReceipts(time.Now)
+	r := newReceipts[Result](time.Now)
 	if r.inFlight() {
 		t.Fatal("no receipts, yet in flight")
 	}

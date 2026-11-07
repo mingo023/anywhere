@@ -1,5 +1,7 @@
+import ChatModel
 import Fixtures
 import Foundation
+import Stores
 import Testing
 import Wire
 @testable import FeatureGitHub
@@ -135,6 +137,40 @@ struct PullRequestTextTests {
         #expect(title == "Fix the race" && body == "- Fix the race\n- Add a test")
     }
 
+    @Test("a new PR's top line names its branch into its base and how far ahead it is")
+    func headLine() {
+        #expect(PullRequestText.headLine(branch: "fix", base: "origin/main", ahead: 3) == "fix → main · 3 commits ahead")
+        #expect(PullRequestText.headLine(branch: "fix", base: "main", ahead: 1) == "fix → main · 1 commit ahead")
+        #expect(PullRequestText.headLine(branch: "fix", base: "develop", ahead: nil) == "fix → develop")
+        #expect(NewPr(branch: "fix", base: "origin/main", ahead: 2).line == "fix → main · 2 commits ahead")
+        #expect(NewPr(branch: nil, base: "main").line == nil && !NewPr(branch: nil, base: "main").offered)
+    }
+
+    @Test("a merge method is remembered for the PR's repository")
+    func repo() {
+        #expect(PullRequestText.repo("https://github.com/acme/app/pull/12") == "acme/app")
+        #expect(PullRequestText.repo("not a url") == nil)
+    }
+
+    @Test("a reply names the gh account it posts as, and the Mac it posts from")
+    func postsAs() {
+        #expect(PullRequestText.postsAs(login: "mingo023", mac: "Studio") == "Posts to GitHub as @mingo023 from Studio")
+        #expect(PullRequestText.postsAs(login: nil, mac: "Studio") == "Posts to GitHub as Studio's gh account")
+    }
+
+    @Test("gh's problems say what to run on which Mac")
+    func problemText() {
+        #expect(GhProblemView.text(.signedOut, mac: "Studio") == ("GitHub CLI isn't signed in", "On Studio, run gh auth login."))
+        #expect(GhProblemView.text(.missing, mac: "Studio").detail == "On Studio, run brew install gh, then gh auth login.")
+    }
+
+    @Test("the callout counts what there is to fix")
+    func fixSummary() {
+        #expect(PullRequestText.fixSummary(checks: 1, comments: 2) == ("3 things to fix", "1 failed check · 2 review comments"))
+        #expect(PullRequestText.fixSummary(checks: 0, comments: 1) == ("1 thing to fix", "1 review comment"))
+        #expect(PullRequestText.resolving("Claude") == "Claude is resolving the conflict")
+    }
+
     @Test("the create button says draft when it makes one, and what gh does while it works")
     func createLabel() {
         #expect(PullRequestText.createLabel(draft: false, busy: nil) == "Create PR")
@@ -151,6 +187,23 @@ struct ThreadGroupsTests {
         #expect(ThreadState(thread("a", authors: ["mira", "mira"])) == .open)
         #expect(ThreadState(thread("a")) == .replied)
         #expect(ThreadState(thread("a", resolved: true)) == .resolved)
+        #expect(ThreadState(thread("a"), sent: true) == .sent)
+        #expect(ThreadState(thread("a", resolved: true), sent: true) == .resolved)
+    }
+
+    @Test("what can still be sent is each failed check and open thread the agent isn't fixing")
+    func unsent() {
+        let p = pr {
+            $0.runs = [check("a", "failed"), check("b", "passed"), check("c", "failed")]
+            $0.threads = [thread("1", authors: ["mira"]), thread("2"), thread("3", resolved: true), thread("4", authors: ["kai"])]
+        }
+        let all = ThreadGroups.unsent(p, fixing: nil)
+        #expect(all.checks.map(\.name) == ["a", "c"] && all.threads.map(\.id) == ["1", "4"])
+        var fixing = SentFixes(head: "aaa")
+        fixing.checks = ["a"]
+        fixing.threads = ["1"]
+        let rest = ThreadGroups.unsent(p, fixing: fixing)
+        #expect(rest.checks.map(\.name) == ["c"] && rest.threads.map(\.id) == ["4"])
     }
 
     @Test("threads group by file in the order each file first comes, unresolved only by default")
@@ -166,19 +219,130 @@ struct ThreadGroupsTests {
         #expect(ThreadGroups.unresolved(threads) == 3)
     }
 
-    @Test("a hunk tail skips its header")
-    func hunkTail() {
-        #expect(ThreadGroups.hunkTail("@@ -1 +1 @@\n+a") == ["+a"])
-        #expect(ThreadGroups.hunkTail("@@ -1,4 +1,4 @@\n a\n b\n-c\n+d\n e") == ["-c", "+d", " e"])
-        #expect(ThreadGroups.hunkTail("").isEmpty)
-        #expect(ThreadGroups.hunkTail(nil).isEmpty)
+    @Test("the reply box names whom the reply answers")
+    func replyPrompt() {
+        #expect(ThreadGroups.replyPrompt(thread("a")) == "Reply to mira…")
+    }
+}
+
+@Suite("Comments empty states")
+struct ThreadsEmptyTests {
+    @Test("a PR with no threads has no review comments yet")
+    func none() {
+        #expect(ThreadGroups.empty([], ThreadFilter()) == .noComments)
     }
 
-    @Test("a thread's place is its path and line, or its path on a whole file")
-    func place() {
-        #expect(ThreadGroups.place(thread("a")) == "src/a.rs:42")
-        #expect(ThreadGroups.place(ReviewThread(id: "f", path: "README.md", outdated: false, resolved: false, comments: [])) == "README.md")
-        #expect(ThreadGroups.replyPrompt(thread("a")) == "Reply to mira…")
+    @Test("unresolved threads hidden only for being outdated are counted, never called resolved")
+    func outdatedHidden() {
+        let threads = [thread("1", outdated: true), thread("2", outdated: true), thread("3", resolved: true)]
+        #expect(ThreadGroups.empty(threads, ThreadFilter(outdated: false)) == .outdatedHidden(2))
+        #expect(ThreadGroups.empty(threads, ThreadFilter(resolved: true, outdated: false)) == nil)
+        #expect(ThreadGroups.empty(threads, ThreadFilter()) == nil)
+    }
+
+    @Test("all resolved only when none is unresolved")
+    func allResolved() {
+        let threads = [thread("1", resolved: true), thread("2", resolved: true, outdated: true)]
+        #expect(ThreadGroups.empty(threads, ThreadFilter(outdated: false)) == .allResolved)
+        #expect(ThreadGroups.empty(threads, ThreadFilter(resolved: true)) == nil)
+    }
+}
+
+@Suite("PR screen states")
+struct PullRequestPhaseTests {
+    @Test("only gh saying there is none shows No pull request, and so offers Create PR")
+    func none() {
+        #expect(PullRequestPhase.of(hasPr: false, problem: nil, loaded: true, error: nil) == .none)
+        #expect(PullRequestPhase.of(hasPr: false, problem: .failed, loaded: true, error: nil) == .unreachable)
+        #expect(PullRequestPhase.of(hasPr: false, problem: .noRemote, loaded: true, error: nil) == .noRemote)
+        #expect(PullRequestPhase.of(hasPr: false, problem: "somethingNew", loaded: true, error: nil) == .unreachable)
+    }
+
+    @Test("gh missing or signed out each say so, and a PR shows whatever else is wrong")
+    func problems() {
+        #expect(PullRequestPhase.of(hasPr: false, problem: .missing, loaded: true, error: nil) == .ghMissing)
+        #expect(PullRequestPhase.of(hasPr: false, problem: .signedOut, loaded: true, error: nil) == .ghSignedOut)
+        #expect(PullRequestPhase.of(hasPr: true, problem: .failed, loaded: true, error: "x") == .card)
+    }
+
+    @Test("before any answer, a failed ask shows its reason and otherwise it loads")
+    func first() {
+        #expect(PullRequestPhase.of(hasPr: false, problem: nil, loaded: false, error: "Not connected") == .failed("Not connected"))
+        #expect(PullRequestPhase.of(hasPr: false, problem: nil, loaded: false, error: nil) == .loading)
+    }
+}
+
+@Suite("Worktree after a merge")
+struct WorktreeCleanupTests {
+    @Test("deleting after the merge starts on only for a clean worktree with no sessions")
+    func byDefault() {
+        #expect(WorktreeCleanup(name: "w", changes: 0, sessions: 0).deletesByDefault)
+        #expect(!WorktreeCleanup(name: "w", changes: 2, sessions: 0).deletesByDefault)
+        #expect(!WorktreeCleanup(name: "w", changes: 0, sessions: 1).deletesByDefault)
+        #expect(!WorktreeCleanup(name: "w", changes: nil, sessions: 0).deletesByDefault)
+    }
+
+    @Test("deleting asks first unless the worktree is known to be clean")
+    func asks() {
+        #expect(!WorktreeCleanup(name: "w", changes: 0, sessions: 3).asks)
+        #expect(WorktreeCleanup(name: "w", changes: 1, sessions: 0).asks)
+        #expect(WorktreeCleanup(name: "w", changes: nil, sessions: 0).asks)
+        #expect(WorktreeCleanup(name: "w", changes: 3, sessions: 0).confirmTitle == "Delete w and its 3 uncommitted changes?")
+        #expect(WorktreeCleanup(name: "w", changes: 1, sessions: 0).confirmTitle == "Delete w and its uncommitted change?")
+        #expect(WorktreeCleanup(name: "w", changes: nil, sessions: 0).confirmTitle == "Delete w?")
+    }
+
+    @Test("it names what closes with the worktree")
+    func closes() {
+        #expect(WorktreeCleanup(name: "w", changes: 0, sessions: 0).closes == "Its terminals close; the branch stays.")
+        #expect(WorktreeCleanup(name: "w", changes: 0, sessions: 1).closes == "Its session and terminals close; the branch stays.")
+        #expect(WorktreeCleanup(name: "w", changes: 0, sessions: 2).closes == "Its 2 sessions and terminals close; the branch stays.")
+    }
+
+    @Test("a session is in the worktree when its folder is the worktree or inside it")
+    func sessions() {
+        let cwds = ["/w/fix", "/w/fix/src", "/w/fix-two", "/w"]
+        #expect(WorktreeCleanup.sessions(in: "/w/fix", cwds: cwds) == 2)
+    }
+}
+
+@Suite("Sending a PR's problems")
+struct FixTargetTests {
+    let claude = ChatSession(id: "a", title: "Fix the build", agent: "Claude")
+    let codex = ChatSession(id: "b", title: "Docs", agent: "Codex")
+
+    @Test("the buttons name the session's agent, the agent all the choices share, else agent")
+    func agent() {
+        #expect(ChatTarget.one(claude).title("Send to") == "Send to Claude")
+        #expect(ChatTarget.choose([codex, claude]).title("Send all to") == "Send all to agent")
+        #expect(ChatTarget.choose([claude, ChatSession(id: "c", title: "", agent: "Claude")]).agent == "Claude")
+    }
+
+    @Test("a worktree without a session offers to start one")
+    func none() {
+        #expect(ChatTarget.none.agent == nil)
+        #expect(ChatTarget.none.title("Send to") == "Start a session with this")
+    }
+
+    @Test("nothing is offered without the drive scope, and a worktree without a session needs a way to start one")
+    @MainActor
+    func offered() {
+        let one = ChatTarget.one(claude)
+        #expect(FixContext(target: one, canDrive: true, send: { _, _ in true }).offered)
+        #expect(!FixContext(target: one, canDrive: false, send: { _, _ in true }).offered)
+        #expect(!FixContext(target: .none, canDrive: true).offered)
+        #expect(FixContext(target: .none, canDrive: true, open: { _ in }).offered)
+    }
+
+    @Test("a thread is offered to the agent only while it isn't fixing anything on the PR")
+    @MainActor
+    func threadWhileFixing() {
+        let fix = FixContext(target: .one(claude), canDrive: true, send: { _, _ in true })
+        var fixing = SentFixes(head: "h")
+        fixing.conflict = true
+        #expect(fix.canSend(fixing: nil))
+        #expect(!fix.canSend(fixing: fixing))
+        #expect(!FixContext(target: .one(claude), canDrive: false, send: { _, _ in true }).canSend(fixing: nil))
     }
 }
 
@@ -194,7 +358,7 @@ struct GoldenPrTests {
         #expect(PullRequestText.verdict(pr) == (.waiting, "1 check in progress"))
         #expect(PullRequestText.checkRows(pr).named.map(\.name) == ["lint"])
         #expect(ThreadGroups.group(pr.threads, ThreadFilter()).map(\.path) == ["src/sync.rs"])
-        #expect(ThreadGroups.hunkTail(pr.threads[0].comments[0].hunk) == [" fn sync() {", "+    loop {", "+        retry();"])
+        #expect(FixPrompt.hunkTail(pr.threads[0].comments[0].hunk) == [" fn sync() {", "+    loop {", "+        retry();"])
     }
 }
 

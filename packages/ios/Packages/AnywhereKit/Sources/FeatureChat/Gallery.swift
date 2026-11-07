@@ -33,6 +33,13 @@ public enum ChatGallery {
                 _ = s.apply(.agentBtw(.init(agentId: agentId, answer: "The fold lives in crates/chat/src/timeline.rs.")))
                 return s
             }),
+            Entry(name: "chat-composer-pills", make: {
+                let goal = Goal(objective: "every golden test passes", status: "active", tokensUsed: 16510, tokenBudget: 50000)
+                let s = store(Sample.chat("long-markdown"), goal: goal, chatOnly: true, access: "full")
+                s.draft.text = "Keep the lanes stable across refreshes"
+                return s
+            }),
+            Entry(name: "chat-composer-codex", make: { store(Sample.chat("long-markdown"), provider: "codex", model: "gpt-5.5") }),
             Entry(name: "chat-composer-slash", make: {
                 let s = store(Sample.chat("empty"))
                 s.draft.text = "/"
@@ -43,14 +50,53 @@ public enum ChatGallery {
             Entry(name: "chat-open-errors", make: { opened(store(Sample.chat("errors"))) }),
             Entry(name: "chat-open-background-agents", make: { opened(store(Sample.chat("background-agents"))) }),
             Entry(name: "chat-composer-context-full", make: { store(Sample.chat("code-blocks"), tokens: 184_000, window: 200_000) }),
+            Entry(name: "chat-composer-offline", make: {
+                let s = store(Sample.chat("streaming-live"), status: .working)
+                s.follow(online: false, mac: "Mingo's MacBook Pro")
+                s.draft.text = "Also keep sub-agents as their own rows"
+                return s
+            }),
+            Entry(name: "chat-composer-upload-failed", make: {
+                let s = store(Sample.chat("empty"))
+                s.draft.images = [.init(id: "a", name: "a.png", path: "/att/a.png")]
+                // No Mac takes it in the gallery, so it fails as offline.
+                s.attach(Data([1]), name: "b.png")
+                s.draft.text = "Why does the graph overlap here?"
+                return s
+            }),
+            Entry(name: "chat-composer-armed", make: {
+                let s = store(Sample.chat("empty"))
+                s.draft.images = [.init(id: "a", name: "a.png")]
+                s.draft.text = "Why does the graph overlap here?"
+                s.send()
+                return s
+            }),
+            Entry(name: "chat-composer-closed", make: {
+                let s = store(Sample.chat("every-tool-kind"))
+                _ = s.apply(.agentList(.init(agents: [])))
+                return s
+            }),
         ]
-        return (transcripts + composer).flatMap { scene in
+        let chats = (transcripts + composer).flatMap { scene in
             [false, true].map { dark in
                 GalleryScene(dark ? "\(scene.name)-dark" : scene.name, dark: dark) {
-                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", openFile: { _ in }, live: false) })
+                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", openLink: { _ in }, live: false) })
                 }
             }
         }
+        let subAgents = [
+            ("chat-subagent-working", "background-agents", "tu-a1"), ("chat-subagent-report", "subagent-brief-report", "tu-t1"),
+            ("chat-subagent-gone", "background-agents", "tu-none"),
+        ].flatMap { name, chat, call in
+            [false, true].map { dark in
+                GalleryScene(dark ? "\(name)-dark" : name, dark: dark) {
+                    AnyView(NavigationStack {
+                        SubAgentScreen(store: store(Sample.chat(chat)), callId: call, openAgent: { _ in }, openLink: { _ in }, live: false)
+                    })
+                }
+            }
+        }
+        return chats + subAgents
     }
 
     struct Entry {
@@ -79,14 +125,15 @@ public enum ChatGallery {
     @MainActor
     static func store(
         _ items: [TimelineItem], status: AgentStatus? = nil, requests: [PermissionRequest] = [], scopes: [Scope]? = nil, goal: Goal? = nil,
-        tokens: Int = 48_000, window: Int = 1_000_000
+        tokens: Int = 48_000, window: Int = 1_000_000, chatOnly: Bool? = nil, access: String = "edits", provider: String = "claude",
+        model: String = "claude-opus-5-5"
     ) -> ChatStore {
         let open = fold(items).turns.last.map { $0.end == nil } ?? false
         let agent = AgentSummary(
-            id: agentId, terminalId: "t-\(agentId)", title: "Port the commit graph lanes", cwd: "/Users/mingo/dev/anywhere", provider: "claude",
-            model: "claude-opus-5-5", effort: "high", access: "edits", status: status ?? (open ? .working : .idle), attached: true, epoch: 1,
+            id: agentId, terminalId: "t-\(agentId)", title: "Port the commit graph lanes", cwd: "/Users/mingo/dev/anywhere", provider: provider,
+            model: model, effort: "high", access: access, status: status ?? (open ? .working : .idle), attached: true, epoch: 1,
             maxSeq: items.last?.seq ?? 0, createdAt: Sample.now - 600_000, updatedAt: Sample.now, branch: "mobile/chat", tokensUsed: tokens,
-            contextWindow: window, goal: goal)
+            contextWindow: window, chatOnly: chatOnly, goal: goal)
         var hello = Sample.hello
         if let scopes { hello.scopes = scopes }
         let s = ChatStore(agentId: agentId, clock: { Sample.now })

@@ -43,8 +43,9 @@ struct AutomationsView: View {
     private func run(_ work: @escaping @MainActor () async throws -> Void) {
         Task {
             do { try await work() } catch {
+                guard let text = ErrorText.describe(error, mac: host.name) else { return }
                 Haptics.warning()
-                failure = WorkspaceStore.serverError(error).message
+                failure = text
             }
         }
     }

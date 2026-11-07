@@ -1,16 +1,16 @@
 import Foundation
 import Wire
 
-/// What the composer needs of the Mac's files: names to mention, a place for attached images, and the file the Files
-/// screen asked to mention.
+/// What the composer needs of the Mac's files: names to mention, a place for attached images, and the files and lines
+/// the Files screens handed to this chat.
 @MainActor
 public protocol ChatFiles: AnyObject {
     /// Paths under `tree` that fuzzily match `query`, best first.
     func search(tree: String, query: String) async throws -> [String]
     /// Uploads an image and returns where it landed on the Mac, for the prompt to name.
     func upload(_ data: Data, name: String) async throws -> String
-    /// The path last asked to be mentioned in `tree`, handed over once.
-    func takeMention(in tree: String) -> String?
+    /// What waits for the chat of `agentId` on `tree`, oldest first, handed over once.
+    func takeAdditions(for agentId: String, in tree: String) -> [String]
 }
 
 extension FilesStore: ChatFiles {

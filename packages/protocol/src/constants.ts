@@ -17,3 +17,4 @@ export const CAP_SETTINGS = "settings.v1";
 export const CAP_COMMANDS = "commands.v1";
 export const CAP_ACCESS = "access.v1";
 export const CAP_SKILLS = "skills.v1";
+export const CAP_FRONT = "front.v1";

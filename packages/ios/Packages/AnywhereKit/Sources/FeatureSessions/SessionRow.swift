@@ -9,6 +9,7 @@ import SwiftUI
 @MainActor
 struct SessionRow: View {
     let session: SessionModel
+    @Environment(\.staleSince) private var stale
 
     var body: some View {
         let s = session.summary
@@ -25,15 +26,16 @@ struct SessionRow: View {
                         .foregroundStyle(Palette.text.color)
                         .lineLimit(1)
                     Spacer(minLength: Space.s)
-                    Elapsed(updatedAt: s.updatedAt, ticking: status == .working)
+                    Elapsed(updatedAt: s.updatedAt, ticking: status == .working && stale == nil)
                 }
                 if let detail = SessionText.detail(s, status) {
                     Text(detail).font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
-                        .shimmer(status == .working && s.activity != nil)
+                        .shimmer(status == .working && s.activity != nil && stale == nil)
                 }
             }
         }
         .padding(.vertical, Space.xxs)
+        .opacity(stale == nil ? 1 : 0.55)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

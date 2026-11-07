@@ -19,7 +19,7 @@ type GitHubService interface {
 	Leave(key string)
 	Status(ctx context.Context, tree string) github.Status
 	PR(ctx context.Context, tree string) (*proto.PR, github.Problem)
-	PRs(project string) []proto.PRItem
+	PRs(project string) ([]proto.PRItem, github.Problem)
 	Create(ctx context.Context, tree, title, body, base string, draft bool) (int, string, error)
 	Merge(ctx context.Context, tree string, number int, method string) error
 	Ready(ctx context.Context, tree string, number int) error
@@ -122,7 +122,12 @@ func (c *conn) ghStatus(m proto.ClientMessage) {
 
 func (c *conn) ghPR(m proto.ClientMessage) {
 	pr, problem := c.s.GitHub.PR(c.ctx, m.Tree)
-	c.send(proto.NewGhPR(m.ID, m.Tree, string(problem), pr))
+	stale := problem == github.Failed && pr != nil
+	// An older phone knows only missing and signedOut: it sees what gh last said, or no PR.
+	if stale || !problem.EveryTree() && !slices.Contains(c.caps, proto.CapGhState) {
+		problem = ""
+	}
+	c.send(proto.NewGhPR(m.ID, m.Tree, string(problem), pr, stale))
 }
 
 func (c *conn) ghPRs(m proto.ClientMessage) error {
@@ -130,7 +135,10 @@ func (c *conn) ghPRs(m proto.ClientMessage) error {
 		c.send(proto.NewErrorCode(m.ID, proto.CodeUnknownProject, "Unknown project"))
 		return nil
 	}
-	go func() { c.send(proto.NewGhPRs(m.ID, c.s.GitHub.PRs(m.Project))) }()
+	go func() {
+		items, problem := c.s.GitHub.PRs(m.Project)
+		c.send(proto.NewGhPRs(m.ID, items, string(problem)))
+	}()
 	return nil
 }
 

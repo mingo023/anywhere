@@ -579,7 +579,7 @@ Layout: a modal, composer-first [R08 §F10; R17 §S1].
 - **Access from the phone:**
   - Only Ask + Plan first are enabled by default [R18 §F6 R7].
   - Auto-accept edits and Auto are enabled up to `phone.maxAccess` (default Ask), which the owner sets on the Mac: `pocketd config set phone.maxAccess`, or ⌘K → Phone access level (D18, PRD FR 06-7). Locked chips carry the hint "On your Mac: ⌘K → Phone access level".
-  - Full access is never offered from the phone this horizon (D18).
+  - A Session never starts on Full access from the phone; under a Full ceiling the chat's access pill switches a running one to it, after asking (D18).
 - **Send:** disabled while the prompt is empty (**new**; R17 leaves empty prompts open). On the reply with the new `agentId`, replace this modal with Session.
 
 **States** [R17 §S5; R18 §F6 R7]
