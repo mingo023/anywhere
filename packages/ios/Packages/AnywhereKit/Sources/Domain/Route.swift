@@ -9,8 +9,9 @@ public enum Route: Hashable, Codable, Sendable {
     case newSession(mac: String, project: String?, place: String? = nil, prompt: String? = nil)
     case terminals(mac: String)
     case terminal(mac: String, terminalId: String)
-    case changes(mac: String, tree: String)
-    case diff(mac: String, tree: String, path: String, staged: Bool)
+    /// `chat` is the agent whose chat opened Changes, which takes quotes from its diffs.
+    case changes(mac: String, tree: String, chat: String? = nil)
+    case diff(mac: String, tree: String, path: String, staged: Bool, chat: String? = nil)
     case history(mac: String, tree: String)
     case commit(mac: String, tree: String, sha: String)
     case branches(mac: String, tree: String)
@@ -30,7 +31,7 @@ public enum Route: Hashable, Codable, Sendable {
     public var mac: String? {
         switch self {
         case .sessions(let mac), .project(let mac, _), .worktree(let mac, _), .local(let mac, _), .chat(let mac, _), .newSession(let mac, _, _, _),
-            .terminals(let mac), .terminal(let mac, _), .changes(let mac, _), .diff(let mac, _, _, _), .history(let mac, _),
+            .terminals(let mac), .terminal(let mac, _), .changes(let mac, _, _), .diff(let mac, _, _, _, _), .history(let mac, _),
             .commit(let mac, _, _), .branches(let mac, _), .pullRequest(let mac, _), .pullRequests(let mac, _), .files(let mac, _, _, _),
             .reviewThreads(let mac, _), .file(let mac, _, _, _, _), .automations(let mac):
             mac

@@ -49,6 +49,8 @@ struct DiffScreen: View {
     let tree: String
     let at: DiffAt
     let files: DiffFiles
+    /// The agent whose chat opened the screen, which takes its quotes.
+    let chat: String?
     @State private var path: String
     @State private var doc: DiffDocument?
     @State private var error: String?
@@ -72,11 +74,12 @@ struct DiffScreen: View {
         @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
-    init(host: HostModel, tree: String, path: String, at: DiffAt, files: DiffFiles) {
+    init(host: HostModel, tree: String, path: String, at: DiffAt, files: DiffFiles, chat: String? = nil) {
         self.host = host
         self.tree = tree
         self.at = at
         self.files = files
+        self.chat = chat
         _path = State(initialValue: path)
         _doc = State(initialValue: host.git.cachedDiff(tree, path: path, at: at))
     }
@@ -265,7 +268,7 @@ struct DiffScreen: View {
     /// Read when asked, not in `body`, so sessions changing elsewhere don't redraw the diff.
     private var askTarget: AskTarget {
         let sessions = host.sessions.recent.compactMap { host.sessions.session($0) }.map { (id: $0.id, cwd: $0.summary.cwd) }
-        return AskTarget.of(tree: tree, sessions: sessions)
+        return AskTarget.of(tree: tree, sessions: sessions, opener: chat)
     }
 
     /// Ask in Chat on picked lines, when the worktree had a session to take them as the screen opened.

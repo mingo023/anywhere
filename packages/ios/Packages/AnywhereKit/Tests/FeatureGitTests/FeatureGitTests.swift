@@ -113,6 +113,14 @@ import Wire
     #expect(AskTarget.of(tree: tree, sessions: [(id: "b", cwd: tree), (id: "a", cwd: tree)]) == .pick(["b", "a"]))
 }
 
+@Test func a_quote_goes_to_the_chat_that_opened_the_screen_while_it_has_a_session_in_the_worktree() {
+    let tree = "/w/calm-otter"
+    let sessions = [(id: "b", cwd: tree), (id: "a", cwd: tree), (id: "x", cwd: "/w/other")]
+    #expect(AskTarget.of(tree: tree, sessions: sessions, opener: "a") == .one("a"))
+    #expect(AskTarget.of(tree: tree, sessions: sessions, opener: "x") == .pick(["b", "a"]))
+    #expect(AskTarget.of(tree: tree, sessions: sessions, opener: "gone") == .pick(["b", "a"]))
+}
+
 @Test func a_quote_lands_below_what_the_draft_holds() {
     #expect(AskTarget.appending("q", to: "") == "q\n")
     #expect(AskTarget.appending("q", to: "look at") == "look at\n\nq\n")

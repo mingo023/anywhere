@@ -16,6 +16,8 @@ struct ChangesScreen: View {
     let host: HostModel
     let mac: String
     let tree: String
+    /// The agent whose chat opened Changes, which takes quotes from its diffs.
+    let chat: String?
     @AppStorage("git.changes.tree") private var asTree = false
     /// The branch this worktree's Compare is against; nil is its base.
     @AppStorage private var picked: String?
@@ -27,10 +29,11 @@ struct ChangesScreen: View {
     @State private var lines = ChangeLines()
     @State private var discarding: [String]?
 
-    init(host: HostModel, mac: String, tree: String) {
+    init(host: HostModel, mac: String, tree: String, chat: String? = nil) {
         self.host = host
         self.mac = mac
         self.tree = tree
+        self.chat = chat
         _picked = AppStorage("git.compare.\(tree)")
     }
 
@@ -96,7 +99,7 @@ struct ChangesScreen: View {
         }
         .navigationTitle("Changes")
         .navigationDestination(for: CompareFileRoute.self) { r in
-            DiffScreen(host: host, tree: r.tree, path: r.path, at: .base(rev: r.against), files: .compare(against: r.against))
+            DiffScreen(host: host, tree: r.tree, path: r.path, at: .base(rev: r.against), files: .compare(against: r.against), chat: chat)
         }
         .sheet(isPresented: $choosing) {
             ComparePicker(host: host, tree: tree, base: changes.head?.base, picked: $picked)
@@ -146,7 +149,7 @@ struct ChangesScreen: View {
                 ForEach(lines) { line in
                     let section = line.header
                     ChangeLineView(
-                        line: line, mac: mac, tree: tree, nameOnly: asTree, folded: section.map { folded.contains($0.rawValue) } ?? false,
+                        line: line, mac: mac, tree: tree, chat: chat, nameOnly: asTree, folded: section.map { folded.contains($0.rawValue) } ?? false,
                         stageAll: section.map { GitText.stageAll($0, count: changes.count($0), bulk: changes.bulk) }, count: section.map(changes.count) ?? 0,
                         writable: writable, busy: busy, selection: selection, swiped: swiped, actions: actions
                     )
@@ -248,6 +251,7 @@ private struct ChangeLineView: View, Equatable {
     let line: ChangeLine
     let mac: String
     let tree: String
+    let chat: String?
     let nameOnly: Bool
     let folded: Bool
     /// A header's Stage All or Unstage All, with its count.
@@ -271,7 +275,7 @@ private struct ChangeLineView: View, Equatable {
     #endif
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.line == b.line && a.nameOnly == b.nameOnly && a.folded == b.folded && a.mac == b.mac && a.tree == b.tree && a.stageAll == b.stageAll
+        a.line == b.line && a.nameOnly == b.nameOnly && a.folded == b.folded && a.mac == b.mac && a.tree == b.tree && a.chat == b.chat && a.stageAll == b.stageAll
             && a.count == b.count && a.writable == b.writable && a.busy == b.busy
     }
 
@@ -331,7 +335,7 @@ private struct ChangeLineView: View, Equatable {
             .buttonStyle(.plain)
             .accessibilityAddTraits(picked ? .isSelected : [])
         } else {
-            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: section == .staged)) {
+            NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: section == .staged, chat: chat)) {
                 HStack(spacing: Space.s) {
                     row
                     #if os(iOS)

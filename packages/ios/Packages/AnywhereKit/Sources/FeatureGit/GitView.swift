@@ -17,10 +17,10 @@ public struct GitView: View {
 
     public var body: some View {
         switch route {
-        case .changes(let mac, let tree):
-            ChangesScreen(host: host, mac: mac, tree: tree)
-        case .diff(_, let tree, let path, let staged):
-            DiffScreen(host: host, tree: tree, path: path, at: staged ? .staged : .working, files: .changes(staged ? .staged : .changes))
+        case .changes(let mac, let tree, let chat):
+            ChangesScreen(host: host, mac: mac, tree: tree, chat: chat)
+        case .diff(_, let tree, let path, let staged, let chat):
+            DiffScreen(host: host, tree: tree, path: path, at: staged ? .staged : .working, files: .changes(staged ? .staged : .changes), chat: chat)
         case .history(let mac, let tree):
             HistoryScreen(host: host, mac: mac, tree: tree)
         case .commit(_, let tree, let sha):
