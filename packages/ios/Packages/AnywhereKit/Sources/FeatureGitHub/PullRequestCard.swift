@@ -1,4 +1,5 @@
 import DesignSystem
+import Domain
 import Stores
 import SwiftUI
 import Wire
@@ -12,8 +13,6 @@ struct PullRequestCard: View {
     var mac = PrMac()
     var cleanup: WorktreeCleanup?
     var deleteTree: (@MainActor () async throws -> Void)?
-    /// Fixes the clock comments are dated against, for the gallery.
-    var now: Int?
 
     @State private var passedShown = false
     /// Delete after merging, once the reader has set it; until then the cleanup's default.
@@ -41,9 +40,8 @@ struct PullRequestCard: View {
             }
             if !pr.threads.isEmpty || pr.state == "OPEN" {
                 Section {
-                    NavigationLink {
-                        ThreadsScreen(store: store, model: model, mac: mac, now: now)
-                    } label: {
+                    // A value link, so the screen is in the stack's path and a file opened from it keeps it.
+                    NavigationLink(value: Route.reviewThreads(mac: mac.id, tree: model.tree)) {
                         LabeledContent {
                             let open = ThreadGroups.unresolved(pr.threads)
                             if open > 0 { Text("\(open) unresolved").foregroundStyle(Palette.waitingText.color) }

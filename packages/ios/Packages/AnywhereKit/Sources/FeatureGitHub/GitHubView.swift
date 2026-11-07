@@ -8,6 +8,8 @@ import SwiftUI
 public struct GitHubView: View {
     let host: HostModel
     let route: Route
+    /// The tree's status reads before this visit; deleting trusts only a change count read since.
+    @State private var readsBefore: Int?
 
     public init(host: HostModel, route: Route) {
         self.host = host
@@ -18,18 +20,24 @@ public struct GitHubView: View {
         switch route {
         case .pullRequest(let mac, let tree):
             // The tree's status gives the new PR its commits and base, and its watch brings gh.changed.
-            let head = host.git.changes(tree).head
+            let changes = host.git.changes(tree)
+            let head = changes.head
             PullRequestScreen(
                 store: host.github, tree: tree, mac: PrMac(id: mac, name: host.name, offline: host.link != .online),
                 newPr: NewPr(branch: head?.branch, base: head?.base, ahead: head?.ahead, commits: head?.commits ?? []),
-                cleanup: cleanup(tree, changes: head?.totals.files),
+                cleanup: cleanup(tree, changes: readsBefore.flatMap { changes.files(readSince: $0) }),
                 deleteTree: { try await host.workspace.deleteWorktree(path: tree, deleteBranch: false) },
                 branches: { try await host.workspace.loadBranches(tree: tree) }
             )
-            .onAppear { host.git.show(tree) }
+            .onAppear {
+                readsBefore = changes.reads
+                host.git.show(tree, reread: true)
+            }
             .onDisappear { host.git.hide(tree) }
         case .pullRequests(let mac, let project):
             PullRequestListScreen(store: host.github, mac: mac, macName: host.name, project: project)
+        case .reviewThreads(let mac, let tree):
+            ThreadsScreen(store: host.github, model: host.github.pullRequest(tree), mac: PrMac(id: mac, name: host.name, offline: host.link != .online))
         default:
             Placeholder("Pull request", systemImage: "arrow.triangle.pull")
         }

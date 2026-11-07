@@ -59,6 +59,19 @@ struct GitStoreTests {
         #expect(!store.apply(.ghChanged(.init(tree: Sample.tree))))
     }
 
+    @Test("a change count is known only from a read since the visit began that the Mac hasn't outdated")
+    func filesReadSince() {
+        let store = GitStore()
+        let t = store.changes(Sample.tree)
+        t.take(Sample.gitStatus(files: 0), cursor: 0, generation: 0)
+        let visit = t.reads
+        #expect(t.files(readSince: visit) == nil)
+        t.take(Sample.gitStatus(files: 4), cursor: 0, generation: 0)
+        #expect(t.files(readSince: visit) == 4)
+        _ = store.apply(.gitChanged(.init(tree: Sample.tree, rev: "moved")))
+        #expect(t.files(readSince: visit) == nil)
+    }
+
     @Test("the watch set holds a tree while any screen shows it")
     func watch() {
         let store = GitStore()
