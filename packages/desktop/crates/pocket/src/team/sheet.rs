@@ -2,8 +2,8 @@
 
 use super::plan::{Kept, branch, can_start};
 use super::{PROPOSED, plural};
-use crate::composer::launch::model_choices;
 use crate::composer::model_menu::model_name;
+use crate::settings::models::model_options;
 use crate::composer::{menu_title, picker, pill};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
@@ -110,7 +110,7 @@ impl Desktop {
     /// The task's agent and model; its menu picks both.
     fn agent_chip(&self, t: &Kept, cx: &mut Context<Self>) -> Div {
         let open = self.team.island.menu.as_deref() == Some(t.id.as_str());
-        let label = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model_name(&t.model, self.catalog_models()));
+        let label = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model_name(&t.model, self.models_of(&t.agent)));
         let task = t.id.clone();
         let chip = picker(pill().child(provider_icon(&t.agent, 14., TEXT_2)).child(label), id(format!("team-agent:{}", t.id)), open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             cx.stop_propagation();
@@ -120,7 +120,7 @@ impl Desktop {
         div().relative().flex_none().child(chip).children(menu)
     }
 
-    /// Each agent's models, as the composer lists them; "Default" is the one Settings starts that agent with.
+    /// Each agent's models, as the composer lists them; with none picked, the one Settings starts that agent with is checked.
     fn model_menu(&self, t: &Kept, cx: &mut Context<Self>) -> Stateful<Div> {
         let enabled = self.store.agents.enabled();
         let mut rows: Vec<AnyElement> = Vec::new();
@@ -128,9 +128,9 @@ impl Desktop {
             let settings = self.store.agents.provider(agent).model;
             let picked = if t.agent == agent { t.model.as_str() } else { "" };
             rows.push(menu_title(self.agent_name(agent)).into_any_element());
-            for (i, (value, label)) in model_choices(agent, self.catalog_models(), picked, &settings).into_iter().enumerate() {
-                let chosen = t.agent == agent && if value.is_empty() { t.model.is_empty() } else { t.model == value };
-                let model = if value.is_empty() { settings.clone() } else { value };
+            let runs = if picked.is_empty() { settings.as_str() } else { picked };
+            for (i, (model, label)) in model_options(agent, self.models_of(agent), picked).into_iter().enumerate() {
+                let chosen = t.agent == agent && model == runs;
                 let task = t.id.clone();
                 let row = ui::menu_pick(id(format!("team-model:{}:{agent}:{i}", t.id)), provider_icon(agent, 14., TEXT_2), &label, chosen)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.team_pick(&task, agent, &model, cx)));

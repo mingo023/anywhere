@@ -387,7 +387,7 @@ impl Desktop {
         let line = shortcut_row(title, control);
         let other = recording.flatten().and_then(|pressed| clash(&SHORTCUTS, custom, r, &pressed).map(|o| (shown(&pressed).replace(' ', ""), o)));
         let Some((pressed, other)) = other else { return line };
-        let cancel = ui::button("key-cancel", ui::Variant::Ghost, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+        let cancel = ui::button("key-cancel", ui::Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.settings.keyboard.stop();
             cx.notify();
         }));

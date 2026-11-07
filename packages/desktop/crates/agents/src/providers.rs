@@ -24,13 +24,14 @@ pub struct ChatCaps {
     pub send_now: bool,
 }
 
-/// How a provider's models are offered.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Models {
-    /// Offered as they are; the agent reports the full id, as "claude-opus-5-5" for "opus".
-    Aliases(&'static [&'static str]),
-    /// What `<command> debug models` lists (`codex_models`), each with its own efforts.
-    Catalog,
+/// How a provider's CLI lists its models.
+pub struct Catalog {
+    /// Run after the provider's command.
+    pub args: &'static [&'static str],
+    pub input: &'static str,
+    pub parse: fn(&str) -> Vec<crate::ListedModel>,
+    /// Offered, as they are, until the CLI answers or when it can't.
+    pub fallback: &'static [&'static str],
 }
 
 /// How the AI commit message runs the agent once.
@@ -44,8 +45,10 @@ pub struct Oneshot {
 pub struct Builtin {
     pub id: &'static str,
     pub efforts: &'static [&'static str],
+    /// What the agent calls its effort.
+    pub effort_word: &'static str,
     pub plan: bool,
-    pub models: Models,
+    pub models: Catalog,
     pub resume_args: &'static str,
     pub fork_args: &'static str,
     pub status_via: &'static str,
@@ -58,8 +61,15 @@ pub const ALL: [Builtin; 2] = [
     Builtin {
         id: "claude",
         efforts: &["low", "medium", "high", "xhigh", "max"],
+        effort_word: "Effort",
         plan: true,
-        models: Models::Aliases(&["haiku", "sonnet", "opus"]),
+        // Asks without a prompt, so it costs no tokens; no hooks, so the user's don't take it for a session.
+        models: Catalog {
+            args: &["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--settings", r#"{"disableAllHooks":true}"#],
+            input: r#"{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"#,
+            parse: crate::claude_catalog,
+            fallback: &["haiku", "sonnet", "opus"],
+        },
         resume_args: "--resume",
         fork_args: "--resume {sessionId} --fork-session",
         status_via: "uses Claude Code hooks",
@@ -70,8 +80,9 @@ pub const ALL: [Builtin; 2] = [
     Builtin {
         id: "codex",
         efforts: &[],
+        effort_word: "Reasoning",
         plan: false,
-        models: Models::Catalog,
+        models: Catalog { args: &["debug", "models"], input: "", parse: crate::codex_catalog, fallback: &[] },
         resume_args: "resume",
         fork_args: "fork {sessionId}",
         status_via: "reads Codex session events",
@@ -80,16 +91,6 @@ pub const ALL: [Builtin; 2] = [
         oneshot: Oneshot { args: &["exec", "-s", "read-only", "--skip-git-repo-check", "--color", "never"], model_flag: "-m", model: "" },
     },
 ];
-
-impl Builtin {
-    /// The model aliases it's offered with, if it takes aliases.
-    pub fn aliases(&self) -> Option<&'static [&'static str]> {
-        match self.models {
-            Models::Aliases(a) => Some(a),
-            Models::Catalog => None,
-        }
-    }
-}
 
 pub const COUNT: usize = ALL.len();
 

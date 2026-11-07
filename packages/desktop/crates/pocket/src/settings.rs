@@ -482,7 +482,7 @@ impl Desktop {
         if self.settings.section == Section::Git && self.prs.gh.is_none() {
             self.check_gh(cx);
         }
-        if matches!(self.settings.section, Section::Git) || matches!(self.settings.section, Section::Provider(i) if providers::ALL[i].models == providers::Models::Catalog) {
+        if matches!(self.settings.section, Section::Git | Section::Provider(_)) {
             self.load_models(cx);
         }
         if self.settings.section == Section::Accounts {

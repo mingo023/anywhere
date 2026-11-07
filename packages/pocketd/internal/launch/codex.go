@@ -32,10 +32,17 @@ func codexChat(access, model, effort string) []string {
 	if model != "" {
 		argv = append(argv, "-c", `model="`+model+`"`)
 	}
-	if effort != "" {
-		argv = append(argv, "-c", `model_reasoning_effort="`+effort+`"`)
+	return append(argv, effortConfig(effort)...)
+}
+
+// effortConfig sets codex's reasoning effort, the same in its TUI and
+// app-server. One that isn't a word, as from a hand-edited state file, is
+// left out rather than written into codex's config.
+func effortConfig(effort string) []string {
+	if !model.MatchString(effort) {
+		return nil
 	}
-	return argv
+	return []string{"-c", `model_reasoning_effort="` + effort + `"`}
 }
 
 // switchEffort passes any effort: a codex model lists its own.
@@ -48,17 +55,17 @@ func (c codex) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string, b
 	if s.Plan {
 		return nil, false, fail("access_not_allowed", "Codex can't plan first in a terminal session")
 	}
-	if s.Effort != "" {
-		return nil, false, fail("invalid_spec", "Codex takes no effort here")
+	if s.Effort != "" && !model.MatchString(s.Effort) {
+		return nil, false, fail("invalid_spec", badEffort)
 	}
 	if c.chat(s) {
-		return codexChat(s.Access, s.Model, ""), true, nil
+		return codexChat(s.Access, s.Model, s.Effort), true, nil
 	}
 	argv = append(argv, codexAccess[s.Access]...)
 	if s.Model != "" {
 		argv = append(argv, "-m", s.Model)
 	}
-	return argv, false, nil
+	return append(argv, effortConfig(s.Effort)...), false, nil
 }
 
 // chatResume runs the app-server again; pocketd resumes its thread over JSON-RPC.
@@ -87,7 +94,7 @@ func (codex) resume(t state.Terminal, l state.Launch, argv []string) []string {
 	if l.Model != "" {
 		argv = append(argv, "-m", l.Model)
 	}
-	return argv
+	return append(argv, effortConfig(l.Effort)...)
 }
 
 func (codex) untrusted([]string, string) *Failure { return nil }

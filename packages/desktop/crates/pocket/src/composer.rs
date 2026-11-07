@@ -44,6 +44,8 @@ impl Composer {
 /// The chip whose menu is open.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Menu {
+    /// The model pill's own menu: Reasoning and Model, each opening its list beside it.
+    ModelAndEffort,
     Model,
     Effort,
     Access,
@@ -53,6 +55,15 @@ pub(crate) enum Menu {
     Switch,
     /// The "+" button's: Attach images, and Team.
     Add,
+    /// The chat's goal, opened from its pill.
+    Goal,
+}
+
+impl Menu {
+    /// Whether this is the model pill's menu, or a list it opened beside it.
+    pub(crate) fn of_model_pill(self) -> bool {
+        matches!(self, Menu::ModelAndEffort | Menu::Model | Menu::Effort)
+    }
 }
 
 /// A composer's choices besides its words.
@@ -86,7 +97,8 @@ impl Draft {
 
     /// Whether `menu` is open now.
     pub(crate) fn toggle(&mut self, menu: Menu) -> bool {
-        self.menu = (self.menu != Some(menu)).then_some(menu);
+        let open = self.menu == Some(menu) || menu == Menu::ModelAndEffort && self.menu.is_some_and(Menu::of_model_pill);
+        self.menu = (!open).then_some(menu);
         self.viewing = None;
         self.menu.is_some()
     }
@@ -316,7 +328,6 @@ impl Desktop {
             });
         let bar = prompt_bar()
             .child(self.model_pill(c, &pick, project.clone(), cx))
-            .children(self.effort_chip(c, &pick, project.clone(), cx))
             .child(self.access_chip(c, &pick, project, cx))
             .children((team == Some(true)).then(|| team_chip::team_chip("composer-team-remove", move |this, _, _| slot(this).draft.team = false, cx)))
             .child(div().flex_1())
@@ -386,20 +397,25 @@ pub(crate) fn picker(pill: Div, id: impl Into<ElementId>, open: bool) -> Statefu
     pill.id(id).cursor_pointer().when(open, |d| d.bg(FILL_2)).hover(|s| s.bg(FILL_2)).child(icon("chevron-down", 12., TEXT_4))
 }
 
-/// A chip's menu, closed by a press outside it.
-pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mut Context<Desktop>) -> Div {
-    let menu = ui::pop(div().id(id))
+/// A menu's `rows` under `title`.
+pub(crate) fn menu_list(id: impl Into<ElementId>, title: impl Into<SharedString>, width: f32, rows: impl IntoIterator<Item = impl IntoElement>) -> Stateful<Div> {
+    ui::pop(div().id(id))
         .w(px(width))
         .max_h(px(360.))
         .overflow_y_scroll()
-        .p(px(5.))
+        .p(px(model_menu::PAD))
         .flex()
         .flex_col()
-        .gap(px(2.))
-        // Menus hang over the page; without this a click on one also lands on what it covers.
-        .occlude()
+        .gap(px(model_menu::GAP))
         .child(menu_title(title))
         .children(rows)
+}
+
+/// A chip's menu, closed by a press outside it.
+pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mut Context<Desktop>) -> Div {
+    let menu = menu_list(id, title, width, rows)
+        // Menus hang over the page; without this a click on one also lands on what it covers.
+        .occlude()
         .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             slot(this).draft.menu = None;
             cx.notify();
@@ -439,6 +455,16 @@ mod tests {
         draft.toggle(Menu::Model);
         draft.choose(None, codex());
         assert!(draft.menu.is_none());
+    }
+
+    #[test]
+    fn the_model_pill_closes_its_menu_from_either_list_beside_it() {
+        for list in [Menu::Model, Menu::Effort] {
+            let mut draft = Draft { menu: Some(list), ..Draft::default() };
+            assert!(!draft.toggle(Menu::ModelAndEffort));
+        }
+        let mut draft = Draft { menu: Some(Menu::Access), ..Draft::default() };
+        assert!(draft.toggle(Menu::ModelAndEffort));
     }
 
     #[test]

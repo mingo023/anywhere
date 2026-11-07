@@ -179,7 +179,7 @@ impl Desktop {
                 .items_center()
                 .gap(px(4.))
                 .child(div().flex_1().text_size(px(11.5)).text_color(TEXT_4).child(format!("Posts to GitHub as you · {}", ui::os_keys("⌘↩"))))
-                .child(small("pr-reply-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_reply(window, cx))))
+                .child(small("pr-reply-cancel", Variant::Secondary, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_reply(window, cx))))
                 .child(send);
             div().flex().flex_col().gap(px(6.)).child(field).child(actions)
         } else {

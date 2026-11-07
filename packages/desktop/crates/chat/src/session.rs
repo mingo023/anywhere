@@ -1,4 +1,4 @@
-use crate::rows::rows_from;
+use crate::rows::{at_work, rows_from};
 use crate::{splice, Backend, Block, Delivery, Fold, Outgoing, Row, Transcript, Turn};
 use std::ops::Range;
 
@@ -19,7 +19,8 @@ pub struct Session {
     pub outgoing: Outgoing,
     revision: u64,
     fold: Fold,
-    /// Sends the transcript shows, and whether one is still on its way.
+    /// Sends the transcript shows, and whether a working row trails them: a send is on its way, or the agent compacts
+    /// where its transcript can't show it.
     sends: (usize, bool),
 }
 
@@ -35,7 +36,8 @@ impl Session {
             (turns - replaced.len(), replaced)
         });
         self.outgoing.settle(&self.transcript, working, now_ms);
-        let sends = (self.outgoing.echoed().count(), self.outgoing.echoed().any(|(_, p)| p.delivery == Delivery::Sending));
+        let sending = self.outgoing.echoed().any(|(_, p)| p.delivery == Delivery::Sending);
+        let sends = (self.outgoing.echoed().count(), sending || (self.outgoing.compacting() && !at_work(&self.transcript)));
         if old.is_none() && sends == self.sends {
             return None;
         }
@@ -577,6 +579,20 @@ mod tests {
         assert!(s.outgoing.released().is_empty(), "the agent still works");
         s.update(backend, 3, &working, true, 30);
         assert!(s.outgoing.released().is_empty());
+    }
+
+    #[test]
+    fn a_compaction_shows_a_working_row_until_it_ends() {
+        let backend = for_provider("claude");
+        let mut s = Session::default();
+        let items = vec![item(1, json!({"kind": "user", "text": "go"})), item(2, json!({"kind": "result", "ok": true}))];
+        s.update(backend, 1, &items, false, 0);
+        s.outgoing.set_compacting(true);
+        s.update(backend, 1, &items, true, 1_000);
+        assert_eq!(s.rows.last(), Some(&Row::Working));
+        s.outgoing.set_compacting(false);
+        s.update(backend, 1, &items, false, 2_000);
+        assert_ne!(s.rows.last(), Some(&Row::Working));
     }
 
     #[test]

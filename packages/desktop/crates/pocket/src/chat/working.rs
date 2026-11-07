@@ -17,6 +17,10 @@ pub(super) fn sending() -> Div {
     div().py(px(4.)).text_size(px(14.)).line_height(px(20.)).child(shimmer("chat-sending", "Sending…", TEXT_3))
 }
 
+pub(super) fn compacting() -> Div {
+    div().py(px(4.)).text_size(px(14.)).line_height(px(20.)).child(shimmer("chat-compacting", "Compacting…", TEXT_3))
+}
+
 pub(super) fn not_delivered(id: impl Into<ElementId>) -> Stateful<Div> {
     div().id(id).flex().items_center().gap(px(8.)).py(px(4.)).text_size(px(13.)).text_color(FAILED).cursor_pointer().child("Not delivered — click to retry")
 }

@@ -205,8 +205,12 @@ pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
 pub const SIDE: Token = Token::new(0xfafafbb3, 0x00000000);
 /// The left sidebar, and the rail it folds to; opaque in dark so it reads darker than the glass beside it.
 pub const NAV: Token = Token::new(0xfafafbb3, 0x0e0e0eff);
-/// Opaque because GPUI has no backdrop blur.
+/// Opaque, for floating surfaces with no blur behind them.
 pub const POPOVER: Token = Token::new(0xffffffff, 0x232323ff);
+/// Dark menus and popovers where the renderer blurs: a faint tint over the blur.
+pub const POPOVER_GLASS: Token = Token::fixed(0xebebeb05);
+/// How far `POPOVER_GLASS` blurs what's behind it.
+pub const POPOVER_BLUR: f32 = 24.;
 pub const GLASS: Token = Token::new(0xffffff9e, 0x2a2a2acc);
 pub const HIGHLIGHT: Token = Token::new(0xfffffff2, 0xffffff0f);
 /// Near-clear in dark: a wide black blur on a dark window reads as a smudge, so the ring alone lifts the surface.
@@ -250,6 +254,10 @@ pub const FAILED_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff);
 pub const SUCCESS: Token = Token::new(0x2b9a66ff, 0x30a46cff);
 pub const SUCCESS_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff);
 pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
+/// An active goal's blue, whatever the accent.
+pub const GOAL_TEXT: Token = Token::new(0x0b5fb5ff, 0x70b8ffff);
+pub const GOAL_BG: Token = Token::fixed(0x3e8ef724);
+pub const GOAL_BG_STRONG: Token = Token::fixed(0x3e8ef73d);
 pub const WORKING: Token = Token::new(0xcc4e00ff, 0xf76b15ff);
 pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
 
@@ -675,19 +683,20 @@ mod tests {
     use super::contrast::{over, ratio};
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
-        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
+        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
         ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, WORKING, accent_rgba, gradient_lead, gradient_opacity,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, SpringState, rgba};
 
-    const TEXT_ROLES: [(&str, Token); 11] = [
+    const TEXT_ROLES: [(&str, Token); 12] = [
         ("TEXT", TEXT),
         ("TEXT_BODY", TEXT_BODY),
         ("TEXT_2", TEXT_2),
         ("WAITING_TEXT", WAITING_TEXT),
         ("SUCCESS_TEXT", SUCCESS_TEXT),
         ("FAILED_TEXT", FAILED_TEXT),
+        ("GOAL_TEXT", GOAL_TEXT),
         ("ACCENT", ACCENT),
         ("ACCENT_LINK", ACCENT_LINK),
         ("DIFF_ADD_TEXT", DIFF_ADD_TEXT),

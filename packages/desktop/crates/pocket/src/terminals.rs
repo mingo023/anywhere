@@ -384,8 +384,8 @@ impl Desktop {
         let pick = self.last_pick(Some(&project));
         let mut spec = pick.spec(&project, agents::locals::checkout(&tree), "");
         spec["chat"] = true.into();
-        let info = self.agents.provider_info(&pick.provider);
-        self.store.agents.launch(&mut spec, info.plan, &info.efforts);
+        let (plan, efforts) = (self.agents.provider_info(&pick.provider).plan, self.launch_efforts(&pick.provider, &pick.model));
+        self.store.agents.launch(&mut spec, plan, &efforts);
         if let Some(request) = self.send_create(spec) {
             self.terminals.tab_chats.insert(request, place);
         }

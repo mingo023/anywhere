@@ -108,7 +108,7 @@ impl Desktop {
             }))
         });
         let worker = t.worker.clone();
-        let who = div().flex_none().flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(TEXT_3).child(provider_icon(&t.agent, 12., TEXT_3)).child(model_name(&t.model, self.catalog_models()));
+        let who = div().flex_none().flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(TEXT_3).child(provider_icon(&t.agent, 12., TEXT_3)).child(model_name(&t.model, self.models_of(&t.agent)));
         div()
             .id(id(format!("team-row:{}", t.id)))
             .h(px(40.))

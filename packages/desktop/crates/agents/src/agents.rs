@@ -743,6 +743,19 @@ pub fn model_name(model: &str) -> String {
     if version.is_empty() { family } else { format!("{family} {}", version.join(".")) }
 }
 
+/// One model a provider's CLI lists.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ListedModel {
+    /// What the agent is started or switched with, as "opus".
+    pub value: String,
+    pub name: String,
+    /// The id the agent reports running it as, as "claude-opus-5-5".
+    pub resolved: String,
+    pub efforts: Vec<String>,
+    /// The effort it runs on when none is picked; "" when the CLI doesn't say.
+    pub default_effort: String,
+}
+
 #[derive(Deserialize)]
 struct CodexModel {
     slug: String,
@@ -752,6 +765,8 @@ struct CodexModel {
     visibility: String,
     #[serde(default)]
     supported_reasoning_levels: Vec<CodexLevel>,
+    #[serde(default)]
+    default_reasoning_level: String,
 }
 
 #[derive(Deserialize)]
@@ -760,22 +775,52 @@ struct CodexLevel {
 }
 
 /// The models `codex debug models` lists; hidden ones are left out.
-fn codex_catalog(json: &str) -> Vec<CodexModel> {
+pub fn codex_catalog(json: &str) -> Vec<ListedModel> {
     #[derive(Deserialize)]
     struct Catalog {
         models: Vec<CodexModel>,
     }
-    serde_json::from_str::<Catalog>(json).map_or_else(|_| Vec::new(), |c| c.models.into_iter().filter(|m| m.visibility == "list").collect())
+    let Ok(c) = serde_json::from_str::<Catalog>(json) else { return Vec::new() };
+    c.models
+        .into_iter()
+        .filter(|m| m.visibility == "list")
+        .map(|m| ListedModel {
+            name: if m.display_name.is_empty() { m.slug.clone() } else { m.display_name },
+            resolved: m.slug.clone(),
+            value: m.slug,
+            efforts: m.supported_reasoning_levels.into_iter().map(|l| l.effort).collect(),
+            default_effort: m.default_reasoning_level,
+        })
+        .collect()
 }
 
-/// The models `codex debug models` lists, as (slug, name).
-pub fn codex_models(json: &str) -> Vec<(String, String)> {
-    codex_catalog(json).into_iter().map(|m| (m.slug.clone(), if m.display_name.is_empty() { m.slug } else { m.display_name })).collect()
-}
-
-/// Each listed model's efforts, as (slug, efforts).
-pub fn codex_efforts(json: &str) -> Vec<(String, Vec<String>)> {
-    codex_catalog(json).into_iter().map(|m| (m.slug, m.supported_reasoning_levels.into_iter().map(|l| l.effort).collect())).collect()
+/// The models Claude Code's answer to `initialize` lists, but "default", which only stands for one of the others.
+pub fn claude_catalog(output: &str) -> Vec<ListedModel> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ClaudeModel {
+        value: String,
+        display_name: String,
+        resolved_model: String,
+        #[serde(default)]
+        supported_effort_levels: Vec<String>,
+    }
+    #[derive(Deserialize)]
+    struct Init {
+        models: Vec<ClaudeModel>,
+    }
+    output
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find(|l| l["type"] == "control_response")
+        .and_then(|l| Init::deserialize(&l["response"]["response"]).ok())
+        .map_or_else(Vec::new, |init| {
+            init.models
+                .into_iter()
+                .filter(|m| m.value != "default")
+                .map(|m| ListedModel { value: m.value, name: m.display_name, resolved: m.resolved_model, efforts: m.supported_effort_levels, default_effort: String::new() })
+                .collect()
+        })
 }
 
 /// A reply to a permission ask. pocketd interrupts the turn on a deny.
@@ -1298,15 +1343,21 @@ mod tests {
 
     #[test]
     fn codex_lists_its_shown_models_by_name_and_nothing_from_bad_output() {
-        let json = r#"{"models":[{"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list"},{"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
-        assert_eq!(super::codex_models(json), [("gpt-6-sol".to_string(), "GPT-6-Sol".to_string()), ("gpt-5.6-luna".to_string(), "gpt-5.6-luna".to_string())]);
-        assert!(super::codex_models("error: not logged in").is_empty());
+        let json = r#"{"models":[{"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list","default_reasoning_level":"ultra","supported_reasoning_levels":[{"effort":"low","description":"Fast"},{"effort":"ultra","description":"Most"}]},{"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
+        let listed: Vec<_> = super::codex_catalog(json).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts, m.default_effort)).collect();
+        let s = |v: &str| v.to_string();
+        assert_eq!(listed, [(s("gpt-6-sol"), s("GPT-6-Sol"), s("gpt-6-sol"), vec![s("low"), s("ultra")], s("ultra")), (s("gpt-5.6-luna"), s("gpt-5.6-luna"), s("gpt-5.6-luna"), vec![], s(""))]);
+        assert!(super::codex_catalog("error: not logged in").is_empty());
     }
 
     #[test]
-    fn codex_lists_each_shown_models_efforts() {
-        let json = r#"{"models":[{"slug":"gpt-6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"Fast"},{"effort":"ultra","description":"Most"}]},{"slug":"gpt-reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
-        assert_eq!(super::codex_efforts(json), [("gpt-6-sol".to_string(), vec!["low".to_string(), "ultra".to_string()]), ("gpt-5.6-luna".to_string(), vec![])]);
+    fn claude_lists_what_initialize_answers_but_its_default() {
+        let out = r#"{"type":"system","subtype":"init"}
+{"type":"control_response","response":{"subtype":"success","request_id":"m","response":{"commands":[],"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","supportedEffortLevels":["low"]},{"value":"fable","resolvedModel":"claude-fable-5-1","displayName":"Fable 5.1","supportsEffort":true,"supportedEffortLevels":["low","max"]},{"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5"}]}}}"#;
+        let listed: Vec<_> = super::claude_catalog(out).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts)).collect();
+        let s = |v: &str| v.to_string();
+        assert_eq!(listed, [(s("fable"), s("Fable 5.1"), s("claude-fable-5-1"), vec![s("low"), s("max")]), (s("claude-haiku-4-5-20251001"), s("Haiku 4.5"), s("claude-haiku-4-5-20251001"), vec![])]);
+        assert!(super::claude_catalog("Error: not logged in").is_empty());
     }
 
     #[test]

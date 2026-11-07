@@ -167,6 +167,7 @@ fn main() {
                 desktop.list_worktrees(cx);
                 if !capturing {
                     desktop.connect_hosts(window, cx);
+                    desktop.load_models(cx);
                 }
                 desktop
             });

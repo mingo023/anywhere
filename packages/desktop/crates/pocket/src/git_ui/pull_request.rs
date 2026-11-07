@@ -4,6 +4,8 @@ mod composer;
 mod notice;
 mod side;
 
+pub(crate) use card::{glyph_slot, review_icon, row, small};
+
 use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::changes::push;
@@ -68,6 +70,11 @@ pub(crate) fn place(t: &Thread) -> String {
     t.line.map_or_else(|| t.path.clone(), |l| format!("{}:{l}", t.path))
 }
 
+/// The first line of what opened thread `t`.
+pub(crate) fn opening(t: &Thread) -> String {
+    t.comments.first().map(|c| c.body.lines().next().unwrap_or_default().to_string()).unwrap_or_default()
+}
+
 /// What an agent is asked to fix on PR `pr`: each failed check with its log, each review thread with the code it's on.
 pub(crate) fn fix_prompt(pr: &Pr, checks: &[&Check], threads: &[&Thread]) -> String {
     let checks = checks.iter().map(|c| format!("The check \"{}\" failed. Its log: {}", c.name, c.url));
@@ -95,7 +102,7 @@ pub(crate) fn to_fix<'a>(pr: &'a Pr, sent: Option<&Sent>) -> (Vec<&'a Check>, Ve
     (checks, threads)
 }
 
-fn plural(n: usize, one: &str) -> String {
+pub(crate) fn plural(n: usize, one: &str) -> String {
     if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
 }
 
@@ -135,6 +142,11 @@ pub(crate) fn resolving_text(agent: &str) -> String {
 /// Whether the open PR holds something for someone to fix: a conflict, a failed check, asked-for changes or an unresolved thread, draft or not.
 pub(crate) fn pr_wants_you(pr: &Pr) -> bool {
     pr.state == PrState::Open && (pr.mergeable == Mergeable::Conflicting || pr.checks.failed > 0 || pr.review == Review::ChangesRequested || pr.unresolved().next().is_some())
+}
+
+/// What `tree`'s card says while `gh` works for it; its open composer says it instead.
+pub(crate) fn card_busy(busy: Option<&(String, &'static str)>, composing: Option<&str>, tree: &str) -> Option<&'static str> {
+    busy.filter(|(t, _)| t == tree && composing != Some(tree)).map(|(_, text)| *text)
 }
 
 /// Where the PR stands in one line, in its colour: all a folded card says.
@@ -305,11 +317,12 @@ pub(crate) struct PullRequest {
     /// The worktree whose PR the composer writes.
     pub(crate) composing: Option<String>,
     pub(crate) writing: bool,
-    /// What the composer's or card's button says while `gh` works.
-    pub(crate) busy: Option<&'static str>,
+    /// The worktree `gh` works for, and what its composer's or card's button says meanwhile.
+    pub(crate) busy: Option<(String, &'static str)>,
     pub(crate) error: Option<String>,
     pub(crate) ship_menu: bool,
     pub(crate) merge_menu: bool,
+    pub(crate) create_menu: bool,
     /// The thread the reply box is under.
     pub(crate) replying: Option<String>,
     pub(crate) notice: Option<Notice>,
@@ -348,6 +361,7 @@ impl PullRequest {
             error: None,
             ship_menu: false,
             merge_menu: false,
+            create_menu: false,
             replying: None,
             notice: None,
             track: Track::default(),
@@ -366,7 +380,7 @@ impl Desktop {
 
     /// Where the PR of `tree` stands, in its colour, as its card's header says it.
     pub(crate) fn pr_verdict(&self, tree: &str, pr: &Pr) -> (Token, String) {
-        let busy = self.pr.busy.filter(|_| self.pr.composing.is_none());
+        let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), tree);
         verdict(pr, self.pr.track.fixing(tree, pr).as_ref(), busy, self.fix_agent())
     }
 
@@ -452,7 +466,7 @@ impl Desktop {
         }
         let body = self.pr.body.read(cx).value().to_string();
         let (dir, push_argv, draft) = (tree.clone(), self.push_argv(), self.store.git.draft);
-        self.pr.busy = Some(if draft { "Creating draft PR…" } else { "Creating PR…" });
+        self.pr.busy = Some((tree.clone(), if draft { "Creating draft PR…" } else { "Creating PR…" }));
         self.pr.error = None;
         let (argv, gh) = (github::create_argv(&base, &title, draft), self.gh_in(&dir));
         let task = cx.background_executor().spawn(async move {
@@ -511,8 +525,8 @@ impl Desktop {
         if self.pr.busy.is_some() {
             return;
         }
-        self.pr.busy = Some(busy);
-        self.pr.merge_menu = false;
+        self.pr.busy = Some((dir.clone(), busy));
+        (self.pr.merge_menu, self.pr.create_menu) = (false, false);
         let gh = self.gh_in(&dir);
         let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, "") });
         cx.spawn(async move |this, cx| {
@@ -778,7 +792,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ship, Track, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, review_lines, ship, tally, to_fix, verdict};
+    use super::{Ship, Track, card_busy, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, review_lines, ship, tally, to_fix, verdict};
     use crate::git_ui::pull_requests::PrItem;
     use git::github::{Check, Checks, Comment, Gate, Mergeable, Outcome, Pr, PrState, Review, Thread};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
@@ -787,6 +801,14 @@ mod tests {
     fn repo(files: usize, ahead: usize, unpushed: Option<usize>) -> Repo {
         let file = |i: usize| FileStat { path: format!("{i}.rs"), added: 1, removed: 0, staged: false, unstaged: true, status: 'M', old_path: None };
         Repo { branch: "fix".into(), base: Some("origin/main".into()), ahead, unpushed, files: (0..files).map(file).collect(), ..Repo::default() }
+    }
+
+    #[test]
+    fn a_card_shows_its_own_merge_while_another_worktree_composes() {
+        let merging = ("/a".to_string(), "Merging…");
+        assert_eq!(card_busy(Some(&merging), Some("/b"), "/a"), Some("Merging…"));
+        assert_eq!(card_busy(Some(&merging), None, "/b"), None);
+        assert_eq!(card_busy(Some(&("/a".to_string(), "Creating PR…")), Some("/a"), "/a"), None);
     }
 
     #[test]

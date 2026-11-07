@@ -26,7 +26,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 245] = [
+const STEPS: [(&str, Step); 247] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
@@ -292,6 +292,16 @@ const STEPS: [(&str, Step); 245] = [
         if let Some(a) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)) {
             a.goal = Some(goal);
         }
+        cx.notify();
+    }),
+    ("chat-goal-paused", |d, _, cx| {
+        if let Some(goal) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)).and_then(|a| a.goal.as_mut()) {
+            goal.status = agents::GoalStatus::Paused;
+        }
+        cx.notify();
+    }),
+    ("chat-goal-open", |d, _, cx| {
+        d.chats.composer.draft.toggle(Menu::Goal);
         cx.notify();
     }),
     ("chat-typed-long", |d, window, cx| {

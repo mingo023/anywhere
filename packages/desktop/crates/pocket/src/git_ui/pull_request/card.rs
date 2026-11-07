@@ -1,4 +1,4 @@
-use super::{CheckRows, check_rows, fix_summary, gate_text, place, resolving_text, review_lines, tally, to_fix};
+use super::{CheckRows, card_busy, check_rows, fix_summary, gate_text, opening, place, resolving_text, review_lines, tally, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
 use git::github::{Check, Gate, Method, Outcome, Pr, PrState, Review, ThreadState};
@@ -10,7 +10,7 @@ use ui::Variant;
 const CHECKS_SHOWN: usize = 6;
 const COMMENTS_SHOWN: usize = 3;
 
-pub(super) fn small(id: impl Into<ElementId>, v: Variant, label: impl Into<SharedString>) -> Stateful<Div> {
+pub(crate) fn small(id: impl Into<ElementId>, v: Variant, label: impl Into<SharedString>) -> Stateful<Div> {
     ui::button(id, v, None, label.into()).h(px(24.)).px(px(9.)).gap(px(5.)).rounded(px(7.)).text_size(px(12.))
 }
 
@@ -37,7 +37,7 @@ pub(super) fn who(login: &str) -> String {
     login.chars().filter(|c| c.is_alphanumeric()).take(2).collect::<String>().to_uppercase()
 }
 
-pub(super) fn review_icon(r: Review) -> AnyElement {
+pub(crate) fn review_icon(r: Review) -> AnyElement {
     match r {
         Review::Approved => icon("check", 13., SUCCESS).into_any_element(),
         Review::ChangesRequested => icon("warning", 13., FAILED).into_any_element(),
@@ -46,7 +46,7 @@ pub(super) fn review_icon(r: Review) -> AnyElement {
     }
 }
 
-pub(super) fn row() -> Div {
+pub(crate) fn row() -> Div {
     div().min_h(px(26.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_2)
 }
 
@@ -56,7 +56,7 @@ fn fact(label: &'static str, value: Div) -> Div {
     div().flex().items_start().gap(px(8.)).child(label).child(value.flex_1().min_w_0())
 }
 
-fn glyph_slot(glyph: impl IntoElement) -> Div {
+pub(crate) fn glyph_slot(glyph: impl IntoElement) -> Div {
     div().size(px(13.)).flex_none().flex().items_center().justify_center().child(glyph)
 }
 
@@ -81,7 +81,7 @@ impl Desktop {
         let can_send = !self.agents.observe_only();
         let fixing = self.pr.track.fixing(&tree, pr);
         let fixing = fixing.as_ref();
-        let busy = self.pr.busy.filter(|_| self.pr.composing.is_none());
+        let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), &tree);
         let (color, said) = self.pr_verdict(&tree, pr);
         let open = pr.state == PrState::Open;
         let merged = pr.state == PrState::Merged && self.deletable(&tree);
@@ -221,7 +221,7 @@ impl Desktop {
         let comments = pr.unresolved().take(COMMENTS_SHOWN).enumerate().map(|(i, t)| {
             let state = t.state(self.pr.track.thread_sent(tree, pr, &t.id));
             let first = t.comments.first();
-            let body = first.map(|c| c.body.lines().next().unwrap_or_default().to_string()).unwrap_or_default();
+            let body = opening(t);
             let (id, open) = (t.id.clone(), t.id.clone());
             let send = (can_send && state == ThreadState::Open).then(|| {
                 small(("pr-comment-send", i), Variant::Secondary, "Send").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

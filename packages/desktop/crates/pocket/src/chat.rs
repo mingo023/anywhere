@@ -13,6 +13,7 @@ mod meta;
 mod permission;
 mod phase;
 mod pin;
+mod pr_link;
 mod question;
 mod question_marker;
 mod reveal;

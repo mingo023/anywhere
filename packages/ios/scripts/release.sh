@@ -2,7 +2,8 @@
 # Uploads the iPhone app to TestFlight and submits it to the public external group (ADR 0007).
 # Usage: packages/ios/scripts/release.sh <version>    e.g. 0.2.0-beta.1, uploaded as 0.2.0: App Store versions are numbers only.
 # Needs Xcode, xcodegen, CHANGELOG.md's section for the version (its "What to Test"), and an App Store Connect API key
-# with the Admin role, which cloud signing needs: ANYWHERE_ASC_KEY (path to its .p8), ANYWHERE_ASC_KEY_ID, ANYWHERE_ASC_ISSUER.
+# with the Admin role, which cloud signing needs: ANYWHERE_ASC_KEY (path to its .p8), ANYWHERE_ASC_KEY_ID, ANYWHERE_ASC_ISSUER,
+# and an Apple Development identity of the team in the keychain to sign the archive.
 # ANYWHERE_TESTFLIGHT_GROUP names the group, default "Public".
 set -eu
 IOS="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,6 +13,9 @@ MARKETING="${VERSION%%-*}"
 BUILD="$(date -u +%y%m%d%H%M)"
 OUT="$(mktemp -d)"
 : "${ANYWHERE_ASC_KEY:?}" "${ANYWHERE_ASC_KEY_ID:?}" "${ANYWHERE_ASC_ISSUER:?}"
+# Without a Development identity, the API key makes Xcode mint a new certificate per archive, until the team's limit.
+security find-identity -v -p codesigning | grep -q '"Apple Development: ' \
+  || { echo "release-ios: no Apple Development identity in the keychain" >&2; exit 1; }
 
 # TestFlight caps "What to Test" at 4000 characters.
 awk -v v="## $VERSION" '$0 == v { on = 1; next } on && /^## / { exit } on' "$IOS/../../CHANGELOG.md" | sed '/./,$!d' | head -c 4000 > "$OUT/notes.md"

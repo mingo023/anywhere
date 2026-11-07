@@ -11,7 +11,6 @@ pub(crate) mod suggest;
 
 use super::question::Wizard;
 use suggest::Prompt;
-use crate::composer::model_menu::{GAP, PAD};
 use crate::composer::{Attachment, Draft, Menu};
 use crate::composer::add_menu::{self, Opens};
 use crate::composer::{team_chip, team_offered};
@@ -258,18 +257,16 @@ fn close_menu(this: &mut Desktop, cx: &mut Context<Desktop>) {
 /// A chip's menu of `rows` under `title`, opening upward from the chip's left edge as the composer sits at the bottom;
 /// a press outside closes it.
 fn chip_menu(id: &'static str, title: &'static str, width: f32, rows: impl IntoIterator<Item = impl IntoElement>, cx: &mut Context<Desktop>) -> Div {
-    let menu = ui::pop(div().id(id))
-        .w(px(width))
-        .max_h(px(360.))
-        .overflow_y_scroll()
-        .p(px(PAD))
-        .flex()
-        .flex_col()
-        .gap(px(GAP))
+    hang(id, crate::composer::menu_list(id, title, width, rows), cx)
+}
+
+/// `menu` opening upward from the chip's left edge; a press outside it closes it.
+fn hang(id: &'static str, menu: impl IntoElement, cx: &mut Context<Desktop>) -> Div {
+    let menu = div()
+        .id(SharedString::from(format!("{id}-out")))
         // Menus hang over the transcript; without this a click on one also lands on what it covers.
         .occlude()
-        .child(crate::composer::menu_title(title))
-        .children(rows)
+        .child(menu)
         .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| close_menu(this, cx)));
     let menu = ui::menu_in(SharedString::from(format!("{id}-in")), menu);
     div().absolute().top(px(-6.)).left_0().child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(menu)).with_priority(1))
@@ -434,6 +431,7 @@ impl Desktop {
             ("changes.menu", self.changes.menu),
             ("pr.ship_menu", self.pr.ship_menu),
             ("pr.merge_menu", self.pr.merge_menu),
+            ("pr.create_menu", self.pr.create_menu),
             ("sidebar.picker", self.sidebar.picker.open),
             ("sidebar.add_menu", self.sidebar.add_menu),
             ("sidebar.organize", self.sidebar.organize.menu),
@@ -640,7 +638,6 @@ impl Desktop {
         let paused = view.is_some_and(|v| v.session.outgoing.paused(&v.session.transcript));
         let tray = (mode == Mode::Prompt).then(|| self.queue_tray(&agent.id, pending, paused, cx)).flatten();
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
-        let goal = (mode == Mode::Prompt).then(|| self.goal_strip(agent, cx)).flatten();
         let interrupt = self.chat_caps(&agent.provider).interrupt;
         let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);
         let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx))).flatten();
@@ -655,7 +652,7 @@ impl Desktop {
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue, team), said, asking, cx.reduce_motion());
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
         let island = self.team_island(agent, cx);
-        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(island).children(map).children(goal).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
+        let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(island).children(map).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
         div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
     }
 
@@ -745,8 +742,8 @@ impl Desktop {
         let (t, a) = (terminal.to_string(), agent.id.clone());
         let text = crate::composer::prompt_text().child(input);
         let bar = crate::composer::prompt_bar()
+            .children(self.chat_goal_pill(agent, view_only, cx))
             .child(self.chat_model_pill(agent, view_only, cx))
-            .children(self.chat_effort_pill(agent, view_only, cx))
             .children(self.chat_access_pill(agent, view_only, cx))
             .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
             .children(chip)

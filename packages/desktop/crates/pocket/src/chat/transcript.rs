@@ -5,7 +5,7 @@ use super::markdown::{self, Docs, Highlights};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
-use super::{end_row, meta, phase, question_marker, sticky, sub_agent, todos, user_bubble};
+use super::{end_row, meta, phase, pr_link, question_marker, sticky, sub_agent, todos, user_bubble};
 use crate::creating;
 use crate::desktop::Desktop;
 use crate::explorer::mermaid;
@@ -181,6 +181,7 @@ impl View {
     fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item]) -> Vec<(u64, String)> {
         let before: HashMap<String, usize> = latest_texts(&self.session.transcript).map(|m| (m.id.clone(), m.text.len())).collect();
         let tail = self.session.live_tail().map(|f| self.session.transcript.turns[f].id.clone());
+        self.session.outgoing.set_compacting(agent.compacting);
         if let Some((changed, range, count)) = self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms()) {
             if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
                 self.settled = Some((format!("{turn}#fold"), Instant::now()));
@@ -616,6 +617,13 @@ impl Desktop {
             let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
         };
+        // Only for a message linking a PR: `fix_agent` walks every agent, and this runs per row each frame.
+        let links_pr = self.chats.views.get(agent).and_then(|v| match v.session.rows.get(ix) {
+            Some(Row::Text { turn, block, .. }) => message(&v.session.transcript, *turn, *block),
+            _ => None,
+        });
+        let fix_to = links_pr.is_some_and(|m| m.text.contains("/pull/")).then(|| pr_link::FixTo { tree: self.cwd(), agent: self.fix_agent(), can_send: !self.agents.observe_only() });
+        let desktop = cx.weak_entity();
         let diagrams = self.chats.diagrams.clone();
         let Some(view) = self.chats.views.get_mut(agent) else { return div().into_any_element() };
         // Field by field, so the code highlights stay free to borrow mutably.
@@ -735,11 +743,11 @@ impl Desktop {
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
                     Some((lang, code)) => {
-                        let (styles, start) = view.code.get(&id, &code, is_dark());
+                        let (colours, start) = view.code.get(&id, &code, is_dark());
                         if start {
                             highlight = Some((lang.to_string(), code.to_string()));
                         }
-                        let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), styles));
+                        let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), colours));
                         let block = match reveal {
                             Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,
@@ -747,7 +755,11 @@ impl Desktop {
                         // An indented fence belongs to the list item above it.
                         if text.starts_with(' ') { div().pl(px(markdown::LIST_INDENT)).child(block) } else { block }
                     }
-                    None => div().child(markdown::block(TextView::new(&view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx)), open.clone())),
+                    None => {
+                        let peeks = fix_to.as_ref().map(|to| pr_link::peeks(text, &self.prs, &self.pr, to)).unwrap_or_default();
+                        let doc = view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx);
+                        div().child(markdown::block(TextView::new(&doc), open.clone()).plugin(pr_link::PrLinks { peeks, open: open.clone(), desktop: desktop.clone() }))
+                    }
                 };
                 let plan = range.start == 0 && !text.trim_start().starts_with('#') && matches!(t.turns.get(*turn).and_then(|t| t.blocks.get(*block)), Some(Block::Plan(_)));
                 div().flex().flex_col().gap(px(8.)).children(plan.then(todos::plan_header)).child(body)
@@ -787,6 +799,7 @@ impl Desktop {
                 None => div(),
             },
             Row::Live { turn } => fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms()))),
+            Row::Working if s.outgoing.compacting() => working::compacting(),
             Row::Working => working::sending(),
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
                 Some((_, p)) => {
