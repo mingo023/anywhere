@@ -59,20 +59,9 @@ struct ComparePicker: View {
     }
 
     private func row(_ value: String?, label: String, detail: String?) -> some View {
-        Button {
+        BranchRow(label, detail: detail, picked: picked == value) {
             picked = value
             dismiss()
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(label).font(Typography.code).foregroundStyle(Palette.text.color)
-                    if let detail { Text(detail).font(Typography.caption).foregroundStyle(Palette.text3.color) }
-                }
-                Spacer()
-                if picked == value { Image(systemName: "checkmark").foregroundStyle(Palette.accent.color) }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 }
