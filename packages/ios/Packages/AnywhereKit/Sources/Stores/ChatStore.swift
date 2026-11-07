@@ -48,6 +48,8 @@ public final class ChatStore: HostStore {
     public private(set) var answering: String?
     /// A New Session `/new` asked to open, until the screen opens it.
     public private(set) var newSession: NewSession?
+    /// The New Session the screen opened, with the draft that asked for it, until a session like it starts.
+    @ObservationIgnored var asked: (session: NewSession, draft: Draft)?
     /// Messages being let out as they stream, by message id.
     public private(set) var reveals: [String: Reveal] = [:]
     /// A reply that just settled, by its fold's row id, so its label fades in.
@@ -490,7 +492,18 @@ public final class ChatStore: HostStore {
         newSession = NewSession(cwd: summary?.cwd, prompt: prompt.isEmpty ? nil : prompt)
     }
 
-    public func openedNewSession() { newSession = nil }
+    public func openedNewSession() {
+        asked = newSession.map { ($0, draft) }
+        newSession = nil
+    }
+
+    /// A session started. One with the prompt `/new` asked for is the New Session this chat opened, so the draft that
+    /// asked for it goes, unless it was changed since.
+    public func started(prompt: String?) {
+        guard let asked, asked.session.prompt == prompt else { return }
+        self.asked = nil
+        if draft == asked.draft { draft = Draft() }
+    }
 
     /// Sends `text` as an `agent.prompt` and returns the key a refusal names it by.
     @discardableResult

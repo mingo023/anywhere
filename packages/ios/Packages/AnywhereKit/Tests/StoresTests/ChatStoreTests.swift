@@ -415,6 +415,26 @@ struct ChatStoreTests {
         #expect(c.newSession == nil)
     }
 
+    @Test("the draft that asked for a New Session goes once a session with its prompt starts, unless it changed since")
+    func newSessionStartClearsDraft() {
+        let c = ChatStore(agentId: "a1")
+        c.seed(agent(), requests: [], hello: Sample.hello)
+        c.draft.text = "/new fix the build"
+        c.startNewSession("fix the build")
+        c.openedNewSession()
+        c.started(prompt: "something else")
+        #expect(c.draft.text == "/new fix the build")
+        c.started(prompt: "fix the build")
+        #expect(c.draft.isEmpty)
+
+        c.draft.text = "/new"
+        c.startNewSession("")
+        c.openedNewSession()
+        c.draft.text = "/new, then this"
+        c.started(prompt: nil)
+        #expect(c.draft.text == "/new, then this")
+    }
+
     @Test("a latest page that starts past what's held drops it and is taken as the first page")
     func gapTakesAFreshPage() {
         let c = chat([timeline([item("i1", 1), item("i2", 2), item("i3", 3)])])

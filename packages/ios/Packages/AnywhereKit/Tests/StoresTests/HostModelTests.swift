@@ -32,6 +32,21 @@ struct HostModelTests {
         #expect(h.link == .ended(.revoked))
     }
 
+    @Test("a launch that starts tells the chats, so the one whose /new asked for it lets its draft go")
+    func startTellsChats() {
+        let h = host()
+        h.apply([.connected(Sample.hello)] + Sample.snapshot.map(ConnectionEvent.message))
+        let chat = h.chat("a-needs")
+        chat.draft.text = "/new fix the build"
+        chat.startNewSession("fix the build")
+        chat.openedNewSession()
+        let spec = LaunchSpec(project: "/p", checkout: .worktree("/p"), provider: .claude, access: .edits, plan: false, prompt: "fix the build")
+        h.workspace.add(LaunchPlan(spec: spec), requestId: "r1", title: "", place: "/p")
+        h.apply([.message(.agentCreating(.init(requestId: "r1", terminalId: "t-a-working", cwd: "/p", setup: false))),
+                 .message(.agentList(.init(agents: Sample.agents)))])
+        #expect(chat.draft.isEmpty)
+    }
+
     @Test("a chat is made once per agent and dropped on close")
     func chats() {
         let h = host()

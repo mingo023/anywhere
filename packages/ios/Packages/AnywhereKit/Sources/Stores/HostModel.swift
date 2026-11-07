@@ -56,6 +56,10 @@ public final class HostModel: Identifiable {
         github = GitHubStore(connection: connection, mac: credentials.macName)
         files = FilesStore(connection: connection, mac: credentials.macName)
         push = PushStore(connection: connection)
+        workspace.onStart = { [weak self] creation in
+            guard let self else { return }
+            for chat in chats.values { chat.started(prompt: creation.plan?.spec.prompt) }
+        }
     }
 
     /// A Mac that is never dialled, holding what `hello` and `messages` say: for the gallery and previews.

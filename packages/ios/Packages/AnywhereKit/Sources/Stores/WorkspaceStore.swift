@@ -114,6 +114,8 @@ public final class WorkspaceStore: HostStore {
     public private(set) var hello: HelloOk?
 
     @ObservationIgnored let connection: DaemonConnection?
+    /// Told of each launch as it starts.
+    @ObservationIgnored public var onStart: (@MainActor (Creation) -> Void)?
 
     public init(connection: DaemonConnection? = nil) {
         self.connection = connection
@@ -351,8 +353,7 @@ public final class WorkspaceStore: HostStore {
             guard case .agentCreated(let created) = try await request(.agentCreate(create), timeout: .seconds(600)) else {
                 throw DaemonError.closed
             }
-            creations[id]?.agentId = created.agentId
-            creations[id]?.done = true
+            start(id, agent: created.agentId)
         } catch DaemonError.closed, DaemonError.offline {
             creations[id]?.waiting = true
         } catch DaemonError.server(let e) {
@@ -378,12 +379,17 @@ public final class WorkspaceStore: HostStore {
         var changed = false
         for (id, c) in creations where !c.done {
             guard let terminal = c.terminalId, let agent = agents.first(where: { $0.terminalId == terminal }) else { continue }
-            creations[id]?.agentId = agent.id
-            creations[id]?.done = true
-            creations[id]?.waiting = false
+            start(id, agent: agent.id)
             changed = true
         }
         return changed
+    }
+
+    private func start(_ id: String, agent: String) {
+        creations[id]?.agentId = agent
+        creations[id]?.done = true
+        creations[id]?.waiting = false
+        if let c = creations[id] { onStart?(c) }
     }
 
     /// Whether a progress sheet shows the creation, and so opens its chat once it starts.
