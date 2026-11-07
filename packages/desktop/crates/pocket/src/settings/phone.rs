@@ -11,12 +11,12 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
-const PHONE_ACCESSES: [&str; 3] = ["ask", "edits", "auto"];
+const PHONE_ACCESSES: [&str; 4] = ["ask", "edits", "auto", "full"];
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("pair-phone", "Devices", "Pair a new phone", |d, s, cx| d.pair_row(s, cx)).hint("Shows a QR code that expires after 5 minutes"),
     Setting::custom("phones", "Devices", "Paired phones", |d, _, cx| d.devices_rows(cx)),
-    Setting::choice("phone-max-access", "Access", "Most the phone can approve", &["Ask", "Edits", "Auto"], Look::Segmented, |s| {
+    Setting::choice("phone-max-access", "Access", "Most the phone can approve", &["Ask", "Edits", "Auto", "Full"], Look::Segmented, |s| {
         PHONE_ACCESSES.iter().position(|a| *a == s.phone.max_access).unwrap_or(0)
     }, |s, i| s.phone.max_access = PHONE_ACCESSES[i].into())
     .hint("The phone never allows more than this, whatever the session's own mode")
@@ -122,8 +122,21 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::device_line;
+    use super::super::catalog::Control;
+    use super::{ROWS, device_line};
     use daemon::Device;
+    use store::Store;
+
+    #[test]
+    fn the_phone_access_row_shows_and_sets_full() {
+        let Control::Choice { options, get, set, .. } = ROWS.iter().find(|r| r.id == "phone-max-access").unwrap().control else { panic!() };
+        let mut store = Store::default();
+        store.phone.max_access = "full".into();
+        assert_eq!(options[get(&store)], "Full");
+        set(&mut store, 0);
+        set(&mut store, 3);
+        assert_eq!(store.phone.max_access, "full");
+    }
 
     #[test]
     fn a_phone_says_when_it_was_last_seen_and_what_it_runs() {

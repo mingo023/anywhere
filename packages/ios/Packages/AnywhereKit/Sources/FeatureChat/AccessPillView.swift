@@ -26,11 +26,7 @@ struct AccessPillView: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .fixedSize()
-            .confirmationDialog("Skip every approval?", isPresented: $confirming, titleVisibility: .visible) {
-                Button("Switch to Full", role: .destructive) { pick("full") }
-            } message: {
-                Text("\(who) will run commands and change files without asking.")
-            }
+            .confirmsFullAccess($confirming, who: who) { pick("full") }
         } else {
             label
         }
