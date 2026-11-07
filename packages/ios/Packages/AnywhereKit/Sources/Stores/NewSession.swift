@@ -123,15 +123,6 @@ public struct NewSessionDraft: Hashable, Sendable {
         return create
     }
 
-    /// After a launch that failed past making its Local or worktree: start in what it made, so trying again doesn't make another.
-    public mutating func resume(after creation: Creation) {
-        if let tree = creation.madeTree {
-            place = .tree(tree)
-        } else if let local = creation.madeLocal {
-            place = .local(local)
-        }
-    }
-
     /// Picking another agent drops the model, effort and account picked for the last one; access holds for any.
     /// Another project: the last one's base, branch or pull request and name don't carry over, as the desktop's
     /// `pick_repo`; nor does a workspace of it.
