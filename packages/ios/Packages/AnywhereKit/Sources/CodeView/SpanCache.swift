@@ -95,12 +95,16 @@ final class DiffSpans {
 
 struct RowKey: Hashable {
     let line: Int
+    /// The UTF-16 range of the line the row draws.
+    let part: Range<Int>
+    let numbers: Bool
     let dark: Bool
     let size: CGFloat
 }
 
 struct DiffRowKey: Hashable {
     let row: Int
+    var part: Range<Int>? = nil
     let gutter: CodeStyle.Gutter
     let dark: Bool
     let size: CGFloat
