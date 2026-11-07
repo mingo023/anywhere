@@ -10,6 +10,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case agentCompact(ClientMessage.AgentRef)
     case agentClose(ClientMessage.AgentRef)
     case agentCommands(ClientMessage.AgentRef)
+    case skillsList(ClientMessage.SkillsList)
     case agentMcp(ClientMessage.AgentMcp)
     case agentBtw(ClientMessage.AgentText)
     case agentSettings(ClientMessage.AgentSettings)
@@ -82,6 +83,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "agent.compact": self = .agentCompact(try ClientMessage.AgentRef(from: decoder))
         case "agent.close": self = .agentClose(try ClientMessage.AgentRef(from: decoder))
         case "agent.commands": self = .agentCommands(try ClientMessage.AgentRef(from: decoder))
+        case "skills.list": self = .skillsList(try ClientMessage.SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try ClientMessage.AgentMcp(from: decoder))
         case "agent.btw": self = .agentBtw(try ClientMessage.AgentText(from: decoder))
         case "agent.settings": self = .agentSettings(try ClientMessage.AgentSettings(from: decoder))
@@ -159,6 +161,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .agentCompact(let m): try m.encode(to: encoder)
         case .agentClose(let m): try m.encode(to: encoder)
         case .agentCommands(let m): try m.encode(to: encoder)
+        case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
         case .agentBtw(let m): try m.encode(to: encoder)
         case .agentSettings(let m): try m.encode(to: encoder)
@@ -233,6 +236,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .agentCompact: "agent.compact"
         case .agentClose: "agent.close"
         case .agentCommands: "agent.commands"
+        case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"
         case .agentBtw: "agent.btw"
         case .agentSettings: "agent.settings"

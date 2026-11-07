@@ -8,6 +8,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case agentList(AgentList)
     case agentUpdate(AgentUpdate)
     case agentCommands(AgentCommands)
+    case skillsList(SkillsList)
     case agentMcp(AgentMcp)
     case agentBtw(AgentBtwAnswer)
     case agentStream(AgentStream)
@@ -62,6 +63,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "agent.list": self = .agentList(try AgentList(from: decoder))
         case "agent.update": self = .agentUpdate(try AgentUpdate(from: decoder))
         case "agent.commands": self = .agentCommands(try AgentCommands(from: decoder))
+        case "skills.list": self = .skillsList(try SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try AgentMcp(from: decoder))
         case "agent.btw": self = .agentBtw(try AgentBtwAnswer(from: decoder))
         case "agent.stream": self = .agentStream(try AgentStream(from: decoder))
@@ -119,6 +121,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .agentList(let m): try m.encode(to: encoder)
         case .agentUpdate(let m): try m.encode(to: encoder)
         case .agentCommands(let m): try m.encode(to: encoder)
+        case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
         case .agentBtw(let m): try m.encode(to: encoder)
         case .agentStream(let m): try m.encode(to: encoder)
@@ -174,6 +177,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .agentList: "agent.list"
         case .agentUpdate: "agent.update"
         case .agentCommands: "agent.commands"
+        case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"
         case .agentBtw: "agent.btw"
         case .agentStream: "agent.stream"
