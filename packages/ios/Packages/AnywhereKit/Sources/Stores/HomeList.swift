@@ -48,17 +48,28 @@ public enum HomeList {
     /// How projects are ordered: as pocketd lists them, by name, or by their sessions' last status step.
     public enum ProjectSort: String, CaseIterable, Hashable, Sendable { case manual, name, recent }
 
+    /// A session whose title matches a search, with the project and tree it is in.
+    public struct Match: Hashable, Sendable, Identifiable {
+        public var id: String
+        public var project: String
+        public var tree: String
+    }
+
     public struct Built: Hashable, Sendable {
         public var sections: [Section]
         /// Sessions in no project, newest first.
         public var elsewhere: [String]
+        /// While searching, the sessions in a project whose title matches, newest first.
+        public var matches: [Match] = []
     }
 
     /// `localOfTerminal` places a session opened in a Local there; the rest go to the tree holding their folder.
     /// A project's own checkout is listed only while in use: a session, or a terminal outside any Local (`terminalCwds`), is in it, or the phone has it open (`open`).
+    /// Trees in `hiding`, worktrees and Locals being deleted, aren't listed.
     public static func build(
         projects: [Project], names: [String: String], locals: [Local], localOfTerminal: [String: String], sessions: [Session],
-        terminalCwds: [String] = [], open: String? = nil, query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: ProjectSort = .manual
+        terminalCwds: [String] = [], open: String? = nil, query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: ProjectSort = .manual,
+        hiding: Set<String> = []
     ) -> Built {
         let index = Index(projects)
         let localIds = Set(locals.map(\.id))
@@ -78,6 +89,7 @@ public enum HomeList {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         var sections: [Section] = []
         var recent: [String: Int] = [:]
+        var matches: [(match: Match, createdAt: Int)] = []
         for project in projects {
             let main = project.worktrees.first(where: \.isMain)
             let mainPath = main?.path ?? project.path
@@ -92,11 +104,13 @@ public enum HomeList {
                 let branch = w.branch.isEmpty || w.branch == "detached" ? nil : w.branch
                 trees.append(Tree(id: w.path, kind: .worktree, label: label, place: place, sessions: [], branch: branch))
             }
+            trees.removeAll { hiding.contains($0.id) }
             let all = trees.flatMap { byTree[$0.id] ?? [] }
             let projectMatches = q.isEmpty || project.name.lowercased().contains(q)
             var shown: [Tree] = []
             for var tree in trees {
                 let cards = byTree[tree.id] ?? []
+                if !q.isEmpty { matches += Sidebar.matching(cards, q).map { (Match(id: $0.id, project: project.name, tree: tree.label), $0.createdAt) } }
                 let treeMatches = projectMatches || tree.label.lowercased().contains(q)
                 let kept = treeMatches ? cards : Sidebar.matching(cards, q)
                 guard treeMatches || !kept.isEmpty else { continue }
@@ -114,7 +128,8 @@ public enum HomeList {
         case .recent: sections = stable(sections) { recent[$0.id, default: 0] > recent[$1.id, default: 0] }
         }
         let rest = Sidebar.matching(elsewhere, q).sorted { $0.createdAt != $1.createdAt ? $0.createdAt > $1.createdAt : $0.id < $1.id }
-        return Built(sections: sections, elsewhere: rest.map(\.id))
+        let found = matches.sorted { a, b in a.createdAt != b.createdAt ? a.createdAt > b.createdAt : a.match.id < b.match.id }.map(\.match)
+        return Built(sections: sections, elsewhere: rest.map(\.id), matches: found)
     }
 
     static func stable(_ sections: [Section], _ before: (Section, Section) -> Bool) -> [Section] {
