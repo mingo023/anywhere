@@ -43,7 +43,7 @@ private struct HostedChat: View {
                     if let cwd = store.summary?.cwd {
                         ToolbarItemGroup(placement: .primaryAction) {
                             Button { open(.changes(mac: mac, tree: cwd)) } label: { Label("Changes", systemImage: "plusminus") }
-                            Button { open(.files(mac: mac, tree: cwd, dir: "")) } label: { Label("Files", systemImage: "folder") }
+                            Button { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) } label: { Label("Files", systemImage: "folder") }
                             Button { open(.pullRequest(mac: mac, tree: cwd)) } label: {
                                 Label("Pull request", systemImage: "arrow.triangle.pull")
                             }
@@ -69,7 +69,7 @@ private struct HostedChat: View {
         }
         switch link {
         case .file(let path, let line):
-            open(.file(mac: mac, tree: cwd, path: FileText.linked(path, from: "", tree: cwd) ?? path, line: line))
+            open(.file(mac: mac, tree: cwd, path: FileText.linked(path, from: "", tree: cwd) ?? path, line: line, chat: agentId))
         case .web(let url):
             guard let pr = PrLink(url.absoluteString), host.hello?.has(Caps.gh) == true else { return openURL(url) }
             let tree = host.github.pullRequest(cwd)

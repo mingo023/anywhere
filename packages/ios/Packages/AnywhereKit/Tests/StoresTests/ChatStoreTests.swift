@@ -249,22 +249,26 @@ struct ChatStoreTests {
         #expect(c.draft.text == "see @src/lanes.rs ")
     }
 
-    @Test("a file mentioned from Files lands once in the next chat on its tree to come on screen")
-    func mentionFromFiles() {
+    @Test("files and lines handed over from Files land once, all of them, in the chat they were for")
+    func additionsFromFiles() {
         let files = FilesStore()
         let c = ChatStore(agentId: "a1", files: files)
         c.seed(agent(), requests: [], hello: Sample.hello)
         c.draft.text = "look at"
         files.mention(tree: "/elsewhere", path: "b.rs")
+        files.mention(tree: "/w", path: "c.rs", for: "a2")
         c.appear()
         c.disappear()
         #expect(c.draft.text == "look at")
-        files.mention(tree: "/w", path: "src/a.rs")
+        files.mention(tree: "/w", path: "src/a.rs", for: "a1")
+        files.mention(tree: "/w", path: "src/b.rs", for: "a1")
+        files.quote("src/a.rs:2\n```rust\nlet x = 1;\n```", tree: "/w", for: "a1")
         c.appear()
         c.disappear()
         c.appear()
         c.disappear()
-        #expect(c.draft.text == "look at @src/a.rs ")
+        #expect(c.draft.text == "look at @src/a.rs @src/b.rs \n\nsrc/a.rs:2\n```rust\nlet x = 1;\n```\n")
+        #expect(files.takeAdditions(for: "a2", in: "/w") == ["@c.rs"])
     }
 
     @Test("the background tray and the agent map are worked out as the transcript refolds")

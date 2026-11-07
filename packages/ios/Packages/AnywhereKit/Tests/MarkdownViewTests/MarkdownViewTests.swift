@@ -219,3 +219,16 @@ import Testing
         #expect(MDInline.strong([.link(destination: "a", title: nil, [.path("src/a.rs", folder: false)])]).hasChip)
     }
 }
+
+@Suite struct Images {
+    @Test("an image's own width and height are a most, and it keeps its shape")
+    func bounds() {
+        let both = MarkdownImage.bounds(width: 1200, height: 600, natural: nil)
+        #expect(both.ratio == 2 && both.maxWidth == 1200)
+        let natural = MarkdownImage.bounds(width: 1200, height: 600, natural: 1.5)
+        #expect(natural.ratio == 1.5 && natural.maxWidth == 1200)
+        #expect(MarkdownImage.bounds(width: nil, height: 100, natural: 2).maxWidth == 200)
+        #expect(MarkdownImage.bounds(width: 800, height: nil, natural: nil).maxWidth == 800)
+        #expect(MarkdownImage.bounds(width: nil, height: 100, natural: nil).maxWidth == nil)
+    }
+}

@@ -10,11 +10,16 @@ struct FileTreeScreen: View {
     let model: FileTreeModel
     /// The folder the route opened at.
     var dir = ""
+    var context = FilesContext()
 
     @AppStorage("files.hideIgnored") private var hideIgnored = true
     @AppStorage("files.hideDotfiles") private var hideDotfiles = false
     @State private var searching = false
     @State private var picked: FilePick?
+    /// The route's folder is opened once per screen, so coming back keeps what the reader folded.
+    @State private var revealed = false
+    @State private var handoff: Handoff?
+    @State private var toast: Toast?
 
     var body: some View {
         content
@@ -30,20 +35,26 @@ struct FileTreeScreen: View {
                 }
             }
             .navigationDestination(item: $picked) { pick in
-                FilePreviewScreen(files: files, preview: files.preview(tree: model.tree, path: pick.path))
+                FilePreviewScreen(files: files, preview: files.preview(tree: model.tree, path: pick.path), context: context)
             }
             .task {
                 files.filter = FileFilter(hideIgnored: hideIgnored, hideDotfiles: hideDotfiles)
-                if !model.loaded { files.reveal(model, dir) }
+                if !revealed {
+                    revealed = true
+                    files.reveal(model, dir)
+                }
                 files.open(model)
             }
             .onChange(of: FileFilter(hideIgnored: hideIgnored, hideDotfiles: hideDotfiles)) { _, filter in files.filter = filter }
+            .handoff($handoff, files: files, tree: model.tree, context: context, toast: $toast)
+            .toast($toast)
+            .watching(model.tree, context)
     }
 
     @ViewBuilder
     private var content: some View {
         if let failure = model.failure, !model.loaded {
-            Placeholder("Can't show these files", systemImage: "folder.badge.questionmark", detail: failure)
+            Placeholder("Can't show these files", systemImage: "folder.badge.questionmark", detail: failure) { files.open(model) }
         } else if !model.loaded {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()
         } else if model.rows.isEmpty {
@@ -53,22 +64,40 @@ struct FileTreeScreen: View {
         }
     }
 
+    /// The folder the route named is listed, so its row can be scrolled to.
+    private var dirListed: Bool { !dir.isEmpty && model.state.listings[FileText.folder(dir)] != nil }
+
     private var list: some View {
-        List(model.rows) { row in
-            Button { open(row) } label: { FileRowView(row: row).equatable().contentShape(Rectangle()) }
-                .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: 0, trailing: Space.l))
-                .listRowBackground(Palette.background.color)
-                .swipeActions(edge: .trailing) {
-                    Button { mention(row.path) } label: { Label("Mention", systemImage: "at") }.tint(Palette.accent.color)
-                    Button { copy(row.path) } label: { Label("Copy Path", systemImage: "doc.on.doc") }.tint(.gray)
-                }
-                .contextMenu { menu(row) }
+        ScrollViewReader { proxy in
+            List(model.rows) { row in
+                Button { open(row) } label: { FileRowView(row: row).equatable().contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .overlay(alignment: .trailing) {
+                        if row.failure != nil {
+                            Button { files.retry(model, row.path) } label: {
+                                Image(systemName: "arrow.clockwise").foregroundStyle(Palette.accent.color).hitTarget()
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Try Again")
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: 0, trailing: Space.l))
+                    .listRowBackground(Palette.background.color)
+                    .swipeActions(edge: .trailing) {
+                        if context.target != .none {
+                            Button { handoff = .mention(path: row.path) } label: { Label("Mention", systemImage: "at") }.tint(Palette.accent.color)
+                        }
+                        Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+                            .tint(.gray)
+                    }
+                    .contextMenu { menu(row) }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .screenBackground()
+            .refreshable { files.open(model) }
+            .task(id: dirListed) { if dirListed { proxy.scrollTo(dir, anchor: .top) } }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .screenBackground()
-        .refreshable { files.open(model) }
     }
 
     @ViewBuilder
@@ -76,9 +105,11 @@ struct FileTreeScreen: View {
         if !row.entry.dir {
             Button { picked = FilePick(path: row.path) } label: { Label("Open", systemImage: "doc.text") }
         }
-        Button { mention(row.path) } label: { Label("Mention in Chat", systemImage: "at") }
-        Button { copy(row.path) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
-        Button { Clipboard.copy(row.path) } label: { Label("Copy Relative Path", systemImage: "arrow.turn.down.right") }
+        if context.target != .none {
+            Button { handoff = .mention(path: row.path) } label: { Label("Mention in Chat", systemImage: "at") }
+        }
+        Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+        Button { copy(row.path) } label: { Label("Copy Relative Path", systemImage: "arrow.turn.down.right") }
         if let letter = row.entry.git {
             Text(GitLetter.word(letter))
         }
@@ -95,7 +126,7 @@ struct FileTreeScreen: View {
                 Toggle(isOn: Binding(get: { !hideIgnored }, set: { hideIgnored = !$0 })) { Label("Show Ignored Files", systemImage: "eye") }
                 Toggle(isOn: Binding(get: { !hideDotfiles }, set: { hideDotfiles = !$0 })) { Label("Show Dotfiles", systemImage: "circle.dotted") }
                 Divider()
-                Button { copy("") } label: { Label("Copy Folder Path", systemImage: "doc.on.doc") }
+                Button { copy(model.tree) } label: { Label("Copy Folder Path", systemImage: "doc.on.doc") }
                 Button { files.open(model) } label: { Label("Refresh", systemImage: "arrow.clockwise") }
             } label: {
                 Label("Options", systemImage: "ellipsis.circle")
@@ -113,23 +144,20 @@ struct FileTreeScreen: View {
     }
 
     private func copy(_ path: String) {
-        Clipboard.copy(FileText.absolute(tree: model.tree, path))
+        Clipboard.copy(path)
         Haptics.success()
-    }
-
-    private func mention(_ path: String) {
-        files.mention(tree: model.tree, path: path)
-        Haptics.success()
+        toast = Toast("Copied path")
     }
 }
 
-/// A file picked to preview, pushed on the tree's stack.
+/// A file picked to preview, pushed on the tree's stack; `line` (from 1) when a link named one.
 struct FilePick: Hashable, Identifiable {
     let path: String
+    var line: Int?
     var id: String { path }
 }
 
-/// One line of the tree: indent, chevron or icon, name, git letter.
+/// One line of the tree: indent, chevron or icon, name, git letter; a folder that couldn't be listed says why.
 @MainActor
 struct FileRowView: View, Equatable {
     let row: FileRow
@@ -166,6 +194,12 @@ struct FileRowView: View, Equatable {
             if row.loading {
                 ProgressView().controlSize(.mini)
             }
+            if let failure = row.failure {
+                Text(failure)
+                    .font(Typography.footnote)
+                    .foregroundStyle(Palette.failed.color)
+                    .lineLimit(1)
+            }
             if let letter = row.entry.git {
                 Text(letter)
                     .font(.system(.caption, design: .monospaced, weight: .bold))
@@ -174,7 +208,9 @@ struct FileRowView: View, Equatable {
             }
         }
         .padding(.leading, CGFloat(row.depth) * Self.indent)
-        .frame(minHeight: 40)
+        // Room for the tree screen's Try Again over the row's end.
+        .padding(.trailing, row.failure == nil ? 0 : HitTarget.minimum)
+        .frame(minHeight: HitTarget.minimum)
         .accessibilityElement(children: .combine)
     }
 

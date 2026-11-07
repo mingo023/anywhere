@@ -49,12 +49,58 @@ struct ImageRow: View {
     }
 }
 
-/// One image: fetched for http(s), decoded for `data:`, else its alt text in a chip.
+/// Where a markdown file's own images come from, as the Files preview reads them: `load` takes a source as written
+/// (`img/logo.png`) and returns its bytes, nil when it isn't an image in the repo. `scope` names the file the sources
+/// are relative to, so two files' `logo.png` are cached apart.
+public struct RepoImages: Sendable {
+    let scope: String
+    let load: @Sendable (String) async -> Data?
+
+    public init(scope: String, load: @escaping @Sendable (String) async -> Data?) {
+        self.scope = scope
+        self.load = load
+    }
+}
+
+private struct RepoImagesKey: EnvironmentKey {
+    static let defaultValue: RepoImages? = nil
+}
+
+extension EnvironmentValues {
+    /// Set by the Files preview; chat and PR markdown has none, so its relative images stay chips.
+    public var repoImages: RepoImages? {
+        get { self[RepoImagesKey.self] }
+        set { self[RepoImagesKey.self] = newValue }
+    }
+}
+
+/// Repo images by scope and source, decoded once.
+@MainActor
+enum RepoImageCache {
+    static let cache = NSCache<NSString, PlatformImage>()
+
+    static func image(_ repo: RepoImages, _ source: String) -> PlatformImage? {
+        cache.object(forKey: key(repo, source))
+    }
+
+    static func load(_ repo: RepoImages, _ source: String) async -> PlatformImage? {
+        guard let data = await repo.load(source), let image = PlatformImage(data: data) else { return nil }
+        cache.setObject(image, forKey: key(repo, source))
+        return image
+    }
+
+    private static func key(_ repo: RepoImages, _ source: String) -> NSString { (repo.scope + "\u{0}" + source) as NSString }
+}
+
+/// One image: fetched for http(s), decoded for `data:`, read from the repo where the preview can, else its alt text in
+/// a chip.
 @MainActor
 struct MarkdownImage: View {
     let image: MDImage
     let link: String?
     @Environment(\.openURL) private var openURL
+    @Environment(\.repoImages) private var repo
+    @State private var fetched: PlatformImage?
 
     var body: some View {
         content
@@ -75,22 +121,35 @@ struct MarkdownImage: View {
                 case .failure: placeholder("photo.badge.exclamationmark")
                 default:
                     RoundedRectangle(cornerRadius: 6).fill(Palette.fill2.color)
-                        .frame(width: image.width ?? 160, height: image.height ?? 90)
+                        .frame(maxWidth: image.width ?? 160)
+                        .frame(height: image.height ?? 90)
                 }
+            }
+        } else if let repo, URL(string: image.source)?.scheme == nil {
+            if let platform = fetched ?? RepoImageCache.image(repo, image.source) {
+                sized(Image(platformImage: platform).resizable(), aspect: platform.size.width / max(platform.size.height, 1))
+            } else {
+                placeholder("photo").task(id: image.source) { fetched = await RepoImageCache.load(repo, image.source) }
             }
         } else {
             placeholder("photo")
         }
     }
 
+    /// How the `<img>` width and height bound an image: both are a most, and it keeps its shape, its own (`natural`,
+    /// width over height) when known. No most width means only a height with no shape known.
+    nonisolated static func bounds(width: Double?, height: Double?, natural: CGFloat?) -> (ratio: CGFloat?, maxWidth: CGFloat?) {
+        let ratio = natural ?? width.flatMap { w in height.map { CGFloat(w / max($0, 1)) } }
+        return (ratio, width.map { CGFloat($0) } ?? height.flatMap { h in ratio.map { CGFloat(h) * $0 } })
+    }
+
     private func sized(_ view: Image, aspect: CGFloat?) -> some View {
-        Group {
-            if let w = image.width, let h = image.height {
-                view.aspectRatio(contentMode: .fit).frame(width: w, height: h)
-            } else if let w = image.width {
-                view.aspectRatio(aspect, contentMode: .fit).frame(width: w)
+        let bounds = Self.bounds(width: image.width, height: image.height, natural: aspect)
+        return Group {
+            if let maxWidth = bounds.maxWidth {
+                view.aspectRatio(bounds.ratio, contentMode: .fit).frame(maxWidth: maxWidth)
             } else if let h = image.height {
-                view.aspectRatio(aspect, contentMode: .fit).frame(height: h)
+                view.aspectRatio(contentMode: .fit).frame(height: h)
             } else {
                 view.aspectRatio(aspect, contentMode: .fit).frame(maxWidth: .infinity, alignment: .leading)
             }

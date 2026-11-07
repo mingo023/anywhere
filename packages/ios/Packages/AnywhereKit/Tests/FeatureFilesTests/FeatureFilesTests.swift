@@ -27,29 +27,52 @@ struct PreviewBodyTests {
         #expect(
             PreviewBody.of(read(.tooLarge, size: 3 * 1024 * 1024), path: "big.log", source: false)
                 == .note("Too large to preview · 3.0 MB", systemImage: "doc.badge.ellipsis"))
-        #expect(PreviewBody.of(read(.unreadable), path: "gone.rs", source: false) == .note("This file can't be shown.", systemImage: "eye.slash"))
+        #expect(
+            PreviewBody.of(read(.unreadable), path: "gone.rs", source: false)
+                == .note("Can't read this file", systemImage: "eye.slash", detail: PreviewBody.unreadableWhy))
         #expect(PreviewBody.of(read(.image, mime: "image/png", data: Sample.png), path: "logo.png", source: false) == .image(Sample.png))
         #expect(PreviewBody.of(.loading, path: "a.rs", source: false) == .loading)
-        #expect(PreviewBody.of(.failed("Your Mac is offline"), path: "a.rs", source: false) == .note("Your Mac is offline", systemImage: "exclamationmark.triangle"))
+        #expect(PreviewBody.of(.failed("Not connected to Studio"), path: "a.rs", source: false) == .failed("Not connected to Studio"))
+        #expect(PreviewBody.of(.folder, path: "docs", source: false) == .folder)
+    }
+
+    @Test("code highlights in the Mac's language, else the one its path names")
+    func language() {
+        #expect(PreviewBody.of(read(.text, text: "x", language: "html"), path: "a.htm", source: false) == .code("x", language: "html"))
+        #expect(PreviewBody.of(read(.text, text: "x"), path: "Makefile", source: false) == .code("x", language: "makefile"))
+        #expect(PreviewBody.of(read(.text, text: "x", language: "text"), path: "Makefile", source: false) == .code("x", language: "makefile"))
+        #expect(PreviewBody.subtitle(read(.text, size: 2048, text: "", language: "text"), path: "a.scss") == "CSS · 2.0 KB")
     }
 
     @Test("an SVG draws unless its source is asked for")
     func svg() {
         let svg = read(.text, text: "<svg/>", language: "text", mime: "image/svg+xml")
         #expect(PreviewBody.of(svg, path: "icon.svg", source: false) == .svg("<svg/>"))
-        #expect(PreviewBody.of(svg, path: "icon.svg", source: true) == .code("<svg/>", language: "text"))
+        #expect(PreviewBody.of(svg, path: "icon.svg", source: true) == .code("<svg/>", language: "html"))
         #expect(PreviewBody.hasSource(svg, path: "icon.svg"))
     }
 
-    @Test("a cut file says how much of it shows, and the subtitle names its language and size")
+    @Test("a cut file says how much of it shows, and the subtitle names its folder, the language it highlights and its size")
     func lines() {
         var cut = read(.text, size: 3 * 1024 * 1024, text: String(repeating: "a", count: 512 * 1024), language: "text")
         cut.truncated = true
         #expect(PreviewBody.truncation(cut) == "Showing the first 512.0 KB of 3.0 MB")
         #expect(PreviewBody.truncation(read(.text, text: "a")) == nil)
         #expect(PreviewBody.subtitle(read(.text, size: 2048, text: ""), path: "a.rs") == "Rust · 2.0 KB")
+        #expect(PreviewBody.subtitle(read(.text, size: 2048, text: "", language: "html"), path: "web/a.htm") == "web · HTML · 2.0 KB")
         #expect(PreviewBody.subtitle(read(.image, size: 612), path: "a.png") == "612 B")
-        #expect(PreviewBody.subtitle(read(.unreadable), path: "a.rs") == nil)
+        #expect(PreviewBody.subtitle(read(.unreadable), path: "src/a.rs") == "src")
+        #expect(PreviewBody.subtitle(nil, path: "a.rs") == nil)
+    }
+
+    @Test("wrap follows the width until picked, and text size stops at its ends")
+    func settings() {
+        #expect(PreviewSettings.wrap(nil, compact: true))
+        #expect(!PreviewSettings.wrap(nil, compact: false))
+        #expect(!PreviewSettings.wrap(false, compact: true))
+        #expect(PreviewSettings.step(0, by: 1) == 1)
+        #expect(PreviewSettings.step(8, by: 1) == nil)
+        #expect(PreviewSettings.step(-4, by: -1) == nil)
     }
 
     @Test("the SVG page loads nothing but itself and follows the appearance")
@@ -93,6 +116,42 @@ struct FileRowTests {
         #expect(hit.marked == [0, 1, 2, 3])
         #expect(SearchHit(path: "docs/naïve.md", query: "ve").marked == [3, 4])
         #expect(SearchHit(path: "a.rs", query: "").marked.isEmpty)
+    }
+}
+
+@Suite("Handing files to a chat")
+struct ChatTargetTests {
+    private func agent(_ id: String, cwd: String = "/w", worktree: String? = nil, updatedAt: Int) -> AgentSummary {
+        AgentSummary(
+            id: id, terminalId: "t-\(id)", title: "Session \(id)", cwd: cwd, provider: "claude", status: .idle, attached: true, epoch: 1, maxSeq: 0,
+            createdAt: 0, updatedAt: updatedAt, worktree: worktree)
+    }
+
+    @Test("a tree's sessions are those in it or its worktree, most recent first")
+    func sessions() {
+        let found = ChatSession.on("/w", [
+            agent("a1", updatedAt: 1), agent("a2", cwd: "/w/src", worktree: "/w", updatedAt: 3), agent("a3", cwd: "/other", updatedAt: 9),
+        ])
+        #expect(found.map(\.id) == ["a2", "a1"])
+        #expect(found.first?.agent == "Claude")
+    }
+
+    @Test("the chat that opened Files takes it, else the only session, else the reader picks, and none without a session")
+    func target() {
+        let a = ChatSession(id: "a1", title: "Fix the build", agent: "Claude")
+        let b = ChatSession(id: "a2", title: "Docs", agent: "Codex")
+        #expect(ChatTarget([a, b], opener: "a2") == .one(b))
+        #expect(ChatTarget([a], opener: nil) == .one(a))
+        #expect(ChatTarget([a, b], opener: nil) == .choose([a, b]))
+        #expect(ChatTarget([a, b], opener: "elsewhere") == .choose([a, b]))
+        #expect(ChatTarget([], opener: "a1") == .none)
+    }
+
+    @Test("the toast names the session for a mention and the agent for a quote")
+    func toast() {
+        let session = ChatSession(id: "a1", title: "Fix the build", agent: "Claude")
+        #expect(Handoff.mention(path: "a.rs").done(session) == "Mentioned in Fix the build")
+        #expect(Handoff.quote("a.rs:1").done(session) == "Added to Claude's input")
     }
 }
 
