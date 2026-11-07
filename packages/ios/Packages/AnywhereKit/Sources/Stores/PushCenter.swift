@@ -68,9 +68,10 @@ public final class PushCenter {
         #endif
     }
 
-    /// Whether an alert arriving while the app is in front shows: not for the session on screen, nor for a Mac this phone
-    /// forgot, whose alert stays sealed and so names no Mac, or names one no longer paired.
-    public nonisolated static func presents(mac: String?, agent: String?, visible: String?, known: (String) -> Bool) -> Bool {
+    /// Whether an alert arriving while the app is in front shows: not for the session on screen, nor a push from a Mac this
+    /// phone forgot, whose alert stays sealed and so names no Mac, or names one no longer paired. The app's own alerts show.
+    public nonisolated static func presents(remote: Bool, mac: String?, agent: String?, visible: String?, known: (String) -> Bool) -> Bool {
+        guard remote else { return true }
         guard let mac, known(mac) else { return false }
         return agent == nil || agent != visible
     }

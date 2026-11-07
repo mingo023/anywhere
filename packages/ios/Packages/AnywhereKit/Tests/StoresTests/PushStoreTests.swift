@@ -157,14 +157,15 @@ struct DeliveredAlertTests {
         #expect(BadgeLedger(defaults: c.defaults).record(mac: "m2", count: 3) == 3)
     }
 
-    @Test("an alert in front shows unless it is for the chat on screen or for a Mac this phone forgot")
+    @Test("an alert in front shows unless it is for the chat on screen or pushed by a Mac this phone forgot")
     func presents() {
         let known: (String) -> Bool = { $0 == "m" }
-        #expect(PushCenter.presents(mac: "m", agent: "a1", visible: "a2", known: known))
-        #expect(PushCenter.presents(mac: "m", agent: nil, visible: "a2", known: known))
-        #expect(!PushCenter.presents(mac: "m", agent: "a1", visible: "a1", known: known))
-        #expect(!PushCenter.presents(mac: "gone", agent: "a1", visible: nil, known: known))
-        #expect(!PushCenter.presents(mac: nil, agent: nil, visible: nil, known: known), "a sealed alert has no key to open it")
+        #expect(PushCenter.presents(remote: true, mac: "m", agent: "a1", visible: "a2", known: known))
+        #expect(PushCenter.presents(remote: true, mac: "m", agent: nil, visible: "a2", known: known))
+        #expect(!PushCenter.presents(remote: true, mac: "m", agent: "a1", visible: "a1", known: known))
+        #expect(!PushCenter.presents(remote: true, mac: "gone", agent: "a1", visible: nil, known: known))
+        #expect(!PushCenter.presents(remote: true, mac: nil, agent: nil, visible: nil, known: known), "a sealed alert has no key to open it")
+        #expect(PushCenter.presents(remote: false, mac: nil, agent: nil, visible: nil, known: known), "the app's own Not sent names no Mac")
     }
 
     @Test("a push failure names the Mac, and a relay failure says so")

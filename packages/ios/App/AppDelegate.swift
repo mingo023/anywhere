@@ -44,11 +44,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// pocketd holds alerts while the app is connected, so one arriving in front is for another Mac or a session not on screen.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let info = notification.request.content.userInfo
-        return await presents(mac: info["mac"] as? String, agent: info["agent"] as? String) ? [.banner, .list, .sound] : []
+        let remote = notification.request.trigger is UNPushNotificationTrigger
+        return await presents(remote: remote, mac: info["mac"] as? String, agent: info["agent"] as? String) ? [.banner, .list, .sound] : []
     }
 
-    private func presents(mac: String?, agent: String?) -> Bool {
-        PushCenter.presents(mac: mac, agent: agent, visible: PushCenter.shared.visibleAgent) { app.host(mac: $0) != nil }
+    private func presents(remote: Bool, mac: String?, agent: String?) -> Bool {
+        PushCenter.presents(remote: remote, mac: mac, agent: agent, visible: PushCenter.shared.visibleAgent) { app.host(mac: $0) != nil }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
