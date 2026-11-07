@@ -112,6 +112,19 @@ struct ActivityModelTests {
         #expect(ActivityDisplay.link(mac: "m", top: needs.top).absoluteString == "anywhere://mac/m/agent/a")
     }
 
+    @Test("each Mac keeps the activity updated last, so a stale one beside it ends instead of saying the Mac is offline")
+    func oneActivityPerMac() {
+        let now = Date(timeIntervalSince1970: 1_761_300_000)
+        let extras = MacActivity.extras([
+            (id: "stale", mac: "studio", staleDate: now.addingTimeInterval(-600)),
+            (id: "fresh", mac: "studio", staleDate: now.addingTimeInterval(300)),
+            (id: "undated", mac: "studio", staleDate: nil),
+            (id: "other", mac: "air", staleDate: now.addingTimeInterval(-600)),
+        ])
+        #expect(extras == ["stale", "undated"])
+        #expect(MacActivity.extras([(id: "only", mac: "studio", staleDate: now)]).isEmpty)
+    }
+
     @Test("titles the app saved name the top session; a slot it never saw reads as a session")
     func titles() throws {
         let suite = "dev.mingo.anywhere.tests.\(UUID().uuidString)"
