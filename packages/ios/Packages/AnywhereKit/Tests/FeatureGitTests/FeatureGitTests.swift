@@ -106,27 +106,6 @@ import Wire
     #expect(ChangeStep.step(from: ChangeStep.kept(5, count: 3), by: -1, count: 3) == 1)
 }
 
-@Test func a_quote_goes_to_the_worktree_s_only_session_or_a_pick_among_its_sessions() {
-    let tree = "/w/calm-otter"
-    #expect(AskTarget.of(tree: tree, sessions: [(id: "x", cwd: "/w/other")]) == .none)
-    #expect(AskTarget.of(tree: tree, sessions: [(id: "a", cwd: tree + "/src"), (id: "x", cwd: "/w/calm-otter-2")]) == .one("a"))
-    #expect(AskTarget.of(tree: tree, sessions: [(id: "b", cwd: tree), (id: "a", cwd: tree)]) == .pick(["b", "a"]))
-}
-
-@Test func a_quote_goes_to_the_chat_that_opened_the_screen_while_it_has_a_session_in_the_worktree() {
-    let tree = "/w/calm-otter"
-    let sessions = [(id: "b", cwd: tree), (id: "a", cwd: tree), (id: "x", cwd: "/w/other")]
-    #expect(AskTarget.of(tree: tree, sessions: sessions, opener: "a") == .one("a"))
-    #expect(AskTarget.of(tree: tree, sessions: sessions, opener: "x") == .pick(["b", "a"]))
-    #expect(AskTarget.of(tree: tree, sessions: sessions, opener: "gone") == .pick(["b", "a"]))
-}
-
-@Test func a_quote_lands_below_what_the_draft_holds() {
-    #expect(AskTarget.appending("q", to: "") == "q\n")
-    #expect(AskTarget.appending("q", to: "look at") == "look at\n\nq\n")
-    #expect(AskTarget.appending("q", to: "a\n") == "a\n\nq\n")
-}
-
 @Test func a_path_splits_into_name_and_folder() {
     #expect(GitText.split("a/b/c.swift") == ("c.swift", "a/b"))
     #expect(GitText.split("README.md") == ("README.md", ""))

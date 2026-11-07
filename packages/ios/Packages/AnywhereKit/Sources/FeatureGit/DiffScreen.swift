@@ -1,6 +1,7 @@
 import CodeView
 import DesignSystem
 import DiffModel
+import Domain
 import Stores
 import SwiftUI
 import Wire
@@ -51,6 +52,8 @@ struct DiffScreen: View {
     let files: DiffFiles
     /// The agent whose chat opened the screen, which takes its quotes.
     let chat: String?
+    /// Opens another feature's screen: the chat a quote went to, or New Session for a tree without one.
+    let open: ((Route) -> Void)?
     @State private var path: String
     @State private var doc: DiffDocument?
     @State private var error: String?
@@ -63,7 +66,7 @@ struct DiffScreen: View {
     @State private var target: Int?
     @State private var discarding = false
     /// A quote waiting for the user to pick which of these sessions takes it.
-    @State private var asking: (quote: String, ids: [String])?
+    @State private var asking: (quote: String, sessions: [ChatSession])?
     @State private var askable = false
     @State private var toast: Toast?
     @AppStorage("git.diff.sideBySide") private var sideBySide = true
@@ -74,12 +77,13 @@ struct DiffScreen: View {
         @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
-    init(host: HostModel, tree: String, path: String, at: DiffAt, files: DiffFiles, chat: String? = nil) {
+    init(host: HostModel, tree: String, path: String, at: DiffAt, files: DiffFiles, chat: String? = nil, open: ((Route) -> Void)? = nil) {
         self.host = host
         self.tree = tree
         self.at = at
         self.files = files
         self.chat = chat
+        self.open = open
         _path = State(initialValue: path)
         _doc = State(initialValue: host.git.cachedDiff(tree, path: path, at: at))
     }
@@ -147,14 +151,14 @@ struct DiffScreen: View {
             "Ask in Chat", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible
         ) {
             if let asking {
-                ForEach(asking.ids, id: \.self) { id in
-                    Button(host.sessions.session(id)?.summary.title ?? id) { ask(id, asking.quote) }
+                ForEach(asking.sessions) { session in
+                    Button(session.title) { ask(session, asking.quote) }
                 }
             }
         }
         .toast($toast)
         .onAppear {
-            askable = askTarget != .none
+            askable = open != nil || askTarget != .none
             if follows { host.git.show(tree) }
         }
         .onDisappear { if follows { host.git.hide(tree) } }
@@ -266,29 +270,33 @@ struct DiffScreen: View {
     }
 
     /// Read when asked, not in `body`, so sessions changing elsewhere don't redraw the diff.
-    private var askTarget: AskTarget {
-        let sessions = host.sessions.recent.compactMap { host.sessions.session($0) }.map { (id: $0.id, cwd: $0.summary.cwd) }
-        return AskTarget.of(tree: tree, sessions: sessions, opener: chat)
+    private var askTarget: ChatTarget {
+        ChatTarget(ChatSession.on(tree, host.sessions.sessions.values.map(\.summary)), opener: chat)
     }
 
-    /// Ask in Chat on picked lines, when the worktree had a session to take them as the screen opened.
+    /// Ask in Chat on picked lines, as Files has it: to the tree's session, or a new one when it has none.
     private var onAsk: ((CodeQuote) -> Void)? {
         guard askable else { return nil }
         let path = path
         return { quote in
+            let text = quote.payload(path: path)
             switch askTarget {
-            case .none: toast = Toast("No session in this worktree to ask")
-            case .one(let id): ask(id, quote.payload(path: path))
-            case .pick(let ids): asking = (quote.payload(path: path), ids)
+            case .one(let session): ask(session, text)
+            case .choose(let sessions): asking = (text, sessions)
+            case .none:
+                guard let open else { return toast = Toast("No session in this worktree to ask") }
+                open(.newSession(mac: host.mac, project: host.workspace.place(of: tree)?.project, place: tree, prompt: text))
             }
         }
     }
 
-    private func ask(_ id: String, _ quote: String) {
-        let chat = host.chat(id)
-        chat.draft.text = AskTarget.appending(quote, to: chat.draft.text)
+    private func ask(_ session: ChatSession, _ quote: String) {
+        host.files.quote(quote, tree: tree, for: session.id)
         Haptics.success()
-        toast = Toast("Added to \(host.sessions.session(id)?.summary.title ?? "the session")'s input")
+        let done = "Added to \(session.agent)'s input"
+        guard let open else { return toast = Toast(done) }
+        let chat = Route.chat(mac: host.mac, agentId: session.id)
+        toast = Toast(done, actionTitle: "Go to chat") { open(chat) }
     }
 
     @ViewBuilder

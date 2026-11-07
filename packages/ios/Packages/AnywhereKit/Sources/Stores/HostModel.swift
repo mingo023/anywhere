@@ -40,6 +40,8 @@ public final class HostModel: Identifiable {
     public private(set) var agentsListed = false
 
     @ObservationIgnored private var listener: Task<Void, Never>?
+    /// The app is in front, as the scene last said; a new hello makes pocketd think so until it hears otherwise.
+    @ObservationIgnored private var active = true
     @ObservationIgnored private let now: @MainActor () -> Date
 
     public init(credentials: Credentials, connection: DaemonConnection? = nil, now: @escaping @MainActor () -> Date = { Date() }) {
@@ -88,9 +90,10 @@ public final class HostModel: Identifiable {
     /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials
     /// now, or checks a link that looks up is still there.
     public func scene(active: Bool) {
+        self.active = active
         let connection = connection
         // A link that stayed up says hello again to no one, so the chat on screen tells pocketd it's viewed once more.
-        let view = Self.sceneView(active: active, viewing: chats.values.filter(\.viewing).map(\.agentId), front: hello?.has(Caps.front) ?? false)
+        let view = sceneView(front: hello?.has(Caps.front) ?? false)
         Task {
             if active {
                 await connection.reconnectNow()
@@ -98,6 +101,11 @@ public final class HostModel: Identifiable {
             }
             if let view { _ = try? await connection.send(.agentView(view)) }
         }
+    }
+
+    /// What `agent.view` tells pocketd of the scene now: on a scene change, and after each hello.
+    func sceneView(front: Bool) -> ClientMessage.AgentView? {
+        Self.sceneView(active: active, viewing: chats.values.filter(\.viewing).map(\.agentId), front: front)
     }
 
     /// What `agent.view` tells pocketd when the app comes to the front or leaves it. Without `front.v1`, no ids is how
@@ -144,6 +152,7 @@ public final class HostModel: Identifiable {
                 link = .online
                 offlineSince = nil
                 for store in stores { store.connected(ok) }
+                if let view = sceneView(front: ok.has(Caps.front)) { Task { [connection] in _ = try? await connection.send(.agentView(view)) } }
             case .message(let message):
                 route(message)
             case .terminal(let frame):

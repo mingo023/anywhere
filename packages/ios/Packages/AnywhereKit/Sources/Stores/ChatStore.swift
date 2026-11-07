@@ -222,6 +222,7 @@ public final class ChatStore: HostStore {
         requests = []
         answering = nil
         refreshWizard()
+        // Not agent.view: the host sends it, as in the background it must say nothing is viewed.
         if viewing { open() }
     }
 
@@ -337,6 +338,7 @@ public final class ChatStore: HostStore {
     /// The chat came on screen: fetch what's missing, tell pocketd it's viewed, keep the queue moving.
     public func appear() {
         viewing = true
+        send(.agentView(.init(agentIds: [agentId])))
         open()
         if let cwd = summary?.cwd, let pieces = files?.takeAdditions(for: agentId, in: cwd), !pieces.isEmpty {
             draft.text = FilesStore.draft(draft.text, adding: pieces)
@@ -359,7 +361,6 @@ public final class ChatStore: HostStore {
     }
 
     func open() {
-        send(.agentView(.init(agentIds: [agentId])))
         fetch()
         if providers == nil { request(.agentProviders) { [weak self] in _ = self?.apply($0) } }
         if let agent = summary, agent.chatOnly == true {

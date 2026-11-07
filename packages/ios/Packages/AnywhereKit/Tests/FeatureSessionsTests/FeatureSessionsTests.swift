@@ -257,12 +257,13 @@ struct TreeLinksTests {
         #expect(TreeLinks.changes(1_200) == "1200 files")
     }
 
-    @Test("the pull request row shows the PR, offers to create one once gh is ready, and hides without a GitHub remote")
+    @Test("the pull request row shows the PR, offers to create one once gh is ready, and hides without a GitHub remote or on a Mac that can't read GitHub")
     func pullRequest() {
         let item = PrItem(tree: "/t", number: 7, title: "", state: "OPEN", draft: false, gate: .ready, checks: .init(passed: 2, failed: 0, pending: 0))
-        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: nil).map { [$0.title, $0.detail] } == ["Pull request", "#7 · 2 passed"])
-        #expect(TreeLinks.pullRequest(nil, gh: .ready, problem: nil)?.title == "Create pull request")
-        #expect(TreeLinks.pullRequest(nil, gh: .signedOut, problem: nil)?.title == "Pull request")
-        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: .noRemote) == nil)
+        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: nil, readsGitHub: true).map { [$0.title, $0.detail] } == ["Pull request", "#7 · 2 passed"])
+        #expect(TreeLinks.pullRequest(nil, gh: .ready, problem: nil, readsGitHub: true)?.title == "Create pull request")
+        #expect(TreeLinks.pullRequest(nil, gh: .signedOut, problem: nil, readsGitHub: true)?.title == "Pull request")
+        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: .noRemote, readsGitHub: true) == nil)
+        #expect(TreeLinks.pullRequest(nil, gh: nil, problem: nil, readsGitHub: false) == nil)
     }
 }
