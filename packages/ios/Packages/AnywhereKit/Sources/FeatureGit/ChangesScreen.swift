@@ -43,7 +43,7 @@ struct ChangesScreen: View {
         Group {
             if changes.head == nil, !changes.loading, offline || changes.error != nil {
                 Placeholder(offline ? "Can't reach \(host.name)" : "Couldn't read the changes", systemImage: offline ? "wifi.slash" : "exclamationmark.triangle",
-                            detail: changes.error) {
+                            detail: offline ? nil : changes.error) {
                     changes.error = nil
                     Task { await store.refresh(tree) }
                 }

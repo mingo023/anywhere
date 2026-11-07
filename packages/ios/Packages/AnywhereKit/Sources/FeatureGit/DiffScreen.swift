@@ -45,7 +45,9 @@ struct DiffScreen: View {
     @State private var change: Int?
     @State private var target: Int?
     @State private var discarding = false
-    @State private var asking: String?
+    /// A quote waiting for the user to pick which of these sessions takes it.
+    @State private var asking: (quote: String, ids: [String])?
+    @State private var askable = false
     @State private var toast: Toast?
     @AppStorage("git.diff.sideBySide") private var sideBySide = true
     /// Nil until set, so wrap follows the width: on when compact.
@@ -78,9 +80,8 @@ struct DiffScreen: View {
                     Divider()
                     DiffBar(
                         changes: doc.changes.count, current: change, step: { stepChange($0, doc) }, stage: stageTitle, staging: { stage(siblings) },
-                        discard: at == .working ? { discarding = true } : nil
+                        discard: at == .working ? { discarding = true } : nil, writable: host.link == .online
                     )
-                    .disabled(host.link != .online && stageTitle != nil)
                 }
             }
         }
@@ -126,14 +127,17 @@ struct DiffScreen: View {
         .confirmationDialog(
             "Ask in Chat", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible
         ) {
-            if case .pick(let ids) = askTarget, let quote = asking {
-                ForEach(ids, id: \.self) { id in
-                    Button(host.sessions.session(id)?.summary.title ?? id) { ask(id, quote) }
+            if let asking {
+                ForEach(asking.ids, id: \.self) { id in
+                    Button(host.sessions.session(id)?.summary.title ?? id) { ask(id, asking.quote) }
                 }
             }
         }
         .toast($toast)
-        .onAppear { if follows { host.git.show(tree) } }
+        .onAppear {
+            askable = askTarget != .none
+            if follows { host.git.show(tree) }
+        }
         .onDisappear { if follows { host.git.hide(tree) } }
     }
 
@@ -243,19 +247,22 @@ struct DiffScreen: View {
         if let next { open(next) } else { dismiss() }
     }
 
+    /// Read when asked, not in `body`, so sessions changing elsewhere don't redraw the diff.
     private var askTarget: AskTarget {
         let sessions = host.sessions.recent.compactMap { host.sessions.session($0) }.map { (id: $0.id, cwd: $0.summary.cwd) }
         return AskTarget.of(tree: tree, sessions: sessions)
     }
 
-    /// Ask in Chat on picked lines, when the worktree has a session to take them.
+    /// Ask in Chat on picked lines, when the worktree had a session to take them as the screen opened.
     private var onAsk: ((CodeQuote) -> Void)? {
-        let target = askTarget
+        guard askable else { return nil }
         let path = path
-        switch target {
-        case .none: return nil
-        case .one(let id): return { ask(id, $0.payload(path: path)) }
-        case .pick: return { asking = $0.payload(path: path) }
+        return { quote in
+            switch askTarget {
+            case .none: toast = Toast("No session in this worktree to ask")
+            case .one(let id): ask(id, quote.payload(path: path))
+            case .pick(let ids): asking = (quote.payload(path: path), ids)
+            }
         }
     }
 

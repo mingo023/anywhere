@@ -13,11 +13,13 @@ struct DiffBar: View {
     let stage: String?
     let staging: () -> Void
     let discard: (() -> Void)?
+    /// Stage and Discard are on; not while the Mac is offline.
+    let writable: Bool
 
     var body: some View {
         HStack(spacing: Space.s) {
             if let discard {
-                Button(role: .destructive, action: discard) { Text("Discard…").hitTarget() }
+                Button(role: .destructive, action: discard) { Text("Discard…").hitTarget() }.disabled(!writable)
             }
             Spacer(minLength: 0)
             Button { step(-1) } label: { Label("Previous Change", systemImage: "arrow.up").labelStyle(.iconOnly).hitTarget() }
@@ -31,7 +33,7 @@ struct DiffBar: View {
                 .disabled((current ?? -1) + 1 >= changes)
             Spacer(minLength: 0)
             if let stage {
-                Button(stage, action: staging).buttonStyle(.borderedProminent)
+                Button(stage, action: staging).buttonStyle(.borderedProminent).disabled(!writable)
             }
         }
         .padding(.horizontal, Space.l)
