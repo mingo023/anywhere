@@ -34,8 +34,10 @@ public final class HostModel: Identifiable {
     public let github: GitHubStore
     public let files: FilesStore
     public let push: PushStore
-    /// One per open chat, keyed by agent id.
+    /// One per chat on a stack, keyed by agent id; a chat's store goes once its screen is popped or its session closes.
     public private(set) var chats: [String: ChatStore] = [:]
+    /// The Mac has sent its session list since this host was made, so a session it lacks is gone.
+    public private(set) var agentsListed = false
 
     @ObservationIgnored private var listener: Task<Void, Never>?
     @ObservationIgnored private let now: @MainActor () -> Date
@@ -119,6 +121,11 @@ public final class HostModel: Identifiable {
         chats[agentId] = nil
     }
 
+    /// Releases the chat stores of agents not in `open`, the chats left on a stack.
+    public func keepChats(_ open: Set<String>) {
+        for agentId in chats.keys where !open.contains(agentId) { chats[agentId] = nil }
+    }
+
     private var stores: [any HostStore] {
         [sessions, workspace, terminals, git, github, files, push] + Array(chats.values)
     }
@@ -163,6 +170,16 @@ public final class HostModel: Identifiable {
             if let chat = chats[agentId] { taken = chat.apply(message) || taken }
         } else {
             for chat in chats.values { taken = chat.apply(message) || taken }
+        }
+        // After the chat has seen its session close, so it can say so.
+        switch message {
+        case .agentList:
+            agentsListed = true
+            for agentId in chats.keys where sessions.session(agentId) == nil { chats[agentId] = nil }
+        case .agentUpdate(let update) where update.agent.status == .closed:
+            chats[update.agent.id] = nil
+        default:
+            break
         }
         return taken
     }
