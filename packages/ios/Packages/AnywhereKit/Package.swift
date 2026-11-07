@@ -27,7 +27,7 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("FeatureTerminal", ["Stores", "DesignSystem", "Domain", "Fixtures", .product(name: "SwiftTerm", package: "SwiftTerm")], true),
     ("FeatureGit", ["Stores", "Client", "CodeView", "DiffModel", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureGitHub", ["Stores", "ChatModel", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
-    ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
+    ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "Highlight", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureSettings", ["Stores", "DesignSystem", "Domain", "Wire", "Client", "Fixtures"], true),
     ("AppShell", [
