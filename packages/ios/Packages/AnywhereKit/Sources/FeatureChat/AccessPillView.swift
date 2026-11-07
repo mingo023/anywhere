@@ -34,7 +34,7 @@ struct AccessPillView: View {
         .foregroundStyle((AccessPill.warns(access) ? Palette.waitingText : Palette.text3).color)
         .padding(.horizontal, 8)
         .frame(height: 28)
-        .contentShape(Rectangle())
+        .hitTarget()
         .accessibilityLabel("Access: \(AccessPill.label(access))")
     }
 }

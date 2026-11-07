@@ -122,6 +122,7 @@ struct TranscriptView: View {
                     .frame(maxWidth: .infinity, minHeight: outer.size.height, alignment: .bottom)
                 }
                 .opensAtEnd()
+                .scrollDismissesKeyboard(.interactively)
                 .scrollDisabled(halted)
                 .coordinateSpace(name: "chat")
                 .simultaneousGesture(DragGesture(minimumDistance: 6).onChanged { _ in dragged() }.onEnded { _ in scroll.dragging = false })

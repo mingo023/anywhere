@@ -4,11 +4,14 @@ import MarkdownView
 import SwiftUI
 
 /// The agent's questions in place of the composer, a page each: a single pick moves on after 220 ms, typed words win
-/// over picks, and the last page submits every answer.
+/// over picks, and the last page submits every answer. Skip and Submit wait for the Mac while it's offline.
 @MainActor
 struct QuestionWizard: View {
     let wizard: Wizard
     let answerable: Bool
+    let online: Bool
+    /// Whose turn Skip stops.
+    let who: String
     let change: ((inout Wizard) -> Wizard.Step) -> Void
     let skip: () -> Void
     let openLink: (MarkdownLink) -> Void
@@ -61,25 +64,37 @@ struct QuestionWizard: View {
             .id(wizard.page)
             .transition(reduceMotion ? .opacity : .asymmetric(insertion: .offset(x: wizard.forward ? 14 : -14).combined(with: .opacity), removal: .opacity))
             if answerable {
-                HStack(spacing: Space.s) {
-                    Button("Skip") {
-                        Haptics.warning()
-                        skip()
-                    }
-                    .buttonStyle(.plain).font(ChatFont.small).foregroundStyle(Palette.text3.color).frame(minHeight: 36)
-                    Spacer(minLength: 0)
-                    Button("Back") { back() }.buttonStyle(.plain).font(ChatFont.small.weight(.medium)).frame(minHeight: 36).padding(.horizontal, 10)
-                        .keyboardShortcut(.escape, modifiers: [])
-                    let canGo = wizard.canAdvance(typedEmpty: wizard.currentTyped.allSatisfy(\.isWhitespace))
-                    Button(wizard.primary) { advance() }
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: Space.s) {
+                        Button {
+                            Haptics.warning()
+                            skip()
+                        } label: {
+                            Text("Skip").hitTarget()
+                        }
+                        .buttonStyle(.plain).font(ChatFont.small).foregroundStyle(Palette.text3.color)
+                        .disabled(!online)
+                        Spacer(minLength: 0)
+                        if wizard.page > 0 {
+                            Button { back() } label: { Text("Back").padding(.horizontal, 10).hitTarget() }
+                                .buttonStyle(.plain).font(ChatFont.small.weight(.medium))
+                                .keyboardShortcut(.escape, modifiers: [])
+                        }
+                        let canGo = wizard.canAdvance(typedEmpty: wizard.currentTyped.allSatisfy(\.isWhitespace)) && (online || !wizard.last)
+                        Button { advance() } label: {
+                            Text(wizard.primary)
+                                .foregroundStyle(Palette.onText.color)
+                                .padding(.horizontal, 14)
+                                .frame(minHeight: 36)
+                                .background(Palette.text.color, in: Capsule())
+                                .hitTarget()
+                        }
                         .buttonStyle(.plain)
                         .font(ChatFont.small.weight(.semibold))
-                        .foregroundStyle(Palette.onText.color)
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 36)
-                        .background(Palette.text.color, in: Capsule())
                         .opacity(canGo ? 1 : 0.35)
                         .disabled(!canGo)
+                    }
+                    Text("Skip stops \(who)'s turn").font(ChatFont.caption).foregroundStyle(Palette.text4.color)
                 }
             }
         }
@@ -112,12 +127,10 @@ struct QuestionWizard: View {
     }
 
     private func back() {
-        var went = false
         change { w in
-            went = w.back()
+            _ = w.back()
             return .stay
         }
-        if !went { skip() }
     }
 }
 

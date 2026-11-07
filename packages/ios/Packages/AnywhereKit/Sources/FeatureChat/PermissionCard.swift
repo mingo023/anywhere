@@ -3,13 +3,16 @@ import DesignSystem
 import SwiftUI
 
 /// The tool waiting on permission, in place of the composer: Deny, Reply with feedback, or Allow once. A phone that
-/// may only watch sees the ask without the buttons.
+/// may only watch sees the ask without the buttons. Once an answer is `sent`, both wait with a spinner; offline, they
+/// wait for the Mac.
 @MainActor
 struct PermissionCard: View {
     let ask: Ask
     let who: String
     let feedback: Bool
     let answerable: Bool
+    let sent: Bool
+    let online: Bool
     let allow: () -> Void
     let deny: (String?) -> Void
     @State private var replying = false
@@ -52,7 +55,7 @@ struct PermissionCard: View {
                         .onAppear { focused = true }
                 }
                 HStack(spacing: Space.s) {
-                    button("Deny", primary: false) {
+                    button("Deny", primary: false, destructive: true) {
                         Haptics.warning()
                         deny(nil)
                     }
@@ -65,6 +68,7 @@ struct PermissionCard: View {
                         }
                     }
                     Spacer(minLength: 0)
+                    if sent { ProgressView().controlSize(.small) }
                     button("Allow once", primary: true) {
                         Haptics.success()
                         allow()
@@ -72,6 +76,8 @@ struct PermissionCard: View {
                     // Return while typing a reply mustn't allow what the reply argues against.
                     .keyboardShortcut(replying ? nil : KeyboardShortcut(.return, modifiers: []))
                 }
+                .disabled(sent || !online)
+                .opacity(sent || !online ? 0.5 : 1)
             }
         }
         .padding(Space.m)
@@ -80,14 +86,15 @@ struct PermissionCard: View {
         .transition(.opacity)
     }
 
-    private func button(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func button(_ title: String, primary: Bool, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(role: destructive ? .destructive : nil, action: action) {
             Text(title)
                 .font(ChatFont.small.weight(.semibold))
-                .foregroundStyle((primary ? Palette.onText : Palette.text).color)
+                .foregroundStyle((primary ? Palette.onText : destructive ? Palette.failedText : Palette.text).color)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 36)
-                .background((primary ? Palette.text : Palette.fill3).color, in: Capsule())
+                .background((primary ? Palette.text : destructive ? Palette.failedBackground : Palette.fill3).color, in: Capsule())
+                .hitTarget()
         }
         .buttonStyle(.plain)
     }

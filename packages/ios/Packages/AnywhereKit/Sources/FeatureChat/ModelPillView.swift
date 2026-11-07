@@ -38,7 +38,7 @@ struct ModelPillView: View {
         .lineLimit(1)
         .padding(.horizontal, 8)
         .frame(height: 28)
-        .contentShape(Rectangle())
+        .hitTarget()
     }
 }
 

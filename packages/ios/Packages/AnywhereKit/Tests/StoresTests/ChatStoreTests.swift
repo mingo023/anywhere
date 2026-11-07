@@ -111,14 +111,17 @@ struct ChatStoreTests {
         #expect(c.sends == 1)
     }
 
-    @Test("a saved draft leaves out image thumbnails")
-    func draftsDropThumbnails() {
+    @Test("a saved draft keeps small thumbnails and leaves out one too large to be one")
+    func draftsKeepSmallThumbnails() {
         let d = scratchDefaults()
         let c = chat([], defaults: d)
-        c.draft.images = [.init(id: "x", name: "a.png", path: "/home/attachments/a.png", thumbnail: Data(count: 1 << 20))]
+        c.draft.images = [
+            .init(id: "x", name: "a.png", path: "/home/attachments/a.png", thumbnail: Data(count: 1 << 20)),
+            .init(id: "y", name: "b.png", path: "/home/attachments/b.png", thumbnail: Data(count: 4096)),
+        ]
         let saved = chat([], defaults: d).draft.images
-        #expect(saved.map(\.path) == ["/home/attachments/a.png"])
-        #expect(saved.first?.thumbnail == nil)
+        #expect(saved.map(\.path) == ["/home/attachments/a.png", "/home/attachments/b.png"])
+        #expect(saved.map(\.thumbnail?.count) == [nil, 4096])
     }
 
     @Test("an older page goes before what's held and says whether more exist")
@@ -208,6 +211,27 @@ struct ChatStoreTests {
         #expect(c.settingsMenu == .model)
     }
 
+    @Test("picking /mcp leaves the caret after the tag it puts in")
+    func pickMcp() {
+        let c = chat([])
+        c.draft.text = "/mc"
+        let caret = c.pick(0, cursor: 3)
+        #expect(c.draft.text == "@mcp/")
+        #expect(caret == 5)
+    }
+
+    @Test("picking /new asks for New Session and keeps the draft, as typing it does")
+    func pickNew() {
+        var a = agent()
+        a.provider = "codex"
+        let c = ChatStore(agentId: "a1")
+        c.seed(a, requests: [], hello: Sample.hello)
+        c.draft.text = "/ne"
+        c.pick(0, cursor: 3)
+        #expect(c.newSession != nil)
+        #expect(c.draft.text == "/ne")
+    }
+
     @Test("picking a command mid-draft puts it in for the word typed")
     func pickMidDraft() {
         let c = chat([.agentCommands(.init(agentId: "a1", commands: [Command(name: "review", description: "Review a PR")]))])
@@ -256,4 +280,210 @@ struct ChatStoreTests {
         #expect(c.background.isEmpty)
         #expect(c.agents.isEmpty)
     }
+
+    @Test("an offline send keeps the draft and sends nothing, and Stop waits too")
+    func offlineKeepsTheDraft() {
+        let c = chat([.agentUpdate(.init(agent: agent(.working)))])
+        c.follow(online: false, mac: "Studio")
+        c.draft.text = "also the tests"
+        c.send()
+        #expect(c.draft.text == "also the tests")
+        #expect(c.session.outgoing.list.isEmpty)
+        c.draft.text = ""
+        c.press()
+        #expect(!c.stopping)
+    }
+
+    @Test("the notice clears once the Mac is back")
+    func noticeClearsOnline() {
+        let c = chat([])
+        c.draft.text = "/clear"
+        c.send()
+        #expect(c.notice != nil)
+        c.connected(Sample.hello)
+        #expect(c.notice == nil)
+        #expect(c.online)
+    }
+
+    @Test("a failed request names the Mac in words, not the error's name")
+    func failuresNameTheMac() async {
+        let c = chat([.permissionRequest(.init(request: Sample.chatQuestion(agentId: "a1")))])
+        c.follow(online: true, mac: "Studio")
+        c.skipQuestions()
+        for _ in 0..<5 { await Task.yield() }
+        #expect(c.notice == "Not connected to Studio")
+    }
+
+    @Test("a send while an image uploads arms, keeps the draft, and goes once the image lands")
+    func armedSendGoesOnLanding() {
+        let c = chat([])
+        c.draft.images = [.init(id: "x", name: "a.png")]
+        c.draft.text = "see this"
+        c.send()
+        #expect(c.armed)
+        #expect(c.draft.text == "see this")
+        #expect(c.session.outgoing.list.isEmpty)
+        c.landed("x", "/att/a.png")
+        #expect(!c.armed)
+        #expect(c.draft.isEmpty)
+        #expect(c.session.outgoing.list.map(\.text) == [prompt("see this", images: ["/att/a.png"])])
+    }
+
+    @Test("an armed send disarms when an image fails, which says why and blocks sending until retried or removed")
+    func failedImageDisarms() {
+        let c = chat([])
+        c.draft.images = [.init(id: "x", name: "a.png"), .init(id: "y", name: "b.png")]
+        c.draft.text = "see this"
+        c.send()
+        c.failed("x", AttachmentError.tooLarge)
+        #expect(!c.armed)
+        #expect(c.draft.images.first?.reason == "Images over 20 MB can't be attached")
+        c.landed("y", "/att/b.png")
+        c.send()
+        #expect(c.session.outgoing.list.isEmpty)
+        c.detach("x")
+        c.send()
+        #expect(c.session.outgoing.list.count == 1)
+    }
+
+    @Test("pressing an armed send disarms it")
+    func pressDisarms() {
+        let c = chat([])
+        c.draft.images = [.init(id: "x", name: "a.png")]
+        c.draft.text = "see this"
+        c.send()
+        c.press()
+        #expect(!c.armed)
+        c.landed("x", "/att/a.png")
+        #expect(c.draft.text == "see this")
+    }
+
+    @Test("an image with no Mac to take it fails with the reason, and goes again on retry")
+    func imageRetry() {
+        let c = chat([])
+        c.attach(Data([1, 2, 3]), name: "a.png")
+        #expect(c.draft.images.first?.failed == true)
+        #expect(c.draft.images.first?.reason == "Not connected to Mingo's MacBook Pro")
+        c.follow(online: true, mac: "Studio")
+        c.retryUpload(c.draft.images[0].id)
+        #expect(c.draft.images.first?.reason == "Not connected to Studio")
+    }
+
+    @Test("retrying an undelivered send brings back its images as landed tiles")
+    func retryKeepsImages() async {
+        let c = chat([])
+        c.draft.images = [.init(id: "x", name: "a.png", thumbnail: Data([7]))]
+        c.landed("x", "/att/a.png")
+        c.draft.text = "see this"
+        c.send()
+        for _ in 0..<5 { await Task.yield() }
+        let failed = c.session.outgoing.list.first
+        #expect(failed?.delivery == .failed)
+        c.retry(failed!.id)
+        #expect(c.draft.text == "see this")
+        #expect(c.draft.images.map(\.path) == ["/att/a.png"])
+        #expect(c.draft.images.first?.thumbnail == Data([7]))
+    }
+
+    @Test("editing a queued send puts its images back as tiles, not paths in the text")
+    func editKeepsImages() {
+        let c = chat([.agentUpdate(.init(agent: agent(.working)))])
+        c.draft.images = [.init(id: "x", name: "a.png", path: "/att/a.png")]
+        c.draft.text = "after this"
+        c.send(queue: true)
+        let queued = c.session.outgoing.list.first!
+        c.editQueued(queued.id)
+        #expect(c.draft.text == "after this")
+        #expect(c.draft.images.map(\.path) == ["/att/a.png"])
+    }
+
+    @Test("/new asks for New Session in the chat's project and place, with what follows as its prompt, and keeps the draft")
+    func newOpensNewSession() {
+        var a = agent()
+        a.project = "/w"
+        a.worktree = "/w/.worktrees/calm-otter"
+        let c = ChatStore(agentId: "a1")
+        c.seed(a, requests: [], hello: Sample.hello)
+        c.draft.text = "/new fix the build"
+        c.send()
+        #expect(c.newSession == .init(project: "/w", place: "/w/.worktrees/calm-otter", prompt: "fix the build"))
+        #expect(c.draft.text == "/new fix the build")
+        c.openedNewSession()
+        #expect(c.newSession == nil)
+    }
+
+    @Test("a latest page that starts past what's held drops it and is taken as the first page")
+    func gapTakesAFreshPage() {
+        let c = chat([timeline([item("i1", 1), item("i2", 2), item("i3", 3)])])
+        c.page(.init(agentId: "a1", epoch: 1, items: [item("i600", 600), item("i601", 601)], hasOlder: true, maxSeq: 601), older: false, after: 3)
+        c.flush()
+        #expect(c.items.map(\.seq) == [600, 601])
+        #expect(c.index == ["i600": 0, "i601": 1])
+        #expect(c.hasOlder)
+    }
+
+    @Test("a latest page that reaches back to what's held adds to it")
+    func overlapKeepsWhatsHeld() {
+        let c = chat([timeline([item("i1", 1), item("i2", 2), item("i3", 3)])])
+        c.page(.init(agentId: "a1", epoch: 1, items: [item("i3", 3), item("i4", 4)], hasOlder: true, maxSeq: 4), older: false, after: 3)
+        #expect(c.items.map(\.seq) == [1, 2, 3, 4])
+        #expect(!c.hasOlder)
+    }
+
+    @Test("Stop right after a send is ignored, and works a second later")
+    func stopGuard() {
+        let clock = Clock()
+        let c = ChatStore(agentId: "a1", clock: { clock.now })
+        c.seed(agent(.working), requests: [], hello: Sample.hello)
+        c.flush()
+        c.draft.text = "also the tests"
+        c.send()
+        #expect(c.action == .stop)
+        clock.now += 300
+        c.press()
+        #expect(!c.stopping)
+        clock.now += 1000
+        c.press()
+        #expect(c.stopping)
+    }
+
+    @Test("an answer goes once, and its buttons come back if it fails")
+    func answersGoOnce() async {
+        let ask = PermissionRequest(requestId: "r1", agentId: "a1", toolName: "Bash", detail: .shell(command: "ls", description: nil))
+        let c = chat([.permissionRequest(.init(request: ask))])
+        c.allow()
+        #expect(c.answering == "r1")
+        for _ in 0..<5 { await Task.yield() }
+        #expect(c.answering == nil)
+        #expect(c.notice != nil)
+        c.follow(online: false, mac: "Studio")
+        c.allow()
+        #expect(c.answering == nil)
+    }
+
+    @Test("a session the Mac no longer lists closes its composer until it's listed again")
+    func closedSession() {
+        let c = chat([])
+        #expect(c.apply(.agentList(.init(agents: []))))
+        #expect(c.mode == .closed)
+        c.draft.text = "anyone there?"
+        c.send()
+        #expect(c.session.outgoing.list.isEmpty)
+        #expect(c.apply(.agentList(.init(agents: [agent()]))))
+        #expect(c.mode == .prompt)
+    }
+
+    @Test("a session pocketd reports closed closes its composer")
+    func closedByUpdate() {
+        let c = chat([])
+        #expect(c.apply(.agentUpdate(.init(agent: agent(.closed)))))
+        #expect(c.mode == .closed)
+        #expect(c.apply(.agentList(.init(agents: [agent(.closed)]))) == false)
+        #expect(c.mode == .closed)
+    }
+}
+
+@MainActor
+private final class Clock {
+    var now = 0
 }

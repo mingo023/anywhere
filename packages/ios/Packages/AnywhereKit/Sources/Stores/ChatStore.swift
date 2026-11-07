@@ -1,5 +1,6 @@
 import ChatModel
 import Client
+import Domain
 import Foundation
 import Observation
 import Wire
@@ -10,6 +11,8 @@ import Wire
 public final class ChatStore: HostStore {
     /// Items asked for when the chat opens and after a reconnect; older ones page in.
     public static let page = 500
+    /// The largest thumbnail a saved draft keeps.
+    static let thumbnailMax = 64 * 1024
 
     public let agentId: String
     @ObservationIgnored let connection: DaemonConnection?
@@ -35,6 +38,16 @@ public final class ChatStore: HostStore {
     /// Why the last send went nowhere, for the footer.
     public private(set) var notice: String?
     public var draft = Draft() { didSet { persist() } }
+    /// The Mac's link is up. While it isn't, sends, stops and answers wait and the draft stays.
+    public private(set) var online = true
+    /// The session ended, or the Mac's list no longer has it.
+    public private(set) var closed = false
+    /// Send was pressed while images upload: the draft goes once they land.
+    public private(set) var armed = false
+    /// The ask an answer is on its way to, until pocketd says it's resolved or the answer fails.
+    public private(set) var answering: String?
+    /// A New Session `/new` asked to open, until the screen opens it.
+    public private(set) var newSession: NewSession?
     /// Messages being let out as they stream, by message id.
     public private(set) var reveals: [String: Reveal] = [:]
     /// A reply that just settled, by its fold's row id, so its label fades in.
@@ -59,6 +72,14 @@ public final class ChatStore: HostStore {
     @ObservationIgnored var ticker: Task<Void, Never>?
     @ObservationIgnored var requestsMade = 0
     @ObservationIgnored var searching: Task<Void, Never>?
+    @ObservationIgnored var mac = "your Mac"
+    @ObservationIgnored var armedQueue = false
+    /// When the last send went, which Stop ignores for a moment after.
+    @ObservationIgnored var sentAt: Int?
+    /// Each image's data until it lands, so a failed upload can go again.
+    @ObservationIgnored var uploadData: [String: Data] = [:]
+    /// Thumbnails of landed images by path, for a send that comes back to the composer.
+    @ObservationIgnored var thumbnails: [String: Data] = [:]
 
     /// The composer's draft: what was typed and the images attached.
     public struct Draft: Codable, Hashable, Sendable {
@@ -74,8 +95,24 @@ public final class ChatStore: HostStore {
         public var name: String
         public var path: String?
         public var failed = false
+        /// Why its upload failed.
+        public var reason: String?
         /// A small rendition, for the tile.
         public var thumbnail: Data?
+
+        public init(id: String, name: String, path: String? = nil, thumbnail: Data? = nil) {
+            self.id = id
+            self.name = name
+            self.path = path
+            self.thumbnail = thumbnail
+        }
+    }
+
+    /// A New Session preset to this chat's project and place, with what followed `/new` as its prompt.
+    public struct NewSession: Hashable, Sendable {
+        public var project: String?
+        public var place: String?
+        public var prompt: String?
     }
 
     /// A `/btw` side question and how it stands.
@@ -105,7 +142,11 @@ public final class ChatStore: HostStore {
     public func apply(_ message: ServerMessage) -> Bool {
         switch message {
         case .agentList(let list):
-            guard let agent = list.agents.first(where: { $0.id == agentId }) else { return false }
+            guard let agent = list.agents.first(where: { $0.id == agentId }) else {
+                guard !closed else { return false }
+                closed = true
+                return true
+            }
             return take(agent)
         case .agentUpdate(let update):
             guard update.agent.id == agentId else { return false }
@@ -130,6 +171,8 @@ public final class ChatStore: HostStore {
         case .permissionResolved(let resolved):
             guard let at = requests.firstIndex(where: { $0.requestId == resolved.requestId }) else { return false }
             requests.remove(at: at)
+            if answering == resolved.requestId { answering = nil }
+            notice = nil
             refreshWizard()
             return true
         case .agentCommands(let commands):
@@ -158,24 +201,40 @@ public final class ChatStore: HostStore {
         self.requests = requests
         caps = hello?.caps ?? []
         scopes = hello?.scopes ?? []
+        if let hello { mac = hello.hostname }
         refreshWizard()
+    }
+
+    /// Whether the Mac named `mac` is online, as the screen sees its host before this store hears of a change.
+    public func follow(online: Bool, mac: String) {
+        self.mac = mac
+        if online != self.online { self.online = online }
+        if online, notice != nil { notice = nil }
     }
 
     public func connected(_ hello: HelloOk) {
         caps = hello.caps ?? []
         scopes = hello.scopes ?? []
+        mac = hello.hostname
+        online = true
+        notice = nil
         requests = []
+        answering = nil
         refreshWizard()
         if viewing { open() }
     }
 
     public func disconnected() {
         loadingOlder = false
+        online = false
     }
 
     /// Takes a newer summary; a timeline pocketd started over drops what was held.
     func take(_ agent: AgentSummary) -> Bool {
-        guard agent != summary else { return false }
+        let isClosed = agent.status == .closed
+        let flipped = closed != isClosed
+        if flipped { closed = isClosed }
+        guard agent != summary else { return flipped }
         let reset = summary.map { $0.resets != agent.resets } ?? false
         let wasWorking = summary.map(Composer.working)
         summary = agent
@@ -193,8 +252,17 @@ public final class ChatStore: HostStore {
         return true
     }
 
-    /// Takes a page of the timeline: the latest, or with `older`, the one before what's held.
-    func page(_ timeline: AgentTimeline, older: Bool) {
+    /// Takes a page of the timeline: the latest, or with `older`, the one before what's held. A latest page that starts
+    /// past `after`, the newest seq held when it was asked for, with more before it, leaves a gap: what's held before it
+    /// goes and the page is taken as the first, so items that aren't adjacent never show as if they were.
+    func page(_ timeline: AgentTimeline, older: Bool, after: Int? = nil) {
+        if !older, timeline.hasOlder, let after, let first = timeline.items.first?.seq, after < first {
+            items.removeAll { $0.seq < first }
+            index = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($1.id, $0) })
+            unchanged = 0
+            primed = false
+            loaded = false
+        }
         if older || !loaded { hasOlder = timeline.hasOlder }
         loaded = true
         upsert(timeline.items)
@@ -289,7 +357,8 @@ public final class ChatStore: HostStore {
         viewing = false
         ticker?.cancel()
         ticker = nil
-        send(.agentView(.init(agentIds: [])))
+        // The app is still in front: without `front`, pocketd would take leaving the chat for leaving the app and push.
+        send(.agentView(.init(agentIds: [], front: true)))
     }
 
     func open() {
@@ -305,8 +374,9 @@ public final class ChatStore: HostStore {
 
     /// Asks for the latest page; it upserts over what's held, so a reconnect keeps the pages paged in.
     func fetch() {
+        let after = items.last?.seq
         request(.agentTimeline(.init(agentId: agentId, limit: Self.page))) { [weak self] reply in
-            if case .agentTimeline(let t) = reply { self?.page(t, older: false) }
+            if case .agentTimeline(let t) = reply { self?.page(t, older: false, after: after) }
         }
     }
 
@@ -342,7 +412,7 @@ public final class ChatStore: HostStore {
 
     public var feedback: Bool { requests.first?.feedback ?? false }
 
-    public var mode: Composer.Mode { Composer.mode(observeOnly: observeOnly, canApprove: canApprove, ask: ask) }
+    public var mode: Composer.Mode { Composer.mode(observeOnly: observeOnly, canApprove: canApprove, ask: ask, closed: closed) }
 
     public var busy: Bool { summary.map { Composer.busy($0, session) } ?? false }
 
@@ -352,14 +422,21 @@ public final class ChatStore: HostStore {
 
     public var uploading: Bool { draft.images.contains { $0.path == nil && !$0.failed } }
 
+    public var uploadFailed: Bool { draft.images.contains(where: \.failed) }
+
     public func hasCap(_ cap: String) -> Bool { caps.contains(cap) }
 
     // MARK: Sending
 
     /// Sends the draft unless the agent can't take it now. While the agent works a send goes into the running turn; behind
-    /// a stop, or to `queue`, it waits for the turn to end.
+    /// a stop, or to `queue`, it waits for the turn to end. While images upload it arms instead, and goes once they land.
     public func send(queue: Bool = false) {
-        guard mode == .prompt, !uploading, let agent = summary else { return }
+        guard mode == .prompt, online, !armed, !uploadFailed, let agent = summary else { return }
+        if uploading {
+            armed = true
+            armedQueue = queue
+            return
+        }
         let busy = busy
         if busy && !capabilities.sendWhileWorking { return }
         let steer = busy && !stopping && !queue
@@ -372,7 +449,10 @@ public final class ChatStore: HostStore {
             return
         }
         notice = nil
+        // New Session takes what follows `/new` as its prompt; the draft stays, so backing out of it loses nothing.
+        if case (.local(.new), _, let arg)? = command { return startNewSession(arg) }
         draft = Draft()
+        sentAt = clock()
         if case (.local(let local), _, let arg)? = command { return runLocal(local, arg) }
         let sent = command != nil ? text : suggest.withMcpContext(agentId, provider, text)
         if skipsQueue(typed) {
@@ -399,7 +479,8 @@ public final class ChatStore: HostStore {
     func runLocal(_ local: ChatModel.Local, _ arg: String) {
         switch (local, arg) {
         case (.model, ""), (.effort, ""): settingsMenu = local
-        case (.new, _), (.btw, ""): break
+        case (.new, let prompt): startNewSession(prompt)
+        case (.btw, ""): break
         case (.model, let model): settings(model: model)
         case (.effort, let effort): settings(effort: effort)
         case (.compact, _): compact()
@@ -407,6 +488,14 @@ public final class ChatStore: HostStore {
         case (.mcp, let query): draft.text = mcpTag + query
         }
     }
+
+    /// Asks the screen to open New Session in this chat's project and place.
+    func startNewSession(_ prompt: String) {
+        let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        newSession = NewSession(project: summary?.project, place: summary?.worktree, prompt: prompt.isEmpty ? nil : prompt)
+    }
+
+    public func openedNewSession() { newSession = nil }
 
     /// Sends `text` as an `agent.prompt` and returns the key a refusal names it by.
     @discardableResult
@@ -421,6 +510,7 @@ public final class ChatStore: HostStore {
     }
 
     public func stop() {
+        guard online else { return }
         session.outgoing.stop(now: clock())
         request(.agentInterrupt(.init(agentId: agentId))) { _ in } failed: { [weak self] _ in
             self?.session.outgoing.stopRefused()
@@ -431,12 +521,20 @@ public final class ChatStore: HostStore {
     /// Stops the sub-agents a chat agent left in the background; no turn runs, so nothing waits on a stop.
     public func stopBackground() { request(.agentInterrupt(.init(agentId: agentId))) { _ in } }
 
-    /// What the send button does when pressed: stops a working agent with an empty draft, else sends.
+    /// What the send button does when pressed: disarms an armed send, stops a working agent with an empty draft unless
+    /// a send just went, else sends.
     public func press() {
-        if action == .stop { stop() } else { send() }
+        if armed {
+            armed = false
+        } else if action == .stop {
+            if !Composer.guardsStop(sentAt: sentAt, now: clock()) { stop() }
+        } else {
+            send()
+        }
     }
 
     public func sendNow() {
+        guard online else { return }
         guard session.outgoing.sendNow(now: clock()) else { return }
         request(.agentSendNow(.init(agentId: agentId))) { _ in }
         scheduleFlush()
@@ -446,6 +544,7 @@ public final class ChatStore: HostStore {
 
     /// Sends a queued send into the turn now.
     public func steerQueued(_ id: Int) {
+        guard online else { return }
         guard let text = session.outgoing.steer(id, now: clock()) else { return }
         session.outgoing.sentAs(id, prompt(text))
         steers += 1
@@ -455,8 +554,18 @@ public final class ChatStore: HostStore {
     /// Pulls a queued send back into the composer, under what's typed.
     public func editQueued(_ id: Int) {
         guard let text = session.outgoing.withdraw(id) else { return }
-        draft.text = Queue.editing(draft.text, text)
+        restore(text)
         scheduleFlush()
+    }
+
+    /// Puts a send back in the composer under what's typed, its images as tiles that already landed.
+    func restore(_ prompt: String) {
+        let (text, paths) = splitImages(prompt)
+        draft.text = Queue.editing(draft.text, text)
+        let held = Set(draft.images.compactMap(\.path))
+        draft.images += paths.filter { !held.contains($0) }.map {
+            Attachment(id: UUID().uuidString, name: FileText.baseName($0), path: $0, thumbnail: thumbnails[$0])
+        }
     }
 
     public func removeQueued(_ id: Int) {
@@ -467,7 +576,7 @@ public final class ChatStore: HostStore {
     /// Puts a send that wasn't delivered back in the composer.
     public func retry(_ id: Int) {
         guard let text = session.outgoing.retry(id) else { return }
-        draft.text = Queue.editing(draft.text, splitImages(text).text)
+        restore(text)
         scheduleFlush()
     }
 
@@ -478,7 +587,7 @@ public final class ChatStore: HostStore {
 
     /// Re-sends the prompt that set a reply going, leaving the draft alone.
     public func retryTurn(_ turn: Int) {
-        guard mode == .prompt, summary != nil, session.transcript.turns.indices.contains(turn),
+        guard mode == .prompt, online, summary != nil, session.transcript.turns.indices.contains(turn),
             let text = session.transcript.turns[turn].prompt?.text
         else { return }
         let busy = busy
@@ -495,12 +604,15 @@ public final class ChatStore: HostStore {
         resolve(.deny, message: message?.isEmpty == false ? message : nil)
     }
 
+    /// Answers the first ask, once: a second answer waits until this one fails.
     func resolve(_ decision: Decision, message: String? = nil, answers: [String: String]? = nil) {
-        guard let request = requests.first else { return }
+        guard online, let request = requests.first, answering != request.requestId else { return }
         let id = request.requestId
+        answering = id
         self.request(.permissionResolve(.init(requestId: id, decision: decision, message: message, answers: answers))) { _ in } failed: {
             [weak self] error in
             guard let self else { return }
+            if answering == id { answering = nil }
             notice = error
             // The ask still stands, so its questions can be sent again.
             if wizard?.requestId == id { wizard?.sent = false }
@@ -511,6 +623,7 @@ public final class ChatStore: HostStore {
     public func wizard(_ change: (inout Wizard) -> Wizard.Step) {
         guard var w = wizard, !w.sent else { return }
         let step = change(&w)
+        if case .done = step, !online { return }
         wizard = w
         if case .done(let answers) = step {
             wizard?.sent = true
@@ -520,7 +633,7 @@ public final class ChatStore: HostStore {
 
     /// Skips the questions: a deny that stops the agent's turn.
     public func skipQuestions() {
-        guard wizard?.sent == false else { return }
+        guard wizard?.sent == false, online else { return }
         wizard?.sent = true
         resolve(.deny)
     }
@@ -576,7 +689,7 @@ public final class ChatStore: HostStore {
             recheckServers()
         } failed: { [weak self] error in
             guard let self else { return }
-            if action != nil { suggest.mcpActFailed(agent) } else { suggest.mcpListed(agent, .failure(.init(error)), authUrl: "", acted: false) }
+            if action != nil { suggest.mcpActFailed(agent) } else { suggest.mcpListed(agent, .failure(.init(error ?? "")), authUrl: "", acted: false) }
         }
     }
 
@@ -626,34 +739,45 @@ public final class ChatStore: HostStore {
     }
 
     /// Picks row `ix` of that list: a command or a path goes in for the word typed, a command the phone runs itself
-    /// runs, and a server the agent can't use yet is signed in to, reconnected or enabled.
-    public func pick(_ ix: Int, cursor: Int) {
-        guard let rows = suggestions(cursor: cursor) else { return }
+    /// runs, and a server the agent can't use yet is signed in to, reconnected or enabled. Returns where the cursor goes
+    /// when the draft changed.
+    @discardableResult
+    public func pick(_ ix: Int, cursor: Int) -> Int? {
+        guard let rows = suggestions(cursor: cursor) else { return nil }
         let text = draft.text
         let utf8 = Array(text.utf8)
-        func around(_ at: Int, _ put: String) -> String {
-            String(decoding: utf8[..<at], as: UTF8.self) + put + String(decoding: utf8[min(cursor, utf8.count)...], as: UTF8.self)
+        func around(_ at: Int, _ put: String) -> (text: String, cursor: Int) {
+            let head = String(decoding: utf8[..<at], as: UTF8.self) + put
+            return (head + String(decoding: utf8[min(cursor, utf8.count)...], as: UTF8.self), head.utf8.count)
         }
+        let put: (text: String, cursor: Int)
         suggest.selected = 0
         switch rows {
         case .servers(let at, _, .success(let all)?, let pickable) where ix < pickable:
-            if !Mcp.usable(all[ix]) { return act(on: all[ix]) }
-            draft.text = replaced(text, at, cursor, mcpTag + all[ix].name).text
+            if !Mcp.usable(all[ix]) {
+                act(on: all[ix])
+                return nil
+            }
+            put = replaced(text, at, cursor, mcpTag + all[ix].name)
         case .commands(let at, _, let list) where list.indices.contains(ix) && !startsDraft(text, at):
-            draft.text = list[ix].kind == .local(.mcp) ? around(at, mcpTag) : replaced(text, at, cursor, "/\(list[ix].name)").text
+            put = list[ix].kind == .local(.mcp) ? around(at, mcpTag) : replaced(text, at, cursor, "/\(list[ix].name)")
         case .commands(_, _, let list) where list.indices.contains(ix):
             let arg = slash(text)?.arg ?? ""
-            if case .local(let local) = adapter.command(list[ix].name, arg) {
-                draft.text = ""
-                runLocal(local, arg)
-            } else {
-                draft.text = named(list[ix].name, arg).text
+            guard case .local(let local) = adapter.command(list[ix].name, arg) else {
+                put = named(list[ix].name, arg)
+                break
             }
+            // New Session keeps the draft, as a typed `/new` does.
+            if local != .new { draft.text = "" }
+            runLocal(local, arg)
+            return draft.text.utf8.count
         case .files(let at, _, let paths) where paths.indices.contains(ix):
-            draft.text = replaced(text, at, cursor, "@" + paths[ix]).text
+            put = replaced(text, at, cursor, "@" + paths[ix])
         default:
-            break
+            return nil
         }
+        draft.text = put.text
+        return put.cursor
     }
 
     // MARK: Images
@@ -662,18 +786,65 @@ public final class ChatStore: HostStore {
     public func attach(_ data: Data, name: String, thumbnail: Data? = nil) {
         let id = UUID().uuidString
         draft.images.append(Attachment(id: id, name: name, thumbnail: thumbnail))
-        guard let files else { return mark(id) { $0.failed = true } }
+        uploadData[id] = data
+        upload(id)
+    }
+
+    /// Sends a failed image again.
+    public func retryUpload(_ id: String) {
+        guard uploadData[id] != nil else { return }
+        mark(id) {
+            $0.failed = false
+            $0.reason = nil
+        }
+        upload(id)
+    }
+
+    public func detach(_ id: String) {
+        draft.images.removeAll { $0.id == id }
+        uploadData[id] = nil
+        sendArmed()
+    }
+
+    func upload(_ id: String) {
+        guard let data = uploadData[id], let name = draft.images.first(where: { $0.id == id })?.name else { return }
+        guard let files else { return failed(id, DaemonError.offline) }
         Task { @MainActor [weak self] in
             do {
                 let path = try await files.upload(data, name: name)
-                self?.mark(id) { $0.path = path }
+                self?.landed(id, path)
             } catch {
-                self?.mark(id) { $0.failed = true }
+                self?.failed(id, error)
             }
         }
     }
 
-    public func detach(_ id: String) { draft.images.removeAll { $0.id == id } }
+    func landed(_ id: String, _ path: String) {
+        uploadData[id] = nil
+        mark(id) { $0.path = path }
+        if let thumbnail = draft.images.first(where: { $0.id == id })?.thumbnail { thumbnails[path] = thumbnail }
+        sendArmed()
+    }
+
+    func failed(_ id: String, _ error: any Error) {
+        let reason = error is AttachmentError ? FilesStore.describe(error) : ErrorText.describe(error, mac: mac)
+        mark(id) {
+            $0.failed = true
+            $0.reason = reason
+        }
+        sendArmed()
+    }
+
+    /// An armed send goes once every image has landed, and disarms as soon as one fails.
+    func sendArmed() {
+        guard armed else { return }
+        if uploadFailed {
+            armed = false
+        } else if !uploading {
+            armed = false
+            send(queue: armedQueue)
+        }
+    }
 
     func mark(_ id: String, _ change: (inout Attachment) -> Void) {
         guard let at = draft.images.firstIndex(where: { $0.id == id }) else { return }
@@ -701,8 +872,8 @@ public final class ChatStore: HostStore {
     func persist() {
         guard let defaults else { return }
         var kept = draft
-        // Thumbnails are whole photos; encoding them on each keystroke would stall typing.
-        kept.images = kept.images.filter { $0.path != nil }.map { var a = $0; a.thumbnail = nil; return a }
+        // A whole photo passed as a thumbnail would stall typing, as the draft is encoded on each keystroke.
+        kept.images = kept.images.filter { $0.path != nil }.map { var a = $0; if (a.thumbnail?.count ?? 0) > Self.thumbnailMax { a.thumbnail = nil }; return a }
         if kept.isEmpty {
             defaults.removeObject(forKey: draftKey)
         } else if let data = try? JSONEncoder().encode(kept) {
@@ -715,23 +886,22 @@ public final class ChatStore: HostStore {
         Task { _ = try? await connection.send(message) }
     }
 
-    /// Sends a request; `done` takes its reply, `failed` why it failed, both on the main actor.
+    /// Sends a request; `done` takes its reply, `failed` why it failed as the reader sees it (nil once cancelled), both
+    /// on the main actor.
     func request(
         _ message: ClientMessage, done: @escaping @MainActor (ServerMessage) -> Void,
-        failed: @escaping @MainActor (String) -> Void = { _ in }
+        failed: @escaping @MainActor (String?) -> Void = { _ in }
     ) {
         // Even offline the answer comes later, as a caller keys a send by what this returns before it fails.
         guard let connection else {
-            Task { @MainActor in failed("Not connected") }
+            Task { @MainActor [mac] in failed(ErrorText.describe(DaemonError.offline, mac: mac)) }
             return
         }
-        Task { @MainActor in
+        Task { @MainActor [mac] in
             do {
                 done(try await connection.request(message))
-            } catch DaemonError.server(let error) {
-                failed(error.message)
             } catch {
-                failed("\(error)")
+                failed(ErrorText.describe(error, mac: mac))
             }
         }
     }
