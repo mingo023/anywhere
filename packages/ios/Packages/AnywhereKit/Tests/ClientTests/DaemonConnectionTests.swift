@@ -283,6 +283,24 @@ struct DaemonConnectionTests {
         #expect(await recorder.wait { $0.contains { $0.closed != nil } })
     }
 
+    @Test("a reply still arriving keeps a link whose pong waits behind it up")
+    func slowReply() async throws {
+        let big = String(repeating: "x", count: 4 << 20)
+        let server = try await TestServer(answersPings: false) { peer, frame in
+            switch frame.message {
+            case .hello: peer.send(ServerFrame(id: frame.id, .helloOk(helloOk)))
+            default: peer.sendSlowly(ServerFrame(id: frame.id, .agentCommands(.init(agentId: big, commands: []))), pieces: 40, over: .milliseconds(800))
+            }
+        }
+        defer { server.stop() }
+        let (connection, recorder) = await connect(server, pingAfter: .milliseconds(100), pongTimeout: .milliseconds(100))
+        defer { Task { await connection.stop() } }
+        #expect(await recorder.wait { $0.contains(where: \.isConnected) })
+        let reply = try await connection.request(.agentCommands(.init(agentId: "a")), timeout: .seconds(3))
+        #expect(reply == .agentCommands(.init(agentId: big, commands: [])))
+        #expect(await recorder.events == [.connected(helloOk)])
+    }
+
     @Test("requests before hello.ok are refused as offline")
     func offline() async throws {
         let connection = DaemonConnection(config: .init(host: "127.0.0.1:9", token: nil, clientId: "c"))

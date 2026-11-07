@@ -29,6 +29,21 @@ final class TestServer: @unchecked Sendable {
             connection.send(content: Data(reason.utf8), contentContext: context, isComplete: true, completion: .idempotent)
         }
 
+        /// Sends one text message in `pieces` spread over `over`, as a big reply crawls over a slow link.
+        func sendSlowly(_ frame: ServerFrame, pieces: Int, over: Duration) {
+            let data = try! frame.encoded()
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+            let context = NWConnection.ContentContext(identifier: "slow", metadata: [metadata])
+            let size = (data.count + pieces - 1) / pieces
+            let gap = (Double(over.components.seconds) + Double(over.components.attoseconds) / 1e18) / Double(pieces)
+            for i in 0..<pieces {
+                let piece = data.subdata(in: min(i * size, data.count)..<min((i + 1) * size, data.count))
+                DispatchQueue.global().asyncAfter(deadline: .now() + gap * Double(i)) { [connection] in
+                    connection.send(content: piece, contentContext: context, isComplete: i == pieces - 1, completion: .idempotent)
+                }
+            }
+        }
+
         /// Drops the socket without a close frame, as a sleeping Mac would.
         func cut() { connection.cancel() }
 

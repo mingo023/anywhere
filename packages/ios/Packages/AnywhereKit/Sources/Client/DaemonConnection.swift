@@ -75,6 +75,8 @@ public actor DaemonConnection {
     private var watchdog: Task<Void, Never>?
     /// A ping is waiting for the link to answer.
     private var checking = false
+    /// Bytes received since the ping went: a reply still arriving holds the pong back, as pocketd writes it whole first.
+    private var arriving: NWConnection.PendingDataTransferReport?
     private var path: NWPathMonitor?
 
     public init(config: Config) {
@@ -106,6 +108,7 @@ public actor DaemonConnection {
     public func verify() {
         guard isOnline, !checking, let connection else { return }
         checking = true
+        arriving = connection.startDataTransferReport()
         let generation = generation
         let sent = ContinuousClock.now
         let metadata = NWProtocolWebSocket.Metadata(opcode: .ping)
@@ -127,9 +130,22 @@ public actor DaemonConnection {
     }
 
     private func checked(_ generation: Int, sent: ContinuousClock.Instant) {
+        guard generation == self.generation, let report = arriving else { return }
+        arriving = nil
+        guard heard < sent else {
+            checking = false
+            return
+        }
+        report.collect(queue: queue) { [weak self] report in
+            let received = report.pathReports.contains { $0.receivedApplicationByteCount > 0 }
+            self?.assumeIsolated { $0.collected(generation, received: received) }
+        }
+    }
+
+    private func collected(_ generation: Int, received: Bool) {
         guard generation == self.generation else { return }
         checking = false
-        if heard < sent { lost(closeCode: nil) }
+        if received { heard = .now } else { lost(closeCode: nil) }
     }
 
     /// Wakes when the link may have been quiet for `pingAfter`, and pings it if it has.
@@ -407,6 +423,7 @@ public actor DaemonConnection {
         watchdog?.cancel()
         watchdog = nil
         checking = false
+        arriving = nil
         generation += 1
         receiving = false
         guard let connection else { return }
