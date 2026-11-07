@@ -75,6 +75,8 @@ public struct GitStatus: Codable, Hashable, Sendable {
     public var unpushed: Int?
     /// Upstream commits HEAD lacks, what Pull would bring; none before the first push or from an older pocketd.
     public var unpulled: Int?
+    /// The desktop's setting: with nothing staged, a commit takes every change. Absent from an older pocketd.
+    public var commitAll: Bool?
     public var totals: GitTotals
     public var files: [GitFile]
     /// At most 20 since the base.
@@ -84,8 +86,8 @@ public struct GitStatus: Codable, Hashable, Sendable {
 
     public init(
         tree: String, rev: String, branch: String? = nil, detached: Bool? = nil, upstream: String? = nil, base: String? = nil, ahead: Int,
-        behind: Int, unpushed: Int? = nil, unpulled: Int? = nil, totals: GitTotals, files: [GitFile], commits: [CommitRef],
-        nextCursor: Int? = nil
+        behind: Int, unpushed: Int? = nil, unpulled: Int? = nil, commitAll: Bool? = nil, totals: GitTotals, files: [GitFile],
+        commits: [CommitRef], nextCursor: Int? = nil
     ) {
         self.tree = tree
         self.rev = rev
@@ -97,6 +99,7 @@ public struct GitStatus: Codable, Hashable, Sendable {
         self.behind = behind
         self.unpushed = unpushed
         self.unpulled = unpulled
+        self.commitAll = commitAll
         self.totals = totals
         self.files = files
         self.commits = commits

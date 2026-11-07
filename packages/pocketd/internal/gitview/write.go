@@ -130,9 +130,14 @@ func PushArgs(remote string, lease bool) []string {
 	return args
 }
 
-func (s *Service) Push(tree string, lease bool) error {
+// Push sends the branch to remote, or where git picks when the repository has
+// no remote by that name, as the desktop's push_argv.
+func (s *Service) Push(tree, remote string, lease bool) error {
 	return s.write(tree, func() error {
-		_, err := s.git(tree, nil, writeTimeout, PushArgs("", lease))
+		if remotes, err := s.text(tree, "remote"); err != nil || !slices.Contains(strings.Split(remotes, "\n"), remote) {
+			remote = ""
+		}
+		_, err := s.git(tree, nil, writeTimeout, PushArgs(remote, lease))
 		return err
 	})
 }

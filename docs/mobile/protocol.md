@@ -122,7 +122,7 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 
 ```
 → {type:"git.status", id, tree, cursor?:int, limit?:int}     // limit default 500, max 2000; cursor = file offset
-← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?, unpulled?,
+← {type:"git.status", id, tree, rev, branch?, detached?:bool, upstream?, base?, ahead, behind, unpushed?, unpulled?, commitAll?:bool,
    totals:{files, added, removed, staged, unstaged},
    files:[{path, oldPath?, status, staged, unstaged, added?, removed?, binary?}],
    commits:[{sha, subject}],                                  // ≤20 since base
@@ -133,6 +133,7 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
    // A page past the first comes from the read that served cursor 0, for up to 30 s, so pages agree.
    // ahead/behind count against base; unpushed/unpulled against the upstream (Push N, Pull N), omitted before the first push.
    // unstaged counts files with unstaged edits: a file staged and edited again counts in staged and unstaged.
+   // commitAll = desktop.json's git.commit_all (default true): with nothing staged, the phone's Commit sends all:true.
 
 → {type:"git.watch", id, trees:[tree]}  ← ack                  // replaces this conn's watch set; [] stops; ≤32 trees
 ← {type:"git.changed", tree, rev}                              // push when a watched tree's rev moves (polled ~2 s)
@@ -161,7 +162,8 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
 → {type:"git.discard", id, tree, paths:[…]}  ← ack
 → {type:"git.commit.create", id, tree, message, amend?:bool, all?:bool}
 ← {type:"git.committed", id, sha}
-→ {type:"git.push", id, tree, lease?:bool}  ← ack
+→ {type:"git.push", id, tree, lease?:bool}  ← ack           // to desktop.json's git.remote (default origin) when the repo
+   //   has a remote by that name, else where git picks; the first push sets the upstream
 → {type:"git.pull", id, tree}  ← ack                           // pull --ff-only
    // failures: error{code:"git_failed", message:<first stderr line>, detail?:<stderr>}
    // a git.* tree must be a worktree's top folder, else not_a_tree; paths are file names, never pathspec patterns

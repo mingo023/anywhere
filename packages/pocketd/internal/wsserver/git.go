@@ -21,7 +21,7 @@ type GitService interface {
 	Stage(tree string, paths []string, staged bool) error
 	Discard(tree string, paths []string) error
 	CreateCommit(tree, message string, amend, all bool) (string, error)
-	Push(tree string, lease bool) error
+	Push(tree, remote string, lease bool) error
 	Pull(tree string) error
 	Watch(trees []string, changed func(tree, rev string)) (stop func())
 	Top(tree string) error
@@ -84,6 +84,7 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 			return err
 		}
 		st.ID = m.ID
+		st.CommitAll = new(c.s.Registry.Load().Git.CommitsAll())
 		c.send(st)
 	case "git.diff":
 		d, err := g.Diff(m.Tree, m.Path, *m.At, gitview.DiffOptions{Context: m.Context, IgnoreWhitespace: m.IgnoreWhitespace, MaxLines: m.MaxLines})
@@ -123,7 +124,7 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 		case "git.discard":
 			err = g.Discard(m.Tree, m.Paths)
 		case "git.push":
-			err = g.Push(m.Tree, m.Lease)
+			err = g.Push(m.Tree, c.s.Registry.Load().Git.PushRemote(), m.Lease)
 		case "git.pull":
 			err = g.Pull(m.Tree)
 		}

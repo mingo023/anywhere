@@ -153,3 +153,26 @@ func TestGitVerbsStayInsideRegisteredTrees(t *testing.T) {
 		}
 	}
 }
+
+func TestAPhoneCommitsAndPushesAsTheDesktopsGitSettingsSay(t *testing.T) {
+	repo, opt := withGitProject(t)
+	dir := filepath.Dir(repo)
+	gitIn(t, repo, "init", "-q", "--bare", "-b", "main", filepath.Join(dir, "fork.git"))
+	gitIn(t, repo, "remote", "add", "fork", filepath.Join(dir, "fork.git"))
+	raw, _ := json.Marshal(map[string]any{"projects": []string{repo}, "git": map[string]any{"remote": "fork", "commit_all": false}})
+	os.WriteFile(filepath.Join(dir, "desktop.json"), raw, 0o600)
+	_, _, p := local(t, phoneDevice, opt)
+	helloWith(p, proto.CapGit)
+	p.send(`{"type":"git.status","id":"s","tree":` + q(repo) + `}`)
+	if m := p.reply("s"); m["commitAll"] != false {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"git.push","id":"p","tree":` + q(repo) + `}`)
+	if m := p.reply("p"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	cmd := exec.Command("git", "-C", repo, "rev-parse", "--abbrev-ref", "@{u}")
+	if out, _ := cmd.Output(); strings.TrimSpace(string(out)) != "fork/main" {
+		t.Fatalf("upstream %q", out)
+	}
+}

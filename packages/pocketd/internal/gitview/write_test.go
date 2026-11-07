@@ -144,10 +144,33 @@ func TestTheFirstPushSetsTheUpstream(t *testing.T) {
 	repo := scratch(t)
 	bare(t, repo)
 	sh(t, repo, "switch", "-qc", "feature")
-	if err := service().Push(repo, false); err != nil {
+	if err := service().Push(repo, "origin", false); err != nil {
 		t.Fatal(err)
 	}
 	if u := sh(t, repo, "rev-parse", "--abbrev-ref", "@{u}"); u != "origin/feature" {
+		t.Fatal(u)
+	}
+}
+
+func TestAPushGoesToTheChosenRemoteAndToGitsPickWhenTheRepoHasNoneByThatName(t *testing.T) {
+	repo := scratch(t)
+	bare(t, repo)
+	sh(t, repo, "init", "-q", "--bare", "-b", "main", filepath.Join(filepath.Dir(repo), "fork.git"))
+	sh(t, repo, "remote", "add", "fork", filepath.Join(filepath.Dir(repo), "fork.git"))
+	s := service()
+	sh(t, repo, "switch", "-qc", "to-fork")
+	if err := s.Push(repo, "fork", false); err != nil {
+		t.Fatal(err)
+	}
+	if u := sh(t, repo, "rev-parse", "--abbrev-ref", "@{u}"); u != "fork/to-fork" {
+		t.Fatal(u)
+	}
+	sh(t, repo, "remote", "remove", "fork")
+	sh(t, repo, "switch", "-qc", "to-origin")
+	if err := s.Push(repo, "fork", false); err != nil {
+		t.Fatal(err)
+	}
+	if u := sh(t, repo, "rev-parse", "--abbrev-ref", "@{u}"); u != "origin/to-origin" {
 		t.Fatal(u)
 	}
 }
@@ -156,16 +179,16 @@ func TestARewrittenBranchPushesWithLeaseButNeverOverCommitsNotYetFetched(t *test
 	repo := scratch(t)
 	remote := bare(t, repo)
 	s := service()
-	if err := s.Push(repo, true); err != nil {
+	if err := s.Push(repo, "origin", true); err != nil {
 		t.Fatal(err)
 	}
 	sh(t, repo, "commit", "-q", "--amend", "-m", "amended")
-	if err := s.Push(repo, false); err == nil {
+	if err := s.Push(repo, "origin", false); err == nil {
 		t.Fatal("pushed over the remote without a lease")
 	} else if f := err.(*Failed); !strings.HasPrefix(f.Message, "!") && !strings.HasPrefix(f.Message, "error:") {
 		t.Fatalf("%q", f.Message)
 	}
-	if err := s.Push(repo, true); err != nil {
+	if err := s.Push(repo, "origin", true); err != nil {
 		t.Fatal(err)
 	}
 	other := filepath.Join(filepath.Dir(repo), "other")
@@ -173,11 +196,11 @@ func TestARewrittenBranchPushesWithLeaseButNeverOverCommitsNotYetFetched(t *test
 	sh(t, other, "commit", "-q", "--allow-empty", "-m", "theirs")
 	sh(t, other, "push", "-q")
 	sh(t, repo, "commit", "-q", "--amend", "-m", "again")
-	if err := s.Push(repo, true); err == nil {
+	if err := s.Push(repo, "origin", true); err == nil {
 		t.Fatal("the lease let a push over unseen commits")
 	}
 	sh(t, repo, "fetch", "-q")
-	if err := s.Push(repo, true); err == nil {
+	if err := s.Push(repo, "origin", true); err == nil {
 		t.Fatal("fetched but not integrated")
 	}
 }
@@ -186,7 +209,7 @@ func TestPullOnlyFastForwards(t *testing.T) {
 	repo := scratch(t)
 	remote := bare(t, repo)
 	s := service()
-	s.Push(repo, false)
+	s.Push(repo, "origin", false)
 	other := filepath.Join(filepath.Dir(repo), "other")
 	sh(t, repo, "clone", "-q", remote, other)
 	sh(t, other, "commit", "-q", "--allow-empty", "-m", "theirs")

@@ -116,18 +116,20 @@ type CommitRef struct {
 // opaque stamp of the porcelain output; Unpushed and Unpulled, the commits
 // HEAD has that the upstream lacks and back, are nil before the first push.
 type GitStatus struct {
-	Type       string      `json:"type"`
-	ID         string      `json:"id"`
-	Tree       string      `json:"tree"`
-	Rev        string      `json:"rev"`
-	Branch     string      `json:"branch,omitempty"`
-	Detached   bool        `json:"detached,omitempty"`
-	Upstream   string      `json:"upstream,omitempty"`
-	Base       string      `json:"base,omitempty"`
-	Ahead      int         `json:"ahead"`
-	Behind     int         `json:"behind"`
-	Unpushed   *int        `json:"unpushed,omitempty"`
-	Unpulled   *int        `json:"unpulled,omitempty"`
+	Type     string `json:"type"`
+	ID       string `json:"id"`
+	Tree     string `json:"tree"`
+	Rev      string `json:"rev"`
+	Branch   string `json:"branch,omitempty"`
+	Detached bool   `json:"detached,omitempty"`
+	Upstream string `json:"upstream,omitempty"`
+	Base     string `json:"base,omitempty"`
+	Ahead    int    `json:"ahead"`
+	Behind   int    `json:"behind"`
+	Unpushed *int   `json:"unpushed,omitempty"`
+	Unpulled *int   `json:"unpulled,omitempty"`
+	// CommitAll is the desktop's setting: with nothing staged, a commit takes every change.
+	CommitAll  *bool       `json:"commitAll,omitempty"`
 	Totals     GitTotals   `json:"totals"`
 	Files      []GitFile   `json:"files"`
 	Commits    []CommitRef `json:"commits"`
