@@ -69,7 +69,12 @@ var phoneServerGolden = map[string]any{
 	}, true),
 	"git_commit": NewGitCommit(GitCommit{ID: "gc", Sha: "1b59160", Subject: "Fix login", Body: "Closes #12", Author: "Minh", At: 1790000000,
 		Files: []CommitFile{{Path: "src/main.rs", Status: "M", Added: new(1), Removed: new(1)}, {Path: "logo.png", Status: "A"}}}),
-	"git_committed":     NewGitCommitted("gcc", "1b59160"),
+	"git_committed": NewGitCommitted("gcc", "1b59160"),
+	"git_compare": NewGitCompare(GitCompare{ID: "gx", Tree: "/Users/me/dev/pocket", Against: "origin/main",
+		Totals:     CompareTotals{Files: 3, Added: 11, Removed: 4},
+		Files:      []CommitFile{{Path: "logo.png", Status: "A"}, {Path: "src/new.rs", OldPath: "src/old.rs", Status: "R", Added: new(10), Removed: new(3)}},
+		NextCursor: new(2)}),
+	"error_unknown_ref": NewErrorCode("gx", CodeUnknownRef, "No branch or commit by that name"),
 	"error_git_failed":  NewCodedError("gp", CodeGitFailed, "! [rejected] fix-login -> fix-login (non-fast-forward)", "To github.com:me/pocket.git\n ! [rejected] fix-login -> fix-login (non-fast-forward)"),
 	"gh_status":         NewGhStatus("hs", "ready", "me"),
 	"gh_status_missing": NewGhStatus("hs", "missing", ""),
@@ -119,7 +124,7 @@ func TestEveryPhoneVerbHasAClientGolden(t *testing.T) {
 }
 
 func TestEveryPhoneCapIsServed(t *testing.T) {
-	for _, c := range []string{CapTerminal, CapWorkspace, CapGit, CapGitHub, CapFiles, CapPush} {
+	for _, c := range []string{CapTerminal, CapWorkspace, CapGit, CapCompare, CapGitHub, CapFiles, CapPush} {
 		if !slices.Contains(ServerCaps, c) {
 			t.Errorf("%s's handlers landed but it isn't served", c)
 		}
@@ -190,6 +195,9 @@ func TestDecodeClientRejectsMalformedPhoneVerbs(t *testing.T) {
 		`{"type":"git.commit.create","id":"1","tree":"/p"}`,
 		`{"type":"git.push","id":"1","tree":"/p","lease":"yes"}`,
 		`{"type":"git.pull","id":"1"}`,
+		`{"type":"git.compare","id":"1","tree":"/p"}`,
+		`{"type":"git.compare","id":"1","tree":"/p","against":""}`,
+		`{"type":"git.compare","id":"1","tree":"/p","against":"main","limit":2001}`,
 		`{"type":"gh.status","id":"1","tree":null}`,
 		`{"type":"gh.pr","id":"1"}`,
 		`{"type":"gh.prs","id":"1","project":""}`,

@@ -71,6 +71,7 @@ type ClientMessage struct {
 	All              bool
 	Skip             int
 	Sha              string
+	Against          string // git.compare's ref
 	Paths            []string
 	Staged           bool
 	Amend            bool

@@ -27,11 +27,13 @@ public enum Caps {
     public static let gh = "gh.v1"
     public static let fs = "fs.v1"
     public static let push = "push.v1"
+    /// `git.compare`.
+    public static let compare = "compare.v1"
 
     /// Everything the phone speaks, sent in every hello.
     public static let phone: [String] = [
         pair, scopes, host, registry, summaryV2, launch, restore, open, names, automations, locals, fork, accounts,
-        subagents, settings, commands, access, terminal, workspace, git, gh, fs, push,
+        subagents, settings, commands, access, terminal, workspace, git, gh, fs, push, compare,
     ]
 }
 

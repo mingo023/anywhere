@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "gx",
+  "message": "No branch or commit by that name",
+  "code": "unknown_ref"
+}

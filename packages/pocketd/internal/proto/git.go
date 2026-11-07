@@ -8,8 +8,14 @@ import (
 // CapGit gates the git.* verbs and git.changed/gh.changed pushes.
 const CapGit = "git.v1"
 
+// CapCompare gates git.compare.
+const CapCompare = "compare.v1"
+
 // CodeGitFailed carries git's first stderr line as the message and all of it as the detail.
 const CodeGitFailed = "git_failed"
+
+// CodeUnknownRef: a git.compare ref names no commit.
+const CodeUnknownRef = "unknown_ref"
 
 const (
 	GitStatusLimit = 2000
@@ -84,6 +90,9 @@ var gitVerbs = map[string]verbDecoder{
 		return f.text("tree", &m.Tree) && f.optionalBool("lease", &m.Lease)
 	},
 	"git.pull": func(f fields, m *ClientMessage) bool { return f.text("tree", &m.Tree) },
+	"git.compare": func(f fields, m *ClientMessage) bool {
+		return f.text("tree", &m.Tree) && f.text("against", &m.Against) && f.optionalInt("cursor", &m.Cursor, 0, maxCount) && f.limit(m, GitStatusLimit)
+	},
 }
 
 type GitTotals struct {
@@ -274,3 +283,29 @@ type GitCommitted struct {
 }
 
 func NewGitCommitted(id, sha string) GitCommitted { return GitCommitted{"git.committed", id, sha} }
+
+type CompareTotals struct {
+	Files   int `json:"files"`
+	Added   int `json:"added"`
+	Removed int `json:"removed"`
+}
+
+// GitCompare is one page of what a tree's HEAD committed since it left
+// Against, files sorted by path; nothing uncommitted.
+type GitCompare struct {
+	Type       string        `json:"type"`
+	ID         string        `json:"id"`
+	Tree       string        `json:"tree"`
+	Against    string        `json:"against"`
+	Totals     CompareTotals `json:"totals"`
+	Files      []CommitFile  `json:"files"`
+	NextCursor *int          `json:"nextCursor,omitempty"`
+}
+
+func NewGitCompare(c GitCompare) GitCompare {
+	c.Type = "git.compare"
+	if c.Files == nil {
+		c.Files = []CommitFile{}
+	}
+	return c
+}

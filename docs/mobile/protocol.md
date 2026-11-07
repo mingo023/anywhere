@@ -169,6 +169,20 @@ Usage = {pct, resetsAt?}                 // pct 0..100, resetsAt unix seconds
    // a git.* tree must be a worktree's top folder, else not_a_tree; paths are file names, never pathspec patterns
 ```
 
+### compare.v1
+
+`git.compare` (observe) is the Changes panel's Compare scope (CONTEXT.md **Compare**): what HEAD committed since it left a ref, as `crates/git/src/compare.rs` reads it. Without the cap it is `Malformed message`.
+
+```
+→ {type:"git.compare", id, tree, against, cursor?:int, limit?:int}   // against = a branch or commit; limit default 500, max 2000
+← {type:"git.compare", id, tree, against, totals:{files, added, removed},
+   files:[{path, oldPath?, status, added?, removed?}],                // as git.commit's files; added/removed omitted for binaries
+   nextCursor?:int}
+   // against...HEAD: from where HEAD left against (merge-base), or against itself with no shared history, to HEAD.
+   //   Nothing uncommitted. Files sorted by path. A page past the first comes from the read that served cursor 0, for up to 30 s.
+   // a ref that names no commit is error{code:"unknown_ref"}; the phone opens a row with git.diff at {kind:"base", rev:against}
+```
+
 ## gh.v1
 
 | Verb | Scope |

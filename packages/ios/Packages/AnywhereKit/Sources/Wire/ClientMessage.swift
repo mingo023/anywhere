@@ -53,6 +53,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case gitCommitCreate(ClientMessage.GitCommitCreate)
     case gitPush(ClientMessage.GitPush)
     case gitPull(ClientMessage.TreeRef)
+    case gitCompare(ClientMessage.GitCompare)
     case ghStatus(ClientMessage.GhStatus)
     case ghPr(ClientMessage.TreeRef)
     case ghPrs(ClientMessage.GhPrs)
@@ -126,6 +127,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "git.commit.create": self = .gitCommitCreate(try ClientMessage.GitCommitCreate(from: decoder))
         case "git.push": self = .gitPush(try ClientMessage.GitPush(from: decoder))
         case "git.pull": self = .gitPull(try ClientMessage.TreeRef(from: decoder))
+        case "git.compare": self = .gitCompare(try ClientMessage.GitCompare(from: decoder))
         case "gh.status": self = .ghStatus(try ClientMessage.GhStatus(from: decoder))
         case "gh.pr": self = .ghPr(try ClientMessage.TreeRef(from: decoder))
         case "gh.prs": self = .ghPrs(try ClientMessage.GhPrs(from: decoder))
@@ -204,6 +206,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .gitCommitCreate(let m): try m.encode(to: encoder)
         case .gitPush(let m): try m.encode(to: encoder)
         case .gitPull(let m): try m.encode(to: encoder)
+        case .gitCompare(let m): try m.encode(to: encoder)
         case .ghStatus(let m): try m.encode(to: encoder)
         case .ghPr(let m): try m.encode(to: encoder)
         case .ghPrs(let m): try m.encode(to: encoder)
@@ -279,6 +282,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .gitCommitCreate: "git.commit.create"
         case .gitPush: "git.push"
         case .gitPull: "git.pull"
+        case .gitCompare: "git.compare"
         case .ghStatus: "gh.status"
         case .ghPr: "gh.pr"
         case .ghPrs: "gh.prs"

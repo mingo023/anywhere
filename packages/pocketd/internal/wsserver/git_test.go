@@ -154,6 +154,35 @@ func TestGitVerbsStayInsideRegisteredTrees(t *testing.T) {
 	}
 }
 
+func TestAPhoneComparesABranchWithItsBaseOnlyWithTheCompareCap(t *testing.T) {
+	repo, opt := withGitProject(t)
+	gitIn(t, repo, "switch", "-qc", "feature")
+	os.WriteFile(filepath.Join(repo, "b.rs"), []byte("b\n"), 0o644)
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-qm", "Add b")
+	ask := `{"type":"git.compare","id":"c","tree":` + q(repo) + `,"against":"main"}`
+
+	_, _, old := local(t, phoneDevice, opt)
+	helloWith(old, proto.CapGit)
+	old.send(ask)
+	if m := old.recv(); m["type"] != "error" || m["code"] != nil {
+		t.Fatalf("without the cap: %v", m)
+	}
+
+	_, _, p := local(t, phoneDevice, opt)
+	helloWith(p, proto.CapGit, proto.CapCompare)
+	p.send(ask)
+	m := p.reply("c")
+	files, _ := m["files"].([]any)
+	if m["type"] != "git.compare" || m["against"] != "main" || len(files) != 1 || files[0].(map[string]any)["path"] != "b.rs" {
+		t.Fatalf("%v", m)
+	}
+	p.send(`{"type":"git.compare","id":"g","tree":` + q(repo) + `,"against":"gone"}`)
+	if m := p.reply("g"); m["code"] != proto.CodeUnknownRef {
+		t.Fatalf("%v", m)
+	}
+}
+
 func TestAPhoneCommitsAndPushesAsTheDesktopsGitSettingsSay(t *testing.T) {
 	repo, opt := withGitProject(t)
 	dir := filepath.Dir(repo)

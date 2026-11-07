@@ -316,6 +316,34 @@ public struct GitCommitted: Codable, Hashable, Sendable {
     public init(sha: String) { self.sha = sha }
 }
 
+public struct CompareTotals: Codable, Hashable, Sendable {
+    public var files: Int
+    public var added: Int
+    public var removed: Int
+    public init(files: Int, added: Int, removed: Int) {
+        self.files = files
+        self.added = added
+        self.removed = removed
+    }
+}
+
+/// One page of what a tree's HEAD committed since it left `against`, files sorted by path; nothing uncommitted.
+public struct GitCompare: Codable, Hashable, Sendable {
+    public var tree: String
+    public var against: String
+    public var totals: CompareTotals
+    public var files: [CommitFile]
+    /// The file offset of the next page.
+    public var nextCursor: Int?
+    public init(tree: String, against: String, totals: CompareTotals, files: [CommitFile], nextCursor: Int? = nil) {
+        self.tree = tree
+        self.against = against
+        self.totals = totals
+        self.files = files
+        self.nextCursor = nextCursor
+    }
+}
+
 extension ClientMessage {
     public struct GitStatus: Codable, Hashable, Sendable {
         public var tree: String
@@ -405,6 +433,21 @@ extension ClientMessage {
             self.message = message
             self.amend = amend
             self.all = all
+        }
+    }
+
+    /// Needs `Caps.compare`; a ref that names no commit is `error{code:"unknown_ref"}`.
+    public struct GitCompare: Codable, Hashable, Sendable {
+        public var tree: String
+        public var against: String
+        public var cursor: Int?
+        /// Default 500, at most 2000.
+        public var limit: Int?
+        public init(tree: String, against: String, cursor: Int? = nil, limit: Int? = nil) {
+            self.tree = tree
+            self.against = against
+            self.cursor = cursor
+            self.limit = limit
         }
     }
 

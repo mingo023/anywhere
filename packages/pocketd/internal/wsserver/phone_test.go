@@ -22,7 +22,7 @@ import (
 	"pocketd/internal/timeline"
 )
 
-var phoneCaps = []string{proto.CapTerminal, proto.CapWorkspace, proto.CapGit, proto.CapGitHub, proto.CapFiles, proto.CapPush}
+var phoneCaps = []string{proto.CapTerminal, proto.CapWorkspace, proto.CapGit, proto.CapCompare, proto.CapGitHub, proto.CapFiles, proto.CapPush}
 
 // servingPhoneCaps lets a test negotiate the caps whose handlers haven't landed.
 func servingPhoneCaps(t *testing.T) {

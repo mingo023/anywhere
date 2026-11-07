@@ -18,6 +18,7 @@ type GitService interface {
 	Diff(tree, path string, at proto.DiffAt, o gitview.DiffOptions) (proto.GitDiff, error)
 	Log(tree string, all bool, skip, limit int) (proto.LogTips, []proto.LogCommit, bool, error)
 	Commit(tree, sha string) (proto.GitCommit, error)
+	Compare(tree, against string, cursor, limit int) (proto.GitCompare, error)
 	Stage(tree string, paths []string, staged bool) error
 	Discard(tree string, paths []string) error
 	CreateCommit(tree, message string, amend, all bool) (string, error)
@@ -39,7 +40,7 @@ func (c *conn) closeGit() { c.watchGit(nil) }
 
 // gitVerb serves its cap's verbs; without the cap they are unknown.
 func (c *conn) gitVerb(m proto.ClientMessage) error {
-	if !slices.Contains(c.caps, proto.CapGit) {
+	if !slices.Contains(c.caps, proto.CapGit) || m.Type == "git.compare" && !slices.Contains(c.caps, proto.CapCompare) {
 		return proto.ErrMalformed
 	}
 	if m.Type == "git.watch" {
@@ -103,6 +104,17 @@ func (c *conn) gitServe(m proto.ClientMessage) error {
 			return err
 		}
 		c.send(proto.NewGitLog(m.ID, tips, commits, more))
+	case "git.compare":
+		limit := 0
+		if m.Limit != nil {
+			limit = int(*m.Limit)
+		}
+		cmp, err := g.Compare(m.Tree, m.Against, m.Cursor, limit)
+		if err != nil {
+			return err
+		}
+		cmp.ID = m.ID
+		c.send(cmp)
 	case "git.commit":
 		cm, err := g.Commit(m.Tree, m.Sha)
 		if err != nil {
@@ -186,6 +198,9 @@ func gitError(id string, err error) proto.Error {
 	}
 	if errors.Is(err, gitview.ErrOutsideTree) {
 		return proto.NewErrorCode(id, proto.CodeOutsideTree, err.Error())
+	}
+	if errors.Is(err, gitview.ErrUnknownRef) {
+		return proto.NewErrorCode(id, proto.CodeUnknownRef, err.Error())
 	}
 	return errorReply(id, err)
 }
