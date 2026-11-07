@@ -39,6 +39,11 @@ enum Places {
         }
     }
 
+    /// A route's place, a worktree's path or a Local's id, as the draft keeps it.
+    static func place(key: String, locals: [Local]) -> NewSessionDraft.Place {
+        locals.contains { $0.id == key } ? .local(key) : .tree(key)
+    }
+
     /// The branch a new worktree starts from when none is picked, as pocketd's `defaultBase` picks it; without the
     /// branch list (pocketd lacking workspace.v1), the branch the project's own checkout is on.
     static func defaultBase(project: Project?, branches: BranchList?) -> String? {

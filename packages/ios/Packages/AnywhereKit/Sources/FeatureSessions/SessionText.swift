@@ -18,6 +18,56 @@ enum SessionText {
         return s.model.map(Sidebar.modelName).flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    /// The line under a session that wants a look: the ask it waits on, what failed, else `detail`.
+    static func look(_ s: AgentSummary, _ status: Status, requests: [PermissionRequest]) -> String? {
+        switch status {
+        case .needsYou: requests.first.map(ask) ?? s.activity.flatMap { $0.isEmpty ? nil : $0 } ?? status.label
+        case .failed: s.activity.flatMap { $0.isEmpty ? nil : $0 } ?? status.label
+        default: detail(s, status)
+        }
+    }
+
+    /// "Wants to run rm -rf build", or the question AskUserQuestion asks (`Pending::ask` in `crates/agents`).
+    static func ask(_ p: PermissionRequest) -> String {
+        switch p.detail {
+        case .shell(let command, _): "Wants to run \(command)"
+        case .read(let path): "Wants to read \(path)"
+        case .edit(let path, _): "Wants to edit \(path)"
+        case .write(let path, _): "Wants to write \(path)"
+        case .search(let query, _): "Wants to search \(query)"
+        case .task(let description, _, _): "Wants to start \(description)"
+        case .other(let name, let input, _):
+            question(input) ?? "Wants to use \(name.isEmpty ? p.toolName : name)"
+        case .unknown: "Wants to use \(p.toolName)"
+        }
+    }
+
+    private static func question(_ input: JSONValue) -> String? {
+        guard case .object(let o) = input, case .array(let qs)? = o["questions"], case .object(let first)? = qs.first,
+              case .string(let q)? = first["question"], !q.isEmpty
+        else { return nil }
+        return q
+    }
+
+    /// A launch's row: "Creating git worktree…", or "Starting Claude…" for the agent.
+    static func creating(_ c: Creation) -> String {
+        creating(step: c.current, waiting: c.waiting, provider: c.plan?.spec.provider.rawValue ?? "")
+    }
+
+    static func creating(step: String?, waiting: Bool, provider id: String) -> String {
+        if waiting { return "Waiting for your Mac…" }
+        guard let step else { return "Asking your Mac…" }
+        if step == "agent" { return "Starting \(provider(id))…" }
+        return Self.step(step) + "…"
+    }
+
+    /// "#42 · 1 failed · 2 passed": a pull request's number and its checks.
+    static func pullRequest(_ item: PrItem) -> String {
+        let checks = [(item.checks.failed, "failed"), (item.checks.pending, "pending"), (item.checks.passed, "passed")]
+            .filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
+        return (["#\(item.number)"] + (item.draft ? ["Draft"] : []) + checks).joined(separator: " · ")
+    }
+
     /// A launch step as the desktop labels it (`Step::label` in `pocket/src/creating.rs`).
     static func step(_ step: String) -> String {
         switch step {
