@@ -32,6 +32,7 @@ struct RouteTests {
         let routes: [Route] = [
             .file(mac: "m1", tree: "/r", path: "/r/a.rs", line: 7),
             .newSession(mac: "m1", project: "/r", place: "local-1", prompt: "Explain lines 40–58"),
+            .reviewThreads(mac: "m1", tree: "/r"),
         ]
         #expect(try JSONDecoder().decode([Route].self, from: JSONEncoder().encode(routes)) == routes)
     }

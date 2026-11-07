@@ -55,6 +55,22 @@ public enum ThreadGroups {
         threads.count { !$0.resolved }
     }
 
+    /// Why the Comments screen lists nothing.
+    public enum Empty: Hashable, Sendable {
+        case noComments
+        /// Threads the filter hides only for being outdated; Show turns outdated back on.
+        case outdatedHidden(Int)
+        case allResolved
+    }
+
+    /// Why `filter` shows none of `threads`, or nil when it shows some.
+    public static func empty(_ threads: [ReviewThread], _ filter: ThreadFilter) -> Empty? {
+        guard !threads.contains(where: filter.shows) else { return nil }
+        if threads.isEmpty { return .noComments }
+        let hidden = threads.count { $0.outdated && (filter.resolved || !$0.resolved) }
+        return hidden > 0 ? .outdatedHidden(hidden) : .allResolved
+    }
+
     /// The last `n` lines of a comment's hunk, which ends at the line it's on (`hunk_tail`).
     public static func hunkTail(_ hunk: String?, _ n: Int = 3) -> [String] {
         var lines = (hunk ?? "").split(separator: "\n", omittingEmptySubsequences: false)

@@ -1,3 +1,4 @@
+import Foundation
 import Wire
 
 /// The colour a PR's words take, as the desktop's theme tokens name them.
@@ -157,6 +158,28 @@ public enum PullRequestText {
         case "skipped": ("arrow.uturn.right.circle", .muted)
         default: ("checkmark.circle.fill", .success)
         }
+    }
+
+    /// "1 commit", "3 commits" (`commits`).
+    public static func commits(_ n: Int) -> String {
+        n == 1 ? "1 commit" : "\(n) commits"
+    }
+
+    /// "fix-cap → main · 3 commits ahead": what a new PR would open, as the composer's top line.
+    public static func headLine(branch: String, base: String, ahead: Int?) -> String {
+        let line = "\(branch) → \(baseBranch(base))"
+        return ahead.map { "\(line) · \(commits($0)) ahead" } ?? line
+    }
+
+    /// "acme/app" from a PR's URL, the repository a merge method is remembered for.
+    public static func repo(_ url: String) -> String? {
+        guard let path = URL(string: url)?.path.split(separator: "/"), path.count >= 2 else { return nil }
+        return "\(path[0])/\(path[1])"
+    }
+
+    /// Whose name a review reply posts under.
+    public static func postsAs(login: String?, mac: String) -> String {
+        login.map { "Posts to GitHub as @\($0) from \(mac)" } ?? "Posts to GitHub as \(mac)'s gh account"
     }
 
     /// The create button's words (`composer.rs`).

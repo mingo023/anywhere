@@ -74,11 +74,12 @@ struct NoticeBar: View {
             Text(notice.text).font(Typography.subheadline).foregroundStyle(Palette.text.color)
             Spacer(minLength: 0)
             if notice.undo != nil {
-                Button("Undo", action: undo).font(Typography.subheadline.weight(.semibold))
+                Button(action: undo) { Text("Undo").hitTarget() }.font(Typography.subheadline.weight(.semibold)).buttonStyle(.borderless)
             }
         }
         .padding(.horizontal, Space.l)
-        .padding(.vertical, Space.m)
+        .padding(.vertical, notice.undo == nil ? Space.m : 0)
+        .frame(minHeight: HitTarget.minimum)
         .background(Palette.popover.color, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .padding(.horizontal, Space.l)

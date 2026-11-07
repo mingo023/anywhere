@@ -10,14 +10,16 @@ import Wire
 struct ThreadsScreen: View {
     let store: GitHubStore
     let model: TreePullRequest
+    var mac = PrMac()
     var now: Int?
 
     @State private var filter = ThreadFilter()
     @State private var replying: ReviewThread?
 
-    init(store: GitHubStore, model: TreePullRequest, now: Int? = nil, filter: ThreadFilter = ThreadFilter()) {
+    init(store: GitHubStore, model: TreePullRequest, mac: PrMac = PrMac(), now: Int? = nil, filter: ThreadFilter = ThreadFilter()) {
         self.store = store
         self.model = model
+        self.mac = mac
         self.now = now
         _filter = State(initialValue: filter)
     }
@@ -35,17 +37,27 @@ struct ThreadsScreen: View {
                 .labelsHidden()
                 Toggle("Outdated", isOn: $filter.outdated)
             }
-            if groups.isEmpty {
-                Section {
-                    Label("All conversations resolved", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.successText.color)
-                }
+            if let empty = ThreadGroups.empty(threads, filter) {
+                Section { emptyRow(empty) }
             }
             ForEach(groups) { group in
                 Section {
                     ForEach(group.threads) { thread in
-                        ThreadRow(thread: thread, now: now ?? Int(Date().timeIntervalSince1970)) { replying = thread } resolve: { resolved in
+                        ThreadRow(thread: thread, now: now ?? Int(Date().timeIntervalSince1970), file: file(thread)) {
+                            replying = thread
+                        } resolve: { resolved in
                             Haptics.tap()
                             Task { await store.resolve(model.tree, thread: thread.id, resolved: resolved) }
+                        }
+                        if let body = model.unposted[thread.id] {
+                            UnpostedReply(text: body) {
+                                Task { await store.reply(model.tree, thread: thread.id, body: body) }
+                            } edit: {
+                                store.unpost(model.tree, thread: thread.id, edit: true)
+                                replying = thread
+                            } delete: {
+                                store.unpost(model.tree, thread: thread.id, edit: false)
+                            }
                         }
                     }
                 } header: {
@@ -64,9 +76,32 @@ struct ThreadsScreen: View {
         }
         .animation(.snappy, value: model.notice)
         .sheet(item: $replying) { thread in
-            ReplySheet(thread: thread) { body in
+            ReplySheet(thread: thread, draft: model.drafts[thread.id] ?? "", footer: PullRequestText.postsAs(login: store.status?.login, mac: mac.name)) {
+                model.drafts[thread.id] = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+            } send: { body in
                 Task { await store.reply(model.tree, thread: thread.id, body: body) }
             }
+        }
+    }
+
+    /// The file a thread is on, at its line on the new side; the old side's line isn't in today's file.
+    private func file(_ thread: ReviewThread) -> Route {
+        .file(mac: mac.id, tree: model.tree, path: thread.path, line: thread.left == true ? nil : thread.line)
+    }
+
+    @ViewBuilder
+    private func emptyRow(_ empty: ThreadGroups.Empty) -> some View {
+        switch empty {
+        case .noComments:
+            Label("No review comments yet", systemImage: "text.bubble").foregroundStyle(Palette.text3.color)
+        case .outdatedHidden(let n):
+            HStack {
+                Label("\(n) outdated \(n == 1 ? "conversation" : "conversations") hidden", systemImage: "eye.slash").foregroundStyle(Palette.text3.color)
+                Spacer(minLength: 0)
+                Button { filter.outdated = true } label: { Text("Show").hitTarget() }.buttonStyle(.borderless)
+            }
+        case .allResolved:
+            Label("All conversations resolved", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.successText.color)
         }
     }
 }
@@ -76,24 +111,35 @@ struct ThreadsScreen: View {
 struct ThreadRow: View {
     let thread: ReviewThread
     let now: Int
+    /// The code the thread is on, opened by tapping its place or hunk.
+    let file: Route
     let reply: () -> Void
     let resolve: (Bool) -> Void
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            HStack(spacing: Space.s) {
-                Text(ThreadGroups.place(thread)).font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.head)
-                Spacer(minLength: 0)
-                if thread.outdated { PrPill(text: "Outdated", tone: .quiet) }
-                switch ThreadState(thread) {
-                case .resolved: PrPill(text: "Resolved", tone: .success)
-                case .replied: PrPill(text: "Replied", tone: .quiet)
-                case .open: EmptyView()
+            NavigationLink(value: file) {
+                VStack(alignment: .leading, spacing: Space.s) {
+                    HStack(spacing: Space.s) {
+                        Text(ThreadGroups.place(thread)).font(Typography.codeSmall).foregroundStyle(Palette.accent.color).lineLimit(1)
+                            .truncationMode(.head)
+                        Spacer(minLength: 0)
+                        if thread.outdated { PrPill(text: "Outdated", tone: .quiet) }
+                        switch ThreadState(thread) {
+                        case .resolved: PrPill(text: "Resolved", tone: .success)
+                        case .replied: PrPill(text: "Replied", tone: .quiet)
+                        case .open: EmptyView()
+                        }
+                    }
+                    .frame(minHeight: HitTarget.minimum)
+                    let hunk = ThreadGroups.hunkTail(thread.comments.first?.hunk)
+                    if !hunk.isEmpty && !thread.resolved { HunkBox(lines: hunk) }
                 }
+                .contentShape(Rectangle())
             }
-            let hunk = ThreadGroups.hunkTail(thread.comments.first?.hunk)
-            if !hunk.isEmpty && !thread.resolved { HunkBox(lines: hunk) }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the file")
             ForEach(Array((thread.resolved ? Array(thread.comments.prefix(1)) : thread.comments).enumerated()), id: \.offset) { _, c in
                 VStack(alignment: .leading, spacing: Space.xxs) {
                     HStack(spacing: Space.xs) {
@@ -112,7 +158,7 @@ struct ThreadRow: View {
                     Button("Resolve", systemImage: "checkmark") { resolve(true) }
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .labelStyle(.titleAndIcon)
             }
         }
@@ -171,14 +217,25 @@ struct HunkBox: View {
     }
 }
 
-/// The reply composer, posted to GitHub as the Mac's gh account.
+/// The reply composer, posted to GitHub as the Mac's gh account. What isn't sent stays as the thread's draft.
 @MainActor
 struct ReplySheet: View {
     let thread: ReviewThread
+    let footer: String
+    let keep: (String) -> Void
     let send: (String) -> Void
-    @State private var text = ""
+    @State private var text: String
+    @State private var sent = false
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
+
+    init(thread: ReviewThread, draft: String = "", footer: String, keep: @escaping (String) -> Void, send: @escaping (String) -> Void) {
+        self.thread = thread
+        self.footer = footer
+        self.keep = keep
+        self.send = send
+        _text = State(initialValue: draft)
+    }
 
     var body: some View {
         NavigationStack {
@@ -188,7 +245,7 @@ struct ReplySheet: View {
                         .lineLimit(3...12)
                         .focused($focused)
                 } footer: {
-                    Text("Posts to GitHub as you")
+                    Text(footer)
                 }
             }
             .formStyle(.grouped)
@@ -198,6 +255,7 @@ struct ReplySheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Reply") {
                         Haptics.tap()
+                        sent = true
                         send(text)
                         dismiss()
                     }
@@ -205,6 +263,7 @@ struct ReplySheet: View {
                 }
             }
             .onAppear { focused = true }
+            .onDisappear { if !sent { keep(text) } }
         }
         .presentationDetents([.medium, .large])
     }

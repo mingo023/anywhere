@@ -63,12 +63,13 @@ public final class GitStore: HostStore {
     /// The trees a screen shows now; pocketd polls only these.
     public var watchSet: Set<String> { Set(shown.filter { $0.value > 0 }.keys) }
 
-    /// A screen showing `tree` appeared; its status loads and the Mac starts watching it.
-    public func show(_ tree: String) {
+    /// A screen showing `tree` appeared; its status loads and the Mac starts watching it. `reread` reads it even when
+    /// cached: an unwatched tree gets no git.changed, so its cached status may be old.
+    public func show(_ tree: String, reread: Bool = false) {
         shown[tree, default: 0] += 1
         syncWatch()
         let t = changes(tree)
-        if t.head == nil || t.stale { Task { await refresh(tree) } }
+        if t.head == nil || t.stale || reread { Task { await refresh(tree) } }
     }
 
     public func hide(_ tree: String) {
@@ -427,6 +428,8 @@ public final class TreeChanges {
     public private(set) var revision = 0
     /// Bumped by each optimistic change, so a read that started before it can't undo it.
     @ObservationIgnored var generation = 0
+    /// Bumped by each read taken in from the first page.
+    public private(set) var reads = 0
 
     init(tree: String) { self.tree = tree }
 
@@ -445,6 +448,7 @@ public final class TreeChanges {
         head = GitHead(first)
         files = pages.flatMap(\.files)
         stale = false
+        reads += 1
         revision += 1
         nextCursor = pages.last?.nextCursor
     }
@@ -466,6 +470,11 @@ public final class TreeChanges {
 
     /// Every changed file is loaded, so section-wide actions see them all.
     public var complete: Bool { nextCursor == nil }
+
+    /// How many files are changed, known only from a read after the `reads`-th that the Mac hasn't said is outdated.
+    public func files(readSince reads: Int) -> Int? {
+        self.reads > reads && !stale ? head?.totals.files : nil
+    }
 }
 
 /// One tree's history with its graph laid out, page after page.
