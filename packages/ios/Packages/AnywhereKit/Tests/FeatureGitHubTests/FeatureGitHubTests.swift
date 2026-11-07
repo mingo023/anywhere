@@ -306,45 +306,28 @@ struct WorktreeCleanupTests {
     }
 }
 
-private func session(_ id: String, cwd: String, provider: String = "claude", updatedAt: Int) -> AgentSummary {
-    AgentSummary(id: id, terminalId: "t-\(id)", title: "Session \(id)", cwd: cwd, provider: provider, status: .idle, attached: true, epoch: 1,
-                 maxSeq: 0, createdAt: 0, updatedAt: updatedAt)
-}
-
 @Suite("Sending a PR's problems")
 struct FixTargetTests {
-    let agents = [
-        session("old", cwd: "/w/fix", updatedAt: 1), session("new", cwd: "/w/fix/src", provider: "codex", updatedAt: 2),
-        session("elsewhere", cwd: "/w/fix-two", updatedAt: 3),
-    ]
+    let claude = ChatSession(id: "a", title: "Fix the build", agent: "Claude")
+    let codex = ChatSession(id: "b", title: "Docs", agent: "Codex")
 
-    @Test("the chat that opened the PR takes what's sent, though another is newer")
-    func opener() {
-        let target = FixTarget(tree: "/w/fix", agents: agents, opener: "old")
-        #expect(target == .one(FixSession(id: "old", title: "Session old", agent: "Claude")))
-        #expect(target.title("Send to") == "Send to Claude")
+    @Test("the buttons name the session's agent, the agent all the choices share, else agent")
+    func agent() {
+        #expect(ChatTarget.one(claude).title("Send to") == "Send to Claude")
+        #expect(ChatTarget.choose([codex, claude]).title("Send all to") == "Send all to agent")
+        #expect(ChatTarget.choose([claude, ChatSession(id: "c", title: "", agent: "Claude")]).agent == "Claude")
     }
 
-    @Test("several sessions in the worktree are offered newest first, named by the agent they share or as agent")
-    func choose() {
-        let target = FixTarget(tree: "/w/fix", agents: agents, opener: "elsewhere")
-        #expect(target == .choose([FixSession(id: "new", title: "Session new", agent: "Codex"), FixSession(id: "old", title: "Session old", agent: "Claude")]))
-        #expect(target.title("Send all to") == "Send all to agent")
-        #expect(FixTarget.choose([FixSession(id: "a", title: "", agent: "Claude"), FixSession(id: "b", title: "", agent: "Claude")]).agent == "Claude")
-    }
-
-    @Test("a worktree's only session takes it, and one without a session starts one")
-    func onlyOrNone() {
-        #expect(FixTarget(tree: "/w/fix-two", agents: agents, opener: nil).title("Resolve with") == "Resolve with Claude")
-        let none = FixTarget(tree: "/w/empty", agents: agents, opener: nil)
-        #expect(none == .none)
-        #expect(none.title("Send to") == "Start a session with this")
+    @Test("a worktree without a session offers to start one")
+    func none() {
+        #expect(ChatTarget.none.agent == nil)
+        #expect(ChatTarget.none.title("Send to") == "Start a session with this")
     }
 
     @Test("nothing is offered without the drive scope, and a worktree without a session needs a way to start one")
     @MainActor
     func offered() {
-        let one = FixTarget.one(FixSession(id: "a", title: "", agent: "Claude"))
+        let one = ChatTarget.one(claude)
         #expect(FixContext(target: one, canDrive: true, send: { _, _ in true }).offered)
         #expect(!FixContext(target: one, canDrive: false, send: { _, _ in true }).offered)
         #expect(!FixContext(target: .none, canDrive: true).offered)

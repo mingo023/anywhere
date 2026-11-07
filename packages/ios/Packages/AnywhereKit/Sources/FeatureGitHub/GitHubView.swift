@@ -52,7 +52,7 @@ public struct GitHubView: View {
     private func fix(_ tree: String, mac: String, chat: String?) -> FixContext {
         FixContext(
             mac: mac, opener: chat, project: host.workspace.place(of: tree)?.project,
-            target: FixTarget(tree: tree, agents: host.sessions.sessions.values.map(\.summary), opener: chat),
+            target: host.chatTarget(tree, opener: chat),
             canDrive: !Composer.observeOnly(host.hello?.scopes ?? []),
             send: { host.chat($0).send(text: $1) },
             open: open)

@@ -61,7 +61,7 @@ private struct FixHost: ViewModifier {
         }
     }
 
-    private func send(_ fix: FixRequest, to session: FixSession) {
+    private func send(_ fix: FixRequest, to session: ChatSession) {
         request = nil
         guard context.send?(session.id, fix.prompt) == true else {
             Haptics.warning()

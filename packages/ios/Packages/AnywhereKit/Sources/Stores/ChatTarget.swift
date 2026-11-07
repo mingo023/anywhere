@@ -1,6 +1,7 @@
+import Domain
 import Wire
 
-/// A session the Files and diff screens can hand a file or lines to.
+/// A session the Files, diff and PR screens can hand a file, lines or a PR's problems to.
 public struct ChatSession: Hashable, Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -13,9 +14,10 @@ public struct ChatSession: Hashable, Identifiable, Sendable {
         self.agent = agent
     }
 
-    /// The sessions on `tree`, most recent first.
-    public static func on(_ tree: String, _ agents: [AgentSummary]) -> [ChatSession] {
-        agents.filter { $0.cwd == tree || $0.worktree == tree }
+    /// The sessions on `tree`, most recent first: those whose folder it holds more closely than any of `trees`, the Mac's
+    /// worktrees, so a worktree inside the main tree keeps its own.
+    public static func on(_ tree: String, trees: [String], _ agents: [AgentSummary]) -> [ChatSession] {
+        agents.filter { Sidebar.worktreeOf($0.cwd, trees: trees + [tree]) == tree }
             .sorted { $0.updatedAt > $1.updatedAt }
             .map { ChatSession(id: $0.id, title: $0.title, agent: $0.provider.capitalized) }
     }

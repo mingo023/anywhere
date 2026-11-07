@@ -129,6 +129,12 @@ public final class HostModel: Identifiable {
         return chat
     }
 
+    /// Which session takes what a screen on `tree` hands to a chat; `opener` is the agent whose chat opened it.
+    public func chatTarget(_ tree: String, opener: String?) -> ChatTarget {
+        let trees = workspace.projects.flatMap { $0.worktrees.map(\.path) }
+        return ChatTarget(ChatSession.on(tree, trees: trees, sessions.sessions.values.map(\.summary)), opener: opener)
+    }
+
     public func closeChat(_ agentId: String) {
         chats[agentId] = nil
     }

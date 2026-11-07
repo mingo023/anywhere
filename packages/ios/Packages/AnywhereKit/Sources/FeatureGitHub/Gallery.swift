@@ -43,7 +43,7 @@ public enum GitHubGallery {
 
     /// A worktree with one Claude session, on a phone that may prompt it.
     @MainActor private static var fix: FixContext {
-        FixContext(mac: Sample.mac, target: .one(FixSession(id: "a-working", title: "Port the commit graph lanes", agent: "Claude")),
+        FixContext(mac: Sample.mac, target: .one(ChatSession(id: "a-working", title: "Port the commit graph lanes", agent: "Claude")),
                    canDrive: true, send: { _, _ in true })
     }
 
