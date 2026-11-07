@@ -160,6 +160,34 @@ struct GitHubStoreTests {
         #expect(GitHubStore.describe(DaemonError.offline, mac: "Studio") == "Not connected to Studio")
     }
 
+    @Test("what was sent to the agent is fixing until the PR shows it done or its head moves")
+    func sentFixes() {
+        let s = store()
+        s.markSent(Sample.tree, threads: ["PRRT_a"], checks: ["test (macos-14)"])
+        s.markSent(Sample.tree, conflict: true)
+        let t = s.pullRequest(Sample.tree)
+        #expect(t.fixing?.threads == ["PRRT_a"] && t.fixing?.checks == ["test (macos-14)"] && t.fixing?.items == 2)
+        // The PR merges cleanly, so the conflict is done once sent.
+        #expect(t.fixing?.conflict == false)
+        s.show(Sample.tree, GhPr(tree: Sample.tree, pr: Sample.pullRequest { $0.threads[0].resolved = true }))
+        #expect(t.fixing?.threads.isEmpty == true && t.fixing?.items == 1)
+        s.show(Sample.tree, GhPr(tree: Sample.tree, pr: Sample.pullRequest { $0.head = "bbb" }))
+        #expect(t.fixing == nil)
+        s.markSent(Sample.tree, threads: ["PRRT_b"])
+        #expect(t.fixing?.threads == ["PRRT_b"] && t.fixing?.checks.isEmpty == true)
+    }
+
+    @Test("a sent check is fixed once every run of it passed or skipped, and a sent conflict once the PR merges cleanly")
+    func sentLeft() {
+        var sent = SentFixes(head: Sample.pullRequest.head)
+        sent.checks = ["test (macos-14)", "build", "gone"]
+        sent.conflict = true
+        let left = sent.left(in: Sample.conflictingPullRequest)
+        #expect(left?.checks == ["test (macos-14)", "gone"])
+        #expect(left?.conflict == true)
+        #expect(SentFixes(head: "x").left(in: Sample.pullRequest) == nil)
+    }
+
     @Test("merge methods read as the desktop's menu")
     func methods() {
         #expect(MergeMethod.allCases.map(\.label) == ["Squash and merge", "Create a merge commit", "Rebase and merge"])

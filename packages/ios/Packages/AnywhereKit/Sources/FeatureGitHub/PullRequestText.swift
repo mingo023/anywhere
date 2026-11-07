@@ -105,6 +105,17 @@ public enum PullRequestText {
         parts.filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }.joined(separator: " · ")
     }
 
+    /// "3 things to fix", over "1 failed check · 2 review comments" (`fix_summary`).
+    public static func fixSummary(checks: Int, comments: Int) -> (title: String, detail: String) {
+        let parts = [(checks, "failed check"), (comments, "review comment")].filter { $0.0 > 0 }.map { plural($0.0, $0.1) }
+        return ("\(plural(checks + comments, "thing")) to fix", parts.joined(separator: " · "))
+    }
+
+    /// While the agent sent the conflict works on it (`resolving_text`).
+    public static func resolving(_ agent: String) -> String {
+        "\(agent) is resolving the conflict"
+    }
+
     public static func plural(_ n: Int, _ one: String) -> String {
         n == 1 ? "1 \(one)" : "\(n) \(one)s"
     }

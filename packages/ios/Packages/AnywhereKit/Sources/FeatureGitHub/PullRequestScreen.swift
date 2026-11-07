@@ -39,6 +39,7 @@ struct PullRequestScreen: View {
     let deleteTree: (@MainActor () -> Void)?
     /// The branches a new PR may open into.
     let branches: (@MainActor () async throws -> BranchList)?
+    let fix: FixContext
     /// Asks the Mac again this often while on screen; the Mac answers from its cache while that is fresh.
     var every: Duration? = .seconds(30)
 
@@ -47,7 +48,7 @@ struct PullRequestScreen: View {
     init(
         store: GitHubStore, tree: String, mac: PrMac = PrMac(), newPr: NewPr = NewPr(), cleanup: WorktreeCleanup? = nil,
         deleteTree: (@MainActor () -> Void)? = nil, branches: (@MainActor () async throws -> BranchList)? = nil,
-        every: Duration? = .seconds(30)
+        fix: FixContext = FixContext(), every: Duration? = .seconds(30)
     ) {
         self.store = store
         model = store.pullRequest(tree)
@@ -56,6 +57,7 @@ struct PullRequestScreen: View {
         self.cleanup = cleanup
         self.deleteTree = deleteTree
         self.branches = branches
+        self.fix = fix
         self.every = every
     }
 
@@ -113,7 +115,7 @@ struct PullRequestScreen: View {
         switch PullRequestPhase.of(hasPr: model.pr != nil, problem: model.problem, loaded: model.loaded, error: model.error) {
         case .card:
             if let pr = model.pr {
-                PullRequestCard(store: store, model: model, pr: pr, mac: mac, cleanup: cleanup, deleteTree: deleteTree)
+                PullRequestCard(store: store, model: model, pr: pr, mac: mac, cleanup: cleanup, deleteTree: deleteTree, fix: fix)
             }
         case .ghMissing, .ghSignedOut:
             Pullable(refresh: { await store.recheck(model.tree) }) {

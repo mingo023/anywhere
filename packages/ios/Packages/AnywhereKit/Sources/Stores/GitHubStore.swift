@@ -24,6 +24,8 @@ public final class TreePullRequest {
     public var drafts: [String: String] = [:]
     /// The merged PR's worktree is kept, so deleting it isn't offered again.
     public var kept = false
+    /// What the tree's agent was sent to fix.
+    public internal(set) var sent: SentFixes?
     /// What the PR screen's button says while gh works: "Merging…".
     public internal(set) var busy: String?
     public var error: String?
@@ -35,6 +37,9 @@ public final class TreePullRequest {
         self.problem = problem
         self.pr = pr
     }
+
+    /// What the agent still works on of what it was sent.
+    public var fixing: SentFixes? { pr.flatMap { sent?.left(in: $0) } }
 }
 
 /// A short note after acting on a PR, with the resolve it can take back.
@@ -208,6 +213,13 @@ public final class GitHubStore: HostStore {
             t.pr = t.pr?.withoutReply(to: thread, ThreadComment(author: me, body: body, at: at))
             t.unposted[thread] = body
         }
+    }
+
+    /// Records threads, checks or the conflict as sent to the tree's agent.
+    public func markSent(_ tree: String, threads: [String] = [], checks: [String] = [], conflict: Bool = false) {
+        let t = pullRequest(tree)
+        guard let pr = t.pr else { return }
+        t.sent = SentFixes.adding(to: t.sent, pr, threads: threads, checks: checks, conflict: conflict)
     }
 
     /// Takes a reply that didn't post off its thread: to edit, back into its draft, else dropped.

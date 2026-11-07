@@ -271,7 +271,7 @@ struct DiffScreen: View {
 
     /// Read when asked, not in `body`, so sessions changing elsewhere don't redraw the diff.
     private var askTarget: ChatTarget {
-        ChatTarget(ChatSession.on(tree, host.sessions.sessions.values.map(\.summary)), opener: chat)
+        host.chatTarget(tree, opener: chat)
     }
 
     /// Ask in Chat on picked lines, as Files has it: to the tree's session, or a new one when it has none.

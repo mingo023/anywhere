@@ -35,6 +35,8 @@ struct RouteTests {
         (#"{"files":{"mac":"m1","tree":"/r","dir":""}}"#, Route.files(mac: "m1", tree: "/r", dir: "")),
         (#"{"changes":{"mac":"m1","tree":"/r"}}"#, Route.changes(mac: "m1", tree: "/r")),
         (#"{"diff":{"mac":"m1","tree":"/r","path":"a.rs","staged":false}}"#, Route.diff(mac: "m1", tree: "/r", path: "a.rs", staged: false)),
+        (#"{"pullRequest":{"mac":"m1","tree":"/r"}}"#, Route.pullRequest(mac: "m1", tree: "/r")),
+        (#"{"reviewThreads":{"mac":"m1","tree":"/r"}}"#, Route.reviewThreads(mac: "m1", tree: "/r")),
     ])
     func restores(_ json: String, _ route: Route) throws {
         #expect(try JSONDecoder().decode(Route.self, from: Data(json.utf8)) == route)
@@ -48,7 +50,8 @@ struct RouteTests {
             .changes(mac: "m1", tree: "/r", chat: "a1"),
             .diff(mac: "m1", tree: "/r", path: "a.rs", staged: true, chat: "a1"),
             .newSession(mac: "m1", project: "/r", place: "local-1", prompt: "Explain lines 40–58"),
-            .reviewThreads(mac: "m1", tree: "/r"),
+            .pullRequest(mac: "m1", tree: "/r", chat: "a1"),
+            .reviewThreads(mac: "m1", tree: "/r", chat: "a1"),
         ]
         #expect(try JSONDecoder().decode([Route].self, from: JSONEncoder().encode(routes)) == routes)
     }

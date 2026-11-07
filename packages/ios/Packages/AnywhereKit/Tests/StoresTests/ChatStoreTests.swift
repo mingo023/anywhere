@@ -175,6 +175,29 @@ struct ChatStoreTests {
         #expect(c.session.outgoing.list.first?.delivery == .failed)
     }
 
+    @Test("text sent from elsewhere goes out like a typed send and leaves the draft alone")
+    func sendText() {
+        let c = chat([])
+        c.draft.text = "half a thought"
+        #expect(c.send(text: "Fix what holds back PR #12"))
+        #expect(c.draft.text == "half a thought")
+        #expect(c.sends == 1)
+        #expect(c.session.outgoing.list.map(\.text) == ["Fix what holds back PR #12"])
+        let working = chat([.agentUpdate(.init(agent: agent(.working)))])
+        #expect(working.send(text: "also this"))
+        #expect(working.session.outgoing.list.first?.delivery == .steered)
+    }
+
+    @Test("text sent from elsewhere is refused by a phone that may only watch")
+    func sendTextObserveOnly() {
+        let c = ChatStore(agentId: "a1")
+        var hello = Sample.hello
+        hello.scopes = [.observe]
+        c.seed(agent(), requests: [], hello: hello)
+        #expect(!c.send(text: "Fix it"))
+        #expect(c.session.outgoing.list.isEmpty)
+    }
+
     @Test("a send while working steers into the turn")
     func steer() {
         let c = chat([.agentUpdate(.init(agent: agent(.working)))])

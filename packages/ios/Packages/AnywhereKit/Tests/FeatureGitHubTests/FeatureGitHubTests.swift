@@ -1,5 +1,7 @@
+import ChatModel
 import Fixtures
 import Foundation
+import Stores
 import Testing
 import Wire
 @testable import FeatureGitHub
@@ -162,6 +164,13 @@ struct PullRequestTextTests {
         #expect(GhProblemView.text(.missing, mac: "Studio").detail == "On Studio, run brew install gh, then gh auth login.")
     }
 
+    @Test("the callout counts what there is to fix")
+    func fixSummary() {
+        #expect(PullRequestText.fixSummary(checks: 1, comments: 2) == ("3 things to fix", "1 failed check · 2 review comments"))
+        #expect(PullRequestText.fixSummary(checks: 0, comments: 1) == ("1 thing to fix", "1 review comment"))
+        #expect(PullRequestText.resolving("Claude") == "Claude is resolving the conflict")
+    }
+
     @Test("the create button says draft when it makes one, and what gh does while it works")
     func createLabel() {
         #expect(PullRequestText.createLabel(draft: false, busy: nil) == "Create PR")
@@ -178,6 +187,23 @@ struct ThreadGroupsTests {
         #expect(ThreadState(thread("a", authors: ["mira", "mira"])) == .open)
         #expect(ThreadState(thread("a")) == .replied)
         #expect(ThreadState(thread("a", resolved: true)) == .resolved)
+        #expect(ThreadState(thread("a"), sent: true) == .sent)
+        #expect(ThreadState(thread("a", resolved: true), sent: true) == .resolved)
+    }
+
+    @Test("what can still be sent is each failed check and open thread the agent isn't fixing")
+    func unsent() {
+        let p = pr {
+            $0.runs = [check("a", "failed"), check("b", "passed"), check("c", "failed")]
+            $0.threads = [thread("1", authors: ["mira"]), thread("2"), thread("3", resolved: true), thread("4", authors: ["kai"])]
+        }
+        let all = ThreadGroups.unsent(p, fixing: nil)
+        #expect(all.checks.map(\.name) == ["a", "c"] && all.threads.map(\.id) == ["1", "4"])
+        var fixing = SentFixes(head: "aaa")
+        fixing.checks = ["a"]
+        fixing.threads = ["1"]
+        let rest = ThreadGroups.unsent(p, fixing: fixing)
+        #expect(rest.checks.map(\.name) == ["c"] && rest.threads.map(\.id) == ["4"])
     }
 
     @Test("threads group by file in the order each file first comes, unresolved only by default")
@@ -193,18 +219,8 @@ struct ThreadGroupsTests {
         #expect(ThreadGroups.unresolved(threads) == 3)
     }
 
-    @Test("a hunk tail skips its header")
-    func hunkTail() {
-        #expect(ThreadGroups.hunkTail("@@ -1 +1 @@\n+a") == ["+a"])
-        #expect(ThreadGroups.hunkTail("@@ -1,4 +1,4 @@\n a\n b\n-c\n+d\n e") == ["-c", "+d", " e"])
-        #expect(ThreadGroups.hunkTail("").isEmpty)
-        #expect(ThreadGroups.hunkTail(nil).isEmpty)
-    }
-
-    @Test("a thread's place is its path and line, or its path on a whole file")
-    func place() {
-        #expect(ThreadGroups.place(thread("a")) == "src/a.rs:42")
-        #expect(ThreadGroups.place(ReviewThread(id: "f", path: "README.md", outdated: false, resolved: false, comments: [])) == "README.md")
+    @Test("the reply box names whom the reply answers")
+    func replyPrompt() {
         #expect(ThreadGroups.replyPrompt(thread("a")) == "Reply to mira…")
     }
 }
@@ -290,6 +306,46 @@ struct WorktreeCleanupTests {
     }
 }
 
+@Suite("Sending a PR's problems")
+struct FixTargetTests {
+    let claude = ChatSession(id: "a", title: "Fix the build", agent: "Claude")
+    let codex = ChatSession(id: "b", title: "Docs", agent: "Codex")
+
+    @Test("the buttons name the session's agent, the agent all the choices share, else agent")
+    func agent() {
+        #expect(ChatTarget.one(claude).title("Send to") == "Send to Claude")
+        #expect(ChatTarget.choose([codex, claude]).title("Send all to") == "Send all to agent")
+        #expect(ChatTarget.choose([claude, ChatSession(id: "c", title: "", agent: "Claude")]).agent == "Claude")
+    }
+
+    @Test("a worktree without a session offers to start one")
+    func none() {
+        #expect(ChatTarget.none.agent == nil)
+        #expect(ChatTarget.none.title("Send to") == "Start a session with this")
+    }
+
+    @Test("nothing is offered without the drive scope, and a worktree without a session needs a way to start one")
+    @MainActor
+    func offered() {
+        let one = ChatTarget.one(claude)
+        #expect(FixContext(target: one, canDrive: true, send: { _, _ in true }).offered)
+        #expect(!FixContext(target: one, canDrive: false, send: { _, _ in true }).offered)
+        #expect(!FixContext(target: .none, canDrive: true).offered)
+        #expect(FixContext(target: .none, canDrive: true, open: { _ in }).offered)
+    }
+
+    @Test("a thread is offered to the agent only while it isn't fixing anything on the PR")
+    @MainActor
+    func threadWhileFixing() {
+        let fix = FixContext(target: .one(claude), canDrive: true, send: { _, _ in true })
+        var fixing = SentFixes(head: "h")
+        fixing.conflict = true
+        #expect(fix.canSend(fixing: nil))
+        #expect(!fix.canSend(fixing: fixing))
+        #expect(!FixContext(target: .one(claude), canDrive: false, send: { _, _ in true }).canSend(fixing: nil))
+    }
+}
+
 @Suite("pocketd's PR")
 struct GoldenPrTests {
     @Test("the PR pocketd sends decodes with every field the card reads")
@@ -302,7 +358,7 @@ struct GoldenPrTests {
         #expect(PullRequestText.verdict(pr) == (.waiting, "1 check in progress"))
         #expect(PullRequestText.checkRows(pr).named.map(\.name) == ["lint"])
         #expect(ThreadGroups.group(pr.threads, ThreadFilter()).map(\.path) == ["src/sync.rs"])
-        #expect(ThreadGroups.hunkTail(pr.threads[0].comments[0].hunk) == [" fn sync() {", "+    loop {", "+        retry();"])
+        #expect(FixPrompt.hunkTail(pr.threads[0].comments[0].hunk) == [" fn sync() {", "+    loop {", "+        retry();"])
     }
 }
 

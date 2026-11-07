@@ -18,6 +18,7 @@ public enum GitHubGallery {
             ("pr-draft", { pr(.init(tree: tree, pr: Sample.draftPullRequest)) }),
             ("pr-conflicts", { pr(.init(tree: tree, pr: Sample.conflictingPullRequest)) }),
             ("pr-merged", { pr(.init(tree: tree, pr: Sample.mergedPullRequest), cleanup: WorktreeCleanup(name: "fix-retry-cap", changes: 3, sessions: 1)) }),
+            ("pr-watch-only", { pr(.init(tree: tree, pr: Sample.pullRequest), fix: FixContext(mac: Sample.mac)) }),
             ("pr-stale", { pr(.init(tree: tree, pr: Sample.pullRequest, stale: true)) }),
             ("pr-offline", { pr(.init(tree: tree, pr: Sample.readyPullRequest), mac: PrMac(id: Sample.mac, name: "Mingo's MacBook", offline: true)) }),
             ("pr-none", { pr(.init(tree: tree), newPr: newPr) }),
@@ -40,19 +41,27 @@ public enum GitHubGallery {
         }
     }
 
-    @MainActor private static func pr(_ answer: GhPr, mac: PrMac = PrMac(), newPr: NewPr = NewPr(), cleanup: WorktreeCleanup? = nil) -> AnyView {
+    /// A worktree with one Claude session, on a phone that may prompt it.
+    @MainActor private static var fix: FixContext {
+        FixContext(mac: Sample.mac, target: .one(ChatSession(id: "a-working", title: "Port the commit graph lanes", agent: "Claude")),
+                   canDrive: true, send: { _, _ in true })
+    }
+
+    @MainActor private static func pr(
+        _ answer: GhPr, mac: PrMac = PrMac(), newPr: NewPr = NewPr(), cleanup: WorktreeCleanup? = nil, fix: FixContext = fix
+    ) -> AnyView {
         let store = GitHubStore()
         store.show(answer.tree, answer)
         let delete: (@MainActor () -> Void)? = cleanup == nil ? nil : { @MainActor in }
         return AnyView(NavigationStack {
-            PullRequestScreen(store: store, tree: answer.tree, mac: mac, newPr: newPr, cleanup: cleanup, deleteTree: delete, every: nil)
+            PullRequestScreen(store: store, tree: answer.tree, mac: mac, newPr: newPr, cleanup: cleanup, deleteTree: delete, fix: fix, every: nil)
         })
     }
 
     @MainActor private static func threads(_ pr: PullRequest, now: Int, filter: ThreadFilter) -> AnyView {
         let store = GitHubStore()
         store.show(Sample.tree, GhPr(tree: Sample.tree, pr: pr))
-        return AnyView(NavigationStack { ThreadsScreen(store: store, model: store.pullRequest(Sample.tree), now: now, filter: filter) })
+        return AnyView(NavigationStack { ThreadsScreen(store: store, model: store.pullRequest(Sample.tree), now: now, filter: filter, fix: fix) })
     }
 
     @MainActor private static func list(_ list: GhPrs) -> AnyView {

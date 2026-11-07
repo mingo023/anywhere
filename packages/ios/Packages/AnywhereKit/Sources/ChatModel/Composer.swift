@@ -22,6 +22,11 @@ public enum Composer {
         case question(answerable: Bool)
     }
 
+    /// A phone granted `scopes` may only watch: it holds neither drive nor owner. No scopes is a pocketd before them.
+    public static func observeOnly(_ scopes: [Scope]) -> Bool {
+        !scopes.isEmpty && !scopes.contains(.drive) && !scopes.contains(.owner)
+    }
+
     /// Prompts need the drive scope and answers the approve scope; a phone may hold either without the other.
     public static func mode(observeOnly: Bool, canApprove: Bool, ask: Ask?, closed: Bool = false) -> Mode {
         if closed { return .closed }

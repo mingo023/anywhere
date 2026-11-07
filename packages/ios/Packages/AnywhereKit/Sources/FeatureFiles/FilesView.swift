@@ -37,7 +37,7 @@ public struct FilesView: View {
     private func context(_ tree: String, chat: String?) -> FilesContext {
         FilesContext(
             mac: route.mac ?? host.mac,
-            target: ChatTarget(ChatSession.on(tree, host.sessions.sessions.values.map(\.summary)), opener: chat),
+            target: host.chatTarget(tree, opener: chat),
             project: host.workspace.projects.first { $0.path == tree || $0.worktrees.contains { $0.path == tree } }?.path,
             open: open,
             git: host.git)
