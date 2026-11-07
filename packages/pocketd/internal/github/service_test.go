@@ -313,6 +313,23 @@ func TestCreatePushesTheBranchThenOpensItsPR(t *testing.T) {
 	}
 }
 
+func TestCreatePushesToTheRemoteDesktopSettingsName(t *testing.T) {
+	f := newFake(t)
+	f.put("created", "https://github.com/acme/app/pull/58\n")
+	project, tree, _ := repo(t, true)
+	root := filepath.Dir(project)
+	git(t, root, "init", "-q", "--bare", "fork.git")
+	git(t, project, "remote", "add", "fork", filepath.Join(root, "fork.git"))
+	path := filepath.Join(root, "desktop.json")
+	os.WriteFile(path, []byte(fmt.Sprintf(`{"projects":[%q],"git":{"remote":"fork"}}`, project)), 0o600)
+	if _, _, err := New(f.env(true), registry.New(path)).Create(ctx(t), tree, "Fix it", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if git(t, project, "ls-remote", "fork", "refs/heads/fix") == "" || git(t, project, "ls-remote", "origin", "refs/heads/fix") != "" {
+		t.Fatal("fix wasn't pushed to fork alone")
+	}
+}
+
 func TestAFailedPushOpensNoPR(t *testing.T) {
 	f := newFake(t)
 	_, tree, reg := repo(t, false)

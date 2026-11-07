@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"pocketd/internal/gitview"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/worktree"
@@ -25,10 +26,6 @@ const (
 )
 
 var errBusy = errors.New("GitHub CLI is busy with other requests; try again in a moment")
-
-// pushArgv is the desktop's PUSH (crates/git/src/git.rs): a branch never
-// pushed gets its upstream on the way.
-var pushArgv = []string{"git", "-c", "push.autoSetupRemote=true", "push"}
 
 // Error is a failed verb with protocol.md's code: gh_failed, gh_missing,
 // gh_signed_out, or git_failed for the push before a create.
@@ -370,7 +367,7 @@ func (s *Service) after(tree string, edit func(*PR)) {
 // Create pushes tree's branch, then opens a PR for it into base, or the
 // repo's default branch without one.
 func (s *Service) Create(ctx context.Context, tree, title, body, base string, draft bool) (int, string, error) {
-	if _, err := s.env.run(ctx, tree, pushArgv, "", pushTimeout); err != nil {
+	if _, err := s.env.run(ctx, tree, s.pushArgv(ctx, tree), "", pushTimeout); err != nil {
 		msg, detail := failure(err)
 		if f, ok := errors.AsType[*Failure](err); ok {
 			detail = strings.TrimSpace(f.Stderr)
@@ -391,6 +388,16 @@ func (s *Service) Create(ctx context.Context, tree, title, body, base string, dr
 	s.changed(tree, false)
 	s.poke()
 	return number, url, nil
+}
+
+// pushArgv is git.push's: to desktop.json's git.remote when tree has a remote
+// by that name, else where git picks.
+func (s *Service) pushArgv(ctx context.Context, tree string) []string {
+	remote := s.reg.Load().Git.PushRemote()
+	if out, err := s.env.run(ctx, tree, []string{"git", "remote"}, "", actTimeout); err != nil || !slices.Contains(strings.Split(out, "\n"), remote) {
+		remote = ""
+	}
+	return append([]string{"git"}, gitview.PushArgs(remote, false)...)
 }
 
 // Merge merges PR number by method, never deleting its branch.
