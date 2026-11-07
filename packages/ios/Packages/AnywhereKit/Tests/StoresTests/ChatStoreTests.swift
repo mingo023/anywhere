@@ -1,6 +1,8 @@
 import ChatModel
+import Client
 import Foundation
 import Fixtures
+import Loopback
 import Testing
 import Wire
 @testable import Stores
@@ -306,6 +308,29 @@ struct ChatStoreTests {
         c.disappear()
         c.appear()
         #expect(c.viewing)
+    }
+
+    @Test("leaving a chat tells a Mac that reads front.v1 the app is still in front, and one that doesn't nothing, as it would read no chats as the app gone")
+    func leavingTellsFrontOnlyToAMacThatReadsIt() async throws {
+        let server = try await TestServer { peer, frame in
+            if case .hello = frame.message { peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello))) }
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(config: .init(host: server.host, token: "t", clientId: "c"))
+        await connection.start()
+        defer { Task { await connection.stop() } }
+        for _ in 0..<200 where await !connection.isOnline { try await Task.sleep(for: .milliseconds(5)) }
+        var old = Sample.hello
+        old.caps = old.caps?.filter { $0 != Caps.front }
+        for hello in [old, Sample.hello] {
+            let c = ChatStore(agentId: "a1", connection: connection)
+            c.seed(agent(), requests: [], hello: hello)
+            c.disappear()
+        }
+        let views = { server.received.compactMap { if case .agentView(let v) = $0.message { v } else { nil } } }
+        for _ in 0..<200 where views().isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(views() == [.init(agentIds: [], front: true)])
     }
 
     @Test("a sub-agent's screen waits for the first page and pages back to find a sub-agent not held")

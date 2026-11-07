@@ -363,7 +363,7 @@ public final class ChatStore: HostStore {
         ticker?.cancel()
         ticker = nil
         // The app is still in front: without `front`, pocketd would take leaving the chat for leaving the app and push.
-        send(.agentView(.init(agentIds: [], front: true)))
+        if let view = HostModel.sceneView(active: true, viewing: [], front: hasCap(Caps.front)) { send(.agentView(view)) }
     }
 
     func open() {
