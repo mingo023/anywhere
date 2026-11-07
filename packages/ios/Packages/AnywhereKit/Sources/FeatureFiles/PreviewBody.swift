@@ -1,6 +1,7 @@
 import DesignSystem
 import Domain
 import Foundation
+import Highlight
 import Stores
 import Wire
 
@@ -11,13 +12,17 @@ enum PreviewBody: Equatable {
     case markdown(String)
     case svg(String)
     case image(Data)
-    case note(String, systemImage: String)
+    case note(String, systemImage: String, detail: String? = nil)
+    /// The read failed; the screen offers Try Again.
+    case failed(String)
+    case folder
 
     /// Markdown and SVG render unless `source` asks for their text.
     static func of(_ phase: FilePreview.Phase, path: String, source: Bool) -> PreviewBody {
         switch phase {
         case .loading: return .loading
-        case .failed(let message): return .note(message, systemImage: "exclamationmark.triangle")
+        case .failed(let message): return .failed(message)
+        case .folder: return .folder
         case .loaded(let read): return of(read, path: path, source: source)
         }
     }
@@ -28,17 +33,24 @@ enum PreviewBody: Equatable {
             let text = read.text ?? ""
             if !source, read.mime == "image/svg+xml" { return .svg(text) }
             if !source, read.language == "markdown" || FileText.isMarkdown(path) { return .markdown(text) }
-            return .code(text, language: read.language ?? "text")
+            return .code(text, language: language(read, path: path))
         case .image:
             guard let data = read.data else { return .note(unreadable, systemImage: "photo") }
             return .image(data)
         case .binary: return .note("Binary file · \(FileText.size(read.size))", systemImage: "doc.zipper")
         case .tooLarge: return .note("Too large to preview · \(FileText.size(read.size))", systemImage: "doc.badge.ellipsis")
-        default: return .note(unreadable, systemImage: "eye.slash")
+        default: return .note(unreadable, systemImage: "eye.slash", detail: unreadableWhy)
         }
     }
 
-    static let unreadable = "This file can't be shown."
+    static let unreadable = "Can't read this file"
+    /// pocketd says only that it couldn't.
+    static let unreadableWhy = "It may be a broken link, a special file, or not readable."
+
+    /// The language id the preview highlights and names: the Mac's, else the highlighter's for the path.
+    static func language(_ read: FsRead, path: String) -> String {
+        read.language ?? Highlighter.language(for: path)
+    }
 
     /// Whether the file has a rendered look and a source look to switch between.
     static func hasSource(_ read: FsRead?, path: String) -> Bool {
@@ -52,10 +64,15 @@ enum PreviewBody: Equatable {
         return "Showing the first \(FileText.size(read.text?.utf8.count ?? 0)) of \(FileText.size(read.size))"
     }
 
-    /// "Rust · 2.0 KB", under the file's name.
+    /// "src/chat · Rust · 2.0 KB", under the file's name; the folder alone until the file is read.
     static func subtitle(_ read: FsRead?, path: String) -> String? {
-        guard let read, read.kind != .unreadable else { return nil }
-        return read.kind == .text ? "\(FileText.language(path)) · \(FileText.size(read.size))" : FileText.size(read.size)
+        let folder = FileText.folder(path)
+        var parts = folder.isEmpty ? [] : [folder]
+        if let read, read.kind != .unreadable {
+            if read.kind == .text { parts.append(FileText.language(language(read, path: path))) }
+            parts.append(FileText.size(read.size))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

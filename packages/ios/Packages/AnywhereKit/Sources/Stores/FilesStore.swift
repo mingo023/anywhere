@@ -4,18 +4,19 @@ import Foundation
 import Observation
 import Wire
 
-/// A file handed to the chat composer to mention; `id` tells two mentions of one file apart.
-public struct FileMention: Hashable, Sendable {
+/// What the Files screens hand to a chat's draft: `@path`, or a quote of lines. One for no agent goes to the next chat
+/// on `tree` to come on screen.
+public struct ChatAddition: Hashable, Sendable {
+    public let agentId: String?
     public let tree: String
-    public let path: String
-    public let id: Int
+    public let text: String
 }
 
 /// File trees, previews, go-to-file and image uploads for one Mac's trees.
 ///
 /// For the chat composer: `search(tree:query:limit:)` answers @ mentions, `upload(_:name:)` sends an image and returns
-/// the path on the Mac to put in the prompt (progress in `uploads`), and `mention` is the file the Files screen last
-/// asked the composer to mention.
+/// the path on the Mac to put in the prompt (progress in `uploads`), and `takeAdditions(for:in:)` hands over, in order,
+/// the files and lines the Files screens queued for that chat.
 @MainActor
 @Observable
 public final class FilesStore: HostStore {
@@ -24,7 +25,8 @@ public final class FilesStore: HostStore {
     @ObservationIgnored private var previews: [String: FilePreview] = [:]
     /// Preview keys, least recently opened first.
     @ObservationIgnored private var recent: [String] = []
-    @ObservationIgnored private var mentions = 0
+    /// The Mac's name, as errors say it; its hostname once it has said hello.
+    @ObservationIgnored public var mac = FilesStore.unnamed
 
     /// What every tree hides.
     public var filter = FileFilter() {
@@ -32,7 +34,11 @@ public final class FilesStore: HostStore {
     }
     /// Upload progress 0...1 by upload id, while each runs.
     public private(set) var uploads: [String: Double] = [:]
-    public private(set) var mention: FileMention?
+    /// What waits for a chat's draft, oldest first.
+    public private(set) var additions: [ChatAddition] = []
+
+    /// The Mac before it says its name.
+    public nonisolated static let unnamed = "the Mac"
 
     /// How many previews stay cached; images can be 20 MB each.
     static let previewsKept = 8
@@ -66,13 +72,18 @@ public final class FilesStore: HostStore {
         if model.toggle(dir) { list(model.tree, dir) }
     }
 
+    /// Lists a folder that failed again.
+    public func retry(_ model: FileTreeModel, _ dir: String) {
+        list(model.tree, dir)
+    }
+
     private func list(_ tree: String, _ dir: String) {
         trees[tree]?.asked(dir)
         Task {
             do {
                 _ = apply(try await request(.fsList(.init(tree: tree, dir: dir))))
             } catch {
-                trees[tree]?.failed(dir, Self.describe(error), refused: Self.refused(error))
+                trees[tree]?.failed(dir, describe(error), refused: Self.refused(error))
             }
         }
     }
@@ -94,13 +105,28 @@ public final class FilesStore: HostStore {
     /// Reads the file again; what shows changes only if the file did.
     public func load(_ preview: FilePreview) {
         let (tree, path) = (preview.tree, preview.path)
+        preview.reading()
         Task {
             do {
-                _ = apply(try await request(.fsRead(.init(tree: tree, path: path))))
+                let reply = try await request(.fsRead(.init(tree: tree, path: path)))
+                // fs.read can't tell a folder from a file it can't read; a folder lists.
+                if case .fsRead(let read) = reply, read.kind == .unreadable, read.mtime == 0,
+                    case .fsList? = try? await request(.fsList(.init(tree: tree, dir: path)))
+                {
+                    preview.folder()
+                } else {
+                    _ = apply(reply)
+                }
             } catch {
-                preview.failed(Self.describe(error))
+                preview.failed(describe(error))
             }
         }
+    }
+
+    /// The bytes of an image in the tree, as a markdown file there shows it; nil for anything else.
+    public func image(tree: String, path: String) async -> Data? {
+        guard case .fsRead(let read)? = try? await request(.fsRead(.init(tree: tree, path: path))), read.kind == .image else { return nil }
+        return read.data
     }
 
     // MARK: Search
@@ -113,7 +139,7 @@ public final class FilesStore: HostStore {
 
     /// A debounced search for the go-to-file sheet.
     public func makeSearch(tree: String) -> FileSearch {
-        FileSearch(tree: tree) { [weak self] query in
+        FileSearch(tree: tree, mac: mac) { [weak self] query in
             guard let self else { return [] }
             return try await self.search(tree: tree, query: query)
         }
@@ -135,17 +161,46 @@ public final class FilesStore: HostStore {
         throw DaemonError.encoding("The Mac didn't say where the image landed")
     }
 
-    /// Asks the chat composer to mention a file.
-    public func mention(tree: String, path: String) {
-        mentions += 1
-        mention = FileMention(tree: tree, path: path, id: mentions)
+    // MARK: Chat drafts
+
+    /// Queues `@path` for a chat's draft; with no agent, for the next chat on `tree` to come on screen.
+    public func mention(tree: String, path: String, for agentId: String? = nil) {
+        add(ChatAddition(agentId: agentId, tree: tree, text: "@" + path))
     }
 
-    /// The path last asked to be mentioned in `tree`, handed to one composer only.
+    /// Queues a quote of lines (`CodeQuote.payload`) for a chat's draft.
+    public func quote(_ text: String, tree: String, for agentId: String) {
+        add(ChatAddition(agentId: agentId, tree: tree, text: text))
+    }
+
+    private func add(_ addition: ChatAddition) {
+        if !additions.contains(addition) { additions.append(addition) }
+    }
+
+    /// What waits for the chat of `agentId` on `tree`, oldest first, handed over once. Put it in the draft with
+    /// `draft(_:adding:)`.
+    public func takeAdditions(for agentId: String, in tree: String) -> [String] {
+        let taken = additions.filter { $0.agentId == agentId || ($0.agentId == nil && $0.tree == tree) }
+        guard !taken.isEmpty else { return [] }
+        additions.removeAll { taken.contains($0) }
+        return taken.map(\.text)
+    }
+
+    /// The oldest path waiting in `tree`, without its `@`, for a chat that takes one mention at a time.
     public func takeMention(in tree: String) -> String? {
-        guard let mention, mention.tree == tree else { return nil }
-        self.mention = nil
-        return mention.path
+        guard let i = additions.firstIndex(where: { $0.tree == tree && $0.text.hasPrefix("@") && !$0.text.contains("\n") }) else { return nil }
+        return String(additions.remove(at: i).text.dropFirst())
+    }
+
+    /// `text` with `pieces` added at its end: a mention after a space, a quote on lines of its own.
+    public nonisolated static func draft(_ text: String, adding pieces: [String]) -> String {
+        pieces.reduce(text) { text, piece in
+            if piece.contains("\n") {
+                let gap = text.isEmpty || text.hasSuffix("\n\n") ? "" : text.hasSuffix("\n") ? "\n" : "\n\n"
+                return text + gap + piece + "\n"
+            }
+            return text + (text.isEmpty || text.last!.isWhitespace ? "" : " ") + piece + " "
+        }
     }
 
     // MARK: HostStore
@@ -157,9 +212,9 @@ public final class FilesStore: HostStore {
         case .fsRead(let read):
             return previews[Self.key(read.tree, read.path)]?.loaded(read) ?? false
         case .gitChanged(let changed):
-            // A watched tree changed on disk: its letters and listings may have.
-            guard let model = trees[changed.tree] else { return false }
-            open(model)
+            // A watched tree changed on disk: its letters, listings and files may have. Images stay, as they are large.
+            if let model = trees[changed.tree] { open(model) }
+            for preview in previews.values where preview.tree == changed.tree && !preview.isImage { load(preview) }
             return false
         default:
             return false
@@ -167,7 +222,9 @@ public final class FilesStore: HostStore {
     }
 
     public func connected(_ hello: HelloOk) {
-        for model in trees.values where model.failure != nil || !model.waiting.isEmpty { open(model) }
+        mac = hello.hostname
+        for model in trees.values where model.hasFailures || !model.waiting.isEmpty { open(model) }
+        for preview in previews.values where preview.lastReadFailed { load(preview) }
     }
 
     private func request(_ message: ClientMessage) async throws -> ServerMessage {
@@ -181,16 +238,15 @@ public final class FilesStore: HostStore {
 
     private static func key(_ tree: String, _ path: String) -> String { tree + "\u{0}" + path }
 
-    /// What a failed request says to the reader.
-    public nonisolated static func describe(_ error: any Error) -> String {
+    /// What a failed request says to the reader, naming the Mac; nil for one that was cancelled.
+    public func describe(_ error: any Error) -> String? { Self.describe(error, mac: mac) }
+
+    public nonisolated static func describe(_ error: any Error, mac: String) -> String? {
         switch error {
-        case DaemonError.server(let e): e.message
-        case DaemonError.offline, DaemonError.closed: "Your Mac is offline"
-        case DaemonError.timedOut: "Your Mac didn't answer in time"
         case AttachmentError.unsupportedType: "Only PNG, JPEG, GIF, WebP and HEIC images can be attached"
         case AttachmentError.tooLarge: "Images over 20 MB can't be attached"
         case AttachmentError.empty: "That image is empty"
-        default: "Something went wrong"
+        default: ErrorText.describe(error, mac: mac)
         }
     }
 }
@@ -208,6 +264,8 @@ public final class FileTreeModel {
     public private(set) var waiting: Set<String> = []
     /// The root has been listed once.
     public var loaded: Bool { state.listings[""] != nil }
+    /// The root or a folder couldn't be listed, so a reconnect lists them again.
+    var hasFailures: Bool { failure != nil || !state.failures.isEmpty }
 
     var filter: FileFilter {
         didSet { if filter != oldValue { rebuild() } }
@@ -218,7 +276,10 @@ public final class FileTreeModel {
         self.filter = filter
     }
 
-    func asked(_ dir: String) { waiting.insert(dir) }
+    func asked(_ dir: String) {
+        waiting.insert(dir)
+        if state.retrying(dir) { rebuild() }
+    }
 
     @discardableResult
     func listed(_ dir: String, _ entries: [FsEntry]) -> Bool {
@@ -241,13 +302,16 @@ public final class FileTreeModel {
     }
 
     /// The root says why it couldn't be listed. A folder the Mac refused (gone, or outside the tree) folds and forgets
-    /// what it held; one that failed for the connection keeps it.
-    func failed(_ dir: String, _ message: String, refused: Bool) {
+    /// what it held; one that failed for the connection keeps it and says why. A cancelled ask (no message) still waits.
+    func failed(_ dir: String, _ message: String?, refused: Bool) {
+        guard let message else { return }
         waiting.remove(dir)
         if dir.isEmpty {
             failure = message
         } else if refused {
             state.gone(dir)
+            rebuild()
+        } else if state.failed(dir, message) {
             rebuild()
         }
     }
@@ -263,29 +327,55 @@ public final class FilePreview {
         case loading
         case loaded(FsRead)
         case failed(String)
+        /// The path is a folder.
+        case folder
     }
 
     public let tree: String
     public let path: String
     public private(set) var phase = Phase.loading
+    /// Why a reload over what shows failed.
+    public private(set) var notice: String?
 
     public init(tree: String, path: String) {
         self.tree = tree
         self.path = path
     }
 
+    /// The last read failed, so a reconnect reads it again.
+    var lastReadFailed: Bool {
+        if case .failed = phase { return true }
+        return notice != nil
+    }
+
+    var isImage: Bool {
+        if case .loaded(let read) = phase { read.kind == .image } else { false }
+    }
+
     /// Takes a read; false when it shows what already showed.
     @discardableResult
     func loaded(_ read: FsRead) -> Bool {
+        if notice != nil { notice = nil }
         if case .loaded(let shown) = phase, shown.mtime == read.mtime, shown.size == read.size, shown == read { return false }
         phase = .loaded(read)
         return true
     }
 
-    /// A failed reload keeps what showed.
-    func failed(_ message: String) {
-        if case .loaded = phase { return }
-        phase = .failed(message)
+    /// A failed reload keeps what showed and says why over it. A cancelled one (no message) says nothing.
+    func failed(_ message: String?) {
+        guard let message else { return }
+        if case .loaded = phase {
+            notice = message
+        } else {
+            phase = .failed(message)
+        }
+    }
+
+    func folder() { phase = .folder }
+
+    /// A preview that failed shows it loads again.
+    func reading() {
+        if case .failed = phase { phase = .loading }
     }
 }
 
@@ -304,15 +394,17 @@ public final class FileSearch {
 
     @ObservationIgnored private let fetch: @MainActor (String) async throws -> [String]
     @ObservationIgnored private let delay: Duration
+    @ObservationIgnored private let mac: String
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var asked = 0
 
-    /// `query` and `results` start the sheet where a previous one left off.
+    /// `query` and `results` start the sheet where a previous one left off. `mac` names the Mac in errors.
     public init(
-        tree: String, query: String = "", results: [String] = [], delay: Duration = .milliseconds(120),
+        tree: String, query: String = "", results: [String] = [], delay: Duration = .milliseconds(120), mac: String = FilesStore.unnamed,
         fetch: @escaping @MainActor (String) async throws -> [String]
     ) {
         self.tree = tree
+        self.mac = mac
         self.query = query
         self.results = results
         self.delay = delay
@@ -354,7 +446,7 @@ public final class FileSearch {
             results = found
             failure = nil
         case .failure(let error):
-            failure = FilesStore.describe(error)
+            failure = FilesStore.describe(error, mac: mac)
         }
     }
 }

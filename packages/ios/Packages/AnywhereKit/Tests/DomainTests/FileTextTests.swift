@@ -3,10 +3,12 @@ import Testing
 
 @Suite("File text")
 struct FileTextTests {
-    @Test("names languages and sizes as the desktop's Explorer")
+    @Test("names languages by their id in any case, and sizes, as the desktop's Explorer")
     func languagesAndSizes() {
-        #expect(FileText.language("src/a.tsx") == "TypeScript")
-        #expect(FileText.language("Makefile") == "Plain text")
+        #expect(FileText.language("tsx") == "TypeScript")
+        #expect(FileText.language("HTML") == "HTML")
+        #expect(FileText.language("bash") == "Shell")
+        #expect(FileText.language("text") == "Plain text")
         #expect(FileText.size(612) == "612 B")
         #expect(FileText.size(2048) == "2.0 KB")
         #expect(FileText.size(3 * 1024 * 1024) == "3.0 MB")
@@ -38,5 +40,14 @@ struct FileTextTests {
         #expect(FileText.linked("/w/src/a.rs", from: "docs/README.md", tree: "/w") == "src/a.rs")
         #expect(FileText.linked("../../etc/passwd", from: "docs/README.md", tree: "/w") == nil)
         #expect(FileText.linked("/etc/passwd", from: "README.md", tree: "/w") == nil)
+    }
+
+    @Test("an absolute or file:// path inside the tree loses its prefix, a relative one stays, one outside has none")
+    func relative() {
+        #expect(FileText.relative("/Users/me/app/src/a.rs", tree: "/Users/me/app") == "src/a.rs")
+        #expect(FileText.relative("file:///Users/me/app/src/a.rs", tree: "/Users/me/app/") == "src/a.rs")
+        #expect(FileText.relative("./src/a.rs", tree: "/Users/me/app") == "src/a.rs")
+        #expect(FileText.relative("/Users/me/app-2/a.rs", tree: "/Users/me/app") == nil)
+        #expect(FileText.relative("../other/a.rs", tree: "/Users/me/app") == nil)
     }
 }

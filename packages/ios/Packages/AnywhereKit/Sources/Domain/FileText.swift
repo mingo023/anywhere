@@ -9,25 +9,26 @@ public enum FileText {
         }
     }
 
-    /// The language's display name for a path: "TypeScript", or "Plain text".
-    public static func language(_ path: String) -> String {
-        switch ext(path) {
-        case "ts", "tsx": "TypeScript"
-        case "js", "jsx", "mjs", "cjs": "JavaScript"
-        case "rs": "Rust"
-        case "py": "Python"
+    /// The display name of a language id, as fs.read and the highlighter name them: "TypeScript", or "Plain text".
+    public static func language(_ id: String) -> String {
+        switch id.lowercased() {
+        case "typescript", "tsx": "TypeScript"
+        case "javascript": "JavaScript"
+        case "rust": "Rust"
+        case "python": "Python"
         case "go": "Go"
         case "swift": "Swift"
-        case "kt", "kts": "Kotlin"
+        case "kotlin": "Kotlin"
         case "java": "Java"
         case "json": "JSON"
-        case "md": "Markdown"
+        case "markdown": "Markdown"
         case "toml": "TOML"
-        case "yml", "yaml": "YAML"
-        case "sh", "zsh", "bash": "Shell"
+        case "yaml": "YAML"
+        case "bash": "Shell"
         case "css": "CSS"
         case "html": "HTML"
-        case "svg": "SVG"
+        case "dockerfile": "Dockerfile"
+        case "makefile": "Makefile"
         default: "Plain text"
         }
     }
@@ -58,6 +59,12 @@ public enum FileText {
 
     /// `rel` inside `dir`, both relative to the tree.
     public static func join(_ dir: String, _ name: String) -> String { dir.isEmpty ? name : dir + "/" + name }
+
+    /// `path` relative to `tree`, as pocketd takes it: an absolute or `file://` path inside the tree loses the tree's
+    /// prefix, and a relative one starts at the tree. Nil when it leads out of the tree (desktop `chat/markdown.rs`).
+    public static func relative(_ path: String, tree: String) -> String? {
+        linked(path.hasPrefix("file://") ? String(path.dropFirst(7)) : path, from: "", tree: tree)
+    }
 
     /// Where a link in the file at `file` points, relative to the tree; nil when it leads out of it.
     public static func linked(_ link: String, from file: String, tree: String) -> String? {
