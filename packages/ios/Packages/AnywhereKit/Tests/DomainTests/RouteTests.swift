@@ -19,6 +19,16 @@ struct RouteTests {
         #expect(prompt == "Fix the build")
     }
 
+    @Test("a route names the tree it is about, and none for a Mac-wide screen or a chat")
+    func tree() {
+        #expect(Route.worktree(mac: "m1", path: "/r/wt").tree == "/r/wt")
+        #expect(Route.local(mac: "m1", id: "l1").tree == "l1")
+        #expect(Route.pullRequest(mac: "m1", tree: "/r/wt").tree == "/r/wt")
+        #expect(Route.file(mac: "m1", tree: "/r", path: "a.rs").tree == "/r")
+        #expect(Route.chat(mac: "m1", agentId: "a1").tree == nil)
+        #expect(Route.pullRequests(mac: "m1", project: "/r").tree == nil)
+    }
+
     @Test("stacks saved before routes had a line, place, prompt or chat still restore", arguments: [
         (#"{"file":{"mac":"m1","tree":"/r","path":"/r/a.rs"}}"#, Route.file(mac: "m1", tree: "/r", path: "/r/a.rs")),
         (#"{"newSession":{"mac":"m1","project":"/r"}}"#, Route.newSession(mac: "m1", project: "/r")),

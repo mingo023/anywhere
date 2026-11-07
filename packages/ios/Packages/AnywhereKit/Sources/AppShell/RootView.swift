@@ -52,7 +52,7 @@ public struct RootView: View {
         .sheet(isPresented: Binding(get: { navigator.sheet != nil }, set: { if !$0 { navigator.sheet = nil } })) {
             // New Session brings its own stack.
             if let route = navigator.sheet {
-                Destination(route: route, app: app, pair: { navigator.pairing = PairingRequest() }, open: navigator.push)
+                Destination(route: route, app: app, pair: { navigator.pairing = PairingRequest() }, open: navigator.push, leave: navigator.leave)
             }
         }
         .onOpenURL { url in

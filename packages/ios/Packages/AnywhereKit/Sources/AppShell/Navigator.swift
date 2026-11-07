@@ -97,6 +97,15 @@ public final class Navigator {
         }
     }
 
+    /// Leaves the screens of a tree being deleted, with what was opened over them, and on iPad stops narrowing to it.
+    public func leave(tree: String) {
+        if self.tree?.tree == tree { self.tree = nil }
+        for tab in [Tab.sessions, .terminals] {
+            let path = path(tab)
+            if let at = path.firstIndex(where: { $0.tree == tree }) { setPath(Array(path[..<at]), for: tab) }
+        }
+    }
+
     /// Opens a link from inside the app, as a new session's chat or an automation run's: a chat on the selected Mac is
     /// pushed over the current screen, so Back returns there and the iPad keeps its tree. Other links open as from outside.
     public func show(_ link: DeepLink, macs: [MacRef]) {

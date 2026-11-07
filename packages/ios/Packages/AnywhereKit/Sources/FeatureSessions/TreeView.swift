@@ -10,6 +10,7 @@ struct TreeView: View {
     let host: HostModel
     let mac: String
     let key: String
+    var leave: ((String) -> Void)?
     @AppStorage("sessions.sort") private var sort = Sidebar.SessionSort.newest
     @State private var action: RowAction?
     @State private var making: Making?
@@ -71,8 +72,9 @@ struct TreeView: View {
         }
         .stale(host)
         .sheet(item: $making) { making in MakingSheet(host: host, mac: mac, making: making) }
-        // Back to the list first: the tree is gone from it at once, and the list says how the delete went.
-        .rowActions(host, $action, deleting: { dismiss() })
+        // Back to the list first: the tree is gone from it at once, and the list says how the delete went. On iPad this
+        // screen is the column's root, which only the navigator can leave.
+        .rowActions(host, $action, deleting: { if let leave { leave(key) } else { dismiss() } })
     }
 
     private func newSession(_ section: HomeList.Section, _ tree: HomeList.Tree) -> some View {

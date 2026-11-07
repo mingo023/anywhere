@@ -39,4 +39,16 @@ public enum Route: Hashable, Codable, Sendable {
             nil
         }
     }
+
+    /// The worktree or Local a route is about: a tree screen's path or id, or the checkout a git or files screen reads.
+    public var tree: String? {
+        switch self {
+        case .worktree(_, let tree), .local(_, let tree), .changes(_, let tree, _), .diff(_, let tree, _, _, _), .history(_, let tree),
+            .commit(_, let tree, _), .branches(_, let tree), .pullRequest(_, let tree), .reviewThreads(_, let tree), .files(_, let tree, _, _),
+            .file(_, let tree, _, _, _):
+            tree
+        case .sessions, .project, .chat, .newSession, .terminals, .terminal, .pullRequests, .automations, .pairing, .settings:
+            nil
+        }
+    }
 }

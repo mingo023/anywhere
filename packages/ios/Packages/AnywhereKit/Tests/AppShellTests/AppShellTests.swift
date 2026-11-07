@@ -120,6 +120,25 @@ struct NavigatorTests {
         #expect(nav.sessionsPath == [chat, .chat(mac: "mbp", agentId: "a2")])
     }
 
+    @Test("leaving a tree being deleted goes back past its screens and what was over them, and stops narrowing to it")
+    func leaveTree() {
+        let nav = Navigator()
+        let tree = Route.worktree(mac: "mbp", path: "/p/wt")
+        nav.sessionsPath = [.project(mac: "mbp", path: "/p"), tree, .pullRequest(mac: "mbp", tree: "/p/wt"), .chat(mac: "mbp", agentId: "a1")]
+        nav.terminalsPath = [.terminal(mac: "mbp", terminalId: "t1")]
+        nav.tree = tree
+        nav.leave(tree: "/p/wt")
+        #expect(nav.sessionsPath == [.project(mac: "mbp", path: "/p")])
+        #expect(nav.terminalsPath == [.terminal(mac: "mbp", terminalId: "t1")])
+        #expect(nav.tree == nil)
+
+        nav.tree = .local(mac: "mbp", id: "l1")
+        nav.sessionsPath = [.pullRequest(mac: "mbp", tree: "/p/wt")]
+        nav.leave(tree: "/p/wt")
+        #expect(nav.tree == .local(mac: "mbp", id: "l1"))
+        #expect(nav.sessionsPath.isEmpty)
+    }
+
     @Test("the chats on any stack are the ones whose stores stay")
     func chats() {
         let nav = Navigator()

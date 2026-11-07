@@ -47,7 +47,8 @@ struct PadRoot: View {
             .navigationTitle("Anywhere")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
         } content: {
-            Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, upNext: true, pair: pair, open: navigator.push)
+            Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, upNext: true, pair: pair, open: navigator.push,
+                             leave: navigator.leave)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
                         if navigator.tab != .settings, let host { ConnectionBanner(host: host) }

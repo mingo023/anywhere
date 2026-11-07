@@ -19,6 +19,7 @@ struct Destination: View {
     let app: AppModel
     let pair: @MainActor () -> Void
     let open: @MainActor (Route) -> Void
+    let leave: @MainActor (String) -> Void
 
     var body: some View {
         switch route {
@@ -29,7 +30,7 @@ struct Destination: View {
         default:
             if let mac = route.mac, let host = app.host(mac: mac) {
                 // A Mac dialed again is a new host, so the screen's stores bind to it afresh.
-                Self.screen(route, host, open: open)
+                Self.screen(route, host, open: open, leave: leave)
                     .id(ObjectIdentifier(host))
                     .safeAreaInset(edge: .top, spacing: 0) { EndedStrip(app: app, host: host) }
             } else {
@@ -39,10 +40,12 @@ struct Destination: View {
     }
 
     @ViewBuilder
-    static func screen(_ route: Route, _ host: HostModel, open: @escaping @MainActor (Route) -> Void) -> some View {
+    static func screen(
+        _ route: Route, _ host: HostModel, open: @escaping @MainActor (Route) -> Void, leave: @escaping @MainActor (String) -> Void
+    ) -> some View {
         switch route {
         case .sessions, .project, .worktree, .local, .newSession, .automations:
-            SessionsView(host: host, route: route, open: open)
+            SessionsView(host: host, route: route, open: open, leave: leave)
         case .chat(_, let agentId):
             ChatView(host: host, agentId: agentId, open: open)
                 #if os(iOS)
@@ -67,7 +70,7 @@ struct Destination: View {
     @ViewBuilder
     static func root(
         _ tab: Tab, host: HostModel?, app: AppModel, tree: Route? = nil, upNext: Bool = false, pair: @escaping @MainActor () -> Void,
-        open: @escaping @MainActor (Route) -> Void
+        open: @escaping @MainActor (Route) -> Void, leave: @escaping @MainActor (String) -> Void
     ) -> some View {
         switch tab {
         case .settings:
@@ -80,7 +83,7 @@ struct Destination: View {
                     if upNext && tree == nil {
                         UpNextList(host: host)
                     } else {
-                        SessionsView(host: host, route: tree ?? .sessions(mac: host.mac), open: open)
+                        SessionsView(host: host, route: tree ?? .sessions(mac: host.mac), open: open, leave: leave)
                     }
                 } else {
                     TerminalsView(host: host, route: .terminals(mac: host.mac))
@@ -95,6 +98,6 @@ struct Destination: View {
 extension View {
     /// Every `Route` a stack can push.
     func routeDestinations(app: AppModel, navigator: Navigator, pair: @escaping @MainActor () -> Void) -> some View {
-        navigationDestination(for: Route.self) { Destination(route: $0, app: app, pair: pair, open: navigator.push) }
+        navigationDestination(for: Route.self) { Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave) }
     }
 }
