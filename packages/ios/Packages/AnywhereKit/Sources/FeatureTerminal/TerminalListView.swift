@@ -107,7 +107,7 @@ struct TerminalListView: View {
     @ViewBuilder
     private var content: some View {
         if !store.available {
-            Placeholder("Update Pocket on your Mac", systemImage: "terminal", detail: "This Mac's Pocket can't share its terminals yet.")
+            Placeholder("Update Anywhere on your Mac", systemImage: "terminal", detail: "This Mac's version can't share its terminals yet.")
         } else if !store.listed && store.terminals.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).screenBackground()
                 .onAppear { store.refresh() }
