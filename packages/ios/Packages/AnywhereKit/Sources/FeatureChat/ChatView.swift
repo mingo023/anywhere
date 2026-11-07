@@ -42,11 +42,11 @@ private struct HostedChat: View {
                 follow($0, in: store)
             }
             .toolbar {
-                // Two items, so the centred title keeps its room on a 6.1" phone.
+                // One item, as wide as Back: the bar centres the title only when it fits between them evenly.
                 if let cwd = store.summary?.cwd {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        Button { open(.changes(mac: mac, tree: cwd, chat: agentId)) } label: { Label("Changes", systemImage: "plusminus") }
+                    ToolbarItem(placement: .primaryAction) {
                         Menu {
+                            Button { open(.changes(mac: mac, tree: cwd, chat: agentId)) } label: { Label("Changes", systemImage: "plusminus") }
                             Button { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) } label: { Label("Files", systemImage: "folder") }
                             Button { open(.pullRequest(mac: mac, tree: cwd)) } label: {
                                 Label("Pull request", systemImage: "arrow.triangle.pull")
