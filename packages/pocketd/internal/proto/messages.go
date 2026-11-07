@@ -48,6 +48,8 @@ type ClientMessage struct {
 	Server          string
 	// BeforeSeq pages agent.timeline backwards; never set with SinceSeq.
 	BeforeSeq *float64
+	// Front is agent.view's word on whether the app is in front; nil leaves it to the ids.
+	Front *bool
 
 	// The phone verbs' fields, in protocol.md. Count fields are 0 when absent.
 	TerminalID       string
@@ -193,7 +195,9 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 			(m.Access == "" || m.Access != "settings" && slices.Contains(Accesses, m.Access)) && (m.Model != "" || m.Effort != "" || m.Access != "")
 	case m.Type == "agent.pin":
 		ok = get("agentId", &m.AgentID) && get("pinned", &m.Pinned)
-	case m.Type == "agent.view", m.Type == "agent.seen":
+	case m.Type == "agent.view":
+		ok = stringList("agentIds", &m.AgentIDs) && f.optionalFlag("front", &m.Front)
+	case m.Type == "agent.seen":
 		ok = stringList("agentIds", &m.AgentIDs)
 	case m.Type == "agent.timeline":
 		ok = get("agentId", &m.AgentID) && optional("sinceSeq", &m.SinceSeq) && optional("beforeSeq", &m.BeforeSeq) && optional("limit", &m.Limit) &&

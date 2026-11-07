@@ -537,7 +537,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.view":
 		c.emitSeen(m.AgentIDs)
 		c.s.Agents.SetView(c.key, m.AgentIDs)
-		c.viewed(m.AgentIDs)
+		c.viewed(m)
 		c.send(proto.NewAck(m.ID))
 		return nil
 	case "agent.seen":

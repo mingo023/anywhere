@@ -31,11 +31,13 @@ public enum Caps {
     public static let compare = "compare.v1"
     /// `gh.pr` may answer `noRemote` and `failed`.
     public static let ghState = "ghstate.v1"
+    /// `agent.view`'s `front`.
+    public static let front = "front.v1"
 
     /// Everything the phone speaks, sent in every hello.
     public static let phone: [String] = [
         pair, scopes, host, registry, summaryV2, launch, restore, open, names, automations, locals, fork, accounts,
-        subagents, settings, commands, access, terminal, workspace, git, gh, fs, push, compare, ghState,
+        subagents, settings, commands, access, terminal, workspace, git, gh, fs, push, compare, ghState, front,
     ]
 }
 

@@ -328,6 +328,17 @@ extension ClientMessage {
         public init(agentIds: [String]) { self.agentIds = agentIds }
     }
 
+    /// The chats on screen. With `Caps.front`, `front` says whether the app is in front; without it pocketd reads
+    /// no ids as the app gone to the background.
+    public struct AgentView: Codable, Hashable, Sendable {
+        public var agentIds: [String]
+        public var front: Bool?
+        public init(agentIds: [String], front: Bool? = nil) {
+            self.agentIds = agentIds
+            self.front = front
+        }
+    }
+
     /// `beforeSeq` and `sinceSeq` together are malformed.
     public struct AgentTimeline: Codable, Hashable, Sendable {
         public var agentId: String

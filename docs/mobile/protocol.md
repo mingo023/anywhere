@@ -311,6 +311,8 @@ POST /v1/send      headers X-Anywhere-Timestamp: <unix>, X-Anywhere-Signature: b
 
 Triggers: →needsYou (debounce 1.5 s), working→done (3 s, Failed picks FAILED), automation run end. Nothing is pushed for an agent that is Seen at send time, to a device with a foreground connection, or twice for one `(agent, status, updatedAt)`. A connection counts as foreground from its hello until it sends `agent.view{agentIds:[]}` (the app going to the background), and again from its next non-empty `agent.view`.
 
+With `front.v1`, `agent.view {id, agentIds, front?:bool}` says so outright, so leaving a chat in the app isn't read as the app leaving: pocketd stores background = !front. The phone sends its current ids with `front:true` when the scene becomes active and when it leaves a chat, and `front:false` when the scene goes to the background. A view without `front`, or `front` from a conn without the cap, is read from its ids as above.
+
 ### Live Activity
 
 `ActivityAttributes` type name `MacActivity`: `{mac, macName}`; `ContentState = {working, needsYou, unseen, top?:{slot, status, sinceUnix, verb?, subject?, answerable, request?}}`. `slot` = agent id; `sinceUnix` = Unix seconds as a Double (ActivityKit decodes `Date` from 2001). pocketd sends `update` priority 5 coalesced to ≤1 per 15 s, priority 10 on entering or leaving Needs you or on Failed, a heartbeat every 4 min for as long as the activity lives (a long Needs you or the idle minutes before `end` would otherwise pass the stale date and read as offline), `stale-date = now+300`, and `end` with `dismissal-date = now+900` ten minutes after nothing works or needs you. With a `start` handle and no live activity, entering Needs you sends `event:"start"` with `input-push-token:1`.

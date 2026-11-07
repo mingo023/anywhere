@@ -196,6 +196,7 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.create","id":"1","cwd":"/","profileId":"p","prompt":"x"}`,
 		`{"type":"agent.prompt","id":"1","agentId":"a"}`,
 		`{"type":"agent.timeline","id":"1","agentId":"a","limit":501}`,
+		`{"type":"agent.view","id":"1","agentIds":[],"front":"yes"}`,
 		`{"type":"permission.resolve","id":"1","requestId":"r","decision":"maybe"}`,
 		`{"type":"hello","id":"1","token":"t","clientId":"c"}`,
 		`{"type":"agent.timeline","id":"1","agentId":"a","limit":0}`,
