@@ -15,7 +15,6 @@ struct NewSessionView: View {
     @State private var requestId: String?
     @State private var worktreeOptions = false
     @State private var providersError: String?
-    @State private var confirmingFull = false
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -196,19 +195,11 @@ struct NewSessionView: View {
 
     private var accessMenu: some View {
         Menu {
-            AccessChoices(choices: AccessPill.choices(max: maxAccess, launching: true), picked: draft.access.rawValue) { access in
-                if AccessPill.confirms(access, from: draft.access.rawValue) {
-                    Haptics.warning()
-                    confirmingFull = true
-                } else {
-                    draft.access = Access(rawValue: access)
-                }
-            }
+            AccessChoices(choices: AccessPill.choices(max: maxAccess, launching: true), picked: draft.access.rawValue) { draft.access = Access(rawValue: $0) }
         } label: {
             ComposerPill(text: AccessPill.label(draft.access.rawValue)) { Image(systemName: "shield") }
         }
         .menuOrder(.fixed)
-        .confirmsFullAccess($confirmingFull, who: SessionText.provider(draft.provider.rawValue)) { draft.access = .full }
     }
 
     /// The desktop's footer: the project · a new Worktree or Local · the branch a worktree starts from.

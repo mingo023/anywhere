@@ -147,7 +147,7 @@ public struct NewSessionDraft: Hashable, Sendable {
     }
 
     /// The access a draft starts with: the Mac's own default when this phone may pick it, else Edits, or the most
-    /// allowed below it. Never Full, which only a confirmed pick sets.
+    /// allowed below it. Never Full, which starts only from the Mac.
     public static func defaultAccess(max: String, mac: String? = nil) -> Access {
         let allowed = accesses(max: max)
         if let mac, Access(rawValue: mac) != .full, allowed.contains(Access(rawValue: mac)) { return Access(rawValue: mac) }

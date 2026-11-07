@@ -19,6 +19,12 @@ func aPhoneSwitchesToFullOnceTheMacAllowsIt() {
     #expect(AccessPill.choices(max: "full", launching: true).first?.locked == "Only from your Mac")
 }
 
+@Test("a phone never starts an agent on Full, even under a Full ceiling")
+func aPhoneNeverStartsOnFull() {
+    #expect(AccessPill.choices(max: "full", launching: true).map { $0.locked == nil } == [false, true, true, true, false])
+    #expect(AccessPill.choices(max: "full", launching: true).last?.locked == "Only from your Mac")
+}
+
 @Test("only a switch into Full asks first")
 func onlyASwitchIntoFullAsksFirst() {
     #expect(AccessPill.confirms("full", from: "edits"))

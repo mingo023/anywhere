@@ -84,6 +84,8 @@ public final class PushCenter {
 
     /// Starts a Mac's Live Activity once it turns busy; `LiveActivities.install` sets it on iOS.
     @ObservationIgnored public var startActivity: (@MainActor (MacActivity, MacActivity.ContentState) -> Void)?
+    /// Replaces a Mac's stale Live Activity with a fresh one once registered with it; `LiveActivities.install` sets it on iOS.
+    @ObservationIgnored public var renewActivity: (@MainActor (MacActivity, MacActivity.ContentState) -> Void)?
     @ObservationIgnored public var endActivities: (@MainActor () -> Void)?
     @ObservationIgnored public var relay: RelayClient
     @ObservationIgnored public let env: PushEnv

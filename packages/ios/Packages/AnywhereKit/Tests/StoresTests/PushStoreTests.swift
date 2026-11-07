@@ -165,7 +165,9 @@ struct PushStoreTests {
         c.granted(true)
         c.received(alertToken: Data([1]))
         var started: [MacActivity] = []
+        var renewed: [MacActivity] = []
         c.startActivity = { attributes, _ in started.append(attributes) }
+        c.renewActivity = { attributes, _ in renewed.append(attributes) }
         let store = PushStore(connection: connection, center: c)
         store.connected(Sample.hello)
         _ = store.apply(.agentList(.init(agents: Sample.agents)))
@@ -173,6 +175,37 @@ struct PushStoreTests {
         for _ in 0..<200 where store.state != .registered { try await Task.sleep(for: .milliseconds(5)) }
         #expect(store.state == .registered)
         #expect(started == [MacActivity(mac: Sample.mac, macName: Sample.hello.hostname)])
+        #expect(renewed.isEmpty)
+    }
+
+    @Test("registering with a Mac that isn't busy renews its activity, so a stale one pocketd can't update gives way to one it can")
+    func renewsOnceRegistered() async throws {
+        let server = try await TestServer { peer, frame in
+            if case .hello = frame.message {
+                peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello)))
+            } else {
+                peer.send(ServerFrame(id: frame.id, .ack))
+            }
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(config: .init(host: server.host, token: "t", clientId: "c"))
+        await connection.start()
+        defer { Task { await connection.stop() } }
+        for _ in 0..<200 where await !connection.isOnline { try await Task.sleep(for: .milliseconds(5)) }
+        let c = center()
+        defer { c.forget(mac: Sample.mac) }
+        c.granted(true)
+        c.received(alertToken: Data([1]))
+        var started: [MacActivity] = []
+        var renewed: [MacActivity] = []
+        c.startActivity = { attributes, _ in started.append(attributes) }
+        c.renewActivity = { attributes, _ in renewed.append(attributes) }
+        let store = PushStore(connection: connection, center: c)
+        store.connected(Sample.hello)
+        for _ in 0..<200 where store.state != .registered { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(store.state == .registered)
+        #expect(renewed == [MacActivity(mac: Sample.mac, macName: Sample.hello.hostname)])
+        #expect(started.isEmpty)
     }
 
     @Test("a start waits from the Mac turning busy until the phone is registered with it, and is dropped once nothing is busy")

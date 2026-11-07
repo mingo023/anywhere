@@ -85,7 +85,7 @@ public final class PushStore: HostStore {
             guard mine == attempt else { return }
             state = .registered
             sendActivity()
-            startActivity()
+            startActivity(renewing: true)
         } catch {
             if mine == attempt { state = Self.describe(error, mac: hello.hostname).map(State.failed) ?? .waiting }
         }
@@ -148,11 +148,16 @@ public final class PushStore: HostStore {
 
     /// The app starts a Mac's Live Activity itself when the Mac turns busy while the app is in front, but only once registered
     /// with it: pocketd fills in the ask and keeps it current once it has the activity's token, and one it never hears of says
-    /// the Mac is offline five minutes on.
-    private func startActivity() {
-        guard startDue, state == .registered, center.liveActivities, let hello else { return }
-        startDue = false
-        center.startActivity?(MacActivity(mac: hello.serverId, macName: hello.hostname), content)
+    /// the Mac is offline five minutes on. Registering also renews a stale one, whose token pocketd may not hold.
+    private func startActivity(renewing: Bool = false) {
+        guard startDue || renewing, state == .registered, center.liveActivities, let hello else { return }
+        let attributes = MacActivity(mac: hello.serverId, macName: hello.hostname)
+        if startDue {
+            startDue = false
+            center.startActivity?(attributes, content)
+        } else {
+            center.renewActivity?(attributes, content)
+        }
     }
 
     /// A start is due from the Mac turning busy until it is made, and dropped once nothing is busy.

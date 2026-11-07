@@ -22,8 +22,8 @@ struct ComposerView: View {
     let show: (String) -> Void
     @Binding var mapOpen: Bool
     let openLink: (MarkdownLink) -> Void
-    /// The input holds the keyboard; the chat screen lets it go on a tap or swipe down the transcript.
-    var focused: FocusState<Bool>.Binding
+    /// The field holding the keyboard; the chat screen lets it go on a tap or swipe down the transcript.
+    var focus: FocusState<ChatField?>.Binding
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @State private var keyboard = HardwareKeyboard.attached
@@ -70,7 +70,7 @@ struct ComposerView: View {
                 if let ask = store.ask {
                     PermissionCard(
                         ask: ask, who: who(store.provider), feedback: store.feedback, answerable: answerable, sent: store.answering == ask.requestId,
-                        online: store.online, allow: { store.allow() }, deny: { store.deny($0) }
+                        online: store.online, focus: focus, allow: { store.allow() }, deny: { store.deny($0) }
                     )
                     .id(ask.requestId)
                 }
@@ -78,7 +78,7 @@ struct ComposerView: View {
                 if let wizard = store.wizard {
                     QuestionWizard(
                         wizard: wizard, answerable: answerable, online: store.online, who: who(store.provider), change: { store.wizard($0) },
-                        skip: { store.skipQuestions() }, openLink: openLink)
+                        skip: { store.skipQuestions() }, openLink: openLink, focus: focus)
                 }
             case .viewOnly:
                 Text(Composer.viewOnly(mac: machine)).font(ChatFont.small).foregroundStyle(Palette.text3.color).multilineTextAlignment(.center)
@@ -129,7 +129,7 @@ struct ComposerView: View {
                 .lineLimit(1...Composer.rows(height: Double(height)))
                 .font(ChatFont.bubble)
                 .textFieldStyle(.plain)
-                .focused(focused)
+                .focused(focus, equals: .composer)
                 .disabled(store.armed)
                 .padding(.horizontal, 4)
                 .padding(.top, 4)

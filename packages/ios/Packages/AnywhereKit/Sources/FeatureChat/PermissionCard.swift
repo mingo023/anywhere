@@ -13,11 +13,11 @@ struct PermissionCard: View {
     let answerable: Bool
     let sent: Bool
     let online: Bool
+    var focus: FocusState<ChatField?>.Binding
     let allow: () -> Void
     let deny: (String?) -> Void
     @State private var replying = false
     @State private var reply = ""
-    @FocusState private var focused: Bool
 
     var body: some View {
         let (glyph, verb, what) = permissionSubject(ask.tool, ask.toolName)
@@ -48,11 +48,11 @@ struct PermissionCard: View {
                     TextField("Tell the agent what to do instead", text: $reply, axis: .vertical)
                         .lineLimit(1...6)
                         .font(ChatFont.body)
-                        .focused($focused)
+                        .focused(focus, equals: .reply)
                         .textFieldStyle(.plain)
                         .padding(Space.s)
                         .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.small))
-                        .onAppear { focused = true }
+                        .onAppear { focus.wrappedValue = .reply }
                 }
                 HStack(spacing: Space.s) {
                     button("Deny", primary: false, destructive: true) {
