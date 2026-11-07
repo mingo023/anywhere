@@ -79,7 +79,7 @@ struct CommitScreen: View {
         }
         .navigationTitle(GitText.short(sha))
         .navigationDestination(for: CommitFileRoute.self) { r in
-            DiffScreen(host: host, tree: r.tree, path: r.path, at: .commit(rev: r.sha), siblings: r.siblings)
+            DiffScreen(host: host, tree: r.tree, path: r.path, at: .commit(rev: r.sha), files: .list(r.siblings))
         }
         .task {
             guard detail == nil else { return }

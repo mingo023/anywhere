@@ -20,8 +20,7 @@ public struct GitView: View {
         case .changes(let mac, let tree):
             ChangesScreen(host: host, mac: mac, tree: tree)
         case .diff(_, let tree, let path, let staged):
-            let files = host.git.changes(tree).files.filter { staged ? $0.staged : $0.unstaged }.map(\.path)
-            DiffScreen(host: host, tree: tree, path: path, at: staged ? .staged : .working, siblings: files)
+            DiffScreen(host: host, tree: tree, path: path, at: staged ? .staged : .working, files: .changes(staged ? .staged : .changes))
         case .history(let mac, let tree):
             HistoryScreen(host: host, mac: mac, tree: tree)
         case .commit(_, let tree, let sha):

@@ -66,6 +66,8 @@ public struct DiffDocument: Hashable, Sendable {
     public var pairs: [SplitRow]
     /// The longest line in UTF-8 bytes, near enough its characters, so side-by-side columns share one width.
     public var widest: Int
+    /// Where each change starts, for stepping through them.
+    public var changes: [Int]
 
     public init(_ diff: GitDiff) {
         path = diff.path
@@ -82,6 +84,7 @@ public struct DiffDocument: Hashable, Sendable {
         gutterDigits = DiffRows.digits(lines)
         pairs = DiffRows.split(lines)
         widest = lines.reduce(0) { $1.kind == .hunk ? $0 : max($0, $1.text.utf8.count) }
+        changes = DiffRows.changes(lines)
     }
 }
 
@@ -167,6 +170,29 @@ public enum DiffRows {
             }
         }
         return (old, new, at)
+    }
+
+    /// The first row of each change: every run of added and deleted rows.
+    public static func changes(_ lines: [UnifiedLine]) -> [Int] {
+        let changed = { (i: Int) in lines[i].kind == .added || lines[i].kind == .deleted }
+        return lines.indices.filter { changed($0) && ($0 == 0 || !changed($0 - 1)) }
+    }
+
+    /// The unchanged lines folded away above hunk `i`, as old-side line numbers; nil when none are.
+    public static func hidden(above i: Int, in lines: [UnifiedLine]) -> ClosedRange<Int>? {
+        guard lines.indices.contains(i), lines[i].kind == .hunk, let old = oldRange(lines[i].text) else { return nil }
+        let shown = lines[..<i].last { $0.old != nil }?.old ?? 0
+        // A hunk that only adds names the line before it.
+        let end = old.count == 0 ? old.start : old.start - 1
+        return shown < end ? (shown + 1)...end : nil
+    }
+
+    /// "@@ -40,7 +41,8 @@" reads as (40, 7); a count left out is 1.
+    static func oldRange(_ header: String) -> (start: Int, count: Int)? {
+        guard let minus = header.firstIndex(of: "-") else { return nil }
+        let parts = header[header.index(after: minus)...].prefix { $0.isNumber || $0 == "," }.split(separator: ",")
+        guard let start = parts.first.flatMap({ Int($0) }) else { return nil }
+        return (start, parts.count > 1 ? Int(parts[1]) ?? 1 : 1)
     }
 
     public static func digits(_ lines: [UnifiedLine]) -> Int {

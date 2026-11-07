@@ -514,6 +514,11 @@ public final class TreeHistory {
 public struct BulkStage: Hashable, Sendable {
     public let section: ChangeSection
     public let count: Int
+
+    public init(section: ChangeSection, count: Int) {
+        self.section = section
+        self.count = count
+    }
 }
 
 /// What a tree committed since it left `against`, page by page; read-only.
