@@ -143,7 +143,7 @@ struct DiffScreen: View {
     private var siblings: [String] {
         switch files {
         case .list(let paths): paths
-        case .changes(let section): host.git.changes(tree).files.filter { section == .staged ? $0.staged : $0.unstaged }.map(\.path)
+        case .changes(let section): host.git.changes(tree).paths(section)
         case .compare(let against): host.git.compare(tree, against: against).files.map(\.path)
         }
     }

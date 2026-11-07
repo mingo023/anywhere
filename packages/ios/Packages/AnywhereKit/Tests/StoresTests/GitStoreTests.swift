@@ -72,6 +72,19 @@ struct GitStoreTests {
         #expect(t.count(.changes) == status.totals.unstaged! - paths.count)
     }
 
+    @Test("a section's paths follow a stage")
+    func sectionPaths() {
+        let store = GitStore()
+        let t = store.changes(Sample.tree)
+        let status = Sample.gitStatus(files: 6)
+        t.take(status, cursor: 0, generation: 0)
+        let changed = status.files.filter(\.unstaged).map(\.path)
+        #expect(t.paths(.changes) == changed)
+        #expect(t.paths(.staged) == status.files.filter(\.staged).map(\.path))
+        t.flip(changed, staged: true)
+        #expect(t.paths(.changes).isEmpty)
+    }
+
     @Test("a fresh first page of history keeps the loaded pages while the tips hold, and starts over when they moved")
     func historyRefresh() {
         let store = GitStore()

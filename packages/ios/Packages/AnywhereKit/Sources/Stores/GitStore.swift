@@ -316,7 +316,7 @@ public final class GitStore: HostStore {
         t.bulk = BulkStage(section: section, count: t.count(section))
         defer { t.bulk = nil }
         guard await complete(tree) else { return }
-        let paths = t.files.filter { section == .staged ? $0.staged : $0.unstaged }.map(\.path)
+        let paths = t.paths(section)
         guard !paths.isEmpty else { return }
         await stage(tree, paths: paths, staged: section == .changes)
     }
@@ -436,6 +436,7 @@ public final class TreeChanges {
     @ObservationIgnored var generation = 0
     /// Bumped by each read taken in from the first page.
     public private(set) var reads = 0
+    @ObservationIgnored private var sectionPaths: (revision: Int, section: ChangeSection, paths: [String])?
 
     init(tree: String) { self.tree = tree }
 
@@ -472,6 +473,14 @@ public final class TreeChanges {
     public func count(_ section: ChangeSection) -> Int {
         guard let totals = head?.totals else { return 0 }
         return section == .staged ? totals.staged : totals.unstaged ?? files.count(where: \.unstaged)
+    }
+
+    /// A section's loaded files, worked out once per change of `files` rather than on every redraw.
+    public func paths(_ section: ChangeSection) -> [String] {
+        if let kept = sectionPaths, kept.revision == revision, kept.section == section { return kept.paths }
+        let paths = files.filter { section == .staged ? $0.staged : $0.unstaged }.map(\.path)
+        sectionPaths = (revision, section, paths)
+        return paths
     }
 
     /// Every changed file is loaded, so section-wide actions see them all.
