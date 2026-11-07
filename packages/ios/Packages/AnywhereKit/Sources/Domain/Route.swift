@@ -5,7 +5,8 @@ public enum Route: Hashable, Codable, Sendable {
     case worktree(mac: String, path: String)
     case local(mac: String, id: String)
     case chat(mac: String, agentId: String)
-    case newSession(mac: String, project: String?)
+    /// `place` is a worktree's path or a Local's id, as `.worktree` and `.local` carry them; `prompt` fills the draft.
+    case newSession(mac: String, project: String?, place: String? = nil, prompt: String? = nil)
     case terminals(mac: String)
     case terminal(mac: String, terminalId: String)
     case changes(mac: String, tree: String)
@@ -16,7 +17,8 @@ public enum Route: Hashable, Codable, Sendable {
     case pullRequest(mac: String, tree: String)
     case pullRequests(mac: String, project: String)
     case files(mac: String, tree: String, dir: String)
-    case file(mac: String, tree: String, path: String)
+    /// `line` is 1-based, for a link that names one.
+    case file(mac: String, tree: String, path: String, line: Int? = nil)
     case automations(mac: String)
     case pairing
     case settings
@@ -24,10 +26,10 @@ public enum Route: Hashable, Codable, Sendable {
     /// The Mac a route is on; pairing and settings belong to none.
     public var mac: String? {
         switch self {
-        case .sessions(let mac), .project(let mac, _), .worktree(let mac, _), .local(let mac, _), .chat(let mac, _), .newSession(let mac, _),
+        case .sessions(let mac), .project(let mac, _), .worktree(let mac, _), .local(let mac, _), .chat(let mac, _), .newSession(let mac, _, _, _),
             .terminals(let mac), .terminal(let mac, _), .changes(let mac, _), .diff(let mac, _, _, _), .history(let mac, _),
             .commit(let mac, _, _), .branches(let mac, _), .pullRequest(let mac, _), .pullRequests(let mac, _), .files(let mac, _, _),
-            .file(let mac, _, _), .automations(let mac):
+            .file(let mac, _, _, _), .automations(let mac):
             mac
         case .pairing, .settings:
             nil

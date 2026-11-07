@@ -23,7 +23,7 @@ public struct SessionsView: View {
             TreeView(host: host, mac: mac, key: path)
         case .local(_, let id):
             TreeView(host: host, mac: mac, key: id)
-        case .newSession(_, let project):
+        case .newSession(_, let project, _, _):
             NewSessionView(host: host, mac: mac, project: project, place: nil)
         case .automations:
             AutomationsView(host: host, mac: mac)
