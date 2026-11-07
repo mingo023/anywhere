@@ -279,10 +279,9 @@ private struct ChangeLineView: View, Equatable {
         switch line.row {
         case .header(let section, _):
             SectionHeader(
-                section: section, count: count, folded: folded, stageAll: stageAll ?? "", fold: { actions.fold(section.rawValue) },
+                section: section, count: count, folded: folded, stageAll: stageAll ?? "", busy: busy, fold: { actions.fold(section.rawValue) },
                 stage: { actions.stageAll(section) }
             )
-            .disabled(busy)
         case .folder(_, let key, let label, let depth, let open):
             Button {
                 actions.fold(key)
@@ -460,6 +459,7 @@ private struct SectionHeader: View {
     let count: Int
     let folded: Bool
     let stageAll: String
+    let busy: Bool
     let fold: () -> Void
     let stage: () -> Void
 
@@ -482,6 +482,7 @@ private struct SectionHeader: View {
             }
             .font(Typography.footnote)
             .buttonStyle(.borderless)
+            .disabled(busy)
         }
         .font(Typography.footnote)
         .foregroundStyle(Palette.text2.color)

@@ -235,25 +235,27 @@ public final class GitStore: HostStore {
         return c
     }
 
-    /// Reads a compare's first page again, or with `more` its next one.
+    /// Reads a compare's first page again, or with `more` its next one. A first-page read overtakes any read under way.
     public func loadCompare(_ tree: String, against: String, more: Bool = false) async {
         let c = compare(tree, against: against)
-        guard let cursor = more ? c.nextCursor : 0, !c.loading else { return }
+        guard let cursor = more ? c.nextCursor : 0, !(more && c.loading) else { return }
         guard let connection else {
             c.error = Self.describe(DaemonError.offline)
             return
         }
+        if cursor == 0 { c.generation += 1 }
+        let generation = c.generation
         c.loading = true
         do {
             let reply = try await connection.request(.gitCompare(.init(tree: tree, against: against, cursor: cursor > 0 ? cursor : nil)))
             guard case .gitCompare(let page) = reply else { throw DaemonError.encoding("git.compare") }
-            c.take(page, cursor: cursor)
+            c.take(page, cursor: cursor, generation: generation)
         } catch DaemonError.server(let e) where e.code == "unknown_ref" {
-            c.missing = true
+            if generation == c.generation { c.missing = true }
         } catch {
-            c.error = Self.describe(error)
+            if generation == c.generation { c.error = Self.describe(error) }
         }
-        c.loading = false
+        if generation == c.generation { c.loading = false }
     }
 
     public func cachedCommit(_ sha: String) -> CommitDetail? { commits[sha] }
@@ -285,7 +287,8 @@ public final class GitStore: HostStore {
     }
 
     public func take(_ page: GitCompare) {
-        compare(page.tree, against: page.against).take(page, cursor: 0)
+        let c = compare(page.tree, against: page.against)
+        c.take(page, cursor: 0, generation: c.generation)
     }
 
     public func take(_ commit: CommitDetail) {
@@ -534,14 +537,17 @@ public final class TreeCompare {
     public var error: String?
     /// `against` names no branch or commit.
     public internal(set) var missing = false
+    /// Bumped by each first-page read, so a reply to an older read is dropped.
+    @ObservationIgnored var generation = 0
 
     init(tree: String, against: String) {
         self.tree = tree
         self.against = against
     }
 
-    /// The first page replaces everything; a later one extends the list where it ends.
-    func take(_ page: GitCompare, cursor: Int) {
+    /// The first page replaces everything; a later one extends the list where it ends. Both only from the newest read.
+    func take(_ page: GitCompare, cursor: Int, generation: Int) {
+        guard generation == self.generation else { return }
         if cursor == 0 {
             totals = page.totals
             files = page.files

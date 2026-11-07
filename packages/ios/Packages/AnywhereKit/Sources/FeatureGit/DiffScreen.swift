@@ -26,6 +26,21 @@ enum DiffFiles: Hashable {
     }
 }
 
+/// Which of a diff's changes the bar has stepped to, as an index into them.
+enum ChangeStep {
+    /// The change `by` steps from `current`; from none, Next takes the first and Previous the last. Nil past either end.
+    static func step(from current: Int?, by: Int, count: Int) -> Int? {
+        let next = (current ?? (by > 0 ? -1 : count)) + by
+        return (0..<count).contains(next) ? next : nil
+    }
+
+    /// The change kept once a reloaded diff has `count` of them: the same one, else the last.
+    static func kept(_ current: Int?, count: Int) -> Int? {
+        guard let current, count > 0 else { return nil }
+        return min(current, count - 1)
+    }
+}
+
 /// One file's diff with its header, next and previous file, side by side on a wide screen, and a bar to step through
 /// its changes and stage or discard it. A working or staged diff follows the tree, so it updates while an agent writes.
 @MainActor
@@ -109,6 +124,7 @@ struct DiffScreen: View {
                 error = nil
                 let loaded = try await host.git.diff(tree, path: path, at: at, ignoreWhitespace: ignoreWhitespace, context: context)
                 doc = loaded
+                change = ChangeStep.kept(change, count: loaded.changes.count)
                 if let line = reveal {
                     reveal = nil
                     target = loaded.lines.firstIndex { $0.old == line }
@@ -214,8 +230,7 @@ struct DiffScreen: View {
     }
 
     private func stepChange(_ by: Int, _ doc: DiffDocument) {
-        let next = (change ?? (by > 0 ? -1 : doc.changes.count)) + by
-        guard doc.changes.indices.contains(next) else { return }
+        guard let next = ChangeStep.step(from: change, by: by, count: doc.changes.count) else { return }
         Haptics.tap()
         change = next
         target = doc.changes[next]

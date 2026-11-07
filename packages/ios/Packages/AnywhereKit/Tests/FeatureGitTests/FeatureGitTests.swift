@@ -90,6 +90,22 @@ import Wire
     #expect(DiffFiles.after(removing: "a", in: ["a"]) == nil)
 }
 
+@Test func stepping_changes_starts_at_either_end_and_stops_at_the_ends() {
+    #expect(ChangeStep.step(from: nil, by: 1, count: 3) == 0)
+    #expect(ChangeStep.step(from: nil, by: -1, count: 3) == 2)
+    #expect(ChangeStep.step(from: 2, by: 1, count: 3) == nil)
+    #expect(ChangeStep.step(from: 0, by: -1, count: 3) == nil)
+    #expect(ChangeStep.step(from: nil, by: 1, count: 0) == nil)
+}
+
+@Test func a_reloaded_diff_with_fewer_changes_keeps_the_stepped_change_within_them() {
+    #expect(ChangeStep.kept(5, count: 3) == 2)
+    #expect(ChangeStep.kept(1, count: 3) == 1)
+    #expect(ChangeStep.kept(1, count: 0) == nil)
+    #expect(ChangeStep.kept(nil, count: 3) == nil)
+    #expect(ChangeStep.step(from: ChangeStep.kept(5, count: 3), by: -1, count: 3) == 1)
+}
+
 @Test func a_quote_goes_to_the_worktree_s_only_session_or_a_pick_among_its_sessions() {
     let tree = "/w/calm-otter"
     #expect(AskTarget.of(tree: tree, sessions: [(id: "x", cwd: "/w/other")]) == .none)

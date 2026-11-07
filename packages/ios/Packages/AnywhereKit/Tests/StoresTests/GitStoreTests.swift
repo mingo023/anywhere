@@ -94,11 +94,29 @@ struct GitStoreTests {
         let totals = CompareTotals(files: 3, added: 3, removed: 0)
         store.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: Array(files[..<2]), nextCursor: 2))
         let c = store.compare(Sample.tree, against: "main")
-        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 5)
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 5, generation: c.generation)
         #expect(c.files.count == 2 && c.nextCursor == 2)
-        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 2)
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 2, generation: c.generation)
         #expect(c.files == files && c.nextCursor == nil && c.totals == totals)
         #expect(store.compare(Sample.tree, against: "dev").files.isEmpty)
+    }
+
+    @Test("a reply to a compare read that a newer first-page read overtook is dropped")
+    func compareOvertaken() {
+        let store = GitStore()
+        let files = (0..<3).map { CommitFile(path: "f\($0)", status: .modified, added: 1, removed: 0) }
+        let totals = CompareTotals(files: 3, added: 3, removed: 0)
+        store.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: Array(files[..<2]), nextCursor: 2))
+        let c = store.compare(Sample.tree, against: "main")
+        let older = c.generation
+        c.generation += 1
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: [files[2]]), cursor: 2, generation: older)
+        #expect(c.files == Array(files[..<2]) && c.nextCursor == 2)
+        let fresh = [CommitFile(path: "g", status: .added, added: 1, removed: 0)]
+        let newer = CompareTotals(files: 1, added: 1, removed: 0)
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: newer, files: fresh), cursor: 0, generation: c.generation)
+        c.take(GitCompare(tree: Sample.tree, against: "main", totals: totals, files: files), cursor: 0, generation: older)
+        #expect(c.files == fresh && c.totals == newer && c.nextCursor == nil)
     }
 
     @Test("a read that started before a stage can't undo its optimistic flip")
