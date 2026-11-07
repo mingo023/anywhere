@@ -86,7 +86,7 @@ struct CommitScreen: View {
             do {
                 detail = try await host.git.commit(tree, sha: sha)
             } catch {
-                self.error = GitStore.describe(error)
+                self.error = ErrorText.describe(error, mac: host.name)
             }
         }
     }

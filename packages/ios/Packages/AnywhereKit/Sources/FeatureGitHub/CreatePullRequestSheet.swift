@@ -51,7 +51,7 @@ struct CreatePullRequestSheet: View {
                 Section {
                     Toggle("Draft", isOn: $draft)
                     NavigationLink {
-                        BasePicker(branches: branches, selection: $base)
+                        BasePicker(branches: branches, mac: store.mac, selection: $base)
                     } label: {
                         LabeledContent("Base", value: base ?? "The repository's default")
                     }
@@ -84,7 +84,7 @@ struct CreatePullRequestSheet: View {
                 dismiss()
             } catch {
                 Haptics.warning()
-                self.error = GitHubStore.describe(error)
+                self.error = store.describe(error)
             }
         }
     }

@@ -19,9 +19,12 @@ public final class GitStore: HostStore {
     @ObservationIgnored private var diffs = DiffCache(capacity: 24)
     @ObservationIgnored private var commits: [String: CommitDetail] = [:]
     @ObservationIgnored private var compares: [CompareKey: TreeCompare] = [:]
+    /// The Mac's name, as errors say it; its hostname once it has said hello.
+    @ObservationIgnored public private(set) var mac: String
 
-    public init(connection: DaemonConnection? = nil) {
+    public init(connection: DaemonConnection? = nil, mac: String = FilesStore.unnamed) {
         self.connection = connection
+        self.mac = mac
     }
 
     // MARK: HostStore
@@ -35,6 +38,7 @@ public final class GitStore: HostStore {
     }
 
     public func connected(_ hello: HelloOk) {
+        mac = hello.hostname
         sentWatch = []
         syncWatch()
         for tree in watchSet { Task { await refresh(tree) } }
@@ -101,7 +105,7 @@ public final class GitStore: HostStore {
         do {
             t.take(try await statusPages(tree, upTo: t.files.count), generation: generation)
         } catch {
-            t.error = Self.describe(error)
+            t.error = describe(error)
         }
     }
 
@@ -113,7 +117,7 @@ public final class GitStore: HostStore {
         do {
             t.take(try await statusPages(tree, upTo: .max), generation: generation)
         } catch {
-            t.error = Self.describe(error)
+            t.error = describe(error)
             return false
         }
         if !t.complete { t.error = "The changes moved while they were read. Try again." }
@@ -130,7 +134,7 @@ public final class GitStore: HostStore {
         do {
             t.take(try await statusPage(tree, cursor: cursor), cursor: cursor, generation: generation)
         } catch {
-            t.error = Self.describe(error)
+            t.error = describe(error)
         }
     }
 
@@ -198,7 +202,7 @@ public final class GitStore: HostStore {
         do {
             try await readHistory(h, all: all, connection)
         } catch {
-            h.error = Self.describe(error)
+            h.error = describe(error)
         }
         h.loading = false
     }
@@ -222,7 +226,7 @@ public final class GitStore: HostStore {
         do {
             if case .gitLog(let log) = try await connection.request(.gitLog(.init(tree: tree, all: h.all ? true : nil))) { h.takeFirst(log) }
         } catch {
-            h.error = Self.describe(error)
+            h.error = describe(error)
         }
         h.loading = false
     }
@@ -241,7 +245,7 @@ public final class GitStore: HostStore {
         let c = compare(tree, against: against)
         guard let cursor = more ? c.nextCursor : 0, !(more && c.loading) else { return }
         guard let connection else {
-            c.error = Self.describe(DaemonError.offline)
+            c.error = describe(DaemonError.offline)
             return
         }
         if cursor == 0 { c.generation += 1 }
@@ -254,7 +258,7 @@ public final class GitStore: HostStore {
         } catch DaemonError.server(let e) where e.code == "unknown_ref" {
             if generation == c.generation { c.missing = true }
         } catch {
-            if generation == c.generation { c.error = Self.describe(error) }
+            if generation == c.generation { c.error = describe(error) }
         }
         if generation == c.generation { c.loading = false }
     }
@@ -346,7 +350,7 @@ public final class GitStore: HostStore {
     private func write(_ tree: String, busy: String?, _ send: (DaemonConnection) async throws -> ServerMessage) async -> Bool {
         let t = changes(tree)
         guard let connection else {
-            t.error = Self.describe(DaemonError.offline)
+            t.error = describe(DaemonError.offline)
             return false
         }
         if let busy { t.busy = busy }
@@ -359,21 +363,13 @@ public final class GitStore: HostStore {
             await refresh(tree)
             return true
         } catch {
-            t.error = Self.describe(error)
+            t.error = describe(error)
             await refresh(tree)
             return false
         }
     }
 
-    /// The Mac's own words for a refused request, else what went wrong in a few.
-    public nonisolated static func describe(_ error: any Error) -> String {
-        switch error as? DaemonError {
-        case .server(let e)?: e.message
-        case .offline?: "The Mac is offline"
-        case .timedOut?: "The Mac didn't answer in time"
-        default: "Something went wrong"
-        }
-    }
+    private func describe(_ error: any Error) -> String? { ErrorText.describe(error, mac: mac) }
 }
 
 /// A tree's branch line: everything of a status but its files.

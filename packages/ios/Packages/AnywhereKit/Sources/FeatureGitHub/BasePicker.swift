@@ -9,6 +9,7 @@ import Wire
 @MainActor
 struct BasePicker: View {
     let branches: (@MainActor () async throws -> BranchList)?
+    let mac: String
     @Binding var selection: String?
 
     @State private var list: BranchList?
@@ -43,7 +44,7 @@ struct BasePicker: View {
     private func load() async {
         guard let branches else { return }
         error = nil
-        do { list = try await branches() } catch { self.error = GitHubStore.describe(error) }
+        do { list = try await branches() } catch { self.error = GitHubStore.describe(error, mac: mac) }
     }
 
     private func row(_ value: String?, label: String, detail: String?) -> some View {

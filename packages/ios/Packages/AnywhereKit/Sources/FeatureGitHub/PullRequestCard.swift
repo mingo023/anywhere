@@ -86,7 +86,7 @@ struct PullRequestCard: View {
                 dismiss()
             } catch {
                 Haptics.warning()
-                model.error = GitHubStore.describe(error)
+                model.error = store.describe(error)
             }
         }
     }

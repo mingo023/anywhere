@@ -64,9 +64,12 @@ public final class GitHubStore: HostStore {
     @ObservationIgnored private var notices = 0
     /// How long a notice with Undo stays, as the desktop's.
     @ObservationIgnored var noticeFor: Duration = .seconds(4)
+    /// The Mac's name, as errors say it; its hostname once it has said hello.
+    @ObservationIgnored public private(set) var mac: String
 
-    public init(connection: DaemonConnection? = nil) {
+    public init(connection: DaemonConnection? = nil, mac: String = FilesStore.unnamed) {
         self.connection = connection
+        self.mac = mac
     }
 
     /// The PR of a tree, made on first ask.
@@ -102,6 +105,7 @@ public final class GitHubStore: HostStore {
     }
 
     public func connected(_ hello: HelloOk) {
+        mac = hello.hostname
         guard hello.has(Caps.gh) else { return }
         Task { await checkStatus() }
         for tree in trees.keys { Task { await refresh(tree) } }
@@ -114,7 +118,7 @@ public final class GitHubStore: HostStore {
             guard case .ghPr(let answer) = try await request(.ghPr(.init(tree: tree))) else { return }
             take(answer, into: t)
         } catch {
-            if !t.loaded { t.error = Self.describe(error) }
+            if !t.loaded { t.error = describe(error) }
         }
     }
 
@@ -227,7 +231,7 @@ public final class GitHubStore: HostStore {
             _ = try await request(.ghThreadResolve(.init(tree: tree, thread: thread, resolved: resolved)), timeout: .seconds(60))
         } catch {
             t.pr = t.pr?.resolving(thread, !resolved)
-            t.error = "Couldn't update the conversation: \(Self.describe(error))"
+            t.error = describe(error).map { "Couldn't update the conversation: \($0)" }
         }
     }
 
@@ -242,7 +246,7 @@ public final class GitHubStore: HostStore {
         t.busy = busy
         t.error = nil
         defer { t.busy = nil }
-        do { try await body() } catch { t.error = Self.describe(error) }
+        do { try await body() } catch { t.error = describe(error) }
     }
 
     private func say(_ text: String, in t: TreePullRequest, undo: PullRequestNotice.Undo? = nil) {
@@ -261,15 +265,13 @@ public final class GitHubStore: HostStore {
         return try await connection.request(message, timeout: timeout)
     }
 
-    /// What a failed request says on screen: all gh or git said, as the desktop shows it, else why it never got there.
-    public nonisolated static func describe(_ error: any Error) -> String {
-        switch error as? DaemonError {
-        case .server(let e)?: e.detail ?? e.message
-        case .offline?: "Not connected to the Mac"
-        case .timedOut?: "The Mac didn't answer in time"
-        case .closed?: "The connection dropped"
-        default: "\(error)"
-        }
+    /// What a failed request says on screen: all gh or git said, as the desktop shows it, else why it never got there,
+    /// naming the Mac. Nil when cancelled.
+    public func describe(_ error: any Error) -> String? { Self.describe(error, mac: mac) }
+
+    public nonisolated static func describe(_ error: any Error, mac: String) -> String? {
+        if case DaemonError.server(let e) = error { return e.detail ?? e.message }
+        return ErrorText.describe(error, mac: mac)
     }
 }
 

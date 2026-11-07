@@ -52,9 +52,9 @@ public final class HostModel: Identifiable {
         sessions = SessionsStore(connection: connection)
         workspace = WorkspaceStore(connection: connection)
         terminals = TerminalStore(connection: connection)
-        git = GitStore(connection: connection)
-        github = GitHubStore(connection: connection)
-        files = FilesStore(connection: connection)
+        git = GitStore(connection: connection, mac: credentials.macName)
+        github = GitHubStore(connection: connection, mac: credentials.macName)
+        files = FilesStore(connection: connection, mac: credentials.macName)
         push = PushStore(connection: connection)
     }
 

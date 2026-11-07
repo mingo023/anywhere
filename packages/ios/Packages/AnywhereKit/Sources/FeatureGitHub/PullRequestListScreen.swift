@@ -65,7 +65,7 @@ struct PullRequestListScreen: View {
             try await store.recheckList(project)
             error = nil
         } catch {
-            self.error = GitHubStore.describe(error)
+            self.error = store.describe(error)
         }
     }
 }

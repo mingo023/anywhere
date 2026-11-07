@@ -209,8 +209,10 @@ struct GitStoreTests {
         #expect(cache[keys[1]] != nil && cache[keys[2]] == nil)
     }
 
-    @Test("a refusal reads as the Mac's own words")
-    func describe() {
-        #expect(GitStore.describe(DaemonError.server(ServerError(message: "! [rejected] main -> main (non-fast-forward)", code: .gitFailed))) == "! [rejected] main -> main (non-fast-forward)")
+    @Test("a write with no link names the Mac it couldn't reach")
+    func namesTheMac() async {
+        let store = GitStore(mac: "Studio")
+        #expect(await store.pull("/t") == false)
+        #expect(store.changes("/t").error == "Not connected to Studio")
     }
 }

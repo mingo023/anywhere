@@ -43,8 +43,9 @@ public final class FilesStore: HostStore {
     /// How many previews stay cached; images can be 20 MB each.
     static let previewsKept = 8
 
-    public init(connection: DaemonConnection? = nil) {
+    public init(connection: DaemonConnection? = nil, mac: String = FilesStore.unnamed) {
         self.connection = connection
+        self.mac = mac
     }
 
     // MARK: Tree

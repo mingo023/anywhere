@@ -155,8 +155,9 @@ struct GitHubStoreTests {
     func describesDetail() {
         let push = ServerError(message: "To github.com:acme/app.git", code: "git_failed",
                                detail: "To github.com:acme/app.git\n ! [rejected]        fix -> fix (non-fast-forward)")
-        #expect(GitHubStore.describe(DaemonError.server(push)) == push.detail)
-        #expect(GitHubStore.describe(DaemonError.server(ServerError(message: "Unknown project"))) == "Unknown project")
+        #expect(GitHubStore.describe(DaemonError.server(push), mac: "Studio") == push.detail)
+        #expect(GitHubStore.describe(DaemonError.server(ServerError(message: "Unknown project")), mac: "Studio") == "Unknown project")
+        #expect(GitHubStore.describe(DaemonError.offline, mac: "Studio") == "Not connected to Studio")
     }
 
     @Test("merge methods read as the desktop's menu")
