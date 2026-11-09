@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -119,6 +119,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         bind("cmd-l", TreeMenuItem(Item::Mention), Some(menu::CONTEXT)),
         bind("cmd-alt-c", TreeMenuItem(Item::Copy), Some(menu::CONTEXT)),
         bind("cmd-alt-shift-c", TreeMenuItem(Item::CopyRelative), Some(menu::CONTEXT)),
+        bind("cmd-alt-r", TreeMenuItem(Item::Reveal), Some(menu::CONTEXT)),
         bind("enter", TreeMenuChoose, Some(menu::CONTEXT)),
         bind("down", TreeMenuArrow(Arrow::Down), Some(menu::CONTEXT)),
         bind("up", TreeMenuArrow(Arrow::Up), Some(menu::CONTEXT)),
@@ -126,6 +127,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         bind("right", TreeMenuArrow(Arrow::Right), Some(menu::CONTEXT)),
         bind("cmd-backspace", TreeMenuItem(Item::Trash), Some(menu::CONTEXT)),
     ];
+    if cfg!(target_os = "macos") {
+        out.push(bind("cmd-shift-c", CopyWorktreePath, None));
+    }
     out.extend((1..=9).map(|n| bind(&format!("cmd-{n}"), JumpToTab(n), None)));
     // Not ⌘⇧n: macOS takes ⌘⇧3–5 for screenshots before the app sees them.
     out.extend((1..=9).map(|n| bind(&format!("ctrl-{n}"), JumpTo(n), None)));
@@ -238,6 +242,12 @@ mod tests {
         };
         assert_eq!(action(&["Root", inbox::CONTEXT, "Input"]), Some("test::Submit"));
         assert_eq!(action(&["Root", inbox::CONTEXT]), Some("desktop::OpenSession"));
+    }
+
+    #[test]
+    fn cmd_shift_c_copies_the_worktree_path_on_macos_and_is_free_elsewhere() {
+        let want: &[&str] = if cfg!(target_os = "macos") { &["desktop::CopyWorktreePath"] } else { &[] };
+        assert_eq!(bound("cmd-shift-c"), want);
     }
 
     #[test]

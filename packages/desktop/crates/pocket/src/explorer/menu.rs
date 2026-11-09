@@ -32,6 +32,7 @@ pub enum Item {
     NewFolder,
     Copy,
     CopyRelative,
+    Reveal,
     Rename,
     Trash,
 }
@@ -54,14 +55,17 @@ pub fn plan(focused: Option<&str>, choices: &[Choice]) -> Plan {
     }
 }
 
-/// The menu for a row, or the root's when `row` is false; `None` is a divider. ⌥ swaps Copy Path for the relative one.
-pub fn items(row: bool, alt: bool) -> Vec<Option<Item>> {
+/// The menu for a row, or the root's when `row` is false; `None` is a divider. ⌥ swaps Copy Path for the relative one, and Reveal needs the files `local`, on this Mac.
+pub fn items(row: bool, alt: bool, local: bool) -> Vec<Option<Item>> {
     let copy = if alt { Item::CopyRelative } else { Item::Copy };
     let mut out = vec![];
     if row {
         out.extend([Some(Item::Mention), None]);
     }
     out.extend([Some(Item::NewFile), Some(Item::NewFolder), None, Some(copy)]);
+    if local {
+        out.push(Some(Item::Reveal));
+    }
     if row {
         out.extend([Some(Item::Rename), None, Some(Item::Trash)]);
     }
@@ -75,6 +79,7 @@ pub fn label(item: Item) -> &'static str {
         Item::NewFolder => "New Folder…",
         Item::Copy => "Copy Path",
         Item::CopyRelative => "Copy Relative Path",
+        Item::Reveal => "Reveal in Finder",
         Item::Rename => "Rename…",
         Item::Trash => "Move to Trash",
     }
@@ -144,6 +149,8 @@ pub(crate) struct TreeMenu {
     /// The chat list opens left of the menu, there being no room right.
     flip: bool,
     alt: bool,
+    /// The tree's files are on this Mac, so Reveal has something to show.
+    local: bool,
     chats_open: bool,
     /// The item arrows, typing or the pointer last landed on.
     highlighted: Option<Item>,
@@ -160,15 +167,15 @@ pub(crate) struct TreeMenu {
 
 impl TreeMenu {
     /// A menu at `at` in a window `width` wide, closed chat list.
-    pub(crate) fn new(target: Option<(PathBuf, bool)>, at: Point<Pixels>, alt: bool, width: Pixels) -> Self {
+    pub(crate) fn new(target: Option<(PathBuf, bool)>, at: Point<Pixels>, alt: bool, local: bool, width: Pixels) -> Self {
         let flip = f32::from(at.x) + MENU_W + GAP + SUB_W + 8. > f32::from(width);
         let now = Instant::now();
-        Self { target, at, flip, alt, chats_open: false, highlighted: None, chat_highlighted: None, typed: String::new(), typed_at: now, opened: now, pressing: true, chosen: None }
+        Self { target, at, flip, alt, local, chats_open: false, highlighted: None, chat_highlighted: None, typed: String::new(), typed_at: now, opened: now, pressing: true, chosen: None }
     }
 
     /// The items that can be chosen, top to bottom.
     fn live(&self, reach: &Reach) -> Vec<Item> {
-        items(self.target.is_some(), self.alt).into_iter().flatten().filter(|i| !(reach.off() && *i == Item::Mention)).collect()
+        items(self.target.is_some(), self.alt, self.local).into_iter().flatten().filter(|i| !(reach.off() && *i == Item::Mention)).collect()
     }
 
     /// Whether `pick` can run from this menu; either Copy Path runs by its key, whichever ⌥ shows.
@@ -295,7 +302,8 @@ impl Desktop {
             window.focus(&this.root, cx);
             this.close_menus();
             this.explorer.leaving = None;
-            this.explorer.menu = Some(TreeMenu::new(target.clone(), e.position, window.modifiers().alt, window.viewport_size().width));
+            let local = this.local_explore_root().is_some();
+            this.explorer.menu = Some(TreeMenu::new(target.clone(), e.position, window.modifiers().alt, local, window.viewport_size().width));
             cx.notify();
         })
     }
@@ -395,6 +403,7 @@ impl Desktop {
                 cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                 self.show_notice(Notice::Copied(text), cx);
             }
+            (Item::Reveal, target) => cx.reveal_path(&target.map_or(root, |(p, _)| p)),
             (Item::Rename, Some((path, folder))) => self.start_edit(Naming::Rename { path, folder }, window, cx),
             (Item::Trash, Some((path, _))) => self.trash_file(path, cx),
             (Item::Mention | Item::Rename | Item::Trash, None) => return,
@@ -445,7 +454,7 @@ impl Desktop {
     /// The menu and its chat list; an `open` one takes input, else it's the closed menu fading out.
     fn menu_body(&self, menu: &TreeMenu, open: bool, cx: &mut Context<Self>) -> AnyElement {
         let reach = if menu.target.is_some() { self.reach() } else { Reach { plan: Plan::Off, ready: Vec::new() } };
-        let rows = items(menu.target.is_some(), menu.alt).into_iter().map(|item| match item {
+        let rows = items(menu.target.is_some(), menu.alt, menu.local).into_iter().map(|item| match item {
             None => ui::menu_divider().into_any_element(),
             Some(item) => self.tree_menu_row(item, &reach, menu, open, cx),
         });
@@ -479,6 +488,7 @@ impl Desktop {
             Item::NewFolder => ui::menu_row(id, "folder", label(item), None),
             Item::Copy => ui::menu_row(id, "copy", label(item), Some("⌥⌘C")),
             Item::CopyRelative => ui::menu_row(id, "copy", label(item), Some("⌥⇧⌘C")),
+            Item::Reveal => ui::menu_row(id, "folder", label(item), Some("⌥⌘R")),
             Item::Rename => ui::menu_row(id, "pencil", label(item), Some("↵")),
             Item::Trash => ui::danger_row(id, "trash", label(item)).child(ui::kbd("⌘⌫")),
         };
@@ -554,8 +564,12 @@ mod tests {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
+    fn menu(row: bool, local: bool) -> TreeMenu {
+        TreeMenu::new(row.then(|| ("/r/a.rs".into(), false)), point(px(0.), px(0.)), false, local, px(1200.))
+    }
+
     fn row_menu() -> TreeMenu {
-        TreeMenu::new(Some(("/r/a.rs".into(), false)), point(px(0.), px(0.)), false, px(1200.))
+        menu(true, true)
     }
 
     fn chat(id: &str, ready: bool) -> Choice {
@@ -581,13 +595,13 @@ mod tests {
     }
 
     #[test]
-    fn the_root_menu_only_creates_and_copies() {
-        assert_eq!(items(false, false), [Some(Item::NewFile), Some(Item::NewFolder), None, Some(Item::Copy)]);
+    fn the_root_menu_only_creates_copies_and_reveals() {
+        assert_eq!(items(false, false, true), [Some(Item::NewFile), Some(Item::NewFolder), None, Some(Item::Copy), Some(Item::Reveal)]);
     }
 
     #[test]
     fn a_row_menu_mentions_first_and_trashes_last_and_alt_copies_the_relative_path() {
-        let row = items(true, true);
+        let row = items(true, true, true);
         assert_eq!(row.first(), Some(&Some(Item::Mention)));
         assert_eq!(row.last(), Some(&Some(Item::Trash)));
         assert!(row.contains(&Some(Item::CopyRelative)) && !row.contains(&Some(Item::Copy)));
@@ -665,7 +679,7 @@ mod tests {
         assert!(!m.chats_open);
         m.hover(Item::Mention, true);
         m.type_key("r", Instant::now(), &ask);
-        assert_eq!((m.highlighted, m.chats_open), (Some(Item::Rename), false));
+        assert_eq!((m.highlighted, m.chats_open), (Some(Item::Reveal), false));
     }
 
     #[test]
@@ -676,6 +690,9 @@ mod tests {
         m.type_key("O", t + Duration::from_millis(100), &on);
         assert_eq!(m.highlighted, Some(Item::Trash));
         m.type_key("r", t + Duration::from_secs(2), &on);
+        assert_eq!(m.highlighted, Some(Item::Reveal));
+        m.type_key("e", t + Duration::from_millis(2100), &on);
+        m.type_key("n", t + Duration::from_millis(2200), &on);
         assert_eq!(m.highlighted, Some(Item::Rename));
         m.type_key("x", t + Duration::from_secs(4), &on);
         assert_eq!(m.highlighted, Some(Item::Rename));
@@ -722,10 +739,35 @@ mod tests {
     #[test]
     fn the_root_menu_runs_only_its_items_but_either_copy_path_by_key() {
         let (on, off) = (reach(Plan::To("a".into()), &[true]), reach(Plan::Off, &[]));
-        let root = TreeMenu::new(None, point(px(0.), px(0.)), false, px(1200.));
+        let root = menu(false, true);
         assert!(!root.offers(Pick::Item(Item::Trash), &on) && !root.offers(Pick::Item(Item::Mention), &on) && !root.offers(Pick::Chat(0), &on));
         assert!(root.offers(Pick::Item(Item::CopyRelative), &on));
         assert!(!row_menu().offers(Pick::Item(Item::Mention), &off));
         assert!(row_menu().offers(Pick::Chat(0), &on) && !row_menu().offers(Pick::Chat(1), &on));
+    }
+
+    #[test]
+    fn reveal_follows_copy_path_on_rows_and_the_root_when_the_files_are_on_this_mac() {
+        let on = reach(Plan::To("a".into()), &[true]);
+        for row in [true, false] {
+            for (alt, copy) in [(false, Item::Copy), (true, Item::CopyRelative)] {
+                let shown = items(row, alt, true);
+                let at = shown.iter().position(|i| *i == Some(copy)).unwrap();
+                assert_eq!(shown[at + 1], Some(Item::Reveal));
+            }
+            assert!(menu(row, true).offers(Pick::Item(Item::Reveal), &on));
+        }
+    }
+
+    #[test]
+    fn a_tree_on_a_host_has_no_reveal_to_show_type_to_or_run_by_key() {
+        let on = reach(Plan::To("a".into()), &[true]);
+        for row in [true, false] {
+            assert!(!items(row, false, false).contains(&Some(Item::Reveal)));
+            assert!(!menu(row, false).offers(Pick::Item(Item::Reveal), &on));
+        }
+        let mut m = menu(true, false);
+        m.type_key("r", Instant::now(), &on);
+        assert_eq!(m.highlighted, Some(Item::Rename));
     }
 }

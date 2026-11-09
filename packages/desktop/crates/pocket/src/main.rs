@@ -20,6 +20,7 @@ mod git_ui;
 mod inbox;
 mod modals;
 mod notch;
+mod open_in;
 mod palette;
 mod panels;
 mod region;

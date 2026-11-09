@@ -8,6 +8,7 @@ pub(crate) mod toast;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Side, id};
+use crate::fs::fs_for;
 use crate::util::list_dir;
 use git::FileStat;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -120,6 +121,11 @@ impl Desktop {
     /// The folder Explore browses: the chosen tree's folder, else the project.
     pub fn explore_root(&self) -> Option<String> {
         self.worktree.as_deref().and_then(|t| self.folder_of(t)).or_else(|| self.project.clone())
+    }
+
+    /// The folder Explore browses, while its files are on this Mac.
+    pub(crate) fn local_explore_root(&self) -> Option<String> {
+        self.explore_root().filter(|root| fs_for(root).local().is_ok())
     }
 
     /// Whether `path` lies in the tree on screen, so what a slow write made there may be shown.

@@ -38,6 +38,7 @@ use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, clone_project, new_session};
 use crate::notch::Notch;
+use crate::open_in::OpenIn;
 use crate::palette::PaletteState;
 use crate::region::{self, Regions};
 use crate::panels::Panels;
@@ -100,6 +101,7 @@ pub struct Desktop {
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
     pub(crate) panels: Panels,
+    pub(crate) open_in: OpenIn,
     pub(crate) browsers: Browsers,
     pub(crate) explorer: ExplorerState,
     pub(crate) git_run: u64,
@@ -154,6 +156,7 @@ impl Desktop {
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         let updates = Updates::new(&mut store, cx);
+        let open_in = OpenIn::new(store.home(), cx);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
         window.focus(&root, cx);
@@ -234,6 +237,7 @@ impl Desktop {
             root,
             terminal: TerminalViewState::new(cx),
             panels: Panels::default(),
+            open_in,
             browsers,
             inbox: InboxState::new(cx),
             automations,
@@ -452,7 +456,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some() || self.team.island.menu_open()
+        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some() || self.team.island.menu_open() || self.open_in.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -472,6 +476,7 @@ impl Desktop {
         self.terminal.menu = None;
         self.chats.files = None;
         self.team.island.close_menus();
+        self.open_in.menu = None;
         open
     }
 
@@ -687,6 +692,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::tree_menu_item))
             .on_action(cx.listener(Self::tree_menu_arrow))
             .on_action(cx.listener(Self::tree_menu_choose))
+            .on_action(cx.listener(Self::copy_worktree_path))
             .children(lead)
             .children(column)
             .child(page)

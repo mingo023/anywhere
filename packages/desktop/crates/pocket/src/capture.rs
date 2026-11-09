@@ -430,7 +430,7 @@ const STEPS: [(&str, Step); 248] = [
     ("tree-menu", |d, window, cx| {
         let Some(root) = d.explore_root().map(PathBuf::from) else { return };
         let target = d.explorer.tree.get(&root).and_then(|l| l.first()).map(|(dir, p)| (p.clone(), *dir));
-        d.explorer.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, window.viewport_size().width));
+        d.explorer.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, true, window.viewport_size().width));
         cx.notify();
     }),
     ("tree-menu-down", |d, window, cx| d.tree_menu_arrow(&TreeMenuArrow(Arrow::Down), window, cx)),

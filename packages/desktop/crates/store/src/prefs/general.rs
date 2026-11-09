@@ -27,6 +27,8 @@ pub struct General {
     pub keep_awake: bool,
     /// 0 sleeps as soon as agents stop.
     pub linger_minutes: u32,
+    /// The app the top bar's open button opens a worktree in, by `project::open_in` id; empty is Finder.
+    pub open_in: String,
 }
 
 impl Default for General {
@@ -47,6 +49,7 @@ impl Default for General {
             resume_agents: true,
             keep_awake: true,
             linger_minutes: 2,
+            open_in: String::new(),
         }
     }
 }
@@ -95,6 +98,12 @@ mod tests {
         assert_eq!((fast.git_every(), fast.prs_every()), (3, Duration::from_secs(15)));
         let saver = General { battery_saver: true, ..fast };
         assert_eq!((saver.git_every(), saver.prs_every()), (10, Duration::from_secs(300)));
+    }
+
+    #[test]
+    fn a_section_from_before_the_open_button_remembers_no_app() {
+        let g: General = serde_json::from_str(r#"{"git_secs":3}"#).unwrap();
+        assert_eq!((g.git_secs, g.open_in.as_str()), (3, ""));
     }
 
     #[test]
