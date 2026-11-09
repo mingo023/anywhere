@@ -39,7 +39,7 @@ Platforms `.iOS(.v18), .macOS(.v14)`, `swiftLanguageModes: [.v6]`. Dependencies:
 | `FeatureGitHub` | Stores, ChatModel, MarkdownView, DesignSystem | PR card with gate, checks, reviews, threads (reply/resolve), create/merge/ready, PR list of a project |
 | `FeatureFiles` | Stores, CodeView, MarkdownView, Highlight, DesignSystem | file tree (lazy, git letters), fuzzy go-to-file, preview: code, markdown (rendered/source), image, binary/too-large states |
 | `FeaturePairing` | Stores, Client, DesignSystem | scan QR (iOS) / paste link / enter code, confirm, reconnect/revoked/update screens |
-| `FeatureSettings` | Stores, DesignSystem | Macs, notification prefs, Live Activity toggle, terminal access state, about |
+| `FeatureSettings` | Stores, DesignSystem | Macs, notification prefs, Live Activity toggle, about |
 | `AppShell` | all features | `RootView` (each feature's public entry view takes a `HostModel` and the `Route` it shows: `SessionsView`, `ChatView`, `TerminalsView`, `GitView`, `GitHubView`, `FilesView`; `PairingView` and `SettingsView` take the `AppModel`), iPhone `NavigationStack` / iPad `NavigationSplitView`, `Route` destinations, deep links, scene phase (send `agent.view([])` on background) |
 | `LiveActivityUI` | ActivityModel, DesignSystem, WidgetKit | Lock Screen + Dynamic Island views and `AnswerIntent`, all under `#if os(iOS)` |
 | `Fixtures` | Wire | sample servers messages and timelines used by tests, the gallery and previews |
@@ -50,7 +50,7 @@ Thin Xcode targets in `packages/ios/`: `App/` (`AnywhereApp`, `AppDelegate` for 
 
 ## App shell: how the app is laid out
 
-- **iPhone: three tabs, Sessions, Terminals and Settings**, each its own `NavigationStack` of `Route`s, scoped to the selected Mac. Switch Macs from the title menu of Sessions or Terminals. Changes, PRs and files are not tabs: each needs a tree, so they are pushed from a worktree's screens. A tab for them would repeat the sessions tree as a picker.
+- **iPhone: two tabs, Sessions and Settings**, each its own `NavigationStack` of `Route`s, scoped to the selected Mac. Switch Macs from the title menu of Sessions. Changes, PRs and files are not tabs: each needs a tree, so they are pushed from a worktree's screens. A tab for them would repeat the sessions tree as a picker.
 - **iPad: `NavigationSplitView`.** The sidebar folds each Mac and lists its Sessions, with Settings pinned below. The middle column is that section's list. The right column is a stack for the chat, diff or file it opens; rows in the middle column open there through `showInDetail`, as a `NavigationLink` only finds destinations in its own column. It shares the iPhone's `Navigator`, so a size-class change keeps the place. Under each Mac the sidebar also lists its projects, each opening onto its worktrees and Locals (`TreeSidebar`); picking one narrows the middle column to that tree's sessions (`Navigator.tree`).
 - **`Destinations.swift` is the one place a `Route` meets a feature view.** Features push `NavigationLink(value: Route…)` and never import each other.
 - **Deep links.** `onOpenURL` takes the scheme, notification taps (`AppDelegate` opens their link) and the Live Activity's `widgetURL`. `DeepLink.notification(userInfo)` reads a notification. A chat link selects its Mac at once and is held until that Mac says hello.
