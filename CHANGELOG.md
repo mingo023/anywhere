@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.34
+
+- A chat can lead a team of agents that work in their own worktrees (#199): (d7478bdf)
+
 ## 0.1.33
 
 - The iPhone app is easier to drive: sessions, files, diffs, GitHub, composer (#200): (97cfcb68)
