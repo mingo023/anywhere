@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.35
+
+- The iOS app is redesigned, with a new iPad sidebar (#205): (2e3ffcb5)
+- Markdown tables keep clean corners on the glass window (#204): (049c1b46)
+- Top bar opens the worktree in an app, and Explorer reveals in Finder (#203): (e700504c)
+- Team workers nest and fold under their lead in the sidebar (#202): (d5c0f14c)
+- Windows build compiles cc again (#201): (9eec1d0d)
+
 ## 0.1.34
 
 - A chat can lead a team of agents that work in their own worktrees (#199): (d7478bdf)
