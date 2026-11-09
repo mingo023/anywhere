@@ -9,8 +9,10 @@ import SwiftUI
 /// and a thumbnail; reading, encoding and the thumbnail happen off the main actor.
 @MainActor
 struct AttachMenu: View {
+    typealias Attach = (_ data: Data, _ name: String, _ thumbnail: Data?) -> Void
+
     let enabled: Bool
-    let attach: (_ data: Data, _ name: String, _ thumbnail: Data?) -> Void
+    let attach: Attach
     #if os(iOS)
         @State private var photos: [PhotosPickerItem] = []
         @State private var choosingPhotos = false
@@ -28,7 +30,7 @@ struct AttachMenu: View {
                 Button("Choose File", systemImage: "folder") { choosingFiles = true }
                 if UIPasteboard.general.hasImages {
                     Button("Paste Image", systemImage: "doc.on.clipboard") {
-                        paste()
+                        Self.pasteClipboard(to: attach)
                     }
                 }
             } label: {
@@ -72,17 +74,21 @@ struct AttachMenu: View {
 
     #if os(iOS)
         /// The clipboard's own JPEG or PNG bytes when it has them; a PNG re-encode of a photo can run to many MB.
-        private func paste() {
+        static func pasteClipboard(to attach: @escaping Attach) {
             let board = UIPasteboard.general
             for (type, ext) in [(UTType.jpeg, "jpg"), (.png, "png")] {
-                if let data = board.data(forPasteboardType: type.identifier) { return add(ext: ext) { data } }
+                if let data = board.data(forPasteboardType: type.identifier) { return add(ext: ext, { data }, to: attach) }
             }
             guard let image = board.image else { return }
-            add(ext: "jpg") { image.jpegData(compressionQuality: 0.85) }
+            add(ext: "jpg", { image.jpegData(compressionQuality: 0.85) }, to: attach)
         }
     #endif
 
     private func add(ext: String, _ load: @escaping @Sendable () -> Data?) {
+        Self.add(ext: ext, load, to: attach)
+    }
+
+    static func add(ext: String, _ load: @escaping @Sendable () -> Data?, to attach: @escaping Attach) {
         let name = "\(UUID().uuidString.prefix(8)).\(ext)"
         Task {
             let loaded = await Task.detached(priority: .userInitiated) { () -> (Data, Data?)? in

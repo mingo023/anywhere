@@ -23,6 +23,13 @@ private func thread(_ id: String, path: String = "src/a.rs", resolved: Bool = fa
 
 @Suite("PR card wording")
 struct PullRequestTextTests {
+    @Test("a branch with no commits over its base has nothing to open")
+    func noCommitsNothingToOpen() {
+        #expect(!NewPr(branch: "fix", base: "main", ahead: 0).hasCommits)
+        #expect(NewPr(branch: "fix", base: "main", ahead: 2).hasCommits)
+        #expect(NewPr(branch: "fix", base: "main", ahead: nil).hasCommits)
+    }
+
     @Test("a PR is offered only for a branch off its base")
     func offersCreate() {
         #expect(PullRequestText.offersCreate(branch: "fix", base: "main"))

@@ -15,6 +15,8 @@ struct ChatScreen: View {
     let openLink: (MarkdownLink) -> Void
     /// Off for gallery scenes, which have no Mac to tell.
     var live = true
+    /// The status of the tree the agent runs in, for the bar.
+    var git: TreeChanges?
     @State private var mapOpen = false
     @State private var showing: String?
     /// Taps on the transcript, which close the suggest list.
@@ -45,7 +47,7 @@ struct ChatScreen: View {
             .coordinateSpace(name: ComposerView.space)
         }
         .screenBackground()
-        .barTitle(store.summary?.title ?? "Chat", subtitle: ChatTitle.subtitle(store.summary, busy: store.busy, mac: machine))
+        .barTitle(store.summary?.title ?? "Chat", subtitle: ChatTitle.subtitle(store.summary, busy: store.busy, mac: machine), git: git)
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif

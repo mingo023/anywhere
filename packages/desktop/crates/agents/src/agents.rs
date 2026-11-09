@@ -354,7 +354,6 @@ struct Frame {
     cwd: String,
     setup: bool,
     detail: String,
-    phone_max_access: String,
     providers: Vec<ProviderInfo>,
     step: String,
     note: String,
@@ -412,8 +411,7 @@ pub enum Event {
     Progress { request: String, step: String, note: String },
     Created { request: String, agent: String },
     CreateFailed { request: String, code: String, message: String, detail: String },
-    Providers { phone_max: String, providers: Vec<ProviderInfo> },
-    ConfigFailed(String),
+    Providers { providers: Vec<ProviderInfo> },
     /// pocketd couldn't switch an agent's model or effort.
     SettingsFailed(String),
     /// Every worktree's display name by path, sent whole.
@@ -460,8 +458,6 @@ pub struct Agents {
     /// `None` until pocketd reports it, and again after each reconnect.
     pub host: Option<Host>,
     pub scopes: Vec<String>,
-    /// The most a paired phone may start a session with, from `agent.providers`.
-    pub phone_max: String,
     /// What each provider takes, from `agent.providers`.
     pub providers: Vec<ProviderInfo>,
     pub caps: Vec<String>,
@@ -559,11 +555,8 @@ impl Agents {
             }
             Event::Host(h) => self.host = Some(h),
             Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) => {}
-            Event::Providers { phone_max, providers } => {
-                self.phone_max = phone_max;
-                self.providers = providers;
-            }
-            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::ConfigFailed(_) | Event::SettingsFailed(_) | Event::NamingFailed(_) => {}
+            Event::Providers { providers } => self.providers = providers,
+            Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } | Event::SettingsFailed(_) | Event::NamingFailed(_) => {}
             Event::Names(names) => {
                 self.names.retain(|path, _| !my_name(path));
                 self.names.extend(names);
@@ -832,7 +825,6 @@ pub enum Decision {
 
 const PAIR: &str = "pair";
 const CREATE: &str = "create-";
-const CONFIG: &str = "config";
 const SETTINGS: &str = "settings";
 const AUTO: &str = "auto-";
 const PROMPT: &str = "prompt-";
@@ -861,8 +853,7 @@ fn launch_event(f: &Frame) -> Option<Event> {
         "agent.creating" => Event::Creating { request: f.request_id.clone(), terminal: f.terminal_id.clone(), cwd: f.cwd.clone(), setup: f.setup },
         "agent.progress" => Event::Progress { request: f.request_id.clone(), step: f.step.clone(), note: f.note.clone() },
         "agent.created" => Event::Created { request: f.request_id.clone(), agent: f.agent_id.clone() },
-        "agent.providers" => Event::Providers { phone_max: f.phone_max_access.clone(), providers: f.providers.clone() },
-        "error" if f.id == CONFIG => Event::ConfigFailed(f.message.clone()),
+        "agent.providers" => Event::Providers { providers: f.providers.clone() },
         "error" if f.id == SETTINGS => Event::SettingsFailed(f.message.clone()),
         "error" => Event::CreateFailed { request: f.id.strip_prefix(CREATE)?.to_string(), code: f.code.clone(), message: readable(&f.message), detail: f.detail.clone() },
         _ => return None,
@@ -1071,11 +1062,6 @@ impl Outbox {
 
     pub fn providers(&self) {
         self.send(json!({"type": "agent.providers", "id": "providers"}));
-    }
-
-    pub fn set_phone_access(&self, access: &str) {
-        self.send(json!({"type": "config.set", "id": CONFIG, "key": "phone.maxAccess", "value": access}));
-        self.providers();
     }
 
     /// Sets the display name of the worktree at `path`; "" clears it.
@@ -1817,8 +1803,7 @@ mod tests {
         assert!(matches!(ev(progress), Some(Event::Progress { request, step, note })
             if request == "r1" && step == "fetch" && note == "Couldn't fetch, using local main"));
         assert!(matches!(ev(created), Some(Event::Created { request, agent }) if request == "r1" && agent == "a1"));
-        let Some(Event::Providers { phone_max, providers }) = ev(providers) else { panic!("not providers") };
-        assert_eq!(phone_max, "ask");
+        let Some(Event::Providers { providers }) = ev(providers) else { panic!("not providers") };
         assert_eq!(providers[0].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: true, send_now: true }));
         assert_eq!(providers[1].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: false, send_now: false }));
         assert!(providers[1].efforts.is_empty());
@@ -1838,9 +1823,6 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(read(&mut ws), json!({"type": "agent.create", "id": format!("create-{a}"), "requestId": a, "spec": spec}));
         read(&mut ws);
-        out.set_phone_access("auto");
-        assert_eq!(read(&mut ws), json!({"type": "config.set", "id": "config", "key": "phone.maxAccess", "value": "auto"}));
-        assert_eq!(read(&mut ws), json!({"type": "agent.providers", "id": "providers"}));
         std::fs::remove_file(&sock).unwrap();
     }
 
@@ -2035,12 +2017,6 @@ mod tests {
         let mut events = futures::executor::block_on_stream(events);
         assert!(matches!(events.next(), Some(Event::InterruptFailed { agent, reason }) if agent == "a1" && reason == "Agent is no longer in the foreground"));
         std::fs::remove_file(&sock).unwrap();
-    }
-
-    #[test]
-    fn a_refused_config_set_becomes_config_failed() {
-        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"config","code":"invalid_config","message":"phone.maxAccess can't be full"}"#).unwrap();
-        assert!(matches!(launch_event(&f), Some(Event::ConfigFailed(m)) if m == "phone.maxAccess can't be full"));
     }
 
     #[test]

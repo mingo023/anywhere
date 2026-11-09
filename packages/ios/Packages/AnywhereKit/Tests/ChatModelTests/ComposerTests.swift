@@ -118,9 +118,9 @@ func anAskIsAnswerableByTheApproveScope() {
     #expect(Composer.mode(observeOnly: true, canApprove: true, ask: nil) == .viewOnly)
 }
 
-@Test("the input grows to eleven rows before it scrolls")
-func theInputGrowsToElevenRows() {
-    #expect(Composer.maxRows == 11)
+@Test("the input grows to five rows before it scrolls")
+func theInputGrowsToFiveRows() {
+    #expect(Composer.maxRows == 5)
 }
 
 @Test("on a touch phone the footer hints at the buttons, not the keys")
@@ -145,8 +145,8 @@ func aClosedSessionGetsNoComposer() {
     #expect(Composer.hint(.closed, working: false, stopping: false, empty: true, canQueue: true, keyboard: false, mac: "Studio") == nil)
 }
 
-@Test("the input keeps to about five rows with the keyboard up and eleven at most")
-func theInputKeepsToAboutFiveRowsWithTheKeyboardUp() {
+@Test("the input keeps to three rows on a short screen and five at most")
+func theInputKeepsToThreeRowsOnAShortScreen() {
     #expect(Composer.rows(height: 420) == 5)
     #expect(Composer.rows(height: 2000) == Composer.maxRows)
     #expect(Composer.rows(height: 100) == 3)

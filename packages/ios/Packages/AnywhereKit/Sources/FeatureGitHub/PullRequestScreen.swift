@@ -20,6 +20,9 @@ struct NewPr: Hashable {
     /// The branch is off its base, so it can have a PR.
     var offered: Bool { PullRequestText.offersCreate(branch: branch, base: base) }
 
+    /// gh refuses a PR with no commits over its base. Unread counts as having some: gh still has the last word.
+    var hasCommits: Bool { ahead != 0 }
+
     var line: String? {
         guard let branch, let base else { return nil }
         return PullRequestText.headLine(branch: branch, base: base, ahead: ahead)
@@ -104,16 +107,6 @@ struct PullRequestScreen: View {
         Task { await store.recheck(model.tree) }
     }
 
-    private var createButton: some View {
-        Button { creating = true } label: {
-            Text("Create PR").frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(mac.offline)
-        .padding(Space.l)
-    }
-
     @ViewBuilder
     private var content: some View {
         switch PullRequestPhase.of(hasPr: model.pr != nil, problem: model.problem, loaded: model.loaded, error: model.error) {
@@ -136,11 +129,12 @@ struct PullRequestScreen: View {
                             detail: "gh on \(mac.name) couldn't get this branch's pull request.") { recheck() }
             }
         case .none:
-            Pullable(refresh: { await store.recheck(model.tree) }) {
-                Placeholder("No pull request", systemImage: "arrow.triangle.pull", detail: newPr.line ?? "This branch has no pull request yet.")
-            }
-            .overlay(alignment: .bottom) {
-                if newPr.offered { createButton }
+            if newPr.offered {
+                NoPullRequestView(newPr: newPr, mac: mac, tree: model.tree, refresh: { await store.recheck(model.tree) }) { creating = true }
+            } else {
+                Pullable(refresh: { await store.recheck(model.tree) }) {
+                    Placeholder("No pull request", systemImage: "arrow.triangle.pull", detail: newPr.line ?? "This branch has no pull request yet.")
+                }
             }
         case .failed(let error):
             Pullable(refresh: { await store.recheck(model.tree) }) {

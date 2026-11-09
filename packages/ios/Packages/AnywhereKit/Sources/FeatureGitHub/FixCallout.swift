@@ -31,7 +31,7 @@ struct FixCallout: View {
                 } label: {
                     Text(send).frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(CapsuleButtonStyle())
                 .disabled(mac.offline)
             }
         } footer: {

@@ -58,7 +58,6 @@ pub enum Overlay {
     More,
     Confirm,
     PairPhone,
-    PhoneAccess,
     /// A lead's team plan, to edit and start.
     Team,
 }

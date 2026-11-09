@@ -31,6 +31,10 @@ struct ComposerView: View {
     @State private var closedOn: String?
     /// How far the box's top is from the screen's: the room the suggest list opens into.
     @State private var room = SuggestList.maxHeight
+    /// The draft's height laid out in full, and that of the most rows the input shows.
+    @State private var draftHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+    @State private var editing = false
     #if os(iOS)
         @State private var selection: TextSelection?
     #endif
@@ -100,6 +104,8 @@ struct ComposerView: View {
         }
         .onChange(of: outsideTaps) { _, _ in closedOn = store.draft.text }
         .onReceive(HardwareKeyboard.changes) { keyboard = HardwareKeyboard.attached }
+        // Here, not on the box, which goes away while the agent asks something.
+        .sheet(isPresented: $editing) { ComposerEditor(text: $store.draft.text, attach: attach) }
         .confirmationDialog(
             store.settingsMenu == .effort ? ModelPill.effortWord(store.provider) : "Model",
             isPresented: Binding(get: { store.settingsMenu != nil }, set: { if !$0 { store.settingsMenu = nil } })
@@ -131,6 +137,11 @@ struct ComposerView: View {
                 .textFieldStyle(.plain)
                 .focused(focus, equals: .composer)
                 .disabled(store.armed)
+                .background(overflowProbe)
+                #if os(iOS)
+                    .pastesImages(attach)
+                #endif
+                .padding(.trailing, overflows ? 24 : 0)
                 .padding(.horizontal, 4)
                 .padding(.top, 4)
                 .onChange(of: store.draft.text) { _, _ in
@@ -155,6 +166,9 @@ struct ComposerView: View {
                     guard let rows = shownRows, rows.count > 0 else { return .ignored }
                     store.suggest.step(down: press.key == .downArrow, total: rows.count)
                     return .handled
+                }
+                .overlay(alignment: .topTrailing) {
+                    if overflows { expandButton }
                 }
             bar
         }
@@ -181,6 +195,43 @@ struct ComposerView: View {
                 .offset(y: -height - 6)
             }
         }
+    }
+
+    private func attach(_ data: Data, _ name: String, _ thumbnail: Data?) {
+        store.attach(data, name: name, thumbnail: thumbnail)
+    }
+
+    private var overflows: Bool { draftHeight > fullHeight + 1 }
+
+    private var overflowProbe: some View {
+        ZStack(alignment: .topLeading) {
+            // A trailing newline counts as a line only with something after it.
+            Text(store.draft.text + " ")
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { draftHeight = $0 }
+            Text(Array(repeating: "A", count: Composer.rows(height: Double(height))).joined(separator: "\n"))
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+        }
+        .font(ChatFont.bubble)
+        .hidden()
+    }
+
+    private var expandButton: some View {
+        Button {
+            #if os(iOS)
+                // The editor rewrites the draft, which leaves these indices pointing nowhere.
+                selection = nil
+            #endif
+            focus.wrappedValue = nil
+            editing = true
+        } label: {
+            Image.named("fullscreen", size: 16).foregroundStyle(Palette.text3.color).hitTarget()
+        }
+        .buttonStyle(.plain)
+        .disabled(store.armed)
+        .offset(x: 8, y: -8)
+        .accessibilityLabel("Expand composer")
     }
 
     @ViewBuilder
@@ -221,8 +272,7 @@ struct ComposerView: View {
                         }
                         if let access = agent.access, !access.isEmpty {
                             AccessPillView(
-                                access: access, editable: agent.chatOnly == true && store.hasCap(Caps.access),
-                                max: store.providers?.phoneMaxAccess ?? "ask", who: who(agent.provider)) { store.settings(access: $0) }
+                                access: access, editable: agent.chatOnly == true && store.hasCap(Caps.access), who: who(agent.provider)) { store.settings(access: $0) }
                         }
                     }
                     agentsChip
@@ -231,7 +281,7 @@ struct ComposerView: View {
             .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             if let agent = store.summary, let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
-            AttachMenu(enabled: !store.armed) { data, name, thumbnail in store.attach(data, name: name, thumbnail: thumbnail) }
+            AttachMenu(enabled: !store.armed, attach: attach)
             HStack(spacing: Space.s) {
                 if Composer.stopBesideSteer(store.action, interrupt: caps.interrupt) { GhostStop(enabled: store.online) { store.stop() } }
                 SendButton(
@@ -275,7 +325,7 @@ struct ComposerView: View {
         HStack(spacing: Space.s) {
             if let agent = store.summary {
                 if let branch = agent.branch, !branch.isEmpty {
-                    Label(branch, systemImage: "arrow.triangle.branch").font(ChatFont.monoSmall).lineLimit(1).truncationMode(.middle)
+                    Label { Text(branch) } icon: { Image.named("worktree", size: 12) }.font(ChatFont.monoSmall).lineLimit(1).truncationMode(.middle)
                 }
                 if agent.chatOnly == true, let current = currentAccount(agent) {
                     AccountChip(accounts: providerAccounts(agent), current: current, provider: agent.provider, machine: machine) { store.switchAccount($0) }

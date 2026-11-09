@@ -72,7 +72,7 @@ struct ScanView: View {
             Button("Allow in Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(CapsuleButtonStyle())
         #endif
     }
 

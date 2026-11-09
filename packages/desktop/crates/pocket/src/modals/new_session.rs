@@ -27,43 +27,6 @@ use std::collections::HashSet;
 use std::time::Instant;
 use theme::*;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Access {
-    Ask,
-    Edits,
-    Auto,
-    Full,
-}
-
-impl Access {
-    pub fn wire(self) -> &'static str {
-        match self {
-            Access::Ask => "ask",
-            Access::Edits => "edits",
-            Access::Auto => "auto",
-            Access::Full => "full",
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Access::Ask => "Ask",
-            Access::Edits => "Auto-accept edits",
-            Access::Auto => "Auto",
-            Access::Full => "Full",
-        }
-    }
-
-    pub fn hint(self) -> &'static str {
-        match self {
-            Access::Ask => "Ask before commands and file changes.",
-            Access::Edits => "Auto-approve edits, ask before other actions.",
-            Access::Auto => "A reviewer model approves or denies actions.",
-            Access::Full => "Skip every approval.",
-        }
-    }
-}
-
 pub struct NewForm {
     /// The new-session page fills the main area.
     pub(crate) shown: bool,

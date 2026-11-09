@@ -213,14 +213,6 @@ struct HomeView: View {
                 .listRowSeparator(.hidden)
                 .modifier(TreeActions(tree: tree, project: section.id, canManage: host.workspace.canManage, making: $making, action: $action))
             }
-            Button {
-                making = host.workspace.canManage ? .worktree(project: section.id) : .session(project: section.id, place: nil)
-            } label: {
-                NewWorkspaceRow(title: host.workspace.canManage ? "New worktree" : "New session")
-            }
-            .buttonStyle(.plain)
-            .listRowInsets(WorkspaceRow.insets)
-            .listRowSeparator(.hidden)
         }
     }
 
@@ -292,7 +284,7 @@ struct TreeRow: View {
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Image(systemName: Self.symbol(tree.kind)).foregroundStyle(Palette.text3.color).frame(width: 18)
+            Image.named(Self.symbol(tree.kind), size: 17).foregroundStyle(Palette.text3.color).frame(width: 18)
             VStack(alignment: .leading, spacing: 0) {
                 Text(tree.label).font(Typography.body.weight(.medium)).foregroundStyle(Palette.text.color).lineLimit(1)
                 if let place = tree.place, place != tree.label {
@@ -314,7 +306,7 @@ struct TreeRow: View {
         switch kind {
         case .own: "laptopcomputer"
         case .local: "folder"
-        case .worktree: "arrow.triangle.branch"
+        case .worktree: "worktree"
         }
     }
 }
@@ -386,6 +378,16 @@ struct MakingSheet: View {
 }
 
 extension HostModel {
+    /// The chats of the worktree or Local `route` names, in its list's order; of a project, those of its main checkout.
+    public func chats(in route: Route) -> [Route] {
+        let trees = homeList().sections.flatMap { section in section.trees.map { (section, $0) } }
+        let found = trees.first { section, tree in
+            if case .project(_, let path) = route { return section.id == path && tree.kind == .own }
+            return TreeRow.route(tree, mac: mac) == route
+        }
+        return found?.1.sessions.map { .chat(mac: mac, agentId: $0) } ?? []
+    }
+
     /// The status of each session in a project, for its tile's badges.
     func statuses(_ section: HomeList.Section) -> [Status] {
         section.trees.flatMap(\.sessions).compactMap { sessions.session($0)?.status }

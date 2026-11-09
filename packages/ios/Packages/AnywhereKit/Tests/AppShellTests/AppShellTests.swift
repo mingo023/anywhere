@@ -238,7 +238,7 @@ struct NavigatorTests {
     func restoration() throws {
         let nav = Navigator()
         nav.select(mac: "d2")
-        nav.tab = .terminals
+        nav.tab = .settings
         nav.terminalsPath = [.terminal(mac: "studio", terminalId: "t1")]
         nav.tree = .worktree(mac: "studio", path: "/p/wt")
         let data = try #require(nav.encoded())
@@ -252,7 +252,80 @@ struct NavigatorTests {
         #expect(gone.macId == "d1")
         #expect(gone.terminalsPath.isEmpty)
         #expect(gone.tree == nil)
-        #expect(gone.tab == .terminals)
+        #expect(gone.tab == .settings)
+    }
+
+    @Test("picking a worktree opens its newest chat in place of the last one's")
+    func aWorktreeOpensItsNewestChat() {
+        let nav = Navigator()
+        nav.select(place: .worktree(mac: "mbp", path: "/a"), chats: [.chat(mac: "mbp", agentId: "a1"), .chat(mac: "mbp", agentId: "a2")])
+        #expect(nav.sessionsPath == [.chat(mac: "mbp", agentId: "a1")])
+        nav.select(place: .worktree(mac: "mbp", path: "/b"), chats: [.chat(mac: "mbp", agentId: "b1")])
+        #expect(nav.sessionsPath == [.chat(mac: "mbp", agentId: "b1")])
+    }
+
+    @Test("a worktree with no sessions clears the chat rather than showing another's")
+    func anEmptyWorktreeClearsTheChat() {
+        let nav = Navigator()
+        nav.select(place: .worktree(mac: "mbp", path: "/a"), chats: [.chat(mac: "mbp", agentId: "a1")])
+        nav.select(place: .worktree(mac: "mbp", path: "/b"), chats: [])
+        #expect(nav.sessionsPath.isEmpty)
+    }
+
+    @Test("going back to a worktree shows what it last showed, unless that chat has closed")
+    func aWorktreeKeepsWhatItShowed() {
+        let (a, b) = (Route.worktree(mac: "mbp", path: "/a"), Route.worktree(mac: "mbp", path: "/b"))
+        let (older, newest) = (Route.chat(mac: "mbp", agentId: "older"), Route.chat(mac: "mbp", agentId: "newest"))
+        let nav = Navigator()
+        nav.select(place: a, chats: [newest, older])
+        nav.setPath([older], for: .sessions)
+        nav.select(place: b, chats: [])
+        nav.select(place: a, chats: [newest, older])
+        #expect(nav.sessionsPath == [older])
+        nav.select(place: b, chats: [])
+        nav.select(place: a, chats: [newest])
+        #expect(nav.sessionsPath == [newest])
+    }
+
+    @Test("a worktree's chat that is already open stays when the worktree is picked")
+    func anOpenChatStaysWhenItsWorktreeIsPicked() {
+        let (first, second) = (Route.chat(mac: "mbp", agentId: "a1"), Route.chat(mac: "mbp", agentId: "a2"))
+        let nav = Navigator()
+        nav.setPath([second], for: .sessions)
+        nav.select(place: .worktree(mac: "mbp", path: "/a"), chats: [first, second])
+        #expect(nav.sessionsPath == [second])
+    }
+
+    @Test("a worktree keeps what it showed across a switch to another Mac and back")
+    func aWorktreeKeepsItsChatAcrossMacs() {
+        let a = Route.worktree(mac: "mbp", path: "/a")
+        let (older, newest) = (Route.chat(mac: "mbp", agentId: "older"), Route.chat(mac: "mbp", agentId: "newest"))
+        let nav = Navigator()
+        nav.select(mac: "d1")
+        nav.select(place: a, chats: [newest, older])
+        nav.setPath([older], for: .sessions)
+        nav.select(mac: "d2")
+        nav.select(mac: "d1")
+        nav.select(place: a, chats: [newest, older])
+        #expect(nav.sessionsPath == [older])
+    }
+
+    @Test("picking the Mac's own Sessions leaves the chat open")
+    func sessionsLeavesTheChatOpen() {
+        let nav = Navigator()
+        nav.select(place: .worktree(mac: "mbp", path: "/a"), chats: [.chat(mac: "mbp", agentId: "a1")])
+        nav.select(place: nil, chats: [])
+        #expect(nav.tree == nil)
+        #expect(nav.sessionsPath == [.chat(mac: "mbp", agentId: "a1")])
+    }
+
+    @Test("a saved Terminals tab opens on Sessions, as the tab is gone")
+    func savedTerminalsTabOpensOnSessions() throws {
+        let nav = Navigator()
+        nav.tab = .terminals
+        let back = Navigator()
+        back.restore(try #require(nav.encoded()), macs: [online])
+        #expect(back.tab == .sessions)
     }
 }
 

@@ -462,9 +462,6 @@ impl Desktop {
         self.settings.back.open(self.screen);
         self.screen = Screen::Settings;
         window.focus(&self.root, cx);
-        if !self.agents.phone_max.is_empty() {
-            self.store.phone.max_access = self.agents.phone_max.clone();
-        }
         self.load_host(cx);
         self.load_dev_urls(window, cx);
         self.load_banner_permission(cx);

@@ -8,16 +8,17 @@ enum Places {
         var place: NewSessionDraft.Place
         var label: String
         var hint: String?
-        var systemImage: String
+        /// A name for `Image.named`.
+        var icon: String
         var id: NewSessionDraft.Place { place }
     }
 
     /// A new Local takes workspace.v1; a new worktree takes spawn only.
     static func options(canManage: Bool, canSpawn: Bool) -> [Option] {
         var options: [Option] = []
-        if canSpawn { options.append(Option(place: .newWorktree, label: "Worktree", hint: "Its own branch and copy of the files", systemImage: "arrow.triangle.branch")) }
+        if canSpawn { options.append(Option(place: .newWorktree, label: "Worktree", hint: "Its own branch and copy of the files", icon: "worktree")) }
         if canManage {
-            options.append(Option(place: .newLocal, label: "Local", hint: "A new place over the project's checkout: files and branch are shared", systemImage: "laptopcomputer"))
+            options.append(Option(place: .newLocal, label: "Local", hint: "A new place over the project's checkout: files and branch are shared", icon: "laptopcomputer"))
         }
         return options
     }
@@ -29,11 +30,11 @@ enum Places {
         case .tree(let path):
             let tree = project.worktrees.first { $0.path == path }
             if tree?.isMain ?? (path == project.path) {
-                return Option(place: place, label: Sidebar.ownLocalName(given: names[path]), systemImage: "laptopcomputer")
+                return Option(place: place, label: Sidebar.ownLocalName(given: names[path]), icon: "laptopcomputer")
             }
-            return tree.map { Option(place: place, label: Sidebar.treeLabel(path: path, branch: $0.branch, given: names[path]).label, systemImage: "arrow.triangle.branch") }
+            return tree.map { Option(place: place, label: Sidebar.treeLabel(path: path, branch: $0.branch, given: names[path]).label, icon: "worktree") }
         case .local(let id):
-            return locals.first { $0.id == id && $0.project == project.path }.map { Option(place: place, label: $0.name, systemImage: "folder") }
+            return locals.first { $0.id == id && $0.project == project.path }.map { Option(place: place, label: $0.name, icon: "folder") }
         default:
             return nil
         }

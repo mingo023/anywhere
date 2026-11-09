@@ -189,23 +189,6 @@ struct WorkspaceRow: View {
     }
 }
 
-/// The last row under a project: a new worktree, or a session where the Mac doesn't let this phone make worktrees.
-@MainActor
-struct NewWorkspaceRow: View {
-    let title: String
-
-    var body: some View {
-        HStack(spacing: Space.s) {
-            Image(systemName: "plus").font(Typography.footnote.weight(.semibold)).frame(width: 18)
-            Text(title).font(Typography.subheadline)
-            Spacer()
-        }
-        .foregroundStyle(Palette.text3.color)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
-    }
-}
-
 extension View {
     /// A row on the screen's own background rather than a card.
     func bareRow() -> some View {

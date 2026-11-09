@@ -61,6 +61,8 @@ public final class Navigator {
     public var sheet: Route?
     /// A link that arrived before its Mac connected, opened once it does.
     public private(set) var held: DeepLink?
+    /// What each place last showed on the iPad, as the desktop's worktrees each keep their own tabs.
+    private var shownIn: [Route: [Route]] = [:]
     /// The stacks hold chats state restoration put back, not yet checked against the sessions their Mac lists.
     private var restoredChats = false
 
@@ -82,6 +84,23 @@ public final class Navigator {
         case .terminals: terminalsPath = path
         case .settings: settingsPath = path
         }
+    }
+
+    /// Moves the iPad's sessions to `place`, and the chat with it unless one of its `chats` is already open: back to what
+    /// it last showed if that chat is still in `chats`, else to the first of them. Nil, the Mac's own Sessions, leaves the
+    /// chat open.
+    public func select(place: Route?, chats: [Route]) {
+        guard place != tree else { return }
+        rememberPlace()
+        tree = place
+        guard let place, !sessionsPath.contains(where: chats.contains) else { return }
+        let kept = shownIn[place] ?? []
+        let live = kept.allSatisfy { if case .chat = $0 { chats.contains($0) } else { true } }
+        setPath(live && !kept.isEmpty ? kept : Array(chats.prefix(1)), for: .sessions)
+    }
+
+    private func rememberPlace() {
+        if let tree { shownIn[tree] = sessionsPath }
     }
 
     /// Pushes onto the current section's stack, as a chat's links do; New Session opens as a sheet, and a chat already on
@@ -135,6 +154,7 @@ public final class Navigator {
     }
 
     private func switchMac(to id: String) {
+        rememberPlace()
         macId = id
         sessionsPath = []
         terminalsPath = []
@@ -215,7 +235,8 @@ public final class Navigator {
     }
 
     public func restore(_ saved: Saved, macs: [MacRef]) {
-        tab = saved.tab
+        // Saved by a version that still had the Terminals tab.
+        tab = saved.tab == .terminals ? .sessions : saved.tab
         settingsPath = saved.settings
         guard let id = saved.macId, macs.contains(where: { $0.id == id }) else { return keepSelection(macs) }
         macId = id

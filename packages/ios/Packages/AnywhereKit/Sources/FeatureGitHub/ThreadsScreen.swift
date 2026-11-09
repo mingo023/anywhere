@@ -77,7 +77,7 @@ struct ThreadsScreen: View {
             if let all = sendOpen {
                 Section {
                     Button(action: all.action) { Text(all.title).frame(maxWidth: .infinity) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(CapsuleButtonStyle())
                         .disabled(mac.offline)
                 }
             }
@@ -164,7 +164,7 @@ struct ThreadRow: View {
     @ViewBuilder
     private var sendButton: some View {
         if let sendable {
-            Button(sendable.title, systemImage: "paperplane", action: sendable.action).buttonStyle(.borderedProminent).disabled(offline)
+            Button(sendable.title, systemImage: "paperplane", action: sendable.action).buttonStyle(CapsuleButtonStyle()).disabled(offline)
         }
     }
 
