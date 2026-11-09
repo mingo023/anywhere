@@ -89,6 +89,7 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "CopySelection" => ("Copy", App),
         "SelectAll" => ("Select all", App),
         "Paste" => ("Paste", App),
+        "CopyWorktreePath" => ("Copy worktree path", App),
         _ => return None,
     })
 }

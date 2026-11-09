@@ -29,7 +29,6 @@ pub struct Files {
     pub markdown_source: bool,
     pub soft_wrap: bool,
     pub line_numbers: bool,
-    pub font_size: u32,
     pub tab_width: u32,
     #[serde(deserialize_with = "crate::lenient")]
     pub autosave: Autosave,
@@ -49,7 +48,6 @@ impl Default for Files {
             markdown_source: false,
             soft_wrap: false,
             line_numbers: true,
-            font_size: 13,
             tab_width: 2,
             autosave: Autosave::default(),
             hide_dotfiles: false,
@@ -94,13 +92,19 @@ mod tests {
     fn files_from_before_these_settings_keep_todays_editor() {
         let f: Files = serde_json::from_str("{}").unwrap();
         assert_eq!(f, Files::default());
-        assert_eq!((f.soft_wrap, f.line_numbers, f.font_size, f.autosave, f.case_sensitive), (false, true, 13, Autosave::Off, true));
+        assert_eq!((f.soft_wrap, f.line_numbers, f.autosave, f.case_sensitive), (false, true, Autosave::Off, true));
     }
 
     #[test]
     fn an_unknown_autosave_falls_back_alone() {
-        let f: Files = serde_json::from_str(r#"{"autosave":"often","font_size":15}"#).unwrap();
-        assert_eq!((f.autosave, f.font_size), (Autosave::Off, 15));
+        let f: Files = serde_json::from_str(r#"{"autosave":"often","tab_width":4}"#).unwrap();
+        assert_eq!((f.autosave, f.tab_width), (Autosave::Off, 4));
+    }
+
+    #[test]
+    fn files_saved_with_the_old_font_size_still_load() {
+        let f: Files = serde_json::from_str(r#"{"font_size":15,"tab_width":4}"#).unwrap();
+        assert_eq!(f.tab_width, 4);
     }
 
     fn names(f: &Files, entries: &[(bool, &str)]) -> Vec<String> {

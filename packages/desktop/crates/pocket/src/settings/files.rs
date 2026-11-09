@@ -16,7 +16,6 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::choice("markdown", "Tabs", "Open Markdown as", &["Rendered", "Source"], Look::Segmented, |s| usize::from(s.files.markdown_source), |s, i| s.files.markdown_source = i == 1),
     Setting::switch("soft-wrap", "Editor", "Soft wrap", |s| s.files.soft_wrap, |s, on| s.files.soft_wrap = on),
     Setting::switch("line-numbers", "Editor", "Line numbers", |s| s.files.line_numbers, |s, on| s.files.line_numbers = on),
-    Setting::stepper("editor-font-size", "Editor", "Font size", (9, 24, 1), " pt", |s| s.files.font_size as i32, |s, n| s.files.font_size = n as u32),
     Setting::stepper("tab-width", "Editor", "Tab width", (1, 8, 1), " spaces", |s| s.files.tab_width as i32, |s, n| s.files.tab_width = n as u32),
     Setting::choice("autosave", "Editor", "Autosave", &["Off", "After 1 second", "When focus changes"], Look::Dropdown, |s| s.files.autosave as usize, |s, i| s.files.autosave = AUTOSAVES[i]),
     Setting::switch("hide-dotfiles", "Explorer", "Hide dotfiles", |s| s.files.hide_dotfiles, |s, on| s.files.hide_dotfiles = on).hint("Files and folders that start with a dot").effect(relist),

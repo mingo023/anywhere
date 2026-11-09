@@ -93,6 +93,7 @@ impl Desktop {
             .border_color(SEPARATOR)
             .children(toggle)
             .child(strip)
+            .children(self.open_in_button(cx))
     }
 
     /// Top tab `i` of worktree `tree`, holding the panes of `t`.

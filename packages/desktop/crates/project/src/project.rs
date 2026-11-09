@@ -1,3 +1,5 @@
+pub mod open_in;
+
 use git::Worktree;
 use std::collections::{HashMap, HashSet};
 
