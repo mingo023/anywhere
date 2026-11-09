@@ -140,7 +140,7 @@ impl Desktop {
             self.error = Some(message);
             return cx.notify();
         }
-        if let Event::AutomationError(message) = ev {
+        if let Event::AutomationError(message) | Event::BoardError(message) = ev {
             self.error = Some(message);
             return cx.notify();
         }
@@ -203,6 +203,7 @@ impl Desktop {
         }
         let connected = matches!(ev, Event::Connected { .. });
         let automations = matches!(ev, Event::Automations { .. });
+        let board = matches!(ev, Event::Board { .. });
         let locals = matches!(ev, Event::Locals(_));
         if let (Event::Connected { version, .. }, None) = (&ev, host) {
             self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());
@@ -244,6 +245,7 @@ impl Desktop {
         if connected && host.is_none() {
             self.new_form.offer_locals(self.agents.locals_offered());
             self.leave_unoffered_automations();
+            self.leave_unoffered_board();
         }
         if locals {
             self.leave_gone_local(cx);
@@ -255,6 +257,9 @@ impl Desktop {
         }
         if automations {
             self.automations_changed();
+        }
+        if board {
+            self.board_changed();
         }
         self.sync_alerts(cx);
         if !self.capturing {

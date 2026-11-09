@@ -5,6 +5,7 @@ mod accounts;
 mod actions;
 mod add_to_chat;
 mod automations;
+mod board;
 mod browser;
 mod capture;
 mod chat;

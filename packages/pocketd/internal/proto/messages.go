@@ -39,6 +39,12 @@ type ClientMessage struct {
 	Title           string
 	Automation      *Automation
 	AutomationID    string
+	Ticket          *Ticket
+	TicketID        string
+	Column          string
+	Before          string
+	BoardLimit      int
+	StartNow        bool
 	Enabled         bool
 	LocalID         string
 	Project         string
@@ -228,6 +234,14 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("automationId", &m.AutomationID) && get("enabled", &m.Enabled)
 	case m.Type == "automation.delete", m.Type == "automation.run":
 		ok = get("automationId", &m.AutomationID)
+	case m.Type == "board.save":
+		ok = decodeTicket(f["ticket"], &m.Ticket) && f.optionalBool("start", &m.StartNow)
+	case m.Type == "board.delete", m.Type == "board.start", m.Type == "board.close", m.Type == "board.reopen":
+		ok = get("ticketId", &m.TicketID) && m.TicketID != ""
+	case m.Type == "board.move":
+		ok = get("ticketId", &m.TicketID) && m.TicketID != "" && get("column", &m.Column) && (m.Column == TicketTodo || m.Column == TicketQueued) && optionalString("before", &m.Before)
+	case m.Type == "board.limit":
+		ok = f.integer("limit", &m.BoardLimit, MinBoardLimit, MaxBoardLimit)
 	case m.Type == "team.start":
 		ok = get("lead", &m.Lead) && decodePicks(f["tasks"], &m.Tasks)
 	case m.Type == "team.stop":

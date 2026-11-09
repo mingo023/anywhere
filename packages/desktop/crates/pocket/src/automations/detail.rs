@@ -1,6 +1,7 @@
 use super::glyph::glyph;
 use super::logic::{Tab, run_age_text, stamp, strip, trigger_text, when_label};
-use super::parts::{card, crumbs, details, pill, section};
+use super::parts::{card, crumbs, details, section};
+use crate::desktop::chrome::pill;
 use super::Menu;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, drag_area};

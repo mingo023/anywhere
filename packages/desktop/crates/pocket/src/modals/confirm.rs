@@ -106,6 +106,10 @@ impl ConfirmText {
         Self { title: "Open in another app?".into(), action: "Open", facts: vec![format!("The page asks to open {url}")], dirty: 0, lost: 0, danger: false }
     }
 
+    fn delete_ticket(title: &str) -> Self {
+        Self { title: format!("Delete {title}?"), action: "Delete", facts: vec!["It hasn't started, so nothing else is affected".to_string()], dirty: 0, lost: 0, danger: true }
+    }
+
     fn delete_automation(name: &str) -> Self {
         Self { title: format!("Delete {name}?"), action: "Delete", facts: vec!["Its run history goes too".into()], dirty: 0, lost: 0, danger: true }
     }
@@ -158,7 +162,7 @@ impl ConfirmText {
 
 /// Whether a key press takes the sheet's action. Only a delete the user just asked for does: a sheet that arrives on its own, like a failed teardown, could catch an Enter meant for something else.
 fn enter_confirms(key: &Keystroke, confirm: &Confirm) -> bool {
-    key.key == "enter" && !key.modifiers.modified() && matches!(confirm, Confirm::DeleteWorktree { .. } | Confirm::DeleteLocal(_) | Confirm::DeleteAutomation(_))
+    key.key == "enter" && !key.modifiers.modified() && matches!(confirm, Confirm::DeleteWorktree { .. } | Confirm::DeleteLocal(_) | Confirm::DeleteAutomation(_) | Confirm::DeleteTicket(_))
 }
 
 impl Desktop {
@@ -200,6 +204,7 @@ impl Desktop {
             Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
             Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
             Some(Confirm::DeleteAutomation(id)) => ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str())),
+            Some(Confirm::DeleteTicket(id)) => ConfirmText::delete_ticket(&self.delete_ticket_title(id)),
             Some(Confirm::RevokeDevice { name, .. }) => ConfirmText::revoke_device(name),
             Some(Confirm::RemoveHost { id, name }) => {
                 let projects = self.projects().iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).count();
@@ -291,6 +296,7 @@ impl Desktop {
             Some(Confirm::Quit(_)) => cx.quit(),
             Some(Confirm::OpenExternal(url)) => cx.open_url(&url),
             Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id),
+            Some(Confirm::DeleteTicket(id)) => self.delete_ticket(&id),
             Some(Confirm::ResetSection(section)) => self.reset_section(section, window, cx),
             Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),
             Some(Confirm::RemoveHost { id, .. }) => self.remove_host(&id, false, cx),

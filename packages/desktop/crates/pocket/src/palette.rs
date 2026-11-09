@@ -29,6 +29,7 @@ pub enum Pick {
     UpNext,
     Browser,
     Automations,
+    Board,
     PairPhone,
     PhoneAccess,
     HostFolder,
@@ -265,6 +266,7 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
         Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
         Entry { pick: Pick::Automations, lead: Lead::Icon("bolt"), title: "Go to Automations".into(), detail: String::new(), keys: Some("⌘ ⇧ A") },
+        Entry { pick: Pick::Board, lead: Lead::Icon("blocks"), title: "Go to Board".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::PhoneAccess, lead: Lead::Icon("shield"), title: "Phone access level…".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new(), keys: None },
@@ -276,6 +278,7 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         Pick::PairPhone => may_open(Overlay::PairPhone, agents),
         Pick::PhoneAccess => may_open(Overlay::PhoneAccess, agents),
         Pick::Automations => agents.automations_offered(),
+        Pick::Board => agents.board_offered(),
         _ => true,
     })
     .filter(|e| matches(words, &[&e.title]))
@@ -382,6 +385,7 @@ impl Desktop {
             Pick::UpNext => self.go_to_up_next(&crate::actions::GoToUpNext, window, cx),
             Pick::Browser => self.open_browser(None, window, cx),
             Pick::Automations => self.open_automations(&crate::actions::OpenAutomations, window, cx),
+            Pick::Board => self.open_board(&crate::actions::OpenBoard, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
             Pick::PhoneAccess => self.open(Overlay::PhoneAccess, window, cx),
             Pick::HostFolder => self.open_host_folder(window, cx),

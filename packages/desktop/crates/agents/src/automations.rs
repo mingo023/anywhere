@@ -1,3 +1,4 @@
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const MAX_NAME: usize = 80;
@@ -61,12 +62,16 @@ pub enum RunStatus {
     Unknown,
 }
 
-/// Reads the automations of a snapshot one by one: one this client can't read (a schedule kind
-/// from a newer pocketd, a day outside 0..=6) is left out, so the rest still show.
-pub fn known<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Automation>, D::Error> {
+/// Reads a snapshot's items one by one: one this client can't read is left out, so the rest still show.
+pub fn readable_items<'de, T: DeserializeOwned, D: Deserializer<'de>>(d: D) -> Result<Vec<T>, D::Error> {
     let raw = Vec::<serde_json::Value>::deserialize(d)?;
+    Ok(raw.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
+}
+
+/// [`readable_items`], also leaving out an automation with a day outside 0..=6.
+pub fn known<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Automation>, D::Error> {
     let readable = |a: &Automation| !matches!(&a.schedule, Schedule::Days { days, .. } if days.iter().any(|&d| d > 6));
-    Ok(raw.into_iter().filter_map(|v| serde_json::from_value(v).ok()).filter(readable).collect())
+    Ok(readable_items::<Automation, D>(d)?.into_iter().filter(readable).collect())
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]

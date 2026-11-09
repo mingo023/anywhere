@@ -227,6 +227,22 @@ const AUTOMATIONS = [
   { id: "au3", name: "Flaky test triage", prompt: "Find tests that failed and passed on the same commit this week.", provider: "codex", folder: repoPath("app-hook"), schedule: { kind: "interval", everyMin: 120 }, enabled: true, nextRunAt: now + 97 * MIN },
   { id: "au4", name: "Weekly changelog", prompt: "Draft the changelog from merged pull requests.", provider: "claude", folder: repoPath("marketing"), schedule: { kind: "days", days: [1], time: "10:00" }, enabled: false, nextRunAt: 0 },
 ];
+const ticket = (id: string, title: string, state: string, status: string, ago: number, extra: Record<string, unknown> = {}) =>
+  ({ id, title, prompt: `${title}.`, provider: "claude", folder: repoPath("app-android"), state, order: ago, status, createdAt: now - ago * 2 * MIN, changedAt: now - ago * MIN, ...extra });
+const TICKETS = [
+  ticket("t1", "Virtualize the Explorer tree", "todo", "", 40),
+  ticket("t2", "Retry the pocketd link with backoff", "todo", "", 41, { provider: "codex" }),
+  ticket("t3", "Fix the scroll jump on resize in chat", "queued", "", 30),
+  ticket("t4", "Version the settings store", "queued", "", 31, { provider: "codex" }),
+  ticket("t5", "Fold unchanged hunks in the diff", "live", "working", 3, { agentId: "split", terminalId: "split", worktree: "/tmp/wt/fold-hunks" }),
+  ticket("t6", "Refresh the phone pairing QR", "live", "starting", 1, { provider: "codex", worktree: "/tmp/wt/pairing-qr" }),
+  ticket("t7", "Trim scrollback under memory pressure", "live", "needsYou", 7, { agentId: "fix", terminalId: "fix", worktree: "/tmp/wt/trim-scrollback" }),
+  ticket("t8", "Paste images from the clipboard", "live", "failed", 10, { provider: "codex", why: "cargo test failed in composer.rs", worktree: "/tmp/wt/paste-images" }),
+  ticket("t9", "Rename groups inline in the sidebar", "live", "done", 4, { agentId: "crash", terminalId: "crash", worktree: "/tmp/wt/rename-groups" }),
+  ticket("t10", "Keyboard navigation in Inbox", "live", "idle", 25, { agentId: "haptics", terminalId: "haptics", worktree: "/tmp/wt/inbox-keys" }),
+  ticket("t11", "Reveal worktree in Finder", "closed", "idle", 15, { closedWhy: "merged", closedAt: now - 15 * MIN, worktree: "/tmp/wt/reveal" }),
+  ticket("t12", "Try a denser session list", "closed", "idle", 150, { closedWhy: "closed", closedAt: now - 150 * MIN, worktree: "/tmp/wt/denser" }),
+];
 const run = (id: string, automationId: string, status: string, ago: number, why: string, summary: string, took = 0, agent = "") =>
   ({ id, automationId, status, trigger: why === "Run now" ? "manual" : "schedule", why, summary, startedAt: now - ago * MIN, finishedAt: took ? now - (ago - took) * MIN : 0, agentId: agent, terminalId: agent });
 const RUNS = [
@@ -352,9 +368,10 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "locals.v1", "settings.v1", "access.v1", "team.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "team.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
+        ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }

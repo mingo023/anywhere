@@ -97,6 +97,20 @@ _Avoid_: job, cron, task, routine
 One firing of an automation, from its start to its end. It shows the status of its session: Starting, Working, Needs you, Done, Failed, or Stopped when its session closed first. A run that never launched is Skipped, because the Mac was asleep past the grace window or the automation was still working from the last run. An automation has one active run at a time.
 _Avoid_: execution, job run, trigger, running (use Working)
 
+### Board
+
+**Board**:
+One screen of every project's Tickets in columns: To do, Queued, Working, Needs you, Done, In review, Merged and, when shown, Closed. A card is in the column its session's status says; it is only dragged while it has no session. pocketd owns it.
+_Avoid_: kanban, task board
+
+**Ticket**:
+A piece of work on the Board: a title, a prompt, an agent, a project and the branch it starts from. Started, it gets its own Worktree and session. Closing it keeps both; a merged PR or a deleted Worktree closes it too.
+_Avoid_: task, issue
+
+**Queued**:
+Started and waiting for a slot. pocketd starts the first in line while fewer Tickets than the limit are Starting, Working or Needs you.
+_Avoid_: pending, backlog
+
 ### Teams
 
 **Team**:

@@ -234,6 +234,9 @@ impl Desktop {
         let automations = ui::nav_row("aside-automations", "bolt", "Automations", self.screen == Screen::Automations)
             .mb(px(2.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)));
+        let board = ui::nav_row("aside-board", "blocks", "Board", self.screen == Screen::Board)
+            .mb(px(2.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_board(&crate::actions::OpenBoard, window, cx)));
         let t1 = Instant::now(); // [DEBUG-sidebar]
         let header = self.projects_header(cx);
         let t_header = t1.elapsed(); // [DEBUG-sidebar]
@@ -255,6 +258,7 @@ impl Desktop {
             .flex_col()
             .child(top)
             .child(search)
+            .children(self.agents.board_offered().then_some(board))
             .children(self.agents.automations_offered().then_some(automations))
             .child(header)
             .child(body)

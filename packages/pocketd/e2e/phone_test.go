@@ -83,6 +83,8 @@ type Message struct {
 	Names          map[string]string  `json:"names"`
 	Automations    []proto.Automation `json:"automations"`
 	Runs           []proto.Run        `json:"runs"`
+	Tickets        []proto.Ticket     `json:"tickets"`
+	Limit          int                `json:"limit"`
 	Team           proto.Team         `json:"team"`
 	Teams          []proto.Team       `json:"teams"`
 	Raw            string             `json:"-"`

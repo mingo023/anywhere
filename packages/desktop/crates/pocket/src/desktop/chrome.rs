@@ -17,6 +17,7 @@ pub enum Screen {
     Sessions,
     Inbox,
     Automations,
+    Board,
     Settings,
 }
 
@@ -61,6 +62,8 @@ pub enum Overlay {
     PhoneAccess,
     /// A lead's team plan, to edit and start.
     Team,
+    /// The Board's New ticket dialog.
+    Ticket,
 }
 
 #[derive(Clone)]
@@ -77,6 +80,7 @@ pub enum Confirm {
     Quit(usize),
     OpenExternal(String),
     DeleteAutomation(String),
+    DeleteTicket(String),
     ResetSection(Section),
     RevokeDevice { id: String, name: String },
     RemoveHost { id: String, name: String },
@@ -213,7 +217,38 @@ pub fn sidebar_toggled(layout: Layout) -> Layout {
     }
 }
 
+/// Pill buttons of the detail bars: `Primary` is the inverse one.
+pub fn pill(id: impl Into<ElementId>, v: ui::Variant, icon_name: Option<&str>, label: &str) -> Stateful<Div> {
+    ui::button(id, v, icon_name, label.to_string()).h(px(28.)).px(px(12.)).rounded(px(14.)).font_weight(FontWeight::MEDIUM)
+}
+
 impl Desktop {
+    /// A floating menu of `width` that a click outside closes.
+    pub(crate) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.close_menus();
+            cx.notify();
+        }))
+    }
+
+    pub(crate) fn detail_bar(&self, crumb: Div, right: impl IntoElement, cx: &mut Context<Self>) -> Div {
+        let (pad, toggle) = self.bar_start(14., cx);
+        drag_area(div())
+            .h(px(42.))
+            .flex_none()
+            .pl(px(pad))
+            .pr(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .border_b(px(0.5))
+            .border_color(SEPARATOR)
+            .text_size(px(13.))
+            .children(toggle)
+            .child(crumb)
+            .child(div().flex().flex_none().items_center().gap(px(8.)).child(right))
+    }
+
     pub(crate) fn toggle_rail(&mut self, _: &ToggleRail, _: &mut Window, cx: &mut Context<Self>) {
         // The panel shows only on the Sessions screen; flipping it elsewhere would surprise on the way back.
         if self.layout != Layout::Focus && self.screen == Screen::Sessions {
