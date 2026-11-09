@@ -9,6 +9,7 @@ mod rename;
 mod row_menu;
 pub(crate) mod sections;
 pub(crate) mod sessions;
+pub(crate) mod team_fold;
 mod tree_card;
 mod update;
 mod usage;
@@ -20,6 +21,7 @@ use crate::sidebar::rename::Rename;
 use crate::sidebar::filter::Filter;
 use crate::sidebar::fold::{Closing, Fold};
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
+use crate::sidebar::team_fold::{TeamFolds, nest_rows, tree_leads};
 use crate::sidebar::tree_card::Hover;
 use crate::renames::{self, Renames, Slot};
 use crate::status::{self, Card};
@@ -39,9 +41,14 @@ fn rolled_state(cards: &[Card]) -> Option<ui::State> {
     status::roll_up(cards.iter().map(|c| c.status)).map(|(s, _)| state(s, 0, 0))
 }
 
-/// The cards in `tree`: those opened in it as a Local, else those whose folder it holds, as `tree_of` places folders.
+/// The tree `c` is in: the Local it was opened in, else the one holding its folder, as `tree_of` places folders.
+fn tree_key(c: &Card, tree_of: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if c.local.is_empty() { tree_of(&c.cwd) } else { Some(c.local.clone()) }
+}
+
+/// The cards in `tree`, as [`tree_key`] places them.
 pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>) -> Vec<Card> {
-    cards.into_iter().filter(|c| if c.local.is_empty() { tree_of(&c.cwd).as_deref() == tree } else { Some(c.local.as_str()) == tree }).collect()
+    cards.into_iter().filter(|c| tree_key(c, &tree_of).as_deref() == tree).collect()
 }
 
 /// The column left of the page, listing the inbox or Automations.
@@ -150,6 +157,7 @@ pub struct SidebarState {
     pub(crate) filter: Filter,
     pub(crate) organize: Organize,
     pub(crate) closing: Closing,
+    pub(crate) team_folds: TeamFolds,
 }
 
 impl SidebarState {
@@ -160,7 +168,7 @@ impl SidebarState {
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
         subs.extend(filter_subs);
-        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default() }, subs)
+        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default(), team_folds: TeamFolds::default() }, subs)
     }
 }
 
@@ -261,6 +269,12 @@ impl Desktop {
         in_tree(self.cards(project), Some(tree), |cwd| self.tree_of(cwd))
     }
 
+    /// The cards `row` speaks for: its own, and folded, those of the trees under it.
+    fn row_cards(&self, project: &str, row: &TreeRow) -> Vec<Card> {
+        let hidden = row.team.iter().filter(|t| t.folded).flat_map(|t| &t.kids);
+        std::iter::once(row).chain(hidden).flat_map(|r| self.tree_cards(project, &r.key)).collect()
+    }
+
     /// `row`'s element under `p`; pinned, it names its project `sub`.
     fn place_row(&self, p: &str, row: &TreeRow, current: Option<&str>, setups: &HashMap<String, String>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         match row.kind {
@@ -276,8 +290,8 @@ impl Desktop {
         let menu = RowMenu::Local { project: p.to_string(), local: key.to_string() };
         let renames = self.agents.renames_offered(key);
         let pins = self.store.projects.iter().any(|k| k == p);
-        let (selected, own) = (current == Some(key), selects.is_none());
-        let state = rolled_state(&self.tree_cards(p, key));
+        let (selected, own) = (row.selected(current), selects.is_none());
+        let state = rolled_state(&self.row_cards(p, row));
         let mark = ui::indicator(id(format!("aside-spin:{key}")), state).or_else(|| self.pr_mark(key).filter(|_| own));
         let (name, sub) = match sub {
             Some(project) if own => (project, Some(self.local_name(key))),
@@ -288,12 +302,17 @@ impl Desktop {
             None => done_name(self.scrolling(key, name.clone(), row_name(&self.renames, key, name.clone(), state, selected, cx.reduce_motion()), cx), state),
         };
         let label = with_sub(label, sub.clone(), self.sidebar.renaming(key));
-        let trail = (pins || renames).then(|| ui::row_trail(None, vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
+        let trail = (pins || renames).then(|| ui::row_trail(team_fold::with_count(None, row), vec![self.row_menu_button(key, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(key)));
+        let count = trail.is_none().then(|| team_fold::with_count(None, row)).flatten();
         let lit = self.sidebar.filter.lit(p, Some(key));
         let (target, path) = (p.to_string(), key.to_string());
         let glyph = if hosts::split(p).0.is_some() { "globe" } else { LOCAL_ICON };
-        let row = ui::worktree_row(id(format!("aside-tree:{key}")), glyph, label, selected, mark)
+        let chevron = Self::team_chevron(row, cx);
+        let depth = row.depth;
+        let row = ui::worktree_row(id(format!("aside-tree:{key}")), glyph, label, selected, mark, chevron)
             .children(trail)
+            .children(count)
+            .when(depth > 0, |row| row.pl(px(16. + 16. * depth as f32)))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 if this.sidebar.renaming(&path) {
                     return;
@@ -435,14 +454,22 @@ impl Desktop {
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
             .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
         let mut out = Vec::new();
+        let mut heights = Vec::new();
         if self.sidebar.closing.drawn(&Fold::Project(p.to_string()), open) {
             let rows = self.tree_rows(p, trees.as_deref().unwrap_or_default());
-            for row in rows.iter().filter(|r| only.is_none_or(|o| o.contains(&r.key)) && !self.tree_pinned(p, &r.key)) {
+            let rows: Vec<TreeRow> = rows.into_iter().filter(|r| only.is_none_or(|o| o.contains(&r.key)) && !self.tree_pinned(p, &r.key)).collect();
+            let leads = tree_leads(&self.cards(p), |cwd| self.tree_of(cwd));
+            for row in &nest_rows(rows, &leads, &self.sidebar.team_folds, only.is_some()) {
                 out.push(self.place_row(p, row, current.as_deref(), &setups, None, cx));
+                heights.push(ui::SIDEBAR_ROW_H);
+                if let Some((team, height)) = self.team_rows(p, row, current.as_deref(), &setups, cx) {
+                    out.push(team);
+                    heights.push(height);
+                }
             }
         }
         // The rows are fixed-height, so the open height is known without measuring: top pad, rows, gaps between them, bottom pad.
-        let height = if out.is_empty() { 0. } else { 1. + fold::stacked(vec![ui::SIDEBAR_ROW_H; out.len()], 1.) + 6. };
+        let height = if out.is_empty() { 0. } else { 1. + fold::stacked(heights, 1.) + 6. };
         let rows = fold::springing(id(format!("aside-fold:{p}")), open, height, div().flex().flex_col().gap(px(1.)).when(!out.is_empty(), |d| d.pt(px(1.)).pb(px(6.))).children(out));
         let to = p.to_string();
         let manual = self.store.sections.sort == Sort::Manual;
@@ -467,9 +494,9 @@ impl Desktop {
     fn worktree_row(&self, p: &str, row: &TreeRow, current: Option<&str>, setups: &HashMap<String, String>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         let (tree, title, tip) = (&row.key, &row.label, &row.tip);
         let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
-        let selected = current == Some(tree.as_str());
+        let selected = row.selected(current);
         let (failed, setting) = (self.creates.failed(tree), self::setting_up(setups, tree));
-        let state = rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting);
+        let state = rolled_state(&self.row_cards(p, row)).filter(|_| !failed && !setting);
         let mark = if failed {
             ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
         } else if setting {
@@ -482,15 +509,18 @@ impl Desktop {
             let (added, removed) = r.totals();
             ui::meta_diff(added, removed, 11.).id(id(format!("aside-diff:{tree}"))).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.pick_side(Side::Changes, cx))).into_any_element()
         });
-        let trail = ui::row_trail(diff, vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
+        let trail = ui::row_trail(team_fold::with_count(diff, row), vec![self.row_menu_button(tree, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on(tree));
         let (target, path) = (p.to_string(), tree.clone());
         let label = match self.sidebar.rename.as_ref().filter(|r| &r.tree == tree) {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => done_name(self.scrolling(tree, title.clone(), row_name(&self.renames, tree, title.clone(), state, selected, cx.reduce_motion()), cx), state),
         };
         let pinned = sub.is_some();
-        let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.renaming(tree)), selected, mark)
+        let chevron = Self::team_chevron(row, cx);
+        let depth = row.depth;
+        let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.renaming(tree)), selected, mark, chevron)
             .child(trail)
+            .when(depth > 0, |row| row.pl(px(16. + 16. * depth as f32)))
             .when(pinned, |row| row.pl(px(6.)))
             .when(self.sidebar.filter.lit(p, Some(tree)), |row| row.bg(FILL_3))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {

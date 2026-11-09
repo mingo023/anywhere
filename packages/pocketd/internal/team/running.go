@@ -141,6 +141,9 @@ func (t *Teams) launch(team proto.Team, task proto.TeamTask) {
 	if !Assigns(launched, task.ID) {
 		return
 	}
+	if t.Names != nil {
+		t.Names.Auto(cwd, task.Title)
+	}
 	a, err := t.Agents.Get(id)
 	if err == nil {
 		if claim, ok := a.ClaimNaming(); ok {

@@ -10,6 +10,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/hub"
+	"pocketd/internal/names"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 )
@@ -42,6 +43,8 @@ type Teams struct {
 	Launch func(lead, task string, s proto.LaunchSpec) (agentID, cwd string, err error)
 	// Projects finds the project a lead's folder is in.
 	Projects *registry.Registry
+	// Names takes the display name each worker's Worktree gets from its task; nil names none.
+	Names *names.Names
 
 	// mu is held by change, so one team change runs at a time; it also guards since.
 	mu sync.Mutex

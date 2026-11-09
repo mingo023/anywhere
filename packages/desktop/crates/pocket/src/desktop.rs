@@ -266,6 +266,7 @@ impl Desktop {
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
         let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
         self.show_tree(&tree);
+        self.sidebar.team_folds.reveal(id, |s| self.agents.get(s).map(|a| a.parent.clone()));
         self.side = Side::Sessions;
         let w = self.workspace(&tree);
         if let Some((pane, i)) = w.show_term(&term) {
