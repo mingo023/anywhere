@@ -71,7 +71,11 @@ struct PullRequestScreen: View {
                 }
             }
             .navigationTitle(model.pr.map { "#\($0.number)" } ?? "Pull request")
+            #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
+                NoBarTitle()
                 if let url = model.pr.flatMap({ URL(string: $0.url) }) {
                     ToolbarItem(placement: .primaryAction) {
                         Link(destination: url) { Label("Open on GitHub", systemImage: "safari") }
@@ -115,7 +119,7 @@ struct PullRequestScreen: View {
         switch PullRequestPhase.of(hasPr: model.pr != nil, problem: model.problem, loaded: model.loaded, error: model.error) {
         case .card:
             if let pr = model.pr {
-                PullRequestCard(store: store, model: model, pr: pr, mac: mac, cleanup: cleanup, deleteTree: deleteTree, fix: fix)
+                PullRequestCard(store: store, model: model, pr: pr, mac: mac, cleanup: cleanup, deleteTree: deleteTree, fix: fix, newPr: newPr)
             }
         case .ghMissing, .ghSignedOut:
             Pullable(refresh: { await store.recheck(model.tree) }) {

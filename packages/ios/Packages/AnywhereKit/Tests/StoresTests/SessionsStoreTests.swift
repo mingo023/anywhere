@@ -29,6 +29,11 @@ struct SessionsStoreTests {
         #expect(s.session("a-detached")?.status == .idle)
     }
 
+    @Test("Up next counts those asking the user, not the failed or done")
+    func needsYouCount() {
+        #expect(store([.agentList(.init(agents: Sample.agents))]).needsYouCount == 2)
+    }
+
     @Test("an update changes one session in place and moves it in Up next")
     func update() {
         let s = store([.agentList(.init(agents: [agent("a", .working, updated: 1), agent("b", .done, updated: 2)]))])

@@ -103,6 +103,9 @@ struct Destination: View {
 extension View {
     /// Every `Route` a stack can push.
     func routeDestinations(app: AppModel, navigator: Navigator, pair: @escaping @MainActor () -> Void) -> some View {
-        navigationDestination(for: Route.self) { Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave) }
+        navigationDestination(for: Route.self) {
+            // The iPad swaps the route in place: without the id, the next chat keeps the last one's store.
+            Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave).id($0)
+        }
     }
 }

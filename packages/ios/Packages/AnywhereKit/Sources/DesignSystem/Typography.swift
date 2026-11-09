@@ -4,6 +4,7 @@ import SwiftUI
 public enum Typography {
     public static let largeTitle = Font.system(.largeTitle, weight: .bold)
     public static let title = Font.system(.title2, weight: .semibold)
+    public static let title3 = Font.system(.title3)
     public static let headline = Font.system(.headline)
     public static let body = Font.system(.body)
     public static let callout = Font.system(.callout)
@@ -11,6 +12,7 @@ public enum Typography {
     public static let footnote = Font.system(.footnote)
     public static let caption = Font.system(.caption)
     public static let captionStrong = Font.system(.caption, weight: .semibold)
+    public static let caption2 = Font.system(.caption2)
 
     public static let code = Font.system(.callout, design: .monospaced)
     public static let codeSmall = Font.system(.footnote, design: .monospaced)

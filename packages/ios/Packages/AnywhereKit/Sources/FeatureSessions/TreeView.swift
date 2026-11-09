@@ -2,6 +2,7 @@ import DesignSystem
 import Domain
 import Stores
 import SwiftUI
+import Wire
 
 /// One worktree's or Local's Changes, Files and pull request, then its sessions, with what can be done to it. `key` is
 /// the worktree's path or the Local's id.
@@ -10,6 +11,7 @@ struct TreeView: View {
     let host: HostModel
     let mac: String
     let key: String
+    var open: ((Route) -> Void)?
     var leave: ((String) -> Void)?
     @AppStorage("sessions.sort") private var sort = Sidebar.SessionSort.newest
     @State private var action: RowAction?
@@ -23,7 +25,13 @@ struct TreeView: View {
             if let (section, tree) = found {
                 let creations = host.workspace.creations.filter { !$0.value.done && $0.value.place == key }.sorted { $0.key < $1.key }
                 List {
-                    TreeLinks(host: host, mac: mac, project: section.id, tree: checkout(tree, project: section.id))
+                    Section {
+                        TreeHeader(section: section, tree: tree, head: host.git.changes(checkout(tree, project: section.id)).head)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: Space.s, trailing: Space.xs))
+                    .listRowSeparator(.hidden)
+                    TreeLinks(host: host, mac: mac, project: section.id, tree: checkout(tree, project: section.id), key: key, open: open)
                     Section {
                         ForEach(creations, id: \.key) { id, creation in
                             CreationRow(creation: creation, retry: { host.workspace.runKept(id) }, dismiss: { host.workspace.forget(creation: id) })
@@ -34,34 +42,38 @@ struct TreeView: View {
                         }
                         ForEach(tree.sessions, id: \.self) { id in
                             if let session = host.sessions.session(id) {
-                                NavigationLink(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
+                                PushRow(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
                                     .modifier(SessionActions(host: host, session: session, action: $action))
+                                    .bareRow()
                             }
                         }
                     } header: {
-                        Text("Sessions")
+                        HStack {
+                            Text("Sessions").sectionTitle()
+                            Spacer()
+                            Text("\(tree.sessions.count)").font(Typography.footnote).foregroundStyle(Palette.text3.color)
+                        }
                     }
                 }
+                .scrollContentBackground(.hidden)
+                .screenBackground()
                 .navigationTitle(tree.label)
                 .toolbar {
-                    #if os(iOS)
-                        ToolbarItemGroup(placement: .bottomBar) {
-                            Spacer()
-                            newSession(section, tree)
-                        }
-                    #else
-                        ToolbarItem(placement: .primaryAction) { newSession(section, tree) }
-                    #endif
+                    NoBarTitle()
                     if host.workspace.canManage {
-                        ToolbarItem(placement: .secondaryAction) {
+                        ToolbarItem(placement: .primaryAction) {
                             Menu {
                                 Button { action = .rename(tree) } label: { Label("Rename", systemImage: "pencil") }
                                 if tree.kind != .own {
                                     Button(role: .destructive) { action = .delete(tree) } label: { Label("Delete", systemImage: "trash") }
                                 }
-                            } label: { Label("More", systemImage: "ellipsis.circle") }
+                            } label: { Label("More", systemImage: "ellipsis") }
                         }
                     }
+                    #if os(iOS) && compiler(>=6.2)
+                        if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .primaryAction) }
+                    #endif
+                    ToolbarItem(placement: .primaryAction) { newSession(section, tree) }
                 }
                 #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
@@ -79,7 +91,7 @@ struct TreeView: View {
 
     private func newSession(_ section: HomeList.Section, _ tree: HomeList.Tree) -> some View {
         Button { making = .session(project: section.id, place: TreeMenu.place(tree)) } label: {
-            Label("New Session", systemImage: "square.and.pencil")
+            Label("New Session", systemImage: "plus")
         }
     }
 
@@ -87,5 +99,30 @@ struct TreeView: View {
     private func checkout(_ tree: HomeList.Tree, project: String) -> String {
         guard tree.kind == .local else { return tree.id }
         return NewSessionView.main(of: host.workspace.project(project)) ?? project
+    }
+}
+
+/// A worktree's or Local's title block: what kind of place it is, its name, and its branch against its base.
+@MainActor
+struct TreeHeader: View {
+    let section: HomeList.Section
+    let tree: HomeList.Tree
+    let head: GitHead?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text("\(section.name) · \(tree.kind == .worktree ? "worktree" : "Local")").font(Typography.footnote).foregroundStyle(Palette.text3.color)
+            Text(tree.label).font(Typography.largeTitle).foregroundStyle(Palette.text.color).lineLimit(1).minimumScaleFactor(0.7)
+            if let line = Self.branchLine(branch: tree.branch, head: head) {
+                Text(line).font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.middle)
+            }
+        }
+    }
+
+    /// "fix/ws-reconnect from main · 3 ahead".
+    nonisolated static func branchLine(branch: String?, head: GitHead?) -> String? {
+        guard let branch else { return nil }
+        guard let base = head?.base else { return branch }
+        return "\(branch) from \(base) · \(head?.ahead ?? 0) ahead"
     }
 }

@@ -273,10 +273,10 @@ struct MacSwitcherTests {
         #expect(MacMenu.detail(upNext: 0, reachability: .reconnecting) == "Reconnecting…")
     }
 
-    @Test("the pill is dotted only when a Mac other than the selected one has sessions up next")
+    @Test("the Mac is dotted only when a Mac other than the selected one has sessions up next")
     func othersWaiting() {
-        #expect(MacPill.othersWaiting(["d1": 0, "d2": 3], selected: "d1"))
-        #expect(!MacPill.othersWaiting(["d1": 4, "d2": 0], selected: "d1"))
-        #expect(!MacPill.othersWaiting([:], selected: nil))
+        #expect(OtherMacs.waiting(["d1": 0, "d2": 3], selected: "d1"))
+        #expect(!OtherMacs.waiting(["d1": 4, "d2": 0], selected: "d1"))
+        #expect(!OtherMacs.waiting([:], selected: nil))
     }
 }

@@ -60,11 +60,16 @@ enum GitText {
         return unpulled > 0 ? "Pull \(unpulled)" : nil
     }
 
-    /// "Stage All 1,200", or "Staging 1,200…" while that runs.
-    nonisolated static func stageAll(_ section: ChangeSection, count: Int, bulk: BulkStage?) -> String {
+    /// The branch row has something to offer: a Push or Pull, the commits since its base, or a detached HEAD to say so.
+    nonisolated static func showsHead(_ head: GitHead) -> Bool {
+        push(head) != nil || pull(head) != nil || (head.base != nil && head.ahead > 0) || head.detached
+    }
+
+    /// "Stage All", or "Staging 1,200…" while that runs.
+    nonisolated static func stageAll(_ section: ChangeSection, bulk: BulkStage?) -> String {
         let staged = section == .staged
         if let bulk, bulk.section == section { return "\(staged ? "Unstaging" : "Staging") \(bulk.count.formatted())…" }
-        return "\(staged ? "Unstage All" : "Stage All") \(count.formatted())"
+        return staged ? "Unstage All" : "Stage All"
     }
 
     /// The desktop's discard facts: edits are lost, and untracked files among `paths` are deleted.
@@ -79,6 +84,18 @@ enum GitText {
     nonisolated static func position(_ current: Int?, of count: Int) -> String {
         if let current, count > 0 { return "\(current + 1) of \(count)" }
         return count == 1 ? "1 change" : "\(count) changes"
+    }
+
+    /// "2 of 6 · Staged": where the file sits among those it steps through, and what it compares.
+    nonisolated static func place(_ index: Int?, of count: Int, at: DiffAt) -> String {
+        let side: String
+        switch at {
+        case .working: side = "Unstaged"
+        case .staged: side = "Staged"
+        case .commit(let rev): side = short(rev)
+        case .base(let rev): side = rev ?? "base"
+        }
+        return index.map { "\($0 + 1) of \(count) · \(side)" } ?? side
     }
 
     /// The file's name and the folder it sits in, apart.
@@ -111,21 +128,5 @@ enum GitText {
         }
     }
 
-    nonisolated static func counts(added: Int?, removed: Int?, binary: Bool) -> String? {
-        if binary { return "binary" }
-        guard let added, let removed else { return nil }
-        return "+\(added) −\(removed)"
-    }
-
     nonisolated static func short(_ sha: String) -> String { String(sha.prefix(7)) }
-
-    /// What a diff compares, under its file's name.
-    nonisolated static func comparison(_ at: DiffAt) -> String {
-        switch at {
-        case .working: "HEAD → working tree"
-        case .staged: "HEAD → staged"
-        case .commit(let rev): "\(short(rev))^ → \(short(rev))"
-        case .base(let rev): "\(rev ?? "base") → HEAD"
-        }
-    }
 }

@@ -8,7 +8,7 @@ struct PrBadge: View {
     let item: PrItem
 
     var body: some View {
-        Pill("#\(item.number)", tone: Self.tone(item), systemImage: "arrow.triangle.pull")
+        Pill("#\(item.number)", tone: Self.tone(item), dot: true)
             .accessibilityLabel("Pull request \(SessionText.pullRequest(item))")
     }
 

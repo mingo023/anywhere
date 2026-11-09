@@ -2,6 +2,7 @@ import DesignSystem
 import Domain
 import FeaturePairing
 import FeatureSettings
+import FileIcons
 import Stores
 import SwiftUI
 
@@ -46,6 +47,7 @@ public struct RootView: View {
         }
         .preferredColorScheme(appearance.colorScheme)
         .tint(Palette.accent.color)
+        .task { await Task.detached(priority: .utility) { MaterialIcons.preload() }.value }
         .sheet(item: pairingSheet) { request in
             PairingView(app: app, link: request.link, knownHost: request.knownHost) { navigator.pairing = nil }
         }

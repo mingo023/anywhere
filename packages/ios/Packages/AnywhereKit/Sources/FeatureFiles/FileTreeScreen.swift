@@ -1,5 +1,6 @@
 import DesignSystem
 import Domain
+import FileIcons
 import Stores
 import SwiftUI
 
@@ -23,7 +24,7 @@ struct FileTreeScreen: View {
 
     var body: some View {
         content
-            .navigationTitle(FileText.baseName(model.tree))
+            .navigationTitle("Files")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -69,28 +70,39 @@ struct FileTreeScreen: View {
 
     private var list: some View {
         ScrollViewReader { proxy in
-            List(model.rows) { row in
-                Button { open(row) } label: { FileRowView(row: row).equatable().contentShape(Rectangle()) }
-                    .buttonStyle(.plain)
-                    .overlay(alignment: .trailing) {
-                        if row.failure != nil {
-                            Button { files.retry(model, row.path) } label: {
-                                Image(systemName: "arrow.clockwise").foregroundStyle(Palette.accent.color).hitTarget()
+            List {
+                Button { searching = true } label: {
+                    SearchBox { Text("Go to File").font(Typography.body).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, alignment: .leading) }
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("p", modifiers: .command)
+                .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.l, bottom: Space.s, trailing: Space.l))
+                .listRowBackground(Palette.background.color)
+                .listRowSeparator(.hidden)
+                ForEach(model.rows) { row in
+                    Button { open(row) } label: { FileRowView(row: row).equatable().contentShape(Rectangle()) }
+                        .buttonStyle(.plain)
+                        .overlay(alignment: .trailing) {
+                            if row.failure != nil {
+                                Button { files.retry(model, row.path) } label: {
+                                    Image(systemName: "arrow.clockwise").foregroundStyle(Palette.accent.color).hitTarget()
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Try Again")
                             }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Try Again")
                         }
-                    }
-                    .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: 0, trailing: Space.l))
-                    .listRowBackground(Palette.background.color)
-                    .swipeActions(edge: .trailing) {
-                        if context.target != .none {
-                            Button { handoff = .mention(path: row.path) } label: { Label("Mention", systemImage: "at") }.tint(Palette.accent.color)
+                        .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: 0, trailing: Space.l))
+                        .listRowBackground(Palette.background.color)
+                        .swipeActions(edge: .trailing) {
+                            if context.target != .none {
+                                Button { handoff = .mention(path: row.path) } label: { Label("Mention", systemImage: "at") }.tint(Palette.accent.color)
+                            }
+                            Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+                                .tint(.gray)
                         }
-                        Button { copy(FileText.absolute(tree: model.tree, row.path)) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
-                            .tint(.gray)
-                    }
-                    .contextMenu { menu(row) }
+                        .contextMenu { menu(row) }
+                }
+                .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -117,10 +129,7 @@ struct FileTreeScreen: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button { searching = true } label: { Label("Go to File", systemImage: "magnifyingglass") }
-                .keyboardShortcut("p", modifiers: .command)
-        }
+        ToolbarItem(placement: .principal) { BarTitle("Files", detail: FileText.home(model.tree), truncation: .head) }
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Toggle(isOn: Binding(get: { !hideIgnored }, set: { hideIgnored = !$0 })) { Label("Show Ignored Files", systemImage: "eye") }
@@ -129,7 +138,7 @@ struct FileTreeScreen: View {
                 Button { copy(model.tree) } label: { Label("Copy Folder Path", systemImage: "doc.on.doc") }
                 Button { files.open(model) } label: { Label("Refresh", systemImage: "arrow.clockwise") }
             } label: {
-                Label("Options", systemImage: "ellipsis.circle")
+                Label("Options", systemImage: "ellipsis")
             }
         }
     }
@@ -177,13 +186,9 @@ struct FileRowView: View, Equatable {
                 }
             }
             .frame(width: 12)
-            Image(systemName: Self.icon(row))
-                .font(.system(size: 15))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle((row.entry.dir ? Palette.accent : Palette.text3).color)
-                .frame(width: 20)
+            MaterialIcon(row.entry.name, folder: row.entry.dir, open: row.open)
             Text(row.entry.name)
-                .font(Typography.body)
+                .font(Typography.code)
                 .foregroundStyle((row.entry.ignored == true ? Palette.text4 : Palette.text).color)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -212,17 +217,5 @@ struct FileRowView: View, Equatable {
         .padding(.trailing, row.failure == nil ? 0 : HitTarget.minimum)
         .frame(minHeight: HitTarget.minimum)
         .accessibilityElement(children: .combine)
-    }
-
-    nonisolated static func icon(_ row: FileRow) -> String {
-        if row.entry.dir { return row.open ? "folder.fill" : "folder" }
-        switch FileText.ext(row.entry.name).lowercased() {
-        case "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "heic", "svg": return "photo"
-        case "md", "markdown", "txt": return "doc.text"
-        case "json", "toml", "yml", "yaml": return "curlybraces"
-        case "zip", "gz", "tar": return "doc.zipper"
-        case "": return "doc"
-        default: return "chevron.left.forwardslash.chevron.right"
-        }
     }
 }

@@ -1,42 +1,42 @@
 import DesignSystem
 import SwiftUI
 
-/// Under a diff: Discard at one end, the previous and next change with where it is between, and Stage or Unstage at
-/// the other end, so the review of a file ends there.
+/// Under a diff: the previous and next file together, and Stage or Unstage, so the review of a file ends there.
 @MainActor
 struct DiffBar: View {
-    let changes: Int
-    /// The change shown, an index into the diff's changes.
-    let current: Int?
-    let step: (Int) -> Void
+    let previous: (() -> Void)?
+    let next: (() -> Void)?
     /// "Stage" or "Unstage"; nil for a diff that can't be staged.
     let stage: String?
     let staging: () -> Void
-    let discard: (() -> Void)?
-    /// Stage and Discard are on; not while the Mac is offline.
+    /// Stage is on; not while the Mac is offline.
     let writable: Bool
 
     var body: some View {
         HStack(spacing: Space.s) {
-            if let discard {
-                Button(role: .destructive, action: discard) { Text("Discard…").hitTarget() }.disabled(!writable)
+            HStack(spacing: 0) {
+                Button { previous?() } label: { Label("Previous File", systemImage: "chevron.up").labelStyle(.iconOnly).hitTarget() }
+                    .disabled(previous == nil)
+                Button { next?() } label: { Label("Next File", systemImage: "chevron.down").labelStyle(.iconOnly).hitTarget() }
+                    .disabled(next == nil)
             }
-            Spacer(minLength: 0)
-            Button { step(-1) } label: { Label("Previous Change", systemImage: "arrow.up").labelStyle(.iconOnly).hitTarget() }
-                .disabled((current ?? 0) <= 0)
-            Text(GitText.position(current, of: changes))
-                .font(Typography.footnote)
-                .monospacedDigit()
-                .foregroundStyle(Palette.text2.color)
-                .lineLimit(1)
-            Button { step(1) } label: { Label("Next Change", systemImage: "arrow.down").labelStyle(.iconOnly).hitTarget() }
-                .disabled((current ?? -1) + 1 >= changes)
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.text.color)
+            .padding(.horizontal, Space.xs)
+            .glass(in: Capsule())
             Spacer(minLength: 0)
             if let stage {
-                Button(stage, action: staging).buttonStyle(.borderedProminent).disabled(!writable)
+                Button(stage, action: staging)
+                    .buttonStyle(.plain)
+                    .font(Typography.body.weight(.semibold))
+                    .foregroundStyle(Palette.text.color)
+                    .padding(.horizontal, Space.l)
+                    .frame(minHeight: HitTarget.minimum)
+                    .glass(in: Capsule())
+                    .disabled(!writable)
             }
         }
         .padding(.horizontal, Space.l)
-        .background(.bar)
+        .padding(.bottom, Space.xs)
     }
 }

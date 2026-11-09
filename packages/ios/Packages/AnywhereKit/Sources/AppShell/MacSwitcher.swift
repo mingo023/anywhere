@@ -7,57 +7,21 @@ extension View {
     @ViewBuilder
     func macSwitcher(app: AppModel, navigator: Navigator, shown: Bool) -> some View {
         if shown {
-            toolbar {
-                ToolbarItem(placement: Self.leading) {
-                    Menu {
-                        MacMenu(app: app, navigator: navigator)
-                    } label: {
-                        MacPill(
-                            host: navigator.macId.flatMap { id in app.hosts.first { $0.id == id } },
-                            othersWaiting: MacPill.othersWaiting(
-                                Dictionary(app.hosts.map { ($0.id, $0.sessions.upNext.count) }, uniquingKeysWith: { $1 }), selected: navigator.macId))
-                    }
-                }
-            }
+            environment(
+                \.macSwitch,
+                MacSwitch(
+                    othersWaiting: OtherMacs.waiting(
+                        Dictionary(app.hosts.map { ($0.id, $0.sessions.upNext.count) }, uniquingKeysWith: { $1 }), selected: navigator.macId)
+                ) { AnyView(MacMenu(app: app, navigator: navigator)) })
         } else {
             self
         }
     }
-
-    private static var leading: ToolbarItemPlacement {
-        #if os(iOS)
-            .topBarLeading
-        #else
-            .navigation
-        #endif
-    }
 }
 
-/// The selected Mac: a laptop dotted with its link, its name, and a dot when another Mac has sessions Up next.
-@MainActor
-struct MacPill: View {
-    let host: HostModel?
-    var othersWaiting = false
-
-    var body: some View {
-        HStack(spacing: Space.s) {
-            Image(systemName: "laptopcomputer")
-                .overlay(alignment: .bottomTrailing) {
-                    Circle().fill((host?.link == .online ? Palette.success : Palette.text4).color).frame(width: 7, height: 7)
-                        .offset(x: 2, y: 2)
-                }
-            Text(host?.name ?? "No Mac").lineLimit(1)
-            if othersWaiting { Circle().fill(Palette.waitingDot.color).frame(width: 7, height: 7) }
-            Image(systemName: "chevron.down").font(Typography.caption.weight(.semibold)).foregroundStyle(Palette.text3.color)
-        }
-        .font(Typography.subheadline.weight(.medium))
-        .padding(.horizontal, Space.xs)
-        .accessibilityLabel("Mac: \(host?.name ?? "none")")
-        .accessibilityValue(othersWaiting ? "Another Mac has sessions up next" : "")
-    }
-
+enum OtherMacs {
     /// `upNext` is each Mac's Up next count by device id.
-    nonisolated static func othersWaiting(_ upNext: [String: Int], selected: String?) -> Bool {
+    nonisolated static func waiting(_ upNext: [String: Int], selected: String?) -> Bool {
         upNext.contains { $0.key != selected && $0.value > 0 }
     }
 }

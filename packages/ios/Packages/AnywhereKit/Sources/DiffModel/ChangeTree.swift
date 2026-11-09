@@ -4,7 +4,7 @@ import Wire
 public enum ChangeSection: String, Hashable, Sendable, CaseIterable {
     case staged, changes
 
-    public var title: String { self == .staged ? "Staged" : "Changes" }
+    public var title: String { self == .staged ? "Staged" : "Unstaged" }
 }
 
 /// One uniform-height row of the Changes list (pocket/git_ui/changes.rs `Row`), keyed so it keeps its identity across refreshes.

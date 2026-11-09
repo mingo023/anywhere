@@ -155,12 +155,34 @@ struct WorkspacesTests {
         #expect(Workspaces.working(cards) == ["run-new", "run-old"])
     }
 
-    @Test("a project's line counts its worktrees and Locals and says when it last moved")
+    @Test("a project's line counts its worktrees and Locals")
     func projectLine() {
-        #expect(Workspaces.line(worktrees: 2, locals: 1, latest: 1_000, now: 1_000) == "2 worktrees · 1 Local · now")
-        #expect(Workspaces.line(worktrees: 1, locals: 0, latest: 0, now: 1_000) == "1 worktree")
-        #expect(Workspaces.line(worktrees: 0, locals: 2, latest: 0, now: 1_000) == "2 Locals")
-        #expect(Workspaces.line(worktrees: 0, locals: 0, latest: 0, now: 1_000) == "No worktrees")
+        #expect(Workspaces.line(worktrees: 2, locals: 1) == "2 worktrees · 1 Local")
+        #expect(Workspaces.line(worktrees: 1, locals: 0) == "1 worktree")
+        #expect(Workspaces.line(worktrees: 0, locals: 2) == "2 Locals")
+        #expect(Workspaces.line(worktrees: 0, locals: 0) == "No worktrees")
+    }
+
+    @Test("a project's corner dot shows the most urgent session that wants a look, and none for work alone")
+    func alert() {
+        #expect(Workspaces.alert([.done, .failed, .needsYou]) == .needsYou)
+        #expect(Workspaces.alert([.done, .failed]) == .failed)
+        #expect(Workspaces.alert([.working, .done]) == .done)
+        #expect(Workspaces.alert([.working, .idle]) == nil)
+    }
+
+    @Test("the home header says how the Mac is reached and how many sessions it holds")
+    func headerStatus() {
+        #expect(HomeHeader.status(.online, sessions: 1) == "Connected over Tailscale · 1 session")
+        #expect(HomeHeader.status(.reconnecting, sessions: 40) == "\(Reachability.reconnecting.label) · 40 sessions")
+    }
+
+    @Test("a worktree's header names its branch against its base, and the bare branch before git answers")
+    func branchLine() {
+        let head = GitHead(Sample.gitStatus(files: 1))
+        #expect(TreeHeader.branchLine(branch: nil, head: head) == nil)
+        #expect(TreeHeader.branchLine(branch: "fix", head: nil) == "fix")
+        #expect(TreeHeader.branchLine(branch: "fix", head: head) == "fix from main · 4 ahead")
     }
 }
 
@@ -195,6 +217,51 @@ struct UpNextTextTests {
         #expect(SessionText.look(failed, .failed, requests: []) == "API Error: 529 overloaded")
         let working = Sample.agents.first { $0.id == "a-working" }!
         #expect(SessionText.look(working, .working, requests: []) == "Opus 5.5")
+    }
+
+    @Test("a row leads with what the session asks or what failed, and otherwise its title")
+    func headline() {
+        let needs = Sample.agents.first { $0.id == "a-needs" }!
+        #expect(SessionText.headline(needs, .needsYou, requests: [Sample.permission]) == "Wants to run rm -rf build")
+        #expect(SessionText.headline(needs, .needsYou, requests: []) == SessionText.title(needs))
+        var failed = Sample.agents.first { $0.id == "a-failed" }!
+        #expect(SessionText.headline(failed, .failed, requests: []) == SessionText.title(failed))
+        failed.error = "API Error: 529 overloaded"
+        #expect(SessionText.headline(failed, .failed, requests: []) == "API Error: 529 overloaded")
+        #expect(SessionText.headline(failed, .working, requests: []) == SessionText.title(failed))
+    }
+
+    @Test("a finished session says how it ended, and one still going doesn't")
+    func outcome() {
+        #expect(SessionText.outcome(.failed) == "Failed")
+        #expect(SessionText.outcome(.done) == "Finished")
+        #expect(SessionText.outcome(.working) == nil)
+        #expect(SessionText.outcome(.needsYou) == nil)
+    }
+
+    @Test("only a plain yes or no, short enough to read whole, is answered on its row")
+    func answersInPlace() {
+        #expect(SessionText.answersInPlace(Sample.permission))
+        #expect(!SessionText.answersInPlace(Sample.question))
+        let long = PermissionRequest(requestId: "r", agentId: "a", toolName: "Bash", detail: .shell(command: String(repeating: "x", count: 300), description: "long"))
+        #expect(!SessionText.answersInPlace(long))
+    }
+
+    @Test("a worktree's pull request tile says its state and how many checks passed")
+    func pullRequestState() {
+        let open = PrItem(tree: "/t", number: 7, title: "", state: "OPEN", draft: false, gate: .ready, checks: .init(passed: 3, failed: 1, pending: 0))
+        #expect(SessionText.pullRequestState(open) == "Open · 3 of 4 checks")
+        let draft = PrItem(tree: "/t", number: 7, title: "", state: "OPEN", draft: true, gate: .ready, checks: .init(passed: 0, failed: 0, pending: 0))
+        #expect(SessionText.pullRequestState(draft) == "Draft")
+        let merged = PrItem(tree: "/t", number: 7, title: "", state: "MERGED", draft: false, gate: .ready, checks: .init(passed: 1, failed: 0, pending: 0))
+        #expect(SessionText.pullRequestState(merged) == "Merged · 1 of 1 checks")
+    }
+
+    @Test("the steps still to come are those after the last one reported")
+    func stepsLeft() {
+        #expect(SessionText.stepsLeft(after: "copy") == ["setup", "agent"])
+        #expect(SessionText.stepsLeft(after: "agent") == [])
+        #expect(SessionText.stepsLeft(after: nil) == [])
     }
 
     @Test("a pull request reads as its number, Draft, and its checks, and its badge takes the colour of what it waits on")
@@ -257,12 +324,12 @@ struct TreeLinksTests {
         #expect(TreeLinks.changes(1_200) == "1200 files")
     }
 
-    @Test("the pull request row shows the PR, offers to create one once gh is ready, and hides without a GitHub remote or on a Mac that can't read GitHub")
+    @Test("the pull request tile names the PR, offers to create one once gh is ready, and hides without a GitHub remote or on a Mac that can't read GitHub")
     func pullRequest() {
         let item = PrItem(tree: "/t", number: 7, title: "", state: "OPEN", draft: false, gate: .ready, checks: .init(passed: 2, failed: 0, pending: 0))
-        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: nil, readsGitHub: true).map { [$0.title, $0.detail] } == ["Pull request", "#7 · 2 passed"])
-        #expect(TreeLinks.pullRequest(nil, gh: .ready, problem: nil, readsGitHub: true)?.title == "Create pull request")
-        #expect(TreeLinks.pullRequest(nil, gh: .signedOut, problem: nil, readsGitHub: true)?.title == "Pull request")
+        #expect(TreeLinks.pullRequest(item, gh: .ready, problem: nil, readsGitHub: true) == "Pull request")
+        #expect(TreeLinks.pullRequest(nil, gh: .ready, problem: nil, readsGitHub: true) == "Create pull request")
+        #expect(TreeLinks.pullRequest(nil, gh: .signedOut, problem: nil, readsGitHub: true) == "Pull request")
         #expect(TreeLinks.pullRequest(item, gh: .ready, problem: .noRemote, readsGitHub: true) == nil)
         #expect(TreeLinks.pullRequest(nil, gh: nil, problem: nil, readsGitHub: false) == nil)
     }

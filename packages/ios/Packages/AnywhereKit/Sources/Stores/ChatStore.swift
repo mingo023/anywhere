@@ -408,8 +408,7 @@ public final class ChatStore: HostStore {
 
     public var observeOnly: Bool { Composer.observeOnly(scopes) }
 
-    /// `permission.resolve` needs the approve scope, which a phone may hold without drive.
-    public var canApprove: Bool { scopes.isEmpty || scopes.contains(.approve) || scopes.contains(.owner) }
+    public var canApprove: Bool { Composer.canApprove(scopes) }
 
     /// The ask the agent waits on, as the chat shows it.
     public var ask: Ask? { requests.first.map(ChatModel.ask) }

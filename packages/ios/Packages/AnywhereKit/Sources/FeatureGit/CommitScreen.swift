@@ -63,7 +63,7 @@ struct CommitScreen: View {
                             NavigationLink(value: CommitFileRoute(tree: tree, sha: detail.sha, path: f.path, siblings: paths)) {
                                 FileRow(
                                     path: f.path, oldPath: f.oldPath, status: f.status,
-                                    counts: GitText.counts(added: f.added, removed: f.removed, binary: f.added == nil && f.status != .deleted))
+                                    added: f.added, removed: f.removed, binary: f.added == nil && f.status != .deleted)
                             }
                         }
                     }

@@ -64,6 +64,12 @@ extension HostModel {
         Reachability(link: link, offlineFor: offlineSince.map { now.timeIntervalSince($0) } ?? 0)
     }
 
+    /// When `reachability(at:)` changes, for a `TimelineView` that shows it.
+    public var reachabilityMarks: [Date] {
+        guard let since = offlineSince else { return [] }
+        return [since, since + Reachability.reconnectingAfter, since + Reachability.unreachableAfter]
+    }
+
     /// The id routes and deep links name this Mac by: its serverId once known, else the device id pairing gave.
     public var mac: String { hello?.serverId ?? credentials.serverId ?? id }
 }

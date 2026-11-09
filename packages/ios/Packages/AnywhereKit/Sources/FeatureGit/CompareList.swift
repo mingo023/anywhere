@@ -39,8 +39,8 @@ struct CompareList: View {
                         NavigationLink(value: CompareFileRoute(tree: tree, against: against, path: f.path)) {
                             FileRow(
                                 path: f.path, oldPath: f.oldPath, status: f.status,
-                                counts: GitText.counts(added: f.added, removed: f.removed, binary: f.added == nil && f.status != .deleted)
-                            )
+                                added: f.added, removed: f.removed, binary: f.added == nil && f.status != .deleted)
+                            
                             .padding(.horizontal, Space.l)
                             .frame(height: rowHeight)
                             .contentShape(Rectangle())

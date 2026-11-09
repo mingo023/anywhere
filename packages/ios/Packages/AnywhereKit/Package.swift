@@ -20,18 +20,19 @@ let modules: [(name: String, deps: [Target.Dependency], tested: Bool)] = [
     ("Fixtures", ["Wire"], true),
     ("Stores", ["Wire", "Client", "Domain", "ChatModel", "DiffModel", "PushSupport", "ActivityModel"], true),
     ("DesignSystem", ["Domain"], true),
+    ("FileIcons", [], true),
     ("MarkdownView", ["MarkdownModel", "Highlight", "DesignSystem"], true),
     ("CodeView", ["Highlight", "DiffModel", "DesignSystem"], true),
     ("FeatureChat", ["Stores", "ChatModel", "Wire", "MarkdownView", "CodeView", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureSessions", ["Stores", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureTerminal", ["Stores", "DesignSystem", "Domain", "Fixtures", .product(name: "SwiftTerm", package: "SwiftTerm")], true),
-    ("FeatureGit", ["Stores", "Client", "CodeView", "DiffModel", "DesignSystem", "Domain", "Fixtures"], true),
+    ("FeatureGit", ["Stores", "Client", "CodeView", "DiffModel", "DesignSystem", "Domain", "FileIcons", "Fixtures"], true),
     ("FeatureGitHub", ["Stores", "ChatModel", "MarkdownView", "DesignSystem", "Domain", "Fixtures"], true),
-    ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "Highlight", "DesignSystem", "Domain", "Fixtures"], true),
+    ("FeatureFiles", ["Stores", "CodeView", "MarkdownView", "Highlight", "DesignSystem", "Domain", "FileIcons", "Fixtures"], true),
     ("FeaturePairing", ["Stores", "Client", "DesignSystem", "Domain", "Fixtures"], true),
     ("FeatureSettings", ["Stores", "DesignSystem", "Domain", "Wire", "Client", "Fixtures"], true),
     ("AppShell", [
-        "Stores", "Domain", "DesignSystem", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit",
+        "Stores", "Domain", "DesignSystem", "FileIcons", "FeatureChat", "FeatureSessions", "FeatureTerminal", "FeatureGit",
         "FeatureGitHub", "FeatureFiles", "FeaturePairing", "FeatureSettings", "Fixtures",
     ], true),
     ("LiveActivityUI", ["ActivityModel", "DesignSystem"], true),
@@ -58,7 +59,7 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-cmark", branch: "gfm"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.20.0"),
     ],
-    targets: modules.map { .target(name: $0.name, dependencies: $0.deps) }
+    targets: modules.map { .target(name: $0.name, dependencies: $0.deps, resources: $0.name == "FileIcons" ? [.copy("Resources/material")] : nil) }
         + [.target(name: "Loopback", dependencies: ["Wire"], path: "Tests/Loopback")]
         + modules.filter(\.tested).map {
             .testTarget(

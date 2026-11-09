@@ -8,19 +8,17 @@ struct WelcomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.xl) {
+            VStack(alignment: .leading, spacing: Space.xxl) {
                 VStack(alignment: .leading, spacing: Space.m) {
                     AppMark()
                     Text("Anywhere").font(Typography.largeTitle).foregroundStyle(Palette.text.color)
-                    Text("Watch and drive the coding agents on your Mac, from your iPhone.")
-                        .font(Typography.body).foregroundStyle(Palette.text2.color)
+                    Text("Watch and drive the coding agents on your Mac, from your iPhone")
+                        .font(Typography.title3).foregroundStyle(Palette.text2.color)
                 }
-                VStack(alignment: .leading, spacing: Space.l) {
-                    Point(systemImage: "bell.badge", title: "Know when a session needs you", detail: "Approve, answer and reply without going back to your desk.")
-                    Point(systemImage: "terminal", title: "Everything the Mac shows", detail: "Chats, terminals, changes, pull requests and files.")
-                    Point(
-                        systemImage: "lock.shield", title: "Private over Tailscale",
-                        detail: "Your iPhone talks straight to your Mac on your own tailnet. Install Tailscale on both and sign in to the same account.")
+                VStack(alignment: .leading, spacing: Space.l + Space.xs) {
+                    Point(title: "Know when a session needs you", detail: "Approvals, questions, failures and finished runs, as they happen.") { StatusGlyph(.needsYou) }
+                    Point(systemImage: "terminal", title: "The terminal", detail: "Open the shells running on your Mac and type into them.")
+                    Point(systemImage: "lock.shield", title: "Private link over Tailscale", detail: "Your iPhone reaches your Mac across your own tailnet.")
                 }
                 Text("On your Mac, open Anywhere → Settings → Phone → Pair a phone.")
                     .font(Typography.footnote).foregroundStyle(Palette.text3.color)
@@ -38,14 +36,16 @@ struct WelcomeView: View {
                 } label: {
                     Label("Scan pairing code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                Button("Enter code instead") { model.path.append(.enter) }
-                    .buttonStyle(.borderless)
-                    .padding(.vertical, Space.xs)
-                Link("Get Tailscale", destination: Tailscale.appStore)
-                    .font(Typography.footnote)
+                .buttonStyle(CapsuleButtonStyle())
+                Button { model.path.append(.enter) } label: { Text("Enter code instead").frame(maxWidth: .infinity) }
+                    .buttonStyle(CapsuleButtonStyle(primary: false))
+                HStack(spacing: Space.xs) {
+                    Text("No Tailscale yet?").foregroundStyle(Palette.text3.color)
+                    Link("Get Tailscale", destination: Tailscale.appStore).fontWeight(.semibold).foregroundStyle(Palette.text.color)
+                }
+                .font(Typography.footnote)
+                .padding(.top, Space.xs)
             }
-            .controlSize(.large)
             .padding(.horizontal, Space.xl)
             .padding(.vertical, Space.m)
             .frame(maxWidth: 560)
@@ -73,23 +73,31 @@ struct AppMark: View {
 }
 
 @MainActor
-struct Point: View {
-    let systemImage: String
+struct Point<Icon: View>: View {
     let title: String
     let detail: String
+    @ViewBuilder let icon: Icon
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.m) {
-            Image(systemName: systemImage)
-                .font(.system(.title3))
-                .foregroundStyle(Palette.text2.color)
-                .frame(width: 32)
+            icon
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(Palette.text.color)
+                .frame(width: 28, height: 28)
+                .background(Palette.fill3.color, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(title).font(Typography.headline).foregroundStyle(Palette.text.color)
+                Text(title).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color)
                 Text(detail).font(Typography.subheadline).foregroundStyle(Palette.text3.color).fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+extension Point where Icon == Image {
+    init(systemImage: String, title: String, detail: String) {
+        self.init(title: title, detail: detail) { Image(systemName: systemImage) }
     }
 }
 

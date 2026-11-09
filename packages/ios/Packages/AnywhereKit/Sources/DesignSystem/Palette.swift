@@ -30,6 +30,7 @@ public enum Palette {
     public static let separator = Token(0x11111317, 0xebebeb14)
     public static let separatorStrong = Token(0x1111131f, 0xebebeb24)
     public static let selection = Token(0x11111324, 0xebebeb33)
+    public static let rowSelected = Token(0x11111312, 0xebebeb1a)
 
     /// No hue: the accent is ink, so links and focus read as weight rather than colour.
     public static let accent = Token(0x3f3f46ff, 0xd4d4d4ff)

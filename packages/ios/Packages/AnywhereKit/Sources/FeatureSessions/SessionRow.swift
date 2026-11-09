@@ -15,7 +15,7 @@ struct SessionRow: View {
         let s = session.summary
         let status = session.status
         HStack(alignment: .top, spacing: Space.m) {
-            StatusGlyph(status).padding(.top, 5)
+            StatusGlyph(status).padding(.top, 3)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                     if s.pinned == true {
@@ -24,13 +24,19 @@ struct SessionRow: View {
                     Text(SessionText.title(s))
                         .font(status.wantsLook ? Typography.body.weight(.semibold) : Typography.body)
                         .foregroundStyle(Palette.text.color)
-                        .lineLimit(1)
+                        .lineLimit(2)
                     Spacer(minLength: Space.s)
                     Elapsed(updatedAt: s.updatedAt, ticking: status == .working && stale == nil)
                 }
                 if let detail = SessionText.detail(s, status) {
-                    Text(detail).font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
+                    Text(detail).font(Typography.codeSmall).foregroundStyle((status == .failed ? Palette.failedText : Palette.text3).color).lineLimit(1)
                         .shimmer(status == .working && s.activity != nil && stale == nil)
+                }
+                if let model = s.model.map(Sidebar.modelName), !model.isEmpty {
+                    HStack(spacing: Space.xs) {
+                        BrandMark(s.provider, size: 11)
+                        Text("\(SessionText.provider(s.provider)) · \(model)").font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
+                    }
                 }
             }
         }

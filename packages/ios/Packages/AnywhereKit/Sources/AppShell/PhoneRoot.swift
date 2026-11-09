@@ -11,6 +11,27 @@ struct PhoneRoot: View {
     let app: AppModel
     @Bindable var navigator: Navigator
 
+    init(app: AppModel, navigator: Navigator) {
+        self.app = app
+        self.navigator = navigator
+        _ = Self.inkBadge
+    }
+
+    /// The tab's Up next count in ink: colour is for status, and SwiftUI has no way to set a badge's. Appearance is
+    /// process-wide, so once.
+    private static let inkBadge: Void = {
+        #if os(iOS)
+            let appearance = UITabBarAppearance()
+            appearance.configureWithDefaultBackground()
+            for layout in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance, appearance.compactInlineLayoutAppearance] {
+                layout.normal.badgeBackgroundColor = UIColor(Palette.text.color)
+                layout.normal.badgeTextAttributes = [.foregroundColor: UIColor(Palette.onText.color)]
+            }
+            UITabBar.appearance().standardAppearance = appearance
+            UITabBar.appearance().scrollEdgeAppearance = appearance
+        #endif
+    }()
+
     var body: some View {
         TabView(selection: $navigator.tab) {
             section(.sessions)

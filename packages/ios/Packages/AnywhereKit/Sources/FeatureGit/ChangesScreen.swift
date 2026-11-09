@@ -5,7 +5,7 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A tree's changes: its branch, the commit composer, then Staged and Changes, flat or as a tree; or, in the Compare
+/// A tree's changes: its branch, then Staged and Unstaged, flat or as a tree, over the commit composer; or, in the Compare
 /// scope, what the branch committed since it left its base.
 ///
 /// The files are a lazy stack of fixed-height rows rather than a `List`, which rediffs every row on each status read
@@ -28,6 +28,7 @@ struct ChangesScreen: View {
     @State private var selection = ChangeSelection()
     @State private var swiped = SwipeOpen()
     @State private var lines = ChangeLines()
+    @State private var filter = ""
     @State private var discarding: [String]?
 
     init(host: HostModel, mac: String, tree: String, chat: String? = nil, open: ((Route) -> Void)? = nil) {
@@ -72,13 +73,8 @@ struct ChangesScreen: View {
         #if os(iOS)
             .toolbar {
                 if !comparing {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(selection.selecting ? "Done" : "Edit") {
-                            swiped.close()
-                            selection.selecting.toggle()
-                            if !selection.selecting { selection.ids = [] }
-                        }
-                        .fontWeight(selection.selecting ? .semibold : .regular)
+                    if selection.selecting {
+                        ToolbarItem(placement: .topBarTrailing) { Button("Done", action: toggleSelecting).fontWeight(.semibold) }
                     }
                     ToolbarItemGroup(placement: .bottomBar) {
                         SelectionBar(selection: selection, stage: { stage($0, staged: $1) }, discard: { discarding = $0 }).disabled(offline)
@@ -87,19 +83,33 @@ struct ChangesScreen: View {
             }
         #endif
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .principal) { BarTitle("Changes", detail: changes.head?.branch) }
+            ToolbarItemGroup(placement: .primaryAction) {
+                Picker("View", selection: $asTree) {
+                    Label("List", systemImage: "list.bullet").tag(false)
+                    Label("Tree", systemImage: "list.bullet.indent").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 96)
                 Menu {
-                    Picker("View", selection: $asTree) {
-                        Label("List", systemImage: "list.bullet").tag(false)
-                        Label("Tree", systemImage: "list.bullet.indent").tag(true)
-                    }
+                    #if os(iOS)
+                        if !comparing { Button("Select Files", systemImage: "checkmark.circle", action: toggleSelecting) }
+                    #endif
                     NavigationLink(value: Route.history(mac: mac, tree: tree)) { Label("History", systemImage: "clock.arrow.circlepath") }
                 } label: {
-                    Label("Options", systemImage: "ellipsis.circle")
+                    Label("Options", systemImage: "ellipsis")
                 }
             }
         }
         .navigationTitle("Changes")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !comparing, !selection.selecting, changes.head != nil {
+                CommitComposer(store: store, changes: changes).disabled(offline)
+            }
+        }
         .navigationDestination(for: CompareFileRoute.self) { r in
             DiffScreen(host: host, tree: r.tree, path: r.path, at: .base(rev: r.against), files: .compare(against: r.against), chat: chat, open: open)
         }
@@ -125,34 +135,34 @@ struct ChangesScreen: View {
 
     private func uncommitted(_ changes: TreeChanges, writable: Bool) -> some View {
         let store = host.git
-        let lines = lines.lines(changes, tree: asTree, folded: folded)
+        let lines = lines.lines(changes, tree: asTree, folded: folded, filter: filter)
         let actions = ChangeActions(
             fold: { ChangeTree.toggleFold(&folded, $0) }, stage: { stage($0, staged: $1) }, stageAll: { stageAll($0) }, discard: { discarding = $0 })
         let busy = changes.busy != nil || changes.bulk != nil || !writable
+        let filtering = !filter.trimmingCharacters(in: .whitespaces).isEmpty
         return ScrollView {
             LazyVStack(spacing: 0) {
                 VStack(spacing: Space.l) {
-                    if let head = changes.head {
+                    SearchField("Filter \(changes.files.count.formatted()) files", text: $filter).padding(.horizontal, Space.l)
+                    if let head = changes.head, GitText.showsHead(head) {
                         HeadRow(store: store, changes: changes, head: head, mac: mac).card().disabled(!writable)
-                    } else if changes.loading {
+                    } else if changes.head == nil, changes.loading {
                         HStack { ProgressView(); Text("Reading changes…").foregroundStyle(Palette.text3.color) }.card()
                     }
                     if let error = changes.error {
                         ErrorRow(message: error) { changes.error = nil }.card()
                     }
-                    if changes.head != nil {
-                        CommitComposer(store: store, changes: changes).card().disabled(!writable)
-                    }
                     if changes.head != nil, changes.files.isEmpty {
                         Label("No changes", systemImage: "checkmark.circle").foregroundStyle(Palette.text3.color).card()
                     }
                 }
-                .padding(.top, Space.l)
+                .padding(.top, Space.s)
                 ForEach(lines) { line in
-                    let section = line.header
+                    let header = line.header
                     ChangeLineView(
-                        line: line, mac: mac, tree: tree, chat: chat, nameOnly: asTree, folded: section.map { folded.contains($0.rawValue) } ?? false,
-                        stageAll: section.map { GitText.stageAll($0, count: changes.count($0), bulk: changes.bulk) }, count: section.map(changes.count) ?? 0,
+                        line: line, mac: mac, tree: tree, chat: chat, nameOnly: asTree, folded: header.map { folded.contains($0.section.rawValue) } ?? false,
+                        stageAll: filtering ? nil : header.map { GitText.stageAll($0.section, bulk: changes.bulk) },
+                        count: header.map { filtering ? $0.paths.count : changes.count($0.section) } ?? 0,
                         writable: writable, busy: busy, selection: selection, swiped: swiped, actions: actions
                     )
                     .equatable()
@@ -165,6 +175,12 @@ struct ChangesScreen: View {
             .padding(.bottom, Space.xl)
         }
         .refreshable { await store.refresh(tree) }
+    }
+
+    private func toggleSelecting() {
+        swiped.close()
+        selection.selecting.toggle()
+        if !selection.selecting { selection.ids = [] }
     }
 
     private var discardTitle: String {
@@ -226,9 +242,9 @@ private struct ChangeLineView: View, Equatable {
     let chat: String?
     let nameOnly: Bool
     let folded: Bool
-    /// A header's Stage All or Unstage All, with its count.
+    /// A header's Stage All or Unstage All; nil while a filter hides rows it would still stage.
     let stageAll: String?
-    /// A header's file count over the whole tree.
+    /// A header's file count: the filter's matches, else the whole tree's.
     let count: Int
     /// Stage and Discard are offered; not while the Mac is offline.
     let writable: Bool
@@ -239,8 +255,8 @@ private struct ChangeLineView: View, Equatable {
     let actions: ChangeActions
     // A grouped list's row heights: two lines of name and folder, or one.
     #if os(iOS)
-        @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 58
-        @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 44
+        @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 50
+        @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 40
     #else
         @ScaledMetric(relativeTo: .body) private var fileHeight: CGFloat = 38
         @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 28
@@ -255,7 +271,7 @@ private struct ChangeLineView: View, Equatable {
         switch line.row {
         case .header(let section, _):
             SectionHeader(
-                section: section, count: count, folded: folded, stageAll: stageAll ?? "", busy: busy, fold: { actions.fold(section.rawValue) },
+                section: section, count: count, folded: folded, stageAll: stageAll, busy: busy, fold: { actions.fold(section.rawValue) },
                 stage: { actions.stageAll(section) }
             )
         case .folder(_, let key, let label, let depth, let open):
@@ -287,7 +303,7 @@ private struct ChangeLineView: View, Equatable {
     @ViewBuilder
     private func file(_ section: ChangeSection, _ f: GitFile, depth: Int) -> some View {
         let row = FileRow(
-            path: f.path, oldPath: f.oldPath, status: f.status, counts: GitText.counts(added: f.added, removed: f.removed, binary: f.binary == true),
+            path: f.path, oldPath: f.oldPath, status: f.status, added: f.added, removed: f.removed, binary: f.binary == true,
             depth: depth, nameOnly: nameOnly)
         if selection.selecting {
             let picked = selection.ids.contains(line.id)
@@ -308,12 +324,7 @@ private struct ChangeLineView: View, Equatable {
             .accessibilityAddTraits(picked ? .isSelected : [])
         } else {
             NavigationLink(value: Route.diff(mac: mac, tree: tree, path: f.path, staged: section == .staged, chat: chat)) {
-                HStack(spacing: Space.s) {
-                    row
-                    #if os(iOS)
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Palette.text5.color)
-                    #endif
-                }
+                row
                 .padding(.horizontal, Space.l)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -338,8 +349,8 @@ private struct ChangeLineView: View, Equatable {
 }
 
 extension ChangeLine {
-    fileprivate var header: ChangeSection? {
-        if case .header(let s, _) = row { s } else { nil }
+    fileprivate var header: (section: ChangeSection, paths: [String])? {
+        if case .header(let s, let paths) = row { (s, paths) } else { nil }
     }
 }
 
@@ -437,13 +448,13 @@ private struct HeadRow: View {
     }
 }
 
-/// A section's title with its count over the whole tree, a fold chevron and Stage All or Unstage All.
+/// A section's title and count, which fold it, and Stage All or Unstage All.
 @MainActor
 private struct SectionHeader: View {
     let section: ChangeSection
     let count: Int
     let folded: Bool
-    let stageAll: String
+    let stageAll: String?
     let busy: Bool
     let fold: () -> Void
     let stage: () -> Void
@@ -452,8 +463,7 @@ private struct SectionHeader: View {
         HStack {
             Button(action: fold) {
                 HStack(spacing: Space.xs) {
-                    Image(systemName: "chevron.right").rotationEffect(.degrees(folded ? 0 : 90)).font(.caption2.weight(.bold))
-                    Text(section.title)
+                    Text(section.title).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color)
                     Text(count.formatted()).monospacedDigit().foregroundStyle(Palette.text3.color)
                 }
                 .frame(minHeight: HitTarget.minimum)
@@ -462,12 +472,15 @@ private struct SectionHeader: View {
             .buttonStyle(.plain)
             .accessibilityValue(folded ? "Folded" : "Open")
             Spacer()
-            Button(action: stage) {
-                Text(stageAll).monospacedDigit().hitTarget()
+            if let stageAll {
+                Button(action: stage) {
+                    Text(stageAll).monospacedDigit().hitTarget()
+                }
+                .font(Typography.footnote.weight(.semibold))
+                .foregroundStyle(Palette.text.color)
+                .buttonStyle(.plain)
+                .disabled(busy)
             }
-            .font(Typography.footnote)
-            .buttonStyle(.borderless)
-            .disabled(busy)
         }
         .font(Typography.footnote)
         .foregroundStyle(Palette.text2.color)

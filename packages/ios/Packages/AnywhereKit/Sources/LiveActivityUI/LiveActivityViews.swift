@@ -68,7 +68,7 @@ public struct ActivityGlyph: View {
 
     nonisolated static func tint(_ g: ActivityDisplay.Glyph) -> Token {
         switch g {
-        case .needsYou: Palette.waitingDot
+        case .needsYou: Palette.text
         case .failed: Palette.failed
         case .working: Palette.working
         case .done: Palette.success
@@ -103,7 +103,7 @@ public struct ActivityTrailing: View {
         case .needs(let n):
             Text("!\(n)")
                 .font(.system(.body, weight: .bold).monospacedDigit())
-                .foregroundStyle(Color.of(Palette.waitingDot, dark: dark))
+                .foregroundStyle(Color.of(Palette.text, dark: dark))
                 .accessibilityLabel("\(n) \(n == 1 ? "needs" : "need") you")
         case .timer(let since):
             Text(timerInterval: since...Date.distantFuture, countsDown: false)

@@ -40,6 +40,89 @@ struct DesignSystemTests {
         #expect(Palette.waitingDot.rgba(dark: false) == Palette.waitingDot.rgba(dark: true))
     }
 
+    @Test("the spinner's dots pulse as the desktop's do")
+    func spinner() {
+        #expect(GradientSpinner.opacity(0) == 1)
+        #expect(GradientSpinner.opacity(0.45) == GradientSpinner.dim)
+        #expect(GradientSpinner.opacity(0.7) == GradientSpinner.dim)
+        #expect(GradientSpinner.opacity(1.25) == GradientSpinner.opacity(0.25))
+        #expect(GradientSpinner.lead(row: 2, col: 1) == 0)
+        #expect(GradientSpinner.lead(row: 0, col: 0) == 0.75)
+    }
+
+    @Test("a cell clear of the content shows a dot, and under the lens a glyph of the map")
+    func fieldMarks() {
+        #expect(Field.mark(level: 1, glow: 1, mask: 0) == .hidden)
+        #expect(Field.mark(level: 0.5, glow: 0, mask: 1) == .dot(alpha: 0.35 + 0.5 * 0.65))
+        guard case .glyph(let index, _, let alpha) = Field.mark(level: 1, glow: 1, mask: 1) else {
+            Issue.record("no glyph")
+            return
+        }
+        #expect(index == Field.ramp.count - 1)
+        #expect(alpha == 1)
+    }
+
+    @MainActor @Test("the map fades around the content and follows it, keeping its contour")
+    func fieldMasks() {
+        let map = FieldMap()
+        let top = map.sized(20, 10, around: [CGRect(x: 0, y: 0, width: 200, height: 20)])
+        let bottom = map.sized(20, 10, around: [CGRect(x: 0, y: 160, width: 200, height: 20)])
+        #expect(top.levels == bottom.levels)
+        #expect(top.masks[0] == 0)
+        #expect(bottom.masks[0] == 1)
+    }
+
+    @Test("an idle lens starts at rest, crosses the field and stays in its band")
+    func fieldWander() {
+        let rest = CGPoint(x: 200, y: 120)
+        #expect(Field.wander(0, around: rest) == rest)
+        let path = stride(from: 0.0, to: 187, by: 0.5).map { Field.wander($0, around: rest) }
+        #expect(path.allSatisfy { abs($0.x - 200) <= 160 && abs($0.y - 120) <= 36 })
+        #expect(path.map(\.x).max()! > 340 && path.map(\.x).min()! < 60)
+    }
+
+    @Test("a drifting lens stays lit and keeps up with its path")
+    func fieldLensDrifts() {
+        let rest = CGPoint(x: 200, y: 120)
+        var lens = FieldLens()
+        lens.aim(rest)
+        for _ in 0..<200 {
+            lens.wander(0.05, around: rest)
+            lens.step(0.05)
+        }
+        #expect(abs(lens.x - lens.aimX) < 5 && abs(lens.y - lens.aimY) < 5)
+        #expect(lens.glow(CGPoint(x: lens.x, y: lens.y)) > 0.99)
+    }
+
+    @Test("the map's noise stays within 0 and 1, and a level never moves")
+    func fieldNoise() {
+        for i in 0..<2000 {
+            let n = Field.noise(Double(i) * 0.37 - 300, Double(i) * 0.91 - 700)
+            #expect(n >= 0 && n <= 1)
+        }
+        #expect(Field.level(12, 40) == Field.level(12, 40))
+    }
+
+    @Test("the field stays clear of content, then fades in")
+    func fieldMask() {
+        let rect = CGRect(x: 100, y: 100, width: 50, height: 20)
+        #expect(Field.outside(rect, CGPoint(x: 120, y: 110)) == 0)
+        #expect(Field.outside(rect, CGPoint(x: 160, y: 110)) == 10)
+        #expect(Field.mask(0) == 0)
+        #expect(Field.mask(Field.margin + Field.fade) == 1)
+    }
+
+    @Test("the lens eases to where it's aimed, and stops asking for frames there")
+    func fieldLens() {
+        var lens = FieldLens()
+        lens.aim(CGPoint(x: 100, y: 50))
+        #expect(lens.x == 100 && lens.moving)
+        for _ in 0..<200 { lens.step(0.016) }
+        #expect(!lens.moving)
+        #expect(lens.glow(CGPoint(x: 100, y: 50)) > 0.99)
+        #expect(lens.glow(CGPoint(x: 100, y: 50 + FieldLens.radius)) == 0)
+    }
+
     @Test("each status has its own colour")
     func statusColours() {
         let colours = Status.allCases.map { StatusGlyph.color($0) }

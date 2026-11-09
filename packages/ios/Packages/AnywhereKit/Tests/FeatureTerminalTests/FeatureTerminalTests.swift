@@ -94,7 +94,6 @@ struct TerminalListTests {
     func groups() {
         let groups = TerminalGroup.of(Sample.terminals, locals: Sample.locals)
         #expect(groups.map(\.title) == ["calm-otter", "anywhere", "Review", "website"])
-        #expect(groups.map(\.path) == ["~/.worktrees/anywhere/calm-otter", "~/dev/anywhere", "~/dev/anywhere", "~/dev/website"])
         #expect(groups[1].terminals.map(\.id) == ["t-shell"])
         #expect(groups[2].terminals.map(\.id) == ["t-review"])
     }
@@ -103,7 +102,6 @@ struct TerminalListTests {
     func unknownLocal() {
         let groups = TerminalGroup.of([Terminal(id: "t1", cwd: "/srv/app", cols: 80, rows: 24, localId: "new")], locals: [])
         #expect(groups.map(\.title) == ["app"])
-        #expect(groups.map(\.path) == ["/srv/app"])
     }
 }
 

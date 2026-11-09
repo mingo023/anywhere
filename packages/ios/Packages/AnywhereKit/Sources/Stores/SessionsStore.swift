@@ -10,6 +10,8 @@ public final class SessionsStore: HostStore {
     public private(set) var sessions: [String: SessionModel] = [:]
     /// Sessions that want a look, in the order to handle them.
     public private(set) var upNext: [String] = []
+    /// How many of Up next are asking the user something.
+    public var needsYouCount: Int { upNext.count { sessions[$0]?.status == .needsYou } }
     /// Every session, newest first.
     public private(set) var recent: [String] = []
     /// Open asks by request id.

@@ -33,9 +33,11 @@ struct PrPill: View {
     let text: String
     let tone: PrTone
     var systemImage: String?
+    var dot = false
 
     var body: some View {
         HStack(spacing: Space.xs) {
+            if dot { Circle().frame(width: 6, height: 6) }
             if let systemImage { Image(systemName: systemImage).imageScale(.small) }
             Text(text).lineLimit(1)
         }
