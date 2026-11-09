@@ -585,6 +585,14 @@ impl TextViewStyle {
         self.table_background
     }
 
+    /// Whether scrolled table rows paint into the frame's corners: with a
+    /// fill, or a rule along the table's top and bottom edges.
+    pub(crate) fn table_rows_reach_corners(&self) -> bool {
+        self.table_head.background.is_some()
+            || self.table_cell.background.is_some()
+            || !self.table_inner_rules
+    }
+
     /// Returns the [`HighlightStyle`] to use for inline code, falling back to
     /// the code background when no custom background was supplied.
     pub(crate) fn inline_code_highlight(&self) -> HighlightStyle {
@@ -674,6 +682,29 @@ mod tests {
     use gpui::{Styled as _, px};
 
     use super::*;
+
+    #[test]
+    fn table_rows_reach_the_corners_only_with_a_fill_or_outer_rules() {
+        assert!(TextViewStyle::default().table_rows_reach_corners());
+
+        let inner_rules = TextViewStyle::default().with_table_inner_rules();
+        assert!(!inner_rules.table_rows_reach_corners());
+        assert!(
+            !inner_rules
+                .clone()
+                .with_table_head(StyleRefinement::default().text_size(px(14.)))
+                .table_rows_reach_corners()
+        );
+
+        let fill = StyleRefinement::default().bg(gpui::red());
+        assert!(
+            inner_rules
+                .clone()
+                .with_table_head(fill.clone())
+                .table_rows_reach_corners()
+        );
+        assert!(inner_rules.with_table_cell(fill).table_rows_reach_corners());
+    }
 
     #[test]
     fn selection_layout_fingerprint_covers_callback_table_and_theme_fields() {
