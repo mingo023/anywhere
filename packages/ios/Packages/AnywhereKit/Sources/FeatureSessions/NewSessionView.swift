@@ -4,9 +4,10 @@ import Stores
 import SwiftUI
 import Wire
 
-/// The new session sheet, prompt first as on the desktop: what to build in a composer whose pills pick the agent, its
-/// model and access, over where it runs. Starting shows pocketd's steps, then opens the chat; hidden, the start goes on
-/// as a row under its project. Offline, the prompt can still be written, and Start waits for the Mac.
+/// The new session sheet: a calm headline over the desktop's ASCII field, and at the bottom a composer holding every
+/// control: the prompt, the pills for agent, model and access, and where it runs. Starting shows pocketd's steps, then
+/// opens the chat; hidden, the start goes on as a row under its project. Offline, the prompt can still be written, and
+/// Start waits for the Mac.
 @MainActor
 struct NewSessionView: View {
     let host: HostModel
@@ -15,6 +16,8 @@ struct NewSessionView: View {
     @State private var requestId: String?
     @State private var worktreeOptions = false
     @State private var providersError: String?
+    @State private var fieldSize = CGSize.zero
+    @State private var headlineFrame = CGRect.zero
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -53,7 +56,6 @@ struct NewSessionView: View {
                 }
             }
         }
-        .navigationTitle("New Session")
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -82,54 +84,99 @@ struct NewSessionView: View {
     // MARK: Compose
 
     private var compose: some View {
-        VStack(spacing: Space.m) {
-            Spacer()
-            Text("What should we build next?")
-                .font(Typography.title)
-                .foregroundStyle(Palette.text.color)
-                .multilineTextAlignment(.center)
-            Spacer()
-            box
-            where_
-            if let wait = Self.waiting(online: online, providers: providers != nil, failed: providersError != nil, mac: host.name) {
-                Text(wait).font(Typography.footnote).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, alignment: .leading)
-            } else if let providersError {
-                HStack {
-                    Text(providersError).font(Typography.footnote).foregroundStyle(Palette.failedText.color)
-                    Spacer(minLength: Space.s)
-                    Button { Task { await load() } } label: { Text("Try Again").hitTarget() }.font(Typography.footnote.weight(.semibold))
-                }
-            } else if let problem {
-                Text(problem).font(Typography.footnote).foregroundStyle(Palette.failedText.color).frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: Space.s) {
+            field
+            VStack(spacing: Space.s) {
+                note
+                composer
             }
+            .padding(.horizontal, Space.m)
+            .frame(maxWidth: 744)
         }
-        .padding(.horizontal, Space.m)
         .padding(.bottom, Space.s)
-        .frame(maxWidth: 744)
         .frame(maxWidth: .infinity)
         .screenBackground()
     }
 
-    private var box: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    /// The open space: the field, and the headline while there's room for it above the keyboard.
+    private var field: some View {
+        ZStack {
+            AsciiField(content: fieldContent, rest: fieldRest)
+            ViewThatFits(in: .vertical) {
+                headline
+                Color.clear.onAppear { headlineFrame = .zero }
+            }
+        }
+        .coordinateSpace(.named(Self.fieldSpace))
+        .onGeometryChange(for: CGSize.self, of: \.size) { fieldSize = $0 }
+    }
+
+    private static let fieldSpace = "field"
+
+    private var headline: some View {
+        VStack(spacing: Space.xs) {
+            Text("What should we build next?")
+                .font(Typography.title)
+                .foregroundStyle(Palette.text.color)
+            if let name = project?.name {
+                Text(name).font(Typography.subheadline).foregroundStyle(Palette.text3.color)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, Space.xl)
+        .allowsHitTesting(false)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.fieldSpace)) }) { headlineFrame = $0 }
+    }
+
+    /// What the field fades around: the headline, and the composer along its bottom edge.
+    private var fieldContent: [CGRect] {
+        guard fieldSize != .zero else { return [] }
+        let composer = CGRect(x: 0, y: fieldSize.height, width: fieldSize.width, height: 1)
+        return headlineFrame.isEmpty ? [composer] : [headlineFrame, composer]
+    }
+
+    /// Where the lens rests: above the headline, so every state shows some of the map.
+    private var fieldRest: CGPoint {
+        CGPoint(x: fieldSize.width / 2, y: headlineFrame.isEmpty ? fieldSize.height / 2 : max(30, headlineFrame.minY - 76))
+    }
+
+    @ViewBuilder
+    private var note: some View {
+        if let wait = Self.waiting(online: online, providers: providers != nil, failed: providersError != nil, mac: host.name) {
+            Text(wait).font(Typography.footnote).foregroundStyle(Palette.text3.color).frame(maxWidth: .infinity, alignment: .leading)
+        } else if let providersError {
+            HStack {
+                Text(providersError).font(Typography.footnote).foregroundStyle(Palette.failedText.color)
+                Spacer(minLength: Space.s)
+                Button { Task { await load() } } label: { Text("Try Again").hitTarget() }.font(Typography.footnote.weight(.semibold))
+            }
+        } else if let problem {
+            Text(problem).font(Typography.footnote).foregroundStyle(Palette.failedText.color).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
             TextField("Prompt", text: $draft.prompt, prompt: Text("Describe the task…"), axis: .vertical)
-                .lineLimit(3...8)
+                .lineLimit(1...8)
                 .font(Typography.body)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .padding(.horizontal, 4)
                 .padding(.top, 4)
-            HStack(spacing: 0) {
+            HStack(spacing: Space.xs) {
                 agentMenu
                 modelMenu
                 accessMenu
                 Spacer(minLength: Space.s)
                 startButton
             }
+            Palette.separator.color.frame(height: 1)
+            where_
         }
-        .padding(8)
-        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.separator.color))
+        .padding(Space.s)
+        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Palette.separator.color))
     }
 
     private var startButton: some View {
@@ -163,7 +210,7 @@ struct NewSessionView: View {
                 .pickerStyle(.menu)
             }
         } label: {
-            ComposerPill(text: SessionText.provider(draft.provider.rawValue)) { BrandMark(draft.provider.rawValue, size: 12) }
+            ComposerPill(text: SessionText.provider(draft.provider.rawValue), filled: true) { BrandMark(draft.provider.rawValue, size: 12) }
         }
         .menuOrder(.fixed)
     }
@@ -187,7 +234,7 @@ struct NewSessionView: View {
                 .pickerStyle(.menu)
             }
         } label: {
-            ComposerPill(text: draft.effort.map { "\(model) · \($0.capitalized)" } ?? model) { EmptyView() }
+            ComposerPill(text: draft.effort.map { "\(model) · \($0.capitalized)" } ?? model, filled: true) { EmptyView() }
         }
         .menuOrder(.fixed)
         .disabled(models.isEmpty && efforts.isEmpty)
@@ -197,7 +244,7 @@ struct NewSessionView: View {
         Menu {
             AccessChoices(choices: AccessPill.choices(max: maxAccess, launching: true), picked: draft.access.rawValue) { draft.access = Access(rawValue: $0) }
         } label: {
-            ComposerPill(text: AccessPill.label(draft.access.rawValue)) { Image(systemName: "shield") }
+            ComposerPill(text: AccessPill.label(draft.access.rawValue), filled: true) { Image(systemName: "shield") }
         }
         .menuOrder(.fixed)
     }
@@ -214,7 +261,6 @@ struct NewSessionView: View {
                     ComposerPill(text: project?.name ?? "Project") { ProjectTile(name: project?.name ?? "") }
                 }
                 .disabled(workspace.projects.count < 2)
-                Text("·").font(Typography.footnote).foregroundStyle(Palette.text4.color)
                 if let existing {
                     ComposerPill(text: existing.label, chevron: false) { Image(systemName: existing.systemImage) }
                 } else {
@@ -321,16 +367,19 @@ private struct ComposerPill<Icon: View>: View {
     let text: String
     var mono = false
     var chevron = true
+    var filled = false
     @ViewBuilder let icon: Icon
 
     var body: some View {
         HStack(spacing: 5) {
             icon.font(.system(size: 11))
             Text(text).font(mono ? Typography.codeSmall : Typography.footnote).lineLimit(1)
-            if chevron { Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
+            if chevron { Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
         }
         .foregroundStyle(Palette.text2.color)
         .padding(.horizontal, 8)
+        .frame(minHeight: filled ? 30 : 28)
+        .background(filled ? Palette.fill2.color : Color.clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .frame(minHeight: HitTarget.minimum)
         .contentShape(Rectangle())
     }

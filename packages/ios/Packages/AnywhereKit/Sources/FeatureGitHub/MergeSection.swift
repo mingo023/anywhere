@@ -3,8 +3,8 @@ import Stores
 import SwiftUI
 import Wire
 
-/// An open PR's merge: what holds it back, Ready for review or Merge with the repository's last method, and whether
-/// the worktree goes once merged.
+/// An open PR's merge: what holds it back, Ready for review or Resolve, and whether the worktree goes once merged. The
+/// merge itself is the bar under the card.
 @MainActor
 struct MergeSection: View {
     let store: GitHubStore
@@ -18,14 +18,10 @@ struct MergeSection: View {
     /// What the merge row says while the agent resolves the conflict.
     let resolving: String?
     let resolve: () -> Void
-    let merged: () -> Void
-
-    @AppStorage private var method: MergeMethod
-    @State private var merging = false
 
     init(
         store: GitHubStore, model: TreePullRequest, pr: PullRequest, offline: Bool, cleanup: WorktreeCleanup?, deleteAfter: Binding<Bool>,
-        resolveTitle: String? = nil, resolving: String? = nil, resolve: @escaping () -> Void = {}, merged: @escaping () -> Void
+        resolveTitle: String? = nil, resolving: String? = nil, resolve: @escaping () -> Void = {}
     ) {
         self.store = store
         self.model = model
@@ -36,8 +32,6 @@ struct MergeSection: View {
         self.resolveTitle = resolveTitle
         self.resolving = resolving
         self.resolve = resolve
-        self.merged = merged
-        _method = AppStorage(wrappedValue: .squash, "github.mergeMethod.\(PullRequestText.repo(pr.url) ?? "")")
     }
 
     var body: some View {
@@ -76,8 +70,6 @@ struct MergeSection: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(resolving != nil || offline)
-                } else {
-                    mergeButtons
                 }
                 if let cleanup {
                     Toggle(isOn: $deleteAfter) {
@@ -86,32 +78,65 @@ struct MergeSection: View {
                             Text(cleanup.closes).font(Typography.footnote).foregroundStyle(Palette.text3.color)
                         }
                     }
+                    .tint(Palette.text.color)
                 }
             }
         }
     }
+}
 
-    private var mergeButtons: some View {
-        HStack(spacing: Space.s) {
-            Button {
-                merging = true
-            } label: {
-                Label(model.busy ?? method.label, systemImage: "arrow.triangle.merge").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Palette.success.color)
-            Menu {
-                Picker("Merge method", selection: $method) {
-                    ForEach(MergeMethod.allCases, id: \.self) { Text($0.label).tag($0) }
+/// The method to merge with, what holds it back, and Merge, kept in reach at the bottom of the card.
+@MainActor
+struct MergeBar: View {
+    let store: GitHubStore
+    let model: TreePullRequest
+    let pr: PullRequest
+    let offline: Bool
+    let cleanup: WorktreeCleanup?
+    @Binding var deleteAfter: Bool
+    let merged: () -> Void
+
+    @AppStorage private var method: MergeMethod
+    @State private var merging = false
+
+    init(store: GitHubStore, model: TreePullRequest, pr: PullRequest, offline: Bool, cleanup: WorktreeCleanup?, deleteAfter: Binding<Bool>, merged: @escaping () -> Void) {
+        self.store = store
+        self.model = model
+        self.pr = pr
+        self.offline = offline
+        self.cleanup = cleanup
+        _deleteAfter = deleteAfter
+        self.merged = merged
+        _method = AppStorage(wrappedValue: .squash, "github.mergeMethod.\(PullRequestText.repo(pr.url) ?? "")")
+    }
+
+    var body: some View {
+        HStack(spacing: Space.m) {
+            VStack(alignment: .leading, spacing: 1) {
+                Menu {
+                    Picker("Merge method", selection: $method) {
+                        ForEach(MergeMethod.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                } label: {
+                    HStack(spacing: Space.xs) {
+                        Text(method.label).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
+                        Image(systemName: "chevron.down").font(Typography.caption2.weight(.semibold)).foregroundStyle(Palette.text3.color)
+                    }
                 }
-            } label: {
-                Image(systemName: "chevron.down").hitTarget()
+                .accessibilityLabel("Merge method")
+                Text(model.busy ?? PullRequestText.gate(pr.gate, base: pr.base)).font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
             }
-            .accessibilityLabel("Other methods…")
-            .buttonStyle(.bordered)
-            .fixedSize()
+            Spacer(minLength: Space.s)
+            Button("Merge") { merging = true }
+                .buttonStyle(CapsuleButtonStyle())
+                .disabled(pr.gate != .ready || model.busy != nil || offline)
         }
-        .disabled(pr.gate != .ready || model.busy != nil || offline)
+        .padding(.leading, Space.l)
+        .padding(.trailing, Space.s)
+        .padding(.vertical, Space.s)
+        .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, Space.l)
+        .padding(.bottom, Space.xs)
         .confirmationDialog("Merge #\(pr.number) into \(pr.base)?", isPresented: $merging, titleVisibility: .visible) {
             let chosen = method
             Button(chosen.label) {

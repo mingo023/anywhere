@@ -1,6 +1,14 @@
 import Domain
 import Stores
 
+/// Where a session runs, as Up next and Working name it: its project and its branch, or its Local.
+struct SessionPlace: Hashable {
+    let project: String
+    let tree: String
+
+    var line: String { "\(project) · \(tree)" }
+}
+
 /// What the Sessions home says about projects and sessions, over plain data.
 enum Workspaces {
     /// "GM" for glow-me; a one-word name gives its first two letters.
@@ -25,14 +33,17 @@ enum Workspaces {
         cards.filter { $0.status == .working }.sorted { $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id < $1.id }.map(\.id)
     }
 
-    /// "2 worktrees · 1 Local · now"; without a session to date it, the counts alone.
-    static func line(worktrees: Int, locals: Int, latest: Int, now: Int) -> String {
+    /// What a project's corner dot says: the most urgent of the sessions that want a look.
+    static func alert(_ statuses: [Status]) -> Status? {
+        [.needsYou, .failed, .done].first { statuses.contains($0) }
+    }
+
+    /// "2 worktrees · 1 Local".
+    static func line(worktrees: Int, locals: Int) -> String {
         var parts: [String] = []
         if worktrees > 0 { parts.append("\(worktrees) worktree\(worktrees == 1 ? "" : "s")") }
         if locals > 0 { parts.append("\(locals) Local\(locals == 1 ? "" : "s")") }
         if parts.isEmpty { parts.append("No worktrees") }
-        let ago = TimeText.ago(ms: latest, now: now)
-        if !ago.isEmpty { parts.append(ago) }
         return parts.joined(separator: " · ")
     }
 }

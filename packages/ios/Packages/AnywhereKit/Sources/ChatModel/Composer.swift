@@ -27,6 +27,11 @@ public enum Composer {
         !scopes.isEmpty && !scopes.contains(.drive) && !scopes.contains(.owner)
     }
 
+    /// `permission.resolve` needs the approve scope, which a phone may hold without drive. No scopes is a pocketd before them.
+    public static func canApprove(_ scopes: [Scope]) -> Bool {
+        scopes.isEmpty || scopes.contains(.approve) || scopes.contains(.owner)
+    }
+
     /// Prompts need the drive scope and answers the approve scope; a phone may hold either without the other.
     public static func mode(observeOnly: Bool, canApprove: Bool, ask: Ask?, closed: Bool = false) -> Mode {
         if closed { return .closed }

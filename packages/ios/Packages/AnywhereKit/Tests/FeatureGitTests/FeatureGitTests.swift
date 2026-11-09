@@ -82,12 +82,12 @@ import Wire
     #expect(GitText.forcePush(GitHead(s))! == ("Force push calm-otter?", "Replaces 4 commits on fork."))
 }
 
-@Test func stage_all_carries_its_count_and_says_so_while_it_runs() {
-    #expect(GitText.stageAll(.changes, count: 12, bulk: nil) == "Stage All 12")
-    #expect(GitText.stageAll(.staged, count: 3, bulk: nil) == "Unstage All 3")
+@Test func stage_all_says_how_many_only_while_it_runs() {
+    #expect(GitText.stageAll(.changes, bulk: nil) == "Stage All")
+    #expect(GitText.stageAll(.staged, bulk: nil) == "Unstage All")
     let bulk = BulkStage(section: .changes, count: 1200)
-    #expect(GitText.stageAll(.changes, count: 0, bulk: bulk) == "Staging \(1200.formatted())…")
-    #expect(GitText.stageAll(.staged, count: 3, bulk: bulk) == "Unstage All 3")
+    #expect(GitText.stageAll(.changes, bulk: bulk) == "Staging \(1200.formatted())…")
+    #expect(GitText.stageAll(.staged, bulk: bulk) == "Unstage All")
 }
 
 @Test func the_discard_confirm_says_untracked_files_get_deleted() {
@@ -170,6 +170,41 @@ import Wire
     let moved = cache.lines(changes, tree: false, folded: [])
     #expect(moved != first)
     #expect(moved.map(\.id) == first.map(\.id))
+}
+
+@MainActor
+@Test func a_filter_keeps_the_files_whose_path_matches_in_any_case() {
+    let host = HostModel.offline(hello: Sample.hello, messages: [])
+    host.git.take(Sample.gitStatus(files: 3))
+    let changes = host.git.changes(Sample.tree)
+    let path = changes.files[0].path
+    let lines = ChangeLines().lines(changes, tree: false, folded: [], filter: " \(path.uppercased()) ")
+    let files = lines.compactMap { line -> String? in
+        if case .file(_, let f, _) = line.row { f.path } else { nil }
+    }
+    #expect(Set(files) == [path])
+}
+
+@Test func the_branch_row_shows_only_with_something_to_offer() {
+    var s = Sample.gitStatus(files: 1)
+    s.unpushed = 0
+    s.unpulled = 0
+    #expect(GitText.showsHead(GitHead(s)))
+    s.ahead = 0
+    #expect(!GitText.showsHead(GitHead(s)))
+    s.detached = true
+    #expect(GitText.showsHead(GitHead(s)))
+    s.detached = false
+    s.unpushed = 1
+    #expect(GitText.showsHead(GitHead(s)))
+}
+
+@Test func a_diff_says_which_file_of_how_many_and_what_it_is_against() {
+    #expect(GitText.place(0, of: 3, at: .working) == "1 of 3 · Unstaged")
+    #expect(GitText.place(nil, of: 3, at: .staged) == "Staged")
+    #expect(GitText.place(1, of: 2, at: .commit(rev: "abcdef1234567")) == "2 of 2 · \(GitText.short("abcdef1234567"))")
+    #expect(GitText.place(0, of: 1, at: .base(rev: "main")) == "1 of 1 · main")
+    #expect(GitText.place(0, of: 1, at: .base(rev: nil)) == "1 of 1 · base")
 }
 
 @Test func tips_label_the_commits_they_point_at_by_name() {

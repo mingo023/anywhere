@@ -36,22 +36,22 @@ struct HomeView: View {
         let sections = projects ? only.map { p in built.sections.filter { $0.id == p } } ?? built.sections : []
         let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
         let onlyName = only.flatMap { host.workspace.project($0)?.name }
-        let projectOf = Dictionary((projects ? sections : built.sections).flatMap { s in s.trees.flatMap { $0.sessions.map { ($0, s.name) } } }, uniquingKeysWith: { a, _ in a })
+        let places = Dictionary((projects ? sections : built.sections).flatMap { s in
+            s.trees.flatMap { t in t.sessions.map { ($0, SessionPlace(project: s.name, tree: t.branch ?? t.label)) } }
+        }, uniquingKeysWith: { a, _ in a })
         let now = Int(Date().timeIntervalSince1970 * 1000)
         List {
-            if only == nil && !searching {
-                Section {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Sessions").font(Typography.largeTitle).foregroundStyle(Palette.text.color)
-                        Spacer(minLength: Space.s)
-                        Text("\(built.sections.count) projects · \(host.sessions.sessions.count) sessions")
-                            .font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
-                    }
+            Section {
+                VStack(alignment: .leading, spacing: Space.m) {
+                    if only == nil { HomeHeader(host: host) }
+                    SearchField("Search sessions, branches", text: $query)
                 }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: 0, trailing: Space.xs))
-                .listRowSeparator(.hidden)
-                UpNextSections(host: host, mac: mac, projectOf: projectOf, action: $action)
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: Space.s, trailing: Space.xs))
+            .listRowSeparator(.hidden)
+            if only == nil && !searching {
+                UpNextSections(host: host, mac: mac, places: places, action: $action)
             }
             if searching && !built.matches.isEmpty {
                 Section {
@@ -64,14 +64,13 @@ struct HomeView: View {
             }
             if !sections.isEmpty {
                 Section {
-                    ForEach(sections) { projectRows($0, now: now, open: searching || only != nil || folds.isOpen($0.id, lively: $0.rollUp != nil)) }
+                    ForEach(sections) { projectRows($0, now: now, open: searching || only != nil || folds.isOpen($0.id, lively: $0.rollUp != nil)).bareRow() }
                 } header: {
                     HStack {
-                        Text("Projects")
+                        Text("Projects").sectionTitle()
                         Spacer()
-                        if only == nil { projectSortMenu }
+                        if only == nil { projectSortMenu.font(Typography.footnote).foregroundStyle(Palette.text3.color).textCase(nil) }
                     }
-                    .sectionTitle()
                 }
             }
             if only == nil && !built.elsewhere.isEmpty {
@@ -80,6 +79,7 @@ struct HomeView: View {
                         if let session = host.sessions.session(id) {
                             PushRow(value: Route.chat(mac: mac, agentId: id)) { SessionRow(session: session) }
                                 .modifier(SessionActions(host: host, session: session, action: $action))
+                                .bareRow()
                         }
                     }
                 } header: {
@@ -92,8 +92,9 @@ struct HomeView: View {
         #else
             .listStyle(.inset)
         #endif
+        .scrollContentBackground(.hidden)
+        .screenBackground()
         .overlay { empty(sections, built: built, searching: searching) }
-        .modifier(HomeSearch(text: $query, prompt: "Search sessions, worktrees and projects"))
         .navigationTitle(only.flatMap { host.workspace.project($0)?.name } ?? "Sessions")
         #if os(iOS)
             .navigationBarTitleDisplayMode(only == nil ? .inline : .large)
@@ -114,11 +115,8 @@ struct HomeView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        if only == nil {
-            // The list draws its own large title, beside its counts; the bar keeps the name for the back button.
-            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
-        }
-        ToolbarItem(placement: .secondaryAction) {
+        if only == nil { NoBarTitle() }
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Picker("Sessions", selection: $sort) {
                     Text("Newest").tag(Sidebar.SessionSort.newest)
@@ -131,21 +129,17 @@ struct HomeView: View {
                     Button { open(.automations(mac: mac)) } label: { Label("Automations", systemImage: "clock.arrow.circlepath") }
                 }
             } label: {
-                Label("More", systemImage: "ellipsis")
+                Label("Options", systemImage: "line.3.horizontal.decrease")
             }
         }
-        #if os(iOS)
-            ToolbarItemGroup(placement: .bottomBar) {
-                Spacer()
-                newSession
-            }
-        #else
-            ToolbarItem(placement: .primaryAction) { newSession }
+        #if os(iOS) && compiler(>=6.2)
+            if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .primaryAction) }
         #endif
+        ToolbarItem(placement: .primaryAction) { newSession }
     }
 
     private var newSession: some View {
-        Button { making = .session(project: only, place: nil) } label: { Label("New Session", systemImage: "square.and.pencil") }
+        Button { making = .session(project: only, place: nil) } label: { Label("New Session", systemImage: "plus") }
             .disabled(host.workspace.projects.isEmpty)
     }
 
@@ -190,15 +184,15 @@ struct HomeView: View {
     @ViewBuilder
     private func projectRows(_ section: HomeList.Section, now: Int, open: Bool) -> some View {
         let lively = section.rollUp != nil
-        let statuses = section.trees.flatMap(\.sessions).compactMap { host.sessions.session($0)?.status }
+        let statuses = host.statuses(section)
         Button {
             Haptics.tap()
             withAnimation(.snappy(duration: 0.25)) { folds.toggle(section.id, lively: lively) }
         } label: {
             ProjectRow(section: section,
-                       line: Workspaces.line(worktrees: section.trees.filter { $0.kind == .worktree }.count, locals: section.trees.filter { $0.kind != .worktree }.count,
-                                             latest: latest(section.trees.flatMap(\.sessions)), now: now),
-                       open: open, breakdown: Workspaces.breakdown(statuses))
+                       line: Workspaces.line(worktrees: section.trees.filter { $0.kind == .worktree }.count, locals: section.trees.filter { $0.kind != .worktree }.count),
+                       ago: TimeText.ago(ms: latest(section.trees.flatMap(\.sessions)), now: now), open: open, statuses: statuses,
+                       breakdown: Workspaces.breakdown(statuses))
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -216,7 +210,7 @@ struct HomeView: View {
                     WorkspaceRow(tree: tree, ago: TimeText.ago(ms: latest(tree.sessions), now: now), pr: pulls.first { $0.tree == tree.id })
                 }
                 .listRowInsets(WorkspaceRow.insets)
-                .listRowSeparator(.hidden, edges: .top)
+                .listRowSeparator(.hidden)
                 .modifier(TreeActions(tree: tree, project: section.id, canManage: host.workspace.canManage, making: $making, action: $action))
             }
             Button {
@@ -226,7 +220,7 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
             .listRowInsets(WorkspaceRow.insets)
-            .listRowSeparator(.hidden, edges: .top)
+            .listRowSeparator(.hidden)
         }
     }
 
@@ -244,9 +238,50 @@ struct HomeView: View {
     @ViewBuilder
     private func sessionRow(_ id: String, place: String) -> some View {
         if let session = host.sessions.session(id) {
-            PushRow(value: Route.chat(mac: mac, agentId: id)) { ActiveRow(session: session, place: place) }
+            PushRow(value: Route.chat(mac: mac, agentId: id)) { ActiveRow(session: session, place: place, titled: true) }
                 .modifier(SessionActions(host: host, session: session, action: $action))
         }
+    }
+}
+
+/// The top of the list: the Mac, which switches Macs where there are several, and how it's connected.
+@MainActor
+struct HomeHeader: View {
+    let host: HostModel
+    @Environment(\.macSwitch) private var macSwitch
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            if let macSwitch {
+                Menu { macSwitch.menu() } label: { title }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Mac: \(host.name)")
+                    .accessibilityValue(macSwitch.othersWaiting ? "Another Mac has sessions up next" : "")
+            } else {
+                title
+            }
+            TimelineView(.explicit(host.reachabilityMarks)) { _ in
+                HStack(spacing: Space.xs + 2) {
+                    Circle().fill((host.link == .online ? Palette.success : Palette.text4).color).frame(width: 7, height: 7)
+                    Text(Self.status(host.reachability(at: .now), sessions: host.sessions.sessions.count))
+                        .font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private var title: some View {
+        HStack(spacing: Space.s) {
+            Text(host.name).font(Typography.largeTitle).foregroundStyle(Palette.text.color).lineLimit(1).minimumScaleFactor(0.7)
+            if macSwitch?.othersWaiting == true { Circle().fill(Palette.text.color).frame(width: 7, height: 7) }
+            if macSwitch != nil { Image(systemName: "chevron.down").font(Typography.caption.weight(.semibold)).foregroundStyle(Palette.text3.color) }
+        }
+    }
+
+    /// "Connected over Tailscale · 40 sessions".
+    nonisolated static func status(_ reachability: Reachability, sessions: Int) -> String {
+        let link = reachability == .online ? "Connected over Tailscale" : reachability.label
+        return "\(link) · \(sessions) session\(sessions == 1 ? "" : "s")"
     }
 }
 
@@ -329,32 +364,6 @@ struct ProjectMenu: View {
     }
 }
 
-/// A row that pushes `value`, without the disclosure chevron a `NavigationLink` row draws: the list's rows are
-/// plainly places to go, and the chevron costs every title its width.
-@MainActor
-struct PushRow<Content: View>: View {
-    let value: Route
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        #if os(iOS)
-            if #available(iOS 26, *) {
-                NavigationLink(value: value) { content }.navigationLinkIndicatorVisibility(.hidden)
-            } else {
-                // Before iOS 26 only a link hidden behind the row drops the chevron; VoiceOver reads it as a button.
-                ZStack(alignment: .leading) {
-                    NavigationLink(value: value) { EmptyView() }.opacity(0)
-                    content
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-            }
-        #else
-            NavigationLink(value: value) { content }
-        #endif
-    }
-}
-
 /// A new session or worktree, or a session's steps, over the list it was asked from.
 @MainActor
 struct MakingSheet: View {
@@ -371,16 +380,17 @@ struct MakingSheet: View {
                 NewWorktreeView(host: host, project: project)
             case .progress(let requestId):
                 LaunchProgress(host: host, mac: mac, requestId: requestId)
-                    .navigationTitle("New Session")
-                #if os(iOS)
-                    .navigationBarTitleDisplayMode(.inline)
-                #endif
             }
         }
     }
 }
 
 extension HostModel {
+    /// The status of each session in a project, for its tile's badges.
+    func statuses(_ section: HomeList.Section) -> [Status] {
+        section.trees.flatMap(\.sessions).compactMap { sessions.session($0)?.status }
+    }
+
     /// The home list from what the stores hold now, without the trees being deleted.
     func homeList(query: String = "", sort: Sidebar.SessionSort = .newest, projectSort: HomeList.ProjectSort = .manual, open: String? = nil)
         -> HomeList.Built

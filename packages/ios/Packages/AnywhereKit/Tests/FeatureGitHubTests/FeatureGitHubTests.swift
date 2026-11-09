@@ -373,3 +373,11 @@ struct GitHubGalleryTests {
         #expect(names.contains("github-pr-failing") && names.contains("github-threads-all-dark"))
     }
 }
+
+@Test("a check's outcome takes the glyph that means the same on a session")
+func checkStatus() {
+    #expect(CheckRow.status("failed") == .failed)
+    #expect(CheckRow.status("pending") == .working)
+    #expect(CheckRow.status("skipped") == .idle)
+    #expect(CheckRow.status("passed") == .done)
+}

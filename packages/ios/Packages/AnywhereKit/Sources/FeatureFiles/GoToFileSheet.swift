@@ -1,5 +1,6 @@
 import DesignSystem
 import Domain
+import FileIcons
 import Stores
 import SwiftUI
 
@@ -65,7 +66,7 @@ struct SearchHitRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: Space.m) {
-            Image(systemName: "doc.text").foregroundStyle(Palette.text3.color).frame(width: 20)
+            MaterialIcon(hit.name).frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(Self.marked(hit)).font(Typography.body).foregroundStyle(Palette.text.color).lineLimit(1)
                 if !hit.folder.isEmpty {

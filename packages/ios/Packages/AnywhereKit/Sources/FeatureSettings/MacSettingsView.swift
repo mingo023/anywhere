@@ -23,7 +23,7 @@ struct MacSettingsView: View {
         Form {
             Section {
                 LabeledContent("Status") {
-                    TimelineView(.explicit(marks)) { _ in Text(host.reachability(at: .now).label) }
+                    TimelineView(.explicit(host.reachabilityMarks)) { _ in Text(host.reachability(at: .now).label) }
                 }
                 LabeledContent("Address") { Text(host.credentials.host).font(Typography.codeSmall).textSelection(.enabled) }
                 if let version = host.hello?.version { LabeledContent("Anywhere", value: version) }
@@ -77,11 +77,6 @@ struct MacSettingsView: View {
                 app.forget(host.id)
             }
         }
-    }
-
-    private var marks: [Date] {
-        guard let since = host.offlineSince else { return [] }
-        return [since, since + Reachability.reconnectingAfter, since + Reachability.unreachableAfter]
     }
 
     private func loadAccess() async {

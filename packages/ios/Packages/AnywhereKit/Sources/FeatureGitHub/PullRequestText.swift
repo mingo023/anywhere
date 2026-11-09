@@ -161,16 +161,6 @@ public enum PullRequestText {
         return s.isEmpty ? "No checks on this branch" : s
     }
 
-    /// The SF Symbol and colour of a check's outcome.
-    public static func outcome(_ outcome: String) -> (systemImage: String, tone: PrTone) {
-        switch outcome {
-        case "failed": ("xmark.circle.fill", .failed)
-        case "pending": ("clock.fill", .waiting)
-        case "skipped": ("arrow.uturn.right.circle", .muted)
-        default: ("checkmark.circle.fill", .success)
-        }
-    }
-
     /// "1 commit", "3 commits" (`commits`).
     public static func commits(_ n: Int) -> String {
         n == 1 ? "1 commit" : "\(n) commits"

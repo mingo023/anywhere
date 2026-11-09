@@ -1,4 +1,5 @@
 import DiffModel
+import Foundation
 import Observation
 import Stores
 
@@ -37,16 +38,19 @@ final class ChangeLines {
         let revision: Int
         let tree: Bool
         let folded: Set<String>
+        let filter: String
     }
 
     private var key: Key?
     private var lines: [ChangeLine] = []
 
-    func lines(_ changes: TreeChanges, tree: Bool, folded: Set<String>) -> [ChangeLine] {
-        let key = Key(revision: changes.revision, tree: tree, folded: folded)
+    func lines(_ changes: TreeChanges, tree: Bool, folded: Set<String>, filter: String = "") -> [ChangeLine] {
+        let filter = filter.trimmingCharacters(in: .whitespaces)
+        let key = Key(revision: changes.revision, tree: tree, folded: folded, filter: filter)
         if key != self.key {
             self.key = key
-            lines = ChangeLine.lines(ChangeTree.rows(changes.files, tree: tree, folded: folded))
+            let files = filter.isEmpty ? changes.files : changes.files.filter { $0.path.localizedCaseInsensitiveContains(filter) }
+            lines = ChangeLine.lines(ChangeTree.rows(files, tree: tree, folded: folded))
         }
         return lines
     }

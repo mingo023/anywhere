@@ -4,45 +4,44 @@ import Stores
 import SwiftUI
 import Wire
 
-/// A session in Up next, Working or search results: what it is, where it is, what it asks or is doing, and when it
-/// last moved.
+/// A session in Up next or search results: what it asks, what failed or what it is, where it is, and when it last moved.
 @MainActor
 struct ActiveRow: View {
     let session: SessionModel
-    /// Its project, or project · worktree.
+    /// Its project and branch.
     let place: String?
+    /// Leads with its title, for a search that matched it, rather than what it asks or what failed.
+    var titled = false
+    /// Shows all of what it asks, as it's answered right under it.
+    var whole = false
     @Environment(\.staleSince) private var stale
 
     var body: some View {
         let s = session.summary
         let status = session.status
-        let detail = SessionText.look(s, status, requests: session.requests)
-        HStack(spacing: Space.m) {
-            Group {
-                if status == .needsYou {
-                    ZStack {
-                        Circle().fill(StatusGlyph.color(status).color.opacity(0.25)).frame(width: 18, height: 18)
-                        Circle().fill(StatusGlyph.color(status).color).frame(width: 9, height: 9)
-                    }
-                } else {
-                    StatusGlyph(status, size: 14)
-                }
-            }
-            .frame(width: 18)
+        HStack(alignment: .top, spacing: Space.m) {
+            StatusGlyph(status).padding(.top, 3)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(SessionText.title(s)).font(Typography.body.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
+                Text(titled ? SessionText.title(s) : SessionText.headline(s, status, requests: session.requests))
+                    .font(Typography.body.weight(.semibold))
+                    .foregroundStyle(Palette.text.color)
+                    .lineLimit(whole ? nil : 2)
                 HStack(spacing: Space.xs) {
-                    if let place { Text(place).foregroundStyle(Palette.text3.color).layoutPriority(-1) }
-                    if place != nil && detail != nil { Text("·").foregroundStyle(Palette.text4.color) }
-                    if let detail {
-                        Text(detail).foregroundStyle((status == .needsYou ? Palette.waitingText : status == .failed ? Palette.failedText : Palette.text3).color)
+                    if let word = SessionText.outcome(status) {
+                        Text(word).foregroundStyle((status == .failed ? Palette.failedText : Palette.successText).color)
+                    }
+                    if let word = SessionText.outcome(status), !word.isEmpty, place != nil { Text("·").foregroundStyle(Palette.text4.color) }
+                    if let place {
+                        Text(place).font(Typography.codeSmall).foregroundStyle(Palette.text3.color)
+                    } else if let detail = SessionText.look(s, status, requests: session.requests), status == .working {
+                        Text(detail).foregroundStyle(Palette.text3.color)
                     }
                 }
                 .font(Typography.footnote)
                 .lineLimit(1)
             }
             Spacer(minLength: Space.s)
-            Elapsed(updatedAt: s.updatedAt, ticking: false)
+            Elapsed(updatedAt: s.updatedAt, ticking: false).padding(.top, 2)
         }
         .padding(.vertical, Space.xxs)
         .opacity(stale == nil ? 1 : 0.55)
@@ -51,26 +50,61 @@ struct ActiveRow: View {
     }
 }
 
-/// A project: its initials, name, how many worktrees and Locals and when it last moved, and what its sessions are doing.
+/// A session in Working: where it runs, its current step, and how long it has been at it.
+@MainActor
+struct WorkingRow: View {
+    let session: SessionModel
+    let place: SessionPlace?
+    @Environment(\.staleSince) private var stale
+
+    var body: some View {
+        let s = session.summary
+        HStack(alignment: .top, spacing: Space.m) {
+            StatusGlyph(.working).padding(.top, 3)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.xs) {
+                    Text(place?.project ?? SessionText.title(s)).font(Typography.subheadline.weight(.medium)).foregroundStyle(Palette.text.color)
+                    if let tree = place?.tree {
+                        Text("·").foregroundStyle(Palette.text4.color)
+                        Text(tree).font(Typography.codeSmall).foregroundStyle(Palette.text3.color)
+                    }
+                }
+                .lineLimit(1)
+                if let detail = SessionText.detail(s, .working) {
+                    Text(detail).font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1)
+                        .shimmer(stale == nil && s.activity != nil)
+                }
+            }
+            Spacer(minLength: Space.s)
+            Elapsed(updatedAt: s.updatedAt, ticking: stale == nil).padding(.top, 2)
+        }
+        .padding(.vertical, Space.xxs)
+        .opacity(stale == nil ? 1 : 0.55)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A project: its initials, name, how many worktrees and Locals, when it last moved, and whether it's open.
 @MainActor
 struct ProjectRow: View {
     let section: HomeList.Section
     let line: String
+    let ago: String
     let open: Bool
+    let statuses: [Status]
     /// "1 failed, 2 done", for VoiceOver.
     let breakdown: String
 
     var body: some View {
         HStack(spacing: Space.m) {
-            ProjectAvatar(name: section.name, status: section.rollUp?.status)
+            ProjectAvatar(name: section.name, statuses: statuses)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(section.name).font(Typography.headline).foregroundStyle(Palette.text.color).lineLimit(1)
                 Text(line).font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
             }
             Spacer(minLength: Space.s)
-            if let roll = section.rollUp, let label = Workspaces.label(roll.status, count: roll.count) {
-                Pill(label, tone: SessionText.tone(roll.status)).accessibilityLabel(breakdown)
-            }
+            Text(ago).font(Typography.digits).foregroundStyle(Palette.text4.color)
             Image(systemName: open ? "chevron.down" : "chevron.right")
                 .font(Typography.footnote.weight(.semibold))
                 .foregroundStyle(Palette.text4.color)
@@ -79,28 +113,36 @@ struct ProjectRow: View {
         .padding(.vertical, Space.xxs)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .accessibilityValue(breakdown)
         .accessibilityHint(open ? "Hides its worktrees and Locals" : "Shows its worktrees and Locals")
     }
 }
 
-/// A project's initials on a tile, badged with its most urgent session's status.
+/// A project's initials on a tile, with the desktop's corner badges: a dot for what wants a look, a spinner for work.
 @MainActor
 struct ProjectAvatar: View {
     let name: String
-    let status: Status?
+    let statuses: [Status]
+    var side = ProjectAvatar.size
 
     nonisolated static let size: CGFloat = 40
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: side / 4, style: .continuous)
             .fill(Palette.fill3.color)
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.separator.color))
-            .overlay(Text(Workspaces.initials(name)).font(Typography.captionStrong).foregroundStyle(Palette.text2.color))
-            .frame(width: Self.size, height: Self.size)
+            .overlay(RoundedRectangle(cornerRadius: side / 4, style: .continuous).strokeBorder(Palette.separator.color))
+            .overlay(Text(Workspaces.initials(name)).font(side < Self.size ? .system(size: 9, weight: .semibold, design: .monospaced) : Typography.captionStrong).foregroundStyle(Palette.text2.color))
+            .frame(width: side, height: side)
+            .overlay(alignment: .topTrailing) {
+                if let alert = Workspaces.alert(statuses) {
+                    Circle().fill(StatusGlyph.color(alert).color).frame(width: 9, height: 9)
+                        .padding(2).background(Palette.background.color, in: Circle())
+                        .offset(x: 4, y: -4)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
-                if let status, status != .idle {
-                    Circle().fill(StatusGlyph.color(status).color).frame(width: 11, height: 11)
-                        .overlay(Circle().strokeBorder(Palette.surface.color, lineWidth: 2))
+                if statuses.contains(.working) {
+                    GradientSpinner(size: 10).frame(width: 12, height: 12).background(Palette.background.color, in: Circle())
                         .offset(x: 3, y: 3)
                 }
             }
@@ -108,7 +150,7 @@ struct ProjectAvatar: View {
     }
 }
 
-/// A worktree or Local under its project, joined to it by the tree line: its name, branch, sessions, and when it moved.
+/// A worktree or Local under its project: its status, name, branch, sessions, pull request, and when it moved.
 @MainActor
 struct WorkspaceRow: View {
     let tree: HomeList.Tree
@@ -116,37 +158,28 @@ struct WorkspaceRow: View {
     /// Its branch's pull request, from the project's list.
     var pr: PrItem?
 
-    /// Flush top and bottom, so the tree line runs unbroken from row to row.
-    static let insets = EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 20)
+    static let insets = EdgeInsets(top: 0, leading: 16 + ProjectAvatar.size + Space.xs, bottom: 0, trailing: 20)
 
     var body: some View {
-        let tint = tree.rollUp.map { StatusGlyph.color($0.status) } ?? Palette.text4
         HStack(alignment: .top, spacing: Space.s) {
-            Image(systemName: TreeRow.symbol(tree.kind)).font(Typography.footnote).foregroundStyle(tint.color).frame(width: 18).padding(.top, 3)
+            StatusGlyph(tree.rollUp?.status ?? .idle, size: 12).padding(.top, 3)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                HStack(spacing: Space.xs) {
-                    Text(tree.label).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
-                    if let pr { PrBadge(item: pr) }
-                }
+                Text(tree.label).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
                 HStack(spacing: Space.xs) {
                     if let place = tree.place, place != tree.label {
                         Text(place).font(Typography.codeSmall).foregroundStyle(Palette.text3.color).layoutPriority(-1)
                         Text("·").foregroundStyle(Palette.text4.color)
                     }
-                    Text(Self.count(tree.sessions.count)).foregroundStyle(Palette.text3.color)
+                    Text(Self.count(tree.sessions.count)).font(Typography.codeSmall).foregroundStyle(Palette.text3.color)
                 }
                 .font(Typography.footnote)
                 .lineLimit(1)
             }
             Spacer(minLength: Space.s)
-            VStack(alignment: .trailing, spacing: 6) {
-                Text(ago).font(Typography.digits).foregroundStyle(Palette.text4.color)
-                Circle().fill(tint.color).frame(width: 7, height: 7)
-            }
+            if let pr { PrBadge(item: pr) }
+            Text(ago).font(Typography.digits).foregroundStyle(Palette.text4.color).padding(.top, 1)
         }
         .padding(.vertical, 10)
-        .padding(.leading, TreeLine.width)
-        .background(alignment: .leading) { TreeLine(last: false).stroke(Palette.separatorStrong.color, lineWidth: 1).frame(width: TreeLine.width) }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -169,39 +202,13 @@ struct NewWorkspaceRow: View {
         }
         .foregroundStyle(Palette.text3.color)
         .padding(.vertical, 12)
-        .padding(.leading, TreeLine.width)
-        .background(alignment: .leading) { TreeLine(last: true).stroke(Palette.separatorStrong.color, lineWidth: 1).frame(width: TreeLine.width) }
         .contentShape(Rectangle())
     }
 }
 
-/// The line from a project's avatar down its workspaces, curving into each; the last one ends it.
-struct TreeLine: Shape {
-    let last: Bool
-
-    /// The gutter it draws in; the line runs down the avatar's middle.
-    static let width: CGFloat = 40
-
-    func path(in rect: CGRect) -> Path {
-        let x = ProjectAvatar.size / 2
-        let mid = rect.midY
-        let radius: CGFloat = 8
-        var path = Path()
-        path.move(to: CGPoint(x: x, y: rect.minY))
-        path.addLine(to: CGPoint(x: x, y: mid - radius))
-        path.addQuadCurve(to: CGPoint(x: x + radius, y: mid), control: CGPoint(x: x, y: mid))
-        path.addLine(to: CGPoint(x: x + 14, y: mid))
-        if !last {
-            path.move(to: CGPoint(x: x, y: mid - radius))
-            path.addLine(to: CGPoint(x: x, y: rect.maxY))
-        }
-        return path
-    }
-}
-
 extension View {
-    /// A section's title as the home list sets them: sentence case, quieter than the rows.
-    func sectionTitle() -> some View {
-        font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text3.color).textCase(nil)
+    /// A row on the screen's own background rather than a card.
+    func bareRow() -> some View {
+        listRowBackground(Color.clear).listRowSeparatorTint(Palette.separator.color)
     }
 }

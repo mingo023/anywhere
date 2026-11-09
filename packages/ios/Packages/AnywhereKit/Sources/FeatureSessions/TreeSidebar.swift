@@ -9,35 +9,55 @@ import SwiftUI
 @MainActor
 public struct TreeSidebar<Value: Hashable>: View {
     let host: HostModel
+    let selected: Value?
+    let projectIndent: CGFloat
+    let treeIndent: CGFloat
     let value: (Route) -> Value
     @AppStorage("sessions.projectSort") private var projectSort = HomeList.ProjectSort.manual
     @State private var collapsed: Set<String> = []
 
-    public init(host: HostModel, value: @escaping (Route) -> Value) {
+    public init(host: HostModel, selected: Value?, projectIndent: CGFloat, treeIndent: CGFloat, value: @escaping (Route) -> Value) {
         self.host = host
+        self.selected = selected
+        self.projectIndent = projectIndent
+        self.treeIndent = treeIndent
         self.value = value
     }
 
     public var body: some View {
         ForEach(host.homeList(projectSort: projectSort).sections) { section in
-            DisclosureGroup(isExpanded: expanded(section.id)) {
+            let project = value(.project(mac: host.mac, path: section.id))
+            let open = !collapsed.contains(section.id)
+            SidebarRow(section.name, strong: true, selected: project == selected) {
+                ProjectAvatar(name: section.name, statuses: host.statuses(section), side: 20)
+            } trailing: {
+                fold(section, open: open)
+            }
+            .sidebarListRow(selected: project == selected, indent: projectIndent)
+            .tag(project)
+            if open {
                 ForEach(section.trees) { tree in
-                    NavigationLink(value: value(TreeRow.route(tree, mac: host.mac))) { TreeRow(tree: tree) }
-                }
-            } label: {
-                NavigationLink(value: value(.project(mac: host.mac, path: section.id))) {
-                    HStack(spacing: Space.s) {
-                        Label(section.name, systemImage: "shippingbox").lineLimit(1)
-                        if let roll = section.rollUp { StatusGlyph(roll.status, size: 8) }
+                    let item = value(TreeRow.route(tree, mac: host.mac))
+                    SidebarRow(tree.label, detail: tree.place == tree.label ? nil : tree.place, selected: item == selected) {
+                        Image(systemName: TreeRow.symbol(tree.kind))
+                    } trailing: {
+                        if let roll = tree.rollUp { StatusGlyph(roll.status) }
                     }
+                    .sidebarListRow(selected: item == selected, indent: treeIndent)
+                    .tag(item)
                 }
             }
         }
     }
 
-    private func expanded(_ project: String) -> Binding<Bool> {
-        Binding(get: { !collapsed.contains(project) }, set: { open in
-            if open { collapsed.remove(project) } else { collapsed.insert(project) }
-        })
+    private func fold(_ section: HomeList.Section, open: Bool) -> some View {
+        Button {
+            if open { collapsed.insert(section.id) } else { collapsed.remove(section.id) }
+        } label: {
+            // Tappable past its 16pt slot.
+            SidebarChevron(open: open).padding(Space.s).contentShape(Rectangle()).padding(-Space.s)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(open ? "Fold \(section.name)" : "Open \(section.name)")
     }
 }

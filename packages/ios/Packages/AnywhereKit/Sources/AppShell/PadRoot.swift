@@ -23,29 +23,7 @@ struct PadRoot: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
-            List(selection: selection) {
-                ForEach(app.hosts) { host in
-                    Section {
-                        NavigationLink(value: Item(tab: .sessions, mac: host.id)) {
-                            Label("Sessions", systemImage: "rectangle.stack")
-                        }
-                        .badge(host.sessions.upNext.count)
-                        NavigationLink(value: Item(tab: .terminals, mac: host.id)) {
-                            Label("Terminals", systemImage: "terminal")
-                        }
-                        TreeSidebar(host: host) { Item(tab: .sessions, mac: host.id, tree: $0) }
-                    } header: {
-                        Text(host.name)
-                    }
-                }
-                Section {
-                    NavigationLink(value: Item(tab: .settings, mac: nil)) {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                }
-            }
-            .navigationTitle("Anywhere")
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+            PadSidebar(app: app, selection: selection, macId: navigator.macId)
         } content: {
             Destination.root(navigator.tab, host: host, app: app, tree: navigator.tree, upNext: true, pair: pair, open: navigator.push,
                              leave: navigator.leave)
@@ -57,6 +35,7 @@ struct PadRoot: View {
                         }
                     }
                 }
+                .environment(\.showInDetail) { navigator.setPath([$0], for: navigator.tab) }
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380)
         } detail: {
             NavigationStack(path: Binding(get: { navigator.path(navigator.tab) }, set: { navigator.setPath($0, for: navigator.tab) })) {

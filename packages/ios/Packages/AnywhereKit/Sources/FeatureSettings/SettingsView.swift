@@ -43,7 +43,7 @@ public struct SettingsView: View {
                     }
                 }
             } header: {
-                Text("Macs")
+                Text("Paired Macs")
             } footer: {
                 if app.hosts.count > 1 { Text("Switch between Macs from the title of Sessions.") }
             }
@@ -71,6 +71,9 @@ public struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .screenBackground()
+        .tint(Palette.text.color)
         .navigationTitle("Settings")
         .confirmationDialog(
             "Forget \(forgetting?.name ?? "")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
@@ -99,31 +102,18 @@ struct MacRow: View {
     let host: HostModel
 
     var body: some View {
-        TimelineView(.explicit(marks)) { _ in
+        TimelineView(.explicit(host.reachabilityMarks)) { _ in
             let reachability = host.reachability(at: .now)
-            HStack(spacing: Space.m) {
-                Image(systemName: "laptopcomputer")
-                    .font(.system(.title3))
-                    .foregroundStyle(Palette.text2.color)
-                    .overlay(alignment: .bottomTrailing) {
-                        Circle().fill(Self.dot(reachability).color).frame(width: 9, height: 9)
-                            .overlay(Circle().stroke(Palette.surface.color, lineWidth: 2))
-                            .offset(x: 3, y: 3)
-                    }
-                    .frame(width: 32)
-                VStack(alignment: .leading, spacing: Space.xxs) {
-                    Text(host.name).font(Typography.body).foregroundStyle(Palette.text.color).lineLimit(1)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(host.name).font(Typography.body.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
+                HStack(spacing: Space.xs + 2) {
+                    Circle().fill(Self.dot(reachability).color).frame(width: 7, height: 7)
                     Text(MacFacts.status(reachability, version: host.hello?.version))
                         .font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
                 }
             }
             .accessibilityElement(children: .combine)
         }
-    }
-
-    private var marks: [Date] {
-        guard let since = host.offlineSince else { return [] }
-        return [since, since + Reachability.reconnectingAfter, since + Reachability.unreachableAfter]
     }
 
     nonisolated static func dot(_ reachability: Reachability) -> Token {

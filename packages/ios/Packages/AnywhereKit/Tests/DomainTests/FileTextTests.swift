@@ -50,4 +50,11 @@ struct FileTextTests {
         #expect(FileText.relative("/Users/me/app-2/a.rs", tree: "/Users/me/app") == nil)
         #expect(FileText.relative("../other/a.rs", tree: "/Users/me/app") == nil)
     }
+
+    @Test("a path under a home folder reads from ~, and any other as it is")
+    func home() {
+        #expect(FileText.home("/Users/mingo/.worktrees/anywhere/calm-otter") == "~/.worktrees/anywhere/calm-otter")
+        #expect(FileText.home("/home/me/dev") == "~/dev")
+        #expect(FileText.home("/srv/app") == "/srv/app")
+    }
 }

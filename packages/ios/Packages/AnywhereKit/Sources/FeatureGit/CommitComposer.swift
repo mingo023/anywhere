@@ -3,7 +3,7 @@ import DiffModel
 import Stores
 import SwiftUI
 
-/// The message field with Amend, Commit and Commit & Push. Its own view, so typing redraws only it.
+/// The bar under Changes: the message and Commit, with Amend and Commit & Push held on it. Its own view, so typing redraws only it.
 @MainActor
 struct CommitComposer: View {
     let store: GitStore
@@ -20,38 +20,40 @@ struct CommitComposer: View {
         let _ = BodyCount.hit("CommitComposer")
         let totals = changes.head?.totals ?? .init(files: 0, added: 0, removed: 0, staged: 0)
         let busy = changes.busy
-        VStack(alignment: .leading, spacing: Space.s) {
-            TextField(amend ? "Message (empty keeps the last)" : "Message", text: $message, axis: .vertical)
-                .lineLimit(1...6)
-                .textFieldStyle(.plain)
-                .focused($focused)
-                .font(Typography.body)
-            Toggle("Amend last commit", isOn: $amend).font(Typography.subheadline)
+        let ready = amend || Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: commitAll)
+        VStack(alignment: .leading, spacing: Space.xs) {
             if let note {
-                Text(note).font(Typography.caption).foregroundStyle(Palette.waitingText.color)
+                Text(note).font(Typography.caption).foregroundStyle(Palette.waitingText.color).padding(.horizontal, Space.m)
             }
             HStack(spacing: Space.s) {
-                Button {
-                    commit(amend ? .amend : .commit)
+                TextField(amend ? "Message (empty keeps the last)" : "Commit message", text: $message, axis: .vertical)
+                    .lineLimit(1...6)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                    .font(Typography.body)
+                    .padding(.leading, Space.m)
+                Menu {
+                    Toggle("Amend Last Commit", isOn: $amend)
+                    if !amend { Button("Commit & Push") { commit(.push) }.disabled(!ready) }
                 } label: {
                     Text(amend && busy == nil ? "Amend" : Composer.label(totals: totals, busy: busy, commitAll: commitAll))
-                        .frame(maxWidth: .infinity)
+                        .font(Typography.body.weight(.semibold))
+                        .foregroundStyle((ready ? Palette.onText : Palette.text3).color)
+                        .lineLimit(1)
+                        .padding(.horizontal, Space.l)
+                        .frame(minHeight: HitTarget.minimum)
+                        .background((ready ? Palette.text : Palette.fill3).color, in: Capsule())
+                } primaryAction: {
+                    commit(amend ? .amend : .commit)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!(amend || Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: commitAll)))
-                if !amend {
-                    Button {
-                        commit(.push)
-                    } label: {
-                        Text("Commit & Push").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!Composer.ready(totals: totals, message: message, busy: busy != nil, commitAll: commitAll))
-                }
+                .fixedSize()
+                .disabled(busy != nil)
             }
-            .disabled(busy != nil)
+            .padding(Space.xs)
+            .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
-        .padding(.vertical, Space.xs)
+        .padding(.horizontal, Space.m)
+        .padding(.bottom, Space.xs)
     }
 
     private func commit(_ kind: CommitKind) {

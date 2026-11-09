@@ -19,6 +19,40 @@ enum SessionText {
         return s.model.map(Sidebar.modelName).flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    /// What leads a session's row in Up next: the ask it waits on, what failed, else its title.
+    static func headline(_ s: AgentSummary, _ status: Status, requests: [PermissionRequest]) -> String {
+        switch status {
+        case .needsYou: requests.first.map(ask) ?? title(s)
+        case .failed: s.error.flatMap { $0.isEmpty ? nil : $0 } ?? title(s)
+        default: title(s)
+        }
+    }
+
+    /// The word beside a finished session's place, as dots alone can't say which it is.
+    static func outcome(_ status: Status) -> String? {
+        switch status {
+        case .failed: status.label
+        case .done: "Finished"
+        default: nil
+        }
+    }
+
+    /// An ask answered with a plain yes or no and short enough to read whole on its row, so the row can offer them;
+    /// anything with a choice, or a long command nobody should approve from a list, opens its chat.
+    static func answersInPlace(_ p: PermissionRequest) -> Bool {
+        switch p.detail {
+        case .shell, .read, .edit, .write, .search, .task: ask(p).count <= 200
+        case .other, .unknown: false
+        }
+    }
+
+    /// "Open · 3 of 4 checks": a worktree's pull request on its tile.
+    static func pullRequestState(_ item: PrItem) -> String {
+        let total = item.checks.passed + item.checks.failed + item.checks.pending
+        let state = item.draft ? "Draft" : item.state == "MERGED" ? "Merged" : item.state == "CLOSED" ? "Closed" : "Open"
+        return total == 0 ? state : "\(state) · \(item.checks.passed) of \(total) checks"
+    }
+
     /// The line under a session that wants a look: the ask it waits on, what failed, else `detail`.
     static func look(_ s: AgentSummary, _ status: Status, requests: [PermissionRequest]) -> String? {
         switch status {
@@ -69,6 +103,13 @@ enum SessionText {
         return (["#\(item.number)"] + (item.draft ? ["Draft"] : []) + checks).joined(separator: " · ")
     }
 
+    /// The steps of a launch still to come after `last`, in pocketd's order.
+    static func stepsLeft(after last: String?) -> [String] {
+        let order = ["prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"]
+        guard let last, let at = order.firstIndex(of: last) else { return [] }
+        return Array(order[(at + 1)...])
+    }
+
     /// A launch step as the desktop labels it (`Step::label` in `pocket/src/creating.rs`).
     static func step(_ step: String) -> String {
         switch step {
@@ -99,7 +140,7 @@ enum SessionText {
 
     static func tone(_ status: Status) -> Pill.Tone {
         switch status {
-        case .needsYou: .waiting
+        case .needsYou: .ink
         case .failed: .failed
         case .done: .success
         case .working: .working

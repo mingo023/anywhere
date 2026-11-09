@@ -1,3 +1,4 @@
+import ChatModel
 import Client
 import Foundation
 import Observation
@@ -218,5 +219,15 @@ extension ServerMessage {
         case .namingFailed(let m): m.agentId
         default: nil
         }
+    }
+}
+
+extension HostModel {
+    /// This phone may answer a session's asks.
+    public var canApprove: Bool { Composer.canApprove(hello?.scopes ?? []) }
+
+    /// Answers an ask from outside its chat; the session's list updates when pocketd says it's resolved.
+    public func answer(_ request: PermissionRequest, _ decision: Decision) async throws {
+        _ = try await connection.send(.permissionResolve(.init(requestId: request.requestId, decision: decision)))
     }
 }

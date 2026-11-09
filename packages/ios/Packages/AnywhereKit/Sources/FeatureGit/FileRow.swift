@@ -1,4 +1,5 @@
 import DesignSystem
+import FileIcons
 import SwiftUI
 import Wire
 
@@ -16,13 +17,15 @@ struct StatusLetter: View {
     }
 }
 
-/// One changed file: its letter, name and folder, and its line counts.
+/// One changed file: its letter, icon, name and folder, and its line counts.
 @MainActor
 struct FileRow: View, Equatable {
     let path: String
     let oldPath: String?
     let status: FileStatus
-    let counts: String?
+    let added: Int?
+    let removed: Int?
+    var binary = false
     var depth = 0
     /// In the tree the folder is the row above, so only the name shows.
     var nameOnly = false
@@ -32,6 +35,7 @@ struct FileRow: View, Equatable {
         let (name, dir) = GitText.split(path)
         HStack(spacing: Space.s) {
             StatusLetter(status: status)
+            MaterialIcon(path)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
                     .font(Typography.body)
@@ -40,18 +44,36 @@ struct FileRow: View, Equatable {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let oldPath {
-                    Text("from \(oldPath)").font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.head)
+                    Text("from \(oldPath)").font(Typography.caption).fontDesign(.monospaced).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.head)
                 } else if !nameOnly, !dir.isEmpty {
-                    Text(dir).font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.head)
+                    Text(dir).font(Typography.caption).fontDesign(.monospaced).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.head)
                 }
             }
             Spacer(minLength: Space.s)
-            if let counts {
-                Text(counts).font(Typography.digits).foregroundStyle(Palette.text3.color)
-            }
+            LineCounts(added: added, removed: removed, binary: binary)
         }
         .padding(.leading, CGFloat(depth) * Space.l)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A file's added and removed lines in their diff colours, or that it's binary.
+@MainActor
+struct LineCounts: View, Equatable {
+    let added: Int?
+    let removed: Int?
+    var binary = false
+
+    var body: some View {
+        HStack(spacing: Space.xs) {
+            if binary {
+                Text("binary").foregroundStyle(Palette.text3.color)
+            } else {
+                if let added, added > 0 { Text("+\(added)").foregroundStyle(Palette.diffAddText.color) }
+                if let removed, removed > 0 { Text("−\(removed)").foregroundStyle(Palette.diffDelText.color) }
+            }
+        }
+        .font(Typography.digits)
     }
 }
 
@@ -69,8 +91,8 @@ struct FolderRow: View, Equatable {
                 .foregroundStyle(Palette.text4.color)
                 .rotationEffect(.degrees(open ? 90 : 0))
                 .frame(width: 16)
-            Image(systemName: open ? "folder" : "folder.fill").foregroundStyle(Palette.text3.color)
-            Text(label).font(Typography.subheadline).foregroundStyle(Palette.textBody.color).lineLimit(1).truncationMode(.head)
+            MaterialIcon(label, folder: true, open: open)
+            Text(label).font(Typography.subheadline).fontDesign(.monospaced).foregroundStyle(Palette.textBody.color).lineLimit(1).truncationMode(.head)
             Spacer()
         }
         .padding(.leading, CGFloat(depth) * Space.l)

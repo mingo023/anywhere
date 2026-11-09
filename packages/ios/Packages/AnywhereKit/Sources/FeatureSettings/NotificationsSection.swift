@@ -34,9 +34,9 @@ public struct NotificationsSection: View {
     public var body: some View {
         Section {
             if center.permission == .denied { denied }
-            Toggle("Needs You", isOn: pref(\.needsYou))
-            Toggle("Done", isOn: pref(\.done))
+            Toggle("Needs you", isOn: pref(\.needsYou))
             Toggle("Failed", isOn: pref(\.failed))
+            Toggle("Finished", isOn: pref(\.done))
             Toggle("Automations", isOn: pref(\.automations))
         } header: {
             Text("Notifications")

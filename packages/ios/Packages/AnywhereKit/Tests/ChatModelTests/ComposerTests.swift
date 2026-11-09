@@ -165,3 +165,10 @@ func stopPressedWithinASecondOfASendIsIgnored() {
     #expect(!Composer.guardsStop(sentAt: 10_000, now: 11_000))
     #expect(!Composer.guardsStop(sentAt: nil, now: 10_400))
 }
+
+@Test func answering_needs_the_approve_or_owner_scope_or_a_pocketd_before_scopes() {
+    #expect(Composer.canApprove([]))
+    #expect(Composer.canApprove([.approve]))
+    #expect(Composer.canApprove([.owner]))
+    #expect(!Composer.canApprove([.drive]))
+}

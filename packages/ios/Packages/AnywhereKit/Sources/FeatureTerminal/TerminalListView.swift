@@ -8,7 +8,6 @@ import Wire
 public struct TerminalGroup: Identifiable, Hashable, Sendable {
     public let id: String
     public let title: String
-    public let path: String
     public let terminals: [Terminal]
 
     /// Terminals in pocketd's order, grouped by the place each opened in.
@@ -24,33 +23,21 @@ public struct TerminalGroup: Identifiable, Hashable, Sendable {
             let first = byPlace[key]![0]
             let local = first.localId.flatMap { id in locals.first { $0.id == id } }
             let title = local?.name ?? (first.cwd as NSString).lastPathComponent
-            return TerminalGroup(id: key, title: title.isEmpty ? first.cwd : title, path: displayPath(local?.project ?? first.cwd), terminals: byPlace[key]!)
+            return TerminalGroup(id: key, title: title.isEmpty ? first.cwd : title, terminals: byPlace[key]!)
         }
-    }
-
-    /// A path under a home folder with `~` for it.
-    public nonisolated static func displayPath(_ path: String) -> String {
-        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-        if parts.count >= 3, parts[0].isEmpty, parts[1] == "Users" || parts[1] == "home" {
-            return (["~"] + parts.dropFirst(3)).joined(separator: "/")
-        }
-        return path
     }
 }
 
-/// One terminal's row: what runs in it, where, and the agent if one does.
+/// One terminal's row: what runs in it, its agent's session if one does, where, whether it's busy, and its size.
 @MainActor
 struct TerminalRow: View, Equatable {
     let terminal: Terminal
     let agent: String?
+    /// An agent is working in it now.
+    let busy: Bool
 
     var body: some View {
         HStack(spacing: Space.m) {
-            Image(systemName: terminal.agentId == nil ? "terminal" : "sparkles")
-                .font(.body.weight(.medium))
-                .foregroundStyle(terminal.agentId == nil ? Palette.text2.color : Palette.agentClaude.color)
-                .frame(width: 34, height: 34)
-                .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(terminal.title?.isEmpty == false ? terminal.title! : "Shell")
                     .font(Typography.body.weight(.medium))
@@ -59,11 +46,26 @@ struct TerminalRow: View, Equatable {
                 if let agent {
                     Text(agent).font(Typography.subheadline).foregroundStyle(Palette.text2.color).lineLimit(1)
                 }
+                Text(FileText.home(terminal.cwd))
+                    .font(Typography.codeSmall)
+                    .foregroundStyle(Palette.text3.color)
+                    .lineLimit(1)
+                    .truncationMode(.head)
             }
             Spacer(minLength: Space.s)
-            Text("\(terminal.cols)×\(terminal.rows)")
-                .font(Typography.digits)
-                .foregroundStyle(Palette.text3.color)
+            VStack(alignment: .trailing, spacing: Space.xxs) {
+                if terminal.exited == true {
+                    Text("Exited").font(Typography.captionStrong).foregroundStyle(Palette.failedText.color)
+                } else if busy {
+                    HStack(spacing: Space.xs) {
+                        GradientSpinner(size: 11)
+                        Text("Busy").font(Typography.captionStrong).foregroundStyle(Palette.accent.color)
+                    }
+                }
+                Text("\(terminal.cols)×\(terminal.rows)")
+                    .font(Typography.digits)
+                    .foregroundStyle(Palette.text3.color)
+            }
         }
         .padding(.vertical, Space.xxs)
         .accessibilityElement(children: .combine)
@@ -83,6 +85,8 @@ struct TerminalListView: View {
     #if os(iOS)
         @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
+
+    @Environment(\.macSwitch) private var macSwitch
 
     private var store: TerminalStore { host.terminals }
     private var mac: String { host.hello?.serverId ?? host.id }
@@ -136,15 +140,21 @@ struct TerminalListView: View {
 
     private var list: some View {
         List {
+            Section { subtitle }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: 0, trailing: Space.xs))
+                .listRowSeparator(.hidden)
             if let problem {
                 Text(problem).font(Typography.footnote).foregroundStyle(Palette.failedText.color)
             }
             ForEach(TerminalGroup.of(store.terminals, locals: store.locals)) { group in
                 Section {
                     ForEach(group.terminals) { t in
-                        NavigationLink(value: Route.terminal(mac: mac, terminalId: t.id)) {
-                            TerminalRow(terminal: t, agent: t.agentId.flatMap { host.sessions.session($0)?.summary.title })
+                        let session = t.agentId.flatMap { host.sessions.session($0) }
+                        PushRow(value: Route.terminal(mac: mac, terminalId: t.id)) {
+                            TerminalRow(terminal: t, agent: session?.summary.title, busy: session?.status == .working)
                         }
+                        .listRowBackground(Palette.surface.color)
                         .swipeActions(edge: .trailing) {
                             if !store.writesOff {
                                 Button("Close", systemImage: "xmark", role: .destructive) { closing = t }
@@ -158,17 +168,31 @@ struct TerminalListView: View {
                         }
                     }
                 } header: {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(group.title)
-                        Text(group.path).font(Typography.caption).foregroundStyle(Palette.text3.color).textCase(nil)
-                    }
+                    Text(group.title).sectionTitle()
                 }
             }
         }
         #if os(iOS)
             .listStyle(.insetGrouped)
         #endif
+        .scrollContentBackground(.hidden)
+        .screenBackground()
         .refreshable { store.refresh() }
+    }
+
+    /// "Studio Mac · 5 open", which switches Macs where there are several.
+    @ViewBuilder
+    private var subtitle: some View {
+        let line = HStack(spacing: Space.xs) {
+            Text("\(host.name) · \(store.terminals.count) open").font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
+            if macSwitch?.othersWaiting == true { Circle().fill(Palette.text.color).frame(width: 7, height: 7) }
+            if macSwitch != nil { Image(systemName: "chevron.down").font(Typography.caption2.weight(.semibold)).foregroundStyle(Palette.text4.color) }
+        }
+        if let macSwitch {
+            Menu { macSwitch.menu() } label: { line }.buttonStyle(.plain)
+        } else {
+            line
+        }
     }
 
     private var closingShown: Binding<Bool> {

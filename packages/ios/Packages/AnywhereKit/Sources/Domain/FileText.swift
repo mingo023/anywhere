@@ -42,6 +42,13 @@ public enum FileText {
         return String(name[name.index(after: dot)...])
     }
 
+    /// A path under a home folder with `~` for it.
+    public static func home(_ path: String) -> String {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count >= 3, parts[0].isEmpty, parts[1] == "Users" || parts[1] == "home" else { return path }
+        return (["~"] + parts.dropFirst(3)).joined(separator: "/")
+    }
+
     public static func baseName(_ path: String) -> String {
         path.split(separator: "/").last.map(String.init) ?? path
     }

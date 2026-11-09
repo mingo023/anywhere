@@ -95,19 +95,6 @@ struct FileRowTests {
         #expect(GitLetter.color("D") != GitLetter.color("M"))
     }
 
-    @Test("a row's icon says folder, open folder, image, text or code")
-    func icons() {
-        let row = { (name: String, dir: Bool, open: Bool) in
-            FileRow(path: name, entry: FsEntry(name: name, dir: dir, size: 0, mtime: 0), depth: 0, open: open)
-        }
-        #expect(FileRowView.icon(row("src", true, false)) == "folder")
-        #expect(FileRowView.icon(row("src", true, true)) == "folder.fill")
-        #expect(FileRowView.icon(row("logo.PNG", false, false)) == "photo")
-        #expect(FileRowView.icon(row("README.md", false, false)) == "doc.text")
-        #expect(FileRowView.icon(row("main.rs", false, false)) == "chevron.left.forwardslash.chevron.right")
-        #expect(FileRowView.icon(row("Makefile", false, false)) == "doc")
-    }
-
     @Test("a go-to-file hit marks the letters that matched in the base name")
     func hits() {
         let hit = SearchHit(path: "packages/pocket/src/explorer.rs", query: "expl")

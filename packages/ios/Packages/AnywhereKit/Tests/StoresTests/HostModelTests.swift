@@ -1,5 +1,6 @@
 import Client
 import Fixtures
+import Loopback
 import Testing
 import Wire
 @testable import Stores
@@ -21,6 +22,25 @@ struct HostModelTests {
         #expect(h.name == "Mingo's MacBook Pro")
         #expect(h.sessions.sessions.count == Sample.agents.count)
         #expect(h.sessions.requests.count == 2)
+    }
+
+    @Test("an ask answered from the list reaches pocketd with its request and decision, and throws while offline")
+    func answers() async throws {
+        await #expect(throws: DaemonError.self) { try await host().answer(Sample.permission, .allow) }
+        let server = try await TestServer { peer, frame in
+            if case .hello = frame.message { peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello))) }
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(config: .init(host: server.host, token: "t", clientId: "c"))
+        await connection.start()
+        defer { Task { await connection.stop() } }
+        for _ in 0..<200 where await !connection.isOnline { try await Task.sleep(for: .milliseconds(5)) }
+        let h = HostModel(credentials: Credentials(host: server.host, deviceToken: "t", deviceId: "d1", macName: "Mac", clientId: "c"), connection: connection)
+        try await h.answer(Sample.permission, .deny)
+        let answers = { server.received.compactMap { if case .permissionResolve(let r) = $0.message { r } else { nil } } }
+        for _ in 0..<200 where answers().isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(answers().map(\.requestId) == ["r-needs"])
+        #expect(answers().map(\.decision) == [.deny])
     }
 
     @Test("a drop shows the redial, and a revoke ends the link")
