@@ -135,7 +135,7 @@ func (l *Launcher) Create(w Who, requestID string, s proto.LaunchSpec, progress 
 
 func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
 	progress(proto.StepPrepare, "")
-	if fl := Check(w, s, l.set.PhoneMaxAccess()); fl != nil {
+	if fl := Check(w, s); fl != nil {
 		return Result{Err: fl}
 	}
 	if s.Team && (s.Prompt == "" || !Chat(s)) {
@@ -450,19 +450,14 @@ func (l *Launcher) Exited(terminalID, phase string, status int) {
 	}
 }
 
-// Providers lists the agents the user's shell can run. maxAccess is w's ceiling.
-func (l *Launcher) Providers(w Who) (list []proto.ProviderInfo, maxAccess, phoneMax string) {
+// Providers lists the agents the user's shell can run.
+func (l *Launcher) Providers() (list []proto.ProviderInfo) {
 	env := l.d.LoginEnv()
 	for _, p := range providers.All {
 		_, ok := l.find(p.ID, env)
 		list = append(list, proto.ProviderInfo{ID: p.ID, Available: ok, Efforts: p.Efforts, Plan: p.Plan, Chat: p.Chat})
 	}
-	phoneMax = l.set.PhoneMaxAccess()
-	maxAccess = phoneMax
-	if w.Owner {
-		maxAccess = "full"
-	}
-	return list, maxAccess, phoneMax
+	return list
 }
 
 // Paths is what runs each built-in agent: a path, a shell function's name, or empty.
@@ -476,8 +471,6 @@ func (l *Launcher) Paths() map[string]string {
 }
 
 func (l *Launcher) SetPhoneMaxAccess(v string) error { return l.set.SetPhoneMaxAccess(v) }
-
-func (l *Launcher) PhoneMaxAccess() string { return l.set.PhoneMaxAccess() }
 
 func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 	env := l.d.LoginEnv()

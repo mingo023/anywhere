@@ -82,10 +82,10 @@ func TestNamingRunsAShellFunctionThroughTheShell(t *testing.T) {
 	}
 }
 
-func TestProvidersShowWhatIsInstalledAndTheCeiling(t *testing.T) {
+func TestProvidersShowWhatIsInstalled(t *testing.T) {
 	onPath(t, "claude")
 	l := launcher(t, `[]`)
-	list, max, phone := l.Providers(Who{Owner: true, Key: "owner"})
+	list := l.Providers()
 	if len(list) != 2 || !list[0].Available || list[1].Available || len(list[0].Efforts) != 5 || !list[0].Plan || list[1].Plan {
 		t.Fatalf("got %+v", list)
 	}
@@ -95,12 +95,6 @@ func TestProvidersShowWhatIsInstalledAndTheCeiling(t *testing.T) {
 	if list[0].Chat != (providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true, SendNow: true}) ||
 		list[1].Chat != (providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}) {
 		t.Fatalf("chat %+v %+v", list[0].Chat, list[1].Chat)
-	}
-	if max != "full" || phone != "ask" {
-		t.Fatalf("owner: max %q phone %q", max, phone)
-	}
-	if _, max, _ := l.Providers(Who{Key: "device:d1"}); max != "ask" {
-		t.Fatalf("device: max %q", max)
 	}
 }
 
@@ -121,17 +115,6 @@ func TestAProviderStartsFromTheCommandConfigSetNamed(t *testing.T) {
 	l.set.Set("codex.command", plain)
 	if paths := l.Paths(); paths["claude"] != custom || paths["codex"] != "" {
 		t.Fatalf("got %v", paths)
-	}
-}
-
-func TestThePhoneIsHeldToItsCeiling(t *testing.T) {
-	project := t.TempDir()
-	l := launcher(t, `["`+project+`"]`)
-	s := spec("claude", "auto", false)
-	s.Project = project
-	r := l.Create(Who{Key: "device:d1"}, "r1", s, quiet, func(Creating) { t.Fatal("creating") })
-	if r.Err == nil || r.Err.Code != "access_not_allowed" || r.Err.Message != "On your Mac: ⌘K → Phone access level" {
-		t.Fatalf("got %+v", r.Err)
 	}
 }
 

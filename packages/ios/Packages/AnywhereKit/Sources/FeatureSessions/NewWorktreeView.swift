@@ -24,7 +24,7 @@ struct NewWorktreeView: View {
     private var project: Project? { workspace.project(draft.project) }
     private var mainTree: String { NewSessionView.main(of: project) ?? draft.project }
     private var taken: Set<String> { Places.taken(project: project, branches: workspace.branches[mainTree]) }
-    private var problem: String? { draft.problem(taken: taken, maxAccess: Access.full.rawValue) }
+    private var problem: String? { draft.problem(taken: taken) }
 
     var body: some View {
         Form {

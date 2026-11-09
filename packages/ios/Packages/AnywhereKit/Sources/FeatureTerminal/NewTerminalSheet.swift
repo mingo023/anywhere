@@ -34,7 +34,7 @@ struct NewTerminalSheet: View {
                             Section(project.name) {
                                 ForEach(project.worktrees, id: \.path) { tree in
                                     place(tree.name, detail: tree.branch.isEmpty ? nil : tree.branch,
-                                          systemImage: tree.isMain ? "folder" : "arrow.triangle.branch", key: tree.path) {
+                                          systemImage: tree.isMain ? "folder" : "worktree", key: tree.path) {
                                         try await store.create(cwd: tree.path, localId: nil, cols: grid?.cols, rows: grid?.rows)
                                     }
                                 }
@@ -70,7 +70,7 @@ struct NewTerminalSheet: View {
             Task { await start(key, open) }
         } label: {
             HStack(spacing: Space.m) {
-                Image(systemName: systemImage).foregroundStyle(Palette.text2.color).frame(width: 24)
+                Image.named(systemImage, size: 17).foregroundStyle(Palette.text2.color).frame(width: 24)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(name).foregroundStyle(Palette.text.color)
                     if let detail { Text(detail).font(Typography.caption).foregroundStyle(Palette.text3.color) }

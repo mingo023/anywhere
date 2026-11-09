@@ -8,7 +8,6 @@ import SwiftUI
 struct AccessPillView: View {
     let access: String
     let editable: Bool
-    let max: String
     /// The agent, as the confirmation names it.
     let who: String
     let pick: (String) -> Void
@@ -18,7 +17,7 @@ struct AccessPillView: View {
         if editable {
             Menu {
                 Section("Access") {
-                    AccessChoices(choices: AccessPill.choices(max: max, launching: false), picked: access) { choose($0) }
+                    AccessChoices(choices: AccessPill.choices(launching: false), picked: access) { choose($0) }
                 }
             } label: {
                 label

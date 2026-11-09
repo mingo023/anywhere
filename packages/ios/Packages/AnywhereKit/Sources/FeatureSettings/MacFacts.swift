@@ -14,33 +14,13 @@ public enum MacFacts {
     /// The four phone scopes, each marked as granted or not. A Mac older than scopes.v1 sends none: every one is assumed.
     public nonisolated static func grants(_ scopes: [Scope]?) -> [Grant] {
         let all: [(Scope, String, String)] = [
-            (.observe, "See sessions, terminals and changes", "eye"),
+            (.observe, "See sessions and changes", "eye"),
             (.drive, "Send prompts and type", "keyboard"),
             (.approve, "Answer permissions", "checkmark.shield"),
             (.spawn, "Start sessions and worktrees", "plus.rectangle.on.rectangle"),
         ]
         return all.map { scope, title, image in
             Grant(scope: scope, title: title, systemImage: image, allowed: scopes?.contains(scope) ?? true)
-        }
-    }
-
-    /// `phone.maxAccess` as the desktop's Settings → Phone names it.
-    public nonisolated static func access(_ value: String) -> String {
-        switch value {
-        case "ask": "Ask"
-        case "edits": "Edits"
-        case "auto": "Auto"
-        case "full": "Full"
-        default: value.capitalized
-        }
-    }
-
-    /// The Mac's phone.terminals setting; nil from a pocketd too old to say.
-    public nonisolated static func terminals(_ on: Bool?) -> String {
-        switch on {
-        case true?: "On on the Mac"
-        case false?: "Off on the Mac"
-        case nil: "Set on the Mac"
         }
     }
 

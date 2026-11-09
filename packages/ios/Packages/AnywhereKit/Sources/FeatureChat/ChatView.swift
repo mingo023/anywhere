@@ -38,15 +38,23 @@ private struct HostedChat: View {
 
     var body: some View {
         if let store {
-            ChatScreen(store: store, machine: host.name, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }) {
+            let cwd = store.summary?.cwd
+            ChatScreen(store: store, machine: host.name, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }, openLink: {
                 follow($0, in: store)
+            }, git: cwd.map(host.git.changes))
+            .task(id: cwd) {
+                guard let cwd else { return }
+                // Held open so `hide` runs when the chat leaves or moves to another folder.
+                host.git.show(cwd)
+                while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
+                host.git.hide(cwd)
             }
             .toolbar {
                 // One item, as wide as Back: the bar centres the title only when it fits between them evenly.
                 if let cwd = store.summary?.cwd {
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
-                            Button { open(.changes(mac: mac, tree: cwd, chat: agentId)) } label: { Label("Changes", systemImage: "plusminus") }
+                            Button { open(.changes(mac: mac, tree: cwd, chat: agentId)) } label: { Label("Changes", systemImage: "plus.forwardslash.minus") }
                             Button { open(.files(mac: mac, tree: cwd, dir: "", chat: agentId)) } label: { Label("Files", systemImage: "folder") }
                             if host.hello?.has(Caps.gh) == true {
                                 Button { open(.pullRequest(mac: mac, tree: cwd, chat: agentId)) } label: {

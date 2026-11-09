@@ -22,6 +22,7 @@ public enum GitHubGallery {
             ("pr-stale", { pr(.init(tree: tree, pr: Sample.pullRequest, stale: true)) }),
             ("pr-offline", { pr(.init(tree: tree, pr: Sample.readyPullRequest), mac: PrMac(id: Sample.mac, name: "Mingo's MacBook", offline: true)) }),
             ("pr-none", { pr(.init(tree: tree), newPr: newPr) }),
+            ("pr-none-no-commits", { pr(.init(tree: tree), newPr: NewPr(branch: "fix-retry-cap", base: "origin/main", ahead: 0)) }),
             ("pr-no-remote", { pr(.init(tree: tree, problem: .noRemote)) }),
             ("pr-unreachable", { pr(.init(tree: tree, problem: .failed)) }),
             ("pr-gh-missing", { pr(.init(tree: tree, problem: .missing)) }),

@@ -31,7 +31,7 @@ struct TreeView: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: Space.s, trailing: Space.xs))
                     .listRowSeparator(.hidden)
-                    TreeLinks(host: host, mac: mac, project: section.id, tree: checkout(tree, project: section.id), key: key, open: open)
+                    TreeLinks(host: host, mac: mac, project: section.id, tree: checkout(tree, project: section.id), open: open)
                     Section {
                         ForEach(creations, id: \.key) { id, creation in
                             CreationRow(creation: creation, retry: { host.workspace.runKept(id) }, dismiss: { host.workspace.forget(creation: id) })
@@ -108,11 +108,14 @@ struct TreeHeader: View {
     let section: HomeList.Section
     let tree: HomeList.Tree
     let head: GitHead?
+    @Environment(\.showInDetail) private var showInDetail
 
     var body: some View {
+        let column = showInDetail != nil
         VStack(alignment: .leading, spacing: Space.xs) {
             Text("\(section.name) · \(tree.kind == .worktree ? "worktree" : "Local")").font(Typography.footnote).foregroundStyle(Palette.text3.color)
-            Text(tree.label).font(Typography.largeTitle).foregroundStyle(Palette.text.color).lineLimit(1).minimumScaleFactor(0.7)
+            Text(tree.label).font(column ? .system(size: 18, weight: .semibold) : Typography.largeTitle).foregroundStyle(Palette.text.color)
+                .lineLimit(column ? 2 : 1).minimumScaleFactor(column ? 1 : 0.7)
             if let line = Self.branchLine(branch: tree.branch, head: head) {
                 Text(line).font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.middle)
             }

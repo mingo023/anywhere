@@ -376,33 +376,16 @@ func withMaxAccess(t *testing.T, maxAccess string) func(*Server) {
 	return func(s *Server) { s.Launch = launch.New(nil, nil, set, nil) }
 }
 
-func TestAPhoneSwitchesAccessNoHigherThanTheOwnerAllows(t *testing.T) {
-	_, d, p := setup(t, withMaxAccess(t, "edits"))
+func TestAPhoneSwitchesToAnyAccessWhateverTheCeilingSays(t *testing.T) {
+	_, d, p := setup(t, withMaxAccess(t, "ask"))
 	p.hello()
-	raw, _ := os.ReadFile(filepath.Join("..", "proto", "testdata", "golden", "client", "agent_access.json"))
-	p.send(string(raw))
-	if m := p.recv(); m["type"] != "ack" {
-		t.Fatalf("%v", m)
-	}
-	for _, access := range []string{"auto", "full"} {
+	for _, access := range []string{"edits", "auto", "full"} {
 		p.send(`{"type":"agent.settings","id":"p7","agentId":"a1","access":"` + access + `"}`)
-		if m := p.recv(); m["type"] != "error" || m["code"] != "access_not_allowed" {
+		if m := p.recv(); m["type"] != "ack" {
 			t.Fatalf("%s: %v", access, m)
 		}
 	}
-	if !reflect.DeepEqual(d.accesses, []string{"edits"}) {
-		t.Fatalf("%v", d.accesses)
-	}
-}
-
-func TestAPhoneSwitchesToFullOnceTheOwnerRaisedItsCeilingToFull(t *testing.T) {
-	_, d, p := setup(t, withMaxAccess(t, "full"))
-	p.hello()
-	p.send(`{"type":"agent.settings","id":"p7","agentId":"a1","access":"full"}`)
-	if m := p.recv(); m["type"] != "ack" {
-		t.Fatalf("%v", m)
-	}
-	if !reflect.DeepEqual(d.accesses, []string{"full"}) {
+	if !reflect.DeepEqual(d.accesses, []string{"edits", "auto", "full"}) {
 		t.Fatalf("%v", d.accesses)
 	}
 }

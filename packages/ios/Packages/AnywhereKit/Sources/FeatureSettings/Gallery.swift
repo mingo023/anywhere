@@ -16,7 +16,7 @@ public enum SettingsGallery {
                 },
                 GalleryScene("settings-mac\(suffix)", dark: dark) {
                     let app = sampleApp()
-                    return AnyView(NavigationStack { MacSettingsView(app: app, host: app.hosts[0], maxAccess: "edits") })
+                    return AnyView(NavigationStack { MacSettingsView(app: app, host: app.hosts[0]) })
                 },
                 GalleryScene("settings-mac-offline\(suffix)", dark: dark) {
                     let app = sampleApp()

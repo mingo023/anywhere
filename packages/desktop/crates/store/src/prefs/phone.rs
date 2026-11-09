@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(default)]
 pub struct Phone {
-    pub max_access: String,
     /// Listening on the tailnet as well as this Mac.
     pub tailnet: bool,
     /// 0 for pocketd's default.
@@ -13,6 +12,6 @@ pub struct Phone {
 
 impl Default for Phone {
     fn default() -> Self {
-        Self { max_access: "ask".into(), tailnet: true, port: 0 }
+        Self { tailnet: true, port: 0 }
     }
 }

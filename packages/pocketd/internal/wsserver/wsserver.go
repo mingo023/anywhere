@@ -652,12 +652,6 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.compact":
 		err = a.Driver().Compact()
 	case "agent.settings":
-		if m.Access != "" {
-			if f := launch.CheckAccess(launchWho(c.who), m.Access, c.s.Launch.PhoneMaxAccess()); f != nil {
-				c.send(proto.NewCodedError(m.ID, f.Code, f.Message, f.Detail))
-				return nil
-			}
-		}
 		if m.Model != "" || m.Effort != "" {
 			err = launch.ValidSwitch(a.Provider(), m.Model, m.Effort)
 			if err == nil {

@@ -154,7 +154,6 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::Paired(_)
         | Event::PairFailed(_)
         | Event::Providers { .. }
-        | Event::ConfigFailed(_)
         | Event::Locals(_)
         | Event::Automations { .. }
         | Event::AutomationError(_) => return false,

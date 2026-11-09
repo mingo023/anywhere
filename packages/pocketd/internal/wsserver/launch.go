@@ -50,12 +50,13 @@ func (c *conn) create(m proto.ClientMessage) {
 }
 
 func (c *conn) providers(m proto.ClientMessage) {
-	list, maxAccess, phoneMax := c.s.Launch.Providers(launchWho(c.who))
+	list := c.s.Launch.Providers()
 	var defaultAccess string
 	if c.s.Registry != nil {
 		defaultAccess = c.s.Registry.Load().Agents.Access
 	}
-	c.send(proto.NewAgentProviders(m.ID, list, maxAccess, phoneMax, defaultAccess))
+	// Full, as a phone picks any access; older phone apps still read these ceilings.
+	c.send(proto.NewAgentProviders(m.ID, list, "full", "full", defaultAccess))
 }
 
 // skills sends the slash commands m's provider offers in its project as last

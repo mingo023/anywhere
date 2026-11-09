@@ -29,7 +29,7 @@ struct PickBar: View {
                     ask(quote)
                     close()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(CapsuleButtonStyle())
             }
             Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc", action: copy)
                 .buttonStyle(.bordered)

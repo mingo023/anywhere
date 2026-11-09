@@ -22,23 +22,12 @@ public enum AccessPill {
         public let value: String
         public let label: String
         public let hint: String
-        /// Why a phone can't pick it, as pocketd's `launch.Check` refuses it; nil when it can.
-        public let locked: String?
     }
 
-    /// The desktop's choices, a phone's past `max` locked; the agent's own settings, which could allow anything, and a
-    /// start on Full only from the Mac. A running agent can't switch to its own settings, so `launching` alone offers them.
-    public static func choices(max: String, launching: Bool) -> [Choice] {
-        let ceiling = text.firstIndex { $0.value == max } ?? 1
-        return text.enumerated().compactMap { i, t in
-            if t.value == "settings" && !launching { return nil }
-            let locked: String? = switch t.value {
-            case "settings": "Only from your Mac"
-            case "full" where launching: "Only from your Mac"
-            case _ where i > ceiling: "Raise it on your Mac: ⌘K → Phone access level"
-            default: nil
-            }
-            return Choice(value: t.value, label: t.label, hint: t.hint, locked: locked)
+    /// The desktop's choices. A running agent can't switch to its own settings, so `launching` alone offers them.
+    public static func choices(launching: Bool) -> [Choice] {
+        text.compactMap { t in
+            t.value == "settings" && !launching ? nil : Choice(value: t.value, label: t.label, hint: t.hint)
         }
     }
 }

@@ -84,14 +84,14 @@ struct ChangesScreen: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .principal) { BarTitle("Changes", detail: changes.head?.branch) }
-            ToolbarItemGroup(placement: .primaryAction) {
-                Picker("View", selection: $asTree) {
-                    Label("List", systemImage: "list.bullet").tag(false)
-                    Label("Tree", systemImage: "list.bullet.indent").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 96)
+            // One item, as wide as Back: a control beside it nests in the bar's glass and squeezes the title.
+            ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Picker("View", selection: $asTree) {
+                        Label("List", systemImage: "list.bullet").tag(false)
+                        Label("Tree", systemImage: "list.bullet.indent").tag(true)
+                    }
+                    .pickerStyle(.inline)
                     #if os(iOS)
                         if !comparing { Button("Select Files", systemImage: "checkmark.circle", action: toggleSelecting) }
                     #endif

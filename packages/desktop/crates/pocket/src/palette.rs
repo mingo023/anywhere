@@ -30,7 +30,6 @@ pub enum Pick {
     Browser,
     Automations,
     PairPhone,
-    PhoneAccess,
     HostFolder,
     Sound(Cue),
 }
@@ -266,7 +265,6 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
         Entry { pick: Pick::Automations, lead: Lead::Icon("bolt"), title: "Go to Automations".into(), detail: String::new(), keys: Some("⌘ ⇧ A") },
         Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
-        Entry { pick: Pick::PhoneAccess, lead: Lead::Icon("shield"), title: "Phone access level…".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new(), keys: None },
     ]
     .into_iter()
@@ -274,7 +272,6 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
     .filter(|e| match e.pick {
         Pick::New | Pick::Split => crate::modals::new_session::may_start(agents),
         Pick::PairPhone => may_open(Overlay::PairPhone, agents),
-        Pick::PhoneAccess => may_open(Overlay::PhoneAccess, agents),
         Pick::Automations => agents.automations_offered(),
         _ => true,
     })
@@ -383,7 +380,6 @@ impl Desktop {
             Pick::Browser => self.open_browser(None, window, cx),
             Pick::Automations => self.open_automations(&crate::actions::OpenAutomations, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
-            Pick::PhoneAccess => self.open(Overlay::PhoneAccess, window, cx),
             Pick::HostFolder => self.open_host_folder(window, cx),
             Pick::Sound(cue) => {
                 cue.flip(&mut self.store.sounds);
@@ -730,20 +726,9 @@ mod tests {
             action_entries(&[], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
-        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::PairPhone, Pick::PhoneAccess, Pick::HostFolder]);
+        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::PairPhone, Pick::HostFolder]);
         assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::HostFolder]);
         assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::HostFolder]);
-    }
-
-    #[test]
-    fn phone_access_is_offered_only_to_the_owner() {
-        let picks = |scopes: &[&str]| {
-            let mut a = Agents::default();
-            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into()], version: String::new() });
-            action_entries(&["phone".to_string()], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).collect::<Vec<_>>()
-        };
-        assert_eq!(picks(&["observe", "drive", "approve", "spawn", "owner"]), vec![Pick::PairPhone, Pick::PhoneAccess]);
-        assert_eq!(picks(&["observe"]), vec![]);
     }
 
     #[test]

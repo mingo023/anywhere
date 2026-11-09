@@ -17,3 +17,18 @@ func theChatsBarSaysWhereTheAgentStands() {
     #expect(ChatTitle.subtitle(agent("idle"), busy: false, mac: "Studio") == "Studio")
     #expect(ChatTitle.subtitle(nil, busy: false, mac: "Studio") == "Studio")
 }
+
+@Test("the chat's bar counts a tree's changed lines, else its files, and says nothing of a clean tree")
+func theChatsBarCountsChanges() {
+    #expect(ChatTitle.change(files: 3, added: 12, removed: 3) == "+12 −3")
+    #expect(ChatTitle.change(files: 2, added: 0, removed: 0) == "2 files")
+    #expect(ChatTitle.change(files: 1, added: 0, removed: 0) == "1 file")
+    #expect(ChatTitle.change(files: 0, added: 0, removed: 0) == nil)
+}
+
+@Test("the chat's bar names the branch, or says HEAD is detached")
+func theChatsBarNamesTheBranch() {
+    #expect(ChatTitle.branch("fix", detached: false) == "fix")
+    #expect(ChatTitle.branch("fix", detached: true) == "Detached HEAD")
+    #expect(ChatTitle.branch(nil, detached: false) == "No branch")
+}

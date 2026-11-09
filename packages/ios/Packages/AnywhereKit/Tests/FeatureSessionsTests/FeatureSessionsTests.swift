@@ -334,3 +334,27 @@ struct TreeLinksTests {
         #expect(TreeLinks.pullRequest(nil, gh: nil, problem: nil, readsGitHub: false) == nil)
     }
 }
+
+@Suite("A place's chats")
+@MainActor
+struct PlaceChatsTests {
+    let host = HostModel.offline(hello: Sample.hello, messages: Sample.snapshot)
+
+    @Test("a worktree's chats are the sessions it lists")
+    func worktree() {
+        let chats = host.chats(in: .worktree(mac: host.mac, path: "/Users/mingo/.worktrees/anywhere/fix-login"))
+        #expect(chats.count == 2)
+    }
+
+    @Test("a project's chats are those of its main checkout")
+    func project() throws {
+        let path = Sample.projects[0].path
+        let own = try #require(host.homeList().sections.first { $0.id == path }?.trees.first { $0.kind == .own })
+        #expect(host.chats(in: .project(mac: host.mac, path: path)) == own.sessions.map { .chat(mac: host.mac, agentId: $0) })
+    }
+
+    @Test("a place the Mac doesn't list has no chats")
+    func unknown() {
+        #expect(host.chats(in: .worktree(mac: host.mac, path: "/nowhere")).isEmpty)
+    }
+}
