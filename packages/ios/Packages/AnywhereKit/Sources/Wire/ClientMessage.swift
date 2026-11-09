@@ -71,6 +71,10 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case pushPrefs(ClientMessage.PushPrefsUpdate)
     case pushUnregister
     case pushTest
+    case teamList
+    case teamStart(ClientMessage.TeamStart)
+    case teamStop(ClientMessage.TeamStop)
+    case teamMerge(ClientMessage.TeamRef)
 
     public init(from decoder: any Decoder) throws {
         switch try decoder.container(keyedBy: TypeKey.self).decode(String.self, forKey: .type) {
@@ -145,6 +149,10 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "push.prefs": self = .pushPrefs(try ClientMessage.PushPrefsUpdate(from: decoder))
         case "push.unregister": self = .pushUnregister
         case "push.test": self = .pushTest
+        case "team.list": self = .teamList
+        case "team.start": self = .teamStart(try ClientMessage.TeamStart(from: decoder))
+        case "team.stop": self = .teamStop(try ClientMessage.TeamStop(from: decoder))
+        case "team.merge": self = .teamMerge(try ClientMessage.TeamRef(from: decoder))
         case let type: throw malformed(decoder, "unknown message type \(type)")
         }
     }
@@ -224,6 +232,10 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .pushPrefs(let m): try m.encode(to: encoder)
         case .pushUnregister: break
         case .pushTest: break
+        case .teamList: break
+        case .teamStart(let m): try m.encode(to: encoder)
+        case .teamStop(let m): try m.encode(to: encoder)
+        case .teamMerge(let m): try m.encode(to: encoder)
         }
     }
 
@@ -300,6 +312,10 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .pushPrefs: "push.prefs"
         case .pushUnregister: "push.unregister"
         case .pushTest: "push.test"
+        case .teamList: "team.list"
+        case .teamStart: "team.start"
+        case .teamStop: "team.stop"
+        case .teamMerge: "team.merge"
         }
     }
 }

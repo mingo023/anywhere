@@ -154,7 +154,7 @@ func (d *Daemon) AskOpen(id string) bool {
 	pr.mu.Lock()
 	asking := len(pr.asks) > 0
 	pr.mu.Unlock()
-	return asking || pr.a.Summary().Status == "needsYou"
+	return asking || pr.a.Turn() == "needsYou"
 }
 
 // Input hands the keys the user writes to an agent in its TUI to its kind.
@@ -506,7 +506,7 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool)
 					go d.limitHit(pr)
 				}
 				// Rejecting Claude's own dialog at the desk interrupts the turn without a hook.
-				if e.Error == "interrupted" && read > replay && pr.a.Summary().Status == "needsYou" {
+				if e.Error == "interrupted" && read > replay && pr.a.Turn() == "needsYou" {
 					d.cleared(pr)
 				}
 			}

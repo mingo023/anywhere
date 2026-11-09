@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -484,26 +485,28 @@ func TestOnStatusFiresOnEveryStatusChange(t *testing.T) {
 	}
 }
 
-func TestBusyCountsWorkingAndNeedsYou(t *testing.T) {
-	with := func(statuses ...string) []proto.AgentSummary {
-		var out []proto.AgentSummary
-		for _, s := range statuses {
-			out = append(out, proto.AgentSummary{Status: s})
-		}
-		return out
-	}
+func TestBusyIsATurnOrAnOpenAskButNotAWaitBetweenTurns(t *testing.T) {
 	for _, c := range []struct {
-		agents []proto.AgentSummary
-		busy   bool
+		name  string
+		steps func(a *Agent)
+		busy  bool
 	}{
-		{nil, false},
-		{with("idle", "done", "closed"), false},
-		{with("idle", "working"), true},
-		{with("needsYou"), true},
+		{"idle", func(*Agent) {}, false},
+		{"done", func(a *Agent) { a.Working(); a.TurnEnded(false) }, false},
+		{"working", func(a *Agent) { a.Working() }, true},
+		{"asking", func(a *Agent) { a.Working(); a.NeedsYou() }, true},
+		{"awaiting the user between turns", func(a *Agent) { a.SetAwaiting(true) }, false},
 	} {
-		if Busy(c.agents) != c.busy {
-			t.Errorf("%v: want %v", c.agents, c.busy)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			reg := NewRegistry(hub.New())
+			c.steps(reg.Add("a1", "/w", "claude", fakeDriver{}))
+			if got := reg.Busy(); got != c.busy {
+				t.Fatalf("busy %t", got)
+			}
+		})
+	}
+	if NewRegistry(hub.New()).Busy() {
+		t.Fatal("no agents is busy")
 	}
 }
 
@@ -752,5 +755,63 @@ func TestAStopRightAfterAPromptStopsTheTurnItStarts(t *testing.T) {
 	a.Clear()
 	if a.Stop() {
 		t.Fatal("the stopped prompt still counts")
+	}
+}
+
+func TestAnAgentAwaitingTheUserNeedsYouBetweenTurnsUntilItsNextTurn(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		steps func(a *Agent)
+		want  string
+	}{
+		{"awaiting while idle", func(a *Agent) { a.SetAwaiting(true) }, "needsYou"},
+		{"awaiting outranks done", func(a *Agent) { a.Working(); a.TurnEnded(false); a.SetAwaiting(true) }, "needsYou"},
+		{"no longer awaiting", func(a *Agent) { a.Working(); a.TurnEnded(false); a.SetAwaiting(true); a.SetAwaiting(false) }, "done"},
+		{"a turn ends the wait", func(a *Agent) { a.SetAwaiting(true); a.Working() }, "working"},
+		{"and the wait doesn't come back when the turn ends", func(a *Agent) { a.SetAwaiting(true); a.Working(); a.TurnEnded(false) }, "done"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+			tc.steps(a)
+			if got := state(a.Summary()); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTurnIsTheStatusWithoutTheWait(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
+	a.SetAwaiting(true)
+	if got := a.Turn(); got != "idle" {
+		t.Fatalf("idle: got %q", got)
+	}
+	a.Working()
+	a.TurnEnded(false)
+	a.SetAwaiting(true)
+	if got := a.Turn(); got != "done" {
+		t.Fatalf("done: got %q", got)
+	}
+}
+
+func TestOnTurnEndSaysWhetherEachTurnEndedNormally(t *testing.T) {
+	reg := NewRegistry(hub.New())
+	var got []string
+	reg.OnTurnEnd = func(id string, ok bool) { got = append(got, id+" "+strconv.FormatBool(ok)) }
+	a := reg.Add("a1", "/w", "claude", fakeDriver{})
+	a.Working()
+	a.TurnEnded(false)
+	a.Working()
+	a.TurnEnded(true)
+	a.Working()
+	a.Stop()
+	a.Clear()
+	a.Working()
+	a.Stop()
+	a.TurnEnded(false)
+	a.TurnEnded(false)
+	want := []string{"a1 true", "a1 false", "a1 false", "a1 false"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("%q", got)
 	}
 }

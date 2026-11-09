@@ -17,6 +17,7 @@ import (
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/state"
+	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
 
@@ -228,8 +229,13 @@ func (s *stream) draft(l streamLine) (timeline.Event, bool) {
 
 func midTurn(status string) bool { return status == "working" || status == "needsYou" }
 
-func promptLine(text string) map[string]any {
-	return map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}}
+// promptLine is a user line. Claude reports on one with a uuid in command_lifecycle lines.
+func promptLine(text, uuid string) map[string]any {
+	line := map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}}
+	if uuid != "" {
+		line["uuid"], line["session_id"], line["parent_tool_use_id"] = uuid, "", nil
+	}
+	return line
 }
 
 func controlReply(id string, response any) map[string]any {
@@ -288,6 +294,9 @@ type streamLine struct {
 	PermissionMode string `json:"permissionMode"`
 	Status         string `json:"status"`
 	IsError        bool   `json:"is_error"`
+	// A command_lifecycle's: what came of the user line with this uuid.
+	CommandUUID string `json:"command_uuid"`
+	State       string `json:"state"`
 	// A stream_event's: what claude streams of the message it writes, when run with --include-partial-messages.
 	Event struct {
 		Type  string `json:"type"`
@@ -323,6 +332,14 @@ func (d *Daemon) streamLine(pr *presence, text string) {
 		s.replied(l.Response.RequestID, l.Response.Subtype, l.Response.Error, l.Response.Response)
 	case l.Type == "control_cancel_request":
 		s.cancel(l.RequestID)
+	case l.Type == "command_lifecycle" && l.CommandUUID != "":
+		switch l.State {
+		case "completed":
+			d.settle(pr.a.ID(), l.CommandUUID, true)
+		case "cancelled":
+			d.settle(pr.a.ID(), l.CommandUUID, false)
+			d.Pump(pr.a.ID())
+		}
 	case l.Type == "system" && l.Subtype == "init":
 		s.stopped(true)
 		if l.PermissionMode != "" {
@@ -414,14 +431,26 @@ func (c streamDriver) Prompt(text string) error {
 		return errNotForeground
 	}
 	// Claude runs a command sent mid-turn once the turn ends, and a goal can keep it going for long.
-	if name, arg, ok := slashCommand(text); ok && name == "goal" && arg == "clear" && midTurn(c.a.Summary().Status) {
+	if name, arg, ok := slashCommand(text); ok && name == "goal" && arg == "clear" && midTurn(c.a.Turn()) {
 		if err := c.interrupt(false); err != nil {
 			return err
 		}
 	}
 	c.a.Prompted()
-	c.pr.stream.send(promptLine(text))
+	c.pr.stream.send(promptLine(text, ""))
 	return nil
+}
+
+// Deliver sends text as a prompt under a fresh uuid, the ref claude's
+// command_lifecycle lines name.
+func (c streamDriver) Deliver(text string) (string, error) {
+	if !c.inForeground() {
+		return "", errNotForeground
+	}
+	ref := terminal.NewID()
+	c.a.Prompted()
+	c.pr.stream.send(promptLine(text, ref))
+	return ref, nil
 }
 
 // Interrupt stops the turn and the background sub-agents the chat holds it
@@ -511,7 +540,7 @@ func (c streamDriver) Compact() error {
 		return errNotForeground
 	}
 	c.a.SetCompacting()
-	c.pr.stream.send(promptLine("/compact"))
+	c.pr.stream.send(promptLine("/compact", ""))
 	return nil
 }
 

@@ -52,6 +52,8 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case fsRead(FsRead)
     case fsSearch(FsSearch)
     case attachDone(AttachDone)
+    case teamList(TeamList)
+    case teamUpdate(TeamUpdate)
     /// A message this build doesn't know, from a newer pocketd; ignored.
     case unknown(String)
 
@@ -108,6 +110,8 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "fs.read": self = .fsRead(try FsRead(from: decoder))
         case "fs.search": self = .fsSearch(try FsSearch(from: decoder))
         case "attach.done": self = .attachDone(try AttachDone(from: decoder))
+        case "team.list": self = .teamList(try TeamList(from: decoder))
+        case "team.update": self = .teamUpdate(try TeamUpdate(from: decoder))
         case let type: self = .unknown(type)
         }
     }
@@ -167,6 +171,8 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .fsRead(let m): try m.encode(to: encoder)
         case .fsSearch(let m): try m.encode(to: encoder)
         case .attachDone(let m): try m.encode(to: encoder)
+        case .teamList(let m): try m.encode(to: encoder)
+        case .teamUpdate(let m): try m.encode(to: encoder)
         case .unknown: break
         }
     }
@@ -224,6 +230,8 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .fsRead: "fs.read"
         case .fsSearch: "fs.search"
         case .attachDone: "attach.done"
+        case .teamList: "team.list"
+        case .teamUpdate: "team.update"
         case .unknown(let type): type
         }
     }

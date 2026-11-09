@@ -1,0 +1,14 @@
+{
+  "type": "team.list",
+  "id": "tl1",
+  "teams": [
+    {
+      "lead": "a2",
+      "state": "failed",
+      "error": "a plan needs 2 to 4 tasks, not 1",
+      "tasks": [],
+      "repaired": true,
+      "updatedAt": 1790000000000
+    }
+  ]
+}

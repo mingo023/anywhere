@@ -17,6 +17,7 @@ type ClientMessage struct {
 	ProtocolVersion float64
 	AgentID         string
 	Text            string
+	Team            bool // agent.prompt's agent plans Text as a team's lead
 	SinceSeq        *float64
 	Limit           *float64
 	RequestID       string
@@ -96,6 +97,10 @@ type ClientMessage struct {
 	Frequent         bool
 	ActivityID       string
 	Ended            bool
+	// team.start, team.stop and team.merge's.
+	Lead  string
+	Task  string
+	Tasks []TaskPick
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -178,9 +183,9 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "pair":
 		ok = get("code", &m.Code) && get("name", &m.Name) && get("platform", &m.Platform) &&
 			(m.Platform == "ios" || m.Platform == "android") && optionalRange("protocol", &m.Protocol)
-	case m.Type == "agent.list", m.Type == "pair.begin", m.Type == "project.list", m.Type == "agent.providers":
+	case m.Type == "agent.list", m.Type == "pair.begin", m.Type == "project.list", m.Type == "agent.providers", m.Type == "team.list":
 	case m.Type == "agent.prompt":
-		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
+		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && (!f.has("team") || get("team", &m.Team))
 	case m.Type == "agent.btw":
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && strings.TrimSpace(m.Text) != ""
 	case m.Type == "agent.interrupt", m.Type == "agent.send_now", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
@@ -223,6 +228,12 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("automationId", &m.AutomationID) && get("enabled", &m.Enabled)
 	case m.Type == "automation.delete", m.Type == "automation.run":
 		ok = get("automationId", &m.AutomationID)
+	case m.Type == "team.start":
+		ok = get("lead", &m.Lead) && decodePicks(f["tasks"], &m.Tasks)
+	case m.Type == "team.stop":
+		ok = get("lead", &m.Lead) && get("task", &m.Task)
+	case m.Type == "team.merge":
+		ok = get("lead", &m.Lead)
 	default:
 		decode := phoneVerb(m.Type)
 		ok = decode != nil && decode(f, &m)

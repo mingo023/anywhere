@@ -1,0 +1,1149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anywhere · Orchestrator team prototype</title>
+<style>
+:root{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;
+  --window:#f4f4f5;--surface:#fff;--sunken:#fafafa;--page:#f7f7f7;--side:#f8f8f9;
+  --fill-1:rgba(17,17,19,.031);--fill-2:rgba(17,17,19,.043);--fill-3:rgba(17,17,19,.055);--fill-4:rgba(17,17,19,.067);
+  --hairline:rgba(17,17,19,.071);--sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);
+  --accent:#5b5bd6;--accent-bg:rgba(91,91,214,.11);--accent-ring:rgba(91,91,214,.2);
+  --waiting:#ad5700;--waiting-bg:rgba(173,87,0,.07);--failed:#cd2b31;--success:#2b9a66;--success-text:#18794e;
+  --claude:#d97757;--codex:#111113;--rail:rgba(17,17,19,.1);
+  --row-shadow:0 1px 2px rgba(17,17,19,.06),0 0 0 .5px rgba(17,17,19,.06);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),0 24px 60px rgba(17,17,19,.18),0 4px 12px rgba(17,17,19,.08);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+button:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px}
+svg{display:block;flex:none}
+.mono{font-family:var(--mono)}
+code{font:12.5px var(--mono);background:var(--fill-3);padding:1px 5px;border-radius:4px}
+.sp{flex:1}
+#stage{position:fixed;inset:0}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+.rise{animation:rise 220ms var(--ease-out) both}
+.fade{animation:fadein 180ms var(--ease-out) both}
+
+/* window shell */
+#win{position:absolute;inset:28px 28px 84px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:60}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+#side{width:260px;flex:none;display:flex;flex-direction:column;background:var(--side);border-right:.5px solid var(--sep)}
+.shead{height:42px;flex:none;display:flex;align-items:flex-end;padding:0 18px 6px;margin-top:30px;font-size:16px;font-weight:700;letter-spacing:-.01em}
+.card{margin:8px 8px 0;padding:10px 12px 10px 14px;border-radius:10px;display:flex;flex-direction:column;gap:5px}
+.card.sel{background:var(--fill-4)}
+.card .r1{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+.card .r2{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .r3{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)}
+.card .st{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px}
+.st.needs{color:var(--waiting);font-weight:600}.st.done{color:var(--success-text)}.st.idle{color:var(--text-4)}.st.working{color:var(--text-2)}
+.pdot{width:6px;height:6px;border-radius:50%;flex:none}
+.pg{font-size:12px;line-height:1;width:12px;text-align:center;flex:none}.pg.claude{color:var(--claude)}.pg.codex{color:var(--codex)}
+
+#chat{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--sunken);position:relative}
+.strip{height:42px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:.5px solid var(--sep);font-size:13px;font-weight:600}
+.strip .sub{font-weight:400;color:var(--text-3);font-size:12.5px}
+#log{flex:1;min-height:0;overflow-y:auto;padding:22px 0 12px;scrollbar-width:none}
+#log::-webkit-scrollbar{display:none}
+.col{max-width:760px;margin:0 auto;padding:0 28px}
+.bubble{margin:0 0 18px auto;width:fit-content;max-width:78%;padding:9px 14px;border-radius:14px;background:var(--surface);box-shadow:var(--row-shadow);font-size:14px;line-height:21px}
+.say{font-size:14px;line-height:22px;color:var(--text-body);margin:0 0 14px}
+.note{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:13px;color:var(--text-2)}
+.note b{font-weight:600;color:var(--text-body)}
+#dock{flex:none;padding:0 28px 18px;position:relative}
+#dock .col{padding:0}
+.box{border-radius:16px;background:var(--surface);box-shadow:0 0 0 .5px var(--sep-strong),0 8px 24px rgba(17,17,19,.06),0 1px 2px rgba(17,17,19,.05)}
+.box .ph{padding:13px 16px 6px;font-size:14px;color:var(--text-4)}
+.box .ft{display:flex;align-items:center;gap:6px;padding:6px 10px 10px}
+.chipb{height:28px;padding:0 10px;border-radius:14px;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);white-space:nowrap;transition:background-color 150ms ease-out,color 150ms ease-out}
+.chipb:hover{background:var(--fill-3);color:var(--text)}
+.chipb:active{transform:scale(.97)}
+.chipb b{font-weight:600;color:var(--text)}
+.send{margin-left:auto;width:30px;height:30px;border-radius:50%;background:var(--text);display:grid;place-items:center}
+
+/* shared atoms */
+.glyph{display:inline-block;vertical-align:middle;width:14px;height:14px;flex:none;position:relative}
+.r-st{display:flex;align-items:center}
+.glyph.run::before{content:"";position:absolute;inset:1px;border-radius:50%;border:1.6px solid var(--rail)}
+.glyph.run::after{content:"";position:absolute;inset:1px;border-radius:50%;border:1.6px solid transparent;border-top-color:var(--text-2);animation:spin 1s linear infinite}
+.glyph.done::before{content:"";position:absolute;inset:1px;border-radius:50%;background:var(--success)}
+.glyph.done::after,.glyph.merged::after{content:"";position:absolute;left:4.5px;top:3.2px;width:3px;height:5.5px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.glyph.merged::before{content:"";position:absolute;inset:1px;border-radius:50%;background:var(--accent)}
+.glyph.wait::before{content:"";position:absolute;inset:1px;border-radius:50%;border:1.6px dashed var(--text-5)}
+.glyph.needs::before{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--waiting)}
+.glyph.needs::after{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--waiting);opacity:.35}
+.btn{height:30px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:background-color 150ms ease-out,color 150ms ease-out,transform 100ms ease-out}
+.btn:active{transform:scale(.97)}
+.btn.sm{height:26px;padding:0 10px;font-size:12.5px;border-radius:7px}
+.btn.primary{background:var(--text);color:#fff}.btn.primary:hover{background:#2c2c31}
+.btn.primary[disabled]{background:var(--text-6);color:#fff}
+.btn.ghost{color:var(--text-2)}.btn.ghost:hover{background:var(--fill-3);color:var(--text)}
+.btn kbd{font:500 11px var(--sans);color:rgba(255,255,255,.55)}
+.icon-btn{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--text-4);transition:background-color 150ms ease-out,color 150ms ease-out}
+.icon-btn:hover{background:var(--fill-3);color:var(--text)}
+.icon-btn:active{transform:scale(.94)}
+.agent-chip{height:24px;padding:0 7px;border-radius:7px;display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2);background:var(--fill-2);white-space:nowrap;transition:background-color 150ms ease-out,color 150ms ease-out}
+.agent-chip:hover{background:var(--fill-4);color:var(--text)}
+.agent-chip:active{transform:scale(.97)}
+.agent-chip .car{color:var(--text-4);font-size:9px}
+.pill{height:20px;padding:0 6px;border-radius:5px;background:var(--fill-2);font:11.5px/20px var(--mono);color:var(--text-2);white-space:nowrap}
+.wt{display:inline-flex;align-items:center;gap:4px;font:11.5px var(--mono);color:var(--text-3);white-space:nowrap}
+.after{font-size:11.5px;color:var(--text-3);white-space:nowrap}
+.stepper{display:inline-flex;align-items:center;gap:2px;height:26px;padding:0 2px;border-radius:8px;background:var(--fill-2);font-size:12px;color:var(--text-2)}
+.stepper b{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.stepper span{padding:0 4px}
+.stepper button{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:14px;color:var(--text-2)}
+.stepper button:hover{background:var(--surface);color:var(--text);box-shadow:var(--row-shadow)}
+.stepper button[disabled]{color:var(--text-6);background:none;box-shadow:none}
+.add{color:var(--success-text)}.del{color:var(--failed)}
+.meta{font-size:12px;color:var(--text-4);font-variant-numeric:tabular-nums;white-space:nowrap}
+.fnote{font-size:12.5px;color:var(--text-3)}
+.fnote.warn{color:var(--waiting)}
+.fnote.strong{color:var(--text-body)}
+.glyph.stopped::before{content:"";position:absolute;inset:3px;border-radius:2.5px;background:var(--text-4)}
+
+/* sub-sessions: the lead's workers under its card */
+.card[data-side]{transition:background-color 150ms ease-out}
+.card[data-side]:not(.sel):hover{background:var(--fill-2)}
+.subs{position:relative;margin:2px 8px 0 26px}
+.subs:not(:empty)::before{content:"";position:absolute;left:-7px;top:4px;bottom:14px;width:1px;background:var(--rail)}
+.subrow{position:relative;width:100%;height:30px;display:grid;grid-template-columns:14px minmax(0,1fr) auto;align-items:center;column-gap:8px;padding:0 10px 0 8px;border-radius:8px;text-align:left;font-size:12.5px;color:var(--text-body);transition:background-color 150ms ease-out}
+.subrow::before{content:"";position:absolute;left:-7px;top:50%;width:6px;height:1px;background:var(--rail)}
+.subrow:hover{background:var(--fill-2)}
+.subrow:active{transform:scale(.985)}
+.subrow.sel{background:var(--fill-4)}
+.subrow .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subrow[data-st=needs] .t{font-weight:600}
+.subrow .st{font-size:11.5px}
+.subrow .meta{font-size:11.5px}
+.subrow.folded{color:var(--text-3)}
+.subrow.folded:hover{background:none}
+
+/* a worker's chat, over the lead's or beside it */
+#wview{position:absolute;inset:0;z-index:80;display:flex;flex-direction:column;background:var(--sunken);transition:opacity 160ms var(--ease-out),transform 220ms var(--ease-out)}
+#wview.full{animation:wvin 220ms var(--ease-out) both}
+#wview.beside{left:50%;border-left:.5px solid var(--sep);box-shadow:-12px 0 32px rgba(17,17,19,.06);animation:wvbeside 240ms var(--ease-out) both}
+#wview.off{opacity:0;transform:translateX(-8px);pointer-events:none}
+#wview.beside.off{transform:translateX(16px)}
+@keyframes wvin{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+@keyframes wvbeside{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+.wv-strip{gap:6px;font-weight:500}
+.crumb{height:24px;padding:0 6px;margin-left:-6px;border-radius:6px;color:var(--text-3);font-weight:500;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color 150ms ease-out,color 150ms ease-out}
+.crumb:hover{background:var(--fill-3);color:var(--text)}
+.crumb-sep{color:var(--text-5)}
+.wv-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.wv-sub{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.wv-st{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text-3);white-space:nowrap}
+#wview.beside .wv-sub,#wview.beside .crumb,#wview.beside .crumb-sep{display:none}
+.wv-log{flex:1;min-height:0;overflow-y:auto;padding:22px 0 12px;scrollbar-width:none}
+.wv-log::-webkit-scrollbar{display:none}
+.wv-from{font-size:11.5px;font-weight:600;color:var(--text-4);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}
+.wv-step{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:13px;color:var(--text-3);white-space:nowrap;overflow:hidden}
+.wv-step b{font-weight:600;color:var(--text-2)}
+.wv-step .mono{font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
+.wv-step.denied b{color:var(--failed)}
+.wv-items .bubble{margin-top:10px}
+.wv-tail{margin-top:10px}
+.wv-dock{flex:none;padding:0 28px 18px}
+.wv-dock .col{padding:0}
+.wv-in{display:block;width:100%;border:0;outline:0;background:none;padding:13px 16px 6px;font:14px var(--sans);color:var(--text)}
+.wv-in::placeholder{color:var(--text-4)}
+#chat.split #log{padding-right:50%}
+#chat.split #dock{padding-right:calc(50% + 28px)}
+#chat.split #lanes{right:calc(50% + 12px)}
+#chat.split #island,#chat.split #ilist{left:25%}
+@media (prefers-reduced-motion:reduce){
+  #wview.full,#wview.beside{animation:fadein 160ms ease-out both}
+  #wview.off,#wview.beside.off{transform:none}
+}
+.steps{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--text-3)}
+.steps div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steps b{font-weight:600;color:var(--text-2);margin-right:6px}
+.steps .denied b{color:var(--failed)}
+.report{font-size:13px;line-height:19px;color:var(--text-body)}
+.ask{padding:12px;border-radius:10px;background:var(--surface);box-shadow:0 0 0 .5px rgba(173,87,0,.38),0 6px 18px rgba(173,87,0,.08)}
+.ask-h{display:flex;align-items:center;gap:8px;font-size:13px}
+.ask-h b{font-weight:600}
+.ask-cmd{margin:9px 0 6px;padding:7px 10px;border-radius:7px;background:var(--fill-2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ask-why{font-size:12.5px;color:var(--text-2)}
+.ask-f{display:flex;justify-content:flex-end;gap:6px;margin-top:10px}
+.segs{display:flex;gap:3px}
+.segs i{width:16px;height:4px;border-radius:2px;background:var(--fill-4);transition:background-color 200ms ease-out}
+.segs i.working{background:var(--text-4)}.segs i.needs{background:var(--waiting)}.segs i.done{background:var(--success)}.segs i.merged{background:var(--accent)}
+
+.menu{position:absolute;z-index:300;min-width:196px;padding:5px;border-radius:10px;background:var(--surface);box-shadow:var(--pop-shadow);font-size:13px;animation:pop 150ms var(--ease-out) both}
+.menu .mh{padding:6px 8px 3px;font-size:11px;font-weight:600;color:var(--text-4)}
+.menu button{width:100%;height:28px;padding:0 8px;border-radius:6px;display:flex;align-items:center;gap:8px;text-align:left}
+.menu button:hover{background:var(--accent);color:#fff}
+.menu button:hover .pg{color:#fff}
+.menu .ck{margin-left:auto;font-size:12px}
+
+#hud{position:fixed;right:28px;bottom:24px;z-index:100;display:flex;align-items:center;gap:8px;height:36px;padding:0 6px 0 12px;border-radius:12px;background:rgba(255,255,255,.7);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:var(--row-shadow);font-size:12px;color:var(--text-2)}
+#hud b{font-weight:600;color:var(--text)}
+.hseg{display:flex;padding:2px;border-radius:8px;background:var(--fill-3)}
+.hseg button{height:24px;padding:0 9px;border-radius:6px;font-size:12px;color:var(--text-2)}
+.hseg button.on{background:var(--surface);color:var(--text);box-shadow:var(--row-shadow)}
+
+/* ───────── 1 · Inline: the plan is a card in the lead's transcript and stays there as the run ───────── */
+.v1{margin:0 0 18px;border-radius:14px;background:var(--surface);box-shadow:var(--row-shadow);overflow:hidden;animation:rise 240ms var(--ease-out) both}
+.tc-h{height:46px;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;font-size:13px;color:var(--text-2)}
+.tc-h .tg{font-weight:600;color:var(--text)}
+.tc-h .sub{color:var(--text-3);font-size:12.5px}
+.tc-b:not(:empty){border-top:.5px solid var(--hairline)}
+.v1-prow{display:grid;grid-template-columns:20px minmax(0,1fr) auto 24px;align-items:center;column-gap:12px;padding:11px 10px 11px 14px;border-bottom:.5px solid var(--hairline)}
+.v1-prow:last-child{border-bottom:0}
+.num{width:20px;height:20px;border-radius:6px;background:var(--fill-3);font:600 11.5px/20px var(--sans);text-align:center;color:var(--text-2)}
+.v1-title{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v1-scope{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;align-items:center}
+.v1-rm{opacity:0;transition:opacity 150ms ease-out}
+.v1-prow:hover .v1-rm,.v1-rm:focus-visible{opacity:1}
+.v1-row{border-bottom:.5px solid var(--hairline);transition:background-color 200ms ease-out}
+.v1-row:last-child{border-bottom:0}
+.v1-row[data-st=needs]{background:var(--waiting-bg)}
+.v1-rh{width:100%;display:grid;grid-template-columns:14px minmax(0,max-content) minmax(0,1fr) auto 64px;align-items:center;column-gap:10px;height:42px;padding:0 14px;text-align:left;transition:background-color 150ms ease-out}
+.v1-rh:hover{background:var(--fill-1)}
+.v1-rh .v1-title{max-width:260px;font-weight:550}
+.v1-rh .r-now{font:12px var(--mono);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v1-row[data-st=needs] .r-now{color:var(--waiting)}
+.v1-who{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-3);white-space:nowrap}
+.v1-rh .r-meta{text-align:right}
+.r-more:empty{display:none}
+.v1-row[data-open] .r-more{animation:rise 200ms var(--ease-out) both}
+.v1-more{display:flex;flex-direction:column;gap:10px;padding:0 14px 14px 38px}
+.tc-f{display:flex;align-items:center;gap:8px;min-height:52px;padding:10px 12px 10px 14px;border-top:.5px solid var(--hairline);background:var(--sunken)}
+.tc-f:empty{display:none}
+.v1-after{animation:rise 240ms var(--ease-out) both}
+
+/* ───────── 2 · Lanes: a board over the chat, one column per agent ───────── */
+#lanes{position:absolute;left:20px;right:20px;top:54px;bottom:var(--db,120px);z-index:40;display:flex;flex-direction:column;border-radius:16px;background:var(--surface);box-shadow:var(--pop-shadow);
+  transform-origin:var(--ox,50%) 100%;transition:opacity 200ms var(--ease-out),transform 260ms var(--ease-out)}
+#lanes.closed{opacity:0;transform:translateY(10px) scale(.98);pointer-events:none}
+.ln-h{height:50px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px 0 18px;font-size:13px;color:var(--text-2);border-bottom:.5px solid var(--hairline)}
+.ln-h .tg{font-size:14px;font-weight:600;color:var(--text);letter-spacing:-.005em}
+.ln-h .sub{color:var(--text-3);font-size:12.5px}
+.ln-g{flex:1;min-height:0;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px;padding:12px;background:var(--sunken)}
+.ln-empty{grid-column:1/-1;display:grid;place-items:center;font-size:13px;color:var(--text-3)}
+.lane{min-height:0;display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;background:var(--surface);box-shadow:var(--row-shadow);transition:box-shadow 200ms ease-out}
+.lane[data-st=needs]{box-shadow:0 0 0 1px rgba(173,87,0,.45),0 6px 18px rgba(173,87,0,.1)}
+.lane[data-st=merged]{box-shadow:0 0 0 .5px var(--accent-ring),var(--row-shadow)}
+.lane-h{display:flex;align-items:center;gap:6px;height:24px}
+.lane-who{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-3);white-space:nowrap}
+.lane-title{font-size:13.5px;font-weight:600;line-height:18px}
+.lane-scope{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.lane-log{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;overflow:hidden;font-size:12px;color:var(--text-4);
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 36px);mask-image:linear-gradient(to bottom,transparent 0,#000 36px)}
+.ll{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ll b{font-weight:600;margin-right:6px}
+.ll .mono{font-size:11.5px}
+.ll.cur{color:var(--text-2)}
+.ll.denied b{color:var(--failed)}
+.lane-foot:empty{display:none}
+.lane-foot .ask{padding:10px}
+.lane-foot .ask-f{margin-top:8px}
+.lane-foot .ask-f .btn{flex:1;justify-content:center}
+.lane-wait{font-size:12px;color:var(--text-3);padding:2px 0}
+.ln-f{flex:none;display:flex;align-items:center;gap:8px;min-height:54px;padding:10px 12px 10px 18px;border-top:.5px solid var(--hairline)}
+.v2-chip{background:var(--fill-2)}
+.v2-chip.on{background:var(--accent-bg);color:var(--accent)}
+.v2-chip.on b{color:var(--accent)}
+.v2-chip .dot{width:6px;height:6px;border-radius:50%;background:var(--text-4)}
+.v2-chip .dot.live{background:var(--success)}
+.v2-chip .dot.needs{background:var(--waiting)}
+
+/* ───────── 3 · Island: a focused sheet to consent, then a capsule that stays out of the way ───────── */
+#scrim{position:absolute;inset:0;z-index:90;background:rgba(17,17,19,.16);transition:opacity 220ms var(--ease-out)}
+#scrim.off{opacity:0;pointer-events:none}
+#sheet{position:absolute;z-index:91;left:50%;top:46%;width:580px;translate:-50% -50%;border-radius:16px;background:var(--surface);box-shadow:var(--pop-shadow);
+  transition:opacity 200ms var(--ease-out),transform 280ms var(--ease-out)}
+#sheet.intro{animation:pop 240ms var(--ease-out) both}
+#sheet.off{opacity:0;transform:scale(.25);pointer-events:none}
+.sh-h{padding:20px 22px 14px}
+.sh-h h2{margin:0;font-size:17px;line-height:22px;font-weight:650;letter-spacing:-.012em}
+.sh-h p{margin:4px 0 0;font-size:13px;line-height:19px;color:var(--text-2)}
+.sh-rows{border-top:.5px solid var(--hairline);border-bottom:.5px solid var(--hairline)}
+.sh-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto 24px;align-items:center;column-gap:12px;padding:10px 12px 10px 22px}
+.sh-row+.sh-row{border-top:.5px solid var(--hairline)}
+.sh-row .t{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sh-row .s{display:flex;gap:8px;margin-top:3px;font-size:12px;color:var(--text-3);white-space:nowrap;overflow:hidden}
+.sh-row .v1-rm{opacity:0}
+.sh-row:hover .v1-rm{opacity:1}
+.sh-f{display:flex;align-items:center;gap:8px;padding:14px 16px 16px 22px}
+#island{position:absolute;left:50%;bottom:var(--ib,120px);z-index:45;width:0;height:0}
+.isl{position:absolute;left:0;bottom:0;translate:-50% 0;transform-origin:50% 100%;transition:opacity 200ms var(--ease-out),transform 300ms var(--ease-out);
+  color:#fff;background:rgba(22,22,26,.88);-webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6);
+  box-shadow:0 0 0 .5px rgba(255,255,255,.08) inset,0 12px 32px rgba(17,17,19,.28),0 2px 8px rgba(17,17,19,.16)}
+.isl.off{opacity:0;transform:scale(.86);pointer-events:none}
+.isl-c{height:38px;padding:0 6px 0 12px;border-radius:19px;display:flex;align-items:center;gap:10px;white-space:nowrap;font-size:12.5px;letter-spacing:.005em}
+.isl-c:active{transform:scale(.97)}
+.rings{display:flex;gap:4px}
+.isl-c .lbl{color:rgba(255,255,255,.92);font-weight:500}
+.isl-c .lbl i{font-style:normal;color:rgba(255,255,255,.55);font-weight:400}
+.isl-cta{height:26px;padding:0 11px;border-radius:13px;background:rgba(255,255,255,.14);display:flex;align-items:center;font-weight:600;color:#fff;transition:background-color 150ms ease-out}
+.isl-cta:hover{background:rgba(255,255,255,.22)}
+.isl-cta.light{background:#fff;color:#111113}
+.isl-cta.light:hover{background:#e9e9ec}
+.isl-c .pad{width:6px}
+.ring .trk{fill:none;stroke:rgba(255,255,255,.18);stroke-width:2}
+.ring .val{fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round}
+.ring.needs .val,.ring.needs .trk{stroke:#ff9f43}
+.ring.done .val,.ring.done .trk{stroke:#3dd68c}
+.ring.merged .val,.ring.merged .trk{stroke:#9b9bff}
+.ring.waiting .trk,.ring.queued .trk{stroke-dasharray:2 2.4}
+.isl-x{width:400px;padding:14px 14px 12px 16px;border-radius:22px}
+.isl-x .xh{display:flex;align-items:center;gap:8px;font-size:12.5px;color:rgba(255,255,255,.6)}
+.isl-x .xh b{flex:none;color:#ff9f43;font-weight:600}
+.isl-x .xh span:last-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.isl-x .xt{margin-top:8px;font-size:13.5px;font-weight:600;letter-spacing:.005em}
+.isl-x .xc{margin-top:8px;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.09);font:12.5px var(--mono);color:#fff}
+.isl-x .xw{margin-top:6px;font-size:12.5px;color:rgba(255,255,255,.6)}
+.isl-x .xf{display:flex;justify-content:flex-end;gap:6px;margin-top:12px}
+.isl-x .btn.ghost{color:rgba(255,255,255,.75)}
+.isl-x .btn.ghost:hover{background:rgba(255,255,255,.1);color:#fff}
+.isl-x .btn.primary{background:#fff;color:#111113}
+.isl-x .btn.primary:hover{background:#e9e9ec}
+#ilist{position:absolute;left:50%;bottom:calc(var(--ib,120px) + 48px);translate:-50% 0;z-index:44;width:540px;border-radius:14px;background:var(--surface);box-shadow:var(--pop-shadow);
+  transform-origin:50% 100%;transition:opacity 180ms var(--ease-out),transform 240ms var(--ease-out)}
+#ilist.off{opacity:0;transform:translateY(6px) scale(.96);pointer-events:none}
+.il-h{height:42px;display:flex;align-items:center;gap:8px;padding:0 10px 0 16px;font-size:13px;border-bottom:.5px solid var(--hairline)}
+.il-h b{font-weight:600}
+.il-h .sub{color:var(--text-3);font-size:12.5px}
+.il-row{display:grid;grid-template-columns:14px minmax(0,max-content) minmax(0,1fr) auto 56px;align-items:center;column-gap:10px;height:40px;padding:0 16px}
+.il-row+.il-row{border-top:.5px solid var(--hairline)}
+.il-row .t{max-width:220px;font-size:13px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.il-row .n{font:12px var(--mono);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.il-row .meta{text-align:right}
+
+@media (prefers-reduced-motion:reduce){
+  .rise,.v1,.v1-after,.v1-row[data-open] .r-more,#sheet.intro,.menu{animation:fadein 160ms ease-out both}
+  #lanes,#sheet,.isl,#ilist{transition:opacity 160ms ease-out}
+  #lanes.closed,#sheet.off,.isl.off,#ilist.off{transform:none}
+}
+@media (prefers-reduced-transparency:reduce){
+  .isl{background:#16161a;-webkit-backdrop-filter:none;backdrop-filter:none}
+  #hud{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+
+/* picker — verbatim from PICKER.md */
+.proto-picker {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(10, 10, 10, 0.82);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 8px 24px rgba(0, 0, 0, 0.24),
+    0 2px 6px rgba(0, 0, 0, 0.12);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.proto-picker-highlight {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  will-change: transform;
+}
+
+/* The slide is enabled only after first paint (data-ready), so load doesn't animate. */
+.proto-picker[data-ready] .proto-picker-highlight {
+  transition:
+    transform 250ms cubic-bezier(0.23, 1, 0.32, 1),
+    width 250ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proto-picker[data-ready] .proto-picker-highlight { transition: none; }
+}
+
+.proto-picker-item {
+  position: relative; /* sits above the highlight */
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font: inherit;
+  cursor: pointer;
+  transition: color 150ms ease-out;
+}
+
+.proto-picker-item:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.proto-picker-item:active {
+  transform: scale(0.97);
+}
+
+.proto-picker-item:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+}
+
+.proto-picker-item[data-active] {
+  color: #fff;
+}
+
+.proto-picker-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.proto-picker-replay {
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.proto-picker[data-position="top"] {
+  bottom: auto;
+  top: 24px;
+}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="hud"><b>Prototype</b><span>Speed</span><div class="hseg" id="speed"><button data-v="1" class="on">1×</button><button data-v="4">4×</button></div></div>
+
+<nav class="proto-picker" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Inline</button>
+  <button class="proto-picker-item">Lanes</button>
+  <button class="proto-picker-item">Island</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const SPEED = { v: 1 };
+let SIM = null, MENU = null, KEY = null, OUTSIDE = null, CLEAN = [], WV = null;
+
+const MODELS = [
+  { agent: "claude", name: "Claude Code", models: ["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"] },
+  { agent: "codex", name: "Codex", models: ["gpt-5.5", "gpt-5.5-mini"] },
+];
+
+// The lead's proposal. Times are seconds of the worker's own clock; len is when it hands back.
+const PLAN = [
+  { id: "w1", title: "Keep sends in a pocketd queue", agent: "claude", model: "Opus 5.5", wt: "queue-pocketd",
+    scope: ["daemon/queue.go", "daemon/stream.go"], deps: [], len: 26, diff: [128, 12, 3],
+    steps: [[0, "Read", "internal/daemon/stream.go"], [2.5, "Grep", "stream.inbox"], [5, "Write", "internal/daemon/queue.go"], [11, "Edit", "internal/daemon/stream.go"], [16, "Bash", "go test ./internal/daemon"], [22, "Edit", "internal/daemon/queue_test.go"]],
+    report: "Sends wait in pocketd now, saved with the session, and leave the queue only when the turn that read them ends." },
+  { id: "w2", title: "Deliver queued sends when a turn ends", agent: "codex", model: "gpt-5.5", wt: "queue-deliver",
+    scope: ["daemon/claude.go", "daemon/codex_chat.go"], deps: ["w1"], len: 20, diff: [64, 9, 2],
+    steps: [[0, "Read", "internal/daemon/claude.go"], [3, "Read", "internal/daemon/codex_chat.go"], [6, "Edit", "internal/daemon/claude.go"], [11, "Edit", "internal/daemon/codex_chat.go"], [15, "Bash", "go test ./internal/daemon -run Queue"]],
+    report: "Claude gets the next send on Stop, Codex on turn/completed. An interrupted turn keeps its send queued." },
+  { id: "w3", title: "Show pocketd’s queue in the composer", agent: "claude", model: "Sonnet 5.5", wt: "queue-composer",
+    scope: ["chat/src/outgoing.rs", "chat/composer/queue.rs"], deps: [], len: 30, diff: [97, 41, 4],
+    ask: { at: 13, cmd: "cargo test -p chat", why: "Run the chat crate’s tests" },
+    steps: [[0, "Read", "crates/chat/src/outgoing.rs"], [3, "Grep", "Queued"], [6, "Edit", "crates/chat/src/outgoing.rs"], [10, "Edit", "chat/composer/queue.rs"], [13, "Bash", "cargo test -p chat"], [22, "Edit", "crates/chat/src/outgoing.rs"]],
+    report: "The composer reads the queue from pocketd, so a send queued on the phone shows on the Mac too." },
+  { id: "w4", title: "e2e: a queued send survives a restart", agent: "codex", model: "gpt-5.5-mini", wt: "queue-e2e",
+    scope: ["e2e/queue_test.go"], deps: [], len: 18, diff: [123, 0, 1],
+    steps: [[0, "Read", "e2e/restore_test.go"], [3, "Write", "e2e/queue_test.go"], [9, "Bash", "go test ./e2e -run TestQueue"], [14, "Edit", "e2e/queue_test.go"]],
+    report: "New e2e: queue a send mid-turn, restart pocketd, and the send arrives once the turn ends." },
+];
+
+const LIVE = ["starting", "working", "needs"];
+
+function makeSim() {
+  const s = { phase: "plan", parallel: 3, reviewReady: false, subs: new Set(), timer: null, later: [],
+    tasks: PLAN.map((p) => ({ ...p, scope: [...p.scope], st: "planned", t: 0, answered: null, notes: [] })) };
+  s.emit = (kind, task) => s.subs.forEach((f) => f(kind, task));
+  s.after = (ms, f) => s.later.push(setTimeout(f, ms / SPEED.v));
+  s.set = (t, st) => { if (t.st === st) return; t.st = st; s.emit("status", t); };
+  s.active = () => s.tasks.filter((t) => LIVE.includes(t.st)).length;
+  s.depsDone = (t) => t.deps.every((d) => { const x = s.tasks.find((y) => y.id === d); return !x || x.st === "done"; });
+  s.pump = () => {
+    for (const t of s.tasks) {
+      if (t.st !== "queued" && t.st !== "waiting") continue;
+      if (!s.depsDone(t)) s.set(t, "waiting");
+      else if (s.active() < s.parallel) s.set(t, "starting");
+      else s.set(t, "queued");
+    }
+  };
+  s.start = () => {
+    if (s.phase !== "plan" || !s.tasks.length) return;
+    s.phase = "run"; s.tasks.forEach((t) => (t.st = "queued"));
+    s.pump(); s.emit("phase");
+    s.timer = setInterval(() => s.tick(0.1 * SPEED.v), 100);
+  };
+  s.tick = (dt) => {
+    for (const t of s.tasks) {
+      if (t.st === "starting") { t.t += dt; if (t.t >= 1.2) s.set(t, "working"); }
+      else if (t.st === "working") {
+        t.t += dt;
+        if (t.ask && t.answered === null && t.t >= t.ask.at) { t.t = t.ask.at; s.set(t, "needs"); }
+        else if (t.t >= t.len) { t.t = t.len; s.set(t, "done"); s.pump(); }
+      }
+    }
+    if (s.phase === "run" && s.tasks.every((t) => t.st === "done")) {
+      s.phase = "review"; clearInterval(s.timer); s.emit("phase");
+      s.after(1800, () => { s.reviewReady = true; s.emit("phase"); });
+    }
+    s.emit("tick");
+  };
+  s.answer = (t, allow) => { if (t.st !== "needs") return; t.answered = allow; t.t += 0.05; s.set(t, "working"); };
+  s.stopTask = (t) => { if (!LIVE.includes(t.st)) return; s.set(t, "stopped"); s.pump(); };
+  s.resumeTask = (t) => { if (t.st === "stopped") s.set(t, t.ask && t.answered === null && t.t >= t.ask.at ? "needs" : "working"); };
+  s.merge = () => {
+    if (s.phase !== "review" || !s.reviewReady) return;
+    s.phase = "merging"; s.emit("phase");
+    let i = 0;
+    const next = () => {
+      const t = s.tasks[i++];
+      if (!t) { s.phase = "merged"; s.emit("phase"); return; }
+      s.set(t, "merged"); s.emit("tick"); s.after(420, next);
+    };
+    s.after(300, next);
+  };
+  s.remove = (t) => { s.tasks = s.tasks.filter((x) => x !== t); s.parallel = Math.min(s.parallel, Math.max(1, s.tasks.length)); s.emit("edit"); };
+  s.setModel = (t, agent, model) => { t.agent = agent; t.model = model; s.emit("edit"); };
+  s.setParallel = (n) => { s.parallel = Math.max(1, Math.min(4, s.tasks.length, n)); s.emit("edit"); };
+  s.stop = () => { clearInterval(s.timer); s.later.forEach(clearTimeout); s.subs.clear(); };
+  return s;
+}
+
+/* ── shared view helpers ── */
+function patch(el, html) { if (el && el._h !== html) { el.innerHTML = html; el._h = html; } }
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const fmt = (sec) => { const s = Math.floor(sec); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; };
+const CLAUDE = `<span class="pg claude">✳</span>`;
+const CODEX = `<span class="pg codex"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1.2 10.2 3.6v4.8L6 10.8 1.8 8.4V3.6z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></span>`;
+const glyphOf = (agent) => (agent === "claude" ? CLAUDE : CODEX);
+const TEAM_ICON = `<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="3.2" r="1.9" fill="currentColor"/><circle cx="3" cy="10.4" r="1.9" fill="currentColor"/><circle cx="11" cy="10.4" r="1.9" fill="currentColor"/><path d="M7 5.3v2.1M7 7.4 4.2 9M7 7.4 9.8 9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>`;
+const BRANCH = `<svg width="11" height="11" viewBox="0 0 12 12"><circle cx="3.5" cy="2.6" r="1.4" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="3.5" cy="9.4" r="1.4" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="8.5" cy="4.4" r="1.4" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M3.5 4v4M8.5 5.8c0 1.7-1.6 2.1-3.7 2.6" stroke="currentColor" stroke-width="1.1" fill="none"/></svg>`;
+const CLOSE = `<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 2.5l7 7m0-7-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+const GLYPH = { planned: "wait", queued: "wait", waiting: "wait", starting: "run", working: "run", needs: "needs", done: "done", merged: "merged", stopped: "stopped" };
+const glyph = (t) => `<span class="glyph ${GLYPH[t.st]}"></span>`;
+const segClass = (t) => (t.st === "starting" || t.st === "working" ? "working" : t.st);
+
+function counts(sim) {
+  const c = { working: 0, needs: 0, waiting: 0, done: 0, n: sim.tasks.length };
+  for (const t of sim.tasks) {
+    if (t.st === "starting" || t.st === "working") c.working++;
+    else if (t.st === "needs") c.needs++;
+    else if (t.st === "done" || t.st === "merged") c.done++;
+    else c.waiting++;
+  }
+  return c;
+}
+function summary(sim) {
+  const c = counts(sim);
+  if (sim.phase === "merged") return `Merged ${plural(c.n, "branch", "branches")}`;
+  if (sim.phase !== "run") return `${c.n} of ${c.n} handed back`;
+  const parts = [];
+  if (c.needs) parts.push(`<span style="color:var(--waiting);font-weight:600">${c.needs} needs you</span>`);
+  if (c.working) parts.push(`${c.working} working`);
+  if (c.waiting) parts.push(`${c.waiting} waiting`);
+  parts.push(`${c.done} of ${c.n} done`);
+  return parts.join(" · ");
+}
+const depLabel = (sim, t) => {
+  const i = sim.tasks.findIndex((x) => t.deps.includes(x.id));
+  return i < 0 ? "" : `after ${i + 1}`;
+};
+const NOT_STARTED = ["planned", "queued", "waiting"];
+function stepsOf(t) {
+  if (NOT_STARTED.includes(t.st)) return [];
+  return t.steps.filter((s) => s[0] <= t.t).map((s) => (t.ask && t.answered === false && s[2] === t.ask.cmd ? ["Denied", s[2], true] : [s[1], s[2], false]));
+}
+const reportOf = (t) => t.report + (t.answered === false ? " Tests weren’t run: you denied cargo test." : "");
+function nowText(sim, t) {
+  switch (t.st) {
+    case "queued": return "Waits for a free slot";
+    case "stopped": return "Stopped by you";
+    case "waiting": { const d = depLabel(sim, t); return d ? `Starts ${d.replace("after", "after task")}` : "Waiting"; }
+    case "starting": return `Making worktree ${t.wt}`;
+    case "needs": return `Asks to run ${t.ask.cmd}`;
+    case "done": return "Handed back to the lead";
+    case "merged": return `Merged ${t.wt}`;
+    default: { const s = stepsOf(t).at(-1); return s ? `${s[0]} ${s[1]}` : ""; }
+  }
+}
+function metaHTML(t) {
+  if (t.st === "done" || t.st === "merged") return `<span class="meta"><span class="add">+${t.diff[0]}</span> <span class="del">−${t.diff[1]}</span></span>`;
+  if (LIVE.includes(t.st)) return `<span class="meta">${fmt(t.t)}</span>`;
+  return "";
+}
+function totals(sim) {
+  return sim.tasks.reduce((a, t) => [a[0] + t.diff[0], a[1] + t.diff[1], a[2] + t.diff[2]], [0, 0, 0]);
+}
+function reviewText(sim) {
+  const [a, d, f] = totals(sim), n = sim.tasks.length;
+  const skipped = sim.tasks.filter((t) => t.answered === false).length;
+  const tests = skipped ? `Tests pass on ${n - skipped} of ${n} branches; one skipped them.` : "Tests pass on every branch.";
+  return `All ${n} handed back · <span class="add">+${a}</span> <span class="del">−${d}</span> in ${plural(f, "file", "files")}. ${tests}`;
+}
+function stepperHTML(sim) {
+  return `<div class="stepper" title="How many agents run at once"><button data-act="par-" aria-label="Fewer at once" ${sim.parallel <= 1 ? "disabled" : ""}>−</button><span><b>${sim.parallel}</b> at once</span><button data-act="par+" aria-label="More at once" ${sim.parallel >= Math.min(4, sim.tasks.length) ? "disabled" : ""}>+</button></div>`;
+}
+function startButton(sim) {
+  const n = sim.tasks.length;
+  return `<button class="btn primary" data-act="start" ${n ? "" : "disabled"}>Start ${plural(n, "agent", "agents")}<kbd>⌘↵</kbd></button>`;
+}
+function footHTML(sim, keepLabel) {
+  const n = sim.tasks.length;
+  if (sim.phase === "plan") return `<span class="fnote">A worktree each, from main. Their asks come to you.</span><span class="sp"></span><button class="btn ghost" data-act="keep">${keepLabel}</button>${startButton(sim)}`;
+  if (sim.phase === "run") return counts(sim).needs ? `<span class="glyph needs"></span><span class="fnote warn">An agent is waiting on you before it can go on.</span>` : `<span class="fnote">Each agent hands its result to the lead when it’s done.</span>`;
+  if (sim.phase === "review" && !sim.reviewReady) return `<span class="glyph run"></span><span class="fnote">The lead is reviewing ${plural(n, "handback", "handbacks")}…</span>`;
+  if (sim.phase === "review") return `<span class="fnote strong">${reviewText(sim)}</span><span class="sp"></span><button class="btn primary" data-act="merge">Merge ${plural(n, "branch", "branches")}</button>`;
+  if (sim.phase === "merging") return `<span class="glyph run"></span><span class="fnote">Merging into main…</span>`;
+  return `<span class="glyph merged"></span><span class="fnote strong">Merged into main. Worktrees removed, branches kept.</span>`;
+}
+function askHTML(t) {
+  return `<div class="ask rise"><div class="ask-h"><span class="glyph needs"></span><b>${esc(t.model)} wants to run a command</b></div><div class="ask-cmd mono">${esc(t.ask.cmd)}</div><div class="ask-why">${esc(t.ask.why)} in <span class="mono">${esc(t.wt)}</span>.</div><div class="ask-f"><button class="btn ghost sm" data-act="deny" data-id="${t.id}">Deny</button><button class="btn primary sm" data-act="allow" data-id="${t.id}">Allow once</button></div></div>`;
+}
+const stepsHTML = (t) => `<div class="steps">${stepsOf(t).map((s) => `<div class="${s[2] ? "denied" : ""}"><b>${s[0]}</b><span class="mono">${esc(s[1])}</span></div>`).join("")}</div>`;
+const scopeHTML = (t) => t.scope.map((f) => `<span class="pill">${esc(f)}</span>`).join("");
+const agentChip = (t) => `<button class="agent-chip" data-act="model" data-id="${t.id}" aria-haspopup="menu">${glyphOf(t.agent)}${esc(t.model)}<span class="car">▼</span></button>`;
+const finalLine = () => `<p class="say rise">Merged all four into <b>main</b>. <code>go test ./...</code> and <code>cargo test --workspace</code> pass on the result. Sends now wait in pocketd, so closing the window no longer drops them.</p>`;
+
+function leadState(sim) {
+  const c = counts(sim);
+  if (sim.phase === "plan") return ["needs", "Needs you", "Team plan · " + plural(c.n, "task", "tasks")];
+  if (sim.phase === "run") return c.needs ? ["needs", "Needs you", `${c.needs} needs you · ${c.working} working`] : ["working", "Working", `${c.working} working · ${c.done} of ${c.n} done`];
+  if (sim.phase === "review") return sim.reviewReady ? ["needs", "Needs you", "Ready to merge"] : ["working", "Working", "Reviewing handbacks"];
+  if (sim.phase === "merging") return ["working", "Working", "Merging"];
+  return ["done", "Done", `Merged ${plural(c.n, "branch", "branches")}`];
+}
+function leadCardHTML(sim) {
+  const [cls, label, line] = leadState(sim);
+  const ic = cls === "needs" ? `<span class="pdot" style="background:var(--waiting)"></span>` : cls === "working" ? `<span class="glyph run" style="transform:scale(.85)"></span>` : `<span class="pdot" style="background:var(--success)"></span>`;
+  return `<div class="card${WV && !WV.beside ? "" : " sel"}" data-side="lead"><div class="r1">${CLAUDE}anywhere · main<span class="st ${cls}">${ic}${label}</span></div><div class="r2">Make sends survive closing the app</div><div class="r3">${TEAM_ICON}${line}</div></div>`;
+}
+const OTHER_CARDS = `<div class="card"><div class="r1">${CODEX}anywhere · parser-flake<span class="st done"><span class="pdot" style="background:var(--success)"></span>Done</span></div><div class="r2">Fix flaky parser tests</div></div>
+  <div class="card"><div class="r1">${CLAUDE}anywhere · settings-rank<span class="st idle">Idle</span></div><div class="r2">Rank settings search by section</div></div>`;
+function subMeta(sim, t) {
+  if (t.st === "needs") return `<span class="st needs">Needs you</span>`;
+  if (t.st === "stopped") return `<span class="meta">Stopped</span>`;
+  if (t.st === "waiting") return `<span class="meta">${depLabel(sim, t) || "waiting"}</span>`;
+  if (t.st === "queued") return `<span class="meta">queued</span>`;
+  return metaHTML(t);
+}
+
+/* Sidebar: the lead's workers as sub-sessions. Rows are built once per task list and patched, so a click never lands on a row being replaced. */
+function drawSide(sim) {
+  const cards = $("#cards");
+  if (!cards._built) {
+    cards._built = true;
+    cards.innerHTML = `<div id="leadCard"></div><div class="subs" id="subs"></div>${OTHER_CARDS}`;
+    cards.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-side]"); if (!row) return;
+      if (row.dataset.side === "lead") closeWorker();
+      else openWorker(row.dataset.id, e.metaKey);
+    });
+  }
+  patch($("#leadCard"), leadCardHTML(sim));
+  const subs = $("#subs");
+  if (sim.phase === "plan") { subs._ids = null; patch(subs, ""); }
+  else if (sim.phase === "merged") { subs._ids = null; patch(subs, `<div class="subrow folded fade"><span class="glyph merged"></span><span class="t">${plural(sim.tasks.length, "worker", "workers")} merged · worktrees removed</span></div>`); }
+  else {
+    const ids = sim.tasks.map((t) => t.id).join();
+    if (subs._ids !== ids) {
+      subs._ids = ids; subs._h = null;
+      subs.innerHTML = sim.tasks.map((t) => `<button class="subrow rise" data-side="worker" data-id="${t.id}" title="${esc(t.title)}  ·  ⌘-click opens beside"><span class="r-st"></span><span class="t">${esc(t.title)}</span><span class="r-meta"></span></button>`).join("");
+    }
+    for (const t of sim.tasks) {
+      const row = subs.querySelector(`[data-id="${t.id}"]`);
+      row.dataset.st = t.st;
+      row.classList.toggle("sel", WV?.id === t.id);
+      patch(row.querySelector(".r-st"), glyph(t));
+      patch(row.querySelector(".r-meta"), subMeta(sim, t));
+    }
+  }
+  drawWorker(sim);
+}
+
+/* A worker's own chat: over the lead's, or beside it with ⌘-click. */
+function openWorker(id, beside) {
+  const chat = $("#chat");
+  let wv = $("#wview");
+  if (!wv) {
+    wv = document.createElement("section");
+    wv.id = "wview"; wv.setAttribute("aria-label", "Worker session");
+    wv.innerHTML = `<div class="strip wv-strip"><button class="crumb" data-wv="back" title="Back to the lead  esc">Make sends survive closing the app</button><span class="crumb-sep">›</span><span class="wv-title"></span><span class="sub wv-sub"></span><span class="sp"></span><span class="wv-st"></span><span class="wv-stop"></span><button class="icon-btn" data-wv="back" aria-label="Close">${CLOSE}</button></div>
+      <div class="wv-log"><div class="col"><div class="wv-items"></div><div class="wv-tail"></div></div></div>
+      <div class="wv-dock"><div class="col"><div class="box"><input class="wv-in" autocomplete="off"><div class="ft"><span class="fnote wv-hint"></span><button class="send" data-wv="send" aria-label="Send"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div></div></div>`;
+    chat.appendChild(wv);
+    wv.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act],[data-wv]"); if (!b) return;
+      if (b.dataset.act) { common(SIM, b); return; }
+      const t = SIM.tasks.find((x) => x.id === WV?.id);
+      if (b.dataset.wv === "back") closeWorker();
+      else if (b.dataset.wv === "send") steer(t);
+      else if (b.dataset.wv === "stop") SIM.stopTask(t);
+      else if (b.dataset.wv === "resume") SIM.resumeTask(t);
+    });
+    wv.querySelector(".wv-in").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); steer(SIM.tasks.find((x) => x.id === WV?.id)); }
+    });
+  }
+  if (WV?.id !== id) { const items = wv.querySelector(".wv-items"); items.innerHTML = ""; items._n = 0; wv.querySelector(".wv-tail")._h = null; }
+  WV = { id, beside };
+  wv.style.animation = ""; wv.classList.remove("off", "beside", "full");
+  void wv.offsetWidth;
+  wv.classList.add(beside ? "beside" : "full");
+  chat.classList.toggle("split", beside);
+  drawSide(SIM);
+  wv.querySelector(".wv-in").focus({ preventScroll: true });
+}
+function closeWorker() {
+  if (!WV) return;
+  WV = null;
+  const wv = $("#wview");
+  if (wv) { wv.style.animation = "none"; wv.classList.add("off"); }
+  $("#chat")?.classList.remove("split");
+  document.activeElement?.blur();
+  if (SIM) drawSide(SIM);
+}
+function steer(t) {
+  const input = $("#wview .wv-in"), text = input.value.trim();
+  if (!t || !text || t.st === "done" || t.st === "merged") return;
+  t.notes.push({ at: t.t + 0.001, text });
+  input.value = "";
+  say(`<div class="note rise"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M2.5 3.5h9v5.5H6l-3 2.5V9H2.5z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg><span>You told <b>${esc(t.model)}</b> on “${esc(t.title)}”: <span style="color:var(--text-body)">${esc(text)}</span></span></div>`);
+  drawWorker(SIM);
+}
+function drawWorker(sim) {
+  const wv = $("#wview");
+  if (!WV || !wv) return;
+  const t = sim.tasks.find((x) => x.id === WV.id);
+  if (!t) { closeWorker(); return; }
+  patch(wv.querySelector(".wv-title"), esc(t.title));
+  patch(wv.querySelector(".wv-sub"), `${glyphOf(t.agent)}${esc(t.model)} · <span class="mono">${esc(t.wt)}</span>`);
+  patch(wv.querySelector(".wv-st"), `${glyph(t)}<span>${esc(nowText(sim, t))}</span>`);
+  const canStop = LIVE.includes(t.st), canResume = t.st === "stopped";
+  patch(wv.querySelector(".wv-stop"), canStop ? `<button class="btn ghost sm" data-wv="stop">Stop</button>` : canResume ? `<button class="btn ghost sm" data-wv="resume">Resume</button>` : "");
+  const items = wv.querySelector(".wv-items");
+  if (!items._n) {
+    items.innerHTML = `<div class="wv-from">From the lead</div><p class="say"><b>${esc(t.title)}.</b> Work only in <span class="mono">${t.scope.map(esc).join(", ")}</span>, in worktree <span class="mono">${esc(t.wt)}</span>. Don’t commit; hand back a short summary when you’re done.</p>`;
+    items._n = 0;
+  }
+  const all = [
+    ...t.steps.filter((s) => s[0] <= t.t && !NOT_STARTED.includes(t.st)).map((s) => ({ at: s[0], step: t.ask && t.answered === false && s[2] === t.ask.cmd ? ["Denied", s[2], true] : [s[1], s[2], false] })),
+    ...t.notes.map((n) => ({ at: n.at, note: n.text })),
+  ].sort((a, b) => a.at - b.at);
+  for (let i = items._n; i < all.length; i++) {
+    const it = all[i];
+    items.insertAdjacentHTML("beforeend", it.note ? `<div class="bubble rise">${esc(it.note)}</div>` : `<div class="wv-step rise${it.step[2] ? " denied" : ""}" data-at="${it.at}"><b>${it.step[0]}</b><span class="mono">${esc(it.step[1])}</span></div>`);
+  }
+  if (all.length > items._n) { items._n = all.length; const log = wv.querySelector(".wv-log"); log.scrollTop = log.scrollHeight; }
+  items.querySelectorAll(".wv-step:not(.denied)").forEach((el) => {
+    if (t.answered === false && el.textContent.endsWith(t.ask?.cmd)) { el.classList.add("denied"); el.innerHTML = `<b>Denied</b><span class="mono">${esc(t.ask.cmd)}</span>`; }
+  });
+  const tail = t.st === "needs" ? askHTML(t)
+    : t.st === "done" || t.st === "merged" ? `<p class="say rise">${esc(reportOf(t))} <span class="meta"><span class="add">+${t.diff[0]}</span> <span class="del">−${t.diff[1]}</span> in ${plural(t.diff[2], "file", "files")}</span></p><div class="note"><span class="glyph ${t.st === "merged" ? "merged" : "done"}"></span>${t.st === "merged" ? "Merged into main by the lead." : "Handed back to the lead."}</div>`
+    : LIVE.includes(t.st) ? `<div class="wv-step cur"><span class="glyph run"></span>Working…</div>`
+    : `<div class="note">${glyph(t)}${esc(nowText(sim, t))}</div>`;
+  patch(wv.querySelector(".wv-tail"), tail);
+  const input = wv.querySelector(".wv-in"), closed = t.st === "done" || t.st === "merged";
+  input.disabled = closed;
+  input.placeholder = closed ? "Handed back. Ask the lead instead." : `Steer ${t.model}, or ask about its work`;
+  patch(wv.querySelector(".wv-hint"), closed ? "" : "The lead sees what you tell it.");
+}
+
+function shell({ leadTail, inline = "", chip = "", overlay = "", winOverlay = "" }) {
+  return `<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="side"><div class="shead">Sessions</div><div id="cards"></div></aside>
+  <main id="chat">
+    <div class="strip"><span>Make sends survive closing the app</span><span class="sub">anywhere · main · Opus 5.5 · lead</span></div>
+    <div id="log"><div class="col" id="logc">
+      <div class="bubble">Sends get lost when I close the app mid-turn. Move the queue into pocketd, and split the work across a few agents.</div>
+      <p class="say">Today the queue lives only in the desktop (<code>crates/chat/src/outgoing.rs</code>), so closing the window drops whatever was waiting. I’d split this into four tasks, each in its own worktree from <b>main</b>. Task 2 builds on task 1’s queue, so it starts once task 1 is done. ${leadTail}</p>
+      ${inline}
+    </div></div>
+    <div id="dock"><div class="col"><div class="box">
+      <div class="ph">Ask the lead, steer, or / for commands</div>
+      <div class="ft">
+        <button class="chipb" title="Attach"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+        <button class="chipb">${CLAUDE}<b>Opus 5.5</b>High</button>
+        ${chip}
+        <button class="send" aria-label="Send"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+    </div></div></div>
+    ${overlay}
+  </main>
+  ${winOverlay}
+</div>`;
+}
+
+function fresh() {
+  if (SIM) SIM.stop();
+  CLEAN.forEach((f) => f()); CLEAN = [];
+  closeMenu(); KEY = null; OUTSIDE = null; WV = null;
+  SIM = makeSim();
+  return SIM;
+}
+function boot(sim, draw, onKind) {
+  draw();
+  sim.subs.add((kind, t) => { if (kind === "edit") closeMenu(); onKind?.(kind, t); draw(); });
+}
+function scrollEnd() {
+  const log = $("#log"); if (!log) return;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  log.scrollTo({ top: log.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+}
+function say(html) { $("#logc").insertAdjacentHTML("beforeend", html); scrollEnd(); }
+
+/* shared clicks; returns true when handled */
+function common(sim, b) {
+  const t = sim.tasks.find((x) => x.id === b.dataset.id);
+  switch (b.dataset.act) {
+    case "model": openMenu(b, t, sim); return true;
+    case "rm": sim.remove(t); return true;
+    case "par-": sim.setParallel(sim.parallel - 1); return true;
+    case "par+": sim.setParallel(sim.parallel + 1); return true;
+    case "allow": sim.answer(t, true); return true;
+    case "deny": sim.answer(t, false); return true;
+    case "merge": sim.merge(); return true;
+  }
+  return false;
+}
+
+/* model menu, anchored to its chip and scaled from it */
+function openMenu(anchor, task, sim) {
+  if (MENU && MENU._anchor === anchor) { closeMenu(); return; }
+  closeMenu();
+  const win = $("#win"), wr = win.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+  const m = document.createElement("div");
+  m.className = "menu"; m.setAttribute("role", "menu"); m._anchor = anchor;
+  m.innerHTML = MODELS.map((g) => `<div class="mh">${g.name}</div>` + g.models.map((md) => `<button role="menuitemradio" data-agent="${g.agent}" data-model="${md}">${glyphOf(g.agent)}<span>${md}</span>${task.agent === g.agent && task.model === md ? '<span class="ck">✓</span>' : ""}</button>`).join("")).join("");
+  win.appendChild(m);
+  const mw = m.offsetWidth, mh = m.offsetHeight;
+  let left = ar.right - wr.left - mw; if (left < 8) left = ar.left - wr.left;
+  let top = ar.bottom - wr.top + 4, oy = "top";
+  if (top + mh > wr.height - 8) { top = ar.top - wr.top - mh - 4; oy = "bottom"; }
+  m.style.left = left + "px"; m.style.top = top + "px";
+  m.style.transformOrigin = `${ar.left - wr.left + ar.width / 2 - left}px ${oy}`;
+  m.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { sim.setModel(task, b.dataset.agent, b.dataset.model); closeMenu(); } });
+  MENU = m;
+}
+function closeMenu() { MENU?.remove(); MENU = null; }
+document.addEventListener("pointerdown", (e) => {
+  if (MENU && !MENU.contains(e.target) && !MENU._anchor.contains(e.target)) closeMenu();
+  OUTSIDE?.(e);
+}, true);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && MENU) { closeMenu(); e.preventDefault(); return; }
+  if (e.key === "Escape" && WV) { closeWorker(); e.preventDefault(); return; }
+  KEY?.(e);
+});
+function startKey(sim, enabled) {
+  KEY = (e) => { if (e.key === "Enter" && e.metaKey && sim.phase === "plan" && enabled()) { e.preventDefault(); sim.start(); } };
+}
+
+/* ═════════ 1 · Inline ═════════ */
+function inline() {
+  const sim = fresh();
+  queueMicrotask(() => {
+    const team = $("#team"); let collapsed = false, built = null; const open = new Set();
+    team.innerHTML = `<div class="tc-h" id="tch"></div><div class="tc-b" id="tcb"></div><div class="tc-f" id="tcf"></div>`;
+    const planRow = (t, i) => `<div class="v1-prow"><span class="num">${i + 1}</span><div style="min-width:0"><div class="v1-title">${esc(t.title)}</div><div class="v1-scope">${scopeHTML(t)}<span class="wt">${BRANCH}${t.wt}</span>${depLabel(sim, t) ? `<span class="after">· ${depLabel(sim, t)}</span>` : ""}</div></div>${agentChip(t)}<button class="icon-btn v1-rm" data-act="rm" data-id="${t.id}" title="Remove task" aria-label="Remove ${esc(t.title)}">${CLOSE}</button></div>`;
+    const moreHTML = (t) => {
+      if (t.st === "needs") return `<div class="v1-more">${askHTML(t)}</div>`;
+      if (t.st === "done" || t.st === "merged") return `<div class="v1-more"><div class="report">${esc(reportOf(t))}</div><span class="wt">${BRANCH}${t.wt} · ${plural(t.diff[2], "file", "files")}</span></div>`;
+      if (t.st === "queued" || t.st === "waiting") return `<div class="v1-more"><div class="steps"><div>${esc(nowText(sim, t))}. Scope: <span class="mono">${t.scope.map(esc).join(", ")}</span></div></div></div>`;
+      return `<div class="v1-more">${stepsHTML(t)}</div>`;
+    };
+    function draw() {
+      const n = sim.tasks.length;
+      const h = $("#tch"), b = $("#tcb");
+      if (sim.phase === "plan") patch(h, `${TEAM_ICON}<span class="tg">Team plan</span><span class="sub">${plural(n, "task", "tasks")} · a worktree each</span><span class="sp"></span>${collapsed ? `<button class="btn ghost sm" data-act="show">Show plan</button>` : stepperHTML(sim)}`);
+      else patch(h, `${TEAM_ICON}<span class="tg">Team</span><span class="sub">${summary(sim)}</span><span class="sp"></span><span class="segs">${sim.tasks.map((t) => `<i class="${segClass(t)}"></i>`).join("")}</span>`);
+      if (sim.phase === "plan") {
+        built = null;
+        patch(b, collapsed ? "" : n ? sim.tasks.map(planRow).join("") : `<div class="v1-prow"><span></span><span class="fnote">No tasks left. Tell the lead what to plan instead.</span></div>`);
+      } else {
+        if (built !== "run") { built = "run"; b._h = null; b.innerHTML = sim.tasks.map((t) => `<div class="v1-row fade" data-id="${t.id}"><button class="v1-rh" data-act="toggle" data-id="${t.id}" aria-expanded="false"><span class="r-st"></span><span class="v1-title">${esc(t.title)}</span><span class="r-now"></span><span class="v1-who">${glyphOf(t.agent)}${esc(t.model)}</span><span class="r-meta"></span></button><div class="r-more"></div></div>`).join(""); }
+        for (const t of sim.tasks) {
+          const row = b.querySelector(`[data-id="${t.id}"]`);
+          row.dataset.st = t.st;
+          patch(row.querySelector(".r-st"), glyph(t));
+          patch(row.querySelector(".r-now"), esc(nowText(sim, t)));
+          patch(row.querySelector(".r-meta"), metaHTML(t));
+          const ex = open.has(t.id) || t.st === "needs";
+          row.toggleAttribute("data-open", ex);
+          row.querySelector(".v1-rh").setAttribute("aria-expanded", ex);
+          patch(row.querySelector(".r-more"), ex ? moreHTML(t) : "");
+        }
+      }
+      patch($("#tcf"), collapsed && sim.phase === "plan" ? "" : footHTML(sim, "Keep chatting"));
+      drawSide(sim);
+    }
+    team.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]"); if (!b || common(sim, b)) return;
+      if (b.dataset.act === "start") sim.start();
+      else if (b.dataset.act === "keep") { collapsed = true; draw(); }
+      else if (b.dataset.act === "show") { collapsed = false; draw(); }
+      else if (b.dataset.act === "toggle") { const id = b.dataset.id; open.has(id) ? open.delete(id) : open.add(id); draw(); }
+    });
+    startKey(sim, () => !collapsed);
+    boot(sim, draw, (kind, t) => {
+      if (kind === "phase" || (kind === "status" && t.st === "needs")) requestAnimationFrame(scrollEnd);
+      if (kind === "phase" && sim.phase === "merged") say(`<div class="v1-after">${finalLine()}</div>`);
+    });
+  });
+  return shell({ leadTail: "Edit anything below, then start.", inline: `<div class="v1" id="team"></div>` });
+}
+
+/* ═════════ 2 · Lanes ═════════ */
+function lanes() {
+  const sim = fresh();
+  queueMicrotask(() => {
+    const panel = $("#lanes"), chip = $("#teamChip"), dock = $("#dock");
+    let open = false, built = null;
+    panel.innerHTML = `<div class="ln-h" id="lnh"></div><div class="ln-g" id="lng"></div><div class="ln-f" id="lnf"></div>`;
+    const place = () => {
+      $("#chat").style.setProperty("--db", dock.offsetHeight + 10 + "px");
+      const pr = panel.getBoundingClientRect(), cr = chip.getBoundingClientRect();
+      panel.style.setProperty("--ox", cr.left + cr.width / 2 - pr.left + "px");
+    };
+    place(); addEventListener("resize", place); CLEAN.push(() => removeEventListener("resize", place));
+    const setOpen = (v) => { open = v; panel.classList.toggle("closed", !v); chip.classList.toggle("on", v); chip.setAttribute("aria-expanded", v); };
+    requestAnimationFrame(() => requestAnimationFrame(() => setOpen(true)));
+
+    const planLane = (t, i) => `<div class="lane"><div class="lane-h"><span class="num">${i + 1}</span>${agentChip(t)}<span class="sp"></span><button class="icon-btn" data-act="rm" data-id="${t.id}" title="Remove task" aria-label="Remove ${esc(t.title)}">${CLOSE}</button></div><div class="lane-title">${esc(t.title)}</div><div class="lane-scope">${scopeHTML(t)}</div><span class="wt">${BRANCH}${t.wt}</span><div class="lane-log"></div><div class="lane-wait">${depLabel(sim, t) ? `Starts ${depLabel(sim, t).replace("after", "after task")}` : "Starts right away"}</div></div>`;
+    const foot = (t) => {
+      if (t.st === "needs") return askHTML(t);
+      if (t.st === "done" || t.st === "merged") return `<div class="report rise">${esc(reportOf(t))}</div>`;
+      if (t.st === "queued" || t.st === "waiting" || t.st === "starting" || t.st === "stopped") return `<div class="lane-wait">${esc(nowText(sim, t))}</div>`;
+      return "";
+    };
+    function draw() {
+      const n = sim.tasks.length, h = $("#lnh"), g = $("#lng");
+      if (sim.phase === "plan") patch(h, `${TEAM_ICON}<span class="tg">Team plan</span><span class="sub">${plural(n, "task", "tasks")} · a worktree each</span><span class="sp"></span>${stepperHTML(sim)}<button class="icon-btn" data-act="panel" title="Close  esc" aria-label="Close">${CLOSE}</button>`);
+      else patch(h, `${TEAM_ICON}<span class="tg">Team</span><span class="sub">${summary(sim)}</span><span class="sp"></span><button class="icon-btn" data-act="panel" title="Close  esc" aria-label="Close">${CLOSE}</button>`);
+      if (sim.phase === "plan") { built = null; patch(g, n ? sim.tasks.map(planLane).join("") : `<div class="ln-empty">No tasks left. Tell the lead what to plan instead.</div>`); }
+      else {
+        if (built !== "run") { built = "run"; g._h = null; g.innerHTML = sim.tasks.map((t, i) => `<div class="lane fade" data-id="${t.id}"><div class="lane-h"><span class="r-st"></span><span class="lane-who">${glyphOf(t.agent)}${esc(t.model)}</span><span class="sp"></span><span class="r-meta"></span></div><div class="lane-title">${esc(t.title)}</div><span class="wt">${BRANCH}${t.wt}</span><div class="lane-log"></div><div class="lane-foot"></div></div>`).join(""); }
+        for (const t of sim.tasks) {
+          const lane = g.querySelector(`[data-id="${t.id}"]`);
+          lane.dataset.st = t.st;
+          patch(lane.querySelector(".r-st"), glyph(t));
+          patch(lane.querySelector(".r-meta"), metaHTML(t));
+          const log = lane.querySelector(".lane-log"), steps = stepsOf(t);
+          for (let i = log.childElementCount; i < steps.length; i++) log.insertAdjacentHTML("beforeend", `<div class="ll rise"><b>${steps[i][0]}</b><span class="mono">${esc(steps[i][1])}</span></div>`);
+          [...log.children].forEach((el, i) => {
+            el.classList.toggle("cur", i === steps.length - 1 && LIVE.includes(t.st));
+            if (steps[i]?.[2] && !el.classList.contains("denied")) { el.classList.add("denied"); el.innerHTML = `<b>Denied</b><span class="mono">${esc(steps[i][1])}</span>`; }
+          });
+          patch(lane.querySelector(".lane-foot"), foot(t));
+        }
+      }
+      patch($("#lnf"), footHTML(sim, "Keep chatting"));
+      const c = counts(sim);
+      const text = sim.phase === "plan" ? "plan ready" : sim.phase === "run" ? (c.needs ? `${c.needs} needs you` : `${c.working} working`) : sim.phase === "merged" ? "merged" : sim.reviewReady ? "ready to merge" : "reviewing";
+      patch(chip, `<span class="dot ${c.needs ? "needs" : sim.phase === "run" ? "live" : ""}"></span><b>Team</b>${text}`);
+      drawSide(sim);
+    }
+    panel.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]"); if (!b || common(sim, b)) return;
+      if (b.dataset.act === "start") sim.start();
+      else if (b.dataset.act === "keep" || b.dataset.act === "panel") setOpen(false);
+    });
+    chip.addEventListener("click", () => setOpen(!open));
+    startKey(sim, () => open);
+    const k = KEY;
+    KEY = (e) => { if (e.key === "Escape" && open) { setOpen(false); return; } k(e); };
+    boot(sim, draw, (kind, t) => {
+      if (kind === "status" && t.st === "needs" && !open) setOpen(true);
+      if (kind === "phase" && sim.phase === "merged") sim.after(1100, () => { setOpen(false); say(finalLine()); });
+    });
+  });
+  return shell({
+    leadTail: "The plan is open above the composer.",
+    chip: `<button class="chipb v2-chip" id="teamChip" aria-expanded="false" title="Team"></button>`,
+    overlay: `<section id="lanes" class="closed" role="dialog" aria-label="Team"></section>`,
+  });
+}
+
+/* ═════════ 3 · Island ═════════ */
+function island() {
+  const sim = fresh();
+  queueMicrotask(() => {
+    const sheet = $("#sheet"), scrim = $("#scrim"), isl = $("#island"), list = $("#ilist"), chat = $("#chat");
+    let sheetOpen = true, listOpen = false, gone = false;
+    isl.innerHTML = `<button class="isl isl-c off" id="islC"></button><div class="isl isl-x off" id="islX" role="alertdialog" aria-label="Agent needs you"></div>`;
+    const C = $("#islC"), X = $("#islX");
+    chat.style.setProperty("--ib", $("#dock").offsetHeight + 12 + "px");
+    sheet.classList.add("intro");
+
+    // The sheet folds into the capsule and comes back out of it, along the same path.
+    const aimAtIsland = () => {
+      const sr = sheet.getBoundingClientRect(), ir = isl.getBoundingClientRect();
+      sheet.style.transformOrigin = `${ir.left - sr.left}px ${ir.top - sr.top - 19}px`;
+    };
+    const setSheet = (v) => {
+      if (!v) aimAtIsland();
+      sheetOpen = v; sheet.classList.remove("intro");
+      sheet.classList.toggle("off", !v); scrim.classList.toggle("off", !v);
+      sheet.setAttribute("aria-hidden", !v);
+      draw();
+    };
+    const setList = (v) => { listOpen = v; list.classList.toggle("off", !v); draw(); };
+
+    const ringOf = (t) => {
+      const p = t.st === "done" || t.st === "merged" ? 1 : LIVE.includes(t.st) || t.st === "stopped" ? Math.min(1, t.t / t.len) : 0;
+      const L = 2 * Math.PI * 6;
+      return `<svg class="ring ${t.st}" width="16" height="16" viewBox="0 0 16 16"><circle class="trk" cx="8" cy="8" r="6"/><circle class="val" cx="8" cy="8" r="6" stroke-dasharray="${(Math.round(p * 50) / 50 * L).toFixed(2)} ${L.toFixed(2)}" transform="rotate(-90 8 8)"/></svg>`;
+    };
+    const rings = () => `<span class="rings">${sim.tasks.map(ringOf).join("")}</span>`;
+    const sheetRow = (t, i) => `<div class="sh-row"><span class="num">${i + 1}</span><div style="min-width:0"><div class="t">${esc(t.title)}</div><div class="s"><span class="wt">${BRANCH}${t.wt}</span><span>${plural(t.scope.length, "file", "files")} in scope</span>${depLabel(sim, t) ? `<span>${depLabel(sim, t)}</span>` : ""}</div></div>${agentChip(t)}<button class="icon-btn v1-rm" data-act="rm" data-id="${t.id}" title="Remove task" aria-label="Remove ${esc(t.title)}">${CLOSE}</button></div>`;
+
+    function draw() {
+      const n = sim.tasks.length, c = counts(sim);
+      if (sim.phase === "plan") patch(sheet, `<div class="sh-h"><h2>Start a team of ${plural(n, "agent", "agents")}?</h2><p>Each one works in its own worktree from main and hands its result back to this chat. Anything they ask comes to you.</p></div><div class="sh-rows">${n ? sim.tasks.map(sheetRow).join("") : `<div class="sh-row"><span></span><span class="fnote">No tasks left. Tell the lead what to plan instead.</span></div>`}</div><div class="sh-f">${stepperHTML(sim)}<span class="sp"></span><button class="btn ghost" data-act="keep">Not now</button>${startButton(sim)}</div>`);
+      const needs = sim.tasks.find((t) => t.st === "needs");
+      let compact = "";
+      if (sim.phase === "plan") compact = `${TEAM_ICON}<span class="lbl">Team plan <i>· ${plural(n, "agent", "agents")}</i></span><span class="isl-cta">Review</span>`;
+      else if (sim.phase === "run") compact = `${rings()}<span class="lbl">${c.working ? `${c.working} working` : `${c.waiting} waiting`} <i>· ${c.done} of ${c.n} done</i></span><span class="pad"></span>`;
+      else if (sim.phase === "review" && !sim.reviewReady) compact = `${rings()}<span class="lbl">The lead is reviewing…</span><span class="pad"></span>`;
+      else if (sim.phase === "review") compact = `${rings()}<span class="lbl">${c.n} handed back</span><span class="isl-cta light" data-act="merge">Merge</span>`;
+      else if (sim.phase === "merging") compact = `${rings()}<span class="lbl">Merging into main…</span><span class="pad"></span>`;
+      else compact = `${rings()}<span class="lbl">Merged into main</span><span class="pad"></span>`;
+      patch(C, compact);
+      C.dataset.act = sim.phase === "plan" ? "sheet" : sim.phase === "run" || sim.phase === "review" ? "list" : "";
+      C.setAttribute("aria-label", sim.phase === "plan" ? "Review team plan" : "Show team");
+      if (needs) patch(X, `<div class="xh">${rings()}<b>Needs you</b><span>· ${esc(needs.title)}</span></div><div class="xt">${esc(needs.model)} wants to run a command</div><div class="xc">${esc(needs.ask.cmd)}</div><div class="xw">${esc(needs.ask.why)} in ${esc(needs.wt)}.</div><div class="xf"><button class="btn ghost sm" data-act="deny" data-id="${needs.id}">Deny</button><button class="btn primary sm" data-act="allow" data-id="${needs.id}">Allow once</button></div>`);
+      C.classList.toggle("off", gone || !!needs || (sim.phase === "plan" && sheetOpen));
+      X.classList.toggle("off", !needs);
+      if (listOpen && (sim.phase === "plan" || needs || gone)) { listOpen = false; list.classList.add("off"); }
+      if (listOpen || !list._h) patch(list, `<div class="il-h">${TEAM_ICON}<b>Team</b><span class="sub">${summary(sim)}</span><span class="sp"></span><button class="icon-btn" data-act="list" aria-label="Close">${CLOSE}</button></div>${sim.tasks.map((t) => `<div class="il-row">${glyph(t)}<span class="t">${esc(t.title)}</span><span class="n">${esc(nowText(sim, t))}</span><span class="v1-who">${glyphOf(t.agent)}${esc(t.model)}</span>${metaHTML(t) || "<span></span>"}</div>`).join("")}`);
+      drawSide(sim);
+    }
+    const onClick = (e) => {
+      const b = e.target.closest("[data-act]"); if (!b) return;
+      if (b.dataset.act === "merge") { e.stopPropagation(); sim.merge(); return; }
+      if (common(sim, b)) return;
+      const a = b.dataset.act;
+      if (a === "start") { setSheet(false); sim.start(); }
+      else if (a === "keep") setSheet(false);
+      else if (a === "sheet") setSheet(true);
+      else if (a === "list") setList(!listOpen);
+    };
+    [sheet, isl, list].forEach((el) => el.addEventListener("click", onClick));
+    scrim.addEventListener("click", () => setSheet(false));
+    OUTSIDE = (e) => { if (listOpen && !list.contains(e.target) && !isl.contains(e.target) && !MENU?.contains(e.target)) setList(false); };
+    startKey(sim, () => sheetOpen);
+    const k = KEY;
+    KEY = (e) => {
+      if (e.key === "Escape") { if (listOpen) setList(false); else if (sheetOpen && sim.phase === "plan") setSheet(false); return; }
+      k(e);
+    };
+    boot(sim, draw, (kind, t) => {
+      if (kind === "status" && t.st === "done") say(`<div class="note rise"><span class="glyph done"></span><b>${esc(t.title)}</b> handed back · <span class="add">+${t.diff[0]}</span> <span class="del">−${t.diff[1]}</span></div>`);
+      if (kind === "phase" && sim.phase === "review" && sim.reviewReady) say(`<p class="say rise">${reviewText(sim)} Merge them into <b>main</b>?</p>`);
+      if (kind === "phase" && sim.phase === "merged") { say(finalLine()); sim.after(2600, () => { gone = true; draw(); }); }
+    });
+  });
+  return shell({
+    leadTail: "Have a look at the plan before they start.",
+    overlay: `<div id="island"></div><section id="ilist" class="off" aria-label="Team"></section>`,
+    winOverlay: `<div id="scrim"></div><section id="sheet" role="dialog" aria-modal="true" aria-label="Team plan"></section>`,
+  });
+}
+
+const variants = [inline, lanes, island];
+
+document.querySelectorAll("#speed button").forEach((b) => b.addEventListener("click", () => {
+  SPEED.v = +b.dataset.v;
+  document.querySelectorAll("#speed button").forEach((x) => x.classList.toggle("on", x === b));
+}));
+
+/* picker wiring — verbatim from PICKER.md */
+const stage = document.getElementById('stage');
+const picker = document.querySelector('.proto-picker');
+const highlight = picker.querySelector('.proto-picker-highlight');
+const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')];
+const replay = picker.querySelector('.proto-picker-replay');
+let current = 0;
+
+function moveHighlight() {
+  const el = items[current];
+  highlight.style.width = el.offsetWidth + 'px';
+  highlight.style.transform = `translateX(${el.offsetLeft}px)`;
+}
+
+function mount(i) {
+  stage.innerHTML = '';
+  // Clear first, render next frame, so entrance animations re-run.
+  requestAnimationFrame(() => { stage.innerHTML = variants[i](); });
+}
+
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return;
+  current = i;
+  items.forEach((el, j) => {
+    el.toggleAttribute('data-active', j === i);
+    if (j === i) el.setAttribute('aria-current', 'true');
+    else el.removeAttribute('aria-current');
+  });
+  moveHighlight();
+  const url = new URL(location);
+  url.searchParams.set('v', i + 1);
+  history.replaceState(null, '', url);
+  mount(i);
+}
+
+items.forEach((el, i) => el.addEventListener('click', () => setActive(i)));
+replay?.addEventListener('click', () => mount(current));
+window.addEventListener('resize', moveHighlight);
+
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= variants.length) setActive(num - 1);
+  else if (e.key === 'ArrowRight') setActive((current + 1) % variants.length);
+  else if (e.key === 'ArrowLeft') setActive((current - 1 + variants.length) % variants.length);
+  else if (e.key === 'r' || e.key === 'R') mount(current);
+});
+
+setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 1) - 1);
+// Enable the slide only after first paint, so load doesn't animate.
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')));
+</script>
+</body>
+</html>

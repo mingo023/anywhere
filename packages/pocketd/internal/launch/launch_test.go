@@ -301,6 +301,39 @@ func TestACreateInADeletedOrForeignLocalFails(t *testing.T) {
 	}
 }
 
+func TestACreateUnderASessionThatClosedFails(t *testing.T) {
+	project := t.TempDir()
+	l := launcher(t, `["`+project+`"]`)
+	l.d = &daemon.Daemon{Agents: agent.NewRegistry(hub.New())}
+	s := spec("claude", "ask", false)
+	s.Project, s.Parent = project, "gone"
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, quiet, func(Creating) { t.Fatal("creating") })
+	if r.Err == nil || r.Err.Code != "unknown_parent" || r.Err.Message != "The session to start this one under has closed" {
+		t.Fatalf("got %+v", r.Err)
+	}
+}
+
+func TestACreateUnderAListedSessionHandsItsTerminalTheParent(t *testing.T) {
+	defer func(w time.Duration) { createWait = w }(createWait)
+	createWait = 500 * time.Millisecond
+	onPath(t, "claude")
+	t.Setenv("SHELL", "/bin/sh")
+	project, _ := filepath.EvalSymlinks(t.TempDir())
+	git(t, project, "init", "-q", "-b", "main")
+	git(t, project, "commit", "-q", "--allow-empty", "-m", "init")
+	l := launcher(t, `["`+project+`"]`)
+	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
+	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
+	l.d.Agents.Add("lead", project, "claude", nil)
+	s := spec("claude", "ask", false)
+	s.Project, s.Checkout.Worktree, s.Parent = project, project, "lead"
+	var parent string
+	l.Create(Who{Owner: true, Key: "owner"}, "r1", s, quiet, func(c Creating) { parent = l.d.Terminals.Get(c.Terminal).TakeParent() })
+	if parent != "lead" {
+		t.Fatalf("parent = %q", parent)
+	}
+}
+
 func newWorktree(t *testing.T, setup string) (*Launcher, proto.LaunchSpec) {
 	onPath(t, "claude")
 	root, _ := filepath.EvalSymlinks(t.TempDir())
@@ -472,5 +505,24 @@ func TestASessionsShellThatIsntInstalledFallsBackToTheLoginShell(t *testing.T) {
 	}
 	if got := shellOf([]string{"SHELL=/bin/sh"}); got != "/bin/sh" {
 		t.Fatal(got)
+	}
+}
+
+func TestATeamStartsOnlyFromAChatSessionsFirstPrompt(t *testing.T) {
+	l := launcher(t, `[]`)
+	owner := Who{Owner: true, Key: "owner"}
+	s := spec("claude", "ask", false)
+	s.Team, s.Prompt = true, "Add truncate"
+	if r := l.Create(owner, "r1", s, quiet, func(Creating) { t.Fatal("creating") }); r.Err == nil || r.Err.Code != "invalid_spec" ||
+		r.Err.Message != "A team starts from a chat session's first prompt" {
+		t.Fatalf("no chat: %+v", r.Err)
+	}
+	s.Chat, s.Prompt = true, ""
+	if r := l.Create(owner, "r2", s, quiet, func(Creating) { t.Fatal("creating") }); r.Err == nil || r.Err.Code != "invalid_spec" {
+		t.Fatalf("no prompt: %+v", r.Err)
+	}
+	s.Prompt = "Add truncate"
+	if r := l.Create(owner, "r3", s, quiet, func(Creating) { t.Fatal("creating") }); r.Err == nil || r.Err.Code != "unknown_project" {
+		t.Fatalf("a chat with a prompt goes on to the project check: %+v", r.Err)
 	}
 }

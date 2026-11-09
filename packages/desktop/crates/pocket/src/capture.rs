@@ -14,6 +14,7 @@ use crate::git_ui::graph::GraphState;
 use crate::settings::Section;
 use crate::status::Status;
 use crate::updates::Update;
+use agents::team::state::{RUNNING, WAITING};
 use chat::{Block, Command, Row, ToolKind};
 use git::Kind;
 use git::github::{Check, Checks, Comment, Mergeable, Outcome, Pr, PrState, Review, Thread};
@@ -25,10 +26,24 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 231] = [
+const STEPS: [(&str, Step); 247] = [
     ("session", session),
     ("chat", |d, window, cx| {
         session(d, window, cx);
+        if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
+            d.store.chats.insert(t.clone());
+            d.focus_chat_or_terminal(t, window, cx);
+        }
+    }),
+    ("lead", |d, window, cx| {
+        if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
+            d.focus_agent(&lead, window, cx);
+        }
+        d.sidebar.panel_open = true;
+    }),
+    ("worker-chat", |d, window, cx| {
+        let Some(worker) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.id.clone()) else { return };
+        d.focus_agent(&worker, window, cx);
         if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
             d.store.chats.insert(t.clone());
             d.focus_chat_or_terminal(t, window, cx);
@@ -39,6 +54,16 @@ const STEPS: [(&str, Step); 231] = [
     ("compose-local", |d, window, cx| {
         d.store.agents.start_as_chat = true;
         d.new_session(Some("Fix the flaky parser test".into()), false, window, cx);
+    }),
+    ("compose-add-open", |d, _, cx| {
+        d.store.agents.start_as_chat = true;
+        d.new_form.composer.draft.toggle(Menu::Add);
+        cx.notify();
+    }),
+    ("compose-team", |d, _, cx| {
+        d.store.agents.start_as_chat = true;
+        d.new_form.composer.draft.team = true;
+        cx.notify();
     }),
     ("chat-fold-open", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
@@ -127,6 +152,38 @@ const STEPS: [(&str, Step); 231] = [
             d.chat_toggle_map(&agent, window, cx);
         }
     }),
+    ("team-proposed", |d, window, cx| show_team(d, "proposed", ["planned"; 4], |_| {}, window, cx)),
+    ("team-edited", |d, _, cx| {
+        if let Some(e) = d.team.island.sheet_edits() {
+            e.remove("t4");
+            e.pick("t1", "codex", "");
+            e.allow("t3", "cargo clippy -p chat");
+        }
+        d.team_toggle_menu("t2", cx);
+    }),
+    ("team-later", |d, window, cx| d.close_overlay(window, cx)),
+    ("team-running", |d, window, cx| show_team(d, RUNNING, ["done", RUNNING, RUNNING, WAITING], |_| {}, window, cx)),
+    ("team-needs", |d, window, cx| {
+        show_team(d, RUNNING, ["done", RUNNING, "needsYou", WAITING], |_| {}, window, cx);
+        let detail = agents::Detail { kind: "shell".into(), command: "cargo test -p chat".into(), ..Default::default() };
+        let ask = agents::Permission { request_id: "ask-w-t3".into(), agent_id: "w-t3".into(), tool_name: "Bash".into(), detail, feedback: false };
+        d.on_agents(agents::Event::Asked(ask), window, cx);
+    }),
+    ("team-review", |d, window, cx| show_team(d, "review", ["done"; 4], |_| {}, window, cx)),
+    ("team-ready", |d, window, cx| show_team(d, "review", ["done"; 4], |t| t.ready = true, window, cx)),
+    ("team-merge", |d, window, cx| {
+        if let Some(lead) = d.session().map(str::to_string) {
+            d.team_merge(&lead, window, cx);
+        }
+    }),
+    ("team-conflict", |d, window, cx| {
+        show_team(d, "conflict", ["merged", "done", "done", "done"], |t| t.conflict = vec!["internal/daemon/stream.go".into(), "crates/chat/src/outgoing.rs".into()], window, cx)
+    }),
+    ("team-list", |d, _, cx| {
+        if let Some(lead) = d.session().map(str::to_string) {
+            d.team_toggle_list(&lead, cx);
+        }
+    }),
     // After `chat-agent-map`: the details of the first sub-agent still at work, else the first.
     ("chat-agent-map-detail", |d, _, cx| {
         let Some(agent) = d.session().map(str::to_string) else { return };
@@ -200,6 +257,14 @@ const STEPS: [(&str, Step); 231] = [
     }),
     ("chat-effort-open", |d, _, cx| {
         d.chats.composer.draft.toggle(Menu::Effort);
+        cx.notify();
+    }),
+    ("chat-add-open", |d, _, cx| {
+        d.chats.composer.draft.toggle(Menu::Add);
+        cx.notify();
+    }),
+    ("chat-team", |d, _, cx| {
+        d.chats.composer.draft.team = true;
         cx.notify();
     }),
     ("chat-slash", |d, window, cx| d.type_text(Prompt::Chat, "/", window, cx)),
@@ -927,6 +992,38 @@ fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     }
 }
 
+/// The plan of the team captures, proposed by the shown chat's agent, each task in `states`' state; `edit` adjusts the rest.
+fn show_team(d: &mut Desktop, state: &str, states: [&str; 4], edit: impl FnOnce(&mut agents::Team), window: &mut Window, cx: &mut Context<Desktop>) {
+    let Some(lead) = d.session().map(str::to_string) else { return };
+    type Task = (&'static str, &'static str, &'static str, &'static [&'static str], &'static [&'static str], &'static str);
+    let plan: [Task; 4] = [
+        ("t1", "Keep sends in a pocketd queue", "claude", &["internal/daemon/queue.go", "internal/daemon/stream.go"], &[], "go test ./internal/daemon"),
+        ("t2", "Deliver queued sends when a turn ends", "codex", &["internal/daemon/claude.go", "internal/daemon/codex_chat.go"], &["t1"], "go test ./internal/daemon"),
+        ("t3", "Show pocketd's queue in the composer", "claude", &["crates/chat/src/outgoing.rs", "crates/pocket/src/chat/composer/queue.rs"], &[], "cargo test -p chat"),
+        ("t4", "e2e: a queued send survives a restart", "codex", &["e2e/queue_test.go"], &[], "go test ./e2e -run TestQueue"),
+    ];
+    let strings = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let tasks = plan
+        .into_iter()
+        .zip(states)
+        .map(|((id, title, agent, files, after, allow), state)| agents::TeamTask {
+            id: id.into(),
+            title: title.into(),
+            agent: agent.into(),
+            files: strings(files),
+            after: strings(after),
+            allow: vec![allow.into()],
+            state: state.into(),
+            worker: if state == "planned" { String::new() } else { format!("w-{id}") },
+            stat: if matches!(state, "done" | "merged") { " 2 files changed, 64 insertions(+), 9 deletions(-)".into() } else { String::new() },
+            ..Default::default()
+        })
+        .collect();
+    let mut team = agents::Team { lead, state: state.into(), tasks, updated_at: crate::util::now_ms(), ..Default::default() };
+    edit(&mut team);
+    d.on_agents(agents::Event::Team(team), window, cx);
+}
+
 fn is_call(b: &Block) -> bool {
     matches!(b, Block::Tool(c) if !matches!(c.kind, ToolKind::Agent(_)))
 }
@@ -988,7 +1085,7 @@ fn first_queued(d: &Desktop) -> Option<(String, u64)> {
 /// Asks the fixture's pocketd to play `scenario` into the shown agent's timeline: a `.ui-review/fixture/chat/<scenario>.json`, or an ask.
 fn fixture(d: &mut Desktop, scenario: &str) {
     if let Some(agent) = d.session().map(str::to_string) {
-        d.outbox.prompt(&agent, &format!("/fixture {scenario}"));
+        d.outbox.prompt(&agent, &format!("/fixture {scenario}"), false);
     }
 }
 
@@ -1151,6 +1248,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     (d.store.appearance.accent, d.store.appearance.ui_font, d.store.appearance.code_font, d.store.appearance.code_size) = (None, None, None, None);
     theme::set_fonts(None, None, cx);
     theme::set_accent(None, cx);
+    d.team.island = crate::team::Island::default();
+    d.agents.apply(agents::Event::Teams(Vec::new()));
 }
 
 /// Waits for the latest git refresh to land, then lays out a frame: nothing else draws a hidden window.

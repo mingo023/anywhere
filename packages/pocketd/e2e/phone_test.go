@@ -45,6 +45,7 @@ type Message struct {
 	} `json:"agent"`
 	Agents []struct {
 		ID       string `json:"id"`
+		Status   string `json:"status"`
 		Restore  string `json:"restore"`
 		ChatOnly bool   `json:"chatOnly"`
 	} `json:"agents"`
@@ -82,6 +83,8 @@ type Message struct {
 	Names          map[string]string  `json:"names"`
 	Automations    []proto.Automation `json:"automations"`
 	Runs           []proto.Run        `json:"runs"`
+	Team           proto.Team         `json:"team"`
+	Teams          []proto.Team       `json:"teams"`
 	Raw            string             `json:"-"`
 }
 

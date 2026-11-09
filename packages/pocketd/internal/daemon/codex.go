@@ -183,7 +183,7 @@ func (w *codexSock) typedIn() *presence {
 			window = CodexPromptWindow
 		}
 		pr.mu.Unlock()
-		status := pr.a.Summary().Status
+		status := pr.a.Turn()
 		running := thread != "" && (status == "working" || status == "needsYou")
 		if !running && time.Since(enter) < window && enter.After(at) {
 			last, at = pr, enter

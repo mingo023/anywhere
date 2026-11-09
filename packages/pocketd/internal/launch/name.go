@@ -120,7 +120,7 @@ func (l *Launcher) title(a *agent.Agent, claim int, j job, title string) {
 // said; "" when a closes or replyWait passes first.
 func firstReply(a *agent.Agent) string {
 	for end := time.Now().Add(replyWait); time.Now().Before(end); time.Sleep(replyPoll) {
-		switch a.Summary().Status {
+		switch a.Turn() {
 		case "closed":
 			return ""
 		case "idle", "done":

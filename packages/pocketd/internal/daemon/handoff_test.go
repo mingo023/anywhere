@@ -131,3 +131,22 @@ func TestAHandedOverAgentTheUserStartedStaysTheirs(t *testing.T) {
 		t.Fatal("the handoff forgot the user started the agent")
 	}
 }
+
+func TestALeadAwaitingStartIsHandedOverAndSavedAsItsOwnTurn(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	hookFrom(d, pr, sessionStart("c1", transcript(t, "hi")))
+	eventually(t, "the conversation", func() bool { return pr.a.Summary().ProviderSessionID == "c1" })
+	pr.a.SetAwaiting(true)
+	if s := pr.a.Summary().Status; s != "needsYou" {
+		t.Fatalf("status %q", s)
+	}
+	if got := d.carried(pr.a.ID()); got == nil || got.Phase != "idle" {
+		t.Fatalf("carried %+v", got)
+	}
+	var e state.Terminal
+	pr.save(&e)
+	if e.Status == "needsYou" {
+		t.Fatalf("saved status %q", e.Status)
+	}
+}

@@ -27,6 +27,7 @@ import (
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
+	"pocketd/internal/team"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
 )
@@ -854,6 +855,12 @@ func TestAnOversizedPromptIsRefusedWithItsCode(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 	if e := errorReply("p", errors.New("Unknown agent: zz")); e.Code != "" {
+		t.Fatalf("%+v", e)
+	}
+}
+
+func TestATeamPromptRefusedWhileItsTeamRunsSaysTeamBusy(t *testing.T) {
+	if e := errorReply("p", team.ErrBusy); e.Code != "team_busy" || e.ID != "p" || e.Message != team.ErrBusy.Error() {
 		t.Fatalf("%+v", e)
 	}
 }
