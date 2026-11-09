@@ -1,7 +1,8 @@
 use crate::actions::{GoToUpNext, JumpTo, NextNeedsYou, NextSession, PrevSession};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Side;
-use crate::sidebar::sessions::{matching, nest, with_children};
+use crate::sidebar::sessions::{matching, nest, with_family};
+use crate::sidebar::team_fold::nearest_listed;
 use crate::status::{self, Card};
 use gpui_kit::*;
 use std::time::Duration;
@@ -17,7 +18,7 @@ fn jump_modifier() -> Modifiers {
 
 /// The sessions ⌃n and ⌃Tab walk, in the order the Sessions column shows them: pinned first, each followed by the sessions started under it, with how deep each sits.
 pub(crate) fn walkable(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>, query: &str) -> Vec<(Card, usize)> {
-    let mut cards = matching(with_children(cards, tree, tree_of), query);
+    let mut cards = matching(with_family(cards, tree, tree_of), query);
     cards.sort_by_key(|c| !c.pinned);
     nest(cards)
 }
@@ -47,8 +48,10 @@ impl Chips {
 }
 
 impl Desktop {
+    /// The sessions with a row: a search holds folded teams open.
     pub(crate) fn visible_sessions(&self, cx: &App) -> Vec<(Card, usize)> {
-        self.sessions_matching(&self.sidebar.search.read(cx).value())
+        let query = self.sidebar.search.read(cx).value();
+        self.sidebar.team_folds.shown(self.sessions_matching(&query), !query.is_empty())
     }
 
     pub(crate) fn sessions_matching(&self, query: &str) -> Vec<(Card, usize)> {
@@ -88,7 +91,8 @@ impl Desktop {
 
     fn step_session(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let ids: Vec<String> = self.visible_sessions(cx).into_iter().map(|(c, _)| c.id).collect();
-        let next = status::cycle(&ids, self.session(), forward);
+        let current = self.session().and_then(|s| nearest_listed(&ids, s, |x| self.agents.get(x).map(|a| a.parent.clone())));
+        let next = status::cycle(&ids, current.as_deref(), forward);
         self.go_to(next, window, cx);
     }
 

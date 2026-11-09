@@ -26,8 +26,13 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 247] = [
+const STEPS: [(&str, Step); 248] = [
     ("session", session),
+    ("team-fold", |d, _, _| {
+        if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
+            d.sidebar.toggle_team(&[lead]);
+        }
+    }),
     ("chat", |d, window, cx| {
         session(d, window, cx);
         if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {

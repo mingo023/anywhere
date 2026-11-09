@@ -685,9 +685,20 @@ pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoEleme
         .child(session_foot(id, branch, state, stats))
 }
 
-/// The box holding the pinned sessions, headed by a pin and their count.
-pub fn pinned_group(rows: Vec<Stateful<Div>>) -> Div {
-    let header = group_head().child(icon("pin", 14., TEXT)).child(div().flex_1().child("Pinned")).child(group_count(rows.len()));
+const SESSION_LINE_H: f32 = 16.;
+const SESSION_TITLE_H: f32 = 20.;
+const SESSION_GAP: f32 = 4.;
+const SESSION_PAD: f32 = 10.;
+
+/// How tall a session's card is; [`pinned_row`]'s has no agent line and a `notice` adds one.
+pub fn session_row_h(pinned: bool, notice: bool) -> f32 {
+    let line = SESSION_LINE_H + SESSION_GAP;
+    2. * SESSION_PAD + SESSION_TITLE_H + line + if pinned { 0. } else { line } + if notice { line } else { 0. }
+}
+
+/// The box holding `rows`, headed by a pin and how many sessions they are.
+pub fn pinned_group(rows: Vec<AnyElement>, sessions: usize) -> Div {
+    let header = group_head().child(icon("pin", 14., TEXT)).child(div().flex_1().child("Pinned")).child(group_count(sessions));
     group_box().child(header).children(rows)
 }
 
@@ -730,7 +741,7 @@ pub fn section_head(id: impl Into<ElementId>, lead: impl IntoElement, name: impl
 }
 
 fn session_line() -> Div {
-    div().h(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_2)
+    div().h(px(SESSION_LINE_H)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_2)
 }
 
 fn session_when(when: impl IntoElement) -> Div {
@@ -738,11 +749,11 @@ fn session_when(when: impl IntoElement) -> Div {
 }
 
 fn session_title(title: String) -> Div {
-    div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title)
+    div().truncate().text_size(px(14.)).line_height(px(SESSION_TITLE_H)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title)
 }
 
 fn session_notice(notice: Option<&'static str>) -> Option<Div> {
-    notice.map(|n| div().truncate().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_2).child(n))
+    notice.map(|n| div().truncate().text_size(px(12.)).line_height(px(SESSION_LINE_H)).text_color(TEXT_2).child(n))
 }
 
 fn session_foot(id: ElementId, branch: Option<String>, state: Option<State>, stats: bool) -> Div {
@@ -756,12 +767,12 @@ fn session_card(id: ElementId, selected: bool, state: Option<State>) -> Stateful
         .id(id)
         .group(SESSION_ROW)
         .relative()
-        .px(px(10.))
-        .py(px(10.))
+        .px(px(SESSION_PAD))
+        .py(px(SESSION_PAD))
         .flex()
         .flex_none()
         .flex_col()
-        .gap(px(4.))
+        .gap(px(SESSION_GAP))
         .rounded(px(8.))
         .cursor_pointer()
         .when(state == Some(State::NeedsYou), |d| d.bg(WAITING_BG))
@@ -1240,12 +1251,17 @@ fn mark_slot(glyph: impl IntoElement) -> Div {
 }
 
 /// Nested under its project: the glyph sits right of the project's mark. A status `mark` takes the glyph's place.
-pub fn worktree_row(id: impl Into<ElementId>, icon_name: &str, label: impl IntoElement, selected: bool, mark: Option<AnyElement>) -> Stateful<Div> {
+/// A `chevron` takes the glyph's place while the row is hovered.
+pub fn worktree_row(id: impl Into<ElementId>, icon_name: &str, label: impl IntoElement, selected: bool, mark: Option<AnyElement>, chevron: Option<Stateful<Div>>) -> Stateful<Div> {
     let glyph = mark.unwrap_or_else(|| icon(icon_name, 13., if selected { TEXT_2 } else { TEXT_4 }).into_any_element());
+    let lead = match chevron {
+        Some(c) => div().relative().flex_none().child(mark_slot(glyph).size(px(ROW_MARK_SIZE)).items_center().group_hover(ROW_GROUP, |s| s.opacity(0.))).child(c.absolute().inset_0().opacity(0.).group_hover(ROW_GROUP, |s| s.opacity(1.))),
+        None => mark_slot(glyph),
+    };
     sidebar_row(id, selected)
         .pl(px(16.))
         .text_color(if selected { TEXT } else { TEXT_BODY })
-        .child(mark_slot(glyph))
+        .child(lead)
         .child(div().flex_1().min_w_0().truncate().child(label))
 }
 

@@ -67,7 +67,7 @@ func teamPlan(t *testing.T) string {
 func reviewedTeam(t *testing.T) (h *Harness, o *Phone, lead string, team proto.Team) {
 	t.Helper()
 	h = Start(t, launchReady(""), gitIdentity)
-	o = h.Owner()
+	o = h.Owner("names.v1")
 	create(o, "lead", inRepo(h, map[string]any{"chat": true}))
 	created := reply(o, "agent.created", "error")
 	if created.Type != "agent.created" {
@@ -84,14 +84,16 @@ func reviewedTeam(t *testing.T) (h *Harness, o *Phone, lead string, team proto.T
 	if m := o.WaitFor("team.start's reply", replyTo("start")); m.Type != "ack" {
 		t.Fatalf("team.start: %s", m.Raw)
 	}
-	asked, noticed := false, false
+	asked, noticed, named := false, false, false
+	t1Tree := filepath.Join(filepath.Dir(h.Repo), "wt", "team-"+lead[:6]+"-t1")
 	o.WaitFor("t1's handback", func(m Message) bool {
 		asked = asked || m.Type == "permission.request"
 		noticed = noticed || m.Type == "agent.stream" && m.Item.Kind == "notice" && m.Item.Text == "Allowed by the team plan: make test"
+		named = named || m.Type == "worktree.names" && m.Names[t1Tree] == "Write a"
 		return taskIn(lead, "t1", "done")(m)
 	})
-	if asked || !noticed {
-		t.Fatalf("make test: asked the user %t, noted in the timeline %t", asked, noticed)
+	if asked || !noticed || !named {
+		t.Fatalf("make test: asked the user %t, noted in the timeline %t; t1's worktree named for its task %t", asked, noticed, named)
 	}
 	o.WaitFor("the review", teamOf(lead, "review"))
 	team = o.WaitFor("the lead's verdict", func(m Message) bool { return teamOf(lead, "review")(m) && m.Team.Ready }).Team

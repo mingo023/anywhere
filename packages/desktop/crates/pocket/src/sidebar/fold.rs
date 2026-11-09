@@ -6,12 +6,13 @@ use theme::SPRING;
 /// Long enough for `SPRING` to settle, so a fold's rows stay drawn until it has closed over them.
 const SHUTTING: Duration = Duration::from_millis(500);
 
-/// A sidebar fold: a project's trees, a group's projects, or Pinned.
+/// A sidebar fold: a project's trees, a group's projects, Pinned, or a lead's workers.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Fold {
     Project(String),
     Group(u32),
     Pinned,
+    Team(String),
 }
 
 /// Folds shut a moment ago.

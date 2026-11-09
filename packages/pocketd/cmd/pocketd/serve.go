@@ -204,7 +204,7 @@ func serve(sock, handed string) error {
 	l.Locals = localStore
 	l.Teams = teams
 	if teams != nil {
-		teams.Mail, teams.Projects = d.Mail, reg
+		teams.Mail, teams.Projects, teams.Names = d.Mail, reg, worktreeNames
 		teams.Launch = func(lead, task string, s proto.LaunchSpec) (string, string, error) {
 			// A fresh request id each time: a lead's next plan reuses task ids.
 			r := l.Create(launch.Who{Owner: true, Key: "team:" + lead}, task+"-"+strconv.FormatInt(time.Now().UnixNano(), 36), s, func(string, string) {}, func(launch.Creating) {})

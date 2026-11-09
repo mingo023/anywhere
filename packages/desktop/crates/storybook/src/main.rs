@@ -186,9 +186,9 @@ impl Render for Storybook {
                 "Worktrees",
                 "Nested under the selected project",
                 list()
-                    .child(ui::worktree_row("w1", "worktree", "fix-login", true, None))
-                    .child(ui::worktree_row("w2", "worktree", "brave-otter", false, ui::indicator("w2-spin", Some(State::NeedsYou))).child(ui::row_trail(None, vec![ui::icon_button_sized("w2-more", "more", 22., TEXT_3).rounded(px(6.)).into_any_element()], false)))
-                    .child(ui::worktree_row("w3", "worktree", "add-dark-mode", false, ui::indicator("w3-spin", Some(State::Working)))),
+                    .child(ui::worktree_row("w1", "worktree", "fix-login", true, None, None))
+                    .child(ui::worktree_row("w2", "worktree", "brave-otter", false, ui::indicator("w2-spin", Some(State::NeedsYou)), None).child(ui::row_trail(None, vec![ui::icon_button_sized("w2-more", "more", 22., TEXT_3).rounded(px(6.)).into_any_element()], false)))
+                    .child(ui::worktree_row("w3", "worktree", "add-dark-mode", false, ui::indicator("w3-spin", Some(State::Working)), None)),
             ))
             .child(story(
                 "Palette and menus",

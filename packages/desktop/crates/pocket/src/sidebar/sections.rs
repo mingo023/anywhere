@@ -3,6 +3,7 @@ use crate::desktop::chrome::{RowMenu, Screen, id};
 use crate::sidebar::filter::FIELD_H;
 use crate::sidebar::fold::{self, Fold};
 use crate::sidebar::rename::rename_field;
+use crate::sidebar::team_fold::RowTeam;
 use crate::sidebar::{DragProject, tree_label, tree_place};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -68,6 +69,16 @@ pub(crate) struct TreeRow {
     pub(crate) label: String,
     pub(crate) tip: String,
     pub(crate) kind: Kind,
+    pub(crate) depth: usize,
+    /// The workers' trees under it.
+    pub(crate) team: Option<RowTeam>,
+}
+
+impl TreeRow {
+    /// Whether `current` is its tree, or one it's folded over.
+    pub(crate) fn selected(&self, current: Option<&str>) -> bool {
+        current == Some(self.key.as_str()) || self.team.as_ref().is_some_and(|t| t.hides(current))
+    }
 }
 
 fn matches(text: &str, query: &str) -> bool {
@@ -116,12 +127,12 @@ impl Desktop {
         let tip = trees.iter().find(|w| w.main).map(tree_place).unwrap_or_default();
         let mut rows = Vec::new();
         if self.in_use(&main) {
-            rows.push(TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own });
+            rows.push(TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own, depth: 0, team: None });
         }
-        rows.extend(self.agents.locals_in(p).map(|l| TreeRow { key: l.id.clone(), label: self.local_name(&l.id), tip: tip.clone(), kind: Kind::Local }));
+        rows.extend(self.agents.locals_in(p).map(|l| TreeRow { key: l.id.clone(), label: self.local_name(&l.id), tip: tip.clone(), kind: Kind::Local, depth: 0, team: None }));
         rows.extend(trees.iter().filter(|w| !w.main).map(|w| {
             let (label, tip) = tree_label(w, &self.agents);
-            TreeRow { key: w.path.clone(), label, tip, kind: Kind::Worktree }
+            TreeRow { key: w.path.clone(), label, tip, kind: Kind::Worktree, depth: 0, team: None }
         }));
         rows
     }

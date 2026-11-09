@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anywhere · Team session tree prototype</title>
+<style>
+:root{
+  --text:#ebebeb;--body:#bcbcbc;--t2:#a1a1a1;--t3:#818181;--t4:#6c6c6c;--t5:#616161;
+  --window:#121212;--nav:#0e0e0e;--pop:#232323;
+  --f1:rgba(235,235,235,.051);--f2:rgba(235,235,235,.078);--f3:rgba(235,235,235,.102);--f4:rgba(235,235,235,.122);
+  --sep:rgba(235,235,235,.078);--rail:rgba(235,235,235,.13);
+  --green:#3dd68c;--red:#ff9592;--amber:#ffb224;--claude:#d97757;--focus:rgba(235,235,235,.35);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font:13px/1.35 var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);background:#050505;user-select:none;-webkit-user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);outline-offset:-1px}
+svg{display:block;flex:none}
+#win{position:fixed;inset:20px 20px 76px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);box-shadow:0 0 0 .5px rgba(255,255,255,.16),0 24px 70px rgba(0,0,0,.6)}
+
+#aside{width:272px;flex:none;background:var(--nav);padding:46px 8px 10px;display:flex;flex-direction:column;gap:1px;border-right:.5px solid var(--sep);overflow:auto}
+.head{height:30px;display:flex;align-items:center;padding:0 6px;font-size:11px;font-weight:700;color:var(--t3);flex:none}
+.row{position:relative;height:28px;flex:none;display:flex;align-items:center;gap:7px;padding:0 6px;border-radius:8px;color:var(--body)}
+.row:hover{background:var(--f2)}
+.row:active{background:var(--f3)}
+.row.sel{background:var(--f4);color:var(--text)}
+.row .label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row input{flex:1;min-width:0;font:inherit;color:var(--text);background:none;border:0;outline:0;padding:0;user-select:text;-webkit-user-select:text}
+.repo{color:var(--text);font-weight:500}
+.tile{width:20px;height:20px;border-radius:5px;background:var(--f4);display:grid;place-items:center;font-size:10px;font-weight:600;flex:none}
+.tree{padding-left:16px}
+.tree.child{padding-left:32px}
+.slot{position:relative;width:20px;height:20px;display:grid;place-items:center;flex:none;color:var(--t4)}
+.row.sel .slot{color:var(--t2)}
+.slot .fold{position:absolute;inset:0;display:grid;place-items:center;border-radius:5px;opacity:0;color:var(--t3)}
+.fold:hover{background:var(--f3)}
+.row:hover .slot.can>.glyph{opacity:0}
+.row:hover .slot.can>.fold,.fold:focus-visible{opacity:1}
+.count{font-size:11px;color:var(--t3);padding:0 2px;font-variant-numeric:tabular-nums}
+.more{width:22px;height:22px;border-radius:6px;display:none;place-items:center;color:var(--t3);flex:none}
+.row:hover .more,.more.open{display:grid}
+.more:hover{background:var(--f3)}
+.family{position:relative}
+.rail::before{content:"";position:absolute;top:2px;bottom:6px;left:26px;width:1px;background:var(--rail);border-radius:1px}
+.fold-body{display:flex;flex-direction:column;gap:1px;padding:1px 0 2px}
+
+#main{flex:1;min-width:0;display:flex;flex-direction:column}
+.strip{height:42px;flex:none;display:flex;align-items:center;gap:6px;padding:0 16px;border-bottom:.5px solid var(--sep);color:var(--t3);white-space:nowrap;overflow:hidden}
+.strip b{font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.strip button{overflow:hidden;text-overflow:ellipsis;max-width:42%}
+.strip button:hover{color:var(--text)}
+.chat{flex:1;display:grid;place-items:center;color:var(--t4)}
+
+#panel{width:312px;flex:none;border-left:.5px solid var(--sep);display:flex;flex-direction:column;background:var(--nav)}
+.search{height:44px;flex:none;display:flex;align-items:center;padding:0 18px;color:var(--t4);border-bottom:.5px solid var(--sep)}
+#cards{flex:1;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:2px}
+.card{flex:none;padding:9px 10px;border-radius:12px;display:flex;flex-direction:column;gap:3px}
+.card:hover{background:var(--f2)}
+.card:active{background:var(--f3)}
+.card.sel{background:var(--f4)}
+.line{display:flex;align-items:center;gap:6px;color:var(--t2);font-size:12px;white-space:nowrap}
+.line span:first-of-type{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.foot{display:flex;align-items:center;gap:6px;color:var(--t3);font-size:12px;white-space:nowrap}
+.foot .br{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.st{display:flex;align-items:center;gap:5px;color:var(--body)}
+.st.needs{color:var(--amber);font-weight:600}
+.st.done{color:var(--green)}
+.diff{font-family:var(--mono);font-size:11px}.diff i{font-style:normal;color:var(--green)}.diff u{text-decoration:none;color:var(--red);margin-left:5px}
+
+.group.box{background:var(--f1);border-radius:12px;padding:4px;margin:2px 0 6px}
+.group.lined .kids{position:relative;margin-left:16px}
+.group.lined .kids::before{content:"";position:absolute;left:-7px;top:0;bottom:8px;width:1px;background:var(--rail);border-radius:1px}
+.group.box .kids{margin-left:0}
+.kids-in{display:flex;flex-direction:column;gap:2px;padding-top:2px}
+.disc{display:flex;align-items:center;gap:6px;height:26px;width:100%;padding:0 10px;border-radius:8px;color:var(--t3);font-size:12px;text-align:left}
+.disc:hover{background:var(--f2);color:var(--t2)}
+.disc:active{background:var(--f3)}
+.disc .sum{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.disc b{font-weight:600;color:var(--amber)}
+.chev{transform-origin:50% 50%}
+
+.dots{display:grid;grid-template-columns:repeat(3,3px);gap:1.5px}
+.dots i{width:3px;height:3px;border-radius:50%;background:var(--t2);animation:dot 1.1s ease-in-out infinite}
+.dots i:nth-child(2n){animation-delay:.2s}.dots i:nth-child(3n){animation-delay:.45s}.dots i:nth-child(5){animation-delay:.7s}
+@keyframes dot{0%,100%{opacity:.22}50%{opacity:1}}
+.glyph{display:grid;place-items:center}
+.pip{display:block;width:7px;height:7px;border-radius:50%;background:var(--amber)}
+.pip.done{background:var(--green)}
+
+.menu{position:absolute;right:4px;top:28px;z-index:9;width:168px;padding:6px;border-radius:10px;background:var(--pop);box-shadow:0 0 0 .5px rgba(255,255,255,.14),0 16px 40px rgba(0,0,0,.5);transform-origin:calc(100% - 14px) 0;animation:pop 140ms var(--out) both}
+.menu button{display:flex;width:100%;height:28px;align-items:center;padding:0 8px;border-radius:6px;color:var(--body)}
+.menu button:hover{background:var(--f3);color:var(--text)}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+
+#bar{position:fixed;left:0;right:0;bottom:16px;display:flex;justify-content:center;align-items:center;gap:10px;color:var(--t3);font-size:12px}
+.seg{display:flex;padding:2px;border-radius:9px;background:var(--f2)}
+.seg button{height:28px;padding:0 12px;border-radius:7px;color:var(--t2)}
+.seg button.on{background:var(--f4);color:var(--text)}
+.act{height:32px;padding:0 12px;border-radius:9px;background:var(--f2);color:var(--body)}
+.act:hover{background:var(--f3);color:var(--text)}
+.act:active{background:var(--f4)}
+.act[disabled]{opacity:.4}
+@media (prefers-reduced-motion:reduce){.dots i{animation:none;opacity:.7}.menu{animation:none}}
+</style>
+</head>
+<body>
+<div id="win"><aside id="aside"></aside><main id="main"></main><section id="panel"></section></div>
+<div id="bar"></div>
+<script>
+const TREES=[
+  {key:"lead",branch:"pulse-agent-audit-evals",name:"Audit pulse-agent-mastra architecture, research AI optimization"},
+  {key:"t1",branch:"team-6d8fa5-t1",task:"Triage pulse-agent-mastra architecture"},
+  {key:"t2",branch:"team-6d8fa5-t2",task:"Research AI accuracy and UX optimization"},
+  {key:"t3",branch:"team-6d8fa5-t3",task:"Re-evaluate Jev on tool-call intent"},
+  {key:"billing",branch:"fix-billing-webhook",name:"Fix billing webhook retries"},
+];
+const CARDS=[
+  {id:"lead",tree:"lead",parent:"",title:"Audit pulse-agent-mastra architecture",model:"Fable 5.1 · high",at:"5m",status:"idle"},
+  {id:"t1",tree:"t1",parent:"lead",title:"Triage pulse-agent-mastra architecture",model:"Fable 5.1",at:"5m",status:"working"},
+  {id:"t2",tree:"t2",parent:"lead",title:"Research AI accuracy and UX optimization",model:"Fable 5.1",at:"now",status:"working"},
+  {id:"t3",tree:"t3",parent:"lead",title:"Re-evaluate Jev on tool-call intent",model:"Fable 5.1",at:"5m",status:"working"},
+  {id:"evals",tree:"lead",parent:"",title:"Check the evals dataset",model:"Fable 5.1",at:"18m",status:"done"},
+  {id:"billing",tree:"billing",parent:"",title:"Fix billing webhook retries",model:"Fable 5.1",at:"1h",status:"idle"},
+];
+const ACCOUNT="minh.ngo@hodfords.com";
+const S={mode:"proposed",style:"rail",tree:"lead",sel:"lead",folded:false,names:{},renaming:null,menu:null};
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const card=id=>CARDS.find(c=>c.id===id);
+const tree=key=>TREES.find(t=>t.key===key);
+const proposed=()=>S.mode==="proposed";
+const workers=()=>CARDS.filter(c=>c.parent==="lead");
+const isWorker=key=>workers().some(c=>c.tree===key);
+
+const ICON={
+  tree:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.8"/><circle cx="12" cy="3.5" r="1.8"/><circle cx="8" cy="12.5" r="1.8"/><path d="M4 5.3c0 3 4 2.5 4 5.4M12 5.3c0 3-4 2.5-4 5.4"/></svg>',
+  branch:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="12.5" r="1.8"/><circle cx="12" cy="3.5" r="1.8"/><path d="M4 10.7V3M12 5.3c0 3.5-8 2-8 5.4"/></svg>',
+  chev:'<svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>',
+  more:'<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>',
+  claude:'<svg width="13" height="13" viewBox="0 0 16 16" stroke="#d97757" stroke-width="1.7" stroke-linecap="round"><path d="M8 1.5v13M1.5 8h13M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2"/></svg>',
+};
+const dots='<span class="dots">'+"<i></i>".repeat(9)+"</span>";
+
+function treeName(t){
+  if(S.names[t.key]) return S.names[t.key];
+  if(t.name) return t.name;
+  return proposed()?t.task:t.branch;
+}
+function rolled(cards){
+  const count=s=>cards.filter(c=>c.status===s).length;
+  return [["needs","needs you"],["working","working"],["done","done"]].filter(([s])=>count(s)).map(([s,l])=>({s,text:`${count(s)} ${l}`}));
+}
+function indicator(status){
+  if(status==="working") return dots;
+  if(status==="needs") return '<span class="pip"></span>';
+  if(status==="done") return '<span class="pip done"></span>';
+  return null;
+}
+/** Proposed: the place's cards, every ancestor, then every descendant. Current stops at descendants. */
+function listed(){
+  const kept=new Set(CARDS.filter(c=>c.tree===S.tree).map(c=>c.id));
+  if(proposed()) for(const id of [...kept]){ const p=card(id).parent; if(p) kept.add(p); }
+  let grew=true;
+  while(grew){ grew=false; for(const c of CARDS) if(!kept.has(c.id)&&kept.has(c.parent)){ kept.add(c.id); grew=true; } }
+  return CARDS.filter(c=>kept.has(c.id));
+}
+
+function treeRow(t,child,parentOf){
+  const sel=S.tree===t.key||(proposed()&&S.folded&&parentOf&&isWorker(S.tree));
+  const cards=CARDS.filter(c=>c.tree===t.key);
+  const roll=parentOf&&S.folded?workers():cards;
+  const r=rolled(roll)[0];
+  const mark=r?indicator(r.s):null;
+  const glyph=`<span class="glyph">${mark||ICON.tree}</span>`;
+  const fold=parentOf&&proposed()?`<button class="fold" data-act="fold" aria-label="${S.folded?"Show":"Hide"} workers" aria-expanded="${!S.folded}">${ICON.chev}</button>`:"";
+  const label=S.renaming===t.key
+    ?`<input id="rename" value="${esc(treeName(t))}" aria-label="Name">`
+    :`<span class="label">${esc(treeName(t))}</span>`;
+  const count=parentOf&&proposed()&&S.folded?`<span class="count">${workers().length}</span>`:"";
+  const menu=S.menu===t.key?`<div class="menu"><button data-act="rename" data-key="${t.key}">Rename…</button><button>Pin to top</button></div>`:"";
+  return `<div class="row tree${child?" child":""}${sel?" sel":""}" data-act="tree" data-key="${t.key}" title="${esc(t.branch)}" tabindex="0">
+    <span class="slot${fold?" can":""}">${glyph}${fold}</span>${label}${count}
+    <button class="more${S.menu===t.key?" open":""}" data-act="menu" data-key="${t.key}" aria-label="More">${ICON.more}</button>${menu}</div>`;
+}
+function renderAside(){
+  const head=`<div class="head">PROJECTS</div><div class="row repo"><span class="tile">P</span><span class="label">pulse-agent-mastra</span></div>`;
+  let body;
+  if(proposed()){
+    const kids=TREES.filter(t=>isWorker(t.key)).map(t=>treeRow(t,true)).join("");
+    body=treeRow(tree("lead"),false,true)
+      +`<div class="family rail" data-fold><div class="fold-body">${kids}</div></div>`
+      +treeRow(tree("billing"));
+  } else {
+    body=TREES.map(t=>treeRow(t)).join("");
+  }
+  $("aside").innerHTML=head+body;
+}
+
+function cardHTML(c){
+  const t=tree(c.tree);
+  const sel=S.sel===c.id||(proposed()&&S.folded&&c.id==="lead"&&isWorker(S.tree));
+  const state=c.status==="idle"
+    ?(c.id==="lead"?'<span class="diff"><i>+0</i><u>-0</u></span>':"")
+    :c.status==="working"?`<span class="st">${dots}Working</span>`
+    :c.status==="needs"?'<span class="st needs"><span class="pip"></span>Needs you</span>'
+    :'<span class="st done">Done</span>';
+  return `<div class="card${sel?" sel":""}" data-act="card" data-id="${c.id}" tabindex="0">
+    <div class="line">${ICON.claude}<span>${c.model} · ${ACCOUNT}</span><time>${c.at}</time></div>
+    <div class="title">${esc(c.title)}</div>
+    <div class="foot">${ICON.branch}<span class="br">${esc(t.branch)}</span>${state}</div></div>`;
+}
+function renderPanel(){
+  const cards=listed();
+  let html="";
+  if(proposed()){
+    const top=cards.filter(c=>!cards.some(p=>p.id===c.parent));
+    for(const c of top){
+      const kids=cards.filter(k=>k.parent===c.id);
+      if(!kids.length){ html+=cardHTML(c); continue; }
+      const roll=rolled(kids);
+      const n=`${kids.length} ${kids.length===1?"worker":"workers"}`;
+      const sum=roll.map((r,i)=>i===0&&r.s==="needs"?`<b>${r.text}</b>`:r.text).join(" · ");
+      html+=`<div class="group ${S.style==="box"?"box":"lined"}">${cardHTML(c)}
+        <button class="disc" data-act="fold" aria-expanded="${!S.folded}">${ICON.chev}<span class="sum">${n}${sum?" · "+sum:""}</span></button>
+        <div class="kids" data-fold><div class="kids-in">${kids.map(cardHTML).join("")}</div></div></div>`;
+    }
+  } else {
+    html=cards.map(c=>{const h=cardHTML(c);return c.parent&&cards.some(p=>p.id===c.parent)?`<div style="margin-left:16px">${h}</div>`:h;}).join("");
+  }
+  $("panel").innerHTML=`<div class="search">Search sessions…</div><div id="cards">${html}</div>`;
+}
+function renderMain(){
+  const c=card(S.sel);
+  const parent=c.parent?card(c.parent):null;
+  const crumb=parent?`<button data-act="card" data-id="${parent.id}">${esc(parent.title)}</button><span>›</span><b>${esc(c.title)}</b>`:`<b>${esc(c.title)}</b>`;
+  $("main").innerHTML=`<div class="strip">${crumb}</div><div class="chat">Chat with this session</div>`;
+}
+function renderBar(){
+  const seg=(act,opts,on)=>`<div class="seg">${opts.map(([v,l])=>`<button class="${v===on?"on":""}" data-act="${act}" data-v="${v}">${l}</button>`).join("")}</div>`;
+  const t2=card("t2").status;
+  $("bar").innerHTML=seg("mode",[["current","Current"],["proposed","Proposed"]],S.mode)
+    +(proposed()?seg("style",[["rail","Rail"],["box","Box"]],S.style):"")
+    +`<button class="act" data-act="needs">${t2==="needs"?"Worker back to working":"A worker needs you"}</button>`
+    +`<button class="act" data-act="jump"${t2==="needs"?"":" disabled"}>⌃N next needs-you</button>`;
+}
+function render(){
+  renderAside();renderPanel();renderMain();renderBar();paint();
+  const input=$("rename");
+  if(input){input.focus();input.select();}
+}
+
+/* Critically damped, same constants as theme::SPRING (900, 60, 1). Re-targets from the live value, so a fold can be reversed mid-flight. */
+const F={x:1,v:0,to:1,raf:0,last:0};
+const reduced=matchMedia("(prefers-reduced-motion: reduce)");
+function paint(){
+  const x=Math.min(1,Math.max(0,F.x));
+  const moving=F.raf!==0||F.to===0;
+  document.querySelectorAll("[data-fold]").forEach(el=>{
+    const inner=el.firstElementChild;
+    el.style.height=moving?`${inner.offsetHeight*x}px`:"";
+    el.style.overflow=moving?"hidden":"";
+    inner.style.opacity=x;
+    el.inert=F.to===0;
+  });
+  document.querySelectorAll(".chev").forEach(c=>{c.style.transform=`rotate(${x*90}deg)`});
+}
+function tick(now){
+  let dt=Math.min(.05,(now-F.last)/1000);F.last=now;
+  while(dt>0){const h=Math.min(dt,1/240);F.v+=(-900*(F.x-F.to)-60*F.v)*h;F.x+=F.v*h;dt-=h;}
+  if(Math.abs(F.x-F.to)<.001&&Math.abs(F.v)<.01){F.x=F.to;F.v=0;F.raf=0;paint();return;}
+  F.raf=requestAnimationFrame(tick);paint();
+}
+function setFold(folded){
+  S.folded=folded;F.to=folded?0:1;
+  if(reduced.matches){F.x=F.to;F.v=0;return;}
+  if(!F.raf){F.last=performance.now();F.raf=requestAnimationFrame(tick);}
+}
+function focusSession(id){
+  const c=card(id);
+  S.sel=id;S.tree=c.tree;
+  if(S.folded&&c.parent) setFold(false);
+}
+function commitRename(save){
+  const key=S.renaming;if(!key) return;
+  const value=$("rename").value.trim();
+  S.renaming=null;
+  if(save&&value){
+    S.names[key]=value;
+    if(isWorker(key)) CARDS.find(c=>c.tree===key).title=value;
+  }
+  render();
+}
+
+document.addEventListener("pointerdown",e=>{
+  if(S.menu&&!e.target.closest(".menu,.more")){S.menu=null;render();}
+});
+document.addEventListener("click",e=>{
+  const el=e.target.closest("[data-act]");
+  if(!el||e.target.id==="rename") return;
+  const {act,key,id,v}=el.dataset;
+  e.stopPropagation();
+  if(act==="fold") setFold(!S.folded);
+  else if(act==="menu") S.menu=S.menu===key?null:key;
+  else if(act==="rename"){S.menu=null;S.renaming=key;}
+  else if(act==="tree"){
+    if(e.detail>1){S.renaming=key;}
+    else{S.tree=key;S.sel=CARDS.find(c=>c.tree===key).id;S.menu=null;}
+  }
+  else if(act==="card") focusSession(id);
+  else if(act==="mode"){S.mode=v;setFold(false);F.x=1;F.v=0;}
+  else if(act==="style") S.style=v;
+  else if(act==="needs") card("t2").status=card("t2").status==="needs"?"working":"needs";
+  else if(act==="jump") focusSession("t2");
+  render();
+});
+document.addEventListener("keydown",e=>{
+  if(e.target.id==="rename"){
+    if(e.key==="Enter") commitRename(true);
+    if(e.key==="Escape") commitRename(false);
+    return;
+  }
+  if((e.key==="Enter"||e.key===" ")&&e.target.dataset&&e.target.dataset.act&&e.target.tagName==="DIV"){e.preventDefault();e.target.click();}
+});
+document.addEventListener("focusout",e=>{if(e.target.id==="rename"&&S.renaming) commitRename(true);});
+render();
+</script>
+</body>
+</html>
