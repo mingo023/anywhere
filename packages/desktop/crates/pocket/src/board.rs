@@ -3,11 +3,15 @@ mod card_menu;
 mod column;
 mod display_menu;
 mod filter_bar;
+mod filter_notice;
 mod form;
 mod form_chips;
+mod hidden_columns;
 pub(crate) mod logic;
+mod page;
 mod parts;
 mod row;
+mod tabs;
 mod toast;
 mod top_bar;
 mod values;
@@ -18,7 +22,7 @@ use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use agents::tickets::{Board, Ticket};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use logic::{Action, COLS, Col, Columns, Filters, Landing, Opens, Order, Reach, Row, arrange, column, landing, opens, rows};
+use logic::{Action, COLS, Col, Columns, Filters, Landing, Opens, Order, Reach, Row, Tab, arrange, column, hidden_by, landing, opens, rows};
 use toast::Toast;
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -41,10 +45,12 @@ pub(crate) enum Menu {
 
 pub struct BoardState {
     pub(crate) layout: Layout,
+    tab: Tab,
     pub(crate) order: Order,
     pub(crate) show_closed: bool,
     pub(crate) filters: Filters,
     columns: Columns,
+    hidden: usize,
     lists: Vec<ListState>,
     rows: Vec<Row>,
     rows_list: ListState,
@@ -66,10 +72,12 @@ impl BoardState {
         }));
         let state = Self {
             layout: Layout::default(),
+            tab: Tab::default(),
             order: Order::default(),
             show_closed: false,
             filters: Filters::default(),
             columns: Default::default(),
+            hidden: 0,
             lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(),
             rows: Vec::new(),
             rows_list: ListState::new(0, ListAlignment::Top, px(400.)),
@@ -84,13 +92,14 @@ impl BoardState {
 
     fn regroup(&mut self, board: &Board) {
         self.columns = arrange(&board.tickets, &self.filters, self.order);
+        self.hidden = hidden_by(&board.tickets, &self.filters, self.tab, self.show_closed);
         // A ticket's height follows its content, so the lists measure afresh whenever the snapshot changes.
         for (list, line) in self.lists.iter().zip(&self.columns) {
             let top = list.logical_scroll_top();
             list.reset(line.len());
             list.scroll_to(top);
         }
-        self.rows = rows(&self.columns, self.show_closed);
+        self.rows = rows(&self.columns, self.tab, self.show_closed);
         let top = self.rows_list.logical_scroll_top();
         self.rows_list.reset(self.rows.len());
         self.rows_list.scroll_to(top);

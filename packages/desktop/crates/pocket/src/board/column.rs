@@ -1,32 +1,23 @@
 use super::card::DragTicket;
 use super::logic::{Col, Slot, busy};
-use super::parts::status_glyph;
+use super::parts::{CARD_RADIUS, col_heading};
 use crate::desktop::Desktop;
-use agents::tickets::Status;
 use gpui_kit::*;
 use theme::*;
 use ui::{self, Variant};
 
 impl Desktop {
+    pub(super) fn add_ticket_button(&self, id: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
+        ui::icon_button_sized(id, "plus", 20., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_ticket(None, window, cx)))
+    }
+
     fn column_head(&self, col: Col, cx: &mut Context<Self>) -> Div {
         let count = match col {
             Col::Working => format!("{}/{}", busy(&self.agents.board.tickets), self.agents.board.limit),
             _ => self.board.columns[col as usize].len().to_string(),
         };
-        let add = (col == Col::Todo).then(|| ui::icon_button_sized("board-todo-add", "plus", 20., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_ticket(None, window, cx))));
-        div()
-            .h(px(36.))
-            .flex_none()
-            .px(px(10.))
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .text_size(px(13.))
-            .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(status_glyph(("board-col-glyph", col as usize), col, Status::None)))
-            .child(div().font_weight(FontWeight::MEDIUM).child(col.name()))
-            .child(div().text_color(TEXT_4).child(count))
-            .child(div().flex_1())
-            .children(add)
+        let add = (col == Col::Todo).then(|| self.add_ticket_button("board-todo-add", cx));
+        div().h(px(36.)).flex_none().px(px(10.)).flex().items_center().justify_between().child(col_heading(col, count)).children(add)
     }
 
     fn empty_hint(&self, cx: &mut Context<Self>) -> Div {
@@ -54,12 +45,12 @@ impl Desktop {
         let empty = (col == Col::Todo && self.agents.board.tickets.is_empty()).then(|| self.empty_hint(cx));
         div()
             .id(("board-col", col as usize))
-            .w(px(280.))
+            .w(px(296.))
             .h_full()
             .flex()
             .flex_none()
             .flex_col()
-            .rounded(px(10.))
+            .rounded(px(CARD_RADIUS))
             .bg(FILL_1)
             .drag_over::<DragTicket>(move |s, d, _, _| if col.takes(d.from) { s.bg(FILL_3) } else { s })
             .on_drop(cx.listener(move |this, d: &DragTicket, _, cx| this.drop_ticket(&d.id, d.from, col, None, cx)))

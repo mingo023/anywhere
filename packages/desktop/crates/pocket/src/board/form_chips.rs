@@ -15,11 +15,11 @@ fn face(lead: AnyElement, value: String) -> [AnyElement; 2] {
 impl Desktop {
     fn form_pick(&self, [chip_id, popup_id, in_id]: ChipIds, menu: Menu, face: [AnyElement; 2], width: f32, rows: Vec<Stateful<Div>>, cx: &mut Context<Self>) -> Div {
         let open = self.board.menu.as_ref() == Some(&menu);
-        let chip = ui::menu_chip(chip_id, open).children(face).child(icon("chevron-down", 12., TEXT_4)).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+        let chip = ui::menu_chip(chip_id, open).h(px(24.)).pl(px(8.)).pr(px(6.)).rounded(px(12.)).border_1().border_color(SEPARATOR).text_size(px(12.)).children(face).child(icon("chevron-down", 12., TEXT_4)).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             cx.stop_propagation();
             this.toggle_board_menu(menu.clone(), cx);
         }));
-        let popup = open.then(|| ui::dropdown(36., ui::menu_in(in_id, self.popup(popup_id, width, cx).max_h(px(320.)).overflow_y_scroll().children(rows))));
+        let popup = open.then(|| ui::dropdown(30., ui::menu_in(in_id, self.popup(popup_id, width, cx).max_h(px(320.)).overflow_y_scroll().children(rows))));
         div().relative().child(chip).children(popup)
     }
 

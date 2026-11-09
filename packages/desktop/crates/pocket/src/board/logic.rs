@@ -53,6 +53,39 @@ impl Col {
     }
 }
 
+/// Which part of the Board's flow the page shows.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub(crate) enum Tab {
+    #[default]
+    All,
+    Active,
+    Todo,
+}
+
+impl Tab {
+    pub(crate) const ALL: [Tab; 3] = [Tab::All, Tab::Active, Tab::Todo];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Tab::All => "All tickets",
+            Tab::Active => "Active",
+            Tab::Todo => "To do",
+        }
+    }
+
+    fn shows(self, col: Col) -> bool {
+        match self {
+            Tab::All => true,
+            Tab::Active => !col.finished() && col != Col::Todo,
+            Tab::Todo => col == Col::Todo,
+        }
+    }
+}
+
+fn on_page(col: Col, tab: Tab, show_closed: bool) -> bool {
+    tab.shows(col) && (show_closed || col != Col::Closed)
+}
+
 pub(crate) fn column(t: &Ticket) -> Col {
     match t.state {
         State::Todo => Col::Todo,
@@ -102,6 +135,16 @@ impl Filters {
     }
 }
 
+/// How many tickets the page would show but for the filters and the search.
+pub(crate) fn hidden_by(tickets: &[Ticket], filters: &Filters, tab: Tab, show_closed: bool) -> usize {
+    tickets.iter().filter(|t| on_page(column(t), tab, show_closed) && !filters.keeps(t)).count()
+}
+
+/// Whether the Board ends with the columns the page leaves out.
+pub(crate) fn offers_hidden_columns(tab: Tab, show_closed: bool) -> bool {
+    tab == Tab::All && !show_closed
+}
+
 pub(crate) fn activity(t: &Ticket) -> i64 {
     if t.closed_at > 0 { t.closed_at } else { t.changed_at }
 }
@@ -133,8 +176,8 @@ pub(crate) fn arrange(tickets: &[Ticket], filters: &Filters, order: Order) -> Co
     columns
 }
 
-pub(crate) fn shown_cols(show_closed: bool) -> impl Iterator<Item = Col> {
-    COLS.into_iter().filter(move |c| show_closed || *c != Col::Closed)
+pub(crate) fn shown_cols(tab: Tab, show_closed: bool) -> impl Iterator<Item = Col> {
+    COLS.into_iter().filter(move |c| on_page(*c, tab, show_closed))
 }
 
 /// Where a ticket is shown: its column, its place there, and its index in the snapshot.
@@ -152,9 +195,9 @@ pub(crate) enum Row {
 }
 
 /// The same buckets as the board, as sections; an empty one is left out.
-pub(crate) fn rows(columns: &Columns, show_closed: bool) -> Vec<Row> {
+pub(crate) fn rows(columns: &Columns, tab: Tab, show_closed: bool) -> Vec<Row> {
     let mut out = Vec::new();
-    for col in shown_cols(show_closed) {
+    for col in shown_cols(tab, show_closed) {
         let line = &columns[col as usize];
         if !line.is_empty() {
             out.push(Row::Head(col));
@@ -378,8 +421,9 @@ mod tests {
     fn the_list_skips_empty_sections_and_closed_unless_shown() {
         let tickets = [ticket("a", State::Todo, Status::None), ticket("c", State::Closed, Status::Idle)];
         let columns = arrange(&tickets, &Filters::default(), Order::Activity);
-        assert_eq!(rows(&columns, false), vec![Row::Head(Col::Todo), Row::Ticket(Slot { col: Col::Todo, pos: 0, index: 0 })]);
-        assert_eq!(rows(&columns, true).len(), 4);
+        assert_eq!(rows(&columns, Tab::All, false), vec![Row::Head(Col::Todo), Row::Ticket(Slot { col: Col::Todo, pos: 0, index: 0 })]);
+        assert_eq!(rows(&columns, Tab::All, true).len(), 4);
+        assert!(rows(&columns, Tab::Active, true).is_empty());
     }
 
     #[test]
@@ -404,6 +448,39 @@ mod tests {
         assert_eq!(landing("t", Col::Todo, Col::Queued, Some("x")), Some(Landing::Move { column: State::Queued, before: Some("x".into()) }));
         assert_eq!(landing("t", Col::Todo, Col::Todo, None), None);
         assert_eq!(landing("t", Col::Queued, Col::Working, None), None);
+    }
+
+    #[test]
+    fn a_tab_shows_its_part_of_the_flow() {
+        let shown = |tab| shown_cols(tab, true).collect::<Vec<_>>();
+        assert_eq!(shown(Tab::All), COLS);
+        assert_eq!(shown(Tab::Active), vec![Col::Queued, Col::Working, Col::NeedsYou, Col::Done, Col::InReview]);
+        assert_eq!(shown(Tab::Todo), vec![Col::Todo]);
+    }
+
+    #[test]
+    fn closed_stays_hidden_on_every_tab_until_it_is_asked_for() {
+        assert!(Tab::ALL.iter().all(|tab| !shown_cols(*tab, false).any(|c| c == Col::Closed)));
+        assert!(shown_cols(Tab::All, true).any(|c| c == Col::Closed));
+    }
+
+    #[test]
+    fn only_the_whole_board_offers_the_hidden_columns_and_only_while_they_are_hidden() {
+        assert!(offers_hidden_columns(Tab::All, false));
+        assert!(!offers_hidden_columns(Tab::All, true));
+        assert!(!offers_hidden_columns(Tab::Active, false));
+    }
+
+    #[test]
+    fn the_hidden_count_is_what_the_filters_take_off_this_page() {
+        let (a, mut b, c) = (ticket("login", State::Todo, Status::None), ticket("other", State::Todo, Status::None), ticket("gone", State::Closed, Status::Idle));
+        b.provider = "codex".into();
+        let tickets = [a, b, c];
+        let codex = Filters { agent: Some("codex".into()), ..Default::default() };
+        assert_eq!(hidden_by(&tickets, &Filters::default(), Tab::All, false), 0);
+        assert_eq!(hidden_by(&tickets, &codex, Tab::All, false), 1);
+        assert_eq!(hidden_by(&tickets, &codex, Tab::All, true), 2);
+        assert_eq!(hidden_by(&tickets, &codex, Tab::Active, true), 0);
     }
 
     #[test]

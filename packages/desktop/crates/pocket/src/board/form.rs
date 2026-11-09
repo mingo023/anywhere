@@ -1,4 +1,5 @@
 use super::logic::busy;
+use super::parts::action_button;
 use super::values::{Values, default_folder};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
@@ -101,20 +102,22 @@ impl Desktop {
     pub(crate) fn ticket_view(&mut self, cx: &mut Context<Self>) -> Div {
         let ready = self.form_ready(cx);
         let f = &self.board.form;
-        let crumb = div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(self.form_project_chip(cx)).child(icon("chevron-right", 12., TEXT_4)).child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(if f.v.editing() { "Edit ticket" } else { "New ticket" }));
+        let close = ui::icon_button_sized("ticket-close", "x", 24., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let crumb = div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(self.form_project_chip(cx)).child(icon("chevron-right", 12., TEXT_4)).child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(if f.v.editing() { "Edit ticket" } else { "New ticket" })).child(div().flex_1()).child(close);
         // The input's line box is a fixed 1.25rem, so a larger size clips descenders.
         let title = div().font_weight(FontWeight::SEMIBOLD).child(Input::new(&f.title).appearance(false).p_0().text_size(px(18.)));
-        let prompt = div().min_h(px(120.)).text_size(px(14.)).child(Textarea::new(&f.prompt).appearance(false).p_0());
+        let prompt = div().min_h(px(96.)).text_size(px(14.)).child(Textarea::new(&f.prompt).appearance(false).p_0());
         let chips = div().flex().items_center().gap(px(4.)).child(self.form_agent_chip(cx)).child(self.form_base_chip(cx));
-        let dim = |b: Stateful<Div>| b.when(!ready, |d| d.opacity(0.35).cursor_default());
-        let delete = f.v.id.clone().map(|id| ui::button("ticket-delete", Variant::Ghost, Some("trash"), "Delete").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.ask_delete_ticket(id.clone(), window, cx))));
-        let save = dim(ui::button("ticket-save", if f.v.can_start() { Variant::Secondary } else { Variant::Primary }, None, if f.v.editing() { "Save" } else { "Add to To do" })).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_ticket(false, window, cx)));
-        let start = f.v.can_start().then(|| dim(ui::button("ticket-start", Variant::Primary, Some("play"), "Start").child(ui::button_kbd("⌘↩"))).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_ticket(true, window, cx))));
+        let dim = |b: Stateful<Div>| b.when(!ready, |d| d.opacity(0.4).cursor_default());
+        let delete = f.v.id.clone().map(|id| ui::button("ticket-delete", Variant::Ghost, Some("trash"), "Delete").h(px(28.)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.ask_delete_ticket(id.clone(), window, cx))));
+        let save_label = if f.v.editing() { "Save" } else { "Add to To do" };
+        let save = dim(if f.v.can_start() { ui::button("ticket-save", Variant::Ghost, None, save_label).h(px(28.)) } else { action_button("ticket-save", save_label) }).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_ticket(false, window, cx)));
+        let start = f.v.can_start().then(|| dim(action_button("ticket-start", "Start").child(ui::button_kbd("⌘↩"))).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_ticket(true, window, cx))));
         let hint = f.v.hint(self.form_in_repo(), busy(&self.agents.board.tickets), self.agents.board.limit);
-        let foot = div().flex().items_center().gap(px(8.)).children(delete).child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).children(hint)).child(save).children(start);
-        div().absolute().top(px(96.)).left_0().right_0().flex().justify_center().child(
-            ui::pop(div().w(px(560.)).p(px(16.)).flex().flex_col().gap(px(12.)))
-                .rounded(px(R_DIALOG))
+        let foot = div().px(px(16.)).h(px(48.)).flex().items_center().gap(px(8.)).border_t_1().border_color(HAIRLINE).children(delete).child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).children(hint)).child(save).children(start);
+        let head = div().p(px(16.)).pb(px(12.)).flex().flex_col().gap(px(10.)).child(crumb).child(title).child(prompt).child(chips);
+        div().absolute().top(px(80.)).left_0().right_0().flex().justify_center().child(
+            ui::pop(div().w(px(720.)).flex().flex_col())
                 .occlude()
                 .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
                     if e.keystroke.key == "enter" && e.keystroke.modifiers.platform {
@@ -122,10 +125,7 @@ impl Desktop {
                         this.save_ticket(true, window, cx);
                     }
                 }))
-                .child(crumb)
-                .child(title)
-                .child(prompt)
-                .child(chips)
+                .child(head)
                 .child(foot),
         )
     }

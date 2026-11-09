@@ -41,8 +41,9 @@ impl Desktop {
 
     pub(super) fn board_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let toast = self.board.toast.as_ref()?;
-        let undo = toast.undo.is_some().then(|| ui::button("board-undo", Variant::Ghost, None, "Undo").h(px(24.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.undo_close(cx))));
-        let pill = ui::pop(div()).h(px(36.)).pl(px(12.)).pr(px(6.)).flex().items_center().gap(px(10.)).rounded(px(10.)).text_size(px(12.5)).text_color(TEXT_2).child(div().max_w(px(360.)).truncate().child(toast.message.clone())).children(undo);
-        Some(div().absolute().bottom(px(16.)).left_0().right_0().flex().justify_center().child(pill))
+        let undo = toast.undo.is_some().then(|| ui::button("board-undo", Variant::Ghost, None, "Undo").h(px(24.)).px(px(8.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.undo_close(cx))));
+        let card = ui::pop(div()).w(px(340.)).min_h(px(44.)).pl(px(12.)).pr(px(8.)).py(px(8.)).flex().items_center().gap(px(8.)).rounded(px(10.)).text_size(px(12.5)).text_color(TEXT).child(icon("check", 13., SUCCESS)).child(div().flex_1().min_w_0().line_height(px(17.)).line_clamp(2).child(toast.message.clone())).children(undo);
+        let above_notice = self.board.hidden > 0;
+        Some(div().absolute().bottom(px(if above_notice { 54. } else { 14. })).right(px(16.)).child(card))
     }
 }
