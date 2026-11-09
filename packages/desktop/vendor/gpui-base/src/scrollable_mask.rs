@@ -76,6 +76,7 @@ pub(crate) fn horizontal_scroll_area(
     id: impl Into<ElementId>,
     scroll_handle: &ScrollHandle,
     style: &StyleRefinement,
+    cover_corners: bool,
     child: impl IntoElement,
 ) -> impl IntoElement {
     let id = id.into();
@@ -111,7 +112,7 @@ pub(crate) fn horizontal_scroll_area(
                 .child(child),
         )
         .child(ScrollableMask::new(Axis::Horizontal, scroll_handle).id(id))
-        .child(frame)
+        .children(cover_corners.then_some(frame))
 }
 
 /// Keeps a rounded scroll viewport's corners clean at every scroll offset.
@@ -125,6 +126,9 @@ pub(crate) fn horizontal_scroll_area(
 /// color, which reads as a rounded clip. The frame's own border needs no help:
 /// gpui paints an element's border after its children, so it already draws
 /// over both the scrolled content and these covers.
+///
+/// Use it only where content paints into the corners: the notches are painted
+/// solid, so over a translucent window they show up as dark corners.
 ///
 /// Like [`ScrollableMask`], it must be a sibling of the scrolled element so it
 /// does not move with the scroll offset.
@@ -693,6 +697,7 @@ mod tests {
                 "horizontal-scroll-area",
                 &self.scroll_handle,
                 &Default::default(),
+                false,
                 div().w(px(300.)).h(px(40.)),
             ))
         }
@@ -742,6 +747,7 @@ mod tests {
                             "horizontal-scroll-area",
                             &scroll_handle,
                             &Default::default(),
+                            false,
                             div().w(px(300.)).h(px(40.)),
                         )
                         .into_any_element()

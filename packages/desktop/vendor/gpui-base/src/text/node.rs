@@ -2724,6 +2724,7 @@ impl CodeBlock {
                 block_element_id("code-body", self.span, options.ix),
                 &scroll_handle,
                 &StyleRefinement::default().flex(),
+                false,
                 body.flex_none().min_w_full().whitespace_nowrap(),
             )
             .into_any_element()
@@ -4197,6 +4198,7 @@ impl BlockNode {
                         block_element_id("table", table.span, options.ix),
                         &scroll_handle,
                         &frame,
+                        style.table_rows_reach_corners(),
                         // Row track as wide as its content, capped by the
                         // viewport while the columns can still shrink-to-fit
                         // (their text wrapping); `min_w(min_total_w)` keeps the
