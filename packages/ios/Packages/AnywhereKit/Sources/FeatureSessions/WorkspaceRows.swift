@@ -162,7 +162,7 @@ struct WorkspaceRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.s) {
-            StatusGlyph(tree.rollUp?.status ?? .idle, size: 12).padding(.top, 3)
+            Image.named(TreeRow.symbol(tree.kind), size: 16).font(.system(size: 16)).foregroundStyle(Palette.text3.color).frame(width: 20).padding(.top, 2)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(tree.label).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
                 HStack(spacing: Space.xs) {
@@ -178,6 +178,7 @@ struct WorkspaceRow: View {
             Spacer(minLength: Space.s)
             if let pr { PrBadge(item: pr) }
             Text(ago).font(Typography.digits).foregroundStyle(Palette.text4.color).padding(.top, 1)
+            if let roll = tree.rollUp { StatusGlyph(roll.status, size: 12).padding(.top, 3) }
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())
