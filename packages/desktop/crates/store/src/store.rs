@@ -340,6 +340,11 @@ pub struct Store {
     pub worktree: WorktreeDefaults,
     /// The worktrees projects list besides their main ones, by path.
     pub tracked: BTreeSet<String>,
+    /// The entries of `projects` that are Scratch folders. pocketd only starts sessions in `projects`, so they stay in it.
+    #[serde(deserialize_with = "lenient")]
+    pub scratch: BTreeSet<String>,
+    /// The sidebar's Sessions section is folded.
+    pub scratch_folded: bool,
     /// Each worktree's panels, keyed by the worktree's path.
     #[serde(deserialize_with = "readable_layouts")]
     pub layouts: BTreeMap<String, Workspace>,
@@ -422,6 +427,35 @@ impl Store {
         self.projects.retain(|p| p != path);
         self.collapsed.remove(path);
         self.sections.forget(path);
+    }
+
+    pub fn is_scratch(&self, path: &str) -> bool {
+        self.scratch.contains(path)
+    }
+
+    /// `projects` without the Scratch folders, for lists only real projects belong in.
+    pub fn without_scratch(&self, mut projects: Vec<String>) -> Vec<String> {
+        projects.retain(|p| !self.is_scratch(p));
+        projects
+    }
+
+    pub fn add_scratch(&mut self, path: &str) {
+        self.add(path);
+        self.scratch.insert(path.to_string());
+    }
+
+    /// The Scratch folders, newest first.
+    pub fn scratches(&self) -> Vec<String> {
+        self.projects.iter().rev().filter(|p| self.is_scratch(p)).cloned().collect()
+    }
+
+    /// Forgets a deleted Scratch folder and everything kept about it; unlike a project, it can't come back.
+    pub fn forget_scratch(&mut self, path: &str) {
+        self.remove(path);
+        self.scratch.remove(path);
+        self.repos.remove(path);
+        self.layouts.remove(path);
+        self.scopes.remove(path);
     }
 
     pub fn toggle(&mut self, path: &str) {
@@ -598,6 +632,27 @@ mod tests {
         let back = Store::load(&dir);
         assert_eq!(back, s);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn scratch_folders_stay_projects_and_list_newest_first() {
+        let mut s = Store::default();
+        s.add("/p");
+        s.add_scratch("/s/one");
+        s.add_scratch("/s/two");
+        assert_eq!(s.projects, ["/p", "/s/one", "/s/two"]);
+        assert_eq!(s.scratches(), ["/s/two", "/s/one"]);
+        assert!(s.is_scratch("/s/one") && !s.is_scratch("/p"));
+        assert_eq!(s.without_scratch(s.projects.clone()), ["/p"]);
+    }
+
+    #[test]
+    fn a_forgotten_scratch_folder_leaves_nothing_behind() {
+        let mut s = Store::default();
+        s.add_scratch("/s/one");
+        s.repos.insert("/s/one".into(), RepoConfig::default());
+        s.forget_scratch("/s/one");
+        assert!(s.projects.is_empty() && s.scratch.is_empty() && s.repos.is_empty());
     }
 
     #[test]

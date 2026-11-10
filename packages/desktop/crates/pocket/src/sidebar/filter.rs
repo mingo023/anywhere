@@ -117,7 +117,7 @@ impl Desktop {
         let sections = &self.store.sections;
         let groups = sections.groups.iter().filter(|g| g.folded).map(|g| Fold::Group(g.id));
         let projects = self.store.collapsed.iter().map(|p| Fold::Project(p.clone()));
-        for fold in groups.chain(sections.pins_folded.then_some(Fold::Pinned)).chain(projects) {
+        for fold in groups.chain(sections.pins_folded.then_some(Fold::Pinned)).chain(self.store.scratch_folded.then_some(Fold::Scratch)).chain(projects) {
             self.sidebar.closing.start(fold);
         }
     }

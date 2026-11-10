@@ -107,7 +107,7 @@ impl Desktop {
     pub(crate) fn edit_automation(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus();
         let existing = id.and_then(|id| self.agents.automations.items.iter().find(|a| a.id == id));
-        let folder = self.project.clone().or_else(|| self.projects().into_iter().next()).unwrap_or_default();
+        let folder = self.project.clone().filter(|p| !self.store.is_scratch(p)).or_else(|| self.store.without_scratch(self.projects()).into_iter().next()).unwrap_or_default();
         let f = &mut self.automations.form;
         f.v = existing.map_or_else(|| Values::from_defaults(folder, &self.store.automations), Values::of);
         f.open = true;
@@ -173,7 +173,7 @@ impl Desktop {
     }
 
     fn folder_choices(&self, current: &str) -> Vec<String> {
-        let mut folders = self.projects();
+        let mut folders = self.store.without_scratch(self.projects());
         if !current.is_empty() && !folders.iter().any(|f| f == current) {
             folders.push(current.to_string());
         }

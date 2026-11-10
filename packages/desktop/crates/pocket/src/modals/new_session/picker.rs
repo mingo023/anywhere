@@ -1,4 +1,4 @@
-use super::{Checkout, Source, checkout_choice, listed_branches, parse_pr};
+use super::{Checkout, NO_PROJECT, Source, checkout_choice, listed_branches, parse_pr};
 use crate::composer::launch::access_row;
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{Input, InputState};
@@ -175,10 +175,14 @@ impl Desktop {
         div().relative().child(button).children(menu)
     }
 
-    /// Projects a session can start in: those with a git checkout.
+    /// No project, then the projects a session can start in: those with a git checkout. A Scratch folder shows only while it's the one picked.
     fn form_project_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let repo = self.new_form.draft.repo.as_deref();
-        let rows: Vec<AnyElement> = self.projects().into_iter().filter(|p| self.listed_trees(p).is_some_and(|t| !t.is_empty())).enumerate().map(|(i, p)| {
+        let none = ui::menu_pick("project-none", icon("folder", 14., TEXT_3), NO_PROJECT, self.new_form.draft.no_project()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.new_form.draft.pick_no_project();
+            this.focus_prompt(window, cx);
+        }));
+        let rows = self.projects().into_iter().filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty())).enumerate().map(|(i, p)| {
             let (name, tile) = (self.repo_name(&p), self.repo_tile_for(&p, 14.));
             let chosen = repo == Some(p.as_str());
             ui::menu_pick(("project", i), tile, &name, chosen)
@@ -188,7 +192,8 @@ impl Desktop {
                     cx.notify();
                 }))
                 .into_any_element()
-        }).collect();
+        });
+        let rows: Vec<AnyElement> = std::iter::once(none.into_any_element()).chain(rows).collect();
         picker_menu("project-menu", 260., rows, cx).gap(px(2.))
     }
 
@@ -198,10 +203,11 @@ impl Desktop {
 
     pub(super) fn project_select(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
-        let name = f.repo.as_ref().map_or_else(|| "Select project".to_string(), |repo| self.repo_name(repo));
+        let name = f.repo.as_ref().map_or_else(|| NO_PROJECT.to_string(), |repo| self.repo_name(repo));
         let tile = f.repo.as_ref().map(|repo| self.repo_tile_for(repo, 16.));
         let chip = ui::menu_chip("form-project", f.picker == Some(Picker::Project))
             .children(tile)
+            .when(f.repo.is_none(), |d| d.child(icon("folder", 14., TEXT_3)))
             .child(div().font_weight(FontWeight::MEDIUM).child(name))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {

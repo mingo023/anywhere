@@ -7,6 +7,7 @@ pub(crate) mod project_picker;
 pub(crate) mod rail;
 mod rename;
 mod row_menu;
+mod scratch;
 pub(crate) mod sections;
 pub(crate) mod sessions;
 pub(crate) mod team_fold;
@@ -260,6 +261,7 @@ impl Desktop {
             .child(search)
             .children(self.agents.board_offered().then_some(board))
             .children(self.agents.automations_offered().then_some(automations))
+            .children(self.scratch_section(cx))
             .child(header)
             .child(body)
             .children(self.update_card(cx))

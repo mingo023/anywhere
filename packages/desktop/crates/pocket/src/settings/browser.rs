@@ -34,7 +34,7 @@ pub(super) const ROWS: &[Setting] = &[
 impl Desktop {
     /// Builds each project's dev server field afresh when Settings opens, since fields need the window.
     pub(crate) fn load_dev_urls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let fields = self.store.projects.iter().map(|p| {
+        let fields = self.store.projects.iter().filter(|p| !self.store.is_scratch(p)).map(|p| {
             let url = self.store.repos.get(p).map(|r| r.dev_url.clone()).unwrap_or_default();
             let field = cx.new(|cx| InputState::new(window, cx).placeholder("Not set").default_value(url));
             let path = p.clone();

@@ -5857,6 +5857,7 @@ name = "project"
 version = "0.0.0"
 dependencies = [
  "git",
+ "petname",
 ]
 
 [[package]]
