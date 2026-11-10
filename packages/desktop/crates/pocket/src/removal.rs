@@ -194,7 +194,7 @@ impl Desktop {
         let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b));
         let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
         let job = removal.clone();
-        let task = cx.background_executor().spawn(async move { (git::read(&hosts::runner_for(&job.tree), &job.tree, true).map_or(0, |r| r.files.len()), job.lost()) });
+        let task = cx.background_executor().spawn(async move { (git::dirty_files(&hosts::runner_for(&job.tree), &job.tree).unwrap_or(0), job.lost()) });
         cx.spawn(async move |this, cx| {
             let (dirty, lost) = task.await;
             this.update(cx, |d, cx| {
