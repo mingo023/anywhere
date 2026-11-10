@@ -119,3 +119,14 @@ func scrollingUpIsARowMovingDown() {
     #expect(RowFrame.scrolledUp(from: seen, to: up))
     #expect(!RowFrame.scrolledUp(from: nil, to: up))
 }
+
+@Test("layout scrolls to the end at most 120 times a second, and may again the next second")
+func layoutScrollsToTheEndAreCappedPerSecond() {
+    var limit = SnapLimit()
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    let burst = (0..<121).map { _ in limit.allows(at: start) }
+    #expect(burst.filter { $0 }.count == 120)
+    #expect(burst.last == false)
+    let nextSecond = limit.allows(at: start.addingTimeInterval(1))
+    #expect(nextSecond)
+}

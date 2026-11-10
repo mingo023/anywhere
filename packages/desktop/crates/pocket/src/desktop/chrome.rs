@@ -68,6 +68,7 @@ pub enum Confirm {
     RemoveProject(String),
     DeleteWorktree { removal: Removal, dirty: usize, lost: usize },
     DeleteLocal(String),
+    DeleteScratch { path: String, dirty: usize, lost: usize },
     TeardownFailed { removal: Removal, tail: String },
     Discard(Vec<String>),
     CloseSession(String),
@@ -85,6 +86,8 @@ pub enum Confirm {
     RemoveAccount { key: Key, name: String },
     SignOutAccount { key: Key, name: String },
     MergeTeam(String),
+    /// A model from another provider, picked in the chat `agent`.
+    SwitchAgent { agent: String, provider: String, model: String },
 }
 
 /// The sidebar row whose `⋯` menu is open.
@@ -94,6 +97,7 @@ pub enum RowMenu {
     Tree { project: String, tree: String },
     /// The project's own Local, by its main worktree's path, or one the user added, by its id.
     Local { project: String, local: String },
+    Scratch(String),
     Session(String),
     Group(u32),
 }

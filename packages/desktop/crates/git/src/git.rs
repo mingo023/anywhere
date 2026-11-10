@@ -295,6 +295,23 @@ pub fn lost_commits(run: &Runner, cwd: &str, branch: Option<&str>) -> usize {
     git(run, cwd, &args).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
 }
 
+/// Every commit a ref or HEAD reaches in `cwd`; `None` when git can't read it.
+pub fn commit_count(run: &Runner, cwd: &str) -> Option<usize> {
+    git(run, cwd, &["rev-list", "--count", "--all"]).and_then(|n| n.trim().parse().ok())
+}
+
+pub const INIT_BRANCH: &str = "main";
+
+/// Makes the folder `dir` a repository on `INIT_BRANCH` with an empty first commit, so it has a HEAD to diff against.
+/// The identity is given and hooks are skipped because the user's git config may have neither set up for this.
+pub fn init_empty(dir: &str) -> Result<(), String> {
+    let commit = ["-c", "user.name=Anywhere", "-c", "user.email=anywhere@localhost", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "--no-verify", "-m", "Start"];
+    for args in [&["init", "-q", "-b", INIT_BRANCH][..], &commit] {
+        git_result(&Runner::Local, dir, args)?;
+    }
+    Ok(())
+}
+
 /// How many files in `cwd` differ from HEAD, untracked ones included; `None` when git can't read it.
 pub fn dirty_files(run: &Runner, cwd: &str) -> Option<usize> {
     if checking_out(run, cwd) {

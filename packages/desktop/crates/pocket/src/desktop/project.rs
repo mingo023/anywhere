@@ -183,7 +183,7 @@ impl Desktop {
             Some((*p, f, changed))
         }).collect();
         let root = self.cwd();
-        let known: BTreeSet<String> = self.store.tracked.iter().cloned().chain(self.worktrees.values().flatten().filter(|w| !w.main).map(|w| w.path.clone())).collect();
+        let known: BTreeSet<String> = self.store.tracked.iter().chain(&self.store.scratch).cloned().chain(self.worktrees.values().flatten().filter(|w| !w.main).map(|w| w.path.clone())).collect();
         let (untracked, options) = (self.store.git.untracked, self.diff.options);
         let diffs: Vec<_> = self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
@@ -219,7 +219,11 @@ impl Desktop {
                 let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 // Before `worktrees` is replaced, while it still places their terminals.
                 for t in &gone {
-                    d.forget_tree(t, cx);
+                    if d.store.is_scratch(t) {
+                        d.delete_scratch(t, cx);
+                    } else {
+                        d.forget_tree(t, cx);
+                    }
                 }
                 let worktrees = project::refreshed(worktrees, &d.worktrees, &unread);
                 d.renames.relisted(d.worktrees.values().flatten(), worktrees.values().flatten(), Instant::now());
@@ -272,7 +276,7 @@ impl Desktop {
     }
 
     pub fn repo_name(&self, path: &str) -> String {
-        self.store.repo_name(path)
+        if self.store.is_scratch(path) { self.place_name(path) } else { self.store.repo_name(path) }
     }
 
     pub fn repo_color(&self, path: &str) -> u32 {

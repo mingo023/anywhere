@@ -20,6 +20,10 @@ _Avoid_: workspace, branch
 A named place over a project's own checkout, listed under the project with its worktrees. Its Locals share files, index and branch; each has its own terminals, tabs and sessions. Every project has one over its main worktree, which can't be deleted and is listed only while it has a terminal or tab open; deleting another closes its terminals and leaves the files alone.
 _Avoid_: workspace, branch workspace
 
+**Scratch**:
+A place with no project: a folder Anywhere makes under `~/.anywhere/sessions`, an empty git repository of its own, with its own terminals, tabs and session list. The sidebar lists them above Projects, under Sessions. pocketd knows each as a Project; only the sidebar and the new session page tell them apart. One is made when a session is sent with No project picked, which is what the Sessions `+` starts on. Deleting one closes its terminals and removes its folder.
+_Avoid_: project-less workspace
+
 **Group**:
 A named, coloured box of projects on the sidebar that the user makes, folds and drags projects into. Deleting it leaves its projects in Other, the projects in no group.
 _Avoid_: folder, section

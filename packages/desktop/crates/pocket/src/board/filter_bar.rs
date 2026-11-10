@@ -106,7 +106,8 @@ impl Desktop {
                 })
                 .collect(),
             FilterCat::Project => self
-                .projects()
+                .store
+                .without_scratch(self.projects())
                 .into_iter()
                 .enumerate()
                 .map(|(i, p)| {

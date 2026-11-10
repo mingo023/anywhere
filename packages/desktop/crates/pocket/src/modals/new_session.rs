@@ -37,6 +37,8 @@ pub struct NewForm {
     field: Field,
 }
 
+pub(crate) const NO_PROJECT: &str = "No project";
+
 /// Where a new worktree's branch comes from.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub(crate) enum Source {
@@ -71,6 +73,10 @@ struct Draft {
     /// The Local an earlier send made, so a retry after a failed create starts there instead of making another.
     local: Option<String>,
     repo: Option<String>,
+    /// The session starts in a Scratch folder: `repo`, or with none, a new one made when it's sent.
+    scratch: bool,
+    /// The new Scratch folder is being made, so a second send would make another.
+    making_scratch: bool,
     branches: Vec<(String, Option<i64>)>,
     /// Branches on origin with no local twin.
     remote_branches: Vec<String>,
@@ -91,6 +97,8 @@ impl Default for Draft {
             locals_offered: true,
             local: None,
             repo: None,
+            scratch: false,
+            making_scratch: false,
             branches: Vec::new(),
             remote_branches: Vec::new(),
             source: Source::New,
@@ -177,7 +185,19 @@ impl Draft {
         }
     }
 
+    fn no_project(&self) -> bool {
+        self.scratch && self.repo.is_none()
+    }
+
+    fn pick_no_project(&mut self) {
+        self.pick_repo(None, true);
+        self.picker = None;
+    }
+
     fn ready(&self, name: &str) -> bool {
+        if self.scratch {
+            return !self.making_scratch && !self.reply.waiting();
+        }
         let place = match (self.in_worktree(), &self.source) {
             (false, _) => self.repo.is_some(),
             (true, Source::New) => self.repo.is_some() && !self.branches.is_empty() && name_problem(name, &self.taken).is_none(),
@@ -235,12 +255,13 @@ impl Draft {
     }
 
     /// Another project's base, branch and Local don't carry over.
-    fn pick_repo(&mut self, repo: String) {
-        if self.repo.as_ref() != Some(&repo) {
+    fn pick_repo(&mut self, repo: Option<String>, scratch: bool) {
+        self.scratch = scratch;
+        if self.repo != repo {
             (self.source, self.want_base, self.local) = (Source::New, None, None);
             self.taken.clear();
         }
-        self.repo = Some(repo);
+        self.repo = repo;
         self.branches.clear();
         self.remote_branches.clear();
         self.base = 0;
@@ -440,19 +461,19 @@ impl Desktop {
         }
         f.draft.reopen(keep, worktree, self.agents.locals_offered());
         f.composer.draft.menu = None;
+        if keep_project && f.draft.no_project() {
+            return;
+        }
         let repo = if keep_project { f.draft.repo.clone() } else { None };
         match repo.or_else(|| self.project.clone()) {
             Some(repo) => self.pick_repo(repo, window, cx),
-            None => {
-                f.draft.repo = None;
-                f.draft.branches.clear();
-            }
+            None => f.draft.pick_no_project(),
         }
     }
 
     pub(super) fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
         let folders = self.store.worktrees_dir(&repo, &self.host_agents.home_of(&repo));
-        self.new_form.draft.pick_repo(repo.clone());
+        self.new_form.draft.pick_repo(Some(repo.clone()), self.store.is_scratch(&repo));
         let dir = repo.clone();
         let (runner, fs) = (hosts::runner_for(&dir), fs_for(&dir));
         let task = cx.background_executor().spawn(async move {
@@ -507,6 +528,9 @@ impl Desktop {
             self.error = Some(link::UPDATING.into());
             return cx.notify();
         }
+        if self.new_form.draft.scratch {
+            return self.start_in_scratch(cx);
+        }
         let name = self.new_form.draft.name();
         let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
         let Some(project) = self.new_form.draft.repo.clone() else { return };
@@ -526,10 +550,7 @@ impl Desktop {
         if f.auto_names(&prompt, self.agents.names_offered()) {
             spec["checkout"]["new"]["autoName"] = true.into();
         }
-        let (plan, efforts) = (self.agents.provider_info(&pick.provider).plan, self.launch_efforts(&pick.provider, &pick.model));
-        self.store.agents.launch(&mut spec, plan, &efforts);
-        composer::ask_team(&mut spec, self.new_form.composer.draft.team, self.agents.teams_offered());
-        self.store.repos.entry(project.clone()).or_default().launch = pick;
+        self.fill_launch(&mut spec, pick, &project);
         if worktree {
             self.store.collapsed.remove(&project);
         }
@@ -545,6 +566,57 @@ impl Desktop {
         self.clear_new_form(window, cx);
         self.leave_new_session(window, cx);
         self.select_tree(project, Some(path), cx);
+    }
+
+    /// Starts the session in the Scratch folder picked, or in a new one when no project is.
+    fn start_in_scratch(&mut self, cx: &mut Context<Self>) {
+        let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
+        let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt(&prompt));
+        if let Some(folder) = self.new_form.draft.repo.clone() {
+            return self.send_in_scratch(folder, pick, sent, cx);
+        }
+        self.new_form.draft.making_scratch = true;
+        let task = self.make_scratch(cx);
+        cx.spawn(async move |this, cx| {
+            let made = task.await;
+            this.update(cx, |d, cx| {
+                d.new_form.draft.making_scratch = false;
+                match made {
+                    Ok(folder) => {
+                        d.adopt_scratch(&folder);
+                        // A send pocketd refuses is retried here, not in yet another new folder.
+                        d.new_form.draft.pick_repo(Some(folder.clone()), true);
+                        d.send_in_scratch(folder, pick, sent, cx);
+                    }
+                    Err(e) => {
+                        d.new_form.draft.reply.error = Some(("Couldn't make a folder for the session".to_string(), e));
+                        cx.notify();
+                    }
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Gives `spec` what the settings and the Team chip add to it, and remembers `pick` as `project`'s.
+    fn fill_launch(&mut self, spec: &mut serde_json::Value, pick: LaunchPick, project: &str) {
+        let (plan, efforts) = (self.agents.provider_info(&pick.provider).plan, self.launch_efforts(&pick.provider, &pick.model));
+        self.store.agents.launch(spec, plan, &efforts);
+        composer::ask_team(spec, self.new_form.composer.draft.team, self.agents.teams_offered());
+        self.store.repos.entry(project.to_string()).or_default().launch = pick;
+    }
+
+    fn send_in_scratch(&mut self, folder: String, pick: LaunchPick, sent: String, cx: &mut Context<Self>) {
+        let mut spec = pick.spec(&folder, json!({"worktree": folder}), sent.trim());
+        self.fill_launch(&mut spec, pick, &folder);
+        self.store.save();
+        self.select_tree(folder, None, cx);
+        let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
+        self.creates.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default());
+        self.new_form.draft.reply.sent(request);
+        cx.notify();
     }
 
     /// pocketd's replies to a create. The Terminal opens once pocketd lists it (`Terminals::arrived`).
@@ -630,6 +702,12 @@ impl Desktop {
         self.refocus(window, cx);
     }
 
+    /// The page the Sessions + opens: a session with no project, unless one is picked on it.
+    pub(crate) fn new_session_without_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_session(None, false, window, cx);
+        self.new_form.draft.pick_no_project();
+    }
+
     /// The page a project's + opens: a session in a new Worktree or Local of `project`.
     pub(crate) fn new_place(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
         self.select_tree(project.clone(), None, cx);
@@ -651,15 +729,16 @@ impl Desktop {
     pub fn new_session_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
-        let name = self.repo_name(&repo);
+        let name = if f.no_project() { NO_PROJECT.to_string() } else { self.repo_name(&repo) };
         let project = self.project_select(cx);
-        let checkout = self.checkout_select(cx);
+        let scratch = f.scratch;
+        let checkout = (!scratch).then(|| self.checkout_select(cx));
         let pr = f.linked_pr();
         let branch = match pr {
             Some(n) => Some(div().h(px(30.)).px(px(6.)).flex().flex_none().items_center().gap(px(7.)).text_color(TEXT_3).child(icon("pull-request", 14., TEXT_3)).child(format!("based off PR #{n}"))),
-            None => (f.target() == Target::Worktree).then(|| self.branch_select(cx)),
+            None => (!scratch && f.target() == Target::Worktree).then(|| self.branch_select(cx)),
         };
-        let link = (pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
+        let link = (!scratch && pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
         let prompt = &self.new_form.composer.prompt;
         let empty = prompt.read(cx).value().trim().is_empty() && self.new_form.composer.draft.images.is_empty();
         let typing = !empty || prompt.read(cx).focus_handle(cx).is_focused(window);
@@ -696,8 +775,8 @@ impl Desktop {
             .gap(px(2.))
             .text_size(px(13.))
             .child(project)
-            .child(div().text_color(TEXT_4).child("·"))
-            .child(checkout)
+            .when(!scratch, |d| d.child(div().text_color(TEXT_4).child("·")))
+            .children(checkout)
             .children(branch)
             .when(!self.idle_main(), |d| d.child(div().ml_auto().text_size(px(12.)).text_color(TEXT_4).whitespace_nowrap().child("esc to cancel")));
         let content = div()
@@ -768,10 +847,29 @@ mod tests {
     #[test]
     fn another_project_forgets_the_last_ones_branch_base_and_local() {
         let mut draft = Draft { want_base: Some("dev".into()), ..kept() };
-        draft.pick_repo("/p".into());
+        draft.pick_repo(Some("/p".into()), false);
         assert_eq!((draft.source.clone(), draft.want_base.as_deref()), (Source::Branch("fix".into()), Some("dev")));
-        draft.pick_repo("/q".into());
+        draft.pick_repo(Some("/q".into()), false);
         assert_eq!((draft.source, draft.want_base, draft.local), (Source::New, None, None));
+    }
+
+    #[test]
+    fn no_project_can_start_without_a_branch_and_picking_one_leaves_it() {
+        let mut draft = kept();
+        draft.pick_no_project();
+        assert!(draft.no_project());
+        assert_eq!((draft.repo.as_deref(), draft.source.clone(), draft.local.as_deref()), (None, Source::New, None));
+        assert!(draft.ready(""));
+        draft.pick_repo(Some("/p".into()), false);
+        assert!(!draft.no_project());
+    }
+
+    #[test]
+    fn a_scratch_folder_starts_at_once_but_not_while_a_send_is_out_or_its_folder_is_being_made() {
+        let scratch = Draft { repo: Some("/s".into()), scratch: true, ..Draft::default() };
+        assert!(scratch.ready("") && !scratch.no_project());
+        assert!(!Draft { reply: sent("r1"), repo: Some("/s".into()), scratch: true, ..Draft::default() }.ready(""));
+        assert!(!Draft { making_scratch: true, scratch: true, ..Draft::default() }.ready(""));
     }
 
     #[test]

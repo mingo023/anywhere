@@ -25,6 +25,11 @@ pub(crate) struct GroupRename {
     _sub: Subscription,
 }
 
+/// A section header's row, as tall as the filter's field so opening that doesn't push the list down.
+pub(super) fn section_head() -> Div {
+    div().pt(px(10.)).pb(px(4.)).pr(px(10.)).h(px(10. + FIELD_H + 4.)).flex().flex_none().items_center().gap(px(2.))
+}
+
 /// Where a project row sits, and so what dropping a project on it does.
 #[derive(Clone, Copy)]
 pub(crate) enum Section {
@@ -81,7 +86,7 @@ impl TreeRow {
     }
 }
 
-fn matches(text: &str, query: &str) -> bool {
+pub(super) fn matches(text: &str, query: &str) -> bool {
     text.to_lowercase().contains(query)
 }
 
@@ -143,7 +148,7 @@ impl Desktop {
 
     /// The projects in their sections, sorted, with what `query` leaves of them.
     pub(super) fn listed(&self, query: &str) -> Listed {
-        let mut projects = self.projects();
+        let mut projects = self.store.without_scratch(self.projects());
         let sections = &self.store.sections;
         sort_projects(&mut projects, sections.sort, |p| self.repo_name(p), |p| self.cards(p).iter().map(|c| c.at).max().unwrap_or(0));
         let arranged = sections.arrange(&projects, |p| self.store.projects.iter().any(|k| k == p));
@@ -179,8 +184,7 @@ impl Desktop {
 
     /// The Projects header: its name and search button, or the filter's field while it's open, then its menus.
     pub(super) fn projects_header(&self, cx: &mut Context<Self>) -> Div {
-        // As tall as the filter's field, so opening it doesn't push the list down.
-        let header = div().pt(px(10.)).pb(px(4.)).pr(px(10.)).h(px(10. + FIELD_H + 4.)).flex().flex_none().items_center().gap(px(2.));
+        let header = section_head();
         let header = if self.sidebar.filter.open {
             header.child(self.filter_field(cx))
         } else {

@@ -82,7 +82,7 @@ impl Desktop {
         });
         // The divider starts under the header so it doesn't cut through the traffic lights, which overhang the rail.
         let divider = div().absolute().top(px(HEADER)).bottom_0().right_0().w(px(0.5)).bg(SEPARATOR);
-        drag_area(div().bg(NAV))
+        drag_area(div().bg(nav_fill()))
             .relative()
             .w(px(RAIL))
             .flex_none()

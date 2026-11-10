@@ -204,8 +204,8 @@ pub const CANVAS: Token = Token::new(0xffffffff, 0x00000000);
 /// A recessed block inside a page: tables, code blocks.
 pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
 pub const SIDE: Token = Token::new(0xfafafbb3, 0x00000000);
-/// The left sidebar, and the rail it folds to; opaque in dark so it reads darker than the glass beside it.
-pub const NAV: Token = Token::new(0xfafafbb3, 0x0e0e0eff);
+/// The left sidebar, and the rail it folds to; read it through `nav_fill`.
+const NAV: Token = Token::new(0xfafafbb3, 0x0e0e0eff);
 /// Opaque, for floating surfaces with no blur behind them.
 pub const POPOVER: Token = Token::new(0xffffffff, 0x232323ff);
 /// Dark menus and popovers where the renderer blurs: a faint tint over the blur.
@@ -609,7 +609,7 @@ macro_rules! embed {
 const ICONS: &[(&str, &[u8])] = embed!(
     "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "diff-multiple", "diff-split",
     "discard", "explorer", "external", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "github", "globe", "grip", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "priority-high", "priority-low", "priority-medium", "priority-none", "priority-urgent", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stacked-tickets", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "team", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stacked-tickets", "star", "star-fill", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "team", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
 
 const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));
@@ -676,6 +676,15 @@ pub fn window_fill() -> Hsla {
     if is_dark() { rgba((WINDOW.pick(true) & !0xff) | GLASS_ALPHA.load(Ordering::Relaxed)).into() } else { WINDOW.into() }
 }
 
+/// `NAV`, or clear while dark glass shows through so the sidebar matches the chat.
+pub fn nav_fill() -> Hsla {
+    rgba(nav_rgba(is_dark(), GLASS_ALPHA.load(Ordering::Relaxed))).into()
+}
+
+fn nav_rgba(dark: bool, glass: u32) -> u32 {
+    if dark && glass < 0xff { 0 } else { NAV.pick(dark) }
+}
+
 /// Glass in dark; pale desktops make translucent light chrome illegible.
 /// Reads the last `set_appearance`, so a window opened before `init` stays opaque.
 pub fn window_background() -> WindowBackgroundAppearance {
@@ -687,7 +696,7 @@ mod tests {
     use super::contrast::{over, ratio};
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
-        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
+        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, NAV, glass_alpha, highlight_theme_with, material, material_icon, nav_rgba,
         ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_lead, gradient_opacity,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
@@ -872,6 +881,17 @@ mod tests {
         assert_eq!(WINDOW.pick(false) & 0xff, 0xff);
         assert_eq!(WINDOW.pick(true), 0x121212d9);
         assert_eq!(WINDOW_SOLID.pick(true), 0x121212ff);
+    }
+
+    #[test]
+    fn dark_sidebar_is_clear_below_full_opacity_and_solid_at_it() {
+        assert_eq!([nav_rgba(true, glass_alpha(99)), nav_rgba(true, glass_alpha(40))], [0, 0]);
+        assert_eq!(nav_rgba(true, glass_alpha(100)), NAV.pick(true));
+    }
+
+    #[test]
+    fn light_sidebar_ignores_the_dark_windows_opacity() {
+        assert_eq!(nav_rgba(false, glass_alpha(40)), NAV.pick(false));
     }
 
     #[test]

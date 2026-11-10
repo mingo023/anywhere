@@ -102,7 +102,8 @@ impl Desktop {
                 })
                 .collect(),
             Field::Project => self
-                .projects()
+                .store
+                .without_scratch(self.projects())
                 .into_iter()
                 .enumerate()
                 .map(|(i, folder)| {

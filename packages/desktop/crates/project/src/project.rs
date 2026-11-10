@@ -1,4 +1,5 @@
 pub mod open_in;
+pub mod scratch;
 
 use git::Worktree;
 use std::collections::{HashMap, HashSet};

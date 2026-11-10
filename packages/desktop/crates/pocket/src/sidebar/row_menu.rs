@@ -307,6 +307,30 @@ impl Desktop {
                 }
                 rows
             }
+            RowMenu::Scratch(path) => {
+                let mut rows = vec![];
+                if self.agents.names_offered() {
+                    let rename = path.clone();
+                    rows.push(
+                        ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.row_menu = None;
+                                this.start_rename(rename.clone(), window, cx);
+                            }))
+                            .into_any_element(),
+                    );
+                    rows.push(ui::menu_divider().into_any_element());
+                }
+                rows.push(
+                    ui::danger_row("aside-menu-delete", "trash", "Delete session…")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.row_menu = None;
+                            this.ask_delete_scratch(path.clone(), cx);
+                        }))
+                        .into_any_element(),
+                );
+                rows
+            }
             RowMenu::Session(id) => {
                 let Some(s) = self.agents.get(&id) else { return vec![] };
                 let mut rows = vec![];

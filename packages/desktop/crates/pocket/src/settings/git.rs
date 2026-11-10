@@ -135,7 +135,7 @@ impl Desktop {
             .text_size(px(12.))
             .text_color(TEXT_3)
             .child("Each project's pull requests and new terminals use its account. Anywhere picks the one with the most access to the repo.");
-        let rows: Vec<Div> = self.store.projects.clone().into_iter().enumerate().map(|(i, p)| self.gh_account_row(i, p, cx)).collect();
+        let rows: Vec<Div> = self.store.without_scratch(self.store.projects.clone()).into_iter().enumerate().map(|(i, p)| self.gh_account_row(i, p, cx)).collect();
         div().flex().flex_col().child(caption).children(rows)
     }
 

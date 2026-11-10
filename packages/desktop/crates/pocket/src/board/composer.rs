@@ -31,11 +31,11 @@ impl Composer {
 impl Desktop {
     /// Points the composer at the filtered project, or another when its own was removed.
     pub(super) fn aim_board_composer(&mut self, cx: &mut Context<Self>) {
-        let projects = self.projects();
+        let projects = self.store.without_scratch(self.projects());
         if !needs_aim(&self.board.composer.picks.values.folder, self.board.filters.project.only().map(String::as_str), &projects) {
             return;
         }
-        let folder = default_folder(self.board.filters.project.only().map(String::as_str), self.project.as_deref(), projects.first().map(String::as_str));
+        let folder = default_folder(self.board.filters.project.only().map(String::as_str), self.project.as_deref().filter(|p| !self.store.is_scratch(p)), projects.first().map(String::as_str));
         if folder == self.board.composer.picks.values.folder {
             return;
         }
@@ -45,7 +45,7 @@ impl Desktop {
 
     /// After a refresh a project picked by hand stays, even off the filter; only one that's gone is replaced.
     pub(crate) fn rescue_board_composer(&mut self, cx: &mut Context<Self>) {
-        if !self.projects().contains(&self.board.composer.picks.values.folder) {
+        if !self.store.without_scratch(self.projects()).contains(&self.board.composer.picks.values.folder) {
             self.aim_board_composer(cx);
         }
     }
