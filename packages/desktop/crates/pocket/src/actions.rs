@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenAutomations, OpenBoard, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]

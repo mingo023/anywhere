@@ -56,8 +56,8 @@ func Step(r proto.Run, seen Seen, present, worked bool) (proto.Run, bool) {
 	return next, next != r
 }
 
-// plain is text on one line, cut to n runes with an ellipsis.
-func plain(text string, n int) string {
+// Plain is text on one line, cut to n runes with an ellipsis.
+func Plain(text string, n int) string {
 	line := strings.Join(strings.Fields(text), " ")
 	if r := []rune(line); len(r) > n {
 		return string(r[:n-1]) + "…"

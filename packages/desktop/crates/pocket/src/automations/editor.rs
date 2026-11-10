@@ -1,7 +1,8 @@
 use super::Menu;
 use super::form::{TEMPLATES, Values};
 use super::logic::{DEFAULT_EVERY, DEFAULT_TIME, Tab};
-use super::parts::{crumbs, pill, section};
+use super::parts::{crumbs, section};
+use crate::desktop::chrome::pill;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame};
 use crate::composer::Composer;
 use crate::composer::launch::access_row;

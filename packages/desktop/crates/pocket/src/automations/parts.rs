@@ -1,10 +1,8 @@
 use super::Menu;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::drag_area;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
-use ui::{self, Variant};
 
 pub fn card() -> Div {
     div().rounded(px(12.)).bg(SURFACE).shadow(ui::row_shadow())
@@ -13,11 +11,6 @@ pub fn card() -> Div {
 /// A small heading over `body`.
 pub fn section(label: &str, body: impl IntoElement) -> Div {
     div().flex().flex_col().gap(px(8.)).child(div().pl(px(4.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label.to_string())).child(body)
-}
-
-/// Pill buttons of the detail bars: `Primary` is the inverse one.
-pub fn pill(id: impl Into<ElementId>, v: Variant, icon_name: Option<&str>, label: &str) -> Stateful<Div> {
-    ui::button(id, v, icon_name, label.to_string()).h(px(28.)).px(px(12.)).rounded(px(14.)).font_weight(FontWeight::MEDIUM)
 }
 
 /// Equal-width choices in a tray; `roomy` is the larger one the trigger card uses.
@@ -71,38 +64,12 @@ pub fn details(rows: Vec<(&str, AnyElement)>) -> Div {
 }
 
 impl Desktop {
-    /// A floating menu of `width` that a click outside closes.
-    pub(super) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.close_menus();
-            cx.notify();
-        }))
-    }
-
     /// `button` as the toggle of `menu`; the press is caught so the menu's own outside-click doesn't close it first.
     pub(super) fn menu_toggle(&self, button: Stateful<Div>, menu: Menu, cx: &mut Context<Self>) -> Stateful<Div> {
         button.capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             cx.stop_propagation();
             this.toggle_menu(menu, cx);
         }))
-    }
-
-    pub(super) fn detail_bar(&self, crumb: Div, right: impl IntoElement, cx: &mut Context<Self>) -> Div {
-        let (pad, toggle) = self.bar_start(14., cx);
-        drag_area(div())
-            .h(px(42.))
-            .flex_none()
-            .pl(px(pad))
-            .pr(px(12.))
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .border_b(px(0.5))
-            .border_color(SEPARATOR)
-            .text_size(px(13.))
-            .children(toggle)
-            .child(crumb)
-            .child(div().flex().flex_none().items_center().gap(px(8.)).child(right))
     }
 
     /// The scrolling column every detail page is: centred, 760 wide, `gap` between blocks.

@@ -29,6 +29,7 @@ pub enum Pick {
     UpNext,
     Browser,
     Automations,
+    Board,
     PairPhone,
     HostFolder,
     Sound(Cue),
@@ -264,6 +265,7 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
         Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
         Entry { pick: Pick::Automations, lead: Lead::Icon("bolt"), title: "Go to Automations".into(), detail: String::new(), keys: Some("⌘ ⇧ A") },
+        Entry { pick: Pick::Board, lead: Lead::Icon("blocks"), title: "Go to Board".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new(), keys: None },
     ]
@@ -273,6 +275,7 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         Pick::New | Pick::Split => crate::modals::new_session::may_start(agents),
         Pick::PairPhone => may_open(Overlay::PairPhone, agents),
         Pick::Automations => agents.automations_offered(),
+        Pick::Board => agents.board_offered(),
         _ => true,
     })
     .filter(|e| matches(words, &[&e.title]))
@@ -379,6 +382,7 @@ impl Desktop {
             Pick::UpNext => self.go_to_up_next(&crate::actions::GoToUpNext, window, cx),
             Pick::Browser => self.open_browser(None, window, cx),
             Pick::Automations => self.open_automations(&crate::actions::OpenAutomations, window, cx),
+            Pick::Board => self.open_board(&crate::actions::OpenBoard, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
             Pick::HostFolder => self.open_host_folder(window, cx),
             Pick::Sound(cue) => {

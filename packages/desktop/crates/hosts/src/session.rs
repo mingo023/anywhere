@@ -156,7 +156,9 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::Providers { .. }
         | Event::Locals(_)
         | Event::Automations { .. }
-        | Event::AutomationError(_) => return false,
+        | Event::AutomationError(_)
+        | Event::Board { .. }
+        | Event::BoardError(_) => return false,
     }
     true
 }

@@ -102,7 +102,7 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 			r.Worktree = res.Cwd
 		}
 		if res.Err != nil {
-			r.Status, r.Why, r.FinishedAt = "failed", plain(res.Err.Message, maxWhy), s.Now().UnixMilli()
+			r.Status, r.Why, r.FinishedAt = "failed", Plain(res.Err.Message, maxWhy), s.Now().UnixMilli()
 			return
 		}
 		r.Status, r.AgentID, r.TerminalID = "running", res.AgentID, res.TerminalID

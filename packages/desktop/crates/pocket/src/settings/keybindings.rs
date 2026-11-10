@@ -61,6 +61,7 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "OpenPalette" => ("Command palette", Navigation),
         "GoToFile" => ("Go to file", Navigation),
         "OpenAutomations" => ("Go to Automations", Navigation),
+        "OpenBoard" => ("Go to Board", Navigation),
         "ToggleSidebar" => ("Toggle sidebar", Navigation),
         "ToggleRail" => ("Toggle rail", Navigation),
         "ToggleFocus" => ("Focus mode", Navigation),

@@ -18,14 +18,14 @@ func AgentWatcher(reg *agent.Registry) Watcher {
 		if sum.Status == "done" || sum.Status == "idle" {
 			items, _ := a.Timeline.Page(0, 500)
 			seen.Summary = lastAssistantText(items)
-			seen.Answered = answered(items)
+			seen.Answered = Answered(items)
 		}
 		return seen, true
 	}
 }
 
-// answered is whether an assistant item follows the last user item.
-func answered(items []proto.Item) bool {
+// Answered is whether an assistant item follows the last user item.
+func Answered(items []proto.Item) bool {
 	for i := len(items) - 1; i >= 0; i-- {
 		switch items[i].Kind {
 		case "assistant":
@@ -40,7 +40,7 @@ func answered(items []proto.Item) bool {
 func lastAssistantText(items []proto.Item) string {
 	for i := len(items) - 1; i >= 0; i-- {
 		if items[i].Kind == "assistant" {
-			return plain(items[i].Text, maxSummary)
+			return Plain(items[i].Text, maxSummary)
 		}
 	}
 	return ""

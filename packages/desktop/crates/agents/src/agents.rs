@@ -1,4 +1,5 @@
 pub mod automations;
+pub mod tickets;
 pub mod locals;
 pub mod providers;
 pub mod team;
@@ -6,6 +7,7 @@ pub mod team;
 pub use team::{TaskPick, Team, TeamAction, TeamTask};
 
 use automations::{Automation, AutomationDraft, Automations, Run};
+use tickets::{Board, Ticket, TicketDraft};
 use locals::Local;
 use providers::ProviderInfo;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
@@ -370,6 +372,9 @@ struct Frame {
     #[serde(deserialize_with = "automations::known")]
     automations: Vec<Automation>,
     runs: Vec<Run>,
+    #[serde(deserialize_with = "automations::readable_items")]
+    tickets: Vec<Ticket>,
+    limit: Option<usize>,
     team: Option<Team>,
     teams: Vec<Team>,
 }
@@ -424,6 +429,10 @@ pub enum Event {
     Automations { automations: Vec<Automation>, runs: Vec<Run> },
     /// pocketd refused an automation message.
     AutomationError(String),
+    /// Every ticket and the limit, sent whole.
+    Board { tickets: Vec<Ticket>, limit: usize },
+    /// pocketd refused a board message.
+    BoardError(String),
     /// pocketd refused the prompt sent under `request`, or the socket never took it; it isn't sent again, so it can't be typed twice.
     PromptFailed { agent: String, request: String },
     /// pocketd refused to stop the agent's turn, or the socket never took the stop; `reason` says why.
@@ -468,6 +477,7 @@ pub struct Agents {
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
     pub automations: Automations,
+    pub board: Board,
     /// Each team by its lead's id, from `team.list` and `team.update`.
     pub teams: HashMap<String, Team>,
 }
@@ -563,12 +573,13 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
+            Event::Board { tickets, limit } => self.board = Board { tickets, limit },
             Event::Team(t) => team::keep(&mut self.teams, t),
             Event::Teams(list) => {
                 self.teams.retain(|lead, _| !mine(lead) || list.iter().any(|t| &t.lead == lead));
                 list.into_iter().for_each(|t| team::keep(&mut self.teams, t));
             }
-            Event::AutomationError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } => {}
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } => {}
         }
     }
 
@@ -652,6 +663,11 @@ impl Agents {
 
     pub fn remove_local(&mut self, id: &str) {
         self.locals.retain(|l| l.id != id);
+    }
+
+    /// pocketd keeps the Board and takes its messages.
+    pub fn board_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == BOARD_CAP)
     }
 
     /// pocketd runs automations and takes their messages.
@@ -827,6 +843,7 @@ const PAIR: &str = "pair";
 const CREATE: &str = "create-";
 const SETTINGS: &str = "settings";
 const AUTO: &str = "auto-";
+const BOARD: &str = "board-";
 const PROMPT: &str = "prompt-";
 const COMMANDS: &str = "commands-";
 const BTW: &str = "btw-";
@@ -842,6 +859,10 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 
 fn auto_id() -> String {
     format!("{AUTO}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn board_id() -> String {
+    format!("{BOARD}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 fn team_id() -> String {
@@ -887,6 +908,7 @@ const PAIR_CAP: &str = "pair.v1";
 const OPEN_CAP: &str = "open.v1";
 const NAMES_CAP: &str = "names.v1";
 const AUTOMATIONS_CAP: &str = "automations.v1";
+const BOARD_CAP: &str = "board.v1";
 const LOCALS_CAP: &str = "locals.v1";
 const FORK_CAP: &str = "fork.v1";
 const ACCOUNTS_CAP: &str = "accounts.v1";
@@ -898,6 +920,14 @@ fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
         "automations" => Some(Event::Automations { automations: f.automations.clone(), runs: f.runs.clone() }),
         "error" if f.id.starts_with(AUTO) => Some(Event::AutomationError(readable(&f.message))),
+        _ => None,
+    }
+}
+
+fn board_event(f: &Frame) -> Option<Event> {
+    match f.kind.as_str() {
+        "board" => Some(Event::Board { tickets: f.tickets.clone(), limit: f.limit.unwrap_or(tickets::DEFAULT_LIMIT) }),
+        "error" if f.id.starts_with(BOARD) => Some(Event::BoardError(readable(&f.message))),
         _ => None,
     }
 }
@@ -1082,6 +1112,36 @@ impl Outbox {
         self.send(json!({"type": "local.delete", "id": "local", "localId": id}));
     }
 
+    /// Adds the ticket to To do, or edits the one with the draft's `id`; `start` also queues it.
+    pub fn board_save(&self, draft: TicketDraft, start: bool) {
+        self.send(json!({"type": "board.save", "id": board_id(), "ticket": draft, "start": start}));
+    }
+
+    pub fn board_delete(&self, ticket_id: &str) {
+        self.send(json!({"type": "board.delete", "id": board_id(), "ticketId": ticket_id}));
+    }
+
+    pub fn board_start(&self, ticket_id: &str) {
+        self.send(json!({"type": "board.start", "id": board_id(), "ticketId": ticket_id}));
+    }
+
+    pub fn board_close(&self, ticket_id: &str) {
+        self.send(json!({"type": "board.close", "id": board_id(), "ticketId": ticket_id}));
+    }
+
+    pub fn board_reopen(&self, ticket_id: &str) {
+        self.send(json!({"type": "board.reopen", "id": board_id(), "ticketId": ticket_id}));
+    }
+
+    /// Puts the unstarted ticket in `column` before the ticket `before`, or last.
+    pub fn board_move(&self, ticket_id: &str, column: tickets::State, before: Option<&str>) {
+        self.send(json!({"type": "board.move", "id": board_id(), "ticketId": ticket_id, "column": column, "before": before.unwrap_or_default()}));
+    }
+
+    pub fn board_limit(&self, limit: usize) {
+        self.send(json!({"type": "board.limit", "id": board_id(), "limit": limit}));
+    }
+
     /// Creates the automation, or replaces the one with the draft's `id`.
     pub fn automation_save(&self, draft: AutomationDraft) {
         self.send(json!({"type": "automation.save", "id": auto_id(), "automation": draft}));
@@ -1148,7 +1208,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 16] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", TEAM_CAP];
+const CAPS: [&str; 17] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", TEAM_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1193,7 +1253,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| team_event(&f)) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| team_event(&f)) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -1575,7 +1635,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "team.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "team.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -2130,6 +2190,34 @@ mod tests {
         assert_eq!((&sent[1]["type"], &sent[1]["automationId"], &sent[1]["enabled"]), (&json!("automation.enable"), &json!("au1"), &json!(false)));
         assert_eq!((&sent[2]["type"], &sent[2]["automationId"]), (&json!("automation.delete"), &json!("au1")));
         assert_eq!((&sent[3]["type"], &sent[3]["automationId"]), (&json!("automation.run"), &json!("au1")));
+    }
+
+    #[test]
+    fn board_messages_carry_a_board_request_id() {
+        let (tx, rx) = channel();
+        let out = Outbox(tx);
+        out.board_save(tickets::TicketDraft { id: None, title: "T".into(), prompt: "P".into(), provider: "claude".into(), folder: "/app".into(), base: String::new() }, true);
+        out.board_start("t1");
+        out.board_move("t1", tickets::State::Todo, None);
+        out.board_limit(3);
+        let sent: Vec<Value> = rx.try_iter().collect();
+        assert_eq!(sent[0]["ticket"], json!({"title": "T", "prompt": "P", "provider": "claude", "folder": "/app"}));
+        assert_eq!((&sent[0]["type"], &sent[0]["start"]), (&json!("board.save"), &json!(true)));
+        assert_eq!((&sent[1]["type"], &sent[1]["ticketId"]), (&json!("board.start"), &json!("t1")));
+        assert_eq!((&sent[2]["column"], &sent[2]["before"]), (&json!("todo"), &json!("")));
+        assert_eq!((&sent[3]["type"], &sent[3]["limit"]), (&json!("board.limit"), &json!(3)));
+        assert!(sent.iter().all(|m| m["id"].as_str().unwrap().starts_with(BOARD)));
+    }
+
+    #[test]
+    fn board_frames_become_board_events() {
+        let ev = |raw: &str| board_event(&serde_json::from_str::<Frame>(raw).unwrap());
+        let snapshot = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/board.json");
+        assert!(matches!(ev(snapshot), Some(Event::Board { tickets, limit: 4 }) if tickets.len() == 2 && tickets[0].status == tickets::Status::NeedsYou && tickets[1].closed_why == tickets::ClosedWhy::Merged));
+        let newer = r#"{"type":"board","limit":2,"tickets":[{"id":"t2","state":"nonsense"}]}"#;
+        assert!(matches!(ev(newer), Some(Event::Board { tickets, limit: 2 }) if tickets.is_empty()));
+        assert!(matches!(ev(r#"{"type":"error","id":"board-3","message":"Nope"}"#), Some(Event::BoardError(m)) if m == "Nope"));
+        assert!(ev(r#"{"type":"error","id":"auto-3","message":"Nope"}"#).is_none());
     }
 
     #[test]

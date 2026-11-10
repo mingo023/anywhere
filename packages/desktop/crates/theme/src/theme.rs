@@ -200,6 +200,7 @@ pub const WINDOW_SOLID: Token = Token::new(0xf4f4f5ff, 0x121212ff);
 pub const SURFACE: Token = Token::new(0xffffffff, 0xebebeb1a);
 pub const SURFACE_SUNKEN: Token = Token::new(0xfafafaff, 0x00000000);
 pub const PAGE: Token = Token::new(0xf7f7f7ff, 0x00000000);
+pub const CANVAS: Token = Token::new(0xffffffff, 0x00000000);
 /// A recessed block inside a page: tables, code blocks.
 pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
 pub const SIDE: Token = Token::new(0xfafafbb3, 0x00000000);
@@ -260,6 +261,9 @@ pub const GOAL_BG: Token = Token::fixed(0x3e8ef724);
 pub const GOAL_BG_STRONG: Token = Token::fixed(0x3e8ef73d);
 pub const WORKING: Token = Token::new(0xcc4e00ff, 0xf76b15ff);
 pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
+/// The Board's action colour, until the user picks an accent.
+pub const INDIGO: Token = Token::new(0x5e6ad2ff, 0x7c85e3ff).accent(Accent::Fill(0xff));
+pub const ON_INDIGO: Token = WHITE.accent(Accent::On);
 
 /// A chat's work rail: the line a reply's phases and steps hang from.
 pub const RAIL: Token = Token::new(0xdcdcdeff, 0x323237ff);
@@ -605,7 +609,7 @@ macro_rules! embed {
 const ICONS: &[(&str, &[u8])] = embed!(
     "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "diff-multiple", "diff-split",
     "discard", "explorer", "external", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "github", "globe", "grip", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stop", "team", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "team", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
 
 const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));
@@ -684,7 +688,7 @@ mod tests {
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, glass_alpha, highlight_theme_with, material, material_icon,
-        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, WORKING, accent_rgba, gradient_lead, gradient_opacity,
+        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_lead, gradient_opacity,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, SpringState, rgba};
@@ -703,7 +707,7 @@ mod tests {
         ("DIFF_DEL_TEXT", DIFF_DEL_TEXT),
         ("MODIFIED", MODIFIED),
     ];
-    const GLYPHS: [(&str, Token); 6] = [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("WORKING", WORKING), ("TEXT_3", TEXT_3)];
+    const GLYPHS: [(&str, Token); 7] = [("WAITING", WAITING), ("SUCCESS", SUCCESS), ("FAILED", FAILED), ("ACCENT", ACCENT), ("WORKING", WORKING), ("TEXT_3", TEXT_3), ("INDIGO", INDIGO)];
     const FILLS: [(&str, Token); 2] = [("FAILED", FAILED), ("WAITING", WAITING)];
     /// FAILED and WAITING keep WHITE in both schemes (the owner's dark-theme plan), so these dark pairs stay below AA.
     const DARK_EXEMPT: [&str; 2] = ["WHITE on FAILED", "WHITE on WAITING"];

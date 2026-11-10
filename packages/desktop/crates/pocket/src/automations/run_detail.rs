@@ -1,6 +1,7 @@
 use super::glyph::status_pill;
 use super::logic::{access_label, duration_text, run_age_text, run_reason, stamp, when_label};
-use super::parts::{card, crumbs, details, pill, section};
+use super::parts::{card, crumbs, details, section};
+use crate::desktop::chrome::pill;
 use crate::desktop::Desktop;
 use crate::util::{now_ms, tilde};
 use agents::Decision;

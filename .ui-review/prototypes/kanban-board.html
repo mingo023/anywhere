@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket · Board prototype</title>
+<style>
+:root{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-6:#d4d4d8;
+  --window:#f4f4f5;--surface:#fff;--side:#fafafb;--popover:#fff;--well:#f4f4f5;
+  --fill-1:rgba(17,17,19,.031);--fill-2:rgba(17,17,19,.043);--fill-3:rgba(17,17,19,.055);--fill-4:rgba(17,17,19,.067);
+  --hairline:rgba(17,17,19,.071);--sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);
+  --primary:#111113;--on-primary:#fff;--accent:#3f3f46;--ring:rgba(17,17,19,.2);
+  --working:#cc4e00;--waiting:#ad5700;--waiting-text:#ad5700;--waiting-bg:rgba(255,178,36,.18);
+  --failed:#cd2b31;--failed-text:#cd2b31;--failed-bg:rgba(229,72,77,.11);
+  --success:#2b9a66;--success-text:#18794e;--success-bg:rgba(48,164,108,.13);--merged:#8250df;
+  --add:#18794e;--del:#cd2b31;--review:#0b5fb5;--claude:#d97757;--codex:#0f9d8a;
+  --row-shadow:0 1px 2px rgba(17,17,19,.06),0 0 0 .5px rgba(17,17,19,.06);
+  --lift-shadow:0 0 0 .5px rgba(17,17,19,.1),0 16px 36px rgba(17,17,19,.2),0 3px 8px rgba(17,17,19,.08);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),0 12px 32px rgba(17,17,19,.14),0 2px 6px rgba(17,17,19,.06);
+  --scrim:rgba(17,17,19,.22);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --desk:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7;
+  --win-blur:none;
+}
+[data-theme=dark]{
+  --text:#ebebeb;--text-body:#bcbcbc;--text-2:#a1a1a1;--text-3:#818181;--text-4:#6c6c6c;--text-6:#414141;
+  --window:rgba(18,18,18,.85);--surface:#2a2a2a;--side:#0e0e0e;--popover:#232323;--well:rgba(235,235,235,.05);
+  --fill-1:rgba(235,235,235,.05);--fill-2:rgba(235,235,235,.08);--fill-3:rgba(235,235,235,.10);--fill-4:rgba(235,235,235,.12);
+  --hairline:rgba(235,235,235,.07);--sep:rgba(235,235,235,.08);--sep-strong:rgba(235,235,235,.14);
+  --primary:#ebebeb;--on-primary:#171717;--accent:#d4d4d4;--ring:rgba(235,235,235,.4);
+  --working:#f76b15;--waiting:#ffb224;--waiting-text:#ffca16;--waiting-bg:rgba(255,178,36,.14);
+  --failed:#e5484d;--failed-text:#ff9592;--failed-bg:rgba(229,72,77,.14);
+  --success:#30a46c;--success-text:#3dd68c;--success-bg:rgba(48,164,108,.13);--merged:#a371f7;
+  --add:#3dd68c;--del:#ff9592;--review:#70b8ff;
+  --row-shadow:0 0 0 .5px rgba(235,235,235,.12);
+  --lift-shadow:0 0 0 .5px rgba(235,235,235,.16),0 16px 36px rgba(0,0,0,.55);
+  --pop-shadow:0 0 0 .5px rgba(235,235,235,.14),0 12px 32px rgba(0,0,0,.5);
+  --scrim:rgba(0,0,0,.42);
+  --desk:radial-gradient(1000px 700px at 15% 0%,#2b3350 0%,transparent 60%),radial-gradient(900px 600px at 90% 100%,#3a2b4d 0%,transparent 60%),#12141c;
+  --win-blur:blur(40px) saturate(1.6);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font:13px/1.4 var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);background:var(--desk)}
+button,input,textarea,select{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:default}
+svg{display:block;flex:none}
+[hidden]{display:none!important}
+#win{position:absolute;inset:28px 28px 84px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);-webkit-backdrop-filter:var(--win-blur);backdrop-filter:var(--win-blur);box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:60}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+#side{width:232px;flex:none;display:flex;flex-direction:column;background:var(--side);border-right:.5px solid var(--sep);padding:44px 8px 10px}
+.nav{display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:8px;font-weight:500;color:var(--text-2);width:100%;text-align:left}
+.nav svg{color:var(--text-3)}
+.nav:hover{background:var(--fill-2)}
+.nav.sel{background:var(--fill-4);color:var(--text)}
+.nav.sel svg{color:var(--text)}
+.nav kbd{margin-left:auto;font:500 11px var(--sans);color:var(--text-4)}
+.search{background:var(--fill-2);height:32px;border-radius:10px;margin-bottom:6px}
+.sgroup{margin:16px 10px 6px;font-size:12px;font-weight:600;color:var(--text-3)}
+.pi{width:16px;height:16px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;font:600 9px var(--sans);color:#fff;font-style:normal}
+.spacer{flex:1}
+#stage{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}
+.phead{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:4px 24px 0}
+.phead h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.015em;flex:1}
+.find{width:224px;height:28px;display:flex;align-items:center;gap:7px;padding:0 9px;border-radius:8px;background:var(--fill-2);color:var(--text-3)}
+.find input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:12.5px;color:var(--text);user-select:text;-webkit-user-select:text}
+.find input::placeholder{color:var(--text-3)}
+.fbar{min-height:38px;flex:none;display:flex;align-items:center;gap:6px;padding:0 24px 8px;border-bottom:.5px solid var(--sep)}
+.chip{height:24px;display:inline-flex;align-items:center;gap:5px;padding:0 4px 0 9px;border-radius:7px;background:var(--fill-3);font-size:12px;font-weight:500;color:var(--text-body)}
+.chip button{width:16px;height:16px;border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.chip button:hover{background:var(--fill-4);color:var(--text)}
+.btn{height:28px;padding:0 11px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;white-space:nowrap;transition:transform 100ms ease-out,background 120ms ease-out,opacity 120ms ease-out}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--primary);color:var(--on-primary)}
+.btn.primary:hover{filter:brightness(1.15)}
+.btn:disabled{opacity:.35;transform:none}
+.btn.ghost{background:var(--fill-3)}
+.btn.ghost:hover{background:var(--fill-4)}
+.btn.plain{color:var(--text-2)}
+.btn.plain:hover{background:var(--fill-2);color:var(--text)}
+.btn.danger{background:var(--failed);color:#fff}
+.btn.sm{height:24px;padding:0 8px;font-size:12px;border-radius:7px;gap:4px}
+.btn kbd{font:500 11px var(--sans);opacity:.6}
+.icon{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.icon:hover{background:var(--fill-3);color:var(--text)}
+
+#board{flex:1;min-height:0;display:flex;gap:12px;padding:16px 24px;overflow:auto hidden;scrollbar-width:thin;scrollbar-color:var(--fill-4) transparent}
+.col{flex:none;width:280px;display:flex;flex-direction:column;border-radius:10px;background:var(--fill-1);transition:background 120ms ease-out,box-shadow 120ms ease-out,opacity 160ms ease-out}
+.ch{flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.ci{width:12px;height:12px;flex:none;display:flex;align-items:center;justify-content:center}
+.cn{font-size:13px;font-weight:500}
+.cc{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.ch .end{margin:-4px -4px -4px auto}
+.cb{flex:1;min-height:60px;display:flex;flex-direction:column;gap:8px;padding:0 8px 8px;overflow-y:auto;scrollbar-width:none}
+#board.flying .cb{overflow:visible}
+.hint{padding:10px 12px 14px;font-size:12.5px;line-height:1.5;color:var(--text-3)}
+.hint b{display:block;color:var(--text-2);font-weight:600}
+.hint .btn{margin-top:8px}
+body.dragging .col.no{opacity:.45}
+.col.yes{background:var(--fill-2)}
+.col.over{background:var(--fill-4);box-shadow:inset 0 0 0 1.5px var(--ring)}
+
+.card{position:relative;flex:none;background:var(--surface);border-radius:10px;box-shadow:var(--row-shadow);padding:11px 13px;transition:transform 100ms ease-out,background 120ms ease-out,box-shadow 120ms ease-out}
+.card:hover{background:color-mix(in srgb,var(--surface) 96%,var(--text));box-shadow:0 0 0 .5px var(--sep-strong)}
+.card.press{transform:scale(.985)}
+.card.fly{transition:none;z-index:5;will-change:transform}
+.card.held{z-index:30;box-shadow:var(--lift-shadow)}
+.card.enter{animation:rise 240ms cubic-bezier(.23,1,.32,1) both}
+.card.fade{animation:fade 200ms ease both}
+.card.done .t{color:var(--text-3)}
+.card.arch{opacity:.6}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}}
+@keyframes fade{from{opacity:0}}
+.r1{display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:11px;color:var(--text-3);white-space:nowrap}
+.r1 .pn{overflow:hidden;text-overflow:ellipsis}
+.r1 .ago{margin-left:auto;font-variant-numeric:tabular-nums}
+.ag{display:inline-flex;align-items:center;gap:4px}
+.ag i{width:6px;height:6px;border-radius:50%}
+.ag.claude i{background:var(--claude)}.ag.codex i{background:var(--codex)}
+.t{font-size:13px;font-weight:500;line-height:18px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.p{margin-top:3px;font-size:12px;line-height:1.4;color:var(--text-3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.p.bad{color:var(--failed-text)}.p.warn{color:var(--waiting-text)}
+.br{margin-top:4px;display:flex;align-items:center;gap:4px;font:11px var(--mono);color:var(--text-3);white-space:nowrap;overflow:hidden}
+.br span{overflow:hidden;text-overflow:ellipsis}
+.pills{margin-top:8px;display:flex;align-items:center;gap:6px;min-height:20px}
+.pill{height:20px;display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-radius:6px;box-shadow:inset 0 0 0 .5px var(--sep-strong);font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill.mono{font-family:var(--mono)}
+.add{color:var(--add)}.del{color:var(--del)}
+.gl{margin-left:auto;width:16px;height:16px;display:flex;align-items:center;justify-content:center}
+.pills .btn{margin:-2px -4px -2px auto}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.dot.halo{box-shadow:0 0 0 3px color-mix(in srgb,currentColor 22%,transparent)}
+.dash{width:8px;height:8px;border-radius:50%;border:1px dashed var(--text-3)}
+.c-w{color:var(--working)}.c-m{color:var(--text-3)}.c-ny{color:#ffb224}.c-ok{color:var(--success)}.c-no{color:var(--failed-text)}.c-rv{color:var(--review)}.c-mg{color:var(--merged)}
+.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+#board.list{flex-direction:column;gap:14px;overflow:hidden auto;padding-top:10px}
+#board.list .col{width:auto;background:none}
+#board.list .ch{padding:6px 0;border-bottom:.5px solid var(--sep)}
+#board.list .cb{min-height:0;padding:0;gap:0;overflow:visible}
+#board.list .card{display:flex;align-items:center;gap:12px;padding:7px 8px;background:none;box-shadow:none;border-radius:6px}
+#board.list .card:hover{background:var(--fill-2)}
+#board.list .t{order:1;flex:1;min-width:0;-webkit-line-clamp:1}
+#board.list .p{order:2;margin:0;max-width:280px;-webkit-line-clamp:1}
+#board.list .br{order:3;margin:0;max-width:200px}
+#board.list .pills{order:4;margin:0}
+#board.list .gl{margin-left:0}
+#board.list .pills .btn{margin:-2px 0}
+#board.list .r1{order:5;margin:0;width:190px;flex:none}
+
+#session{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;background:var(--side);opacity:0;pointer-events:none;transform:scale(.97);transition:opacity 180ms ease-out,transform 300ms cubic-bezier(.23,1,.32,1)}
+[data-theme=dark] #session{background:#161616}
+#session.open{opacity:1;transform:none;pointer-events:auto}
+.shead{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:4px 18px 0 12px;border-bottom:.5px solid var(--sep)}
+.shead .ti{min-width:0;flex:1}
+.shead .ti b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shead .ti span{font:11.5px var(--mono);color:var(--text-3)}
+.sbody{flex:1;min-height:0;overflow:auto;padding:22px max(24px,calc(50% - 320px));display:flex;flex-direction:column;gap:14px;font-size:13.5px;line-height:1.55;user-select:text;-webkit-user-select:text}
+.you{align-self:flex-end;max-width:82%;background:var(--fill-3);padding:8px 12px;border-radius:12px}
+.ask{border-radius:12px;background:var(--waiting-bg);padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.ask b{font-weight:600}
+.ask div{display:flex;gap:6px}
+.sfoot{flex:none;padding:0 max(24px,calc(50% - 320px)) 18px}
+.reply{width:100%;height:40px;padding:0 13px;border:0;outline:0;border-radius:12px;background:var(--surface);box-shadow:var(--row-shadow);user-select:text;-webkit-user-select:text}
+.reply:focus{box-shadow:0 0 0 2px var(--ring),var(--row-shadow)}
+
+.scrim{position:absolute;inset:0;z-index:50;display:flex;align-items:flex-start;justify-content:center;padding-top:130px;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity 160ms ease-out}
+.scrim.open{opacity:1;pointer-events:auto}
+.dlg{width:560px;border-radius:14px;background:var(--popover);box-shadow:var(--pop-shadow);transform:scale(.94);filter:blur(4px);transition:transform 280ms cubic-bezier(.23,1,.32,1),filter 200ms ease-out}
+.scrim.open .dlg{transform:none;filter:none}
+.dh{display:flex;align-items:center;gap:6px;padding:10px 10px 10px 14px;border-bottom:.5px solid var(--sep);font-size:12.5px;color:var(--text-2)}
+.dh .cur{color:var(--text);font-weight:500}
+.dh .icon{margin-left:auto}
+.dh svg.c{color:var(--text-4)}
+#fTitle{width:100%;border:0;outline:0;background:transparent;padding:16px 18px 4px;font-size:20px;font-weight:600;letter-spacing:-.016em;user-select:text;-webkit-user-select:text}
+#fPrompt{display:block;width:100%;height:112px;border:0;outline:0;resize:none;background:transparent;padding:6px 18px;font-size:13.5px;line-height:1.5;user-select:text;-webkit-user-select:text}
+#fTitle::placeholder,#fPrompt::placeholder{color:var(--text-4)}
+.opts{display:flex;align-items:center;gap:6px;padding:6px 18px 14px}
+.pick{height:28px;display:inline-flex;align-items:center;gap:5px;padding:0 4px 0 10px;border-radius:14px;box-shadow:inset 0 0 0 .5px var(--sep-strong);font-size:12px;color:var(--text-2)}
+.pick select{border:0;outline:0;background:transparent;font-size:12px}
+.pill-sel{height:26px;display:inline-flex;align-items:center;padding:0 4px 0 6px;border-radius:7px;background:var(--fill-3)}
+.pill-sel select{border:0;outline:0;background:transparent;font-size:12.5px}
+.df{display:flex;align-items:center;gap:6px;padding:10px 12px;border-top:.5px solid var(--sep)}
+#fHint{font-size:12px;color:var(--text-3);padding-left:6px}
+.sp{flex:1}
+.cdlg{width:380px;padding:18px}
+.cdlg b{display:block;font-size:14.5px;font-weight:600}
+.cdlg p{margin:6px 0 16px;color:var(--text-2);line-height:1.5}
+.cdlg div{display:flex;justify-content:flex-end;gap:6px}
+
+#menu{position:absolute;z-index:80;min-width:210px;padding:4px;border-radius:10px;background:var(--popover);box-shadow:var(--pop-shadow);opacity:0;transform:scale(.96);pointer-events:none;transition:opacity 110ms ease-out,transform 180ms cubic-bezier(.23,1,.32,1)}
+#menu.open{opacity:1;transform:none;pointer-events:auto}
+#menu h6{margin:6px 8px 3px;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3)}
+#menu hr{border:0;height:.5px;background:var(--sep);margin:4px}
+#menu button.it{display:flex;align-items:center;gap:7px;width:100%;height:27px;padding:0 8px;border-radius:6px;text-align:left;font-size:12.5px}
+#menu button.it:hover{background:var(--fill-3)}
+#menu button.it.d{color:var(--failed-text)}
+#menu .ck{width:13px;display:flex;justify-content:center}
+#menu .stp{display:flex;align-items:center;justify-content:space-between;height:30px;padding:0 4px 0 8px;font-size:12.5px}
+.step{display:flex;align-items:center;gap:2px;background:var(--fill-3);border-radius:7px;padding:1px}
+.step .icon{width:22px;height:22px}
+.step span{width:20px;text-align:center;font-variant-numeric:tabular-nums}
+
+#toast{position:absolute;z-index:70;left:50%;bottom:18px;display:flex;align-items:center;gap:10px;height:36px;padding:0 6px 0 14px;border-radius:12px;background:var(--popover);box-shadow:var(--pop-shadow);font-weight:500;transform:translate(-50%,10px);opacity:0;pointer-events:none;transition:opacity 150ms ease-out,transform 280ms cubic-bezier(.23,1,.32,1)}
+#toast.open{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#hud{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:14px;background:rgba(20,20,22,.78);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);color:#eee;font-size:12px;white-space:nowrap;z-index:90}
+#hud .l{color:rgba(255,255,255,.5)}
+#hud button{height:26px;padding:0 9px;border-radius:7px;background:rgba(255,255,255,.1);font-weight:500}
+#hud button:hover{background:rgba(255,255,255,.18)}
+#hud button.on{background:rgba(255,255,255,.85);color:#111}
+#hud i{width:.5px;height:18px;background:rgba(255,255,255,.2)}
+@media (prefers-reduced-motion:reduce){.card,.card.enter,.dlg,#menu,#toast,#session{animation:none;transition:opacity 160ms ease;transform:none;filter:none}.spin{animation-duration:2s}}
+@media (prefers-reduced-transparency:reduce){#win{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--well)}}
+</style>
+</head>
+<body>
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="side"></aside>
+  <main id="stage">
+    <header class="phead">
+      <h1>Board</h1>
+      <label class="find" id="findL"><input id="find" placeholder="Search tickets…" aria-label="Search tickets"></label>
+      <button class="btn primary" id="new"></button>
+    </header>
+    <div class="fbar"><span id="chips" style="display:contents"></span><button class="btn sm plain" id="addF" style="margin-left:-8px"></button><span class="sp"></span><button class="btn sm plain" id="disp" style="margin-right:-8px"></button></div>
+    <div id="board"></div>
+    <section id="session"></section>
+  </main>
+  <div class="scrim" id="sheetS"><form class="dlg" id="sheet" autocomplete="off">
+    <div class="dh"><span class="pill-sel"><select id="fProj" aria-label="Project"></select></span><span id="dhC"></span><span class="cur" id="dhT"></span><button type="button" class="icon" id="fX" aria-label="Close"></button></div>
+    <input id="fTitle" placeholder="Ticket title" aria-label="Title">
+    <textarea id="fPrompt" placeholder="What should the agent do?" aria-label="Prompt"></textarea>
+    <div class="opts">
+      <label class="pick">Agent <select id="fAgent"><option value="claude">Claude</option><option value="codex">Codex</option></select></label>
+      <label class="pick">From <select id="fBase"><option>main</option><option>develop</option></select></label>
+    </div>
+    <div class="df"><button type="button" class="btn plain" id="fDel" style="color:var(--failed-text)">Delete</button><span id="fHint"></span><span class="sp"></span><button type="button" class="btn ghost" id="fSave"></button><button type="submit" class="btn primary" id="fStart">Start <kbd>⌘↩</kbd></button></div>
+  </form></div>
+  <div class="scrim" id="confS" style="align-items:center;padding:0"><div class="dlg cdlg"><b id="cT"></b><p id="cB"></p><div><button class="btn ghost" id="cNo">Cancel</button><button class="btn danger" id="cYes"></button></div></div></div>
+  <div id="menu"></div>
+  <div id="toast"><span id="tM"></span><button class="btn sm ghost" id="tU">Undo</button></div>
+</div>
+<div id="hud">
+  <span class="l">Right-click a card for actions</span><i></i>
+  <button id="hPlay">Pause</button>
+  <span class="l">Happens next</span>
+  <button id="hMerge">PR merges</button><button id="hStop">Session closes</button><button id="hFail">Launch fails</button><i></i>
+  <button id="hEmpty">Empty</button><button id="hReset">Reset</button>
+  <button data-t="light">Light</button><button data-t="dark">Dark</button>
+</div>
+<script>
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const P = {
+  plus: '<path d="M8 3v10M3 8h10"/>', play: '<path d="M5.5 3.5v9l6.5-4.5z" fill="currentColor"/>', filter: '<path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3"/>',
+  sliders: '<path d="M2.5 5H8M12.5 5h1M2.5 11h1M8 11h5.5"/><circle cx="10.2" cy="5" r="1.7"/><circle cx="5.8" cy="11" r="1.7"/>',
+  bolt: '<path d="M9 1.8 3.8 9H8l-1 5.2L12.2 7H8z"/>', board: '<rect x="2.3" y="3" width="3.2" height="10" rx="1"/><rect x="6.4" y="3" width="3.2" height="7" rx="1"/><rect x="10.5" y="3" width="3.2" height="5" rx="1"/>',
+  search: '<circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.3 3.3"/>', cog: '<circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v2M8 12.4v2M1.6 8h2M12.4 8h2M3.5 3.5 4.9 4.9M11.1 11.1l1.4 1.4M12.5 3.5l-1.4 1.4M4.9 11.1l-1.4 1.4"/>',
+  branch: '<circle cx="5" cy="3.8" r="1.5"/><circle cx="5" cy="12.2" r="1.5"/><circle cx="11" cy="5" r="1.5"/><path d="M5 5.3v5.4M11 6.5c0 3-6 1.8-6 4.2"/>',
+  x: '<path d="m4.2 4.2 7.6 7.6M11.8 4.2l-7.6 7.6"/>', back: '<path d="M10 3 5 8l5 5"/>', chev: '<path d="m6 3 5 5-5 5"/>', check: '<path d="m3 8.5 3.2 3L13 4.5"/>',
+  pr: '<circle cx="4.5" cy="3.8" r="1.5"/><circle cx="4.5" cy="12.2" r="1.5"/><circle cx="11.5" cy="12.2" r="1.5"/><path d="M4.5 5.3v5.4M11.5 10.7V6.5A2 2 0 0 0 9.5 4.5H8"/>',
+  merge: '<circle cx="4.5" cy="3.8" r="1.5"/><circle cx="4.5" cy="12.2" r="1.5"/><circle cx="11.5" cy="8" r="1.5"/><path d="M4.5 5.3v5.4M4.5 5.3c0 2.2 2.2 2.7 5.5 2.7"/>',
+  circlecheck: '<circle cx="8" cy="8" r="6"/><path d="m5.3 8.3 1.9 1.8 3.5-4"/>', archive: '<rect x="2.3" y="3" width="11.4" height="3" rx=".8"/><path d="M3.3 6v6.2a.8.8 0 0 0 .8.8h7.8a.8.8 0 0 0 .8-.8V6M6.5 8.8h3"/>',
+  stop: '<rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.4"/>', clock: '<circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/>',
+};
+const ic = (n, s = 14, w = 1.4) => `<svg width="${s}" height="${s}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
+const spinner = c => `<svg class="spin ${c}" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="6" opacity=".22"/><path d="M8 2a6 6 0 0 1 6 6"/></svg>`;
+
+/* First match wins, as in Paradev's deriveBoardColumn. To do and Queued exist before a session does. */
+const col = t => {
+  if (t.state === 'todo') return 'todo';
+  if (t.state === 'queued') return 'queued';
+  if (t.state === 'closed') return t.closedWhy === 'Merged' ? 'merged' : 'closed';
+  if (['NeedsYou', 'Failed', 'Stopped'].includes(t.status)) return 'needs';
+  if (['Starting', 'Working'].includes(t.status)) return 'working';
+  return t.status === 'Done' ? 'done' : 'review';
+};
+const COLS = [['todo', 'To do'], ['queued', 'Queued'], ['working', 'Working'], ['needs', 'Needs you'], ['done', 'Done'], ['review', 'In review'], ['merged', 'Merged'], ['closed', 'Closed']];
+const COL_ICON = { todo: '<span class="dash"></span>', queued: `<span class="c-m">${ic('clock', 12, 1.5)}</span>`, working: spinner('c-w'), needs: '<span class="dot c-ny"></span>', done: '<span class="dot c-ok"></span>', review: `<span class="c-rv">${ic('pr', 12, 1.5)}</span>`, merged: `<span class="c-mg">${ic('circlecheck', 12, 1.5)}</span>`, closed: `<span class="c-m">${ic('archive', 12, 1.5)}</span>` };
+const canLift = c => c === 'todo' || c === 'queued';
+const canDrop = (f, to) => f === 'todo' && (to === 'queued' || to === 'working') || f === 'queued' && to === 'todo';
+const holdsSlot = t => t.state === 'live' && ['Starting', 'Working', 'NeedsYou'].includes(t.status);
+const PROJECTS = { anywhere: { c: '#5b8def' }, 'pocket-site': { c: '#30a46c' }, notes: { c: '#8b8b94', noRepo: true } };
+
+const now = () => Date.now() / 1000;
+let seq = 100, armFail = false, paused = false, tickets = [], limit = 4, sessionId = null, booted = false;
+let view = 'board', orderBy = 'activity', showClosed = false, filters = { agent: null, project: null }, query = '';
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 26);
+const busy = () => tickets.filter(holdsSlot).length;
+const status = (t, s) => { t.status = s; t.at = now(); };
+
+function launch(t) {
+  t.state = 'live'; t.tree = t.tree || slug(t.title); t.adds = t.dels = 0;
+  if (armFail) { armFail = false; $('#hFail').classList.remove('on'); status(t, 'Failed'); t.why = "Couldn't create the worktree: branch already exists"; t.gone = true; return; }
+  t.why = ''; t.gone = false; t.clock = 0;
+  t.plan = t.plan && t.plan.length ? t.plan : [{ at: 7 + Math.random() * 8, do: 'done' }];
+  status(t, 'Starting');
+  setTimeout(() => { if (t.status === 'Starting') commit(() => status(t, 'Working')); }, 900);
+}
+function pump() {
+  while (busy() < limit) {
+    const next = tickets.filter(t => t.state === 'queued').sort((a, b) => a.ord - b.ord)[0];
+    if (!next) break;
+    launch(next);
+  }
+}
+const start = t => { t.state = 'queued'; t.ord = ++seq; };
+const close = (t, why) => { t.closedWhy = why; t.closedAt = now(); t.state = 'closed'; };
+
+const mk = (project, title, prompt, agent, state, o = {}) => { const n = ++seq; return { id: 'k' + n, born: n, ord: n, project, title, prompt, agent, state, status: 'Idle', at: now(), ...o }; };
+function seed() {
+  const t0 = now(), P = 'Follow the patterns in this crate and add a test.';
+  const live = (project, title, agent, st, secs, o) => mk(project, title, P, agent, 'live', { status: st, tree: slug(title), at: t0 - secs, clock: 0, ...o });
+  tickets = [
+    mk('anywhere', 'Virtualize the Explorer tree', 'Render only visible rows with uniform_list. A repo with 40k files must stay under one frame.', 'claude', 'todo'),
+    mk('anywhere', 'Retry the pocketd link with backoff', 'Reconnect at 1s, 2s, 4s up to 30s, and show the wait in the status bar.', 'codex', 'todo'),
+    mk('pocket-site', 'Add the changelog page', 'One page per release, newest first.', 'claude', 'todo'),
+    mk('anywhere', 'Fix the scroll jump on resize in chat', 'Keep the anchored message in place when the window width changes.', 'claude', 'queued'),
+    mk('anywhere', 'Version the settings store', 'Add a schema version and one migration, covered by a test.', 'codex', 'queued'),
+    live('anywhere', 'Fold unchanged hunks in the diff', 'claude', 'Working', 192, { plan: [{ at: 9, do: 'done', adds: 214, dels: 37, pr: 221 }] }),
+    live('anywhere', 'Refresh the phone pairing QR', 'codex', 'Working', 75, { plan: [{ at: 15, do: 'ask', ask: 'Allow editing packages/app/src/pairing.ts?' }, { at: 24, do: 'done', adds: 58, dels: 9 }] }),
+    live('pocket-site', 'Generate the changelog from PR labels', 'claude', 'Working', 34, { plan: [{ at: 26, do: 'fail', why: 'cargo test failed in changelog.rs' }] }),
+    live('anywhere', 'Trim scrollback under memory pressure', 'claude', 'NeedsYou', 402, { ask: 'Run rm -rf target/ to free disk?', plan: [{ at: 8, do: 'done', adds: 73, dels: 20, pr: 222 }] }),
+    live('anywhere', 'Paste images from the clipboard', 'codex', 'Failed', 610, { why: 'cargo test failed in composer.rs', adds: 96, dels: 4 }),
+    live('anywhere', 'Rename groups inline in the sidebar', 'claude', 'Done', 240, { adds: 142, dels: 31, pr: 218, checks: true }),
+    live('anywhere', 'Keyboard navigation in Inbox', 'claude', 'Idle', 1500, { adds: 64, dels: 12, pr: 214, checks: true }),
+    live('pocket-site', 'Compress the hero images', 'codex', 'Idle', 4100, { adds: 12, dels: 3 }),
+    mk('anywhere', 'Reveal worktree in Finder', 'Add it to the top bar.', 'claude', 'closed', { tree: 'reveal-in-finder', closedWhy: 'Merged', pr: 209, checks: true, closedAt: t0 - 900, adds: 40, dels: 6 }),
+    mk('anywhere', 'Keep table corners on glass', 'Markdown tables only.', 'codex', 'closed', { tree: 'table-corners', closedWhy: 'Merged', pr: 204, checks: true, closedAt: t0 - 90000, adds: 18, dels: 11 }),
+    mk('anywhere', 'Try a denser session list', 'Spike only.', 'claude', 'closed', { closedWhy: 'Closed', tree: 'denser-list', closedAt: t0 - 9000, adds: 31, dels: 8 }),
+  ];
+}
+const ticket = id => tickets.find(t => t.id === id);
+
+/* Springs: damping ratio 1, response .38; bounce only after a throw. */
+const S = new Map();
+let rafOn = false, lastT = 0;
+function spring(el) { let s = S.get(el); if (!s) { s = { x: 0, y: 0, vx: 0, vy: 0, s: 0, vs: 0, st: 0, z: 1, held: false }; S.set(el, s); el.classList.add('fly'); } return s; }
+const paint = (el, s) => { el.style.transform = `translate3d(${s.x.toFixed(2)}px,${s.y.toFixed(2)}px,0) scale(${(1 + s.s).toFixed(4)})`; };
+function tick(t) {
+  const dt = Math.min(.032, (t - lastT) / 1000 || .016); lastT = t;
+  const k = (2 * Math.PI / .38) ** 2, sub = dt / 4;
+  S.forEach((s, el) => {
+    if (!el.isConnected) { S.delete(el); return; }
+    const c = 2 * s.z * Math.sqrt(k);
+    for (let i = 0; i < 4; i++) {
+      if (!s.held) { s.vx += (-k * s.x - c * s.vx) * sub; s.x += s.vx * sub; s.vy += (-k * s.y - c * s.vy) * sub; s.y += s.vy * sub; }
+      s.vs += (-k * (s.s - s.st) - c * s.vs) * sub; s.s += s.vs * sub;
+    }
+    const rest = !s.held && Math.abs(s.x) < .3 && Math.abs(s.y) < .3 && Math.abs(s.vx) < 6 && Math.abs(s.vy) < 6 && Math.abs(s.s) < .001;
+    if (rest) { el.style.transform = ''; el.classList.remove('fly'); S.delete(el); } else paint(el, s);
+  });
+  $('#board').classList.toggle('flying', S.size > 0);
+  if (S.size) requestAnimationFrame(tick); else rafOn = false;
+}
+function wake() { if (S.size) $('#board').classList.add('flying'); if (!rafOn && S.size) { rafOn = true; lastT = performance.now(); requestAnimationFrame(tick); } }
+const box = el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width }; };
+
+/* Every animation starts from where the card is on screen now, so any change can land mid-flight. */
+function flip(fn) {
+  const before = new Map(); els.forEach(el => before.set(el, box(el)));
+  fn();
+  const free = [...els.values()].filter(el => !S.get(el)?.held);
+  free.forEach(el => { el.style.transform = ''; });
+  free.forEach(el => {
+    const b = before.get(el), a = box(el);
+    if (!b) return;
+    if (!a.w || !b.w) { S.delete(el); el.classList.remove('fly'); return; }
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (RM) { if (Math.hypot(dx, dy) > 40) { el.classList.remove('fade'); void el.offsetWidth; el.classList.add('fade'); } return; }
+    if (Math.abs(dx) < .5 && Math.abs(dy) < .5 && !S.has(el)) return;
+    const s = spring(el); s.x = dx; s.y = dy; paint(el, s);
+  });
+  wake();
+}
+
+const els = new Map();
+$('#board').innerHTML = COLS.map(([id, n]) => `<section class="col" data-col="${id}"><header class="ch"><span class="ci">${COL_ICON[id]}</span><span class="cn">${n}</span><span class="cc"></span>${id === 'todo' ? `<span class="end"><button class="icon" data-c="new" aria-label="New ticket">${ic('plus')}</button></span>` : ''}</header>${id === 'todo' ? '<div class="hint" hidden></div>' : ''}<div class="cb"></div></section>`).join('');
+const agentName = t => t.agent === 'claude' ? 'Claude' : 'Codex';
+const ago = s => { const d = Math.max(0, now() - s); return d < 60 ? 'now' : d < 3600 ? `${Math.floor(d / 60)}m ago` : d < 86400 ? `${Math.floor(d / 3600)}h ago` : `${Math.floor(d / 86400)}d ago`; };
+const nth = n => n === 0 ? 'Next' : `${n + 1}${['st', 'nd', 'rd'][n] || 'th'} in line`;
+const glyph = t => {
+  const c = col(t);
+  if (c === 'working') return t.status === 'Starting' ? spinner('c-m') : spinner('c-w');
+  if (t.status === 'Failed' && c === 'needs') return `<span class="c-no">${ic('x', 13, 2)}</span>`;
+  if (t.status === 'Stopped' && c === 'needs') return `<span class="c-m">${ic('stop', 13, 1.6)}</span>`;
+  if (t.status === 'NeedsYou' && c === 'needs') return '<span class="dot halo c-ny"></span>';
+  return COL_ICON[c];
+};
+function cardHtml(t, pos) {
+  const c = col(t), p = PROJECTS[t.project];
+  const r1 = `<div class="r1"><i class="pi" style="background:${p.c}">${t.project[0].toUpperCase()}</i><span class="pn">${esc(t.project)}</span><span class="ag ${t.agent}"><i></i>${agentName(t)}</span><span class="ago">${ago(t.closedAt || t.at)}</span></div>`;
+  const title = `<div class="t">${esc(t.title)}</div>`;
+  if (c === 'todo') return `${r1}${title}<div class="pills"><button class="btn sm ghost" data-a="start">${ic('play', 11)}Start</button></div>`;
+  if (c === 'queued') return `${r1}${title}<div class="pills"><span class="pill">${nth(pos)}</span><span class="gl">${glyph(t)}</span></div>`;
+  const note = c === 'needs' ? (t.status === 'NeedsYou' ? `<div class="p warn">${esc(t.ask)}</div>` : t.why ? `<div class="p ${t.status === 'Failed' ? 'bad' : ''}">${esc(t.why)}</div>` : '') : '';
+  const br = t.tree ? `<div class="br">${ic('branch', 12)}<span>${esc(t.tree)}</span></div>` : '';
+  const pr = t.pr ? `<span class="pill"><span class="${c === 'merged' ? 'c-mg' : 'c-rv'}">${ic(c === 'merged' ? 'merge' : 'pr', 12, 1.5)}</span>#${t.pr}${t.checks ? `<span class="c-ok">${ic('circlecheck', 11, 1.5)}</span>` : ''}</span>` : '';
+  const diff = t.adds || t.dels ? `<span class="pill mono"><span class="add">+${t.adds}</span><span class="del">−${t.dels}</span></span>` : '';
+  const arch = c === 'merged' ? '<span class="pill">Merged</span>' : c === 'closed' ? `<span class="pill">${esc(t.closedWhy)}</span>` : '';
+  return `${r1}${title}${note}${br}<div class="pills">${pr}${diff}${arch}<span class="gl">${glyph(t)}</span></div>`;
+}
+const compare = (a, b) => orderBy === 'name' ? a.title.localeCompare(b.title) : orderBy === 'created' ? b.born - a.born : (b.closedAt || b.at) - (a.closedAt || a.at);
+function render() {
+  const q = query.trim().toLowerCase();
+  const shown = tickets.filter(t => (!filters.agent || t.agent === filters.agent) && (!filters.project || t.project === filters.project) && (!q || (t.title + ' ' + (t.tree || '')).toLowerCase().includes(q)));
+  const by = Object.fromEntries(COLS.map(c => [c[0], []]));
+  shown.forEach(t => by[col(t)].push(t));
+  COLS.forEach(([id]) => by[id].sort(id === 'todo' || id === 'queued' ? (a, b) => a.ord - b.ord : compare));
+  const seen = new Set(shown.map(t => t.id));
+  els.forEach((el, id) => { if (!seen.has(id)) { el.remove(); els.delete(id); S.delete(el); } });
+  COLS.forEach(([id]) => {
+    const sec = $(`.col[data-col=${id}]`), cb = $('.cb', sec);
+    sec.hidden = id === 'closed' && !showClosed;
+    by[id].forEach((t, i) => {
+      let el = els.get(t.id);
+      if (!el) { el = document.createElement('article'); el.className = 'card'; if (booted) el.classList.add('enter'); el.dataset.id = t.id; el.addEventListener('pointerdown', e => press(e, el)); el.addEventListener('contextmenu', e => cardMenu(e, t.id)); els.set(t.id, el); }
+      const html = cardHtml(t, i);
+      if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
+      el.classList.toggle('done', id === 'merged' || id === 'closed');
+      el.classList.toggle('arch', id === 'closed');
+      if (cb.children[i] !== el) cb.insertBefore(el, cb.children[i] || null);
+    });
+    $('.cc', sec).textContent = id === 'working' ? `${busy()}/${limit}` : by[id].length;
+  });
+  const hint = $('.col[data-col=todo] .hint');
+  hint.hidden = tickets.length > 0;
+  if (!tickets.length) hint.innerHTML = `<b>Nothing to do yet</b>Write what you want done, then start it when you're ready.<br><button class="btn ghost sm" data-c="new">${ic('plus', 12)}New ticket</button>`;
+  $('#board').classList.toggle('list', view === 'list');
+  $('#chips').innerHTML = [['agent', filters.agent && `Agent is ${filters.agent === 'claude' ? 'Claude' : 'Codex'}`], ['project', filters.project && `Project is ${filters.project}`]].filter(c => c[1]).map(([k, l]) => `<span class="chip">${esc(l)}<button data-rm="${k}" aria-label="Remove filter">${ic('x', 10, 1.8)}</button></span>`).join('');
+  if (sessionId) drawSession();
+}
+const commit = fn => flip(() => { fn && fn(); pump(); render(); });
+
+/* Dragging only To do and Queued: a card with a session moves when its session does. */
+const colAt = x => { for (const s of $$('.col:not([hidden])')) { const r = s.getBoundingClientRect(); if (x >= r.left - 6 && x <= r.right + 6) return s.dataset.col; } return null; };
+const rubber = o => (o * 220 * .55) / (220 + .55 * Math.abs(o));
+function press(e, el) {
+  if (e.button || e.ctrlKey || e.target.closest('[data-a]')) return;
+  const t = ticket(el.dataset.id), from = col(t), lift = canLift(from) && view === 'board', sx = e.clientX, sy = e.clientY;
+  const c0 = box(el), grab = { x: sx - c0.x, y: sy - c0.y }, hist = [];
+  let live = false, s = null, last = e;
+  el.classList.add('press'); el.setPointerCapture(e.pointerId);
+  const place = () => { const b = box(el), bx = b.x - s.x, by = b.y - s.y; s.x = last.clientX - grab.x - bx; s.y = last.clientY - grab.y - by; paint(el, s); };
+  const marks = to => $$('.col').forEach(c => { const id = c.dataset.col, ok = canDrop(from, id); c.classList.toggle('no', !ok && id !== from); c.classList.toggle('yes', ok); c.classList.toggle('over', ok && id === to); });
+  const move = ev => {
+    last = ev; hist.push({ x: ev.clientX, y: ev.clientY, t: ev.timeStamp }); if (hist.length > 6) hist.shift();
+    const dx = ev.clientX - sx, dy = ev.clientY - sy;
+    if (!live) {
+      if (Math.hypot(dx, dy) < 8) return;
+      live = true; el.classList.remove('press'); s = spring(el); s.held = true; s.vx = s.vy = 0;
+      if (lift) { s.st = .03; el.classList.add('held'); document.body.classList.add('dragging'); }
+    }
+    if (!lift) { s.x = rubber(dx); s.y = rubber(dy); paint(el, s); wake(); return; }
+    place(); wake();
+    const to = colAt(ev.clientX); marks(to);
+    if (to === from) {
+      const cb = el.parentNode, sibs = [...cb.children].filter(c => c !== el), mid = c => box(c).y - (S.get(c)?.y || 0);
+      let i = sibs.findIndex(c => ev.clientY < mid(c)); if (i < 0) i = sibs.length;
+      if (i !== [...cb.children].indexOf(el)) {
+        const a = sibs[i - 1] && ticket(sibs[i - 1].dataset.id), b = sibs[i] && ticket(sibs[i].dataset.id);
+        t.ord = a && b ? (a.ord + b.ord) / 2 : a ? a.ord + 1 : b ? b.ord - 1 : t.ord;
+        commit(); place();
+      }
+    }
+  };
+  const end = (ev, drop) => {
+    el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel);
+    el.classList.remove('press', 'held'); document.body.classList.remove('dragging');
+    $$('.col').forEach(c => c.classList.remove('no', 'yes', 'over'));
+    if (!live) { if (drop) openCard(t, el); return; }
+    const l = hist[hist.length - 1], old = hist.find(h => l.t - h.t < 100), ms = Math.max(1, l.t - old.t), still = ev.timeStamp - l.t > 80;
+    const vx = still ? 0 : (l.x - old.x) / ms * 1000, vy = still ? 0 : (l.y - old.y) / ms * 1000;
+    s.held = false; s.st = 0;
+    if (!lift || !drop) { s.vx = s.vy = 0; s.z = 1; wake(); return; }
+    s.vx = vx; s.vy = vy; s.z = Math.hypot(vx, vy) > 500 ? .8 : 1;
+    const here = colAt(ev.clientX), thrown = colAt(ev.clientX + vx * .099), to = canDrop(from, here) ? here : thrown;
+    commit(() => { if (to === from || !canDrop(from, to)) return; if (from === 'todo') start(t); else t.state = 'todo'; });
+  };
+  const up = ev => end(ev, true), cancel = ev => end(ev, false);
+  el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', cancel);
+}
+
+/* Menus */
+let menuBuild = null;
+function drawMenu() {
+  const items = menuBuild();
+  $('#menu').innerHTML = items.map((it, i) => it.sep ? '<hr>' : it.head ? `<h6>${it.head}</h6>` : it.step ? `<div class="stp">${it.step}<div class="step"><button class="icon" data-i="${i}" data-d="-1">−</button><span>${it.v}</span><button class="icon" data-i="${i}" data-d="1">+</button></div></div>` : `<button class="it ${it.danger ? 'd' : ''}" data-i="${i}"><span class="ck">${it.on ? ic('check', 12, 1.8) : ''}</span>${esc(it.label)}</button>`).join('');
+  return items;
+}
+function openMenu(build, x, y) {
+  menuBuild = build; drawMenu();
+  const m = $('#menu'), W = $('#win').getBoundingClientRect();
+  m.style.left = Math.min(x - W.left, W.width - m.offsetWidth - 8) + 'px'; m.style.top = Math.min(y - W.top, W.height - m.offsetHeight - 8) + 'px';
+  m.classList.add('open');
+}
+const shutMenu = () => $('#menu').classList.remove('open');
+$('#menu').addEventListener('click', e => {
+  const b = e.target.closest('[data-i]'); if (!b) return;
+  const it = menuBuild()[+b.dataset.i];
+  if (it.step) it.do(+b.dataset.d); else it.do();
+  if (it.keep || it.step) drawMenu(); else shutMenu();
+});
+addEventListener('pointerdown', e => { if (!e.target.closest('#menu,#disp,#addF')) shutMenu(); });
+const under = (el) => { const r = el.getBoundingClientRect(); return [r.left, r.bottom + 6]; };
+$('#disp').innerHTML = `${ic('sliders', 13)}Display`;
+$('#disp').onclick = e => { if ($('#menu').classList.contains('open')) return shutMenu(); const r = e.currentTarget.getBoundingClientRect(); openMenu(() => [
+  { head: 'Layout' }, { label: 'Board', on: view === 'board', keep: 1, do: () => commit(() => { view = 'board'; }) }, { label: 'List', on: view === 'list', keep: 1, do: () => commit(() => { view = 'list'; }) }, { sep: 1 },
+  { head: 'Ordering' }, ...[['activity', 'Last activity'], ['created', 'Created'], ['name', 'Name']].map(([k, l]) => ({ label: l, on: orderBy === k, keep: 1, do: () => commit(() => { orderBy = k; }) })), { sep: 1 },
+  { step: 'Work on at once', v: limit, do: d => commit(() => { limit = Math.min(8, Math.max(1, limit + d)); }) },
+  { label: 'Show closed', on: showClosed, keep: 1, do: () => commit(() => { showClosed = !showClosed; }) },
+], r.right - 214, r.bottom + 6); };
+$('#addF').innerHTML = `${ic('filter', 13)}Filter`;
+$('#addF').onclick = e => { if ($('#menu').classList.contains('open')) return shutMenu(); openMenu(() => [
+  { head: 'Agent' }, ...[['claude', 'Claude'], ['codex', 'Codex']].map(([k, l]) => ({ label: l, on: filters.agent === k, do: () => commit(() => { filters.agent = filters.agent === k ? null : k; }) })), { sep: 1 },
+  { head: 'Project' }, ...Object.keys(PROJECTS).map(k => ({ label: k, on: filters.project === k, do: () => commit(() => { filters.project = filters.project === k ? null : k; }) })),
+], ...under(e.currentTarget)); };
+$('#chips').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) commit(() => { filters[b.dataset.rm] = null; }); });
+$('#find').oninput = e => { query = e.target.value; commit(); };
+$('#findL').insertAdjacentHTML('afterbegin', ic('search', 13));
+
+function cardMenu(e, id) {
+  e.preventDefault();
+  const t = ticket(id), c = col(t), copy = { label: 'Copy branch name', do: () => toast(`Copied ${t.tree}`) }, closeIt = { label: 'Close ticket', do: () => commit(() => closeUndo(t)) };
+  const items = {
+    todo: [{ label: 'Start', do: () => commit(() => start(t)) }, { label: 'Edit', do: () => openSheet(t, els.get(t.id)) }, { sep: 1 }, { label: 'Delete', danger: 1, do: () => askDelete(t) }],
+    queued: [{ label: 'Move back to To do', do: () => commit(() => { t.state = 'todo'; }) }, { label: 'Edit', do: () => openSheet(t, els.get(t.id)) }, { sep: 1 }, { label: 'Delete', danger: 1, do: () => askDelete(t) }],
+    working: [{ label: 'Open', do: () => openCard(t, els.get(t.id)) }, copy],
+    needs: [{ label: 'Open', do: () => openCard(t, els.get(t.id)) }, ...(t.gone ? [{ label: 'Start again', do: () => commit(() => again(t)) }] : []), copy, { sep: 1 }, closeIt],
+    done: [{ label: 'Open', do: () => openCard(t, els.get(t.id)) }, copy, { sep: 1 }, closeIt],
+    review: [{ label: 'Open', do: () => openCard(t, els.get(t.id)) }, copy, { sep: 1 }, closeIt],
+    merged: [copy, { sep: 1 }, delTree(t)],
+    closed: [{ label: 'Restore', do: () => commit(() => { t.state = 'live'; }) }, copy, { sep: 1 }, delTree(t)],
+  }[c];
+  openMenu(() => items, e.clientX, e.clientY);
+}
+const delTree = t => ({ label: 'Delete worktree…', danger: 1, do: () => confirmDo('Delete this worktree?', `“${t.tree}” and its 2 uncommitted changes will be removed. Its branch stays.`, 'Delete', () => { t.tree = ''; t.closedWhy = t.closedWhy === 'Merged' ? 'Merged' : 'Worktree deleted'; }) });
+const askDelete = t => confirmDo('Delete this ticket?', `“${t.title}” hasn't started, so nothing else is affected.`, 'Delete', () => { tickets.splice(tickets.indexOf(t), 1); });
+
+let toastT;
+function toast(msg, undo) {
+  $('#tM').textContent = msg; $('#tU').hidden = !undo; $('#tU').onclick = () => { $('#toast').classList.remove('open'); commit(undo); };
+  $('#toast').classList.add('open'); clearTimeout(toastT); toastT = setTimeout(() => $('#toast').classList.remove('open'), 5000);
+}
+function closeUndo(t) { close(t, 'Closed'); toast(`Closed “${t.title}”. Its worktree stays.`, () => { t.state = 'live'; t.closedAt = 0; }); }
+function again(t) { t.gone = false; t.why = ''; t.plan = null; launch(t); }
+$('#board').addEventListener('click', e => {
+  const c = e.target.closest('[data-c]'); if (c) return openSheet(null, c);
+  const a = e.target.closest('[data-a]'); if (a) { const t = ticket(a.closest('.card').dataset.id); commit(() => start(t)); }
+});
+function openCard(t, el) {
+  if (t.state === 'todo' || t.state === 'queued') return openSheet(t, el);
+  if (col(t) === 'closed') return;
+  sessionId = t.id;
+  if (t.status === 'Done') commit(() => status(t, 'Idle'));
+  const r = el.getBoundingClientRect(), st = $('#stage').getBoundingClientRect();
+  $('#session').style.transformOrigin = `${r.left + r.width / 2 - st.left}px ${r.top + r.height / 2 - st.top}px`;
+  drawSession(); $('#session').classList.add('open');
+}
+function shut() { sessionId = null; $('#session').classList.remove('open'); }
+function drawSession() {
+  const t = ticket(sessionId); if (!t) return shut();
+  const keep = $('#reply')?.value || '', had = document.activeElement?.id === 'reply', c = col(t), ended = t.gone;
+  const foot = t.status === 'NeedsYou' || t.state === 'closed' || ended ? '' : `<div class="sfoot"><input class="reply" id="reply" placeholder="Reply to ${agentName(t)}…"></div>`;
+  const summary = t.status === 'Failed' ? esc(t.why || '') : t.adds ? `Finished. ${t.adds} lines added, ${t.dels} removed across the files this needed.` : '';
+  $('#session').innerHTML = `<header class="shead"><button class="btn plain" data-s="back">${ic('back', 13)}Board</button><div class="ti"><b>${esc(t.title)}</b><span>${esc(t.tree || 'no worktree')}</span></div><span class="gl" style="margin:0">${glyph(t)}</span>${['needs', 'done', 'review'].includes(c) && t.status !== 'NeedsYou' ? '<button class="btn ghost" data-s="close">Close ticket</button>' : ''}</header>
+  <div class="sbody"><div class="you">${esc(t.prompt)}</div>${ended ? `<div style="color:var(--text-3)">${t.status === 'Failed' ? esc(t.why) : 'This session has ended. Its worktree is still here.'}</div><div><button class="btn ghost" data-s="again">Start again</button></div>` : summary ? `<div>${summary}</div>` : ''}${t.status === 'NeedsYou' ? `<div class="ask"><b>${esc(t.ask)}</b><div><button class="btn primary" data-s="allow">Allow</button><button class="btn ghost" data-s="allow">Deny</button></div></div>` : ''}<div style="color:var(--text-4);font-size:12px">Stand-in for the real session view. Clicking a card switches to the Sessions screen.</div></div>${foot}`;
+  const r = $('#reply');
+  if (r) { r.value = keep; if (had) r.focus(); r.onkeydown = e => { if (e.key === 'Enter' && r.value.trim()) { r.value = ''; commit(() => { status(t, 'Working'); t.clock = 0; t.why = ''; t.plan = [{ at: 6, do: 'done', adds: (t.adds || 0) + 12, dels: t.dels || 0, pr: t.pr }]; }); } }; }
+}
+$('#session').addEventListener('click', e => {
+  const a = e.target.closest('[data-s]'); if (!a) return;
+  const t = ticket(sessionId);
+  ({ back: shut, close: () => { shut(); commit(() => closeUndo(t)); }, again: () => commit(() => again(t)), allow: () => commit(() => status(t, 'Working')) })[a.dataset.s]();
+});
+
+/* Ticket dialog */
+let editing = null;
+function validate() {
+  const proj = PROJECTS[$('#fProj').value], ok = $('#fTitle').value.trim() && $('#fPrompt').value.trim() && !proj.noRepo;
+  $('#fStart').disabled = $('#fSave').disabled = !ok;
+  $('#fHint').textContent = proj.noRepo ? 'This folder is not a git repository' : editing?.state === 'queued' ? '' : busy() >= limit ? `${limit} of ${limit} working, so it will wait in Queued` : '';
+}
+function openSheet(t, from) {
+  editing = t;
+  const r = from.getBoundingClientRect(), d = $('#sheet').getBoundingClientRect();
+  $('#sheet').style.transformOrigin = `${r.left + r.width / 2 - d.left}px ${r.top + r.height / 2 - d.top}px`;
+  $('#dhT').textContent = t ? 'Edit ticket' : 'New ticket';
+  $('#fProj').value = t?.project || filters.project || 'anywhere'; $('#fProj').disabled = !!t;
+  $('#fTitle').value = t?.title || ''; $('#fPrompt').value = t?.prompt || ''; $('#fAgent').value = t?.agent || 'claude';
+  $('#fDel').hidden = !t; $('#fSave').textContent = t ? 'Save' : 'Add to To do'; $('#fStart').hidden = t?.state === 'queued';
+  validate(); $('#sheetS').classList.add('open'); setTimeout(() => $('#fTitle').focus(), 30);
+}
+const shutSheet = () => { $('#sheetS').classList.remove('open'); editing = null; };
+function save(andStart) {
+  if ($('#fStart').disabled) return;
+  const v = { project: $('#fProj').value, title: $('#fTitle').value.trim(), prompt: $('#fPrompt').value.trim(), agent: $('#fAgent').value };
+  const e = editing; shutSheet();
+  commit(() => { const t = e ? Object.assign(e, v) : mk(v.project, v.title, v.prompt, v.agent, 'todo'); if (!e) tickets.push(t); if (andStart) start(t); });
+}
+$('#fProj').innerHTML = Object.entries(PROJECTS).map(([k, p]) => `<option value="${k}">${k}${p.noRepo ? ' (not a repository)' : ''}</option>`).join('');
+$('#dhC').innerHTML = `<svg class="c" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${P.chev}</svg>`;
+$('#new').innerHTML = `${ic('plus', 13, 1.7)}New ticket`;
+$('#fX').innerHTML = ic('x'); $('#fX').onclick = shutSheet;
+$('#fTitle').oninput = $('#fPrompt').oninput = $('#fProj').onchange = validate;
+$('#fSave').onclick = () => save(false);
+$('#sheet').onsubmit = e => { e.preventDefault(); save(true); };
+$('#sheet').onkeydown = e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(!$('#fStart').hidden); } };
+$('#fDel').onclick = () => { const t = editing; shutSheet(); askDelete(t); };
+$('#sheetS').onpointerdown = e => { if (e.target.id === 'sheetS') shutSheet(); };
+$('#new').onclick = e => openSheet(null, e.currentTarget);
+function confirmDo(title, body, yes, fn) {
+  $('#cT').textContent = title; $('#cB').textContent = body; $('#cYes').textContent = yes;
+  $('#confS').classList.add('open');
+  $('#cYes').onclick = () => { $('#confS').classList.remove('open'); commit(fn); };
+}
+$('#cNo').onclick = () => $('#confS').classList.remove('open');
+
+$('#side').innerHTML = `<button class="nav search">${ic('search')}Search<kbd>⌘K</kbd></button><button class="nav">${ic('bolt')}Automations</button><button class="nav sel">${ic('board')}Board</button><div class="sgroup">Projects</div>${Object.entries(PROJECTS).map(([k, p]) => `<button class="nav"><i class="pi" style="background:${p.c}">${k[0].toUpperCase()}</i>${k}</button>`).join('')}<div class="spacer"></div><button class="nav">${ic('cog')}Settings</button>`;
+addEventListener('keydown', e => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  if (e.key === 'Escape') { if ($('#menu').classList.contains('open')) shutMenu(); else if ($('#confS').classList.contains('open')) $('#confS').classList.remove('open'); else if ($('#sheetS').classList.contains('open')) shutSheet(); else shut(); }
+  else if (!typing && (e.key === 'n' || e.key === 'N') && !e.metaKey) { e.preventDefault(); openSheet(null, $('#new')); }
+  else if (!typing && (e.key === 'd' || e.key === 'D')) setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+});
+let beats = 0;
+setInterval(() => {
+  if (++beats % 40 === 0) render();
+  if (paused) return;
+  let change = false;
+  tickets.forEach(t => {
+    if (t.state !== 'live' || t.status !== 'Working') return;
+    t.clock += .25;
+    const st = t.plan?.[0];
+    if (!st || t.clock < st.at) return;
+    t.plan.shift(); change = true;
+    if (st.do === 'ask') { t.ask = st.ask; status(t, 'NeedsYou'); }
+    else { t.adds = st.adds ?? 20 + Math.floor(Math.random() * 180); t.dels = st.dels ?? Math.floor(Math.random() * 40); if (st.pr) t.pr = st.pr; if (st.do === 'fail') { t.why = st.why; status(t, 'Failed'); } else status(t, 'Done'); }
+  });
+  if (change) commit();
+}, 250);
+const setTheme = t => { document.documentElement.dataset.theme = t; $$('#hud [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t)); };
+$$('#hud [data-t]').forEach(b => b.onclick = () => setTheme(b.dataset.t));
+$('#hPlay').onclick = e => { paused = !paused; e.target.textContent = paused ? 'Play' : 'Pause'; };
+$('#hMerge').onclick = () => { const t = tickets.find(x => x.state === 'live' && x.pr && ['done', 'review'].includes(col(x))); if (!t) return toast('No open ticket has a PR yet'); commit(() => close(t, 'Merged')); toast(`PR #${t.pr} merged, so its ticket moved to Merged`); };
+$('#hStop').onclick = () => { const t = tickets.find(x => x.state === 'live' && x.status === 'Working'); if (!t) return toast('Nothing is Working right now'); commit(() => { status(t, 'Stopped'); t.gone = true; t.why = 'Session closed'; }); };
+$('#hFail').onclick = e => { armFail = !armFail; e.target.classList.toggle('on', armFail); };
+function reset(list) { shut(); els.forEach(el => el.remove()); els.clear(); S.clear(); armFail = false; $('#hFail').classList.remove('on'); showClosed = false; view = 'board'; limit = 4; filters = { agent: null, project: null }; query = ''; $('#find').value = ''; list(); booted = false; render(); booted = true; }
+$('#hReset').onclick = () => reset(seed);
+$('#hEmpty').onclick = () => reset(() => { tickets = []; });
+const q = new URLSearchParams(location.search);
+setTheme(q.get('t') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+if (q.has('pause')) { paused = true; $('#hPlay').textContent = 'Play'; }
+seed(); render(); booted = true;
+</script>
+</body>
+</html>

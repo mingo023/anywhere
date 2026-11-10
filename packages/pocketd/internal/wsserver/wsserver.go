@@ -18,6 +18,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/automation"
+	"pocketd/internal/board"
 	"pocketd/internal/broker"
 	"pocketd/internal/config"
 	"pocketd/internal/devices"
@@ -80,6 +81,8 @@ type Server struct {
 	// Automations and Scheduler serve the owner's automation verbs and feed; nil serves none.
 	Automations *automation.Store
 	Scheduler   *automation.Scheduler
+	// Board serves the owner's board verbs and feed; nil serves none.
+	Board *board.Store
 	// Locals serve the locals.v1 verbs and feed; nil serves none. Registry
 	// says which projects a Local may join, and Terminals are closed with it.
 	Locals    *locals.Locals
@@ -135,6 +138,9 @@ type conn struct {
 	stopLocals func()
 
 	stopAutomations func()
+	stopBoard       func()
+	// boardMu keeps a verb's ack ahead of the snapshot it causes.
+	boardMu sync.Mutex
 	// automationMu keeps a verb's ack ahead of the snapshot its change triggers.
 	automationMu sync.Mutex
 
@@ -188,6 +194,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.stopAutomations != nil {
 			c.stopAutomations()
+		}
+		if c.stopBoard != nil {
+			c.stopBoard()
 		}
 		if c.stopLocals != nil {
 			c.stopLocals()
@@ -324,6 +333,7 @@ func (c *conn) handle(raw []byte) {
 		c.send(ok)
 		c.send(proto.NewAgentList("", c.s.Agents.List()))
 		c.automations(caps)
+		c.boardFeed(caps)
 		for _, req := range c.s.Broker.Open() {
 			c.send(proto.NewPermissionRequest(req))
 		}
@@ -568,6 +578,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return nil
 	case "automation.save", "automation.enable", "automation.delete", "automation.run":
 		return c.automation(m)
+	case "board.save", "board.delete", "board.start", "board.move", "board.close", "board.reopen", "board.limit":
+		return c.boardVerb(m)
 	case "local.create", "local.rename", "local.delete":
 		return c.local(m)
 	case "terminal.list", "terminal.attach", "terminal.detach", "terminal.input", "terminal.resize", "terminal.create", "terminal.close":

@@ -57,10 +57,10 @@ func TestStepReportsNoChangeWhenTheRunAlreadyLooksLikeTheAgent(t *testing.T) {
 }
 
 func TestPlainJoinsLinesAndCutsToTheLimit(t *testing.T) {
-	if got := plain("  one\n\ntwo   three ", 240); got != "one two three" {
+	if got := Plain("  one\n\ntwo   three ", 240); got != "one two three" {
 		t.Fatalf("%q", got)
 	}
-	got := plain(strings.Repeat("é", 300), 240)
+	got := Plain(strings.Repeat("é", 300), 240)
 	if r := []rune(got); len(r) != 240 || r[239] != '…' {
 		t.Fatalf("%d runes, ends %q", len(r), string(r[len(r)-1]))
 	}
@@ -77,7 +77,7 @@ func TestAnswerIsAReplyAfterThePrompt(t *testing.T) {
 		"a reply past the window": {reply},
 	} {
 		want := name == "prompt then a reply" || name == "a reply past the window"
-		if got := answered(items); got != want {
+		if got := Answered(items); got != want {
 			t.Errorf("%s: %v, want %v", name, got, want)
 		}
 	}

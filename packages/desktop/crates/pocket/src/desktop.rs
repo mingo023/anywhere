@@ -13,6 +13,7 @@ pub(crate) mod toast;
 use crate::accounts::Accounts;
 use crate::add_to_chat::ChatComposer;
 use crate::automations::AutomationsState;
+use crate::board::BoardState;
 use crate::browser::Browsers;
 use crate::chat::ChatState;
 use crate::creating::Creates;
@@ -108,6 +109,7 @@ pub struct Desktop {
     pub(crate) git_done: u64,
     pub(crate) inbox: InboxState,
     pub(crate) automations: AutomationsState,
+    pub(crate) board: BoardState,
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: PaletteState,
@@ -153,6 +155,7 @@ impl Desktop {
         let (clone_form, clone_subs) = clone_project::CloneForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
+        let (board, board_subs) = BoardState::new(window, cx);
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         let updates = Updates::new(&mut store, cx);
@@ -195,6 +198,7 @@ impl Desktop {
         _subs.extend(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
+        _subs.extend(board_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
         let graph = GraphState::new(store.graph_share, &store.diff);
         let diff = DiffState::new(&store.diff);
@@ -241,6 +245,7 @@ impl Desktop {
             browsers,
             inbox: InboxState::new(cx),
             automations,
+            board,
             palette,
             sidebar,
             settings,
@@ -456,7 +461,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some() || self.team.island.menu_open() || self.open_in.menu.is_some()
+        self.board.menu.is_some() || self.panels.menu.is_some() || self.panels.actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some() || self.team.island.menu_open() || self.open_in.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -470,6 +475,7 @@ impl Desktop {
         self.sidebar.add_menu = false;
         self.sidebar.organize.menu = false;
         self.automations.menu = None;
+        self.board.menu = None;
         self.accounts.menu = None;
         self.clone_form.group_menu = false;
         self.explorer.close_menu();
@@ -522,6 +528,7 @@ impl Desktop {
             None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(window, cx),
             None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(window, cx),
             None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
+            None if matches!(self.screen, Screen::Board) => self.board_page(cx),
             None => self.blank_page(cx),
         };
         ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast()).children(self.tree_toast(cx)).children(self.pr_notice(cx))
@@ -641,13 +648,15 @@ impl Render for Desktop {
                     this.escape_settings(window, cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Automations {
                     this.escape_automations(cx);
+                } else if this.overlay.is_none() && this.screen == Screen::Board {
+                    this.escape_board(cx);
                 } else {
                     return;
                 }
                 cx.stop_propagation();
             }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                if this.type_into_chat(&ev.keystroke, window, cx) {
+                if this.board_new_ticket_key(&ev.keystroke, window, cx) || this.type_into_chat(&ev.keystroke, window, cx) {
                     cx.stop_propagation();
                 }
             }))
@@ -661,6 +670,7 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::focus_settings_search))
             .on_action(cx.listener(Self::open_automations))
+            .on_action(cx.listener(Self::open_board))
             .on_action(cx.listener(Self::check_for_updates))
             .on_action(cx.listener(Self::next_needs_you))
             .on_action(cx.listener(Self::go_to_up_next))

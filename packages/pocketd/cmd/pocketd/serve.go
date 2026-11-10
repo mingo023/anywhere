@@ -23,6 +23,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/automation"
+	"pocketd/internal/board"
 	"pocketd/internal/awake"
 	"pocketd/internal/broker"
 	"pocketd/internal/cliskill"
@@ -243,16 +244,25 @@ func serve(sock, handed string) error {
 			a, _ := autos.Automation(r.AutomationID)
 			notifier.Automation(r, a.Name)
 		}}
+	tickets := board.Open(home)
+	boardScheduler := &board.Scheduler{Store: tickets, Now: time.Now, Watch: board.AgentWatcher(d.Agents),
+		Start: func(requestID string, t proto.Ticket, created func(string)) launch.Result {
+			return l.Create(launch.Who{Owner: true, Key: "board:" + t.ID}, requestID, board.Spec(t, requestID), func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
+		}}
 	ownerTokens := &owners.Store{Path: owners.Path(home)}
 	skillStore, err := skills.Open(home)
 	if err != nil {
 		log.Printf("skills: %v", err)
 	}
-	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore, Teams: teams}
+	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore, Teams: teams}
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}
 	ws.GitHub = github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
+	boardScheduler.Merged = func(ctx context.Context, tree string) bool {
+		pr, _ := ws.GitHub.PR(ctx, tree)
+		return pr != nil && pr.State == "MERGED"
+	}
 	ws.Files = &fsview.Service{Registry: reg, Env: d.LoginEnv, Attachments: filepath.Join(home, "attachments")}
 	notifier.MacName, notifier.Foreground, ws.Push = ws.MacName, ws.Foreground, notifier
 	go notifier.Run(ctx)
@@ -295,6 +305,7 @@ func serve(sock, handed string) error {
 	}
 	scheduler.Resume()
 	go scheduler.Run(ctx)
+	go boardScheduler.Run(ctx)
 	phones, err := reach.Listen(cfg.Port, cfg.Listen, ws)
 	if err != nil {
 		return err
