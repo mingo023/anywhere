@@ -30,6 +30,23 @@ struct RowFrames: PreferenceKey {
     static func reduce(value: inout [RowFrame], nextValue: () -> [RowFrame]) { value.append(contentsOf: nextValue()) }
 }
 
+/// Caps the scrolls to the end that layout makes at one per frame of the fastest display. Each lays the list out again
+/// inside the same pass, so a list that can't settle would otherwise never hand the main thread back.
+struct SnapLimit {
+    private static let perSecond = 120
+    private var started = Date.distantPast
+    private var count = 0
+
+    mutating func allows(at now: Date) -> Bool {
+        if now.timeIntervalSince(started) >= 1 {
+            started = now
+            count = 0
+        }
+        count += 1
+        return count <= Self.perSecond
+    }
+}
+
 /// What scrolling reads and writes many times a second, kept out of what redraws the list.
 @MainActor
 final class ScrollState {
@@ -45,6 +62,7 @@ final class ScrollState {
     /// A row on screen at the last layout, to tell the list scrolling up from rows growing at its end.
     var seen: RowFrame?
     var firstId: String?
+    var snapLimit = SnapLimit()
 }
 
 /// The jump pill and the sticky card, read only by their overlays: a change to them redraws those, not the list.
@@ -114,7 +132,10 @@ struct TranscriptView: View {
                             }
                             .id(id)
                         }
-                        if ids.isEmpty { end }
+                        if ids.isEmpty {
+                            // One row with height, as under a last row: a lazy stack drops a zero-height row on the viewport's edge.
+                            VStack(alignment: .leading, spacing: 0) { end }.id("end")
+                        }
                     }
                     .padding(.horizontal, Space.l)
                     .padding(.top, Pin.top)
@@ -180,7 +201,7 @@ struct TranscriptView: View {
     private var end: some View {
         Color.clear.frame(height: spacer)
         Color.clear.frame(height: Pin.bottom)
-        marker(RowFrame.end).id("end")
+        marker(RowFrame.end)
     }
 
     private func marker(_ ix: Int) -> some View {
@@ -211,7 +232,7 @@ struct TranscriptView: View {
         if showJump != floating.jump { floating.jump = showJump }
         updateSticky(frames)
         if scroll.pin != nil { stepPin(frames, end: end) }
-        if snaps { scroll.proxy?.scrollTo(endId, anchor: .bottom) }
+        if snaps, scroll.snapLimit.allows(at: .now) { scroll.proxy?.scrollTo(endId, anchor: .bottom) }
     }
 
     private func stepPin(_ frames: [RowFrame], end: RowFrame?) {
