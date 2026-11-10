@@ -12,6 +12,7 @@ import Wire
 struct NewSessionView: View {
     let host: HostModel
     let mac: String
+    @State private var confirmingFull = false
     @State private var draft: NewSessionDraft
     @State private var requestId: String?
     @State private var worktreeOptions = false
@@ -34,12 +35,11 @@ struct NewSessionView: View {
     private var project: Project? { workspace.project(draft.project) }
     private var mainTree: String { Self.main(of: project) ?? draft.project }
     private var providers: AgentProviders? { workspace.providers }
-    private var maxAccess: String { providers?.phoneMaxAccess ?? Access.ask.rawValue }
     private var info: ProviderInfo? { providers?.providers.first { $0.id == draft.provider.rawValue } }
     private var taken: Set<String> { Places.taken(project: project, branches: workspace.branches[mainTree]) }
     private var canSpawn: Bool { host.hello?.scopes?.contains(.spawn) ?? true }
     private var problem: String? {
-        canSpawn ? draft.problem(taken: taken, maxAccess: maxAccess) : "Your Mac doesn't let this phone start sessions"
+        canSpawn ? draft.problem(taken: taken) : "Your Mac doesn't let this phone start sessions"
     }
     private var places: [Places.Option] { Places.options(canManage: workspace.canManage, canSpawn: canSpawn) }
     private var existing: Places.Option? {
@@ -242,11 +242,19 @@ struct NewSessionView: View {
 
     private var accessMenu: some View {
         Menu {
-            AccessChoices(choices: AccessPill.choices(max: maxAccess, launching: true), picked: draft.access.rawValue) { draft.access = Access(rawValue: $0) }
+            AccessChoices(choices: AccessPill.choices(launching: true), picked: draft.access.rawValue) { value in
+                if AccessPill.confirms(value, from: draft.access.rawValue) {
+                    Haptics.warning()
+                    confirmingFull = true
+                } else {
+                    draft.access = Access(rawValue: value)
+                }
+            }
         } label: {
             ComposerPill(text: AccessPill.label(draft.access.rawValue), filled: true) { Image(systemName: "shield") }
         }
         .menuOrder(.fixed)
+        .confirmsFullAccess($confirmingFull, who: draft.provider.rawValue.capitalized) { draft.access = .full }
     }
 
     /// The desktop's footer: the project · a new Worktree or Local · the branch a worktree starts from.
@@ -262,25 +270,25 @@ struct NewSessionView: View {
                 }
                 .disabled(workspace.projects.count < 2)
                 if let existing {
-                    ComposerPill(text: existing.label, chevron: false) { Image(systemName: existing.systemImage) }
+                    ComposerPill(text: existing.label, chevron: false) { Image.named(existing.icon, size: 11) }
                 } else {
                     let place = places.first { $0.place == draft.place }
                     Menu {
                         // Buttons, not a Picker: only a button's second text shows as the item's subtitle.
                         ForEach(places) { option in
                             Button { draft.place = option.place } label: {
-                                Label(option.label, systemImage: option.place == draft.place ? "checkmark" : option.systemImage)
+                                Label { Text(option.label) } icon: { Image.named(option.place == draft.place ? "checkmark" : option.icon, size: 16) }
                                 if let hint = option.hint { Text(hint) }
                             }
                         }
                     } label: {
-                        ComposerPill(text: place?.label ?? "Worktree") { Image(systemName: place?.systemImage ?? "arrow.triangle.branch") }
+                        ComposerPill(text: place?.label ?? "Worktree") { Image.named(place?.icon ?? "worktree", size: 11) }
                     }
                     .menuOrder(.fixed)
                 }
                 if draft.place == .newWorktree {
                     Button { worktreeOptions = true } label: {
-                        ComposerPill(text: branchLabel, mono: true) { Image(systemName: branchIcon) }
+                        ComposerPill(text: branchLabel, mono: true) { Image.named(branchIcon, size: 11) }
                     }
                     .buttonStyle(.plain)
                 }
@@ -290,7 +298,7 @@ struct NewSessionView: View {
     }
 
     private var branchIcon: String {
-        if case .pr = draft.source { "arrow.triangle.pull" } else { "arrow.triangle.branch" }
+        if case .pr = draft.source { "arrow.triangle.pull" } else { "branch" }
     }
 
     /// The base a new branch starts from, or the branch or pull request it opens.
@@ -306,7 +314,7 @@ struct NewSessionView: View {
         providersError = nil
         do {
             let providers = try await workspace.loadProviders()
-            draft.access = NewSessionDraft.defaultAccess(max: providers.phoneMaxAccess, mac: providers.defaultAccess)
+            draft.access = NewSessionDraft.defaultAccess(mac: providers.defaultAccess)
             if !providers.providers.contains(where: { $0.id == draft.provider.rawValue && $0.available }),
                let first = providers.providers.first(where: \.available) {
                 draft.pick(provider: ProviderId(rawValue: first.id))

@@ -69,9 +69,6 @@ pub(crate) fn mirror(store: &mut Store, config: &Map<String, Value>) -> bool {
     if let Some(n) = number("automations.history") {
         store.automations.history = n;
     }
-    if let Some(a) = config.get("phone.maxAccess").and_then(Value::as_str) {
-        store.phone.max_access = a.into();
-    }
     if let Some(mode) = config.get("listen").and_then(Value::as_str) {
         store.phone.tailnet = mode == "auto";
     }
@@ -303,11 +300,11 @@ mod tests {
     #[test]
     fn pocketd_settings_land_in_the_store_and_report_a_change_once() {
         let mut store = Store::default();
-        let config = json!({"restore.resumeAgents": false, "awake.enabled": false, "awake.lingerMinutes": 10, "automations.graceHours": 0, "automations.history": 200, "phone.maxAccess": "edits"});
+        let config = json!({"restore.resumeAgents": false, "awake.enabled": false, "awake.lingerMinutes": 10, "automations.graceHours": 0, "automations.history": 200});
         let config = config.as_object().unwrap();
         assert!(mirror(&mut store, config));
         assert_eq!((store.general.resume_agents, store.general.keep_awake, store.general.linger_minutes), (false, false, 10));
-        assert_eq!((store.automations.grace_hours, store.automations.history, store.phone.max_access.as_str()), (0, 200, "edits"));
+        assert_eq!((store.automations.grace_hours, store.automations.history), (0, 200));
         assert!(!mirror(&mut store, config));
     }
 

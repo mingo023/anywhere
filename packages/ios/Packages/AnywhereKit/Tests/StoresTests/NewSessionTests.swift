@@ -51,31 +51,26 @@ struct NewSessionTests {
         #expect(alone == .init(requestId: "", project: project, name: "t", setup: false), "a worktree made on its own may skip setup")
     }
 
-    @Test("a draft says what stops it: a taken name, no branch, an unreadable PR, more access than the Mac allows")
+    @Test("a draft says what stops it: a taken name, no branch, an unreadable PR")
     func problems() {
-        #expect(draft(.newWorktree) { $0.name = "main" }.problem(taken: ["main"], maxAccess: "edits") == WorktreeName.takenProblem)
-        #expect(draft(.newWorktree) { $0.source = .branch("") }.problem(taken: [], maxAccess: "edits") == "Pick a branch")
-        #expect(draft(.newWorktree) { $0.source = .pr("soon") }.problem(taken: [], maxAccess: "edits") != nil)
-        #expect(draft(.tree("/w")) { $0.access = .auto }.problem(taken: [], maxAccess: "edits") != nil)
-        #expect(draft(.tree("/w")).problem(taken: [], maxAccess: "edits") == nil)
-        #expect(draft(.newWorktree).problem(taken: [], maxAccess: "ask") != nil, "Edits is more than Ask")
+        #expect(draft(.newWorktree) { $0.name = "main" }.problem(taken: ["main"]) == WorktreeName.takenProblem)
+        #expect(draft(.newWorktree) { $0.source = .branch("") }.problem(taken: []) == "Pick a branch")
+        #expect(draft(.newWorktree) { $0.source = .pr("soon") }.problem(taken: []) != nil)
+        #expect(draft(.tree("/w")) { $0.access = .full }.problem(taken: []) == nil)
+        #expect(draft(.tree("/w")).problem(taken: []) == nil)
     }
 
-    @Test("access choices stop at the phone's ceiling, and a draft starts at Edits or below")
+    @Test("a draft starts on the Mac's own default, else Edits")
     func access() {
-        #expect(NewSessionDraft.accesses(max: "edits") == [.ask, .edits])
-        #expect(NewSessionDraft.accesses(max: "full") == [.ask, .edits, .auto, .full])
-        #expect(NewSessionDraft.accesses(max: "nonsense") == [.ask])
-        #expect(NewSessionDraft.defaultAccess(max: "full") == .edits)
-        #expect(NewSessionDraft.defaultAccess(max: "ask") == .ask)
-        #expect(NewSessionDraft.defaultAccess(max: "auto", mac: "auto") == .auto)
-        #expect(NewSessionDraft.defaultAccess(max: "edits", mac: "auto") == .edits)
-        #expect(NewSessionDraft.defaultAccess(max: "full", mac: "settings") == .edits)
+        #expect(NewSessionDraft.defaultAccess() == .edits)
+        #expect(NewSessionDraft.defaultAccess(mac: "auto") == .auto)
+        #expect(NewSessionDraft.defaultAccess(mac: "settings") == .settings)
+        #expect(NewSessionDraft.defaultAccess(mac: "nonsense") == .edits)
     }
 
-    @Test("a draft never starts on Full, even when the Mac's default is Full and the phone may pick it")
+    @Test("a draft never starts on Full by itself, even when the Mac's default is Full")
     func neverStartsOnFull() {
-        #expect(NewSessionDraft.defaultAccess(max: "full", mac: "full") == .edits)
+        #expect(NewSessionDraft.defaultAccess(mac: "full") == .edits)
     }
 
     @Test("picking another agent drops the model, effort and account picked for the last")

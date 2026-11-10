@@ -109,9 +109,16 @@ fn numstat(out: &str) -> Vec<(String, usize, usize)> {
         .collect()
 }
 
-/// The worktree's branch and changes; untracked files only with `untracked`.
-pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
-    let branch = git(run, cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).or_else(|| git(run, cwd, &["symbolic-ref", "--short", "HEAD"]))?.trim().to_string();
+/// Whether `git worktree add` is still filling this tree. It lists the tree before the first checkout writes the index, and until then git calls all of HEAD deleted and each file written so far untracked. Reads the `.git` file rather than asking git, as this runs on every refresh of every tree.
+fn checking_out(run: &Runner, cwd: &str) -> bool {
+    let root = Path::new(cwd);
+    let Ok(file) = run.read(&root.join(".git").to_string_lossy(), 4096) else { return false };
+    let file = String::from_utf8_lossy(&file);
+    let Some(dir) = file.strip_prefix("gitdir: ") else { return false };
+    matches!(run.stat(&root.join(dir.trim()).join("index").to_string_lossy()), Ok(None)) && git(run, cwd, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_some()
+}
+
+fn changes(run: &Runner, cwd: &str, untracked: bool) -> Vec<FileStat> {
     let staged = lines(git(run, cwd, &["diff", "--cached", "--name-only"]));
     let unstaged = lines(git(run, cwd, &["diff", "--name-only"]));
     let statuses = name_status(&git(run, cwd, &["diff", "HEAD", "--name-status"]).unwrap_or_default());
@@ -128,6 +135,13 @@ pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
         let added = run.read(&full.to_string_lossy(), MAX_READ).ok().and_then(|b| String::from_utf8(b).ok()).map_or(0, |s| s.lines().count());
         files.push(FileStat { path, added, removed: 0, staged: false, unstaged: true, status: 'A', old_path: None });
     }
+    files
+}
+
+/// The worktree's branch and changes; untracked files only with `untracked`.
+pub fn read(run: &Runner, cwd: &str, untracked: bool) -> Option<Repo> {
+    let branch = git(run, cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).or_else(|| git(run, cwd, &["symbolic-ref", "--short", "HEAD"]))?.trim().to_string();
+    let files = if checking_out(run, cwd) { Vec::new() } else { changes(run, cwd, untracked) };
     let upstream = || git(run, cwd, &["rev-parse", "--abbrev-ref", "@{u}"]).map(|s| s.trim().to_string());
     let base = if branch == "main" || branch == "master" {
         upstream()
@@ -1026,6 +1040,17 @@ mod tests {
         sh(&repo, &["switch", "-qc", "feature", "--no-track", "origin/main"]);
         let got = read(&Runner::Local, r, true).unwrap();
         assert_eq!((got.base.as_deref(), got.ahead, got.behind, got.unpushed), (Some("origin/main"), 0, 0, None));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_worktree_still_checking_out_has_no_changes() {
+        let dir = scratch_repo("checking-out");
+        let tree = dir.join("tree");
+        sh(&dir.join("repo"), &["worktree", "add", "-q", "--no-checkout", "-b", "fresh", tree.to_str().unwrap()]);
+        std::fs::write(tree.join("a"), "a\n").unwrap();
+        let got = read(&Runner::Local, tree.to_str().unwrap(), true).unwrap();
+        assert_eq!((got.branch.as_str(), got.files), ("fresh", vec![]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

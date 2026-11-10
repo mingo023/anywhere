@@ -1,8 +1,10 @@
 package gitview
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -150,11 +152,46 @@ func stamp(tree string, out []byte, p porcelain) string {
 
 // Rev is the stamp of tree's changes now, as git.status's rev.
 func (s *Service) Rev(tree string) (string, error) {
-	out, err := s.git(tree, nil, readTimeout, porcelainArgs)
+	out, p, err := s.readPorcelain(tree)
 	if err != nil {
 		return "", err
 	}
-	return stamp(tree, out, parsePorcelain(out)), nil
+	return stamp(tree, out, p), nil
+}
+
+// readPorcelain is tree's status. `git worktree add` lists a tree before the
+// first checkout writes the index, and until then git calls all of HEAD
+// deleted and each file written so far untracked, so those entries are dropped.
+func (s *Service) readPorcelain(tree string) ([]byte, porcelain, error) {
+	filling := noIndex(tree)
+	out, err := s.git(tree, nil, readTimeout, porcelainArgs)
+	if err != nil {
+		return nil, porcelain{}, err
+	}
+	p := parsePorcelain(out)
+	if filling && !p.unborn() {
+		p.entries = nil
+	}
+	return out, p, nil
+}
+
+// noIndex is whether a linked worktree's index is still to be written. It reads
+// the .git file rather than asking git, as every poll of every tree runs it.
+func noIndex(tree string) bool {
+	file, err := os.ReadFile(filepath.Join(tree, ".git"))
+	if err != nil {
+		return false
+	}
+	dir, linked := strings.CutPrefix(string(file), "gitdir: ")
+	if !linked {
+		return false
+	}
+	dir = strings.TrimSpace(dir)
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(tree, dir)
+	}
+	_, err = os.Stat(filepath.Join(dir, "index"))
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 type cached struct {
@@ -199,10 +236,11 @@ func (s *Service) Status(tree string, cursor, limit int) (proto.GitStatus, error
 func (s *Service) readStatus(tree string) (proto.GitStatus, error) {
 	var (
 		out, numOut []byte
+		p           porcelain
 		err, numErr error
 		wg          sync.WaitGroup
 	)
-	wg.Go(func() { out, err = s.git(tree, nil, readTimeout, porcelainArgs) })
+	wg.Go(func() { out, p, err = s.readPorcelain(tree) })
 	wg.Go(func() {
 		numOut, numErr = s.git(tree, nil, readTimeout, []string{"diff", "HEAD", "--numstat", "-z", "-M"})
 	})
@@ -210,7 +248,6 @@ func (s *Service) readStatus(tree string) (proto.GitStatus, error) {
 	if err != nil {
 		return proto.GitStatus{}, err
 	}
-	p := parsePorcelain(out)
 	if p.unborn() {
 		numOut, numErr = s.git(tree, nil, readTimeout, []string{"diff", emptyTree, "--numstat", "-z", "-M"})
 	}

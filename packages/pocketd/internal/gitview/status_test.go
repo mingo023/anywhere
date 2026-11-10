@@ -253,6 +253,17 @@ func TestARepositoryWithoutCommitsReadsAsOneOnItsBranch(t *testing.T) {
 	}
 }
 
+func TestAWorktreeStillCheckingOutHasNoChanges(t *testing.T) {
+	repo := scratch(t)
+	tree := filepath.Join(filepath.Dir(repo), "tree")
+	sh(t, repo, "worktree", "add", "-q", "--no-checkout", "-b", "fresh", tree)
+	write(t, tree, "a", "a\n")
+	st, err := service().Status(tree, 0, 0)
+	if err != nil || st.Branch != "fresh" || len(st.Files) != 0 || st.Totals.Added != 0 || st.Totals.Removed != 0 {
+		t.Fatalf("%+v %v", st, err)
+	}
+}
+
 func TestADetachedHeadHasNoBranch(t *testing.T) {
 	repo := scratch(t)
 	sh(t, repo, "checkout", "-q", "--detach")

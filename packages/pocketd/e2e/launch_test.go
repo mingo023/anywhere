@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,31 +112,22 @@ func TestPocketdConfigSetGoesThroughTheRunningPocketd(t *testing.T) {
 	o := h.Owner()
 	o.Send(map[string]any{"type": "agent.providers", "id": "c-p"})
 	got := reply(o, "agent.providers")
-	if got.MaxAccess != "full" || got.PhoneMaxAccess != "auto" {
+	if got.MaxAccess != "full" || got.PhoneMaxAccess != "full" {
 		t.Fatalf("got %s", got.Raw)
 	}
 }
 
-func TestOwnerSetsPhoneAccessAndThePhoneIsRefusedAbove(t *testing.T) {
+func TestThePhoneStartsAnAgentOnAnyAccess(t *testing.T) {
 	h := Start(t, launchReady(""))
 	p := h.Paired("launch.v1")
-	create(p, "r1", inRepo(h, map[string]any{"access": "auto"}))
-	if e := reply(p, "agent.creating", "error"); e.Message != "On your Mac: ⌘K → Phone access level" {
-		t.Fatalf("got %s", e.Raw)
-	}
-	create(p, "r2", inRepo(h, map[string]any{"access": "full"}))
-	if e := reply(p, "agent.creating", "error"); e.Message != "Full access starts only from your Mac" {
-		t.Fatalf("got %s", e.Raw)
-	}
-	if _, code := h.Pocketd("config", "set", "phone.maxAccess", "auto"); code != 0 {
-		t.Fatalf("config set exit %d", code)
-	}
-	create(p, "r3", inRepo(h, map[string]any{"access": "auto", "prompt": "hi"}))
-	if c := reply(p, "agent.creating", "error"); c.Type != "agent.creating" {
-		t.Fatalf("got %s", c.Raw)
-	}
-	if done := reply(p, "agent.created", "error"); done.Type != "agent.created" {
-		t.Fatalf("got %s", done.Raw)
+	for i, access := range []string{"auto", "full"} {
+		create(p, fmt.Sprintf("r%d", i), inRepo(h, map[string]any{"access": access, "prompt": "hi"}))
+		if c := reply(p, "agent.creating", "error"); c.Type != "agent.creating" {
+			t.Fatalf("%s: got %s", access, c.Raw)
+		}
+		if done := reply(p, "agent.created", "error"); done.Type != "agent.created" {
+			t.Fatalf("%s: got %s", access, done.Raw)
+		}
 	}
 }
 

@@ -136,7 +136,7 @@ impl Desktop {
         if let Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } = ev {
             return self.on_launch(ev, window, cx);
         }
-        if let Event::ConfigFailed(message) | Event::SettingsFailed(message) = ev {
+        if let Event::SettingsFailed(message) = ev {
             self.error = Some(message);
             return cx.notify();
         }

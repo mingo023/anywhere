@@ -38,9 +38,6 @@ struct PhoneRoot: View {
                 .tabItem { Label("Sessions", systemImage: "rectangle.stack") }
                 .badge(host?.sessions.upNext.count ?? 0)
                 .tag(Tab.sessions)
-            section(.terminals)
-                .tabItem { Label("Terminals", systemImage: "terminal") }
-                .tag(Tab.terminals)
             section(.settings)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)

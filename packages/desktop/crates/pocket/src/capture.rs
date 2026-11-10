@@ -26,7 +26,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 252] = [
+const STEPS: [(&str, Step); 251] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -691,7 +691,6 @@ const STEPS: [(&str, Step); 252] = [
         }
     }),
     ("emoji-menu", |d, _, _| d.settings.menu = Some(crate::modals::add_project::icon::EMOJI_MENU)),
-    ("phone-access", |d, window, cx| d.open(Overlay::PhoneAccess, window, cx)),
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("owner", |d, _, _| {
         let strings = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();

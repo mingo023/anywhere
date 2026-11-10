@@ -47,7 +47,7 @@ struct MergeSection: View {
                     Text(line).foregroundStyle(Palette.text2.color)
                 } icon: {
                     let clean = pr.mergeable == "MERGEABLE"
-                    Image(systemName: clean ? "checkmark.circle" : "arrow.triangle.branch")
+                    Image.named(clean ? "checkmark.circle" : "branch", size: 16)
                         .foregroundStyle((clean ? PrTone.success : pr.mergeable == "CONFLICTING" ? .failed : .muted).text.color)
                 }
             }
@@ -58,7 +58,7 @@ struct MergeSection: View {
                 } label: {
                     Text(model.busy ?? "Ready for review").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(CapsuleButtonStyle())
                 .disabled(model.busy != nil || offline)
             } else {
                 if pr.gate == .conflicts, let resolveTitle {
@@ -68,7 +68,7 @@ struct MergeSection: View {
                     } label: {
                         Text(resolveTitle).frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(CapsuleButtonStyle())
                     .disabled(resolving != nil || offline)
                 }
                 if let cleanup {

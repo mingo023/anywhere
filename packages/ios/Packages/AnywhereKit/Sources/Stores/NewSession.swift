@@ -60,10 +60,9 @@ public struct NewSessionDraft: Hashable, Sendable {
         return typed.isEmpty ? WorktreeName.freeName(seed: seed, taken: taken) : typed
     }
 
-    /// Why the draft can't start yet, if it can't. `maxAccess` is the most this phone may give an agent.
-    public func problem(taken: Set<String>, maxAccess: String) -> String? {
+    /// Why the draft can't start yet, if it can't.
+    public func problem(taken: Set<String>) -> String? {
         if project.isEmpty { return "Pick a project" }
-        if !Self.accesses(max: maxAccess).contains(access) { return "Your Mac allows up to \(maxAccess) from this phone" }
         guard place == .newWorktree else { return nil }
         switch source {
         case .new:
@@ -139,19 +138,10 @@ public struct NewSessionDraft: Hashable, Sendable {
         (model, effort, account) = (nil, nil, nil)
     }
 
-    /// Ask, Edits, Auto and Full, up to `max`.
-    public static func accesses(max: String) -> [Access] {
-        let all: [Access] = [.ask, .edits, .auto, .full]
-        guard let top = all.firstIndex(of: Access(rawValue: max)) else { return [.ask] }
-        return Array(all[...top])
-    }
-
-    /// The access a draft starts with: the Mac's own default when this phone may pick it, else Edits, or the most
-    /// allowed below it. Never Full, which starts only from the Mac.
-    public static func defaultAccess(max: String, mac: String? = nil) -> Access {
-        let allowed = accesses(max: max)
-        if let mac, Access(rawValue: mac) != .full, allowed.contains(Access(rawValue: mac)) { return Access(rawValue: mac) }
-        return allowed.last { $0 != .auto && $0 != .full } ?? .ask
+    /// The access a draft starts with: the Mac's own default, else Edits. Never Full, which a phone picks only on purpose.
+    public static func defaultAccess(mac: String? = nil) -> Access {
+        guard let mac, mac != Access.full.rawValue, AccessPill.choices(launching: true).contains(where: { $0.value == mac }) else { return .edits }
+        return Access(rawValue: mac)
     }
 
     /// The models a picker offers besides the agent's own default.

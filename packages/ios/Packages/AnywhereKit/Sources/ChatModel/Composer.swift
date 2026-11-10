@@ -7,8 +7,8 @@ public enum Composer {
     static let busyPlaceholder = "Send a follow-up into this turn…"
     static let stoppingPlaceholder = "Queue a follow-up…"
     public static let lineHeight: Double = 22
-    /// The rows that fit 260 pt; past them the input scrolls.
-    public static let maxRows = Int(260 / lineHeight)
+    /// Past these the input scrolls, and offers the full-size editor.
+    public static let maxRows = 5
     /// How long after a send the button ignores Stop: the send turns it into Stop under the finger.
     public static let stopGuardMs = 1000
 
@@ -60,7 +60,7 @@ public enum Composer {
         "This iPhone can only watch on \(mac). Pair it again to send prompts."
     }
 
-    /// The input's rows in a chat `height` pt tall: those that fit 28% of it, so about five with the keyboard up.
+    /// The input's rows in a chat `height` pt tall: those that fit 28% of it, up to the limit.
     public static func rows(height: Double) -> Int {
         min(max(Int(height * 0.28 / lineHeight), 3), maxRows)
     }

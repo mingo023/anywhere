@@ -8,16 +8,8 @@ import Wire
 struct MacSettingsView: View {
     let app: AppModel
     let host: HostModel
-    /// `phone.maxAccess`, read from `agent.providers` while the Mac is online.
-    @State private var maxAccess: String?
     @State private var forgetting = false
     @Environment(\.dismiss) private var dismiss
-
-    init(app: AppModel, host: HostModel, maxAccess: String? = nil) {
-        self.app = app
-        self.host = host
-        _maxAccess = State(initialValue: maxAccess)
-    }
 
     var body: some View {
         Form {
@@ -54,12 +46,10 @@ struct MacSettingsView: View {
                     }
                     .accessibilityValue(grant.allowed ? "Allowed" : "Not allowed")
                 }
-                LabeledContent("Most it can approve", value: maxAccess.map(MacFacts.access) ?? "—")
-                LabeledContent("Terminals", value: MacFacts.terminals(host.hostState?.terminals))
             } header: {
                 Text("This iPhone can")
             } footer: {
-                Text("The Mac decides these in Anywhere → Settings → Phone. With terminals turned off there (pocketd config set phone.terminals off), this iPhone can watch terminals but not type in them.")
+                Text("The Mac decides these in Anywhere → Settings → Phone.")
             }
 
             Section {
@@ -70,17 +60,11 @@ struct MacSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle(host.name)
-        .task(id: host.link == .online) { await loadAccess() }
         .confirmationDialog("Forget \(host.name)?", isPresented: $forgetting, titleVisibility: .visible) {
             Button("Forget", role: .destructive) {
                 dismiss()
                 app.forget(host.id)
             }
         }
-    }
-
-    private func loadAccess() async {
-        guard host.link == .online, case .agentProviders(let providers)? = try? await host.connection.request(.agentProviders) else { return }
-        maxAccess = providers.phoneMaxAccess
     }
 }

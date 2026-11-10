@@ -76,10 +76,11 @@ public struct SidebarCount: View {
 }
 
 public extension View {
-    /// Places a `SidebarRow` in its list, `indent` from the column's edge, with the inset selection fill.
-    func sidebarListRow(selected: Bool, indent: CGFloat) -> some View {
-        listRowInsets(EdgeInsets(top: 0, leading: indent, bottom: 0, trailing: 20))
-            .listRowBackground(SidebarSelection(selected: selected))
+    /// Places a `SidebarRow` in its list, `indent` from the column's edge, with the inset selection fill. `gap` opens space
+    /// above it, outside the fill.
+    func sidebarListRow(selected: Bool, indent: CGFloat, gap: CGFloat = 0) -> some View {
+        listRowInsets(EdgeInsets(top: gap, leading: indent, bottom: 0, trailing: 20))
+            .listRowBackground(SidebarSelection(selected: selected).padding(.top, gap))
     }
 }
 

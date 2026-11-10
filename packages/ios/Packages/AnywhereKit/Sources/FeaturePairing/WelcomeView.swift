@@ -17,7 +17,6 @@ struct WelcomeView: View {
                 }
                 VStack(alignment: .leading, spacing: Space.l + Space.xs) {
                     Point(title: "Know when a session needs you", detail: "Approvals, questions, failures and finished runs, as they happen.") { StatusGlyph(.needsYou) }
-                    Point(systemImage: "terminal", title: "The terminal", detail: "Open the shells running on your Mac and type into them.")
                     Point(systemImage: "lock.shield", title: "Private link over Tailscale", detail: "Your iPhone reaches your Mac across your own tailnet.")
                 }
                 Text("On your Mac, open Anywhere → Settings → Phone → Pair a phone.")

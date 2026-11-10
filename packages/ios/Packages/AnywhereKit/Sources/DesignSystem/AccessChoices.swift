@@ -1,7 +1,7 @@
 import Domain
 import SwiftUI
 
-/// The access menu's items: each over its hint, or over why the phone can't pick it.
+/// The access menu's items, each over its hint.
 @MainActor
 public struct AccessChoices: View {
     let choices: [AccessPill.Choice]
@@ -25,9 +25,8 @@ public struct AccessChoices: View {
                 } else {
                     Text(choice.label)
                 }
-                Text(choice.locked ?? choice.hint)
+                Text(choice.hint)
             }
-            .disabled(choice.locked != nil)
         }
     }
 }

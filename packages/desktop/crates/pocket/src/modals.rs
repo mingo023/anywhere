@@ -5,7 +5,6 @@ pub(crate) mod form;
 mod more;
 pub(crate) mod new_session;
 pub(crate) mod pair_phone;
-mod phone_access;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
@@ -16,7 +15,6 @@ use std::time::Duration;
 pub(crate) fn may_open(o: Overlay, agents: &Agents) -> bool {
     match o {
         Overlay::PairPhone => agents.owner() && agents.pairing(),
-        Overlay::PhoneAccess => agents.owner(),
         Overlay::Team => new_session::may_start(agents),
         Overlay::Palette | Overlay::AddRepo | Overlay::Clone | Overlay::More | Overlay::Confirm | Overlay::Ticket => true,
     }
@@ -34,7 +32,7 @@ impl Desktop {
             Overlay::AddRepo => self.reset_repo_form(None, window, cx),
             Overlay::Clone => self.reset_clone_form(window, cx),
             Overlay::PairPhone => self.begin_pairing(window, cx),
-            Overlay::More | Overlay::Confirm | Overlay::PhoneAccess | Overlay::Team | Overlay::Ticket => {}
+            Overlay::More | Overlay::Confirm | Overlay::Team | Overlay::Ticket => {}
         }
         cx.notify();
     }
@@ -63,7 +61,6 @@ impl Desktop {
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
             Overlay::PairPhone => (self.pair_view(cx), 0x2e, Some((200, 8.))),
-            Overlay::PhoneAccess => (self.phone_access_view(cx), 0x2e, Some((200, 8.))),
             Overlay::Team => (self.team_sheet(cx), 0x29, Some((240, 8.))),
             Overlay::Ticket => (self.ticket_view(cx), 0x2e, Some((200, 8.))),
         };

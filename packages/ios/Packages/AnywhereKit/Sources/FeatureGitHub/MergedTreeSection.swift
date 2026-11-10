@@ -13,12 +13,14 @@ struct MergedTreeSection: View {
         Section {
             Text("Delete the worktree \(cleanup.name)? \(cleanup.closes)").foregroundStyle(Palette.text2.color)
             HStack(spacing: Space.s) {
-                Button(action: keep) { Text("Keep").frame(maxWidth: .infinity) }
+                Button("Keep", action: keep)
                     .buttonStyle(.bordered)
                 Button(role: .destructive, action: delete) {
                     Label("Delete Worktree", systemImage: "trash").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                // The app's accent tint would otherwise beat the role: white on near-white in dark mode.
+                .tint(Palette.failed.color)
                 .disabled(offline)
             }
             .controlSize(.large)

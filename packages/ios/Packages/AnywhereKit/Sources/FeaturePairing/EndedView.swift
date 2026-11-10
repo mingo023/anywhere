@@ -29,16 +29,16 @@ public struct EndedView: View {
             VStack(spacing: Space.s) {
                 switch host.reachability(at: .now) {
                 case .revoked:
-                    Button("Pair again") { pairing = true }.buttonStyle(.borderedProminent)
+                    Button("Pair again") { pairing = true }.buttonStyle(CapsuleButtonStyle())
                 case .updatePhone:
-                    Link("Open the App Store", destination: Self.appStore).buttonStyle(.borderedProminent)
+                    Link("Open the App Store", destination: Self.appStore).buttonStyle(CapsuleButtonStyle())
                     Button("Try again") { app.restart(host.id) }.buttonStyle(.borderless)
                 default:
                     Button("Try again") {
                         Haptics.tap()
                         app.restart(host.id)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(CapsuleButtonStyle())
                 }
                 Button("Forget this Mac", role: .destructive) { forgetting = true }
                     .buttonStyle(.borderless)
