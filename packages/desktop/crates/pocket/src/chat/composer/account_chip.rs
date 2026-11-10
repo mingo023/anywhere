@@ -88,7 +88,8 @@ impl Desktop {
         div().absolute().top(px(-6.)).left(px(-6.)).child(deferred(anchored().anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(ui::menu_in("chat-account-menu-in", pop))).with_priority(1))
     }
 
-    pub(crate) fn escape_account_menu(&mut self) -> bool {
-        self.chats.composer.draft.escape_account()
+    pub(crate) fn escape_composer_menu(&mut self) -> bool {
+        let draft = &mut self.chats.composer.draft;
+        draft.escape_account() || draft.escape_model()
     }
 }

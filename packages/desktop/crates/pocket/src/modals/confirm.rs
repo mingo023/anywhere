@@ -152,6 +152,11 @@ impl ConfirmText {
         Self { title: "Merge without the lead's go-ahead?".into(), action: "Merge anyway", facts, dirty: 0, lost: 0, danger: false }
     }
 
+    fn switch_agent(to: &str, from: &str) -> Self {
+        let facts = vec!["A chat can't switch to another provider partway through".into(), format!("Start a fresh {to} chat, or fork this conversation into one"), format!("This {from} chat stays open")];
+        Self { title: format!("Open a new {to} chat?"), action: "Fork conversation", facts, dirty: 0, lost: 0, danger: false }
+    }
+
     fn detail(&self) -> Option<String> {
         (!self.facts.is_empty()).then(|| format!("{}.", self.facts.join(". ")))
     }
@@ -220,6 +225,10 @@ impl Desktop {
             Some(Confirm::RemoveAccount { key, name }) => ConfirmText::remove_account(name, &self.machine_name(&key.host)),
             Some(Confirm::SignOutAccount { name, .. }) => ConfirmText::sign_out_account(name),
             Some(Confirm::MergeTeam(lead)) => ConfirmText::merge_team(self.agents.team(lead).map_or(0, |t| t.tasks.len()), &self.lead_branch(lead)),
+            Some(Confirm::SwitchAgent { agent, provider, .. }) => {
+                let from = self.agents.get(agent).map_or_else(String::new, |a| self.agent_name(&a.provider));
+                ConfirmText::switch_agent(&self.agent_name(provider), &from)
+            }
             None => return div(),
         };
         let mut body = Vec::new();
@@ -269,11 +278,19 @@ impl Desktop {
                 this.close_overlay(window, cx);
             }))
         });
+        let fresh = matches!(self.confirm, Some(Confirm::SwitchAgent { .. })).then(|| {
+            ui::button("confirm-start-fresh", Variant::Secondary, None, "Start fresh").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                if let Some(Confirm::SwitchAgent { agent, provider, model }) = this.confirm.take() {
+                    this.open_switched_chat(&agent, &provider, &model, false, cx);
+                }
+                this.close_overlay(window, cx);
+            }))
+        });
         let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         if worktree {
             return ui::dialog(&text.title, body, [cancel, action]);
         }
-        ui::alert(&text.title, body, std::iter::once(action).chain(dont_save).chain(uninstall).chain([cancel]))
+        ui::alert(&text.title, body, std::iter::once(action).chain(dont_save).chain(uninstall).chain(fresh).chain([cancel]))
     }
 
     fn close_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -292,6 +309,7 @@ impl Desktop {
             Some(Confirm::DeleteScratch { path, .. }) => self.delete_scratch(&path, cx),
             Some(Confirm::TeardownFailed { removal, .. }) => self.delete_worktree(Removal { teardown: false, ..removal }, cx),
             Some(Confirm::Discard(paths)) => self.discard(paths, cx),
+            Some(Confirm::SwitchAgent { agent, provider, model }) => _ = self.open_switched_chat(&agent, &provider, &model, true, cx),
             Some(Confirm::CloseSession(id)) => {
                 if let Some(term) = self.agents.get(&id).map(|a| a.terminal_id.clone()) {
                     self.close_pane(&term, cx);
@@ -441,6 +459,13 @@ mod tests {
         assert_eq!(ConfirmText::discard(&paths[1..2], &files), text("Discard changes to old.rs?", "Discard", &[lost], 0));
         let new = [file("a", 'A', false), file("b", 'A', false)];
         assert_eq!(ConfirmText::discard(&["a".into(), "b".into()], &new).facts[1], "Deletes 2 untracked files");
+    }
+
+    #[test]
+    fn switching_agent_offers_a_new_chat_and_keeps_this_one() {
+        let text = ConfirmText::switch_agent("Codex", "Claude Code");
+        assert_eq!((text.title.as_str(), text.action, text.danger), ("Open a new Codex chat?", "Fork conversation", false));
+        assert!(text.detail().is_some_and(|d| d.contains("This Claude Code chat stays open")));
     }
 
     #[test]

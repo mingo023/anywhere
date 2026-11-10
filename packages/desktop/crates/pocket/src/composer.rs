@@ -1,11 +1,12 @@
 pub(crate) mod add_menu;
+pub(crate) mod effort_menu;
 pub(crate) mod launch;
 pub(crate) mod model_menu;
 pub(crate) mod pills;
 pub(crate) mod team_chip;
 
 use crate::chat::composer::suggest::Suggest;
-use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, marks_overlay};
+use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -44,10 +45,8 @@ impl Composer {
 /// The chip whose menu is open.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Menu {
-    /// The model pill's own menu: Reasoning and Model, each opening its list beside it.
-    ModelAndEffort,
+    /// The model pill's panel: its agents, models and efforts.
     Model,
-    Effort,
     Access,
     /// The chat's account popover on its usage, slid `back` to from its accounts.
     Usage { back: bool },
@@ -59,21 +58,15 @@ pub(crate) enum Menu {
     Goal,
 }
 
-impl Menu {
-    /// Whether this is the model pill's menu, or a list it opened beside it.
-    pub(crate) fn of_model_pill(self) -> bool {
-        matches!(self, Menu::ModelAndEffort | Menu::Model | Menu::Effort)
-    }
-}
-
 /// A composer's choices besides its words.
 #[derive(Default)]
 pub(crate) struct Draft {
     /// The agent picked here, and the Project it was picked for; another Project starts with its own.
     chosen: Option<(Option<String>, LaunchPick)>,
     pub(crate) menu: Option<Menu>,
-    /// The agent whose models the model menu lists, once one is pointed at.
-    viewing: Option<&'static str>,
+    /// The rail entry the model menu lists, once one is clicked: an agent, or `model_menu::FAVORITES`.
+    pub(crate) viewing: Option<&'static str>,
+    pub(crate) effort: effort_menu::EffortMenu,
     pub(crate) images: Vec<Attachment>,
     /// The Team chip: the next send asks the agent for a team plan.
     pub(crate) team: bool,
@@ -92,14 +85,26 @@ impl Draft {
     }
 
     pub(crate) fn choose(&mut self, project: Option<String>, pick: LaunchPick) {
-        (self.chosen, self.menu) = (Some((project, pick)), None);
+        self.adjust(project, pick);
+        self.menu = None;
+    }
+
+    /// `choose`, with the menu left open.
+    fn adjust(&mut self, project: Option<String>, pick: LaunchPick) {
+        self.chosen = Some((project, pick));
+    }
+
+    /// Lists `entry`'s models in the model panel; the efforts are the last entry's.
+    pub(crate) fn view(&mut self, entry: &'static str) {
+        self.viewing = Some(entry);
+        self.effort.fold();
     }
 
     /// Whether `menu` is open now.
     pub(crate) fn toggle(&mut self, menu: Menu) -> bool {
-        let open = self.menu == Some(menu) || menu == Menu::ModelAndEffort && self.menu.is_some_and(Menu::of_model_pill);
-        self.menu = (!open).then_some(menu);
+        self.menu = (self.menu != Some(menu)).then_some(menu);
         self.viewing = None;
+        self.effort = Default::default();
         self.menu.is_some()
     }
 
@@ -116,6 +121,15 @@ impl Draft {
             _ => return false,
         }
         true
+    }
+
+    /// Esc on the model panel closes its list of efforts, else the panel. False while it isn't open.
+    pub(crate) fn escape_model(&mut self) -> bool {
+        let open = self.menu == Some(Menu::Model);
+        if open && !self.effort.fold() {
+            self.menu = None;
+        }
+        open
     }
 
     pub(crate) fn clear(&mut self) {
@@ -334,8 +348,11 @@ impl Desktop {
             .children(trailing)
             .child(add_menu::add_button("composer-add", c.draft.menu == Some(Menu::Add), team, Opens::Down, move |d| &mut slot(d).draft, move |this, _, cx| this.toggle_composer(slot, Menu::Add, cx), cx))
             .child(send);
+        // The search takes the keys while the model panel is open; closing it would leave them nowhere.
+        let handoff = (c.draft.menu != Some(Menu::Model)).then(|| hand_focus(vec![c.search.read(cx).focus_handle(cx)], c.prompt.read(cx).focus_handle(cx)));
         let prompt = c.prompt.clone();
         frame(typing)
+            .children(handoff)
             // Files dropped anywhere on the box go to the prompt. Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
             .drag_over::<ExternalPaths>(|s, _, _, _| dragged_over(s))
             .on_drop(move |paths: &ExternalPaths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)))
@@ -356,6 +373,11 @@ impl Desktop {
 
     fn choose_launch(&mut self, slot: Slot, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
         slot(self).draft.choose(project, pick);
+        cx.notify();
+    }
+
+    fn adjust_launch(&mut self, slot: Slot, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
+        slot(self).draft.adjust(project, pick);
         cx.notify();
     }
 
@@ -458,13 +480,43 @@ mod tests {
     }
 
     #[test]
-    fn the_model_pill_closes_its_menu_from_either_list_beside_it() {
-        for list in [Menu::Model, Menu::Effort] {
-            let mut draft = Draft { menu: Some(list), ..Draft::default() };
-            assert!(!draft.toggle(Menu::ModelAndEffort));
-        }
+    fn esc_closes_the_model_panel_and_leaves_other_menus_alone() {
+        let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
+        assert!(draft.escape_model());
+        assert!(draft.menu.is_none());
+        assert!(!draft.escape_model());
         let mut draft = Draft { menu: Some(Menu::Access), ..Draft::default() };
-        assert!(draft.toggle(Menu::ModelAndEffort));
+        assert!(!draft.escape_model());
+        assert!(draft.menu == Some(Menu::Access));
+    }
+
+    #[test]
+    fn viewing_another_rail_entry_closes_the_list_of_efforts() {
+        let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
+        draft.effort.toggle();
+        draft.view("codex");
+        assert_eq!(draft.viewing, Some("codex"));
+        assert!(!draft.effort.fold());
+    }
+
+    #[test]
+    fn esc_closes_the_list_of_efforts_before_the_model_panel() {
+        let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
+        draft.effort.toggle();
+        assert!(draft.escape_model());
+        assert!(draft.menu == Some(Menu::Model));
+        assert!(draft.escape_model());
+        assert!(draft.menu.is_none());
+    }
+
+    #[test]
+    fn setting_an_effort_leaves_the_panel_open_and_picking_a_model_closes_it() {
+        let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
+        draft.adjust(None, codex());
+        assert!(draft.menu == Some(Menu::Model));
+        assert_eq!(draft.pick(None, LaunchPick::default).provider, "codex");
+        draft.choose(None, codex());
+        assert!(draft.menu.is_none());
     }
 
     #[test]
