@@ -48,22 +48,24 @@ func (c *conn) boardVerb(m proto.ClientMessage) error {
 	}
 	c.boardMu.Lock()
 	defer c.boardMu.Unlock()
-	if err := c.boardDo(m); err != nil {
+	ack := proto.NewAck(m.ID)
+	if err := c.boardDo(m, &ack); err != nil {
 		c.send(boardError(m.ID, err))
 		return nil
 	}
-	c.send(proto.NewAck(m.ID))
+	c.send(ack)
 	return nil
 }
 
-func (c *conn) boardDo(m proto.ClientMessage) error {
+func (c *conn) boardDo(m proto.ClientMessage, ack *proto.Ack) error {
 	store, now := c.s.Board, time.Now()
 	switch m.Type {
 	case "board.save":
 		if err := c.usableFolder(m.Ticket.Folder); err != nil {
 			return err
 		}
-		_, err := store.Save(*m.Ticket, m.StartNow, now)
+		t, err := store.Save(*m.Ticket, m.StartNow, now)
+		ack.TicketID = t.ID
 		return err
 	case "board.delete":
 		return store.Delete(m.TicketID)

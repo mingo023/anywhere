@@ -481,9 +481,11 @@ func NewPermissionResolved(requestID, decision string) PermissionResolved {
 type Ack struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
+	// TicketID is the ticket board.save wrote.
+	TicketID string `json:"ticketId,omitempty"`
 }
 
-func NewAck(id string) Ack { return Ack{"ack", id} }
+func NewAck(id string) Ack { return Ack{Type: "ack", ID: id} }
 
 type Error struct {
 	Type    string `json:"type"`
