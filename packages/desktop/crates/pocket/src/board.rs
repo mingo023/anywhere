@@ -69,12 +69,12 @@ pub struct BoardState {
     /// The list's sections showing only their heads.
     folded: [bool; COLS.len()],
     pub(crate) props: Props,
-    searching: bool,
+    pub(crate) searching: bool,
     /// The tickets the open ticket page steps through; `None` shows the Board.
     page: Option<Vec<String>>,
     lists: Vec<ListState>,
     rows: Vec<Row>,
-    rows_list: ListState,
+    pub(crate) rows_list: ListState,
     columns_scroll: ScrollHandle,
     selection: Selection,
     pub(crate) menu: Option<Menu>,
@@ -171,6 +171,10 @@ impl BoardState {
 }
 
 impl Desktop {
+    fn board_projects(&self) -> Vec<String> {
+        self.store.without_scratch(self.projects())
+    }
+
     pub(crate) fn open_board(&mut self, _: &OpenBoard, window: &mut Window, cx: &mut Context<Self>) {
         if !self.agents.board_offered() {
             return;

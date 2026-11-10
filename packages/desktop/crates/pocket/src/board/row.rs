@@ -1,4 +1,4 @@
-use super::logic::{Col, Field, Row, Slot, activity, column, opens};
+use super::logic::{Col, Field, Row, Slot, activity, column, opens, stuck_head};
 use super::parts::{agent_avatar, col_heading, prop_chip};
 use crate::desktop::Desktop;
 use crate::util::{ago_long, now_ms};
@@ -8,7 +8,7 @@ use gpui_kit::*;
 use theme::*;
 
 impl Desktop {
-    fn section_head(&self, col: Col, first: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn section_bar(&self, col: Col, cx: &mut Context<Self>) -> Div {
         let n = self.board.columns[col as usize].len();
         let add = (col == Col::Todo).then(|| self.add_ticket_button("board-list-add", cx));
         let glyph = if self.board.folded[col as usize] { "chevron-right" } else { "chevron-down" };
@@ -17,8 +17,16 @@ impl Desktop {
             this.board_changed();
             cx.notify();
         }));
-        let bar = div().h(px(32.)).pl(px(4.)).pr(px(6.)).flex().items_center().gap(px(8.)).rounded(px(7.)).bg(FILL_1).child(fold).child(col_heading(col, n.to_string())).child(div().flex_1()).children(add);
-        div().w_full().px(px(8.)).when(!first, |d| d.pt(px(6.))).child(bar).into_any_element()
+        div().h(px(32.)).pl(px(4.)).pr(px(6.)).flex().items_center().gap(px(8.)).rounded(px(7.)).bg(FILL_1).child(fold).child(col_heading(col, n.to_string())).child(div().flex_1()).children(add)
+    }
+
+    fn section_head(&self, col: Col, first: bool, cx: &mut Context<Self>) -> AnyElement {
+        div().w_full().px(px(8.)).when(!first, |d| d.pt(px(6.))).child(self.section_bar(col, cx)).into_any_element()
+    }
+
+    /// `CANVAS` is clear in dark mode, so a head stuck over rows needs a solid fill or they show through it.
+    fn stuck_section(&self, col: Col, cx: &mut Context<Self>) -> Div {
+        div().absolute().top_0().left_0().right_0().px(px(8.)).child(div().rounded(px(7.)).bg(POPOVER).occlude().child(self.section_bar(col, cx)))
     }
 
     /// `face`, opening `field`'s choices on a click while the ticket has no session yet.
@@ -112,6 +120,8 @@ impl Desktop {
             None => div().into_any_element(),
         }))
         .size_full();
-        div().flex_1().min_h_0().child(rows)
+        let top = self.board.rows_list.logical_scroll_top();
+        let stuck = stuck_head(&self.board.rows, top.item_ix, top.offset_in_item > px(0.)).map(|col| self.stuck_section(col, cx));
+        div().relative().flex_1().min_h_0().child(rows).children(stuck)
     }
 }

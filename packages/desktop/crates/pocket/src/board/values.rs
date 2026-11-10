@@ -3,6 +3,7 @@ use agents::providers;
 use agents::tickets::{State, Ticket, TicketDraft};
 
 const NOT_A_REPO: &str = "This folder is not a git repository";
+const NO_PROJECT: &str = "Add a project to create tickets";
 
 /// The composer's or ticket page's choices; the texts live in the inputs.
 #[derive(Clone, PartialEq, Debug)]
@@ -58,6 +59,9 @@ impl Values {
     }
 
     pub(super) fn hint(&self, is_repo: bool, busy: usize, limit: usize) -> Option<String> {
+        if self.folder.is_empty() {
+            return Some(NO_PROJECT.to_string());
+        }
         if !is_repo {
             return Some(NOT_A_REPO.to_string());
         }
@@ -90,6 +94,11 @@ impl Picks {
             self.branches = Some((folder, branches));
         }
     }
+}
+
+/// The project filter, unless it names a folder the composer can't offer.
+pub(super) fn aim_filter<'a>(filter: Option<&'a str>, projects: &[String]) -> Option<&'a str> {
+    filter.filter(|f| projects.iter().any(|p| p == f))
 }
 
 /// Whether the composer should take a new project: its own is gone, or the project filter names another.
@@ -209,6 +218,18 @@ mod tests {
             priority: 0,
             labels: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_composer_with_no_project_says_to_add_one() {
+        assert_eq!(Values::new_in(String::new()).hint(true, 0, 4).as_deref(), Some(NO_PROJECT));
+    }
+
+    #[test]
+    fn a_filter_on_a_folder_the_composer_cannot_offer_does_not_aim_it() {
+        let projects = ["/app".to_string()];
+        assert_eq!(aim_filter(Some("/app"), &projects), Some("/app"));
+        assert_eq!(aim_filter(Some("/scratch"), &projects), None);
     }
 
     #[test]

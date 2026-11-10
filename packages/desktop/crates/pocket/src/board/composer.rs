@@ -1,6 +1,6 @@
 use super::logic::{Field, Surface, busy, split_draft, tab_for_new};
 use super::parts::{bar_button, flush_textarea, key_chip, start_kbd};
-use super::values::{Picks, Values, default_folder, needs_aim};
+use super::values::{Picks, Values, aim_filter, default_folder, needs_aim};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -31,11 +31,12 @@ impl Composer {
 impl Desktop {
     /// Points the composer at the filtered project, or another when its own was removed.
     pub(super) fn aim_board_composer(&mut self, cx: &mut Context<Self>) {
-        let projects = self.store.without_scratch(self.projects());
-        if !needs_aim(&self.board.composer.picks.values.folder, self.board.filters.project.only().map(String::as_str), &projects) {
+        let projects = self.board_projects();
+        let filter = aim_filter(self.board.filters.project.only().map(String::as_str), &projects);
+        if !needs_aim(&self.board.composer.picks.values.folder, filter, &projects) {
             return;
         }
-        let folder = default_folder(self.board.filters.project.only().map(String::as_str), self.project.as_deref().filter(|p| !self.store.is_scratch(p)), projects.first().map(String::as_str));
+        let folder = default_folder(filter, self.project.as_deref().filter(|p| !self.store.is_scratch(p)), projects.first().map(String::as_str));
         if folder == self.board.composer.picks.values.folder {
             return;
         }
@@ -45,7 +46,7 @@ impl Desktop {
 
     /// After a refresh a project picked by hand stays, even off the filter; only one that's gone is replaced.
     pub(crate) fn rescue_board_composer(&mut self, cx: &mut Context<Self>) {
-        if !self.store.without_scratch(self.projects()).contains(&self.board.composer.picks.values.folder) {
+        if !self.board_projects().contains(&self.board.composer.picks.values.folder) {
             self.aim_board_composer(cx);
         }
     }
@@ -63,7 +64,7 @@ impl Desktop {
 
     fn create_ticket(&mut self, start: bool, window: &mut Window, cx: &mut Context<Self>) {
         if !self.composer_ready(cx) {
-            return;
+            return self.focus_board_composer(window, cx);
         }
         let c = &mut self.board.composer;
         let (title, prompt) = split_draft(&c.text.read(cx).value());

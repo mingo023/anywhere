@@ -425,6 +425,14 @@ pub(crate) fn tab_for_new(tab: Tab, start: bool) -> Tab {
     }
 }
 
+/// The section the list's top row is in, once that section's own head is off the top.
+pub(crate) fn stuck_head(rows: &[Row], top: usize, past_start: bool) -> Option<Col> {
+    if !past_start && matches!(rows.get(top), Some(Row::Head(_))) {
+        return None;
+    }
+    rows.iter().take(top + 1).rev().find_map(|r| if let Row::Head(col) = r { Some(*col) } else { None })
+}
+
 /// Folds column `col` away by hand or brings it back; Closed has its own switch.
 pub(crate) fn set_away(col: Col, away: bool, tucked: &mut [bool; COLS.len()], show_closed: &mut bool) {
     if col == Col::Closed {
@@ -865,6 +873,17 @@ mod tests {
         assert_eq!(tab_for_new(Tab::Active, true), Tab::Active);
         assert_eq!(tab_for_new(Tab::Todo, true), Tab::All);
         assert_eq!(tab_for_new(Tab::Todo, false), Tab::Todo);
+    }
+
+    #[test]
+    fn a_section_head_sticks_once_it_reaches_the_top_of_the_list() {
+        let slot = Slot { col: Col::Todo, pos: 0, index: 0 };
+        let rows = [Row::Head(Col::Todo), Row::Ticket(slot), Row::Head(Col::Done), Row::Ticket(slot)];
+        assert_eq!(stuck_head(&rows, 0, false), None);
+        assert_eq!(stuck_head(&rows, 0, true), Some(Col::Todo));
+        assert_eq!(stuck_head(&rows, 1, false), Some(Col::Todo));
+        assert_eq!(stuck_head(&rows, 2, false), None);
+        assert_eq!(stuck_head(&rows, 3, false), Some(Col::Done));
     }
 
     #[test]

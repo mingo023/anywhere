@@ -15,7 +15,6 @@ impl Desktop {
                 .items_center()
                 .gap(px(4.))
                 .cursor_pointer()
-                .text_color(TEXT)
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(TEXT)
                 .child("Clear filters")

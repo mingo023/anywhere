@@ -53,8 +53,7 @@ impl Desktop {
         };
         match field {
             Field::Project => self
-                .store
-                .without_scratch(self.projects())
+                .board_projects()
                 .into_iter()
                 .enumerate()
                 .map(|(i, folder)| {

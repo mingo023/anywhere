@@ -26,7 +26,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 258] = [
+const STEPS: [(&str, Step); 260] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -497,6 +497,17 @@ const STEPS: [(&str, Step); 258] = [
     ("board", |d, window, cx| d.open_board(&crate::actions::OpenBoard, window, cx)),
     ("board-list", |d, _, cx| {
         d.board.layout = crate::board::Layout::List;
+        cx.notify();
+    }),
+    ("board-search", |d, _, cx| {
+        d.board.searching = true;
+        cx.notify();
+    }),
+    ("board-list-scrolled", |d, _, cx| {
+        let more: Vec<_> = (0..3).flat_map(|n| d.agents.board.tickets.iter().map(move |t| (n, t.clone()))).map(|(n, t)| agents::tickets::Ticket { id: format!("{}-{n}", t.id), ..t }).collect();
+        d.agents.board.tickets.extend(more);
+        d.board_changed();
+        d.board.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) });
         cx.notify();
     }),
     ("board-closed", |d, _, cx| {
