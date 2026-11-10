@@ -233,6 +233,10 @@ impl Desktop {
             let unnamed = |path: &str| trees.values().flatten().find(|w| w.path == path).map(crate::sidebar::tree_place);
             self.renames.named(feed, host, &before, &feed.read(&self.agents), unnamed, Instant::now());
         }
+        if listed.is_some() {
+            let agents = &self.agents;
+            self.pr.track.settle(|id| agents.get(id).and_then(Status::of));
+        }
         for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
             self.chat_closed(&agent, &who, window, cx);
         }

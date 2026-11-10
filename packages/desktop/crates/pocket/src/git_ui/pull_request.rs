@@ -12,6 +12,7 @@ use crate::git_ui::changes::push;
 use crate::git_ui::diff::At;
 use crate::git_ui::pull_requests::PrItem;
 use crate::removal::Removal;
+use crate::status::Status;
 use git::github::{self, Check, Gate, Mergeable, Method, Outcome, Pr, PrState, Review, Thread, ThreadState};
 use git::{Commit, Repo};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
@@ -215,6 +216,9 @@ pub(crate) fn gate_text(gate: Gate, base: &str) -> String {
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Sent {
     head: String,
+    agent: String,
+    /// The agent has been seen working since it was sent this.
+    started: bool,
     pub(crate) threads: HashSet<String>,
     pub(crate) checks: HashSet<String>,
     pub(crate) conflict: bool,
@@ -249,12 +253,13 @@ impl Default for Track {
 }
 
 impl Track {
-    /// Records `threads`, `checks` or the conflict as sent for `tree`'s PR; what was sent before its head moved is done.
-    pub(crate) fn send(&mut self, tree: &str, pr: &Pr, threads: &[&Thread], checks: &[&Check], conflict: bool) {
+    /// Records `threads`, `checks` or the conflict as sent to `agent` for `tree`'s PR; what was sent before its head moved is done.
+    pub(crate) fn send(&mut self, tree: &str, agent: &str, pr: &Pr, threads: &[&Thread], checks: &[&Check], conflict: bool) {
         let sent = self.sent.entry(tree.to_string()).or_default();
         if sent.head != pr.head {
             *sent = Sent { head: pr.head.clone(), ..Sent::default() };
         }
+        (sent.agent, sent.started) = (agent.to_string(), false);
         sent.threads.extend(threads.iter().map(|t| t.id.clone()));
         sent.checks.extend(checks.iter().map(|c| c.name.clone()));
         sent.conflict |= conflict;
@@ -273,8 +278,22 @@ impl Track {
             threads: sent.threads.iter().filter(|id| !resolved(id)).cloned().collect(),
             checks: sent.checks.iter().filter(|name| !passed(name)).cloned().collect(),
             conflict: sent.conflict && pr.mergeable != Mergeable::Clean,
+            ..Sent::default()
         };
         (left.items() > 0 || left.conflict).then_some(left)
+    }
+
+    /// Forgets what agents have finished with, by `status`: one that worked and stopped, or is gone. A fix that changed nothing moves neither the head nor the checks.
+    pub(crate) fn settle(&mut self, status: impl Fn(&str) -> Option<Status>) {
+        self.sent.retain(|_, sent| match status(&sent.agent) {
+            Some(Status::Working) => {
+                sent.started = true;
+                true
+            }
+            Some(Status::NeedsYou) => true,
+            Some(_) => !sent.started,
+            None => false,
+        });
     }
 
     pub(crate) fn thread_sent(&self, tree: &str, pr: &Pr, thread: &str) -> bool {
@@ -635,17 +654,17 @@ impl Desktop {
         }
     }
 
-    /// Sends `prompt` to the agent this worktree's chat goes to.
-    fn send_to_agent(&mut self, prompt: &str, cx: &mut Context<Self>) -> bool {
+    /// Sends `prompt` to the agent this worktree's chat goes to; that agent's id once sent.
+    fn send_to_agent(&mut self, prompt: &str, cx: &mut Context<Self>) -> Option<String> {
         if self.agents.observe_only() {
-            return false;
+            return None;
         }
         let Some(target) = self.chat_target(&self.chat_choices()) else {
             self.error = Some("Start an agent in this worktree to send it this.".into());
             cx.notify();
-            return false;
+            return None;
         };
-        let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return false };
+        let (terminal, provider) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone()))?;
         match self.route(&terminal) {
             Route::Chat => self.chat_command(&target, chat::Command::Send(prompt.to_string()), cx),
             Route::Paste => {
@@ -659,11 +678,11 @@ impl Desktop {
             Route::Blocked => {
                 self.error = Some("This agent can't take pasted text right now.".into());
                 cx.notify();
-                return false;
+                return None;
             }
         }
         self.notify_pr(format!("Sent to {}", theme::provider_name(&provider)), None, cx);
-        true
+        Some(target)
     }
 
     /// Hands failed checks and review threads of the PR on screen to its agent.
@@ -675,16 +694,16 @@ impl Desktop {
         if checks.is_empty() && threads.is_empty() {
             return;
         }
-        if self.send_to_agent(&fix_prompt(&pr, &checks, &threads), cx) {
-            self.pr.track.send(&tree, &pr, &threads, &checks, false);
+        if let Some(agent) = self.send_to_agent(&fix_prompt(&pr, &checks, &threads), cx) {
+            self.pr.track.send(&tree, &agent, &pr, &threads, &checks, false);
         }
     }
 
     pub(crate) fn send_conflict(&mut self, cx: &mut Context<Self>) {
         let Some((tree, pr)) = self.shown_pr() else { return };
         let (prompt, pr) = (conflict_prompt(&pr.base), pr.clone());
-        if self.send_to_agent(&prompt, cx) {
-            self.pr.track.send(&tree, &pr, &[], &[], true);
+        if let Some(agent) = self.send_to_agent(&prompt, cx) {
+            self.pr.track.send(&tree, &agent, &pr, &[], &[], true);
         }
     }
 
@@ -792,7 +811,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ship, Track, card_busy, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, review_lines, ship, tally, to_fix, verdict};
+    use super::{Ship, Status, Track, card_busy, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, review_lines, ship, tally, to_fix, verdict};
     use crate::git_ui::pull_requests::PrItem;
     use git::github::{Check, Checks, Comment, Gate, Mergeable, Outcome, Pr, PrState, Review, Thread};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
@@ -894,7 +913,7 @@ mod tests {
     fn what_was_sent_is_being_fixed_until_the_agent_pushes() {
         let (mut track, t) = (Track::default(), thread("T1"));
         assert!(track.fixing("/a", &pr()).is_none());
-        track.send("/a", &pr(), &[&t], &[], false);
+        track.send("/a", "agent", &pr(), &[&t], &[], false);
         assert_eq!(track.fixing("/a", &pr()).map(|s| s.items()), Some(1));
         assert!(track.thread_sent("/a", &pr(), "T1"));
         assert!(track.fixing("/b", &pr()).is_none());
@@ -906,9 +925,9 @@ mod tests {
     #[test]
     fn sending_after_a_push_starts_a_new_fix() {
         let mut track = Track::default();
-        track.send("/a", &pr(), &[&thread("T1")], &[], false);
+        track.send("/a", "agent", &pr(), &[&thread("T1")], &[], false);
         let pushed = Pr { head: "bbb".into(), ..pr() };
-        track.send("/a", &pushed, &[], &[], true);
+        track.send("/a", "agent", &pushed, &[], &[], true);
         let sent = track.fixing("/a", &pushed).unwrap();
         assert!(sent.threads.is_empty() && sent.conflict);
     }
@@ -917,7 +936,7 @@ mod tests {
     fn what_github_shows_done_stops_being_fixed_without_a_push() {
         let pr = Pr { runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed)], threads: vec![thread("T1")], mergeable: Mergeable::Conflicting, ..pr() };
         let mut track = Track::default();
-        track.send("/a", &pr, &[&pr.threads[0]], &[&pr.runs[0], &pr.runs[1]], true);
+        track.send("/a", "agent", &pr, &[&pr.threads[0]], &[&pr.runs[0], &pr.runs[1]], true);
         assert_eq!(track.fixing("/a", &pr).map(|s| s.items()), Some(3));
         let later = Pr {
             runs: vec![check("lint", Outcome::Passed), check("test", Outcome::Pending)],
@@ -932,10 +951,30 @@ mod tests {
     }
 
     #[test]
+    fn a_fix_ends_once_its_agent_has_worked_and_stopped_even_with_nothing_pushed() {
+        let pr = Pr { runs: vec![check("test", Outcome::Failed)], ..pr() };
+        let mut track = Track::default();
+        track.send("/a", "agent", &pr, &[], &[&pr.runs[0]], false);
+        for (status, fixing) in [(Status::Done, true), (Status::Working, true), (Status::NeedsYou, true), (Status::Done, false)] {
+            track.settle(|_| Some(status));
+            assert_eq!(track.fixing("/a", &pr).is_some(), fixing, "{status:?}");
+        }
+    }
+
+    #[test]
+    fn a_fix_ends_when_its_agent_is_gone() {
+        let pr = Pr { runs: vec![check("test", Outcome::Failed)], ..pr() };
+        let mut track = Track::default();
+        track.send("/a", "agent", &pr, &[], &[&pr.runs[0]], false);
+        track.settle(|_| None);
+        assert!(track.fixing("/a", &pr).is_none());
+    }
+
+    #[test]
     fn a_check_stays_fixing_while_any_run_of_it_still_fails() {
         let pr = Pr { runs: vec![check("test", Outcome::Failed)], ..pr() };
         let mut track = Track::default();
-        track.send("/a", &pr, &[], &[&pr.runs[0]], false);
+        track.send("/a", "agent", &pr, &[], &[&pr.runs[0]], false);
         let rerun = Pr { runs: vec![check("test", Outcome::Passed), check("test", Outcome::Failed)], ..pr.clone() };
         assert!(track.fixing("/a", &rerun).is_some());
     }
@@ -954,7 +993,7 @@ mod tests {
         let open = |id: &str| Thread { comments: thread(id).comments[..1].to_vec(), ..thread(id) };
         let pr = Pr { runs: vec![check("lint", Outcome::Failed), check("test", Outcome::Failed), check("build", Outcome::Passed)], threads: vec![open("T1"), thread("T2"), open("T3")], ..pr() };
         let mut track = Track::default();
-        track.send("/a", &pr, &[&pr.threads[0]], &[&pr.runs[0]], false);
+        track.send("/a", "agent", &pr, &[&pr.threads[0]], &[&pr.runs[0]], false);
         let (checks, threads) = to_fix(&pr, track.fixing("/a", &pr).as_ref());
         assert_eq!(checks.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["test"]);
         assert_eq!(threads.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["T3"]);
@@ -998,12 +1037,12 @@ mod tests {
     fn what_the_agent_or_gh_is_doing_comes_before_what_holds_the_pr_back() {
         let pr = open(Checks { failed: 2, ..Checks::default() }, Review::None);
         let mut track = Track::default();
-        track.send("/a", &pr, &[], &[&check("lint", Outcome::Failed), &check("test", Outcome::Failed)], false);
+        track.send("/a", "agent", &pr, &[], &[&check("lint", Outcome::Failed), &check("test", Outcome::Failed)], false);
         assert_eq!(verdict(&pr, track.fixing("/a", &pr).as_ref(), None, "Claude"), (WAITING_TEXT, "Claude is fixing 2 items".into()));
         assert_eq!(verdict(&pr, None, Some("Merging…"), "Claude"), (WAITING_TEXT, "Merging…".into()));
         let conflicting = Pr { mergeable: Mergeable::Conflicting, ..pr };
         let mut track = Track::default();
-        track.send("/a", &conflicting, &[], &[], true);
+        track.send("/a", "agent", &conflicting, &[], &[], true);
         assert_eq!(verdict(&conflicting, track.fixing("/a", &conflicting).as_ref(), None, "Claude").1, "Claude is resolving the conflict");
     }
 

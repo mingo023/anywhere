@@ -829,7 +829,7 @@ const STEPS: [(&str, Step); 251] = [
         let Some((tree, pr)) = d.shown_pr() else { return };
         let pr = pr.clone();
         let failed: Vec<&Check> = pr.runs.iter().filter(|c| c.outcome == Outcome::Failed).collect();
-        d.pr.track.send(&tree, &pr, &[], &failed, false);
+        d.pr.track.send(&tree, "capture", &pr, &[], &failed, false);
     }),
     ("pr-side", |d, _, cx| d.show_pr_side(cx)),
     ("pr-comments", |d, _, _| d.pr.track.comments = true),
