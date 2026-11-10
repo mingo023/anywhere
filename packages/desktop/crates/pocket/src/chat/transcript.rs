@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use theme::*;
 
 /// The transcript's reading width.
-pub(super) const WIDTH: f32 = 720.;
+pub(super) const WIDTH: f32 = 880.;
 /// How long a row shown from the background tray stays lit.
 const FLASH: Duration = Duration::from_millis(900);
 /// A sent prompt fades in where it's held, from just below.
@@ -930,7 +930,7 @@ mod tests {
         assert_eq!(content_width(5000.), 1200.);
         assert_eq!(content_width(745.), 752.);
         assert_eq!(content_width(720.), 720.);
-        assert_eq!(content_width(f32::NAN), 720.);
+        assert_eq!(content_width(f32::NAN), 880.);
     }
 
     #[test]
