@@ -31,7 +31,8 @@ impl Desktop {
             return div().flex().items_center().gap(px(6.)).children(face(tile, self.repo_name(&f.v.folder))).into_any_element();
         }
         let rows = self
-            .projects()
+            .store
+            .without_scratch(self.projects())
             .into_iter()
             .enumerate()
             .map(|(i, p)| {

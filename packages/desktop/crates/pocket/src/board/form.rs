@@ -45,8 +45,9 @@ impl Desktop {
     /// Opens the dialog on ticket `id`, or on a new one.
     pub(crate) fn edit_ticket(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         let existing = id.and_then(|id| self.agents.board.get(id)).cloned();
-        let first = self.projects().into_iter().next();
-        let new_folder = default_folder(self.board.filters.project.as_deref(), self.project.as_deref(), first.as_deref());
+        let first = self.store.without_scratch(self.projects()).into_iter().next();
+        let current = self.project.as_deref().filter(|p| !self.store.is_scratch(p));
+        let new_folder = default_folder(self.board.filters.project.as_deref(), current, first.as_deref());
         let (title, prompt) = existing.as_ref().map_or_else(Default::default, |t| (t.title.clone(), t.prompt.clone()));
         let f = &mut self.board.form;
         f.v = existing.as_ref().map_or_else(|| Values::new_in(new_folder), Values::of);

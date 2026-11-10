@@ -9,3 +9,4 @@ path = "src/project.rs"
 
 [dependencies]
 git.workspace = true
+petname.workspace = true

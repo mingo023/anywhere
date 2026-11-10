@@ -28,7 +28,7 @@ impl Desktop {
     }
 
     fn project_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let rows = self.store.projects.clone().into_iter().enumerate().map(|(i, p)| {
+        let rows = self.store.without_scratch(self.store.projects.clone()).into_iter().enumerate().map(|(i, p)| {
             let name = self.repo_name(&p);
             let tile = self.project_tile(&p, 24.);
             let picks = self.store.repos.get(&p).map(|r| accounts::project_picks(self.accounts.list(&accounts::host_of(Some(&p))), &r.accounts)).unwrap_or_default();

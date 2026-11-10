@@ -54,7 +54,8 @@ impl Desktop {
             })
             .collect();
         let projects: Vec<_> = self
-            .projects()
+            .store
+            .without_scratch(self.projects())
             .into_iter()
             .enumerate()
             .map(|(i, p)| {
