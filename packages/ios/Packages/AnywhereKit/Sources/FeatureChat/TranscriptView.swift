@@ -233,7 +233,15 @@ struct TranscriptView: View {
         if showJump != floating.jump { floating.jump = showJump }
         updateSticky(frames)
         if scroll.pin != nil { stepPin(frames, end: end) }
-        if snaps, scroll.snapLimit.allows(at: .now) { scroll.proxy?.scrollTo(endId, anchor: .bottom) }
+        if snaps {
+            if scroll.snapLimit.allows(at: .now) {
+                scroll.proxy?.scrollTo(endId, anchor: .bottom)
+            } else {
+                // Given up on a list that can't settle: the pill is the way back to its end.
+                scroll.following = false
+                floating.jump = true
+            }
+        }
     }
 
     private func stepPin(_ frames: [RowFrame], end: RowFrame?) {
