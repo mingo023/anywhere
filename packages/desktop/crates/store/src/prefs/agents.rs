@@ -91,6 +91,8 @@ pub struct Agents {
     pub start_as_chat: bool,
     /// By provider.
     pub providers: BTreeMap<String, Provider>,
+    /// Models starred in the model panel, as (provider, model), oldest first.
+    pub favorites: Vec<(String, String)>,
 }
 
 impl Default for Agents {
@@ -107,6 +109,7 @@ impl Default for Agents {
             close_on_exit: false,
             start_as_chat: false,
             providers: BTreeMap::new(),
+            favorites: Vec::new(),
         }
     }
 }
@@ -188,6 +191,19 @@ impl Agents {
         }
         if spec.get("effort").is_none() && efforts.contains(&own.effort) {
             spec["effort"] = own.effort.into();
+        }
+    }
+
+    pub fn is_favorite(&self, provider: &str, model: &str) -> bool {
+        self.favorites.iter().any(|(p, m)| p == provider && m == model)
+    }
+
+    /// Stars `provider`'s `model`, or takes its star off.
+    pub fn toggle_favorite(&mut self, provider: &str, model: &str) {
+        if self.is_favorite(provider, model) {
+            self.favorites.retain(|(p, m)| p != provider || m != model);
+        } else {
+            self.favorites.push((provider.into(), model.into()));
         }
     }
 
@@ -312,6 +328,28 @@ mod tests {
         on.launch(&mut chat, true, &claude_efforts());
         off.launch(&mut named, true, &claude_efforts());
         assert_eq!((tui.get("chat"), &chat["chat"], &named["chat"]), (None, &true.into(), &true.into()));
+    }
+
+    #[test]
+    fn a_starred_model_comes_off_when_starred_again_and_others_keep_their_place() {
+        let mut agents = Agents::default();
+        agents.toggle_favorite("claude", "opus");
+        agents.toggle_favorite("codex", "opus");
+        agents.toggle_favorite("claude", "haiku");
+        assert!(agents.is_favorite("codex", "opus"));
+        agents.toggle_favorite("claude", "opus");
+        assert!(!agents.is_favorite("claude", "opus"));
+        assert_eq!(agents.favorites, [("codex".to_string(), "opus".to_string()), ("claude".to_string(), "haiku".to_string())]);
+    }
+
+    #[test]
+    fn favorites_survive_a_save_and_a_file_from_before_them_has_none() {
+        let mut agents = Agents::default();
+        agents.toggle_favorite("claude", "opus");
+        let saved: Agents = serde_json::from_str(&serde_json::to_string(&agents).unwrap()).unwrap();
+        assert!(saved.is_favorite("claude", "opus"));
+        let old: Agents = serde_json::from_str("{}").unwrap();
+        assert!(old.favorites.is_empty());
     }
 
     #[test]

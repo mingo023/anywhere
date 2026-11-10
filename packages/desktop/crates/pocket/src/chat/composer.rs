@@ -8,11 +8,13 @@ mod model_pill;
 mod queue;
 pub(crate) mod send_button;
 pub(crate) mod suggest;
+mod switch_agent;
 
 use super::question::Wizard;
 use suggest::Prompt;
 use crate::composer::{Attachment, Draft, Menu};
 use crate::composer::add_menu::{self, Opens};
+use crate::composer::model_menu::focus_search;
 use crate::composer::{team_chip, team_offered};
 use crate::desktop::Desktop;
 use crate::renames;
@@ -22,7 +24,7 @@ use crate::status::Status;
 use crate::util::now_ms;
 use agents::{Decision, Summary};
 use chat::{Action, Ask, Command, Kind, Local, Session};
-use gpui_kit::component::input::{InputEvent, RopeExt as _, Textarea, TextareaState};
+use gpui_kit::component::input::{InputEvent, InputState, RopeExt as _, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
@@ -135,6 +137,8 @@ pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<Te
 /// The chat composer's state besides its input (`ChatState::input`), shared by every chat pane.
 pub(crate) struct ComposerState {
     pub(crate) draft: Draft,
+    /// Narrows the model panel's list.
+    pub(crate) search: Entity<InputState>,
     /// The free-text answer of a question, or the reply to a permission.
     pub(super) answer: Entity<TextareaState>,
     pub(super) wizard: Option<Wizard>,
@@ -155,7 +159,9 @@ pub(crate) struct ComposerState {
 impl ComposerState {
     pub(crate) fn new(input: &Entity<TextareaState>, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let answer = cx.new(|cx| TextareaState::new(window, cx).placeholder(super::question::PLACEHOLDER).auto_grow(1, MAX_ROWS).submit_on_enter(true));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let subs = vec![
+            cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
             cx.subscribe_in(input, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, secondary } => this.chat_enter(*secondary, window, cx),
                 InputEvent::Change => {
@@ -172,6 +178,7 @@ impl ComposerState {
         ];
         let state = Self {
             draft: Draft::default(),
+            search,
             answer,
             wizard: None,
             ask_focus: cx.focus_handle(),
@@ -237,7 +244,7 @@ pub(crate) fn dragged_over(s: StyleRefinement) -> StyleRefinement {
 }
 
 /// Moves focus to `to` when one of `from` holds it, so focus follows the pill into the ask that replaces it and back.
-fn hand_focus(from: Vec<FocusHandle>, to: FocusHandle) -> impl IntoElement {
+pub(crate) fn hand_focus(from: Vec<FocusHandle>, to: FocusHandle) -> impl IntoElement {
     canvas(
         move |_, window, cx| {
             if from.iter().any(|f| f.is_focused(window)) {
@@ -519,7 +526,10 @@ impl Desktop {
         match (local, arg) {
             (Local::Model | Local::Effort, "") => {
                 self.load_models(cx);
-                self.chats.composer.draft.menu = Some(if local == Local::Model { Menu::Model } else { Menu::Effort });
+                if self.chats.composer.draft.menu != Some(Menu::Model) && self.chats.composer.draft.toggle(Menu::Model) {
+                    let search = self.chats.composer.search.clone();
+                    focus_search(&search, window, cx);
+                }
             }
             (Local::Model, model) => self.outbox.settings(agent, model, ""),
             (Local::Effort, effort) => self.outbox.settings(agent, "", effort),
@@ -618,7 +628,14 @@ impl Desktop {
         let input = self.chats.input.read(cx).focus_handle(cx);
         let handoff = match mode {
             _ if self.focused_chat().as_deref() != Some(terminal) => None,
-            Mode::Prompt => Some(hand_focus(vec![c.ask_focus.clone(), c.answer.read(cx).focus_handle(cx)], input)),
+            Mode::Prompt => {
+                let mut from = vec![c.ask_focus.clone(), c.answer.read(cx).focus_handle(cx)];
+                // The search takes the keys while the model panel is open; closing it would leave them nowhere.
+                if c.draft.menu != Some(Menu::Model) {
+                    from.push(c.search.read(cx).focus_handle(cx));
+                }
+                Some(hand_focus(from, input))
+            }
             Mode::Permission { answerable: true } | Mode::Question { answerable: true } => Some(hand_focus(vec![input], c.ask_focus.clone())),
             _ => None,
         };
@@ -767,7 +784,7 @@ impl Desktop {
             )
             .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" {
-                    if this.escape_account_menu() {
+                    if this.escape_composer_menu() {
                         cx.stop_propagation();
                         return cx.notify();
                     }

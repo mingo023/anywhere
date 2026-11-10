@@ -26,7 +26,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 252] = [
+const STEPS: [(&str, Step); 250] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -258,10 +258,6 @@ const STEPS: [(&str, Step); 252] = [
     }),
     ("chat-access-open", |d, _, cx| {
         d.chats.composer.draft.toggle(Menu::Access);
-        cx.notify();
-    }),
-    ("chat-effort-open", |d, _, cx| {
-        d.chats.composer.draft.toggle(Menu::Effort);
         cx.notify();
     }),
     ("chat-add-open", |d, _, cx| {
@@ -672,7 +668,6 @@ const STEPS: [(&str, Step); 252] = [
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("new-scratch", |d, window, cx| d.new_session_without_project(window, cx)),
     ("form-model", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Model, cx)),
-    ("form-effort", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Effort, cx)),
     ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),

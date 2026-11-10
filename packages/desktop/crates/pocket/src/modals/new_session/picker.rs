@@ -54,7 +54,8 @@ pub(crate) fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
 impl Desktop {
     pub fn close_picker(&mut self) -> bool {
         let picker = self.new_form.draft.picker.take().is_some();
-        let menu = self.new_form.composer.draft.menu.take().is_some();
+        let draft = &mut self.new_form.composer.draft;
+        let menu = draft.escape_model() || draft.menu.take().is_some();
         picker || menu
     }
 

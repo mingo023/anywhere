@@ -88,6 +88,8 @@ pub enum Confirm {
     RemoveAccount { key: Key, name: String },
     SignOutAccount { key: Key, name: String },
     MergeTeam(String),
+    /// A model from another provider, picked in the chat `agent`.
+    SwitchAgent { agent: String, provider: String, model: String },
 }
 
 /// The sidebar row whose `⋯` menu is open.

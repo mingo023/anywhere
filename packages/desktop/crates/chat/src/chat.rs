@@ -3,6 +3,7 @@
 mod adapter;
 mod answers;
 mod commands;
+pub mod handoff;
 mod marks;
 pub mod mcp;
 mod outgoing;

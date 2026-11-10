@@ -1,6 +1,7 @@
 use super::{close_menu, hang};
 use crate::composer::{self, Menu, launch};
-use crate::composer::model_menu::{OpenBeside, beside_list, check, effort_rows, model_effort_pill, model_value, pill_menu, row, rows_offset};
+use crate::composer::effort_menu::{Effort, effort_menu};
+use crate::composer::model_menu::{FAVORITES, focus_search, model_effort_pill, model_row, panel};
 use crate::desktop::Desktop;
 use crate::settings::models::{effort_label, listed_models};
 use agents::{ListedModel, Summary};
@@ -21,74 +22,66 @@ fn runs(agent: &Summary, model: &ListedModel) -> bool {
     agent.model.as_deref().is_some_and(|m| m == model.value || m == model.resolved || unresolved && m.split('-').any(|w| w == model.value))
 }
 
-/// Opens `list` beside the model pill's menu.
-fn open_beside(this: &mut Desktop, list: Menu, cx: &mut Context<Desktop>) {
-    if this.chats.composer.draft.menu != Some(list) {
-        this.chats.composer.draft.menu = Some(list);
-        cx.notify();
-    }
-}
-
 impl Desktop {
-    /// The agent's model and effort; once pocketd can switch them, a menu of the model's efforts and the agent's models.
+    /// The agent's model and effort; once pocketd can switch them, the panel that picks them.
     pub(super) fn chat_model_pill(&self, agent: &Summary, view_only: bool, cx: &mut Context<Self>) -> Div {
         let model = agent.model.as_deref().unwrap_or_default();
         let levels = self.efforts_on(&agent.provider, model);
         let default = self.listed_model(&agent.provider, model).map(|m| m.default_effort.as_str());
         let (name, effort) = label(agent, &levels, default);
-        let pill = model_effort_pill(&agent.provider, name.clone(), effort.clone());
+        let pill = model_effort_pill(&agent.provider, name, effort);
         if view_only || !self.agents.settings_offered() {
             return pill;
         }
-        let menu = self.chats.composer.draft.menu;
-        let open = menu.is_some_and(Menu::of_model_pill);
-        let chip = composer::picker(pill, "chat-model", open).capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+        let open = self.chats.composer.draft.menu == Some(Menu::Model);
+        let chip = composer::picker(pill, "chat-model", open).capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             this.load_models(cx);
-            this.chats.composer.draft.toggle(Menu::ModelAndEffort);
+            if this.chats.composer.draft.toggle(Menu::Model) {
+                let search = this.chats.composer.search.clone();
+                focus_search(&search, window, cx);
+            }
             cx.notify();
         }));
         let menu = open.then(|| {
-            let word = agents::providers::known(&agent.provider).effort_word;
-            let effort_row = (!levels.is_empty()).then(|| (word, effort.unwrap_or_else(|| "Default".into())));
-            let open_list: OpenBeside = Rc::new(|this, list, _, cx| open_beside(this, list, cx));
-            let rows = pill_menu(["chat-effort", "chat-model-row"], effort_row, model_value(&agent.provider, name), menu, open_list, cx);
-            // The menu opens upward, so a list lines up with its row's bottom: the effort row has the Model row under it.
-            let beside = match menu {
-                Some(Menu::Model) => Some(div().child(self.chat_model_menu(agent, cx))),
-                Some(Menu::Effort) if !levels.is_empty() => Some(div().mb(rows_offset(1)).child(self.chat_effort_menu(agent, &levels, default, cx))),
-                _ => None,
-            };
-            hang("chat-model-menu", div().flex().items_end().gap(px(4.)).child(rows).children(beside), cx)
+            let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
+            let rail = self.model_rail(viewed, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
+            let effort = (viewed == agent.provider && !levels.is_empty()).then(|| self.chat_effort_menu(agent, &levels, default, cx));
+            hang("chat-model-menu", panel(rail, viewed, &self.chats.composer.search, self.chat_models(agent, viewed, cx), effort), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
 
-    /// The models the agent's provider lists, the one it runs checked; picking one switches it.
-    fn chat_model_menu(&self, agent: &Summary, cx: &mut Context<Self>) -> Stateful<Div> {
-        let rows: Vec<_> = listed_models(&agent.provider, self.models_of(&agent.provider))
-            .into_iter()
+    /// What `viewed` lists that holds the search, the model the agent runs checked. Picking one of its provider's switches
+    /// it; one from another provider has to start a new chat.
+    fn chat_models(&self, agent: &Summary, viewed: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
+        let query = self.chats.composer.search.read(cx).value();
+        let entries = self.model_entries(viewed, |d, p| listed_models(p, d.models_of(p)).into_iter().map(|m| (m.value, m.name)).collect(), &query);
+        let own = listed_models(&agent.provider, self.models_of(&agent.provider));
+        entries
+            .iter()
             .enumerate()
-            .map(|(i, model)| {
-                let (on, id, value) = (runs(agent, &model), agent.id.clone(), model.value);
-                row(("chat-model-row", i), on).child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(model.name)).child(check(on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.outbox.settings(&id, &value, "");
-                    close_menu(this, cx);
+            .map(|(i, entry)| {
+                let on = entry.provider == agent.provider && own.iter().any(|m| m.value == entry.value && runs(agent, m));
+                let (id, same, provider, value) = (agent.id.clone(), entry.provider == agent.provider, entry.provider.clone(), entry.value.clone());
+                model_row("chat-model-row", i, entry, on, viewed == FAVORITES, self.store.agents.is_favorite(&entry.provider, &entry.value), cx).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    if same {
+                        this.outbox.settings(&id, &value, "");
+                        close_menu(this, cx);
+                    } else {
+                        this.switch_chat_agent(&id, provider.clone(), value.clone(), cx);
+                    }
                 }))
             })
-            .collect();
-        beside_list("chat-models", 250., rows)
+            .collect()
     }
 
-    /// The model's efforts, the one it runs on, else `default`, checked; picking one switches it.
-    fn chat_effort_menu(&self, agent: &Summary, levels: &[String], default: Option<&str>, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// The model's efforts, naming the one it runs on, else `default`; picking one switches it.
+    fn chat_effort_menu(&self, agent: &Summary, levels: &[String], default: Option<&str>, cx: &mut Context<Self>) -> Effort {
         let id = agent.id.clone();
-        let pick: launch::Pick = Rc::new(move |this, effort, cx| {
-            this.outbox.settings(&id, "", &effort);
-            close_menu(this, cx);
-        });
+        let pick: launch::Pick = Rc::new(move |this, effort, _| this.outbox.settings(&id, "", &effort));
         let on = agent.effort.as_deref().into_iter().chain(default).find(|e| levels.iter().any(|l| l == e)).map(String::from);
-        beside_list("chat-efforts", 200., effort_rows("chat-effort-row", levels, on.as_ref(), pick, cx))
+        effort_menu("chat-effort", agents::providers::known(&agent.provider).effort_word, (levels, on.as_ref()), &self.chats.composer.draft.effort, |d: &mut Desktop| &mut d.chats.composer.draft, pick, cx)
     }
 }
 
