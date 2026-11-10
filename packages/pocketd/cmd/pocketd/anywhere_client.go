@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/coder/websocket"
 
+	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 )
+
+var errInsideTerminal = errors.New("a process inside an Anywhere terminal can only read sessions; run this from outside Anywhere")
 
 // client is one conn to pocketd's WebSocket protocol over its unix socket,
 // where a process outside every Terminal is the owner.
@@ -24,6 +28,10 @@ type client struct {
 	agents map[string]proto.AgentSummary
 	// began holds each agent seen in a turn. hello subscribes before any verb, so no turn slips past.
 	began map[string]bool
+	// owns: only the owner is sent the Board.
+	owns    bool
+	boarded bool
+	board   []proto.Ticket
 }
 
 func dialClient(ctx context.Context, sock string) (*client, error) {
@@ -37,10 +45,17 @@ func dialClient(ctx context.Context, sock string) (*client, error) {
 	// agent.list and a timeline page can be far over the 32KB default.
 	ws.SetReadLimit(-1)
 	c := &client{ctx: ctx, ws: ws, agents: map[string]proto.AgentSummary{}, began: map[string]bool{}}
-	if _, err := c.call("hello.ok", map[string]any{"type": "hello", "clientId": "anywhere", "protocolVersion": proto.MaxVersion}); err != nil {
+	raw, err := c.call("hello.ok", map[string]any{"type": "hello", "clientId": "anywhere", "protocolVersion": proto.MaxVersion, "caps": []string{proto.CapBoard, proto.CapScopes}})
+	if err != nil {
 		ws.CloseNow()
 		return nil, err
 	}
+	var ok proto.HelloOK
+	if err := json.Unmarshal(raw, &ok); err != nil {
+		ws.CloseNow()
+		return nil, err
+	}
+	c.owns = slices.Contains(ok.Scopes, string(peer.Own))
 	for !c.listed {
 		if _, _, _, err := c.read(ctx); err != nil {
 			ws.CloseNow()
@@ -80,6 +95,12 @@ func (c *client) read(ctx context.Context) (kind, id string, raw []byte, err err
 			return "", "", nil, err
 		}
 		c.saw(u.Agent)
+	case "board":
+		var b proto.Board
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return "", "", nil, err
+		}
+		c.board, c.boarded = b.Tickets, true
 	}
 	return head.Type, head.ID, raw, nil
 }
@@ -125,7 +146,7 @@ func (c *client) call(want string, m map[string]any) ([]byte, error) {
 
 func refusal(e proto.Error) error {
 	if e.Code == proto.CodeScopeDenied {
-		return errors.New("a process inside an Anywhere terminal can only read sessions; run this from outside Anywhere")
+		return errInsideTerminal
 	}
 	return errors.New(e.Message)
 }

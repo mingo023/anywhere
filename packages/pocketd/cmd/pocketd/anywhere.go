@@ -27,7 +27,12 @@ const anywhereUsage = `usage: anywhere project list [--json]
        anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider claude|codex] [--access settings|ask|edits|auto|full] [--prompt <text>]
        anywhere session prompt <id> <text|->
        anywhere session close <id>
-       anywhere session wait [--timeout 30m] <id>`
+       anywhere session wait [--timeout 30m] <id>
+       anywhere ticket create [--project <name|path>] [--provider claude|codex] [--base <branch>] [--title <text>] [--start] <prompt|->
+       anywhere ticket list [--json]
+       anywhere ticket read [--json] <id>
+       anywhere ticket update [--title <text>] [--provider claude|codex] [--base <branch>] [--prompt <text|->] <id>
+       anywhere ticket delete <id>`
 
 const (
 	exitError    = 1
@@ -81,6 +86,16 @@ func anywhere(args []string, stdout io.Writer) (int, error) {
 		return 0, sessionCloseCmd(flags, rest)
 	case "session wait":
 		return sessionWaitCmd(flags, rest, stdout)
+	case "ticket create":
+		return 0, ticketCreateCmd(flags, rest, stdout)
+	case "ticket list":
+		return 0, ticketListCmd(flags, rest, stdout)
+	case "ticket read":
+		return 0, ticketReadCmd(flags, rest, stdout)
+	case "ticket update":
+		return 0, ticketUpdateCmd(flags, rest)
+	case "ticket delete":
+		return 0, ticketDeleteCmd(flags, rest)
 	}
 	return 0, errUsage
 }
@@ -346,27 +361,37 @@ func parseCreate(flags *flag.FlagSet, args []string) (newSession, error) {
 	return n, nil
 }
 
+// openProjects connects to pocketd and returns its Projects and the folder to pick one from.
+func openProjects() (*client, []proto.Project, string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if cwd, err = filepath.EvalSymlinks(cwd); err != nil {
+		return nil, nil, "", err
+	}
+	c, err := dialClient(context.Background(), config.Sock())
+	if err != nil {
+		return nil, nil, "", err
+	}
+	list, err := projects(c)
+	if err != nil {
+		c.close()
+		return nil, nil, "", err
+	}
+	return c, list, cwd, nil
+}
+
 func sessionCreateCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
 	n, err := parseCreate(flags, args)
 	if err != nil {
 		return err
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	if cwd, err = filepath.EvalSymlinks(cwd); err != nil {
-		return err
-	}
-	c, err := dialClient(context.Background(), config.Sock())
+	c, list, cwd, err := openProjects()
 	if err != nil {
 		return err
 	}
 	defer c.close()
-	list, err := projects(c)
-	if err != nil {
-		return err
-	}
 	spec, err := launchSpec(list, cwd, n)
 	if err != nil {
 		return err
@@ -406,18 +431,24 @@ func (c *client) awaitTurn(id string) error {
 	return nil
 }
 
+// promptText is arg, or standard input when arg is "-".
+func promptText(arg string) (string, error) {
+	if arg != "-" {
+		return arg, nil
+	}
+	in, err := io.ReadAll(os.Stdin)
+	return string(in), err
+}
+
 func sessionPromptCmd(flags *flag.FlagSet, args []string) error {
 	pos, err := positional(flags, args)
 	if err != nil || len(pos) != 2 {
 		return errUsage
 	}
-	id, text := pos[0], pos[1]
-	if text == "-" {
-		in, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-		text = string(in)
+	id := pos[0]
+	text, err := promptText(pos[1])
+	if err != nil {
+		return err
 	}
 	c, err := dialClient(context.Background(), config.Sock())
 	if err != nil {
@@ -542,6 +573,231 @@ func (c *client) settle(id string) {
 			deadline = time.Now().Add(settleFor)
 		}
 	}
+}
+
+type newTicket struct {
+	project, provider, base, title, prompt string
+	start                                  bool
+}
+
+func parseTicket(flags *flag.FlagSet, args []string) (newTicket, error) {
+	var n newTicket
+	flags.StringVar(&n.project, "project", "", "")
+	flags.StringVar(&n.provider, "provider", "claude", "")
+	flags.StringVar(&n.base, "base", "", "")
+	flags.StringVar(&n.title, "title", "", "")
+	flags.BoolVar(&n.start, "start", false, "")
+	pos, err := positional(flags, args)
+	if err != nil || len(pos) != 1 {
+		return n, errUsage
+	}
+	n.prompt = pos[0]
+	return n, nil
+}
+
+// firstLine is what the Board's composer would title prompt.
+func firstLine(prompt string) string {
+	line, _, _ := strings.Cut(prompt, "\n")
+	runes := []rune(strings.TrimSpace(line))
+	return string(runes[:min(len(runes), proto.MaxTicketTitle)])
+}
+
+var errBadTicket = fmt.Errorf("a ticket needs a prompt, a known --provider, and a --title of at most %d characters", proto.MaxTicketTitle)
+
+func ticketFor(list []proto.Project, cwd string, n newTicket) (proto.Ticket, error) {
+	p, err := pickProject(list, n.project, cwd)
+	if err != nil {
+		return proto.Ticket{}, err
+	}
+	prompt := strings.TrimSpace(n.prompt)
+	t := proto.Ticket{Title: cmp.Or(n.title, firstLine(prompt)), Prompt: prompt, Provider: n.provider, Folder: p.Path, Base: n.base}
+	if !t.Valid() {
+		return t, errBadTicket
+	}
+	return t, nil
+}
+
+func ticketCreateCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
+	n, err := parseTicket(flags, args)
+	if err != nil {
+		return err
+	}
+	if n.prompt, err = promptText(n.prompt); err != nil {
+		return err
+	}
+	c, list, cwd, err := openProjects()
+	if err != nil {
+		return err
+	}
+	defer c.close()
+	t, err := ticketFor(list, cwd, n)
+	if err != nil {
+		return err
+	}
+	id, err := c.saveTicket(t, n.start)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, id)
+	return err
+}
+
+func (c *client) saveTicket(t proto.Ticket, start bool) (string, error) {
+	draft := map[string]any{"id": t.ID, "title": t.Title, "prompt": t.Prompt, "provider": t.Provider, "folder": t.Folder, "base": t.Base}
+	raw, err := c.call("ack", map[string]any{"type": "board.save", "ticket": draft, "start": start})
+	if err != nil {
+		return "", err
+	}
+	var ack proto.Ack
+	if err := json.Unmarshal(raw, &ack); err != nil {
+		return "", err
+	}
+	return ack.TicketID, nil
+}
+
+func (c *client) tickets() ([]proto.Ticket, error) {
+	if !c.owns {
+		return nil, errInsideTerminal
+	}
+	for !c.boarded {
+		if _, _, _, err := c.read(c.ctx); err != nil {
+			return nil, err
+		}
+	}
+	return c.board, nil
+}
+
+func (c *client) ticket(id string) (proto.Ticket, error) {
+	list, err := c.tickets()
+	if err != nil {
+		return proto.Ticket{}, err
+	}
+	i := slices.IndexFunc(list, func(t proto.Ticket) bool { return t.ID == id })
+	if i < 0 {
+		return proto.Ticket{}, fmt.Errorf("no ticket %s", id)
+	}
+	return list[i], nil
+}
+
+// ticketState is what a live ticket's session is doing, or where any other ticket sits.
+func ticketState(t proto.Ticket) string {
+	if t.State == proto.TicketLive {
+		return t.Status
+	}
+	return t.State
+}
+
+func ticketListCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
+	asJSON := flags.Bool("json", false, "")
+	if pos, err := positional(flags, args); err != nil || len(pos) != 0 {
+		return errUsage
+	}
+	c, err := dialClient(context.Background(), config.Sock())
+	if err != nil {
+		return err
+	}
+	defer c.close()
+	list, err := c.tickets()
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(w, list)
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	for _, t := range list {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.ID, ticketState(t), t.Provider, filepath.Base(t.Folder), t.Title)
+	}
+	return tw.Flush()
+}
+
+func ticketReadCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
+	asJSON := flags.Bool("json", false, "")
+	pos, err := positional(flags, args)
+	if err != nil || len(pos) != 1 {
+		return errUsage
+	}
+	c, err := dialClient(context.Background(), config.Sock())
+	if err != nil {
+		return err
+	}
+	defer c.close()
+	t, err := c.ticket(pos[0])
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(w, t)
+	}
+	_, err = fmt.Fprintf(w, "%s\n%s %s %s\n\n%s\n", t.Title, ticketState(t), t.Provider, t.Folder, t.Prompt)
+	return err
+}
+
+// parseTicketEdit returns the ticket's id and only the fields the command set,
+// so an empty --base clears the base and a flag left out keeps its value.
+func parseTicketEdit(flags *flag.FlagSet, args []string) (string, map[string]string, error) {
+	for _, field := range []string{"title", "provider", "base", "prompt"} {
+		flags.String(field, "", "")
+	}
+	pos, err := positional(flags, args)
+	if err != nil || len(pos) != 1 || flags.NFlag() == 0 {
+		return "", nil, errUsage
+	}
+	changes := map[string]string{}
+	flags.Visit(func(f *flag.Flag) { changes[f.Name] = f.Value.String() })
+	return pos[0], changes, nil
+}
+
+func editTicket(t proto.Ticket, changes map[string]string) (proto.Ticket, error) {
+	for field, value := range map[string]*string{"title": &t.Title, "provider": &t.Provider, "base": &t.Base, "prompt": &t.Prompt} {
+		if to, set := changes[field]; set {
+			*value = to
+		}
+	}
+	if !t.Valid() {
+		return t, errBadTicket
+	}
+	return t, nil
+}
+
+func ticketUpdateCmd(flags *flag.FlagSet, args []string) error {
+	id, changes, err := parseTicketEdit(flags, args)
+	if err != nil {
+		return err
+	}
+	if prompt, set := changes["prompt"]; set {
+		if changes["prompt"], err = promptText(prompt); err != nil {
+			return err
+		}
+	}
+	c, err := dialClient(context.Background(), config.Sock())
+	if err != nil {
+		return err
+	}
+	defer c.close()
+	t, err := c.ticket(id)
+	if err != nil {
+		return err
+	}
+	if t, err = editTicket(t, changes); err != nil {
+		return err
+	}
+	_, err = c.saveTicket(t, false)
+	return err
+}
+
+func ticketDeleteCmd(flags *flag.FlagSet, args []string) error {
+	pos, err := positional(flags, args)
+	if err != nil || len(pos) != 1 {
+		return errUsage
+	}
+	c, err := dialClient(context.Background(), config.Sock())
+	if err != nil {
+		return err
+	}
+	defer c.close()
+	_, err = c.call("ack", map[string]any{"type": "board.delete", "ticketId": pos[0]})
+	return err
 }
 
 func skillInstall() error {

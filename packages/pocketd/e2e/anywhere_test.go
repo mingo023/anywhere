@@ -150,9 +150,123 @@ func TestAnywhereStartsAChat(t *testing.T) {
 	}
 }
 
+func TestAnywhereAddsATicketToToDo(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner(proto.CapBoard)
+	id, errOut, code := h.anywhere("ticket", "create", "Fix the login\n\nIt redirects twice")
+	if code != 0 {
+		t.Fatalf("exited %d: %s %s", code, id, errOut)
+	}
+	got := o.WaitTicket("the new ticket", func(x proto.Ticket) bool { return x.Title == "Fix the login" })
+	if got.ID != id || got.State != proto.TicketTodo || got.Folder != h.Repo || got.Prompt != "Fix the login\n\nIt redirects twice" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAnywhereStartsATicketWhenAsked(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner(proto.CapBoard)
+	if out, errOut, code := h.anywhere("ticket", "create", "--start", "--title", "Review", "review the diff"); code != 0 {
+		t.Fatalf("exited %d: %s %s", code, out, errOut)
+	}
+	o.WaitTicket("the ticket started", func(x proto.Ticket) bool { return x.Title == "Review" && x.State != proto.TicketTodo })
+}
+
+// addTicket creates a ticket and returns its id.
+func (h *Harness) addTicket(args ...string) string {
+	h.t.Helper()
+	id, errOut, code := h.anywhere(append([]string{"ticket", "create"}, args...)...)
+	if code != 0 || id == "" {
+		h.t.Fatalf("exited %d: %q %s", code, id, errOut)
+	}
+	return id
+}
+
+func TestAnywhereListsAndReadsTickets(t *testing.T) {
+	h := Start(t, launchReady(""))
+	if out, errOut, code := h.anywhere("ticket", "list", "--json"); code != 0 || out != "[]" {
+		t.Fatalf("exited %d: %q %s", code, out, errOut)
+	}
+	id := h.addTicket("--title", "Review", "--base", "main", "review the diff")
+	h.addTicket("something else")
+	list, errOut, code := h.anywhere("ticket", "list")
+	if code != 0 || !strings.Contains(list, id) || !strings.Contains(list, "Review") || !strings.Contains(list, "something else") {
+		t.Fatalf("exited %d: %q %s", code, list, errOut)
+	}
+	out, errOut, code := h.anywhere("ticket", "read", "--json", id)
+	var got proto.Ticket
+	if code != 0 || json.Unmarshal([]byte(out), &got) != nil {
+		t.Fatalf("exited %d: %q %s", code, out, errOut)
+	}
+	if got.ID != id || got.Title != "Review" || got.Prompt != "review the diff" || got.Base != "main" || got.State != proto.TicketTodo {
+		t.Fatalf("got %+v", got)
+	}
+	if out, _, code := h.anywhere("ticket", "read", id); code != 0 || !strings.Contains(out, "review the diff") {
+		t.Fatalf("exited %d: %q", code, out)
+	}
+}
+
+func TestAnywhereSaysWhenThereIsNoSuchTicket(t *testing.T) {
+	h := Start(t, launchReady(""))
+	for _, args := range [][]string{{"read", "nope"}, {"update", "--title", "x", "nope"}, {"delete", "nope"}} {
+		if _, errOut, code := h.anywhere(append([]string{"ticket"}, args...)...); code != 1 || errOut == "" {
+			t.Fatalf("%v exited %d: %s", args, code, errOut)
+		}
+	}
+}
+
+func TestAnywhereEditsATicketAndKeepsWhatItDidNotChange(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner(proto.CapBoard)
+	id := h.addTicket("--title", "Old", "--base", "main", "first prompt")
+	if out, errOut, code := h.anywhere("ticket", "update", "--title", "New", id); code != 0 {
+		t.Fatalf("exited %d: %s %s", code, out, errOut)
+	}
+	got := o.WaitTicket("the new title", func(x proto.Ticket) bool { return x.ID == id && x.Title == "New" })
+	if got.Prompt != "first prompt" || got.Base != "main" || got.State != proto.TicketTodo {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAnywhereDeletesATicket(t *testing.T) {
+	h := Start(t, launchReady(""))
+	id := h.addTicket("hello")
+	if out, errOut, code := h.anywhere("ticket", "delete", id); code != 0 {
+		t.Fatalf("exited %d: %s %s", code, out, errOut)
+	}
+	if list, _, _ := h.anywhere("ticket", "list"); strings.Contains(list, id) {
+		t.Fatalf("still listed: %q", list)
+	}
+}
+
+func TestAnywhereLeavesAStartedTicketAlone(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner(proto.CapBoard)
+	id := h.addTicket("--start", "run ls")
+	o.WaitTicket("the ticket live", func(x proto.Ticket) bool { return x.ID == id && x.State == proto.TicketLive })
+	if _, errOut, code := h.anywhere("ticket", "update", "--title", "New", id); code != 1 || !strings.Contains(errOut, "already started") {
+		t.Fatalf("update exited %d: %s", code, errOut)
+	}
+	if _, errOut, code := h.anywhere("ticket", "delete", id); code != 1 || errOut == "" {
+		t.Fatalf("delete exited %d: %s", code, errOut)
+	}
+}
+
 func TestAProcessInsideATerminalIsToldItCanOnlyRead(t *testing.T) {
 	h := Start(t, launchReady(""))
 	id := h.Spawn("/bin/sh", "-c", filepath.Join(binDir, "anywhere")+" session close nope; sleep 30")
+	h.WaitScreen(id, "can only read")
+}
+
+func TestAProcessInsideATerminalCannotAddATicket(t *testing.T) {
+	h := Start(t, launchReady(""))
+	id := h.Spawn("/bin/sh", "-c", "cd "+h.Repo+" && "+filepath.Join(binDir, "anywhere")+" ticket create hello; sleep 30")
+	h.WaitScreen(id, "can only read")
+}
+
+func TestAProcessInsideATerminalIsNotShownTheBoard(t *testing.T) {
+	h := Start(t, launchReady(""))
+	id := h.Spawn("/bin/sh", "-c", filepath.Join(binDir, "anywhere")+" ticket list; sleep 30")
 	h.WaitScreen(id, "can only read")
 }
 
