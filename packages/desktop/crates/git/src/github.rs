@@ -413,10 +413,34 @@ fn author(author: &Value) -> String {
     author["login"].as_str().unwrap_or("ghost").to_string()
 }
 
+/// Which of a check's runs came later.
+#[derive(Clone, Copy)]
+struct Arrival {
+    /// An Actions job's run id, then its job id.
+    ids: Option<(u64, u64)>,
+    started: u64,
+}
+
+impl Arrival {
+    /// Runs queued together can start in either order, so ids decide when both have them: run ids follow the events, and a re-run keeps its run id under a new job id.
+    fn not_before(self, other: Self) -> bool {
+        match (self.ids, other.ids) {
+            (Some(a), Some(b)) => a >= b,
+            _ => self.started >= other.started,
+        }
+    }
+}
+
+/// The run and job ids in an Actions job's URL.
+fn actions_ids(url: &str) -> Option<(u64, u64)> {
+    let (run, job) = url.split_once("/actions/runs/")?.1.split_once("/job/")?;
+    Some((run.parse().ok()?, job.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?))
+}
+
 /// The latest run of each check: re-running one, as a label change does, adds a run on the same head and leaves the old one in the rollup.
 fn runs(rollup: &Value) -> Vec<Check> {
     let mut runs = Vec::new();
-    let mut latest: HashMap<(String, String), (usize, u64)> = HashMap::new();
+    let mut latest: HashMap<(String, String), (usize, Arrival)> = HashMap::new();
     for check in rollup.as_array().into_iter().flatten() {
         let field = |k: &str| check[k].as_str().unwrap_or("");
         // Commit statuses carry `state`; check runs carry `status` and `conclusion`.
@@ -437,16 +461,16 @@ fn runs(rollup: &Value) -> Vec<Check> {
             (outcome, field("name"), field("detailsUrl"))
         };
         // A queued run has no start yet and is the newest.
-        let started = epoch_ms(field("startedAt")).unwrap_or(u64::MAX);
+        let arrival = Arrival { ids: actions_ids(url), started: epoch_ms(field("startedAt")).unwrap_or(u64::MAX) };
         let run = Check { name: name.to_string(), outcome, url: url.to_string() };
         match latest.entry((field("workflowName").to_string(), name.to_string())) {
-            Entry::Occupied(mut e) if started >= e.get().1 => {
+            Entry::Occupied(mut e) if arrival.not_before(e.get().1) => {
                 runs[e.get().0] = run;
-                e.get_mut().1 = started;
+                e.get_mut().1 = arrival;
             }
             Entry::Occupied(_) => {}
             Entry::Vacant(e) => {
-                e.insert((runs.len(), started));
+                e.insert((runs.len(), arrival));
                 runs.push(run);
             }
         }
@@ -537,6 +561,24 @@ mod tests {
         assert_eq!(runs, [("type-label", Outcome::Passed), ("build", Outcome::Pending), ("build", Outcome::Failed)]);
         assert_eq!(pr.runs[0].url, "https://github.com/mingo023/anywhere/actions/runs/38583280097/job/115918493199");
         assert_eq!(pr.checks, Checks { passed: 1, failed: 1, pending: 1 });
+    }
+
+    #[test]
+    fn a_run_created_later_wins_even_when_the_earlier_one_started_after_it() {
+        let pr = view_result(Ok(r#"{"isDraft":false,"number":210,"state":"OPEN","title":"t","url":"u","statusCheckRollup":[
+            {"__typename":"CheckRun","conclusion":"FAILURE","detailsUrl":"https://github.com/mingo023/anywhere/actions/runs/42742056810/job/129585252967","name":"type-label","startedAt":"2026-11-10T02:20:22Z","status":"COMPLETED","workflowName":"PR type label"},
+            {"__typename":"CheckRun","conclusion":"SUCCESS","detailsUrl":"https://github.com/mingo023/anywhere/actions/runs/42742057451/job/129585251826","name":"type-label","startedAt":"2026-11-10T02:20:21Z","status":"COMPLETED","workflowName":"PR type label"}
+        ]}"#.into())).unwrap().unwrap();
+        assert_eq!(pr.checks, Checks { passed: 1, failed: 0, pending: 0 });
+    }
+
+    #[test]
+    fn a_rerun_job_beats_the_attempt_it_replaced() {
+        let pr = view_result(Ok(r#"{"isDraft":false,"number":1,"state":"OPEN","title":"t","url":"u","statusCheckRollup":[
+            {"__typename":"CheckRun","conclusion":"SUCCESS","detailsUrl":"https://github.com/o/r/actions/runs/5/job/9?pr=1","name":"test","startedAt":"2026-11-10T02:20:21Z","status":"COMPLETED","workflowName":"CI"},
+            {"__typename":"CheckRun","conclusion":"FAILURE","detailsUrl":"https://github.com/o/r/actions/runs/5/job/7?pr=1","name":"test","startedAt":"2026-11-10T02:20:25Z","status":"COMPLETED","workflowName":"CI"}
+        ]}"#.into())).unwrap().unwrap();
+        assert_eq!(pr.checks, Checks { passed: 1, failed: 0, pending: 0 });
     }
 
     #[test]

@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(fix_offer(&failing(), None, true, false), None, "an observe-only agent");
         assert_eq!(fix_offer(&Pr { state: PrState::Merged, ..failing() }, None, true, true), None);
         let (pr, mut track) = (failing(), Track::default());
-        track.send("/w", &pr, &[], &[&pr.runs[0]], false);
+        track.send("/w", "agent", &pr, &[], &[&pr.runs[0]], false);
         assert_eq!(fix_offer(&pr, track.fixing("/w", &pr).as_ref(), true, true), None, "a fix already sent");
         assert_eq!(fix_offer(&Pr::default(), None, true, true), None, "nothing to fix");
     }

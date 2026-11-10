@@ -295,6 +295,14 @@ pub fn lost_commits(run: &Runner, cwd: &str, branch: Option<&str>) -> usize {
     git(run, cwd, &args).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
 }
 
+/// How many files in `cwd` differ from HEAD, untracked ones included; `None` when git can't read it.
+pub fn dirty_files(run: &Runner, cwd: &str) -> Option<usize> {
+    if checking_out(run, cwd) {
+        return Some(0);
+    }
+    git(run, cwd, &["status", "--porcelain", "-uall"]).map(|out| out.lines().count())
+}
+
 /// Deletes `branch`, merged or not; git refuses while a worktree has it checked out.
 pub fn delete_branch(run: &Runner, repo: &str, branch: &str) -> Result<(), String> {
     git_result(run, repo, &["branch", "-D", "--", branch])
@@ -1467,6 +1475,36 @@ mod tests {
         sh(&repo, &["update-ref", "-d", "refs/remotes/origin/fix/a"]);
         sh(&repo, &["merge", "-q", "--ff-only", "fix/a"]);
         assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn dirty_files_counts_edited_staged_and_each_untracked_file_but_not_ignored_ones() {
+        let dir = scratch_repo("dirty");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        assert_eq!(dirty_files(&Runner::Local, r), Some(0));
+        std::fs::write(repo.join("a"), "edited\n").unwrap();
+        std::fs::write(repo.join("staged"), "s\n").unwrap();
+        sh(&repo, &["add", "staged"]);
+        std::fs::create_dir(repo.join("new")).unwrap();
+        std::fs::write(repo.join("new/one"), "1\n").unwrap();
+        std::fs::write(repo.join("new/two"), "2\n").unwrap();
+        std::fs::write(repo.join(".git/info/exclude"), "ignored\n").unwrap();
+        std::fs::write(repo.join("ignored"), "i\n").unwrap();
+        assert_eq!(dirty_files(&Runner::Local, r), Some(4));
+        assert_eq!(dirty_files(&Runner::Local, r), read(&Runner::Local, r, true).map(|got| got.files.len()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn dirty_files_is_zero_while_a_worktree_checks_out_and_none_outside_a_repo() {
+        let dir = scratch_repo("dirty-checkout");
+        let tree = dir.join("tree");
+        sh(&dir.join("repo"), &["worktree", "add", "-q", "--no-checkout", "-b", "fresh", tree.to_str().unwrap()]);
+        std::fs::write(tree.join("a"), "a\n").unwrap();
+        assert_eq!(dirty_files(&Runner::Local, tree.to_str().unwrap()), Some(0));
+        assert_eq!(dirty_files(&Runner::Local, dir.join("gone").to_str().unwrap()), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
