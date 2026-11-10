@@ -134,7 +134,7 @@ struct TranscriptView: View {
                         }
                         if ids.isEmpty {
                             // One row with height, as under a last row: a lazy stack drops a zero-height row on the viewport's edge.
-                            VStack(alignment: .leading, spacing: 0) { end }.id("end")
+                            VStack(alignment: .leading, spacing: 0) { end }.id(Self.emptyEndId)
                         }
                     }
                     .padding(.horizontal, Space.l)
@@ -194,7 +194,8 @@ struct TranscriptView: View {
 
     /// What a scroll to the end lands on: the last row, which holds the room under the rows and the end marker. A lazy
     /// stack scrolls only to its own rows, and the last one isn't built once the list is scrolled far from it.
-    private var endId: String { transcriptRows.ids.list.last ?? "end" }
+    private var endId: String { transcriptRows.ids.list.last ?? Self.emptyEndId }
+    private static let emptyEndId = "end"
 
     /// Room under the rows for a held prompt and the list's padding, then the end.
     @ViewBuilder
