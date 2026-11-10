@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.37
+
+- Board starts from a composer and works like a Linear board (#217): (9781c060)
+- Anywhere command adds, reads, edits and deletes Board tickets (#218): (36d1f49a)
+- iPhone project rows show the iPad's worktree and folder icons (#215): (22048a63)
+- Opening a chat on iPad no longer freezes the app (#216): (09d5ed14)
+- Model picker is one panel with search, favorites and an effort list (#214): (9d3b2433)
+- Sidebar turns to glass with the window below full opacity (#213): (8ba9fe29)
+- Sidebar Sessions start agents in folders with no project (#212): (008f87e9)
+- Chat column widens to use more of the window (#211): (e68b4593)
+- Delete worktree confirmation opens without a full git read (#210): (968be14c)
+
 ## 0.1.36
 
 - Board starts agent tasks and follows them through to review (#207): (347637de)
