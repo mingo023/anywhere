@@ -69,6 +69,18 @@ pub struct Ticket {
     pub closed_at: i64,
     #[serde(default)]
     pub closed_why: ClosedWhy,
+    /// Its short ID on the Board; 0 until a pocketd that numbers tickets has seen it.
+    #[serde(default)]
+    pub number: u64,
+    /// 1 (urgent) to 4 (low); 0 is none.
+    #[serde(default)]
+    pub priority: u8,
+    #[serde(default)]
+    pub labels: Vec<String>,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 /// What `board.save` carries; no `id` creates.
@@ -82,6 +94,10 @@ pub struct TicketDraft {
     pub folder: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub base: String,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub priority: u8,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, PartialEq)]

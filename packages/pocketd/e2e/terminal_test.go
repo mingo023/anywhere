@@ -27,6 +27,7 @@ func TestAPhonesShellOpensOnTheDesktopAndTakesItsTyping(t *testing.T) {
 	}
 	phone.Send(map[string]any{"type": "terminal.attach", "id": "a", "terminalId": created.TerminalID})
 	phone.WaitFor("terminal.attached", func(m Message) bool { return m.Type == "terminal.attached" })
-	phone.Send(map[string]any{"type": "terminal.input", "id": "i", "terminalId": created.TerminalID, "data": base64.StdEncoding.EncodeToString([]byte("echo e2e-$((6*7))\r"))})
+	// The quotes only vanish if a shell ran it, in any login shell: fish has no $((…)).
+	phone.Send(map[string]any{"type": "terminal.input", "id": "i", "terminalId": created.TerminalID, "data": base64.StdEncoding.EncodeToString([]byte("echo e2e-'4'2\r"))})
 	phone.WaitFor("the shell's answer", func(m Message) bool { return strings.Contains(m.Raw, "e2e-42") })
 }

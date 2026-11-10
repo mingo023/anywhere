@@ -1,5 +1,53 @@
 # UI Review Changelog
 
+## 2026-11-10 · e68b4593 + uncommitted · Board pane compared like for like; new features on the real daemon
+- passed: outside text every screen is under 1%: empty 0.05%, columns 0.14%, list 0.14%, filtered 0.14%, bulk 0.24%
+- failed: none
+- skipped: sidebar (the app's own width and content); Board-only Command menu icon (removed from the prototype shot, not built by decision)
+- measured: compare.py on the 1168x900 pane, prototype viewport sized to match and given the fixture's tickets. With text included: empty 0.54% and filtered 0.95% pass; columns 1.50%, list 2.71%, bulk 2.86% do not
+- text check: 265 text runs compared for weight, colour and height. Median height difference 0. Found and fixed: placeholder colour, hint key chips, hidden-tickets notice colour and position
+- fixes: bulk bar fill, ring, glyphs and position; Board and ticket bar height 44 with 2pt title inset; first list group top gap; tab gaps and chip widths (border was adding 2pt); list-row actions show only on hover or cursor; card actions right on the meta row; card head height and title gap; dock composer line height and footer margin; Start shortcut chip
+- note: the text-included remainder is system font width, about 2.5% wider in Chromium than GPUI; the skill's triage ignores OS font rendering. Text runs start within 1pt except where a run is right-anchored or follows other text. Note wrapping in cards was normalized in the prototype shot because it is a result of that width
+- note: not a pass with text included. Equalizing the browser's text width (letter-spacing -0.0123em in the prototype shot only) still left list 2.23% and bulk 2.38%, so the rest is how each renderer draws glyphs
+- note: on a real pocketd: bulk Priority, Label, Agent, Status to Queued, Close with Undo, multi-value and "is not" filters, saved view after an app restart (stub agent); bulk Start of two tickets with real Claude ran through to Done
+
+## 2026-11-10 · e68b4593 + uncommitted · full (caller-requested re-check of the board empty state)
+- passed: board (4.56% full-canvas; explained below, no real defect)
+- failed: none
+- skipped: sessions, changes, split, inbox, explore, command-palette-k, new-session, add-repository, repositories-worktrees, compact, compact-sidebar-open, session-terminal-focus, automations, automations-runs, automations-editor, settings-general, settings-appearance, settings-notifications, settings-keyboard, settings-keyboard-custom, settings-projects, settings-agents, settings-agent-claude, settings-agent-codex, settings-automations, settings-automations-stopped, settings-phone, settings-phone-empty, settings-project-edit, settings-sidebar, settings-terminal, settings-files, settings-browser, settings-git, settings-diff, settings-search (no design this run; mode forced to full by new icon assets under theme/assets/icons/**)
+- designs: board=4510075a5324
+- trigger: caller re-ran the board-empty review (same flow.html "Empty" variant) against board-empty-state-polish's board.rs/board/** changes
+- note: mismatch stayed within 0.3pt of the last run's 4.29% (board features since landed: composer.rs, selection.rs, bulk_bar.rs, ticket_page.rs, views.rs). Of the 4.56%: (1) the sidebar project/ticket rows and the composer's placeholder-text suffix are fixture/live data, not design; (2) the hero block centers with `flex_1().items_center().justify_center()` (composer.rs:98) inside a 652px `HERO_WIDTH` box — unchanged and still matching the design pixel-for-pixel — but the design's mockup floats the window 72px/24px inset (804px tall) while the headless capture fills the full 900px canvas with no window chrome, so the same centered block sits ~46px lower in the taller capture; this is the mockup's presentation, not a layout bug (confirmed: header-row offset is ~73px but hero offset is only ~26px, and (900-804)/2≈48px accounts for the gap). No pixel, copy, icon, or style regression found.
+- fixes: none (review-only)
+- unmapped UI changes: packages/desktop/crates/pocket/src/desktop.rs, desktop/chrome.rs, desktop/project.rs, modals.rs, sidebar/rail.rs → none of `screens.*.files` covers these; worth a follow-up pass on the config globs
+
+## 2026-11-10 · e68b4593 + uncommitted · board features, clicked through against the fixture
+- passed: filter-menu search, row project/agent pick, J/K cursor with column scroll, X and ⌘A selection, bulk bar, bulk Close with Undo, bulk Start, saved view tabs
+- failed: none
+- skipped: none
+- note: crops pixel-diffed against the prototype's own screenshots: filter menu 3.4%, value panel 2.0%, filter token 5.5%, Clear and Save view 6.3%; those crops differ by ticket counts and text antialiasing. Bulk bar not diffed: the prototype's shot caught it mid-fade
+- designs: board=4510075a5324
+- trigger: Linear features from the prototype added to the Composer Board
+- fixes: picked card ring showed through the translucent surface as a solid fill; row check uses the prototype's indigo; bulk Status, filter side panel, several values per filter and is / is not added
+
+## 2026-11-10 · e68b4593 + uncommitted · board re-diff, others against unchanged code
+- passed: board empty state after aligning to the design's window (rest is sample copy and project names)
+- failed: none
+- skipped: none; changes dropped its `comment` step, which capture mode doesn't have
+- designs: board=4510075a5324
+- trigger: Board Composer implementation; split and 35 other screens pixel-compared with e68b4593
+- note: 4.3% full-frame mismatch is the design's inset window and sample sidebar. Other screens differ only by clocks and loading dots. Placeholder color is the app-wide muted token, brighter than the design's TEXT_4
+- fixes: hero textarea size (Textarea sets its own, so parent text_size did nothing), disabled Start label
+
+## 2026-11-10 · e68b4593 · full (only "board" has a design this run)
+- passed: none
+- failed: board 4.29%
+- skipped: sessions, changes, split, inbox, explore, command-palette-k, new-session, add-repository, repositories-worktrees, compact, compact-sidebar-open, session-terminal-focus, automations, automations-runs, automations-editor, settings-general, settings-appearance, settings-notifications, settings-keyboard, settings-keyboard-custom, settings-projects, settings-agents, settings-agent-claude, settings-agent-codex, settings-automations, settings-automations-stopped, settings-phone, settings-phone-empty, settings-project-edit, settings-sidebar, settings-terminal, settings-files, settings-browser, settings-git, settings-diff, settings-search (no design this run; blast radius was new icon assets under theme/assets/icons/**, which forced scope.py to full)
+- designs: board=4510075a5324
+- trigger: caller-requested review of the Board's empty state (flow.html, "Empty" variant) against board-empty-state-polish's board.rs/board/** changes; new .ui-review/config.json screen "board" added (capture: dark, board, board-empty)
+- note: design and impl use identical color tokens (FILL_1, SEPARATOR, TEXT_2/3/4 all match exactly) and identical hero layout constants (HERO_WIDTH 652, composer padding 12/12/9, textarea min-h 60) — confirms this screen's build matches the design's measurements precisely. The only vertical offset in the diff (~27px, cascading from a ~54px gap at the very top) is the headless capture's missing native window-chrome/traffic-lights, not a real bug — confirmed by the hero-to-header gap matching within 5px once that offset is accounted for. Sidebar project names/colors and the inbox bell's "3" badge differ because they're fixture/live data, not design. Real defects below.
+- fixes: none (review-only)
+
 ## 2026-10-09 · 6427b5f · full (caller-scoped, 10 settings screens)
 - passed: settings-automations, settings-automations-stopped, settings-git, settings-terminal, settings-browser
 - failed: settings-agent-claude, settings-agent-codex, settings-project-edit, settings-phone, settings-phone-empty

@@ -23,6 +23,7 @@ const (
 	MaxBoardLimit     = 8
 	DefaultBoardLimit = 4
 	MaxTicketTitle    = 200
+	MaxTicketPriority = 4
 )
 
 const (
@@ -72,13 +73,31 @@ type Ticket struct {
 	ClosedWhy  string `json:"closedWhy,omitempty"`
 	// Relaunch: Start again was asked, so the next pump launches it whatever the limit.
 	Relaunch bool `json:"relaunch,omitempty"`
+	// Number is its short ID on the Board, unique among the tickets.
+	Number int64 `json:"number,omitempty"`
+	// Priority is 1 (urgent) to 4 (low); 0 is none. It never moves a ticket in line.
+	Priority int      `json:"priority,omitempty"`
+	Labels   []string `json:"labels,omitempty"`
 }
 
 // Valid is what a client's board.save must satisfy.
 func (t Ticket) Valid() bool {
 	title := utf8.RuneCountInString(strings.TrimSpace(t.Title))
 	return title >= 1 && title <= MaxTicketTitle && strings.TrimSpace(t.Prompt) != "" && len(t.Prompt) <= MaxPrompt &&
-		providers.Get(t.Provider) != nil && t.Folder != "" && !strings.HasPrefix(t.Base, "-")
+		providers.Get(t.Provider) != nil && t.Folder != "" && !strings.HasPrefix(t.Base, "-") &&
+		t.Priority >= 0 && t.Priority <= MaxTicketPriority && validLabels(t.Labels)
+}
+
+// TicketLabels are the only labels a ticket can carry, so every one has a row in the desktop's picker.
+var TicketLabels = []string{"Bug", "Feature", "Docs", "Infra"}
+
+func validLabels(labels []string) bool {
+	for i, l := range labels {
+		if !slices.Contains(TicketLabels, l) || slices.Contains(labels[:i], l) {
+			return false
+		}
+	}
+	return true
 }
 
 // HoldsSlot is whether t counts against the Board's limit.
@@ -101,7 +120,7 @@ func NewBoard(tickets []Ticket, limit int) Board {
 }
 
 func decodeTicket(raw json.RawMessage, dst **Ticket) bool {
-	f, ok := strictObject(raw, "id", "title", "prompt", "provider", "folder", "base")
+	f, ok := strictObject(raw, "id", "title", "prompt", "provider", "folder", "base", "priority", "labels")
 	if !ok {
 		return false
 	}

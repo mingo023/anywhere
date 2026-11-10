@@ -40,6 +40,12 @@ func TestATicketNeedsATitleAPromptAKnownAgentAndAFolder(t *testing.T) {
 		"long prompt":  func(x *Ticket) { x.Prompt = strings.Repeat("a", MaxPrompt+1) },
 		"agent":        func(x *Ticket) { x.Provider = "nope" },
 		"folder":       func(x *Ticket) { x.Folder = "" },
+		"priority":     func(x *Ticket) { x.Priority = MaxTicketPriority + 1 },
+		"negative":     func(x *Ticket) { x.Priority = -1 },
+		"blank label":    func(x *Ticket) { x.Labels = []string{" "} },
+		"unknown label":  func(x *Ticket) { x.Labels = []string{"Perf"} },
+		"spaced label":   func(x *Ticket) { x.Labels = []string{" Bug "} },
+		"repeated label": func(x *Ticket) { x.Labels = []string{"Bug", "Bug"} },
 		"base flag":    func(x *Ticket) { x.Base = "--force" },
 	} {
 		bad := ok

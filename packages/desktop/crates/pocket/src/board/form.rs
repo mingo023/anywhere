@@ -1,34 +1,37 @@
-use super::logic::busy;
-use super::parts::action_button;
-use super::values::{Values, default_folder};
+use super::logic::{Surface, column, page_ids, stepped};
+use super::values::{Picks, Values, page_save};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::Overlay;
+use crate::desktop::chrome::Screen;
 use crate::modals::new_session::default_first;
-use agents::tickets::TicketDraft;
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
-use gpui_kit::prelude::FluentBuilder as _;
+use agents::tickets::{State, TicketDraft};
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
-use theme::*;
-use ui::{self, Variant};
+use std::time::Duration;
 
+const SAVE_AFTER: Duration = Duration::from_millis(400);
+
+/// The ticket page's fields; the ticket it edits is `picks.values.id`.
 pub struct Form {
-    title: Entity<InputState>,
-    prompt: Entity<TextareaState>,
-    pub(super) v: Values,
-    /// A folder's local branches, its default first, as last read.
-    branches: Option<(String, Vec<String>)>,
+    pub(super) title: Entity<InputState>,
+    pub(super) prompt: Entity<TextareaState>,
+    pub(super) picks: Picks,
+    saving: Option<Task<()>>,
 }
 
 impl Form {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Ticket title"));
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Tell the agent what you want done…").auto_grow(6, 14));
-        let subs = vec![cx.subscribe(&title, |_, _, _: &InputEvent, cx| cx.notify()), cx.subscribe(&prompt, |_, _, _: &InputEvent, cx| cx.notify())];
-        (Self { title, prompt, v: Values::new_in(String::new()), branches: None }, subs)
-    }
-
-    pub(super) fn branches(&self) -> &[String] {
-        self.branches.as_ref().filter(|(f, _)| *f == self.v.folder).map_or(&[], |(_, b)| b.as_slice())
+        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Tell the agent what you want done…").auto_grow(10, 24));
+        let desktop = cx.entity().downgrade();
+        // Ahead of the keymap: a textarea's ⌘↵ would put a newline in the prompt first.
+        let start = cx.intercept_keystrokes(move |ev, window, cx| {
+            let k = &ev.keystroke;
+            if k.key == "enter" && k.modifiers.secondary(cx) && desktop.update(cx, |d, cx| d.start_key(window, cx)).unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        });
+        let subs = vec![cx.subscribe(&title, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)), cx.subscribe(&prompt, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)), start];
+        (Self { title, prompt, picks: Picks::new(Values::new_in(String::new())), saving: None }, subs)
     }
 
     fn texts(&self, cx: &App) -> (String, String) {
@@ -37,29 +40,27 @@ impl Form {
 
     fn draft(&self, cx: &App) -> TicketDraft {
         let (title, prompt) = self.texts(cx);
-        self.v.draft(&title, &prompt)
+        self.picks.values.draft(&title, &prompt)
     }
 }
 
 impl Desktop {
-    /// Opens the dialog on ticket `id`, or on a new one.
-    pub(crate) fn edit_ticket(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        let existing = id.and_then(|id| self.agents.board.get(id)).cloned();
-        let first = self.store.without_scratch(self.projects()).into_iter().next();
-        let current = self.project.as_deref().filter(|p| !self.store.is_scratch(p));
-        let new_folder = default_folder(self.board.filters.project.as_deref(), current, first.as_deref());
-        let (title, prompt) = existing.as_ref().map_or_else(Default::default, |t| (t.title.clone(), t.prompt.clone()));
+    /// Opens the page of a ticket that has not started.
+    pub(crate) fn edit_ticket(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_ticket_page(cx);
+        let Some(t) = self.agents.board.get(id).filter(|t| column(t).lifts()).cloned() else { return };
+        self.board.page = Some(page_ids(&self.agents.board.tickets, &self.board.columns));
         let f = &mut self.board.form;
-        f.v = existing.as_ref().map_or_else(|| Values::new_in(new_folder), Values::of);
-        f.title.update(cx, |s, cx| s.set_value(title, window, cx));
-        f.prompt.update(cx, |s, cx| s.set_value(prompt, window, cx));
-        f.title.update(cx, |s, cx| s.focus(window, cx));
-        let folder = f.v.folder.clone();
-        self.open(Overlay::Ticket, window, cx);
-        self.load_ticket_branches(folder, cx);
+        f.picks = Picks::new(Values::of(&t));
+        f.title.update(cx, |s, cx| s.set_value(t.title.clone(), window, cx));
+        f.prompt.update(cx, |s, cx| s.set_value(t.prompt.clone(), window, cx));
+        self.close_menus();
+        window.focus(&self.root, cx);
+        self.load_ticket_branches(Surface::Page, t.folder, cx);
+        cx.notify();
     }
 
-    pub(super) fn load_ticket_branches(&mut self, folder: String, cx: &mut Context<Self>) {
+    pub(super) fn load_ticket_branches(&mut self, surface: Surface, folder: String, cx: &mut Context<Self>) {
         if folder.is_empty() {
             return;
         }
@@ -73,10 +74,11 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let branches = task.await;
             this.update(cx, |d, cx| {
-                if d.board.form.v.folder == folder {
-                    d.board.form.branches = Some((folder, branches));
-                    cx.notify();
+                match surface {
+                    Surface::Composer => d.board.composer.picks.set_branches(folder, branches),
+                    Surface::Page => d.board.form.picks.set_branches(folder, branches),
                 }
+                cx.notify();
             })
             .ok();
         })
@@ -84,50 +86,84 @@ impl Desktop {
     }
 
     /// A folder whose worktrees aren't read yet gets the benefit of the doubt.
-    fn form_in_repo(&self) -> bool {
-        self.worktrees.get(&self.board.form.v.folder).is_none_or(|w| !w.is_empty())
+    pub(super) fn folder_is_repo(&self, folder: &str) -> bool {
+        self.worktrees.get(folder).is_none_or(|w| !w.is_empty())
     }
 
-    fn form_ready(&self, cx: &App) -> bool {
-        let (title, prompt) = self.board.form.texts(cx);
-        self.board.form.v.ready(&title, &prompt, self.form_in_repo())
+    fn page_ready(&self, cx: &App) -> bool {
+        let f = &self.board.form;
+        let (title, prompt) = f.texts(cx);
+        f.picks.values.ready(&title, &prompt, self.folder_is_repo(&f.picks.values.folder))
     }
 
-    fn save_ticket(&mut self, start: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.form_ready(cx) {
-            self.outbox.local.board_save(self.board.form.draft(cx), start);
-            self.close_overlay(window, cx);
+    pub(super) fn save_ticket_page(&mut self, cx: &App) {
+        if self.board.page.is_none() {
+            return;
+        }
+        let f = &self.board.form;
+        let Some(t) = f.picks.values.id.as_deref().and_then(|id| self.agents.board.get(id)) else { return };
+        let (title, prompt) = f.texts(cx);
+        if let Some(draft) = page_save(&f.picks.values, &title, &prompt, t) {
+            self.outbox.local.board_save(draft, false);
         }
     }
 
-    pub(crate) fn ticket_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let ready = self.form_ready(cx);
-        let f = &self.board.form;
-        let close = ui::icon_button_sized("ticket-close", "x", 24., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let crumb = div().flex().items_center().gap(px(6.)).text_size(px(13.)).text_color(TEXT_3).child(self.form_project_chip(cx)).child(icon("chevron-right", 12., TEXT_4)).child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(if f.v.editing() { "Edit ticket" } else { "New ticket" })).child(div().flex_1()).child(close);
-        // The input's line box is a fixed 1.25rem, so a larger size clips descenders.
-        let title = div().font_weight(FontWeight::SEMIBOLD).child(Input::new(&f.title).appearance(false).p_0().text_size(px(18.)));
-        let prompt = div().min_h(px(96.)).text_size(px(14.)).child(Textarea::new(&f.prompt).appearance(false).p_0());
-        let chips = div().flex().items_center().gap(px(4.)).child(self.form_agent_chip(cx)).child(self.form_base_chip(cx));
-        let dim = |b: Stateful<Div>| b.when(!ready, |d| d.opacity(0.4).cursor_default());
-        let delete = f.v.id.clone().map(|id| ui::button("ticket-delete", Variant::Ghost, Some("trash"), "Delete").h(px(28.)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.ask_delete_ticket(id.clone(), window, cx))));
-        let save_label = if f.v.editing() { "Save" } else { "Add to To do" };
-        let save = dim(if f.v.can_start() { ui::button("ticket-save", Variant::Ghost, None, save_label).h(px(28.)) } else { action_button("ticket-save", save_label) }).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_ticket(false, window, cx)));
-        let start = f.v.can_start().then(|| dim(action_button("ticket-start", "Start").child(ui::button_kbd("⌘↩"))).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.save_ticket(true, window, cx))));
-        let hint = f.v.hint(self.form_in_repo(), busy(&self.agents.board.tickets), self.agents.board.limit);
-        let foot = div().px(px(16.)).h(px(48.)).flex().items_center().gap(px(8.)).border_t_1().border_color(HAIRLINE).children(delete).child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).children(hint)).child(save).children(start);
-        let head = div().p(px(16.)).pb(px(12.)).flex().flex_col().gap(px(10.)).child(crumb).child(title).child(prompt).child(chips);
-        div().absolute().top(px(80.)).left_0().right_0().flex().justify_center().child(
-            ui::pop(div().w(px(720.)).flex().flex_col())
-                .occlude()
-                .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
-                    if e.keystroke.key == "enter" && e.keystroke.modifiers.platform {
-                        cx.stop_propagation();
-                        this.save_ticket(true, window, cx);
-                    }
-                }))
-                .child(head)
-                .child(foot),
-        )
+    fn ticket_page_typed(&mut self, ev: &InputEvent, cx: &mut Context<Self>) {
+        if matches!(ev, InputEvent::Change) {
+            self.save_ticket_page_soon(cx);
+        }
+        cx.notify();
+    }
+
+    /// Saves once the edits pause, so leaving the page by any way keeps them.
+    pub(super) fn save_ticket_page_soon(&mut self, cx: &mut Context<Self>) {
+        self.board.form.saving = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SAVE_AFTER).await;
+            this.update(cx, |d, cx| d.save_ticket_page(cx)).ok();
+        }));
+    }
+
+    pub(crate) fn leave_ticket_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_ticket_page(cx);
+        self.board.page = None;
+        window.focus(&self.root, cx);
+        self.board_changed();
+        cx.notify();
+    }
+
+    /// ⌘↵ on a ticket's page, whichever field has the keyboard.
+    fn start_key(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.screen != Screen::Board || self.board.page.is_none() || self.overlay.is_some() || self.board.menu.is_some() {
+            return false;
+        }
+        self.start_from_page(window, cx);
+        true
+    }
+
+    pub(super) fn start_from_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.board.form.picks.values.can_start() || !self.page_ready(cx) {
+            return;
+        }
+        self.outbox.local.board_save(self.board.form.draft(cx), true);
+        self.board.page = None;
+        window.focus(&self.root, cx);
+        self.board_changed();
+        cx.notify();
+    }
+
+    pub(super) fn step_ticket_page(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(ids), Some(at)) = (self.board.page.as_ref(), self.board.form.picks.values.id.as_deref()) else { return };
+        if let Some(next) = stepped(ids, at, delta).map(str::to_string) {
+            self.edit_ticket(&next, window, cx);
+        }
+    }
+
+    pub(super) fn move_page_ticket_back(&mut self, cx: &mut Context<Self>) {
+        self.save_ticket_page(cx);
+        if let Some(id) = self.board.form.picks.values.id.clone() {
+            self.outbox.local.board_move(&id, State::Todo, None);
+            self.board.form.picks.values.state = Some(State::Todo);
+        }
+        cx.notify();
     }
 }

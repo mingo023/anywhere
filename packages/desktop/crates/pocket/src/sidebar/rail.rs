@@ -36,7 +36,7 @@ impl Desktop {
 
     fn toggle_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.screen == Screen::Board {
-            self.escape_board(cx);
+            self.leave_board(window, cx);
         } else {
             self.open_board(&crate::actions::OpenBoard, window, cx);
         }
