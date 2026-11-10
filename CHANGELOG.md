@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.36
+
+- Board starts agent tasks and follows them through to review (#207): (347637de)
+- Mobile plan lists the iPhone's two tabs (#209): (284a58c3)
+- iPad chat follows the worktree, and phones can pick any access (#208): (7fb6ebf7)
+- A new worktree no longer shows huge changes while it checks out (#206): (f37328d0)
+
 ## 0.1.35
 
 - The iOS app is redesigned, with a new iPad sidebar (#205): (2e3ffcb5)
