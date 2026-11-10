@@ -26,7 +26,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 260] = [
+const STEPS: [(&str, Step); 259] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -579,7 +579,6 @@ const STEPS: [(&str, Step); 260] = [
         }
     }),
     ("wait", |_, _, _| {}),
-    ("split-right", |d, window, cx| d.split_right(&crate::actions::SplitRight, window, cx)),
     ("vm-install", |d, _, cx| {
         if let Some(id) = d.store.hosts.first().map(|h| h.id.clone()) {
             d.install_host(&id, false, cx);

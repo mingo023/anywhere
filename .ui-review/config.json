@@ -26,8 +26,7 @@
     },
     "split": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
-      "open": ["select a session", "click the split-pane button to add panes to the active tab"],
-      "capture": ["session", "split-right", "wait", "wait", "wait"]
+      "open": ["select a session", "click the split-pane button to add panes to the active tab"]
     },
     "inbox": {
       "files": ["packages/desktop/crates/pocket/src/inbox.rs"],

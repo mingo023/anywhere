@@ -124,6 +124,15 @@ mod tests {
     }
 
     #[test]
+    fn a_view_stays_on_when_its_values_are_picked_in_another_order() {
+        let view = view_of(&working(), "Mine".into());
+        let mut reordered = working();
+        reordered.priority.values.reverse();
+        assert!(view_is_on(&view, &reordered, Tab::All));
+        assert!(!can_save_view(std::slice::from_ref(&view), &reordered));
+    }
+
+    #[test]
     fn only_filters_not_yet_saved_can_be_saved() {
         assert!(!can_save_view(&[], &Filters::default()));
         assert!(can_save_view(&[], &working()));

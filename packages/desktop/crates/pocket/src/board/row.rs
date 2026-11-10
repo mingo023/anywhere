@@ -1,4 +1,4 @@
-use super::logic::{Col, Field, Row, Slot, activity, column, opens, stuck_head};
+use super::logic::{Action, Col, Row, Slot, action_field, activity, change_reaches, column, opens, stuck_head};
 use super::parts::{agent_avatar, col_heading, prop_chip};
 use crate::desktop::Desktop;
 use crate::util::{ago_long, now_ms};
@@ -29,11 +29,11 @@ impl Desktop {
         div().absolute().top_0().left_0().right_0().px(px(8.)).child(div().rounded(px(7.)).bg(POPOVER).occlude().child(self.section_bar(col, cx)))
     }
 
-    /// `face`, opening `field`'s choices on a click while the ticket has no session yet.
-    fn row_prop(&self, t: &Ticket, field: Field, face: impl IntoElement, cx: &mut Context<Self>) -> AnyElement {
-        if !column(t).lifts() {
+    /// `face`, opening `action`'s choices on a click while the ticket still takes them.
+    fn row_prop(&self, t: &Ticket, action: Action, face: impl IntoElement, cx: &mut Context<Self>) -> AnyElement {
+        let Some(field) = action_field(action).filter(|_| change_reaches(column(t), action)) else {
             return face.into_any_element();
-        }
+        };
         let id = t.id.clone();
         div()
             .id(SharedString::from(format!("ticket-row-{field:?}-{id}")))
@@ -80,10 +80,11 @@ impl Desktop {
         let note = self.ticket_note(t, slot).map(|(text, color)| div().flex_shrink(1.).min_w_0().max_w(px(320.)).truncate().text_size(px(12.)).text_color(color).child(text));
         let quick = self.ticket_quick(t, slot, cx);
         let labels = self.ticket_labels(t);
+        let labels = (!labels.is_empty()).then(|| self.row_prop(t, Action::Labels, div().flex().items_center().gap(px(8.)).children(labels), cx));
         let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
         let quick = quick.map(|q| if at_cursor { q } else { q.opacity(0.).group_hover("ticket-row", |s| s.opacity(1.)) });
-        let project = props.project.then(|| self.row_prop(t, Field::Project, prop_chip().child(self.repo_tile_for(&t.folder, 14.)).child(div().min_w_0().truncate().child(self.repo_name(&t.folder))), cx));
-        let agent = props.agent.then(|| self.row_prop(t, Field::Agent, agent_avatar(SharedString::from(format!("ticket-row-agent-{}", t.id)), &t.provider, self.agent_name(&t.provider)), cx));
+        let project = props.project.then(|| self.row_prop(t, Action::Project, prop_chip().child(self.repo_tile_for(&t.folder, 14.)).child(div().min_w_0().truncate().child(self.repo_name(&t.folder))), cx));
+        let agent = props.agent.then(|| self.row_prop(t, Action::Agent, agent_avatar(SharedString::from(format!("ticket-row-agent-{}", t.id)), &t.provider, self.agent_name(&t.provider)), cx));
         let row = div()
             .id(SharedString::from(format!("ticket-row-{}", t.id)))
             .group("ticket-row")

@@ -1,6 +1,7 @@
 use super::logic::{Surface, column, page_ids, stepped};
 use super::values::{Picks, Values, page_save};
 use crate::desktop::Desktop;
+use crate::desktop::chrome::Screen;
 use crate::modals::new_session::default_first;
 use agents::tickets::{State, TicketDraft};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
@@ -9,7 +10,7 @@ use std::time::Duration;
 
 const SAVE_AFTER: Duration = Duration::from_millis(400);
 
-/// The ticket page's fields; the ticket it edits is `picks.v.id`.
+/// The ticket page's fields; the ticket it edits is `picks.values.id`.
 pub struct Form {
     pub(super) title: Entity<InputState>,
     pub(super) prompt: Entity<TextareaState>,
@@ -21,7 +22,15 @@ impl Form {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Ticket title"));
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Tell the agent what you want done…").auto_grow(10, 24));
-        let subs = vec![cx.subscribe(&title, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)), cx.subscribe(&prompt, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx))];
+        let desktop = cx.entity().downgrade();
+        // Ahead of the keymap: a textarea's ⌘↵ would put a newline in the prompt first.
+        let start = cx.intercept_keystrokes(move |ev, window, cx| {
+            let k = &ev.keystroke;
+            if k.key == "enter" && k.modifiers.secondary(cx) && desktop.update(cx, |d, cx| d.start_key(window, cx)).unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        });
+        let subs = vec![cx.subscribe(&title, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)), cx.subscribe(&prompt, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)), start];
         (Self { title, prompt, picks: Picks::new(Values::new_in(String::new())), saving: None }, subs)
     }
 
@@ -120,6 +129,15 @@ impl Desktop {
         window.focus(&self.root, cx);
         self.board_changed();
         cx.notify();
+    }
+
+    /// ⌘↵ on a ticket's page, whichever field has the keyboard.
+    fn start_key(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.screen != Screen::Board || self.board.page.is_none() || self.overlay.is_some() || self.board.menu.is_some() {
+            return false;
+        }
+        self.start_from_page(window, cx);
+        true
     }
 
     pub(super) fn start_from_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -155,7 +155,16 @@ impl Desktop {
 
     /// `row` as a ticket: opens it on click and offers its menu on right click.
     pub(super) fn ticket_shell(&self, row: Stateful<Div>, t: &Ticket, cx: &mut Context<Self>) -> Stateful<Div> {
-        let (id, menu_id) = (t.id.clone(), t.id.clone());
+        let (id, menu_id, hover_id) = (t.id.clone(), t.id.clone(), t.id.clone());
+        let cursor_at = self.board.selection.cursor_at.clone();
+        let marks_cursor = self.board.selection.cursor.as_ref() == Some(&t.id);
+        let mark = marks_cursor.then(|| canvas(move |b, _, _| cursor_at.set(b.bottom_left()), |_, _, _, _| {}).absolute().inset_0());
+        let row = row.relative().children(mark).on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+            if *hovered && this.board.selection.cursor.as_ref() != Some(&hover_id) {
+                this.board.selection.cursor = Some(hover_id.clone());
+                cx.notify();
+            }
+        }));
         row.when(opens(t, self.ticket_reach(t)).is_some(), |d| d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_ticket(&id, window, cx)))).on_mouse_down(
             MouseButton::Right,
             cx.listener(move |this, e: &MouseDownEvent, _, cx| this.open_card_menu(&menu_id, e.position, None, cx)),

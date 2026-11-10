@@ -1,4 +1,4 @@
-use super::logic::{Field, Surface, column, in_line};
+use super::logic::{Field, Surface, column, in_line, place_in_column};
 use super::parts::{bar_button, flush_textarea, pill, prop_chip, start_kbd, status_glyph};
 use crate::desktop::Desktop;
 use crate::util::{ago_long, now_ms};
@@ -19,10 +19,7 @@ impl Desktop {
         let board = div().id("ticket-crumb").px(px(4.)).h(px(24.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(6.)).cursor_pointer().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).hover(|s| s.bg(FILL_2).text_color(TEXT)).child(icon("blocks", 13., TEXT_3)).child("Board").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.leave_ticket_page(window, cx)));
         let crumb = div().flex_1().min_w_0().flex().items_center().gap(px(4.)).child(back).child(board).child(icon("chevron-right", 11., TEXT_4)).child(name);
         let queued = f.picks.values.state == Some(State::Queued);
-        let line = t.filter(|_| queued).and_then(|t| {
-            let col = column(t) as usize;
-            self.board.columns[col].iter().position(|&i| self.agents.board.tickets.get(i).is_some_and(|x| x.id == t.id))
-        });
+        let line = t.filter(|_| queued).and_then(|t| place_in_column(&self.board.columns, &self.agents.board.tickets, t));
         let action: AnyElement = if queued {
             bar_button("ticket-back-todo", Variant::Secondary, None, "Move back to To do").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.move_page_ticket_back(cx))).into_any_element()
         } else {

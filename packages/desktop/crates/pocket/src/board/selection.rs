@@ -1,13 +1,18 @@
-use super::logic::{Col, Columns, Row, Slot, column};
+use super::Menu;
+use super::logic::{Action, Col, Columns, Row, Slot, action_field, change_reaches, column};
 use crate::desktop::Desktop;
 use gpui_kit::*;
+use std::cell::Cell;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 /// Where the keyboard is on the Board, and the tickets picked for a change to all of them.
 #[derive(Default, Debug)]
 pub(super) struct Selection {
     pub(super) cursor: Option<String>,
     pub(super) picked: HashSet<String>,
+    /// Under the cursor's ticket as last drawn, where a key opens its menu.
+    pub(super) cursor_at: Rc<Cell<Point<Pixels>>>,
 }
 
 impl Selection {
@@ -69,6 +74,19 @@ impl Desktop {
         }
     }
 
+    pub(super) fn open_cursor_menu(&mut self, action: Action, cx: &mut Context<Self>) {
+        let Some(id) = self.board.selection.cursor.clone().filter(|id| self.ticket(id).is_some_and(|t| change_reaches(column(t), action))) else { return };
+        let at = self.board.selection.cursor_at.get();
+        match action_field(action) {
+            Some(field) => self.open_card_menu(&id, at, Some(field), cx),
+            None => {
+                self.close_menus();
+                self.board.menu = Some(Menu::Status { id, at });
+                cx.notify();
+            }
+        }
+    }
+
     pub(super) fn pick_all_tickets(&mut self, cx: &mut Context<Self>) {
         let tickets = &self.agents.board.tickets;
         let ids = self.board.walk_slots().into_iter().filter(|s| !s.col.finished()).filter_map(|s| tickets.get(s.index)).map(|t| t.id.clone());
@@ -115,7 +133,7 @@ mod tests {
 
     #[test]
     fn a_selection_forgets_what_the_page_stopped_showing() {
-        let mut s = Selection { cursor: Some("b".into()), picked: ["a".to_string(), "b".to_string()].into() };
+        let mut s = Selection { cursor: Some("b".into()), picked: ["a".to_string(), "b".to_string()].into(), ..Default::default() };
         s.keep(&["a"].into(), &["a"].into());
         assert_eq!(s.picked, HashSet::from(["a".to_string()]));
         assert_eq!(s.cursor, None);
@@ -123,7 +141,7 @@ mod tests {
 
     #[test]
     fn a_picked_ticket_that_finishes_is_let_go_while_the_cursor_can_stay_on_it() {
-        let mut s = Selection { cursor: Some("a".into()), picked: ["a".to_string()].into() };
+        let mut s = Selection { cursor: Some("a".into()), picked: ["a".to_string()].into(), ..Default::default() };
         s.keep(&["a"].into(), &HashSet::new());
         assert!(s.picked.is_empty());
         assert_eq!(s.cursor.as_deref(), Some("a"));

@@ -228,10 +228,17 @@ pub(crate) enum Order {
 }
 
 /// The values a filter field is set to: a ticket with any of them stays, or goes when `not`.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Choice<T> {
     pub(crate) values: Vec<T>,
     pub(crate) not: bool,
+}
+
+/// The same values, in whatever order they were picked.
+impl<T: PartialEq> PartialEq for Choice<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.not == other.not && self.values.len() == other.values.len() && self.values.iter().all(|v| other.values.contains(v))
+    }
 }
 
 impl<T> Default for Choice<T> {
@@ -336,10 +343,9 @@ pub(crate) fn hidden_by(tickets: &[Ticket], filters: &Filters, tab: Tab, show_cl
     tickets.iter().filter(|t| on_page(column(t), tab, show_closed) && !keeps(t)).count()
 }
 
-/// How many tickets a tab holds, after the filters.
-pub(crate) fn tab_count(tickets: &[Ticket], filters: &Filters, tab: Tab, show_closed: bool) -> usize {
-    let keeps = filters.keeper();
-    tickets.iter().filter(|t| on_page(column(t), tab, show_closed) && keeps(t)).count()
+/// How many tickets a tab holds, whatever the filters and the search hide.
+pub(crate) fn tab_count(tickets: &[Ticket], tab: Tab, show_closed: bool) -> usize {
+    tickets.iter().filter(|t| on_page(column(t), tab, show_closed)).count()
 }
 
 /// The columns the Board draws, then those it lists as hidden: what was folded away, Closed unless shown, and Queued and Merged while empty. Only All tickets lists them.
@@ -376,22 +382,24 @@ pub(crate) enum Key {
     Filter,
     Next,
     Previous,
-    Start,
     Open,
     Pick,
     PickAll,
+    Menu(Action),
 }
 
 pub(crate) fn board_key(key: &str, command: bool, on_page: bool) -> Option<Key> {
     match (key, command, on_page) {
-        ("enter", true, true) => Some(Key::Start),
         ("a", true, false) => Some(Key::PickAll),
         ("n" | "c", false, false) => Some(Key::Compose),
         ("/", false, false) => Some(Key::Search),
         ("f", false, false) => Some(Key::Filter),
         ("j", false, _) | ("down", false, false) => Some(Key::Next),
         ("k", false, _) | ("up", false, false) => Some(Key::Previous),
-        ("enter", false, false) => Some(Key::Open),
+        ("enter" | "space", false, false) => Some(Key::Open),
+        ("s", false, false) => Some(Key::Menu(Action::SetStatus)),
+        ("p", false, false) => Some(Key::Menu(Action::Priority)),
+        ("a", false, false) => Some(Key::Menu(Action::Agent)),
         ("x", false, false) => Some(Key::Pick),
         _ => None,
     }
@@ -444,7 +452,7 @@ pub(crate) fn set_away(col: Col, away: bool, tucked: &mut [bool; COLS.len()], sh
 
 /// The picked tickets `action` reaches, in the order `slots` shows them.
 pub(crate) fn bulk_targets<'a>(slots: &[Slot], tickets: &'a [Ticket], picked: &HashSet<String>, action: Action) -> Vec<&'a Ticket> {
-    slots.iter().filter(|s| bulk_applies(s.col, action)).filter_map(|s| tickets.get(s.index)).filter(|t| picked.contains(&t.id)).collect()
+    slots.iter().filter(|s| change_reaches(s.col, action)).filter_map(|s| tickets.get(s.index)).filter(|t| picked.contains(&t.id)).collect()
 }
 
 /// The tickets the ticket page steps through: those with no session, as the columns show them.
@@ -624,17 +632,41 @@ pub(crate) fn with_properties(items: Vec<Action>, lifts: bool) -> Vec<Action> {
     ahead_of_separator(items, [Action::Priority].into_iter().chain(unstarted).chain([Action::Labels]))
 }
 
-/// Whether a change made to a whole selection reaches a ticket in `col`: what its own menu offers, so Close passes over running tickets.
-pub(crate) fn bulk_applies(col: Col, action: Action) -> bool {
+/// Whether a change reaches a ticket in `col`: what its own menu offers, so Close passes over running tickets.
+pub(crate) fn change_reaches(col: Col, action: Action) -> bool {
     match action {
         Action::Start => col == Col::Todo,
         Action::Close => matches!(col, Col::NeedsYou | Col::Done | Col::InReview),
         Action::Priority | Action::Labels => !col.finished(),
-        Action::Agent | Action::SetStatus => col.lifts(),
+        Action::Agent | Action::Project | Action::SetStatus => col.lifts(),
         Action::Queue => col == Col::Todo,
         Action::MoveBack => col == Col::Queued,
         _ => false,
     }
+}
+
+/// The field an action opens a list of choices for.
+pub(crate) fn action_field(action: Action) -> Option<Field> {
+    match action {
+        Action::Priority => Some(Field::Priority),
+        Action::Labels => Some(Field::Labels),
+        Action::Agent => Some(Field::Agent),
+        Action::Project => Some(Field::Project),
+        _ => None,
+    }
+}
+
+/// What the toast says after closing `n` tickets, the first called `title`.
+pub(crate) fn closed_note(title: &str, n: usize) -> String {
+    match n {
+        1 => format!("Closed “{title}”. Its worktree stays."),
+        _ => format!("Closed {n} tickets. Their worktrees stay."),
+    }
+}
+
+/// How far down its column `t` sits.
+pub(crate) fn place_in_column(columns: &Columns, tickets: &[Ticket], t: &Ticket) -> Option<usize> {
+    columns[column(t) as usize].iter().position(|&i| tickets.get(i).is_some_and(|x| x.id == t.id))
 }
 
 /// The one thing a card offers without opening a menu.
@@ -808,13 +840,13 @@ mod tests {
 
     #[test]
     fn a_bulk_change_reaches_only_tickets_their_own_menu_would_let_it() {
-        assert!(bulk_applies(Col::Todo, Action::Start) && !bulk_applies(Col::Queued, Action::Start));
-        assert!(!bulk_applies(Col::Working, Action::Close) && bulk_applies(Col::Done, Action::Close));
-        assert!(!bulk_applies(Col::Merged, Action::Priority) && bulk_applies(Col::Working, Action::Labels));
-        assert!(bulk_applies(Col::Queued, Action::Agent) && !bulk_applies(Col::Working, Action::Agent));
-        assert!(bulk_applies(Col::Todo, Action::Queue) && !bulk_applies(Col::Queued, Action::Queue));
-        assert!(bulk_applies(Col::Queued, Action::MoveBack) && !bulk_applies(Col::Todo, Action::MoveBack));
-        assert!(bulk_applies(Col::Todo, Action::SetStatus) && !bulk_applies(Col::Done, Action::SetStatus));
+        assert!(change_reaches(Col::Todo, Action::Start) && !change_reaches(Col::Queued, Action::Start));
+        assert!(!change_reaches(Col::Working, Action::Close) && change_reaches(Col::Done, Action::Close));
+        assert!(!change_reaches(Col::Merged, Action::Priority) && change_reaches(Col::Working, Action::Labels));
+        assert!(change_reaches(Col::Queued, Action::Agent) && !change_reaches(Col::Working, Action::Agent));
+        assert!(change_reaches(Col::Todo, Action::Queue) && !change_reaches(Col::Queued, Action::Queue));
+        assert!(change_reaches(Col::Queued, Action::MoveBack) && !change_reaches(Col::Todo, Action::MoveBack));
+        assert!(change_reaches(Col::Todo, Action::SetStatus) && !change_reaches(Col::Done, Action::SetStatus));
     }
 
     fn live(status: Status) -> Ticket {
@@ -1126,12 +1158,50 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_counts_its_tickets_whatever_the_filters_hide() {
+        assert_eq!(tab_count(&[ticket("a", State::Todo, Status::None), live(Status::Working)], Tab::All, false), 2);
+        assert_eq!(tab_count(&[ticket("a", State::Todo, Status::None), live(Status::Working)], Tab::Todo, false), 1);
+    }
+
+    #[test]
+    fn s_p_and_a_open_a_menu_and_space_opens_the_ticket() {
+        assert_eq!(board_key("s", false, false), Some(Key::Menu(Action::SetStatus)));
+        assert_eq!(board_key("p", false, false), Some(Key::Menu(Action::Priority)));
+        assert_eq!(board_key("a", false, false), Some(Key::Menu(Action::Agent)));
+        assert_eq!(board_key("space", false, false), Some(Key::Open));
+        assert_eq!(board_key("p", false, true), None);
+    }
+
+    #[test]
+    fn the_same_values_in_another_order_are_the_same_choice() {
+        let choice = |values: Vec<u8>| Choice { values, not: false };
+        assert_eq!(choice(vec![1, 2]), choice(vec![2, 1]));
+        assert_ne!(choice(vec![1, 2]), choice(vec![1]));
+        assert_ne!(Choice { values: vec![1], not: true }, choice(vec![1]));
+    }
+
+    #[test]
+    fn only_properties_open_a_list_of_choices() {
+        assert_eq!(action_field(Action::Labels), Some(Field::Labels));
+        assert_eq!(action_field(Action::Close), None);
+    }
+
+    #[test]
+    fn the_close_toast_names_one_ticket_or_counts_several() {
+        assert_eq!(closed_note("Fix it", 1), "Closed “Fix it”. Its worktree stays.");
+        assert_eq!(closed_note("Fix it", 3), "Closed 3 tickets. Their worktrees stay.");
+    }
+
+    #[test]
     fn filters_narrow_by_status_priority_and_label() {
         let mut a = live(Status::Working);
         (a.priority, a.labels) = (2, vec!["Bug".into()]);
         let b = ticket("b", State::Todo, Status::None);
         let tickets = [a, b];
-        let count = |f: Filters| tab_count(&tickets, &f, Tab::All, false);
+        let count = |f: Filters| {
+            let keeps = f.keeper();
+            tickets.iter().filter(|t| keeps(t)).count()
+        };
         assert_eq!(count(Filters::default()), 2);
         assert_eq!(count(Filters { status: any_of(Col::Todo), ..Default::default() }), 1);
         assert_eq!(count(Filters { priority: any_of(2), ..Default::default() }), 1);
@@ -1173,7 +1243,6 @@ mod tests {
         assert_eq!(board_key("j", false, true), Some(Key::Next));
         assert_eq!(board_key("k", false, true), Some(Key::Previous));
         assert_eq!(board_key("n", false, true), None);
-        assert_eq!(board_key("enter", true, true), Some(Key::Start));
         assert_eq!(board_key("enter", true, false), None);
         assert_eq!(board_key("n", true, false), None);
     }

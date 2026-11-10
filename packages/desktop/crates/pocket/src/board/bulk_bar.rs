@@ -1,5 +1,5 @@
 use super::Menu;
-use super::logic::{Action, bulk_targets};
+use super::logic::{Action, bulk_targets, change_reaches};
 use super::parts::{bar_button, label_dot};
 use crate::desktop::Desktop;
 use agents::tickets::State;
@@ -67,8 +67,9 @@ impl Desktop {
         if picked.is_empty() {
             return None;
         }
-        let slots = self.board.walk_slots();
-        let can = |a: Action| !bulk_targets(&slots, &self.agents.board.tickets, picked, a).is_empty();
+        let tickets = &self.agents.board.tickets;
+        let slots: Vec<_> = self.board.walk_slots().into_iter().filter(|s| tickets.get(s.index).is_some_and(|t| picked.contains(&t.id))).collect();
+        let can = |a: Action| slots.iter().any(|s| change_reaches(s.col, a));
         let clear = ui::glyph_frame("board-bulk-clear", 20., 20., 7.).child(icon("x", 11., TEXT_3)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.board.selection.picked.clear();
             cx.notify();

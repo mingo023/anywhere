@@ -1,5 +1,5 @@
 use super::Menu;
-use super::logic::{Action, Field, LABELS, PRIORITIES, column, menu_items, priority_name, status_actions};
+use super::logic::{Action, Field, LABELS, PRIORITIES, action_field, column, menu_items, priority_name, status_actions};
 use super::parts::{label_dot, priority_glyph};
 use super::values::Values;
 use crate::desktop::Desktop;
@@ -153,7 +153,7 @@ impl Desktop {
             }
             Menu::Status { id, at } => (at, self.status_rows(self.ticket(id)?, cx)),
             Menu::Bulk { action: Action::SetStatus, at } => (at, self.bulk_status_rows(cx)),
-            Menu::Bulk { action, at } => (at, self.prop_rows(Self::action_field(*action)?, self.bulk_ids(*action), cx)),
+            Menu::Bulk { action, at } => (at, self.prop_rows(action_field(*action)?, self.bulk_ids(*action), cx)),
             _ => return None,
         };
         (!rows.is_empty()).then(|| deferred(anchored().position(*at).snap_to_window_with_margin(px(8.)).child(ui::menu_in("board-menu-in", self.popup("board-menu", 210., cx).children(rows)))).with_priority(2))

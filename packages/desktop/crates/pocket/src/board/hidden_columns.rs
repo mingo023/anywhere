@@ -29,7 +29,13 @@ impl Desktop {
                 }))
             })
             .drag_over::<DragTicket>(move |s, d, _, _| if col.takes(d.from) { s.bg(FILL_3) } else { s })
-            .on_drop(cx.listener(move |this, d: &DragTicket, _, cx| this.drop_ticket(&d.id, d.from, col, None, cx)))
+            .on_drop(cx.listener(move |this, d: &DragTicket, _, cx| {
+                this.drop_ticket(&d.id, d.from, col, None, cx);
+                if col.takes(d.from) && this.board.tucked[col as usize] {
+                    set_away(col, false, &mut this.board.tucked, &mut this.board.show_closed);
+                    this.board_changed();
+                }
+            }))
             .child(status_glyph(col, Status::None))
             .child(div().flex_1().min_w_0().truncate().child(col.name()))
             .child(div().text_size(px(11.5)).text_color(TEXT_4).child(n.to_string()))

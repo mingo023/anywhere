@@ -27,7 +27,7 @@ use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use agents::tickets::{Board, Ticket};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use logic::{Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Landing, Opens, Order, Props, Reach, Row, Slot, Surface, Tab, arrange, board_cols, board_key, column, escape, hidden_by, landing, reorders_nothing, opens, page_ids, rows, tab_count};
+use logic::{Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Landing, Opens, Order, Props, Reach, Row, Slot, Surface, Tab, action_field, arrange, board_cols, board_key, closed_note, column, escape, hidden_by, landing, opens, page_ids, reorders_nothing, rows, tab_count};
 use selection::{Selection, walk};
 use std::collections::HashSet;
 use toast::Toast;
@@ -134,7 +134,7 @@ impl BoardState {
     fn regroup(&mut self, board: &Board) {
         self.columns = arrange(&board.tickets, &self.filters, self.order);
         self.hidden = hidden_by(&board.tickets, &self.filters, self.tab, self.show_closed);
-        self.counts = Tab::ALL.map(|tab| tab_count(&board.tickets, &self.filters, tab, self.show_closed));
+        self.counts = Tab::ALL.map(|tab| tab_count(&board.tickets, tab, self.show_closed));
         (self.shown, self.away) = board_cols(&self.columns, self.tab, self.show_closed, &self.tucked);
         // A ticket's height follows its content, so the lists measure afresh whenever the snapshot changes.
         for (list, line) in self.lists.iter().zip(&self.columns) {
@@ -252,13 +252,13 @@ impl Desktop {
         cx.notify();
     }
 
-    /// The Board's keys: single ones unless a field has the keyboard, ⌘↵ anywhere on a ticket's page.
+    /// The Board's keys, unless a field has the keyboard.
     pub(crate) fn board_key(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let command = key.modifiers == Modifiers::command();
-        // The filter menu's search keeps the keyboard's focus after the menu closes.
-        let free = self.root.is_focused(window) || self.board.filter_search.focus_handle(cx).is_focused(window);
-        let start_key = command && key.key == "enter";
-        if self.screen != Screen::Board || self.overlay.is_some() || self.board.menu.is_some() || (!command && key.modifiers.modified()) || !(free || start_key) {
+        // A field keeps the keyboard's focus after what held it closes: the filter menu's search, a ticket page that went away.
+        let stranded = self.board.page.is_none() && (self.board.form.title.focus_handle(cx).is_focused(window) || self.board.form.prompt.focus_handle(cx).is_focused(window));
+        let free = stranded || self.root.is_focused(window) || self.board.filter_search.focus_handle(cx).is_focused(window);
+        if self.screen != Screen::Board || self.overlay.is_some() || self.board.menu.is_some() || (!command && key.modifiers.modified()) || !free {
             return false;
         }
         match board_key(&key.key, command, self.board.page.is_some()) {
@@ -267,10 +267,10 @@ impl Desktop {
             Some(Key::Filter) => self.open_filter_menu(window, cx),
             Some(Key::Next) => self.step_board(1, window, cx),
             Some(Key::Previous) => self.step_board(-1, window, cx),
-            Some(Key::Start) => self.start_from_page(window, cx),
             Some(Key::Open) => self.open_cursor_ticket(window, cx),
             Some(Key::Pick) => self.pick_cursor_ticket(cx),
             Some(Key::PickAll) => self.pick_all_tickets(cx),
+            Some(Key::Menu(action)) => self.open_cursor_menu(action, cx),
             None => return false,
         }
         true
@@ -300,10 +300,7 @@ impl Desktop {
     }
 
     fn close_tickets(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
-        let message = match ids.as_slice() {
-            [id] => format!("Closed “{}”. Its worktree stays.", self.delete_ticket_title(id)),
-            _ => format!("Closed {} tickets. Their worktrees stay.", ids.len()),
-        };
+        let message = closed_note(&ids.first().map_or_else(String::new, |id| self.delete_ticket_title(id)), ids.len());
         for id in &ids {
             self.outbox.local.board_close(id);
         }
@@ -311,7 +308,7 @@ impl Desktop {
     }
 
     fn run_action(&mut self, action: Action, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let (Some(field), Some(Menu::Card { sub, .. })) = (Self::action_field(action), self.board.menu.as_mut()) {
+        if let (Some(field), Some(Menu::Card { sub, .. })) = (action_field(action), self.board.menu.as_mut()) {
             *sub = Some(field);
             cx.notify();
             return;
@@ -347,16 +344,6 @@ impl Desktop {
             Action::Priority | Action::Labels | Action::Agent | Action::Project | Action::SetStatus | Action::Separator => {}
         }
         cx.notify();
-    }
-
-    pub(super) fn action_field(action: Action) -> Option<Field> {
-        match action {
-            Action::Priority => Some(Field::Priority),
-            Action::Labels => Some(Field::Labels),
-            Action::Agent => Some(Field::Agent),
-            Action::Project => Some(Field::Project),
-            _ => None,
-        }
     }
 
     fn drop_ticket(&mut self, id: &str, from: Col, to: Col, before: Option<&str>, cx: &mut Context<Self>) {

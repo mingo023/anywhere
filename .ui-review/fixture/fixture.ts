@@ -263,14 +263,8 @@ const ops = (c: Socket, first: Buffer) => {
     buf = lines.pop()!;
     for (const line of lines.filter(Boolean)) {
       const op = JSON.parse(line);
-      if (process.env.FIXTURE_LOG && op.op === "close") appendFileSync(process.env.FIXTURE_LOG, line + "\n");
       const reply = (msg: object) => c.write(JSON.stringify(msg) + "\n");
       if (op.op === "list") reply({ ev: "terminals", items: sessions });
-      if (op.op === "spawn") {
-        const id = `new-${sessions.length}`;
-        sessions.push({ ...sessions[0], id });
-        reply({ ev: "spawned", id });
-      }
       if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
     }
   };
