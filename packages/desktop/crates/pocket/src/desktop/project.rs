@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, Side, state};
+use crate::desktop::chrome::{Confirm, Overlay, Screen, Side, state};
 use crate::explorer::{self, preview};
 use crate::fs::fs_for;
 use crate::git_ui::diff;
@@ -226,6 +226,9 @@ impl Desktop {
                 let repos_changed = merge_repos(&mut d.repos, repos);
                 let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || worktrees != d.worktrees;
                 (d.explorer.tree, d.worktrees) = (tree, worktrees);
+                if d.screen == Screen::Board {
+                    d.rescue_board_composer(cx);
+                }
                 d.poll_prs(cx);
                 d.detect_gh_account(cx);
                 if d.side == Side::Changes && d.sidebar.panel_open {

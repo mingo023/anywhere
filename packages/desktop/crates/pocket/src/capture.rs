@@ -26,7 +26,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 251] = [
+const STEPS: [(&str, Step); 259] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -508,7 +508,37 @@ const STEPS: [(&str, Step); 251] = [
         d.board_changed();
         cx.notify();
     }),
-    ("board-new", |d, window, cx| d.edit_ticket(None, window, cx)),
+    ("board-new", |d, window, cx| d.focus_board_composer(window, cx)),
+    ("board-empty", |d, _, cx| {
+        d.agents.board.tickets.clear();
+        d.board_changed();
+        cx.notify();
+    }),
+    ("board-ticket", |d, window, cx| d.edit_ticket("t1", window, cx)),
+    ("board-nomatch", |d, _, cx| {
+        d.board.filters.query = "nothing is called this".into();
+        d.board_changed();
+        cx.notify();
+    }),
+    ("board-card-menu", |d, _, cx| {
+        let tickets = &d.agents.board.tickets;
+        let Some(id) = tickets.iter().find(|t| t.id == "t5").or(tickets.last()).map(|t| t.id.clone()) else { return };
+        d.board.menu = Some(crate::board::Menu::Card { id, at: point(px(700.), px(300.)), sub: None });
+        cx.notify();
+    }),
+    ("board-display", |d, _, cx| {
+        d.board.menu = Some(crate::board::Menu::Display);
+        cx.notify();
+    }),
+    ("board-filter", |d, _, cx| {
+        d.board.menu = Some(crate::board::Menu::Filter);
+        cx.notify();
+    }),
+    ("board-filtered", |d, _, cx| {
+        d.board.filters.priority.toggle(1);
+        d.board_changed();
+        cx.notify();
+    }),
     ("automations", |d, window, cx| d.open_automations(&crate::actions::OpenAutomations, window, cx)),
     ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
     ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
@@ -542,6 +572,7 @@ const STEPS: [(&str, Step); 251] = [
         }
     }),
     ("wait", |_, _, _| {}),
+    ("split-right", |d, window, cx| d.split_right(&crate::actions::SplitRight, window, cx)),
     ("vm-install", |d, _, cx| {
         if let Some(id) = d.store.hosts.first().map(|h| h.id.clone()) {
             d.install_host(&id, false, cx);

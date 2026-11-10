@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -36,6 +37,8 @@ type File struct {
 	Version int            `json:"version"`
 	Limit   int            `json:"limit"`
 	Tickets []proto.Ticket `json:"tickets"`
+	// LastNumber outlives its ticket, so a deleted ticket's number isn't given to another.
+	LastNumber int64 `json:"lastNumber,omitempty"`
 }
 
 // Store is the Board, saved whole to Home/state/board.json on every change.
@@ -69,6 +72,11 @@ func Open(home string) *Store {
 		}
 		return s
 	}
+	for i := range f.Tickets {
+		if f.Tickets[i].Number == 0 {
+			f.Tickets[i].Number = f.nextNumber()
+		}
+	}
 	s.f = f
 	return s
 }
@@ -98,12 +106,20 @@ func (f File) nextOrder() int64 {
 	return top + 1
 }
 
+func (f *File) nextNumber() int64 {
+	for _, t := range f.Tickets {
+		f.LastNumber = max(f.LastNumber, t.Number)
+	}
+	f.LastNumber++
+	return f.LastNumber
+}
+
 // commit applies change to a copy and saves it; the store changes only if the
 // save worked. A change that returns errNoChange saves nothing.
 func (s *Store) commit(change func(f *File) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	next := File{Version: Version, Limit: s.f.Limit, Tickets: slices.Clone(s.f.Tickets)}
+	next := File{Version: Version, Limit: s.f.Limit, Tickets: slices.Clone(s.f.Tickets), LastNumber: s.f.LastNumber}
 	if err := change(&next); err != nil {
 		if errors.Is(err, errNoChange) {
 			return nil
@@ -131,7 +147,8 @@ func (f *File) enqueue(t *proto.Ticket, now time.Time) {
 }
 
 // Save adds t to To do, or edits the ticket with t's ID while it has not
-// started; start also queues it. Only what the dialog edits is taken from t.
+// started; start also queues it. Only what the ticket page edits is taken from t.
+// A started ticket takes a new priority and labels, and nothing else.
 func (s *Store) Save(t proto.Ticket, start bool, now time.Time) (proto.Ticket, error) {
 	t.Title, t.Prompt = strings.TrimSpace(t.Title), strings.TrimSpace(t.Prompt)
 	if !t.Valid() {
@@ -140,6 +157,7 @@ func (s *Store) Save(t proto.Ticket, start bool, now time.Time) (proto.Ticket, e
 	err := s.commit(func(f *File) error {
 		if t.ID == "" {
 			t = proto.Ticket{ID: terminal.NewID(), Title: t.Title, Prompt: t.Prompt, Provider: t.Provider, Folder: t.Folder, Base: t.Base,
+				Number: f.nextNumber(), Priority: t.Priority, Labels: t.Labels,
 				State: proto.TicketTodo, Order: f.nextOrder(), CreatedAt: now.UnixMilli(), ChangedAt: now.UnixMilli()}
 			if start {
 				f.enqueue(&t, now)
@@ -153,9 +171,14 @@ func (s *Store) Save(t proto.Ticket, start bool, now time.Time) (proto.Ticket, e
 		}
 		x := &f.Tickets[i]
 		if x.State != proto.TicketTodo && x.State != proto.TicketQueued {
-			return ErrStarted
+			if start || t.Title != x.Title || t.Prompt != x.Prompt || t.Provider != x.Provider || t.Folder != x.Folder || t.Base != x.Base {
+				return ErrStarted
+			}
+			x.Priority, x.Labels = t.Priority, t.Labels
+			t = *x
+			return nil
 		}
-		x.Title, x.Prompt, x.Provider, x.Base, x.ChangedAt = t.Title, t.Prompt, t.Provider, t.Base, now.UnixMilli()
+		x.Title, x.Prompt, x.Provider, x.Folder, x.Base, x.Priority, x.Labels, x.ChangedAt = t.Title, t.Prompt, t.Provider, t.Folder, t.Base, t.Priority, t.Labels, now.UnixMilli()
 		if start && x.State == proto.TicketTodo {
 			f.enqueue(x, now)
 		}
@@ -341,7 +364,7 @@ func (s *Store) Update(id string, change func(*proto.Ticket)) error {
 		}
 		before := f.Tickets[i]
 		change(&f.Tickets[i])
-		if f.Tickets[i] == before {
+		if reflect.DeepEqual(f.Tickets[i], before) {
 			return errNoChange
 		}
 		return nil

@@ -2196,7 +2196,7 @@ mod tests {
     fn board_messages_carry_a_board_request_id() {
         let (tx, rx) = channel();
         let out = Outbox(tx);
-        out.board_save(tickets::TicketDraft { id: None, title: "T".into(), prompt: "P".into(), provider: "claude".into(), folder: "/app".into(), base: String::new() }, true);
+        out.board_save(tickets::TicketDraft { id: None, title: "T".into(), prompt: "P".into(), provider: "claude".into(), folder: "/app".into(), base: String::new(), priority: 0, labels: Vec::new() }, true);
         out.board_start("t1");
         out.board_move("t1", tickets::State::Todo, None);
         out.board_limit(3);
@@ -2213,6 +2213,7 @@ mod tests {
     fn board_frames_become_board_events() {
         let ev = |raw: &str| board_event(&serde_json::from_str::<Frame>(raw).unwrap());
         let snapshot = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/board.json");
+        assert!(matches!(ev(snapshot), Some(Event::Board { ref tickets, limit: 4 }) if (tickets[0].number, tickets[0].priority, tickets[0].labels.as_slice()) == (7, 2, ["Bug".to_string()].as_slice()) && (tickets[1].number, tickets[1].priority) == (0, 0)));
         assert!(matches!(ev(snapshot), Some(Event::Board { tickets, limit: 4 }) if tickets.len() == 2 && tickets[0].status == tickets::Status::NeedsYou && tickets[1].closed_why == tickets::ClosedWhy::Merged));
         let newer = r#"{"type":"board","limit":2,"tickets":[{"id":"t2","state":"nonsense"}]}"#;
         assert!(matches!(ev(newer), Some(Event::Board { tickets, limit: 2 }) if tickets.is_empty()));

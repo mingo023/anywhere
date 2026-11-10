@@ -9,6 +9,11 @@
   "viewport": [1440, 900],
   "blast_radius": ["packages/desktop/crates/theme/**", "packages/desktop/crates/ui/**", "packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/pocket/src/overlay.rs", "packages/desktop/crates/pocket/src/forms.rs"],
   "screens": {
+    "board": {
+      "files": ["packages/desktop/crates/pocket/src/board.rs", "packages/desktop/crates/pocket/src/board/**"],
+      "open": ["click Board in the sidebar", "clear all tickets"],
+      "capture": ["dark", "board", "board-empty"]
+    },
     "sessions": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
       "open": ["launch the app", "click a session card in the left sessions list"],
@@ -21,7 +26,8 @@
     },
     "split": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
-      "open": ["select a session", "click the split-pane button to add panes to the active tab"]
+      "open": ["select a session", "click the split-pane button to add panes to the active tab"],
+      "capture": ["session", "split-right", "wait", "wait", "wait"]
     },
     "inbox": {
       "files": ["packages/desktop/crates/pocket/src/inbox.rs"],

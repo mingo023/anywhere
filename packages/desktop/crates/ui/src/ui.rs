@@ -165,7 +165,7 @@ fn named_keys(mac: &str) -> String {
     mac.split_whitespace().map(key).collect::<Vec<_>>().join(" ")
 }
 
-fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
+pub fn glyph_frame(id: impl Into<ElementId>, w: f32, h: f32, radius: f32) -> Stateful<Div> {
     control(div().id(id)).w(px(w)).h(px(h)).flex_none().flex().items_center().justify_center().rounded(px(radius)).cursor_pointer().hover(|s| s.bg(FILL_3)).active(|s| s.bg(FILL_4))
 }
 

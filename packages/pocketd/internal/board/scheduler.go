@@ -98,7 +98,7 @@ func Step(t proto.Ticket, seen Seen, present bool) (proto.Ticket, bool) {
 	case t.Status != proto.TicketStarting || seen.Answered:
 		next.Status, next.Why = proto.TicketIdle, ""
 	}
-	return next, next != t
+	return next, next.Status != t.Status || next.Why != t.Why
 }
 
 // Run keeps the Board moving until ctx ends: queued tickets start as slots

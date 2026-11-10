@@ -61,8 +61,6 @@ pub enum Overlay {
     PairPhone,
     /// A lead's team plan, to edit and start.
     Team,
-    /// The Board's New ticket dialog.
-    Ticket,
 }
 
 #[derive(Clone)]

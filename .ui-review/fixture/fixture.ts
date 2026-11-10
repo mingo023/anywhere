@@ -228,16 +228,16 @@ const AUTOMATIONS = [
   { id: "au4", name: "Weekly changelog", prompt: "Draft the changelog from merged pull requests.", provider: "claude", folder: repoPath("marketing"), schedule: { kind: "days", days: [1], time: "10:00" }, enabled: false, nextRunAt: 0 },
 ];
 const ticket = (id: string, title: string, state: string, status: string, ago: number, extra: Record<string, unknown> = {}) =>
-  ({ id, title, prompt: `${title}.`, provider: "claude", folder: repoPath("app-android"), state, order: ago, status, createdAt: now - ago * 2 * MIN, changedAt: now - ago * MIN, ...extra });
+  ({ id, number: +id.slice(1), title, prompt: `${title}.`, provider: "claude", folder: repoPath("app-android"), state, order: ago, status, createdAt: now - ago * 2 * MIN, changedAt: now - ago * MIN, ...extra });
 const TICKETS = [
-  ticket("t1", "Virtualize the Explorer tree", "todo", "", 40),
-  ticket("t2", "Retry the pocketd link with backoff", "todo", "", 41, { provider: "codex" }),
-  ticket("t3", "Fix the scroll jump on resize in chat", "queued", "", 30),
+  ticket("t1", "Virtualize the Explorer tree", "todo", "", 40, { priority: 2, labels: ["Feature"] }),
+  ticket("t2", "Retry the pocketd link with backoff", "todo", "", 41, { provider: "codex", priority: 3, labels: ["Infra"] }),
+  ticket("t3", "Fix the scroll jump on resize in chat", "queued", "", 30, { priority: 1, labels: ["Bug"] }),
   ticket("t4", "Version the settings store", "queued", "", 31, { provider: "codex" }),
-  ticket("t5", "Fold unchanged hunks in the diff", "live", "working", 3, { agentId: "split", terminalId: "split", worktree: "/tmp/wt/fold-hunks" }),
+  ticket("t5", "Fold unchanged hunks in the diff", "live", "working", 3, { agentId: "split", terminalId: "split", worktree: "/tmp/wt/fold-hunks", priority: 2 }),
   ticket("t6", "Refresh the phone pairing QR", "live", "starting", 1, { provider: "codex", worktree: "/tmp/wt/pairing-qr" }),
-  ticket("t7", "Trim scrollback under memory pressure", "live", "needsYou", 7, { agentId: "fix", terminalId: "fix", worktree: "/tmp/wt/trim-scrollback" }),
-  ticket("t8", "Paste images from the clipboard", "live", "failed", 10, { provider: "codex", why: "cargo test failed in composer.rs", worktree: "/tmp/wt/paste-images" }),
+  ticket("t7", "Trim scrollback under memory pressure", "live", "needsYou", 7, { agentId: "fix", terminalId: "fix", worktree: "/tmp/wt/trim-scrollback", priority: 1, labels: ["Bug"] }),
+  ticket("t8", "Paste images from the clipboard", "live", "failed", 10, { provider: "codex", why: "cargo test failed in composer.rs", worktree: "/tmp/wt/paste-images", labels: ["Bug"] }),
   ticket("t9", "Rename groups inline in the sidebar", "live", "done", 4, { agentId: "crash", terminalId: "crash", worktree: "/tmp/wt/rename-groups" }),
   ticket("t10", "Keyboard navigation in Inbox", "live", "idle", 25, { agentId: "haptics", terminalId: "haptics", worktree: "/tmp/wt/inbox-keys" }),
   ticket("t11", "Reveal worktree in Finder", "closed", "idle", 15, { closedWhy: "merged", closedAt: now - 15 * MIN, worktree: "/tmp/wt/reveal" }),
@@ -263,8 +263,14 @@ const ops = (c: Socket, first: Buffer) => {
     buf = lines.pop()!;
     for (const line of lines.filter(Boolean)) {
       const op = JSON.parse(line);
+      if (process.env.FIXTURE_LOG && op.op === "close") appendFileSync(process.env.FIXTURE_LOG, line + "\n");
       const reply = (msg: object) => c.write(JSON.stringify(msg) + "\n");
       if (op.op === "list") reply({ ev: "terminals", items: sessions });
+      if (op.op === "spawn") {
+        const id = `new-${sessions.length}`;
+        sessions.push({ ...sessions[0], id });
+        reply({ ev: "spawned", id });
+      }
       if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
     }
   };

@@ -294,6 +294,20 @@ impl Default for WorktreeDefaults {
     }
 }
 
+/// A set of Board filters kept as a tab.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct BoardView {
+    pub name: String,
+    pub status: Vec<String>,
+    pub agent: Vec<String>,
+    pub project: Vec<String>,
+    pub priority: Vec<u8>,
+    pub label: Vec<String>,
+    /// The fields, by name, that rule their values out.
+    pub not: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Layout {
@@ -346,6 +360,10 @@ pub struct Store {
     /// Each worktree's Changes scope, keyed by the worktree's path.
     #[serde(deserialize_with = "lenient")]
     pub scopes: BTreeMap<String, scope::Scope>,
+    /// The Board shows its list rather than its columns.
+    pub board_list: bool,
+    #[serde(deserialize_with = "lenient")]
+    pub board_views: Vec<BoardView>,
     /// The app version that last launched, so a relaunch on another one says what's new.
     pub seen_version: Option<String>,
     /// Settings sections showing their advanced rows, by id.

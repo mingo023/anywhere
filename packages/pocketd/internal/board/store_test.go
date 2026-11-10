@@ -186,6 +186,72 @@ func TestAStartedTicketSaysSoWhenEdited(t *testing.T) {
 	}
 }
 
+func TestATicketChangesProjectOnlyBeforeItStarts(t *testing.T) {
+	s := Open(t.TempDir())
+	a := saved(t, s, "a", false)
+	edit := draft("a")
+	edit.ID, edit.Folder = a.ID, "/other"
+	if got, err := s.Save(edit, false, at); err != nil || got.Folder != "/other" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	b := saved(t, s, "b", true)
+	s.Claim(at)
+	late := draft("b")
+	late.ID, late.Folder = b.ID, "/other"
+	if _, err := s.Save(late, false, at); err != ErrStarted {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAStartedTicketStillTakesAPriorityAndLabels(t *testing.T) {
+	s := Open(t.TempDir())
+	a := saved(t, s, "a", true)
+	s.Claim(at)
+	edit := draft("a")
+	edit.ID, edit.Priority, edit.Labels = a.ID, 2, []string{"Bug"}
+	got, err := s.Save(edit, false, at.Add(time.Hour))
+	if err != nil || got.Priority != 2 || !slices.Equal(got.Labels, []string{"Bug"}) || got.ChangedAt != a.ChangedAt {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestEveryTicketGetsANumberOfItsOwn(t *testing.T) {
+	home := t.TempDir()
+	s := Open(home)
+	a, b := saved(t, s, "a", false), saved(t, s, "b", false)
+	if a.Number != 1 || b.Number != 2 {
+		t.Fatalf("got %d, %d", a.Number, b.Number)
+	}
+}
+
+func TestADeletedTicketsNumberIsNotGivenAgain(t *testing.T) {
+	home := t.TempDir()
+	s := Open(home)
+	a := saved(t, s, "a", false)
+	if err := s.Delete(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b := saved(t, Open(home), "b", false); b.Number != a.Number+1 {
+		t.Fatalf("got %d after %d", b.Number, a.Number)
+	}
+}
+
+func TestTicketsFromBeforeNumbersGetOneOnOpen(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "state", "board.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"version":1,"limit":4,"tickets":[{"id":"a","title":"a","prompt":"p","provider":"claude","folder":"/r","state":"todo","order":1,"createdAt":1,"changedAt":1},{"id":"b","title":"b","prompt":"p","provider":"claude","folder":"/r","state":"todo","order":2,"createdAt":2,"changedAt":2,"number":5}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tickets, _ := Open(home).Snapshot()
+	if tickets[0].Number != 6 || tickets[1].Number != 5 {
+		t.Fatalf("got %d, %d", tickets[0].Number, tickets[1].Number)
+	}
+}
+
 func TestReopenIsRefusedOnceWhatClosedItStillHolds(t *testing.T) {
 	s := Open(t.TempDir())
 	for _, c := range []struct{ why, tree string }{{proto.ClosedMerged, ""}, {proto.ClosedDeleted, ""}, {proto.ClosedByUser, "/nowhere/at/all"}} {

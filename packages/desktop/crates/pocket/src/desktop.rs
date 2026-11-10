@@ -649,14 +649,14 @@ impl Render for Desktop {
                 } else if this.overlay.is_none() && this.screen == Screen::Automations {
                     this.escape_automations(cx);
                 } else if this.overlay.is_none() && this.screen == Screen::Board {
-                    this.escape_board(cx);
+                    this.escape_board(window, cx);
                 } else {
                     return;
                 }
                 cx.stop_propagation();
             }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                if this.board_new_ticket_key(&ev.keystroke, window, cx) || this.type_into_chat(&ev.keystroke, window, cx) {
+                if this.board_key(&ev.keystroke, window, cx) || this.type_into_chat(&ev.keystroke, window, cx) {
                     cx.stop_propagation();
                 }
             }))
