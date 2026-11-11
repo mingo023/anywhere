@@ -1,9 +1,6 @@
 use crate::fs::fs_at;
 use agents::locals::is_local;
-use std::cell::RefCell;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use store::ProjectIcon;
 
 pub const LOCAL_ICON: &str = "laptop";
@@ -132,37 +129,9 @@ pub fn ago_long(ms: i64, now: i64) -> String {
     }
 }
 
-/// What a menu lists, built again only when what it was built from changes: every notify redraws the window, and an
-/// agent can list a thousand models.
-pub(crate) struct Kept<T>(RefCell<Option<(u64, Rc<T>)>>);
-
-impl<T> Default for Kept<T> {
-    fn default() -> Self {
-        Self(RefCell::new(None))
-    }
-}
-
-impl<T> Kept<T> {
-    /// The value last built from `from`, else what `build` makes of it.
-    pub(crate) fn get(&self, from: impl Hash, build: impl FnOnce() -> T) -> Rc<T> {
-        let mut hasher = DefaultHasher::new();
-        from.hash(&mut hasher);
-        let key = hasher.finish();
-        let mut kept = self.0.borrow_mut();
-        match &*kept {
-            Some((built_from, value)) if *built_from == key => value.clone(),
-            _ => {
-                let value = Rc::new(build());
-                *kept = Some((key, value.clone()));
-                value
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Kept, ago, ago_long, folder, initials, list_dir, mark, tilde, tree_icon, untilde};
+    use super::{ago, ago_long, folder, initials, list_dir, mark, tilde, tree_icon, untilde};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -235,21 +204,5 @@ mod tests {
     #[test]
     fn a_local_shows_a_laptop_and_a_worktree_its_own_icon() {
         assert_eq!((tree_icon("local-1"), tree_icon("/w/app-login")), ("laptop", "worktree"));
-    }
-
-    #[test]
-    fn a_kept_value_is_built_again_only_when_what_it_was_built_from_changes() {
-        let (kept, built) = (Kept::default(), std::cell::Cell::new(0));
-        let get = |from: (&str, u64)| {
-            let value = kept.get(from, || {
-                built.set(built.get() + 1);
-                from.0.to_uppercase()
-            });
-            (*value).clone()
-        };
-        assert_eq!([get(("pi", 1)), get(("pi", 1)), get(("pi", 1))], ["PI", "PI", "PI"]);
-        assert_eq!(built.get(), 1);
-        assert_eq!([get(("pi", 2)), get(("omp", 2)), get(("omp", 2))], ["PI", "OMP", "OMP"]);
-        assert_eq!(built.get(), 3);
     }
 }

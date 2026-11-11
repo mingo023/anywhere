@@ -535,9 +535,7 @@ impl Desktop {
                 if self.chats.composer.draft.menu != Some(Menu::Model) && self.chats.composer.draft.toggle(Menu::Model) {
                     let search = self.chats.composer.search.clone();
                     focus_search(&search, window, cx);
-                    if let Some(provider) = self.agents.get(agent).map(|a| a.provider.clone()) {
-                        self.models_opened(|d| &mut d.chats.composer.draft, &provider, cx);
-                    }
+                    self.chat_models_opened(agent, cx);
                 }
             }
             (Local::Model, model) => self.outbox.settings(agent, model, ""),

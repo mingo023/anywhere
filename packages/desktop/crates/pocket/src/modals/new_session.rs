@@ -435,10 +435,9 @@ pub(crate) fn slot(d: &mut Desktop) -> &mut Composer {
 }
 
 impl Desktop {
-    /// What `project` last started, else the default agent, with an agent this app knows.
+    /// What `project` last started, else the default agent, with an agent this app knows and the project shows.
     pub(crate) fn last_pick(&self, project: Option<&str>) -> LaunchPick {
-        let repo = project.and_then(|p| self.store.repos.get(p));
-        self.store.agents.pick(repo.map(|r| r.launch.clone()).unwrap_or_default(), &self.agents)
+        self.store.launch_pick(project, &self.agents)
     }
 
     /// A draft not yet sent keeps its words, images, checkout and project; `prompt` adds to its words,

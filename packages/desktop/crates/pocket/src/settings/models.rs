@@ -1,4 +1,4 @@
-use super::dropdown::Row;
+use super::dropdown::{Choice, Row};
 use crate::desktop::Desktop;
 use crate::modals::form::home;
 use agents::ListedModel;
@@ -146,7 +146,7 @@ pub(crate) fn by_upstream<T>(provider: &str, items: Vec<T>, upstream: impl Fn(&T
 /// `provider`'s models as a Settings menu lists them.
 pub(crate) fn model_rows(provider: &str, offered: &[ListedModel], current: &str) -> Vec<Row> {
     let groups = by_upstream(provider, model_options(offered, current).collect(), |(_, _, upstream)| upstream);
-    groups.into_iter().flat_map(|(who, models)| who.map(Row::Heading).into_iter().chain(models.into_iter().map(|(value, label, _)| Row::Pick { value: value.into(), label: label.into() }))).collect()
+    groups.into_iter().flat_map(|(who, models)| who.map(Row::Heading).into_iter().chain(models.into_iter().map(|(value, label, _)| Row::Pick(Choice { value: value.into(), label: label.into() })))).collect()
 }
 
 pub(crate) fn effort_options(efforts: &[String], none: &str) -> Vec<(String, String)> {
@@ -223,6 +223,11 @@ impl Desktop {
         self.store.agents.offered(&self.agents)
     }
 
+    /// The agents `project`'s model panel offers: the ones on offer but for those it hides.
+    pub(crate) fn offered_in(&self, project: Option<&str>) -> Vec<&'static str> {
+        self.store.agents.shown(&self.agents, self.store.hidden(project))
+    }
+
     /// Whether pocketd found `provider`'s CLI.
     pub(crate) fn installed(&self, provider: &str) -> bool {
         self.agents.provider_info(provider).available
@@ -291,7 +296,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ListedModel, Models, Row, by_upstream, couldnt_list, count_line, effort_label, effort_options, listed_agents, model_label, model_options, model_rows, not_found};
+    use super::{Choice, ListedModel, Models, Row, by_upstream, couldnt_list, count_line, effort_label, effort_options, listed_agents, model_label, model_options, model_rows, not_found};
 
     #[test]
     fn a_picker_lists_each_agent_on_offer_and_the_one_picked() {
@@ -399,7 +404,7 @@ mod tests {
         let models = [served("anthropic", "anthropic/claude-opus-4-5", "Claude Opus 4.5"), served("amazon-bedrock", "amazon-bedrock/claude-opus-4-5", "Claude Opus 4.5"), served("anthropic", "anthropic/claude-haiku-4-5", "Claude Haiku 4.5")];
         let shown = |provider: &str, current: &str| {
             let rows = model_rows(provider, &models, current);
-            rows.into_iter().map(|r| match r { Row::Heading(who) => format!("# {who}"), Row::Pick { label, .. } => label }).collect::<Vec<_>>()
+            rows.into_iter().map(|r| match r { Row::Heading(who) => format!("# {who}"), Row::Pick(Choice { label, .. }) => label }).collect::<Vec<_>>()
         };
         for provider in ["opencode", "pi", "omp", "hermes"] {
             assert_eq!(shown(provider, ""), ["# ANTHROPIC", "Claude Opus 4.5", "Claude Haiku 4.5", "# AMAZON BEDROCK", "Claude Opus 4.5"], "{provider}");

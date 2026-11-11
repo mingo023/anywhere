@@ -90,10 +90,6 @@ impl Desktop {
             let menu = ui::pop(div()).min_w(px(260.)).p(px(4.)).flex().flex_col().child(first).child(ui::menu_divider()).children(rows.collect::<Vec<_>>()).occlude().on_mouse_down_out(close);
             ui::dropdown_right(34., ui::menu_in(SharedString::from(format!("repo-account-{provider}-menu-in")), menu))
         });
-        let lead = div().size(px(24.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(provider, 14., TEXT_2));
-        super::plate_row()
-            .child(lead)
-            .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(self.agent_name(provider)))
-            .child(div().relative().flex_none().child(button).children(menu))
+        super::agent_row(provider, self.agent_name(provider)).child(div().relative().flex_none().child(button).children(menu))
     }
 }

@@ -25,6 +25,7 @@ mod notch;
 mod open_in;
 mod palette;
 mod panels;
+mod pick_menu;
 mod region;
 mod removal;
 mod renames;

@@ -254,7 +254,7 @@ pub struct SettingsState {
     swatch: Option<terminal::Swatch>,
     pub(crate) models: models::Models,
     /// The open model or effort menu's rows, and where it's scrolled to.
-    pub(crate) menu_rows: crate::util::Kept<Vec<dropdown::Row>>,
+    pub(crate) menu_rows: crate::pick_menu::Memo<Vec<dropdown::Row>>,
     pub(crate) menu_scroll: UniformListScrollHandle,
     launch: provider::LaunchFields,
     /// When Start service was clicked.

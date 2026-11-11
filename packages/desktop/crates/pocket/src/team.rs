@@ -96,7 +96,7 @@ pub(crate) struct TeamUi {
     /// Where a new allowlist prefix is typed.
     pub(crate) allow: Entity<InputState>,
     /// The open model menu's rows, and where it's scrolled to.
-    menu_rows: crate::util::Kept<Vec<sheet::MenuRow>>,
+    menu_rows: crate::pick_menu::Memo<Vec<sheet::MenuRow>>,
     menu_scroll: UniformListScrollHandle,
 }
 

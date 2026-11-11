@@ -80,6 +80,7 @@ impl Desktop {
         let sent = request.is_some();
         if let Some(request) = request {
             self.terminals.tab_chats.insert(request, Place::Pane(None));
+            self.model_used(provider, model, cx);
         }
         cx.notify();
         sent

@@ -28,7 +28,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 262] = [
+const STEPS: [(&str, Step); 264] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -694,6 +694,17 @@ const STEPS: [(&str, Step); 262] = [
     })),
     ("model-favorites", |d, _, cx| view_models(d, crate::composer::model_menu::FAVORITES, cx)),
     ("models-sample", |d, _, _| models_sample(d)),
+    // One starred model, and four picked lately: the starred one among them, and one of Codex's.
+    ("models-picked", |d, _, _| {
+        let picks = |models: &[(&str, &str)]| models.iter().map(|(provider, model)| (provider.to_string(), model.to_string())).collect();
+        d.store.agents.favorites = picks(&[("claude", "opus")]);
+        d.store.agents.recent = picks(&[("opencode", "zai/glm-5.2"), ("claude", "opus"), ("codex", "gpt-5.5"), ("claude", "sonnet")]);
+    }),
+    ("project-hides", |d, _, _| {
+        for p in d.projects() {
+            d.store.repos.entry(p).or_default().hidden.insert("codex".into());
+        }
+    }),
     // Hermes still listing its models, and this Mac's agents: the others say how to install them.
     ("models-loading", |d, _, _| d.settings.models.set("hermes", None)),
     ("models-failed", |d, _, _| {
