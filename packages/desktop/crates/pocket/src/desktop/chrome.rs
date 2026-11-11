@@ -193,15 +193,15 @@ pub(crate) fn lights(zoom: f32) -> f32 {
     LIGHTS_AT + (LIGHTS - LIGHTS_AT) / zoom
 }
 
-/// The left padding of a bar beside the compact rail: `pad`, or past the traffic lights where they overhang the rail.
-pub(crate) fn past_lights(zoom: f32, pad: f32) -> f32 {
-    (lights(zoom) - RAIL).max(pad)
+/// The left padding of a bar beside a lead column `lead` wide: `pad`, or past the traffic lights where they overhang it.
+pub(crate) fn past_lights(zoom: f32, lead: f32, pad: f32) -> f32 {
+    (lights(zoom) - lead).max(pad)
 }
 
-/// A top bar's left padding outside Focus: past the traffic lights where they overhang the compact rail.
-fn compact_pad(layout: Layout, screen: Screen, pad: f32, zoom: f32) -> f32 {
-    // Only the rail is left of the Sessions page; other screens put a column between.
-    if layout == Layout::Compact && screen == Screen::Sessions { past_lights(zoom, pad) } else { pad }
+/// A top bar's left padding: past the traffic lights where they overhang the lead column, `lead` wide.
+fn bar_pad(layout: Layout, screen: Screen, lead: f32, pad: f32, zoom: f32) -> f32 {
+    // Only the lead column is left of the Sessions page; outside Focus, other screens put a column between.
+    if layout == Layout::Focus || screen == Screen::Sessions { past_lights(zoom, lead, pad) } else { pad }
 }
 
 /// Zooms the window, moving the traffic lights so they stay in the zoomed title bar.
@@ -364,11 +364,9 @@ impl Desktop {
         let toggle = |name: &str, cx: &mut Context<Self>| {
             icon_button_sized("focus-toggle", name, 28., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
         };
-        match self.layout {
-            // Leaves room for the window's traffic lights once the sidebars are hidden.
-            Layout::Focus => (lights(self.store.appearance.zoom_factor()), Some(toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())))),
-            Layout::Compact | Layout::Sidebars => (compact_pad(self.layout, self.screen, pad, self.store.appearance.zoom_factor()), None),
-        }
+        let pad = bar_pad(self.layout, self.screen, self.lead_width(), pad, self.store.appearance.zoom_factor());
+        let toggle = (self.layout == Layout::Focus).then(|| toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())));
+        (pad, toggle)
     }
 
     /// The page's top bar: sidebar toggle, breadcrumb and meta on the left, `right` on the far side.
@@ -385,7 +383,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{BarPress, Layout, Screen, bar_press, compact_pad, lights, past_lights, sidebar_toggled};
+    use super::{BarPress, Layout, RAIL, Screen, bar_pad, bar_press, lights, past_lights, sidebar_toggled};
 
     #[test]
     fn a_double_click_on_a_bar_zooms_the_window_but_not_on_a_control_in_it() {
@@ -400,13 +398,19 @@ mod tests {
 
     #[test]
     fn compact_bars_clear_the_traffic_lights_only_where_nothing_sits_between_them_and_the_rail() {
-        let got = [(Layout::Compact, Screen::Sessions), (Layout::Compact, Screen::Inbox), (Layout::Sidebars, Screen::Sessions)].map(|(l, s)| compact_pad(l, s, 10., 1.));
+        let got = [(Layout::Compact, Screen::Sessions, RAIL), (Layout::Compact, Screen::Inbox, RAIL), (Layout::Sidebars, Screen::Sessions, 272.)].map(|(l, s, lead)| bar_pad(l, s, lead, 10., 1.));
         assert_eq!(got, [35., 10., 10.]);
+    }
+
+    #[test]
+    fn a_bar_keeps_clear_of_the_traffic_lights_as_the_lead_column_moves_under_them() {
+        let got = [(Layout::Focus, 0.), (Layout::Focus, 28.), (Layout::Sidebars, 28.), (Layout::Sidebars, 164.)].map(|(l, lead)| bar_pad(l, Screen::Sessions, lead, 10., 1.));
+        assert_eq!(got, [91., 63., 63., 10.]);
     }
 
     #[test]
     fn the_traffic_lights_take_less_of_a_zoomed_in_window_and_more_of_a_zoomed_out_one() {
         assert_eq!([lights(1.), lights(2.), lights(0.5)], [91., 52.5, 168.]);
-        assert_eq!([past_lights(1., 10.), past_lights(2., 10.), past_lights(0.5, 10.)], [35., 10., 112.]);
+        assert_eq!([past_lights(1., RAIL, 10.), past_lights(2., RAIL, 10.), past_lights(0.5, RAIL, 10.)], [35., 10., 112.]);
     }
 }

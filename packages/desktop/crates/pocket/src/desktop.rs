@@ -18,7 +18,7 @@ use crate::browser::Browsers;
 use crate::chat::ChatState;
 use crate::creating::Creates;
 use crate::desktop::alerts::Alerts;
-use crate::desktop::chrome::{Confirm, Layout, Overlay, RAIL, RowMenu, Screen, Side};
+use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::desktop::dock::Badge;
 use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
@@ -41,13 +41,12 @@ use crate::modals::{add_project, clone_project, new_session};
 use crate::notch::Notch;
 use crate::open_in::OpenIn;
 use crate::palette::PaletteState;
-use crate::region::{self, Regions};
+use crate::region::Regions;
 use crate::panels::Panels;
 use crate::removal::Removals;
 use crate::renames::Renames;
 use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
-use crate::sidebar::panel::RAIL_WIDTH;
 use crate::team::TeamUi;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
@@ -599,20 +598,21 @@ impl Desktop {
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_panels();
+        // A capture draws one frame a step, which would catch a glide midway.
+        let (now, reduce_motion) = (Instant::now(), cx.reduce_motion() || self.capturing);
+        // Not `||`: both step every frame.
+        if self.sidebar.tick(self.layout, now, reduce_motion) | self.panels.tick(now, reduce_motion) {
+            window.request_animation_frame();
+        }
         self.sync_code(window, cx);
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
         self.sync_browser(window);
         let settings = self.screen == Screen::Settings;
-        let lead = match self.layout {
-            _ if settings => None,
-            Layout::Sidebars => Some(region::cached(&self.regions.aside, region::column(self.aside_width()))),
-            Layout::Compact => Some(region::cached(&self.regions.nav, region::column(RAIL))),
-            Layout::Focus => None,
-        };
+        let lead = (!settings).then(|| self.lead());
         let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx)) };
         let page = if settings { self.settings_page(cx) } else { self.main_view(window, cx) };
-        let workspace = (self.screen == Screen::Sessions && self.layout != Layout::Focus).then(|| [region::cached(&self.regions.panel, region::column(self.workspace_panel_width())), region::cached(&self.regions.rail, region::column(RAIL_WIDTH))]);
+        let workspace = (self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
         let overlay = self.overlay_view(window, cx);
         div()
             .relative()
@@ -706,7 +706,7 @@ impl Render for Desktop {
             .children(lead)
             .children(column)
             .child(page)
-            .children(workspace.into_iter().flatten())
+            .children(workspace)
             .children(overlay)
             .children(self.chat_pill(cx))
             .children(self.chat_popover(cx))

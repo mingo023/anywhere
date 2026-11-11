@@ -18,6 +18,7 @@ mod fleet;
 mod fs;
 mod host_agents;
 mod git_ui;
+mod glide;
 mod inbox;
 mod modals;
 mod notch;
