@@ -268,7 +268,7 @@ struct ComposerView: View {
                 HStack(spacing: 2) {
                     if let agent = store.summary {
                         if let goal = agent.goal { GoalPillView(goal: goal, pauses: store.adapter.pausesGoal) { store.goal($0) } }
-                        ModelPillView(agent: agent, efforts: efforts(agent), editable: store.hasCap(Caps.settings)) { model, effort in
+                        ModelPillView(agent: agent, efforts: efforts, editable: store.hasCap(Caps.settings)) { model, effort in
                             store.settings(model: model, effort: effort)
                         }
                         if let access = agent.access, !access.isEmpty {
@@ -358,14 +358,12 @@ struct ComposerView: View {
         return all.first { $0.id == agent.account } ?? all.first { $0.isDefault == true } ?? all.first
     }
 
-    private func efforts(_ agent: AgentSummary) -> [String] {
-        store.providers?.providers.first { $0.id == agent.provider }?.efforts ?? []
-    }
+    private var efforts: [String] { store.info?.efforts ?? [] }
 
     @ViewBuilder
     private func settingsChoices(_ agent: AgentSummary) -> some View {
         if store.settingsMenu == .effort {
-            ForEach(efforts(agent), id: \.self) { e in Button(ModelPill.effortLabel(e)) { store.settings(effort: e) } }
+            ForEach(efforts, id: \.self) { e in Button(ModelPill.effortLabel(e)) { store.settings(effort: e) } }
         } else {
             ForEach(ModelPill.aliases(agent.provider), id: \.self) { m in Button(Sidebar.modelName(m)) { store.settings(model: m) } }
         }

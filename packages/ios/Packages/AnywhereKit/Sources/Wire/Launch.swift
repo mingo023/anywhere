@@ -159,6 +159,8 @@ public struct AgentProviders: Codable, Hashable, Sendable {
         self.phoneMaxAccess = phoneMaxAccess
         self.defaultAccess = defaultAccess
     }
+
+    public func info(_ id: String) -> ProviderInfo? { providers.first { $0.id == id } }
 }
 
 /// The terminal an `agent.create` opened, before its agent starts.

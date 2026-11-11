@@ -402,7 +402,7 @@ public final class ChatStore: HostStore {
     public var provider: String { summary?.provider ?? "" }
     public var adapter: Adapter { Adapter.for(provider, info?.chat) }
 
-    private var info: ProviderInfo? { providers?.providers.first { $0.id == provider } }
+    public var info: ProviderInfo? { providers?.info(provider) }
 
     public var capabilities: Capabilities { adapter.capabilities }
 

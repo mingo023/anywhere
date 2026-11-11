@@ -36,7 +36,7 @@ struct NewSessionView: View {
     private var project: Project? { workspace.project(draft.project) }
     private var mainTree: String { Self.main(of: project) ?? draft.project }
     private var providers: AgentProviders? { workspace.providers }
-    private var info: ProviderInfo? { providers?.providers.first { $0.id == draft.provider.rawValue } }
+    private var info: ProviderInfo? { providers?.info(draft.provider.rawValue) }
     private var neverAsks: Bool { info?.neverAsks == true }
     private var taken: Set<String> { Places.taken(project: project, branches: workspace.branches[mainTree]) }
     private var canSpawn: Bool { host.hello?.scopes?.contains(.spawn) ?? true }
