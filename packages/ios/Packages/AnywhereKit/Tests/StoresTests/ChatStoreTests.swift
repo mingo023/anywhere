@@ -429,8 +429,8 @@ struct ChatStoreTests {
         #expect(compacts() == 1, "only the bare /compact compacted")
     }
 
-    @Test("/compact goes to an ACP agent as its own command when the Mac can't compact its chat")
-    func compactGoesToTheAgentWhenTheMacCantCompactIt() async throws {
+    @Test("an ACP agent's /compact compacts once the Mac says it can, and never reaches the model before")
+    func anAcpAgentsCompactCompactsOnceTheMacSaysItCan() async throws {
         let server = try await TestServer { peer, frame in
             if case .hello = frame.message { peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello))) }
         }
@@ -448,21 +448,17 @@ struct ChatStoreTests {
                 }
             }
         }
-        let older = chat(of: "opencode", connection: connection)
-        _ = older.apply(.agentProviders(Sample.providers))
-        older.draft.text = "/compact"
-        older.send()
-        for _ in 0..<200 where sent().isEmpty { try await Task.sleep(for: .milliseconds(5)) }
-        #expect(sent() == ["/compact"])
+        let c = chat(of: "opencode", connection: connection)
+        c.draft.text = "/compact"
+        c.send()
+        #expect(c.notice != nil, "OpenCode's own /compact is its TUI's")
 
-        let newer = chat(of: "opencode", connection: connection)
-        let caps = ChatCaps(interrupt: true, compact: true, sendWhileWorking: true, subAgents: false)
-        _ = newer.apply(.agentProviders(AgentProviders(providers: [ProviderInfo(id: "opencode", available: true, efforts: [], plan: true, chat: caps)],
-                                                       maxAccess: "full", phoneMaxAccess: "full")))
-        newer.draft.text = "/compact"
-        newer.send()
-        for _ in 0..<200 where sent().count < 2 { try await Task.sleep(for: .milliseconds(5)) }
-        #expect(sent() == ["/compact", "compact"])
+        _ = c.apply(.agentProviders(Sample.providers))
+        c.draft.text = "/compact"
+        c.send()
+        for _ in 0..<200 where sent().isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(sent() == ["compact"])
     }
 
     @Test("the access pill is a menu in a chat the phone drives, but not for an agent that never asks and so has only Full")
