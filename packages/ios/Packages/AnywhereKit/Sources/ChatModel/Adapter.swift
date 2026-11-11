@@ -1,3 +1,4 @@
+import Domain
 import Wire
 
 /// What an agent's chat can do; the view hides what it can't.
@@ -36,27 +37,24 @@ public struct Capabilities: Hashable, Sendable {
 
 /// How the chat treats one provider's agent: what it can do and which commands it runs itself.
 public struct Adapter: Hashable, Sendable {
-    public enum Provider: String, Hashable, Sendable {
-        case claude, codex, cursor, grok, opencode, pi, omp, fx, hermes, antigravity, other
-    }
-
-    public let provider: Provider
+    /// Nil for a provider this build doesn't know.
+    public let agent: AgentName?
 
     /// The adapter for a pocketd agent, by its summary's `provider`; a generic one for a provider this build doesn't know.
     public static func `for`(_ provider: String) -> Adapter {
-        Adapter(provider: Provider(rawValue: provider) ?? .other)
+        Adapter(agent: AgentName(rawValue: provider))
     }
 
     /// What pocketd drives the agent's chat over.
     private enum Driver { case claude, codex, pi, acp, other }
 
     private var driver: Driver {
-        switch provider {
+        switch agent {
         case .claude: .claude
         case .codex: .codex
         case .pi, .omp: .pi
         case .cursor, .grok, .opencode, .fx, .hermes, .antigravity: .acp
-        case .other: .other
+        case nil: .other
         }
     }
 
@@ -125,7 +123,7 @@ public struct Adapter: Hashable, Sendable {
     }
 
     /// Whether `/goal pause` holds the agent's goal without dropping it.
-    public var pausesGoal: Bool { provider == .codex }
+    public var pausesGoal: Bool { agent == .codex }
 
     static let claudeBuiltins = [
         Builtin(name: "model", hint: "[model]", description: "Set the model"),
@@ -171,7 +169,7 @@ public struct Adapter: Hashable, Sendable {
     ]
 
     /// pocketd compacts these agents' ACP chats when asked, so `/compact` does that rather than reach the model.
-    private var compactsOverACP: Bool { provider == .grok || provider == .opencode }
+    private var compactsOverACP: Bool { agent == .grok || agent == .opencode }
 
     static let piBuiltins = [
         Builtin(name: "model", hint: "[model]", description: "Set the model"),
@@ -182,11 +180,11 @@ public struct Adapter: Hashable, Sendable {
 
     /// The commands only the agent's TUI runs. None for omp, which lists what its RPC runs.
     private var tuiOnly: Set<String> {
-        switch provider {
+        switch agent {
         case .pi: Self.piTuiOnly
         case .opencode: Self.opencodeTuiOnly
         case .hermes: Self.hermesTuiOnly
-        default: []
+        case .claude, .codex, .cursor, .grok, .omp, .fx, .antigravity, nil: []
         }
     }
 
