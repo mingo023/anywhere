@@ -104,6 +104,8 @@ type Session struct {
 	cwd      string
 	// server is OpenCode's HTTP server, which names a sub-agent's session while it runs.
 	server string
+	// carried says the agent's process ran under the pocketd before this one, so what it left in the background may still run.
+	carried bool
 	// children maps a sub-agent's session to the call that spawned it.
 	children map[string]string
 	// models and ended hold what Grok's history told of a sub-agent before the call that spawned it.
@@ -113,8 +115,6 @@ type Session struct {
 	kids map[string]*kid
 	// calls holds every call shown, to the call whose sub-agent made it: "" for the session's own.
 	calls map[string]string
-	// delegated holds the calls whose sub-agents Hermes left running this turn.
-	delegated []string
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
 	woke string
 	// runs is the prompt Grok said it runs while a turn was under way, until that turn ends.
@@ -689,12 +689,6 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	} else {
 		s.sink.TurnEnded(!e.OK)
 	}
-	// Hermes takes no turn of its own once its sub-agents end, so they go to
-	// the background only now: before, the turn would wait for them.
-	for _, id := range s.delegated {
-		s.sink.Apply(timeline.Event{Kind: "tool_background", ToolUseID: id})
-	}
-	s.delegated = nil
 	if runs != "" && !stopped {
 		s.wake(runs)
 		return
@@ -1034,6 +1028,13 @@ func (s *Session) Server(args []string) {
 	}
 }
 
+// Carried says the agent's process ran under the pocketd before this one.
+func (s *Session) Carried() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.carried = true
+}
+
 // ChildPoll is how often OpenCode's server is asked for the session of a sub-agent that just started.
 var ChildPoll = 100 * time.Millisecond
 
@@ -1220,12 +1221,9 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 	}
 	switch {
 	case len(sub.transcripts) > 0:
+		// Hermes takes no turn of its own once its sub-agents end.
+		s.record(timeline.Event{Kind: "tool_background", ToolUseID: t.ID, Detached: true})
 		s.watch(t.ID, sub.transcripts)
-		if s.opening {
-			s.record(timeline.Event{Kind: "tool_background", ToolUseID: t.ID})
-		} else {
-			s.delegated = append(s.delegated, t.ID)
-		}
 		return
 	case sub.session == "":
 	// OpenCode tells a sub-agent's work only of a session loaded, as does Grok of one in its history.
@@ -1250,7 +1248,8 @@ func (s *Session) show(t *tool) {
 	s.calls[t.ID] = t.parent
 	name, detail := t.describe()
 	t.task = name == "task"
-	if t.task && t.parent == "" && s.server != "" && !s.opening {
+	// A call the history replays may run on still, as after a pocketd restart mid-task.
+	if t.task && t.parent == "" && s.server != "" {
 		go s.discover(t.ID, detail.Description)
 	}
 	if t.parent != "" {

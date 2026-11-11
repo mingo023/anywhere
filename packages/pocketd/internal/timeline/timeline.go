@@ -35,6 +35,8 @@ type Event struct {
 	Draft string
 	// Limit marks a result that the account's usage limit ended.
 	Limit bool
+	// Detached marks a tool_background whose end the agent takes no turn on, so no turn waits for it.
+	Detached bool
 }
 
 type Timeline struct {
@@ -48,6 +50,8 @@ type Timeline struct {
 	folded   map[string]bool
 	// lasting holds the calls that run on in the background past their turn.
 	lasting map[string]bool
+	// detached holds the lasting calls no turn waits for.
+	detached map[string]bool
 	// tasks maps a background call's task id to its index in items.
 	tasks map[string]int
 	// drafts holds, per kind, the items Claude's stream opened that its transcript hasn't written yet, oldest first.
@@ -65,6 +69,7 @@ func New() *Timeline {
 
 func (t *Timeline) forget() {
 	t.lasting = map[string]bool{}
+	t.detached = map[string]bool{}
 	t.tasks = map[string]int{}
 	t.closeDrafts()
 }
@@ -271,6 +276,7 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 			return proto.Item{}, false
 		}
 		t.lasting[e.ToolUseID] = true
+		t.detached[e.ToolUseID] = e.Detached
 		if e.TaskID != "" {
 			t.tasks[e.TaskID] = n
 		}
@@ -322,6 +328,7 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 			return proto.Item{}, false
 		}
 		delete(t.lasting, e.ToolUseID)
+		delete(t.detached, e.ToolUseID)
 		call := *t.items[n].Call
 		running := call.Status == "running"
 		call.Status = "error"
@@ -442,13 +449,13 @@ func (t *Timeline) LastingAgents() []string {
 	return ids
 }
 
-// BackgroundAgents counts the sub-agents running on in the background past their turn.
+// BackgroundAgents counts the sub-agents running on in the background past their turn whose end a turn waits for.
 func (t *Timeline) BackgroundAgents() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := 0
 	for id := range t.lasting {
-		if i, ok := t.tools[id]; ok && t.items[i].Call.Detail.Kind == "task" {
+		if i, ok := t.tools[id]; ok && t.items[i].Call.Detail.Kind == "task" && !t.detached[id] {
 			n++
 		}
 	}

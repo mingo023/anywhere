@@ -21,7 +21,8 @@ var DelegationPoll = time.Second
 // write to their transcripts, the one place it tells of them, and ends the
 // call once their manifest says they all have.
 func (s *Session) watch(call string, transcripts []string) {
-	d := &delegation{call: call, transcripts: transcripts, read: make([]int64, len(transcripts)), open: map[string][]string{}, summaries: map[int]string{}}
+	d := &delegation{call: call, transcripts: transcripts, read: make([]int64, len(transcripts)), open: map[string][]string{}, summaries: map[int]string{},
+		restored: s.opening, orphaned: s.opening && !s.carried}
 	go func() {
 		tick := time.NewTicker(DelegationPoll)
 		defer tick.Stop()
@@ -56,14 +57,20 @@ type delegation struct {
 	open        map[string][]string // the calls each task's tool started that haven't ended, oldest first, by task and tool
 	calls       int
 	summaries   map[int]string // what each task's sub-agent handed back
+	// restored is one the history names, whose transcripts Hermes may have pruned since.
+	restored bool
+	// orphaned is one whose sub-agents ran in a process gone since, so nothing writes to its transcripts again.
+	orphaned bool
 }
 
 // ended reads the manifest beside the transcripts: whether every sub-agent
-// has ended, and whether each completed. A manifest gone ends the call failed.
+// has ended, and whether each completed. A manifest gone ends the call
+// failed, unless the history names it: Hermes prunes transcripts after a
+// week, so that one ends as the call did.
 func (d *delegation) ended() (done, ok bool) {
 	b, err := os.ReadFile(filepath.Join(filepath.Dir(d.transcripts[0]), "manifest.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return true, false
+		return true, d.restored
 	}
 	var m struct {
 		Completed string `json:"completed"`
@@ -72,12 +79,17 @@ func (d *delegation) ended() (done, ok bool) {
 		} `json:"tasks"`
 	}
 	// Hermes rewrites it in place, so a read may catch it half written.
-	if err != nil || json.Unmarshal(b, &m) != nil || m.Completed == "" {
-		return false, false
+	if err != nil || json.Unmarshal(b, &m) != nil {
+		return d.orphaned, false
 	}
-	ok = true
+	// With independent completions, each unit marks it completed as it ends.
+	done, ok = m.Completed != "", true
 	for _, t := range m.Tasks {
+		done = done && t.Status != "running"
 		ok = ok && t.Status == "completed"
+	}
+	if !done {
+		return d.orphaned, false
 	}
 	return true, ok
 }

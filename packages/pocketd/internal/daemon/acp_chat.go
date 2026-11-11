@@ -37,6 +37,9 @@ func (x *acpChat) attach() {
 	saved, left := "", acp.Ended
 	if h := x.d.hintOf(pr); h != nil {
 		saved = h.saved.ConversationID
+		if h.handoff {
+			x.s.Carried()
+		}
 		switch {
 		case midTurn(pr.a.Turn()):
 			left = acp.Running
