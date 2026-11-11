@@ -1,5 +1,6 @@
 use super::catalog::{Look, Setting};
-use super::models::{count_line, not_found};
+use super::models::count_line;
+use crate::models::not_found;
 use agents::providers;
 use crate::desktop::Desktop;
 use crate::status::Status;

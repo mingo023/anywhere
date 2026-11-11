@@ -2,7 +2,7 @@ use super::effort_menu::{Effort, choice_menu, effort_menu};
 use super::{Composer, Draft, Menu, Slot, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
-use crate::settings::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
+use crate::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
 use crate::pick_menu::{Line, Memo, checked, grouped, pick_list};
 use agents::providers;
 use agents::{ListedModel, ModelSetting};
@@ -396,7 +396,7 @@ impl Desktop {
     /// `draft`'s model panel just opened on `provider` in `project`: its CLI is asked for its models, again if the last
     /// read failed, and its tab is brought into the rail's view.
     pub(crate) fn models_opened(&mut self, draft: impl Fn(&mut Desktop) -> &mut Draft, provider: &str, project: Option<&str>, cx: &mut Context<Self>) {
-        self.settings.models.retry();
+        self.models.retry();
         self.load_models_of(provider, cx);
         if let Some(tab) = rail_tab(&self.offered_in(project), provider, provider) {
             show_rail_tab(&draft(self).rail, tab);
@@ -406,7 +406,7 @@ impl Desktop {
     /// What `model_lines` reads besides what it's given; lines built from it are stale once it changes.
     pub(crate) fn lines_from(&self, project: Option<&str>) -> impl Hash + '_ {
         let agents = &self.store.agents;
-        (self.settings.models.revision, &agents.favorites, &agents.recent, &agents.disabled, self.store.hidden(project), LaunchPick::PROVIDERS.map(|p| self.installed(p)))
+        (self.models.revision, &agents.favorites, &agents.recent, &agents.disabled, self.store.hidden(project), LaunchPick::PROVIDERS.map(|p| self.installed(p)))
     }
 
     /// What `viewed` lists that holds `query`: an agent's models after `current`, one of its own the list lacks, each
@@ -424,12 +424,12 @@ impl Desktop {
 
     /// What the panel says while `viewed` lists nothing for `query`.
     pub(crate) fn no_models(&self, viewed: &str, query: &str) -> Div {
-        empty_list(empty_note(viewed, &self.agent_name(viewed), !query.trim().is_empty(), self.installed(viewed), self.settings.models.loading(viewed)))
+        empty_list(empty_note(viewed, &self.agent_name(viewed), !query.trim().is_empty(), self.installed(viewed), self.models.loading(viewed)))
     }
 
     /// What the panel says under `viewed`'s list: that its CLI listed no models, and why.
     pub(crate) fn models_note(&self, viewed: &str) -> Option<String> {
-        self.settings.models.failure(viewed).map(|why| couldnt_list(&self.agent_name(viewed), why))
+        self.models.failure(viewed).map(|why| couldnt_list(&self.agent_name(viewed), why))
     }
 
     /// The rail, the viewed entry's models and the picked model's efforts and settings; only picking a model switches agent.

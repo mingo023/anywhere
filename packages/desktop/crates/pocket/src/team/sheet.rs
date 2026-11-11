@@ -3,7 +3,7 @@
 use super::plan::{Kept, branch, can_start};
 use super::{PROPOSED, plural};
 use crate::composer::model_menu::listed_name;
-use crate::settings::models::{listed_agents, model_options};
+use crate::models::{listed_agents, model_options};
 use crate::composer::{menu_title, picker, pill};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
@@ -155,7 +155,7 @@ impl Desktop {
     /// checked. An agent can list hundreds, so the rows are kept until a list changes and only those in view are built.
     fn model_menu(&self, t: &Kept, cx: &mut Context<Self>) -> Stateful<Div> {
         let agents = listed_agents(&workers(&self.offered(), &self.agents), &[&t.agent]);
-        let rows = self.team.menu_rows.get((&agents, &t.agent, &t.model, self.settings.models.revision), || menu_rows(&agents, (&t.agent, &t.model), |p| self.offered_models(p)));
+        let rows = self.team.menu_rows.get((&agents, &t.agent, &t.model, self.models.revision), || menu_rows(&agents, (&t.agent, &t.model), |p| self.offered_models(p)));
         let runs = if t.model.is_empty() { self.store.agents.provider(&t.agent).model } else { t.model.clone() };
         let (task, on, count) = (t.id.clone(), t.agent.clone(), rows.len());
         let line = move |this: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {

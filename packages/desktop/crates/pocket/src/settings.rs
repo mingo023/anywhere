@@ -252,7 +252,6 @@ pub struct SettingsState {
     pub(crate) fonts: Vec<String>,
     /// The terminal colour being edited.
     swatch: Option<terminal::Swatch>,
-    pub(crate) models: models::Models,
     /// The open model or effort menu's rows, and where it's scrolled to.
     pub(crate) menu_rows: crate::pick_menu::Memo<Vec<dropdown::Row>>,
     pub(crate) menu_scroll: UniformListScrollHandle,
@@ -293,7 +292,7 @@ impl SettingsState {
         let (glass, glass_sub) = appearance::glass_slider(store, window, cx);
         subs.push(glass_sub);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass };
+        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass };
         (state, subs)
     }
 
@@ -469,7 +468,7 @@ impl Desktop {
         if self.settings.section == Section::Git && self.prs.gh.is_none() {
             self.check_gh(cx);
         }
-        self.settings.models.retry();
+        self.models.retry();
         match self.settings.section {
             // Agents counts every installed agent's models.
             Section::Agents => self.load_models(cx),

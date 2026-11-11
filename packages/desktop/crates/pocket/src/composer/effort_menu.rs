@@ -1,7 +1,7 @@
 use super::model_menu::{GAP, PAD, check, row};
 use super::{Draft, launch};
 use crate::desktop::Desktop;
-use crate::settings::models::effort_label;
+use crate::models::effort_label;
 use gpui_kit::*;
 use theme::*;
 

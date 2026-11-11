@@ -3,7 +3,8 @@ use super::agents::{status_source, toggle_enabled};
 use super::catalog::Setting;
 use super::dropdown::dropdown;
 use super::dropdown::picks;
-use super::models::{effort_label, effort_options, model_or_default, model_rows, not_found};
+use super::models::{effort_options, model_rows};
+use crate::models::{effort_label, model_or_default, not_found};
 use super::{Section, action, card, field_box, row};
 use crate::composer::model_menu::listed_name;
 use crate::desktop::Desktop;
@@ -210,7 +211,7 @@ impl Desktop {
                     }
                 }
                 if f == Launch::Command {
-                    d.settings.models.forget(p);
+                    d.models.forget(p);
                 }
                 d.load_host(cx);
             })
@@ -225,7 +226,7 @@ impl Desktop {
         let (key, text) = (f.key(p), f.text(&self.store.agents, p));
         self.set_host(key, text, cx);
         if f == Launch::Command {
-            self.settings.models.forget(p);
+            self.models.forget(p);
         }
     }
 
@@ -268,7 +269,7 @@ impl Desktop {
         let model = self.store.agents.provider(p).model;
         let (id, offered) = (ROW_IDS[i][1], self.offered_models(p));
         let trigger = action(id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown(id, trigger, (self.settings.models.revision, self.installed(p), &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
+        let menu = dropdown(id, trigger, (self.models.revision, self.installed(p), &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
         row(setting.label, setting.hint, menu)
     }
 

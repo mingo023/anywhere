@@ -21,6 +21,7 @@ mod git_ui;
 mod glide;
 mod inbox;
 mod modals;
+mod models;
 mod notch;
 mod open_in;
 mod palette;

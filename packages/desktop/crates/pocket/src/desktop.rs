@@ -38,6 +38,7 @@ use crate::git_ui::pull_requests::PullRequests;
 use crate::inbox::InboxState;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, clone_project, new_session};
+use crate::models::Models;
 use crate::notch::Notch;
 use crate::open_in::OpenIn;
 use crate::palette::PaletteState;
@@ -79,6 +80,7 @@ pub struct Desktop {
     pub(crate) removals: Removals,
     pub(crate) renames: Renames,
     pub(crate) agents: Agents,
+    pub(crate) models: Models,
     pub(crate) store: Store,
     pub(crate) project: Option<String>,
     pub(crate) screen: Screen,
@@ -213,6 +215,7 @@ impl Desktop {
             removals: Removals::default(),
             renames: Renames::default(),
             agents: Agents::default(),
+            models: Models::default(),
             project: store.projects.first().cloned(),
             store,
             screen: Screen::Sessions,

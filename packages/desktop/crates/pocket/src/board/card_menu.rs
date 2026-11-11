@@ -3,7 +3,7 @@ use super::logic::{Action, Field, LABELS, PRIORITIES, action_field, column, menu
 use super::parts::{label_dot, priority_glyph};
 use super::values::Values;
 use crate::desktop::Desktop;
-use crate::settings::models::listed_agents;
+use crate::models::listed_agents;
 use agents::tickets::Ticket;
 use gpui_kit::*;
 use std::collections::HashSet;

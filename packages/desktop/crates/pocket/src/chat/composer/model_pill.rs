@@ -4,7 +4,7 @@ use crate::composer::effort_menu::{Effort, choice_menu, effort_menu};
 use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
 use crate::pick_menu::{Line, checked};
 use crate::desktop::Desktop;
-use crate::settings::models::effort_label;
+use crate::models::effort_label;
 use agents::{ListedModel, ModelSetting, Summary};
 use gpui_kit::*;
 use std::rc::Rc;

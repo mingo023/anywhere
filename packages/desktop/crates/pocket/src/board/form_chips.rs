@@ -3,7 +3,7 @@ use super::logic::{Surface, Field, LABELS, PRIORITIES, priority_name};
 use super::parts::{label_dot, priority_glyph, prop_chip};
 use super::values::Picks;
 use crate::desktop::Desktop;
-use crate::settings::models::listed_agents;
+use crate::models::listed_agents;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;

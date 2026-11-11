@@ -3,7 +3,7 @@ use super::logic::{COLS, Choice, FilterCat, Filters, LABELS, PRIORITIES, column,
 use super::parts::{bar_button, label_dot, priority_glyph, status_glyph};
 use super::views::can_save_view;
 use crate::desktop::Desktop;
-use crate::settings::models::listed_agents;
+use crate::models::listed_agents;
 use agents::tickets::{Status, Ticket};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::tooltip::Tooltip;

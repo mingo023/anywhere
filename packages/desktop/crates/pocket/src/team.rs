@@ -176,7 +176,7 @@ impl Desktop {
         let menu = &mut self.team.island.menu;
         *menu = (menu.as_deref() != Some(task)).then(|| task.to_string());
         self.team.menu_scroll = Default::default();
-        self.settings.models.retry();
+        self.models.retry();
         for agent in sheet::workers(&self.offered(), &self.agents) {
             self.load_models_of(agent, cx);
         }

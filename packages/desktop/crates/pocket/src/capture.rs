@@ -710,17 +710,17 @@ const STEPS: [(&str, Step); 265] = [
             p.available |= p.id == "cursor";
         }
         let reply = r#"{"jsonrpc":"2.0","id":2,"result":{"models":[{"value":"composer-2.5","name":"Composer 2.5","configOptions":[]},{"value":"gpt-5.4","name":"GPT-5.4","configOptions":[{"id":"reasoning","name":"Reasoning","category":"thought_level","type":"select","currentValue":"medium","options":[{"value":"low","name":"Low"},{"value":"medium","name":"Medium"},{"value":"high","name":"High"}]},{"id":"fast","name":"Fast","category":"model_config","type":"select","currentValue":"false","options":[{"value":"false","name":"Off"},{"value":"true","name":"On"}]}]}]}}"#;
-        d.settings.models.set("cursor", providers::known("cursor").models.read(reply).ok());
+        d.models.set("cursor", providers::known("cursor").models.read(reply).ok());
         let pick = store::LaunchPick { provider: "cursor".into(), model: "gpt-5.4".into(), access: "ask".into(), options: [("fast".to_string(), "true".to_string())].into(), ..Default::default() };
         let repo = d.project.clone(); crate::modals::new_session::slot(d).draft.choose(repo, pick);
         cx.notify();
     }),
     // Hermes still listing its models, and this Mac's agents: the others say how to install them.
-    ("models-loading", |d, _, _| d.settings.models.set("hermes", None)),
+    ("models-loading", |d, _, _| d.models.set("hermes", None)),
     ("models-failed", |d, _, _| {
-        d.settings.models.forget("hermes");
-        if let Some(asked) = d.settings.models.ask("hermes") {
-            d.settings.models.answer("hermes", asked, Err("Authentication required".into()));
+        d.models.forget("hermes");
+        if let Some(asked) = d.models.ask("hermes") {
+            d.models.answer("hermes", asked, Err("Authentication required".into()));
         }
     }),
     ("agents-here", |d, _, _| {
@@ -1162,7 +1162,7 @@ fn models_sample(d: &mut Desktop) {
     let hermes: Vec<_> = HERMES.iter().map(|(id, who)| json!({"modelId": id, "name": format!("{who} \u{b7} {}", id.split_once(':').map_or(*id, |(_, model)| model))})).collect();
     let hermes = json!({"jsonrpc": "2.0", "id": 2, "result": {"models": {"availableModels": hermes, "currentModelId": "openai-codex:gpt-6-sol"}}});
     for (provider, printed) in [("opencode", opencode), ("pi", pi.to_string()), ("hermes", hermes.to_string())] {
-        d.settings.models.set(provider, providers::known(provider).models.read(&printed).ok());
+        d.models.set(provider, providers::known(provider).models.read(&printed).ok());
     }
 }
 
