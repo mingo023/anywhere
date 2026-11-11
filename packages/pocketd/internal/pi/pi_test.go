@@ -991,6 +991,10 @@ func TestOmpStartsFastWhereTheLaunchAsksAndSaysWhenTheModelHasNoFast(t *testing.
 		return ""
 	}})
 	sk.wait(t, "notice:omp couldn't set fast to true: Fast mode is unavailable for the current model.")
+
+	// pi has no Fast to set.
+	_, a, _, _ = start(t, opts{launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}})
+	equal(t, a.kinds(), []string{"get_state"})
 }
 
 func TestPiListsItsSkillsAsCommands(t *testing.T) {

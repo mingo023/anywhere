@@ -54,11 +54,13 @@ type flavor struct {
 	allCommands bool
 	// ownEvents has it tell of itself in events pi doesn't have.
 	ownEvents bool
+	// fast is the priority service tier, which only some providers' models have.
+	fast bool
 }
 
 var flavors = map[string]flavor{
 	providers.Pi.ID:  {commands: "get_commands"},
-	providers.Omp.ID: {commands: "get_available_commands", allCommands: true, ownEvents: true},
+	providers.Omp.ID: {commands: "get_available_commands", allCommands: true, ownEvents: true, fast: true},
 }
 
 // prompt is one pi took that it hasn't shown as the user's yet.
@@ -177,8 +179,7 @@ func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, e
 			log.Printf("pi %s: thinking %s: %v", s.agentID, l.Effort, err)
 		}
 	}
-	// omp's Fast is the priority service tier, which only some providers' models have.
-	if fast, ok := l.Options["fast"]; ok {
+	if fast, ok := l.Options["fast"]; ok && s.f.fast {
 		if _, err := s.call(c, CallWait, "set_fast_mode", map[string]any{"enabled": fast == "true"}); err != nil {
 			s.notice(fmt.Sprintf("%s couldn't set fast to %s: %v", s.name, fast, err))
 		}
