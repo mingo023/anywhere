@@ -27,9 +27,15 @@ fn runs(agent: &Summary, model: &ListedModel) -> bool {
     agent.model.as_deref().is_some_and(|m| m == model.value || m == model.resolved || unresolved && m.split('-').any(|w| w == model.value))
 }
 
-/// The line of the model `agent` runs, among `own`, its provider's models.
+/// The model `agent` runs when none of `own`, its provider's models, is it: the panel lists it, as a launch's does a
+/// stored model its list lacks.
+fn unlisted_running<'a>(agent: &'a Summary, own: &[ListedModel]) -> &'a str {
+    agent.model.as_deref().filter(|_| !own.iter().any(|m| runs(agent, m))).unwrap_or_default()
+}
+
+/// The line of the model `agent` runs, among `own`, its provider's models, or listed as it is.
 fn running_line(lines: &[Line<Entry>], agent: &Summary, own: &[ListedModel]) -> Option<usize> {
-    let running: Vec<&str> = own.iter().filter(|m| runs(agent, m)).map(|m| m.value.as_str()).collect();
+    let running: Vec<&str> = own.iter().filter(|m| runs(agent, m)).map(|m| m.value.as_str()).chain(agent.model.as_deref()).collect();
     checked(lines, |e| e.provider == agent.provider && running.contains(&e.value.as_str()))
 }
 
@@ -81,8 +87,9 @@ impl Desktop {
         let draft = &self.chats.composer.draft;
         let query = self.chats.composer.search.read(cx).value();
         let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || {
-            let lines = self.model_lines(viewed, "", &query, project);
-            Listed { on: running_line(&lines, agent, self.offered_models(&agent.provider)), lines }
+            let own = self.offered_models(&agent.provider);
+            let lines = self.model_lines(viewed, if viewed == agent.provider { unlisted_running(agent, own) } else { "" }, &query, project);
+            Listed { on: running_line(&lines, agent, own), lines }
         });
         if listed.lines.is_empty() {
             return self.no_models(viewed, &query);
@@ -111,7 +118,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Line, ListedModel, Summary, label, running_effort, running_line, runs};
+    use super::{Entry, Line, ListedModel, Summary, label, running_effort, running_line, runs, unlisted_running};
 
     #[test]
     fn the_line_checked_is_the_model_the_chat_runs() {
@@ -123,6 +130,17 @@ mod tests {
         assert_eq!(running_line(&lines, &agent, &own), Some(3), "its own agent's row, by the id the alias stands for");
         assert_eq!(running_line(&lines[..3], &agent, &own), None);
         assert_eq!(running_line(&lines, &Summary { model: None, ..agent }, &own), None);
+    }
+
+    #[test]
+    fn a_running_model_its_list_lacks_is_listed_and_checked() {
+        let agent = Summary { provider: "pi".into(), model: Some("claude-sonnet-4-6".into()), ..Default::default() };
+        let listed = |value: &str| ListedModel { value: value.into(), resolved: value.into(), ..ListedModel::default() };
+        assert_eq!(unlisted_running(&agent, &[listed("")]), "claude-sonnet-4-6");
+        assert_eq!(unlisted_running(&agent, &[listed("claude-sonnet-4-6")]), "", "a listed one needs no extra line");
+        assert_eq!(unlisted_running(&Summary { model: None, ..agent.clone() }, &[]), "");
+        let line = |value: &str| Line::Pick(Entry { provider: "pi".into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
+        assert_eq!(running_line(&[line("claude-sonnet-4-6"), line("")], &agent, &[listed("")]), Some(0));
     }
 
     #[test]
