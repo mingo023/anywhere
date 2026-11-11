@@ -254,6 +254,37 @@ func TestAStopCancelsTheTurnAndDropsThePromptsThatWaited(t *testing.T) {
 	}
 }
 
+func TestAStopEndsTheCallsTheAgentLeftOpenSoALaterCallWithTheirIDShows(t *testing.T) {
+	cancelled := make(chan struct{})
+	call := `{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"sleep 45","kind":"execute","status":"in_progress","rawInput":{"command":"sleep 45"}}`
+	s, _, sk, _ := start(t, opts{provider: "grok", answer: func(a *agent, method string, params json.RawMessage) string {
+		switch method {
+		case "session/new":
+			return `{"sessionId":"s1"}`
+		case "session/cancel":
+			close(cancelled)
+		case "session/prompt":
+			a.update(call)
+			if promptOf(params) == "slow" {
+				// Grok ends a cancelled turn with no last word on its calls.
+				<-cancelled
+				return `{"stopReason":"cancelled"}`
+			}
+			a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed"}`)
+			return endTurn
+		}
+		return `{}`
+	}})
+	s.Prompt("slow")
+	sk.wait(t, "tool_start:call_1:shell:shell:sleep 45")
+	s.Cancel()
+	sk.wait(t, "stopped")
+	s.Prompt("again")
+	equal(t, after(sk.wait(t, "ended:false"), "user:slow"), []string{
+		"user:slow", "working", "tool_start:call_1:shell:shell:sleep 45", "tool_end:call_1:false:Interrupted", "result:false:interrupted", "stopped",
+		"user:again", "working", "tool_start:call_1:shell:shell:sleep 45", "tool_end:call_1:true", "result:true:", "ended:false"})
+}
+
 func TestMessagesThoughtsPlansAndCommandsMapToTheChat(t *testing.T) {
 	s, _, sk, _ := start(t, opts{provider: "hermes", answer: script(hermesNew, says(
 		`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hm"}}`,

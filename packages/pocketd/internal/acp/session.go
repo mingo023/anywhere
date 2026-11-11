@@ -318,15 +318,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 func (s *Session) loaded(ok bool, left Left) {
 	s.flush()
 	if ok && left != Running {
-		cut := left == Cut && len(s.replay) > 0
-		for id, t := range s.tools {
-			if t.started {
-				out := "Interrupted"
-				s.record(timeline.Event{Kind: "tool_end", ToolUseID: id, Output: &out})
-				cut = true
-			}
-		}
-		clear(s.tools)
+		cut := s.interrupt() || left == Cut && len(s.replay) > 0
 		switch {
 		case cut:
 			s.record(timeline.Event{Kind: "result", Error: "interrupted"})
@@ -344,6 +336,21 @@ func (s *Session) loaded(ok bool, left Left) {
 	for _, e := range history {
 		s.sink.Apply(e)
 	}
+}
+
+// interrupt ends the calls the agent left open, as their turn was cut short.
+// It reports whether there were any.
+func (s *Session) interrupt() bool {
+	cut := false
+	for id, t := range s.tools {
+		if t.started {
+			out := "Interrupted"
+			s.record(timeline.Event{Kind: "tool_end", ToolUseID: id, Output: &out})
+			cut = true
+		}
+	}
+	clear(s.tools)
+	return cut
 }
 
 // record adds e to the timeline, once the history it is part of has loaded.
@@ -644,6 +651,8 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	}
 	switch {
 	case stopped:
+		// Grok tells nothing more of its calls once stopped.
+		s.interrupt()
 		e.Error = "interrupted"
 	case err != nil:
 		e.Error = err.Error()
