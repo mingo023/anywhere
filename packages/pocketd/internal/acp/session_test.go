@@ -1432,7 +1432,7 @@ func TestAnOpenCodeSubAgentsSessionLoadsAsItStartsSoWhatItAsksReachesTheUser(t *
 	s.mu.Lock()
 	s.children["old"] = "t0"
 	s.mu.Unlock()
-	s.Server([]string{"pipe", "opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:"), "--pocketd"})
+	s.Server([]string{"pipe", "opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:"), "--pocketd"}, nil)
 	s.Prompt("Delegate")
 	req := asked(t, b)
 	if req.ToolName != "shell" || req.Detail.Command != "echo sub" {
@@ -1477,6 +1477,32 @@ func TestAnOpenCodeSubAgentStillRunningInTheHistoryLoadsSoWhatItAsksReachesTheUs
 	equal(t, a.called("session/load", 2)[1:], []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
 }
 
+// OpenCode's server asks for basic auth once OPENCODE_SERVER_PASSWORD is set, as user OPENCODE_SERVER_USERNAME or "opencode".
+func TestOpenCodesServerIsAskedAsTheLoginTheAgentsEnvSetsForIt(t *testing.T) {
+	for user, env := range map[string][]string{
+		"opencode": {"OPENCODE_SERVER_PASSWORD=secret"},
+		"me":       {"OPENCODE_SERVER_USERNAME=me", "OPENCODE_SERVER_PASSWORD=secret"},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if u, p, _ := r.BasicAuth(); u != user || p != "secret" {
+				http.Error(w, "Authentication required", http.StatusUnauthorized)
+				return
+			}
+			w.Write([]byte(`[{"id":"kid","title":"Run echo (@general subagent)"}]`))
+		}))
+		_, a, _, _ := start(t, opts{provider: "opencode", saved: "s1", left: Running, args: []string{"opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:")}, env: env,
+			answer: func(a *agent, method string, params json.RawMessage) string {
+				if method == "session/load" && strings.Contains(string(params), `"s1"`) {
+					a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"task","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
+					a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"Run echo","locations":[],"rawInput":{"description":"Run echo","prompt":"run echo sub","subagent_type":"general"}}`)
+				}
+				return opencodeNew
+			}})
+		equal(t, a.called("session/load", 2)[1:], []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
+		server.Close()
+	}
+}
+
 // hermesDelegates is what Hermes's ACP server tells of a delegate_task call, as its acp_adapter/tools.py builds it.
 func hermesDelegates(a *agent, goal, result string) {
 	a.update(`{"content":[{"content":{"text":` + strconv.Quote("Delegating task:\n"+goal) + `,"type":"text"},"type":"content"}],"kind":"execute","locations":[],"title":"delegate_task: ` + goal + `","toolCallId":"tc-d","sessionUpdate":"tool_call"}`)
@@ -1495,8 +1521,10 @@ func TestAHermesSubAgentShowsUnderItsCallWhatItsTranscriptTellsAndEndsItWithItsS
 		"12:00:01 user     | kickoff: List the files\n12:00:01 start    | List the files\n"), 0o600)
 	dispatched, _ := json.Marshal(map[string]any{"status": "dispatched", "mode": "background", "count": 1, "delegation_id": "deleg_1",
 		"goals": []string{"List the files"}, "live_transcripts": []string{log}})
-	s, _, sk, _ := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, _ string) string {
-		hermesDelegates(a, "List the files", string(dispatched))
+	s, _, sk, _ := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, text string) string {
+		if text == "Delegate" {
+			hermesDelegates(a, "List the files", string(dispatched))
+		}
 		return endTurn
 	})})
 	s.Prompt("Delegate")
@@ -1508,7 +1536,7 @@ func TestAHermesSubAgentShowsUnderItsCallWhatItsTranscriptTellsAndEndsItWithItsS
 	f.WriteString("completed\n")
 	f.Close()
 	os.WriteFile(manifest, []byte(`{"delegation_id":"deleg_1","completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"completed"}]}`), 0o600)
-	equal(t, after(sk.wait(t, "tool_end:tc-d:true:Found a.txt"), "working"), []string{
+	equal(t, after(sk.waitN(t, "ended:false", 2), "working"), []string{
 		"working",
 		"tool_start:tc-d:task:task:List the files",
 		"tc-d>user:List the files",
@@ -1520,6 +1548,9 @@ func TestAHermesSubAgentShowsUnderItsCallWhatItsTranscriptTellsAndEndsItWithItsS
 		`tool_end:tc-d.1:true:{"output": "a.txt", "exit_code": 0}`,
 		"tc-d>assistant_text:Found a.txt",
 		"tool_end:tc-d:true:Found a.txt",
+		"working",
+		"result:true:",
+		"ended:false",
 	})
 }
 
@@ -1605,8 +1636,10 @@ func TestAHermesDelegationEndsOnceEveryOneOfItsSubAgentsHas(t *testing.T) {
 	defer func(p time.Duration) { DelegationPoll = p }(DelegationPoll)
 	DelegationPoll = 10 * time.Millisecond
 	dir, handle := delegated(t, `{"tasks":[{"index":0,"status":"running"},{"index":1,"status":"running"}]}`, "")
-	s, _, sk, _ := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, _ string) string {
-		hermesDelegates(a, "List the files", handle)
+	s, _, sk, _ := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, text string) string {
+		if text == "Delegate" {
+			hermesDelegates(a, "List the files", handle)
+		}
 		return endTurn
 	})})
 	s.Prompt("Delegate")
@@ -1618,6 +1651,111 @@ func TestAHermesDelegationEndsOnceEveryOneOfItsSubAgentsHas(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"completed":"2026-11-11 12:00:09","tasks":[{"index":0,"status":"completed"},{"index":1,"status":"completed"}]}`), 0o600)
 	sk.wait(t, "tool_end:tc-d:true")
+}
+
+// handsBack runs Hermes delegating in the background on "Delegate", and
+// replying "Took it." to anything else, with what the sub-agent's transcript says.
+func handsBack(t *testing.T, transcript string) (s *Session, a *agent, sk *sink, end func()) {
+	t.Helper()
+	p := DelegationPoll
+	t.Cleanup(func() { DelegationPoll = p })
+	DelegationPoll = 10 * time.Millisecond
+	dir, handle := delegated(t, `{"tasks":[{"index":0,"status":"running"}]}`, transcript)
+	end = func() {
+		os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"completed"}]}`), 0o600)
+	}
+	s, a, sk, _ = start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, text string) string {
+		if text == "Delegate" {
+			hermesDelegates(a, "List the files", handle)
+		} else {
+			a.update(`{"content":{"text":"Took it.","type":"text"},"messageId":"m2","sessionUpdate":"agent_message_chunk"}`)
+		}
+		return endTurn
+	})})
+	return s, a, sk, end
+}
+
+// Hermes's ACP server never takes what its background sub-agents hand back,
+// as its CLI does, so pocketd hands it over in a turn of its own.
+func TestATurnHandsHermesWhatItsBackgroundSubAgentsToldOnceTheyEnd(t *testing.T) {
+	transcript := "12:00:04 final    | status=completed duration=3.1s summary: Found a.txt\n"
+	s, a, sk, end := handsBack(t, transcript)
+	s.Prompt("Delegate")
+	sk.wait(t, "ended:false")
+	end()
+	equal(t, after(sk.waitN(t, "ended:false", 2), "tool_end:tc-d:true:Found a.txt"), []string{
+		"tool_end:tc-d:true:Found a.txt",
+		"working",
+		"assistant_draft:Took it.",
+		"assistant_text:Took it.",
+		"result:true:",
+		"ended:false",
+	})
+	head, data, _ := strings.Cut(promptOf(json.RawMessage(a.called("session/prompt", 2)[1])), "\n\n")
+	var told []struct{ Path, Tail string }
+	json.Unmarshal([]byte(data), &told)
+	if !strings.HasPrefix(head, handoffHeader) || len(told) != 1 || filepath.Base(told[0].Path) != "task-0.log" ||
+		told[0].Tail != "=== Hermes subagent live transcript ===\n"+transcript {
+		t.Fatalf("handed back %q then %+v", head, told)
+	}
+}
+
+func TestSubAgentsThatEndMidTurnAreHandedBackOnceTheTurnEnds(t *testing.T) {
+	s, a, sk, end := handsBack(t, "")
+	s.Prompt("Delegate")
+	sk.wait(t, "tool_background:tc-d:detached")
+	end()
+	sk.wait(t, "tool_end:tc-d:true")
+	if got := a.called("session/prompt", 2); !strings.Contains(got[1], handoffHeader) {
+		t.Fatalf("prompted %v", got)
+	}
+}
+
+func TestATurnTheUserStartsBeforeTheSubAgentsEndDropsTheirHandoff(t *testing.T) {
+	s, a, sk, end := handsBack(t, "")
+	s.Prompt("Delegate")
+	s.Prompt("Next")
+	sk.waitN(t, "ended:false", 2)
+	end()
+	sk.wait(t, "tool_end:tc-d:true")
+	time.Sleep(5 * DelegationPoll)
+	if got := a.called("session/prompt", 2); len(got) != 2 {
+		t.Fatalf("handed back after the user's turn: %v", got)
+	}
+}
+
+func TestAStopDropsTheHandoffOfSubAgentsStillRunning(t *testing.T) {
+	s, a, sk, end := handsBack(t, "")
+	s.Prompt("Delegate")
+	sk.wait(t, "ended:false")
+	s.Cancel()
+	end()
+	sk.wait(t, "tool_end:tc-d:true")
+	time.Sleep(5 * DelegationPoll)
+	if got := a.called("session/prompt", 1); len(got) != 1 {
+		t.Fatalf("handed back after a stop: %v", got)
+	}
+}
+
+func TestAHistoryShowsTheTurnThatHandedHermesBackItsSubAgentsWorkWithoutItsPrompt(t *testing.T) {
+	_, _, sk, _ := start(t, opts{provider: "hermes", saved: "s1", answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method != "session/load" {
+			return `{}`
+		}
+		a.update(`{"content":{"text":"Delegate","type":"text"},"sessionUpdate":"user_message_chunk"}`)
+		a.update(`{"content":{"text":"On it.","type":"text"},"sessionUpdate":"agent_message_chunk"}`)
+		a.update(`{"content":{"text":` + strconv.Quote(handoff([]report{{Path: "/t/task-0.log", Tail: "done"}})) + `,"type":"text"},"sessionUpdate":"user_message_chunk"}`)
+		a.update(`{"content":{"text":"Took it.","type":"text"},"sessionUpdate":"agent_message_chunk"}`)
+		return hermesNew
+	}})
+	equal(t, sk.wait(t, "bound:s1")[:6], []string{
+		"loaded",
+		"user:Delegate",
+		"assistant_text:On it.",
+		"result:true:",
+		"assistant_text:Took it.",
+		"result:true:",
+	})
 }
 
 // A delegation Hermes runs in the call, as when its pool is full, ends the call with its results.

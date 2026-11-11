@@ -105,8 +105,10 @@ type Session struct {
 	answered bool // the history's last prompt has an answer after it
 	tools    map[string]*tool
 	cwd      string
-	// server is OpenCode's HTTP server, which names a sub-agent's session while it runs.
+	// server is OpenCode's HTTP server, which names a sub-agent's session
+	// while it runs, and login the basic auth it asks for, if any.
 	server string
+	login  *url.Userinfo
 	// carried says the agent's process ran under the pocketd before this one, so what it left in the background may still run.
 	carried bool
 	// children maps a sub-agent's session to the call that spawned it.
@@ -118,6 +120,11 @@ type Session struct {
 	kids map[string]*kid
 	// calls holds every call shown, to the call whose sub-agent made it: "" for the session's own.
 	calls map[string]string
+	// delegated holds the calls whose sub-agents Hermes runs in the background
+	// since the user last started or stopped a turn; handing holds what those
+	// that ended told, for the turn that hands it to Hermes once none runs.
+	delegated []string
+	handing   []report
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
 	woke string
 	// runs is the prompt Grok said it runs while a turn was under way, until that turn ends.
@@ -705,11 +712,16 @@ func (s *Session) Prompt(text string) error {
 	return nil
 }
 
-// start sends text as a turn. ACP echoes no prompt, so it goes in the timeline here.
+// start sends the user's text as a turn. ACP echoes no prompt, so it goes in the timeline here.
 func (s *Session) start(text string) {
+	s.delegated, s.handing = nil, nil
+	s.sink.Apply(timeline.Event{Kind: "user", Text: text})
+	s.send(text)
+}
+
+func (s *Session) send(text string) {
 	s.running, s.began = true, time.Now()
 	s.turn++
-	s.sink.Apply(timeline.Event{Kind: "user", Text: text})
 	s.sink.Working()
 	c, id, turn := s.c, s.id, s.turn
 	go func() {
@@ -726,7 +738,8 @@ func (s *Session) start(text string) {
 	}()
 }
 
-// next starts the compaction asked for mid-turn, else the turn of the oldest prompt that waits.
+// next starts the compaction asked for mid-turn, else the turn of the oldest
+// prompt that waits, else the one that hands Hermes what its sub-agents did.
 func (s *Session) next() {
 	switch {
 	case !s.ready:
@@ -737,6 +750,10 @@ func (s *Session) next() {
 		text := s.queue[0]
 		s.queue = s.queue[1:]
 		s.start(text)
+	case len(s.handing) > 0:
+		text := handoff(s.handing)
+		s.handing = nil
+		s.send(text)
 	}
 }
 
@@ -862,14 +879,14 @@ func (s *Session) Stray(result json.RawMessage) {
 	}
 }
 
-// Cancel stops the turn or the compaction under way and drops the prompts
-// and the compaction that waited for its end. Whatever the agent asked is
+// Cancel stops the turn or the compaction under way and drops the prompts,
+// the compaction and the handoff that waited for its end. Whatever the agent asked is
 // answered cancelled. An agent that never answers the call it was told to
 // stop would hold up the next one, so the call ends here once StopWait is up.
 func (s *Session) Cancel() {
 	s.mu.Lock()
 	busy, c, id, turn := s.running || s.compacting, s.c, s.id, s.turn
-	s.stopping, s.compactNext, s.queue = busy, false, nil
+	s.stopping, s.compactNext, s.queue, s.delegated, s.handing = busy, false, nil, nil, nil
 	asks := s.asks
 	s.asks = map[string]context.CancelFunc{}
 	s.mu.Unlock()
@@ -1110,14 +1127,28 @@ func (s *Session) adopt(sid, call string) {
 	load()
 }
 
-// Server takes the agent's command line: OpenCode's names the port of the
-// server its ACP server runs on.
-func (s *Session) Server(args []string) {
+// Server takes the agent's command line and env: OpenCode's names the port
+// of the server its ACP server runs on, and the password that server asks for.
+func (s *Session) Server(args, env []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if i := slices.Index(args, "--port"); i >= 0 && i+1 < len(args) && args[i+1] != "0" {
 		s.server = "http://127.0.0.1:" + args[i+1]
 	}
+	if password := lookup(env, "OPENCODE_SERVER_PASSWORD"); password != "" {
+		s.login = url.UserPassword(cmp.Or(lookup(env, "OPENCODE_SERVER_USERNAME"), "opencode"), password)
+	}
+}
+
+// lookup is key's last value in env.
+func lookup(env []string, key string) string {
+	v := ""
+	for _, kv := range env {
+		if value, ok := strings.CutPrefix(kv, key+"="); ok {
+			v = value
+		}
+	}
+	return v
 }
 
 // Carried says the agent's process ran under the pocketd before this one.
@@ -1152,6 +1183,9 @@ func (s *Session) discover(call, description string) {
 		var kids []struct{ ID, Title string }
 		ctx, cancel := context.WithTimeout(s.ctx, CallWait)
 		req, _ := http.NewRequestWithContext(ctx, "GET", s.server+"/session/"+url.PathEscape(id)+"/children?directory="+url.QueryEscape(cwd), nil)
+		if password, ok := s.login.Password(); ok {
+			req.SetBasicAuth(s.login.Username(), password)
+		}
 		if res, err := http.DefaultClient.Do(req); err == nil {
 			json.NewDecoder(res.Body).Decode(&kids)
 			res.Body.Close()
@@ -1260,8 +1294,9 @@ func (s *Session) flush() {
 		if s.answered {
 			s.record(timeline.Event{Kind: "result", OK: true})
 		}
-		// Grok's history has what it told itself of a sub-agent's end as a prompt.
-		if !strings.HasPrefix(b.text, "<system-reminder>") {
+		// Grok's history has what it told itself of a sub-agent's end as a
+		// prompt, and Hermes's what pocketd handed back of one.
+		if !strings.HasPrefix(b.text, "<system-reminder>") && !strings.HasPrefix(b.text, handoffHeader) {
 			s.record(timeline.Event{Kind: "user", Text: b.text})
 		}
 		s.answered = false
@@ -1315,6 +1350,9 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 	case len(sub.transcripts) > 0:
 		// Hermes takes no turn of its own once its sub-agents end.
 		s.record(timeline.Event{Kind: "tool_background", ToolUseID: t.ID, Detached: true})
+		if !s.opening {
+			s.delegated = append(s.delegated, t.ID)
+		}
 		s.watch(t.ID, sub.transcripts)
 		return
 	case sub.session == "":
