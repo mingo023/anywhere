@@ -98,7 +98,9 @@ type Session struct {
 	blocks     int
 	done       map[int]bool // the blocks of pi's message that are in the timeline
 	tools      map[string]bool
-	commands   []proto.Command // as omp last told them
+	// tasks are the calls that run sub-agents.
+	tasks    map[string]*task
+	commands []proto.Command // as omp last told them
 }
 
 // block is a block of the message pi is writing, a delta at a time.
@@ -113,7 +115,7 @@ type block struct {
 func NewSession(agentID, provider string, sink Sink, b *broker.Broker) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{agentID: agentID, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
-		asks: map[string]context.CancelFunc{}, done: map[int]bool{}, tools: map[string]bool{}}
+		asks: map[string]context.CancelFunc{}, done: map[int]bool{}, tools: map[string]bool{}, tasks: map[string]*task{}}
 }
 
 type model struct {

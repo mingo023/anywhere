@@ -67,6 +67,8 @@ func call(raw json.RawMessage) toolCall {
 type tool struct {
 	toolCall
 	started bool
+	task    bool   // it shows as a sub-agent's
+	parent  string // the call whose sub-agent made it
 }
 
 func empty(raw json.RawMessage) bool {
@@ -210,6 +212,10 @@ func (t *toolCall) command() string {
 
 // describe is the call's name and the card the phone draws for it, by its ACP kind.
 func (t *toolCall) describe() (string, proto.ToolDetail) {
+	// A sub-agent's call is a think to OpenCode, and has no kind in Grok's history.
+	if t.Kind == "task" || t.input("subagent_type") != "" || t.input("variant") == "Task" {
+		return "task", proto.ToolDetail{Kind: "task", Description: t.input("description"), Model: t.input("model")}
+	}
 	switch t.Kind {
 	case "execute":
 		return "shell", proto.ToolDetail{Kind: "shell", Command: t.command(), Description: t.input("description")}
@@ -253,4 +259,64 @@ func (t *toolCall) output() *string {
 		return nil
 	}
 	return &out
+}
+
+// subAgent is what a task call says, as it ends, of the sub-agent it ran.
+type subAgent struct {
+	session    string // the session it works in
+	model      string
+	live       bool // the agent tells that session's work as it is done
+	background bool // it runs on past the call
+}
+
+func (t *toolCall) subAgent() subAgent {
+	var out struct {
+		Metadata struct {
+			SessionID string `json:"sessionId"`
+			Model     struct {
+				ModelID    string `json:"modelID"`
+				ProviderID string `json:"providerID"`
+			} `json:"model"`
+		} `json:"metadata"`
+	}
+	var in struct {
+		Background bool `json:"run_in_background"`
+	}
+	json.Unmarshal(t.RawOutput, &out)
+	json.Unmarshal(t.RawInput, &in)
+	// OpenCode's.
+	if m := out.Metadata; m.SessionID != "" {
+		return subAgent{session: m.SessionID, model: strings.Trim(m.Model.ProviderID+"/"+m.Model.ModelID, "/")}
+	}
+	// Grok's, whose session is named as it is.
+	for line := range strings.SplitSeq(t.said(), "\n") {
+		if id, ok := strings.CutPrefix(line, "subagent_id: "); ok {
+			return subAgent{session: id, live: true, background: in.Background}
+		}
+	}
+	return subAgent{}
+}
+
+// report is what a task call's sub-agent handed back, out of what the agent wraps it in for its model.
+func (t *toolCall) report() *string {
+	out := t.output()
+	if out == nil {
+		return nil
+	}
+	var raw struct {
+		Type   string `json:"type"`
+		Output string `json:"output"`
+	}
+	json.Unmarshal(t.RawOutput, &raw)
+	said := *out
+	// Grok's.
+	if raw.Type == "SubagentCompleted" {
+		said = raw.Output
+	}
+	// OpenCode's.
+	if _, rest, ok := strings.Cut(said, "<task_result>"); ok {
+		said, _, _ = strings.Cut(rest, "</task_result>")
+	}
+	said = strings.TrimSpace(said)
+	return &said
 }

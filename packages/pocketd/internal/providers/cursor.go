@@ -7,7 +7,7 @@ var Cursor = Spec{
 	Transport: ACP,
 	Efforts:   []string{},
 	Plan:      true,
-	Chat:      Chat{Interrupt: true, SendWhileWorking: true},
+	Chat:      Chat{Interrupt: true, SendWhileWorking: true, SubAgents: true},
 	Flags:     Flags{Model: "--model", Full: "--force", Plan: [2]string{"--mode", "plan"}},
 	Args:      [3]string{"", "--resume", ""},
 	NotAgent: []string{"acp", "login", "logout", "status", "whoami", "about", "models", "mcp", "update", "upgrade", "create-chat", "generate-rule", "rule",

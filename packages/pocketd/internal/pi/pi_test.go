@@ -63,6 +63,15 @@ func line(e timeline.Event) string {
 		}
 	case "compacted":
 		line += ":" + e.Trigger
+	case "tool_background":
+		line += ":" + e.ToolUseID
+	case "tool_model":
+		line += ":" + e.ToolUseID + ":" + e.Name
+	case "tool_tokens":
+		line += fmt.Sprintf(":%s:%d", e.ToolUseID, e.Tokens)
+	}
+	if e.ParentToolUseID != "" {
+		line = e.ParentToolUseID + ">" + line
 	}
 	return line
 }
@@ -949,6 +958,156 @@ func TestOmpEndsTheTurnOfAPromptItAnswersAsNoAgentsOrFailsAfterItTookIt(t *testi
 	s.Prompt("/workflow")
 	a.say(fmt.Sprintf(`{"type":"response","id":%q,"command":"prompt","success":false,"error":"Workflow failed"}`, sentID(a, 2)))
 	equal(t, after(sk.wait(t, "ended:true"), "user:/workflow"), []string{"user:/workflow", "result:false:Workflow failed", "ended:true"})
+}
+
+// ompTask is a snapshot omp's task tool tells of its sub-agent, as omp 14 does against a stub model.
+func ompTask(event, field, status, async, progress string) string {
+	return fmt.Sprintf(`{"type":%q,"toolCallId":"t1","toolName":"task","args":{"tasks":[{"task":"run echo sub"}],"context":"List the files"},%q:{"content":[{"type":"text","text":"Running agent Kid..."}],
+		"details":{"results":[],"progress":[{"index":0,"id":"Kid","agent":"task","status":%q,"task":"Complete assignment thoroughly:\n\nrun echo sub","assignment":"run echo sub",%s}],"async":{"state":%q,"jobId":"Kid","type":"task"}}}}`,
+		event, field, status, progress, async)
+}
+
+func TestAnOmpSubAgentsWorkNestsUnderItsTaskWhichEndsWithItsReport(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "omp"})
+	s.Prompt("Delegate")
+	a.sent("prompt", 1)
+	call := `{"type":"toolCall","id":"t1","name":"task","arguments":{"tasks":[{"task":"run echo sub"}],"context":"List the files","i":"List the files"}}`
+	a.say(agentStart, echoed("Delegate"), reply, ended(`{"type":"text","text":"Delegating."},`+call, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"t1","toolName":"task","args":{"tasks":[{"task":"run echo sub"}],"context":"List the files"},"intent":"List the files"}`,
+		ompTask("tool_execution_update", "partialResult", "pending", "running", `"recentTools":[],"recentOutput":[],"toolCount":0`),
+		ompTask("tool_execution_end", "result", "pending", "running", `"recentTools":[],"recentOutput":[],"toolCount":0`),
+		said("Spawned it."), agentEnd, settled)
+	sk.wait(t, "ended:false")
+	a.say(ompTask("tool_execution_update", "partialResult", "running", "running", `"recentTools":[],"recentOutput":["Running."],"toolCount":1,"resolvedModel":"stub/stub-1","currentTool":"bash","currentToolArgs":"echo sub","currentToolArgsKey":"command"`),
+		ompTask("tool_execution_update", "partialResult", "running", "running", `"recentTools":[{"tool":"bash","args":"echo sub","argsKey":"command","isError":false}],"recentOutput":["Running."],"toolCount":1,"resolvedModel":"stub/stub-1","currentTool":"read","currentToolArgs":"a.go","currentToolArgsKey":"path"`),
+		ompTask("tool_execution_update", "partialResult", "completed", "completed", `"recentTools":[{"tool":"read","args":"a.go","argsKey":"path","isError":true},{"tool":"bash","args":"echo sub","argsKey":"command","isError":false}],"recentOutput":["Done: sub","All read."],"toolCount":2,"resolvedModel":"stub/stub-1"`),
+		`{"type":"session_info_changed","name":"marker"}`)
+	equal(t, after(sk.wait(t, "title:marker"), "user:Delegate"), []string{
+		"user:Delegate",
+		"assistant_text:Delegating.",
+		"tool_start:t1:task:task:List the files",
+		"t1>user:run echo sub",
+		"tool_background:t1",
+		"assistant_text:Spawned it.",
+		"result:true:",
+		"ended:false",
+		"tool_model:t1:stub/stub-1",
+		"t1>tool_start:t1/1:shell:shell:echo sub",
+		"tool_end:t1/1:true",
+		"t1>tool_start:t1/2:read:read:a.go",
+		"tool_end:t1/2:false",
+		"tool_end:t1:true:All read.\nDone: sub",
+		"title:marker",
+	})
+}
+
+// piAgent is what the subagent extension pi 1.1.0 ships tells of a sub-agent: its messages so far.
+func piAgent(agent, task, rest string, messages ...string) string {
+	return fmt.Sprintf(`{"agent":%q,"agentSource":"user","task":%q,"exitCode":0,"messages":[%s],"stderr":"","usage":{"contextTokens":120,"turns":1},"model":"stub/stub-1"%s}`,
+		agent, task, strings.Join(append([]string{system}, messages...), ","), rest)
+}
+
+func piAgents(event, args, field, said, mode string, results ...string) string {
+	return fmt.Sprintf(`{"type":%q,"toolCallId":"t1","toolName":"subagent","args":%s,%q:{"content":[{"type":"text","text":%q}],"details":{"mode":%q,"agentScope":"user","projectAgentsDir":null,"results":[%s]}}}`,
+		event, args, field, said, mode, strings.Join(results, ","))
+}
+
+func TestAPiSubAgentsWorkNestsUnderTheCallThatRunsIt(t *testing.T) {
+	s, a, sk, _ := start(t, opts{})
+	s.Prompt("Delegate")
+	a.sent("prompt", 1)
+	args := `{"agent":"worker","task":"run echo sub"}`
+	briefed := `{"role":"user","content":[{"type":"text","text":"Task: run echo sub"}]}`
+	runs := `{"role":"assistant","content":[{"type":"text","text":"Running."},{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"echo sub"}}],"stopReason":"toolUse"}`
+	ran := `{"role":"toolResult","toolCallId":"c1","toolName":"bash","content":[{"type":"text","text":"sub\n"}],"isError":false}`
+	done := `{"role":"assistant","content":[{"type":"text","text":"Done: sub"}],"stopReason":"stop"}`
+	a.say(agentStart, echoed("Delegate"), reply, ended(`{"type":"toolCall","id":"t1","name":"subagent","arguments":`+args+`}`, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"t1","toolName":"subagent","args":`+args+`}`,
+		piAgents("tool_execution_update", args, "partialResult", "(running...)", "single", piAgent("worker", "run echo sub", "", briefed)),
+		piAgents("tool_execution_update", args, "partialResult", "Running.", "single", piAgent("worker", "run echo sub", "", briefed, runs)),
+		piAgents("tool_execution_update", args, "partialResult", "Running.", "single", piAgent("worker", "run echo sub", "", briefed, runs, ran)),
+		piAgents("tool_execution_end", "null", "result", "Done: sub", "single", piAgent("worker", "run echo sub", `,"stopReason":"stop"`, briefed, runs, ran, done)),
+		said("It said sub."), agentEnd, settled)
+	equal(t, after(sk.wait(t, "ended:false"), "user:Delegate"), []string{
+		"user:Delegate",
+		"tool_start:t1:task:task:run echo sub",
+		"t1>user:run echo sub",
+		"tool_model:t1:stub/stub-1",
+		"tool_tokens:t1:120",
+		"t1>assistant_text:Running.",
+		"t1>tool_start:t1/c1:shell:shell:echo sub",
+		"tool_end:t1/c1:true:sub\n",
+		"t1>assistant_text:Done: sub",
+		"tool_end:t1:true:Done: sub",
+		"assistant_text:It said sub.",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+func TestEachOfSeveralPiSubAgentsShowsAsACallOfItsOwnUnderTheOneThatRunsThem(t *testing.T) {
+	s, a, sk, _ := start(t, opts{})
+	s.Prompt("Delegate")
+	a.sent("prompt", 1)
+	args := `{"tasks":[{"agent":"worker","task":"one"},{"agent":"scout","task":"two"}]}`
+	one, two := `{"role":"assistant","content":[{"type":"text","text":"First."}],"stopReason":"stop"}`, `{"role":"assistant","content":[{"type":"text","text":"Second."}],"stopReason":"error"}`
+	a.say(agentStart, echoed("Delegate"), reply, ended(`{"type":"toolCall","id":"t1","name":"subagent","arguments":`+args+`}`, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"t1","toolName":"subagent","args":`+args+`}`,
+		piAgents("tool_execution_update", args, "partialResult", "Parallel: 0/2 done, 2 running...", "parallel", piAgent("worker", "one", ""), piAgent("scout", "two", "")),
+		piAgents("tool_execution_update", args, "partialResult", "Parallel: 1/2 done, 1 running...", "parallel", piAgent("worker", "one", "", one), piAgent("scout", "two", "")),
+		piAgents("tool_execution_end", "null", "result", "Parallel: 1/2 succeeded", "parallel", piAgent("worker", "one", `,"stopReason":"stop"`, one), piAgent("scout", "two", `,"stopReason":"error"`, two)),
+		said("One failed."), agentEnd, settled)
+	equal(t, after(sk.wait(t, "ended:false"), "user:Delegate"), []string{
+		"user:Delegate",
+		"tool_start:t1:task:task:",
+		"t1>tool_start:t1/0:task:task:one",
+		"t1/0>user:one",
+		"tool_model:t1/0:stub/stub-1",
+		"tool_tokens:t1/0:120",
+		"t1>tool_start:t1/1:task:task:two",
+		"t1/1>user:two",
+		"tool_model:t1/1:stub/stub-1",
+		"tool_tokens:t1/1:120",
+		"t1/0>assistant_text:First.",
+		"tool_end:t1/0:true:First.",
+		"t1/1>assistant_text:Second.",
+		"tool_end:t1/1:false:Second.",
+		"tool_end:t1:true:Parallel: 1/2 succeeded",
+		"assistant_text:One failed.",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+// As pi 1.1.0 holds a turn whose subagent call ran.
+func TestARestoredPiSessionShowsItsSubAgentsWorkUnderTheCallThatRanIt(t *testing.T) {
+	restored := strings.Replace(fresh, `"messageCount":0`, `"messageCount":4`, 1)
+	runs := `{"role":"assistant","content":[{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"echo sub"}}],"stopReason":"toolUse"}`
+	ran := `{"role":"toolResult","toolCallId":"c1","toolName":"bash","content":[{"type":"text","text":"sub\n"}],"isError":false}`
+	done := `{"role":"assistant","content":[{"type":"text","text":"Done: sub"}],"stopReason":"stop"}`
+	_, _, sk, _ := start(t, opts{state: restored, answer: func(_ *agent, kind string, _ map[string]any) string {
+		if kind != "get_messages" {
+			return ""
+		}
+		return `{"messages":[{"role":"user","content":"Delegate"},
+			{"role":"assistant","content":[{"type":"toolCall","id":"t1","name":"subagent","arguments":{"agent":"worker","task":"run echo sub"}}],"stopReason":"toolUse"},
+			{"role":"toolResult","toolCallId":"t1","toolName":"subagent","content":[{"type":"text","text":"Done: sub"}],"isError":false,
+				"details":{"mode":"single","agentScope":"user","projectAgentsDir":null,"results":[` + piAgent("worker", "run echo sub", `,"stopReason":"stop"`, runs, ran, done) + `]}},
+			{"role":"assistant","content":[{"type":"text","text":"It said sub."}],"stopReason":"stop"}]}`
+	}})
+	equal(t, after(sk.lines(), "user:Delegate"), []string{
+		"user:Delegate",
+		"tool_start:t1:task:task:run echo sub",
+		"t1>user:run echo sub",
+		"tool_model:t1:stub/stub-1",
+		"t1>tool_start:t1/c1:shell:shell:echo sub",
+		"tool_end:t1/c1:true:sub\n",
+		"t1>assistant_text:Done: sub",
+		"tool_tokens:t1:120",
+		"tool_end:t1:true:Done: sub",
+		"assistant_text:It said sub.",
+		"result:true:",
+	})
 }
 
 // sentID is the id of the nth prompt the client wrote, once the agent has answered it.

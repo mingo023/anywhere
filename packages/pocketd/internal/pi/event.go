@@ -26,8 +26,9 @@ type message struct {
 		Total     int64 `json:"totalTokens"`
 	} `json:"usage"`
 	// A toolResult's.
-	ToolCallID string `json:"toolCallId"`
-	IsError    bool   `json:"isError"`
+	ToolCallID string          `json:"toolCallId"`
+	IsError    bool            `json:"isError"`
+	Details    json.RawMessage `json:"details"`
 	// A custom message's: whether pi's own TUI shows it.
 	Display bool `json:"display"`
 }
@@ -78,6 +79,7 @@ type event struct {
 	ToolName     string          `json:"toolName"`
 	Args         json.RawMessage `json:"args"`
 	Result       json.RawMessage `json:"result"`
+	Partial      json.RawMessage `json:"partialResult"`
 	IsError      bool            `json:"isError"`
 	WillRetry    bool            `json:"willRetry"`
 	IsTerminal   *bool           `json:"isTerminal"` // omp's, false for a run it goes on from
@@ -158,8 +160,14 @@ func (s *Session) Event(kind string, raw json.RawMessage) {
 		}
 	case "tool_execution_start":
 		s.show(e.ToolCallID, e.ToolName, e.Args)
+	case "tool_execution_update":
+		s.delegated(e.ToolCallID, e.Args, e.Partial, false)
 	case "tool_execution_end":
 		s.show(e.ToolCallID, e.ToolName, e.Args)
+		if s.delegated(e.ToolCallID, e.Args, e.Result, true) {
+			s.sink.Apply(timeline.Event{Kind: "tool_background", ToolUseID: e.ToolCallID})
+			break
+		}
 		s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: e.ToolCallID, OK: !e.IsError, Output: output(e.Result)})
 	case "auto_retry_start":
 		s.retrying, s.failure = true, nil
@@ -424,6 +432,8 @@ func (s *Session) replay(history []message, streaming bool) (failed bool) {
 			last, open = &m, true
 		case "toolResult":
 			calls = slices.DeleteFunc(calls, func(id string) bool { return id == m.ToolCallID })
+			result, _ := json.Marshal(map[string]json.RawMessage{"content": m.Content, "details": m.Details})
+			s.delegated(m.ToolCallID, nil, result, true)
 			s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: m.ToolCallID, OK: !m.IsError, Output: nonEmpty(text(m.Content))})
 		case "compactionSummary":
 			s.sink.Apply(timeline.Event{Kind: "compacted", Trigger: "auto"})

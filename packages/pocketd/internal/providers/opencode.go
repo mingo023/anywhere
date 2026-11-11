@@ -6,7 +6,7 @@ var OpenCode = Spec{
 	Transport: ACP,
 	Efforts:   []string{},
 	Plan:      true,
-	Chat:      Chat{Interrupt: true, SendWhileWorking: true},
+	Chat:      Chat{Interrupt: true, SendWhileWorking: true, SubAgents: true},
 	Flags:     Flags{Model: "-m", Full: "--auto", Plan: [2]string{"--agent", "plan"}},
 	Args:      [3]string{"--prompt", "-s", "-s " + SessionID + " --fork"},
 	NotAgent: []string{"completion", "acp", "mcp", "attach", "run", "debug", "providers", "auth", "agent", "upgrade", "uninstall", "serve", "web", "models", "stats",

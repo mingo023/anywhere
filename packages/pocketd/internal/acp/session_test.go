@@ -295,12 +295,13 @@ func TestACallShowsByItsKind(t *testing.T) {
 		"read by its location": {toolCall{Kind: "read", Title: "Read", Locations: []struct {
 			Path string `json:"path"`
 		}{{"/w/a.go"}}}, "read:read:/w/a.go"},
-		"read by its input":      {toolCall{Kind: "read", RawInput: json.RawMessage(`{"filePath":"/w/b.go"}`)}, "read:read:/w/b.go"},
-		"edit with its diff":     {toolCall{Kind: "edit", Content: []toolContent{{Type: "diff", Path: "/w/a.txt", OldText: &old, NewText: "b\nc\n"}}}, "edit:edit:/w/a.txt:+2-1"},
-		"edit of a new file":     {toolCall{Kind: "edit", Content: []toolContent{{Type: "diff", Path: "/w/n.txt", NewText: "b\n"}}}, "write:write:/w/n.txt:+1-0"},
-		"search by its pattern":  {toolCall{Kind: "search", Title: "grep", RawInput: json.RawMessage(`{"pattern":"TODO","path":"/w"}`)}, "search:search:/wTODO"},
-		"anything else by title": {toolCall{Kind: "fetch", Title: "Fetch example.com", RawInput: json.RawMessage(`{"url":"https://example.com"}`)}, `Fetch example.com:other:`},
-		"grok's by its meta":     {toolCall{Meta: grokMeta("execute", "Run", `{"command":"pwd"}`)}, "shell:shell:pwd"},
+		"read by its input":       {toolCall{Kind: "read", RawInput: json.RawMessage(`{"filePath":"/w/b.go"}`)}, "read:read:/w/b.go"},
+		"edit with its diff":      {toolCall{Kind: "edit", Content: []toolContent{{Type: "diff", Path: "/w/a.txt", OldText: &old, NewText: "b\nc\n"}}}, "edit:edit:/w/a.txt:+2-1"},
+		"edit of a new file":      {toolCall{Kind: "edit", Content: []toolContent{{Type: "diff", Path: "/w/n.txt", NewText: "b\n"}}}, "write:write:/w/n.txt:+1-0"},
+		"search by its pattern":   {toolCall{Kind: "search", Title: "grep", RawInput: json.RawMessage(`{"pattern":"TODO","path":"/w"}`)}, "search:search:/wTODO"},
+		"anything else by title":  {toolCall{Kind: "fetch", Title: "Fetch example.com", RawInput: json.RawMessage(`{"url":"https://example.com"}`)}, `Fetch example.com:other:`},
+		"grok's by its meta":      {grokMeta("execute", "Run", `{"command":"pwd"}`), "shell:shell:pwd"},
+		"a sub-agent by its meta": {grokMeta("task", "Subagent", `{"description":"List the files","prompt":"ls"}`), "task:task:List the files"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var merged toolCall
@@ -317,15 +318,9 @@ func TestACallShowsByItsKind(t *testing.T) {
 	}
 }
 
-func grokMeta(kind, label, input string) (m struct {
-	Tool struct {
-		Kind  string          `json:"kind"`
-		Label string          `json:"label"`
-		Input json.RawMessage `json:"input"`
-	} `json:"x.ai/tool"`
-}) {
-	m.Tool.Kind, m.Tool.Label, m.Tool.Input = kind, label, json.RawMessage(input)
-	return m
+func grokMeta(kind, label, input string) (c toolCall) {
+	c.Meta.Tool.Kind, c.Meta.Tool.Label, c.Meta.Tool.Input = kind, label, json.RawMessage(input)
+	return c
 }
 
 func TestOpenCodeTakesItsLaunchAsConfigOptions(t *testing.T) {
@@ -416,7 +411,7 @@ func TestEachAgentOpensItsSessionItsOwnWay(t *testing.T) {
 		calls    map[string]string
 	}{
 		{"cursor", state.Launch{Access: "ask"}, `{}`, map[string]string{
-			"initialize":  `{"clientCapabilities":{"_meta":{"parameterizedModelPicker":true},"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"anywhere","title":"Anywhere","version":"0"},"protocolVersion":1}`,
+			"initialize":  `{"clientCapabilities":{"_meta":{"parameterizedModelPicker":true,"subagents":true},"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"anywhere","title":"Anywhere","version":"0"},"protocolVersion":1}`,
 			"session/new": `{"cwd":"/work","mcpServers":[]}`,
 		}},
 		{"grok", state.Launch{Access: "full", Effort: "high"}, grokInit, map[string]string{
@@ -813,6 +808,224 @@ func TestPlansTodosAndSubAgentsOfCursorAndGrokShowInTheChat(t *testing.T) {
 		t.Fatalf("answered %s", got)
 	}
 	equal(t, after(gk.wait(t, "tokens:4200/0"), "bound:s1")[1:], []string{`tool_start:plan-1:ExitPlanMode:{"plan":"# Grok's plan"}`, "tokens:4200/0"})
+}
+
+// As cursor-agent 2026.11.11 tells a sub-agent to a client that takes them: its SubagentPublisher.
+func TestACursorSubAgentsWorkNestsUnderItsTask(t *testing.T) {
+	s, _, sk, _ := start(t, opts{provider: "cursor", answer: script(`{"sessionId":"s1"}`, func(a *agent, _ string) string {
+		a.ask("1", "cursor/task", `{"toolCallId":"sub1","description":"Look around","prompt":"look","subagentType":"explore"}`)
+		a.update(`{"sessionUpdate":"subagent_spawned","subagentSessionId":"agent-7","name":"explore","task":"look","capabilities":{},
+			"_meta":{"cursor":{"toolCallId":"sub1","agentId":"agent-7","model":"composer-2"}}}`)
+		sayIn(a, "agent-7", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looking."}}`)
+		sayIn(a, "agent-7", `{"sessionUpdate":"tool_call","toolCallId":"t1","title":"ls","kind":"execute","status":"pending","rawInput":{"command":"ls"}}`)
+		sayIn(a, "agent-7", `{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"a.go"}}]}`)
+		a.update(`{"sessionUpdate":"subagent_state_update","subagentSessionId":"agent-7","state":"completed","_meta":{"cursor":{"toolCallId":"sub1","agentId":"agent-7"}}}`)
+		a.ask("2", "cursor/task", `{"toolCallId":"sub1","description":"Look around","durationMs":1200}`)
+		a.replied("2")
+		return endTurn
+	})})
+	s.Prompt("look around")
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
+		"working",
+		"tool_start:sub1:task:task:Look around",
+		"tool_model:sub1:composer-2",
+		"sub1>assistant_text:Looking.",
+		"sub1>tool_start:t1:shell:shell:ls",
+		"tool_end:t1:true:a.go",
+		"tool_end:sub1:true",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+// sayIn says update in session sid.
+func sayIn(a *agent, sid, update string) {
+	a.say(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"` + sid + `","update":` + update + `}}`)
+}
+
+func grokTells(a *agent, update string) {
+	a.say(`{"jsonrpc":"2.0","method":"_x.ai/session_notification","params":{"sessionId":"s1","update":` + update + `}}`)
+}
+
+// Trimmed from what grok 0.1 tells, spawning a sub-agent against a stub model.
+func TestAGrokSubAgentsWorkNestsUnderItsCallWhichEndsWithItsReport(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "grok", answer: script(`{"sessionId":"s1"}`, func(a *agent, _ string) string {
+		a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Delegating."}}`)
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"call_s","title":"spawn_subagent","rawInput":{"description":"List the files","prompt":"CHILD: run echo sub"},
+			"_meta":{"x.ai/tool":{"name":"spawn_subagent","kind":"task","label":"Subagent"},"subagentBackground":true}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"call_s","kind":"other","title":"List the files","rawInput":{"variant":"Task","prompt":"CHILD: run echo sub","description":"List the files","run_in_background":true}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"call_s","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Subagent started in background.\nsubagent_id: kid\ndescription: List the files"}}]}`)
+		grokTells(a, `{"sessionUpdate":"subagent_spawned","subagent_id":"kid","parent_session_id":"s1","child_session_id":"kid","subagent_type":"general-purpose","description":"List the files","model":"stub"}`)
+		sayIn(a, "kid", `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"CHILD: run echo sub"}}`)
+		sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Running."}}`)
+		sayIn(a, "elsewhere", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Not ours."}}`)
+		return endTurn
+	})})
+	s.Prompt("Delegate")
+	sk.wait(t, "ended:false")
+	sayIn(a, "kid", `{"sessionUpdate":"tool_call","toolCallId":"call_c","title":"run_terminal_command","rawInput":{"command":"echo sub"},"_meta":{"x.ai/tool":{"kind":"execute","label":"Run Command"}}}`)
+	sayIn(a, "kid", `{"sessionUpdate":"tool_call_update","toolCallId":"call_c","status":"completed","content":[{"type":"content","content":{"type":"text","text":"sub\n"}}]}`)
+	sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done: "}}`)
+	sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"sub"}}`)
+	grokTells(a, `{"sessionUpdate":"subagent_finished","subagent_id":"kid","child_session_id":"kid","status":"completed","output":"Done: sub\n","will_wake":true}`)
+	a.say(`{"jsonrpc":"2.0","method":"_x.ai/queue/changed","params":{"sessionId":"s1","entries":[],"runningPromptId":"subagent-completed-kid"}}`)
+	a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Wrapped up."}}`)
+	grokTells(a, `{"sessionUpdate":"turn_completed","prompt_id":"subagent-completed-kid","stop_reason":"end_turn"}`)
+	a.update(`{"sessionUpdate":"usage_update","used":1,"size":2}`)
+	equal(t, after(sk.wait(t, "tokens:1/2"), "user:Delegate"), []string{
+		"user:Delegate",
+		"working",
+		"assistant_draft:Delegating.",
+		"assistant_text:Delegating.",
+		"tool_start:call_s:task:task:List the files",
+		"tool_background:call_s",
+		"tool_model:call_s:stub",
+		"call_s>user:CHILD: run echo sub",
+		"call_s>assistant_text:Running.",
+		"result:true:",
+		"ended:false",
+		"call_s>tool_start:call_c:shell:shell:echo sub",
+		"tool_end:call_c:true:sub\n",
+		"call_s>assistant_text:Done: ",
+		"call_s>assistant_text:sub",
+		"tool_end:call_s:true:Done: sub\n",
+		"working",
+		"assistant_draft:Wrapped up.",
+		"assistant_text:Wrapped up.",
+		"result:true:",
+		"ended:false",
+		"tokens:1/2",
+	})
+}
+
+// Trimmed from what grok 0.1 tells of a sub-agent the call waits for, which it names only as the call ends.
+func TestAGrokSubAgentTheCallWaitsForNestsUnderItAndEndsItWithItsReport(t *testing.T) {
+	s, _, sk, _ := start(t, opts{provider: "grok", answer: script(`{"sessionId":"s1"}`, func(a *agent, _ string) string {
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"call_s","title":"spawn_subagent","rawInput":{"description":"List the files","prompt":"CHILD: run echo sub","run_in_background":false},
+			"_meta":{"x.ai/tool":{"name":"spawn_subagent","kind":"task","label":"Subagent"},"subagentBackground":false}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"call_s","kind":"other","title":"List the files","rawInput":{"variant":"Task","prompt":"CHILD: run echo sub","description":"List the files","run_in_background":false}}`)
+		grokTells(a, `{"sessionUpdate":"subagent_spawned","subagent_id":"kid","parent_session_id":"s1","child_session_id":"kid","description":"List the files","model":"stub"}`)
+		sayIn(a, "kid", `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"CHILD: run echo sub"}}`)
+		sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done: sub"}}`)
+		a.say(`{"jsonrpc":"2.0","method":"_x.ai/session_notification","params":{"sessionId":"kid","update":{"sessionUpdate":"turn_completed","prompt_id":"p2","stop_reason":"end_turn","usage":{"totalTokens":240}}}}`)
+		grokTells(a, `{"sessionUpdate":"subagent_finished","subagent_id":"kid","child_session_id":"kid","status":"completed","output":"Done: sub\n","will_wake":false}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"call_s","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Done: sub\n\n\n<subagent_meta>id=kid, tool_calls=1</subagent_meta>\n\n<subagent_result>\nsubagent_id: kid\nTo continue this subagent's conversation, use resume_from=\"kid\".\n</subagent_result>"}}],
+			"rawOutput":{"type":"SubagentCompleted","output":"Done: sub\n","subagent_id":"kid"}}`)
+		grokTells(a, `{"sessionUpdate":"turn_completed","prompt_id":"p1","stop_reason":"end_turn","usage":{"totalTokens":480}}`)
+		return endTurn
+	})})
+	s.Prompt("Delegate")
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
+		"working",
+		"tool_start:call_s:task:task:List the files",
+		"tool_model:call_s:stub",
+		"call_s>user:CHILD: run echo sub",
+		"call_s>assistant_text:Done: sub",
+		"tool_end:call_s:true:Done: sub",
+		"tokens:480/0",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+// As grok 0.1 replays a session whose sub-agent ran on past its call, and that sub-agent's own.
+func TestAGrokHistoryLoadsEachSubAgentsSessionUnderItsCall(t *testing.T) {
+	_, a, sk, _ := start(t, opts{provider: "grok", saved: "s1", answer: func(a *agent, method string, params json.RawMessage) string {
+		replays := func(update string) {
+			a.say(`{"jsonrpc":"2.0","method":"_x.ai/session/update","params":{"sessionId":"s1","update":` + update + `,"_meta":{"isReplay":true}}}`)
+		}
+		switch {
+		case method != "session/load":
+		case strings.Contains(string(params), `"kid"`):
+			sayIn(a, "kid", `{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"CHILD: run echo sub"}}`)
+			sayIn(a, "kid", `{"sessionUpdate":"tool_call","toolCallId":"call_c","title":"Execute `+"`echo sub`"+`","kind":"execute","status":"completed","content":[{"type":"content","content":{"type":"text","text":"sub\n"}}],"rawInput":{"variant":"Bash","command":"echo sub"}}`)
+			sayIn(a, "kid", `{"sessionUpdate":"session_info_update","title":"Its own title"}`)
+			sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done: sub"}}`)
+		default:
+			a.update(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Delegate"}}`)
+			a.update(`{"sessionUpdate":"tool_call","toolCallId":"call_s","title":"List the files","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Subagent started in background.\nsubagent_id: kid\ndescription: List the files"}}],
+				"rawInput":{"variant":"Task","prompt":"CHILD: run echo sub","description":"List the files","run_in_background":true},"rawOutput":{"type":"Text","text":"Subagent started in background."}}`)
+			replays(`{"sessionUpdate":"subagent_spawned","subagent_id":"kid","parent_session_id":"s1","child_session_id":"kid","description":"List the files","model":"stub"}`)
+			replays(`{"sessionUpdate":"turn_completed","prompt_id":"p1","stop_reason":"end_turn"}`)
+			replays(`{"sessionUpdate":"subagent_finished","subagent_id":"kid","child_session_id":"kid","status":"completed","output":"Done: sub\n","will_wake":true}`)
+			a.update(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"<system-reminder>\nWhile you were idle, 1 background subagent completed"}}`)
+			a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Wrapped up."}}`)
+		}
+		return `{}`
+	}})
+	equal(t, sk.wait(t, "call_s>assistant_text:Done: sub"), []string{
+		"loaded",
+		"user:Delegate",
+		"tool_start:call_s:task:task:List the files",
+		"tool_end:call_s:true:Subagent started in background.\nsubagent_id: kid\ndescription: List the files",
+		"tool_model:call_s:stub",
+		"tool_end:call_s:true:Done: sub\n",
+		"result:true:",
+		"assistant_text:Wrapped up.",
+		"result:true:",
+		"bound:s1",
+		"call_s>user:CHILD: run echo sub",
+		"call_s>tool_start:call_c:shell:shell:echo sub",
+		"tool_end:call_c:true:sub\n",
+		"call_s>assistant_text:Done: sub",
+	})
+	equal(t, a.called("session/load", 2), []string{`{"cwd":"/work","mcpServers":[],"sessionId":"s1"}`, `{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
+}
+
+// grok 0.1 replays a sub-agent's start as often before the call that spawned it as after.
+func TestAGrokHistoryShowsTheModelOfASubAgentToldOfBeforeItsCall(t *testing.T) {
+	_, _, sk, _ := start(t, opts{provider: "grok", saved: "s1", answer: func(a *agent, method string, params json.RawMessage) string {
+		if method == "session/load" && strings.Contains(string(params), `"s1"`) {
+			a.say(`{"jsonrpc":"2.0","method":"_x.ai/session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"subagent_spawned","child_session_id":"kid","description":"List the files","model":"stub"}}}`)
+			a.update(`{"sessionUpdate":"tool_call","toolCallId":"call_s","title":"List the files","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Subagent started in background.\nsubagent_id: kid"}}],
+				"rawInput":{"variant":"Task","prompt":"CHILD: run echo sub","description":"List the files","run_in_background":true}}`)
+		}
+		return `{}`
+	}})
+	equal(t, after(sk.wait(t, "bound:s1"), "tool_start:call_s:task:task:List the files")[:3], []string{
+		"tool_start:call_s:task:task:List the files",
+		"tool_model:call_s:stub",
+		"tool_end:call_s:true:Subagent started in background.\nsubagent_id: kid",
+	})
+}
+
+// As opencode 1.19.5 tells a task: its sub-agent's session only as the call ends, and that session's work only once it is loaded.
+func TestAnOpenCodeSubAgentsWorkLoadsUnderItsTaskOnceItEnds(t *testing.T) {
+	loaded := make(chan struct{})
+	turn := script(opencodeNew, func(a *agent, _ string) string {
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"task","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"Read the note","locations":[],"rawInput":{"description":"Read the note","prompt":"read NOTE.md","subagent_type":"general"}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","title":"Read the note","content":[{"type":"content","content":{"type":"text","text":"<task id=\"kid\" state=\"completed\">\n<task_result>\nhello\n</task_result>\n</task>"}}],
+			"rawOutput":{"output":"<task id=\"kid\" state=\"completed\">\n<task_result>\nhello\n</task_result>\n</task>","metadata":{"parentSessionId":"s1","sessionId":"kid","model":{"modelID":"glm-5.3-flash-free","providerID":"opencode"},"truncated":false}}}`)
+		<-loaded
+		return endTurn
+	})
+	s, a, sk, _ := start(t, opts{provider: "opencode", answer: func(a *agent, method string, params json.RawMessage) string {
+		if method != "session/load" {
+			return turn(a, method, params)
+		}
+		sayIn(a, "kid", `{"sessionUpdate":"user_message_chunk","messageId":"m1","content":{"type":"text","text":"read NOTE.md"}}`)
+		sayIn(a, "kid", `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"NOTE.md","kind":"read","status":"pending","locations":[{"path":"/work/NOTE.md"}],"rawInput":{"filePath":"/work/NOTE.md"}}`)
+		sayIn(a, "kid", `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","title":"NOTE.md","content":[{"type":"content","content":{"type":"text","text":"hello"}}]}`)
+		sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"hello"}}`)
+		sayIn(a, "kid", `{"sessionUpdate":"available_commands_update","availableCommands":[]}`)
+		close(loaded)
+		return opencodeNew
+	}})
+	s.Prompt("Delegate")
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
+		"working",
+		"tool_start:t1:task:task:Read the note",
+		"tool_model:t1:opencode/glm-5.3-flash-free",
+		"tool_end:t1:true:hello",
+		"t1>user:read NOTE.md",
+		"t1>tool_start:c1:read:read:/work/NOTE.md",
+		"tool_end:c1:true:hello",
+		"t1>assistant_text:hello",
+		"result:true:",
+		"ended:false",
+	})
+	equal(t, a.called("session/load", 1), []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
 }
 
 func TestAnAgentThatNeverOpensGivesBackThePromptsThatWaitedAndRefusesTheNext(t *testing.T) {

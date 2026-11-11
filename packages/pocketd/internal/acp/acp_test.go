@@ -56,6 +56,13 @@ func (s *sink) Apply(e timeline.Event) {
 		if e.Usage != nil {
 			line += fmt.Sprintf(":%d/%d/%d", e.Usage.InputTokens, e.Usage.OutputTokens, e.Usage.CacheReadTokens)
 		}
+	case "tool_background":
+		line += ":" + e.ToolUseID
+	case "tool_model":
+		line += ":" + e.ToolUseID + ":" + e.Name
+	}
+	if e.ParentToolUseID != "" {
+		line = e.ParentToolUseID + ">" + line
 	}
 	s.add("%s", line)
 }

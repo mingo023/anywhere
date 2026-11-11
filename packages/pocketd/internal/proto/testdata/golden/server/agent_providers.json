@@ -43,7 +43,7 @@
         "interrupt": true,
         "compact": false,
         "sendWhileWorking": true,
-        "subAgents": false,
+        "subAgents": true,
         "sendNow": false
       }
     },
@@ -61,7 +61,7 @@
         "interrupt": true,
         "compact": false,
         "sendWhileWorking": true,
-        "subAgents": false,
+        "subAgents": true,
         "sendNow": false
       }
     },
@@ -74,7 +74,7 @@
         "interrupt": true,
         "compact": false,
         "sendWhileWorking": true,
-        "subAgents": false,
+        "subAgents": true,
         "sendNow": false
       }
     },
@@ -96,7 +96,7 @@
         "interrupt": true,
         "compact": true,
         "sendWhileWorking": true,
-        "subAgents": false,
+        "subAgents": true,
         "sendNow": false
       }
     },
@@ -118,7 +118,7 @@
         "interrupt": true,
         "compact": true,
         "sendWhileWorking": true,
-        "subAgents": false,
+        "subAgents": true,
         "sendNow": false
       }
     },
