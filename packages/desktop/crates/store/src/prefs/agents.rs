@@ -6,8 +6,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The permission modes a new session can ask for; "settings" leaves it to the agent's own settings.
 pub const ACCESSES: [&str; 5] = ["settings", "ask", "edits", "auto", "full"];
 
-/// How many models the model panel's Recent section remembers.
+/// How many models the model panel's Recent section lists.
 pub const RECENT: usize = 6;
+
+/// How many picks `used` keeps: more than Recent lists, which leaves out the starred ones and those of agents a project hides.
+const PICKS_KEPT: usize = 30;
 
 /// Where "Add to chat" sends a quote when no agent is picked; "ask" never picks one.
 pub const CHAT_TO: [&str; 3] = ["focused", "recent", "ask"];
@@ -136,9 +139,19 @@ impl Agents {
         if on.is_empty() { found } else { on }
     }
 
-    /// The providers on offer to a project that keeps the `hidden` ones out of its model panel.
+    /// The providers on offer to a project that keeps the `hidden` ones out of its model panel; all on offer where it
+    /// hides them all, since a session needs one.
     pub fn shown(&self, live: &agents::Agents, hidden: &BTreeSet<String>) -> Vec<&'static str> {
-        self.offered(live).into_iter().filter(|p| !hidden.contains(*p)).collect()
+        let offered = self.offered(live);
+        let shown: Vec<_> = offered.iter().copied().filter(|p| !hidden.contains(*p)).collect();
+        if shown.is_empty() { offered } else { shown }
+    }
+
+    /// The providers whose favorite and recent models that project's model panel lists: the ones left on, but for those
+    /// it hides that `shown` leaves out.
+    pub fn favored(&self, live: &agents::Agents, hidden: &BTreeSet<String>) -> Vec<&'static str> {
+        let shown = self.shown(live, hidden);
+        self.enabled().into_iter().filter(|p| !hidden.contains(*p) || shown.contains(p)).collect()
     }
 
     pub fn enable(&mut self, provider: &str) {
@@ -254,7 +267,7 @@ impl Agents {
         }
         self.recent.retain(|(p, m)| p != provider || m != model);
         self.recent.insert(0, (provider.into(), model.into()));
-        self.recent.truncate(RECENT);
+        self.recent.truncate(PICKS_KEPT);
     }
 
     /// The `CHAT_TO` in effect; an unknown one is "focused".
@@ -310,6 +323,27 @@ mod tests {
         assert_eq!(a.offered(&live), ["claude", "pi", "hermes"]);
         a.disable("pi", &live);
         assert_eq!(a.offered(&live), ["claude", "hermes"]);
+    }
+
+    fn hides(providers: &[&str]) -> BTreeSet<String> {
+        providers.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn a_project_shows_the_agents_on_offer_it_does_not_hide_and_all_of_them_where_it_hides_every_one() {
+        let (a, live) = (Agents::default(), pocketd(&[("claude", true), ("codex", true), ("pi", true)]));
+        assert_eq!(a.shown(&live, &hides(&["codex", "hermes"])), ["claude", "pi"]);
+        assert_eq!(a.shown(&live, &hides(&["claude", "codex", "pi"])), ["claude", "codex", "pi"]);
+    }
+
+    #[test]
+    fn a_project_s_favorites_leave_out_the_agents_it_hides_unless_it_hides_every_one_on_offer() {
+        let on = ["claude", "codex", "hermes"];
+        let a = Agents { disabled: LaunchPick::PROVIDERS.into_iter().filter(|p| !on.contains(p)).map(String::from).collect(), ..Agents::default() };
+        let live = pocketd(&[("claude", true), ("codex", true), ("hermes", false)]);
+        assert_eq!(a.favored(&live, &hides(&[])), on, "one left on but not installed too");
+        assert_eq!(a.favored(&live, &hides(&["codex", "hermes"])), ["claude"]);
+        assert_eq!(a.favored(&live, &hides(&["claude", "codex"])), on);
     }
 
     #[test]
@@ -501,17 +535,17 @@ mod tests {
     }
 
     #[test]
-    fn a_model_picked_again_moves_first_and_only_the_last_six_are_kept() {
+    fn a_model_picked_again_moves_first_and_only_the_last_thirty_are_kept() {
         let mut agents = Agents::default();
-        for model in ["a", "b", "c", "d", "e", "f", "g"] {
-            agents.used("pi", model);
+        for model in 0..32 {
+            agents.used("pi", &model.to_string());
         }
-        agents.used("pi", "e");
+        agents.used("pi", "5");
         agents.used("claude", "");
         let recent: Vec<_> = agents.recent.iter().map(|(_, m)| m.as_str()).collect();
-        assert_eq!(recent, ["e", "g", "f", "d", "c", "b"]);
-        agents.used("omp", "e");
-        assert_eq!(agents.recent[..2], [("omp".to_string(), "e".to_string()), ("pi".to_string(), "e".to_string())], "another agent's model of one name");
+        assert_eq!((recent.len(), &recent[..3], recent.last()), (30, &["5", "31", "30"][..], Some(&"2")));
+        agents.used("omp", "5");
+        assert_eq!(agents.recent[..2], [("omp".to_string(), "5".to_string()), ("pi".to_string(), "5".to_string())], "another agent's model of one name");
         let old: Agents = serde_json::from_str("{}").unwrap();
         assert!(old.recent.is_empty());
     }

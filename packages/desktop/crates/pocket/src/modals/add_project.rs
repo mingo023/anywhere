@@ -103,14 +103,15 @@ impl RepoDraft {
     }
 }
 
-/// What Reset would put back, as (setting, now, default); name, colour and icon are the project's own.
-fn project_changes(cfg: &RepoConfig) -> Vec<(&'static str, String, String)> {
+/// What Reset would put back, as (setting, now, default), where the agents `offered` are the ones whose switch shows; name,
+/// colour and icon are the project's own.
+fn project_changes(cfg: &RepoConfig, offered: &[&str]) -> Vec<(&'static str, String, String)> {
     let script = |s: &str| if s.is_empty() { "empty" } else { "edited" }.to_string();
     let accounts = |n: usize| if n == 0 { "default".to_string() } else { "picked".to_string() };
     let agents = |n: usize| if n == 0 { "all shown".to_string() } else { "some hidden".to_string() };
     [
         ("Accounts", accounts(cfg.accounts.len()), accounts(0)),
-        ("Agents", agents(cfg.hidden.len()), agents(0)),
+        ("Agents", agents(cfg.hidden.iter().filter(|p| offered.contains(&p.as_str())).count()), agents(0)),
         ("When a worktree is created", script(&cfg.setup), script("")),
         ("When a worktree is deleted", script(&cfg.teardown), script("")),
     ]
@@ -421,7 +422,7 @@ impl Desktop {
 
     /// Reset and Remove, on their own plate under an edited project's settings.
     fn project_actions(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let changed = match project_changes(&self.repo_config(path, name.into(), cx)).len() {
+        let changed = match project_changes(&self.repo_config(path, name.into(), cx), &self.offered()).len() {
             0 => "At defaults".to_string(),
             n => format!("{n} changed"),
         };
@@ -453,7 +454,7 @@ impl Desktop {
 
     /// The settings Reset would put back, asking to be confirmed.
     fn reset_confirm(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let changes = project_changes(&self.repo_config(path, name.into(), cx));
+        let changes = project_changes(&self.repo_config(path, name.into(), cx), &self.offered());
         let lead = match changes.len() {
             0 => "Every setting here is already at its default.".to_string(),
             1 => "Only this project changes. 1 setting will go back:".to_string(),
@@ -645,18 +646,21 @@ mod tests {
         assert_eq!(RepoDraft::default().fallback_name(), "");
     }
 
+    const OFFERED: &[&str] = &["claude", "codex"];
+
     #[test]
     fn reset_puts_back_the_accounts_a_project_picks() {
         let cfg = RepoConfig { accounts: [("claude".to_string(), "work".to_string())].into(), ..RepoConfig::default() };
-        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        let lines: Vec<_> = project_changes(&cfg, OFFERED).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
         assert_eq!(lines, ["Accounts: picked > default"]);
     }
 
     #[test]
-    fn reset_shows_again_the_agents_a_project_hides() {
+    fn reset_shows_again_the_agents_a_project_hides_but_counts_none_no_longer_on_offer() {
         let cfg = RepoConfig { hidden: ["codex".to_string()].into(), ..RepoConfig::default() };
-        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        let lines: Vec<_> = project_changes(&cfg, OFFERED).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
         assert_eq!(lines, ["Agents: some hidden > all shown"]);
+        assert!(project_changes(&cfg, &["claude"]).is_empty());
     }
 
     #[test]
@@ -669,8 +673,8 @@ mod tests {
             setup: "pnpm install".into(),
             ..RepoConfig::default()
         };
-        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        let lines: Vec<_> = project_changes(&cfg, OFFERED).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
         assert_eq!(lines, ["When a worktree is created: edited > empty"]);
-        assert!(project_changes(&RepoConfig::default()).is_empty());
+        assert!(project_changes(&RepoConfig::default(), OFFERED).is_empty());
     }
 }

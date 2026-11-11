@@ -3,10 +3,10 @@ use gpui_kit::*;
 
 impl Desktop {
     /// One row per agent on offer, switched off where the project keeps it out of its model panel; none while only one
-    /// agent is on offer, since a session needs it.
+    /// agent is on offer, since a session needs it, unless the project hides it.
     pub(super) fn project_agent_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let offered = self.offered();
-        if offered.len() < 2 {
+        if offered.len() < 2 && !offered.iter().any(|p| self.repo_form.draft.hidden.contains(*p)) {
             return Vec::new();
         }
         offered.into_iter().map(|p| self.project_agent_row(p, cx).into_any_element()).collect()

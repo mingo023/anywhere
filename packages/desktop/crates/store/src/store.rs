@@ -463,8 +463,9 @@ impl Store {
     pub fn launch_pick(&self, project: Option<&str>, live: &agents::Agents) -> LaunchPick {
         let last = project.and_then(|p| self.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default();
         let (pick, hidden) = (self.agents.pick(last, live), self.hidden(project));
-        match self.agents.shown(live, hidden).first() {
-            Some(shown) if hidden.contains(&pick.provider) => pick.switched(shown),
+        let shown = self.agents.shown(live, hidden);
+        match shown.first() {
+            Some(first) if hidden.contains(&pick.provider) && !shown.contains(&pick.provider.as_str()) => pick.switched(first),
             _ => pick,
         }
     }
@@ -625,6 +626,9 @@ mod tests {
         assert_eq!((store.launch_pick(Some("/other"), &live).provider.as_str(), store.launch_pick(None, &live).provider.as_str()), ("claude", "claude"), "it hides them for itself only");
         store.repos.get_mut("/app").unwrap().hidden.insert("codex".into());
         assert_eq!(store.launch_pick(Some("/app"), &live), last);
+        let codex = LaunchPick { provider: "codex".into(), ..last };
+        store.repos.get_mut("/app").unwrap().launch = codex.clone();
+        assert_eq!(store.launch_pick(Some("/app"), &live), codex);
         assert!(serde_json::from_str::<RepoConfig>("{}").unwrap().hidden.is_empty());
     }
 

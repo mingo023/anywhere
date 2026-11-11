@@ -13,7 +13,7 @@ use gpui_kit::*;
 use std::hash::Hash;
 use std::rc::Rc;
 use store::LaunchPick;
-use store::prefs::agents::Provider;
+use store::prefs::agents::{Provider, RECENT};
 use theme::*;
 
 pub(crate) const ROW: f32 = 34.;
@@ -113,8 +113,6 @@ pub(crate) fn model_list(id: &'static str, listed: Rc<Listed>, mixed: bool, scro
                 line.child(row.when(!entry.missing, |row| {
                     row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         if let Line::Pick(entry) = &listed.lines[i] {
-                            this.store.agents.used(&entry.provider, &entry.value);
-                            this.store.save();
                             choose(this, entry, cx);
                         }
                     }))
@@ -212,9 +210,9 @@ fn lines(viewed: &str, entries: Vec<Entry>) -> Vec<Line<Entry>> {
     by_upstream(viewed, entries, |e| &e.upstream).into_iter().flat_map(|(who, group)| who.map(Line::Heading).into_iter().chain(group.into_iter().map(Line::Pick))).collect()
 }
 
-/// What Favorites lists: the starred models, then under Recent the ones picked lately that have no star.
+/// What Favorites lists: the starred models, then under Recent the last `RECENT` picked that have no star.
 fn favorite_lines(favorites: Vec<Entry>, recent: Vec<Entry>) -> Vec<Line<Entry>> {
-    let recent: Vec<_> = recent.into_iter().filter(|r| !favorites.iter().any(|f| (&f.provider, &f.value) == (&r.provider, &r.value))).collect();
+    let recent: Vec<_> = recent.into_iter().filter(|r| !favorites.iter().any(|f| (&f.provider, &f.value) == (&r.provider, &r.value))).take(RECENT).collect();
     let heading = (!recent.is_empty()).then(|| Line::Heading("RECENT".into()));
     favorites.into_iter().map(Line::Pick).chain(heading).chain(recent.into_iter().map(Line::Pick)).collect()
 }
@@ -342,6 +340,12 @@ impl Desktop {
         cx.notify();
     }
 
+    /// `provider`'s `model` was picked and now runs, or will on launch: it goes first under Recent.
+    pub(crate) fn model_used(&mut self, provider: &str, model: &str, cx: &mut Context<Self>) {
+        self.store.agents.used(provider, model);
+        self.save_soon(cx);
+    }
+
     /// `draft`'s model panel just opened on `provider` in `project`: its CLI is asked for its models, again if the last
     /// read failed, and its tab is brought into the rail's view.
     pub(crate) fn models_opened(&mut self, draft: impl Fn(&mut Desktop) -> &mut Draft, provider: &str, project: Option<&str>, cx: &mut Context<Self>) {
@@ -366,8 +370,7 @@ impl Desktop {
         if viewed != FAVORITES {
             return lines(viewed, found(entries(viewed, self.offered_models(viewed), current)));
         }
-        let hidden = self.store.hidden(project);
-        let shown: Vec<_> = self.store.agents.enabled().into_iter().filter(|p| !hidden.contains(*p)).collect();
+        let shown = self.store.agents.favored(&self.agents, self.store.hidden(project));
         let saved = |models: &[(String, String)]| found(saved_entries(models, &shown, |p| self.offered_models(p)));
         favorite_lines(saved(&self.store.agents.favorites), saved(&self.store.agents.recent))
     }
@@ -402,6 +405,7 @@ impl Desktop {
                 let base = current.switched(&entry.provider);
                 // An effort the new model lacks would still be sent, though its chip no longer shows it.
                 let effort = if this.launch_efforts(&entry.provider, &entry.value).contains(&base.effort) { base.effort.clone() } else { String::new() };
+                this.model_used(&entry.provider, &entry.value, cx);
                 this.choose_launch(slot, project.clone(), LaunchPick { model: entry.value.clone(), effort, ..base }, cx)
             });
             model_list("composer-model-row", listed, viewed == FAVORITES, &c.draft.scroll, choose, cx)
@@ -545,6 +549,13 @@ mod tests {
         assert_eq!(named(favorite_lines(vec![], recent())), ["# RECENT", "Pi Sol", "Opus", "Haiku"]);
         assert_eq!(named(favorite_lines(favorites(), vec![entry("claude", "opus", "Opus")])), ["Opus", "Sol"], "no heading over nothing");
         assert!(favorite_lines(vec![], vec![]).is_empty());
+    }
+
+    #[test]
+    fn recent_lists_six_models_that_have_no_star_however_many_starred_ones_were_picked_since() {
+        let models = |names: std::ops::Range<usize>| names.map(|n| entry("pi", &n.to_string(), &n.to_string())).collect::<Vec<_>>();
+        let lines = named(favorite_lines(models(0..5), models(0..12)));
+        assert_eq!(lines[5..], ["# RECENT", "5", "6", "7", "8", "9", "10"]);
     }
 
     #[test]

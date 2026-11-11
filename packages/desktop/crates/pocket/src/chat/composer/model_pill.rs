@@ -87,6 +87,7 @@ impl Desktop {
         let choose: Choose = Rc::new(move |this, entry, cx| {
             if entry.provider == provider {
                 this.outbox.settings(&id, &entry.value, "");
+                this.model_used(&entry.provider, &entry.value, cx);
                 close_menu(this, cx);
             } else {
                 this.switch_chat_agent(&id, entry.provider.clone(), entry.value.clone(), cx);
