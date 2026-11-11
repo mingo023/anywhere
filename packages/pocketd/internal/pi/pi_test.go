@@ -794,9 +794,37 @@ func TestACompactionShowsWhatItCameToAndHoldsThePromptsSentMeanwhile(t *testing.
 		"compactingEnded",
 		"working",
 	})
+}
 
-	if err := s.Compact(); err == nil || err.Error() != "Pi compacts once its turn ends" {
-		t.Fatalf("compacting mid-turn: %v", err)
+func TestACompactionAskedForMidTurnRunsOnceTheTurnEndsAndAStopDropsIt(t *testing.T) {
+	s, a, sk, _ := start(t, opts{answer: func(a *agent, kind string, _ map[string]any) string {
+		if kind == "compact" {
+			return `{"summary":"so far","estimatedTokensAfter":1200}`
+		}
+		return ""
+	}})
+	s.Prompt("one")
+	a.sent("prompt", 1)
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(sk.lines(), "compacting") {
+		t.Fatalf("compacted mid-turn: %v", sk.lines())
+	}
+	a.say(agentStart, echoed("one"), reply, said("ok"), agentEnd, settled)
+	equal(t, after(sk.wait(t, "compactingEnded"), "result:true:"), []string{
+		"result:true:", "ended:false", "compacting", "compacted:manual", "tokens:1200/1000000", "compactingEnded"})
+
+	s.Prompt("two")
+	a.sent("prompt", 2)
+	s.Compact()
+	s.Cancel()
+	a.say(`{"type":"agent_settled","aborted":true}`)
+	sk.wait(t, "stopped")
+	s.Prompt("three")
+	a.sent("prompt", 3)
+	if got := a.sent("compact", 1); len(got) != 1 {
+		t.Fatalf("compacted after the stop: %v", got)
 	}
 }
 

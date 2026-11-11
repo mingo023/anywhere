@@ -92,16 +92,18 @@ type Session struct {
 	stopping   bool // the user stopped the turn
 	retrying   bool
 	compacting bool
-	settles    bool // pi tells when it goes on with nothing
-	began      time.Time
-	failure    *string // the error pi's last reply ended with, the turn's unless pi tries again
-	usage      proto.TurnUsage
-	held       []func() // the dialogs asked before the session opened
-	asks       map[string]context.CancelFunc
-	msg        block // the block pi is writing
-	blocks     int
-	done       map[int]bool // the blocks of pi's message that are in the timeline
-	tools      map[string]bool // the turn's calls shown
+	// compactNext is a Compact asked for mid-turn, which waits for the turn to end.
+	compactNext bool
+	settles     bool // pi tells when it goes on with nothing
+	began       time.Time
+	failure     *string // the error pi's last reply ended with, the turn's unless pi tries again
+	usage       proto.TurnUsage
+	held        []func() // the dialogs asked before the session opened
+	asks        map[string]context.CancelFunc
+	msg         block // the block pi is writing
+	blocks      int
+	done        map[int]bool    // the blocks of pi's message that are in the timeline
+	tools       map[string]bool // the turn's calls shown
 	// tasks are the calls that run sub-agents.
 	tasks    map[string]*task
 	commands []proto.Command // as omp last told them
@@ -433,7 +435,7 @@ func (s *Session) fail(id, reason string) {
 func (s *Session) Cancel() {
 	s.mu.Lock()
 	busy, c := s.running || s.compacting, s.c
-	s.stopping, s.queue = s.running, nil
+	s.stopping, s.queue, s.compactNext = s.running, nil, false
 	asks := s.asks
 	s.asks = map[string]context.CancelFunc{}
 	if !busy && len(asks) > 0 {
@@ -459,20 +461,25 @@ func (s *Session) Cancel() {
 	})
 }
 
-// Compact has pi summarise its context, between turns: it would stop one to do so.
+// Compact has pi summarise its context, once the turn under way ends: pi
+// would stop it to do so.
 func (s *Session) Compact() error {
-	c, err := s.usable()
-	if err != nil {
+	if _, err := s.usable(); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.running {
-		return fmt.Errorf("%s compacts once its turn ends", s.name)
+		s.compactNext = true
+		return nil
 	}
+	return s.compact()
+}
+
+func (s *Session) compact() error {
 	s.compacting = true
 	s.sink.Compacting()
-	_, err = c.Send("compact", nil, func(data json.RawMessage, err error) {
+	_, err := s.c.Send("compact", nil, func(data json.RawMessage, err error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if err != nil {
@@ -546,6 +553,13 @@ func (s *Session) settle(aborted bool) {
 		s.sink.TurnEnded(!e.OK)
 	}
 	go s.stats(s.c)
+	if s.compactNext {
+		s.compactNext = false
+		if err := s.compact(); err != nil {
+			s.compacted(false, nil, "manual", err.Error())
+		}
+		return
+	}
 	s.drain()
 }
 
