@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -220,6 +221,23 @@ func (s *Session) usable() (*Client, error) {
 }
 
 func (s *Session) failed() error { return fmt.Errorf("%s didn't start: %w", s.name, s.err) }
+
+// Saved reports whether pi can resume the session: it writes the file it
+// names only once the session holds a prompt or a reply.
+func (s *Session) Saved() bool {
+	c, err := s.usable()
+	if err != nil {
+		return false
+	}
+	var st struct {
+		File string `json:"sessionFile"`
+	}
+	if data, err := s.call(c, CallWait, "get_state", nil); err != nil || json.Unmarshal(data, &st) != nil {
+		return false
+	}
+	_, err = os.Stat(st.File)
+	return err == nil
+}
 
 // Settings switches the model, named provider/id, the thinking level or both for the session's next turns.
 func (s *Session) Settings(name, effort string) error {

@@ -295,61 +295,115 @@ func access(phone *Phone, id, msgID, to string) Message {
 }
 
 func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSession(t *testing.T) {
-	h, phone, term, id := chatPi(t, "pi", map[string]any{"plan": true}, func(h *Harness) { h.resume = true })
-	h.WaitScreen(term, "fake pi ready --mode rpc --tools read,grep,find,ls")
-	phone.Prompt(id, "plan it")
-	session := phone.WaitFor("the planned turn", statusOf(id, "done")).Agent.ProviderSessionID
+	for _, c := range []struct{ provider, tools, resume string }{
+		{"pi", "--tools read,grep,find,ls", "--session"},
+		{"omp", "--tools read,grep,glob,lsp", "--resume"},
+	} {
+		t.Run(c.provider, func(t *testing.T) {
+			h, phone, term, id := chatPi(t, c.provider, map[string]any{"plan": true}, func(h *Harness) { h.resume = true })
+			h.WaitScreen(term, "fake "+c.provider+" ready --mode rpc "+c.tools)
+			phone.Prompt(id, "plan it")
+			session := phone.WaitFor("the planned turn", statusOf(id, "done")).Agent.ProviderSessionID
 
-	if got := access(phone, id, "s1", "full"); got.Type != "ack" {
-		t.Fatalf("got %s", got.Raw)
-	}
+			if got := access(phone, id, "s1", "full"); got.Type != "ack" {
+				t.Fatalf("got %s", got.Raw)
+			}
 
-	h.WaitScreen(term, "fake pi ready --session "+session+" --mode rpc")
-	if screen := h.Screen(term); strings.Contains(screen, "--tools") {
-		t.Fatalf("pi restarted planning:\n%s", screen)
-	}
-	// It refuses prompts until its new process is on the session.
-	for try := 0; ; try++ {
-		phone.Send(map[string]any{"type": "agent.prompt", "id": fmt.Sprint("p", try), "agentId": id, "text": "build it"})
-		got := phone.WaitFor("the prompt taken", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try) })
-		if got.Type == "ack" {
-			break
-		}
-		if got.Code != "agent_resuming" || try == 50 {
-			t.Fatalf("got %s", got.Raw)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	phone.WaitAll("the turn on its full tools", streamOf(id, "assistant", "echo: build it"), statusOf(id, "done"))
-	want := []string{"user plan it", "assistant echo: plan it", "result", "user build it", "assistant echo: build it", "result"}
-	if got := history(phone, id); strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("got %q", got)
-	}
-	if strings.Contains(h.Screen(term), "get_messages") {
-		t.Fatal("the restarted pi's history was read again into the timeline it kept")
-	}
-	if got := access(phone, id, "s2", "full"); got.Type != "ack" {
-		t.Fatalf("got %s", got.Raw)
+			resumed := "fake " + c.provider + " ready " + c.resume + " " + session + " --mode rpc"
+			h.WaitScreen(term, resumed)
+			if screen := h.Screen(term); strings.Contains(screen, "--tools") {
+				t.Fatalf("%s restarted planning:\n%s", c.provider, screen)
+			}
+			// It refuses prompts until its new process is on the session.
+			for try := 0; ; try++ {
+				phone.Send(map[string]any{"type": "agent.prompt", "id": fmt.Sprint("p", try), "agentId": id, "text": "build it"})
+				got := phone.WaitFor("the prompt taken", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try) })
+				if got.Type == "ack" {
+					break
+				}
+				if got.Code != "agent_resuming" || try == 50 {
+					t.Fatalf("got %s", got.Raw)
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			phone.WaitAll("the turn on its full tools", streamOf(id, "assistant", "echo: build it"), statusOf(id, "done"))
+			want := []string{"user plan it", "assistant echo: plan it", "result", "user build it", "assistant echo: build it", "result"}
+			if got := history(phone, id); strings.Join(got, "|") != strings.Join(want, "|") {
+				t.Fatalf("got %q", got)
+			}
+			if strings.Contains(h.Screen(term), "get_messages") {
+				t.Fatalf("the restarted %s's history was read again into the timeline it kept", c.provider)
+			}
+
+			// It has left plan for good: the pocketd after this one resumes it on its full tools too.
+			h.Restart()
+
+			h.WaitScreen(term, "get_messages")
+			if screen := h.Screen(term); !strings.Contains(screen, resumed) || strings.Contains(screen, "--tools") {
+				t.Fatalf("%s came back planning:\n%s", c.provider, screen)
+			}
+		})
 	}
 }
 
 func TestAChatPiLeavesPlanOnlyBetweenTurnsOfASessionItHas(t *testing.T) {
 	h, phone, term, id := chatPi(t, "pi", map[string]any{"plan": true}, func(h *Harness) { h.resume = true })
-	if got := access(phone, id, "s1", "full"); !strings.Contains(got.Raw, "Pi has no session to resume yet, so start a new session to build") {
+	unsaved := "Pi has no session to resume yet, so start a new session to build"
+	if got := access(phone, id, "s1", "full"); !strings.Contains(got.Raw, unsaved) {
+		t.Fatalf("got %s", got.Raw)
+	}
+	// pi saves no session for what it answers without a turn, though the chat shows it.
+	phone.Send(map[string]any{"type": "agent.compact", "id": "c1", "agentId": id})
+	phone.WaitAll("pi's reason it can't", acked("c1"), streamOf(id, "notice", "Pi couldn't compact: Nothing to compact (session too small)"))
+	phone.Prompt(id, "/reload")
+	phone.WaitAll("the command, which runs no agent", streamOf(id, "user", "/reload"), statusOf(id, "done"))
+	if got := access(phone, id, "s2", "full"); !strings.Contains(got.Raw, unsaved) {
 		t.Fatalf("got %s", got.Raw)
 	}
 	phone.Prompt(id, "slow one")
 	phone.WaitStatus(id, "working")
-	if got := access(phone, id, "s2", "full"); !strings.Contains(got.Raw, "Pi can leave plan once its turn ends") {
+	if got := access(phone, id, "s3", "full"); !strings.Contains(got.Raw, "Pi can leave plan once its turn ends") {
 		t.Fatalf("got %s", got.Raw)
 	}
-	if got := access(phone, id, "s3", "ask"); !strings.Contains(got.Raw, "Pi runs every tool without asking, so its access is always full") {
+	if got := access(phone, id, "s4", "ask"); !strings.Contains(got.Raw, "Pi runs every tool without asking, so its access is always full") {
 		t.Fatalf("got %s", got.Raw)
 	}
 	phone.WaitStatus(id, "done")
 	if n := strings.Count(h.Screen(term), "fake pi ready"); n != 1 {
 		t.Fatalf("pi started %d times", n)
 	}
+}
+
+func TestAChatPiThatCantBeResumedStaysPlanningAndSaysWhy(t *testing.T) {
+	stays := func(t *testing.T, why string, resume bool, breakIt func(*Harness)) {
+		h, phone, term, id := chatPi(t, "pi", map[string]any{"plan": true}, func(h *Harness) { h.resume = resume })
+		phone.Prompt(id, "plan it")
+		phone.WaitStatus(id, "done")
+		breakIt(h)
+		if got := access(phone, id, "s1", "full"); !strings.Contains(got.Raw, why) {
+			t.Fatalf("got %s", got.Raw)
+		}
+		phone.Prompt(id, "still planning")
+		phone.WaitAll("the next turn", streamOf(id, "assistant", "echo: still planning"), statusOf(id, "done"))
+		if n := strings.Count(h.Screen(term), "fake pi ready"); n != 1 {
+			t.Fatalf("pi started %d times", n)
+		}
+	}
+	t.Run("resume off", func(t *testing.T) {
+		stays(t, "Pi leaves plan by resuming its session, which Settings has off", false, func(*Harness) {})
+	})
+	t.Run("its command gone", func(t *testing.T) {
+		stays(t, "Pi couldn't leave plan", true, func(h *Harness) {
+			gone := filepath.Join(h.Home, "pi-gone")
+			if err := os.WriteFile(gone, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if out, code := h.Pocketd("config", "set", "pi.command", gone); code != 0 {
+				t.Fatalf("exit %d: %q", code, out)
+			}
+			os.Remove(gone)
+		})
+	})
 }
 
 func TestAnExtensionsDialogAsksTheChatPi(t *testing.T) {

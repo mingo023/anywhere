@@ -117,22 +117,20 @@ func (c piDriver) Access(access string) error {
 	if !planning {
 		return nil
 	}
-	return c.x.d.leavePlan(c.pr, name)
+	return c.x.leavePlan(name)
 }
 
-// leavePlan restarts pr's pi on the same session without its read-only
-// tools: pi takes its tools only on its command line.
-func (d *Daemon) leavePlan(pr *presence, name string) error {
-	_, seq := pr.a.Timeline.State()
+// leavePlan restarts pi on the same session without its read-only tools: pi
+// takes its tools only on its command line.
+func (x *piChat) leavePlan(name string) error {
 	switch {
-	case d.Resume == nil:
+	case x.d.Resume == nil:
 		return errors.New(name + " leaves plan by resuming its session, which Settings has off")
-	case !restartable(between(pr.a)):
+	case !restartable(between(x.pr.a)):
 		return errors.New(name + " can leave plan once its turn ends")
-	// pi saves its session only once it has taken a prompt.
-	case seq == 0:
+	case !x.s.Saved():
 		return errors.New(name + " has no session to resume yet, so start a new session to build")
-	case !d.restart(pr, func(e *state.Terminal) { e.Launch.Plan = false }, restartable, ""):
+	case !x.d.restart(x.pr, func(e *state.Terminal) { e.Launch.Plan = false }, restartable, ""):
 		return errors.New(name + " couldn't leave plan")
 	}
 	return nil
