@@ -22,8 +22,6 @@ import (
 	"pocketd/internal/providers"
 )
 
-// anywhereUsage names the agents a session runs as: its chat is how the
-// command prompts and reads it, so only those pocketd drives a chat of.
 func anywhereUsage() string {
 	return `usage: anywhere project list [--json]
        anywhere session list [--json]
