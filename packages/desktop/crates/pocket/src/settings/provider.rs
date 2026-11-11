@@ -78,10 +78,11 @@ fn command_label(command: &str) -> String {
     if command.is_empty() { "Found on PATH".into() } else { format!("\u{201c}{command}\u{201d}") }
 }
 
-/// "Built-in provider · ~/bin/claude", or that it isn't found.
-fn provider_line(path: Option<&str>) -> String {
+/// "Built-in provider · ~/bin/claude", or that it isn't `installed`; the agents list goes by `installed` too.
+fn provider_line(installed: bool, path: Option<&str>) -> String {
     match path {
-        None | Some("") => "Built-in provider \u{b7} not found on your login PATH".into(),
+        _ if !installed => "Built-in provider \u{b7} not found on your login PATH".into(),
+        None | Some("") => "Built-in provider".into(),
         Some(p) => format!("Built-in provider \u{b7} {}", tilde(p)),
     }
 }
@@ -306,7 +307,7 @@ impl Desktop {
             .bg(SURFACE)
             .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x0000000d), 1., 1.5)])
             .child(provider_icon(p, 20., TEXT));
-        let line = provider_line(path.as_deref());
+        let line = provider_line(self.installed(p), path.as_deref());
         let (lead, path) = line.split_once(" \u{b7} ").map_or((line.clone(), String::new()), |(a, b)| (format!("{a} \u{b7} "), b.to_string()));
         let mono = path.starts_with('/') || path.starts_with('~');
         let text = div()
@@ -330,8 +331,14 @@ mod tests {
 
     #[test]
     fn a_provider_says_where_pocketd_found_it() {
-        assert_eq!(provider_line(Some("/opt/homebrew/bin/claude")), "Built-in provider \u{b7} /opt/homebrew/bin/claude");
-        assert_eq!(provider_line(Some("")), "Built-in provider \u{b7} not found on your login PATH");
+        assert_eq!(provider_line(true, Some("/opt/homebrew/bin/claude")), "Built-in provider \u{b7} /opt/homebrew/bin/claude");
+        assert_eq!(provider_line(false, Some("")), "Built-in provider \u{b7} not found on your login PATH");
+    }
+
+    #[test]
+    fn an_installed_provider_whose_path_is_unknown_is_not_called_missing() {
+        assert_eq!(provider_line(true, None), "Built-in provider");
+        assert_eq!(provider_line(true, Some("")), "Built-in provider");
     }
 
     #[test]
