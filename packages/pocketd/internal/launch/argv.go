@@ -68,6 +68,16 @@ func ValidSwitch(provider, name, effort string) error {
 	return nil
 }
 
+// ValidOptions refuses an option not named as model names are written.
+func ValidOptions(options map[string]string) error {
+	for id, value := range options {
+		if !model.MatchString(id) || !model.MatchString(value) {
+			return errors.New(badOption)
+		}
+	}
+	return nil
+}
+
 // Chat is whether s runs for the chat behind `pocketd pipe`.
 func Chat(s proto.LaunchSpec) bool {
 	c := clis[s.Provider]
@@ -95,10 +105,8 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 	if s.Model != "" && !model.MatchString(s.Model) {
 		return nil, fail("invalid_spec", badModel)
 	}
-	for id, value := range s.Options {
-		if !model.MatchString(id) || !model.MatchString(value) {
-			return nil, fail("invalid_spec", badOption)
-		}
+	if ValidOptions(s.Options) != nil {
+		return nil, fail("invalid_spec", badOption)
 	}
 	prompt, err := terminal.Sanitize(s.Prompt)
 	if err != nil {

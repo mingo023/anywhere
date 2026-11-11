@@ -180,7 +180,7 @@ func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, e
 		}
 	}
 	if fast, ok := l.Options["fast"]; ok && s.f.fast {
-		if _, err := s.call(c, CallWait, "set_fast_mode", map[string]any{"enabled": fast == "true"}); err != nil {
+		if err := s.setFast(c, fast); err != nil {
 			s.notice(fmt.Sprintf("%s couldn't set fast to %s: %v", s.name, fast, err))
 		}
 	}
@@ -217,6 +217,11 @@ func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, e
 	s.held = nil
 	s.drain()
 	return nil, nil
+}
+
+func (s *Session) setFast(c *Client, fast string) error {
+	_, err := s.call(c, CallWait, "set_fast_mode", map[string]any{"enabled": fast == "true"})
+	return err
 }
 
 func (s *Session) call(c *Client, wait time.Duration, kind string, fields map[string]any) (json.RawMessage, error) {
