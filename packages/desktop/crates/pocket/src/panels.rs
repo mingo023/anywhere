@@ -11,12 +11,14 @@ mod top_tabs;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, id, observe_banner};
+use crate::glide::Glide;
 use drop::Aim;
 use pane_drag::{DragPane, Source};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::time::Instant;
 use theme::*;
 use workspace::tree::{Axis, Divider, Node, Pane, PaneId, Rect, Target, Tree};
 use workspace::{Doc, Place, Tab};
@@ -63,6 +65,10 @@ pub(crate) struct Panels {
     pane_drag: Option<pane_drag::Held>,
     /// The top bar as last drawn, in window pixels.
     bar: Rect,
+    /// The panes last synced, to tell when a split makes one.
+    panes: Vec<PaneId>,
+    /// The pane a split just made, and how far it has grown to its share.
+    born: Option<(PaneId, Glide)>,
 }
 
 impl Panels {
@@ -71,10 +77,33 @@ impl Panels {
         self.drag.as_ref().is_some_and(|(_, d)| d.away) || self.pane_drag.is_some()
     }
 
+    /// Steps the pane a split just made toward its share; true while it still grows.
+    pub(crate) fn tick(&mut self, now: Instant, reduce_motion: bool) -> bool {
+        let growing = self.born.as_mut().is_some_and(|(_, glide)| glide.tick(1., now, reduce_motion));
+        if !growing {
+            self.born = None;
+        }
+        growing
+    }
+
     /// Whether a tab, pane or top tab is held, so the pictures of pages taken for it are still wanted.
     pub(crate) fn holding(&self) -> bool {
         self.drag.is_some() || self.pane_drag.is_some() || self.top_drag.is_some()
     }
+}
+
+/// The pane a split just made: the one `now` has that `was` lacked, the rest unchanged.
+fn born(was: &[PaneId], now: &[PaneId]) -> Option<PaneId> {
+    let mut new = now.iter().filter(|p| !was.contains(p));
+    let pane = new.next().copied().filter(|_| !was.is_empty() && now.len() == was.len() + 1);
+    pane.filter(|_| new.next().is_none())
+}
+
+/// `sizes` with the cell at `born` grown `t` of the way from nothing, the rest sharing what it has yet to take.
+fn growing(sizes: &[f32], born: usize, t: f32) -> Vec<f32> {
+    let spare = sizes[born] * (1. - t);
+    let rest = sizes.iter().sum::<f32>() - sizes[born];
+    sizes.iter().enumerate().map(|(j, &s)| if j == born { s - spare } else { s + spare * s / rest }).collect()
 }
 
 pub(crate) fn rect(b: Bounds<Pixels>) -> Rect {
@@ -108,6 +137,8 @@ impl Desktop {
         if self.panels.tree.as_ref() != Some(&(tree.clone(), at)) {
             self.panels.drag = None;
             self.panels.tree = Some((tree.clone(), at));
+            // Pane ids repeat between trees, so one new here was not born of a split.
+            (self.panels.panes, self.panels.born) = (Vec::new(), None);
         }
         let w = self.workspace(&tree);
         let focused = match w.tree.focused().active() {
@@ -117,6 +148,10 @@ impl Desktop {
         let live: Vec<PaneId> = w.tree.panes().iter().map(|p| p.id).collect();
         let drawn: Vec<PaneId> = w.tree.drawn().iter().map(|p| p.id).collect();
         self.terminal.focused = focused;
+        if let Some(pane) = born(&self.panels.panes, &live) {
+            self.panels.born = Some((pane, Glide::from(0.)));
+        }
+        self.panels.panes = live.clone();
         self.panels.strips.retain(|p, _| live.contains(p));
         if matches!(self.panels.menu, Some(Place::Pane(Some(p))) if !live.contains(&p)) {
             self.panels.menu = None;
@@ -193,10 +228,27 @@ impl Desktop {
             Node::Pane(p) => return self.pane_view(tree, p, window, cx).into_any_element(),
             Node::Split { axis, sizes, children } => (*axis, sizes, children),
         };
+        let born = self.panels.born.as_ref().and_then(|(pane, glide)| {
+            let j = children.iter().position(|c| matches!(c, Node::Pane(p) if p.id == *pane))?;
+            let (_, at) = self.workspaces[tree].tree.layout(self.panels.bounds).into_iter().find(|(p, _)| p == pane)?;
+            Some((j, glide.at(), at))
+        });
+        let sizes = born.map_or_else(|| sizes.clone(), |(j, t, _)| growing(sizes, j, t));
         let mut cells = Vec::new();
-        for (j, (child, &size)) in children.iter().zip(sizes).enumerate() {
+        for (j, (child, size)) in children.iter().zip(sizes).enumerate() {
             let inner = self.node_view(tree, child, [path.as_slice(), &[j]].concat(), window, cx);
-            let cell = div().relative().flex().flex_none().flex_basis(relative(size)).min_w_0().min_h_0().child(inner);
+            let cell = div().relative().flex().flex_none().flex_basis(relative(size)).min_w_0().min_h_0();
+            let cell = match born.filter(|(b, ..)| *b == j) {
+                // At the size it grows to, so it slides in whole and a terminal in it starts at the right width.
+                Some((_, _, at)) => {
+                    let whole = match axis {
+                        Axis::Row => div().flex_none().h_full().w(px(at.w)),
+                        Axis::Column => div().flex_none().w_full().h(px(at.h)),
+                    };
+                    cell.overflow_hidden().when(axis == Axis::Column, |d| d.flex_col()).when(j == 0, |d| d.justify_end()).child(whole.child(inner))
+                }
+                None => cell.child(inner),
+            };
             cells.push(match (j, axis) {
                 (0, _) => cell,
                 (_, Axis::Row) => cell.border_l(px(0.5)).border_color(SEPARATOR).children(self.divider(&path, j, axis, cx)),
@@ -416,9 +468,22 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Head, head};
+    use super::{Head, born, growing, head};
     use workspace::tree::{Edge, Tree};
     use workspace::{Doc, Tab};
+
+    #[test]
+    fn a_split_bears_the_one_pane_it_adds_and_nothing_else_does() {
+        assert_eq!(born(&[0, 1], &[0, 2, 1]), Some(2));
+        assert_eq!([born(&[], &[0]), born(&[0, 1], &[0, 1]), born(&[0, 1], &[0]), born(&[0, 1], &[0, 2]), born(&[0], &[0, 1, 2])], [None; 5]);
+    }
+
+    #[test]
+    fn a_born_cell_grows_from_nothing_while_the_rest_give_way_in_proportion() {
+        assert_eq!(growing(&[0.25, 0.25, 0.5], 2, 0.), [0.5, 0.5, 0.]);
+        assert_eq!(growing(&[0.25, 0.25, 0.5], 2, 0.5), [0.375, 0.375, 0.25]);
+        assert_eq!(growing(&[0.25, 0.25, 0.5], 2, 1.), [0.25, 0.25, 0.5]);
+    }
 
     #[test]
     fn a_lone_terminal_has_no_head_and_a_title_in_a_split() {

@@ -16,7 +16,9 @@ mod update;
 mod usage;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Column, Layout, Overlay, RowMenu, Screen, Side, drag_area, id, state};
+use crate::desktop::chrome::{Column, Layout, Overlay, RAIL, RowMenu, Screen, Side, drag_area, id, state};
+use crate::glide::Glide;
+use crate::region;
 use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rename::Rename;
 use crate::sidebar::filter::Filter;
@@ -55,6 +57,25 @@ pub(crate) fn in_tree(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&st
 /// The column left of the page, listing the inbox or Automations.
 pub(crate) fn column_shown(layout: Layout, screen: Screen) -> bool {
     layout != Layout::Focus && matches!(screen, Screen::Inbox | Screen::Automations)
+}
+
+/// Where the lead column rests in `layout`, on a line from nothing through the rail to the sidebar.
+fn lead_stop(layout: Layout) -> f32 {
+    match layout {
+        Layout::Focus => 0.,
+        Layout::Compact => 1.,
+        Layout::Sidebars => 2.,
+    }
+}
+
+/// How wide the lead column is `at` a point on that line, with the sidebar `wide`.
+fn lead_width(at: f32, wide: f32) -> f32 {
+    RAIL * at.clamp(0., 1.) + (wide - RAIL) * aside_shown(at)
+}
+
+/// How far the sidebar has faded in over the rail `at` a point on that line.
+fn aside_shown(at: f32) -> f32 {
+    (at - 1.).clamp(0., 1.)
 }
 
 /// How a project's row folds its checkout and worktrees.
@@ -159,6 +180,10 @@ pub struct SidebarState {
     pub(crate) organize: Organize,
     pub(crate) closing: Closing,
     pub(crate) team_folds: TeamFolds,
+    /// The lead column, between its `lead_stop`s.
+    pub(crate) lead: Glide,
+    /// How far the right-hand panel is open.
+    pub(crate) panel: Glide,
 }
 
 impl SidebarState {
@@ -169,7 +194,19 @@ impl SidebarState {
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
         subs.extend(filter_subs);
-        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default(), team_folds: TeamFolds::default() }, subs)
+        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default(), team_folds: TeamFolds::default(), lead: Glide::default(), panel: Glide::default() }, subs)
+    }
+
+    /// Steps the lead column toward `layout` and the panel toward open or shut; true while either still moves.
+    pub(crate) fn tick(&mut self, layout: Layout, now: Instant, reduce_motion: bool) -> bool {
+        let lead = self.lead.tick(lead_stop(layout), now, reduce_motion);
+        let panel = self.panel.tick(f32::from(u8::from(self.panel_open)), now, reduce_motion);
+        lead || panel
+    }
+
+    /// How much of the columns Focus hides is showing.
+    pub(crate) fn unfocused(&self) -> f32 {
+        self.lead.at().clamp(0., 1.)
     }
 }
 
@@ -204,6 +241,20 @@ impl Desktop {
     /// How wide the expanded sidebar is.
     pub(crate) fn aside_width(&self) -> f32 {
         self.width(Column::Projects, 272.)
+    }
+
+    /// How wide the lead column is now, as it moves between layouts.
+    pub(crate) fn lead_width(&self) -> f32 {
+        lead_width(self.sidebar.lead.at(), self.aside_width())
+    }
+
+    /// The lead column: the sidebar or the rail, one fading into the other as it widens, and nothing in Focus.
+    pub(crate) fn lead(&self) -> Div {
+        let (at, wide) = (self.sidebar.lead.at(), self.aside_width());
+        let shown = aside_shown(at);
+        let rail = div().absolute().top_0().left_0().h_full().opacity(1. - shown).child(region::cached(&self.regions.nav, region::column(RAIL)));
+        let aside = div().flex_none().h_full().opacity(shown).child(region::cached(&self.regions.aside, region::column(wide)));
+        div().relative().flex().flex_none().h_full().w(px(lead_width(at, wide))).overflow_hidden().when(at > 0. && shown < 1., |d| d.child(rail)).when(shown > 0., |d| d.child(aside))
     }
 
     /// The expanded sidebar: projects with their worktrees.
@@ -556,7 +607,7 @@ fn with_sub(label: AnyElement, sub: Option<String>, editing: bool) -> AnyElement
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRow, column_shown, in_tree, setting_up, sweep_base, tree_label};
+    use super::{ProjectRow, aside_shown, column_shown, in_tree, lead_stop, lead_width, setting_up, sweep_base, tree_label};
     use crate::desktop::chrome::{Layout, Screen};
     use crate::status::{self, Card};
     use agents::{Agents, Summary};
@@ -576,6 +627,17 @@ mod tests {
             "/wt" => Some("/wt".into()),
             _ => None,
         }
+    }
+
+    #[test]
+    fn the_lead_column_widens_from_nothing_through_the_rail_to_the_sidebar() {
+        assert_eq!([Layout::Focus, Layout::Compact, Layout::Sidebars].map(|l| lead_width(lead_stop(l), 272.)), [0., 56., 272.]);
+        assert_eq!([lead_width(0.5, 272.), lead_width(1.5, 272.)], [28., 164.]);
+    }
+
+    #[test]
+    fn the_sidebar_fades_in_only_past_the_rail() {
+        assert_eq!([0., 0.5, 1., 1.25, 2.].map(aside_shown), [0., 0., 0., 0.25, 1.]);
     }
 
     #[test]

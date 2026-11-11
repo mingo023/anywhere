@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Column, HEADER, SEAM, Side, drag_area};
 use crate::git_ui::pull_request::pr_wants_you;
+use crate::region;
 use crate::git_ui::pull_requests::glyph;
 use crate::sidebar::column::changes_badge;
 use crate::sidebar::rail::{rail_button, rail_slot};
@@ -54,12 +55,25 @@ impl Desktop {
         cx.notify();
     }
 
-    /// How wide the right-hand panel is: none while collapsed.
+    /// How wide the right-hand panel is now: none once collapsed.
     pub(crate) fn workspace_panel_width(&self) -> f32 {
-        if self.sidebar.panel_open { self.width(Column::Sessions, OPEN) } else { 0. }
+        self.sidebar.panel.at() * self.width(Column::Sessions, OPEN)
     }
 
-    /// The right-hand panel, empty while collapsed; a drag that collapses it can still bring it back.
+    /// The right-hand panel and its rail, sliding off the window's edge in Focus.
+    pub(crate) fn workspace_side(&self) -> Div {
+        let panel = self.workspace_panel_width();
+        div()
+            .flex()
+            .flex_none()
+            .h_full()
+            .w(px((panel + RAIL_WIDTH) * self.sidebar.unfocused()))
+            .overflow_hidden()
+            .child(region::cached(&self.regions.panel, region::column(panel)))
+            .child(region::cached(&self.regions.rail, region::column(RAIL_WIDTH)))
+    }
+
+    /// The right-hand panel, empty once collapsed; a drag that collapses it can still bring it back.
     pub(crate) fn workspace_panel(&mut self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.panel_open;
         let reset = |this: &mut Self, cx: &mut Context<Self>| this.reset_width(Column::Sessions, cx);
@@ -69,12 +83,15 @@ impl Desktop {
                 cx.new(|_| EmptyView)
             })
         });
-        let width = self.workspace_panel_width();
-        let body = open.then(|| self.workspace_column(cx).w(px(width)).border_l(px(0.5)).border_color(SEPARATOR));
+        // At its full width while the panel slides, so its rows don't reflow.
+        let width = self.width(Column::Sessions, OPEN);
+        let body = (self.sidebar.panel.at() > 0.).then(|| self.workspace_column(cx).w(px(width)).flex_none().border_l(px(0.5)).border_color(SEPARATOR));
         div()
             .relative()
+            .flex()
             .flex_none()
             .h_full()
+            .overflow_hidden()
             .children(body)
             // Deferred so the handle paints over the page it straddles.
             .children(seam.map(deferred))
