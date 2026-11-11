@@ -17,11 +17,6 @@ public enum Live: Hashable, Sendable {
     case approval, answer
 }
 
-/// The agent as the fold names it: "Claude", "Codex".
-public func who(_ provider: String) -> String {
-    AgentName.short(provider) ?? "Agent"
-}
-
 /// "Opus 5.5 working for 7s · in the background"; the agent's name stands in for an unknown model.
 public func liveLabel(_ who: String, _ model: String, _ live: Live) -> String {
     switch live {
@@ -49,7 +44,7 @@ public func settledLabel(_ who: String, _ ms: Int) -> String {
 /// "claude-opus-5-5" reads as "Opus 5.5"; a missing model falls back to the provider.
 public func modelLabel(model: String?, provider: String) -> String {
     guard let model, !model.isEmpty else { return AgentName.label(provider) }
-    return Sidebar.modelName(model)
+    return modelName(model)
 }
 
 /// A detail block's lines, and how many more were cut.

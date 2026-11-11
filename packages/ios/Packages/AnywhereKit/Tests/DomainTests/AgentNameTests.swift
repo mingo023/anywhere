@@ -11,6 +11,12 @@ struct AgentNameTests {
         ])
     }
 
+    @Test("in the chat each agent goes by its short name, one this build doesn't know by Agent")
+    func eachAgentGoesByItsShortName() {
+        let ids = ["claude", "codex", "cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity", "gemini"]
+        #expect(ids.map(AgentName.who) == ["Claude", "Codex", "Cursor", "Grok", "OpenCode", "Pi", "omp", "fx", "Hermes", "Antigravity", "Agent"])
+    }
+
     @Test("an agent this build doesn't know goes by its id with a capital, the rest of it as written")
     func label() {
         #expect(["hermes", "omp", "gemini", "openHands", ""].map(AgentName.label) == ["Hermes", "omp", "Gemini", "OpenHands", ""])

@@ -32,6 +32,9 @@ public enum AgentName: String, CaseIterable, Sendable {
     /// `short`, or its id with a capital for an agent this build doesn't know.
     public static func label(_ provider: String) -> String { short(provider) ?? provider.prefix(1).uppercased() + provider.dropFirst() }
 
+    /// `short`, or "Agent" for an agent this build doesn't know, as the chat names it.
+    public static func who(_ provider: String) -> String { short(provider) ?? "Agent" }
+
     /// What the agent calls effort, as its menu row reads.
     public static func effort(_ provider: String) -> String { AgentName(rawValue: provider)?.text.effort ?? "Effort" }
 }

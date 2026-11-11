@@ -1,5 +1,6 @@
 import ChatModel
 import DesignSystem
+import Domain
 import SwiftUI
 
 /// Who spawned whom, as a sheet: a column per generation with dashes flowing to the agents at work. Picking a sub-agent
@@ -70,7 +71,7 @@ struct AgentMapSheet: View {
                     node(selected: nav.selected == 0) {
                         BrandMark(provider)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(who(provider)).font(ChatFont.small.weight(.medium))
+                            Text(AgentName.who(provider)).font(ChatFont.small.weight(.medium))
                             Text(AgentMap.mainLine(transcript, map)).font(ChatFont.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
                         }
                     }

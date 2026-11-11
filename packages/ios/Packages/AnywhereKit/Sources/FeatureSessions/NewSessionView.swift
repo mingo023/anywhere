@@ -36,7 +36,7 @@ struct NewSessionView: View {
     private var project: Project? { workspace.project(draft.project) }
     private var mainTree: String { Self.main(of: project) ?? draft.project }
     private var providers: AgentProviders? { workspace.providers }
-    private var info: ProviderInfo? { providers?.providers.first { $0.id == draft.provider.rawValue } }
+    private var info: ProviderInfo? { providers?.info(draft.provider.rawValue) }
     private var neverAsks: Bool { info?.neverAsks == true }
     private var taken: Set<String> { Places.taken(project: project, branches: workspace.branches[mainTree]) }
     private var canSpawn: Bool { host.hello?.scopes?.contains(.spawn) ?? true }
@@ -228,13 +228,13 @@ struct NewSessionView: View {
     private var modelMenu: some View {
         let models = NewSessionDraft.models(draft.provider)
         let efforts = info?.efforts ?? []
-        let model = draft.model.map(Sidebar.modelName) ?? "Default model"
+        let model = draft.model.map(modelName) ?? "Default model"
         let effortWord = AgentName.effort(draft.provider.rawValue)
         return Menu {
             if !models.isEmpty {
                 Picker("Model", selection: $draft.model) {
                     Text("Default").tag(String?.none)
-                    ForEach(models, id: \.self) { Text(Sidebar.modelName($0)).tag(Optional($0)) }
+                    ForEach(models, id: \.self) { Text(modelName($0)).tag(Optional($0)) }
                 }
             }
             if !efforts.isEmpty {

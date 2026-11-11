@@ -1,3 +1,4 @@
+import Domain
 import Wire
 
 /// What an agent's chat can do; the view hides what it can't.
@@ -36,37 +37,40 @@ public struct Capabilities: Hashable, Sendable {
 
 /// How the chat treats one provider's agent: what it can do and which commands it runs itself.
 public struct Adapter: Hashable, Sendable {
-    public enum Provider: String, Hashable, Sendable {
-        case claude, codex, cursor, grok, opencode, pi, omp, fx, hermes, antigravity, other
-    }
+    /// Nil for a provider this build doesn't know.
+    public let agent: AgentName?
+    private let said: ChatCaps?
 
-    public let provider: Provider
-
-    /// The adapter for a pocketd agent, by its summary's `provider`; a generic one for a provider this build doesn't know.
-    public static func `for`(_ provider: String) -> Adapter {
-        Adapter(provider: Provider(rawValue: provider) ?? .other)
+    /// The adapter for a pocketd agent, by its summary's `provider` and the chat caps pocketd `said` for it, nil until they
+    /// arrive; a generic one for a provider this build doesn't know.
+    public static func `for`(_ provider: String, _ said: ChatCaps?) -> Adapter {
+        Adapter(agent: AgentName(rawValue: provider), said: said)
     }
 
     /// What pocketd drives the agent's chat over.
     private enum Driver { case claude, codex, pi, acp, other }
 
     private var driver: Driver {
-        switch provider {
+        switch agent {
         case .claude: .claude
         case .codex: .codex
         case .pi, .omp: .pi
         case .cursor, .grok, .opencode, .fx, .hermes, .antigravity: .acp
-        case .other: .other
+        case nil: .other
         }
     }
 
+    /// What pocketd said the chat can do, else its driver's own.
     public var capabilities: Capabilities {
-        switch driver {
-        case .claude, .other: Capabilities(interrupt: true, compact: true, sendWhileWorking: true, subAgents: true)
-        case .codex, .pi: Capabilities(interrupt: true, compact: true, sendWhileWorking: true)
-        // A pocketd that says no caps compacts no ACP chat.
-        case .acp: Capabilities(interrupt: true, sendWhileWorking: true)
+        guard let said else {
+            return switch driver {
+            case .claude, .pi, .other: Capabilities(interrupt: true, compact: true, sendWhileWorking: true, subAgents: true)
+            case .codex: Capabilities(interrupt: true, compact: true, sendWhileWorking: true)
+            // What every ACP agent can; only pocketd knows which of them compact.
+            case .acp: Capabilities(interrupt: true, sendWhileWorking: true)
+            }
         }
+        return Capabilities(said)
     }
 
     /// What the chat does with command `name` given `arg`. One that opens a panel in the agent's terminal is
@@ -106,7 +110,7 @@ public struct Adapter: Hashable, Sendable {
             case "effort": return .local(.effort)
             case "new": return .local(.new)
             case "thinking" where driver == .pi: return .local(.effort)
-            case "compact" where driver == .pi || compactsOverACP: return .local(.compact)
+            case "compact" where capabilities.compact: return .local(.compact)
             case _ where tuiOnly.contains(name): return .unsupported
             default: return .send
             }
@@ -119,13 +123,13 @@ public struct Adapter: Hashable, Sendable {
         case .claude: Self.claudeBuiltins
         case .codex: Self.codexBuiltins
         case .pi: Self.piBuiltins
-        case .acp: compactsOverACP ? Self.compactingAcpBuiltins : Self.acpBuiltins
+        case .acp: capabilities.compact ? Self.compactingAcpBuiltins : Self.acpBuiltins
         case .other: []
         }
     }
 
     /// Whether `/goal pause` holds the agent's goal without dropping it.
-    public var pausesGoal: Bool { provider == .codex }
+    public var pausesGoal: Bool { agent == .codex }
 
     static let claudeBuiltins = [
         Builtin(name: "model", hint: "[model]", description: "Set the model"),
@@ -170,9 +174,6 @@ public struct Adapter: Hashable, Sendable {
         Builtin(name: "new", hint: "", description: "Start a new chat"),
     ]
 
-    /// pocketd compacts these agents' ACP chats when asked, so `/compact` does that rather than reach the model.
-    private var compactsOverACP: Bool { provider == .grok || provider == .opencode }
-
     static let piBuiltins = [
         Builtin(name: "model", hint: "[model]", description: "Set the model"),
         Builtin(name: "thinking", hint: "[level]", description: "Set the thinking level"),
@@ -182,11 +183,11 @@ public struct Adapter: Hashable, Sendable {
 
     /// The commands only the agent's TUI runs. None for omp, which lists what its RPC runs.
     private var tuiOnly: Set<String> {
-        switch provider {
+        switch agent {
         case .pi: Self.piTuiOnly
         case .opencode: Self.opencodeTuiOnly
         case .hermes: Self.hermesTuiOnly
-        default: []
+        case .claude, .codex, .cursor, .grok, .omp, .fx, .antigravity, nil: []
         }
     }
 
@@ -212,9 +213,4 @@ public struct Adapter: Hashable, Sendable {
         "skills", "pet", "hatch", "generate-pet", "cron", "reload", "browser", "plugins", "palette", "subscription", "upgrade", "platforms",
         "gateway", "copy", "paste", "image", "quit", "exit",
     ]
-}
-
-/// What `provider`'s chat can do: what pocketd `said`, else its adapter's own, for a pocketd older than `chat`.
-public func capabilities(_ provider: String, _ said: ChatCaps?) -> Capabilities {
-    said.map(Capabilities.init) ?? Adapter.for(provider).capabilities
 }

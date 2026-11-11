@@ -139,8 +139,7 @@ public enum SuggestRows: Sendable {
 
 extension Suggest {
     /// The list for `text` with the cursor at `cursor` in `agent`'s chat, nil when no word there asks for one.
-    public func rows(_ text: String, _ cursor: Int, agent: String, provider: String, cwd: String, touched: @autoclosure () -> [String], changed: Set<String> = []) -> SuggestRows? {
-        let adapter = Adapter.for(provider)
+    public func rows(_ text: String, _ cursor: Int, agent: String, adapter: Adapter, cwd: String, touched: @autoclosure () -> [String], changed: Set<String> = []) -> SuggestRows? {
         if let (at, query) = word(text, cursor, "/") {
             var rows = menu(adapter, commands[agent] ?? [], query)
             if !startsDraft(text, at) { rows = rows.filter { $0.kind == .send || $0.kind == .local(.mcp) } }
@@ -151,7 +150,7 @@ extension Suggest {
             let query = String(query.dropFirst(mcpTag.count - 1))
             let listed = servers[agent].flatMap { $0 }.map { $0.map { Mcp.picker($0, query) } }
             let all: [McpServer] = if case .success(let l)? = listed { l } else { [] }
-            let pickable = all.prefix { Mcp.usable($0) || Mcp.action(provider, $0) != nil }.count
+            let pickable = all.prefix { Mcp.usable($0) || Mcp.action(adapter.agent?.rawValue ?? "", $0) != nil }.count
             return .servers(at: at, query: query, servers: listed, pickable: pickable)
         }
         let root = cwd.hasSuffix("/") ? cwd : cwd + "/"

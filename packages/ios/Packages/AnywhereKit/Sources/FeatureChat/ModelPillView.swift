@@ -59,7 +59,7 @@ struct ModelChoices: View {
         }
         let models = ModelPill.aliases(agent.provider)
         if efforts.isEmpty && models.isEmpty {
-            Text("Set by \(who(agent.provider))")
+            Text("Set by \(AgentName.who(agent.provider))")
         }
         if !models.isEmpty {
             Section("Model") {
@@ -67,7 +67,7 @@ struct ModelChoices: View {
                     Button {
                         pick(alias, nil)
                     } label: {
-                        if ModelPill.runs(agent, alias) { Label(Sidebar.modelName(alias), systemImage: "checkmark") } else { Text(Sidebar.modelName(alias)) }
+                        if ModelPill.runs(agent, alias) { Label(modelName(alias), systemImage: "checkmark") } else { Text(modelName(alias)) }
                     }
                 }
             }

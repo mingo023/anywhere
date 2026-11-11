@@ -92,12 +92,17 @@ public enum Composer {
 
     /// Why the chat won't send `command`: only the agent's TUI runs it, and one the chat drives has none.
     public static func terminalOnlySaid(_ command: String, provider: String, chatOnly: Bool) -> String {
-        chatOnly ? "\(command) isn't available in the chat." : "\(command) runs only in \(who(provider))'s terminal. Run it there."
+        chatOnly ? "\(command) isn't available in the chat." : "\(command) runs only in \(AgentName.who(provider))'s terminal. Run it there."
+    }
+
+    /// Why a bare `/model` or `/effort` opens no menu: the phone has nothing of the agent's to list, but sends a name.
+    public static func noChoices(_ command: String, provider: String) -> String {
+        "There's no list of \(AgentName.who(provider))'s choices here. Send \(command) with one."
     }
 
     /// Why the chat won't compact: only Claude's `/compact` takes instructions, and the chat's own has no way to pass them.
     public static func compactTakesNoInstructions(provider: String) -> String {
-        "\(who(provider))'s /compact takes no instructions. Send /compact alone."
+        "\(AgentName.who(provider))'s /compact takes no instructions. Send /compact alone."
     }
 
     /// On a turn, which an agent asking the user still is.

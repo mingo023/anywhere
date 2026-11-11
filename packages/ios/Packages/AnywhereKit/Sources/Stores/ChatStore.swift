@@ -400,11 +400,11 @@ public final class ChatStore: HostStore {
     // MARK: State the composer reads
 
     public var provider: String { summary?.provider ?? "" }
-    public var adapter: Adapter { Adapter.for(provider) }
+    public var adapter: Adapter { Adapter.for(provider, info?.chat) }
 
-    private var info: ProviderInfo? { providers?.providers.first { $0.id == provider } }
+    public var info: ProviderInfo? { providers?.info(provider) }
 
-    public var capabilities: Capabilities { ChatModel.capabilities(provider, info?.chat) }
+    public var capabilities: Capabilities { adapter.capabilities }
 
     /// Whether the access pill is a menu: pocketd lets the phone set a chat agent's access, and the agent has more than Full.
     public var setsAccess: Bool { summary?.chatOnly == true && hasCap(Caps.access) && info?.neverAsks != true }
@@ -499,13 +499,13 @@ public final class ChatStore: HostStore {
     /// Runs a command the phone does itself.
     func runLocal(_ local: ChatModel.Local, _ arg: String) {
         switch (local, arg) {
+        case (.model, "") where ModelPill.aliases(provider).isEmpty: notice = Composer.noChoices("/model", provider: provider)
+        case (.effort, "") where (info?.efforts ?? []).isEmpty: notice = Composer.noChoices("/effort", provider: provider)
         case (.model, ""), (.effort, ""): settingsMenu = local
         case (.new, let prompt): startNewSession(prompt)
         case (.btw, ""): break
         case (.model, let model): settings(model: model)
         case (.effort, let effort): settings(effort: effort)
-        // A pocketd from before ACP chats compacted leaves `/compact` to the agent.
-        case (.compact, "") where !capabilities.compact: deliver("/compact", steer: busy && !stopping, busy: busy)
         case (.compact, ""): compact()
         case (.compact, _): notice = Composer.compactTakesNoInstructions(provider: provider)
         case (.btw, let question): ask(btw: question)
@@ -772,7 +772,7 @@ public final class ChatStore: HostStore {
     /// The `/` or `@` list for the draft with the cursor at `cursor`.
     public func suggestions(cursor: Int) -> SuggestRows? {
         guard let agent = summary else { return nil }
-        return suggest.rows(draft.text, cursor, agent: agentId, provider: agent.provider, cwd: agent.cwd, touched: touched(session.transcript))
+        return suggest.rows(draft.text, cursor, agent: agentId, adapter: adapter, cwd: agent.cwd, touched: touched(session.transcript))
     }
 
     /// Picks row `ix` of that list: a command or a path goes in for the word typed, a command the phone runs itself

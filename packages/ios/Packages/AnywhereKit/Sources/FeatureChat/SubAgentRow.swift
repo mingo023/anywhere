@@ -32,7 +32,7 @@ struct SubAgentRow: View {
             }
             Spacer(minLength: Space.s)
             Group {
-                if !agent.model.isEmpty { Text(Sidebar.modelName(agent.model)) }
+                if !agent.model.isEmpty { Text(modelName(agent.model)) }
                 Text(Agent.meta(call, agent))
                 if running {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
