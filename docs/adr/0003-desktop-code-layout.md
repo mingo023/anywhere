@@ -36,6 +36,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `terminal_view` | the terminal pane body, keyboard and IME input; `terminal_view/link` the link under the pointer; `terminal_view/menu` its right-click menu |
 | `browser` | browser tabs: pages, address bar, navigation |
 | `sidebar` | projects aside, compact rail, `sidebar/sections` the aside's Pinned, groups and Other with the Projects header and its organize menu, `sidebar/scratch` the Sessions section and adding and deleting its folders, `sidebar/filter` the header's filter, `sidebar/fold` the folds' spring open and shut, `sidebar/team_fold` a lead's workers nesting and folding under it in both lists, `sidebar/project_picker` the rail's project switcher, `sidebar/rename` inline worktree rename, `sidebar/column` the inbox and Automations column and the panel's body, `sidebar/panel` the right-hand panel: its rail and edge drag |
+| `pick_menu` | a menu of picks under headings, which Settings' dropdowns, the model panel and the plan sheet's model menu share: its lines, built again only when what they come from changes, the one checked, and only those in view drawn |
 | `region` | a part of the window drawn as its own cached view, which a redraw started elsewhere (a chat's scroll) leaves as drawn; `Regions` the columns either side of the page |
 | `removal` | deleting a worktree: its teardown script, its branch, the confirm and the row's "Deleting…" |
 | `renames` | a name or branch pocketd just gave a tree, decoding in out of the one it replaced |

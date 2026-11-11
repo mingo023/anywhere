@@ -2,7 +2,7 @@ use ::agents::providers;
 use super::agents::{status_source, toggle_enabled};
 use super::catalog::Setting;
 use super::dropdown::dropdown;
-use super::dropdown::Row;
+use super::dropdown::picks;
 use super::models::{effort_label, effort_options, model_label, model_rows, not_found};
 use super::{Section, action, card, field_box, row};
 use crate::composer::model_menu::model_name;
@@ -280,7 +280,7 @@ impl Desktop {
         let effort = self.store.agents.provider(p).effort;
         let id = ROW_IDS[i][2];
         let trigger = action(id, "").child(effort_label(&effort)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown(id, trigger, &levels, || Row::picks(effort_options(&levels, "Agent default")), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
+        let menu = dropdown(id, trigger, &levels, || picks(effort_options(&levels, "Agent default")), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
         row(providers::known(p).effort_word, setting.hint, menu)
     }
 

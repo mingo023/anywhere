@@ -3,16 +3,14 @@ use super::{Composer, Draft, Menu, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
 use crate::settings::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_label, model_options, not_found};
-use crate::util::Kept;
+use crate::pick_menu::{Line, Memo, checked, pick_list};
 use agents::ListedModel;
 use agents::providers;
 use gpui_kit::component::input::InputState;
-use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::hash::Hash;
-use std::ops::Range;
 use std::rc::Rc;
 use store::LaunchPick;
 use store::prefs::agents::Provider;
@@ -71,20 +69,14 @@ pub(crate) struct Entry {
     pub(crate) missing: bool,
 }
 
-/// A line of the panel's list: a model, or the name of who serves the models under it.
-pub(crate) enum Line {
-    Header(String),
-    Model(Entry),
-}
-
-/// What the panel lists, and the line of the model in use.
+/// What the panel lists, models under who serves them, and the line of the model in use.
 pub(crate) struct Listed {
-    pub(crate) lines: Vec<Line>,
+    pub(crate) lines: Vec<Line<Entry>>,
     pub(crate) on: Option<usize>,
 }
 
 /// The panel's `Listed`, kept from one frame to the next.
-pub(crate) type KeptList = Kept<Listed>;
+pub(crate) type KeptList = Memo<Listed>;
 
 /// Picks the model of a line that was clicked.
 pub(crate) type Choose = Rc<dyn Fn(&mut Desktop, &Entry, &mut Context<Desktop>)>;
@@ -109,38 +101,27 @@ pub(crate) fn empty_list(note: String) -> Div {
 pub(crate) fn model_list(id: &'static str, listed: Rc<Listed>, mixed: bool, scroll: &UniformListScrollHandle, choose: Choose, cx: &mut Context<Desktop>) -> Div {
     let pitch = ROW + GAP;
     // The last row's gap stands in for part of the padding under it.
-    let height = (listed.lines.len() as f32 * pitch + 2. * PAD - GAP).min(LIST_HEIGHT);
-    let list = uniform_list(
-        "model-list",
-        listed.lines.len(),
-        cx.processor(move |this, range: Range<usize>, _, cx| {
-            range
-                .map(|i| {
-                    let line = div().w_full().h(px(pitch));
-                    match &listed.lines[i] {
-                        Line::Header(name) => line.child(header(name)),
-                        Line::Model(entry) => {
-                            let row = model_row(id, i, entry, listed.on == Some(i), mixed, this.store.agents.is_favorite(&entry.provider, &entry.value), cx);
-                            let (choose, listed) = (choose.clone(), listed.clone());
-                            line.child(row.when(!entry.missing, |row| {
-                                row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    if let Line::Model(entry) = &listed.lines[i] {
-                                        choose(this, entry, cx);
-                                    }
-                                }))
-                            }))
+    let count = listed.lines.len();
+    let height = (count as f32 * pitch + 2. * PAD - GAP).min(LIST_HEIGHT);
+    let line = move |this: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
+        let line = div().w_full().h(px(pitch));
+        match &listed.lines[i] {
+            Line::Heading(name) => line.child(header(name)),
+            Line::Pick(entry) => {
+                let row = model_row(id, i, entry, listed.on == Some(i), mixed, this.store.agents.is_favorite(&entry.provider, &entry.value), cx);
+                let (choose, listed) = (choose.clone(), listed.clone());
+                line.child(row.when(!entry.missing, |row| {
+                    row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if let Line::Pick(entry) = &listed.lines[i] {
+                            choose(this, entry, cx);
                         }
-                    }
-                })
-                .collect::<Vec<_>>()
-        }),
-    )
-    .track_scroll(scroll)
-    .size_full()
-    .px(px(PAD))
-    .pt(px(PAD))
-    .pb(px(PAD - GAP));
-    div().relative().h(px(height)).flex_grow(1.).min_h_0().child(list).vertical_scrollbar(scroll)
+                    }))
+                }))
+            }
+        }
+    };
+    let fit = |list: UniformList| list.size_full().px(px(PAD)).pt(px(PAD)).pb(px(PAD - GAP));
+    pick_list("model-list", count, scroll, div().h(px(height)).flex_grow(1.).min_h_0(), fit, line, cx)
 }
 
 /// Who serves the models under it, small and in capitals.
@@ -225,8 +206,8 @@ fn favorite_entries<'m>(favorites: &[(String, String)], enabled: &[&str], models
 }
 
 /// `entries` as the lines `viewed` lists: under who serves each, where `by_upstream` groups them.
-fn lines(viewed: &str, entries: Vec<Entry>) -> Vec<Line> {
-    by_upstream(viewed, entries, |e| &e.upstream).into_iter().flat_map(|(who, group)| who.map(Line::Header).into_iter().chain(group.into_iter().map(Line::Model))).collect()
+fn lines(viewed: &str, entries: Vec<Entry>) -> Vec<Line<Entry>> {
+    by_upstream(viewed, entries, |e| &e.upstream).into_iter().flat_map(|(who, group)| who.map(Line::Heading).into_iter().chain(group.into_iter().map(Line::Pick))).collect()
 }
 
 /// What `viewed`, named `name`, says with nothing to list.
@@ -241,9 +222,9 @@ fn empty_note(viewed: &str, name: &str, searching: bool, installed: bool, loadin
 }
 
 /// The line of the model a launch of `pick` runs: the one picked, else `settings`' for its agent.
-fn launching_line(lines: &[Line], pick: &LaunchPick, settings: &str) -> Option<usize> {
+fn launching_line(lines: &[Line<Entry>], pick: &LaunchPick, settings: &str) -> Option<usize> {
     let runs = if pick.model.is_empty() { settings } else { &pick.model };
-    lines.iter().position(|l| matches!(l, Line::Model(e) if e.provider == pick.provider && e.value == runs))
+    checked(lines, |e| e.provider == pick.provider && e.value == runs)
 }
 
 /// Where `agent`'s tab sits in the rail that lists the `offered` agents and `current` under Favorites.
@@ -369,7 +350,7 @@ impl Desktop {
 
     /// What `viewed` lists that holds `query`: an agent's models after `current`, one of its own the list lacks, or the
     /// favorites under the names their agents give them; each under who serves it where `viewed` names them.
-    pub(crate) fn model_lines(&self, viewed: &str, current: &str, query: &str) -> Vec<Line> {
+    pub(crate) fn model_lines(&self, viewed: &str, current: &str, query: &str) -> Vec<Line<Entry>> {
         let found = if viewed == FAVORITES {
             favorite_entries(&self.store.agents.favorites, &self.store.agents.enabled(), |p| self.offered_models(p))
         } else {
@@ -525,8 +506,8 @@ mod tests {
         lines(viewed, entries)
             .into_iter()
             .map(|l| match l {
-                Line::Header(name) => format!("# {name}"),
-                Line::Model(e) => e.label,
+                Line::Heading(name) => format!("# {name}"),
+                Line::Pick(e) => e.label,
             })
             .collect()
     }

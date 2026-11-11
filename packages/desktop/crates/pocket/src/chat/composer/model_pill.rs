@@ -1,7 +1,8 @@
 use super::{close_menu, hang};
 use crate::composer::{self, Menu, launch};
 use crate::composer::effort_menu::{Effort, effort_menu};
-use crate::composer::model_menu::{Choose, FAVORITES, Line, Listed, focus_search, model_effort_pill, model_list, panel};
+use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
+use crate::pick_menu::{Line, checked};
 use crate::desktop::Desktop;
 use crate::settings::models::effort_label;
 use agents::{ListedModel, Summary};
@@ -23,9 +24,9 @@ fn runs(agent: &Summary, model: &ListedModel) -> bool {
 }
 
 /// The line of the model `agent` runs, among `own`, its provider's models.
-fn running_line(lines: &[Line], agent: &Summary, own: &[ListedModel]) -> Option<usize> {
+fn running_line(lines: &[Line<Entry>], agent: &Summary, own: &[ListedModel]) -> Option<usize> {
     let running: Vec<&str> = own.iter().filter(|m| runs(agent, m)).map(|m| m.value.as_str()).collect();
-    lines.iter().position(|l| matches!(l, Line::Model(e) if e.provider == agent.provider && running.contains(&e.value.as_str())))
+    checked(lines, |e| e.provider == agent.provider && running.contains(&e.value.as_str()))
 }
 
 impl Desktop {
@@ -93,16 +94,15 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ListedModel, Summary, label, running_line, runs};
-    use crate::composer::model_menu::{Entry, Line};
+    use super::{Entry, Line, ListedModel, Summary, label, running_line, runs};
 
     #[test]
     fn the_line_checked_is_the_model_the_chat_runs() {
         let listed = |value: &str, resolved: &str| ListedModel { value: value.into(), resolved: resolved.into(), ..ListedModel::default() };
-        let line = |provider: &str, value: &str| Line::Model(Entry { provider: provider.into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
+        let line = |provider: &str, value: &str| Line::Pick(Entry { provider: provider.into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
         let agent = Summary { provider: "claude".into(), model: Some("claude-opus-5-5".into()), ..Default::default() };
         let own = [listed("sonnet", "claude-sonnet-5"), listed("opus", "claude-opus-5-5")];
-        let lines = [Line::Header("ANTHROPIC".into()), line("codex", "opus"), line("claude", "sonnet"), line("claude", "opus")];
+        let lines = [Line::Heading("ANTHROPIC".into()), line("codex", "opus"), line("claude", "sonnet"), line("claude", "opus")];
         assert_eq!(running_line(&lines, &agent, &own), Some(3), "its own agent's row, by the id the alias stands for");
         assert_eq!(running_line(&lines[..3], &agent, &own), None);
         assert_eq!(running_line(&lines, &Summary { model: None, ..agent }, &own), None);
