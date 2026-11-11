@@ -1432,7 +1432,7 @@ func TestAnOpenCodeSubAgentsSessionLoadsAsItStartsSoWhatItAsksReachesTheUser(t *
 	s.mu.Lock()
 	s.children["old"] = "t0"
 	s.mu.Unlock()
-	s.Server([]string{"pipe", "opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:"), "--pocketd"})
+	s.Server([]string{"pipe", "opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:"), "--pocketd"}, nil)
 	s.Prompt("Delegate")
 	req := asked(t, b)
 	if req.ToolName != "shell" || req.Detail.Command != "echo sub" {
@@ -1475,6 +1475,32 @@ func TestAnOpenCodeSubAgentStillRunningInTheHistoryLoadsSoWhatItAsksReachesTheUs
 			return opencodeNew
 		}})
 	equal(t, a.called("session/load", 2)[1:], []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
+}
+
+// OpenCode's server asks for basic auth once OPENCODE_SERVER_PASSWORD is set, as user OPENCODE_SERVER_USERNAME or "opencode".
+func TestOpenCodesServerIsAskedAsTheLoginTheAgentsEnvSetsForIt(t *testing.T) {
+	for user, env := range map[string][]string{
+		"opencode": {"OPENCODE_SERVER_PASSWORD=secret"},
+		"me":       {"OPENCODE_SERVER_USERNAME=me", "OPENCODE_SERVER_PASSWORD=secret"},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if u, p, _ := r.BasicAuth(); u != user || p != "secret" {
+				http.Error(w, "Authentication required", http.StatusUnauthorized)
+				return
+			}
+			w.Write([]byte(`[{"id":"kid","title":"Run echo (@general subagent)"}]`))
+		}))
+		_, a, _, _ := start(t, opts{provider: "opencode", saved: "s1", left: Running, args: []string{"opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:")}, env: env,
+			answer: func(a *agent, method string, params json.RawMessage) string {
+				if method == "session/load" && strings.Contains(string(params), `"s1"`) {
+					a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"task","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
+					a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"Run echo","locations":[],"rawInput":{"description":"Run echo","prompt":"run echo sub","subagent_type":"general"}}`)
+				}
+				return opencodeNew
+			}})
+		equal(t, a.called("session/load", 2)[1:], []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
+		server.Close()
+	}
 }
 
 // hermesDelegates is what Hermes's ACP server tells of a delegate_task call, as its acp_adapter/tools.py builds it.

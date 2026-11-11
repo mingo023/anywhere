@@ -287,6 +287,7 @@ type opts struct {
 	launch   state.Launch
 	left     Left
 	args     []string // the agent's command line
+	env      []string // the agent's env
 	carried  bool
 	answer   func(*agent, string, json.RawMessage) string
 }
@@ -305,7 +306,7 @@ func start(t *testing.T, o opts) (*Session, *agent, *sink, *broker.Broker) {
 	s := NewSession("a1", o.provider, sk, b)
 	t.Cleanup(s.Close)
 	t.Cleanup(a.Close)
-	s.Server(o.args)
+	s.Server(o.args, o.env)
 	if o.carried {
 		s.Carried()
 	}
