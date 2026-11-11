@@ -123,7 +123,7 @@ func (s *Session) Event(kind string, raw json.RawMessage) {
 		}
 		return
 	}
-	if s.f.omp && s.ompEvent(kind, raw) {
+	if s.f.ownEvents && s.ompEvent(kind, raw) {
 		return
 	}
 	switch kind {

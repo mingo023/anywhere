@@ -50,13 +50,15 @@ var (
 type flavor struct {
 	// commands lists what it takes after a slash.
 	commands string
-	// omp has it tell of itself in events pi doesn't have.
-	omp bool
+	// allCommands runs all its commands without a TUI, not only its skills.
+	allCommands bool
+	// ownEvents has it tell of itself in events pi doesn't have.
+	ownEvents bool
 }
 
 var flavors = map[string]flavor{
 	providers.Pi.ID:  {commands: "get_commands"},
-	providers.Omp.ID: {commands: "get_available_commands", omp: true},
+	providers.Omp.ID: {commands: "get_available_commands", allCommands: true, ownEvents: true},
 }
 
 // prompt is one pi took that it hasn't shown as the user's yet.
@@ -307,7 +309,7 @@ func (s *Session) Commands() ([]proto.Command, error) {
 	if err != nil {
 		return nil, err
 	}
-	return commands(data, !s.f.omp), nil
+	return commands(data, !s.f.allCommands), nil
 }
 
 // commands reads a list of slash commands; skills keeps only pi's skills,
