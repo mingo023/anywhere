@@ -1,5 +1,5 @@
 use super::effort_menu::{Effort, choice_menu, effort_menu};
-use super::{Composer, Draft, Menu, launch};
+use super::{Composer, Draft, Menu, Slot, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
 use crate::settings::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
@@ -7,6 +7,7 @@ use crate::pick_menu::{Line, Memo, checked, grouped, pick_list};
 use agents::providers;
 use agents::{ListedModel, ModelSetting};
 use gpui_kit::component::input::InputState;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -256,6 +257,22 @@ fn rail_tab(offered: &[&'static str], current: &str, agent: &str) -> Option<usiz
     listed_agents(offered, &[current]).iter().position(|p| *p == agent).map(|at| at + 1)
 }
 
+/// How tall the rail is with `tabs` tabs, unscrolled.
+fn rail_extent(tabs: usize) -> f32 {
+    tabs as f32 * (TAB + TAB_GAP) - TAB_GAP + 2. * RAIL_PAD
+}
+
+/// How far the rail scrolls to show its `tab`'th entry whole, even at its shortest.
+fn rail_offset(tab: usize) -> f32 {
+    (rail_extent(tab + 1) - RAIL_HEIGHT).max(0.)
+}
+
+/// Scrolls `rail` to its `tab`'th entry. A rail that just opened has no layout yet for `ScrollHandle::scroll_to_item`
+/// to go by, so the offset is worked out from the tabs' fixed size.
+pub(crate) fn show_rail_tab(rail: &ScrollHandle, tab: usize) {
+    rail.set_offset(point(px(0.), px(-rail_offset(tab))));
+}
+
 pub(crate) fn row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
     div()
         .id(id)
@@ -291,13 +308,7 @@ impl Desktop {
         let (open, provider, opened_in) = (c.draft.menu == Some(Menu::Model), pick.provider.clone(), project.clone());
         let chip = super::picker(model_effort_pill(&pick.provider, model, (!detail.is_empty()).then(|| detail.join(" \u{b7} "))), "composer-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
-            this.toggle_composer(slot, Menu::Model, cx);
-            let c = slot(this);
-            if c.draft.menu == Some(Menu::Model) {
-                let search = c.search.clone();
-                focus_search(&search, window, cx);
-                this.models_opened(move |d| &mut slot(d).draft, &provider, opened_in.as_deref(), cx);
-            }
+            this.toggle_model_menu(slot, &provider, opened_in.as_deref(), window, cx);
         }));
         let menu = open.then(|| {
             let menu = div()
@@ -312,6 +323,17 @@ impl Desktop {
             ui::dropdown(36., ui::menu_in("composer-model-menu-in", menu))
         });
         div().relative().child(chip).children(menu)
+    }
+
+    /// Opens `slot`'s model panel on `provider` in `project`, or closes it.
+    pub(crate) fn toggle_model_menu(&mut self, slot: Slot, provider: &str, project: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_composer(slot, Menu::Model, cx);
+        let c = slot(self);
+        if c.draft.menu == Some(Menu::Model) {
+            let search = c.search.clone();
+            focus_search(&search, window, cx);
+            self.models_opened(move |d| &mut slot(d).draft, provider, project, cx);
+        }
     }
 
     /// Favorites over the agents `project` shows and `current`, the one in use; pointing at one lists its models, and
@@ -341,11 +363,10 @@ impl Desktop {
         };
         let favorites = tab(FAVORITES, icon("star", 16., TEXT_2), "Favorites and recent".into(), cx);
         let agents: Vec<_> = listed_agents(&self.offered_in(project), &[current]).into_iter().map(|p| tab(p, provider_icon(p, 16., TEXT), self.agent_name(p), cx).when(!self.installed(p), |d| d.opacity(0.4))).collect();
-        let tabs = (agents.len() + 1) as f32;
-        let height = (tabs * (TAB + TAB_GAP) - TAB_GAP + 2. * RAIL_PAD).min(RAIL_HEIGHT);
+        let height = rail_extent(agents.len() + 1).min(RAIL_HEIGHT);
         let column = div().id("model-rail").absolute().inset_0().overflow_y_scroll().track_scroll(scroll).p(px(RAIL_PAD)).flex().flex_col().gap(px(TAB_GAP)).child(favorites).children(agents);
         // The tabs fill the panel's height, however tall the list beside them makes it; only `height` of them asks for room.
-        div().relative().flex_none().w(px(TAB + 2. * RAIL_PAD)).min_h(px(height)).border_r(px(0.5)).border_color(SEPARATOR).child(column)
+        div().relative().flex_none().w(px(TAB + 2. * RAIL_PAD)).min_h(px(height)).border_r(px(0.5)).border_color(SEPARATOR).child(column).vertical_scrollbar(scroll)
     }
 
     /// Lists `entry`'s models, asking an agent's CLI for them once. The favorites ask nobody: pointing at them would
@@ -370,7 +391,7 @@ impl Desktop {
         self.settings.models.retry();
         self.load_models_of(provider, cx);
         if let Some(tab) = rail_tab(&self.offered_in(project), provider, provider) {
-            draft(self).rail.scroll_to_item(tab);
+            show_rail_tab(&draft(self).rail, tab);
         }
     }
 
@@ -452,7 +473,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, FAVORITES, Line, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_tab, saved_entries, settings_shown};
+    use super::{Entry, FAVORITES, Line, RAIL_HEIGHT, RAIL_PAD, TAB, TAB_GAP, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_offset, rail_tab, saved_entries, settings_shown};
     use agents::ListedModel;
     use store::LaunchPick;
     use store::prefs::agents::Provider;
@@ -634,5 +655,20 @@ mod tests {
         assert_eq!(rail_tab(&["claude", "codex", "hermes"], "hermes", "hermes"), Some(3));
         assert_eq!(rail_tab(&["claude", "hermes"], "pi", "hermes"), Some(3), "Pi is in use though not on offer, and comes before Hermes");
         assert_eq!(rail_tab(&["claude"], "claude", "pi"), None);
+    }
+
+    #[test]
+    fn an_opened_rail_scrolls_just_far_enough_to_show_the_agent_in_use_whole() {
+        assert_eq!(rail_offset(0), 0.);
+        assert_eq!(rail_offset(6), 0., "the seventh tab fits unscrolled");
+        for tab in 0..11 {
+            let top = RAIL_PAD + tab as f32 * (TAB + TAB_GAP);
+            let offset = rail_offset(tab);
+            assert!(top >= offset && top + TAB + RAIL_PAD <= offset + RAIL_HEIGHT, "tab {tab} at {top} shows with the rail scrolled {offset}");
+            if offset > 0. {
+                assert_eq!(offset + RAIL_HEIGHT, top + TAB + RAIL_PAD, "tab {tab} sits at the rail's bottom edge");
+            }
+        }
+        assert_eq!(rail_offset(7), 20.);
     }
 }

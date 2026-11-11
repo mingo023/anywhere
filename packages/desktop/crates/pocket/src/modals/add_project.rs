@@ -8,6 +8,7 @@ use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use crate::modals::form::{footer, typed_or};
 use crate::util::{basename, tilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use host_folder::Browse;
@@ -38,6 +39,7 @@ pub struct RepoForm {
     teardown: Entity<InputState>,
     host_path: Entity<InputState>,
     host_scroll: UniformListScrollHandle,
+    scroll: ScrollHandle,
     draft: RepoDraft,
 }
 
@@ -160,6 +162,11 @@ fn folder_facts(probe: Option<&Probe>) -> Vec<Fact> {
     }
 }
 
+/// Whether settings scrolled `offset` down to at most `max` run on below the sheet's footer. As f32: Pixels orders -0 below 0.
+fn more_below(offset: f32, max: f32) -> bool {
+    offset > -max
+}
+
 fn fact_chip(Fact { glyph, label, tone }: Fact) -> Div {
     let color = match tone {
         Tone::Plain | Tone::Dirty => TEXT_2,
@@ -236,7 +243,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), draft: RepoDraft::default() }, subs)
+        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), scroll: ScrollHandle::new(), draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -313,6 +320,7 @@ impl Desktop {
         self.settings.menu = None;
         let f = &mut self.repo_form;
         f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, hidden: cfg.hidden, editing: editing.clone(), ..RepoDraft::default() };
+        f.scroll = ScrollHandle::new();
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
             s.set_placeholder("", window, cx);
@@ -584,7 +592,15 @@ impl Desktop {
         let header = div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
         // The settings scroll between a fixed header and footer when the window is too short for them.
         let max_h = window.viewport_size().height - px(2. * SHEET_TOP);
-        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.repo_form.scroll).px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let handle = &self.repo_form.scroll;
+        // The scrollbar hides at rest, so a line over the footer shows the settings run on below it. A sheet just
+        // opened has no layout to tell by until its next frame.
+        if handle.bounds().size.height <= px(0.) {
+            window.request_animation_frame();
+        }
+        let more = more_below(f32::from(handle.offset().y), f32::from(handle.max_offset().y));
+        let scroll = div().relative().flex_1().min_h_0().flex().flex_col().border_b(px(0.5)).border_color(if more { SEPARATOR.into() } else { transparent_black() }).child(scroll).vertical_scrollbar(handle);
         div().absolute().top(px(SHEET_TOP)).left_0().right_0().flex().justify_center().child(
             ui::pop(div().w(px(600.)).max_h(max_h).pt(px(14.)).pb(px(20.)).flex().flex_col().gap(px(14.)))
                 .rounded(px(R_DIALOG))
@@ -598,7 +614,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Fact, Probe, RepoDraft, Tone, folder_facts, project_changes};
+    use super::{Fact, Probe, RepoDraft, Tone, folder_facts, more_below, project_changes};
     use store::{ProjectIcon, RepoConfig};
 
     fn local(probe: Option<Probe>) -> RepoDraft {
@@ -676,5 +692,13 @@ mod tests {
         let lines: Vec<_> = project_changes(&cfg, OFFERED).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
         assert_eq!(lines, ["When a worktree is created: edited > empty"]);
         assert!(project_changes(&RepoConfig::default(), OFFERED).is_empty());
+    }
+
+    #[test]
+    fn a_line_over_the_footer_shows_only_while_settings_run_on_below_it() {
+        assert!(more_below(0., 120.), "opened at the top of settings taller than the sheet");
+        assert!(more_below(-60., 120.), "scrolled halfway");
+        assert!(!more_below(-120., 120.), "scrolled to the end");
+        assert!(!more_below(-0., 0.), "settings that fit");
     }
 }
