@@ -78,6 +78,16 @@ func Get(id string) *Spec {
 	return nil
 }
 
+// ByCmd is the provider whose command is name, or nil.
+func ByCmd(name string) *Spec {
+	for _, p := range All {
+		if p.Cmd() == name {
+			return p
+		}
+	}
+	return nil
+}
+
 // NeverAsks says the provider named id runs every tool without asking.
 func NeverAsks(id string) bool {
 	p := Get(id)

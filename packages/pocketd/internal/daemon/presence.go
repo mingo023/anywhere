@@ -134,7 +134,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 // the running process no longer tells its model, effort or plan.
 func launched(provider string, args []string) (state.Launch, bool) {
 	p := providers.Get(provider)
-	i := slices.IndexFunc(args, func(arg string) bool { return named([]string{arg}) == p.Cmd() })
+	i := slices.IndexFunc(args, func(arg string) bool { return providers.ByCmd(named([]string{arg})) == p })
 	if i < 0 {
 		return state.Launch{}, false
 	}

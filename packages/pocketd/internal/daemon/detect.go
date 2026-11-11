@@ -36,11 +36,10 @@ func Provider(argv []string) string {
 	if argv = invoked(argv); len(argv) == 0 {
 		return ""
 	}
-	i := slices.IndexFunc(providers.All, func(p *providers.Spec) bool { return p.Cmd() == named(argv) })
-	if i < 0 {
+	p := providers.ByCmd(named(argv))
+	if p == nil {
 		return ""
 	}
-	p := providers.All[i]
 	if len(argv) > 1 && (slices.Contains(p.NotAgent, argv[1]) || kindOf[p.ID].tool(argv[1])) {
 		return ""
 	}
@@ -62,10 +61,8 @@ func pipedProvider(argv []string) string {
 	if inner == nil {
 		return ""
 	}
-	for _, p := range providers.All {
-		if p.Cmd() == named(inner) && len(inner) > 1 && kindOf[p.ID].serves(inner[1]) {
-			return p.ID
-		}
+	if p := providers.ByCmd(named(inner)); p != nil && len(inner) > 1 && kindOf[p.ID].serves(inner[1]) {
+		return p.ID
 	}
 	return Provider(inner)
 }
