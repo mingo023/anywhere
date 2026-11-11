@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -506,7 +507,18 @@ func TestAChatOmpIsDrivenAsPiIsWithItsOwnFlagsAndEvents(t *testing.T) {
 
 	again := h.Owner()
 	h.WaitScreen(term, "fake omp ready --resume "+session+" --mode rpc")
-	again.WaitFor("the history", streamOf(id, "assistant", "echo: hello"))
+	h.WaitScreen(term, "get_messages")
+	replied := func(item string) bool { return strings.Contains(item, "echo: hello") }
+	var items []string
+	for range 50 {
+		if items = history(again, id); slices.ContainsFunc(items, replied) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !slices.ContainsFunc(items, replied) {
+		t.Fatalf("got %q", items)
+	}
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
 }
