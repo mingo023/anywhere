@@ -212,8 +212,8 @@ func (t *toolCall) command() string {
 
 // describe is the call's name and the card the phone draws for it, by its ACP kind.
 func (t *toolCall) describe() (string, proto.ToolDetail) {
-	// A sub-agent's call is a think to OpenCode, and has no kind in Grok's history.
-	if t.Kind == "task" || t.input("subagent_type") != "" || t.input("variant") == "Task" {
+	// A sub-agent's call is a think to OpenCode and an other to Cursor, and has no kind in Grok's history.
+	if t.Kind == "task" || t.input("subagent_type") != "" || t.input("variant") == "Task" || t.input("_toolName") == "task" {
 		return "task", proto.ToolDetail{Kind: "task", Description: t.input("description"), Model: t.input("model")}
 	}
 	switch t.Kind {
@@ -299,15 +299,17 @@ func (t *toolCall) subAgent() subAgent {
 
 // report is what a task call's sub-agent handed back, out of what the agent wraps it in for its model.
 func (t *toolCall) report() *string {
-	out := t.output()
-	if out == nil {
-		return nil
-	}
 	var raw struct {
-		Type   string `json:"type"`
-		Output string `json:"output"`
+		Type       string `json:"type"`
+		Output     string `json:"output"`
+		DurationMs *int64 `json:"durationMs"`
 	}
 	json.Unmarshal(t.RawOutput, &raw)
+	out := t.output()
+	// Cursor's tells only how long it took.
+	if out == nil || t.said() == "" && raw.DurationMs != nil {
+		return nil
+	}
 	said := *out
 	// Grok's.
 	if raw.Type == "SubagentCompleted" {

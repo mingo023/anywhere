@@ -6,6 +6,7 @@
 //
 //	<text>           reply "echo: <text>" in two deltas
 //	run <cmd>        call bash with cmd, then reply "echo: ran <cmd>"
+//	delegate <task>  have the subagent extension run a sub-agent on task, which reports "did <task>"
 //	think <text>     think first, then reply
 //	slow <text>      reply after 3s, unless aborted; a prompt steered in meanwhile is answered after
 //	fail <message>   end the reply with message as the provider's error
@@ -411,6 +412,30 @@ func (a *agent) turn(text string, stop chan struct{}) bool {
 		a.send(msg{"type": "turn_end", "message": reply, "toolResults": []msg{}})
 		a.send(msg{"type": "turn_start"})
 		return a.say("ran "+cmd, stop)
+	} else if task, ok := arg("delegate "); ok {
+		call := "call_" + uuid()[:8]
+		args := msg{"agent": "worker", "task": task}
+		block := msg{"type": "toolCall", "id": call, "name": "subagent", "arguments": args}
+		a.send(msg{"type": "message_start", "message": a.assistant([]msg{}, "pending", "")})
+		reply := a.assistant([]msg{block}, "toolUse", "")
+		a.keep(reply)
+		a.send(msg{"type": "message_end", "message": reply})
+		a.send(msg{"type": "tool_execution_start", "toolCallId": call, "toolName": "subagent", "args": args})
+		// As the extension pi ships tells a sub-agent: all its messages so far, on each update.
+		messages := []msg{{"role": "user", "content": []msg{{"type": "text", "text": "Task: " + task}}}}
+		result := func(said string) msg {
+			return msg{"content": []msg{{"type": "text", "text": said}}, "details": msg{"mode": "single", "results": []msg{
+				{"agent": "worker", "task": task, "exitCode": 0, "messages": messages, "model": "fake/model", "stopReason": "stop", "usage": msg{"contextTokens": 120}}}}}
+		}
+		a.send(msg{"type": "tool_execution_update", "toolCallId": call, "toolName": "subagent", "args": args, "partialResult": result("(running...)")})
+		time.Sleep(60 * time.Millisecond)
+		messages = append(messages, msg{"role": "assistant", "content": []msg{{"type": "text", "text": "did " + task}}, "stopReason": "stop"})
+		done := result("did " + task)
+		a.send(msg{"type": "tool_execution_end", "toolCallId": call, "toolName": "subagent", "result": done, "isError": false})
+		a.add(msg{"role": "toolResult", "toolCallId": call, "toolName": "subagent", "content": done["content"], "details": done["details"], "isError": false})
+		a.send(msg{"type": "turn_end", "message": reply, "toolResults": []msg{}})
+		a.send(msg{"type": "turn_start"})
+		return a.say("delegated "+task, stop)
 	} else if rest, ok := arg("think "); ok {
 		a.send(msg{"type": "message_start", "message": a.assistant([]msg{}, "pending", "")})
 		a.send(msg{"type": "message_update", "usage": usage(0), "assistantMessageEvent": msg{"type": "thinking_delta", "contentIndex": 0, "delta": "thinking about " + rest}})

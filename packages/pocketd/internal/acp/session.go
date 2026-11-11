@@ -74,6 +74,7 @@ type Session struct {
 	id      string // the session's, once open
 	err     error  // why it never opened
 	opening bool   // the call that opens it is out, so what the agent says is the session's history
+	saved   string // the session a load is out for
 	// replay holds that history until the agent has loaded it whole: a load that fails shows none of it.
 	replay  []timeline.Event
 	ready   bool // it is open and set to its launch: turns may start
@@ -97,10 +98,17 @@ type Session struct {
 	cwd      string
 	// children maps a sub-agent's session to the call that spawned it.
 	children map[string]string
-	// models holds the model of each sub-agent Grok's history told of before the call that spawned it.
+	// models and ended hold what Grok's history told of a sub-agent before the call that spawned it.
 	models map[string]string
+	ended  map[string]*timeline.Event
+	// kids holds what each sub-agent writes, by the call that spawned it.
+	kids map[string]*kid
+	// calls holds every call shown, to the call whose sub-agent made it: "" for the session's own.
+	calls map[string]string
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
-	woke     string
+	woke string
+	// runs is the prompt Grok said it runs while a turn was under way, until that turn ends.
+	runs     string
 	todos    []todo
 	plans    int
 	commands []proto.Command
@@ -109,6 +117,12 @@ type Session struct {
 // block is the message the agent is writing, a chunk at a time.
 type block struct {
 	kind, id, text string // kind is user, assistant or thinking
+}
+
+// kid is the message a sub-agent is writing, and the last it wrote.
+type kid struct {
+	msg  block
+	said string
 }
 
 type configOption struct {
@@ -159,7 +173,8 @@ type todo struct {
 func NewSession(agentID, provider string, sink Sink, b *broker.Broker) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{agentID: agentID, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
-		asks: map[string]context.CancelFunc{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{}}
+		asks: map[string]context.CancelFunc{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{},
+		ended: map[string]*timeline.Event{}, kids: map[string]*kid{}, calls: map[string]string{}}
 }
 
 // opened is what session/new and session/load answer with.
@@ -236,11 +251,11 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 	}
 	var r opened
 	s.mu.Lock()
-	s.opening = true
+	s.opening, s.saved = true, saved
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
-		s.opening = false
+		s.opening, s.saved = false, ""
 		for _, e := range s.replay {
 			s.sink.Apply(e)
 		}
@@ -268,6 +283,9 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 			return r, nil
 		}
 		log.Printf("acp %s: session %s is not to be had: %v", s.agentID, saved, err)
+		s.mu.Lock()
+		s.saved = ""
+		s.mu.Unlock()
 	}
 	params := map[string]any{"cwd": cwd, "mcpServers": []any{}}
 	if meta := s.f.newMeta[l.Access]; meta != nil && !l.Plan {
@@ -574,7 +592,8 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	json.Unmarshal(res, &r)
 	s.flush()
 	stopped := s.stopping || err == nil && r.StopReason == "cancelled"
-	s.running, s.adopted, s.stopping, s.stray, s.woke = false, false, false, nil, ""
+	runs := s.runs
+	s.running, s.adopted, s.stopping, s.stray, s.woke, s.runs = false, false, false, nil, "", ""
 	e := timeline.Event{Kind: "result"}
 	if !s.began.IsZero() {
 		e.DurationMs = time.Since(s.began).Milliseconds()
@@ -598,6 +617,10 @@ func (s *Session) finish(res json.RawMessage, err error) {
 		s.sink.Stopped()
 	} else {
 		s.sink.TurnEnded(!e.OK)
+	}
+	if runs != "" && !stopped {
+		s.wake(runs)
+		return
 	}
 	s.next()
 }
@@ -677,7 +700,7 @@ func (s *Session) Notify(name string, params json.RawMessage) {
 	}
 	// A sub-agent tells of its work in a session of its own.
 	parent := s.children[p.SessionID]
-	if parent == "" && p.SessionID != "" && s.id != "" && p.SessionID != s.id {
+	if own := cmp.Or(s.id, s.saved); parent == "" && p.SessionID != "" && own != "" && p.SessionID != own {
 		return
 	}
 	switch name := method(name); name {
@@ -757,13 +780,18 @@ func (s *Session) update(raw, parent string) {
 		return
 	// Grok's sub-agent ran on past its call, which ends with it.
 	case "subagent_finished":
-		if id := s.children[u.ChildSession]; id != "" && s.tools[id] == nil {
-			s.record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: u.Status == "completed", Output: &u.Output})
+		e := timeline.Event{Kind: "tool_end", ToolUseID: s.children[u.ChildSession], OK: u.Status == "completed", Output: &u.Output}
+		switch {
+		case e.ToolUseID == "":
+			s.ended[u.ChildSession] = &e
+		case s.tools[e.ToolUseID] == nil:
+			s.flushKid(e.ToolUseID)
+			s.record(e)
 		}
 		return
 	}
 	if parent != "" {
-		s.child(parent, kind, said, raw)
+		s.child(parent, kind, u.MessageID, said, raw)
 		return
 	}
 	switch kind {
@@ -796,9 +824,14 @@ func (s *Session) update(raw, parent string) {
 	case "config_option_update":
 		s.setOptions(u.Options)
 	case "turn_completed":
-		if u.PromptID != "" && u.PromptID == s.woke {
+		switch u.PromptID {
+		case "":
+		case s.woke:
 			res, _ := json.Marshal(map[string]string{"stopReason": u.StopReason})
 			s.finish(res, nil)
+		// The turn under way has ended, its answer on the way.
+		case s.runs:
+			s.runs = ""
 		}
 		fallthrough
 	default:
@@ -834,6 +867,9 @@ func (s *Session) adopt(sid, call string) {
 			if _, err := s.call(c, CallWait, "session/load", map[string]any{"sessionId": sid, "cwd": cwd, "mcpServers": []any{}}); err != nil {
 				log.Printf("acp %s: session/load of sub-agent %s: %v", s.agentID, sid, err)
 			}
+			s.mu.Lock()
+			s.flushKid(call)
+			s.mu.Unlock()
 		}()
 	}
 	// A history's sub-agents load once it has.
@@ -844,19 +880,54 @@ func (s *Session) adopt(sid, call string) {
 	load()
 }
 
+// texts are the kinds of message each update that streams one writes.
+var texts = map[string]string{"user_message_chunk": "user", "agent_message_chunk": "assistant", "agent_message": "assistant",
+	"agent_thought_chunk": "thinking", "agent_thought": "thinking"}
+
 // child takes what the sub-agent the call parent spawned tells of its work.
-// Its text goes in whole a chunk at a time, which the timeline joins.
-func (s *Session) child(parent, kind, said, raw string) {
-	switch kind {
-	case "user_message_chunk":
-		s.record(timeline.Event{Kind: "user", Text: said, ParentToolUseID: parent})
-	case "agent_message_chunk", "agent_message":
-		s.record(timeline.Event{Kind: "assistant_text", Text: said, ParentToolUseID: parent})
-	case "agent_thought_chunk", "agent_thought":
-		s.record(timeline.Event{Kind: "thinking", Text: said, ParentToolUseID: parent})
-	case "tool_call", "tool_call_update", "tool_call_content_chunk":
-		s.tool(call(json.RawMessage(raw)), kind == "tool_call", parent)
+// Its messages go in whole, as something else follows each.
+func (s *Session) child(parent, kind, id, said, raw string) {
+	k := s.kids[parent]
+	if k == nil {
+		k = &kid{}
+		s.kids[parent] = k
 	}
+	text := texts[kind]
+	switch {
+	case text != "":
+		if k.msg.kind != text || k.msg.id != id {
+			s.flushKid(parent)
+			k.msg = block{kind: text, id: id}
+		}
+		k.msg.text += said
+	case kind == "tool_call", kind == "tool_call_update", kind == "tool_call_content_chunk":
+		s.flushKid(parent)
+		s.tool(call(json.RawMessage(raw)), kind == "tool_call", parent)
+	default:
+		s.flushKid(parent)
+	}
+}
+
+// report is what the sub-agent of call handed back: told, else its last message, as Cursor tells none.
+func (s *Session) report(call string, told *string) *string {
+	if k := s.kids[call]; (told == nil || *told == "") && k != nil && k.said != "" {
+		return &k.said
+	}
+	return told
+}
+
+// flushKid writes the message the sub-agent the call parent spawned was writing.
+func (s *Session) flushKid(parent string) {
+	k := s.kids[parent]
+	if k == nil || k.msg.text == "" {
+		return
+	}
+	b := k.msg
+	k.msg = block{}
+	if b.kind == "assistant" {
+		b.kind, k.said = "assistant_text", b.text
+	}
+	s.record(timeline.Event{Kind: b.kind, Text: b.text, ParentToolUseID: parent})
 }
 
 // chunk adds text to the message the agent is writing, which drafts in the
@@ -937,6 +1008,7 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 		s.record(timeline.Event{Kind: "tool_end", ToolUseID: t.ID, OK: t.Status == "completed", Output: t.output()})
 		return
 	}
+	s.flushKid(t.ID)
 	sub := t.subAgent()
 	if sub.model = cmp.Or(sub.model, s.models[sub.session]); sub.model != "" {
 		s.record(timeline.Event{Kind: "tool_model", ToolUseID: t.ID, Name: sub.model})
@@ -947,16 +1019,22 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 	case !sub.live || s.opening:
 		s.adopt(sub.session, t.ID)
 	// Grok's call ends as the sub-agent it leaves running starts, and that one's end ends it here.
-	case sub.background && t.Status == "completed":
+	case sub.background && t.Status == "completed" && s.ended[sub.session] == nil:
 		s.children[sub.session] = t.ID
 		s.record(timeline.Event{Kind: "tool_background", ToolUseID: t.ID})
 		return
 	}
-	s.record(timeline.Event{Kind: "tool_end", ToolUseID: t.ID, OK: t.Status == "completed", Output: t.report()})
+	s.record(timeline.Event{Kind: "tool_end", ToolUseID: t.ID, OK: t.Status == "completed", Output: s.report(t.ID, t.report())})
+	if e := s.ended[sub.session]; e != nil {
+		delete(s.ended, sub.session)
+		e.ToolUseID = t.ID
+		s.record(*e)
+	}
 }
 
 func (s *Session) show(t *tool) {
 	t.started = true
+	s.calls[t.ID] = t.parent
 	name, detail := t.describe()
 	t.task = name == "task"
 	if t.parent != "" {
@@ -1002,12 +1080,31 @@ func (s *Session) queued(params json.RawMessage) any {
 		Running string `json:"runningPromptId"`
 	}
 	json.Unmarshal(params, &p)
-	if p.Running != "" && s.ready && !s.running {
-		s.running, s.began, s.woke = true, time.Now(), p.Running
-		s.turn++
-		s.sink.Working()
+	switch {
+	case p.Running == "" || !s.ready:
+	// It may start one by itself as the turn under way ends, before that turn's answer comes.
+	case s.running:
+		s.runs = p.Running
+	default:
+		s.wake(p.Running)
 	}
 	return struct{}{}
+}
+
+// wake runs the turn prompt the agent started by itself.
+func (s *Session) wake(prompt string) {
+	s.running, s.began, s.woke = true, time.Now(), prompt
+	s.turn++
+	s.sink.Working()
+}
+
+// nested says whether a tell is of a call a sub-agent made, which Cursor tells as of the session's own.
+func (s *Session) nested(params json.RawMessage) bool {
+	var p struct {
+		ID string `json:"toolCallId"`
+	}
+	json.Unmarshal(params, &p)
+	return s.calls[p.ID] != ""
 }
 
 func (s *Session) cursorPlan(params json.RawMessage) any {
@@ -1015,7 +1112,7 @@ func (s *Session) cursorPlan(params json.RawMessage) any {
 		Plan string `json:"plan"`
 	}
 	json.Unmarshal(params, &p)
-	if p.Plan != "" {
+	if p.Plan != "" && !s.nested(params) {
 		s.plan(p.Plan)
 	}
 	return map[string]any{"outcome": map[string]string{"outcome": "accepted"}}
@@ -1045,7 +1142,7 @@ func (s *Session) setTodos(params json.RawMessage) any {
 		Merge bool   `json:"merge"`
 		Todos []todo `json:"todos"`
 	}
-	if json.Unmarshal(params, &p) != nil || p.Todos == nil {
+	if json.Unmarshal(params, &p) != nil || p.Todos == nil || s.nested(params) {
 		return struct{}{}
 	}
 	if !p.Merge {
@@ -1076,6 +1173,10 @@ func (s *Session) task(params json.RawMessage) any {
 		return struct{}{}
 	}
 	t := s.tools[p.ID]
+	// Cursor told of it as a call, which has ended.
+	if _, shown := s.calls[p.ID]; shown && t == nil {
+		return struct{}{}
+	}
 	if t == nil {
 		t = &tool{toolCall: toolCall{ID: p.ID}}
 		s.tools[p.ID] = t
@@ -1083,10 +1184,12 @@ func (s *Session) task(params json.RawMessage) any {
 	if !t.started {
 		s.flush()
 		t.started = true
+		s.calls[p.ID] = ""
 		s.record(timeline.Event{Kind: "tool_start", ToolUseID: p.ID, Name: "task", Detail: &proto.ToolDetail{Kind: "task", Description: p.Description, Model: p.Model}})
 	}
 	if p.DurationMs != nil {
-		s.record(timeline.Event{Kind: "tool_end", ToolUseID: p.ID, OK: true})
+		s.flushKid(p.ID)
+		s.record(timeline.Event{Kind: "tool_end", ToolUseID: p.ID, OK: true, Output: s.report(p.ID, nil)})
 		delete(s.tools, p.ID)
 	}
 	return struct{}{}

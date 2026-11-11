@@ -78,6 +78,30 @@ func historyUnless(phone *Phone, id string, bad func(Message) bool) []string {
 	return got
 }
 
+// withSubAgents is the agent's timeline as a phone that takes sub-agents reads
+// it, an item a line, a sub-agent's marked ">".
+func withSubAgents(phone *Phone, id string) []string {
+	phone.t.Helper()
+	phone.Send(map[string]any{"type": "agent.timeline", "id": "t1", "agentId": id})
+	page := phone.WaitFor("the timeline", func(m Message) bool { return m.Type == "agent.timeline" && m.ID == "t1" })
+	var p struct {
+		Items []struct {
+			acpItem
+			Parent string `json:"parentToolUseId"`
+		} `json:"items"`
+	}
+	json.Unmarshal([]byte(page.Raw), &p)
+	var got []string
+	for _, it := range p.Items {
+		line := strings.Join(strings.Fields(it.Kind+" "+it.Text+it.Call.Detail.Kind+" "+it.Call.Status+" "+it.Call.Output), " ")
+		if it.Parent != "" {
+			line = "> " + line
+		}
+		got = append(got, line)
+	}
+	return got
+}
+
 func TestAChatPiStreamsItsReplyAndEndsItsTurn(t *testing.T) {
 	_, phone, _, id := chatPi(t, "pi", nil)
 	phone.Prompt(id, "hello")
@@ -114,6 +138,18 @@ func TestACreatedChatPiGetsItsPromptAsTheFirstMessage(t *testing.T) {
 	}
 	phone.WaitAll("the first turn", streamOf(done.AgentID, "assistant", "echo: hello"), statusOf(done.AgentID, "done"))
 	h.WaitScreen(done.TerminalID, "fake pi ready --mode rpc --model fake/other --thinking high")
+}
+
+func TestAChatPiShowsItsSubAgentsWorkUnderTheCallThatRanItToAPhoneThatTakesIt(t *testing.T) {
+	h, phone, _, id := chatPi(t, "pi", nil)
+	phone.Prompt(id, "delegate ls")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
+	if got, want := withSubAgents(h.Owner(proto.CapSubagents), id), []string{"user delegate ls", "tool task ok did ls", "> user ls", "> assistant did ls", "assistant echo: delegated ls", "result"}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q", got)
+	}
+	if got := history(phone, id); slices.Contains(got, "assistant did ls") {
+		t.Fatalf("a phone that doesn't take sub-agents got %q", got)
+	}
 }
 
 func TestAChatPiRunsItsToolsWithoutAsking(t *testing.T) {

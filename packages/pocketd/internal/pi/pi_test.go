@@ -1110,6 +1110,146 @@ func TestARestoredPiSessionShowsItsSubAgentsWorkUnderTheCallThatRanIt(t *testing
 	})
 }
 
+// The extension throws as it is stopped, so the call's end tells nothing of its sub-agents.
+func TestStoppingAPiSubagentCallEndsItsSubAgentsAndTheToolsTheyLeftRunning(t *testing.T) {
+	s, a, sk, _ := start(t, opts{})
+	s.Prompt("Delegate")
+	a.sent("prompt", 1)
+	args := `{"tasks":[{"agent":"worker","task":"one"},{"agent":"scout","task":"two"}]}`
+	runs := `{"role":"assistant","content":[{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"sleep 9"}}],"stopReason":"toolUse"}`
+	a.say(agentStart, echoed("Delegate"), reply, ended(`{"type":"toolCall","id":"t1","name":"subagent","arguments":`+args+`}`, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"t1","toolName":"subagent","args":`+args+`}`,
+		piAgents("tool_execution_update", args, "partialResult", "Parallel: 0/2 done, 2 running...", "parallel", piAgent("worker", "one", "", runs), piAgent("scout", "two", "")),
+		`{"type":"tool_execution_end","toolCallId":"t1","toolName":"subagent","result":{"content":[{"type":"text","text":"Subagent was aborted"}],"details":{}},"isError":true}`,
+		said("Stopped."), agentEnd, settled)
+	equal(t, after(sk.wait(t, "ended:false"), "tool_tokens:t1/1:120"), []string{
+		"tool_tokens:t1/1:120",
+		"tool_end:t1/0/c1:false",
+		"tool_end:t1/0:false",
+		"tool_end:t1/1:false",
+		"tool_end:t1:false:Subagent was aborted",
+		"assistant_text:Stopped.",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+func TestAToolWhoseDetailsHoldResultsRunsNoSubAgents(t *testing.T) {
+	s, a, sk, _ := start(t, opts{})
+	s.Prompt("Search")
+	a.sent("prompt", 1)
+	args := `{"query":"go"}`
+	a.say(agentStart, echoed("Search"), reply, ended(`{"type":"toolCall","id":"w1","name":"web_search","arguments":`+args+`}`, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"w1","toolName":"web_search","args":`+args+`}`,
+		`{"type":"tool_execution_end","toolCallId":"w1","toolName":"web_search","result":{"content":[{"type":"text","text":"2 found"}],"details":{"results":[{"title":"Go","url":"https://go.dev"},{"title":"Pkg","url":"https://pkg.go.dev"}]}},"isError":false}`,
+		said("Found."), agentEnd, settled)
+	equal(t, after(sk.wait(t, "ended:false"), "user:Search"), []string{
+		"user:Search",
+		"tool_start:w1:search:search:go",
+		"tool_end:w1:true:2 found",
+		"assistant_text:Found.",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+// A chain runs its sub-agents one after another, each told the one before's report.
+func TestEachStepOfAPiChainEndsAsTheNextOneStarts(t *testing.T) {
+	s, a, sk, _ := start(t, opts{})
+	s.Prompt("Delegate")
+	a.sent("prompt", 1)
+	args := `{"chain":[{"agent":"scout","task":"look"},{"agent":"worker","task":"fix {previous}"}]}`
+	looked, fixed := `{"role":"assistant","content":[{"type":"text","text":"a.go"}],"stopReason":"stop"}`, `{"role":"assistant","content":[{"type":"text","text":"Fixed."}],"stopReason":"stop"}`
+	a.say(agentStart, echoed("Delegate"), reply, ended(`{"type":"toolCall","id":"t1","name":"subagent","arguments":`+args+`}`, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"t1","toolName":"subagent","args":`+args+`}`,
+		piAgents("tool_execution_update", args, "partialResult", "(running...)", "chain", piAgent("scout", "look", "")),
+		piAgents("tool_execution_update", args, "partialResult", "(running...)", "chain", piAgent("scout", "look", `,"stopReason":"stop"`, looked), piAgent("worker", "fix a.go", "")),
+		piAgents("tool_execution_end", "null", "result", "Fixed.", "chain", piAgent("scout", "look", `,"stopReason":"stop"`, looked), piAgent("worker", "fix a.go", `,"stopReason":"stop"`, fixed)),
+		said("Done."), agentEnd, settled)
+	equal(t, after(sk.wait(t, "ended:false"), "user:Delegate"), []string{
+		"user:Delegate",
+		"tool_start:t1:task:task:",
+		"t1>tool_start:t1/0:task:task:look",
+		"t1/0>user:look",
+		"tool_model:t1/0:stub/stub-1",
+		"tool_tokens:t1/0:120",
+		"t1/0>assistant_text:a.go",
+		"tool_end:t1/0:true:a.go",
+		"t1>tool_start:t1/1:task:task:fix a.go",
+		"t1/1>user:fix a.go",
+		"tool_model:t1/1:stub/stub-1",
+		"tool_tokens:t1/1:120",
+		"t1/1>assistant_text:Fixed.",
+		"tool_end:t1/1:true:Fixed.",
+		"tool_end:t1:true:Fixed.",
+		"assistant_text:Done.",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+// ompTasks is what omp's task tool tells of the sub-agents of a call it waits for.
+func ompTasks(event, field, args, results string, progress ...string) string {
+	return fmt.Sprintf(`{"type":%q,"toolCallId":"t1","toolName":"task","args":%s,%q:{"content":[{"type":"text","text":"2 agents"}],"details":{"results":[%s],"progress":[%s]}}}`,
+		event, args, field, results, strings.Join(progress, ","))
+}
+
+func ompProgress(id, status, assignment, rest string) string {
+	return fmt.Sprintf(`{"id":%q,"status":%q,"assignment":%q%s}`, id, status, assignment, rest)
+}
+
+func TestEachOfSeveralOmpSubAgentsTheCallWaitsForShowsAsACallOfItsOwn(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "omp"})
+	s.Prompt("Delegate")
+	a.sent("prompt", 1)
+	call := `{"type":"toolCall","id":"t1","name":"task","arguments":{"tasks":[{"task":"one"},{"task":"two"}]}}`
+	a.say(agentStart, echoed("Delegate"), reply, ended(call, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"t1","toolName":"task","args":{"tasks":[{"task":"one"},{"task":"two"}]}}`,
+		ompTasks("tool_execution_update", "partialResult", `{"tasks":[{"task":"one"},{"task":"two"}]}`, "", ompProgress("A", "running", "one", `,"currentTool":"bash","currentToolArgs":"ls","currentToolArgsKey":"command","toolCount":1`), ompProgress("B", "running", "two", "")),
+		ompTasks("tool_execution_update", "partialResult", `{"tasks":[{"task":"one"},{"task":"two"}]}`, "", ompProgress("A", "completed", "one", `,"recentTools":[{"tool":"bash","args":"ls","argsKey":"command"}],"toolCount":1`), ompProgress("B", "aborted", "two", "")),
+		ompTasks("tool_execution_end", "result", `{"tasks":[{"task":"one"},{"task":"two"}]}`, `{"id":"A","output":"Listed."}`, ompProgress("A", "completed", "one", ""), ompProgress("B", "aborted", "two", "")),
+		said("One stopped."), agentEnd, settled)
+	equal(t, after(sk.wait(t, "ended:false"), "user:Delegate"), []string{
+		"user:Delegate",
+		"tool_start:t1:task:task:",
+		"t1>tool_start:t1/0:task:task:A",
+		"t1/0>user:one",
+		"t1/0>tool_start:t1/0/1:shell:shell:ls",
+		"t1>tool_start:t1/1:task:task:B",
+		"t1/1>user:two",
+		"tool_end:t1/0/1:true",
+		"tool_end:t1/0:true",
+		"tool_end:t1/1:false",
+		"tool_end:t1:true:2 agents",
+		"assistant_text:One stopped.",
+		"result:true:",
+		"ended:false",
+	})
+}
+
+func TestStoppingOmpWhileItsTaskRunsEndsTheSubAgentAndTheToolItRan(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "omp"})
+	s.Prompt("Delegate")
+	a.sent("prompt", 1)
+	call := `{"type":"toolCall","id":"t1","name":"task","arguments":{"tasks":[{"task":"one"}]}}`
+	a.say(agentStart, echoed("Delegate"), reply, ended(call, `"stopReason":"toolUse"`),
+		`{"type":"tool_execution_start","toolCallId":"t1","toolName":"task","args":{"tasks":[{"task":"one"}]}}`,
+		ompTasks("tool_execution_update", "partialResult", `{"tasks":[{"task":"one"}]}`, "", ompProgress("A", "running", "one", `,"currentTool":"bash","currentToolArgs":"sleep 9","currentToolArgsKey":"command","toolCount":1`)),
+		`{"type":"tool_execution_end","toolCallId":"t1","toolName":"task","result":{"content":[{"type":"text","text":"Aborted"}],"details":{}},"isError":true}`,
+		said("Stopped."), agentEnd, settled)
+	equal(t, after(sk.wait(t, "ended:false"), "user:Delegate"), []string{
+		"user:Delegate",
+		"tool_start:t1:task:task:",
+		"t1>user:one",
+		"t1>tool_start:t1/1:shell:shell:sleep 9",
+		"tool_end:t1/1:false",
+		"tool_end:t1:false:Aborted",
+		"assistant_text:Stopped.",
+		"result:true:",
+		"ended:false",
+	})
+}
+
 // sentID is the id of the nth prompt the client wrote, once the agent has answered it.
 func sentID(a *agent, n int) string {
 	a.t.Helper()

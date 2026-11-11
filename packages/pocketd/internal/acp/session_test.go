@@ -810,17 +810,26 @@ func TestPlansTodosAndSubAgentsOfCursorAndGrokShowInTheChat(t *testing.T) {
 	equal(t, after(gk.wait(t, "tokens:4200/0"), "bound:s1")[1:], []string{`tool_start:plan-1:ExitPlanMode:{"plan":"# Grok's plan"}`, "tokens:4200/0"})
 }
 
-// As cursor-agent 2026.11.11 tells a sub-agent to a client that takes them: its SubagentPublisher.
-func TestACursorSubAgentsWorkNestsUnderItsTask(t *testing.T) {
+// As cursor-agent 2026.11.11 tells a sub-agent to a client that takes them:
+// its SubagentPublisher, and the task call as a call whose end tells no report.
+// The tells of a call, Cursor sends whichever session made it.
+func TestACursorSubAgentsWorkNestsUnderItsTaskWhichEndsWithItsLastMessage(t *testing.T) {
 	s, _, sk, _ := start(t, opts{provider: "cursor", answer: script(`{"sessionId":"s1"}`, func(a *agent, _ string) string {
-		a.ask("1", "cursor/task", `{"toolCallId":"sub1","description":"Look around","prompt":"look","subagentType":"explore"}`)
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"sub1","title":"Task: Look around","kind":"other","rawInput":{"_toolName":"task","prompt":"look","description":"Look around","subagentType":"explore"}}`)
 		a.update(`{"sessionUpdate":"subagent_spawned","subagentSessionId":"agent-7","name":"explore","task":"look","capabilities":{},
 			"_meta":{"cursor":{"toolCallId":"sub1","agentId":"agent-7","model":"composer-2"}}}`)
-		sayIn(a, "agent-7", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looking."}}`)
+		sayIn(a, "agent-7", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Look"}}`)
+		sayIn(a, "agent-7", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ing."}}`)
 		sayIn(a, "agent-7", `{"sessionUpdate":"tool_call","toolCallId":"t1","title":"ls","kind":"execute","status":"pending","rawInput":{"command":"ls"}}`)
 		sayIn(a, "agent-7", `{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"a.go"}}]}`)
+		sayIn(a, "agent-7", `{"sessionUpdate":"tool_call","toolCallId":"t2","title":"Update TODOs: read a.go","kind":"other","rawInput":{"_toolName":"updateTodos","todos":[{"id":"x","content":"read a.go"}]}}`)
+		sayIn(a, "agent-7", `{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"completed"}`)
+		a.ask("1", "cursor/update_todos", `{"toolCallId":"t2","todos":[{"id":"x","content":"read a.go","status":"pending"}],"merge":false}`)
+		a.replied("1")
+		sayIn(a, "agent-7", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Found a.go"}}`)
 		a.update(`{"sessionUpdate":"subagent_state_update","subagentSessionId":"agent-7","state":"completed","_meta":{"cursor":{"toolCallId":"sub1","agentId":"agent-7"}}}`)
-		a.ask("2", "cursor/task", `{"toolCallId":"sub1","description":"Look around","durationMs":1200}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"sub1","status":"completed","rawOutput":{"durationMs":1200,"isBackground":false}}`)
+		a.ask("2", "cursor/task", `{"toolCallId":"sub1","description":"Look around","prompt":"look","subagentType":"explore","agentId":"agent-7","durationMs":1200}`)
 		a.replied("2")
 		return endTurn
 	})})
@@ -832,9 +841,35 @@ func TestACursorSubAgentsWorkNestsUnderItsTask(t *testing.T) {
 		"sub1>assistant_text:Looking.",
 		"sub1>tool_start:t1:shell:shell:ls",
 		"tool_end:t1:true:a.go",
-		"tool_end:sub1:true",
+		"sub1>tool_start:t2:Update TODOs: read a.go:other:",
+		"tool_end:t2:true",
+		"sub1>assistant_text:Found a.go",
+		"tool_end:sub1:true:Found a.go",
 		"result:true:",
 		"ended:false",
+	})
+}
+
+// cursor-agent 2026.11.11 replays a task as its call and its sub-agent's
+// start and end, without the sub-agent's work, which only its own store keeps.
+func TestACursorHistoryShowsATaskWithItsSubAgentsModel(t *testing.T) {
+	_, _, sk, _ := start(t, opts{provider: "cursor", saved: "s1", answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method == "session/load" {
+			a.update(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"look around"}}`)
+			a.update(`{"sessionUpdate":"tool_call","toolCallId":"replay-0-1","title":"Task: Look around","kind":"other","status":"completed","rawInput":{"_toolName":"task","prompt":"look","description":"Look around","subagentType":"explore"},"rawOutput":{"durationMs":1200,"isBackground":false}}`)
+			a.update(`{"sessionUpdate":"subagent_spawned","subagentSessionId":"agent-7","name":"explore","task":"look","capabilities":{},"_meta":{"cursor":{"toolCallId":"replay-0-1","agentId":"agent-7","model":"composer-2"}}}`)
+			a.update(`{"sessionUpdate":"subagent_state_update","subagentSessionId":"agent-7","state":"completed","_meta":{"cursor":{"toolCallId":"replay-0-1","agentId":"agent-7"}}}`)
+		}
+		return `{}`
+	}})
+	equal(t, sk.wait(t, "bound:s1"), []string{
+		"loaded",
+		"user:look around",
+		"tool_start:replay-0-1:task:task:Look around",
+		"tool_end:replay-0-1:true",
+		"tool_model:replay-0-1:composer-2",
+		"result:true:",
+		"bound:s1",
 	})
 }
 
@@ -881,13 +916,12 @@ func TestAGrokSubAgentsWorkNestsUnderItsCallWhichEndsWithItsReport(t *testing.T)
 		"tool_background:call_s",
 		"tool_model:call_s:stub",
 		"call_s>user:CHILD: run echo sub",
-		"call_s>assistant_text:Running.",
 		"result:true:",
 		"ended:false",
+		"call_s>assistant_text:Running.",
 		"call_s>tool_start:call_c:shell:shell:echo sub",
 		"tool_end:call_c:true:sub\n",
-		"call_s>assistant_text:Done: ",
-		"call_s>assistant_text:sub",
+		"call_s>assistant_text:Done: sub",
 		"tool_end:call_s:true:Done: sub\n",
 		"working",
 		"assistant_draft:Wrapped up.",
@@ -895,6 +929,43 @@ func TestAGrokSubAgentsWorkNestsUnderItsCallWhichEndsWithItsReport(t *testing.T)
 		"result:true:",
 		"ended:false",
 		"tokens:1/2",
+	})
+}
+
+// Grok starts the turn that takes a background sub-agent's report as soon as
+// the turn under way ends, which it may tell before that turn's answer comes.
+func TestAGrokTurnStartedAsTheOneBeforeEndsIsATurnOfItsOwnWhichPromptsWaitFor(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "grok", answer: script(`{"sessionId":"s1"}`, func(a *agent, text string) string {
+		if text != "Delegate" {
+			return endTurn
+		}
+		a.say(`{"jsonrpc":"2.0","method":"_x.ai/queue/changed","params":{"sessionId":"s1","entries":[],"runningPromptId":"p1"}}`)
+		a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hi."}}`)
+		grokTells(a, `{"sessionUpdate":"turn_completed","prompt_id":"p1","stop_reason":"end_turn"}`)
+		a.say(`{"jsonrpc":"2.0","method":"_x.ai/queue/changed","params":{"sessionId":"s1","entries":[],"runningPromptId":"subagent-completed-kid"}}`)
+		return endTurn
+	})})
+	s.Prompt("Delegate")
+	sk.waitN(t, "working", 2)
+	s.Prompt("Next")
+	a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Wrapped up."}}`)
+	grokTells(a, `{"sessionUpdate":"turn_completed","prompt_id":"subagent-completed-kid","stop_reason":"end_turn"}`)
+	equal(t, after(sk.waitN(t, "ended:false", 3), "user:Delegate"), []string{
+		"user:Delegate",
+		"working",
+		"assistant_draft:Hi.",
+		"assistant_text:Hi.",
+		"result:true:",
+		"ended:false",
+		"working",
+		"assistant_draft:Wrapped up.",
+		"assistant_text:Wrapped up.",
+		"result:true:",
+		"ended:false",
+		"user:Next",
+		"working",
+		"result:true:",
+		"ended:false",
 	})
 }
 
@@ -986,6 +1057,95 @@ func TestAGrokHistoryShowsTheModelOfASubAgentToldOfBeforeItsCall(t *testing.T) {
 		"tool_start:call_s:task:task:List the files",
 		"tool_model:call_s:stub",
 		"tool_end:call_s:true:Subagent started in background.\nsubagent_id: kid",
+	})
+}
+
+func TestAGrokHistoryEndsASubAgentsCallWithTheReportToldBeforeIt(t *testing.T) {
+	_, a, sk, _ := start(t, opts{provider: "grok", saved: "s1", answer: func(a *agent, method string, params json.RawMessage) string {
+		if method == "session/load" && strings.Contains(string(params), `"s1"`) {
+			a.say(`{"jsonrpc":"2.0","method":"_x.ai/session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"subagent_finished","child_session_id":"kid","status":"completed","output":"Done: sub\n"}}}`)
+			a.update(`{"sessionUpdate":"tool_call","toolCallId":"call_s","title":"List the files","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Subagent started in background.\nsubagent_id: kid"}}],
+				"rawInput":{"variant":"Task","prompt":"CHILD: run echo sub","description":"List the files","run_in_background":true}}`)
+		}
+		return `{}`
+	}})
+	equal(t, after(sk.wait(t, "bound:s1"), "tool_start:call_s:task:task:List the files")[:3], []string{
+		"tool_start:call_s:task:task:List the files",
+		"tool_end:call_s:true:Subagent started in background.\nsubagent_id: kid",
+		"tool_end:call_s:true:Done: sub\n",
+	})
+	a.called("session/load", 2)
+}
+
+// A sub-agent still running in the agent a pocketd before this one left goes on telling of its work in its own session.
+func TestWhatAnotherSessionTellsWhileASavedOneLoadsIsNotItsHistory(t *testing.T) {
+	_, _, sk, _ := start(t, opts{provider: "grok", saved: "s1", answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method == "session/load" {
+			a.update(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Hi"}}`)
+			sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Not ours."}}`)
+			a.update(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello."}}`)
+		}
+		return `{}`
+	}})
+	equal(t, sk.wait(t, "bound:s1"), []string{"loaded", "user:Hi", "assistant_text:Hello.", "result:true:", "bound:s1"})
+}
+
+// As opencode 1.19.5 replays a session whose task ran, and then the task's own session.
+func TestAnOpenCodeHistoryLoadsEachTasksSessionUnderItOnceItHasLoaded(t *testing.T) {
+	_, a, sk, _ := start(t, opts{provider: "opencode", saved: "s1", answer: func(a *agent, method string, params json.RawMessage) string {
+		switch {
+		case method != "session/load":
+			return `{}`
+		case strings.Contains(string(params), `"kid"`):
+			sayIn(a, "kid", `{"sessionUpdate":"user_message_chunk","messageId":"m1","content":{"type":"text","text":"read NOTE.md"}}`)
+			sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"hel"}}`)
+			sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"lo"}}`)
+			return `{}`
+		}
+		a.update(`{"sessionUpdate":"user_message_chunk","messageId":"u1","content":{"type":"text","text":"Delegate"}}`)
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Read the note","kind":"think","status":"completed","rawInput":{"description":"Read the note","prompt":"read NOTE.md","subagent_type":"general"},
+			"content":[{"type":"content","content":{"type":"text","text":"<task_result>\nhello\n</task_result>"}}],"rawOutput":{"metadata":{"sessionId":"kid","model":{"modelID":"glm","providerID":"opencode"}}}}`)
+		a.update(`{"sessionUpdate":"agent_message_chunk","messageId":"a1","content":{"type":"text","text":"It said hello."}}`)
+		return opencodeNew
+	}})
+	equal(t, sk.wait(t, "t1>assistant_text:hello"), []string{
+		"loaded",
+		"user:Delegate",
+		"tool_start:t1:task:task:Read the note",
+		"tool_model:t1:opencode/glm",
+		"tool_end:t1:true:hello",
+		"assistant_text:It said hello.",
+		"result:true:",
+		"bound:s1",
+		"model:opencode/big-pickle",
+		"t1>user:read NOTE.md",
+		"t1>assistant_text:hello",
+	})
+	equal(t, a.called("session/load", 2), []string{`{"cwd":"/work","mcpServers":[],"sessionId":"s1"}`, `{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
+}
+
+func TestTheMessagesOfSubAgentsWritingAtOnceEachGoInWhole(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "grok", answer: script(`{"sessionId":"s1"}`, func(a *agent, _ string) string {
+		for _, kid := range []string{"k1", "k2"} {
+			a.update(`{"sessionUpdate":"tool_call","toolCallId":"c` + kid + `","title":"spawn_subagent","rawInput":{"variant":"Task","description":"` + kid + `","run_in_background":true}}`)
+			a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"c` + kid + `","status":"completed","content":[{"type":"content","content":{"type":"text","text":"subagent_id: ` + kid + `"}}]}`)
+		}
+		return endTurn
+	})})
+	s.Prompt("Delegate")
+	sk.wait(t, "ended:false")
+	sayIn(a, "k1", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hel"}}`)
+	sayIn(a, "k2", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Wor"}}`)
+	sayIn(a, "k1", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"lo"}}`)
+	sayIn(a, "k2", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ld"}}`)
+	grokTells(a, `{"sessionUpdate":"subagent_finished","child_session_id":"k1","status":"completed","output":"Hello"}`)
+	grokTells(a, `{"sessionUpdate":"subagent_finished","child_session_id":"k2","status":"completed","output":"World"}`)
+	equal(t, after(sk.wait(t, "tool_end:ck2:true:World"), "ended:false"), []string{
+		"ended:false",
+		"ck1>assistant_text:Hello",
+		"tool_end:ck1:true:Hello",
+		"ck2>assistant_text:World",
+		"tool_end:ck2:true:World",
 	})
 }
 

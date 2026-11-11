@@ -95,6 +95,19 @@ func (s *sink) wait(t *testing.T, line string) []string {
 	return nil
 }
 
+// waitN waits until line has been said n times.
+func (s *sink) waitN(t *testing.T, line string, n int) []string {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		got := s.lines()
+		if len(slices.DeleteFunc(slices.Clone(got), func(l string) bool { return l != line })) >= n {
+			return got
+		}
+	}
+	t.Fatalf("not %d of %q in:\n%s", n, line, strings.Join(s.lines(), "\n"))
+	return nil
+}
+
 // agent is the other end of a Session's wire, scripted by a test: answer
 // gives each call its result, or "!" and the error it is refused with, after
 // saying the lines the agent writes first.

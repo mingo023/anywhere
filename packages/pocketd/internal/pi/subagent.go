@@ -2,6 +2,7 @@ package pi
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -48,6 +49,7 @@ type delegation struct {
 	Async *struct {
 		State string `json:"state"`
 	} `json:"async"`
+	Mode string `json:"mode"` // the extension's
 }
 
 // task is a call that runs sub-agents, as far as the timeline has it.
@@ -59,21 +61,25 @@ type task struct {
 
 // subAgent is how far a sub-agent's work is in the timeline.
 type subAgent struct {
-	row      string // the call its work shows under
-	messages int    // how many of its messages are there
-	tools    int    // the number of the last of its tools that ended there
-	running  string // the tool it runs, shown running
+	row      string   // the call its work shows under
+	messages int      // how many of its messages are there
+	tools    int      // the number of the last of its tools that ended there
+	running  string   // the tool it runs, shown running
+	calls    []string // the tools its messages started that have no result yet
 	model    string
 	tokens   int64
 	report   string
 	ended    bool
 }
 
-// delegated shows the work of the sub-agents call runs, as its result
+// delegated shows the work of the sub-agents call to tool runs, as its result
 // tells it: each under the call, or under a call of its own when the call
 // runs several. A call whose sub-agents ran on in the background ends with
 // them. It reports whether they run on past the result, which done says is the call's last.
-func (s *Session) delegated(call string, args, result json.RawMessage, done bool) (background bool) {
+func (s *Session) delegated(call, tool string, args, result json.RawMessage, done bool) (background bool) {
+	if name, _ := describe(tool, nil); name != "task" {
+		return false
+	}
 	var r struct {
 		Content json.RawMessage `json:"content"`
 		Details delegation      `json:"details"`
@@ -82,11 +88,17 @@ func (s *Session) delegated(call string, args, result json.RawMessage, done bool
 		return false
 	}
 	d := r.Details
+	t := s.tasks[call]
 	n := max(len(d.Progress), len(d.Results))
 	if n == 0 {
+		// A call stopped mid-way tells nothing of its sub-agents.
+		if t != nil && done {
+			for _, i := range slices.Sorted(maps.Keys(t.agents)) {
+				s.endAgent(t, t.agents[i], false)
+			}
+		}
 		return false
 	}
-	t := s.tasks[call]
 	if t == nil {
 		var in struct {
 			Tasks, Chain []json.RawMessage
@@ -116,11 +128,6 @@ func (s *Session) delegated(call string, args, result json.RawMessage, done bool
 		if name != "" && name != a.model {
 			a.model = name
 			s.sink.Apply(timeline.Event{Kind: "tool_model", ToolUseID: a.row, Name: name})
-		}
-	}
-	end := func(a *subAgent, ok bool) {
-		if a.ended = true; t.several {
-			s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: a.row, OK: ok, Output: nonEmpty(a.report)})
 		}
 	}
 	for i, p := range d.Progress {
@@ -162,8 +169,9 @@ func (s *Session) delegated(call string, args, result json.RawMessage, done bool
 		}
 		if a.running != "" {
 			s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: a.running, OK: p.Status == "completed"})
+			a.running = ""
 		}
-		end(a, p.Status == "completed")
+		s.endAgent(t, a, p.Status == "completed")
 	}
 	if len(d.Progress) == 0 {
 		for i, res := range d.Results {
@@ -177,9 +185,9 @@ func (s *Session) delegated(call string, args, result json.RawMessage, done bool
 				a.tokens = c
 				s.sink.Apply(timeline.Event{Kind: "tool_tokens", ToolUseID: a.row, Tokens: c})
 			}
-			// The extension tells a sub-agent's end only by the call's.
-			if done && !a.ended {
-				end(a, res.ExitCode == 0 && res.StopReason != "error" && res.StopReason != "aborted")
+			// The extension tells a sub-agent's end only by the call's, or in a chain by the next one's start.
+			if done || d.Mode == "chain" && i < len(d.Results)-1 {
+				s.endAgent(t, a, res.ExitCode == 0 && res.StopReason != "error" && res.StopReason != "aborted")
 			}
 		}
 	}
@@ -198,6 +206,23 @@ func (s *Session) delegated(call string, args, result json.RawMessage, done bool
 		t.lasting = true
 	}
 	return d.Async.State == "running"
+}
+
+// endAgent ends a sub-agent of t, and the tools it left running.
+func (s *Session) endAgent(t *task, a *subAgent, ok bool) {
+	if a.ended {
+		return
+	}
+	a.ended = true
+	for _, id := range append(a.calls, a.running) {
+		if id != "" {
+			s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: false})
+		}
+	}
+	a.calls, a.running = nil, ""
+	if t.several {
+		s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: a.row, OK: ok, Output: nonEmpty(a.report)})
+	}
 }
 
 // subTool shows the tool id a sub-agent runs, once.
@@ -224,10 +249,12 @@ func (s *Session) subMessage(a *subAgent, m message) {
 				s.sink.Apply(timeline.Event{Kind: "thinking", Text: b.Thinking, ParentToolUseID: a.row})
 			case "toolCall":
 				name, detail := describe(b.Name, object(b.Arguments))
+				a.calls = append(a.calls, a.row+"/"+b.ID)
 				s.sink.Apply(timeline.Event{Kind: "tool_start", ToolUseID: a.row + "/" + b.ID, Name: name, Detail: &detail, ParentToolUseID: a.row})
 			}
 		}
 	case "toolResult":
+		a.calls = slices.DeleteFunc(a.calls, func(id string) bool { return id == a.row+"/"+m.ToolCallID })
 		s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: a.row + "/" + m.ToolCallID, OK: !m.IsError, Output: nonEmpty(text(m.Content))})
 	}
 }

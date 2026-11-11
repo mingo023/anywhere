@@ -27,6 +27,7 @@ type message struct {
 	} `json:"usage"`
 	// A toolResult's.
 	ToolCallID string          `json:"toolCallId"`
+	ToolName   string          `json:"toolName"`
 	IsError    bool            `json:"isError"`
 	Details    json.RawMessage `json:"details"`
 	// A custom message's: whether pi's own TUI shows it.
@@ -161,10 +162,10 @@ func (s *Session) Event(kind string, raw json.RawMessage) {
 	case "tool_execution_start":
 		s.show(e.ToolCallID, e.ToolName, e.Args)
 	case "tool_execution_update":
-		s.delegated(e.ToolCallID, e.Args, e.Partial, false)
+		s.delegated(e.ToolCallID, e.ToolName, e.Args, e.Partial, false)
 	case "tool_execution_end":
 		s.show(e.ToolCallID, e.ToolName, e.Args)
-		if s.delegated(e.ToolCallID, e.Args, e.Result, true) {
+		if s.delegated(e.ToolCallID, e.ToolName, e.Args, e.Result, true) {
 			s.sink.Apply(timeline.Event{Kind: "tool_background", ToolUseID: e.ToolCallID})
 			break
 		}
@@ -433,7 +434,7 @@ func (s *Session) replay(history []message, streaming bool) (failed bool) {
 		case "toolResult":
 			calls = slices.DeleteFunc(calls, func(id string) bool { return id == m.ToolCallID })
 			result, _ := json.Marshal(map[string]json.RawMessage{"content": m.Content, "details": m.Details})
-			s.delegated(m.ToolCallID, nil, result, true)
+			s.delegated(m.ToolCallID, m.ToolName, nil, result, true)
 			s.sink.Apply(timeline.Event{Kind: "tool_end", ToolUseID: m.ToolCallID, OK: !m.IsError, Output: nonEmpty(text(m.Content))})
 		case "compactionSummary":
 			s.sink.Apply(timeline.Event{Kind: "compacted", Trigger: "auto"})

@@ -6,6 +6,7 @@
 //
 //	<text>          reply "echo: <text>" in two chunks
 //	run <cmd>       ask to run cmd, then reply "echo: ran <cmd>", or "echo: skipped <cmd>" if refused
+//	delegate <task> run a sub-agent on task in a session of its own, as OpenCode does, which reports "did <task>"
 //	think <text>    think first, then reply
 //	plan <a>, <b>   tell a plan of those entries, then reply "echo: planned"
 //	slow <text>     reply after 3s, unless cancelled
@@ -137,8 +138,10 @@ func (a *agent) update(u map[string]any) {
 	a.save()
 }
 
-func (a *agent) tell(u map[string]any) {
-	a.send(map[string]any{"method": "session/update", "params": map[string]any{"sessionId": a.session.ID, "update": u}})
+func (a *agent) tell(u map[string]any) { a.tellIn(a.session.ID, u) }
+
+func (a *agent) tellIn(sid string, u map[string]any) {
+	a.send(map[string]any{"method": "session/update", "params": map[string]any{"sessionId": sid, "update": u}})
 }
 
 func dir() string { return filepath.Join(os.Getenv("HOME"), ".acp-fake") }
@@ -221,7 +224,8 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 		a.reply(id, res)
 		a.commands()
 	case "session/load":
-		if a.session == nil || a.session.ID != str("sessionId") {
+		s := a.session
+		if s == nil || s.ID != str("sessionId") {
 			b, err := os.ReadFile(filepath.Join(dir(), str("sessionId")+".json"))
 			if err != nil && a.name == "hermes" {
 				a.reply(id, nil)
@@ -231,15 +235,23 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 				a.refuse(id, -32002, "Session not found", nil)
 				return
 			}
-			a.session = &session{}
-			json.Unmarshal(b, a.session)
+			s = &session{}
+			json.Unmarshal(b, s)
 		}
-		note("load: %s", a.session.ID)
+		// A sub-agent's session loads beside the one open.
+		if a.session == nil {
+			a.session = s
+		}
+		note("load: %s", s.ID)
 		a.mu.Lock()
-		history := slices.Clone(a.session.History)
+		history := slices.Clone(s.History)
 		a.mu.Unlock()
 		for _, u := range history {
-			a.tell(u)
+			a.tellIn(s.ID, u)
+		}
+		if s != a.session {
+			a.reply(id, map[string]any{})
+			return
 		}
 		a.reply(id, a.opened())
 		a.commands()
@@ -344,6 +356,8 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		return
 	} else if cmd, ok := arg("run "); ok {
 		reason = a.run(cmd, stop)
+	} else if task, ok := arg("delegate "); ok {
+		a.delegate(task)
 	} else if rest, ok := arg("think "); ok {
 		a.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": textBlock("thinking about " + rest)})
 		a.say(rest)
@@ -379,6 +393,25 @@ func (a *agent) end() {
 	a.mu.Lock()
 	a.stop = nil
 	a.mu.Unlock()
+}
+
+// delegate runs a sub-agent on task as OpenCode does: it names the
+// sub-agent's session only as the call ends, and tells its work only to a load of that session.
+func (a *agent) delegate(task string) {
+	call := "call_" + hex(4)
+	kid := &session{ID: "ses_" + hex(8), Model: a.session.Model, Mode: a.session.Mode, History: []map[string]any{
+		{"sessionUpdate": "user_message_chunk", "messageId": "msg-" + hex(4), "content": textBlock(task)},
+		{"sessionUpdate": "agent_message_chunk", "messageId": "msg-" + hex(4), "content": textBlock("did " + task)},
+	}}
+	b, _ := json.Marshal(kid)
+	os.WriteFile(filepath.Join(dir(), kid.ID+".json"), b, 0o600)
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "title": "task", "kind": "think", "status": "pending", "rawInput": map[string]any{}})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "title": task, "kind": "think", "status": "in_progress",
+		"rawInput": map[string]string{"description": task, "prompt": task, "subagent_type": "general"}})
+	out := "<task_result>\ndid " + task + "\n</task_result>"
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock(out)}},
+		"rawOutput": map[string]any{"output": out, "metadata": map[string]any{"sessionId": kid.ID, "model": map[string]string{"modelID": a.session.Model, "providerID": "fake"}}}})
+	a.say("delegated " + task)
 }
 
 // run asks to run cmd as the real agent does, and runs it if allowed. It
