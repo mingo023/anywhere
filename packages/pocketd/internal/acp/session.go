@@ -224,7 +224,7 @@ func (s *Session) Open(w Wire, cwd, saved string, l state.Launch, left Left) (un
 	s.mu.Unlock()
 	s.sink.Bound(id)
 	if saved != "" && id != saved {
-		s.sink.Apply(timeline.Event{Kind: "notice", Text: s.name + " could not restore the conversation, so this is a new one"})
+		s.notice(s.name + " could not restore the conversation, so this is a new one")
 	}
 	s.apply(l, model)
 	s.mu.Lock()
@@ -396,7 +396,7 @@ func (s *Session) apply(l state.Launch, model string) {
 	}
 	if l.Model != "" && l.Model != model {
 		if err := s.setModel(l.Model); err != nil {
-			s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't switch to %s: %v", s.name, l.Model, err)})
+			s.notice(fmt.Sprintf("%s couldn't switch to %s: %v", s.name, l.Model, err))
 		} else {
 			model = l.Model
 		}
@@ -406,7 +406,7 @@ func (s *Session) apply(l state.Launch, model string) {
 	}
 	if l.Effort != "" {
 		if err := s.setEffort(l.Effort); err != nil {
-			s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't set effort to %s: %v", s.name, l.Effort, err)})
+			s.notice(fmt.Sprintf("%s couldn't set effort to %s: %v", s.name, l.Effort, err))
 		}
 	}
 	mode := s.option(modeSetting)
@@ -420,7 +420,7 @@ func (s *Session) apply(l state.Launch, model string) {
 		case l.Plan && mode != nil && mode.ID == id:
 		default:
 			if err := s.setOption(o, value); err != nil {
-				s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't set %s to %s: %v", s.name, id, value, err)})
+				s.notice(fmt.Sprintf("%s couldn't set %s to %s: %v", s.name, id, value, err))
 			}
 		}
 	}
@@ -741,7 +741,7 @@ func (s *Session) compacted(err error) {
 	switch {
 	case stopped:
 	case err != nil:
-		s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't compact: %v", s.name, err)})
+		s.notice(fmt.Sprintf("%s couldn't compact: %v", s.name, err))
 	default:
 		s.sink.Apply(timeline.Event{Kind: "compacted", Trigger: "manual"})
 	}
@@ -795,6 +795,8 @@ func (s *Session) Cancel() {
 		cancel()
 	}
 }
+
+func (s *Session) notice(text string) { s.sink.Apply(timeline.Event{Kind: "notice", Text: text}) }
 
 func (s *Session) Close() {
 	s.cancel()
