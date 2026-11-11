@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -111,9 +112,20 @@ func (d *Daemon) startFailed(pr *presence, err error, unsent []string) {
 	for _, text := range unsent {
 		pr.a.Record(timeline.Event{Kind: "user", Text: text})
 	}
-	pr.a.Record(timeline.Event{Kind: "error", Error: what + ": " + cmp.Or(why, err.Error())})
+	why = cmp.Or(why, err.Error())
+	pr.a.Record(timeline.Event{Kind: "error", Error: what + ": " + why + signInHint(providers.Get(pr.provider), why)})
 	d.turnEnded(pr, true)
 	pr.a.SetAttached(false)
+}
+
+var signedOut = regexp.MustCompile(`(?i)auth|login|logged in|credential|api key`)
+
+// signInHint says how to sign p in, when why says it isn't and one command does.
+func signInHint(p *providers.Spec, why string) string {
+	if !signedOut.MatchString(why) || p.SignIn == nil && !p.SignInBare {
+		return ""
+	}
+	return ". Run `" + strings.Join(append([]string{p.Cmd()}, p.SignIn...), " ") + "` in a terminal to sign in"
 }
 
 // exitOf says an agent exited, with the last line on its Terminal's screen:

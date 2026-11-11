@@ -535,7 +535,7 @@ func TestAChatWhoseAgentRefusesItsSessionShowsTheAgentsReason(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if len(got) != 1 || got[0] != "result "+why {
+	if len(got) != 1 || got[0] != "result "+why+". Run `grok login` in a terminal to sign in" {
 		t.Fatalf("got %q", got)
 	}
 	phone.Prompt(done.AgentID, "hello")
@@ -555,7 +555,7 @@ func TestAChatWhoseAgentExitsAsItStartsShowsWhatItSaidAndThePromptItNeverGot(t *
 	phone.WaitAll("the failure",
 		streamOf(done.AgentID, "user", "do the important thing"),
 		itemOf(done.AgentID, func(it acpItem) bool {
-			return it.Kind == "result" && !it.OK && strings.HasPrefix(it.Error, "fx didn't start, so your prompt was not sent: it exited") && strings.HasSuffix(it.Error, ": not logged in")
+			return it.Kind == "result" && !it.OK && strings.HasPrefix(it.Error, "fx didn't start, so your prompt was not sent: it exited") && strings.HasSuffix(it.Error, ": not logged in. Run `fx login` in a terminal to sign in")
 		}),
 	)
 }
