@@ -37,7 +37,7 @@ func anywhereUsage() string {
        anywhere ticket read [--json] <id>
        anywhere ticket update [--title <text>] [--provider <agent>] [--base <branch>] [--prompt <text|->] <id>
        anywhere ticket delete <id>
-<agent> is ` + strings.Join(providers.Chatting(), "|")
+<agent> is ` + strings.Join(providers.IDs(), "|")
 }
 
 const (

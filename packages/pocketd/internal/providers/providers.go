@@ -77,8 +77,8 @@ func NeverAsks(id string) bool {
 	return p != nil && p.NeverAsks
 }
 
-// Chatting are the ids of the providers, in All's order: pocketd drives a chat of each.
-func Chatting() []string {
+// IDs are the providers' ids, in All's order.
+func IDs() []string {
 	var ids []string
 	for _, p := range All {
 		ids = append(ids, p.ID)

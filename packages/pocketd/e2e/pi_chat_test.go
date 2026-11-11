@@ -288,6 +288,15 @@ func TestAChatPiRunsOnFullAccessWhateverItIsLaunchedOn(t *testing.T) {
 	}
 }
 
+func TestAChatPiStartedPlanningSaysItCantStopPlanning(t *testing.T) {
+	_, phone, _, id := chatPi(t, "pi", map[string]any{"plan": true})
+	phone.Send(map[string]any{"type": "agent.settings", "id": "s1", "agentId": id, "access": "full"})
+	refused := phone.WaitFor("the refusal", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == "s1" })
+	if !strings.Contains(refused.Raw, "Pi plans only as it starts, so start a new session to build") {
+		t.Fatalf("got %s", refused.Raw)
+	}
+}
+
 func TestAnExtensionsDialogAsksTheChatPi(t *testing.T) {
 	h, phone, term, id := chatPi(t, "pi", nil)
 	phone.Prompt(id, "confirm Clear the session?")

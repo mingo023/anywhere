@@ -101,12 +101,20 @@ func (c piDriver) Settings(model, effort string) error {
 	return nil
 }
 
-// Access has nothing to switch: pi asks before no tool, so it is always full.
+// Access has nothing to switch: pi asks before no tool, so it is always
+// full, and its plan is the read-only tools it started with.
 func (c piDriver) Access(access string) error {
-	if access == "full" {
+	c.pr.mu.Lock()
+	planning := c.pr.launch.Plan
+	c.pr.mu.Unlock()
+	name := providers.Get(c.pr.provider).Name
+	switch {
+	case planning:
+		return errors.New(name + " plans only as it starts, so start a new session to build")
+	case access == "full":
 		return nil
 	}
-	return errors.New(providers.Get(c.pr.provider).Name + " runs every tool without asking, so its access is always full")
+	return errors.New(name + " runs every tool without asking, so its access is always full")
 }
 
 func (c piDriver) Commands() ([]proto.Command, error) {

@@ -37,7 +37,7 @@ const (
 
 // workers are the providers a task may name: all but those that never ask, which no allowlist holds.
 func workers() []string {
-	return slices.DeleteFunc(providers.Chatting(), providers.NeverAsks)
+	return slices.DeleteFunc(providers.IDs(), providers.NeverAsks)
 }
 
 func agents() string {

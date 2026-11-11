@@ -38,7 +38,7 @@
       "id": "cursor",
       "available": true,
       "efforts": [],
-      "plan": false,
+      "plan": true,
       "chat": {
         "interrupt": true,
         "compact": false,
@@ -152,7 +152,7 @@
       "id": "antigravity",
       "available": true,
       "efforts": [],
-      "plan": false,
+      "plan": true,
       "chat": {
         "interrupt": true,
         "compact": false,

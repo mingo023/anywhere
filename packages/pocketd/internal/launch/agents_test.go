@@ -25,7 +25,8 @@ func TestEachNewAgentStartsInItsTUIWithTheFlagsItsCLITakes(t *testing.T) {
 		want                  string
 	}{
 		{"cursor", "ask", false, "", "", "", "cursor-agent"},
-		{"cursor", "full", false, "gpt-6", "", "fix it", "cursor-agent --model gpt-6 fix it"},
+		{"cursor", "full", false, "gpt-6", "", "fix it", "cursor-agent --model gpt-6 --force fix it"},
+		{"cursor", "ask", true, "", "", "", "cursor-agent --mode plan"},
 		{"grok", "edits", false, "grok-4.6", "high", "", "grok --model grok-4.6 --reasoning-effort high"},
 		{"grok", "full", false, "", "", "", "grok --always-approve"},
 		{"grok", "full", true, "", "", "", "grok --permission-mode plan"},
@@ -40,6 +41,8 @@ func TestEachNewAgentStartsInItsTUIWithTheFlagsItsCLITakes(t *testing.T) {
 		{"hermes", "ask", false, "openai-codex:gpt-6-sol", "low", "fix it", "hermes chat -m openai-codex:gpt-6-sol --reasoning low -q fix it"},
 		{"hermes", "full", false, "", "", "", "hermes chat --yolo"},
 		{"antigravity", "ask", false, "", "", "", "agy"},
+		{"antigravity", "full", false, "gemini-3.8-flash", "", "", "agy --model gemini-3.8-flash --dangerously-skip-permissions"},
+		{"antigravity", "ask", true, "", "", "", "agy --mode plan"},
 	} {
 		s := spec(c.provider, c.access, c.plan)
 		s.Model, s.Effort, s.Prompt = c.model, c.effort, c.prompt
@@ -135,7 +138,7 @@ func TestAnAgentThatNeverAsksIsJudgedAndRecordedAsFullAccess(t *testing.T) {
 
 func TestAnAgentThatCantPlanFirstRefusesAPlan(t *testing.T) {
 	for _, chat := range []bool{false, true} {
-		for _, provider := range []string{"cursor", "fx", "hermes", "antigravity"} {
+		for _, provider := range []string{"fx", "hermes"} {
 			s := spec(provider, "ask", true)
 			s.Chat = chat
 			if _, f := argvOf(s, ""); f == nil || f.Code != "access_not_allowed" || f.Message != providers.Get(provider).Name+" can't plan first" {

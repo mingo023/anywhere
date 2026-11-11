@@ -243,6 +243,7 @@ pub const ALL: [Builtin; 10] = [
         id: "cursor",
         command: "cursor-agent",
         models: Catalog { args: &["--list-models"], parse: catalogs::cursor, fallback: &["composer-2.5", "gpt-5.4", "claude-sonnet-4-6", "grok-4.6"], ..Catalog::NONE },
+        plan: true,
         resume_args: "--resume",
         install: Install { command: "curl https://cursor.com/install -fsS | bash", ..Install::NONE },
         ..NEWER
@@ -325,6 +326,7 @@ pub const ALL: [Builtin; 10] = [
     Builtin {
         id: "antigravity",
         command: "agy",
+        plan: true,
         models: Catalog { args: &["acp"], fallback: &["gemini-3.8-flash-high"], ..ACP_MODELS },
         install: Install { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", then: "run agy once to sign in" },
         ..NEWER
@@ -375,14 +377,14 @@ mod tests {
         let expected: [(&str, &[&str], bool); 11] = [
             ("claude", &["low", "medium", "high", "xhigh", "max"], true),
             ("codex", &[], false),
-            ("cursor", &[], false),
+            ("cursor", &[], true),
             ("grok", &["low", "medium", "high", "xhigh"], true),
             ("opencode", &[], true),
             ("pi", thinking, true),
             ("omp", thinking, true),
             ("fx", &[], false),
             ("hermes", &[], false),
-            ("antigravity", &[], false),
+            ("antigravity", &[], true),
             ("gemini", &[], false),
         ];
         for (id, efforts, plan) in expected {

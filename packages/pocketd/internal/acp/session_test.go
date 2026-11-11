@@ -428,14 +428,23 @@ func TestEachAgentOpensItsSessionItsOwnWay(t *testing.T) {
 			"session/new": `{"_meta":{"autoMode":true},"cwd":"/work","mcpServers":[]}`,
 		}},
 		{"fx", state.Launch{Access: "ask"}, `{}`, map[string]string{
-			"session/set_mode": `{"modeId":"code","sessionId":"s1"}`,
+			"session/set_mode": `{"modeId":"auto","sessionId":"s1"}`,
+		}},
+		{"fx", state.Launch{Access: "full"}, `{}`, map[string]string{
+			"session/set_mode": `{"modeId":"full-access","sessionId":"s1"}`,
 		}},
 		{"antigravity", state.Launch{Access: "edits"}, `{}`, map[string]string{
 			"initialize":       `{"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"session":{"configOptions":{"boolean":{}}},"terminal":false},"clientInfo":{"name":"anywhere","title":"Anywhere","version":"0"},"protocolVersion":1}`,
-			"session/set_mode": `{"modeId":"auto_edit","sessionId":"s1"}`,
+			"session/set_mode": `{"modeId":"accept-edits","sessionId":"s1"}`,
 		}},
 		{"antigravity", state.Launch{Access: "full"}, `{}`, map[string]string{
-			"session/set_mode": `{"modeId":"yolo","sessionId":"s1"}`,
+			"session/set_mode": `{"modeId":"accept-edits","sessionId":"s1"}`,
+		}},
+		{"antigravity", state.Launch{Access: "ask", Plan: true}, `{}`, map[string]string{
+			"session/set_mode": `{"modeId":"plan","sessionId":"s1"}`,
+		}},
+		{"cursor", state.Launch{Access: "ask", Plan: true}, `{}`, map[string]string{
+			"session/set_mode": `{"modeId":"plan","sessionId":"s1"}`,
 		}},
 	} {
 		t.Run(c.provider+" "+c.launch.Access, func(t *testing.T) {

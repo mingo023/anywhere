@@ -38,6 +38,7 @@ var flavors = map[string]flavor{
 	// sign-in on the Mac and waits on it.
 	providers.Cursor.ID: {
 		caps:    map[string]any{"_meta": map[string]any{"parameterizedModelPicker": true}},
+		plan:    [2]string{"plan", "agent"},
 		lenient: true,
 	},
 	providers.Grok.ID: {
@@ -48,16 +49,18 @@ var flavors = map[string]flavor{
 		spawned:    true,
 	},
 	providers.OpenCode.ID: {plan: [2]string{"plan", "build"}, modeOption: true},
-	// fx asks before every read in its own ask mode, so it runs in code mode and polices itself.
+	// fx asks before every read in its own ask mode, so it runs in auto mode and polices itself.
 	providers.Fx.ID: {
-		modes: map[string]string{"ask": "code", "edits": "code", "auto": "code", "full": "code"},
+		modes: map[string]string{"ask": "auto", "edits": "auto", "auto": "auto", "full": "full-access"},
 	},
 	providers.Hermes.ID: {
 		modes: map[string]string{"ask": "default", "edits": "accept_edits", "auto": "dont_ask", "full": "dont_ask"},
 	},
 	providers.Antigravity.ID: {
-		caps:  map[string]any{"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}}},
-		modes: map[string]string{"ask": "default", "edits": "auto_edit", "auto": "default", "full": "yolo"},
+		caps: map[string]any{"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}}},
+		// Its server has no mode that runs every tool; pocketd answers for Full.
+		modes: map[string]string{"ask": "default", "edits": "accept-edits", "auto": "default", "full": "accept-edits"},
+		plan:  [2]string{"plan", "default"},
 	},
 }
 
