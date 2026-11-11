@@ -24,6 +24,22 @@ type Error struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// UnmarshalJSON leaves a Code that is no integer at 0, so the refusal still
+// answers its call instead of the whole message being dropped.
+func (e *Error) UnmarshalJSON(b []byte) error {
+	type plain Error
+	var p struct {
+		plain
+		Code json.RawMessage `json:"code"`
+	}
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*e = Error(p.plain)
+	json.Unmarshal(p.Code, &e.Code)
+	return nil
+}
+
 // Message is a call, a notification or a reply.
 type Message struct {
 	Version string          `json:"jsonrpc,omitempty"`

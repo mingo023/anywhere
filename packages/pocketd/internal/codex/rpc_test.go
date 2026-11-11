@@ -87,7 +87,7 @@ func TestRoutesNotificationsAndServerRequests(t *testing.T) {
 	}
 }
 
-func TestCallForgetsAbandonedCalls(t *testing.T) {
+func TestCallsFailOnceAbandonedOrClosed(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	s := codextest.Start(t, sock(t), func(method string, _ json.RawMessage) (any, string) {

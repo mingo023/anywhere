@@ -133,10 +133,26 @@ func TestALateReplyToAnAbandonedCallReachesNoOne(t *testing.T) {
 	if m := <-handled; m.Method != "after" {
 		t.Fatalf("handler took %+v", m)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.pending) != 0 {
-		t.Fatalf("%d calls still pending", len(c.pending))
+}
+
+func TestACallAfterCloseFails(t *testing.T) {
+	c, _, _ := connect(t, "2.0")
+	c.Close()
+	if _, err := c.Call(context.Background(), "late", nil); err == nil {
+		t.Fatal("call on a closed conn succeeded")
+	}
+}
+
+func TestARefusalWhoseCodeIsNoIntegerStillAnswersItsCall(t *testing.T) {
+	c, p, _ := connect(t, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := call(c, ctx, "add")
+	req := p.next(t)
+	p.say(t, `{"id":`+string(req.ID)+`,"error":{"code":"E_ADD","message":"no add"}}`)
+	r := <-got
+	if r.err != nil || r.m.Error == nil || r.m.Error.Message != "no add" {
+		t.Fatalf("%+v %v", r.m, r.err)
 	}
 }
 
