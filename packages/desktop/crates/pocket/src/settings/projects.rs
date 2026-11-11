@@ -14,7 +14,7 @@ fn worktree_count(n: usize) -> String {
 pub(super) const ROWS: &[Setting] = &[
     Setting::path("worktree-folder", "Locations", "Worktree folder", |s| s.worktree_root(&home()), |s, p| s.worktree.root = p).hint("New worktrees go in <folder>/<project>/<name>"),
     Setting::path("clone-folder", "Locations", "Clone folder", |s| s.clone_root(&home()), |s, p| s.worktree.clone_root = p).hint("Where Add project › Clone puts new repositories"),
-    Setting::custom("projects", "Projects", "Projects", |d, _, cx| d.project_list(cx)).hint("Open one to edit its icon, accounts and setup script, or remove it"),
+    Setting::custom("projects", "Projects", "Projects", |d, _, cx| d.project_list(cx)).hint("Open one to edit its icon, accounts, agents and setup script, or remove it"),
     Setting::switch("delete-branch", "Deleting a worktree", "Also delete its branch", |s| s.worktree.delete_branch, |s, on| s.worktree.delete_branch = on).hint("Local branch only. Remote branches are never deleted"),
     Setting::choice("worktree-files", "Deleting a worktree", "Worktree files", &["Move to Trash", "Delete permanently"], Look::Segmented, |s| usize::from(!s.worktree.trash), |s, i| s.worktree.trash = i == 0),
     Setting::stepper("teardown-timeout", "Deleting a worktree", "Teardown script timeout", (10, 600, 10), " s", |s| s.worktree.teardown_secs as i32, |s, n| s.worktree.teardown_secs = n as u32)

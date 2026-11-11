@@ -28,6 +28,8 @@ pub struct RepoConfig {
     pub gh_account: String,
     /// The account by provider its new sessions start on, on the project's host; one missing uses the provider's default.
     pub accounts: BTreeMap<String, String>,
+    /// Agents its model panel leaves out.
+    pub hidden: BTreeSet<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -451,6 +453,22 @@ impl Store {
         self.scratch.contains(path)
     }
 
+    /// The agents `project` keeps out of its model panel.
+    pub fn hidden(&self, project: Option<&str>) -> &BTreeSet<String> {
+        static NONE: BTreeSet<String> = BTreeSet::new();
+        project.and_then(|p| self.repos.get(p)).map_or(&NONE, |r| &r.hidden)
+    }
+
+    /// What `project` last started, else the default agent; an agent it hides falls back to the first it shows.
+    pub fn launch_pick(&self, project: Option<&str>, live: &agents::Agents) -> LaunchPick {
+        let last = project.and_then(|p| self.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default();
+        let (pick, hidden) = (self.agents.pick(last, live), self.hidden(project));
+        match self.agents.shown(live, hidden).first() {
+            Some(shown) if hidden.contains(&pick.provider) => pick.switched(shown),
+            _ => pick,
+        }
+    }
+
     /// `projects` without the Scratch folders, for lists only real projects belong in.
     pub fn without_scratch(&self, mut projects: Vec<String>) -> Vec<String> {
         projects.retain(|p| !self.is_scratch(p));
@@ -592,6 +610,22 @@ mod tests {
         let back: Store = serde_json::from_slice(&serde_json::to_vec(&store).unwrap()).unwrap();
         assert_eq!(back.scopes["/w/fix"], scope);
         assert!(serde_json::from_str::<Store>("{\"scopes\": 3}").unwrap().scopes.is_empty(), "an unreadable scope list reads as none");
+    }
+
+    #[test]
+    fn a_project_starts_no_agent_it_hides_unless_it_hides_them_all() {
+        let live = agents::Agents::default();
+        let last = LaunchPick { provider: "claude".into(), model: "opus".into(), access: "auto".into(), ..LaunchPick::default() };
+        let mut store = Store::default();
+        store.repos.insert("/app".into(), RepoConfig { launch: last.clone(), ..RepoConfig::default() });
+        assert_eq!(store.launch_pick(Some("/app"), &live), last);
+        store.repos.get_mut("/app").unwrap().hidden.insert("claude".into());
+        assert_eq!(store.launch_pick(Some("/app"), &live), LaunchPick { provider: "codex".into(), access: "auto".into(), ..LaunchPick::default() });
+        assert_eq!(store.agents.shown(&live, store.hidden(Some("/app"))), ["codex"]);
+        assert_eq!((store.launch_pick(Some("/other"), &live).provider.as_str(), store.launch_pick(None, &live).provider.as_str()), ("claude", "claude"), "it hides them for itself only");
+        store.repos.get_mut("/app").unwrap().hidden.insert("codex".into());
+        assert_eq!(store.launch_pick(Some("/app"), &live), last);
+        assert!(serde_json::from_str::<RepoConfig>("{}").unwrap().hidden.is_empty());
     }
 
     #[test]

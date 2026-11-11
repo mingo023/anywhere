@@ -40,32 +40,44 @@ impl Desktop {
         if view_only || !self.agents.settings_offered() {
             return pill;
         }
-        let (open, provider) = (self.chats.composer.draft.menu == Some(Menu::Model), agent.provider.clone());
+        let (open, id) = (self.chats.composer.draft.menu == Some(Menu::Model), agent.id.clone());
         let chip = composer::picker(pill, "chat-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             if this.chats.composer.draft.toggle(Menu::Model) {
                 let search = this.chats.composer.search.clone();
                 focus_search(&search, window, cx);
-                this.models_opened(|d| &mut d.chats.composer.draft, &provider, cx);
+                this.chat_models_opened(&id, cx);
             }
             cx.notify();
         }));
         let menu = open.then(|| {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
-            let rail = self.model_rail(viewed, &agent.provider, &self.chats.composer.draft.rail, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
+            let project = self.chat_project(agent);
+            let rail = self.model_rail(viewed, &agent.provider, project.as_deref(), &self.chats.composer.draft.rail, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
             let effort = (viewed == agent.provider && !levels.is_empty()).then(|| self.chat_effort_menu(agent, &levels, default, cx));
-            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, cx), self.models_note(viewed), effort), cx)
+            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
 
+    /// The project `agent` works in, whose hidden agents its model panel leaves out.
+    fn chat_project(&self, agent: &Summary) -> Option<String> {
+        self.project_of(&agent.cwd, &self.projects()).cloned()
+    }
+
+    /// The chat's model panel just opened on the agent with this `id`.
+    pub(super) fn chat_models_opened(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some((provider, project)) = self.agents.get(id).map(|a| (a.provider.clone(), self.chat_project(a))) else { return };
+        self.models_opened(|d| &mut d.chats.composer.draft, &provider, project.as_deref(), cx);
+    }
+
     /// What `viewed` lists that holds the search, the model the agent runs checked. Picking one of its provider's switches
     /// it; one from another provider has to start a new chat.
-    fn chat_models(&self, agent: &Summary, viewed: &str, cx: &mut Context<Self>) -> Div {
+    fn chat_models(&self, agent: &Summary, viewed: &str, project: Option<&str>, cx: &mut Context<Self>) -> Div {
         let draft = &self.chats.composer.draft;
         let query = self.chats.composer.search.read(cx).value();
-        let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from()), || {
-            let lines = self.model_lines(viewed, "", &query);
+        let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || {
+            let lines = self.model_lines(viewed, "", &query, project);
             Listed { on: running_line(&lines, agent, self.offered_models(&agent.provider)), lines }
         });
         if listed.lines.is_empty() {

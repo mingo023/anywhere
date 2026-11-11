@@ -223,6 +223,11 @@ impl Desktop {
         self.store.agents.offered(&self.agents)
     }
 
+    /// The agents `project`'s model panel offers: the ones on offer but for those it hides.
+    pub(crate) fn offered_in(&self, project: Option<&str>) -> Vec<&'static str> {
+        self.store.agents.shown(&self.agents, self.store.hidden(project))
+    }
+
     /// Whether pocketd found `provider`'s CLI.
     pub(crate) fn installed(&self, provider: &str) -> bool {
         self.agents.provider_info(provider).available

@@ -6,6 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The permission modes a new session can ask for; "settings" leaves it to the agent's own settings.
 pub const ACCESSES: [&str; 5] = ["settings", "ask", "edits", "auto", "full"];
 
+/// How many models the model panel's Recent section remembers.
+pub const RECENT: usize = 6;
+
 /// Where "Add to chat" sends a quote when no agent is picked; "ask" never picks one.
 pub const CHAT_TO: [&str; 3] = ["focused", "recent", "ask"];
 
@@ -93,6 +96,8 @@ pub struct Agents {
     pub providers: BTreeMap<String, Provider>,
     /// Models starred in the model panel, as (provider, model), oldest first.
     pub favorites: Vec<(String, String)>,
+    /// Models last picked in the model panel, as (provider, model), newest first.
+    pub recent: Vec<(String, String)>,
 }
 
 impl Default for Agents {
@@ -110,6 +115,7 @@ impl Default for Agents {
             start_as_chat: false,
             providers: BTreeMap::new(),
             favorites: Vec::new(),
+            recent: Vec::new(),
         }
     }
 }
@@ -128,6 +134,11 @@ impl Agents {
         let found: Vec<_> = LaunchPick::PROVIDERS.into_iter().filter(|p| live.provider_info(p).available).collect();
         let on: Vec<_> = found.iter().copied().filter(|p| !self.disabled.contains(*p)).collect();
         if on.is_empty() { found } else { on }
+    }
+
+    /// The providers on offer to a project that keeps the `hidden` ones out of its model panel.
+    pub fn shown(&self, live: &agents::Agents, hidden: &BTreeSet<String>) -> Vec<&'static str> {
+        self.offered(live).into_iter().filter(|p| !hidden.contains(*p)).collect()
     }
 
     pub fn enable(&mut self, provider: &str) {
@@ -234,6 +245,16 @@ impl Agents {
         } else {
             self.favorites.push((provider.into(), model.into()));
         }
+    }
+
+    /// Puts `provider`'s `model` first among the recent ones. The agent's own default names no model to go back to.
+    pub fn used(&mut self, provider: &str, model: &str) {
+        if model.is_empty() {
+            return;
+        }
+        self.recent.retain(|(p, m)| p != provider || m != model);
+        self.recent.insert(0, (provider.into(), model.into()));
+        self.recent.truncate(RECENT);
     }
 
     /// The `CHAT_TO` in effect; an unknown one is "focused".
@@ -477,6 +498,22 @@ mod tests {
         assert_eq!(agents.favorites[1], ("opencode".to_string(), "opencode/big-pickle".to_string()));
         let old: Agents = serde_json::from_str("{}").unwrap();
         assert!(old.favorites.is_empty());
+    }
+
+    #[test]
+    fn a_model_picked_again_moves_first_and_only_the_last_six_are_kept() {
+        let mut agents = Agents::default();
+        for model in ["a", "b", "c", "d", "e", "f", "g"] {
+            agents.used("pi", model);
+        }
+        agents.used("pi", "e");
+        agents.used("claude", "");
+        let recent: Vec<_> = agents.recent.iter().map(|(_, m)| m.as_str()).collect();
+        assert_eq!(recent, ["e", "g", "f", "d", "c", "b"]);
+        agents.used("omp", "e");
+        assert_eq!(agents.recent[..2], [("omp".to_string(), "e".to_string()), ("pi".to_string(), "e".to_string())], "another agent's model of one name");
+        let old: Agents = serde_json::from_str("{}").unwrap();
+        assert!(old.recent.is_empty());
     }
 
     #[test]

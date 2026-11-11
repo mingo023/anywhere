@@ -1,4 +1,5 @@
 pub(crate) mod accounts;
+pub(crate) mod agents;
 pub(crate) mod host_folder;
 pub(crate) mod icon;
 
@@ -10,7 +11,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use host_folder::Browse;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Duration;
 use store::{ProjectIcon, RepoConfig};
@@ -51,6 +52,8 @@ struct RepoDraft {
     accounts: BTreeMap<String, String>,
     /// The provider whose account menu is open.
     account_menu: Option<&'static str>,
+    /// The agents its model panel leaves out.
+    hidden: BTreeSet<String>,
     /// Reset is asking to be confirmed.
     resetting: bool,
     editing: Option<String>,
@@ -70,6 +73,7 @@ impl Default for RepoDraft {
             icon: None,
             accounts: BTreeMap::new(),
             account_menu: None,
+            hidden: BTreeSet::new(),
             resetting: false,
             editing: None,
             browse: None,
@@ -103,8 +107,10 @@ impl RepoDraft {
 fn project_changes(cfg: &RepoConfig) -> Vec<(&'static str, String, String)> {
     let script = |s: &str| if s.is_empty() { "empty" } else { "edited" }.to_string();
     let accounts = |n: usize| if n == 0 { "default".to_string() } else { "picked".to_string() };
+    let agents = |n: usize| if n == 0 { "all shown".to_string() } else { "some hidden".to_string() };
     [
         ("Accounts", accounts(cfg.accounts.len()), accounts(0)),
+        ("Agents", agents(cfg.hidden.len()), agents(0)),
         ("When a worktree is created", script(&cfg.setup), script("")),
         ("When a worktree is deleted", script(&cfg.teardown), script("")),
     ]
@@ -179,6 +185,12 @@ fn fact_chip(Fact { glyph, label, tone }: Fact) -> Div {
 /// A row on a `group` plate.
 fn plate_row() -> Div {
     div().h(px(46.)).px(px(12.)).flex().items_center().gap(px(10.))
+}
+
+/// A `plate_row` for `provider`, named `name`: its mark, then its name.
+fn agent_row(provider: &str, name: String) -> Div {
+    let lead = div().size(px(24.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(provider, 14., TEXT_2));
+    plate_row().child(lead).child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(name))
 }
 
 /// Rows on one rounded plate, split by hairlines, with an optional heading above and note below.
@@ -299,7 +311,7 @@ impl Desktop {
         };
         self.settings.menu = None;
         let f = &mut self.repo_form;
-        f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, editing: editing.clone(), ..RepoDraft::default() };
+        f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, hidden: cfg.hidden, editing: editing.clone(), ..RepoDraft::default() };
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
             s.set_placeholder("", window, cx);
@@ -391,6 +403,7 @@ impl Desktop {
             dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
             gh_account: saved.map(|r| r.gh_account.clone()).unwrap_or_default(),
             accounts: f.draft.accounts.clone(),
+            hidden: f.draft.hidden.clone(),
         }
     }
 
@@ -399,6 +412,7 @@ impl Desktop {
         let f = &mut self.repo_form;
         f.draft.resetting = false;
         f.draft.accounts.clear();
+        f.draft.hidden.clear();
         for input in [&f.setup, &f.teardown] {
             input.update(cx, |s, cx| s.set_value("", window, cx));
         }
@@ -539,6 +553,10 @@ impl Desktop {
         if !accounts.is_empty() {
             body.push(group(Some("Sessions"), accounts, Some("New chats in this project start on these accounts.")).into_any_element());
         }
+        let agents = self.project_agent_rows(cx);
+        if !agents.is_empty() {
+            body.push(group(Some("Agents"), agents, Some("One switched off stays out of this project\u{2019}s model menu.")).into_any_element());
+        }
         let f = &self.repo_form;
         if !f.draft.plain_folder() {
             let scripts = vec![script_row("When one is created", "Runs in the new worktree", &f.setup), script_row("When one is deleted", "Runs before it\u{2019}s removed", &f.teardown)];
@@ -632,6 +650,13 @@ mod tests {
         let cfg = RepoConfig { accounts: [("claude".to_string(), "work".to_string())].into(), ..RepoConfig::default() };
         let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
         assert_eq!(lines, ["Accounts: picked > default"]);
+    }
+
+    #[test]
+    fn reset_shows_again_the_agents_a_project_hides() {
+        let cfg = RepoConfig { hidden: ["codex".to_string()].into(), ..RepoConfig::default() };
+        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        assert_eq!(lines, ["Agents: some hidden > all shown"]);
     }
 
     #[test]
