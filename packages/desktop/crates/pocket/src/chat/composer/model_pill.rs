@@ -1,11 +1,11 @@
 use super::{close_menu, hang};
 use crate::composer::{self, Menu, launch};
-use crate::composer::effort_menu::{Effort, effort_menu};
+use crate::composer::effort_menu::{Effort, choice_menu, effort_menu};
 use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
 use crate::pick_menu::{Line, checked};
 use crate::desktop::Desktop;
 use crate::settings::models::effort_label;
-use agents::{ListedModel, Summary};
+use agents::{ListedModel, ModelSetting, Summary};
 use gpui_kit::*;
 use std::rc::Rc;
 
@@ -13,6 +13,11 @@ use std::rc::Rc;
 /// them isn't one it runs on.
 fn running_effort<'a>(agent: &'a Summary, levels: &[String], default: Option<&'a str>) -> Option<&'a str> {
     agent.effort.as_deref().into_iter().chain(default).find(|e| !e.is_empty() && (levels.is_empty() || levels.iter().any(|l| l == e)))
+}
+
+/// The value `agent` runs `setting` on: the one it was started on or switched to, else the model's default.
+fn running_option<'a>(agent: &'a Summary, setting: &'a ModelSetting) -> &'a String {
+    agent.options.get(&setting.id).unwrap_or(&setting.default)
 }
 
 /// The model's short name and its `running_effort`, labelled as the new session's pill labels them.
@@ -64,8 +69,11 @@ impl Desktop {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
             let project = self.chat_project(agent);
             let rail = self.model_rail(viewed, &agent.provider, project.as_deref(), &self.chats.composer.draft.rail, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
-            let effort = (viewed == agent.provider && !levels.is_empty()).then(|| self.chat_effort_menu(agent, &levels, default, cx));
-            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort.into_iter().collect()), cx)
+            let own = viewed == agent.provider;
+            let effort = (own && !levels.is_empty()).then(|| self.chat_effort_menu(agent, &levels, default, cx));
+            let settings = if own { self.chat_setting_menus(agent, cx) } else { Vec::new() };
+            let rows = effort.into_iter().chain(settings).collect();
+            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), rows), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
@@ -114,11 +122,23 @@ impl Desktop {
         let on = running_effort(agent, levels, default).map(String::from);
         effort_menu("chat-effort", agents::providers::known(&agent.provider).effort_word, (levels, on.as_ref()), &self.chats.composer.draft.effort, |d: &mut Desktop| &mut d.chats.composer.draft, pick, cx)
     }
+
+    /// The running model's own settings, each naming the value it's on, else the model's default; picking one switches it.
+    fn chat_setting_menus(&self, agent: &Summary, cx: &mut Context<Self>) -> Vec<Effort> {
+        let model = agent.model.as_deref().unwrap_or_default();
+        let settings = self.listed_model(&agent.provider, model).map_or(&[][..], |m| &m.settings);
+        let menus = settings.iter().enumerate().map(|(i, s)| {
+            let (id, setting) = (agent.id.clone(), s.id.clone());
+            let pick: launch::Pick = Rc::new(move |this, value, _| this.outbox.option(&id, &setting, &value));
+            choice_menu(("chat-setting", i), s.name.clone().into(), (&s.choices, Some(running_option(agent, s))), &self.chats.composer.draft.effort, |d: &mut Desktop| &mut d.chats.composer.draft, pick, cx)
+        });
+        menus.collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Line, ListedModel, Summary, label, running_effort, running_line, runs, unlisted_running};
+    use super::{Entry, Line, ListedModel, ModelSetting, Summary, label, running_effort, running_line, running_option, runs, unlisted_running};
 
     #[test]
     fn the_line_checked_is_the_model_the_chat_runs() {
@@ -161,6 +181,14 @@ mod tests {
         assert_eq!(running_effort(&agent(Some("xhigh")), &levels, Some("low")), Some("low"));
         assert_eq!(running_effort(&agent(Some("xhigh")), &[], None), Some("xhigh"));
         assert_eq!(running_effort(&agent(Some("")), &[], Some("")), None);
+    }
+
+    #[test]
+    fn a_setting_runs_on_what_the_agent_was_started_on_or_switched_to_else_the_models_default() {
+        let fast = ModelSetting { id: "fast".into(), name: "Fast".into(), choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())], default: "false".into() };
+        let agent = |options: &[(&str, &str)]| Summary { provider: "omp".into(), options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), ..Default::default() };
+        assert_eq!(running_option(&agent(&[("fast", "true")]), &fast), "true");
+        assert_eq!(running_option(&agent(&[("mode", "review")]), &fast), "false");
     }
 
     #[test]

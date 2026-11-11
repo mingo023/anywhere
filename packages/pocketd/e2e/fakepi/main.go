@@ -235,6 +235,13 @@ func (a *agent) handle(m msg) {
 		a.session.Thinking = str("level")
 		a.send(msg{"type": "thinking_level_changed", "level": str("level")})
 		a.respond(m, nil)
+	case "set_fast_mode":
+		if a.name != "omp" {
+			a.refuse(m, "Unknown command: set_fast_mode")
+			return
+		}
+		note("set_fast_mode: %v", m["enabled"])
+		a.respond(m, nil)
 	case "get_session_stats":
 		a.respond(m, msg{"sessionId": a.session.ID, "contextUsage": msg{"tokens": 1200, "contextWindow": 200000, "percent": 0.6}})
 	case "get_commands":

@@ -407,7 +407,7 @@ func TestOpenCodesAgentIsTheModeItLeavesPlanningFor(t *testing.T) {
 	equal(t, a.called("session/set_config_option", 1), []string{`{"configId":"mode","sessionId":"s1","value":"review"}`})
 }
 
-func TestCursorsModelSettingsAreSetOnTheModelOnceItIsPicked(t *testing.T) {
+func TestCursorsModelSettingsAreSetOnTheModelOnceItIsPickedAndOnlyThoseItTookAreTold(t *testing.T) {
 	picked := `{"configOptions":[{"id":"model","category":"model","currentValue":"gpt-5.4"},
 		{"id":"reasoning","category":"thought_level","type":"select","currentValue":"medium"},
 		{"id":"fast","category":"model_config","type":"select","currentValue":"false"}]}`
@@ -429,6 +429,117 @@ func TestCursorsModelSettingsAreSetOnTheModelOnceItIsPicked(t *testing.T) {
 		`{"configId":"fast","sessionId":"s1","value":"true"}`,
 		`{"configId":"reasoning","sessionId":"s1","value":"high"}`,
 	})
+	sk.wait(t, "options:map[reasoning:high]")
+}
+
+func TestACursorSettingRunsOnWhatItsNewModelSaysOnceTheModelSwitches(t *testing.T) {
+	s, _, sk, _ := start(t, opts{provider: "cursor", launch: state.Launch{Model: "gpt-5.4"},
+		answer: func(a *agent, method string, params json.RawMessage) string {
+			switch {
+			case method == "session/new":
+				return `{"sessionId":"s1","configOptions":[{"id":"model","category":"model","currentValue":"gpt-5.4"},
+					{"id":"fast","category":"model_config","type":"select","currentValue":"false"},{"id":"context","category":"model_config","type":"select","currentValue":"200k"}]}`
+			case strings.Contains(string(params), `"configId":"model"`):
+				return `{"configOptions":[{"id":"model","category":"model","currentValue":"gpt-5.5"},{"id":"fast","category":"model_config","type":"select","currentValue":"false"}]}`
+			}
+			return `{}`
+		}})
+	sk.wait(t, "model:gpt-5.4")
+	if err := s.SetOptions(map[string]string{"context": "1m", "fast": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	sk.wait(t, "options:map[context:1m fast:true]")
+	if err := s.Settings("gpt-5.5", ""); err != nil {
+		t.Fatal(err)
+	}
+	sk.wait(t, "options:map[fast:false]")
+}
+
+func TestASwitchKeepsTheSettingsSwitchedBeforeAndThoseSetBeforeOneThatFails(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "antigravity", launch: state.Launch{Access: "ask"},
+		answer: func(a *agent, method string, params json.RawMessage) string {
+			if method == "session/new" {
+				return `{"sessionId":"s1","configOptions":[{"id":"model","category":"model","type":"select","currentValue":"gemini-3.1-pro"},
+					{"id":"fast","name":"Fast","category":"model","type":"boolean","currentValue":false},{"id":"web","name":"Web","currentValue":true}]}`
+			}
+			return `{}`
+		}})
+	sk.wait(t, "model:gemini-3.1-pro")
+	if err := s.SetOptions(map[string]string{"fast": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOptions(map[string]string{"web": "false"}); err != nil {
+		t.Fatal(err)
+	}
+	sk.wait(t, "options:map[fast:true web:false]")
+	if err := s.SetOptions(map[string]string{"fast": "false", "web": "maybe"}); err == nil || err.Error() != "web is on or off" {
+		t.Fatalf("a boolean set to neither: %v", err)
+	}
+	sk.wait(t, "options:map[fast:false web:false]")
+	if err := s.SetOptions(map[string]string{"fast": "true", "zzz": "1"}); err == nil || err.Error() != "Antigravity has no setting zzz" {
+		t.Fatalf("a setting it doesn't list: %v", err)
+	}
+	if got := a.called("session/set_config_option", 3); len(got) != 3 {
+		t.Fatalf("set some of a switch with a setting it doesn't list: %v", got)
+	}
+}
+
+func TestAModelSettingSwitchesMidChatAndOnlyOneTheSessionLists(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "cursor", launch: state.Launch{Model: "gpt-5.4"},
+		answer: func(a *agent, method string, params json.RawMessage) string {
+			if method == "session/new" {
+				return `{"sessionId":"s1","configOptions":[{"id":"model","category":"model","currentValue":"gpt-5.4"},{"id":"fast","category":"model_config","type":"select","currentValue":"false"}]}`
+			}
+			return `{}`
+		}})
+	sk.wait(t, "model:gpt-5.4")
+	if err := s.SetOptions(map[string]string{"fast": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.called("session/set_config_option", 1), []string{`{"configId":"fast","sessionId":"s1","value":"true"}`})
+	if err := s.SetOptions(map[string]string{"context": "1m"}); err == nil || err.Error() != "Cursor has no setting context" {
+		t.Fatalf("a setting it doesn't list: %v", err)
+	}
+}
+
+func TestOpenCodesAgentPickedWhilePlanningWaitsForPlanningToEnd(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "opencode", launch: state.Launch{Access: "ask", Plan: true}, answer: script(opencodeNew, says())})
+	sk.wait(t, "model:opencode/big-pickle")
+	if err := s.SetOptions(map[string]string{"mode": "review"}); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.called("session/set_config_option", 1), []string{`{"configId":"mode","sessionId":"s1","value":"plan"}`})
+	if err := s.Access("edits"); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.called("session/set_config_option", 2)[1:], []string{`{"configId":"mode","sessionId":"s1","value":"review"}`})
+	if err := s.SetOptions(map[string]string{"mode": "build"}); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.called("session/set_config_option", 3)[2:], []string{`{"configId":"mode","sessionId":"s1","value":"build"}`})
+}
+
+func TestABooleanSettingIsSetAsTheJSONBooleanACPTypesIt(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "antigravity", launch: state.Launch{Access: "ask", Options: map[string]string{"fast": "true"}},
+		answer: func(a *agent, method string, params json.RawMessage) string {
+			if method == "session/new" {
+				return `{"sessionId":"s1","configOptions":[{"id":"model","category":"model","type":"select","currentValue":"gemini-3.1-pro"},
+					{"id":"fast","name":"Fast","category":"model","type":"boolean","currentValue":false},{"id":"web","name":"Web","currentValue":true}]}`
+			}
+			return `{}`
+		}})
+	sk.wait(t, "model:gemini-3.1-pro")
+	if err := s.SetOptions(map[string]string{"fast": "false", "web": "false"}); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.called("session/set_config_option", 3), []string{
+		`{"configId":"fast","sessionId":"s1","type":"boolean","value":true}`,
+		`{"configId":"fast","sessionId":"s1","type":"boolean","value":false}`,
+		`{"configId":"web","sessionId":"s1","type":"boolean","value":false}`,
+	})
+	if err := s.SetOptions(map[string]string{"fast": "yes"}); err == nil || err.Error() != "fast is on or off" {
+		t.Fatalf("a boolean set to neither: %v", err)
+	}
 }
 
 func TestHermesSwitchesModelAndModeByTheirOwnCalls(t *testing.T) {

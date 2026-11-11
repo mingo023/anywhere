@@ -105,6 +105,7 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	}
 	pr.a.SetEffort(pr.launch.Effort)
 	pr.a.SetAccess(pr.launch.Access)
+	pr.a.SetOptions(pr.launch.Options)
 	// Claude names its model only in its first reply; until then the one it was started with stands in.
 	if pr.launch.Model != "" && pr.a.Summary().Model == "" {
 		pr.a.SetModel(pr.launch.Model)
@@ -575,6 +576,13 @@ func (pr *presence) switched(model, effort string) {
 	if effort != "" {
 		pr.a.SetEffort(effort)
 	}
+}
+
+func (pr *presence) setOptions(options map[string]string) {
+	pr.mu.Lock()
+	pr.launch.Options = options
+	pr.mu.Unlock()
+	pr.a.SetOptions(options)
 }
 
 func (c termDriver) inForeground() bool {

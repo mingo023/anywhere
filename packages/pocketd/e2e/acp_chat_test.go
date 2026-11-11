@@ -453,6 +453,34 @@ func TestAChatOpenCodeTakesItsModelAndPlanModeAsConfigOptions(t *testing.T) {
 	}
 }
 
+func TestAChatOpenCodeSwitchesItsAgentMidChatAndARestartKeepsIt(t *testing.T) {
+	h, phone, term, id := chatACP(t, "opencode", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "hello")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), statusOf(id, "done"))
+	phone.Send(map[string]any{"type": "agent.settings", "id": "s1", "agentId": id, "options": map[string]string{"mode": "review"}})
+	phone.WaitAll("the switch",
+		func(m Message) bool { return m.Type == "ack" && m.ID == "s1" },
+		func(m Message) bool {
+			return m.Type == "agent.update" && m.Agent.ID == id && strings.Contains(m.Raw, `"options":{"mode":"review"}`)
+		},
+	)
+	h.WaitScreen(term, "config: mode=review")
+
+	h.Restart()
+
+	again := h.Owner()
+	again.WaitFor("the agent still on review", func(m Message) bool {
+		return (m.Type == "agent.list" || m.Type == "agent.update" && m.Agent.ID == id) && strings.Contains(m.Raw, `"options":{"mode":"review"}`)
+	})
+	h.WaitScreen(term, "load: ")
+	h.WaitScreen(term, "config: mode=review")
+	if screen := h.Screen(term); strings.Index(screen, "config: mode=review") < strings.Index(screen, "load: ") {
+		t.Fatalf("the resumed session wasn't set to review:\n%s", screen)
+	}
+	again.Prompt(id, "after the restart")
+	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
+}
+
 func TestAChatOpenCodeShowsACallOnceItsInputComesAndAsksAboutIt(t *testing.T) {
 	h, phone, term, id := chatACP(t, "opencode", nil)
 	phone.Prompt(id, "run ls")

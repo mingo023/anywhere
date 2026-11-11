@@ -143,6 +143,7 @@ export const AgentSummary = Schema.Struct({
   chatOnly: Schema.optional(Schema.Boolean),
   goal: Schema.optional(Goal),
   parent: Schema.optional(Schema.String),
+  options: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
 });
 export type AgentSummary = typeof AgentSummary.Type;
 export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;

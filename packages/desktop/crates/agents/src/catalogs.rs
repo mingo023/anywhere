@@ -276,24 +276,33 @@ fn setting(option: &Value) -> Option<ModelSetting> {
     (!id.is_empty() && choices.len() > 1).then(|| ModelSetting { id: id.into(), name: text(option, &["name", "id"]).into(), default: text(option, &["currentValue"]).into(), choices })
 }
 
+/// A boolean config option, as Antigravity's, as an On/Off setting.
+fn switch(option: &Value) -> Option<ModelSetting> {
+    let (id, on) = (text(option, &["id"]), option["currentValue"].as_bool());
+    let choices = vec![("false".into(), "Off".into()), ("true".into(), "On".into())];
+    (!id.is_empty() && (option["type"] == "boolean" || on.is_some())).then(|| ModelSetting { id: id.into(), name: text(option, &["name", "id"]).into(), choices, default: on.unwrap_or_default().to_string() })
+}
+
 /// The models an ACP agent's reply to `session/new` offers: its model option's choices, each taking the thought levels
-/// when it has two or more, else its `models` with the one it's on first.
+/// when it has two or more, else its `models` with the one it's on first. Each takes the session's boolean options.
 pub fn acp(output: &str) -> Vec<ListedModel> {
     let Some(reply) = reply(output, is_acp_session) else { return Vec::new() };
     let result = &reply["result"];
     let options = items(&result["configOptions"]);
-    let picks = |o: &&Value| o["type"] != "boolean" && (o["id"] == "model" || (o["category"] == "model" && o["id"] != "provider"));
+    let switches: Vec<ModelSetting> = options.iter().filter_map(switch).collect();
+    let picks = |o: &&Value| switch(o).is_none() && (o["id"] == "model" || (o["category"] == "model" && o["id"] != "provider"));
     let model = options.iter().find(|o| picks(o) && o["id"] == "model").or_else(|| options.iter().find(picks));
     let efforts: Vec<String> = options.iter().filter(|o| o["category"] == "thought_level").map(|o| choices(o).into_iter().map(|(v, _)| v.to_string()).collect()).find(|e: &Vec<String>| e.len() > 1).unwrap_or_default();
+    let switched = |models: Vec<ListedModel>| models.into_iter().map(|m| ListedModel { settings: switches.clone(), ..m }).collect();
     let offered: Vec<ListedModel> = model.map(choices).unwrap_or_default().into_iter().map(|(value, name)| listed(value, name, efforts.clone())).collect();
     if !offered.is_empty() {
-        return unique(offered);
+        return switched(unique(offered));
     }
     let mut models = unique(items(&result["models"]["availableModels"]).iter().map(acp_model).filter(|m| !m.value.is_empty()).collect());
     if let Some(current) = models.iter().position(|m| m.value == text(&result["models"], &["currentModelId"])) {
         models[..=current].rotate_right(1);
     }
-    models
+    switched(models)
 }
 
 /// The models `fx models --json` lists, as ids or as objects, under `ids`, `models` or `data` or as the array itself;
@@ -390,6 +399,8 @@ mod tests {
         assert_eq!(shown(&acp(opencode)), [("opencode/beam-free", "OpenCode/Beam Free", vec![]), ("opencode/big-pickle", "OpenCode/Big Pickle", vec![])]);
         let antigravity = r#"{"jsonrpc":"2.0","id":2,"result":{"configOptions":[{"id":"fast","category":"model","type":"boolean","currentValue":false},{"id":"provider","category":"model","options":[{"value":"google","name":"Google"}]},{"id":"llm","category":"model","options":[{"group":"provider","options":[{"value":"m1","name":"Model One"},{"value":"m2"}]}]},{"id":"depth","category":"thought_level","currentValue":"high","options":[{"value":"only","name":"Only"}]},{"id":"thinking","category":"thought_level","currentValue":"high","options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]}],"models":{"availableModels":[{"modelId":"legacy","name":"Legacy"}]}}}"#;
         assert_eq!(shown(&acp(antigravity)), [("m1", "Model One", vec!["low", "high"]), ("m2", "m2", vec!["low", "high"])]);
+        let fast = ModelSetting { id: "fast".into(), name: "fast".into(), choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())], default: "false".into() };
+        assert!(acp(antigravity).iter().all(|m| m.settings == [fast.clone()]), "its boolean option, as an On/Off setting");
     }
 
     #[test]

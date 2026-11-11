@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -28,6 +29,11 @@ type Driver interface {
 	// Commands lists the slash commands the agent takes beyond the chat's own.
 	Commands() ([]proto.Command, error)
 	Close()
+}
+
+// Optioner is a driver whose agent switches its model's own settings, by the agent's id for each, for its next turns.
+type Optioner interface {
+	SetOptions(options map[string]string) error
 }
 
 // SendNower is a driver whose agent can take the prompts sent mid-turn before its current step ends.
@@ -73,6 +79,7 @@ type Agent struct {
 	model           string
 	effort          string
 	access          string
+	options         map[string]string
 	phase           string // idle, working or needsYou
 	unseenEnd       bool
 	failed          bool
@@ -312,6 +319,7 @@ func (a *Agent) summary() proto.AgentSummary {
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
 		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal, Parent: a.parent,
+		Options: maps.Clone(a.options),
 	}
 }
 
@@ -361,7 +369,7 @@ func (a *Agent) update(touch bool, f func()) {
 	before := a.summary()
 	f()
 	after := a.summary()
-	if after == before {
+	if reflect.DeepEqual(after, before) {
 		return
 	}
 	if touch {
@@ -650,6 +658,11 @@ func (a *Agent) SetAccess(access string) {
 	a.update(false, func() { a.access = access })
 }
 
+// SetOptions takes the model settings the agent runs on.
+func (a *Agent) SetOptions(options map[string]string) {
+	a.update(false, func() { a.options = options })
+}
+
 // SetAccount names the managed account the agent runs on; "" is the built-in login.
 func (a *Agent) SetAccount(id string) {
 	a.update(false, func() { a.account = id })
@@ -755,7 +768,7 @@ func (a *Agent) record(e timeline.Event) {
 func (a *Agent) ended(err string) {
 	before := a.summary()
 	a.lastError = firstLine(err)
-	if after := a.summary(); after != before {
+	if after := a.summary(); !reflect.DeepEqual(after, before) {
 		a.hub.Publish(proto.NewAgentUpdate(after))
 	}
 }

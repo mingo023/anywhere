@@ -76,6 +76,8 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
     public var goal: Goal?
     /// The agent this one was started under, as a team's worker under its lead.
     public var parent: String?
+    /// The model settings the agent runs on, by the agent's id for each.
+    public var options: [String: String]?
 
     public init(
         id: String, terminalId: String, title: String, cwd: String, provider: String, model: String? = nil, effort: String? = nil,
@@ -83,7 +85,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         compacting: Bool? = nil, pinned: Bool? = nil, epoch: Int, maxSeq: Int, resets: Int? = nil, providerSessionId: String? = nil,
         createdAt: Int, updatedAt: Int, project: String? = nil, worktree: String? = nil, mainWorktree: Bool? = nil, branch: String? = nil,
         tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
-        switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil, parent: String? = nil
+        switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil, parent: String? = nil, options: [String: String]? = nil
     ) {
         self.id = id
         self.terminalId = terminalId
@@ -119,6 +121,7 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         self.chatOnly = chatOnly
         self.goal = goal
         self.parent = parent
+        self.options = options
     }
 }
 
@@ -314,11 +317,14 @@ extension ClientMessage {
         public var effort: String?
         /// ask, edits, auto or full; never "settings".
         public var access: String?
-        public init(agentId: String, model: String? = nil, effort: String? = nil, access: String? = nil) {
+        /// The model's own settings, by the agent's id for each.
+        public var options: [String: String]?
+        public init(agentId: String, model: String? = nil, effort: String? = nil, access: String? = nil, options: [String: String]? = nil) {
             self.agentId = agentId
             self.model = model
             self.effort = effort
             self.access = access
+            self.options = options
         }
     }
 

@@ -93,6 +93,7 @@ export const ClientMessage = Schema.Union(
     model: Schema.optional(Schema.String),
     effort: Schema.optional(Schema.String),
     access: Schema.optional(Schema.Literal("ask", "edits", "auto", "full")),
+    options: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   }),
   Schema.Struct({ type: Schema.Literal("agent.pin"), id: Schema.String, agentId: Schema.String, pinned: Schema.Boolean }),
   Schema.Struct({

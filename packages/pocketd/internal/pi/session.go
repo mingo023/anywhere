@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,8 @@ type Sink interface {
 	SetTitle(string)
 	SetTokens(used, window int64)
 	SetModel(string)
+	// SetOptions takes the model settings the agent runs on, of those a launch or a switch set.
+	SetOptions(map[string]string)
 	SetEffort(string)
 	// Bound names the agent's session once pi tells it.
 	Bound(session string)
@@ -113,6 +117,7 @@ type Session struct {
 	// tasks are the calls that run sub-agents.
 	tasks    map[string]*task
 	commands []proto.Command // as omp last told them
+	fast     string          // omp's Fast as last set, "true" or "false"; "" for never
 }
 
 // block is a block of the message pi is writing, a delta at a time.
@@ -181,9 +186,12 @@ func (s *Session) Open(w jsonrpc.Wire, l state.Launch, midTurn bool) (unsent []s
 		}
 	}
 	if fast, ok := l.Options["fast"]; ok && s.f.fast {
-		if _, err := s.call(c, CallWait, "set_fast_mode", map[string]any{"enabled": fast == "true"}); err != nil {
+		if err := s.setFast(c, fast); err != nil {
 			s.notice(fmt.Sprintf("%s couldn't set fast to %s: %v", s.name, fast, err))
 		}
+	}
+	if len(l.Options) > 0 {
+		s.tellOptions()
 	}
 	var history struct {
 		Messages []message `json:"messages"`
@@ -218,6 +226,49 @@ func (s *Session) Open(w jsonrpc.Wire, l state.Launch, midTurn bool) (unsent []s
 	s.held = nil
 	s.drain()
 	return nil, nil
+}
+
+func (s *Session) setFast(c *Client, fast string) error {
+	if fast != "true" && fast != "false" {
+		return errors.New("fast is on or off")
+	}
+	if _, err := s.call(c, CallWait, "set_fast_mode", map[string]any{"enabled": fast == "true"}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.fast = fast
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Session) tellOptions() {
+	s.mu.Lock()
+	fast := s.fast
+	s.mu.Unlock()
+	var options map[string]string
+	if fast != "" {
+		options = map[string]string{"fast": fast}
+	}
+	s.sink.SetOptions(options)
+}
+
+// rereadFast takes the Fast a model switched to runs on: omp keeps one for each provider.
+func (s *Session) rereadFast(c *Client) {
+	var st struct {
+		Fast bool `json:"fastModeEnabled"`
+	}
+	data, err := s.call(c, CallWait, "get_state", nil)
+	if err == nil {
+		err = json.Unmarshal(data, &st)
+	}
+	if err != nil {
+		log.Printf("pi %s: fast after the switch: %v", s.agentID, err)
+		return
+	}
+	s.mu.Lock()
+	s.fast = strconv.FormatBool(st.Fast)
+	s.mu.Unlock()
+	s.tellOptions()
 }
 
 func (s *Session) call(c *Client, wait time.Duration, kind string, fields map[string]any) (json.RawMessage, error) {
@@ -284,13 +335,35 @@ func (s *Session) Settings(name, effort string) error {
 		json.Unmarshal(data, &m)
 		s.mu.Lock()
 		s.window = cmp.Or(m.Window, s.window)
+		picked := s.fast != ""
 		s.mu.Unlock()
+		if picked {
+			s.rereadFast(c)
+		}
 	}
 	if effort != "" {
 		if _, err := s.call(c, CallWait, "set_thinking_level", map[string]any{"level": effort}); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+// SetOptions sets the model's own settings for the session's next turns: omp's fast, the only one either has.
+func (s *Session) SetOptions(options map[string]string) error {
+	c, err := s.usable()
+	if err != nil {
+		return err
+	}
+	for _, id := range slices.Sorted(maps.Keys(options)) {
+		if id != "fast" || !s.f.fast {
+			return fmt.Errorf("%s has no setting %s", s.name, id)
+		}
+	}
+	if err := s.setFast(c, options["fast"]); err != nil {
+		return err
+	}
+	s.tellOptions()
 	return nil
 }
 

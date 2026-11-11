@@ -31,6 +31,8 @@ type Sink interface {
 	SetTitle(string)
 	SetTokens(used, window int64)
 	SetModel(string)
+	// SetOptions takes the model settings the agent runs on, of those a launch or a switch picked.
+	SetOptions(map[string]string)
 	// Bound names the agent's session once it is open.
 	Bound(session string)
 	// Loaded says the agent loaded its session: the history that follows is all of it.
@@ -164,6 +166,11 @@ var (
 	modeSetting   = setting{[]string{"mode"}, "mode", "", ""}
 )
 
+func (o configOption) boolean() bool {
+	_, toggle := o.Current.(bool)
+	return o.Type == "boolean" || toggle
+}
+
 func (g setting) of(options []configOption) *configOption {
 	for _, id := range g.ids {
 		if i := slices.IndexFunc(options, func(o configOption) bool { return o.ID == id }); i >= 0 {
@@ -171,8 +178,7 @@ func (g setting) of(options []configOption) *configOption {
 		}
 	}
 	in := func(o configOption) bool {
-		_, toggle := o.Current.(bool)
-		return o.Category == g.category && o.ID != g.not && o.Type != "boolean" && !toggle
+		return o.Category == g.category && o.ID != g.not && !o.boolean()
 	}
 	i := slices.IndexFunc(options, func(o configOption) bool { return in(o) && o.ID != g.last })
 	if i < 0 {
@@ -217,6 +223,7 @@ func (s *Session) Open(w jsonrpc.Wire, cwd, saved string, l state.Launch, left L
 	c := Connect(w, s)
 	s.mu.Lock()
 	s.c, s.launch, s.cwd = c, l, cwd
+	s.launch.Options = maps.Clone(l.Options)
 	s.mu.Unlock()
 	res, err := s.open(c, cwd, saved, l, left)
 	s.mu.Lock()
@@ -226,7 +233,7 @@ func (s *Session) Open(w jsonrpc.Wire, cwd, saved string, l state.Launch, left L
 		s.mu.Unlock()
 		return unsent, err
 	}
-	s.setOptions(res.ConfigOptions)
+	s.takeOptions(res.ConfigOptions)
 	id, model := s.id, cmp.Or(s.currentModel(), res.Models.Current)
 	s.mu.Unlock()
 	s.sink.Bound(id)
@@ -423,14 +430,59 @@ func (s *Session) apply(l state.Launch, model string) {
 		// A model switched since launch may lack its options.
 		case o == nil:
 			log.Printf("acp %s: no option %s", s.agentID, id)
+			s.took(id, "")
 		// Planning holds the mode until it ends.
 		case l.Plan && mode != nil && mode.ID == id:
 		default:
 			if err := s.setOption(o, value); err != nil {
 				s.notice(fmt.Sprintf("%s couldn't set %s to %s: %v", s.name, id, value, err))
+				s.took(id, "")
 			}
 		}
 	}
+	if len(l.Options) > 0 {
+		s.tellOptions()
+	}
+}
+
+// took records value as what option id runs on; "" drops it from those picked.
+func (s *Session) took(id, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if value == "" {
+		delete(s.launch.Options, id)
+		return
+	}
+	if s.launch.Options == nil {
+		s.launch.Options = map[string]string{}
+	}
+	s.launch.Options[id] = value
+}
+
+func (s *Session) tellOptions() {
+	s.mu.Lock()
+	options := maps.Clone(s.launch.Options)
+	s.mu.Unlock()
+	s.sink.SetOptions(options)
+}
+
+// rereadOptions takes what the options picked run on once the model has
+// switched: Cursor's belong to each model. Planning holds the mode picked.
+func (s *Session) rereadOptions() {
+	s.mu.Lock()
+	mode := modeSetting.of(s.options)
+	for id := range s.launch.Options {
+		if s.launch.Plan && mode != nil && mode.ID == id {
+			continue
+		}
+		if i := slices.IndexFunc(s.options, func(o configOption) bool { return o.ID == id }); i >= 0 && s.options[i].Current != nil {
+			s.launch.Options[id] = fmt.Sprint(s.options[i].Current)
+		} else {
+			delete(s.launch.Options, id)
+		}
+	}
+	s.mu.Unlock()
+	s.tellOptions()
 }
 
 // listed is the config option the session lists as id.
@@ -449,8 +501,16 @@ func unsupported(err error) bool {
 }
 
 // setOption sets config option o, and takes the options the agent answers with.
+// A boolean option takes JSON true or false, which a launch's options write as text.
 func (s *Session) setOption(o *configOption, value string) error {
-	res, err := s.request("session/set_config_option", map[string]any{"configId": o.ID, "value": value})
+	params := map[string]any{"configId": o.ID, "value": value}
+	if o.boolean() {
+		if value != "true" && value != "false" {
+			return fmt.Errorf("%s is on or off", o.ID)
+		}
+		params["type"], params["value"] = "boolean", value == "true"
+	}
+	res, err := s.request("session/set_config_option", params)
 	if err != nil {
 		return err
 	}
@@ -459,12 +519,12 @@ func (s *Session) setOption(o *configOption, value string) error {
 	}
 	json.Unmarshal(res, &r)
 	s.mu.Lock()
-	s.setOptions(r.ConfigOptions)
+	s.takeOptions(r.ConfigOptions)
 	s.mu.Unlock()
 	return nil
 }
 
-func (s *Session) setOptions(options []configOption) {
+func (s *Session) takeOptions(options []configOption) {
 	if options != nil {
 		s.options = options
 	}
@@ -542,11 +602,42 @@ func (s *Session) Settings(model, effort string) error {
 		if err := s.setModel(model); err != nil {
 			return err
 		}
+		s.rereadOptions()
 	}
 	if effort != "" {
 		if err := s.setEffort(effort); err != nil {
 			return fmt.Errorf("%s can't switch effort: %w", s.name, err)
 		}
+	}
+	return nil
+}
+
+// SetOptions sets the model's own settings, by the agent's id for each, for the
+// session's next turns. Planning holds the mode until it ends, as apply does.
+func (s *Session) SetOptions(options map[string]string) error {
+	if err := s.usable(); err != nil {
+		return err
+	}
+	ids := slices.Sorted(maps.Keys(options))
+	listed := make([]*configOption, len(ids))
+	for i, id := range ids {
+		if listed[i] = s.listed(id); listed[i] == nil {
+			return fmt.Errorf("%s has no setting %s", s.name, id)
+		}
+	}
+	// Those set before one that fails stay set.
+	defer s.tellOptions()
+	s.mu.Lock()
+	planning := s.launch.Plan
+	s.mu.Unlock()
+	mode := s.option(modeSetting)
+	for i, id := range ids {
+		if !planning || mode == nil || mode.ID != id {
+			if err := s.setOption(listed[i], options[id]); err != nil {
+				return err
+			}
+		}
+		s.took(id, options[id])
 	}
 	return nil
 }
@@ -959,7 +1050,7 @@ func (s *Session) update(raw, parent string) {
 			s.commands = append(s.commands, proto.Command{Name: c.Name, Description: c.Description, ArgumentHint: c.Input.Hint})
 		}
 	case "config_option_update":
-		s.setOptions(u.Options)
+		s.takeOptions(u.Options)
 	case "auto_compact_completed":
 		s.sink.SetTokens(u.After, 0)
 	case "turn_completed":

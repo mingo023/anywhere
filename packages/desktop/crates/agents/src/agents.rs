@@ -62,6 +62,8 @@ pub struct Summary {
     pub goal: Option<Goal>,
     /// The session it was started under, as a team's worker under its lead; empty for none.
     pub parent: String,
+    /// The model settings it runs on, by the agent's id for each.
+    pub options: HashMap<String, String>,
 }
 
 /// An agent's `/goal`.
@@ -1018,6 +1020,11 @@ impl Outbox {
             msg[key] = value.into();
         }
         self.send(msg);
+    }
+
+    /// Switches the model's own setting `id` to `value`.
+    pub fn option(&self, agent_id: &str, id: &str, value: &str) {
+        self.send(json!({"type": "agent.settings", "id": SETTINGS, "agentId": agent_id, "options": {id: value}}));
     }
 
     /// Switches what the agent may do without asking.
@@ -2405,6 +2412,11 @@ mod tests {
     }
 
     #[test]
+    fn option_sends_the_golden_agent_settings_options_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.option("a1", "fast", "true")), without_id(golden!("client/agent_settings_options.json")));
+    }
+
+    #[test]
     fn access_sends_the_golden_agent_access_frame_but_its_id() {
         assert_eq!(sent_but_id(|o| o.access("a1", "edits")), without_id(golden!("client/agent_access.json")));
     }
@@ -2492,6 +2504,12 @@ mod tests {
         let f: Frame = serde_json::from_value(golden!("server/agent_update_goal.json")).unwrap();
         let goal = Goal { objective: "tests pass".into(), status: GoalStatus::Active, tokens_used: 16510, token_budget: 50000 };
         assert_eq!(f.agent.unwrap().goal, Some(goal));
+    }
+
+    #[test]
+    fn the_golden_options_ride_on_their_agent() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_update_options.json")).unwrap();
+        assert_eq!(f.agent.unwrap().options, HashMap::from([("fast".to_string(), "true".to_string())]));
     }
 
     #[test]

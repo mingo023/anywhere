@@ -51,6 +51,7 @@ type ClientMessage struct {
 	Model           string
 	Effort          string
 	Access          string
+	Options         map[string]string
 	Action          string
 	Server          string
 	// BeforeSeq pages agent.timeline backwards; never set with SinceSeq.
@@ -203,7 +204,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("provider", &m.Provider) && get("project", &m.Project) && m.Project != "" && optionalString("account", &m.Account)
 	case m.Type == "agent.settings":
 		ok = get("agentId", &m.AgentID) && optionalString("model", &m.Model) && optionalString("effort", &m.Effort) && optionalString("access", &m.Access) &&
-			(m.Access == "" || m.Access != "settings" && slices.Contains(Accesses, m.Access)) && (m.Model != "" || m.Effort != "" || m.Access != "")
+			(!f.has("options") || get("options", &m.Options)) &&
+			(m.Access == "" || m.Access != "settings" && slices.Contains(Accesses, m.Access)) && (m.Model != "" || m.Effort != "" || m.Access != "" || len(m.Options) > 0)
 	case m.Type == "agent.pin":
 		ok = get("agentId", &m.AgentID) && get("pinned", &m.Pinned)
 	case m.Type == "agent.view":
