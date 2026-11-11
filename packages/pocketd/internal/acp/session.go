@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -100,6 +102,8 @@ type Session struct {
 	answered bool // the history's last prompt has an answer after it
 	tools    map[string]*tool
 	cwd      string
+	// server is OpenCode's HTTP server, which names a sub-agent's session while it runs.
+	server string
 	// children maps a sub-agent's session to the call that spawned it.
 	children map[string]string
 	// models and ended hold what Grok's history told of a sub-agent before the call that spawned it.
@@ -109,6 +113,8 @@ type Session struct {
 	kids map[string]*kid
 	// calls holds every call shown, to the call whose sub-agent made it: "" for the session's own.
 	calls map[string]string
+	// delegated holds the calls whose sub-agents Hermes left running this turn.
+	delegated []string
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
 	woke string
 	// runs is the prompt Grok said it runs while a turn was under way, until that turn ends.
@@ -683,6 +689,12 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	} else {
 		s.sink.TurnEnded(!e.OK)
 	}
+	// Hermes takes no turn of its own once its sub-agents end, so they go to
+	// the background only now: before, the turn would wait for them.
+	for _, id := range s.delegated {
+		s.sink.Apply(timeline.Event{Kind: "tool_background", ToolUseID: id})
+	}
+	s.delegated = nil
 	if runs != "" && !stopped {
 		s.wake(runs)
 		return
@@ -1012,6 +1024,58 @@ func (s *Session) adopt(sid, call string) {
 	load()
 }
 
+// Server takes the agent's command line: OpenCode's names the port of the
+// server its ACP server runs on.
+func (s *Session) Server(args []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := slices.Index(args, "--port"); i >= 0 && i+1 < len(args) && args[i+1] != "0" {
+		s.server = "http://127.0.0.1:" + args[i+1]
+	}
+}
+
+// ChildPoll is how often OpenCode's server is asked for the session of a sub-agent that just started.
+var ChildPoll = 100 * time.Millisecond
+
+// discover has the agent load the session of the sub-agent OpenCode runs
+// for call, which its server names as its own title: OpenCode tells nothing
+// of a session it hasn't loaded, not even what it asks the user, and names
+// the session to the client only as the call ends.
+func (s *Session) discover(call, description string) {
+	tick := time.NewTicker(ChildPoll)
+	defer tick.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-tick.C:
+		}
+		s.mu.Lock()
+		id, cwd, running := s.id, s.cwd, s.tools[call] != nil
+		s.mu.Unlock()
+		if !running {
+			return
+		}
+		var kids []struct{ ID, Title string }
+		ctx, cancel := context.WithTimeout(s.ctx, CallWait)
+		req, _ := http.NewRequestWithContext(ctx, "GET", s.server+"/session/"+url.PathEscape(id)+"/children?directory="+url.QueryEscape(cwd), nil)
+		if res, err := http.DefaultClient.Do(req); err == nil {
+			json.NewDecoder(res.Body).Decode(&kids)
+			res.Body.Close()
+		}
+		cancel()
+		s.mu.Lock()
+		for _, k := range kids {
+			if strings.HasPrefix(k.Title, description+" (@") && s.children[k.ID] == "" && s.tools[call] != nil {
+				s.adopt(k.ID, call)
+				s.mu.Unlock()
+				return
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
 // texts are the kinds of message each update that streams one writes.
 var texts = map[string]string{"user_message_chunk": "user", "agent_message_chunk": "assistant", "agent_message": "assistant",
 	"agent_thought_chunk": "thinking", "agent_thought": "thinking"}
@@ -1155,6 +1219,14 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 		s.record(timeline.Event{Kind: "tool_model", ToolUseID: t.ID, Name: sub.model})
 	}
 	switch {
+	case len(sub.transcripts) > 0:
+		s.watch(t.ID, sub.transcripts)
+		if s.opening {
+			s.record(timeline.Event{Kind: "tool_background", ToolUseID: t.ID})
+		} else {
+			s.delegated = append(s.delegated, t.ID)
+		}
+		return
 	case sub.session == "":
 	// OpenCode tells a sub-agent's work only of a session loaded, as does Grok of one in its history.
 	case !sub.live || s.opening:
@@ -1178,12 +1250,19 @@ func (s *Session) show(t *tool) {
 	s.calls[t.ID] = t.parent
 	name, detail := t.describe()
 	t.task = name == "task"
+	if t.task && t.parent == "" && s.server != "" && !s.opening {
+		go s.discover(t.ID, detail.Description)
+	}
 	if t.parent != "" {
 		s.record(timeline.Event{Kind: "tool_start", ToolUseID: t.ID, Name: name, Detail: &detail, ParentToolUseID: t.parent})
 		return
 	}
 	s.flush()
 	s.record(timeline.Event{Kind: "tool_start", ToolUseID: t.ID, Name: name, Detail: &detail})
+	// Hermes tells nothing of its sub-agent's brief but in the call.
+	if brief, ok := t.delegation(); ok {
+		s.record(timeline.Event{Kind: "user", Text: brief, ParentToolUseID: t.ID})
+	}
 	s.answered = s.opening
 }
 

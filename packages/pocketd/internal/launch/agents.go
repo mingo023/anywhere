@@ -2,7 +2,9 @@ package launch
 
 import (
 	"errors"
+	"net"
 	"slices"
+	"strconv"
 	"strings"
 
 	"pocketd/internal/config"
@@ -26,10 +28,24 @@ func acpArgv(p *providers.Spec, l state.Launch, argv []string) []string {
 		argv = append(flags(p, l, append(plan(p, l, argv), "agent", "--no-leader")), "stdio")
 	case &providers.Fx:
 		argv = flags(p, l, append(argv, "acp"))
+	// OpenCode's ACP server runs on its HTTP server, the one place that names
+	// a sub-agent's session while it runs.
+	case &providers.OpenCode:
+		argv = append(argv, "acp", "--port", strconv.Itoa(freePort()))
 	default:
 		argv = append(argv, "acp")
 	}
 	return argv
+}
+
+// freePort is a port free on loopback, or 0, which leaves the pick to the agent.
+func freePort() int {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
 }
 
 // piArgv adds what runs argv's command for pi's RPC on stdio. Planning is
