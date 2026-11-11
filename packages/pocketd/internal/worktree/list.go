@@ -3,6 +3,7 @@ package worktree
 
 import (
 	"cmp"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,52 @@ import (
 type Worktree struct {
 	Name, Path, Branch string
 	Main               bool
+	// Made: Anywhere made it, whatever folder it is in.
+	Made bool
+}
+
+// Marker is the file Anywhere leaves in the git folder of a Worktree it makes,
+// which git deletes with the Worktree. The desktop reads it too (git::worktrees in crates/git).
+const Marker = "anywhere"
+
+// markerPath is where tree's Marker goes; "" when tree isn't a linked worktree.
+func markerPath(tree string) string {
+	raw, _ := os.ReadFile(filepath.Join(tree, ".git"))
+	dir, linked := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir: ")
+	if !linked {
+		return ""
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(tree, dir)
+	}
+	return filepath.Join(dir, Marker)
+}
+
+func mark(tree string) {
+	if err := os.WriteFile(markerPath(tree), nil, 0o644); err != nil {
+		log.Printf("worktree: marking %s: %v", tree, err)
+	}
+}
+
+func marked(tree string) bool {
+	_, err := os.Stat(markerPath(tree))
+	return err == nil
+}
+
+// Claim marks the Worktrees in a project's worktrees folder that hold one of
+// used, the folders Anywhere has on record: the ones it made before it marked
+// them, which only their folder told from the ones made there by hand.
+func Claim(f registry.File, used []string) {
+	for _, p := range f.Projects {
+		ws, _ := List(p)
+		dir := resolved(Dir(f, p)) + "/"
+		for _, w := range ws {
+			holds := func(u string) bool { return u == w.Path || strings.HasPrefix(u, w.Path+"/") }
+			if !w.Main && !w.Made && strings.HasPrefix(resolved(w.Path), dir) && slices.ContainsFunc(used, holds) {
+				mark(w.Path)
+			}
+		}
+	}
 }
 
 // List is project's checkouts: the main one, then the rest oldest folder
@@ -31,6 +78,9 @@ func List(project string) ([]Worktree, error) {
 	}
 	ws := parse(string(out))
 	if len(ws) > 1 {
+		for i := 1; i < len(ws); i++ {
+			ws[i].Made = marked(ws[i].Path)
+		}
 		slices.SortStableFunc(ws[1:], func(a, b Worktree) int { return cmp.Compare(born(a.Path), born(b.Path)) })
 	}
 	return ws, nil
@@ -65,27 +115,18 @@ func Projects(f registry.File) []proto.Project {
 		if err != nil {
 			continue
 		}
-		trees := make([]proto.Worktree, len(ws))
-		for i, w := range ws {
-			trees[i] = proto.Worktree{Name: w.Name, Path: w.Path, Branch: w.Branch, IsMain: w.Main}
-		}
-		ps = append(ps, proto.Project{Path: p, Name: f.Name(p), Worktrees: Listed(f, p, trees)})
+		ps = append(ps, proto.Project{Path: p, Name: f.Name(p), Worktrees: Listed(f, ws)})
 	}
 	return ps
 }
 
-// Listed is the worktrees of project the desktop's sidebar lists (`Store::lists`): the main one, those it tracks,
-// those in the project's worktrees folder, which Anywhere made for it or a phone, and all while it lists those
-// made elsewhere.
-func Listed(f registry.File, project string, ws []proto.Worktree) []proto.Worktree {
-	if f.Sidebar.ExternalWorktrees {
-		return ws
-	}
-	dir := resolved(Dir(f, project)) + "/"
+// Listed is the worktrees of a project the desktop's sidebar lists (`project::listed` over `Store::lists`): the
+// main one, those Anywhere made, those the desktop tracks, and all while it lists those made elsewhere.
+func Listed(f registry.File, ws []Worktree) []proto.Worktree {
 	out := []proto.Worktree{}
 	for _, w := range ws {
-		if w.IsMain || slices.Contains(f.Tracked, w.Path) || strings.HasPrefix(resolved(w.Path), dir) {
-			out = append(out, w)
+		if w.Main || w.Made || f.Sidebar.ExternalWorktrees || slices.Contains(f.Tracked, w.Path) {
+			out = append(out, proto.Worktree{Name: w.Name, Path: w.Path, Branch: w.Branch, IsMain: w.Main})
 		}
 	}
 	return out

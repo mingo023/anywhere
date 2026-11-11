@@ -116,6 +116,7 @@ func (o *Open) Add() (Created, error) {
 		o.rollback()
 		return Created{}, err
 	}
+	mark(o.Path)
 	path := o.Path
 	if real, err := filepath.EvalSymlinks(path); err == nil {
 		path = real

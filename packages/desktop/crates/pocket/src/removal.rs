@@ -297,7 +297,7 @@ mod tests {
     }
 
     fn tree(path: &str, main: bool) -> git::Worktree {
-        git::Worktree { path: path.into(), branch: String::new(), main }
+        git::Worktree { path: path.into(), branch: String::new(), main, made: false }
     }
 
     #[test]

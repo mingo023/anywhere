@@ -89,11 +89,15 @@ func TestProjectsLeaveOutAFolderThatIsGone(t *testing.T) {
 func TestProjectsListTheWorktreesTheDesktopListsAndThoseAnywhereMade(t *testing.T) {
 	p := repo(t)
 	root := filepath.Join(p, "..", "trees")
-	made, mine, theirs := filepath.Join(root, "pocket", "made"), filepath.Join(p, "..", "mine"), filepath.Join(p, "..", "theirs")
-	for _, w := range []string{made, mine, theirs} {
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
+	if _, err := Add(f, p, "made", ""); err != nil {
+		t.Fatal(err)
+	}
+	stray, mine, theirs := filepath.Join(root, "pocket", "stray"), filepath.Join(p, "..", "mine"), filepath.Join(p, "..", "theirs")
+	for _, w := range []string{stray, mine, theirs} {
 		git(t, p, "worktree", "add", "-q", "-b", filepath.Base(w), w)
 	}
-	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}, Tracked: []string{filepath.Clean(mine)}}
+	f.Tracked = []string{filepath.Clean(mine)}
 	paths := func() []string {
 		var out []string
 		for _, w := range Projects(f)[0].Worktrees {
@@ -105,7 +109,42 @@ func TestProjectsListTheWorktreesTheDesktopListsAndThoseAnywhereMade(t *testing.
 		t.Fatalf("got %v", got)
 	}
 	f.Sidebar.ExternalWorktrees = true
-	if got := paths(); !reflect.DeepEqual(got, []string{"pocket", "made", "mine", "theirs"}) {
+	if got := paths(); !reflect.DeepEqual(got, []string{"pocket", "made", "stray", "mine", "theirs"}) {
 		t.Fatalf("with external worktrees, got %v", got)
+	}
+}
+
+func TestWorktreesInTheFolderThatHoldAFolderOnRecordAreClaimed(t *testing.T) {
+	p := repo(t)
+	root := filepath.Join(p, "..", "trees")
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
+	named, running, idle, outside := filepath.Join(root, "pocket", "named"), filepath.Join(root, "pocket", "running"),
+		filepath.Join(root, "pocket", "idle"), filepath.Join(p, "..", "outside")
+	for _, w := range []string{named, running, idle, outside} {
+		git(t, p, "worktree", "add", "-q", "-b", filepath.Base(w), w)
+	}
+	Claim(f, []string{filepath.Clean(named), filepath.Join(filepath.Clean(running), "src"), filepath.Clean(idle) + "-2", filepath.Clean(outside), ""})
+	var got []string
+	for _, w := range Projects(f)[0].Worktrees {
+		got = append(got, filepath.Base(w.Path))
+	}
+	if !reflect.DeepEqual(got, []string{"pocket", "named", "running"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAMarkGoesWithItsWorktree(t *testing.T) {
+	p := repo(t)
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: filepath.Join(p, "..", "trees")}}
+	c, err := Add(f, p, "made", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Remove(f, p, c.Path); err != nil {
+		t.Fatal(err)
+	}
+	git(t, p, "worktree", "add", "-q", "-b", "again", c.Path)
+	if got := Projects(f)[0].Worktrees; len(got) != 1 {
+		t.Fatalf("got %+v", got)
 	}
 }

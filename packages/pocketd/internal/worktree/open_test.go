@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"pocketd/internal/registry"
 )
 
 // commitOn adds a commit to ref in the bare repo, starting ref at main when
@@ -56,6 +58,16 @@ func TestALocalBranchOpensAsItIs(t *testing.T) {
 	}
 	if b := git(t, c.Path, "branch", "--show-current"); b != "fix/login" {
 		t.Fatalf("on %q", b)
+	}
+}
+
+func TestAnOpenedBranchIsListedWhereverItsFolderIs(t *testing.T) {
+	p := repo(t)
+	git(t, p, "branch", "fix/login")
+	_, c := opened(t, p, "fix/login")
+	got := Projects(registry.File{Projects: []string{p}})[0].Worktrees
+	if len(got) != 2 || got[1].Path != c.Path {
+		t.Fatalf("%+v", got)
 	}
 }
 

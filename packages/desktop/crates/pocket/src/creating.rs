@@ -103,7 +103,7 @@ impl Create {
     }
 
     fn worktree(&self) -> git::Worktree {
-        git::Worktree { path: self.path.clone(), branch: self.name(), main: false }
+        git::Worktree { path: self.path.clone(), branch: self.name(), main: false, made: true }
     }
 
     /// The spec's `checkout.new`: what the sheet asked for.
@@ -649,12 +649,12 @@ mod tests {
     fn a_worktree_being_made_joins_its_project_until_git_lists_it() {
         let mut creates = Creates::default();
         creates.list.push(create(false, false).0);
-        let main = git::Worktree { path: "/p".into(), branch: "main".into(), main: true };
+        let main = git::Worktree { path: "/p".into(), branch: "main".into(), main: true, made: false };
         let paths = |t: Vec<git::Worktree>| t.into_iter().map(|w| (w.path, w.main)).collect::<Vec<_>>();
         assert_eq!(paths(creates.trees("/p", std::slice::from_ref(&main))), [("/p".to_string(), true), ("/w/fix".to_string(), false)]);
         assert_eq!(paths(creates.trees("/q", &[])), []);
         assert_eq!(creates.started("r1", "/private/w/fix".into(), &mut HashMap::new()), Some("/w/fix".to_string()));
-        let listed = [main, git::Worktree { path: "/private/w/fix".into(), branch: "fix".into(), main: false }];
+        let listed = [main, git::Worktree { path: "/private/w/fix".into(), branch: "fix".into(), main: false, made: false }];
         assert_eq!(creates.trees("/p", &listed).len(), 2);
     }
 
@@ -662,7 +662,7 @@ mod tests {
     fn a_started_create_lists_its_worktree_in_its_project_once() {
         let mut creates = Creates::default();
         creates.list.push(create(false, false).0);
-        let main = git::Worktree { path: "/p".into(), branch: "main".into(), main: true };
+        let main = git::Worktree { path: "/p".into(), branch: "main".into(), main: true, made: false };
         let mut worktrees = HashMap::from([("/p".to_string(), vec![main])]);
         creates.started("r1", "/private/w/fix".into(), &mut worktrees);
         creates.started("r1", "/private/w/fix".into(), &mut worktrees);

@@ -40,7 +40,7 @@ type Projects struct {
 // cached is one project's worktrees as of stamp, what its git folder looked like.
 type cached struct {
 	stamp string
-	trees []proto.Worktree
+	trees []worktree.Worktree
 }
 
 func NewProjects(reg *registry.Registry) *Projects {
@@ -101,13 +101,10 @@ func (p *Projects) Scan() {
 			if err != nil {
 				continue
 			}
-			c = cached{stamp: s, trees: make([]proto.Worktree, len(ws))}
-			for i, w := range ws {
-				c.trees[i] = proto.Worktree{Name: w.Name, Path: w.Path, Branch: w.Branch, IsMain: w.Main}
-			}
+			c = cached{stamp: s, trees: ws}
 		}
 		next[path] = c
-		list = append(list, proto.Project{Path: path, Name: f.Name(path), Worktrees: worktree.Listed(f, path, c.trees)})
+		list = append(list, proto.Project{Path: path, Name: f.Name(path), Worktrees: worktree.Listed(f, c.trees)})
 	}
 	p.mu.Lock()
 	changed := !p.ready || !reflect.DeepEqual(list, p.list)
@@ -119,9 +116,10 @@ func (p *Projects) Scan() {
 }
 
 // stamp is what changes when git adds, removes or switches a worktree of the
-// project at path: the times of its git folder's HEAD, its worktrees folder
-// and each linked worktree's HEAD. "" when the folder is gone. A folder that
-// isn't a repository stamps as itself, so it's listed once.
+// project at path, or Anywhere marks one: the times of its git folder's HEAD,
+// its worktrees folder and each linked worktree's HEAD and worktree.Marker. ""
+// when the folder is gone. A folder that isn't a repository stamps as itself,
+// so it's listed once.
 func stamp(path string) string {
 	fi, err := os.Stat(path)
 	if err != nil || !fi.IsDir() {
@@ -163,6 +161,7 @@ func stamp(path string) string {
 	for _, n := range names {
 		b.WriteString(n)
 		at(filepath.Join(linked, n, "HEAD"))
+		at(filepath.Join(linked, n, worktree.Marker))
 	}
 	return b.String()
 }
