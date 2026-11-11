@@ -439,7 +439,7 @@ func TestHermesSwitchesModelAndModeByTheirOwnCalls(t *testing.T) {
 			}
 			return `{}`
 		}})
-	equal(t, sk.wait(t, "model:moa:default"), []string{"bound:s1", "model:moa:default"})
+	equal(t, sk.wait(t, "model:moa:default"), []string{"bound:s1", "model:moa:default", "notice:Hermes Agent couldn't set effort to high: its models carry their own effort"})
 	equal(t, a.called("session/set_mode", 1), []string{`{"modeId":"dont_ask","sessionId":"s1"}`})
 	equal(t, a.called("session/set_model", 1), []string{`{"modelId":"moa:default","sessionId":"s1"}`})
 	if err := s.Settings("nope:bogus", ""); err == nil || err.Error() != "Internal error: model_resolution_failed" {
@@ -469,6 +469,12 @@ func TestAModelTheAgentRefusesAtLaunchIsSaidInTheChat(t *testing.T) {
 		}})
 	equal(t, sk.wait(t, "model:openai-codex:gpt-6-sol"), []string{
 		"bound:s1", "notice:Hermes Agent couldn't switch to nope:bogus: Internal error: model_resolution_failed", "model:openai-codex:gpt-6-sol"})
+}
+
+func TestAnEffortTheSessionCantTakeAtLaunchIsSaidInTheChat(t *testing.T) {
+	_, _, sk, _ := start(t, opts{provider: "opencode", launch: state.Launch{Effort: "high"}, answer: script(opencodeNew, says())})
+	equal(t, after(sk.lines(), "bound:s1"), []string{
+		"bound:s1", "model:opencode/big-pickle", "notice:OpenCode couldn't set effort to high: its models carry their own effort"})
 }
 
 func TestEachAgentOpensItsSessionItsOwnWay(t *testing.T) {

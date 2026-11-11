@@ -407,7 +407,7 @@ func (s *Session) apply(l state.Launch, model string) {
 	}
 	if l.Effort != "" {
 		if err := s.setEffort(l.Effort); err != nil {
-			log.Printf("acp %s: effort %s: %v", s.agentID, l.Effort, err)
+			s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't set effort to %s: %v", s.name, l.Effort, err)})
 		}
 	}
 	mode := s.option(modeSetting)
