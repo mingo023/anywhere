@@ -27,9 +27,12 @@ const SEARCH_HEIGHT: f32 = 44.;
 const TAB: f32 = 36.;
 const TAB_GAP: f32 = 4.;
 const RAIL_PAD: f32 = 6.;
-/// The rail's height before it scrolls: the search over a full list. Ten agents then make the panel no taller than a
-/// long list does, so it still hangs clear of the pill that opened it.
-const RAIL_HEIGHT: f32 = SEARCH_HEIGHT + LIST_HEIGHT;
+/// The tabs the rail shows before it scrolls: as many whole ones as the search over a full list has room for. Ten agents
+/// then make the panel no taller than a long list does, so it still hangs clear of the pill that opened it.
+const RAIL_TABS: usize = ((SEARCH_HEIGHT + LIST_HEIGHT - 2. * RAIL_PAD + TAB_GAP) / (TAB + TAB_GAP)) as usize;
+const RAIL_HEIGHT: f32 = RAIL_TABS as f32 * (TAB + TAB_GAP) - TAB_GAP + 2. * RAIL_PAD;
+/// Room beside the tabs for the scrollbar's thumb, so it doesn't sit on the tab in use.
+const RAIL_BAR: f32 = 10.;
 const ROW_GROUP: &str = "model-row";
 /// The rail's first entry; `Draft::viewing` holds it where it would an agent.
 pub(crate) const FAVORITES: &str = "favorites";
@@ -262,9 +265,9 @@ fn rail_extent(tabs: usize) -> f32 {
     tabs as f32 * (TAB + TAB_GAP) - TAB_GAP + 2. * RAIL_PAD
 }
 
-/// How far the rail scrolls to show its `tab`'th entry whole, even at its shortest.
+/// How far the rail scrolls, in whole tabs, to show its `tab`'th entry.
 fn rail_offset(tab: usize) -> f32 {
-    (rail_extent(tab + 1) - RAIL_HEIGHT).max(0.)
+    (tab + 1).saturating_sub(RAIL_TABS) as f32 * (TAB + TAB_GAP)
 }
 
 /// Scrolls `rail` to its `tab`'th entry. A rail that just opened has no layout yet for `ScrollHandle::scroll_to_item`
@@ -363,10 +366,15 @@ impl Desktop {
         };
         let favorites = tab(FAVORITES, icon("star", 16., TEXT_2), "Favorites and recent".into(), cx);
         let agents: Vec<_> = listed_agents(&self.offered_in(project), &[current]).into_iter().map(|p| tab(p, provider_icon(p, 16., TEXT), self.agent_name(p), cx).when(!self.installed(p), |d| d.opacity(0.4))).collect();
-        let height = rail_extent(agents.len() + 1).min(RAIL_HEIGHT);
-        let column = div().id("model-rail").absolute().inset_0().overflow_y_scroll().track_scroll(scroll).p(px(RAIL_PAD)).flex().flex_col().gap(px(TAB_GAP)).child(favorites).children(agents);
-        // The tabs fill the panel's height, however tall the list beside them makes it; only `height` of them asks for room.
-        div().relative().flex_none().w(px(TAB + 2. * RAIL_PAD)).min_h(px(height)).border_r(px(0.5)).border_color(SEPARATOR).child(column).vertical_scrollbar(scroll)
+        let extent = rail_extent(agents.len() + 1);
+        // The rail's height is fixed, so how far it scrolls is known before its first layout.
+        let (offset, max) = (-f32::from(scroll.offset().y), (extent - RAIL_HEIGHT).max(0.));
+        let bar = if extent > RAIL_HEIGHT { RAIL_BAR } else { 0. };
+        let column = div().id("model-rail").size_full().overflow_y_scroll().track_scroll(scroll).p(px(RAIL_PAD)).pr(px(RAIL_PAD + bar)).flex().flex_col().gap(px(TAB_GAP)).child(favorites).children(agents);
+        // Whole tabs only, and a line at an edge past which more of them scroll.
+        let line = |more: bool| more.then(|| div().absolute().left_0().right_0().h(px(0.5)).bg(SEPARATOR));
+        let tabs = div().relative().h(px(extent.min(RAIL_HEIGHT))).child(column).children(line(offset > 0.).map(|l| l.top_0())).children(line(offset < max).map(|l| l.bottom_0())).vertical_scrollbar(scroll);
+        div().flex_none().w(px(TAB + 2. * RAIL_PAD + bar)).border_r(px(0.5)).border_color(SEPARATOR).child(tabs)
     }
 
     /// Lists `entry`'s models, asking an agent's CLI for them once. The favorites ask nobody: pointing at them would
@@ -473,7 +481,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, FAVORITES, Line, RAIL_HEIGHT, RAIL_PAD, TAB, TAB_GAP, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_offset, rail_tab, saved_entries, settings_shown};
+    use super::{Entry, FAVORITES, Line, RAIL_HEIGHT, RAIL_PAD, TAB, TAB_GAP, rail_extent, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_offset, rail_tab, saved_entries, settings_shown};
     use agents::ListedModel;
     use store::LaunchPick;
     use store::prefs::agents::Provider;
@@ -658,17 +666,17 @@ mod tests {
     }
 
     #[test]
-    fn an_opened_rail_scrolls_just_far_enough_to_show_the_agent_in_use_whole() {
+    fn an_opened_rail_scrolls_in_whole_tabs_just_far_enough_to_show_the_agent_in_use() {
         assert_eq!(rail_offset(0), 0.);
         assert_eq!(rail_offset(6), 0., "the seventh tab fits unscrolled");
+        let pitch = TAB + TAB_GAP;
         for tab in 0..11 {
-            let top = RAIL_PAD + tab as f32 * (TAB + TAB_GAP);
+            let top = RAIL_PAD + tab as f32 * pitch;
             let offset = rail_offset(tab);
             assert!(top >= offset && top + TAB + RAIL_PAD <= offset + RAIL_HEIGHT, "tab {tab} at {top} shows with the rail scrolled {offset}");
-            if offset > 0. {
-                assert_eq!(offset + RAIL_HEIGHT, top + TAB + RAIL_PAD, "tab {tab} sits at the rail's bottom edge");
-            }
+            assert_eq!(offset % pitch, 0., "tab {tab}: the top tab shows whole");
         }
-        assert_eq!(rail_offset(7), 20.);
+        assert_eq!(RAIL_HEIGHT, rail_extent(7), "the rail holds seven whole tabs");
+        assert_eq!(rail_offset(7), pitch);
     }
 }

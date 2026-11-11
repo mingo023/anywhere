@@ -51,6 +51,7 @@ impl Desktop {
         let levels = self.efforts_on(&agent.provider, model);
         let default = self.listed_model(&agent.provider, model).map(|m| m.default_effort.as_str());
         let (name, effort) = label(agent, &levels, default);
+        let name = self.models_of(&agent.provider).iter().find(|m| m.value == model).map_or(name, |m| m.name.clone());
         let pill = model_effort_pill(&agent.provider, name, effort);
         if view_only || !self.agents.settings_offered() {
             return pill;
@@ -87,6 +88,12 @@ impl Desktop {
     pub(super) fn chat_models_opened(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some((provider, project)) = self.agents.get(id).map(|a| (a.provider.clone(), self.chat_project(a))) else { return };
         self.models_opened(|d| &mut d.chats.composer.draft, &provider, project.as_deref(), cx);
+        let Some(agent) = self.agents.get(id) else { return };
+        let own = self.offered_models(&provider);
+        let lines = self.model_lines(&provider, unlisted_running(agent, own), "", project.as_deref());
+        if let Some(on) = running_line(&lines, agent, own) {
+            self.chats.composer.draft.scroll.scroll_to_item(on, ScrollStrategy::Center);
+        }
     }
 
     /// What `viewed` lists that holds the search, the model the agent runs checked. Picking one of its provider's switches
