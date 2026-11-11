@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -218,7 +219,11 @@ func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, e
 func (s *Session) call(c *Client, wait time.Duration, kind string, fields map[string]any) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(s.ctx, wait)
 	defer cancel()
-	return c.Call(ctx, kind, fields)
+	data, err := c.Call(ctx, kind, fields)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = fmt.Errorf("it didn't answer %s in %v", kind, wait)
+	}
+	return data, err
 }
 
 func (s *Session) usable() (*Client, error) {
@@ -237,19 +242,23 @@ func (s *Session) failed() error { return fmt.Errorf("%s didn't start: %w", s.na
 
 // Saved reports whether pi can resume the session: it writes the file it
 // names only once the session holds a prompt or a reply.
-func (s *Session) Saved() bool {
+func (s *Session) Saved() (bool, error) {
 	c, err := s.usable()
 	if err != nil {
-		return false
+		return false, err
 	}
 	var st struct {
 		File string `json:"sessionFile"`
 	}
-	if data, err := s.call(c, CallWait, "get_state", nil); err != nil || json.Unmarshal(data, &st) != nil {
-		return false
+	data, err := s.call(c, CallWait, "get_state", nil)
+	if err != nil {
+		return false, err
+	}
+	if json.Unmarshal(data, &st) != nil {
+		return false, nil
 	}
 	_, err = os.Stat(st.File)
-	return err == nil
+	return err == nil, nil
 }
 
 // Settings switches the model, named provider/id, the thinking level or both for the session's next turns.

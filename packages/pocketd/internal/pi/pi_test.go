@@ -743,14 +743,36 @@ func TestASessionTheAgentAlreadyShowsReadsNoHistory(t *testing.T) {
 func TestASessionIsSavedOnceTheFilePiNamesForItExists(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "session.jsonl")
 	s, _, _, _ := start(t, opts{state: fmt.Sprintf(`{"sessionId":"s1","sessionFile":%q}`, file)})
-	if s.Saved() {
-		t.Fatal("saved before pi wrote its file")
+	if saved, err := s.Saved(); saved || err != nil {
+		t.Fatalf("saved before pi wrote its file: %v", err)
 	}
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !s.Saved() {
-		t.Fatal("not saved once pi wrote its file")
+	if saved, err := s.Saved(); !saved || err != nil {
+		t.Fatalf("not saved once pi wrote its file: %v", err)
+	}
+}
+
+func TestAPiThatAnswersTooLateSaysWhatItDidntAnswer(t *testing.T) {
+	was := CallWait
+	CallWait = 50 * time.Millisecond
+	t.Cleanup(func() { CallWait = was })
+	var opened atomic.Bool
+	slow := make(chan struct{})
+	s, _, _, _ := start(t, opts{answer: func(_ *agent, kind string, _ map[string]any) string {
+		if opened.Load() {
+			<-slow
+		}
+		return ""
+	}})
+	t.Cleanup(func() { close(slow) })
+	opened.Store(true)
+	if err := s.Settings("", "high"); err == nil || err.Error() != "it didn't answer set_thinking_level in 50ms" {
+		t.Fatalf("a switch: %v", err)
+	}
+	if saved, err := s.Saved(); saved || err == nil || err.Error() != "it didn't answer get_state in 50ms" {
+		t.Fatalf("saved: %v, %v", saved, err)
 	}
 }
 

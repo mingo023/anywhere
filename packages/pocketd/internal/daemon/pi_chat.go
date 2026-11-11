@@ -128,7 +128,11 @@ func (x *piChat) leavePlan(name string) error {
 		return errors.New(name + " leaves plan by resuming its session, which Settings has off")
 	case !restartable(between(x.pr.a)):
 		return errors.New(name + " can leave plan once its turn ends")
-	case !x.s.Saved():
+	}
+	switch saved, err := x.s.Saved(); {
+	case err != nil:
+		return err
+	case !saved:
 		return errors.New(name + " has no session to resume yet, so start a new session to build")
 	case !x.d.restart(x.pr, func(e *state.Terminal) { e.Launch.Plan = false }, restartable, ""):
 		return errors.New(name + " couldn't leave plan")
