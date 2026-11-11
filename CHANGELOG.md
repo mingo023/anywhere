@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.38
+
+- Chat rows stay put when opened or shut (#221): (f0a18006)
+- Sidebar, right panel and new panes glide open and shut (#220): (5cf84971)
+- Chat shows /compact as it is sent and only the compacted line after (#219): (9fed96ce)
+
 ## 0.1.37
 
 - Board starts from a composer and works like a Linear board (#217): (9781c060)
