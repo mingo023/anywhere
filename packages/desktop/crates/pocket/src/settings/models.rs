@@ -176,7 +176,7 @@ pub(crate) fn count_line(models: usize) -> String {
 /// left to do in plain words.
 pub(crate) fn not_found(provider: &str) -> String {
     let install = providers::get(provider).map(|b| &b.install);
-    let command = install.map(|i| i.command).filter(|c| !c.is_empty()).map(|c| format!("`{c}`"));
+    let command = install.map(|i| i.command).filter(|c| !c.is_empty()).map(String::from);
     let then = install.map(|i| i.then).filter(|t| !t.is_empty()).map(String::from);
     let how: Vec<String> = command.into_iter().chain(then).collect();
     let how = if how.is_empty() { String::new() } else { format!(" ({})", how.join(", then ")) };
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn an_agent_that_is_not_installed_says_how_to_install_it() {
-        assert_eq!(not_found("pi"), "Pi not found (`npm i -g @earendil-works/pi-coding-agent`). Install it, or restart Anywhere if it is already installed.");
+        assert_eq!(not_found("pi"), "Pi not found (npm i -g @earendil-works/pi-coding-agent). Install it, or restart Anywhere if it is already installed.");
         assert_eq!(not_found("codex"), "Codex not found. Install it, or restart Anywhere if it is already installed.");
     }
 
@@ -439,11 +439,11 @@ mod tests {
     fn what_is_left_to_do_after_the_install_command_reads_as_plain_words() {
         assert_eq!(
             not_found("antigravity"),
-            "Antigravity not found (`curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run agy once to sign in). Install it, or restart Anywhere if it is already installed."
+            "Antigravity not found (curl -fsSL https://antigravity.google/cli/install.sh | bash, then run agy once to sign in). Install it, or restart Anywhere if it is already installed."
         );
         assert_eq!(
             not_found("hermes"),
-            "Hermes Agent not found (`curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`, then run hermes model). Install it, or restart Anywhere if it is already installed."
+            "Hermes Agent not found (curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash, then run hermes model). Install it, or restart Anywhere if it is already installed."
         );
     }
 

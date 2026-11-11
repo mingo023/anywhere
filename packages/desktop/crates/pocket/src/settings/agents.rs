@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn a_provider_that_is_not_installed_says_how_to_install_it() {
-        assert_eq!(provider_line("grok", false, Some(2), Some("")), "Grok Build not found (`curl -fsSL https://x.ai/cli/install.sh | bash`). Install it, or restart Anywhere if it is already installed.");
+        assert_eq!(provider_line("grok", false, Some(2), Some("")), "Grok Build not found (curl -fsSL https://x.ai/cli/install.sh | bash). Install it, or restart Anywhere if it is already installed.");
     }
 
     #[test]
