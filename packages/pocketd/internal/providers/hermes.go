@@ -7,6 +7,7 @@ var Hermes = Spec{
 	Name:      "Hermes Agent",
 	Transport: ACP,
 	Efforts:   []string{},
+	Plan:      true,
 	Chat:      Chat{Interrupt: true, SendWhileWorking: true},
 	Flags:     Flags{Model: "-m", Effort: "--reasoning", Full: "--yolo"},
 	Args:      [3]string{"-q", "chat --resume", ""},

@@ -118,8 +118,8 @@ func (c specCLI) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string,
 	if msg := c.validEffort(s.Effort); msg != "" {
 		return nil, false, fail("invalid_spec", msg)
 	}
-	if s.Plan && !c.p.Plan {
-		return nil, false, fail("access_not_allowed", c.p.Name+" can't plan first")
+	if s.Plan && !c.chat(s) && c.p.Flags.Plan[0] == "" {
+		return nil, false, fail("access_not_allowed", c.p.Name+" can't plan first in a terminal session")
 	}
 	l := state.Launch{Access: Access(s), Plan: s.Plan, Model: s.Model, Effort: s.Effort}
 	if c.chat(s) {

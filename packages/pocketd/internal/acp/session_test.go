@@ -446,6 +446,12 @@ func TestEachAgentOpensItsSessionItsOwnWay(t *testing.T) {
 		{"cursor", state.Launch{Access: "ask", Plan: true}, `{}`, map[string]string{
 			"session/set_mode": `{"modeId":"plan","sessionId":"s1"}`,
 		}},
+		{"fx", state.Launch{Access: "full", Plan: true}, `{}`, map[string]string{
+			"session/set_mode": `{"modeId":"ask","sessionId":"s1"}`,
+		}},
+		{"hermes", state.Launch{Access: "auto", Plan: true}, `{}`, map[string]string{
+			"session/set_mode": `{"modeId":"default","sessionId":"s1"}`,
+		}},
 	} {
 		t.Run(c.provider+" "+c.launch.Access, func(t *testing.T) {
 			_, a, _, _ := start(t, opts{provider: c.provider, launch: c.launch, answer: func(a *agent, method string, _ json.RawMessage) string {
@@ -934,16 +940,39 @@ func TestGrokSwitchesNeitherPlanNorFullAccessOnceItRuns(t *testing.T) {
 	}
 }
 
-func TestGrokPlanningIsRefusedWhatIsNoReadOrSearch(t *testing.T) {
+func TestGrokFxAndHermesPlanningAreRefusedWhatIsNoReadOrSearch(t *testing.T) {
 	const options = `"options":[{"optionId":"o1","kind":"allow_once","name":"Allow"},{"optionId":"o2","kind":"allow_always","name":"Always"},{"optionId":"o3","kind":"reject_once","name":"Reject"}]`
-	_, a, _, b := start(t, opts{provider: "grok", launch: state.Launch{Access: "full", Plan: true}, answer: script(`{"sessionId":"s1"}`, says())})
-	a.ask("1", "session/request_permission", `{"toolCall":{"toolCallId":"c1","title":"Edit a.go","kind":"edit"},`+options+`}`)
-	a.ask("2", "session/request_permission", `{"toolCall":{"toolCallId":"c2","title":"Read a.go","kind":"read"},`+options+`}`)
-	if got := a.replied("1"); got != `{"outcome":{"optionId":"o3","outcome":"selected"}}` {
-		t.Fatalf("an edit while planning: %s", got)
+	for _, provider := range []string{"grok", "fx", "hermes"} {
+		t.Run(provider, func(t *testing.T) {
+			_, a, _, b := start(t, opts{provider: provider, launch: state.Launch{Access: "full", Plan: true}, answer: script(`{"sessionId":"s1"}`, says())})
+			a.ask("1", "session/request_permission", `{"toolCall":{"toolCallId":"c1","title":"Edit a.go","kind":"edit"},`+options+`}`)
+			a.ask("2", "session/request_permission", `{"toolCall":{"toolCallId":"c2","title":"Read a.go","kind":"read"},`+options+`}`)
+			if got := a.replied("1"); got != `{"outcome":{"optionId":"o3","outcome":"selected"}}` {
+				t.Fatalf("an edit while planning: %s", got)
+			}
+			if got := a.replied("2"); got != `{"outcome":{"optionId":"o1","outcome":"selected"}}` || len(b.Open()) != 0 {
+				t.Fatalf("a read while planning: %s", got)
+			}
+		})
 	}
-	if got := a.replied("2"); got != `{"outcome":{"optionId":"o1","outcome":"selected"}}` || len(b.Open()) != 0 {
-		t.Fatalf("a read while planning: %s", got)
+}
+
+func TestFxAndHermesLeaveTheirPlanByAnAccessSwitch(t *testing.T) {
+	const edit = `{"toolCall":{"toolCallId":"c1","title":"Edit a.go","kind":"edit"},"options":[{"optionId":"o1","kind":"allow_once","name":"Allow"},{"optionId":"o3","kind":"reject_once","name":"Reject"}]}`
+	for provider, mode := range map[string]string{"fx": "auto", "hermes": "accept_edits"} {
+		t.Run(provider, func(t *testing.T) {
+			s, a, _, _ := start(t, opts{provider: provider, launch: state.Launch{Access: "ask", Plan: true}, answer: script(`{"sessionId":"s1"}`, says())})
+			if err := s.Access("edits"); err != nil {
+				t.Fatal(err)
+			}
+			if got := a.called("session/set_mode", 2)[1]; got != `{"modeId":"`+mode+`","sessionId":"s1"}` {
+				t.Fatalf("left its plan for %s", got)
+			}
+			a.ask("1", "session/request_permission", edit)
+			if got := a.replied("1"); got != `{"outcome":{"optionId":"o1","outcome":"selected"}}` {
+				t.Fatalf("an edit once building: %s", got)
+			}
+		})
 	}
 }
 

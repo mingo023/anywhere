@@ -70,6 +70,8 @@ func TestEachNewAgentRunsForTheChatOnItsTransportAndCarriesItsLaunch(t *testing.
 		{"omp", "ask", false, "x/y", "max", "omp --mode rpc --model x/y --pocketd --access full --model x/y --effort max"},
 		{"fx", "settings", false, "gpt-6", "", "fx acp --model gpt-6 --pocketd --access settings --model gpt-6"},
 		{"hermes", "full", false, "openai-codex:gpt-6-sol", "", "hermes acp --pocketd --access full --model openai-codex:gpt-6-sol"},
+		{"fx", "ask", true, "", "", "fx acp --pocketd --access ask --plan"},
+		{"hermes", "edits", true, "", "", "hermes acp --pocketd --access edits --plan"},
 	} {
 		s := spec(c.provider, c.access, c.plan)
 		s.Model, s.Effort, s.Prompt, s.Chat = c.model, c.effort, "fix it", true
@@ -136,14 +138,10 @@ func TestAnAgentThatNeverAsksIsJudgedAndRecordedAsFullAccess(t *testing.T) {
 	}
 }
 
-func TestAnAgentThatCantPlanFirstRefusesAPlan(t *testing.T) {
-	for _, chat := range []bool{false, true} {
-		for _, provider := range []string{"fx", "hermes"} {
-			s := spec(provider, "ask", true)
-			s.Chat = chat
-			if _, f := argvOf(s, ""); f == nil || f.Code != "access_not_allowed" || f.Message != providers.Get(provider).Name+" can't plan first" {
-				t.Errorf("%s: got %+v", provider, f)
-			}
+func TestAnAgentWithNoFlagToPlanPlansFirstOnlyInAChat(t *testing.T) {
+	for _, provider := range []string{"fx", "hermes"} {
+		if _, f := argvOf(spec(provider, "ask", true), ""); f == nil || f.Code != "access_not_allowed" || f.Message != providers.Get(provider).Name+" can't plan first in a terminal session" {
+			t.Errorf("%s: got %+v", provider, f)
 		}
 	}
 }

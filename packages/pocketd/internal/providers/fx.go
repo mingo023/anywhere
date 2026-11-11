@@ -5,6 +5,7 @@ var Fx = Spec{
 	Name:      "fx",
 	Transport: ACP,
 	Efforts:   []string{},
+	Plan:      true,
 	Chat:      Chat{Interrupt: true, SendWhileWorking: true},
 	Flags:     Flags{Model: "--model"},
 	// fx is also a JSON viewer.

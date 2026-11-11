@@ -307,6 +307,7 @@ pub const ALL: [Builtin; 10] = [
     Builtin {
         id: "fx",
         command: "fx",
+        plan: true,
         models: Catalog { args: &["models", "--json"], parse: catalogs::fx, fallback: &["zai/glm-5.2-fast"], ..Catalog::NONE },
         install: Install { command: "curl -fsSL https://fx.sh/setup.sh | bash", ..Install::NONE },
         ..NEWER
@@ -314,6 +315,7 @@ pub const ALL: [Builtin; 10] = [
     Builtin {
         id: "hermes",
         command: "hermes",
+        plan: true,
         models: Catalog { args: &["acp"], ..ACP_MODELS },
         // `hermes chat` is what takes a model and a first prompt.
         prompt_args: "-q",
@@ -382,8 +384,8 @@ mod tests {
             ("opencode", &[], true),
             ("pi", thinking, true),
             ("omp", thinking, true),
-            ("fx", &[], false),
-            ("hermes", &[], false),
+            ("fx", &[], true),
+            ("hermes", &[], true),
             ("antigravity", &[], true),
             ("gemini", &[], false),
         ];

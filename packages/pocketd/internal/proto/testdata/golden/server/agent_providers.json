@@ -126,7 +126,7 @@
       "id": "fx",
       "available": true,
       "efforts": [],
-      "plan": false,
+      "plan": true,
       "chat": {
         "interrupt": true,
         "compact": false,
@@ -139,7 +139,7 @@
       "id": "hermes",
       "available": true,
       "efforts": [],
-      "plan": false,
+      "plan": true,
       "chat": {
         "interrupt": true,
         "compact": false,

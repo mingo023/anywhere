@@ -30,6 +30,9 @@ type flavor struct {
 	// spawned takes plan mode and full access only on its command line, so
 	// neither switches in a running session.
 	spawned bool
+	// heldPlan has pocketd hold it to a plan: what it asks to do that is no
+	// read or search is refused.
+	heldPlan bool
 }
 
 // flavors has every ACP provider.
@@ -47,14 +50,21 @@ var flavors = map[string]flavor{
 		newMeta:    map[string]map[string]any{"full": {"yoloMode": true}, "auto": {"autoMode": true}},
 		effortMode: true,
 		spawned:    true,
+		heldPlan:   true,
 	},
 	providers.OpenCode.ID: {plan: [2]string{"plan", "build"}, modeOption: true},
-	// fx asks before every read in its own ask mode, so it runs in auto mode and polices itself.
+	// fx asks before every read in its own ask mode, so it runs in auto mode
+	// and polices itself. Neither it nor Hermes has a plan mode: each plans in
+	// the mode that asks the most.
 	providers.Fx.ID: {
-		modes: map[string]string{"ask": "auto", "edits": "auto", "auto": "auto", "full": "full-access"},
+		modes:    map[string]string{"ask": "auto", "edits": "auto", "auto": "auto", "full": "full-access"},
+		plan:     [2]string{"ask"},
+		heldPlan: true,
 	},
 	providers.Hermes.ID: {
-		modes: map[string]string{"ask": "default", "edits": "accept_edits", "auto": "dont_ask", "full": "dont_ask"},
+		modes:    map[string]string{"ask": "default", "edits": "accept_edits", "auto": "dont_ask", "full": "dont_ask"},
+		plan:     [2]string{"default"},
+		heldPlan: true,
 	},
 	providers.Antigravity.ID: {
 		caps: map[string]any{"session": map[string]any{"configOptions": map[string]any{"boolean": map[string]any{}}}},

@@ -409,6 +409,24 @@ func TestAChatOpenCodeShowsACallOnceItsInputComesAndAsksAboutIt(t *testing.T) {
 	h.WaitScreen(term, "permission: once")
 }
 
+func TestAChatFxOrHermesPlanningRunsNothingUntilTheChatLeavesThePlan(t *testing.T) {
+	for provider, modes := range map[string][2]string{"fx": {"ask", "full-access"}, "hermes": {"default", "dont_ask"}} {
+		t.Run(provider, func(t *testing.T) {
+			h, phone, term, id := chatACP(t, provider, map[string]any{"plan": true, "access": "full"})
+			h.WaitScreen(term, "set_mode: "+modes[0])
+			phone.Prompt(id, "run ls")
+			phone.WaitAll("the refused call", itemOf(id, shellCall("error", "ls")), streamOf(id, "assistant", "echo: skipped ls"), statusOf(id, "done"))
+			h.WaitScreen(term, "permission: deny")
+
+			phone.Send(map[string]any{"type": "agent.settings", "id": "s1", "agentId": id, "access": "full"})
+			phone.WaitFor("the switch", func(m Message) bool { return m.Type == "ack" && m.ID == "s1" })
+			h.WaitScreen(term, "set_mode: "+modes[1])
+			phone.Prompt(id, "run pwd")
+			phone.WaitAll("the call", itemOf(id, shellCall("ok", "pwd")), streamOf(id, "assistant", "echo: ran pwd"))
+		})
+	}
+}
+
 func TestEveryACPAgentChatsThroughTheOneDriver(t *testing.T) {
 	for _, provider := range []string{"cursor", "grok", "fx", "antigravity"} {
 		t.Run(provider, func(t *testing.T) {

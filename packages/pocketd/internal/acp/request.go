@@ -70,8 +70,7 @@ func (s *Session) permission(id json.RawMessage, params json.RawMessage) {
 		s.show(t)
 	}
 	kind = cmp.Or(kind, "other")
-	// Grok plans by a flag pocketd can't take back, so a plan stays one here.
-	if s.f.spawned && s.launch.Plan && kind != "read" && kind != "search" {
+	if s.f.heldPlan && s.launch.Plan && kind != "read" && kind != "search" {
 		s.selected(id, pick(p.Options, reject...))
 		return
 	}
