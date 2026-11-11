@@ -1,7 +1,7 @@
 import Domain
 import SwiftUI
 
-/// An agent's brand mark, the desktop's: Claude's, omp's and Antigravity's in their own colour, the rest in the ink around them.
+/// An agent's brand mark, the desktop's; a sparkle for one this build doesn't know.
 @MainActor
 public struct BrandMark: View {
     let provider: String
