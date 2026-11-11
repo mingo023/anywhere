@@ -104,8 +104,8 @@ struct NewSessionTests {
     @Test("only Claude's models are offered by name: another agent's catalog is on the Mac")
     func models() {
         #expect(NewSessionDraft.models(.claude) == ["opus", "sonnet", "haiku"])
-        for provider: ProviderId in ["codex", "cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity", "gemini"] {
-            #expect(NewSessionDraft.models(provider).isEmpty, "\(provider.rawValue)")
+        for provider in AgentName.allCases.map(\.rawValue).filter({ $0 != "claude" }) + ["gemini"] {
+            #expect(NewSessionDraft.models(ProviderId(rawValue: provider)).isEmpty, "\(provider)")
         }
     }
 

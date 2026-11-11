@@ -1,3 +1,4 @@
+import Domain
 import Testing
 import Wire
 
@@ -101,7 +102,7 @@ func anAcpAgentCompactsInTheChatWhenPocketdSaysItCan() {
 
 @Test("every new agent sets its model and effort and starts a new chat from the phone")
 func everyNewAgentSetsItsModelAndEffortAndStartsANewChatFromThePhone() {
-    for provider in ["cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity"] {
+    for provider in AgentName.allCases.map(\.rawValue) where !["claude", "codex"].contains(provider) {
         let adapter = Adapter.for(provider, nil)
         #expect(adapter.command("model", "") == .local(.model), "\(provider)")
         #expect(adapter.command("effort", "high") == .local(.effort), "\(provider)")
