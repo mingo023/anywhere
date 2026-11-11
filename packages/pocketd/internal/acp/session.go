@@ -118,6 +118,11 @@ type Session struct {
 	kids map[string]*kid
 	// calls holds every call shown, to the call whose sub-agent made it: "" for the session's own.
 	calls map[string]string
+	// delegated holds the calls whose sub-agents Hermes runs in the background
+	// since the user last started or stopped a turn; handing holds what those
+	// that ended told, for the turn that hands it to Hermes once none runs.
+	delegated []string
+	handing   []report
 	// woke is the turn the agent started by itself to take what a sub-agent handed back.
 	woke string
 	// runs is the prompt Grok said it runs while a turn was under way, until that turn ends.
@@ -705,11 +710,16 @@ func (s *Session) Prompt(text string) error {
 	return nil
 }
 
-// start sends text as a turn. ACP echoes no prompt, so it goes in the timeline here.
+// start sends the user's text as a turn. ACP echoes no prompt, so it goes in the timeline here.
 func (s *Session) start(text string) {
+	s.delegated, s.handing = nil, nil
+	s.sink.Apply(timeline.Event{Kind: "user", Text: text})
+	s.send(text)
+}
+
+func (s *Session) send(text string) {
 	s.running, s.began = true, time.Now()
 	s.turn++
-	s.sink.Apply(timeline.Event{Kind: "user", Text: text})
 	s.sink.Working()
 	c, id, turn := s.c, s.id, s.turn
 	go func() {
@@ -726,7 +736,8 @@ func (s *Session) start(text string) {
 	}()
 }
 
-// next starts the compaction asked for mid-turn, else the turn of the oldest prompt that waits.
+// next starts the compaction asked for mid-turn, else the turn of the oldest
+// prompt that waits, else the one that hands Hermes what its sub-agents did.
 func (s *Session) next() {
 	switch {
 	case !s.ready:
@@ -737,6 +748,10 @@ func (s *Session) next() {
 		text := s.queue[0]
 		s.queue = s.queue[1:]
 		s.start(text)
+	case len(s.handing) > 0:
+		text := handoff(s.handing)
+		s.handing = nil
+		s.send(text)
 	}
 }
 
@@ -862,14 +877,14 @@ func (s *Session) Stray(result json.RawMessage) {
 	}
 }
 
-// Cancel stops the turn or the compaction under way and drops the prompts
-// and the compaction that waited for its end. Whatever the agent asked is
+// Cancel stops the turn or the compaction under way and drops the prompts,
+// the compaction and the handoff that waited for its end. Whatever the agent asked is
 // answered cancelled. An agent that never answers the call it was told to
 // stop would hold up the next one, so the call ends here once StopWait is up.
 func (s *Session) Cancel() {
 	s.mu.Lock()
 	busy, c, id, turn := s.running || s.compacting, s.c, s.id, s.turn
-	s.stopping, s.compactNext, s.queue = busy, false, nil
+	s.stopping, s.compactNext, s.queue, s.delegated, s.handing = busy, false, nil, nil, nil
 	asks := s.asks
 	s.asks = map[string]context.CancelFunc{}
 	s.mu.Unlock()
@@ -1260,8 +1275,9 @@ func (s *Session) flush() {
 		if s.answered {
 			s.record(timeline.Event{Kind: "result", OK: true})
 		}
-		// Grok's history has what it told itself of a sub-agent's end as a prompt.
-		if !strings.HasPrefix(b.text, "<system-reminder>") {
+		// Grok's history has what it told itself of a sub-agent's end as a
+		// prompt, and Hermes's what pocketd handed back of one.
+		if !strings.HasPrefix(b.text, "<system-reminder>") && !strings.HasPrefix(b.text, handoffHeader) {
 			s.record(timeline.Event{Kind: "user", Text: b.text})
 		}
 		s.answered = false
@@ -1315,6 +1331,9 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 	case len(sub.transcripts) > 0:
 		// Hermes takes no turn of its own once its sub-agents end.
 		s.record(timeline.Event{Kind: "tool_background", ToolUseID: t.ID, Detached: true})
+		if !s.opening {
+			s.delegated = append(s.delegated, t.ID)
+		}
 		s.watch(t.ID, sub.transcripts)
 		return
 	case sub.session == "":

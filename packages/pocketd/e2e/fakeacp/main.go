@@ -8,6 +8,8 @@
 //	run <cmd>       ask to run cmd, then reply "echo: ran <cmd>", or "echo: skipped <cmd>" if refused
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript
+//	[Anywhere internal background handoff] …
+//	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
 //	think <text>    think first, then reply
 //	plan <a>, <b>   tell a plan of those entries, then reply "echo: planned"
 //	slow <text>     reply after 3s, unless cancelled
@@ -380,6 +382,8 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		reason = a.run(cmd, stop)
 	} else if task, ok := arg("delegate "); ok {
 		a.delegate(task)
+	} else if strings.HasPrefix(text, "[Anywhere internal background handoff]") && a.name == "hermes" {
+		a.takeBack(text)
 	} else if rest, ok := arg("think "); ok {
 		a.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": textBlock("thinking about " + rest)})
 		a.say(rest)
@@ -471,6 +475,21 @@ func (a *agent) background(task string) {
 		f.Close()
 		os.WriteFile(manifest, []byte(`{"completed":"2026-11-11 12:00:02","tasks":[{"index":0,"status":"completed"}]}`), 0o600)
 	}()
+}
+
+// takeBack replies with the summaries the transcript tails a handoff holds end with.
+func (a *agent) takeBack(text string) {
+	_, data, _ := strings.Cut(text, "\n\n")
+	var told []struct{ Tail string }
+	json.Unmarshal([]byte(data), &told)
+	var summaries []string
+	for _, t := range told {
+		if _, summary, ok := strings.Cut(t.Tail, "summary: "); ok {
+			summary, _, _ = strings.Cut(summary, "\n")
+			summaries = append(summaries, summary)
+		}
+	}
+	a.say("took back " + strings.Join(summaries, ", "))
 }
 
 // run asks to run cmd as the real agent does, and runs it if allowed. It

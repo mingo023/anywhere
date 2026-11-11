@@ -388,7 +388,8 @@ func TestAChatHermesShowsItsSubAgentsTranscriptUnderTheDelegationAlsoAfterAResta
 	phone.Prompt(id, "delegate ls")
 	// Hermes takes no turn once its sub-agent ends, so its turn doesn't wait for it.
 	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
-	want := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> user ls", "> tool shell ok ls", "> assistant did ls"}
+	want := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "assistant echo: took back did ls", "result",
+		"> user ls", "> tool shell ok ls", "> assistant did ls"}
 	settled := func(phone *Phone) []string {
 		var got []string
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -410,6 +411,24 @@ func TestAChatHermesShowsItsSubAgentsTranscriptUnderTheDelegationAlsoAfterAResta
 	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("after the restart got %q", got)
 	}
+}
+
+// Hermes's ACP server never takes what its background sub-agents hand back, so pocketd hands it over in a turn of its own.
+func TestAChatHermesIsHandedWhatItsBackgroundSubAgentDidOnceItEnds(t *testing.T) {
+	h, phone, term, id := chatACP(t, "hermes", nil)
+	phone.Prompt(id, "delegate ls")
+	ends := 0
+	phone.WaitAll("the turn and the one that hands back",
+		streamOf(id, "assistant", "echo: delegated ls"),
+		streamOf(id, "assistant", "echo: took back did ls"),
+		func(m Message) bool {
+			if statusOf(id, "done")(m) {
+				ends++
+			}
+			return ends == 2
+		},
+	)
+	h.WaitScreen(term, "prompt: [Anywhere internal background handoff]")
 }
 
 func TestAnUpgradeKeepsTheChatHermesAndReasksItsOpenPermission(t *testing.T) {
