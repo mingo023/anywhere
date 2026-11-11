@@ -91,6 +91,8 @@ func (s *sink) Stopped()                     { s.add("stopped") }
 func (s *sink) Compacting()                  { s.add("compacting") }
 func (s *sink) Compacted()                   { s.add("compactingEnded") }
 
+func (s *sink) SetOptions(o map[string]string) { s.add("options:%v", o) }
+
 func (s *sink) lines() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -981,16 +983,18 @@ func TestSwitchesNameTheModelAsPiDoesAndSayWhatPiRefused(t *testing.T) {
 }
 
 func TestOmpStartsFastWhereTheLaunchAsksAndSaysWhenTheModelHasNoFast(t *testing.T) {
-	_, a, _, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}})
+	_, a, sk, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}})
 	equal(t, a.sent("set_fast_mode", 1), []string{`{"enabled":true}`})
+	sk.wait(t, "options:map[fast:true]")
 
-	_, _, sk, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}, answer: func(_ *agent, kind string, _ map[string]any) string {
+	_, _, sk, _ = start(t, opts{provider: "omp", launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}, answer: func(_ *agent, kind string, _ map[string]any) string {
 		if kind == "set_fast_mode" {
 			return "!Fast mode is unavailable for the current model."
 		}
 		return ""
 	}})
 	sk.wait(t, "notice:omp couldn't set fast to true: Fast mode is unavailable for the current model.")
+	sk.wait(t, "options:map[]")
 
 	// pi has no Fast to set.
 	_, a, _, _ = start(t, opts{launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}})
@@ -1015,6 +1019,39 @@ func TestOmpSwitchesFastMidChatAndPiHasNoSettingToSwitch(t *testing.T) {
 		t.Fatalf("pi's fast: %v", err)
 	}
 	equal(t, a.kinds(), []string{"get_state"})
+}
+
+func TestOmpsFastIsOnOrOffAndASwitchWithASettingItLacksSetsNone(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full"}})
+	if err := s.SetOptions(map[string]string{"fast": "yes"}); err == nil || err.Error() != "fast is on or off" {
+		t.Fatalf("fast set to neither: %v", err)
+	}
+	if err := s.SetOptions(map[string]string{"fast": "true", "zzz": "1"}); err == nil || err.Error() != "omp has no setting zzz" {
+		t.Fatalf("a setting omp lacks: %v", err)
+	}
+	equal(t, a.kinds(), []string{"get_state"})
+	equal(t, sk.lines(), []string{"bound:01a1c8df-6ee5-73f4-9369-d38f92ac7a6a", "model:deepseek/deepseek-v4-pro"})
+}
+
+func TestOmpTellsTheFastItRunsOnOnceSetAndAgainOnceAModelSwitchMovesIt(t *testing.T) {
+	switched := false
+	s, _, sk, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full"}, answer: func(_ *agent, kind string, _ map[string]any) string {
+		switch {
+		case kind == "set_model":
+			switched = true
+		case kind == "get_state" && switched:
+			return `{"sessionId":"s1","fastModeEnabled":false}`
+		}
+		return ""
+	}})
+	if err := s.SetOptions(map[string]string{"fast": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	sk.wait(t, "options:map[fast:true]")
+	if err := s.Settings("openai/gpt-5.5", ""); err != nil {
+		t.Fatal(err)
+	}
+	sk.wait(t, "options:map[fast:false]")
 }
 
 func TestPiListsItsSkillsAsCommands(t *testing.T) {

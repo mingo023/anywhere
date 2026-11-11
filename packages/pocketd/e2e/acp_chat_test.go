@@ -439,6 +439,9 @@ func TestAChatOpenCodeSwitchesItsAgentMidChatAndARestartKeepsIt(t *testing.T) {
 	h.Restart()
 
 	again := h.Owner()
+	again.WaitFor("the agent still on review", func(m Message) bool {
+		return (m.Type == "agent.list" || m.Type == "agent.update" && m.Agent.ID == id) && strings.Contains(m.Raw, `"options":{"mode":"review"}`)
+	})
 	h.WaitScreen(term, "load: ")
 	h.WaitScreen(term, "config: mode=review")
 	if screen := h.Screen(term); strings.Index(screen, "config: mode=review") < strings.Index(screen, "load: ") {

@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"maps"
 	"pocketd/internal/accounts"
 	"slices"
 	"strconv"
@@ -579,16 +578,11 @@ func (pr *presence) switched(model, effort string) {
 	}
 }
 
-func (pr *presence) optionsSwitched(options map[string]string) {
+func (pr *presence) setOptions(options map[string]string) {
 	pr.mu.Lock()
-	all := maps.Clone(pr.launch.Options)
-	if all == nil {
-		all = map[string]string{}
-	}
-	maps.Copy(all, options)
-	pr.launch.Options = all
+	pr.launch.Options = options
 	pr.mu.Unlock()
-	pr.a.SetOptions(all)
+	pr.a.SetOptions(options)
 }
 
 func (c termDriver) inForeground() bool {

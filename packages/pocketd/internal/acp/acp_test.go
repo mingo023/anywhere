@@ -81,6 +81,8 @@ func (s *sink) Stopped()                     { s.add("stopped") }
 func (s *sink) Compacting()                  { s.add("compacting") }
 func (s *sink) Compacted()                   { s.add("compactingEnded") }
 
+func (s *sink) SetOptions(o map[string]string) { s.add("options:%v", o) }
+
 func (s *sink) lines() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -81,6 +81,8 @@ func (s chatSink) SetEffort(effort string)      { s.a.SetEffort(effort) }
 func (s chatSink) Compacting()                  { s.a.SetCompacting() }
 func (s chatSink) Compacted()                   { s.a.Compacted() }
 
+func (s chatSink) SetOptions(o map[string]string) { s.pr.setOptions(o) }
+
 // Loaded starts the timeline over: the agent replays the session's history into it.
 func (s chatSink) Loaded() { s.a.ClearTimeline() }
 
@@ -147,16 +149,13 @@ func (c pipeDriver) Settings(model, effort string) error {
 	return nil
 }
 
-// SetOptions applies to the session's next turns, and is saved as Settings is.
+// SetOptions applies to the session's next turns, which tells the sink
+// what it runs on: that is saved as Settings is.
 func (c pipeDriver) SetOptions(options map[string]string) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
-	if err := c.s.SetOptions(options); err != nil {
-		return err
-	}
-	c.pr.optionsSwitched(options)
-	return nil
+	return c.s.SetOptions(options)
 }
 
 func (c pipeDriver) Commands() ([]proto.Command, error) {
