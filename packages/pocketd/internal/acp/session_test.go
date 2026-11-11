@@ -1451,6 +1451,16 @@ func TestCursorsEffortGoesToItsEffortOptionNotTheThinkingSwitch(t *testing.T) {
 	}
 }
 
+func TestAnAgentWhoseOnlyEffortOptionIsThinkingHasItsEffortSetThere(t *testing.T) {
+	options := `[{"id":"model","category":"model"},{"id":"thinking","category":"thought_level","currentValue":"high","options":[{"value":"low"},{"value":"high"}]}]`
+	s, a, _, _ := start(t, opts{provider: "antigravity", launch: state.Launch{Effort: "high"}, answer: script(`{"sessionId":"s1","configOptions":`+options+`}`, says())})
+	if err := s.Settings("", "low"); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.called("session/set_config_option", 2), []string{
+		`{"configId":"thinking","sessionId":"s1","value":"high"}`, `{"configId":"thinking","sessionId":"s1","value":"low"}`})
+}
+
 func TestAStopTheAgentNeverAnswersEndsTheTurnSoTheNextPromptStarts(t *testing.T) {
 	was := StopWait
 	StopWait = 50 * time.Millisecond

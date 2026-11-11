@@ -143,14 +143,16 @@ type setting struct {
 	ids      []string // the option's id, the likelier first
 	category string   // else the first option of this category
 	not      string   // that is not this one
+	last     string   // nor this one, unless no other is
 }
 
 var (
 	// fx and Antigravity list their provider first, under the model category.
-	modelSetting = setting{[]string{"model"}, "model", "provider"}
-	// Cursor's thinking is an on/off switch under the effort category.
-	effortSetting = setting{[]string{"effort", "reasoning", "reasoning_effort", "variant"}, "thought_level", "thinking"}
-	modeSetting   = setting{[]string{"mode"}, "mode", ""}
+	modelSetting = setting{[]string{"model"}, "model", "provider", ""}
+	// Cursor's thinking is an on/off switch under the effort category;
+	// Antigravity's may be its only effort.
+	effortSetting = setting{[]string{"effort", "reasoning", "reasoning_effort", "variant"}, "thought_level", "", "thinking"}
+	modeSetting   = setting{[]string{"mode"}, "mode", "", ""}
 )
 
 func (g setting) of(options []configOption) *configOption {
@@ -159,10 +161,14 @@ func (g setting) of(options []configOption) *configOption {
 			return &options[i]
 		}
 	}
-	i := slices.IndexFunc(options, func(o configOption) bool {
+	in := func(o configOption) bool {
 		_, toggle := o.Current.(bool)
 		return o.Category == g.category && o.ID != g.not && o.Type != "boolean" && !toggle
-	})
+	}
+	i := slices.IndexFunc(options, func(o configOption) bool { return in(o) && o.ID != g.last })
+	if i < 0 {
+		i = slices.IndexFunc(options, in)
+	}
 	if i < 0 {
 		return nil
 	}
