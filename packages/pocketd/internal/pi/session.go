@@ -101,7 +101,7 @@ type Session struct {
 	msg        block // the block pi is writing
 	blocks     int
 	done       map[int]bool // the blocks of pi's message that are in the timeline
-	tools      map[string]bool
+	tools      map[string]bool // the turn's calls shown
 	// tasks are the calls that run sub-agents.
 	tasks    map[string]*task
 	commands []proto.Command // as omp last told them
@@ -194,6 +194,9 @@ func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, e
 	streaming := st.Streaming && !s.ended
 	failed := s.replay(history.Messages, streaming)
 	s.ready = true
+	if !streaming {
+		clear(s.tools)
+	}
 	switch {
 	case streaming:
 		s.running, s.active, s.began = true, true, time.Now()
@@ -532,6 +535,8 @@ func (s *Session) settle(aborted bool) {
 		e.OK = true
 	}
 	s.running, s.active, s.stopping, s.retrying, s.failure, s.usage, s.turn = false, false, false, false, nil, proto.TurnUsage{}, ""
+	// A backend may number its calls afresh each turn.
+	clear(s.tools)
 	s.sink.Apply(e)
 	if stopped {
 		// pi dropped the prompts it held with the turn.

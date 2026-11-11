@@ -424,6 +424,34 @@ func TestAToolCallShowsOnceWithItsCardAndWhatItPrinted(t *testing.T) {
 	})
 }
 
+func TestACallInALaterTurnShowsThoughItReusesAnEarlierCallsID(t *testing.T) {
+	s, a, sk, _ := start(t, opts{state: strings.Replace(fresh, `"messageCount":0`, `"messageCount":3`, 1), answer: func(_ *agent, kind string, _ map[string]any) string {
+		if kind == "get_messages" {
+			return `{"messages":[{"role":"user","content":"look"},
+				{"role":"assistant","content":[{"type":"toolCall","id":"call_1","name":"bash","arguments":{"command":"ls"}}],"stopReason":"toolUse"},
+				{"role":"toolResult","toolCallId":"call_1","toolName":"bash","content":[],"isError":false},
+				{"role":"assistant","content":[{"type":"text","text":"done"}],"stopReason":"stop"}]}`
+		}
+		return ""
+	}})
+	call := func(text string) {
+		a.say(agentStart, echoed(text), reply,
+			`{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}`,
+			`{"type":"tool_execution_end","toolCallId":"call_1","toolName":"bash","result":{"content":[]},"isError":false}`,
+			agentEnd, settled)
+	}
+	s.Prompt("one")
+	a.sent("prompt", 1)
+	call("one")
+	equal(t, after(sk.wait(t, "ended:false"), "user:one"), []string{
+		"user:one", "tool_start:call_1:shell:shell:ls", "tool_end:call_1:true", "result:true:", "ended:false"})
+	s.Prompt("two")
+	a.sent("prompt", 2)
+	call("two")
+	equal(t, after(sk.waitN(t, "ended:false", 2), "user:two"), []string{
+		"user:two", "tool_start:call_1:shell:shell:ls", "tool_end:call_1:true", "result:true:", "ended:false"})
+}
+
 func TestAToolIsDrawnByItsName(t *testing.T) {
 	for _, c := range []struct{ name, args, want string }{
 		{"bash", `{"command":"ls","description":"list"}`, "shell:shell:lslist"},
