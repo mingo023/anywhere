@@ -89,14 +89,18 @@ func main() {
 	}
 	for i, arg := range args[:len(args)-1] {
 		switch arg {
-		case resume:
+		case resume, "--session-id":
 			b, err := os.ReadFile(filepath.Join(dir(), args[i+1]+".json"))
-			if err != nil {
+			switch {
+			case err == nil:
+				json.Unmarshal(b, &a.session)
+				note("load: %s", a.session.ID)
+			case arg == "--session-id" && name == "pi":
+				a.session.ID = args[i+1]
+			default:
 				fmt.Fprintf(os.Stderr, "No session found matching '%s'\r\n", args[i+1])
 				os.Exit(1)
 			}
-			json.Unmarshal(b, &a.session)
-			note("load: %s", a.session.ID)
 		case "--model":
 			a.session.Model = args[i+1]
 		case "--thinking":

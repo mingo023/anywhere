@@ -332,7 +332,7 @@ func access(phone *Phone, id, msgID, to string) Message {
 
 func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSession(t *testing.T) {
 	for _, c := range []struct{ provider, tools, resume string }{
-		{"pi", "--tools read,grep,find,ls", "--session"},
+		{"pi", "--tools read,grep,find,ls", "--session-id"},
 		{"omp", "--tools read,grep,glob,lsp", "--resume"},
 	} {
 		t.Run(c.provider, func(t *testing.T) {
@@ -506,7 +506,7 @@ func TestARestartResumesTheChatPiSessionAndShowsItsHistory(t *testing.T) {
 		}
 		return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Restore == "resumed" && m.Agent.ChatOnly
 	})
-	h.WaitScreen(term, "fake pi ready --session "+session+" --mode rpc")
+	h.WaitScreen(term, "fake pi ready --session-id "+session+" --mode rpc")
 	h.WaitScreen(term, "get_messages")
 	// The history may be whole before this phone connects, so its stream is not waited on.
 	want := []string{"user run ls", "tool ls ok", "assistant echo: ran ls", "result", "user fail No credits left", "result No credits left"}
@@ -523,6 +523,21 @@ func TestARestartResumesTheChatPiSessionAndShowsItsHistory(t *testing.T) {
 
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
+}
+
+// pi writes no session before its first prompt, so the restart has it create the one it names.
+func TestARestartBeforeTheFirstPromptBringsTheChatPiBackOnTheSameSession(t *testing.T) {
+	h, _, term, id := chatPi(t, "pi", nil, func(h *Harness) { h.resume = true })
+	_, session, _ := strings.Cut(h.Screen(term), "session: ")
+	session, _, _ = strings.Cut(session, "\n")
+	session = strings.TrimSpace(session)
+
+	h.Restart()
+
+	again := h.Owner()
+	h.WaitScreen(term, "fake pi ready --session-id "+session+" --mode rpc")
+	again.Prompt(id, "after the restart")
+	again.WaitAll("the first turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
 }
 
 func TestARestartMidTurnLeavesTheChatPiTurnInterrupted(t *testing.T) {

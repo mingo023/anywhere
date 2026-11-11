@@ -34,6 +34,8 @@ type Flags struct {
 	Model, Effort string
 	Full          string    // stops it asking before it runs a tool
 	Plan          [2]string // the flag and value that start it planning
+	// Session runs the chat on a session, creating it if it was never written.
+	Session string
 }
 
 // Cmd is the command that runs p in a terminal.

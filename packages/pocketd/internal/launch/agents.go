@@ -132,14 +132,19 @@ func (c specCLI) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string,
 }
 
 // chatResume runs the chat again. pi takes the session on its command line;
-// an ACP agent's is loaded over the protocol.
+// an ACP agent's is loaded over the protocol. pi writes no session before its
+// first prompt, so it is told to create the one it may not find.
 func (c specCLI) chatResume(t state.Terminal, l state.Launch) ([]string, bool) {
 	if !t.Chat {
 		return nil, false
 	}
 	argv := []string{c.p.Cmd()}
 	if c.p.Transport == providers.PiRPC {
-		argv = append(append(argv, config.DefaultArgs(c.p.ID).Resume...), t.ConversationID)
+		resume := config.DefaultArgs(c.p.ID).Resume
+		if c.p.Flags.Session != "" {
+			resume = []string{c.p.Flags.Session}
+		}
+		argv = append(append(argv, resume...), t.ConversationID)
 	}
 	return c.chatArgv(c.resumed(t, l), argv), true
 }

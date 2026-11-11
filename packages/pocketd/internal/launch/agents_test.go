@@ -218,7 +218,7 @@ func TestANewAgentResumesInItsTUIAndForTheChat(t *testing.T) {
 		{"hermes", state.Launch{Access: "full", Model: "gpt-6-sol"}, false, "hermes chat --resume c-1 -m gpt-6-sol"},
 		{"hermes", state.Launch{Access: "full", Model: "gpt-6-sol"}, true, "hermes acp --pocketd --access ask --model gpt-6-sol"},
 		{"grok", state.Launch{Access: "full", Effort: "high"}, true, "grok --no-auto-update agent --no-leader --reasoning-effort high stdio --pocketd --access ask --effort high"},
-		{"pi", state.Launch{Access: "full", Plan: true, Model: "a/b"}, true, "pi --session c-1 --mode rpc --tools read,grep,find,ls --model a/b --pocketd --access full --plan --model a/b"},
+		{"pi", state.Launch{Access: "full", Plan: true, Model: "a/b"}, true, "pi --session-id c-1 --mode rpc --tools read,grep,find,ls --model a/b --pocketd --access full --plan --model a/b"},
 		{"omp", state.Launch{Access: "full", Effort: "low"}, true, "omp --resume c-1 --mode rpc --pocketd --access full --effort low"},
 		{"antigravity", state.Launch{Access: "edits"}, true, "agy acp --pocketd --access edits"},
 	} {
