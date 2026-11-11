@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 )
 
@@ -349,6 +351,35 @@ func TestARestartLoadsTheChatHermesSessionAndShowsItsHistory(t *testing.T) {
 
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
+}
+
+// OpenCode tells a task's sub-agent only of its session loaded, live and on a restart alike.
+func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *testing.T) {
+	h, phone, _, id := chatACP(t, "opencode", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "delegate ls")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
+	want := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> user ls", "> assistant did ls"}
+	settled := func(phone *Phone) []string {
+		var got []string
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			// The sub-agent's session loads beside the turn, so its work lands wherever that is by then.
+			lines := withSubAgents(phone, id)
+			got = slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return strings.HasPrefix(l, "> ") })
+			got = append(got, slices.DeleteFunc(lines, func(l string) bool { return !strings.HasPrefix(l, "> ") })...)
+			if strings.Join(got, "|") == strings.Join(want, "|") {
+				break
+			}
+		}
+		return got
+	}
+	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q", got)
+	}
+
+	h.Restart()
+	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("after the restart got %q", got)
+	}
 }
 
 func TestAnUpgradeKeepsTheChatHermesAndReasksItsOpenPermission(t *testing.T) {

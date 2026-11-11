@@ -9,7 +9,7 @@ var Pi = Spec{
 	Efforts:   piEfforts,
 	Plan:      true,
 	NeverAsks: true,
-	Chat:      Chat{Interrupt: true, Compact: true, SendWhileWorking: true},
+	Chat:      Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true},
 	Flags:     Flags{Model: "--model", Effort: "--thinking", Plan: [2]string{"--tools", "read,grep,find,ls"}},
 	Args:      [3]string{"--", "--session", "--fork " + SessionID},
 	Help:      []string{"--mode", "rpc"},

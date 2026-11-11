@@ -46,6 +46,9 @@ func describe(name string, args json.RawMessage) (string, proto.ToolDetail) {
 	}
 	path := in.str("path", "file_path", "filePath")
 	switch {
+	// omp's sub-agents, whose intent is i, and those of the extension pi ships.
+	case n == "task" || n == "subagent":
+		return "task", proto.ToolDetail{Kind: "task", Description: in.str("description", "i", "task")}
 	case has("bash", "command", "shell"):
 		return "shell", proto.ToolDetail{Kind: "shell", Command: in.str("command", "cmd", "script"), Description: in.str("description")}
 	case has("write"):

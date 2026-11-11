@@ -44,9 +44,9 @@ type flavor struct {
 // flavors has every ACP provider.
 var flavors = map[string]flavor{
 	// Cursor reads its sign-in at start; its authenticate opens a browser
-	// sign-in on the Mac and waits on it.
+	// sign-in on the Mac and waits on it. It tells of its sub-agents' work only to a client that takes it.
 	providers.Cursor.ID: {
-		caps:    map[string]any{"_meta": map[string]any{"parameterizedModelPicker": true}},
+		caps:    map[string]any{"_meta": map[string]any{"parameterizedModelPicker": true, "subagents": true}},
 		plan:    [2]string{"plan", "agent"},
 		lenient: true,
 	},

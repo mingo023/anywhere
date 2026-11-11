@@ -58,6 +58,13 @@ func (s *sink) Apply(e timeline.Event) {
 		if e.Usage != nil {
 			line += fmt.Sprintf(":%d/%d/%d", e.Usage.InputTokens, e.Usage.OutputTokens, e.Usage.CacheReadTokens)
 		}
+	case "tool_background":
+		line += ":" + e.ToolUseID
+	case "tool_model":
+		line += ":" + e.ToolUseID + ":" + e.Name
+	}
+	if e.ParentToolUseID != "" {
+		line = e.ParentToolUseID + ">" + line
 	}
 	s.add("%s", line)
 }
@@ -89,6 +96,19 @@ func (s *sink) wait(t *testing.T, line string) []string {
 		}
 	}
 	t.Fatalf("no %q in:\n%s", line, strings.Join(s.lines(), "\n"))
+	return nil
+}
+
+// waitN waits until line has been said n times.
+func (s *sink) waitN(t *testing.T, line string, n int) []string {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		got := s.lines()
+		if len(slices.DeleteFunc(slices.Clone(got), func(l string) bool { return l != line })) >= n {
+			return got
+		}
+	}
+	t.Fatalf("not %d of %q in:\n%s", n, line, strings.Join(s.lines(), "\n"))
 	return nil
 }
 
