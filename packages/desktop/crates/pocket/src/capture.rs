@@ -744,7 +744,15 @@ const STEPS: [(&str, Step); 265] = [
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("new-scratch", |d, window, cx| d.new_session_without_project(window, cx)),
-    ("form-model", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Model, cx)),
+    // As a click on the pill: the panel opens with the agent in use in the rail's view.
+    ("form-model", |d, _, cx| {
+        let slot = crate::modals::new_session::slot;
+        d.toggle_composer(slot, Menu::Model, cx);
+        if slot(d).draft.menu == Some(Menu::Model) {
+            let (pick, repo) = (d.new_form_pick(), d.new_form.project().map(str::to_string));
+            d.models_opened(move |d| &mut slot(d).draft, &pick.provider, repo.as_deref(), cx);
+        }
+    }),
     ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
@@ -1080,7 +1088,7 @@ fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) 
     for draft in [&mut d.new_form.composer.draft, &mut d.chats.composer.draft, &mut d.automations.form.composer.draft] {
         if draft.menu == Some(Menu::Model) {
             draft.view(entry);
-            draft.rail.scroll_to_item(tab);
+            crate::composer::model_menu::show_rail_tab(&draft.rail, tab);
         }
     }
     cx.notify();

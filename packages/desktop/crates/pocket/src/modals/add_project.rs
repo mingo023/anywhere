@@ -8,6 +8,7 @@ use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use crate::modals::form::{footer, typed_or};
 use crate::util::{basename, tilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use host_folder::Browse;
@@ -38,6 +39,7 @@ pub struct RepoForm {
     teardown: Entity<InputState>,
     host_path: Entity<InputState>,
     host_scroll: UniformListScrollHandle,
+    scroll: ScrollHandle,
     draft: RepoDraft,
 }
 
@@ -236,7 +238,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), draft: RepoDraft::default() }, subs)
+        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), scroll: ScrollHandle::new(), draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -313,6 +315,7 @@ impl Desktop {
         self.settings.menu = None;
         let f = &mut self.repo_form;
         f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, hidden: cfg.hidden, editing: editing.clone(), ..RepoDraft::default() };
+        f.scroll = ScrollHandle::new();
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
             s.set_placeholder("", window, cx);
@@ -584,7 +587,8 @@ impl Desktop {
         let header = div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
         // The settings scroll between a fixed header and footer when the window is too short for them.
         let max_h = window.viewport_size().height - px(2. * SHEET_TOP);
-        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.repo_form.scroll).px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let scroll = div().relative().flex_1().min_h_0().flex().flex_col().child(scroll).vertical_scrollbar(&self.repo_form.scroll);
         div().absolute().top(px(SHEET_TOP)).left_0().right_0().flex().justify_center().child(
             ui::pop(div().w(px(600.)).max_h(max_h).pt(px(14.)).pb(px(20.)).flex().flex_col().gap(px(14.)))
                 .rounded(px(R_DIALOG))
