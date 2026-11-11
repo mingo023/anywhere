@@ -22,6 +22,7 @@ import (
 	"pocketd/internal/registry"
 	"pocketd/internal/terminal"
 	"pocketd/internal/workspace"
+	"pocketd/internal/worktree"
 )
 
 var (
@@ -236,7 +237,9 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))
 	wt := filepath.Join(b.root, "pocket", "calm-otter")
-	gitOut(t, b.project, "worktree", "add", "-q", "-b", "calm-otter", wt)
+	if _, err := worktree.Add(b.s.Registry.Load(), b.project, "calm-otter", ""); err != nil {
+		t.Fatal(err)
+	}
 	b.s.Names.Rename(wt, "Fix login")
 	in, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: filepath.Join(wt)})
 	out, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: b.project})
@@ -468,7 +471,9 @@ func TestAPeerWithoutWorkspaceV1GetsTheProjectListAsItIsNow(t *testing.T) {
 	_, _, p := local(t, peer.OwnerOf(1), withWorkspace(t, &b))
 	helloWith(p)
 	tree := filepath.Join(b.root, "pocket", "made-outside")
-	gitOut(t, b.project, "worktree", "add", "-q", "-b", "made-outside", tree)
+	if _, err := worktree.Add(b.s.Registry.Load(), b.project, "made-outside", ""); err != nil {
+		t.Fatal(err)
+	}
 	p.send(`{"type":"project.list","id":"pl"}`)
 	m, _ := p.untilType("project.list")
 	if m["id"] != "pl" || !reflect.DeepEqual(treePaths(m), []string{b.project, tree}) {

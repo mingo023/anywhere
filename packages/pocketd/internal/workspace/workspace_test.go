@@ -15,6 +15,7 @@ import (
 	"pocketd/internal/accounts"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/worktree"
 )
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -132,6 +133,28 @@ func TestTrackingAWorktreeOnTheDesktopPushesTheListWithIt(t *testing.T) {
 	ps.Scan()
 	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main", wt + "@calm-otter"}) {
 		t.Fatalf("after tracking: %v", got)
+	}
+}
+
+func TestClaimingAWorktreeAnywhereMadePushesTheListWithIt(t *testing.T) {
+	p := repo(t, "pocket")
+	root := filepath.Join(filepath.Dir(p), "trees")
+	wt := filepath.Join(root, "pocket", "calm-otter")
+	git(t, p, "worktree", "add", "-q", "-b", "calm-otter", wt)
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
+	path := filepath.Join(t.TempDir(), "desktop.json")
+	write(path, f)
+	ps := NewProjects(registry.New(path))
+	msgs, stop := ps.Subscribe()
+	defer stop()
+	ps.Scan()
+	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main"}) {
+		t.Fatalf("before the claim: %v", got)
+	}
+	worktree.Claim(f, []string{wt})
+	ps.Scan()
+	if got := pushed(msgs); len(got) != 1 || !reflect.DeepEqual(paths(got[0]), []string{p + "@main", wt + "@calm-otter"}) {
+		t.Fatalf("after the claim: %v", got)
 	}
 }
 

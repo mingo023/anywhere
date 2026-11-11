@@ -222,6 +222,7 @@ func (p Plan) Add() (Created, error) {
 	if out, err := exec.Command("git", "-C", p.Project, "worktree", "add", "-q", "--no-track", "-b", p.Branch, "--", p.Path, p.from).CombinedOutput(); err != nil {
 		return Created{}, errors.New(strings.TrimSpace(string(out)))
 	}
+	mark(p.Path)
 	path := p.Path
 	if real, err := filepath.EvalSymlinks(path); err == nil {
 		path = real

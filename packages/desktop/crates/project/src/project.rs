@@ -36,20 +36,24 @@ pub fn project_of<'a>(cwd: &str, projects: &'a [String], worktrees: &Worktrees) 
     projects.iter().filter_map(|p| Some((reach(p)?, p))).max_by_key(|(n, _)| *n).map(|(_, p)| p)
 }
 
-/// The listed worktree holding `cwd` most closely. `tracked` takes the project and the worktree.
-pub fn worktree_of<'a>(cwd: &str, worktrees: &'a Worktrees, tracked: impl Fn(&str, &str) -> bool) -> Option<&'a Worktree> {
-    let trees = worktrees.iter().flat_map(|(p, trees)| trees.iter().map(move |w| (p, w)));
-    trees.filter(|(p, w)| under(cwd, &w.path) && (w.main || tracked(p, &w.path))).map(|(_, w)| w).max_by_key(|w| w.path.len())
+/// Whether its project lists `w`: the main worktree, one Anywhere made, or one `tracked`.
+fn lists(w: &Worktree, tracked: impl Fn(&str) -> bool) -> bool {
+    w.main || w.made || tracked(&w.path)
 }
 
-/// The worktrees a project lists: its main one and those `tracked`.
+/// The listed worktree holding `cwd` most closely.
+pub fn worktree_of<'a>(cwd: &str, worktrees: &'a Worktrees, tracked: impl Fn(&str) -> bool) -> Option<&'a Worktree> {
+    worktrees.values().flatten().filter(|w| under(cwd, &w.path) && lists(w, &tracked)).max_by_key(|w| w.path.len())
+}
+
+/// The worktrees a project lists: its main one, those Anywhere made and those `tracked`.
 pub fn listed(trees: &[Worktree], tracked: impl Fn(&str) -> bool) -> Vec<Worktree> {
-    trees.iter().filter(|w| w.main || tracked(&w.path)).cloned().collect()
+    trees.iter().filter(|w| lists(w, &tracked)).cloned().collect()
 }
 
 /// The worktrees git has that a project doesn't list. Their folders belong to the project's main tree.
 pub fn untracked(trees: &[Worktree], tracked: impl Fn(&str) -> bool) -> Vec<Worktree> {
-    trees.iter().filter(|w| !w.main && !tracked(&w.path)).cloned().collect()
+    trees.iter().filter(|w| !lists(w, &tracked)).cloned().collect()
 }
 
 /// The folders a git refresh reads: the project, its `sessions`' folders, its worktrees and the tree on screen.
@@ -82,7 +86,7 @@ pub fn refreshed(mut listed: Worktrees, old: &Worktrees, unread: &[String]) -> W
 
 /// The worktree a folder belongs to: the listed worktree holding it, else the project it is in.
 /// `projects` runs only when no worktree holds `cwd`, as listing them walks every terminal.
-pub fn tree_of(cwd: &str, worktrees: &Worktrees, tracked: impl Fn(&str, &str) -> bool, projects: impl FnOnce() -> Vec<String>) -> Option<String> {
+pub fn tree_of(cwd: &str, worktrees: &Worktrees, tracked: impl Fn(&str) -> bool, projects: impl FnOnce() -> Vec<String>) -> Option<String> {
     worktree_of(cwd, worktrees, tracked).map(|w| w.path.clone()).or_else(|| project_of(cwd, &projects(), worktrees).cloned())
 }
 
@@ -91,7 +95,7 @@ mod tests {
     use super::*;
 
     fn trees(project: &str, paths: &[&str]) -> Worktrees {
-        let list = paths.iter().enumerate().map(|(i, p)| Worktree { path: p.to_string(), branch: format!("b{i}"), main: i == 0 }).collect();
+        let list = paths.iter().enumerate().map(|(i, p)| Worktree { path: p.to_string(), branch: format!("b{i}"), main: i == 0, made: false }).collect();
         HashMap::from([(project.to_string(), list)])
     }
 
@@ -170,7 +174,7 @@ mod tests {
     #[test]
     fn a_folder_belongs_to_the_innermost_worktree_holding_it() {
         let worktrees = trees("/a/foo", &["/a/foo", "/a/foo/.worktrees/fix"]);
-        let path = |cwd| worktree_of(cwd, &worktrees, |_, _| true).map(|w| w.path.as_str());
+        let path = |cwd| worktree_of(cwd, &worktrees, |_| true).map(|w| w.path.as_str());
         assert_eq!(path("/a/foo/.worktrees/fix/src"), Some("/a/foo/.worktrees/fix"));
         assert_eq!(path("/a/foo/src"), Some("/a/foo"));
         assert_eq!(path("/a/foobar"), None);
@@ -180,17 +184,28 @@ mod tests {
     fn a_folders_tree_is_its_worktree_else_its_project() {
         let worktrees = trees("/a/foo", &["/a/foo", "/w/fix"]);
         let projects = || list(&["/a/foo", "/b"]);
-        assert_eq!(tree_of("/w/fix/src", &worktrees, |_, _| true, projects), Some("/w/fix".to_string()));
-        assert_eq!(tree_of("/b/src", &worktrees, |_, _| true, projects), Some("/b".to_string()));
-        assert_eq!(tree_of("/c", &worktrees, |_, _| true, projects), None);
+        assert_eq!(tree_of("/w/fix/src", &worktrees, |_| true, projects), Some("/w/fix".to_string()));
+        assert_eq!(tree_of("/b/src", &worktrees, |_| true, projects), Some("/b".to_string()));
+        assert_eq!(tree_of("/c", &worktrees, |_| true, projects), None);
     }
 
     #[test]
     fn a_folder_in_an_untracked_worktree_belongs_to_its_projects_main_tree() {
         let worktrees = trees("/a/foo", &["/a/foo", "/w/fix", "/a/foo/.worktrees/spike"]);
         let projects = || list(&["/a/foo"]);
-        assert_eq!(tree_of("/w/fix/src", &worktrees, |_, _| false, projects), Some("/a/foo".to_string()));
-        assert_eq!(tree_of("/a/foo/.worktrees/spike", &worktrees, |_, _| false, projects), Some("/a/foo".to_string()));
+        assert_eq!(tree_of("/w/fix/src", &worktrees, |_| false, projects), Some("/a/foo".to_string()));
+        assert_eq!(tree_of("/a/foo/.worktrees/spike", &worktrees, |_| false, projects), Some("/a/foo".to_string()));
+    }
+
+    #[test]
+    fn a_worktree_anywhere_made_is_listed_untracked_and_one_made_elsewhere_is_not() {
+        let mut worktrees = trees("/a/foo", &["/a/foo", "/w/ours", "/w/theirs"]);
+        worktrees.get_mut("/a/foo").unwrap()[1].made = true;
+        let paths = |trees: Vec<Worktree>| trees.into_iter().map(|w| w.path).collect::<Vec<_>>();
+        assert_eq!(paths(listed(&worktrees["/a/foo"], |_| false)), ["/a/foo", "/w/ours"]);
+        assert_eq!(paths(untracked(&worktrees["/a/foo"], |_| false)), ["/w/theirs"]);
+        assert_eq!(worktree_of("/w/ours/src", &worktrees, |_| false).map(|w| w.path.as_str()), Some("/w/ours"));
+        assert_eq!(worktree_of("/w/theirs/src", &worktrees, |_| false), None);
     }
 
     #[test]

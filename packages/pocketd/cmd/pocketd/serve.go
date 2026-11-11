@@ -298,6 +298,7 @@ func serve(sock, handed string) error {
 	go func() {
 		if d.WaitRestored(ctx) == nil {
 			teams.Recover()
+			claimWorktrees(home, reg.Load(), usedFolders(worktreeNames, d.Terminals, tickets, autos))
 		}
 	}()
 	if err := autos.Reconcile(time.Now()); err != nil {

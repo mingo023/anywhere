@@ -528,7 +528,7 @@ mod tests {
     }
 
     fn tree(path: &str, branch: &str, main: bool) -> git::Worktree {
-        git::Worktree { path: path.into(), branch: branch.into(), main }
+        git::Worktree { path: path.into(), branch: branch.into(), main, made: false }
     }
 
     #[test]

@@ -212,6 +212,8 @@ pub struct Worktree {
     pub path: String,
     pub branch: String,
     pub main: bool,
+    /// Anywhere made it, whatever folder it is in.
+    pub made: bool,
 }
 
 fn parse_worktrees(out: &str) -> Vec<Worktree> {
@@ -228,7 +230,7 @@ fn parse_worktrees(out: &str) -> Vec<Worktree> {
                     branch = "detached".into();
                 }
             }
-            Some(Worktree { path: path?, branch, main: false })
+            Some(Worktree { path: path?, branch, main: false, made: false })
         })
         .enumerate()
         .map(|(i, w)| Worktree { main: i == 0, ..w })
@@ -240,9 +242,19 @@ pub fn worktrees(run: &Runner, cwd: &str) -> Vec<Worktree> {
     let mut out = parse_worktrees(&git(run, cwd, &["worktree", "list", "--porcelain"]).unwrap_or_default());
     for w in &mut out {
         w.path = run.place(&w.path);
+        w.made = !w.main && marked(run, &w.path);
     }
     out.sort_by_cached_key(|w| (!w.main, run.stat(&w.path).ok().flatten().and_then(|s| s.created)));
     out
+}
+
+/// Whether pocketd left its marker in `tree`'s git folder, as it does for each worktree it makes (`worktree.Marker`).
+fn marked(run: &Runner, tree: &str) -> bool {
+    let Ok(pointer) = run.read(&format!("{tree}/.git"), 4096) else { return false };
+    let pointer = String::from_utf8_lossy(&pointer);
+    let Some(dir) = pointer.trim().strip_prefix("gitdir: ") else { return false };
+    let dir = if dir.starts_with('.') { format!("{tree}/{dir}") } else { run.place(dir) };
+    matches!(run.stat(&format!("{dir}/anywhere")), Ok(Some(_)))
 }
 
 /// Local branches, most recently committed first.
@@ -844,6 +856,20 @@ mod tests {
     }
 
     #[test]
+    fn a_worktree_pocketd_marked_is_one_anywhere_made() {
+        let dir = scratch_repo("made");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        for name in ["ours", "theirs"] {
+            add_worktree(r, dir.join(name).to_str().unwrap(), name, "HEAD").unwrap();
+        }
+        std::fs::write(repo.join(".git/worktrees/ours/anywhere"), "").unwrap();
+        let made: Vec<bool> = worktrees(&Runner::Local, r).iter().map(|w| w.made).collect();
+        assert_eq!(made, [false, true, false]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_host_that_is_not_connected_never_touches_the_same_path_here() {
         let dir = scratch_repo("offline");
         let repo = dir.join("repo");
@@ -875,6 +901,38 @@ mod tests {
         fn place(&self, path: &str) -> String {
             path.into()
         }
+    }
+
+    /// A host holding `files`, whose paths the desktop keys under `//box`.
+    struct Files(std::collections::HashMap<&'static str, &'static str>);
+
+    impl Exec for Files {
+        fn exec(&self, _: &str, _: &[&str], _: Option<&[u8]>, _: Duration) -> std::io::Result<Output> {
+            Ok(Output { stdout: self.0["worktree list"].into(), ..Output::default() })
+        }
+        fn read(&self, path: &str, _: usize) -> std::io::Result<Vec<u8>> {
+            self.0.get(path).map(|f| f.as_bytes().to_vec()).ok_or_else(|| std::io::ErrorKind::NotFound.into())
+        }
+        fn stat(&self, path: &str) -> std::io::Result<Option<Stat>> {
+            Ok(self.0.contains_key(path).then_some(Stat { dir: false, size: 0, created: None }))
+        }
+        fn place(&self, path: &str) -> String {
+            format!("//box{path}")
+        }
+    }
+
+    #[test]
+    fn a_hosts_worktree_is_one_anywhere_made_when_its_git_folder_there_holds_the_marker() {
+        let host = Files(std::collections::HashMap::from([
+            ("worktree list", "worktree /r\nbranch refs/heads/main\n\nworktree /w/ours\nbranch refs/heads/ours\n\nworktree /w/near\nbranch refs/heads/near\n\nworktree /w/theirs\nbranch refs/heads/theirs\n"),
+            ("//box/w/ours/.git", "gitdir: /r/.git/worktrees/ours\n"),
+            ("//box/r/.git/worktrees/ours/anywhere", ""),
+            ("//box/w/near/.git", "gitdir: ../../r/.git/worktrees/near\n"),
+            ("//box/w/near/../../r/.git/worktrees/near/anywhere", ""),
+            ("//box/w/theirs/.git", "gitdir: /r/.git/worktrees/theirs\n"),
+        ]));
+        let made: Vec<(String, bool)> = worktrees(&Runner::Remote(std::sync::Arc::new(host)), "//box/r").into_iter().map(|w| (w.path, w.made)).collect();
+        assert_eq!(made, [("//box/r", false), ("//box/w/ours", true), ("//box/w/near", true), ("//box/w/theirs", false)].map(|(p, m)| (p.to_string(), m)));
     }
 
     #[test]

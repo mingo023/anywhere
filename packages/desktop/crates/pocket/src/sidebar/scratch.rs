@@ -117,7 +117,7 @@ impl Desktop {
         // pocketd reads this file to know the folder before the first session starts in it.
         self.store.save();
         // Its row needs this now; `refresh_git` lists it two seconds from now.
-        self.worktrees.insert(path.to_string(), vec![git::Worktree { path: path.to_string(), branch: git::INIT_BRANCH.into(), main: true }]);
+        self.worktrees.insert(path.to_string(), vec![git::Worktree { path: path.to_string(), branch: git::INIT_BRANCH.into(), main: true, made: false }]);
     }
 
     /// Deletes a folder with nothing to lose straight away, and asks about any other.
