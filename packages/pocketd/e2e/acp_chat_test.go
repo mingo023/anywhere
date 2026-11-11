@@ -201,7 +201,7 @@ func TestAnAccessSwitchChangesHermesModeAndWhatTheChatIsAsked(t *testing.T) {
 
 func TestAStoppedChatHermesTurnEndsIdleAndTheNextPromptIsAnswered(t *testing.T) {
 	h, phone, term, id := chatACP(t, "hermes", nil)
-	phone.Prompt(id, "slow never")
+	phone.Prompt(id, "hang never")
 	phone.WaitStatus(id, "working")
 	phone.Send(map[string]any{"type": "agent.interrupt", "id": "i1", "agentId": id})
 	phone.WaitAll("the stop",

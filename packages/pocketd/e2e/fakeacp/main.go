@@ -10,6 +10,7 @@
 //	think <text>    think first, then reply
 //	plan <a>, <b>   tell a plan of those entries, then reply "echo: planned"
 //	slow <text>     reply after 3s, unless cancelled
+//	hang <text>     reply only if not cancelled in 30s
 //	fail <message>  refuse the prompt with message
 //	stop <reason>   end the turn with that stop reason
 //	/compact        as opencode, summarise the session in a reply and tell fewer tokens
@@ -393,12 +394,9 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		a.update(map[string]any{"sessionUpdate": "plan", "entries": entries})
 		a.say("planned")
 	} else if rest, ok := arg("slow "); ok {
-		select {
-		case <-stop:
-			reason = "cancelled"
-		case <-time.After(3 * time.Second):
-			a.say(rest)
-		}
+		reason = a.wait(stop, 3*time.Second, rest, reason)
+	} else if rest, ok := arg("hang "); ok {
+		reason = a.wait(stop, 30*time.Second, rest, reason)
 	} else if rest, ok := arg("stop "); ok {
 		reason = rest
 	} else {
@@ -407,6 +405,17 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 	a.tell(map[string]any{"sessionUpdate": "usage_update", "used": 1200, "size": 200000})
 	a.end()
 	a.reply(id, map[string]any{"stopReason": reason, "usage": map[string]int{"inputTokens": 1000, "outputTokens": 200, "totalTokens": 1200}})
+}
+
+// wait replies text after d unless stop closes first, which ends the turn cancelled.
+func (a *agent) wait(stop <-chan struct{}, d time.Duration, text, reason string) string {
+	select {
+	case <-stop:
+		return "cancelled"
+	case <-time.After(d):
+		a.say(text)
+		return reason
+	}
 }
 
 func (a *agent) end() {
