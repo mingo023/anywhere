@@ -31,8 +31,13 @@ pub fn tilde(path: &str) -> String {
 
 /// "~/code/app" reads as "/Users/me/code/app".
 pub fn untilde(path: &str) -> String {
+    untilde_in(path, &std::env::var("HOME").unwrap_or_default())
+}
+
+/// `untilde` against `home`, another machine's maybe.
+pub fn untilde_in(path: &str, home: &str) -> String {
     match path.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{}{rest}", std::env::var("HOME").unwrap_or_default()),
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
         _ => path.to_string(),
     }
 }

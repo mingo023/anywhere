@@ -159,8 +159,8 @@ pub(super) enum Target {
     File(String),
 }
 
-/// A URL opens on the web; anything else is a file, under `cwd` unless absolute, without its `:line:col` or `#L` suffix.
-pub(super) fn target(link: &str, cwd: &str) -> Target {
+/// A URL opens on the web; anything else is a file on the machine holding `cwd`, under `cwd` unless absolute or under `home` as `~`, without its `:line:col` or `#L` suffix.
+pub(super) fn target(link: &str, cwd: &str, home: &str) -> Target {
     if link.contains("://") && !link.starts_with("file://") {
         return Target::Web(link.to_string());
     }
@@ -173,7 +173,11 @@ pub(super) fn target(link: &str, cwd: &str) -> Target {
             path = p;
         }
     }
-    Target::File(std::path::Path::new(cwd).join(path).to_string_lossy().into_owned())
+    let path = crate::util::untilde_in(path, home);
+    match hosts::split(cwd) {
+        (Some(host), _) if path.starts_with('/') || hosts::on_windows(&path) => Target::File(hosts::place(host, &path)),
+        _ => Target::File(std::path::Path::new(cwd).join(path).to_string_lossy().into_owned()),
+    }
 }
 
 /// Inline code naming a file or folder, as a chip led by its icon; a file's opens it.
@@ -349,11 +353,27 @@ mod tests {
 
     #[test]
     fn a_link_opens_a_web_page_or_a_file_under_the_agents_folder() {
-        assert_eq!(target("https://x.dev/a#b", "/r"), Target::Web("https://x.dev/a#b".into()));
-        assert_eq!(target("src/a.rs", "/r"), Target::File("/r/src/a.rs".into()));
-        assert_eq!(target("src/a.rs:42:7", "/r"), Target::File("/r/src/a.rs".into()));
-        assert_eq!(target("a.rs#L42", "/r"), Target::File("/r/a.rs".into()));
-        assert_eq!(target("file:///etc/hosts", "/r"), Target::File("/etc/hosts".into()));
+        assert_eq!(target("https://x.dev/a#b", "/r", "/h"), Target::Web("https://x.dev/a#b".into()));
+        assert_eq!(target("src/a.rs", "/r", "/h"), Target::File("/r/src/a.rs".into()));
+        assert_eq!(target("src/a.rs:42:7", "/r", "/h"), Target::File("/r/src/a.rs".into()));
+        assert_eq!(target("a.rs#L42", "/r", "/h"), Target::File("/r/a.rs".into()));
+        assert_eq!(target("file:///etc/hosts", "/r", "/h"), Target::File("/etc/hosts".into()));
+    }
+
+    #[test]
+    fn a_link_under_home_opens_in_the_home_of_the_agents_machine() {
+        assert_eq!(target("~/notes/a.md:3", "/r", "/h"), Target::File("/h/notes/a.md".into()));
+        assert_eq!(target("~", "/r", "/h"), Target::File("/h".into()));
+        assert_eq!(target("~x/a.md", "/r", "/h"), Target::File("/r/~x/a.md".into()));
+        assert_eq!(target("~/a.md", "//box/r", "/home/u"), Target::File("//box/home/u/a.md".into()));
+        assert_eq!(target("~/a.md", "//win/C:/r", r"C:\Users\u"), Target::File("//win/C:/Users/u/a.md".into()));
+    }
+
+    #[test]
+    fn an_absolute_link_in_a_hosts_chat_stays_on_that_host() {
+        assert_eq!(target("/etc/hosts", "//box/r", "/home/u"), Target::File("//box/etc/hosts".into()));
+        assert_eq!(target("src/a.rs", "//box/r", "/home/u"), Target::File("//box/r/src/a.rs".into()));
+        assert_eq!(target("C:/notes/a.md", "//win/C:/r", "C:/Users/u"), Target::File("//win/C:/notes/a.md".into()));
     }
 
     #[test]
