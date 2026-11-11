@@ -997,6 +997,26 @@ func TestOmpStartsFastWhereTheLaunchAsksAndSaysWhenTheModelHasNoFast(t *testing.
 	equal(t, a.kinds(), []string{"get_state"})
 }
 
+func TestOmpSwitchesFastMidChatAndPiHasNoSettingToSwitch(t *testing.T) {
+	s, a, _, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full"}})
+	if err := s.SetOptions(map[string]string{"fast": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOptions(map[string]string{"fast": "false"}); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.sent("set_fast_mode", 2), []string{`{"enabled":true}`, `{"enabled":false}`})
+	if err := s.SetOptions(map[string]string{"context": "1m"}); err == nil || err.Error() != "omp has no setting context" {
+		t.Fatalf("a setting omp lacks: %v", err)
+	}
+
+	s, a, _, _ = start(t, opts{launch: state.Launch{Access: "full"}})
+	if err := s.SetOptions(map[string]string{"fast": "true"}); err == nil || err.Error() != "Pi has no setting fast" {
+		t.Fatalf("pi's fast: %v", err)
+	}
+	equal(t, a.kinds(), []string{"get_state"})
+}
+
 func TestPiListsItsSkillsAsCommands(t *testing.T) {
 	s, _, _, _ := start(t, opts{answer: func(_ *agent, kind string, _ map[string]any) string {
 		if kind == "get_commands" {

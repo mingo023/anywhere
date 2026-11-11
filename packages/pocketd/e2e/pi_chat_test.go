@@ -691,3 +691,23 @@ func TestAChatOmpIsDrivenAsPiIsWithItsOwnFlagsAndEvents(t *testing.T) {
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
 }
+
+func TestAChatOmpSwitchesFastForItsNextTurn(t *testing.T) {
+	h, phone, term, id := chatPi(t, "omp", nil)
+	phone.Send(map[string]any{"type": "agent.settings", "id": "s1", "agentId": id, "options": map[string]string{"fast": "true"}})
+	phone.WaitAll("the switch",
+		acked("s1"),
+		func(m Message) bool {
+			return m.Type == "agent.update" && m.Agent.ID == id && strings.Contains(m.Raw, `"options":{"fast":"true"}`)
+		},
+	)
+	h.WaitScreen(term, "set_fast_mode: true")
+	phone.Prompt(id, "after the switch")
+	phone.WaitAll("the turn on fast", streamOf(id, "assistant", "echo: after the switch"), statusOf(id, "done"))
+
+	phone.Send(map[string]any{"type": "agent.settings", "id": "s2", "agentId": id, "options": map[string]string{"context": "1m"}})
+	refused := phone.WaitFor("the refusal", func(m Message) bool { return m.Type == "error" && m.ID == "s2" })
+	if !strings.Contains(refused.Raw, "omp has no setting context") {
+		t.Fatalf("got %s", refused.Raw)
+	}
+}

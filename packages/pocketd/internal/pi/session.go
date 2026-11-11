@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -292,6 +293,23 @@ func (s *Session) Settings(name, effort string) error {
 	}
 	if effort != "" {
 		if _, err := s.call(c, CallWait, "set_thinking_level", map[string]any{"level": effort}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetOptions sets the model's own settings for the session's next turns: omp's fast, the only one either has.
+func (s *Session) SetOptions(options map[string]string) error {
+	c, err := s.usable()
+	if err != nil {
+		return err
+	}
+	for _, id := range slices.Sorted(maps.Keys(options)) {
+		if id != "fast" || !s.f.fast {
+			return fmt.Errorf("%s has no setting %s", s.name, id)
+		}
+		if err := s.setFast(c, options[id]); err != nil {
 			return err
 		}
 	}

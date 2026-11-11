@@ -157,6 +157,11 @@ var (
 	modeSetting   = setting{[]string{"mode"}, "mode", "", ""}
 )
 
+func (o configOption) boolean() bool {
+	_, toggle := o.Current.(bool)
+	return o.Type == "boolean" || toggle
+}
+
 func (g setting) of(options []configOption) *configOption {
 	for _, id := range g.ids {
 		if i := slices.IndexFunc(options, func(o configOption) bool { return o.ID == id }); i >= 0 {
@@ -164,8 +169,7 @@ func (g setting) of(options []configOption) *configOption {
 		}
 	}
 	in := func(o configOption) bool {
-		_, toggle := o.Current.(bool)
-		return o.Category == g.category && o.ID != g.not && o.Type != "boolean" && !toggle
+		return o.Category == g.category && o.ID != g.not && !o.boolean()
 	}
 	i := slices.IndexFunc(options, func(o configOption) bool { return in(o) && o.ID != g.last })
 	if i < 0 {
@@ -219,7 +223,7 @@ func (s *Session) Open(w Wire, cwd, saved string, l state.Launch, left Left) (un
 		s.mu.Unlock()
 		return unsent, err
 	}
-	s.setOptions(res.ConfigOptions)
+	s.takeOptions(res.ConfigOptions)
 	id, model := s.id, cmp.Or(s.currentModel(), res.Models.Current)
 	s.mu.Unlock()
 	s.sink.Bound(id)
@@ -442,8 +446,16 @@ func unsupported(err error) bool {
 }
 
 // setOption sets config option o, and takes the options the agent answers with.
+// A boolean option takes JSON true or false, which a launch's options write as text.
 func (s *Session) setOption(o *configOption, value string) error {
-	res, err := s.request("session/set_config_option", map[string]any{"configId": o.ID, "value": value})
+	params := map[string]any{"configId": o.ID, "value": value}
+	if o.boolean() {
+		if value != "true" && value != "false" {
+			return fmt.Errorf("%s is on or off", o.ID)
+		}
+		params["type"], params["value"] = "boolean", value == "true"
+	}
+	res, err := s.request("session/set_config_option", params)
 	if err != nil {
 		return err
 	}
@@ -452,12 +464,12 @@ func (s *Session) setOption(o *configOption, value string) error {
 	}
 	json.Unmarshal(res, &r)
 	s.mu.Lock()
-	s.setOptions(r.ConfigOptions)
+	s.takeOptions(r.ConfigOptions)
 	s.mu.Unlock()
 	return nil
 }
 
-func (s *Session) setOptions(options []configOption) {
+func (s *Session) takeOptions(options []configOption) {
 	if options != nil {
 		s.options = options
 	}
@@ -540,6 +552,37 @@ func (s *Session) Settings(model, effort string) error {
 		if err := s.setEffort(effort); err != nil {
 			return fmt.Errorf("%s can't switch effort: %w", s.name, err)
 		}
+	}
+	return nil
+}
+
+// SetOptions sets the model's own settings, by the agent's id for each, for the
+// session's next turns. Planning holds the mode until it ends, as apply does.
+func (s *Session) SetOptions(options map[string]string) error {
+	if err := s.usable(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	planning := s.launch.Plan
+	s.mu.Unlock()
+	mode := s.option(modeSetting)
+	for _, id := range slices.Sorted(maps.Keys(options)) {
+		o := s.listed(id)
+		if o == nil {
+			return fmt.Errorf("%s has no setting %s", s.name, id)
+		}
+		if !planning || mode == nil || mode.ID != id {
+			if err := s.setOption(o, options[id]); err != nil {
+				return err
+			}
+		}
+		s.mu.Lock()
+		s.launch.Options = maps.Clone(s.launch.Options)
+		if s.launch.Options == nil {
+			s.launch.Options = map[string]string{}
+		}
+		s.launch.Options[id] = options[id]
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -952,7 +995,7 @@ func (s *Session) update(raw, parent string) {
 			s.commands = append(s.commands, proto.Command{Name: c.Name, Description: c.Description, ArgumentHint: c.Input.Hint})
 		}
 	case "config_option_update":
-		s.setOptions(u.Options)
+		s.takeOptions(u.Options)
 	case "auto_compact_completed":
 		s.sink.SetTokens(u.After, 0)
 	case "turn_completed":

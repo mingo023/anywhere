@@ -96,6 +96,7 @@ type pipeSession interface {
 	Cancel()
 	Compact() error
 	Settings(model, effort string) error
+	SetOptions(options map[string]string) error
 	Commands() ([]proto.Command, error)
 }
 
@@ -143,6 +144,18 @@ func (c pipeDriver) Settings(model, effort string) error {
 		return err
 	}
 	c.pr.switched(model, effort)
+	return nil
+}
+
+// SetOptions applies to the session's next turns, and is saved as Settings is.
+func (c pipeDriver) SetOptions(options map[string]string) error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	if err := c.s.SetOptions(options); err != nil {
+		return err
+	}
+	c.pr.optionsSwitched(options)
 	return nil
 }
 
