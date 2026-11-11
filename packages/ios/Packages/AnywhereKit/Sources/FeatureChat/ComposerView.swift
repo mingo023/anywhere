@@ -365,7 +365,7 @@ struct ComposerView: View {
         if store.settingsMenu == .effort {
             ForEach(efforts, id: \.self) { e in Button(ModelPill.effortLabel(e)) { store.settings(effort: e) } }
         } else {
-            ForEach(ModelPill.aliases(agent.provider), id: \.self) { m in Button(Sidebar.modelName(m)) { store.settings(model: m) } }
+            ForEach(ModelPill.aliases(agent.provider), id: \.self) { m in Button(modelName(m)) { store.settings(model: m) } }
         }
     }
 }

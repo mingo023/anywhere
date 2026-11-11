@@ -67,7 +67,7 @@ struct ModelChoices: View {
                     Button {
                         pick(alias, nil)
                     } label: {
-                        if ModelPill.runs(agent, alias) { Label(Sidebar.modelName(alias), systemImage: "checkmark") } else { Text(Sidebar.modelName(alias)) }
+                        if ModelPill.runs(agent, alias) { Label(modelName(alias), systemImage: "checkmark") } else { Text(modelName(alias)) }
                     }
                 }
             }

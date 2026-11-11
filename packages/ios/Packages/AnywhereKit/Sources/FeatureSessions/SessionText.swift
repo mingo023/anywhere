@@ -16,7 +16,7 @@ enum SessionText {
         if status == .failed, let error = s.error, !error.isEmpty { return error }
         if let doing = s.activity, !doing.isEmpty { return doing }
         if status != .working, let label = status.label { return label }
-        return s.model.map(Sidebar.modelName).flatMap { $0.isEmpty ? nil : $0 }
+        return s.model.map(modelName).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// What leads a session's row in Up next: the ask it waits on, what failed, else its title.

@@ -228,13 +228,13 @@ struct NewSessionView: View {
     private var modelMenu: some View {
         let models = NewSessionDraft.models(draft.provider)
         let efforts = info?.efforts ?? []
-        let model = draft.model.map(Sidebar.modelName) ?? "Default model"
+        let model = draft.model.map(modelName) ?? "Default model"
         let effortWord = AgentName.effort(draft.provider.rawValue)
         return Menu {
             if !models.isEmpty {
                 Picker("Model", selection: $draft.model) {
                     Text("Default").tag(String?.none)
-                    ForEach(models, id: \.self) { Text(Sidebar.modelName($0)).tag(Optional($0)) }
+                    ForEach(models, id: \.self) { Text(modelName($0)).tag(Optional($0)) }
                 }
             }
             if !efforts.isEmpty {
