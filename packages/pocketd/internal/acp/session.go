@@ -36,6 +36,8 @@ type Sink interface {
 	TurnEnded(failed bool)
 	// Stopped ends a turn the user stopped, which is no failure.
 	Stopped()
+	Compacting()
+	Compacted()
 }
 
 var (
@@ -79,10 +81,10 @@ type Session struct {
 	launch  state.Launch
 	options []configOption
 	model   string // the model the agent says it is on
-	// queue holds the prompts sent before the session opened or while a turn runs, which ACP has no place for.
+	// queue holds the prompts sent before the session opened, while a turn runs or while it compacts, which ACP has no place for.
 	queue    []string
 	running  bool
-	turn     int             // counts the turns started, so a late answer ends only its own
+	turn     int             // counts the turns and compactions started, so a late answer ends only its own
 	began    time.Time       // when this pocketd started the turn running
 	adopted  bool            // the turn running was started by a pocketd before this one
 	stopping bool            // the user stopped the turn
@@ -96,6 +98,8 @@ type Session struct {
 	todos    []todo
 	plans    int
 	commands []proto.Command
+	// compacting is while the agent summarises its context for Compact.
+	compacting bool
 }
 
 // block is the message the agent is writing, a chunk at a time.
@@ -515,7 +519,7 @@ func (s *Session) Prompt(text string) error {
 	switch {
 	case s.err != nil:
 		return s.failed()
-	case !s.ready || s.running:
+	case !s.ready || s.running || s.compacting:
 		s.queue = append(s.queue, text)
 	default:
 		s.start(text)
@@ -594,6 +598,50 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	s.next()
 }
 
+// Compact has the agent summarise its context, between turns.
+func (s *Session) Compact() error {
+	if err := s.usable(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case s.f.compact == "":
+		return fmt.Errorf("%s compacts its context by itself", s.name)
+	case s.running || s.compacting:
+		return fmt.Errorf("%s compacts once its turn ends", s.name)
+	}
+	s.compacting = true
+	s.turn++
+	s.sink.Compacting()
+	method, params := s.f.compact, map[string]any{"sessionId": s.id}
+	if strings.HasPrefix(method, "/") {
+		method, params["prompt"] = "session/prompt", []map[string]string{{"type": "text", "text": s.f.compact}}
+	}
+	c, turn := s.c, s.turn
+	go func() {
+		_, err := c.Call(s.ctx, method, params)
+		if s.ctx.Err() != nil {
+			return
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		// A stop has ended it already.
+		if !s.compacting || s.turn != turn {
+			return
+		}
+		s.compacting = false
+		if err != nil {
+			s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't compact: %v", s.name, err)})
+		} else {
+			s.sink.Apply(timeline.Event{Kind: "compacted", Trigger: "manual"})
+		}
+		s.sink.Compacted()
+		s.next()
+	}()
+	return nil
+}
+
 // Stray ends the turn a pocketd before this one started.
 func (s *Session) Stray(result json.RawMessage) {
 	var r struct {
@@ -612,19 +660,21 @@ func (s *Session) Stray(result json.RawMessage) {
 	}
 }
 
-// Cancel stops the turn under way and drops the prompts that waited for its
-// end. Whatever the agent asked is answered cancelled. An agent that never
-// answers the prompt it was told to stop would hold up the next one, so the
-// turn ends here once StopWait is up.
+// Cancel stops the turn or the compaction under way and drops the prompts
+// that waited for its end. Whatever the agent asked is answered cancelled. An
+// agent that never answers the prompt it was told to stop would hold up the
+// next one, so the turn ends here once StopWait is up.
 func (s *Session) Cancel() {
 	s.mu.Lock()
-	running, c, id, turn := s.running, s.c, s.id, s.turn
-	s.stopping, s.queue = running, nil
+	running, compacting, c, id, turn := s.running, s.compacting, s.c, s.id, s.turn
+	s.stopping, s.compacting, s.queue = running, false, nil
 	asks := s.asks
 	s.asks = map[string]context.CancelFunc{}
 	s.mu.Unlock()
-	if running {
+	if running || compacting {
 		c.Notify("session/cancel", map[string]any{"sessionId": id})
+	}
+	if running {
 		time.AfterFunc(StopWait, func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -751,7 +801,8 @@ func (s *Session) update(raw string) {
 // chat until flush writes it whole. A session's history comes whole at once.
 func (s *Session) chunk(kind, id, text string) {
 	// The agent echoes no prompt as it runs; the one that started the turn is in the timeline.
-	if kind == "user" && !s.opening {
+	// OpenCode writes its summary as a reply, which a compaction shows none of.
+	if kind == "user" && !s.opening || s.compacting {
 		return
 	}
 	if s.msg.kind != kind || s.msg.id != id {

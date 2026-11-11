@@ -132,6 +132,8 @@ pub struct Builtin {
     /// The slash commands of an agent driven over ACP or Pi's RPC that only its terminal runs, by name and alias: a
     /// chat would send them to the model as a prompt. Claude's and Codex's adapters hold their own.
     pub tui_only: &'static [&'static str],
+    /// pocketd compacts its ACP chat when asked, so the chat's `/compact` does that rather than reach the model.
+    pub compacts: bool,
 }
 
 /// Pi's and omp's thinking levels.
@@ -164,6 +166,7 @@ const NEWER: Builtin = Builtin {
     by_upstream: false,
     transport: Transport::Acp,
     tui_only: &[],
+    compacts: false,
 };
 
 /// OpenCode 1.19's TUI commands; its ACP server lists only skills, `init` and `review`.
@@ -216,6 +219,7 @@ pub const ALL: [Builtin; 10] = [
         by_upstream: false,
         transport: Transport::Claude,
         tui_only: &[],
+        compacts: false,
     },
     Builtin {
         id: "codex",
@@ -238,6 +242,7 @@ pub const ALL: [Builtin; 10] = [
         by_upstream: false,
         transport: Transport::Codex,
         tui_only: &[],
+        compacts: false,
     },
     Builtin {
         id: "cursor",
@@ -256,6 +261,7 @@ pub const ALL: [Builtin; 10] = [
         plan: true,
         models: Catalog { args: &["models"], parse: catalogs::grok, fallback: &["grok-4.6", "grok-4.5"], ..Catalog::NONE },
         install: Install { command: "curl -fsSL https://x.ai/cli/install.sh | bash", ..Install::NONE },
+        compacts: true,
         ..NEWER
     },
     Builtin {
@@ -270,6 +276,7 @@ pub const ALL: [Builtin; 10] = [
         install: Install { command: "npm i -g opencode-ai", ..Install::NONE },
         by_upstream: true,
         tui_only: OPENCODE_TUI_ONLY,
+        compacts: true,
         ..NEWER
     },
     Builtin {

@@ -2,12 +2,10 @@ package daemon
 
 import (
 	"context"
-	"errors"
 
 	"pocketd/internal/acp"
 	"pocketd/internal/agent"
 	"pocketd/internal/proto"
-	"pocketd/internal/providers"
 )
 
 // acpChat drives an agent run as an ACP server on its stdio, which `pocketd
@@ -59,6 +57,9 @@ type acpSink struct{ chatSink }
 // Loaded starts the timeline over: the agent replays the session's history into it.
 func (s acpSink) Loaded() { s.a.ClearTimeline() }
 
+func (s acpSink) Compacting() { s.a.SetCompacting() }
+func (s acpSink) Compacted()  { s.a.Compacted() }
+
 // acpDriver drives an agent through its ACP session.
 type acpDriver struct {
 	termDriver
@@ -86,7 +87,10 @@ func (c acpDriver) Interrupt() error {
 }
 
 func (c acpDriver) Compact() error {
-	return errors.New(providers.Get(c.pr.provider).Name + " compacts its context by itself")
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	return c.x.s.Compact()
 }
 
 // Settings applies to the session's next turns; a resume keeps it, as the

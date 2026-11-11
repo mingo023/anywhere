@@ -7,6 +7,8 @@ use crate::{Ask, Fold, Transcript, Turn};
 pub struct Acp {
     /// The agent's `providers::Builtin::tui_only`.
     pub tui_only: &'static [&'static str],
+    /// The agent's `providers::Builtin::compacts`.
+    pub compacts: bool,
 }
 
 impl Backend for Acp {
@@ -34,14 +36,18 @@ impl Backend for Acp {
             "model" => Kind::Local(Local::Model),
             "effort" => Kind::Local(Local::Effort),
             "new" => Kind::Local(Local::New),
+            "compact" if self.compacts => Kind::Local(Local::Compact),
             _ if self.tui_only.contains(&name) => Kind::Unsupported,
             _ => Kind::Send,
         }
     }
 
     fn builtins(&self) -> &'static [Builtin] {
-        BUILTINS
+        if self.compacts { COMPACTING } else { BUILTINS }
     }
 }
 
-const BUILTINS: &[Builtin] = &[Builtin { name: "model", hint: "[model]", description: "Set the model" }, Builtin { name: "new", hint: "", description: "Start a new chat" }];
+const MODEL: Builtin = Builtin { name: "model", hint: "[model]", description: "Set the model" };
+const NEW: Builtin = Builtin { name: "new", hint: "", description: "Start a new chat" };
+const BUILTINS: &[Builtin] = &[MODEL, NEW];
+const COMPACTING: &[Builtin] = &[MODEL, Builtin { name: "compact", hint: "", description: "Summarize the conversation to free up context" }, NEW];

@@ -59,7 +59,7 @@
       "plan": true,
       "chat": {
         "interrupt": true,
-        "compact": false,
+        "compact": true,
         "sendWhileWorking": true,
         "subAgents": false,
         "sendNow": false
@@ -72,7 +72,7 @@
       "plan": true,
       "chat": {
         "interrupt": true,
-        "compact": false,
+        "compact": true,
         "sendWhileWorking": true,
         "subAgents": false,
         "sendNow": false

@@ -83,8 +83,18 @@ func anAcpAgentSendsWhatItListsAndLeavesItsTuisCommandsOut() {
     #expect(hermes.command("skin", "") == .unsupported)
     #expect(opencode.command("review", "") == .send)
     #expect(opencode.command("sessions", "") == .unsupported)
-    #expect(opencode.command("compact", "") == .unsupported, "its ACP server can't compact")
-    #expect(names(menu(opencode, listed(["review", "models", "my-skill"]), "")) == ["model", "new", "review", "my-skill"])
+    #expect(names(menu(opencode, listed(["review", "models", "my-skill"]), "")) == ["model", "compact", "new", "review", "my-skill"])
+}
+
+@Test("grok and opencode compact in the chat, and the other ACP agents send it")
+func grokAndOpencodeCompactInTheChatAndTheOtherAcpAgentsSendIt() {
+    for provider in ["grok", "opencode"] {
+        #expect(Adapter.for(provider).command("compact", "") == .local(.compact), "\(provider)")
+    }
+    for provider in ["cursor", "fx", "hermes", "antigravity"] {
+        #expect(Adapter.for(provider).command("compact", "") == .send, "\(provider)")
+    }
+    #expect(names(menu(Adapter.for("grok"), listed(["compact", "context"]), "")) == ["model", "compact", "new", "context"])
 }
 
 @Test("every new agent sets its model and effort and starts a new chat from the phone")
@@ -94,7 +104,11 @@ func everyNewAgentSetsItsModelAndEffortAndStartsANewChatFromThePhone() {
         #expect(adapter.command("model", "") == .local(.model), "\(provider)")
         #expect(adapter.command("effort", "high") == .local(.effort), "\(provider)")
         #expect(adapter.command("new", "fix it") == .local(.new), "\(provider)")
-        let own = provider == "pi" || provider == "omp" ? ["model", "thinking", "compact", "new"] : ["model", "new"]
+        let own = switch provider {
+        case "pi", "omp": ["model", "thinking", "compact", "new"]
+        case "grok", "opencode": ["model", "compact", "new"]
+        default: ["model", "new"]
+        }
         #expect(adapter.builtins.map(\.name) == own, "\(provider)")
     }
     #expect(Adapter.for("grok").command("thinking", "high") == .send, "Pi's name for it")

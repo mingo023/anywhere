@@ -75,7 +75,7 @@ static KNOWN: LazyLock<Vec<Box<Adapter>>> = LazyLock::new(|| {
         match b.transport {
             Transport::Claude => Box::new(claude::Claude),
             Transport::Codex => Box::new(codex::Codex),
-            Transport::Acp => Box::new(acp::Acp { tui_only: b.tui_only }),
+            Transport::Acp => Box::new(acp::Acp { tui_only: b.tui_only, compacts: b.compacts }),
             Transport::Pi => Box::new(pi::Pi { tui_only: b.tui_only }),
         }
     };

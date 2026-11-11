@@ -33,6 +33,9 @@ type flavor struct {
 	// heldPlan has pocketd hold it to a plan: what it asks to do that is no
 	// read or search is refused.
 	heldPlan bool
+	// compact has it summarise its context: a method of its own, or the
+	// command it takes as a prompt. "" for one that only compacts by itself.
+	compact string
 }
 
 // flavors has every ACP provider.
@@ -51,8 +54,10 @@ var flavors = map[string]flavor{
 		effortMode: true,
 		spawned:    true,
 		heldPlan:   true,
+		compact:    "_x.ai/compact_conversation",
 	},
-	providers.OpenCode.ID: {plan: [2]string{"plan", "build"}, modeOption: true},
+	// OpenCode lists no /compact among its commands, and runs it all the same.
+	providers.OpenCode.ID: {plan: [2]string{"plan", "build"}, modeOption: true, compact: "/compact"},
 	// fx asks before every read in its own ask mode, so it runs in auto mode
 	// and polices itself. Neither it nor Hermes has a plan mode: each plans in
 	// the mode that asks the most.

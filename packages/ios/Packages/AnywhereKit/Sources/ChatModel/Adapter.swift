@@ -64,7 +64,7 @@ public struct Adapter: Hashable, Sendable {
         switch driver {
         case .claude, .other: Capabilities(interrupt: true, compact: true, sendWhileWorking: true, subAgents: true)
         case .codex, .pi: Capabilities(interrupt: true, compact: true, sendWhileWorking: true)
-        // ACP has no way to compact.
+        // A pocketd that says no caps compacts no ACP chat.
         case .acp: Capabilities(interrupt: true, sendWhileWorking: true)
         }
     }
@@ -106,7 +106,7 @@ public struct Adapter: Hashable, Sendable {
             case "effort": return .local(.effort)
             case "new": return .local(.new)
             case "thinking" where driver == .pi: return .local(.effort)
-            case "compact" where driver == .pi: return .local(.compact)
+            case "compact" where driver == .pi || compactsOverACP: return .local(.compact)
             case _ where tuiOnly.contains(name): return .unsupported
             default: return .send
             }
@@ -119,7 +119,7 @@ public struct Adapter: Hashable, Sendable {
         case .claude: Self.claudeBuiltins
         case .codex: Self.codexBuiltins
         case .pi: Self.piBuiltins
-        case .acp: Self.acpBuiltins
+        case .acp: compactsOverACP ? Self.compactingAcpBuiltins : Self.acpBuiltins
         case .other: []
         }
     }
@@ -163,6 +163,15 @@ public struct Adapter: Hashable, Sendable {
         Builtin(name: "model", hint: "[model]", description: "Set the model"),
         Builtin(name: "new", hint: "", description: "Start a new chat"),
     ]
+
+    static let compactingAcpBuiltins = [
+        Builtin(name: "model", hint: "[model]", description: "Set the model"),
+        Builtin(name: "compact", hint: "", description: "Summarize the conversation to free up context"),
+        Builtin(name: "new", hint: "", description: "Start a new chat"),
+    ]
+
+    /// pocketd compacts these agents' ACP chats when asked, so `/compact` does that rather than reach the model.
+    private var compactsOverACP: Bool { provider == .grok || provider == .opencode }
 
     static let piBuiltins = [
         Builtin(name: "model", hint: "[model]", description: "Set the model"),

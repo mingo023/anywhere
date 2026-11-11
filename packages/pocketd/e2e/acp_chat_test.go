@@ -427,6 +427,35 @@ func TestAChatFxOrHermesPlanningRunsNothingUntilTheChatLeavesThePlan(t *testing.
 	}
 }
 
+func TestAChatGrokOrOpenCodeCompactsItsContext(t *testing.T) {
+	for _, provider := range []string{"grok", "opencode"} {
+		t.Run(provider, func(t *testing.T) {
+			h, phone, term, id := chatACP(t, provider, nil)
+			phone.Prompt(id, "hello")
+			phone.WaitStatus(id, "done")
+			phone.Send(map[string]any{"type": "agent.compact", "id": "c1", "agentId": id})
+			compacting := false
+			phone.WaitAll("the compaction",
+				acked("c1"),
+				func(m Message) bool {
+					compacting = compacting || statusOf(id, "working")(m) && strings.Contains(m.Raw, `"compacting":true`)
+					return compacting
+				},
+				itemOf(id, func(it acpItem) bool { return it.Kind == "compact" }),
+				func(m Message) bool {
+					return compacting && statusOf(id, "done")(m) && !strings.Contains(m.Raw, `"compacting":true`)
+				},
+			)
+			h.WaitScreen(term, "compact")
+			if got, want := timelineOf(phone, id), []string{"user hello", "assistant echo: hello", "result", "compact"}; strings.Join(got, "|") != strings.Join(want, "|") {
+				t.Fatalf("got %q", got)
+			}
+			phone.Prompt(id, "after it")
+			phone.WaitAll("the next turn", streamOf(id, "assistant", "echo: after it"), statusOf(id, "done"))
+		})
+	}
+}
+
 func TestEveryACPAgentChatsThroughTheOneDriver(t *testing.T) {
 	for _, provider := range []string{"cursor", "grok", "fx", "antigravity"} {
 		t.Run(provider, func(t *testing.T) {

@@ -51,6 +51,8 @@ func (s *sink) Apply(e timeline.Event) {
 		if e.Output != nil {
 			line += ":" + *e.Output
 		}
+	case "compacted":
+		line += ":" + e.Trigger
 	case "result":
 		line += fmt.Sprintf(":%v:%s", e.OK, e.Error)
 		if e.Usage != nil {
@@ -69,6 +71,8 @@ func (s *sink) Working()                     { s.add("working") }
 func (s *sink) NeedsYou()                    { s.add("needsYou") }
 func (s *sink) TurnEnded(failed bool)        { s.add("ended:%v", failed) }
 func (s *sink) Stopped()                     { s.add("stopped") }
+func (s *sink) Compacting()                  { s.add("compacting") }
+func (s *sink) Compacted()                   { s.add("compactingEnded") }
 
 func (s *sink) lines() []string {
 	s.mu.Lock()

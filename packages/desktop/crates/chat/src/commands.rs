@@ -152,15 +152,27 @@ mod tests {
     fn opencode_and_hermes_leave_out_the_commands_only_their_terminals_run() {
         let kinds = |provider: &str, commands: [&str; 5]| commands.map(|c| for_provider(provider).command(c, ""));
         let terminal = [Kind::Unsupported; 5];
-        assert_eq!(kinds("opencode", ["compact", "sessions", "clear", "undo", "export"]), terminal);
+        assert_eq!(kinds("opencode", ["themes", "sessions", "clear", "undo", "export"]), terminal);
         assert_eq!(kinds("hermes", ["skin", "clear", "quit", "snap", "toolsets"]), terminal);
         assert_eq!(kinds("opencode", ["init", "review", "skin", "snap", "toolsets"]), [Kind::Send; 5], "OpenCode's ACP server lists these, and Hermes's list is not its own");
         assert_eq!(kinds("hermes", ["tools", "compress", "help", "sessions", "undo"]), [Kind::Send; 5]);
         for provider in ["cursor", "grok", "fx", "antigravity"] {
-            assert_eq!(kinds(provider, ["compact", "sessions", "clear", "skin", "quit"]), [Kind::Send; 5], "{provider}");
+            assert_eq!(kinds(provider, ["themes", "sessions", "clear", "skin", "quit"]), [Kind::Send; 5], "{provider}");
         }
-        let rows = menu(for_provider("opencode"), &listed(&["init", "sessions", "review", "compact"]), "");
-        assert_eq!(names(&rows), ["model", "new", "init", "review"]);
+        let rows = menu(for_provider("opencode"), &listed(&["init", "sessions", "review"]), "");
+        assert_eq!(names(&rows), ["model", "compact", "new", "init", "review"]);
+    }
+
+    #[test]
+    fn grok_and_opencode_compact_in_the_chat_and_the_other_acp_agents_send_it() {
+        for provider in ["grok", "opencode"] {
+            assert_eq!(for_provider(provider).command("compact", ""), Kind::Local(Local::Compact), "{provider}");
+        }
+        for provider in ["cursor", "fx", "hermes", "antigravity"] {
+            assert_eq!(for_provider(provider).command("compact", ""), Kind::Send, "{provider}");
+        }
+        let rows = menu(for_provider("grok"), &listed(&["compact", "context"]), "");
+        assert_eq!(names(&rows), ["model", "compact", "new", "context"]);
     }
 
     #[test]

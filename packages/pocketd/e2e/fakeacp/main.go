@@ -11,14 +11,16 @@
 //	slow <text>     reply after 3s, unless cancelled
 //	fail <message>  refuse the prompt with message
 //	stop <reason>   end the turn with that stop reason
+//	/compact        as opencode, summarise the session in a reply and tell fewer tokens
 //
 // With $HOME/.acp-fake/start it never opens a session: "exit <message>" has
 // it say message and exit 1, "refuse <message>" refuse session/new with it.
 //
 // As hermes it has models and modes, asks about a call of its own making and
 // tells a command only as content. As opencode it has config options, tells a
-// call before its input and asks about that call. Without a server's
-// arguments it echoes input, as a TUI.
+// call before its input and asks about that call. As grok it compacts by
+// _x.ai/compact_conversation. Without a server's arguments it echoes input,
+// as a TUI.
 package main
 
 import (
@@ -276,6 +278,15 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 			return
 		}
 		go a.turn(id, promptText(p), stop)
+	case "_x.ai/compact_conversation":
+		if a.name != "grok" {
+			a.refuse(id, -32601, "Method not found", map[string]string{"method": method})
+			return
+		}
+		note("compact")
+		a.send(map[string]any{"method": "_x.ai/session_notification", "params": map[string]any{"sessionId": a.session.ID,
+			"update": map[string]any{"sessionUpdate": "auto_compact_completed", "tokens_before": 1200, "tokens_after": 300}}})
+		a.reply(id, map[string]any{})
 	case "session/cancel":
 		note("cancel")
 		a.mu.Lock()
@@ -329,6 +340,15 @@ func (a *agent) say(text string) {
 
 func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 	note("prompt: %s", text)
+	if a.name == "opencode" && text == "/compact" {
+		// The real one keeps its summary as a reply no prompt asked for.
+		a.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": textBlock("summarising")})
+		a.say("summary")
+		a.tell(map[string]any{"sessionUpdate": "usage_update", "used": 300, "size": 200000})
+		a.end()
+		a.reply(id, map[string]any{"stopReason": "end_turn"})
+		return
+	}
 	a.mu.Lock()
 	first := len(a.session.History) == 0
 	a.session.History = append(a.session.History, map[string]any{"sessionUpdate": "user_message_chunk", "content": textBlock(text)})
