@@ -570,7 +570,7 @@ func TestGrokNeverSignsInThroughABrowser(t *testing.T) {
 		`{"authMethods":[{"id":"grok.com"}]}`:                                                                          "",
 		`{}`:                                                                                                           "",
 	} {
-		if got := grokAuth(json.RawMessage(init)); got != want {
+		if got := grokMethod(json.RawMessage(init)); got != want {
 			t.Errorf("%s: %q, want %q", init, got, want)
 		}
 	}

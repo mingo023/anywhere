@@ -254,11 +254,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 		return opened{}, err
 	}
 	if s.f.auth != nil {
-		if method := s.f.auth(init); method != "" {
-			params := map[string]any{"methodId": method}
-			if s.f.authMeta != nil {
-				params["_meta"] = s.f.authMeta
-			}
+		if params := s.f.auth(init); params != nil {
 			// An agent already signed in may refuse; its session tells.
 			s.call(c, OpenWait, "authenticate", params)
 		}
@@ -702,7 +698,7 @@ func (s *Session) Compact() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
-	case s.f.compact == "":
+	case s.f.compactMethod == "" && s.f.compactPrompt == "":
 		return fmt.Errorf("%s compacts its context by itself", s.name)
 	case s.compacting || s.compactNext:
 		return fmt.Errorf("%s is compacting already", s.name)
@@ -718,9 +714,9 @@ func (s *Session) compact() {
 	s.compacting = true
 	s.turn++
 	s.sink.Compacting()
-	method, params := s.f.compact, map[string]any{"sessionId": s.id}
-	if strings.HasPrefix(method, "/") {
-		method, params["prompt"] = "session/prompt", []map[string]string{{"type": "text", "text": s.f.compact}}
+	method, params := s.f.compactMethod, map[string]any{"sessionId": s.id}
+	if s.f.compactPrompt != "" {
+		method, params["prompt"] = "session/prompt", []map[string]string{{"type": "text", "text": s.f.compactPrompt}}
 	}
 	c, turn := s.c, s.turn
 	go func() {
