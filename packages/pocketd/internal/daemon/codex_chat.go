@@ -19,7 +19,7 @@ import (
 )
 
 // codexChat drives the app-server a codex that Pocket runs for the chat
-// speaks on its stdio, which `pocketd pipe` carries. It is the codex.Wire its
+// speaks on its stdio, which `pocketd pipe` carries. It is the jsonrpc.Wire its
 // client reads and writes, and the handler its messages go to first.
 type codexChat struct {
 	d     *Daemon

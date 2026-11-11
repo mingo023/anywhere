@@ -12,19 +12,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"pocketd/internal/jsonrpc"
 )
 
 type Handler interface {
 	// Event takes a record that answers no command, in the order the agent
 	// wrote it: an event, or another response to a command already answered.
 	Event(kind string, raw json.RawMessage)
-}
-
-// Wire carries records, one per Read or Write.
-type Wire interface {
-	Read(ctx context.Context) ([]byte, error)
-	Write(ctx context.Context, msg []byte) error
-	Close()
 }
 
 type record struct {
@@ -37,7 +32,7 @@ type record struct {
 }
 
 type Client struct {
-	w       Wire
+	w       jsonrpc.Wire
 	h       Handler
 	mu      sync.Mutex
 	prefix  string
@@ -48,7 +43,7 @@ type Client struct {
 
 // Connect reads w for h. Its ids start anywhere, so a response meant for an
 // earlier pocketd on the same pipe answers none of its commands.
-func Connect(w Wire, h Handler) *Client {
+func Connect(w jsonrpc.Wire, h Handler) *Client {
 	c := &Client{w: w, h: h, prefix: "aw" + strconv.Itoa(rand.IntN(1<<30)) + "-", pending: map[string]func(json.RawMessage, error){}, done: make(chan struct{})}
 	go c.read()
 	return c

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"pocketd/internal/broker"
+	"pocketd/internal/jsonrpc"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 	"pocketd/internal/state"
@@ -206,7 +207,7 @@ type opened struct {
 // the agent replays into the timeline, else a new one. l is applied to it.
 // left is how the pocketd before this one left its last turn. An agent that
 // never opens it gives back the prompts that waited to be sent.
-func (s *Session) Open(w Wire, cwd, saved string, l state.Launch, left Left) (unsent []string, err error) {
+func (s *Session) Open(w jsonrpc.Wire, cwd, saved string, l state.Launch, left Left) (unsent []string, err error) {
 	c := Connect(w, s)
 	s.mu.Lock()
 	s.c, s.launch, s.cwd = c, l, cwd

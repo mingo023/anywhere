@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"pocketd/internal/broker"
+	"pocketd/internal/jsonrpc"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 	"pocketd/internal/state"
@@ -147,7 +148,7 @@ func (m model) name() string {
 // set where pi's command line had no flag for it. midTurn is a turn the
 // pocketd before this one left running. A pi that never tells its state gives
 // back the prompts that waited to be sent.
-func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, err error) {
+func (s *Session) Open(w jsonrpc.Wire, l state.Launch, midTurn bool) (unsent []string, err error) {
 	c := Connect(w, s)
 	s.mu.Lock()
 	s.c = c
