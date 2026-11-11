@@ -78,11 +78,13 @@ type Session struct {
 	opening bool   // the call that opens it is out, so what the agent says is the session's history
 	saved   string // the session a load is out for
 	// replay holds that history until the agent has loaded it whole: a load that fails shows none of it.
-	replay  []timeline.Event
-	ready   bool // it is open and set to its launch: turns may start
-	launch  state.Launch
-	options []configOption
-	model   string // the model the agent says it is on
+	replay []timeline.Event
+	ready  bool // it is open and set to its launch: turns may start
+	launch state.Launch
+	// startedOn is the access whose _meta session/new took, which the session keeps.
+	startedOn string
+	options   []configOption
+	model     string // the model the agent says it is on
 	// queue holds the prompts sent before the session opened, while a turn runs or while it compacts, which ACP has no place for.
 	queue    []string
 	running  bool
@@ -300,8 +302,9 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 		s.mu.Unlock()
 	}
 	params := map[string]any{"cwd": cwd, "mcpServers": []any{}}
+	startedOn := ""
 	if meta := s.f.newMeta[l.Access]; meta != nil && !l.Plan {
-		params["_meta"] = meta
+		params["_meta"], startedOn = meta, l.Access
 	}
 	res, err := s.call(c, OpenWait, "session/new", params)
 	if err != nil {
@@ -313,7 +316,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 		return opened{}, errors.New("it gave no session")
 	}
 	s.mu.Lock()
-	s.id = id
+	s.id, s.startedOn = id, startedOn
 	s.mu.Unlock()
 	return r, nil
 }
@@ -551,11 +554,14 @@ func (s *Session) Access(access string) error {
 	if err := s.usable(); err != nil {
 		return err
 	}
+	if s.Respawns(access) {
+		return fmt.Errorf("%s takes plan mode and full access only as it starts", s.name)
+	}
 	s.mu.Lock()
-	planning, full, picked := s.launch.Plan, s.launch.Access == "full", s.launch.Options
+	planning, picked, startedOn := s.launch.Plan, s.launch.Options, s.startedOn
 	s.mu.Unlock()
-	if s.f.spawned && (planning || full != (access == "full")) {
-		return fmt.Errorf("%s takes plan mode and full access only as it starts, so start a new session to switch", s.name)
+	if startedOn != "" && startedOn != access {
+		return fmt.Errorf("%s started its session on %s access and keeps it, so start a new session to switch", s.name, startedOn)
 	}
 	mode := s.f.mode(access, false, planning)
 	if o := s.option(modeSetting); o != nil && planning && picked[o.ID] != "" {
@@ -570,6 +576,14 @@ func (s *Session) Access(access string) error {
 	s.launch.Access, s.launch.Plan = access, false
 	s.mu.Unlock()
 	return nil
+}
+
+// Respawns reports whether the agent takes a switch to access only by
+// starting again on its session.
+func (s *Session) Respawns(access string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.f.spawned && (s.launch.Plan || (s.launch.Access == "full") != (access == "full"))
 }
 
 // Commands lists the slash commands the agent told of.

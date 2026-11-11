@@ -21,14 +21,14 @@ type flavor struct {
 	plan [2]string
 	// modeOption has its modes be the values of its "mode" config option.
 	modeOption bool
-	// newMeta is session/new's _meta for an access.
+	// newMeta is session/new's _meta for an access, which it keeps for the session.
 	newMeta map[string]map[string]any
 	// effortMode has its efforts be modes.
 	effortMode bool
 	// lenient answers a request it doesn't know with {} rather than an error.
 	lenient bool
 	// spawned takes plan mode and full access only on its command line, so
-	// neither switches in a running session.
+	// it switches either by starting again.
 	spawned bool
 	// heldPlan has pocketd hold it to a plan: what it asks to do that is no
 	// read or search is refused.

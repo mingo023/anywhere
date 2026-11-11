@@ -1365,25 +1365,28 @@ func TestAPermissionNamedForItsQuestionLeavesTheCallItsNameAndKind(t *testing.T)
 	}
 }
 
-func TestGrokSwitchesNeitherPlanNorFullAccessOnceItRuns(t *testing.T) {
-	const refusal = "Grok Build takes plan mode and full access only as it starts, so start a new session to switch"
+func TestGrokSwitchesPlanAndFullAccessOnlyByStartingAgainAndKeepsTheAutoModeItStartedOn(t *testing.T) {
+	const respawn = "Grok Build takes plan mode and full access only as it starts"
 	for _, c := range []struct {
-		launch state.Launch
-		to     string
-		want   string
+		launch   state.Launch
+		to       string
+		respawns bool
+		want     string
 	}{
-		{state.Launch{Access: "ask", Plan: true}, "edits", refusal},
-		{state.Launch{Access: "full"}, "ask", refusal},
-		{state.Launch{Access: "ask"}, "full", refusal},
-		{state.Launch{Access: "ask"}, "auto", ""},
+		{state.Launch{Access: "ask", Plan: true}, "edits", true, respawn},
+		{state.Launch{Access: "full"}, "ask", true, respawn},
+		{state.Launch{Access: "ask"}, "full", true, respawn},
+		{state.Launch{Access: "auto"}, "full", true, respawn},
+		{state.Launch{Access: "ask"}, "auto", false, ""},
+		{state.Launch{Access: "auto"}, "ask", false, "Grok Build started its session on auto access and keeps it, so start a new session to switch"},
 	} {
 		s, _, _, _ := start(t, opts{provider: "grok", launch: c.launch, answer: script(`{"sessionId":"s1"}`, says())})
 		got := ""
 		if err := s.Access(c.to); err != nil {
 			got = err.Error()
 		}
-		if got != c.want {
-			t.Errorf("%+v to %s: %q", c.launch, c.to, got)
+		if s.Respawns(c.to) != c.respawns || got != c.want {
+			t.Errorf("%+v to %s: respawns %v, %q", c.launch, c.to, s.Respawns(c.to), got)
 		}
 	}
 }

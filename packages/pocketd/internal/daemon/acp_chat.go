@@ -2,10 +2,13 @@ package daemon
 
 import (
 	"context"
+	"errors"
 
 	"pocketd/internal/acp"
 	"pocketd/internal/agent"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
+	"pocketd/internal/state"
 )
 
 // acpChat drives an agent run as an ACP server on its stdio, which `pocketd
@@ -110,10 +113,27 @@ func (c acpDriver) Access(access string) error {
 	if !c.inForeground() {
 		return errNotForeground
 	}
+	if c.x.s.Respawns(access) {
+		return c.x.respawn(access)
+	}
 	if err := c.x.s.Access(access); err != nil {
 		return err
 	}
 	c.pr.accessSwitched(access)
+	return nil
+}
+
+// respawn restarts the agent on the same session with access, out of plan.
+func (x *acpChat) respawn(access string) error {
+	name := providers.Get(x.pr.provider).Name
+	switch {
+	case x.d.Resume == nil:
+		return errors.New(name + " switches plan and full access by resuming its session, which Settings has off")
+	case !restartable(between(x.pr.a)):
+		return errors.New(name + " can switch plan and full access once its turn ends")
+	case !x.d.restart(x.pr, func(e *state.Terminal) { e.Launch.Access, e.Launch.Plan = access, false }, restartable, ""):
+		return errors.New(name + " couldn't switch")
+	}
 	return nil
 }
 

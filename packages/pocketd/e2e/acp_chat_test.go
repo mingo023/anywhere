@@ -458,6 +458,40 @@ func TestAChatFxOrHermesPlanningRunsNothingUntilTheChatLeavesThePlan(t *testing.
 	}
 }
 
+// Grok takes plan mode and full access only on its command line.
+func TestAChatGrokLeavesPlanAndSwitchesFullAccessByRestartingOnItsSession(t *testing.T) {
+	h, phone, term, id := chatACP(t, "grok", map[string]any{"plan": true}, func(h *Harness) { h.resume = true })
+	h.WaitScreen(term, "--permission-mode plan agent --no-leader stdio")
+	phone.Prompt(id, "plan it")
+	phone.WaitStatus(id, "done")
+
+	for i, c := range []struct{ access, argv string }{
+		{"full", "fake grok ready --no-auto-update agent --no-leader --always-approve stdio"},
+		{"ask", "fake grok ready --no-auto-update agent --no-leader stdio"},
+	} {
+		if got := access(phone, id, fmt.Sprint("s", i), c.access); got.Type != "ack" {
+			t.Fatalf("to %s: got %s", c.access, got.Raw)
+		}
+		h.WaitScreen(term, c.argv)
+		h.WaitScreen(term, "load: ")
+	}
+	for try := 0; ; try++ {
+		phone.Send(map[string]any{"type": "agent.prompt", "id": fmt.Sprint("p", try), "agentId": id, "text": "build it"})
+		got := phone.WaitFor("the prompt taken", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try) })
+		if got.Type == "ack" {
+			break
+		}
+		if got.Code != "agent_resuming" || try == 50 {
+			t.Fatalf("got %s", got.Raw)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	phone.WaitAll("the turn on its session", streamOf(id, "assistant", "echo: build it"), statusOf(id, "done"))
+	if got := timelineOf(phone, id); !slices.Contains(got, "user plan it") {
+		t.Fatalf("the session was not the same: %q", got)
+	}
+}
+
 func TestAChatGrokOrOpenCodeCompactsItsContext(t *testing.T) {
 	for _, provider := range []string{"grok", "opencode"} {
 		t.Run(provider, func(t *testing.T) {
