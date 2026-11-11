@@ -35,6 +35,23 @@ fn widest(rows: &[Row]) -> Option<usize> {
     rows.iter().enumerate().max_by_key(|(_, row)| text(row).chars().count()).map(|(i, _)| i)
 }
 
+/// A menu row to pick, its check column ticked when `checked`; the caller adds the label.
+pub(crate) fn pick_row(id: impl Into<ElementId>, checked: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(ROW))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .rounded(px(5.))
+        .cursor_pointer()
+        .hover(|d| d.bg(FILL_2))
+        .text_size(px(13.))
+        .text_color(TEXT)
+        .child(div().w(px(14.)).flex_none().when(checked, |d| d.child(icon("check", 13., TEXT))))
+}
+
 /// `trigger` opening a menu while `settings.menu` is `id`; `pick` gets the chosen value. An agent can list hundreds of
 /// models, so `rows` are made only once the menu is open and again when `from` changes, and only those in view are built.
 #[allow(clippy::too_many_arguments)]
@@ -60,18 +77,23 @@ pub(crate) fn dropdown(
     let rows = d.settings.menu_rows.get((id, from), rows);
     let (pick, chosen, widest, count) = (Rc::new(pick), chosen.to_string(), widest(&rows), rows.len());
     let line = move |_: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
-        let line = div().id((id, i)).w_full().h(px(ROW)).px(px(8.)).flex().items_center();
         match &rows[i] {
-            Row::Heading(name) => line.items_end().pb(px(4.)).text_size(px(10.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_4).child(div().whitespace_nowrap().child(name.clone())),
+            Row::Heading(name) => div()
+                .id((id, i))
+                .w_full()
+                .h(px(ROW))
+                .px(px(8.))
+                .flex()
+                .items_end()
+                .pb(px(4.))
+                .text_size(px(10.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(TEXT_4)
+                .child(div().whitespace_nowrap().child(name.clone())),
             Row::Pick(Choice { value, label }) => {
                 let (pick, value) = (pick.clone(), value.clone());
-                line.gap(px(6.))
-                    .rounded(px(5.))
-                    .cursor_pointer()
-                    .hover(|d| d.bg(FILL_2))
-                    .text_size(px(13.))
-                    .text_color(TEXT)
-                    .child(div().w(px(14.)).flex_none().when(value == chosen, |d| d.child(icon("check", 13., TEXT))))
+                pick_row((id, i), value == chosen)
+                    .w_full()
                     .child(div().whitespace_nowrap().child(label.clone()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.settings.menu = None;

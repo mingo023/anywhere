@@ -9,11 +9,15 @@ use agents::{ListedModel, Summary};
 use gpui_kit::*;
 use std::rc::Rc;
 
-/// The model's short name and its effort, else `default`, the model's own, labelled as the new session's pill labels them.
-/// Once the model's `levels` are known, an effort outside them isn't one it runs on.
+/// The effort `agent` runs on, else `default`, the model's own. Once the model's `levels` are known, an effort outside
+/// them isn't one it runs on.
+fn running_effort<'a>(agent: &'a Summary, levels: &[String], default: Option<&'a str>) -> Option<&'a str> {
+    agent.effort.as_deref().into_iter().chain(default).find(|e| !e.is_empty() && (levels.is_empty() || levels.iter().any(|l| l == e)))
+}
+
+/// The model's short name and its `running_effort`, labelled as the new session's pill labels them.
 pub(super) fn label(agent: &Summary, levels: &[String], default: Option<&str>) -> (String, Option<String>) {
-    let effort = agent.effort.as_deref().into_iter().chain(default).find(|e| !e.is_empty() && (levels.is_empty() || levels.iter().any(|l| l == e)));
-    (crate::status::model_or_agent(agent), effort.map(effort_label))
+    (crate::status::model_or_agent(agent), running_effort(agent, levels, default).map(effort_label))
 }
 
 /// Whether the agent runs `model`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus". Until the CLI
@@ -100,14 +104,14 @@ impl Desktop {
     fn chat_effort_menu(&self, agent: &Summary, levels: &[String], default: Option<&str>, cx: &mut Context<Self>) -> Effort {
         let id = agent.id.clone();
         let pick: launch::Pick = Rc::new(move |this, effort, _| this.outbox.settings(&id, "", &effort));
-        let on = agent.effort.as_deref().into_iter().chain(default).find(|e| levels.iter().any(|l| l == e)).map(String::from);
+        let on = running_effort(agent, levels, default).map(String::from);
         effort_menu("chat-effort", agents::providers::known(&agent.provider).effort_word, (levels, on.as_ref()), &self.chats.composer.draft.effort, |d: &mut Desktop| &mut d.chats.composer.draft, pick, cx)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Line, ListedModel, Summary, label, running_line, runs};
+    use super::{Entry, Line, ListedModel, Summary, label, running_effort, running_line, runs};
 
     #[test]
     fn the_line_checked_is_the_model_the_chat_runs() {
@@ -129,6 +133,16 @@ mod tests {
         assert_eq!(label(&agent("claude-opus-4-5", Some("medium")), &levels, Some("low")).1.as_deref(), Some("Medium"));
         assert_eq!(label(&agent("claude-opus-4-5", None), &levels, Some("low")).1.as_deref(), Some("Low"));
         assert_eq!(label(&agent("claude-opus-4-5", None), &levels, Some("")).1, None);
+    }
+
+    #[test]
+    fn the_effort_running_is_the_agents_else_the_models_own_and_any_while_the_levels_are_unknown() {
+        let agent = |effort: Option<&str>| Summary { provider: "claude".into(), effort: effort.map(Into::into), ..Default::default() };
+        let levels = ["low".to_string(), "high".to_string()];
+        assert_eq!(running_effort(&agent(Some("high")), &levels, Some("low")), Some("high"));
+        assert_eq!(running_effort(&agent(Some("xhigh")), &levels, Some("low")), Some("low"));
+        assert_eq!(running_effort(&agent(Some("xhigh")), &[], None), Some("xhigh"));
+        assert_eq!(running_effort(&agent(Some("")), &[], Some("")), None);
     }
 
     #[test]

@@ -8,6 +8,7 @@ pub(crate) mod team_chip;
 use crate::chat::composer::suggest::Suggest;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
+use agents::providers::{self, Transport};
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -196,9 +197,9 @@ pub(crate) fn split_images(prompt: &str) -> (&str, Vec<&str>) {
     }
 }
 
-/// A team's lead plans in a chat pocketd drives, which only Claude and Codex have; `served` is `Agents::teams_offered`.
+/// A team's lead plans in a chat pocketd drives over Claude's or Codex's transport; `served` is `Agents::teams_offered`.
 pub(crate) fn team_offered(served: bool, chat: bool, provider: &str) -> bool {
-    served && chat && matches!(provider, "claude" | "codex")
+    served && chat && providers::get(provider).is_some_and(|b| matches!(b.transport, Transport::Claude | Transport::Codex))
 }
 
 /// Has a create's first prompt ask for a team plan, when `team` is set and the session the spec starts can lead one.
@@ -641,7 +642,8 @@ mod tests {
         assert!(team_offered(true, true, "codex"));
         assert!(!team_offered(false, true, "claude"), "pocketd doesn't advertise team.v1");
         assert!(!team_offered(true, false, "claude"), "a terminal session can't lead");
-        assert!(!team_offered(true, true, "opencode"), "a provider this build doesn't know");
+        assert!(!team_offered(true, true, "opencode"), "only Claude and Codex lead teams");
+        assert!(!team_offered(true, true, "gemini"), "a provider this build doesn't know");
     }
 
     #[test]

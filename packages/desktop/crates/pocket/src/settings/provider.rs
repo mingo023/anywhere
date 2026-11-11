@@ -3,9 +3,9 @@ use super::agents::{status_source, toggle_enabled};
 use super::catalog::Setting;
 use super::dropdown::dropdown;
 use super::dropdown::picks;
-use super::models::{effort_label, effort_options, model_label, model_rows, not_found};
+use super::models::{effort_label, effort_options, model_or_default, model_rows, not_found};
 use super::{Section, action, card, field_box, row};
-use crate::composer::model_menu::model_name;
+use crate::composer::model_menu::listed_name;
 use crate::desktop::Desktop;
 use crate::util::tilde;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -45,7 +45,7 @@ const fn rows<const P: usize>() -> [Setting; 9] {
         })
         .hint("Replaces the built-in name everywhere in the app"),
         Setting::custom("model", DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
-            .resets(|s| model_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).model), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear())
+            .resets(|s| model_or_default(&s.agents.provider(LaunchPick::PROVIDERS[P]).model), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear())
             .hint("The list comes from the CLI"),
         Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx))
             .resets(|s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear()),
@@ -266,7 +266,7 @@ impl Desktop {
         let p = LaunchPick::PROVIDERS[i];
         let model = self.store.agents.provider(p).model;
         let (id, offered) = (ROW_IDS[i][1], self.offered_models(p));
-        let trigger = action(id, "").child(model_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
+        let trigger = action(id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let menu = dropdown(id, trigger, (self.settings.models.revision, &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
         row(setting.label, setting.hint, menu)
     }

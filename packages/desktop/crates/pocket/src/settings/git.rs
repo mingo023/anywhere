@@ -1,8 +1,8 @@
 use super::catalog::{Look, Setting};
 use super::dropdown::dropdown;
-use super::models::{model_label, model_rows};
+use super::models::{model_or_default, model_rows};
 use super::{action, row};
-use crate::composer::model_menu::model_name;
+use crate::composer::model_menu::listed_name;
 use crate::desktop::Desktop;
 use git::github::GhStatus;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -43,7 +43,7 @@ pub(super) const ROWS: &[Setting] = &[
         .offers(writes_commits)
         .under(|s| s.git.ai),
     Setting::custom("ai-model", "AI commit messages", "Model", |d, s, cx| d.ai_model_row(s, cx))
-        .resets(|s| model_label(&s.git.model), |s, d| s.git.model = d.git.model.clone())
+        .resets(|s| model_or_default(&s.git.model), |s, d| s.git.model = d.git.model.clone())
         .under(|s| s.git.ai),
     Setting::choice("ai-style", "AI commit messages", "Style", &["Recent", "Conventional", "Plain", "Custom"], Look::Segmented, |s| index(&STYLES, &s.git.style), |s, i| s.git.style = STYLES[i])
         .hint("Recent follows this repo's latest subjects")
@@ -91,7 +91,7 @@ impl Desktop {
     fn ai_model_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let model = self.store.git.model.clone();
         let (agent, offered) = (self.store.git.agent.as_str(), self.offered_models(&self.store.git.agent));
-        let trigger = action(setting.id, "").child(model_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
+        let trigger = action(setting.id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let title = div().flex().items_center().gap(px(10.)).child(div().w(px(16.)).text_color(TEXT_4).child("↳")).child(setting.label);
         let from = (agent, self.settings.models.revision, &model);
         row(title, setting.hint, dropdown(setting.id, trigger, from, || model_rows(agent, offered, &model), &model, self, |d, v, _| d.store.git.model = v, cx))

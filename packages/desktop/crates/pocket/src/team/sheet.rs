@@ -2,7 +2,7 @@
 
 use super::plan::{Kept, branch, can_start};
 use super::{PROPOSED, plural};
-use crate::composer::model_menu::model_name;
+use crate::composer::model_menu::listed_name;
 use crate::settings::models::{listed_agents, model_options};
 use crate::composer::{menu_title, picker, pill};
 use crate::desktop::Desktop;
@@ -141,7 +141,7 @@ impl Desktop {
     /// The task's agent and model; its menu picks both.
     fn agent_chip(&self, t: &Kept, cx: &mut Context<Self>) -> Div {
         let open = self.team.island.menu.as_deref() == Some(t.id.as_str());
-        let label = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model_name(&t.model, self.models_of(&t.agent)));
+        let label = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(listed_name(&t.model, self.models_of(&t.agent)));
         let task = t.id.clone();
         let chip = picker(pill().child(provider_icon(&t.agent, 14., TEXT_2)).child(label), id(format!("team-agent:{}", t.id)), open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             cx.stop_propagation();

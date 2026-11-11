@@ -58,7 +58,7 @@ fn default_index(s: &store::Store) -> usize {
 }
 
 fn index_of(provider: &str) -> usize {
-    LaunchPick::PROVIDERS.iter().position(|p| *p == provider).unwrap_or(0)
+    providers::index(provider).unwrap_or(0)
 }
 
 /// The agents Settings gives a row: the two every pocketd runs, and each other this pocketd named, found or not. One it

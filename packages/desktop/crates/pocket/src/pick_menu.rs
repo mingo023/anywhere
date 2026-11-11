@@ -15,6 +15,11 @@ pub(crate) enum Line<P> {
     Pick(P),
 }
 
+/// `groups` as lines: each group's name, where it has one, over its picks.
+pub(crate) fn grouped<P>(groups: impl IntoIterator<Item = (Option<String>, Vec<P>)>) -> Vec<Line<P>> {
+    groups.into_iter().flat_map(|(name, picks)| name.map(Line::Heading).into_iter().chain(picks.into_iter().map(Line::Pick))).collect()
+}
+
 /// The first line whose pick `is` holds: the one the menu checks.
 pub(crate) fn checked<P>(lines: &[Line<P>], is: impl Fn(&P) -> bool) -> Option<usize> {
     lines.iter().position(|l| matches!(l, Line::Pick(p) if is(p)))
@@ -64,7 +69,7 @@ pub(crate) fn pick_list<R: IntoElement>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Line, Memo, checked};
+    use super::{Line, Memo, checked, grouped};
 
     #[test]
     fn a_kept_value_is_built_again_only_when_what_it_was_built_from_changes() {
@@ -80,6 +85,12 @@ mod tests {
         assert_eq!(built.get(), 1);
         assert_eq!([get(("pi", 2)), get(("omp", 2)), get(("omp", 2))], ["PI", "OMP", "OMP"]);
         assert_eq!(built.get(), 3);
+    }
+
+    #[test]
+    fn a_named_group_lists_its_name_over_its_picks_and_an_unnamed_one_only_its_picks() {
+        let lines = grouped([(None, vec!["a"]), (Some("ANTHROPIC".to_string()), vec!["b", "c"])]);
+        assert_eq!(lines, [Line::Pick("a"), Line::Heading("ANTHROPIC".into()), Line::Pick("b"), Line::Pick("c")]);
     }
 
     #[test]
