@@ -138,12 +138,17 @@ func (d *Daemon) presenceOf(agentID string) *presence {
 }
 
 // movable reports whether an agent can restart on account want: it is on
-// another one, reports between turns (an unattached claude's status is a
-// guess), and has a conversation to resume. A turn that failed, as one at a
-// limit does, has ended too.
+// another one, and restartable.
 func movable(s proto.AgentSummary, want string) bool {
+	return s.Account != want && restartable(s)
+}
+
+// restartable reports whether an agent can restart: it reports between turns
+// (an unattached claude's status is a guess), and has a conversation to
+// resume. A turn that failed, as one at a limit does, has ended too.
+func restartable(s proto.AgentSummary) bool {
 	idle := s.Status == "idle" || s.Status == "done"
-	return s.Account != want && idle && s.Attached && s.ProviderSessionID != ""
+	return idle && s.Attached && s.ProviderSessionID != ""
 }
 
 // between is a's summary with its turn as its status, so a wait for the user between turns doesn't hold a switch.
@@ -153,24 +158,33 @@ func between(a *agent.Agent) proto.AgentSummary {
 	return s
 }
 
-// move replaces pr's process with its provider resumed on account want, with
-// the access it has, and sends resend once it settles. The Agent keeps its id
-// and Terminal, and refuses prompts as a restored one does until its new
-// process settles. It reports whether the new process started.
+// move replaces pr's process with its provider resumed on account want, as
+// restart does.
 func (d *Daemon) move(pr *presence, want, resend string) bool {
+	return d.restart(pr, func(e *state.Terminal) {
+		if e.Account != "" && d.Accounts != nil {
+			// Its history must be reachable from the account it moves to.
+			if err := d.Accounts.Share(pr.provider, e.Account); err != nil {
+				log.Printf("switch %s: sharing %s: %v", e.AgentID, e.Account, err)
+			}
+		}
+		e.Account = want
+	}, func(s proto.AgentSummary) bool { return movable(s, want) }, resend)
+}
+
+// restart replaces pr's process with its provider resumed from its saved
+// Terminal as edit leaves it, with the access it has, while ok holds of its
+// summary between turns, and sends resend once it settles. The Agent keeps
+// its id and Terminal, and refuses prompts as a restored one does until its
+// new process settles. It reports whether the new process started.
+func (d *Daemon) restart(pr *presence, edit func(*state.Terminal), ok func(proto.AgentSummary) bool, resend string) bool {
 	info := pr.t.Info()
 	e := state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows, Local: info.Local}
 	pr.save(&e)
 	if e.AgentID == "" {
 		return false
 	}
-	if e.Account != "" && d.Accounts != nil {
-		// Its history must be reachable from the account it moves to.
-		if err := d.Accounts.Share(pr.provider, e.Account); err != nil {
-			log.Printf("switch %s: sharing %s: %v", e.AgentID, e.Account, err)
-		}
-	}
-	e.Account = want
+	edit(&e)
 	e.KeepAccess = true
 	cmd, args, reason := d.Resume(e)
 	if reason != "" {
@@ -178,7 +192,7 @@ func (d *Daemon) move(pr *presence, want, resend string) bool {
 		return false
 	}
 	// Resume did file IO: a prompt may have started a turn meanwhile.
-	if !movable(between(pr.a), want) {
+	if !ok(between(pr.a)) {
 		return false
 	}
 	h := &hint{a: pr.a, saved: e, started: time.Now(), moved: true, resend: resend}
