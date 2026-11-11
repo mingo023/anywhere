@@ -405,19 +405,7 @@ fn field_box() -> Div {
 
 fn dropdown_menu(setting: &'static Setting, options: &'static [&'static str], chosen: usize, store: &Store, live: &::agents::Agents, cx: &mut Context<Desktop>) -> impl IntoElement {
     let rows = options.iter().enumerate().filter(|(i, _)| setting.lists(store, live, *i)).map(|(i, label)| {
-        div()
-            .id((setting.id, i))
-            .h(px(26.))
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .rounded(px(5.))
-            .cursor_pointer()
-            .hover(|d| d.bg(FILL_2))
-            .text_size(px(13.))
-            .text_color(TEXT)
-            .child(div().w(px(14.)).flex_none().when(i == chosen, |d| d.child(icon("check", 13., TEXT))))
+        dropdown::pick_row((setting.id, i), i == chosen)
             .child(*label)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.settings.menu = None;

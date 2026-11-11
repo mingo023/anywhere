@@ -9,11 +9,15 @@ use agents::{ListedModel, Summary};
 use gpui_kit::*;
 use std::rc::Rc;
 
-/// The model's short name and its effort, else `default`, the model's own, labelled as the new session's pill labels them.
-/// Once the model's `levels` are known, an effort outside them isn't one it runs on.
+/// The effort `agent` runs on, else `default`, the model's own. Once the model's `levels` are known, an effort outside
+/// them isn't one it runs on.
+fn running_effort<'a>(agent: &'a Summary, levels: &[String], default: Option<&'a str>) -> Option<&'a str> {
+    agent.effort.as_deref().into_iter().chain(default).find(|e| !e.is_empty() && (levels.is_empty() || levels.iter().any(|l| l == e)))
+}
+
+/// The model's short name and its `running_effort`, labelled as the new session's pill labels them.
 pub(super) fn label(agent: &Summary, levels: &[String], default: Option<&str>) -> (String, Option<String>) {
-    let effort = agent.effort.as_deref().into_iter().chain(default).find(|e| !e.is_empty() && (levels.is_empty() || levels.iter().any(|l| l == e)));
-    (crate::status::model_or_agent(agent), effort.map(effort_label))
+    (crate::status::model_or_agent(agent), running_effort(agent, levels, default).map(effort_label))
 }
 
 /// Whether the agent runs `model`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus". Until the CLI
@@ -23,9 +27,15 @@ fn runs(agent: &Summary, model: &ListedModel) -> bool {
     agent.model.as_deref().is_some_and(|m| m == model.value || m == model.resolved || unresolved && m.split('-').any(|w| w == model.value))
 }
 
-/// The line of the model `agent` runs, among `own`, its provider's models.
+/// The model `agent` runs when none of `own`, its provider's models, is it: the panel lists it, as a launch's does a
+/// stored model its list lacks.
+fn unlisted_running<'a>(agent: &'a Summary, own: &[ListedModel]) -> &'a str {
+    agent.model.as_deref().filter(|_| !own.iter().any(|m| runs(agent, m))).unwrap_or_default()
+}
+
+/// The line of the model `agent` runs, among `own`, its provider's models, or listed as it is.
 fn running_line(lines: &[Line<Entry>], agent: &Summary, own: &[ListedModel]) -> Option<usize> {
-    let running: Vec<&str> = own.iter().filter(|m| runs(agent, m)).map(|m| m.value.as_str()).collect();
+    let running: Vec<&str> = own.iter().filter(|m| runs(agent, m)).map(|m| m.value.as_str()).chain(agent.model.as_deref()).collect();
     checked(lines, |e| e.provider == agent.provider && running.contains(&e.value.as_str()))
 }
 
@@ -77,8 +87,9 @@ impl Desktop {
         let draft = &self.chats.composer.draft;
         let query = self.chats.composer.search.read(cx).value();
         let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || {
-            let lines = self.model_lines(viewed, "", &query, project);
-            Listed { on: running_line(&lines, agent, self.offered_models(&agent.provider)), lines }
+            let own = self.offered_models(&agent.provider);
+            let lines = self.model_lines(viewed, if viewed == agent.provider { unlisted_running(agent, own) } else { "" }, &query, project);
+            Listed { on: running_line(&lines, agent, own), lines }
         });
         if listed.lines.is_empty() {
             return self.no_models(viewed, &query);
@@ -100,14 +111,14 @@ impl Desktop {
     fn chat_effort_menu(&self, agent: &Summary, levels: &[String], default: Option<&str>, cx: &mut Context<Self>) -> Effort {
         let id = agent.id.clone();
         let pick: launch::Pick = Rc::new(move |this, effort, _| this.outbox.settings(&id, "", &effort));
-        let on = agent.effort.as_deref().into_iter().chain(default).find(|e| levels.iter().any(|l| l == e)).map(String::from);
+        let on = running_effort(agent, levels, default).map(String::from);
         effort_menu("chat-effort", agents::providers::known(&agent.provider).effort_word, (levels, on.as_ref()), &self.chats.composer.draft.effort, |d: &mut Desktop| &mut d.chats.composer.draft, pick, cx)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Line, ListedModel, Summary, label, running_line, runs};
+    use super::{Entry, Line, ListedModel, Summary, label, running_effort, running_line, runs, unlisted_running};
 
     #[test]
     fn the_line_checked_is_the_model_the_chat_runs() {
@@ -122,6 +133,17 @@ mod tests {
     }
 
     #[test]
+    fn a_running_model_its_list_lacks_is_listed_and_checked() {
+        let agent = Summary { provider: "pi".into(), model: Some("claude-sonnet-4-6".into()), ..Default::default() };
+        let listed = |value: &str| ListedModel { value: value.into(), resolved: value.into(), ..ListedModel::default() };
+        assert_eq!(unlisted_running(&agent, &[listed("")]), "claude-sonnet-4-6");
+        assert_eq!(unlisted_running(&agent, &[listed("claude-sonnet-4-6")]), "", "a listed one needs no extra line");
+        assert_eq!(unlisted_running(&Summary { model: None, ..agent.clone() }, &[]), "");
+        let line = |value: &str| Line::Pick(Entry { provider: "pi".into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
+        assert_eq!(running_line(&[line("claude-sonnet-4-6"), line("")], &agent, &[listed("")]), Some(0));
+    }
+
+    #[test]
     fn the_model_pill_reads_model_and_effort_else_the_models_default() {
         let agent = |model: &str, effort: Option<&str>| Summary { provider: "claude".into(), model: Some(model.into()), effort: effort.map(Into::into), ..Default::default() };
         let levels = ["low".to_string(), "medium".to_string()];
@@ -129,6 +151,16 @@ mod tests {
         assert_eq!(label(&agent("claude-opus-4-5", Some("medium")), &levels, Some("low")).1.as_deref(), Some("Medium"));
         assert_eq!(label(&agent("claude-opus-4-5", None), &levels, Some("low")).1.as_deref(), Some("Low"));
         assert_eq!(label(&agent("claude-opus-4-5", None), &levels, Some("")).1, None);
+    }
+
+    #[test]
+    fn the_effort_running_is_the_agents_else_the_models_own_and_any_while_the_levels_are_unknown() {
+        let agent = |effort: Option<&str>| Summary { provider: "claude".into(), effort: effort.map(Into::into), ..Default::default() };
+        let levels = ["low".to_string(), "high".to_string()];
+        assert_eq!(running_effort(&agent(Some("high")), &levels, Some("low")), Some("high"));
+        assert_eq!(running_effort(&agent(Some("xhigh")), &levels, Some("low")), Some("low"));
+        assert_eq!(running_effort(&agent(Some("xhigh")), &[], None), Some("xhigh"));
+        assert_eq!(running_effort(&agent(Some("")), &[], Some("")), None);
     }
 
     #[test]

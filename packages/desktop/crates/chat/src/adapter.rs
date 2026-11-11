@@ -90,7 +90,7 @@ static KNOWN: LazyLock<Vec<Box<Adapter>>> = LazyLock::new(|| {
 
 /// The adapter for a pocketd agent, by its `Summary::provider`; a generic one for a provider this build doesn't know.
 pub fn for_provider(provider: &str) -> &'static dyn Backend<Item = agents::Item, Ask = agents::Permission> {
-    match providers::IDS.iter().position(|id| *id == provider) {
+    match providers::index(provider) {
         Some(i) => &*KNOWN[i],
         None => &other::Other,
     }

@@ -1111,7 +1111,7 @@ const DEFAULT_AGENTS: [Step; providers::COUNT] = per_provider!(default_agent);
 /// panel, `default-pi` makes it what a new session starts on.
 fn provider_step(name: &str) -> Option<Step> {
     let (kind, id) = name.split_once('-')?;
-    let i = providers::IDS.iter().position(|p| *p == id)?;
+    let i = providers::index(id)?;
     match kind {
         "settings" => Some(PROVIDER_PAGES[i]),
         "model" => Some(MODEL_TABS[i]),

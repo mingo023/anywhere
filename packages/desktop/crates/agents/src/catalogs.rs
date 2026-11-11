@@ -1,5 +1,6 @@
 use crate::{ListedModel, ModelSetting};
 use crate::providers::{GROK_EFFORTS, THINKING};
+use serde::Deserialize;
 use serde_json::Value;
 
 fn listed(value: &str, name: &str, efforts: Vec<String>) -> ListedModel {
@@ -67,6 +68,74 @@ fn plain(line: &str) -> String {
     }
     out.push_str(rest);
     out.trim().to_string()
+}
+
+#[derive(Deserialize)]
+struct CodexModel {
+    slug: String,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    visibility: String,
+    #[serde(default)]
+    supported_reasoning_levels: Vec<CodexLevel>,
+    #[serde(default)]
+    default_reasoning_level: String,
+}
+
+#[derive(Deserialize)]
+struct CodexLevel {
+    effort: String,
+}
+
+/// The models `codex debug models` lists; hidden ones are left out.
+pub fn codex(json: &str) -> Vec<ListedModel> {
+    #[derive(Deserialize)]
+    struct Catalog {
+        models: Vec<CodexModel>,
+    }
+    let Ok(c) = serde_json::from_str::<Catalog>(json) else { return Vec::new() };
+    c.models
+        .into_iter()
+        .filter(|m| m.visibility == "list")
+        .map(|m| ListedModel {
+            name: if m.display_name.is_empty() { m.slug.clone() } else { m.display_name },
+            resolved: m.slug.clone(),
+            value: m.slug,
+            efforts: m.supported_reasoning_levels.into_iter().map(|l| l.effort).collect(),
+            default_effort: m.default_reasoning_level,
+            ..ListedModel::default()
+        })
+        .collect()
+}
+
+/// The models Claude Code's answer to `initialize` lists, but "default", which only stands for one of the others.
+pub fn claude(output: &str) -> Vec<ListedModel> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ClaudeModel {
+        value: String,
+        display_name: String,
+        resolved_model: String,
+        #[serde(default)]
+        supported_effort_levels: Vec<String>,
+    }
+    #[derive(Deserialize)]
+    struct Init {
+        models: Vec<ClaudeModel>,
+    }
+    output
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find(|l| l["type"] == "control_response")
+        .and_then(|l| Init::deserialize(&l["response"]["response"]).ok())
+        .map_or_else(Vec::new, |init| {
+            init.models
+                .into_iter()
+                .filter(|m| m.value != "default")
+                .map(|m| ListedModel { value: m.value, name: m.display_name, resolved: m.resolved_model, efforts: m.supported_effort_levels, ..ListedModel::default() })
+                .collect()
+        })
 }
 
 /// The models Cursor's ACP server answers `cursor/list_available_models` with. It keeps one model for all its variants:
@@ -249,6 +318,25 @@ mod tests {
 
     fn shown(models: &[ListedModel]) -> Vec<(&str, &str, Vec<&str>)> {
         models.iter().map(|m| (m.value.as_str(), m.name.as_str(), m.efforts.iter().map(String::as_str).collect())).collect()
+    }
+
+    #[test]
+    fn codex_lists_its_shown_models_by_name_and_nothing_from_bad_output() {
+        let json = r#"{"models":[{"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list","default_reasoning_level":"ultra","supported_reasoning_levels":[{"effort":"low","description":"Fast"},{"effort":"ultra","description":"Most"}]},{"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
+        let listed: Vec<_> = codex(json).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts, m.default_effort)).collect();
+        let s = |v: &str| v.to_string();
+        assert_eq!(listed, [(s("gpt-6-sol"), s("GPT-6-Sol"), s("gpt-6-sol"), vec![s("low"), s("ultra")], s("ultra")), (s("gpt-5.6-luna"), s("gpt-5.6-luna"), s("gpt-5.6-luna"), vec![], s(""))]);
+        assert!(codex("error: not logged in").is_empty());
+    }
+
+    #[test]
+    fn claude_lists_what_initialize_answers_but_its_default() {
+        let out = r#"{"type":"system","subtype":"init"}
+{"type":"control_response","response":{"subtype":"success","request_id":"m","response":{"commands":[],"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","supportedEffortLevels":["low"]},{"value":"fable","resolvedModel":"claude-fable-5-1","displayName":"Fable 5.1","supportsEffort":true,"supportedEffortLevels":["low","max"]},{"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5"}]}}}"#;
+        let listed: Vec<_> = claude(out).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts)).collect();
+        let s = |v: &str| v.to_string();
+        assert_eq!(listed, [(s("fable"), s("Fable 5.1"), s("claude-fable-5-1"), vec![s("low"), s("max")]), (s("claude-haiku-4-5-20251001"), s("Haiku 4.5"), s("claude-haiku-4-5-20251001"), vec![])]);
+        assert!(claude("Error: not logged in").is_empty());
     }
 
     #[test]

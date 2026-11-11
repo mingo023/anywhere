@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn a_fork_starts_in_the_session_s_folder_with_its_model_and_effort() {
         let s = Summary { provider: "claude".into(), cwd: "/w/tree".into(), provider_session_id: Some("s1".into()), model: Some("opus".into()), effort: Some("high".into()), ..Default::default() };
-        let claude = agents::providers::builtin("claude");
+        let claude = agents::providers::builtin_info("claude");
         let live = agents::Agents::default();
         let spec = fork_spec(&s, "/w", &Agents::default(), &live, &claude.efforts).unwrap();
         assert_eq!((&spec["project"], &spec["checkout"], &spec["fork"]), (&json!("/w"), &json!({"worktree": "/w/tree"}), &json!("s1")));
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn a_fork_runs_on_the_account_its_session_runs_on() {
         let s = Summary { provider: "codex".into(), cwd: "/w".into(), provider_session_id: Some("s1".into()), account: "work".into(), ..Default::default() };
-        let codex = agents::providers::builtin("codex");
+        let codex = agents::providers::builtin_info("codex");
         let live = agents::Agents::default();
         assert_eq!(fork_spec(&s, "/w", &Agents::default(), &live, &codex.efforts).unwrap()["account"], json!("work"));
         let built_in = Summary { account: String::new(), ..s };

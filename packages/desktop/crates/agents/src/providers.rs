@@ -146,12 +146,13 @@ pub(crate) const GROK_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const ACP_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false,"session":{"configOptions":{"boolean":{}}}},"clientInfo":{"name":"anywhere","version":"0"}}}
 {"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":{cwd},"mcpServers":[]}}"#;
 
-/// Asks Cursor's ACP server for its models, each with its own settings; `catalogs::acp_answered` is its reply.
-const CURSOR_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"anywhere","version":"0"}}}
+/// Asks Cursor's ACP server for its models, each with its own settings; `catalogs::acp_answered` is its reply. It
+/// declares the model picker pocketd's Cursor session does, so it lists the models and settings a session takes.
+const CURSOR_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false,"_meta":{"parameterizedModelPicker":true}},"clientInfo":{"name":"anywhere","version":"0"}}}
 {"jsonrpc":"2.0","id":2,"method":"cursor/list_available_models","params":{}}"#;
 
 /// What the agents after Claude and Codex share: Anywhere reads no hooks or session files of theirs, so only a chat reports status.
-const NEWER: Builtin = Builtin {
+const CHAT_ONLY_DEFAULTS: Builtin = Builtin {
     id: "",
     command: "",
     efforts: &[],
@@ -207,7 +208,7 @@ pub const ALL: [Builtin; 10] = [
         models: Catalog {
             args: &["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--settings", r#"{"disableAllHooks":true}"#],
             input: r#"{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"#,
-            parse: crate::claude_catalog,
+            parse: catalogs::claude,
             fallback: &["haiku", "sonnet", "opus"],
             ..Catalog::NONE
         },
@@ -233,7 +234,7 @@ pub const ALL: [Builtin; 10] = [
         efforts: &[],
         effort_word: "Reasoning",
         plan: false,
-        models: Catalog { args: &["debug", "models"], parse: crate::codex_catalog, ..Catalog::NONE },
+        models: Catalog { args: &["debug", "models"], parse: catalogs::codex, ..Catalog::NONE },
         prompt_args: "--",
         resume_args: "resume",
         fork_args: "fork {sessionId}",
@@ -257,7 +258,7 @@ pub const ALL: [Builtin; 10] = [
         plan: true,
         resume_args: "--resume",
         install: Install { command: "curl https://cursor.com/install -fsS | bash", ..Install::NONE },
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
     Builtin {
         id: "grok",
@@ -268,7 +269,7 @@ pub const ALL: [Builtin; 10] = [
         models: Catalog { args: &["models"], parse: catalogs::grok, fallback: &["grok-4.6", "grok-4.5"], ..Catalog::NONE },
         install: Install { command: "curl -fsSL https://x.ai/cli/install.sh | bash", ..Install::NONE },
         compacts: true,
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
     Builtin {
         id: "opencode",
@@ -283,7 +284,7 @@ pub const ALL: [Builtin; 10] = [
         by_upstream: true,
         tui_only: OPENCODE_TUI_ONLY,
         compacts: true,
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
     Builtin {
         id: "pi",
@@ -300,7 +301,7 @@ pub const ALL: [Builtin; 10] = [
         by_upstream: true,
         transport: Transport::Pi,
         tui_only: PI_TUI_ONLY,
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
     Builtin {
         id: "omp",
@@ -315,7 +316,7 @@ pub const ALL: [Builtin; 10] = [
         never_asks: true,
         by_upstream: true,
         transport: Transport::Pi,
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
     Builtin {
         id: "fx",
@@ -323,7 +324,7 @@ pub const ALL: [Builtin; 10] = [
         plan: true,
         models: Catalog { args: &["models", "--json"], parse: catalogs::fx, fallback: &["zai/glm-5.2-fast"], ..Catalog::NONE },
         install: Install { command: "curl -fsSL https://fx.sh/setup.sh | bash", ..Install::NONE },
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
     Builtin {
         id: "hermes",
@@ -336,7 +337,7 @@ pub const ALL: [Builtin; 10] = [
         install: Install { command: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash", then: "run hermes model" },
         by_upstream: true,
         tui_only: HERMES_TUI_ONLY,
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
     Builtin {
         id: "antigravity",
@@ -344,7 +345,7 @@ pub const ALL: [Builtin; 10] = [
         plan: true,
         models: Catalog { args: &["acp"], fallback: &["gemini-3.8-flash-high"], ..ACP_MODELS },
         install: Install { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", then: "run agy once to sign in" },
-        ..NEWER
+        ..CHAT_ONLY_DEFAULTS
     },
 ];
 
@@ -363,6 +364,11 @@ pub const IDS: [&str; COUNT] = {
     ids
 };
 
+/// Where `id` sits in `ALL`.
+pub fn index(id: &str) -> Option<usize> {
+    IDS.iter().position(|p| *p == id)
+}
+
 pub fn get(id: &str) -> Option<&'static Builtin> {
     ALL.iter().find(|b| b.id == id)
 }
@@ -378,7 +384,7 @@ static BUILTIN: LazyLock<Vec<ProviderInfo>> = LazyLock::new(|| {
 static OTHER: LazyLock<ProviderInfo> = LazyLock::new(ProviderInfo::default);
 
 /// What this build knows of `id` before or without pocketd's reply.
-pub fn builtin(id: &str) -> &'static ProviderInfo {
+pub fn builtin_info(id: &str) -> &'static ProviderInfo {
     BUILTIN.iter().find(|p| p.id == id).unwrap_or(&OTHER)
 }
 
@@ -403,7 +409,7 @@ mod tests {
             ("gemini", &[], false),
         ];
         for (id, efforts, plan) in expected {
-            let info = builtin(id);
+            let info = builtin_info(id);
             assert_eq!((info.efforts.iter().map(String::as_str).collect::<Vec<_>>(), info.plan, info.chat), (efforts.to_vec(), plan, None), "{id}");
         }
     }
@@ -416,11 +422,17 @@ mod tests {
 
     #[test]
     fn before_pocketd_says_what_is_installed_only_claude_and_codex_are() {
-        let installed: Vec<&str> = IDS.into_iter().filter(|id| builtin(id).available).collect();
+        let installed: Vec<&str> = IDS.into_iter().filter(|id| builtin_info(id).available).collect();
         assert_eq!(installed, ["claude", "codex"]);
-        assert!(!builtin("gemini").available);
+        assert!(!builtin_info("gemini").available);
         let missing: ProviderInfo = serde_json::from_str(r#"{"id":"pi","efforts":[],"plan":true}"#).unwrap();
         assert!(!missing.available);
+    }
+
+    #[test]
+    fn cursors_model_probe_asks_for_the_model_picker_its_sessions_use() {
+        let init: serde_json::Value = serde_json::from_str(CURSOR_INPUT.lines().next().unwrap()).unwrap();
+        assert_eq!(init["params"]["clientCapabilities"]["_meta"]["parameterizedModelPicker"], true);
     }
 
     #[test]
@@ -467,7 +479,7 @@ mod tests {
 
     #[test]
     fn pi_and_omp_never_ask_and_pocketd_s_word_on_it_wins() {
-        let unasked: Vec<&str> = IDS.into_iter().filter(|id| builtin(id).never_asks()).collect();
+        let unasked: Vec<&str> = IDS.into_iter().filter(|id| builtin_info(id).never_asks()).collect();
         assert_eq!(unasked, ["pi", "omp"]);
         let said = |json: &str| serde_json::from_str::<ProviderInfo>(json).unwrap().never_asks();
         assert!(said(r#"{"id":"pi","available":true}"#), "a pocketd older than the field");

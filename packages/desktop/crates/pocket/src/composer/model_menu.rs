@@ -2,8 +2,8 @@ use super::effort_menu::{Effort, choice_menu, effort_menu};
 use super::{Composer, Draft, Menu, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
-use crate::settings::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_label, model_options, not_found};
-use crate::pick_menu::{Line, Memo, checked, pick_list};
+use crate::settings::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
+use crate::pick_menu::{Line, Memo, checked, grouped, pick_list};
 use agents::providers;
 use agents::{ListedModel, ModelSetting};
 use gpui_kit::component::input::InputState;
@@ -37,7 +37,7 @@ pub(crate) const FAVORITES: &str = "favorites";
 /// model, and the model's own default effort for the effort.
 fn pill_label(agent: &str, pick: &LaunchPick, app: &Provider, efforts: &[String], names: &[ListedModel]) -> (String, Option<String>) {
     let model = [&pick.model, &app.model].into_iter().find(|m| !m.is_empty());
-    (model.map_or_else(|| agent.to_string(), |m| model_name(m, names)), effort_shown(pick, app, efforts, names).map(|e| effort_label(e)))
+    (model.map_or_else(|| agent.to_string(), |m| listed_name(m, names)), effort_shown(pick, app, efforts, names).map(|e| effort_label(e)))
 }
 
 /// The effort a launch runs on, as far as the app knows: picked, else Settings', else the model's own.
@@ -189,8 +189,8 @@ pub(crate) fn focus_search(search: &Entity<InputState>, window: &mut Window, cx:
 }
 
 /// The agent's listed name for the model, else the model's label.
-pub(crate) fn model_name(model: &str, names: &[ListedModel]) -> String {
-    names.iter().find(|m| m.value == model).map_or_else(|| model_label(model), |m| m.name.clone())
+pub(crate) fn listed_name(model: &str, names: &[ListedModel]) -> String {
+    names.iter().find(|m| m.value == model).map_or_else(|| model_or_default(model), |m| m.name.clone())
 }
 
 /// The entries whose model name or who serves it holds `query`, any case. Where the list is `mixed`, their agent's name
@@ -216,7 +216,7 @@ fn saved_entries<'m>(saved: &[(String, String)], shown: &[&str], models: impl Fn
         .filter(|(provider, _)| shown.contains(&provider.as_str()))
         .map(|(provider, model)| {
             let listed = models(provider).iter().find(|m| m.value == *model);
-            let (label, upstream) = listed.map_or_else(|| (model_label(model), String::new()), |m| (m.name.clone(), m.upstream.clone()));
+            let (label, upstream) = listed.map_or_else(|| (model_or_default(model), String::new()), |m| (m.name.clone(), m.upstream.clone()));
             Entry { provider: provider.clone(), value: model.clone(), label, upstream, missing: false }
         })
         .collect()
@@ -224,7 +224,7 @@ fn saved_entries<'m>(saved: &[(String, String)], shown: &[&str], models: impl Fn
 
 /// `entries` as the lines `viewed` lists: under who serves each, where `by_upstream` groups them.
 fn lines(viewed: &str, entries: Vec<Entry>) -> Vec<Line<Entry>> {
-    by_upstream(viewed, entries, |e| &e.upstream).into_iter().flat_map(|(who, group)| who.map(Line::Heading).into_iter().chain(group.into_iter().map(Line::Pick))).collect()
+    grouped(by_upstream(viewed, entries, |e| &e.upstream))
 }
 
 /// What Favorites lists: the starred models, then under Recent the last `RECENT` picked that have no star.
@@ -475,7 +475,7 @@ mod tests {
         let favorites = [("claude".to_string(), "opus".to_string()), ("codex".to_string(), "sol".to_string()), ("claude".to_string(), "claude-gone-9".to_string())];
         let models = [listed("", "opus", "Opus")];
         let found = |query: &str| labels(matching(saved_entries(&favorites, &["claude"], |_| &models), query, true));
-        assert_eq!(found(""), [("Opus".to_string()), super::model_label("claude-gone-9")]);
+        assert_eq!(found(""), [("Opus".to_string()), super::model_or_default("claude-gone-9")]);
         assert_eq!(found("opu"), ["Opus"]);
     }
 
@@ -487,7 +487,7 @@ mod tests {
     fn the_pill_names_the_pick_else_settings_else_the_agent() {
         let none = Provider::default();
         let settings = Provider { model: "sonnet".into(), effort: "xhigh".into(), ..Provider::default() };
-        let efforts = &agents::providers::builtin("claude").efforts;
+        let efforts = &agents::providers::builtin_info("claude").efforts;
         assert_eq!(pill_label("Claude Code", &pick("claude", "", ""), &none, efforts, &[]), ("Claude Code".into(), None));
         assert_eq!(pill_label("Claude Code", &pick("claude", "", ""), &settings, efforts, &[]), ("Sonnet".into(), Some("Extra high".into())));
         assert_eq!(pill_label("Claude Code", &pick("claude", "opus", "high"), &settings, efforts, &[]), ("Opus".into(), Some("High".into())));
@@ -616,7 +616,7 @@ mod tests {
         assert_eq!(note("hermes", true, true, true), "No matching models");
         assert_eq!(note("hermes", true, true, false), "No matching models");
         assert_eq!(note("hermes", false, true, false), "Couldn't list Hermes Agent's models", "nothing was typed, so nothing failed to match");
-        assert_eq!(note("omp", false, false, true), "omp not found (`curl -fsSL https://omp.sh/install | sh`). Install it, or restart Anywhere if it is already installed.");
+        assert_eq!(note("omp", false, false, true), "omp not found (curl -fsSL https://omp.sh/install | sh). Install it, or restart Anywhere if it is already installed.");
     }
 
     #[test]

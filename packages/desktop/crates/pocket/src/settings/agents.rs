@@ -58,7 +58,7 @@ fn default_index(s: &store::Store) -> usize {
 }
 
 fn index_of(provider: &str) -> usize {
-    LaunchPick::PROVIDERS.iter().position(|p| *p == provider).unwrap_or(0)
+    providers::index(provider).unwrap_or(0)
 }
 
 /// The agents Settings gives a row: the two every pocketd runs, and each other this pocketd named, found or not. One it
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn a_provider_that_is_not_installed_says_how_to_install_it() {
-        assert_eq!(provider_line("grok", false, Some(2), Some("")), "Grok Build not found (`curl -fsSL https://x.ai/cli/install.sh | bash`). Install it, or restart Anywhere if it is already installed.");
+        assert_eq!(provider_line("grok", false, Some(2), Some("")), "Grok Build not found (curl -fsSL https://x.ai/cli/install.sh | bash). Install it, or restart Anywhere if it is already installed.");
     }
 
     #[test]

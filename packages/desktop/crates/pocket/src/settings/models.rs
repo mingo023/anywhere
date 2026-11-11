@@ -1,6 +1,7 @@
 use super::dropdown::{Choice, Row};
 use crate::desktop::Desktop;
 use crate::modals::form::home;
+use crate::pick_menu::grouped;
 use agents::providers;
 use agents::{ListedModel, ModelSetting};
 use gpui_kit::component::tooltip::Tooltip;
@@ -25,34 +26,30 @@ pub(crate) struct Models {
     lists: [Listing; providers::COUNT],
     /// What each falls back on, named as a picker lists them.
     fallback: [Vec<ListedModel>; providers::COUNT],
-    /// Counts the changes to any list, for what `Kept` builds from them.
+    /// Counts the changes to any list, for what a `Memo` builds from them.
     pub(crate) revision: u64,
 }
 
 impl Default for Models {
     fn default() -> Self {
-        let fallback = |i: usize| providers::ALL[i].models.fallback.iter().map(|m| ListedModel { value: m.to_string(), name: model_label(m), resolved: m.to_string(), ..ListedModel::default() }).collect();
+        let fallback = |i: usize| providers::ALL[i].models.fallback.iter().map(|m| ListedModel { value: m.to_string(), name: model_or_default(m), resolved: m.to_string(), ..ListedModel::default() }).collect();
         Self { lists: Default::default(), fallback: std::array::from_fn(fallback), revision: 0 }
     }
 }
 
 /// The one row of an agent whose models aren't known: it starts on the model the agent picks itself.
-static AGENT_DEFAULT: LazyLock<[ListedModel; 1]> = LazyLock::new(|| [ListedModel { name: model_label(""), ..ListedModel::default() }]);
-
-fn index(provider: &str) -> Option<usize> {
-    providers::IDS.iter().position(|p| *p == provider)
-}
+static AGENT_DEFAULT: LazyLock<[ListedModel; 1]> = LazyLock::new(|| [ListedModel { name: model_or_default(""), ..ListedModel::default() }]);
 
 impl Models {
     /// What `provider`'s CLI listed, none before it answers.
     pub(crate) fn listed(&self, provider: &str) -> &[ListedModel] {
-        index(provider).and_then(|i| self.lists[i].models.as_deref()).unwrap_or_default()
+        providers::index(provider).and_then(|i| self.lists[i].models.as_deref()).unwrap_or_default()
     }
 
     /// What a picker offers of `provider`: what its CLI listed, else the models it falls back on. With neither, an
     /// `installed` agent offers its own default once it's no longer being asked, so it can still be picked.
     pub(crate) fn offered(&self, provider: &str, installed: bool) -> &[ListedModel] {
-        let Some(i) = index(provider) else { return &[] };
+        let Some(i) = providers::index(provider) else { return &[] };
         match &self.lists[i].models {
             Some(listed) => listed,
             None if !self.fallback[i].is_empty() => &self.fallback[i],
@@ -62,18 +59,18 @@ impl Models {
     }
 
     pub(crate) fn loading(&self, provider: &str) -> bool {
-        index(provider).is_some_and(|i| self.lists[i].loading)
+        providers::index(provider).is_some_and(|i| self.lists[i].loading)
     }
 
     /// Why `provider`'s last read listed nothing.
     pub(crate) fn failure(&self, provider: &str) -> Option<&str> {
-        index(provider).and_then(|i| self.lists[i].failed.as_deref())
+        providers::index(provider).and_then(|i| self.lists[i].failed.as_deref())
     }
 
     /// Marks `provider` as being asked and returns what `answer` takes back; `None` when there is nothing to ask: it
     /// has listed, is being asked, or failed since the last `retry`.
     pub(crate) fn ask(&mut self, provider: &str) -> Option<u32> {
-        let l = &mut self.lists[index(provider)?];
+        let l = &mut self.lists[providers::index(provider)?];
         if l.models.is_some() || l.loading || l.failed.is_some() {
             return None;
         }
@@ -84,7 +81,7 @@ impl Models {
     /// Takes what `provider`'s CLI said, unless `forget` came after the `ask`. No models is a failure too: it lists
     /// nothing to keep, and may list some once the agent is signed in.
     pub(crate) fn answer(&mut self, provider: &str, asked: u32, read: Result<Vec<ListedModel>, String>) -> bool {
-        let Some(l) = index(provider).map(|i| &mut self.lists[i]).filter(|l| l.asked == asked) else { return false };
+        let Some(l) = providers::index(provider).map(|i| &mut self.lists[i]).filter(|l| l.asked == asked) else { return false };
         l.loading = false;
         match read {
             Ok(models) if models.is_empty() => l.failed = Some("it listed none".into()),
@@ -104,7 +101,7 @@ impl Models {
 
     /// Asks `provider` again, as after its command changes.
     pub(crate) fn forget(&mut self, provider: &str) {
-        if let Some(i) = index(provider) {
+        if let Some(i) = providers::index(provider) {
             self.lists[i] = Listing { asked: self.lists[i].asked.wrapping_add(1), ..Listing::default() };
             self.revision += 1;
         }
@@ -112,7 +109,7 @@ impl Models {
 
     /// Stands in for `provider`'s CLI, which a capture never runs: its list, or with none that it's still being asked.
     pub(crate) fn set(&mut self, provider: &str, models: Option<Vec<ListedModel>>) {
-        if let Some(i) = index(provider) {
+        if let Some(i) = providers::index(provider) {
             self.lists[i] = Listing { loading: models.is_none(), models, ..Listing::default() };
             self.revision += 1;
         }
@@ -143,10 +140,12 @@ pub(crate) fn by_upstream<T>(provider: &str, items: Vec<T>, upstream: impl Fn(&T
     groups.into_iter().map(|(who, group)| (Some(who.replace('-', " ").to_uppercase()), group)).collect()
 }
 
-/// `provider`'s models as a Settings menu lists them.
+/// `provider`'s models as a Settings menu lists them, after the agent's own default, so a pick can be undone.
 pub(crate) fn model_rows(provider: &str, offered: &[ListedModel], current: &str) -> Vec<Row> {
+    let choice = |value: &str, label: &str| Choice { value: value.into(), label: label.into() };
+    let default = (!offered.iter().any(|m| m.value.is_empty())).then(|| Row::Pick(choice("", &model_or_default(""))));
     let groups = by_upstream(provider, model_options(offered, current).collect(), |(_, _, upstream)| upstream);
-    groups.into_iter().flat_map(|(who, models)| who.map(Row::Heading).into_iter().chain(models.into_iter().map(|(value, label, _)| Row::Pick(Choice { value: value.into(), label: label.into() })))).collect()
+    default.into_iter().chain(grouped(groups.into_iter().map(|(who, models)| (who, models.into_iter().map(|(value, label, _)| choice(value, label)).collect())))).collect()
 }
 
 pub(crate) fn effort_options(efforts: &[String], none: &str) -> Vec<(String, String)> {
@@ -154,7 +153,7 @@ pub(crate) fn effort_options(efforts: &[String], none: &str) -> Vec<(String, Str
 }
 
 /// "Haiku" or "GLM 5.2 Fast" for a model an agent falls back on, the slug for anything else, "Agent default" for none.
-pub(crate) fn model_label(model: &str) -> String {
+pub(crate) fn model_or_default(model: &str) -> String {
     match model {
         "" => "Agent default".into(),
         m if providers::ALL.iter().any(|b| b.models.fallback.contains(&m)) => agents::model_name(m),
@@ -179,7 +178,7 @@ pub(crate) fn count_line(models: usize) -> String {
 /// left to do in plain words.
 pub(crate) fn not_found(provider: &str) -> String {
     let install = providers::get(provider).map(|b| &b.install);
-    let command = install.map(|i| i.command).filter(|c| !c.is_empty()).map(|c| format!("`{c}`"));
+    let command = install.map(|i| i.command).filter(|c| !c.is_empty()).map(String::from);
     let then = install.map(|i| i.then).filter(|t| !t.is_empty()).map(String::from);
     let how: Vec<String> = command.into_iter().chain(then).collect();
     let how = if how.is_empty() { String::new() } else { format!(" ({})", how.join(", then ")) };
@@ -308,7 +307,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Choice, ListedModel, Models, Row, by_upstream, couldnt_list, count_line, effort_label, effort_options, listed_agents, model_label, model_options, model_rows, not_found};
+    use super::{Choice, ListedModel, Models, Row, by_upstream, couldnt_list, count_line, effort_label, effort_options, listed_agents, model_or_default, model_options, model_rows, not_found};
 
     #[test]
     fn a_picker_lists_each_agent_on_offer_and_the_one_picked() {
@@ -402,12 +401,12 @@ mod tests {
     fn a_stored_model_the_list_lacks_stays_choosable() {
         assert_eq!(options(&[], "gpt-5"), [("gpt-5", "gpt-5")]);
         assert_eq!(options(&[listed("gpt-5", "GPT 5")], "gpt-5"), [("gpt-5", "GPT 5")]);
-        assert_eq!((model_label(""), model_label("opus"), model_label("gpt-5")), ("Agent default".to_string(), "Opus".to_string(), "gpt-5".to_string()));
+        assert_eq!((model_or_default(""), model_or_default("opus"), model_or_default("gpt-5")), ("Agent default".to_string(), "Opus".to_string(), "gpt-5".to_string()));
     }
 
     #[test]
     fn a_model_an_agent_falls_back_on_reads_as_its_name() {
-        assert_eq!(["haiku", "gpt-5.4", "zai/glm-5.2-fast", "claude-sonnet-4-6"].map(model_label), ["Haiku", "GPT 5.4", "GLM 5.2 Fast", "Sonnet 4.6"]);
+        assert_eq!(["haiku", "gpt-5.4", "zai/glm-5.2-fast", "claude-sonnet-4-6"].map(model_or_default), ["Haiku", "GPT 5.4", "GLM 5.2 Fast", "Sonnet 4.6"]);
         assert_eq!(options(Models::default().offered("fx", true), ""), [("zai/glm-5.2-fast", "GLM 5.2 Fast")]);
     }
 
@@ -419,12 +418,24 @@ mod tests {
             rows.into_iter().map(|r| match r { Row::Heading(who) => format!("# {who}"), Row::Pick(Choice { label, .. }) => label }).collect::<Vec<_>>()
         };
         for provider in ["opencode", "pi", "omp", "hermes"] {
-            assert_eq!(shown(provider, ""), ["# ANTHROPIC", "Claude Opus 4.5", "Claude Haiku 4.5", "# AMAZON BEDROCK", "Claude Opus 4.5"], "{provider}");
+            assert_eq!(shown(provider, "")[1..], ["# ANTHROPIC", "Claude Opus 4.5", "Claude Haiku 4.5", "# AMAZON BEDROCK", "Claude Opus 4.5"], "{provider}");
         }
-        assert_eq!(shown("cursor", ""), ["Claude Opus 4.5", "Claude Opus 4.5", "Claude Haiku 4.5"]);
-        assert_eq!(shown("pi", "local")[..2], ["# PI", "local"], "a stored model that names nobody sits under the agent");
+        assert_eq!(shown("cursor", "")[1..], ["Claude Opus 4.5", "Claude Opus 4.5", "Claude Haiku 4.5"]);
+        assert_eq!(shown("pi", "local")[1..3], ["# PI", "local"], "a stored model that names nobody sits under the agent");
         let own = by_upstream("hermes", vec!["", ""], |upstream| upstream);
         assert_eq!(own, [(None, vec!["", ""])], "a list that names nobody has no groups");
+    }
+
+    #[test]
+    fn a_settings_model_menu_offers_the_agent_default_first_and_only_once() {
+        let first = |offered: &[ListedModel]| match model_rows("claude", offered, "opus").into_iter().next() {
+            Some(Row::Pick(Choice { value, label })) => (value, label),
+            _ => panic!("no pick first"),
+        };
+        assert_eq!(first(&[listed("opus", "Opus")]), (String::new(), "Agent default".to_string()));
+        let models = Models::default();
+        let rows = model_rows("hermes", models.offered("hermes", true), "");
+        assert_eq!(rows, [Row::Pick(Choice { value: String::new(), label: "Agent default".into() })], "an agent with no list already offers it");
     }
 
     #[test]
@@ -434,7 +445,7 @@ mod tests {
 
     #[test]
     fn an_agent_that_is_not_installed_says_how_to_install_it() {
-        assert_eq!(not_found("pi"), "Pi not found (`npm i -g @earendil-works/pi-coding-agent`). Install it, or restart Anywhere if it is already installed.");
+        assert_eq!(not_found("pi"), "Pi not found (npm i -g @earendil-works/pi-coding-agent). Install it, or restart Anywhere if it is already installed.");
         assert_eq!(not_found("codex"), "Codex not found. Install it, or restart Anywhere if it is already installed.");
     }
 
@@ -442,11 +453,11 @@ mod tests {
     fn what_is_left_to_do_after_the_install_command_reads_as_plain_words() {
         assert_eq!(
             not_found("antigravity"),
-            "Antigravity not found (`curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run agy once to sign in). Install it, or restart Anywhere if it is already installed."
+            "Antigravity not found (curl -fsSL https://antigravity.google/cli/install.sh | bash, then run agy once to sign in). Install it, or restart Anywhere if it is already installed."
         );
         assert_eq!(
             not_found("hermes"),
-            "Hermes Agent not found (`curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`, then run hermes model). Install it, or restart Anywhere if it is already installed."
+            "Hermes Agent not found (curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash, then run hermes model). Install it, or restart Anywhere if it is already installed."
         );
     }
 
@@ -463,7 +474,7 @@ mod tests {
 
     #[test]
     fn only_claude_code_offers_efforts() {
-        assert_eq!(effort_options(&agents::providers::builtin("claude").efforts, "Agent default").iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(), ["Agent default", "Low", "Medium", "High", "Extra high", "Max"]);
+        assert_eq!(effort_options(&agents::providers::builtin_info("claude").efforts, "Agent default").iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(), ["Agent default", "Low", "Medium", "High", "Extra high", "Max"]);
         assert_eq!(effort_options(&[], "Agent default").len(), 1);
     }
 }

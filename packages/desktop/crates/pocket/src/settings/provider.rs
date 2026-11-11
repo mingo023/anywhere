@@ -3,9 +3,9 @@ use super::agents::{status_source, toggle_enabled};
 use super::catalog::Setting;
 use super::dropdown::dropdown;
 use super::dropdown::picks;
-use super::models::{effort_label, effort_options, model_label, model_rows, not_found};
+use super::models::{effort_label, effort_options, model_or_default, model_rows, not_found};
 use super::{Section, action, card, field_box, row};
-use crate::composer::model_menu::model_name;
+use crate::composer::model_menu::listed_name;
 use crate::desktop::Desktop;
 use crate::util::tilde;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -45,7 +45,7 @@ const fn rows<const P: usize>() -> [Setting; 9] {
         })
         .hint("Replaces the built-in name everywhere in the app"),
         Setting::custom("model", DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
-            .resets(|s| model_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).model), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear())
+            .resets(|s| model_or_default(&s.agents.provider(LaunchPick::PROVIDERS[P]).model), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear())
             .hint("The list comes from the CLI"),
         Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx))
             .resets(|s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear()),
@@ -78,10 +78,11 @@ fn command_label(command: &str) -> String {
     if command.is_empty() { "Found on PATH".into() } else { format!("\u{201c}{command}\u{201d}") }
 }
 
-/// "Built-in provider · ~/bin/claude", or that it isn't found.
-fn provider_line(path: Option<&str>) -> String {
+/// "Built-in provider · ~/bin/claude", or that it isn't `installed`; the agents list goes by `installed` too.
+fn provider_line(installed: bool, path: Option<&str>) -> String {
     match path {
-        None | Some("") => "Built-in provider \u{b7} not found on your login PATH".into(),
+        _ if !installed => "Built-in provider \u{b7} not found on your login PATH".into(),
+        None | Some("") => "Built-in provider".into(),
         Some(p) => format!("Built-in provider \u{b7} {}", tilde(p)),
     }
 }
@@ -266,8 +267,8 @@ impl Desktop {
         let p = LaunchPick::PROVIDERS[i];
         let model = self.store.agents.provider(p).model;
         let (id, offered) = (ROW_IDS[i][1], self.offered_models(p));
-        let trigger = action(id, "").child(model_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown(id, trigger, (self.settings.models.revision, &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
+        let trigger = action(id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
+        let menu = dropdown(id, trigger, (self.settings.models.revision, self.installed(p), &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
         row(setting.label, setting.hint, menu)
     }
 
@@ -306,7 +307,7 @@ impl Desktop {
             .bg(SURFACE)
             .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x0000000d), 1., 1.5)])
             .child(provider_icon(p, 20., TEXT));
-        let line = provider_line(path.as_deref());
+        let line = provider_line(self.installed(p), path.as_deref());
         let (lead, path) = line.split_once(" \u{b7} ").map_or((line.clone(), String::new()), |(a, b)| (format!("{a} \u{b7} "), b.to_string()));
         let mono = path.starts_with('/') || path.starts_with('~');
         let text = div()
@@ -330,8 +331,14 @@ mod tests {
 
     #[test]
     fn a_provider_says_where_pocketd_found_it() {
-        assert_eq!(provider_line(Some("/opt/homebrew/bin/claude")), "Built-in provider \u{b7} /opt/homebrew/bin/claude");
-        assert_eq!(provider_line(Some("")), "Built-in provider \u{b7} not found on your login PATH");
+        assert_eq!(provider_line(true, Some("/opt/homebrew/bin/claude")), "Built-in provider \u{b7} /opt/homebrew/bin/claude");
+        assert_eq!(provider_line(false, Some("")), "Built-in provider \u{b7} not found on your login PATH");
+    }
+
+    #[test]
+    fn an_installed_provider_whose_path_is_unknown_is_not_called_missing() {
+        assert_eq!(provider_line(true, None), "Built-in provider");
+        assert_eq!(provider_line(true, Some("")), "Built-in provider");
     }
 
     #[test]
