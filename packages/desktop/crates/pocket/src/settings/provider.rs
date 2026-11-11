@@ -268,7 +268,7 @@ impl Desktop {
         let model = self.store.agents.provider(p).model;
         let (id, offered) = (ROW_IDS[i][1], self.offered_models(p));
         let trigger = action(id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown(id, trigger, (self.settings.models.revision, &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
+        let menu = dropdown(id, trigger, (self.settings.models.revision, self.installed(p), &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
         row(setting.label, setting.hint, menu)
     }
 

@@ -93,7 +93,7 @@ impl Desktop {
         let (agent, offered) = (self.store.git.agent.as_str(), self.offered_models(&self.store.git.agent));
         let trigger = action(setting.id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let title = div().flex().items_center().gap(px(10.)).child(div().w(px(16.)).text_color(TEXT_4).child("↳")).child(setting.label);
-        let from = (agent, self.settings.models.revision, &model);
+        let from = (agent, self.settings.models.revision, self.installed(agent), &model);
         row(title, setting.hint, dropdown(setting.id, trigger, from, || model_rows(agent, offered, &model), &model, self, |d, v, _| d.store.git.model = v, cx))
     }
 
