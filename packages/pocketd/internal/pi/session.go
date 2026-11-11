@@ -63,6 +63,9 @@ type prompt struct{ id, text string }
 // Session is one agent's pi session: it sends the prompts, maps the events
 // of pi's runs to timeline events, and answers what its extensions ask.
 type Session struct {
+	// Shown is whether the agent already shows the session's history, as a
+	// moved agent does: Open replays none of it.
+	Shown   bool
 	agentID string
 	name    string // the agent's, for what the user reads
 	f       flavor
@@ -169,7 +172,7 @@ func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, e
 	var history struct {
 		Messages []message `json:"messages"`
 	}
-	if st.Messages > 0 {
+	if st.Messages > 0 && !s.Shown {
 		if data, err := s.call(c, OpenWait, "get_messages", nil); err != nil {
 			log.Printf("pi %s: get_messages: %v", s.agentID, err)
 		} else {

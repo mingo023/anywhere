@@ -688,6 +688,19 @@ func TestARestoredSessionShowsItsHistoryWithoutWorking(t *testing.T) {
 	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{"working", "assistant_text:found it", "result:true:", "ended:false"})
 }
 
+func TestASessionTheAgentAlreadyShowsReadsNoHistory(t *testing.T) {
+	restored := strings.Replace(fresh, `"messageCount":0`, `"messageCount":3`, 1)
+	s, a, sk, _ := scripted(t, opts{state: restored})
+	s.Shown = true
+	if _, err := s.Open(a, state.Launch{}, false); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.kinds(), []string{"get_state"})
+	equal(t, sk.lines(), []string{"bound:01a1c8df-6ee5-73f4-9369-d38f92ac7a6a", "model:deepseek/deepseek-v4-pro"})
+	s.Prompt("next")
+	equal(t, a.sent("prompt", 1), []string{`{"message":"next"}`})
+}
+
 func TestATurnThatEndsWhileItsHistoryIsReadIsNotLeftRunning(t *testing.T) {
 	streaming := strings.NewReplacer(`"messageCount":0`, `"messageCount":2`, `"isStreaming":false`, `"isStreaming":true`).Replace(fresh)
 	s, a, sk, _ := start(t, opts{state: streaming, midTurn: true, answer: func(a *agent, kind string, _ map[string]any) string {

@@ -8,6 +8,7 @@ import (
 	"pocketd/internal/pi"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
+	"pocketd/internal/state"
 )
 
 // piChat drives a pi or omp run with `--mode rpc` on its stdio, which
@@ -35,7 +36,9 @@ func (x *piChat) driver(c termDriver) agent.Driver {
 // resumed agent had, and a handed-down agent never left its own.
 func (x *piChat) attach() {
 	pr := x.pr
-	if x.d.hintOf(pr) != nil {
+	h := x.d.hintOf(pr)
+	x.s.Shown = h != nil && h.moved
+	if h != nil && !h.moved {
 		// The session reads pi's history, so the timeline starts over.
 		pr.a.ClearTimeline()
 	}
@@ -101,20 +104,38 @@ func (c piDriver) Settings(model, effort string) error {
 	return nil
 }
 
-// Access has nothing to switch: pi asks before no tool, so it is always
-// full, and its plan is the read-only tools it started with.
+// Access to full leaves plan, which is the read-only tools pi started with;
+// there is no other access to switch to, as pi asks before no tool.
 func (c piDriver) Access(access string) error {
+	name := providers.Get(c.pr.provider).Name
+	if access != "full" {
+		return errors.New(name + " runs every tool without asking, so its access is always full")
+	}
 	c.pr.mu.Lock()
 	planning := c.pr.launch.Plan
 	c.pr.mu.Unlock()
-	name := providers.Get(c.pr.provider).Name
-	switch {
-	case planning:
-		return errors.New(name + " plans only as it starts, so start a new session to build")
-	case access == "full":
+	if !planning {
 		return nil
 	}
-	return errors.New(name + " runs every tool without asking, so its access is always full")
+	return c.x.d.leavePlan(c.pr, name)
+}
+
+// leavePlan restarts pr's pi on the same session without its read-only
+// tools: pi takes its tools only on its command line.
+func (d *Daemon) leavePlan(pr *presence, name string) error {
+	_, seq := pr.a.Timeline.State()
+	switch {
+	case d.Resume == nil:
+		return errors.New(name + " leaves plan by resuming its session, which Settings has off")
+	case !restartable(between(pr.a)):
+		return errors.New(name + " can leave plan once its turn ends")
+	// pi saves its session only once it has taken a prompt.
+	case seq == 0:
+		return errors.New(name + " has no session to resume yet, so start a new session to build")
+	case !d.restart(pr, func(e *state.Terminal) { e.Launch.Plan = false }, restartable, ""):
+		return errors.New(name + " couldn't leave plan")
+	}
+	return nil
 }
 
 func (c piDriver) Commands() ([]proto.Command, error) {
