@@ -37,6 +37,9 @@ func (x *acpChat) attach() {
 	saved, left := "", acp.Ended
 	if h := x.d.hintOf(pr); h != nil {
 		saved = h.saved.ConversationID
+		if h.handoff {
+			x.s.Carried()
+		}
 		switch {
 		case midTurn(pr.a.Turn()):
 			left = acp.Running
@@ -48,6 +51,7 @@ func (x *acpChat) attach() {
 	launch := pr.launch
 	pr.mu.Unlock()
 	context.AfterFunc(pr.ctx, x.s.Close)
+	x.s.Server(pr.t.Info().Args)
 	x.d.openChat(pr, func() ([]string, error) {
 		return x.s.Open(x, pr.t.Info().Cwd, saved, launch, left)
 	})

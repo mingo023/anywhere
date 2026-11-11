@@ -60,6 +60,9 @@ func (s *sink) Apply(e timeline.Event) {
 		}
 	case "tool_background":
 		line += ":" + e.ToolUseID
+		if e.Detached {
+			line += ":detached"
+		}
 	case "tool_model":
 		line += ":" + e.ToolUseID + ":" + e.Name
 	}
@@ -281,6 +284,8 @@ type opts struct {
 	saved    string
 	launch   state.Launch
 	left     Left
+	args     []string // the agent's command line
+	carried  bool
 	answer   func(*agent, string, json.RawMessage) string
 }
 
@@ -298,6 +303,10 @@ func start(t *testing.T, o opts) (*Session, *agent, *sink, *broker.Broker) {
 	s := NewSession("a1", o.provider, sk, b)
 	t.Cleanup(s.Close)
 	t.Cleanup(a.Close)
+	s.Server(o.args)
+	if o.carried {
+		s.Carried()
+	}
 	if _, err := s.Open(a, "/work", o.saved, o.launch, o.left); err != nil {
 		t.Fatal(err)
 	}

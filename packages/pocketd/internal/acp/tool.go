@@ -216,6 +216,9 @@ func (t *toolCall) describe() (string, proto.ToolDetail) {
 	if t.Kind == "task" || t.input("subagent_type") != "" || t.input("variant") == "Task" || t.input("_toolName") == "task" {
 		return "task", proto.ToolDetail{Kind: "task", Description: t.input("description"), Model: t.input("model")}
 	}
+	if brief, ok := t.delegation(); ok {
+		return "task", proto.ToolDetail{Kind: "task", Description: brief}
+	}
 	switch t.Kind {
 	case "execute":
 		return "shell", proto.ToolDetail{Kind: "shell", Command: t.command(), Description: t.input("description")}
@@ -243,6 +246,20 @@ func (t *toolCall) describe() (string, proto.ToolDetail) {
 	return name, d
 }
 
+// delegation is the brief Hermes's delegate_task hands its sub-agents, which
+// it tells only as the call's content: a goal, or the list of them. Its
+// list, steer and stop delegate nothing.
+func (t *toolCall) delegation() (string, bool) {
+	said := t.said()
+	if !strings.HasPrefix(t.Title, "delegate_task") || said == "Delegating task" {
+		return "", false
+	}
+	if goal, ok := strings.CutPrefix(said, "Delegating task:\n"); ok {
+		return goal, true
+	}
+	return said, strings.HasPrefix(said, "Delegating ")
+}
+
 // output is what the call came to: its content, else its raw output.
 func (t *toolCall) output() *string {
 	out := t.said()
@@ -267,6 +284,8 @@ type subAgent struct {
 	model      string
 	live       bool // the agent tells that session's work as it is done
 	background bool // it runs on past the call
+	// transcripts are the files Hermes's sub-agents tell their work in, as it runs them in the background.
+	transcripts []string
 }
 
 func (t *toolCall) subAgent() subAgent {
@@ -282,11 +301,19 @@ func (t *toolCall) subAgent() subAgent {
 	var in struct {
 		Background bool `json:"run_in_background"`
 	}
+	var dispatched struct {
+		Status      string   `json:"status"`
+		Transcripts []string `json:"live_transcripts"`
+	}
 	json.Unmarshal(t.RawOutput, &out)
 	json.Unmarshal(t.RawInput, &in)
 	// OpenCode's.
 	if m := out.Metadata; m.SessionID != "" {
 		return subAgent{session: m.SessionID, model: strings.Trim(m.Model.ProviderID+"/"+m.Model.ModelID, "/")}
+	}
+	// Hermes's, whose call ends as its sub-agents start.
+	if json.Unmarshal([]byte(t.said()), &dispatched) == nil && dispatched.Status == "dispatched" {
+		return subAgent{background: true, transcripts: dispatched.Transcripts}
 	}
 	// Grok's, whose session is named as it is.
 	for line := range strings.SplitSeq(t.said(), "\n") {

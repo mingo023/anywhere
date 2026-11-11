@@ -382,6 +382,36 @@ func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *test
 	}
 }
 
+// Hermes runs a delegated task in the background and tells its work only in a transcript, live and on a restart alike.
+func TestAChatHermesShowsItsSubAgentsTranscriptUnderTheDelegationAlsoAfterARestart(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "delegate ls")
+	// Hermes takes no turn once its sub-agent ends, so its turn doesn't wait for it.
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
+	want := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> user ls", "> tool shell ok ls", "> assistant did ls"}
+	settled := func(phone *Phone) []string {
+		var got []string
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			// The transcript is read beside the turn, so its work lands wherever that is by then.
+			lines := withSubAgents(phone, id)
+			got = slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return strings.HasPrefix(l, "> ") })
+			got = append(got, slices.DeleteFunc(lines, func(l string) bool { return !strings.HasPrefix(l, "> ") })...)
+			if strings.Join(got, "|") == strings.Join(want, "|") {
+				break
+			}
+		}
+		return got
+	}
+	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q", got)
+	}
+
+	h.Restart()
+	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("after the restart got %q", got)
+	}
+}
+
 func TestAnUpgradeKeepsTheChatHermesAndReasksItsOpenPermission(t *testing.T) {
 	h, phone, term, id := chatACP(t, "hermes", nil)
 	phone.Prompt(id, "run ls")

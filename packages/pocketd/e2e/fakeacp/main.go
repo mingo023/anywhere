@@ -6,7 +6,8 @@
 //
 //	<text>          reply "echo: <text>" in two chunks
 //	run <cmd>       ask to run cmd, then reply "echo: ran <cmd>", or "echo: skipped <cmd>" if refused
-//	delegate <task> run a sub-agent on task in a session of its own, as OpenCode does, which reports "did <task>"
+//	delegate <task> run a sub-agent on task in a session of its own, as OpenCode does, which reports "did <task>";
+//	                as hermes, in the background, telling its work only in a transcript
 //	think <text>    think first, then reply
 //	plan <a>, <b>   tell a plan of those entries, then reply "echo: planned"
 //	slow <text>     reply after 3s, unless cancelled
@@ -427,6 +428,10 @@ func (a *agent) end() {
 // delegate runs a sub-agent on task as OpenCode does: it names the
 // sub-agent's session only as the call ends, and tells its work only to a load of that session.
 func (a *agent) delegate(task string) {
+	if a.name == "hermes" {
+		a.background(task)
+		return
+	}
 	call := "call_" + hex(4)
 	kid := &session{ID: "ses_" + hex(8), Model: a.session.Model, Mode: a.session.Mode, History: []map[string]any{
 		{"sessionUpdate": "user_message_chunk", "messageId": "msg-" + hex(4), "content": textBlock(task)},
@@ -441,6 +446,31 @@ func (a *agent) delegate(task string) {
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock(out)}},
 		"rawOutput": map[string]any{"output": out, "metadata": map[string]any{"sessionId": kid.ID, "model": map[string]string{"modelID": a.session.Model, "providerID": "fake"}}}})
 	a.say("delegated " + task)
+}
+
+// background runs a sub-agent on task as Hermes does: its call ends with a
+// handle to a transcript, which the sub-agent writes its work to, and a
+// manifest beside it that says when it ends.
+func (a *agent) background(task string) {
+	call, d := "tc-"+hex(6), filepath.Join(dir(), "deleg_"+hex(4))
+	log, manifest := filepath.Join(d, "task-0.log"), filepath.Join(d, "manifest.json")
+	os.MkdirAll(d, 0o700)
+	os.WriteFile(log, []byte("=== Hermes subagent live transcript ===\n12:00:00 user     | kickoff: "+task+"\n"), 0o600)
+	os.WriteFile(manifest, []byte(`{"tasks":[{"index":0,"status":"running"}]}`), 0o600)
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "title": "delegate_task: " + task, "kind": "execute", "locations": []any{},
+		"content": []map[string]any{{"type": "content", "content": textBlock("Delegating task:\n" + task)}}})
+	handle, _ := json.Marshal(map[string]any{"status": "dispatched", "mode": "background", "count": 1, "goals": []string{task}, "live_transcripts": []string{log}})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "kind": "execute", "status": "completed",
+		"content": []map[string]any{{"type": "content", "content": textBlock(string(handle))}}})
+	a.say("delegated " + task)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		f, _ := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0)
+		fmt.Fprintf(f, "12:00:01 tool     | -> terminal(echo %[1]s)\n12:00:01 result   | terminal ok 0.1s: %[1]s\n12:00:02 assistant| did %[1]s\n"+
+			"12:00:02 final    | status=completed duration=2s summary: did %[1]s\n12:00:02 final    | end status=completed\n", task)
+		f.Close()
+		os.WriteFile(manifest, []byte(`{"completed":"2026-11-11 12:00:02","tasks":[{"index":0,"status":"completed"}]}`), 0o600)
+	}()
 }
 
 // run asks to run cmd as the real agent does, and runs it if allowed. It

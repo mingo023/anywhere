@@ -144,7 +144,7 @@
         "interrupt": true,
         "compact": false,
         "sendWhileWorking": true,
-        "subAgents": false,
+        "subAgents": true,
         "sendNow": false
       }
     },

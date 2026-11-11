@@ -8,7 +8,7 @@ var Hermes = Spec{
 	Transport: ACP,
 	Efforts:   []string{},
 	Plan:      true,
-	Chat:      Chat{Interrupt: true, SendWhileWorking: true},
+	Chat:      Chat{Interrupt: true, SendWhileWorking: true, SubAgents: true},
 	Flags:     Flags{Model: "-m", Effort: "--reasoning", Full: "--yolo"},
 	Args:      [3]string{"-q", "chat --resume", ""},
 	Sub:       "chat",
