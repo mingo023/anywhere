@@ -344,7 +344,14 @@ impl Desktop {
                     self.outbox.send_now(agent);
                 }
             }
-            Command::Compact => self.outbox.compact(agent),
+            Command::Compact => {
+                self.outbox.compact(agent);
+                let busy = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
+                if let Some(v) = self.chats.views.get_mut(agent) {
+                    v.session.outgoing.compact(busy, now_ms());
+                    if busy { v.steered() } else { v.pin() }
+                }
+            }
             Command::Allow(r) => self.outbox.resolve(&r, Decision::Allow),
             Command::Deny(r) => self.outbox.resolve(&r, Decision::Deny),
             Command::Reply { request, text } => self.outbox.reply(&request, &text),

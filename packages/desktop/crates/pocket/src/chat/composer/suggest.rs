@@ -458,8 +458,8 @@ impl Desktop {
     }
 
     /// Puts the picked row in the draft: a command's name, ready for its argument, a file's path, or a server's tag.
-    /// A command the desktop runs itself runs at once; `/mcp` gives way to a tag, which lists the servers. A server the
-    /// agent can't use now can't be picked.
+    /// A command the desktop runs itself runs at once, but `/compact`, which can't be undone and may take instructions;
+    /// `/mcp` gives way to a tag, which lists the servers. A server the agent can't use now can't be picked.
     fn suggest_pick(&mut self, p: Prompt, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(shown) = self.suggestions(p, cx) else { return false };
         if let Rows::Servers { servers, pickable, .. } = &shown.rows {
@@ -493,7 +493,7 @@ impl Desktop {
                 let provider = self.suggest_target(p).map(|t| t.provider).unwrap_or_default();
                 // The list sorted it without an argument, which can change it: Claude sends `/compact` with one.
                 match chat::for_provider(&provider).command(&c.name, arg) {
-                    Kind::Local(local) if p == Prompt::Chat => {
+                    Kind::Local(local) if p == Prompt::Chat && local != Local::Compact => {
                         self.set_chat_text("", window, cx);
                         self.chat_local(&list.agent, local, arg, window, cx);
                     }

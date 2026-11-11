@@ -36,7 +36,7 @@ const SKEW_MS: i64 = 10_000;
 const CLAIMED: usize = 32;
 /// How long pocketd's status may take to show a command at work; one it never shows did nothing to wait for.
 const STATUS_LAG_MS: i64 = 3_000;
-/// The longest a command reads as work, should its end never show.
+/// The longest a command reads as work, should its end never show; a compaction pocketd reports shows its own.
 const COMMAND_MS: i64 = 60_000;
 /// The longest a stop reads as under way, should the turn never show it ended.
 const STOP_MS: i64 = 10_000;
@@ -112,6 +112,15 @@ impl Outgoing {
         self.next_id
     }
 
+    /// Shows the `/compact` pocketd types for the agent, which takes it once the turn underway ends.
+    pub fn compact(&mut self, working: bool, now_ms: i64) {
+        if working {
+            self.steer_text("/compact".into(), now_ms);
+        } else {
+            self.push("/compact".into(), false, now_ms);
+        }
+    }
+
     /// Notes the id send `id` went to pocketd under.
     pub fn sent_as(&mut self, id: u64, request: String) {
         if let Some(send) = self.sends.iter_mut().find(|s| s.id == id) {
@@ -139,7 +148,7 @@ impl Outgoing {
             let age = now_ms - ran.at;
             ran.idled |= !working;
             ran.worked |= working && (ran.idled || age > STATUS_LAG_MS);
-            if (ran.worked && !working) || (!ran.worked && age > STATUS_LAG_MS) || age > COMMAND_MS {
+            if (ran.worked && !working) || (!ran.worked && age > STATUS_LAG_MS) || (age > COMMAND_MS && !self.compacting) {
                 self.command = None;
             }
         }
@@ -1072,6 +1081,28 @@ mod tests {
         assert!(released(&mut o).is_empty());
         o.settle(&ended, true, 60_001);
         assert_eq!(released(&mut o), ["next"], "status stuck on working holds nothing forever");
+    }
+
+    #[test]
+    fn a_compact_shows_as_sent_until_the_compaction_ends_however_long() {
+        let mut o = Outgoing::default();
+        let ended = Transcript { turns: vec![turn("u1", 0, "long job", true)] };
+        o.compact(false, 0);
+        o.set_compacting(true);
+        o.settle(&ended, true, 1_000);
+        o.settle(&ended, true, 90_000);
+        assert_eq!(texts(&o), ["/compact"]);
+        assert_eq!(deliveries(&o), [Delivery::Sending]);
+        o.set_compacting(false);
+        o.settle(&ended, false, 91_000);
+        assert!(o.list().is_empty(), "the compaction's line is all that stays");
+    }
+
+    #[test]
+    fn a_compact_sent_mid_turn_waits_for_the_turn_to_end() {
+        let mut o = Outgoing::default();
+        o.compact(true, 1_000);
+        assert_eq!(o.after_turn().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["/compact"]);
     }
 
     #[test]
