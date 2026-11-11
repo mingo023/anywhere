@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn viewing_another_rail_entry_closes_the_list_of_efforts() {
         let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
-        draft.effort.toggle();
+        draft.effort.toggle(&"Effort".into());
         draft.view("codex");
         assert_eq!(draft.viewing, Some("codex"));
         assert!(!draft.effort.fold());
@@ -512,7 +512,7 @@ mod tests {
     #[test]
     fn esc_closes_the_list_of_efforts_before_the_model_panel() {
         let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
-        draft.effort.toggle();
+        draft.effort.toggle(&"Effort".into());
         assert!(draft.escape_model());
         assert!(draft.menu == Some(Menu::Model));
         assert!(draft.escape_model());

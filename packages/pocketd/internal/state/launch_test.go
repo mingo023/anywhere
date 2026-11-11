@@ -1,6 +1,7 @@
 package state
 
 import (
+	"reflect"
 	"testing"
 
 	"pocketd/internal/providers"
@@ -43,7 +44,7 @@ func TestParseReadsBackWhatEveryLaunchArgvAsksFor(t *testing.T) {
 		{"hermes", []string{"hermes", "chat", "--resume", "local-1"}, Launch{Access: "settings"}},
 		{"antigravity", []string{"agy"}, Launch{Access: "settings"}},
 	} {
-		if got := Parse(c.provider, c.argv); got != c.want {
+		if got := Parse(c.provider, c.argv); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("Parse(%q) = %+v, want %+v", c.argv, got, c.want)
 		}
 	}
@@ -67,13 +68,13 @@ func TestParseWithoutAccessFlagsIsTheAgentsSettings(t *testing.T) {
 
 func TestModeFollowsClaudePermissionModes(t *testing.T) {
 	l := Launch{Access: "edits", Model: "opus"}
-	if got := Mode(l, "plan"); got != (Launch{Access: "edits", Plan: true, Model: "opus"}) {
+	if got := Mode(l, "plan"); !reflect.DeepEqual(got, Launch{Access: "edits", Plan: true, Model: "opus"}) {
 		t.Errorf("plan: %+v", got)
 	}
-	if got := Mode(Launch{Access: "ask", Plan: true}, "bypassPermissions"); got != (Launch{Access: "full"}) {
+	if got := Mode(Launch{Access: "ask", Plan: true}, "bypassPermissions"); !reflect.DeepEqual(got, Launch{Access: "full"}) {
 		t.Errorf("bypassPermissions: %+v", got)
 	}
-	if got := Mode(l, "dontAsk"); got != l {
+	if got := Mode(l, "dontAsk"); !reflect.DeepEqual(got, l) {
 		t.Errorf("unknown: %+v", got)
 	}
 }
@@ -102,15 +103,16 @@ func TestAChatArgvCarriesTheLaunchItsCommandHasNoFlagsFor(t *testing.T) {
 		{"hermes", Launch{Access: "edits", Model: "openai-codex:gpt-6-sol", Effort: "high"}},
 		{"opencode", Launch{Access: "ask", Plan: true, Model: "opencode/big-pickle"}},
 		{"cursor", Launch{Access: "settings"}},
+		{"cursor", Launch{Access: "ask", Model: "gpt-5.4", Options: map[string]string{"fast": "true", "reasoning": "high"}}},
 		{"antigravity", Launch{Access: "full"}},
 		{"grok", Launch{Access: "auto", Model: "grok-4.6"}},
 		{"omp", Launch{Access: "full", Plan: true, Effort: "xhigh"}},
 	} {
 		argv := append([]string{c.provider, "acp"}, c.l.Carried()...)
-		if got := Parse(c.provider, argv); got != c.l {
+		if got := Parse(c.provider, argv); !reflect.DeepEqual(got, c.l) {
 			t.Errorf("%s: Parse(%q) = %+v, want %+v", c.provider, argv, got, c.l)
 		}
-		if run, l, ok := Cut(argv); !ok || l != c.l || len(run) != 2 || run[1] != "acp" {
+		if run, l, ok := Cut(argv); !ok || !reflect.DeepEqual(l, c.l) || len(run) != 2 || run[1] != "acp" {
 			t.Errorf("%s: Cut(%q) = %q, %+v, %v", c.provider, argv, run, l, ok)
 		}
 	}
@@ -133,7 +135,7 @@ func TestACarriedAccessItCantReadIsAsk(t *testing.T) {
 func TestAnAgentThatNeverAsksIsFullWhateverItsArgvSays(t *testing.T) {
 	for _, provider := range []string{"pi", "omp"} {
 		argv := append([]string{provider, "--mode", "rpc"}, Launch{Access: "ask", Model: "a/b"}.Carried()...)
-		if got := Parse(provider, argv); got != (Launch{Access: "full", Model: "a/b"}) {
+		if got := Parse(provider, argv); !reflect.DeepEqual(got, Launch{Access: "full", Model: "a/b"}) {
 			t.Errorf("%s chat: %+v", provider, got)
 		}
 		if got := Parse(provider, []string{provider}); got.Access != "full" {

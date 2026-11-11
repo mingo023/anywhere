@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -365,6 +366,31 @@ func (s *Session) apply(l state.Launch, model string) {
 			log.Printf("acp %s: effort %s: %v", s.agentID, l.Effort, err)
 		}
 	}
+	mode := s.option(modeSetting)
+	for _, id := range slices.Sorted(maps.Keys(l.Options)) {
+		value := l.Options[id]
+		switch o := s.listed(id); {
+		// A model switched since launch may lack its options.
+		case o == nil:
+			log.Printf("acp %s: no option %s", s.agentID, id)
+		// Planning holds the mode until it ends.
+		case l.Plan && mode != nil && mode.ID == id:
+		default:
+			if err := s.setOption(o, value); err != nil {
+				s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't set %s to %s: %v", s.name, id, value, err)})
+			}
+		}
+	}
+}
+
+// listed is the config option the session lists as id.
+func (s *Session) listed(id string) *configOption {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := slices.IndexFunc(s.options, func(o configOption) bool { return o.ID == id }); i >= 0 {
+		return &s.options[i]
+	}
+	return nil
 }
 
 func unsupported(err error) bool {
@@ -482,12 +508,16 @@ func (s *Session) Access(access string) error {
 		return err
 	}
 	s.mu.Lock()
-	planning, full := s.launch.Plan, s.launch.Access == "full"
+	planning, full, picked := s.launch.Plan, s.launch.Access == "full", s.launch.Options
 	s.mu.Unlock()
 	if s.f.spawned && (planning || full != (access == "full")) {
 		return fmt.Errorf("%s takes plan mode and full access only as it starts, so start a new session to switch", s.name)
 	}
-	if mode := s.f.mode(access, false, planning); mode != "" {
+	mode := s.f.mode(access, false, planning)
+	if o := s.option(modeSetting); o != nil && planning && picked[o.ID] != "" {
+		mode = picked[o.ID]
+	}
+	if mode != "" {
 		if err := s.setMode(mode); err != nil {
 			return err
 		}

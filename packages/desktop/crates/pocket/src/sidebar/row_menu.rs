@@ -48,7 +48,7 @@ fn session_items(s: &Summary, observe: bool, prefs: &Agents, fork: bool) -> Vec<
 /// `efforts` are what the session's model takes.
 fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String]) -> Option<Value> {
     let account = if s.account.is_empty() { accounts::BUILT_IN.into() } else { s.account.clone() };
-    let pick = LaunchPick { provider: s.provider.clone(), model: s.model.clone().unwrap_or_default(), effort: s.effort.clone().unwrap_or_default(), access: String::new(), account };
+    let pick = LaunchPick { provider: s.provider.clone(), model: s.model.clone().unwrap_or_default(), effort: s.effort.clone().unwrap_or_default(), account, ..LaunchPick::default() };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), "");
     spec["fork"] = s.provider_session_id.clone()?.into();
     prefs.launch(&mut spec, live, efforts);

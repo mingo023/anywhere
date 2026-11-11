@@ -20,6 +20,8 @@ type Launch struct {
 	Plan   bool   `json:"plan,omitempty"`
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
+	// Options are the model's own settings, by the agent's id for each, as Cursor's "fast".
+	Options map[string]string `json:"options,omitempty"`
 }
 
 type Terminal struct {

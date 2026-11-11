@@ -1,6 +1,7 @@
 package state
 
 import (
+	"maps"
 	"slices"
 	"strings"
 
@@ -8,7 +9,7 @@ import (
 )
 
 // Carry ends a chat argv's own words. What follows is the launch's access,
-// plan, model and effort, for an agent whose chat takes them over its
+// plan, model, effort and options, for an agent whose chat takes them over its
 // protocol rather than as flags: `pocketd pipe` runs only what comes before
 // it, and Parse reads what comes after.
 const Carry = "--pocketd"
@@ -25,6 +26,9 @@ func (l Launch) Carried() []string {
 	if l.Effort != "" {
 		argv = append(argv, "--effort", l.Effort)
 	}
+	for _, id := range slices.Sorted(maps.Keys(l.Options)) {
+		argv = append(argv, "--option", id+"="+l.Options[id])
+	}
 	return argv
 }
 
@@ -39,6 +43,18 @@ func Cut(argv []string) (run []string, l Launch, ok bool) {
 	scan(argv[i:], map[string]*string{"--access": &access, "--model": &l.Model, "--effort": &l.Effort}, map[string]*bool{"--plan": &l.Plan}, nil)
 	if l.Access = "ask"; slices.Contains([]string{"settings", "edits", "auto", "full"}, access) {
 		l.Access = access
+	}
+	for j := i + 1; j+1 < len(argv); j++ {
+		if argv[j] != "--option" {
+			continue
+		}
+		j++
+		if id, value, ok := strings.Cut(argv[j], "="); ok {
+			if l.Options == nil {
+				l.Options = map[string]string{}
+			}
+			l.Options[id] = value
+		}
 	}
 	return argv[:i], l, true
 }

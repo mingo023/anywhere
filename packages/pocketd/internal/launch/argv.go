@@ -19,6 +19,8 @@ const badModel = "Model names use letters, digits and . _ : [ ] / -, and don't s
 
 const badEffort = "An effort is one word"
 
+const badOption = "An option names a setting and its value as model names are written"
+
 // cli is how pocketd runs one provider's command; clis has one per providers ID.
 type cli interface {
 	// switchEffort refuses an effort a running agent can't switch to.
@@ -90,6 +92,11 @@ func Piped(exe string, argv []string) []string {
 func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Failure) {
 	if s.Model != "" && !model.MatchString(s.Model) {
 		return nil, fail("invalid_spec", badModel)
+	}
+	for id, value := range s.Options {
+		if !model.MatchString(id) || !model.MatchString(value) {
+			return nil, fail("invalid_spec", badOption)
+		}
 	}
 	prompt, err := terminal.Sanitize(s.Prompt)
 	if err != nil {

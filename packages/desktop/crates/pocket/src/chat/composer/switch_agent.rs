@@ -13,7 +13,7 @@ use workspace::Place;
 /// Settings', so moving to another agent never grants more.
 fn switched_spec(s: &Summary, project: &str, (provider, model): (&str, &str), prompt: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String]) -> Value {
     let access = s.access.clone().unwrap_or_else(|| "settings".into());
-    let pick = LaunchPick { provider: provider.into(), model: model.into(), effort: String::new(), access, account: String::new() };
+    let pick = LaunchPick { provider: provider.into(), model: model.into(), access, ..LaunchPick::default() };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), prompt);
     spec["chat"] = true.into();
     prefs.launch(&mut spec, live, efforts);

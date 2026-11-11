@@ -3,6 +3,7 @@ package launch
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -79,11 +80,26 @@ func TestEachNewAgentRunsForTheChatOnItsTransportAndCarriesItsLaunch(t *testing.
 			continue
 		}
 		want := state.Launch{Access: Access(s), Plan: c.plan, Model: c.model, Effort: c.effort}
-		if got := state.Parse(c.provider, argv); got != want {
+		if got := state.Parse(c.provider, argv); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: %q reads back as %+v, want %+v", c.provider, argv, got, want)
 		}
 		if run, _, _ := state.Cut(argv); slices.Contains(run, state.Carry) || len(run) == len(argv) {
 			t.Errorf("%s: the agent would run %q", c.provider, run)
+		}
+	}
+}
+
+func TestAChatCarriesTheModelsOptionsAndRefusesOnesThatAreNoWord(t *testing.T) {
+	s := spec("omp", "full", false)
+	s.Chat, s.Options = true, map[string]string{"fast": "true"}
+	argv, f := argvOf(s, "")
+	if want := "omp --mode rpc --pocketd --access full --option fast=true"; f != nil || strings.Join(argv, " ") != want {
+		t.Fatalf("got %q %v, want %q", argv, f, want)
+	}
+	for _, options := range []map[string]string{{"fast": "--yolo"}, {"a=b": "c"}, {"fast": ""}} {
+		s.Options = options
+		if _, f := argvOf(s, ""); f == nil || f.Code != "invalid_spec" {
+			t.Errorf("%v: %v", options, f)
 		}
 	}
 }
@@ -105,7 +121,7 @@ func TestATUIArgvReadsBackAsTheLaunchItsFlagsHold(t *testing.T) {
 		s := spec(c.provider, c.l.Access, c.l.Plan)
 		s.Model, s.Effort, s.Prompt = c.l.Model, c.l.Effort, "--yolo --auto --always-approve"
 		argv, f := argvOf(s, "")
-		if got := state.Parse(c.provider, argv); f != nil || got != c.l {
+		if got := state.Parse(c.provider, argv); f != nil || !reflect.DeepEqual(got, c.l) {
 			t.Errorf("%s: %q %v reads back as %+v, want %+v", c.provider, argv, f, got, c.l)
 		}
 	}

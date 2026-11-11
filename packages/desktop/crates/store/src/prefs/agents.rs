@@ -372,7 +372,7 @@ mod tests {
         a.provider_mut("pi").command = "/opt/pi".into();
         a.provider_mut("antigravity").command = "/opt/agy".into();
         assert_eq!(a.catalog_argv("pi"), ["/opt/pi", "--mode", "rpc", "--no-session"]);
-        assert_eq!(a.catalog_argv("cursor"), ["cursor-agent", "--list-models"]);
+        assert_eq!(a.catalog_argv("cursor"), ["cursor-agent", "acp"]);
         assert_eq!(a.catalog_argv("antigravity"), ["/opt/agy", "acp"]);
     }
 

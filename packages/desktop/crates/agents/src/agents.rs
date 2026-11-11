@@ -786,6 +786,19 @@ pub struct ListedModel {
     /// Who serves it, as the agent names them: "amazon-bedrock" or "ChatGPT or Codex Subscription". It tells apart two
     /// models of one name; "" for an agent's own.
     pub upstream: String,
+    pub settings: Vec<ModelSetting>,
+}
+
+/// One of a model's own settings besides its effort, as Cursor's "Fast" or OpenCode's "Agent".
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ModelSetting {
+    /// What the agent calls it; a launch's `options` set it by this.
+    pub id: String,
+    pub name: String,
+    /// Each value it takes, and what a menu calls that.
+    pub choices: Vec<(String, String)>,
+    /// The value it's on when none is picked.
+    pub default: String,
 }
 
 #[derive(Deserialize)]
@@ -822,7 +835,7 @@ pub fn codex_catalog(json: &str) -> Vec<ListedModel> {
             value: m.slug,
             efforts: m.supported_reasoning_levels.into_iter().map(|l| l.effort).collect(),
             default_effort: m.default_reasoning_level,
-            upstream: String::new(),
+            ..ListedModel::default()
         })
         .collect()
 }

@@ -3,6 +3,7 @@ package launch
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -104,13 +105,13 @@ func TestResumeRejectsHerdrBreaches(t *testing.T) {
 func TestParseReadsBackTheResumeArgv(t *testing.T) {
 	for _, l := range []state.Launch{{Access: "ask"}, {Access: "edits", Model: "opus", Effort: "high"}, {Access: "auto"}, {Access: "ask", Plan: true}} {
 		argv, _ := resumeOf(saved("claude", l))
-		if got := state.Parse("claude", argv); got != l {
+		if got := state.Parse("claude", argv); !reflect.DeepEqual(got, l) {
 			t.Errorf("claude %+v reads back as %+v", l, got)
 		}
 	}
 	for _, l := range []state.Launch{{Access: "ask"}, {Access: "edits", Model: "gpt-5.5", Effort: "high"}, {Access: "auto"}} {
 		argv, _ := resumeOf(saved("codex", l))
-		if got := state.Parse("codex", argv); got != l {
+		if got := state.Parse("codex", argv); !reflect.DeepEqual(got, l) {
 			t.Errorf("codex %+v reads back as %+v", l, got)
 		}
 	}

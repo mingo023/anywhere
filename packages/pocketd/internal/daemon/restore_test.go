@@ -116,7 +116,7 @@ func TestAPermissionModeHookUpdatesTheSavedAccess(t *testing.T) {
 	hookFrom(d, pr, sessionStart("s1", transcript(t, "hi")))
 	hookFrom(d, pr, `{"hook_event_name":"UserPromptSubmit","session_id":"s1","permission_mode":"acceptEdits"}`)
 	hookFrom(d, pr, `{"hook_event_name":"Stop","session_id":"s1","permission_mode":"plan"}`)
-	if got := d.Snapshot().Terminals[0].Launch; *got != (state.Launch{Access: "edits", Plan: true}) {
+	if got := d.Snapshot().Terminals[0].Launch; !reflect.DeepEqual(*got, state.Launch{Access: "edits", Plan: true}) {
 		t.Fatalf("launch = %+v", got)
 	}
 }

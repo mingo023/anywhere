@@ -121,7 +121,7 @@ func (c specCLI) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string,
 	if s.Plan && !c.p.Plan {
 		return nil, false, fail("access_not_allowed", c.p.Name+" can't plan first")
 	}
-	l := state.Launch{Access: Access(s), Plan: s.Plan, Model: s.Model, Effort: s.Effort}
+	l := state.Launch{Access: Access(s), Plan: s.Plan, Model: s.Model, Effort: s.Effort, Options: s.Options}
 	if c.chat(s) {
 		return c.chatArgv(l, argv), true, nil
 	}

@@ -864,6 +864,19 @@ func TestSwitchesNameTheModelAsPiDoesAndSayWhatPiRefused(t *testing.T) {
 	}
 }
 
+func TestOmpStartsFastWhereTheLaunchAsksAndSaysWhenTheModelHasNoFast(t *testing.T) {
+	_, a, _, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}})
+	equal(t, a.sent("set_fast_mode", 1), []string{`{"enabled":true}`})
+
+	_, _, sk, _ := start(t, opts{provider: "omp", launch: state.Launch{Access: "full", Options: map[string]string{"fast": "true"}}, answer: func(_ *agent, kind string, _ map[string]any) string {
+		if kind == "set_fast_mode" {
+			return "!Fast mode is unavailable for the current model."
+		}
+		return ""
+	}})
+	sk.wait(t, "notice:omp couldn't set fast to true: Fast mode is unavailable for the current model.")
+}
+
 func TestPiListsItsSkillsAsCommands(t *testing.T) {
 	s, _, _, _ := start(t, opts{answer: func(_ *agent, kind string, _ map[string]any) string {
 		if kind == "get_commands" {

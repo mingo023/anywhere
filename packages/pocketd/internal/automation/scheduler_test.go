@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -143,7 +144,7 @@ func TestARunLaunchesThroughTheSpecAndFollowsItsAgentToTheEnd(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	want := proto.LaunchSpec{Project: "/f", Checkout: proto.Checkout{Worktree: "/f"}, Provider: "claude", Access: "settings", Prompt: "Review new PRs"}
-	if len(specs) != 1 || specs[0] != want {
+	if len(specs) != 1 || !reflect.DeepEqual(specs[0], want) {
 		t.Fatalf("%+v", specs)
 	}
 }
