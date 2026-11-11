@@ -97,6 +97,7 @@ wry = { version = "0.57", default-features = false, features = ["devtools"] }
 # It also logs what the frames around a scroll hitch did (`hitch.rs`), as pocket writes to `logs/chat-scroll.log`; upstream has no equivalent.
 # It also adds `KeyBinding::load_for_os`, so a keymap built from strings needn't have an `App`; upstream has no equivalent.
 # It also adds `backdrop_blur`, kept in `Scene::backdrops` apart from the primitives so other renderers ignore it; upstream has no equivalent.
+# It also has `ListState::measure_all` measure for a few milliseconds a frame until done, where the first frame measured every item; upstream has no equivalent.
 [patch.crates-io]
 gpui-pre = { path = "vendor/gpui-pre" }
 # gpui-pre-macos 0.3.11 giving prompts the app icon explicitly, since macOS 26 sheet alerts drop the default one; drop once upstream does.
@@ -115,6 +116,7 @@ gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 # It also wraps a long inline code span only once a line is full, where padding counted per word or glyph broke it every few characters; drop once upstream does.
 # It also builds a paragraph's highlights in one pass over its inline children, where combining them per child was quadratic in its marks and a streaming reply paid it every frame; drop once upstream does.
 # It also loads a document's relative and `file:` images from disk once given an `image_base`, where only `data:` images showed; upstream has no equivalent.
+# It also highlights code blocks in the background parser, with `TextViewState::shared_code_block_highlighter` and a public `set_markdown_extensions` to give it what the view will; upstream has no equivalent.
 gpui-base = { path = "vendor/gpui-base" }
 
 # macOS's default "unpacked" leaves every build's .o files in target/debug/deps, which Cargo never removes.

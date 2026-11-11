@@ -134,8 +134,9 @@ impl Views {
         let code = cx.new(|cx| {
             EditorState::new(window, cx).line_number(numbers).searchable(true).soft_wrap(wrap).tab_size(TabSize { tab_size: tab, hard_tabs: false })
         });
-        let md = cx.new(|cx| TextViewState::markdown("", cx));
+        let md = cx.new(|cx| TextViewState::markdown("", cx).shared_code_block_highlighter(markdown::code_highlighter()));
         let diagrams = cx.new(|_| Diagrams::new(&md));
+        md.update(cx, |md, cx| md.set_markdown_extensions(Arc::new(markdown::extensions(&diagrams)), cx));
         let _edits = cx.subscribe(&code, move |this, code, ev: &InputEvent, cx| {
             if let InputEvent::Change = ev {
                 let text = code.read(cx).value();

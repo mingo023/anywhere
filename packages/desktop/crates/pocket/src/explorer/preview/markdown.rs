@@ -1,12 +1,13 @@
 use super::{Views, frame};
 use crate::explorer::frontmatter::Frontmatter;
-use crate::explorer::mermaid::Mermaid;
+use crate::explorer::mermaid::{Diagrams, Mermaid};
 use gpui_kit::base::text::{CodeBlock, CodeBlockHighlighterFn, MarkdownExtensions, TextView, TextViewStyle};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
 use gpui_kit::*;
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use theme::*;
 
 // SF Mono, which macOS lists under this name only.
@@ -15,8 +16,20 @@ const CODE_FONT: &str = ".AppleSystemUIFontMonospaced";
 /// Code blocks in Xcode's colours; one per scheme, kept so their highlights stay cached across frames.
 static HIGHLIGHTERS: LazyLock<[Arc<CodeBlockHighlighterFn>; 2]> = LazyLock::new(|| [false, true].map(highlighter));
 
+/// What the markdown state parses with too, so the first file it shows isn't parsed twice.
+pub(super) fn extensions(diagrams: &Entity<Diagrams>) -> MarkdownExtensions {
+    MarkdownExtensions::default().frontmatter().plugin(Frontmatter).plugin(Mermaid(diagrams.clone()))
+}
+
+/// The scheme's code block highlighter; the markdown state takes it too, so its parser highlights off the UI thread.
+pub(super) fn code_highlighter() -> Arc<CodeBlockHighlighterFn> {
+    HIGHLIGHTERS[is_dark() as usize].clone()
+}
+
 fn highlighter(dark: bool) -> Arc<CodeBlockHighlighterFn> {
     let theme = markdown_highlight_theme(dark);
+    // Building a highlighter compiles its language's queries, ~30ms for Rust; a long plan holds a hundred blocks.
+    let parsers = Mutex::new(HashMap::<String, SyntaxHighlighter>::new());
     Arc::new(move |block: &CodeBlock| {
         let Some(lang) = block.lang() else { return Vec::new() };
         // The reference reads these fence names as bash too.
@@ -25,7 +38,8 @@ fn highlighter(dark: bool) -> Arc<CodeBlockHighlighterFn> {
             lang => lang.to_string(),
         };
         let code = block.code();
-        let mut hl = SyntaxHighlighter::new(&lang);
+        let mut parsers = parsers.lock().unwrap_or_else(PoisonError::into_inner);
+        let hl = parsers.entry(lang).or_insert_with_key(|lang| SyntaxHighlighter::new(lang));
         hl.update(None, &Rope::from(code.as_ref()), None);
         hl.styles(&(0..code.len()), &*theme)
     })
@@ -69,10 +83,8 @@ pub(super) fn markdown_pane(views: &Views, path: &str) -> Div {
     };
     frame().bg(MD_PAGE).child(
         text
-            .markdown_extensions(MarkdownExtensions::default().frontmatter())
-            .plugin(Frontmatter)
-            .plugin(Mermaid(views.diagrams.clone()))
-            .shared_code_block_highlighter(HIGHLIGHTERS[is_dark() as usize].clone())
+            .markdown_extensions(extensions(&views.diagrams))
+            .shared_code_block_highlighter(code_highlighter())
             .selectable(true)
             .scrollable(true)
             .style(markdown_style())

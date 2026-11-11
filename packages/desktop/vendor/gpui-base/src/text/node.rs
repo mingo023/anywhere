@@ -747,6 +747,26 @@ impl BlockNode {
         }
     }
 
+    /// Highlights the code blocks in this tree, caching their styles for
+    /// layout, so a parser thread can do it instead of the first frame.
+    pub(super) fn highlight_code(&self, highlighter: &Arc<CodeBlockHighlighterFn>) {
+        match self {
+            BlockNode::Root { children, .. }
+            | BlockNode::Blockquote { children, .. }
+            | BlockNode::Footnotes { children }
+            | BlockNode::List { children, .. }
+            | BlockNode::ListItem { children, .. } => {
+                for child in children {
+                    child.highlight_code(highlighter);
+                }
+            }
+            BlockNode::CodeBlock(code_block) => {
+                code_block.highlighted_styles(highlighter);
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn clear_selection(&self) {
         match self {
             BlockNode::Root { children, .. }

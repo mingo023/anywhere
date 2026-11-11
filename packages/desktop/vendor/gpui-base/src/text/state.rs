@@ -274,6 +274,16 @@ impl TextViewState {
         self.parsed_content.document.source.clone()
     }
 
+    /// Highlights fenced code blocks with `highlighter` from the first text
+    /// set, before a `TextView` hands it over; give the view the same one.
+    pub fn shared_code_block_highlighter(
+        mut self,
+        highlighter: Arc<CodeBlockHighlighterFn>,
+    ) -> Self {
+        self.code_block_highlighter = Some(highlighter);
+        self
+    }
+
     /// Set whether the text is selectable, default false.
     pub fn selectable(mut self, selectable: bool) -> Self {
         self.selectable = selectable;
@@ -388,7 +398,10 @@ impl TextViewState {
         self.stream_fade.set_motion(motion);
     }
 
-    pub(crate) fn set_markdown_extensions(
+    /// Parses Markdown with `markdown_extensions` from now on, reparsing the
+    /// text if they parse differently. Set before the first text, they spare
+    /// it the second parse a `TextView` handing them over would cause.
+    pub fn set_markdown_extensions(
         &mut self,
         markdown_extensions: Arc<MarkdownExtensions>,
         cx: &mut Context<Self>,
@@ -545,6 +558,7 @@ impl TextViewState {
             },
             pending_text: text.to_string(),
             markdown_extensions: self.markdown_extensions.clone(),
+            code_block_highlighter: self.code_block_highlighter.clone(),
         };
 
         // Keep small full replacements synchronous so their first layout has
@@ -1297,6 +1311,7 @@ struct UpdateOptions {
     append: bool,
     mode: ParseMode,
     markdown_extensions: Arc<MarkdownExtensions>,
+    code_block_highlighter: Option<Arc<CodeBlockHighlighterFn>>,
 }
 
 impl UpdateOptions {
@@ -1387,6 +1402,17 @@ fn parse_content(
         TextViewFormat::Markdown => format::markdown::parse(&source, &mut node_cx),
         TextViewFormat::Html => format::html::parse(&source, &mut node_cx),
     }?;
+
+    // Off the UI thread, so laying out a hundred code blocks finds their
+    // highlights cached. A small text parsed synchronously leaves it to
+    // layout, and the background parser's acknowledgement of it is never shown.
+    if options.mode != ParseMode::BaselineAck
+        && let Some(highlighter) = &options.code_block_highlighter
+    {
+        for block in new_document.blocks.iter() {
+            block.highlight_code(highlighter);
+        }
+    }
 
     if options.append {
         content.document.source =
@@ -1760,6 +1786,31 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_background_parse_highlights_code_blocks_before_they_are_laid_out(cx: &mut TestAppContext) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        cx.update(crate::init);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = calls.clone();
+        let highlighter: Arc<CodeBlockHighlighterFn> = Arc::new(move |_| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            Vec::new()
+        });
+        let markdown = format!(
+            "{}```rust\nfn main() {{}}\n```\n",
+            "# x\n\n".repeat(MAX_SYNC_FULL_REPLACE_BYTES / 5 + 1)
+        );
+        let state = cx.update(|cx| {
+            cx.new(|cx| TextViewState::markdown("", cx).shared_code_block_highlighter(highlighter))
+        });
+
+        state.update(cx, |state, cx| state.set_text(&markdown, cx));
+        cx.run_until_parked();
+
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[gpui::test]
     fn large_markdown_and_html_full_replacements_wait_for_background_executor(
         cx: &mut TestAppContext,
     ) {
@@ -1881,6 +1932,7 @@ mod tests {
             append: true,
             mode: ParseMode::Compatible,
             markdown_extensions: Arc::default(),
+            code_block_highlighter: None,
         };
         ParsedUpdate {
             revision,
@@ -2163,6 +2215,7 @@ mod tests {
             append: true,
             mode: ParseMode::Compatible,
             markdown_extensions: Arc::default(),
+            code_block_highlighter: None,
         };
 
         options.merge(UpdateOptions {
@@ -2171,6 +2224,7 @@ mod tests {
             append: false,
             mode: ParseMode::BaselineAck,
             markdown_extensions: Arc::default(),
+            code_block_highlighter: None,
         });
         options.merge(UpdateOptions {
             revision: 3,
@@ -2178,6 +2232,7 @@ mod tests {
             append: true,
             mode: ParseMode::Compatible,
             markdown_extensions: Arc::default(),
+            code_block_highlighter: None,
         });
 
         assert_eq!(options.revision, 3);
@@ -2193,6 +2248,7 @@ mod tests {
             append: false,
             mode: ParseMode::Replace,
             markdown_extensions: Arc::default(),
+            code_block_highlighter: None,
         };
 
         options.merge(UpdateOptions {
@@ -2201,6 +2257,7 @@ mod tests {
             append: true,
             mode: ParseMode::Compatible,
             markdown_extensions: Arc::default(),
+            code_block_highlighter: None,
         });
 
         assert_eq!(options.revision, 2);
@@ -2226,6 +2283,7 @@ mod tests {
                     ParseMode::Compatible
                 },
                 markdown_extensions: Arc::default(),
+                code_block_highlighter: None,
             })
             .unwrap();
         }
@@ -2338,6 +2396,7 @@ mod tests {
             append: false,
             mode: ParseMode::Replace,
             markdown_extensions: Arc::default(),
+            code_block_highlighter: None,
         };
         let content = parse_content(TextViewFormat::Markdown, ParsedContent::default(), &options)
             .expect("initial parse");
@@ -2350,6 +2409,7 @@ mod tests {
                 append: true,
                 mode: ParseMode::Compatible,
                 markdown_extensions: Arc::default(),
+                code_block_highlighter: None,
             },
         )
         .expect("incremental parse");
@@ -2375,6 +2435,7 @@ mod tests {
                 append: false,
                 mode: ParseMode::Replace,
                 markdown_extensions: Arc::default(),
+                code_block_highlighter: None,
             },
         )
         .expect("initial list parse");
@@ -2387,6 +2448,7 @@ mod tests {
                 append: true,
                 mode: ParseMode::Compatible,
                 markdown_extensions: Arc::default(),
+                code_block_highlighter: None,
             },
         )
         .expect("streamed list continuation parse");
@@ -2803,6 +2865,7 @@ mod tests {
                 append: false,
                 mode: ParseMode::Replace,
                 markdown_extensions: Arc::default(),
+                code_block_highlighter: None,
             };
             let new = parse_content(TextViewFormat::Markdown, ParsedContent::default(), &options)
                 .unwrap()
