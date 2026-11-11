@@ -220,6 +220,11 @@ impl Terminals {
     }
 }
 
+/// The agent a new tab opens instead of a shell: the default one, when Settings say so and pocketd found one to run.
+fn tab_agent(prefs: &store::prefs::agents::Agents, live: &agents::Agents) -> Option<&'static str> {
+    (prefs.tabs_open_agent && !prefs.offered(live).is_empty()).then(|| prefs.default_agent(live))
+}
+
 impl Desktop {
     pub(crate) fn on_msg(&mut self, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
         self.on_msg_from(None, m, window, cx);
@@ -363,14 +368,14 @@ impl Desktop {
 
     /// A shell, or the default agent when Settings › Agents says new tabs open one.
     pub(crate) fn open_tab(&mut self, place: Place, cx: &mut Context<Self>) {
-        if self.store.agents.tabs_open_agent {
-            return self.new_agent_tab(self.store.agents.default_agent(), place, cx);
+        match tab_agent(&self.store.agents, &self.agents) {
+            Some(agent) => self.new_agent_tab(agent, place, cx),
+            None => self.new_shell(place, cx),
         }
-        self.new_shell(place, cx);
     }
 
     pub fn new_agent_tab(&mut self, provider: &str, place: Place, cx: &mut Context<Self>) {
-        let argv = [provider.to_string()];
+        let argv = [self.store.agents.command(provider)];
         self.run_in_tree(place, &argv, Some(provider), |cwd| daemon::agent_op(&argv, cwd), cx);
     }
 
@@ -384,8 +389,8 @@ impl Desktop {
         let pick = self.last_pick(Some(&project));
         let mut spec = pick.spec(&project, agents::locals::checkout(&tree), "");
         spec["chat"] = true.into();
-        let (plan, efforts) = (self.agents.provider_info(&pick.provider).plan, self.launch_efforts(&pick.provider, &pick.model));
-        self.store.agents.launch(&mut spec, plan, &efforts);
+        let efforts = self.launch_efforts(&pick.provider, &pick.model);
+        self.store.agents.launch(&mut spec, &self.agents, &efforts);
         if let Some(request) = self.send_create(spec) {
             self.terminals.tab_chats.insert(request, place);
         }
@@ -536,11 +541,21 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Created, Fit, Intent, Terminals};
+    use super::{Created, Fit, Intent, Terminals, tab_agent};
     use daemon::{Info, Msg};
     use std::collections::HashMap;
     use workspace::Place;
     use workspace::tree::Edge;
+
+    #[test]
+    fn a_new_tab_opens_the_default_agent_only_when_one_is_installed() {
+        let pocketd = |installed: bool| agents::Agents { providers: ["claude", "codex", "pi"].map(|id| agents::providers::ProviderInfo { id: id.into(), available: installed && id != "claude", ..Default::default() }).to_vec(), ..Default::default() };
+        let mut prefs = store::prefs::agents::Agents::default();
+        assert_eq!(tab_agent(&prefs, &pocketd(true)), None, "Settings open a shell");
+        prefs.tabs_open_agent = true;
+        assert_eq!(tab_agent(&prefs, &pocketd(true)), Some("codex"), "Claude is the default, but pocketd didn't find it");
+        assert_eq!(tab_agent(&prefs, &pocketd(false)), None, "none installed, so a shell");
+    }
 
     fn info(id: &str) -> Info {
         Info { id: id.into(), cmd: "/bin/zsh".into(), cwd: "/w".into(), ..Default::default() }

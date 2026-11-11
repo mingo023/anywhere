@@ -402,9 +402,12 @@ public final class ChatStore: HostStore {
     public var provider: String { summary?.provider ?? "" }
     public var adapter: Adapter { Adapter.for(provider) }
 
-    public var capabilities: Capabilities {
-        ChatModel.capabilities(provider, providers?.providers.first { $0.id == provider }?.chat)
-    }
+    private var info: ProviderInfo? { providers?.providers.first { $0.id == provider } }
+
+    public var capabilities: Capabilities { ChatModel.capabilities(provider, info?.chat) }
+
+    /// Whether the access pill is a menu: pocketd lets the phone set a chat agent's access, and the agent has more than Full.
+    public var setsAccess: Bool { summary?.chatOnly == true && hasCap(Caps.access) && info?.neverAsks != true }
 
     public var observeOnly: Bool { Composer.observeOnly(scopes) }
 
@@ -501,7 +504,8 @@ public final class ChatStore: HostStore {
         case (.btw, ""): break
         case (.model, let model): settings(model: model)
         case (.effort, let effort): settings(effort: effort)
-        case (.compact, _): compact()
+        case (.compact, ""): compact()
+        case (.compact, _): notice = Composer.compactTakesNoInstructions(provider: provider)
         case (.btw, let question): ask(btw: question)
         case (.mcp, let query): draft.text = mcpTag + query
         }
@@ -678,7 +682,9 @@ public final class ChatStore: HostStore {
     // MARK: Settings, side questions, servers
 
     public func settings(model: String? = nil, effort: String? = nil, access: String? = nil) {
-        request(.agentSettings(.init(agentId: agentId, model: model, effort: effort, access: access))) { _ in }
+        request(.agentSettings(.init(agentId: agentId, model: model, effort: effort, access: access))) { _ in } failed: { [weak self] error in
+            self?.notice = error
+        }
     }
 
     public func pin(_ pinned: Bool) {

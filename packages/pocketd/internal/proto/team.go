@@ -23,7 +23,7 @@ type Team struct {
 type TeamTask struct {
 	ID           string   `json:"id"`
 	Title        string   `json:"title"`
-	Agent        string   `json:"agent"` // claude | codex
+	Agent        string   `json:"agent"` // a provider pocketd drives a chat of
 	Model        string   `json:"model,omitempty"`
 	Files        []string `json:"files"`
 	After        []string `json:"after"`

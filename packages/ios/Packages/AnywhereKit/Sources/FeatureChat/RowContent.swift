@@ -134,7 +134,7 @@ struct RowBuilder {
     ) {
         self.session = session
         self.provider = provider
-        self.model = model.map(modelName) ?? ""
+        self.model = model.map(Sidebar.modelName) ?? ""
         self.ask = ask
         self.stopping = stopping
         self.reveals = reveals

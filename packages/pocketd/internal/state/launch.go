@@ -6,16 +6,33 @@ import (
 	"pocketd/internal/providers"
 )
 
-var parsers = map[string]func([]string) Launch{providers.Claude.ID: parseClaude, providers.Codex.ID: parseCodex}
-
-// Parse reads the access, plan, model and effort that a claude or codex
-// argv asks for: the inverse of launch.Argv. An argv with no access flags is
-// settings; one whose access it can't read is ask.
-func Parse(provider string, argv []string) Launch {
-	if parse := parsers[provider]; parse != nil {
-		return parse(argv)
+var parsers = func() map[string]func([]string) Launch {
+	m := map[string]func([]string) Launch{providers.Claude.ID: parseClaude, providers.Codex.ID: parseCodex}
+	for _, p := range providers.All {
+		if m[p.ID] == nil {
+			m[p.ID] = parseFlags(p)
+		}
 	}
-	return codexLaunch(argv, false)
+	return m
+}()
+
+// Parse reads the access, plan, model and effort that an agent's argv asks
+// for: the inverse of launch.Argv. An argv with no access flags is settings;
+// one whose access it can't read is ask. An agent that never asks is full
+// whatever its argv says.
+func Parse(provider string, argv []string) Launch {
+	_, l, carried := Cut(argv)
+	switch parse := parsers[provider]; {
+	case carried:
+	case parse != nil:
+		l = parse(argv)
+	default:
+		l = codexLaunch(argv, false)
+	}
+	if providers.NeverAsks(provider) {
+		l.Access = "full"
+	}
+	return l
 }
 
 // scan reads argv's flags up to "--" into values and switches, the last one

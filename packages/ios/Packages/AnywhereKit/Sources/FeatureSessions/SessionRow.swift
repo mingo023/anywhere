@@ -35,7 +35,7 @@ struct SessionRow: View {
                 if let model = s.model.map(Sidebar.modelName), !model.isEmpty {
                     HStack(spacing: Space.xs) {
                         BrandMark(s.provider, size: 11)
-                        Text("\(SessionText.provider(s.provider)) · \(model)").font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
+                        Text("\(AgentName.label(s.provider)) · \(model)").font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
                     }
                 }
             }

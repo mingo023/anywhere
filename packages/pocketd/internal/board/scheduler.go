@@ -11,6 +11,7 @@ import (
 	"pocketd/internal/automation"
 	"pocketd/internal/launch"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/terminal"
 )
 
@@ -54,13 +55,14 @@ type Scheduler struct {
 }
 
 // Spec is the session t starts: in the Worktree it already has, else in a
-// fresh one off its base that pocketd names from the prompt.
+// fresh one off its base that pocketd names from the prompt. It is a chat for
+// an agent whose work is followed only there.
 func Spec(t proto.Ticket, requestID string) proto.LaunchSpec {
 	checkout := proto.Checkout{New: &proto.NewWorktree{Name: "ticket-" + requestID[:min(8, len(requestID))], Base: t.Base, AutoName: true}}
 	if t.Worktree != "" {
 		checkout = proto.Checkout{Worktree: t.Worktree}
 	}
-	return proto.LaunchSpec{Project: t.Folder, Checkout: checkout, Provider: t.Provider, Access: "settings", Prompt: t.Prompt}
+	return proto.LaunchSpec{Project: t.Folder, Checkout: checkout, Provider: t.Provider, Access: "settings", Prompt: t.Prompt, Chat: providers.Get(t.Provider).OnlyChats()}
 }
 
 // AgentWatcher looks at agents in reg, reading a transcript only while a ticket starts.

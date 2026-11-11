@@ -13,6 +13,14 @@ func TestAnAutomationWithoutAccessOrWorktreeRunsInItsFolderOnTheAgentsSettings(t
 	}
 }
 
+func TestAnAutomationOfAnAgentFollowedOnlyInItsChatStartsAsOne(t *testing.T) {
+	for provider, chat := range map[string]bool{"claude": false, "codex": false, "cursor": true, "grok": true, "opencode": true, "pi": true, "omp": true, "fx": true, "hermes": true, "antigravity": true} {
+		if s := Spec(proto.Automation{Folder: "/r", Provider: provider, Prompt: "p"}, "abcdef12-3456"); s.Chat != chat {
+			t.Errorf("%s: chat %v", provider, s.Chat)
+		}
+	}
+}
+
 func TestAnAutomationInANewWorktreeStartsEachRunInOneNamedFromThePrompt(t *testing.T) {
 	s := Spec(proto.Automation{Folder: "/r", Provider: "codex", Prompt: "p", Access: "edits", NewWorktree: true}, "abcdef12-3456")
 	if s.Checkout.Worktree != "" || s.Checkout.New == nil || s.Checkout.New.Name != "automation-abcdef12" || !s.Checkout.New.AutoName || s.Access != "edits" {

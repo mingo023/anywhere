@@ -150,6 +150,15 @@ impl Render for Storybook {
                     .child(ui::session_row("s4", false, ui::provider_label("codex", true), "6m", "Migrate legacy hooks".into(), None, Some("chore/migrate-hooks".into()), Some(State::Idle(28, 11)), true)),
             ))
             .child(story(
+                "Agents",
+                "Each agent's mark at 12, 14 and 16, in a tile, and as a session's label",
+                list().children(BRANDS.iter().map(|b| {
+                    let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(b.id, 15., TEXT));
+                    let marks = [12., 14., 16.].map(|size| div().w(px(16.)).flex().flex_none().justify_center().child(provider_icon(b.id, size, TEXT_2)));
+                    div().h(px(36.)).px(px(8.)).flex().items_center().gap(px(10.)).text_size(px(13.)).children(marks).child(tile).child(ui::provider_label(b.id, false))
+                })),
+            ))
+            .child(story(
                 "File rows",
                 "Explore tree and Changes list",
                 div()

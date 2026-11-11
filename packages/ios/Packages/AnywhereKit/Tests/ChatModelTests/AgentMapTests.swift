@@ -1,3 +1,4 @@
+import Domain
 import Foundation
 import Testing
 @testable import ChatModel
@@ -107,7 +108,7 @@ func aStepNamesItsTool() {
 @Test("the details say where the agent stands and its model")
 func theDetailsSayWhereTheAgentStands() {
     #expect(AgentMap.facts(.starting, model: "") == "Working")
-    #expect(AgentMap.facts(.failed, model: "claude-haiku-4-5") == "Failed · \(modelName("claude-haiku-4-5"))")
+    #expect(AgentMap.facts(.failed, model: "claude-haiku-4-5") == "Failed · \(Sidebar.modelName("claude-haiku-4-5"))")
 }
 
 @Test("the main agent centres on the agents it spawned one column left")

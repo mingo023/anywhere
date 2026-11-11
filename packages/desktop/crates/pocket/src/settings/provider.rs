@@ -1,9 +1,11 @@
 use ::agents::providers;
-use super::agents::status_source;
+use super::agents::{status_source, toggle_enabled};
 use super::catalog::Setting;
 use super::dropdown::dropdown;
-use super::models::{effort_label, effort_options, model_label, model_options};
+use super::dropdown::Row;
+use super::models::{effort_label, effort_options, model_label, model_rows, not_found};
 use super::{Section, action, card, field_box, row};
+use crate::composer::model_menu::model_name;
 use crate::desktop::Desktop;
 use crate::util::tilde;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -19,17 +21,26 @@ const STATUS: &str = "Status";
 /// The Enabled card, drawn above the groups.
 const ENABLED: &str = "Enabled";
 
-/// Each provider's page, in `providers::ALL` order.
-pub(super) const PAGES: [&[Setting]; providers::COUNT] = [&rows::<0>(), &rows::<1>()];
+/// Each provider's page, in `providers::ALL` order, and the ids of its label, model and effort rows: a field and an open
+/// menu are kept by row id, so those need one per provider.
+macro_rules! pages {
+    ($($i:literal $id:literal),*) => {
+        pub(super) const PAGES: [&[Setting]; providers::COUNT] = [$(&rows::<$i>()),*];
+        const ROW_IDS: [[&str; 3]; providers::COUNT] = [$([concat!($id, "-label"), concat!($id, "-model"), concat!($id, "-effort")]),*];
+    };
+}
+pages!(0 "claude", 1 "codex", 2 "cursor", 3 "grok", 4 "opencode", 5 "pi", 6 "omp", 7 "fx", 8 "hermes", 9 "antigravity");
 
-/// Each provider's label and model row ids.
-const ROW_IDS: [(&str, &str); providers::COUNT] = [("claude-label", "claude-model"), ("codex-label", "codex-model")];
+/// The id of the `i`th provider's model menu.
+pub(crate) fn model_menu(i: usize) -> &'static str {
+    ROW_IDS[i][1]
+}
 
 const fn rows<const P: usize>() -> [Setting; 9] {
     [
         Setting::custom("enabled", ENABLED, "Enabled", |d, _, cx| d.enabled_row(P, cx))
-            .resets(|s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(), |s, _| s.agents.set_enabled(LaunchPick::PROVIDERS[P], true)),
-        Setting::text(ROW_IDS[P].0, DEFAULTS, "Label", PROVIDER_NAMES[P], |s| s.agents.provider(LaunchPick::PROVIDERS[P]).label, |s, v| {
+            .resets(|s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(), |s, _| s.agents.enable(LaunchPick::PROVIDERS[P])),
+        Setting::text(ROW_IDS[P][0], DEFAULTS, "Label", PROVIDER_NAMES[P], |s| s.agents.provider(LaunchPick::PROVIDERS[P]).label, |s, v| {
             s.agents.provider_mut(LaunchPick::PROVIDERS[P]).label = v
         })
         .hint("Replaces the built-in name everywhere in the app"),
@@ -44,7 +55,9 @@ const fn rows<const P: usize>() -> [Setting; 9] {
             .hint("Binary name or path. Found on PATH by default"),
         args_row::<P, 0>().hint("Added only when launching with a prompt, e.g. --, --prompt, -i"),
         args_row::<P, 1>().hint("Used to restore a previous session; its id goes after these, e.g. --resume. Leave empty if the agent can't resume by id"),
-        args_row::<P, 2>().hint("Used to clone a previous session without changing it. Put {sessionId} where its id belongs, or leave empty if the agent can't fork"),
+        args_row::<P, 2>()
+            .hint("Used to clone a previous session without changing it. Put {sessionId} where its id belongs, or leave empty if the agent can't fork")
+            .under(|s| !Args::Fork.default_text(LaunchPick::PROVIDERS[P]).is_empty() || s.agents.provider(LaunchPick::PROVIDERS[P]).fork_args.is_some()),
         Setting::custom("status", STATUS, "How Anywhere reads status", |_, s, _| row(s.label, Some(&status_source(LaunchPick::PROVIDERS[P])), div())),
     ]
 }
@@ -196,7 +209,7 @@ impl Desktop {
                     }
                 }
                 if f == Launch::Command {
-                    d.forget_models(p);
+                    d.settings.models.forget(p);
                 }
                 d.load_host(cx);
             })
@@ -211,47 +224,50 @@ impl Desktop {
         let (key, text) = (f.key(p), f.text(&self.store.agents, p));
         self.set_host(key, text, cx);
         if f == Launch::Command {
-            self.forget_models(p);
+            self.settings.models.forget(p);
         }
     }
 
+    /// Whether the agent is on, and the default; one pocketd didn't find says how to install it instead.
     fn enabled_row(&mut self, i: usize, cx: &mut Context<Self>) -> Div {
         let p = LaunchPick::PROVIDERS[i];
         let on = !self.store.agents.disabled.contains(p);
-        let default = self.store.agents.default_agent() == p;
+        let (default, installed) = (self.store.agents.default_agent(&self.agents) == p, self.installed(p));
         let tile = div().size(px(32.)).flex().flex_none().items_center().justify_center().rounded(px(8.)).bg(FILL_2).child(provider_icon(p, 17., TEXT));
         let badge = default.then(|| div().px(px(6.)).py(px(1.)).rounded(px(4.)).bg(FILL_3).text_size(px(11.)).text_color(TEXT_2).child("Default"));
-        let set_default = (!default).then(|| {
+        let set_default = (!default && installed).then(|| {
             action("provider-set-default", "Set as default").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.store.agents.default = p.into();
-                this.store.agents.set_enabled(p, true);
+                this.store.agents.enable(p);
                 this.save_soon(cx);
                 cx.notify();
             }))
         });
-        let toggle = div().id("provider-enabled").flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.store.agents.set_enabled(p, !on);
-            this.save_soon(cx);
-            cx.notify();
-        }));
+        let toggle = installed.then(|| {
+            div().id("provider-enabled").flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                toggle_enabled(&mut this.store.agents, p, &this.agents);
+                this.save_soon(cx);
+                cx.notify();
+            }))
+        });
+        let (title, line) = if installed { (ENABLED, "Shows up in Default agent, New session, Automations and AI commit messages".to_string()) } else { ("Not installed", not_found(p)) };
         let text = div()
             .flex_1()
             .min_w_0()
             .flex()
             .flex_col()
             .gap(px(1.))
-            .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(ENABLED))
-            .child(div().text_size(px(12.)).text_color(TEXT_3).child("Shows up in Default agent, New session, Automations and AI commit messages"));
-        div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(12.)).child(tile).child(text).children(badge).children(set_default).child(toggle)
+            .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title))
+            .child(div().text_size(px(12.)).text_color(TEXT_3).child(line));
+        div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(12.)).child(tile).child(text).children(badge).children(set_default).children(toggle)
     }
 
     fn model_row(&mut self, i: usize, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let p = LaunchPick::PROVIDERS[i];
         let model = self.store.agents.provider(p).model;
-        let options = model_options(p, self.models_of(p), &model);
-        let id = ROW_IDS[i].1;
-        let trigger = action(id, "").child(model_label_of(&options, &model)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown(id, trigger, options, &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
+        let (id, offered) = (ROW_IDS[i][1], self.offered_models(p));
+        let trigger = action(id, "").child(model_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
+        let menu = dropdown(id, trigger, (self.settings.models.revision, &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
         row(setting.label, setting.hint, menu)
     }
 
@@ -262,9 +278,10 @@ impl Desktop {
             return div();
         }
         let effort = self.store.agents.provider(p).effort;
-        let trigger = action("claude-effort", "").child(effort_label(&effort)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown("claude-effort", trigger, effort_options(&levels, "Agent default"), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
-        row(setting.label, setting.hint, menu)
+        let id = ROW_IDS[i][2];
+        let trigger = action(id, "").child(effort_label(&effort)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
+        let menu = dropdown(id, trigger, &levels, || Row::picks(effort_options(&levels, "Agent default")), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
+        row(providers::known(p).effort_word, setting.hint, menu)
     }
 
     /// The title and hint over a field as wide as the card, as typed args run long.
@@ -288,7 +305,7 @@ impl Desktop {
             .rounded(px(10.))
             .bg(SURFACE)
             .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x0000000d), 1., 1.5)])
-            .child(icon("sparkle", 20., TEXT));
+            .child(provider_icon(p, 20., TEXT));
         let line = provider_line(path.as_deref());
         let (lead, path) = line.split_once(" \u{b7} ").map_or((line.clone(), String::new()), |(a, b)| (format!("{a} \u{b7} "), b.to_string()));
         let mono = path.starts_with('/') || path.starts_with('~');
@@ -305,14 +322,9 @@ impl Desktop {
     }
 }
 
-/// The label `options` give `value`.
-fn model_label_of(options: &[(String, String)], value: &str) -> String {
-    options.iter().find(|(v, _)| v == value).map_or_else(|| model_label(value), |(_, l)| l.clone())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{PAGES, command_label, provider_line};
+    use super::{PAGES, ROW_IDS, command_label, provider_line};
     use crate::settings::catalog::{changed, reset};
     use store::Store;
 
@@ -323,9 +335,26 @@ mod tests {
     }
 
     #[test]
+    fn each_provider_s_rows_are_kept_under_its_own_ids() {
+        for (ids, provider) in ROW_IDS.iter().zip(agents::providers::IDS) {
+            assert_eq!(ids.map(String::from), ["label", "model", "effort"].map(|row| format!("{provider}-{row}")));
+        }
+    }
+
+    #[test]
+    fn an_agent_that_cannot_fork_has_no_fork_args_row_until_some_are_set() {
+        let mut store = Store::default();
+        let fork = |page: usize, s: &Store| PAGES[page].iter().find(|r| r.id == "fork-args").unwrap().allowed(s);
+        assert_eq!([0, 1, 3, 5].map(|page| fork(page, &store)), [true, true, false, true], "claude, codex, grok, pi");
+        store.agents.provider_mut("grok").fork_args = Some("--fork {sessionId}".into());
+        store.agents.provider_mut("claude").fork_args = Some(String::new());
+        assert!(fork(3, &store) && fork(0, &store), "one that forks keeps its row when cleared");
+    }
+
+    #[test]
     fn reset_puts_one_provider_back_and_leaves_the_other() {
         let mut store = Store::default();
-        store.agents.set_enabled("claude", false);
+        store.agents.disable("claude", &agents::Agents::default());
         for p in ["claude", "codex"] {
             let own = store.agents.provider_mut(p);
             (own.model, own.effort, own.command, own.label, own.fork_args) = ("opus".into(), "high".into(), "/opt/agent".into(), "Mine".into(), Some(String::new()));

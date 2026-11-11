@@ -98,11 +98,6 @@ public enum ModelPill {
         provider == "claude" ? claudeAliases : []
     }
 
-    /// What the provider calls effort, as its menu row reads.
-    public static func effortWord(_ provider: String) -> String {
-        provider == "codex" ? "Reasoning" : "Effort"
-    }
-
     public static func effortLabel(_ effort: String) -> String {
         switch effort {
         case "": "Agent default"

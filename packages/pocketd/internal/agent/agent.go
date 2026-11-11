@@ -65,6 +65,7 @@ type Agent struct {
 	terminal        string
 	conversation    string
 	title           string
+	titled          bool // title is the provider's own, not the first prompt
 	fallback        string
 	named           string // from naming; outranks title until the Conversation changes
 	naming          bool   // naming has started on this Conversation
@@ -584,7 +585,7 @@ func (a *Agent) SetConversation(id string) {
 	a.update(false, func() {
 		if a.conversation != "" && a.conversation != id {
 			a.Timeline.Clear()
-			a.title = ""
+			a.title, a.titled = "", false
 			a.named = ""
 			a.naming = false
 			a.conversations++
@@ -602,7 +603,17 @@ func (a *Agent) ClearTimeline() {
 
 // SetTitle takes the provider's title; it outranks the one taken from the first prompt.
 func (a *Agent) SetTitle(title string) {
-	a.update(false, func() { a.title = title })
+	a.update(false, func() { a.title, a.titled = title, true })
+}
+
+// OwnTitle is the title the provider gave the Conversation; "" until it gives one.
+func (a *Agent) OwnTitle() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.titled {
+		return ""
+	}
+	return a.title
 }
 
 // ClaimNaming starts naming the Conversation unless it has a name or naming

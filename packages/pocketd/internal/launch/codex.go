@@ -51,6 +51,8 @@ func (codex) switchEffort(string) error { return nil }
 // chat leaves a fork in the TUI, as only that forks from the command line.
 func (codex) chat(s proto.LaunchSpec) bool { return s.Chat && s.Fork == "" }
 
+func (codex) attaches(proto.LaunchSpec) bool { return true }
+
 func (c codex) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string, bool, *Failure) {
 	if s.Plan {
 		return nil, false, fail("access_not_allowed", "Codex can't plan first in a terminal session")

@@ -138,6 +138,53 @@ mod tests {
     }
 
     #[test]
+    fn an_acp_agent_runs_the_pickers_itself_and_sends_the_commands_it_lists() {
+        for provider in ["cursor", "grok", "opencode", "fx", "hermes", "antigravity"] {
+            let acp = for_provider(provider);
+            assert_eq!((acp.command("model", ""), acp.command("effort", "high"), acp.command("new", "")), (Kind::Local(Local::Model), Kind::Local(Local::Effort), Kind::Local(Local::New)), "{provider}");
+            assert_eq!((acp.command("compress", ""), acp.command("mcp", "")), (Kind::Send, Kind::Send), "{provider}");
+        }
+        let rows = menu(for_provider("hermes"), &listed(&["help", "model", "compress"]), "");
+        assert_eq!(names(&rows), ["model", "new", "help", "compress"]);
+    }
+
+    #[test]
+    fn opencode_and_hermes_leave_out_the_commands_only_their_terminals_run() {
+        let kinds = |provider: &str, commands: [&str; 5]| commands.map(|c| for_provider(provider).command(c, ""));
+        let terminal = [Kind::Unsupported; 5];
+        assert_eq!(kinds("opencode", ["compact", "sessions", "clear", "undo", "export"]), terminal);
+        assert_eq!(kinds("hermes", ["skin", "clear", "quit", "snap", "toolsets"]), terminal);
+        assert_eq!(kinds("opencode", ["init", "review", "skin", "snap", "toolsets"]), [Kind::Send; 5], "OpenCode's ACP server lists these, and Hermes's list is not its own");
+        assert_eq!(kinds("hermes", ["tools", "compress", "help", "sessions", "undo"]), [Kind::Send; 5]);
+        for provider in ["cursor", "grok", "fx", "antigravity"] {
+            assert_eq!(kinds(provider, ["compact", "sessions", "clear", "skin", "quit"]), [Kind::Send; 5], "{provider}");
+        }
+        let rows = menu(for_provider("opencode"), &listed(&["init", "sessions", "review", "compact"]), "");
+        assert_eq!(names(&rows), ["model", "new", "init", "review"]);
+    }
+
+    #[test]
+    fn pi_and_omp_run_thinking_and_compact_themselves() {
+        for provider in ["pi", "omp"] {
+            let pi = for_provider(provider);
+            assert_eq!((pi.command("thinking", "high"), pi.command("effort", "")), (Kind::Local(Local::Effort), Kind::Local(Local::Effort)), "{provider}");
+            assert_eq!((pi.command("compact", "keep the plan"), pi.command("model", "")), (Kind::Local(Local::Compact), Kind::Local(Local::Model)), "{provider}");
+            assert_eq!(pi.command("skill:review", ""), Kind::Send, "{provider}");
+        }
+    }
+
+    #[test]
+    fn pi_leaves_out_the_commands_only_its_tui_runs_and_omp_sends_what_it_lists() {
+        let tui = ["tree", "login", "settings", "llama", "quit"];
+        assert_eq!(tui.map(|c| for_provider("pi").command(c, "")), [Kind::Unsupported; 5]);
+        assert_eq!(tui.map(|c| for_provider("omp").command(c, "")), [Kind::Send; 5]);
+        let rows = menu(for_provider("pi"), &listed(&["skill:review", "settings", "compact"]), "");
+        assert_eq!(names(&rows), ["model", "thinking", "compact", "new", "skill:review"]);
+        let rows = menu(for_provider("omp"), &listed(&["tree", "settings", "compact"]), "");
+        assert_eq!(names(&rows), ["model", "thinking", "compact", "new", "tree", "settings"]);
+    }
+
+    #[test]
     fn an_unknown_provider_sends_every_command() {
         assert_eq!(for_provider("gemini").command("cost", ""), Kind::Send);
     }

@@ -173,6 +173,25 @@ func TestAProviderCommandIsANameOnPathOrAFullPath(t *testing.T) {
 	}
 }
 
+func TestAProviderStartsAsItsOwnCommandUnlessConfigNamesAnother(t *testing.T) {
+	s := NewSettings(t.TempDir())
+	for provider, want := range map[string][2]string{"cursor": {"cursor-agent", "cursor-agent"}, "antigravity": {"agy", "agy_acp_server.par"}, "pi": {"pi", "pi"}} {
+		if got := [2]string{s.AgentCommand(provider), s.ChatCommand(provider)}; got != want {
+			t.Errorf("%s: got %q", provider, got)
+		}
+	}
+	if err := s.Set("cursor.command", "/opt/cursor/agent"); err != nil || s.AgentCommand("cursor") != "/opt/cursor/agent" || s.ChatCommand("cursor") != "/opt/cursor/agent" {
+		t.Fatalf("err %v, got %q", err, s.AgentCommand("cursor"))
+	}
+	// Antigravity's chat is another binary, which its command doesn't name.
+	if err := s.Set("antigravity.command", "/opt/agy"); err != nil || s.AgentCommand("antigravity") != "/opt/agy" || s.ChatCommand("antigravity") != "agy_acp_server.par" {
+		t.Fatalf("err %v, got %q %q", err, s.AgentCommand("antigravity"), s.ChatCommand("antigravity"))
+	}
+	if v := s.Values(); v["hermes.resumeArgs"] != "chat --resume" || v["opencode.forkArgs"] != "-s {sessionId} --fork" || v["pi.promptArgs"] != "--" {
+		t.Fatalf("got %v", v)
+	}
+}
+
 func TestAgentArgsSplitLikeAShellAndFallBackToTheirDefaults(t *testing.T) {
 	s := NewSettings(t.TempDir())
 	if got := s.AgentArgs("claude"); !slices.Equal(got.Fork, []string{"--resume", SessionID, "--fork-session"}) || !slices.Equal(got.Prompt, []string{"--"}) {

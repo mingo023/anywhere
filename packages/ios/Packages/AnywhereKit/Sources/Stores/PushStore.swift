@@ -1,5 +1,6 @@
 import ActivityModel
 import Client
+import Domain
 import Foundation
 import Observation
 import PushSupport
@@ -180,7 +181,7 @@ public final class PushStore: HostStore {
     /// Each session's title and place as pocketd's alerts word them.
     nonisolated static func titles(_ agents: [AgentSummary]) -> [String: ActivityTitles.Entry] {
         Dictionary(agents.map { a in
-            let title = a.title.isEmpty ? (["claude": "Claude Code", "codex": "Codex"][a.provider] ?? "Shell") : a.title
+            let title = a.title.isEmpty ? (AgentName.full(a.provider) ?? "Shell") : a.title
             let place = [a.project, a.worktree].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
             return (a.id, ActivityTitles.Entry(title: title, place: a.project?.isEmpty == false ? place : "", provider: a.provider))
         }, uniquingKeysWith: { $1 })

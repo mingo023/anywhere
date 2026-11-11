@@ -16,7 +16,7 @@ mod nav;
 mod notifications;
 mod phone;
 mod projects;
-mod provider;
+pub(crate) mod provider;
 mod search;
 mod sidebar;
 pub(crate) mod ssh_hosts;
@@ -253,6 +253,9 @@ pub struct SettingsState {
     /// The terminal colour being edited.
     swatch: Option<terminal::Swatch>,
     pub(crate) models: models::Models,
+    /// The open model or effort menu's rows, and where it's scrolled to.
+    pub(crate) menu_rows: crate::util::Kept<Vec<dropdown::Row>>,
+    pub(crate) menu_scroll: UniformListScrollHandle,
     launch: provider::LaunchFields,
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
@@ -290,7 +293,7 @@ impl SettingsState {
         let (glass, glass_sub) = appearance::glass_slider(store, window, cx);
         subs.push(glass_sub);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), launch, starting: None, glass };
+        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, models: models::Models::default(), menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass };
         (state, subs)
     }
 
@@ -400,9 +403,8 @@ fn field_box() -> Div {
     div().w(px(220.)).h(px(26.)).px(px(9.)).flex().items_center().gap(px(6.)).rounded(px(7.)).bg(FILL_2)
 }
 
-fn dropdown_menu(setting: &'static Setting, options: &'static [&'static str], chosen: usize, store: &Store, cx: &mut Context<Desktop>) -> impl IntoElement {
-    let offered = |i: &usize| *i == chosen || setting.offers.is_none_or(|offers| offers(store, *i));
-    let rows = options.iter().enumerate().filter(|(i, _)| offered(i)).map(|(i, label)| {
+fn dropdown_menu(setting: &'static Setting, options: &'static [&'static str], chosen: usize, store: &Store, live: &::agents::Agents, cx: &mut Context<Desktop>) -> impl IntoElement {
+    let rows = options.iter().enumerate().filter(|(i, _)| setting.lists(store, live, *i)).map(|(i, label)| {
         div()
             .id((setting.id, i))
             .h(px(26.))
@@ -479,8 +481,13 @@ impl Desktop {
         if self.settings.section == Section::Git && self.prs.gh.is_none() {
             self.check_gh(cx);
         }
-        if matches!(self.settings.section, Section::Git | Section::Provider(_)) {
-            self.load_models(cx);
+        self.settings.models.retry();
+        match self.settings.section {
+            // Agents counts every installed agent's models.
+            Section::Agents => self.load_models(cx),
+            Section::Git => self.load_models_of(&self.store.git.agent.clone(), cx),
+            Section::Provider(i) => self.load_models_of(providers::IDS[i], cx),
+            _ => {}
         }
         if self.settings.section == Section::Accounts {
             self.refresh_accounts(cx);
@@ -599,8 +606,8 @@ impl Desktop {
             Control::Choice { options, look: Look::Segmented, get, .. } => {
                 div().id(setting.id).child(ui::segmented(segments(options), get(&self.store), true, false, move |this: &mut Self, i, cx| this.choose(setting, i, cx), cx)).into_any_element()
             }
-            Control::Choice { options, look: Look::Dropdown, get, .. } => {
-                let chosen = get(&self.store);
+            Control::Choice { options, look: Look::Dropdown, .. } => {
+                let chosen = setting.chosen(&self.store, &self.agents);
                 let open = self.settings.menu == Some(setting.id);
                 let button = action(setting.id, options.get(chosen).copied().unwrap_or_default())
                     .gap(px(6.))
@@ -609,7 +616,7 @@ impl Desktop {
                         this.settings.menu = (!open).then_some(setting.id);
                         cx.notify();
                     }));
-                div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, cx)))).into_any_element()
+                div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, &self.agents, cx)))).into_any_element()
             }
             Control::Choice { look: Look::Thumbnails, get, .. } => appearance::thumbnails(setting, get(&self.store), cx).into_any_element(),
             Control::Stepper { min, max, step, unit, get, .. } => {

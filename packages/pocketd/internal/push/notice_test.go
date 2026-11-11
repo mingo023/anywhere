@@ -53,6 +53,12 @@ func TestTheTitleAndPlaceNameTheSessionAndWhereItRuns(t *testing.T) {
 	if Place(proto.AgentSummary{}) != "" || Title(proto.AgentSummary{Provider: "zsh"}) != "Shell" {
 		t.Fatal("outside a project")
 	}
+	for provider, want := range map[string]string{"codex": "Codex", "cursor": "Cursor", "grok": "Grok Build", "opencode": "OpenCode", "pi": "Pi", "omp": "omp",
+		"fx": "fx", "hermes": "Hermes Agent", "antigravity": "Antigravity"} {
+		if got := Title(proto.AgentSummary{Provider: provider}); got != want {
+			t.Errorf("%s: titled %q", provider, got)
+		}
+	}
 }
 
 func TestEachAskGetsTheCategoryWhoseActionsCanAnswerIt(t *testing.T) {

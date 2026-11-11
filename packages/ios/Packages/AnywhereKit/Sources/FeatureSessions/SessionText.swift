@@ -92,7 +92,7 @@ enum SessionText {
     static func creating(step: String?, waiting: Bool, provider id: String) -> String {
         if waiting { return "Waiting for your Mac…" }
         guard let step else { return "Asking your Mac…" }
-        if step == "agent" { return "Starting \(provider(id))…" }
+        if step == "agent" { return "Starting \(AgentName.label(id))…" }
         return Self.step(step) + "…"
     }
 
@@ -128,14 +128,6 @@ enum SessionText {
     static func account(_ a: Account) -> String {
         guard let peak = [a.fiveHour?.pct, a.week?.pct].compactMap(\.self).max() else { return a.name }
         return "\(a.name) · \(Int(peak.rounded()))%"
-    }
-
-    static func provider(_ id: String) -> String {
-        switch id {
-        case "claude": "Claude"
-        case "codex": "Codex"
-        default: id.capitalized
-        }
     }
 
     static func tone(_ status: Status) -> Pill.Tone {

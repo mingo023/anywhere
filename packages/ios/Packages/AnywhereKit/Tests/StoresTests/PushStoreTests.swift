@@ -126,6 +126,13 @@ struct PushStoreTests {
         let titles = PushStore.titles([Sample.agents[0], shell])
         #expect(titles["a-needs"] == ActivityTitles.Entry(title: "Approve the migration", place: "anywhere · calm-otter", provider: "claude"))
         #expect(titles["x"] == ActivityTitles.Entry(title: "Shell", place: "", provider: "shell"))
+        var untitled = shell
+        let names = ["claude": "Claude Code", "codex": "Codex", "cursor": "Cursor", "grok": "Grok Build", "opencode": "OpenCode", "pi": "Pi",
+                     "omp": "omp", "fx": "fx", "hermes": "Hermes Agent", "antigravity": "Antigravity", "gemini": "Shell"]
+        for (provider, name) in names {
+            untitled.provider = provider
+            #expect(PushStore.titles([untitled])["x"]?.title == name, "\(provider)")
+        }
     }
 
     @Test("a Mac this phone isn't registered with starts no activity, as nothing would update it and it would soon say the Mac is offline")

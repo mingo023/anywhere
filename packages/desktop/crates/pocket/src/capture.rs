@@ -14,9 +14,11 @@ use crate::git_ui::graph::GraphState;
 use crate::settings::Section;
 use crate::status::Status;
 use crate::updates::Update;
+use agents::providers;
 use agents::team::state::{RUNNING, WAITING};
 use chat::{Block, Command, Row, ToolKind};
 use git::Kind;
+use serde_json::json;
 use git::github::{Check, Checks, Comment, Mergeable, Outcome, Pr, PrState, Review, Thread};
 use gpui_kit::component::Root;
 use gpui_kit::*;
@@ -26,7 +28,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 259] = [
+const STEPS: [(&str, Step); 262] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -651,8 +653,6 @@ const STEPS: [(&str, Step); 259] = [
     ("settings-browser", |d, _, _| d.settings.section = Section::Browser),
     ("settings-git", |d, _, _| d.settings.section = Section::Git),
     ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
-    ("settings-claude", |d, _, _| d.settings.section = Section::Provider(0)),
-    ("settings-codex", |d, _, _| d.settings.section = Section::Provider(1)),
     ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
     ("account-signin", |d, window, cx| {
@@ -689,9 +689,24 @@ const STEPS: [(&str, Step); 259] = [
     }),
     ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
         (_, Section::Git) => "ai-model",
-        (_, Section::Provider(1)) => "codex-model",
-        _ => "claude-model",
+        (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
+        _ => crate::settings::provider::model_menu(0),
     })),
+    ("model-favorites", |d, _, cx| view_models(d, crate::composer::model_menu::FAVORITES, cx)),
+    ("models-sample", |d, _, _| models_sample(d)),
+    // Hermes still listing its models, and this Mac's agents: the others say how to install them.
+    ("models-loading", |d, _, _| d.settings.models.set("hermes", None)),
+    ("models-failed", |d, _, _| {
+        d.settings.models.forget("hermes");
+        if let Some(asked) = d.settings.models.ask("hermes") {
+            d.settings.models.answer("hermes", asked, Err("Authentication required".into()));
+        }
+    }),
+    ("agents-here", |d, _, _| {
+        for p in d.agents.providers.iter_mut() {
+            p.available = ["claude", "codex", "opencode", "pi", "hermes"].contains(&p.id.as_str());
+        }
+    }),
     ("service-down", |d, _, _| d.terminals.link.down(Instant::now())),
     ("service-starting", |d, _, _| d.settings.starting = Some(Instant::now())),
     ("settings-search", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("sound", window, cx))),
@@ -1038,6 +1053,95 @@ fn point_arg(s: &str) -> Option<Point<Pixels>> {
     Some(point(px(x.trim().parse().ok()?), px(y.trim().parse().ok()?)))
 }
 
+/// Lists `entry`'s models in whichever model panel is open, its tab in the rail's view.
+fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) {
+    let tab = d.offered().iter().position(|p| *p == entry).map_or(0, |at| at + 1);
+    for draft in [&mut d.new_form.composer.draft, &mut d.chats.composer.draft, &mut d.automations.form.composer.draft] {
+        if draft.menu == Some(Menu::Model) {
+            draft.view(entry);
+            draft.rail.scroll_to_item(tab);
+        }
+    }
+    cx.notify();
+}
+
+fn provider_page<const P: usize>(d: &mut Desktop, _: &mut Window, _: &mut Context<Desktop>) {
+    d.settings.section = Section::Provider(P);
+}
+
+fn model_tab<const P: usize>(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
+    view_models(d, providers::IDS[P], cx);
+}
+
+fn default_agent<const P: usize>(d: &mut Desktop, _: &mut Window, _: &mut Context<Desktop>) {
+    d.store.agents.default = providers::IDS[P].into();
+}
+
+macro_rules! per_provider {
+    ($step:ident) => {
+        [$step::<0>, $step::<1>, $step::<2>, $step::<3>, $step::<4>, $step::<5>, $step::<6>, $step::<7>, $step::<8>, $step::<9>]
+    };
+}
+const PROVIDER_PAGES: [Step; providers::COUNT] = per_provider!(provider_page);
+const MODEL_TABS: [Step; providers::COUNT] = per_provider!(model_tab);
+const DEFAULT_AGENTS: [Step; providers::COUNT] = per_provider!(default_agent);
+
+/// A step every agent has, named for it: `settings-pi` opens its page, `model-pi` lists its models in the open model
+/// panel, `default-pi` makes it what a new session starts on.
+fn provider_step(name: &str) -> Option<Step> {
+    let (kind, id) = name.split_once('-')?;
+    let i = providers::IDS.iter().position(|p| *p == id)?;
+    match kind {
+        "settings" => Some(PROVIDER_PAGES[i]),
+        "model" => Some(MODEL_TABS[i]),
+        "default" => Some(DEFAULT_AGENTS[i]),
+        _ => None,
+    }
+}
+
+/// What OpenCode, Pi and Hermes list on a Mac with a few makers signed in. Each list is what its CLI prints, read by the
+/// parser the app runs: one written out by hand would hide what the parser makes of it.
+fn models_sample(d: &mut Desktop) {
+    const OPENCODE: [&str; 22] = [
+        "opencode/big-pickle", "opencode/glm-5", "opencode/kimi-k2.5", "opencode/minimax-m2.5", "opencode/qwen-3.5", "anthropic/claude-haiku-4-5", "anthropic/claude-opus-4-7", "anthropic/claude-sonnet-4-6",
+        "openai/gpt-5.2-codex", "openai/gpt-5.4", "openai/gpt-5.4-mini", "github-copilot/claude-sonnet-4-5", "github-copilot/gemini-3-pro", "github-copilot/gpt-5.4", "openrouter/deepseek-v4-flash", "openrouter/grok-4.5",
+        "openrouter/llama-4-maverick", "openrouter/mistral-large-3", "zai/glm-4.7", "zai/glm-4.7-flash", "zai/glm-5.2", "zai/glm-5.2-fast",
+    ];
+    const PI: [&str; 15] = [
+        "anthropic/claude-haiku-4-5", "anthropic/claude-opus-4-7", "anthropic/claude-sonnet-4-6", "amazon-bedrock/claude-opus-4-7", "openai-codex/gpt-5.2-codex", "openai-codex/gpt-5.4", "openai-codex/gpt-5.4-mini",
+        "google/gemini-3-flash", "google/gemini-3-pro", "xai/grok-4.5", "xai/grok-4.6", "zai/glm-5.2", "groq/kimi-k2.5", "openrouter/deepseek-v4-flash", "openrouter/qwen-3.5",
+    ];
+    // Hermes 0.22's own answer on a Mac signed in to ChatGPT and DeepSeek: each id, and who it names before it.
+    const HERMES: [(&str, &str); 18] = [
+        ("moa:default", "Mixture of Agents"),
+        ("openai-codex:gpt-6.1-sol", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6.1-sol-900k", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6-astra", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6-astra-900k", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6.1-terra", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6-sol", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6-sol-900k", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6-luna", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-6-luna-900k", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-5.6-sol", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-5.6-sol-900k", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-5.6-terra", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-5.6-terra-900k", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-5.6-luna", "ChatGPT or Codex Subscription"),
+        ("openai-codex:gpt-5.6-luna-900k", "ChatGPT or Codex Subscription"),
+        ("deepseek:deepseek-flash", "DeepSeek"),
+        ("deepseek:deepseek-v4-pro", "DeepSeek"),
+    ];
+    let opencode: String = OPENCODE.iter().map(|slug| format!("{slug}\n{}\n", json!({"name": agents::model_name(slug), "variants": {"low": {}, "medium": {}, "high": {}}}))).collect();
+    let pi: Vec<_> = PI.iter().filter_map(|slug| slug.split_once('/')).map(|(provider, id)| json!({"id": id, "provider": provider, "name": agents::model_name(id), "reasoning": true})).collect();
+    let pi = json!({"type": "response", "command": "get_available_models", "success": true, "data": {"models": pi}});
+    let hermes: Vec<_> = HERMES.iter().map(|(id, who)| json!({"modelId": id, "name": format!("{who} \u{b7} {}", id.split_once(':').map_or(*id, |(_, model)| model))})).collect();
+    let hermes = json!({"jsonrpc": "2.0", "id": 2, "result": {"models": {"availableModels": hermes, "currentModelId": "openai-codex:gpt-6-sol"}}});
+    for (provider, printed) in [("opencode", opencode), ("pi", pi.to_string()), ("hermes", hermes.to_string())] {
+        d.settings.models.set(provider, providers::known(provider).models.read(&printed).ok());
+    }
+}
+
 fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
         d.focus_agent(&card.id, window, cx);
@@ -1179,9 +1283,9 @@ impl Capture {
             .map(|spec| {
                 let (name, steps) = spec.split_once('=').unwrap_or((spec, ""));
                 let steps = steps.split(',').filter(|s| !s.is_empty()).map(|s| {
-                    STEPS.iter().chain(&INPUT_STEPS).find(|(n, _)| *n == s).map(|(_, f)| *f).unwrap_or_else(|| {
+                    STEPS.iter().chain(&INPUT_STEPS).find(|(n, _)| *n == s).map(|(_, f)| *f).or_else(|| provider_step(s)).unwrap_or_else(|| {
                         let known: Vec<&str> = STEPS.iter().chain(&INPUT_STEPS).map(|(n, _)| *n).collect();
-                        fail(&format!("unknown step '{s}' in {spec}; known: {}", known.join(", ")))
+                        fail(&format!("unknown step '{s}' in {spec}; known: {}, settings-<agent>, model-<agent>", known.join(", ")))
                     })
                 });
                 (name.to_string(), steps.collect())

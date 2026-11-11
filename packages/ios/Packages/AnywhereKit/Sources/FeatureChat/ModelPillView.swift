@@ -1,5 +1,6 @@
 import ChatModel
 import DesignSystem
+import Domain
 import SwiftUI
 import Wire
 
@@ -46,7 +47,7 @@ struct ModelChoices: View {
 
     var body: some View {
         if !efforts.isEmpty {
-            Section(ModelPill.effortWord(agent.provider)) {
+            Section(AgentName.effort(agent.provider)) {
                 ForEach(efforts, id: \.self) { effort in
                     Button {
                         pick(nil, effort)
@@ -66,7 +67,7 @@ struct ModelChoices: View {
                     Button {
                         pick(alias, nil)
                     } label: {
-                        if ModelPill.runs(agent, alias) { Label(modelName(alias), systemImage: "checkmark") } else { Text(modelName(alias)) }
+                        if ModelPill.runs(agent, alias) { Label(Sidebar.modelName(alias), systemImage: "checkmark") } else { Text(Sidebar.modelName(alias)) }
                     }
                 }
             }

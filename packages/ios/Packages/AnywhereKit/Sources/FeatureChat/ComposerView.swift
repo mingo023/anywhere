@@ -1,5 +1,6 @@
 import ChatModel
 import DesignSystem
+import Domain
 import MarkdownView
 import Stores
 import SwiftUI
@@ -107,7 +108,7 @@ struct ComposerView: View {
         // Here, not on the box, which goes away while the agent asks something.
         .sheet(isPresented: $editing) { ComposerEditor(text: $store.draft.text, attach: attach) }
         .confirmationDialog(
-            store.settingsMenu == .effort ? ModelPill.effortWord(store.provider) : "Model",
+            store.settingsMenu == .effort ? AgentName.effort(store.provider) : "Model",
             isPresented: Binding(get: { store.settingsMenu != nil }, set: { if !$0 { store.settingsMenu = nil } })
         ) {
             if let agent = store.summary { settingsChoices(agent) }
@@ -272,7 +273,7 @@ struct ComposerView: View {
                         }
                         if let access = agent.access, !access.isEmpty {
                             AccessPillView(
-                                access: access, editable: agent.chatOnly == true && store.hasCap(Caps.access), who: who(agent.provider)) { store.settings(access: $0) }
+                                access: access, editable: store.setsAccess, who: who(agent.provider)) { store.settings(access: $0) }
                         }
                     }
                     agentsChip
@@ -366,7 +367,7 @@ struct ComposerView: View {
         if store.settingsMenu == .effort {
             ForEach(efforts(agent), id: \.self) { e in Button(ModelPill.effortLabel(e)) { store.settings(effort: e) } }
         } else {
-            ForEach(ModelPill.aliases(agent.provider), id: \.self) { m in Button(modelName(m)) { store.settings(model: m) } }
+            ForEach(ModelPill.aliases(agent.provider), id: \.self) { m in Button(Sidebar.modelName(m)) { store.settings(model: m) } }
         }
     }
 }

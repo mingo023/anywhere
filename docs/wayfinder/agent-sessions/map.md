@@ -40,4 +40,5 @@ Nothing left; the remaining questions are open tickets.
 ## Out of scope
 
 - Agents started in terminals outside Pocket (Ghostty, iTerm): Pocket owns no PTY there. Ruled out while charting.
-- Agent CLIs other than claude/codex (gemini, amp, opencode…). The spec only leaves room to add providers later.
+- Agent CLIs Pocket doesn't know (gemini, amp…).
+- Status in a terminal for cursor, grok, opencode, pi, omp, fx, hermes and antigravity. They are attached only as a chat, which this spec doesn't cover.

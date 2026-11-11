@@ -1,0 +1,14 @@
+package providers
+
+var Cursor = Spec{
+	ID:        "cursor",
+	Name:      "Cursor",
+	Command:   "cursor-agent",
+	Transport: ACP,
+	Efforts:   []string{},
+	Chat:      Chat{Interrupt: true, SendWhileWorking: true},
+	Flags:     Flags{Model: "--model"},
+	Args:      [3]string{"", "--resume", ""},
+	NotAgent: []string{"acp", "login", "logout", "status", "whoami", "about", "models", "mcp", "update", "upgrade", "create-chat", "generate-rule", "rule",
+		"install-shell-integration", "uninstall-shell-integration", "help", "-h", "--help", "-v", "--version"},
+}

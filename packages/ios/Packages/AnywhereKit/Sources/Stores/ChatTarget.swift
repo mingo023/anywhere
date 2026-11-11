@@ -22,7 +22,7 @@ public struct ChatSession: Hashable, Identifiable, Sendable {
     public static func on(_ tree: String, trees: [String], _ agents: [AgentSummary]) -> [ChatSession] {
         agents.filter { Sidebar.worktreeOf($0.cwd, trees: trees + [tree]) == tree }
             .sorted { $0.updatedAt > $1.updatedAt }
-            .map { ChatSession(id: $0.id, title: $0.title, agent: $0.provider.capitalized, ready: $0.status != .needsYou) }
+            .map { ChatSession(id: $0.id, title: $0.title, agent: AgentName.label($0.provider), ready: $0.status != .needsYou) }
     }
 }
 

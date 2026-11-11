@@ -49,7 +49,7 @@ fn detail(setting: &Setting) -> String {
 
 impl Desktop {
     pub(super) fn search_results(&mut self, words: &[String], cx: &mut Context<Self>) -> Div {
-        let hits = catalog::search(words);
+        let hits = catalog::search(words, &self.store, &self.agents);
         let keys = keybindings::search(words, &self.store.keys);
         let query = self.settings.search.read(cx).value().trim().to_string();
         let n = hits.iter().map(|(_, rows)| rows.len()).sum::<usize>() + keys.len();
@@ -127,7 +127,7 @@ impl Desktop {
         cx.notify();
     }
     pub(super) fn open_first_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let first = catalog::search(&self.settings.query(cx)).into_iter().find_map(|(s, rows)| Some((s, *rows.first()?)));
+        let first = catalog::search(&self.settings.query(cx), &self.store, &self.agents).into_iter().find_map(|(s, rows)| Some((s, *rows.first()?)));
         if let Some((section, setting)) = first {
             self.open_result(section, setting, window, cx);
         }

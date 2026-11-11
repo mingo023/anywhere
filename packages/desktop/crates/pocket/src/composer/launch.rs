@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::rc::Rc;
@@ -43,6 +44,16 @@ pub(crate) fn access_choices(app: &str) -> Vec<(String, String, String)> {
 /// What a running agent switches between: each of `ACCESSES` but its own settings, which only a launch reads.
 pub(crate) fn switch_choices() -> Vec<(String, String, String)> {
     access_choices("").into_iter().filter(|(v, _, _)| !v.is_empty() && v != "settings").collect()
+}
+
+/// The access chip of `agent`, which never asks before it acts (`ProviderInfo::never_asks`): it says Full and opens no menu.
+pub(crate) fn full_access_chip(id: &'static str, agent: String) -> Stateful<Div> {
+    super::pill()
+        .id(id)
+        .pr(px(9.))
+        .child(icon("shield", 14., TEXT_2))
+        .child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(access_color("full")).child(access_shown("full", "")))
+        .tooltip(move |window, cx| Tooltip::new(format!("{agent} never asks before it acts, so it always runs with full access")).build(window, cx))
 }
 
 /// A composer chip led by `glyph`; `toggle` opens or closes its menu.

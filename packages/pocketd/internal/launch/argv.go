@@ -12,9 +12,10 @@ import (
 	"pocketd/internal/terminal"
 )
 
-var model = regexp.MustCompile(`^[A-Za-z0-9._:\[\]][A-Za-z0-9._:\[\]-]{0,63}$`)
+// model takes a "/" for the provider/id that pi, OpenCode and Hermes name a model by.
+var model = regexp.MustCompile(`^[A-Za-z0-9._:\[\]][A-Za-z0-9._:\[\]/-]{0,127}$`)
 
-const badModel = "Model names use letters, digits and . _ : [ ] -, and don't start with -"
+const badModel = "Model names use letters, digits and . _ : [ ] / -, and don't start with - or /"
 
 const badEffort = "An effort is one word"
 
@@ -24,6 +25,8 @@ type cli interface {
 	switchEffort(effort string) error
 	// chat is whether s runs for the chat behind `pocketd pipe`.
 	chat(s proto.LaunchSpec) bool
+	// attaches is whether s's agent tells pocketd its status. One that doesn't is started once it runs.
+	attaches(s proto.LaunchSpec) bool
 	// argv adds s's flags to argv. done means out is the whole command line.
 	argv(s proto.LaunchSpec, argv []string, name, prompt string) (out []string, done bool, f *Failure)
 	// chatResume is the whole argv that resumes t for the chat, if it has its own.
@@ -32,11 +35,18 @@ type cli interface {
 	resume(t state.Terminal, l state.Launch, argv []string) []string
 	// untrusted fails a launch in dir that would wait on a folder trust dialog.
 	untrusted(env []string, dir string) *Failure
+	// login and logout are nil for a CLI with no one command for it.
 	login(exe string) []string
 	logout(exe string) []string
 }
 
-var clis = map[string]cli{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}}
+var clis = func() map[string]cli {
+	m := map[string]cli{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}}
+	for _, a := range specCLIs {
+		m[a.p.ID] = a
+	}
+	return m
+}()
 
 // ValidSwitch refuses a model or effort a running agent can't switch to.
 func ValidSwitch(provider, name, effort string) error {
@@ -60,6 +70,18 @@ func Chat(s proto.LaunchSpec) bool {
 	return c != nil && c.chat(s)
 }
 
+// command is what runs provider before config.json or the user's PATH place it.
+func command(provider string, chat bool) string {
+	p := providers.Get(provider)
+	switch {
+	case p == nil:
+		return provider
+	case chat:
+		return p.ChatCmd()
+	}
+	return p.Cmd()
+}
+
 // Piped runs argv behind `pocketd pipe`, which relays its stdio to pocketd.
 func Piped(exe string, argv []string) []string {
 	return append([]string{exe, "pipe"}, argv...)
@@ -77,7 +99,7 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 	if err != nil {
 		return nil, fail("invalid_spec", err.Error())
 	}
-	argv := []string{s.Provider}
+	argv := []string{command(s.Provider, Chat(s))}
 	if s.Fork != "" {
 		if len(args.Fork) == 0 {
 			return nil, fail("fork_unsupported", "This agent has no fork args in Settings")

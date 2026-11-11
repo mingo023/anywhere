@@ -152,12 +152,23 @@ func (s *Settings) command(provider string) string {
 	return ""
 }
 
-// AgentCommand is what starts provider: its command in config.json, else its own name.
+// AgentCommand is what starts provider: its command in config.json, else its own.
 func (s *Settings) AgentCommand(provider string) string {
 	if cmd := s.command(provider); cmd != "" {
 		return cmd
 	}
+	if p := providers.Get(provider); p != nil {
+		return p.Cmd()
+	}
 	return provider
+}
+
+// ChatCommand is what starts provider for the chat: AgentCommand, unless its chat is a command of its own.
+func (s *Settings) ChatCommand(provider string) string {
+	if p := providers.Get(provider); p != nil && p.ChatCommand != "" {
+		return p.ChatCommand
+	}
+	return s.AgentCommand(provider)
 }
 
 // Values is every setting by its config-set key, for the owner's settings screen.

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 )
 
 // Alert kinds, as Notice.kind and events' push{alert}.
@@ -41,15 +42,13 @@ func Cut(line string) string {
 	return string(r[:lineMax]) + "…"
 }
 
-var providerNames = map[string]string{"claude": "Claude Code", "codex": "Codex"}
-
 // Title is the session's title, or its provider's name before it has one.
 func Title(a proto.AgentSummary) string {
 	if a.Title != "" {
 		return a.Title
 	}
-	if n, ok := providerNames[a.Provider]; ok {
-		return n
+	if p := providers.Get(a.Provider); p != nil {
+		return p.Name
 	}
 	return "Shell"
 }

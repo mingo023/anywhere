@@ -1,9 +1,9 @@
 use super::{close_menu, hang};
 use crate::composer::{self, Menu, launch};
 use crate::composer::effort_menu::{Effort, effort_menu};
-use crate::composer::model_menu::{FAVORITES, focus_search, model_effort_pill, model_row, panel};
+use crate::composer::model_menu::{Choose, FAVORITES, Line, Listed, focus_search, model_effort_pill, model_list, panel};
 use crate::desktop::Desktop;
-use crate::settings::models::{effort_label, listed_models};
+use crate::settings::models::effort_label;
 use agents::{ListedModel, Summary};
 use gpui_kit::*;
 use std::rc::Rc;
@@ -12,7 +12,7 @@ use std::rc::Rc;
 /// Once the model's `levels` are known, an effort outside them isn't one it runs on.
 pub(super) fn label(agent: &Summary, levels: &[String], default: Option<&str>) -> (String, Option<String>) {
     let effort = agent.effort.as_deref().into_iter().chain(default).find(|e| !e.is_empty() && (levels.is_empty() || levels.iter().any(|l| l == e)));
-    (agents::model_label(agent), effort.map(effort_label))
+    (crate::status::model_or_agent(agent), effort.map(effort_label))
 }
 
 /// Whether the agent runs `model`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus". Until the CLI
@@ -20,6 +20,12 @@ pub(super) fn label(agent: &Summary, levels: &[String], default: Option<&str>) -
 fn runs(agent: &Summary, model: &ListedModel) -> bool {
     let unresolved = model.resolved == model.value && agents::providers::known(&agent.provider).models.fallback.contains(&model.value.as_str());
     agent.model.as_deref().is_some_and(|m| m == model.value || m == model.resolved || unresolved && m.split('-').any(|w| w == model.value))
+}
+
+/// The line of the model `agent` runs, among `own`, its provider's models.
+fn running_line(lines: &[Line], agent: &Summary, own: &[ListedModel]) -> Option<usize> {
+    let running: Vec<&str> = own.iter().filter(|m| runs(agent, m)).map(|m| m.value.as_str()).collect();
+    lines.iter().position(|l| matches!(l, Line::Model(e) if e.provider == agent.provider && running.contains(&e.value.as_str())))
 }
 
 impl Desktop {
@@ -33,47 +39,47 @@ impl Desktop {
         if view_only || !self.agents.settings_offered() {
             return pill;
         }
-        let open = self.chats.composer.draft.menu == Some(Menu::Model);
-        let chip = composer::picker(pill, "chat-model", open).capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
+        let (open, provider) = (self.chats.composer.draft.menu == Some(Menu::Model), agent.provider.clone());
+        let chip = composer::picker(pill, "chat-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
-            this.load_models(cx);
             if this.chats.composer.draft.toggle(Menu::Model) {
                 let search = this.chats.composer.search.clone();
                 focus_search(&search, window, cx);
+                this.models_opened(|d| &mut d.chats.composer.draft, &provider, cx);
             }
             cx.notify();
         }));
         let menu = open.then(|| {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
-            let rail = self.model_rail(viewed, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
+            let rail = self.model_rail(viewed, &agent.provider, &self.chats.composer.draft.rail, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
             let effort = (viewed == agent.provider && !levels.is_empty()).then(|| self.chat_effort_menu(agent, &levels, default, cx));
-            hang("chat-model-menu", panel(rail, viewed, &self.chats.composer.search, self.chat_models(agent, viewed, cx), effort), cx)
+            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, cx), self.models_note(viewed), effort), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
 
     /// What `viewed` lists that holds the search, the model the agent runs checked. Picking one of its provider's switches
     /// it; one from another provider has to start a new chat.
-    fn chat_models(&self, agent: &Summary, viewed: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
+    fn chat_models(&self, agent: &Summary, viewed: &str, cx: &mut Context<Self>) -> Div {
+        let draft = &self.chats.composer.draft;
         let query = self.chats.composer.search.read(cx).value();
-        let entries = self.model_entries(viewed, |d, p| listed_models(p, d.models_of(p)).into_iter().map(|m| (m.value, m.name)).collect(), &query);
-        let own = listed_models(&agent.provider, self.models_of(&agent.provider));
-        entries
-            .iter()
-            .enumerate()
-            .map(|(i, entry)| {
-                let on = entry.provider == agent.provider && own.iter().any(|m| m.value == entry.value && runs(agent, m));
-                let (id, same, provider, value) = (agent.id.clone(), entry.provider == agent.provider, entry.provider.clone(), entry.value.clone());
-                model_row("chat-model-row", i, entry, on, viewed == FAVORITES, self.store.agents.is_favorite(&entry.provider, &entry.value), cx).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if same {
-                        this.outbox.settings(&id, &value, "");
-                        close_menu(this, cx);
-                    } else {
-                        this.switch_chat_agent(&id, provider.clone(), value.clone(), cx);
-                    }
-                }))
-            })
-            .collect()
+        let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from()), || {
+            let lines = self.model_lines(viewed, "", &query);
+            Listed { on: running_line(&lines, agent, self.offered_models(&agent.provider)), lines }
+        });
+        if listed.lines.is_empty() {
+            return self.no_models(viewed, &query);
+        }
+        let (id, provider) = (agent.id.clone(), agent.provider.clone());
+        let choose: Choose = Rc::new(move |this, entry, cx| {
+            if entry.provider == provider {
+                this.outbox.settings(&id, &entry.value, "");
+                close_menu(this, cx);
+            } else {
+                this.switch_chat_agent(&id, entry.provider.clone(), entry.value.clone(), cx);
+            }
+        });
+        model_list("chat-model-row", listed, viewed == FAVORITES, &draft.scroll, choose, cx)
     }
 
     /// The model's efforts, naming the one it runs on, else `default`; picking one switches it.
@@ -87,7 +93,20 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ListedModel, Summary, label, runs};
+    use super::{ListedModel, Summary, label, running_line, runs};
+    use crate::composer::model_menu::{Entry, Line};
+
+    #[test]
+    fn the_line_checked_is_the_model_the_chat_runs() {
+        let listed = |value: &str, resolved: &str| ListedModel { value: value.into(), resolved: resolved.into(), ..ListedModel::default() };
+        let line = |provider: &str, value: &str| Line::Model(Entry { provider: provider.into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
+        let agent = Summary { provider: "claude".into(), model: Some("claude-opus-5-5".into()), ..Default::default() };
+        let own = [listed("sonnet", "claude-sonnet-5"), listed("opus", "claude-opus-5-5")];
+        let lines = [Line::Header("ANTHROPIC".into()), line("codex", "opus"), line("claude", "sonnet"), line("claude", "opus")];
+        assert_eq!(running_line(&lines, &agent, &own), Some(3), "its own agent's row, by the id the alias stands for");
+        assert_eq!(running_line(&lines[..3], &agent, &own), None);
+        assert_eq!(running_line(&lines, &Summary { model: None, ..agent }, &own), None);
+    }
 
     #[test]
     fn the_model_pill_reads_model_and_effort_else_the_models_default() {

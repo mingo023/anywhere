@@ -95,6 +95,9 @@ pub(crate) struct TeamUi {
     pub(crate) island: Island,
     /// Where a new allowlist prefix is typed.
     pub(crate) allow: Entity<InputState>,
+    /// The open model menu's rows, and where it's scrolled to.
+    menu_rows: crate::util::Kept<Vec<sheet::MenuRow>>,
+    menu_scroll: UniformListScrollHandle,
 }
 
 impl TeamUi {
@@ -113,7 +116,7 @@ impl TeamUi {
                 cx.stop_propagation();
             }
         });
-        (Self { island: Island::default(), allow }, vec![typed, start])
+        (Self { island: Island::default(), allow, menu_rows: Default::default(), menu_scroll: Default::default() }, vec![typed, start])
     }
 }
 
@@ -172,7 +175,11 @@ impl Desktop {
     pub(crate) fn team_toggle_menu(&mut self, task: &str, cx: &mut Context<Self>) {
         let menu = &mut self.team.island.menu;
         *menu = (menu.as_deref() != Some(task)).then(|| task.to_string());
-        self.load_models(cx);
+        self.team.menu_scroll = Default::default();
+        self.settings.models.retry();
+        for agent in sheet::workers(&self.offered(), &self.agents) {
+            self.load_models_of(agent, cx);
+        }
         cx.notify();
     }
 

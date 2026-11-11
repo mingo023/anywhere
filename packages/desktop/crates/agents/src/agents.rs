@@ -1,4 +1,5 @@
 pub mod automations;
+pub mod catalogs;
 pub mod tickets;
 pub mod locals;
 pub mod providers;
@@ -742,14 +743,33 @@ pub fn model_label(a: &Summary) -> String {
     model_name(model)
 }
 
-/// "claude-haiku-4-5-20251001" reads as "Haiku 4.5", "haiku" as "Haiku".
+/// "claude-haiku-4-5-20251001" reads as "Haiku 4.5", "haiku" as "Haiku", "openai-codex/gpt-5.4" as "GPT 5.4",
+/// "opencode/big-pickle" as "Big Pickle" and "us.anthropic.claude-opus-5-5" as "Opus 5.5": the id without who serves
+/// it, its date or "claude-", numbers joined by a dot. Claude's "[1m]" for its 1M-context window stays as written.
 pub fn model_name(model: &str) -> String {
-    let mut words = model.strip_prefix("claude-").unwrap_or(model).split('-').filter(|w| w.len() < 8);
-    let family = words.next().unwrap_or_default();
-    let mut f = family.chars();
-    let family: String = f.next().map(|c| c.to_uppercase().chain(f).collect()).unwrap_or_default();
-    let version: Vec<&str> = words.collect();
-    if version.is_empty() { family } else { format!("{family} {}", version.join(".")) }
+    let number = |w: &str| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit());
+    let id = model.rsplit('/').next().unwrap_or(model);
+    // Hermes writes "provider:model"; Bedrock ends an id in ":0".
+    let id = id.rsplit_once(':').filter(|(_, m)| !number(m)).map_or(id, |(_, m)| m);
+    let (id, window) = id.find('[').map_or((id, ""), |at| id.split_at(at));
+    // Bedrock leads with where and who, as "us.anthropic."; the dot of a version, as "v3.2", has no two letters after it.
+    let id = id.rmatch_indices('.').map(|(at, _)| &id[at + 1..]).find(|rest| rest.len() > 1 && rest.bytes().take(2).all(|b| b.is_ascii_alphabetic())).unwrap_or(id);
+    let mut name = String::new();
+    let mut after_number = false;
+    for word in id.strip_prefix("claude-").unwrap_or(id).split('-').filter(|w| !w.is_empty() && !(w.len() >= 8 && number(w))) {
+        if !name.is_empty() {
+            name.push(if after_number && number(word) { '.' } else { ' ' });
+        }
+        // A word without a vowel is initials, as "gpt".
+        if word.contains(['a', 'e', 'i', 'o', 'u', 'y']) {
+            let mut c = word.chars();
+            name.extend(c.next().into_iter().flat_map(char::to_uppercase).chain(c));
+        } else {
+            name.push_str(&word.to_uppercase());
+        }
+        after_number = number(word);
+    }
+    name + window
 }
 
 /// One model a provider's CLI lists.
@@ -763,6 +783,9 @@ pub struct ListedModel {
     pub efforts: Vec<String>,
     /// The effort it runs on when none is picked; "" when the CLI doesn't say.
     pub default_effort: String,
+    /// Who serves it, as the agent names them: "amazon-bedrock" or "ChatGPT or Codex Subscription". It tells apart two
+    /// models of one name; "" for an agent's own.
+    pub upstream: String,
 }
 
 #[derive(Deserialize)]
@@ -799,6 +822,7 @@ pub fn codex_catalog(json: &str) -> Vec<ListedModel> {
             value: m.slug,
             efforts: m.supported_reasoning_levels.into_iter().map(|l| l.effort).collect(),
             default_effort: m.default_reasoning_level,
+            upstream: String::new(),
         })
         .collect()
 }
@@ -827,7 +851,7 @@ pub fn claude_catalog(output: &str) -> Vec<ListedModel> {
             init.models
                 .into_iter()
                 .filter(|m| m.value != "default")
-                .map(|m| ListedModel { value: m.value, name: m.display_name, resolved: m.resolved_model, efforts: m.supported_effort_levels, default_effort: String::new() })
+                .map(|m| ListedModel { value: m.value, name: m.display_name, resolved: m.resolved_model, efforts: m.supported_effort_levels, ..ListedModel::default() })
                 .collect()
         })
 }
@@ -1412,6 +1436,40 @@ mod tests {
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5-5"))), "Opus 5.5");
         assert_eq!(model_label(&summary("claude", Some("claude-haiku-4-5-20251001"))), "Haiku 4.5");
         assert_eq!(model_label(&summary("codex", None)), "Codex");
+    }
+
+    #[test]
+    fn a_model_reads_without_who_serves_it_its_date_or_its_dashes() {
+        let names = ["openai-codex/gpt-5.4", "opencode/big-pickle", "anthropic/claude-sonnet-4-5", "openai-codex:gpt-6-sol", "zai/glm-5.2-fast", "composer-2.5", "gemini-3.8-flash-high", "claude-3-5-sonnet-20241022", "haiku", ""];
+        assert_eq!(names.map(model_name), ["GPT 5.4", "Big Pickle", "Sonnet 4.5", "GPT 6 Sol", "GLM 5.2 Fast", "Composer 2.5", "Gemini 3.8 Flash High", "3.5 Sonnet", "Haiku", ""]);
+        assert_eq!(model_label(&summary("pi", Some("deepseek/deepseek-v4-pro"))), "Deepseek V4 Pro");
+    }
+
+    #[test]
+    fn claude_s_1m_context_mark_stays_as_written_after_the_name() {
+        let names = ["claude-opus-4-7[1m]", "sonnet[1m]", "claude-haiku-4-5-20251001[1m]", "[1m]"];
+        assert_eq!(names.map(model_name), ["Opus 4.7[1m]", "Sonnet[1m]", "Haiku 4.5[1m]", "[1m]"]);
+    }
+
+    #[test]
+    fn a_bedrock_id_reads_without_where_and_who_serve_it() {
+        let names = [
+            "amazon-bedrock/us.anthropic.claude-opus-5-5",
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "amazon-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0",
+            "amazon-bedrock/amazon.nova-lite-v1:0",
+            "amazon-bedrock/us-gov.openai.gpt-oss-120b-1:0",
+            "amazon-bedrock/global.openai.gpt-6.1-sol",
+            "amazon-bedrock/moonshotai.kimi-k2.5",
+            "amazon-bedrock/qwen.qwen3-32b-v1:0",
+        ];
+        assert_eq!(names.map(model_name), ["Opus 5.5", "Sonnet 4.5 V1:0", "Haiku 4.5 V1:0", "Nova Lite V1:0", "GPT Oss 120B 1:0", "GPT 6.1 Sol", "Kimi K2.5", "Qwen3 32B V1:0"]);
+    }
+
+    #[test]
+    fn a_version_s_dot_is_no_vendor_prefix() {
+        let names = ["gpt-5.4", "qwen3.5-coder", "MiniMax-M2.5", "amazon-bedrock/deepseek.v3.2", "opencode/mimo-v2.6-flash-free", "a.b"];
+        assert_eq!(names.map(model_name), ["GPT 5.4", "Qwen3.5 Coder", "MiniMax M2.5", "Deepseek.v3.2", "Mimo V2.6 Flash Free", "A.b"]);
     }
 
     #[test]

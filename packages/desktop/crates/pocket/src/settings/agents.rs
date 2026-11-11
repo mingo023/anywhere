@@ -1,4 +1,5 @@
 use super::catalog::{Look, Setting};
+use super::models::{count_line, not_found};
 use agents::providers;
 use crate::desktop::Desktop;
 use crate::status::Status;
@@ -12,13 +13,15 @@ use theme::*;
 const NEW: &str = "New sessions";
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::custom("providers", "Providers", "Providers", |d, _, cx| d.providers_row(cx)).hint("Claude Code and Codex, found on your login PATH"),
+    Setting::custom("providers", "Providers", "Providers", |d, _, cx| d.providers_row(cx)).hint("The agent CLIs found on your login PATH"),
     Setting::custom("provider-status", "Providers", "Status", |d, _, _| d.provider_status()).hint("How Anywhere reads status"),
     Setting::choice("default-agent", NEW, "Default agent", &PROVIDER_NAMES, Look::Dropdown, default_index, |s, i| {
         s.agents.default = LaunchPick::PROVIDERS[i].into();
-        s.agents.set_enabled(LaunchPick::PROVIDERS[i], true);
+        s.agents.enable(LaunchPick::PROVIDERS[i]);
     })
-    .hint("Starts in a project that hasn't picked one, and in new agent tabs"),
+    .hint("Starts in a project that hasn't picked one, and in new agent tabs")
+    .offers(offered_provider)
+    .shows(|s, live| index_of(s.agents.default_agent(live))),
     Setting::choice("permission-mode", NEW, "Permission mode", &["Agent's settings", "Ask", "Edits", "Auto", "Full"], Look::Segmented, |s| access_index(s.agents.access()), |s, i| {
         s.agents.access = ACCESSES[i].into()
     })
@@ -44,13 +47,29 @@ pub(super) const ROWS: &[Setting] = &[
     .advanced(),
 ];
 
-/// Whether a provider picker lists the `i`th of `LaunchPick::PROVIDERS`: only enabled ones.
-pub(super) fn enabled_provider(s: &store::Store, i: usize) -> bool {
-    s.agents.enabled().contains(&LaunchPick::PROVIDERS[i])
+/// Whether a provider picker lists the `i`th of `LaunchPick::PROVIDERS`: only the ones left on that `live` found installed.
+pub(super) fn offered_provider(s: &store::Store, live: &::agents::Agents, i: usize) -> bool {
+    s.agents.offered(live).contains(&LaunchPick::PROVIDERS[i])
 }
 
+/// The agent saved as the default, for Reset; the menu shows `Agents::default_agent`, which is one that's offered.
 fn default_index(s: &store::Store) -> usize {
-    LaunchPick::PROVIDERS.iter().position(|p| *p == s.agents.default_agent()).unwrap_or(0)
+    index_of(LaunchPick::known_provider(&s.agents.default))
+}
+
+fn index_of(provider: &str) -> usize {
+    LaunchPick::PROVIDERS.iter().position(|p| *p == provider).unwrap_or(0)
+}
+
+/// The agents Settings gives a row: the two every pocketd runs, and each other this pocketd named, found or not. One it
+/// never named gets none: a pocketd older than the agent can't run it, so its install hint would lead nowhere.
+fn listed_providers(live: &::agents::Agents) -> Vec<&'static str> {
+    providers::ALL.iter().filter(|b| b.assumed_installed || live.providers.iter().any(|p| p.id == b.id)).map(|b| b.id).collect()
+}
+
+/// Turns `provider` on if it's off, else off: `Agents::disable` leaves the last one offered on.
+pub(super) fn toggle_enabled(prefs: &mut store::prefs::agents::Agents, provider: &str, live: &::agents::Agents) {
+    if prefs.disabled.contains(provider) { prefs.enable(provider) } else { prefs.disable(provider, live) }
 }
 
 fn chat_to_index(to: &str) -> usize {
@@ -61,13 +80,15 @@ fn access_index(access: &str) -> usize {
     ACCESSES.iter().position(|a| *a == access).unwrap_or(0)
 }
 
-/// "Built in · ~/bin/claude", or why there's no path.
-fn provider_line(path: Option<&str>) -> String {
-    match path {
-        None => "Built in".into(),
-        Some("") => "Built in · not found on your login PATH".into(),
-        Some(p) => format!("Built in · {}", tilde(p)),
+/// What a provider's row says under its name: the models it lists and where pocketd found it, or how to install it.
+/// `models` is `None` until its CLI has listed them.
+fn provider_line(provider: &str, installed: bool, models: Option<usize>, path: Option<&str>) -> String {
+    if !installed {
+        return not_found(provider);
     }
+    let found = path.filter(|p| !p.is_empty()).map(tilde);
+    let parts: Vec<String> = models.map(count_line).into_iter().chain(found).collect();
+    if parts.is_empty() { "Built in".into() } else { parts.join(" \u{b7} ") }
 }
 
 /// How Anywhere learns a provider's sessions need you, are done or failed.
@@ -79,7 +100,7 @@ pub(super) fn status_source(provider: &str) -> String {
 
 impl Desktop {
     fn provider_status(&self) -> Div {
-        let rows = LaunchPick::PROVIDERS.into_iter().map(|p| {
+        let rows = LaunchPick::PROVIDERS.into_iter().filter(|p| self.installed(p)).map(|p| {
             div()
                 .px(px(14.))
                 .py(px(8.))
@@ -95,11 +116,13 @@ impl Desktop {
         div().flex().flex_col().child(caption).children(rows)
     }
 
+    /// One row per agent, as its page is opened from: its mark, name and what `provider_line` says; only an installed
+    /// one can be turned off.
     fn providers_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let default = self.store.agents.default_agent();
-        let rows = LaunchPick::PROVIDERS.into_iter().enumerate().map(|(i, p)| {
-            let on = !self.store.agents.disabled.contains(p);
-            let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(p, 15., TEXT));
+        let (default, listed) = (self.store.agents.default_agent(&self.agents), listed_providers(&self.agents));
+        let rows = LaunchPick::PROVIDERS.into_iter().enumerate().filter(|(_, p)| listed.contains(p)).enumerate().map(|(row, (i, p))| {
+            let (on, installed) = (!self.store.agents.disabled.contains(p), self.installed(p));
+            let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(p, 15., TEXT)).when(!installed, |d| d.opacity(0.5));
             let name = div()
                 .flex()
                 .items_center()
@@ -109,14 +132,17 @@ impl Desktop {
                 .text_color(TEXT)
                 .child(self.agent_name(p))
                 .when(p == default, |d| d.child(div().px(px(5.)).rounded(px(4.)).bg(FILL_3).text_size(px(10.5)).text_color(TEXT_2).child("Default")));
-            let line = provider_line(self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).map(String::as_str));
-            let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(div().truncate().font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(line));
-            let toggle = div().id(("provider-enabled", i)).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.store.agents.set_enabled(p, !on);
-                this.save_soon(cx);
-                cx.notify();
-            }));
+            let models = Some(self.models_of(p).len()).filter(|n| *n > 0);
+            let line = provider_line(p, installed, models, self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).map(String::as_str));
+            let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(line));
+            let toggle = installed.then(|| {
+                div().id(("provider-enabled", i)).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    toggle_enabled(&mut this.store.agents, p, &this.agents);
+                    this.save_soon(cx);
+                    cx.notify();
+                }))
+            });
             div()
                 .id(("provider", i))
                 .px(px(14.))
@@ -126,10 +152,10 @@ impl Desktop {
                 .gap(px(12.))
                 .cursor_pointer()
                 .hover(|d| d.bg(FILL_1))
-                .when(i > 0, |d| d.border_t(px(0.5)).border_color(SEPARATOR))
+                .when(row > 0, |d| d.border_t(px(0.5)).border_color(SEPARATOR))
                 .child(tile)
                 .child(text)
-                .child(toggle)
+                .children(toggle)
                 .child(icon("chevron-right", 13., TEXT_4))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_provider(i, window, cx)))
         });
@@ -139,7 +165,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{access_index, enabled_provider, provider_line, status_source};
+    use super::{access_index, listed_providers, offered_provider, provider_line, status_source, toggle_enabled};
+    use agents::providers::ProviderInfo;
     use store::Store;
 
     #[test]
@@ -148,11 +175,38 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_picker_lists_only_enabled_providers() {
+    fn a_provider_picker_lists_only_the_providers_left_on_and_installed() {
         let mut s = Store::default();
-        assert_eq!([enabled_provider(&s, 0), enabled_provider(&s, 1)], [true, true]);
-        s.agents.set_enabled("codex", false);
-        assert_eq!([enabled_provider(&s, 0), enabled_provider(&s, 1)], [true, false]);
+        let offered = |s: &Store, live: &agents::Agents| (0..agents::providers::COUNT).filter(|i| offered_provider(s, live, *i)).collect::<Vec<_>>();
+        let mut live = agents::Agents::default();
+        assert_eq!(offered(&s, &live), [0, 1], "before pocketd says what is installed");
+        live.providers = ["claude", "codex", "pi"].map(|id| ProviderInfo { id: id.into(), available: id != "codex", ..Default::default() }).to_vec();
+        assert_eq!(offered(&s, &live), [0, 5]);
+        s.agents.disable("pi", &live);
+        assert_eq!(offered(&s, &live), [0]);
+    }
+
+    fn pocketd(named: &[(&str, bool)]) -> agents::Agents {
+        agents::Agents { providers: named.iter().map(|(id, available)| ProviderInfo { id: (*id).into(), available: *available, ..Default::default() }).collect(), ..Default::default() }
+    }
+
+    #[test]
+    fn settings_list_an_agent_only_when_pocketd_named_it() {
+        assert_eq!(listed_providers(&agents::Agents::default()), ["claude", "codex"], "a pocketd that names none, as one older than the other agents");
+        assert_eq!(listed_providers(&pocketd(&[("claude", true)])), ["claude", "codex"]);
+        assert_eq!(listed_providers(&pocketd(&[("claude", true), ("codex", false), ("pi", false), ("hermes", true)])), ["claude", "codex", "pi", "hermes"], "found or not");
+    }
+
+    #[test]
+    fn the_switch_leaves_the_last_agent_on_offer_on() {
+        let mut s = Store::default();
+        let live = pocketd(&[("claude", true), ("codex", true), ("pi", false)]);
+        toggle_enabled(&mut s.agents, "claude", &live);
+        toggle_enabled(&mut s.agents, "codex", &live);
+        assert_eq!(s.agents.offered(&live), ["codex"], "Pi is on but not installed, so Codex is the last");
+        toggle_enabled(&mut s.agents, "claude", &live);
+        toggle_enabled(&mut s.agents, "codex", &live);
+        assert_eq!(s.agents.offered(&live), ["claude"]);
     }
 
     #[test]
@@ -162,10 +216,16 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_says_where_it_was_found_or_that_it_was_not() {
-        assert_eq!(provider_line(None), "Built in");
-        assert_eq!(provider_line(Some("")), "Built in · not found on your login PATH");
-        assert_eq!(provider_line(Some("/opt/homebrew/bin/claude")), "Built in · /opt/homebrew/bin/claude");
+    fn an_installed_provider_says_how_many_models_it_lists_and_where_it_was_found() {
+        assert_eq!(provider_line("claude", true, None, None), "Built in");
+        assert_eq!(provider_line("claude", true, Some(3), Some("")), "3 models available");
+        assert_eq!(provider_line("claude", true, Some(1), Some("/opt/homebrew/bin/claude")), "1 model available · /opt/homebrew/bin/claude");
+        assert_eq!(provider_line("claude", true, None, Some("/opt/homebrew/bin/claude")), "/opt/homebrew/bin/claude");
+    }
+
+    #[test]
+    fn a_provider_that_is_not_installed_says_how_to_install_it() {
+        assert_eq!(provider_line("grok", false, Some(2), Some("")), "Grok Build not found (`curl -fsSL https://x.ai/cli/install.sh | bash`). Install it, or restart Anywhere if it is already installed.");
     }
 
     #[test]

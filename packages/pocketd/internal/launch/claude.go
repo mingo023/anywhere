@@ -39,6 +39,8 @@ func (claude) switchEffort(effort string) error {
 
 func (claude) chat(s proto.LaunchSpec) bool { return s.Chat }
 
+func (claude) attaches(proto.LaunchSpec) bool { return true }
+
 // argv names the session after the prompt when there's no Worktree name.
 func (c claude) argv(s proto.LaunchSpec, argv []string, name, prompt string) ([]string, bool, *Failure) {
 	if s.Effort != "" && !slices.Contains(providers.Claude.Efforts, s.Effort) {

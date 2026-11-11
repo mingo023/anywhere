@@ -41,15 +41,15 @@ What the session list shows as one card: one agent, from launch to exit. Running
 _Avoid_: card, workspace, tab
 
 **Agent**:
-A `claude` or `codex` process running in a terminal, from launch to exit. A terminal runs at most one agent at a time and can run several over its life.
+A coding agent's process running in a terminal, from launch to exit: a claude, codex, cursor, grok, opencode, pi, omp, fx, hermes or antigravity. A terminal runs at most one agent at a time and can run several over its life.
 _Avoid_: provider session, thread
 
 **Attached**:
-An agent is attached when Pocket hears its status from the agent itself. An agent that is not attached is still listed, but shows only terminal activity and never Needs you or Done. A claude is also attached when it reports through OSC 7501 (Program Status Protocol).
+An agent is attached when Pocket hears its status from the agent itself. An agent that is not attached is still listed, but shows only terminal activity and never Needs you or Done. A claude is also attached when it reports through OSC 7501 (Program Status Protocol). Only a claude or a codex reports its status from a terminal. Every other agent reports it only in a chat, where pocketd drives it over the Agent Client Protocol or pi's RPC mode; started in a terminal it runs, but is not attached.
 _Avoid_: hooked, bound, connected
 
 **Conversation**:
-The Claude session or Codex thread an agent is currently on. `/clear` or `/resume` switches the agent to another conversation; the agent stays the same.
+The Claude session, the Codex thread, or the thread another agent's CLI keeps under an id of its own, that an agent is currently on. `/clear` or `/resume` switches the agent to another conversation; the agent stays the same.
 _Avoid_: session id, transcript
 
 **Compare**:
@@ -94,7 +94,7 @@ _Avoid_: next up, queue
 ### Automations
 
 **Automation**:
-A prompt pocketd starts in an agent on a schedule: a name, the prompt, claude or codex, a folder, and either chosen weekdays at a time or every few minutes. It is enabled or paused, and can also be started by hand with Run now. pocketd owns it and keeps firing while the desktop is closed. Each run is a normal session in its folder.
+A prompt pocketd starts in an agent on a schedule: a name, the prompt, which agent, a folder, and either chosen weekdays at a time or every few minutes. It is enabled or paused, and can also be started by hand with Run now. pocketd owns it and keeps firing while the desktop is closed. Each run is a normal session in its folder; an agent that reports its status only in a chat runs as a chat.
 _Avoid_: job, cron, task, routine
 
 **Run**:
@@ -126,7 +126,7 @@ The chat session a team prompt went to. It plans the team, reviews each handback
 _Avoid_: orchestrator, manager, parent
 
 **Worker**:
-A chat session pocketd starts for one task of a team, in a new worktree on its own branch, nested under its lead. It changes only its task's files, and each of its turns that ends normally becomes a handback.
+A chat session pocketd starts for one task of a team, in a new worktree on its own branch, nested under its lead. It changes only its task's files, and each of its turns that ends normally becomes a handback. It is never a pi or an omp: they run every tool without asking, so no allowlist can hold them.
 _Avoid_: sub-agent (a sub-agent runs inside one session), child
 
 **Handback**:

@@ -11,14 +11,20 @@ import (
 	"pocketd/internal/launch"
 	"pocketd/internal/pipe"
 	"pocketd/internal/shellenv"
+	"pocketd/internal/state"
 )
 
 // pipeCmd runs argv with its stdio relayed to pocketd, which drives it from
 // the chat. argv[0] may name a shell function, as in the user's terminal.
+// What argv carries after state.Carry is for pocketd, which reads it off
+// this process's own command line.
 func pipeCmd(sock string, argv []string) (int, error) {
 	id := os.Getenv("POCKETD_PTY")
 	if id == "" {
 		return 0, errors.New("pipe runs only in a Pocket terminal")
+	}
+	if argv, _, _ = state.Cut(argv); len(argv) == 0 {
+		return 0, errors.New("pipe needs a command to run")
 	}
 	if !strings.ContainsRune(argv[0], os.PathSeparator) {
 		argv = launch.InShell(shellenv.LoginShell(), argv)

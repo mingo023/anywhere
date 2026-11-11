@@ -26,6 +26,10 @@ extension Sample {
                          chat: ChatCaps(interrupt: true, compact: true, sendWhileWorking: true, subAgents: true, sendNow: true)),
             ProviderInfo(id: "codex", available: true, efforts: ["low", "medium", "high"], plan: false,
                          chat: ChatCaps(interrupt: true, compact: true, sendWhileWorking: false, subAgents: false)),
+            ProviderInfo(id: "opencode", available: true, efforts: [], plan: true,
+                         chat: ChatCaps(interrupt: true, compact: false, sendWhileWorking: true, subAgents: false, sendNow: false)),
+            ProviderInfo(id: "pi", available: true, efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], plan: true,
+                         chat: ChatCaps(interrupt: true, compact: true, sendWhileWorking: true, subAgents: false, sendNow: false), neverAsks: true),
         ],
         maxAccess: "full", phoneMaxAccess: "edits")
 

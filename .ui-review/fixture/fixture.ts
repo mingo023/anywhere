@@ -7,12 +7,16 @@
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
+// The "agents" and "agents-chat" scenarios' pocketd says all ten agents are installed; any other names none, as one older than the eight new ones.
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 
+// In the order every list shows them, as agents::providers::ALL holds them.
+const PROVIDER_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity"] as const;
+type Provider = (typeof PROVIDER_IDS)[number];
 type Agent = {
-  id: string; title: string; provider: "claude" | "codex"; repo: string; branch?: string;
+  id: string; title: string; provider: Provider; repo: string; branch?: string;
   status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string; effort?: string; pinned?: boolean;
   diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string; parent?: string;
 };
@@ -72,6 +76,27 @@ SCENARIOS.team = {
     { id: "fold-tests", parent: "parser", title: "Cover the fold with tests", provider: "codex", repo: "app-android", branch: "team-parser-t2", status: "idle", ago: 0 },
     ...OTHERS,
   ],
+};
+
+// A session of each agent pocketd runs beside Claude Code and Codex.
+SCENARIOS.agents = {
+  repos: SCENARIOS.sessions.repos,
+  agents: [
+    { id: "fix", title: "Fix stale terminal reveal", provider: "opencode", model: "anthropic/claude-sonnet-4-6", repo: "app-android", branch: "fix/restore-handoff", status: "idle", ago: 2, waiting: "pnpm test --filter app-android", diff: RESTORE },
+    { id: "split", title: "Split restore hook into two files", provider: "pi", model: "openai-codex/gpt-5.4", effort: "high", repo: "app-android", branch: "refactor/restore-hook", status: "running", ago: 0 },
+    { id: "migrate", title: "Migrate legacy hooks", provider: "hermes", model: "openai-codex:gpt-6-sol", repo: "app-android", branch: "chore/migrate-hooks", status: "running", ago: 6 },
+    { id: "crash", title: "Crash on resume after OTA", provider: "cursor", model: "composer-2.5", repo: "app-android", branch: "fix/ota-resume", status: "idle", ago: 22, diff: OTA },
+    { id: "rn", title: "Upgrade to RN 0.81", provider: "grok", model: "grok-4.6", repo: "app-android", branch: "chore/rn-081", status: "idle", ago: 180, failed: true },
+    { id: "haptics", title: "Add haptics to approval sheet", provider: "antigravity", model: "gemini-3.8-flash-high", repo: "app-android", branch: "feat/haptics", status: "idle", ago: 300, diff: OTA },
+    { id: "lint", title: "Fix the lint warnings", provider: "omp", repo: "app-android", status: "idle", ago: 320 },
+    { id: "docs", title: "Document the restore flow", provider: "fx", model: "zai/glm-5.2-fast", repo: "app-android", status: "idle", ago: 340 },
+    ...OTHERS,
+  ],
+};
+// The chat is Pi's, which never asks before it acts.
+SCENARIOS["agents-chat"] = {
+  repos: SCENARIOS.chat.repos,
+  agents: [{ ...SCENARIOS.chat.agents[0], provider: "pi", model: "anthropic/claude-sonnet-4-6", effort: "high" }, ...OTHERS],
 };
 
 const RESTORED: Record<string, string> = { fix: "resumed", crash: "interrupted", haptics: "access_lowered", rn: "failed" };
@@ -166,7 +191,7 @@ if (process.env.FIXTURE_IDLE) for (const a of scenario.agents) a.status = "idle"
 const now = Date.now();
 const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.repo));
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
-const left = { claude: 62, codex: 41 };
+const left: Record<Provider, number> = { claude: 62, codex: 41, cursor: 77, grok: 58, opencode: 49, pi: 83, omp: 91, fx: 66, hermes: 35, antigravity: 72 };
 const summaries = scenario.agents.map((a) => ({
   id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, status: status(a), restore: a.restore, parent: a.parent,
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
@@ -188,6 +213,14 @@ const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: scenario.repos.map(repoPath), children: children.map((c) => [c.id, c.parent]), repos: {}, tracked }));
+
+// What pocketd says of each agent after Claude Code: its efforts, whether it plans, and what its chat driver does.
+const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const EFFORTS: Partial<Record<Provider, string[]>> = { grok: ["low", "medium", "high", "xhigh"], pi: THINKING, omp: THINKING };
+const provider = (id: Provider) => ({
+  id, available: true, efforts: EFFORTS[id] ?? [], plan: ["opencode", "grok", "pi", "omp"].includes(id), neverAsks: ["pi", "omp"].includes(id) || undefined,
+  chat: { interrupt: true, compact: ["codex", "pi", "omp"].includes(id), sendWhileWorking: id === "codex", subAgents: false, sendNow: false },
+});
 
 const ESC = "\x1b[";
 const fg = (hex: string) => `${ESC}38;2;${parseInt(hex.slice(0, 2), 16)};${parseInt(hex.slice(2, 4), 16)};${parseInt(hex.slice(4, 6), 16)}m`;
@@ -454,9 +487,11 @@ Bun.serve({
           update(ws, f.agentId, "idle");
         }, Number(process.env.FIXTURE_STOP_MS) || 0);
       }
-      if (f.type === "agent.providers" && process.env.FIXTURE_SEND_NOW) {
-        const chat = { interrupt: true, compact: true, sendWhileWorking: true, subAgents: true, sendNow: true };
-        ws.send(JSON.stringify({ type: "agent.providers", id: f.id, providers: [{ id: "claude", available: true, efforts: ["low", "medium", "high", "xhigh", "max"], plan: true, chat }], maxAccess: "full", phoneMaxAccess: "ask" }));
+      if (f.type === "agent.providers" && (process.env.FIXTURE_SEND_NOW || name.startsWith("agents"))) {
+        const chat = { interrupt: true, compact: true, sendWhileWorking: true, subAgents: true, sendNow: !!process.env.FIXTURE_SEND_NOW };
+        const claude = { id: "claude", available: true, efforts: ["low", "medium", "high", "xhigh", "max"], plan: true, chat };
+        const providers = name.startsWith("agents") ? [claude, ...PROVIDER_IDS.slice(1).map(provider)] : [claude];
+        ws.send(JSON.stringify({ type: "agent.providers", id: f.id, providers, maxAccess: "full", phoneMaxAccess: "ask" }));
       }
       if (f.type === "agent.send_now") {
         const steer = steers.get(f.agentId);

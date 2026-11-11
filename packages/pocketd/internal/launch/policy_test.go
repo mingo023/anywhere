@@ -42,6 +42,10 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 		{"phone setup", phone, newTree(proto.NewWorktree{Name: "n", Setup: &no}), "Only your Mac picks the base, branch, PR, copy or setup"},
 		{"owner parent", owner, under("a1"), ""},
 		{"phone parent", phone, under("a1"), "Only your Mac starts a session under another"},
+		{"owner pi ask", owner, spec("pi", "ask", false), ""},
+		{"phone pi full", phone, spec("pi", "full", false), ""},
+		{"phone pi ask", phone, spec("pi", "ask", false), "Pi runs every tool without asking. Start it with Full access."},
+		{"phone omp settings", phone, spec("omp", "settings", false), "omp runs every tool without asking. Start it with Full access."},
 	} {
 		f := Check(c.w, c.s)
 		switch {
@@ -49,6 +53,25 @@ func TestThePhoneMayStartOnlyWhatTheOwnerAllows(t *testing.T) {
 			t.Errorf("%s: refused %+v", c.name, f)
 		case c.want != "" && (f == nil || f.Code != "access_not_allowed" || f.Message != c.want):
 			t.Errorf("%s: got %+v, want %q", c.name, f, c.want)
+		}
+	}
+}
+
+func TestAPromptedAgentWhoseStatusShowsOnlyInItsChatAlwaysStartsAsOne(t *testing.T) {
+	for _, c := range []struct {
+		provider, prompt string
+		chat, want       bool
+	}{
+		{"hermes", "fix it", false, true},
+		{"pi", "fix it", false, true},
+		{"hermes", "", false, false},
+		{"claude", "fix it", false, false},
+		{"codex", "fix it", true, true},
+	} {
+		s := spec(c.provider, "ask", false)
+		s.Prompt, s.Chat = c.prompt, c.chat
+		if got := Chats(s); got != c.want {
+			t.Errorf("%s prompt %q chat %v: Chats = %v, want %v", c.provider, c.prompt, c.chat, got, c.want)
 		}
 	}
 }

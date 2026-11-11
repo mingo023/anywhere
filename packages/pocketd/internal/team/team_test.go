@@ -108,6 +108,28 @@ func writes(t proto.TeamTask, files ...string) proto.TeamTask {
 
 func plan(tasks ...proto.TeamTask) []proto.TeamTask { return tasks }
 
+func TestATaskGoesToAnyAgentAnAllowlistHolds(t *testing.T) {
+	if err := Validate(plan(tk("t1"), with(tk("t2"), func(t *proto.TeamTask) { t.Agent = "hermes" }))); err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"pi", "omp"} {
+		tasks := plan(tk("t1"), with(tk("t2"), func(t *proto.TeamTask) { t.Agent = agent }))
+		if err := Validate(tasks); err == nil || err.Error() != `task t2: agent must be `+every+`, not "`+agent+`"` {
+			t.Fatalf("%s in a plan: %v", agent, err)
+		}
+		tasks[1].Agent = "claude"
+		picks := []proto.TaskPick{{ID: "t1", Agent: "claude"}, {ID: "t2", Agent: agent}}
+		if _, err := Started(proto.Team{State: "proposed", Tasks: tasks}, picks); err == nil || !strings.Contains(err.Error(), `not "`+agent+`"`) {
+			t.Fatalf("%s picked at start: %v", agent, err)
+		}
+	}
+	if !strings.Contains(Wrap("x"), `- "agent" is `+every+`.`+"\n") {
+		t.Fatal(Wrap("x"))
+	}
+}
+
+const every = "claude, codex, cursor, grok, opencode, fx, hermes or antigravity"
+
 func TestValidateSaysEveryWayAPlanCantBeUsed(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -124,7 +146,7 @@ func TestValidateSaysEveryWayAPlanCantBeUsed(t *testing.T) {
 		{"an empty id", plan(writes(tk(""), "a.go"), tk("t2")), `task id "" must be 1 to 32 letters, digits, - or _, starting with a letter or digit`},
 		{"no title", plan(with(tk("t1"), func(t *proto.TeamTask) { t.Title = " " }), tk("t2")), "task t1 has no title"},
 		{"no instructions", plan(with(tk("t1"), func(t *proto.TeamTask) { t.Instructions = "" }), tk("t2")), "task t1 has no instructions"},
-		{"an unknown agent", plan(tk("t1"), with(tk("t2"), func(t *proto.TeamTask) { t.Agent = "gemini" })), `task t2: agent must be claude or codex, not "gemini"`},
+		{"an unknown agent", plan(tk("t1"), with(tk("t2"), func(t *proto.TeamTask) { t.Agent = "gemini" })), `task t2: agent must be ` + every + `, not "gemini"`},
 		{"an after that names no task", plan(tk("t1"), tk("t2", "t9")), "task t2: after names t9, which isn't a task"},
 		{"a task after itself", plan(tk("t1", "t1"), tk("t2")), "after makes a cycle through t1"},
 		{"two tasks after each other", plan(tk("t1", "t2"), tk("t2", "t1")), "after makes a cycle through t1, t2"},
@@ -135,7 +157,7 @@ func TestValidateSaysEveryWayAPlanCantBeUsed(t *testing.T) {
 		{"a folder and a file in it", plan(writes(tk("t1"), "src/"), writes(tk("t2"), "src/a.go")), "tasks t1 and t2 both change src/a.go; order them with after"},
 		{"one file named two ways", plan(writes(tk("t1"), "./a.go"), writes(tk("t2"), "a.go")), "tasks t1 and t2 both change a.go; order them with after"},
 		{"a folder whose name starts another's", plan(writes(tk("t1"), "src"), writes(tk("t2"), "srcs/a.go")), ""},
-		{"several problems at once", plan(with(tk("t1"), func(t *proto.TeamTask) { t.Agent = "gemini" })), `a plan needs 2 to 4 tasks, not 1; task t1: agent must be claude or codex, not "gemini"`},
+		{"several problems at once", plan(with(tk("t1"), func(t *proto.TeamTask) { t.Agent = "gemini" })), `a plan needs 2 to 4 tasks, not 1; task t1: agent must be ` + every + `, not "gemini"`},
 	} {
 		err := Validate(c.tasks)
 		got := ""
@@ -158,7 +180,7 @@ func TestTheTasksKeptAtStartMayBeOneButFollowEveryOtherRule(t *testing.T) {
 		{"four tasks", plan(tk("t1"), tk("t2"), tk("t3"), tk("t4")), ""},
 		{"no tasks", nil, "a plan needs 1 to 4 tasks, not 0"},
 		{"five tasks", plan(tk("t1"), tk("t2"), tk("t3"), tk("t4"), tk("t5")), "a plan needs 1 to 4 tasks, not 5"},
-		{"one task with an unknown agent", plan(with(tk("t1"), func(t *proto.TeamTask) { t.Agent = "gemini" })), `task t1: agent must be claude or codex, not "gemini"`},
+		{"one task with an unknown agent", plan(with(tk("t1"), func(t *proto.TeamTask) { t.Agent = "gemini" })), `task t1: agent must be ` + every + `, not "gemini"`},
 		{"one task after a task that's gone", plan(tk("t2", "t1")), "task t2: after names t1, which isn't a task"},
 	} {
 		err := ValidateKept(c.tasks)

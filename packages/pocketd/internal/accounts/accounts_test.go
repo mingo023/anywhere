@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -267,14 +268,34 @@ func TestUsageReadsBothProvidersLimits(t *testing.T) {
 	}
 }
 
-func TestEveryProviderHasALogin(t *testing.T) {
-	for _, p := range providers.All {
-		if _, ok := logins[p.ID]; !ok {
-			t.Errorf("%s has no login", p.ID)
-		}
-	}
+func TestOnlyClaudeAndCodexHaveAccounts(t *testing.T) {
 	if !reflect.DeepEqual(Providers, []string{"claude", "codex"}) {
 		t.Fatal(Providers)
+	}
+}
+
+// A provider with no login was once read as Claude, and got Claude's config dir.
+func TestAProviderWithoutAccountsRunsOnItsOwnLoginOnly(t *testing.T) {
+	s := &Store{Root: t.TempDir(), Home: t.TempDir()}
+	for _, p := range providers.All {
+		if slices.Contains(Providers, p.ID) {
+			continue
+		}
+		if env := s.Env(p.ID, "abc123"); env != nil {
+			t.Errorf("%s: an account's env is %v", p.ID, env)
+		}
+		if got := s.Of(p.ID, []string{"CLAUDE_CONFIG_DIR=" + filepath.Join(s.Root, p.ID, "abc123")}); got != "" {
+			t.Errorf("%s: runs on account %q", p.ID, got)
+		}
+		if email, plan := s.identity(p.ID, BuiltIn); email != "" || plan != "" || s.SignedIn(p.ID, BuiltIn) {
+			t.Errorf("%s: read as signed in as %q", p.ID, email)
+		}
+		if id, err := s.Resolve(p.ID, ""); err != nil || id != BuiltIn {
+			t.Errorf("%s: resolves to %q, %v", p.ID, id, err)
+		}
+		if _, err := s.Add(p.ID); err == nil {
+			t.Errorf("%s: took a new account", p.ID)
+		}
 	}
 }
 

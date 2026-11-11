@@ -19,20 +19,26 @@ import (
 	"pocketd/internal/cliskill"
 	"pocketd/internal/config"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 )
 
-const anywhereUsage = `usage: anywhere project list [--json]
+// anywhereUsage names the agents a session runs as: its chat is how the
+// command prompts and reads it, so only those pocketd drives a chat of.
+func anywhereUsage() string {
+	return `usage: anywhere project list [--json]
        anywhere session list [--json]
        anywhere session read [--limit 200] [--json] <id>
-       anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider claude|codex] [--access settings|ask|edits|auto|full] [--prompt <text>]
+       anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider <agent>] [--access settings|ask|edits|auto|full] [--prompt <text>]
        anywhere session prompt <id> <text|->
        anywhere session close <id>
        anywhere session wait [--timeout 30m] <id>
-       anywhere ticket create [--project <name|path>] [--provider claude|codex] [--base <branch>] [--title <text>] [--start] <prompt|->
+       anywhere ticket create [--project <name|path>] [--provider <agent>] [--base <branch>] [--title <text>] [--start] <prompt|->
        anywhere ticket list [--json]
        anywhere ticket read [--json] <id>
-       anywhere ticket update [--title <text>] [--provider claude|codex] [--base <branch>] [--prompt <text|->] <id>
-       anywhere ticket delete <id>`
+       anywhere ticket update [--title <text>] [--provider <agent>] [--base <branch>] [--prompt <text|->] <id>
+       anywhere ticket delete <id>
+<agent> is ` + strings.Join(providers.Chatting(), "|")
+}
 
 const (
 	exitError    = 1
@@ -55,7 +61,7 @@ func anywhereMain(args []string, stdout, stderr io.Writer) int {
 	code, err := anywhere(args, stdout)
 	switch {
 	case errors.Is(err, errUsage):
-		fmt.Fprintln(stderr, anywhereUsage)
+		fmt.Fprintln(stderr, anywhereUsage())
 		return exitUsage
 	case err != nil:
 		fmt.Fprintln(stderr, "anywhere:", err)

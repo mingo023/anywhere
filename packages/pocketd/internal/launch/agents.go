@@ -1,0 +1,207 @@
+package launch
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+
+	"pocketd/internal/config"
+	"pocketd/internal/proto"
+	"pocketd/internal/providers"
+	"pocketd/internal/shellenv"
+	"pocketd/internal/state"
+)
+
+// specCLI runs a provider from its providers.Spec: its TUI by Spec.Flags, and
+// its chat by Spec.Transport.
+type specCLI struct {
+	p *providers.Spec
+	// sub is the subcommand a new session's flags follow.
+	sub string
+	// signIn follows the command to sign in; nil when it has no one command for that.
+	signIn []string
+}
+
+var specCLIs = []specCLI{
+	{p: &providers.Cursor, signIn: []string{"login"}},
+	{p: &providers.Grok, signIn: []string{"login"}},
+	{p: &providers.OpenCode, signIn: []string{"auth", "login"}},
+	{p: &providers.Pi},
+	{p: &providers.Omp},
+	{p: &providers.Fx, signIn: []string{"login"}},
+	{p: &providers.Hermes, sub: "chat", signIn: []string{"model"}},
+	// agy signs in the first time it runs.
+	{p: &providers.Antigravity, signIn: []string{}},
+}
+
+// acpArgv adds what runs argv's command as an ACP server on stdio. It has
+// flags only for what the CLI takes as one; the rest of l is carried.
+func acpArgv(p *providers.Spec, l state.Launch, argv []string) []string {
+	switch p {
+	// --no-leader and Linux's --uid= are as MonoCode starts these two servers.
+	// Neither CLI says what it does without its flag.
+	case &providers.Grok:
+		argv = append(argv, "--no-auto-update")
+		argv = append(flags(p, l, append(plan(p, l, argv), "agent", "--no-leader")), "stdio")
+	case &providers.Antigravity:
+		if runtime.GOOS == "linux" {
+			argv = append(argv, "--uid=")
+		}
+	case &providers.Fx:
+		argv = flags(p, l, append(argv, "acp"))
+	default:
+		argv = append(argv, "acp")
+	}
+	return argv
+}
+
+// agyDirs are where Antigravity's installer leaves its ACP server under the
+// home when not on PATH: a wrapper in the first, the server itself in the next.
+var agyDirs = []string{".local/bin", ".local/share/agy-acp"}
+
+func agyServer() (string, error) {
+	home, _ := os.UserHomeDir()
+	for _, dir := range agyDirs {
+		if path := filepath.Join(home, dir, providers.Antigravity.ChatCommand); shellenv.IsExecutable(path) {
+			return path, nil
+		}
+	}
+	return "", exec.ErrNotFound
+}
+
+// inOwnFolder has Antigravity's server, which piped runs as its argv[2],
+// start in its own folder, where it looks for its resources; only the wrapper
+// sets that itself. sh execs the pipe, so the process is still `pocketd pipe …`
+// and the Terminal stays in the project.
+func inOwnFolder(provider string, piped []string) []string {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Dir(piped[2])
+	if provider != providers.Antigravity.ID || dir == filepath.Join(home, agyDirs[0]) {
+		return piped
+	}
+	return append([]string{"/bin/sh", "-c", `cd "$0" && exec "$@"`, dir}, piped...)
+}
+
+// piArgv adds what runs argv's command for pi's RPC on stdio. Planning is
+// pi's read-only tools.
+func piArgv(p *providers.Spec, l state.Launch, argv []string) []string {
+	return flags(p, l, plan(p, l, append(argv, "--mode", "rpc")))
+}
+
+// plan adds what starts p planning, where it has a flag for that.
+func plan(p *providers.Spec, l state.Launch, argv []string) []string {
+	if l.Plan && p.Flags.Plan[0] != "" {
+		argv = append(argv, p.Flags.Plan[:]...)
+	}
+	return argv
+}
+
+// flags adds l's model, effort and full access where p has a flag for them.
+func flags(p *providers.Spec, l state.Launch, argv []string) []string {
+	if l.Model != "" && p.Flags.Model != "" {
+		argv = append(argv, p.Flags.Model, l.Model)
+	}
+	if l.Effort != "" && p.Flags.Effort != "" {
+		argv = append(argv, p.Flags.Effort, l.Effort)
+	}
+	if l.Access == "full" && !l.Plan && p.Flags.Full != "" {
+		argv = append(argv, p.Flags.Full)
+	}
+	return argv
+}
+
+// chatArgv is argv run for the chat, carrying l for the driver to read back
+// with state.Parse: an ACP agent takes most of it over the protocol.
+func (c specCLI) chatArgv(l state.Launch, argv []string) []string {
+	if c.p.Transport == providers.PiRPC {
+		argv = piArgv(c.p, l, argv)
+	} else {
+		argv = acpArgv(c.p, l, argv)
+	}
+	return append(argv, l.Carried()...)
+}
+
+func (c specCLI) validEffort(effort string) string {
+	switch {
+	case effort == "":
+	case len(c.p.Efforts) == 0 && !model.MatchString(effort):
+		return badEffort
+	case len(c.p.Efforts) > 0 && !slices.Contains(c.p.Efforts, effort):
+		return c.p.Name + "'s effort is one of " + strings.Join(c.p.Efforts, ", ")
+	}
+	return ""
+}
+
+func (c specCLI) switchEffort(effort string) error {
+	if msg := c.validEffort(effort); msg != "" {
+		return errors.New(msg)
+	}
+	return nil
+}
+
+// chat leaves an ACP fork in the TUI: only pi forks from the command line.
+func (c specCLI) chat(s proto.LaunchSpec) bool {
+	return s.Chat && (s.Fork == "" || c.p.Transport == providers.PiRPC)
+}
+
+func (c specCLI) attaches(s proto.LaunchSpec) bool { return c.chat(s) }
+
+func (c specCLI) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string, bool, *Failure) {
+	if msg := c.validEffort(s.Effort); msg != "" {
+		return nil, false, fail("invalid_spec", msg)
+	}
+	if s.Plan && !c.p.Plan {
+		return nil, false, fail("access_not_allowed", c.p.Name+" can't plan first")
+	}
+	l := state.Launch{Access: Access(s), Plan: s.Plan, Model: s.Model, Effort: s.Effort}
+	if c.chat(s) {
+		return c.chatArgv(l, argv), true, nil
+	}
+	if c.sub != "" {
+		argv = append(argv, c.sub)
+	}
+	return flags(c.p, l, plan(c.p, l, argv)), false, nil
+}
+
+// chatResume runs the chat again. pi takes the session on its command line;
+// an ACP agent's is loaded over the protocol.
+func (c specCLI) chatResume(t state.Terminal, l state.Launch) ([]string, bool) {
+	if !t.Chat {
+		return nil, false
+	}
+	argv := []string{c.p.ChatCmd()}
+	if c.p.Transport == providers.PiRPC {
+		argv = append(append(argv, config.DefaultArgs(c.p.ID).Resume...), t.ConversationID)
+	}
+	return c.chatArgv(c.resumed(t, l), argv), true
+}
+
+// resumed is l as a resume starts it: full comes back as ask, unless the
+// agent has no other access.
+func (c specCLI) resumed(t state.Terminal, l state.Launch) state.Launch {
+	if l.Access == "full" && !t.KeepAccess && !c.p.NeverAsks {
+		l.Access = "ask"
+	}
+	return l
+}
+
+func (c specCLI) resume(t state.Terminal, l state.Launch, argv []string) []string {
+	l = c.resumed(t, l)
+	return flags(c.p, l, plan(c.p, l, argv))
+}
+
+func (specCLI) untrusted([]string, string) *Failure { return nil }
+
+func (c specCLI) login(exe string) []string {
+	if c.signIn == nil {
+		return nil
+	}
+	return append([]string{exe}, c.signIn...)
+}
+
+// logout is none: pocketd keeps no accounts for these.
+func (specCLI) logout(string) []string { return nil }

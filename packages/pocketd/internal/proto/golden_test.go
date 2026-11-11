@@ -28,6 +28,15 @@ func with(f func(*AgentSummary)) AgentSummary {
 	return s
 }
 
+// providerInfos is every provider as agent.providers sends it, with codex not installed.
+func providerInfos() []ProviderInfo {
+	var list []ProviderInfo
+	for _, p := range providers.All {
+		list = append(list, ProviderInfo{ID: p.ID, Available: p != &providers.Codex, Efforts: p.Efforts, Plan: p.Plan, NeverAsks: p.NeverAsks, Chat: p.Chat})
+	}
+	return list
+}
+
 var serverGolden = map[string]any{
 	"hello_ok":            NewHelloOK("h1", "mac", 3, []string{"pair.v1"}),
 	"agent_list":          NewAgentList("l1", []AgentSummary{summary()}),
@@ -104,17 +113,12 @@ var serverGolden = map[string]any{
 	"agent_creating":      NewAgentCreating("c1", "r1", "t1", "/w/fix", true),
 	"agent_created":       NewAgentCreated("c1", "r1", "a1", "t1"),
 	"agent_progress":      NewAgentProgress("c1", "r1", StepFetch, "Couldn't fetch, using local main"),
-	"agent_providers": NewAgentProviders("p1", []ProviderInfo{
-		{ID: "claude", Available: true, Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Plan: true,
-			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: true, SendNow: true}},
-		{ID: "codex", Available: false, Efforts: []string{}, Plan: false,
-			Chat: providers.Chat{Interrupt: true, Compact: true, SendWhileWorking: true, SubAgents: false}},
-	}, "full", "ask", "edits"),
-	"error_detail":  NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
-	"hello_ok_host": helloOKHost(),
-	"host_changed":  NewHostChanged(HostState{Tailnet: true, KeepingAwake: true, Terminals: true}),
-	"error_coded":   NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
-	"pair_ok":       NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
+	"agent_providers":     NewAgentProviders("p1", providerInfos(), "full", "ask", "edits"),
+	"error_detail":        NewCodedError("create-r1", "spawn_failed", "Setup exited 1", "npm ERR! missing script: setup"),
+	"hello_ok_host":       helloOKHost(),
+	"host_changed":        NewHostChanged(HostState{Tailnet: true, KeepingAwake: true, Terminals: true}),
+	"error_coded":         NewErrorCode("h1", "client_too_old", "Update Pocket on this phone"),
+	"pair_ok":             NewPairOK("p1", "3fa9c1d2e5f60718293a4b5c6d7e8f90", "dG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9rZW4tdG9"),
 	"hello_ok_scopes": func() HelloOK {
 		h := NewHelloOK("h1", "mac", 3, []string{"pair.v1", "scopes.v1"})
 		h.Scopes = []string{"observe", "drive", "approve", "spawn", "owner"}

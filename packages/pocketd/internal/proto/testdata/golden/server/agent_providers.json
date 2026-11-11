@@ -33,6 +33,133 @@
         "subAgents": false,
         "sendNow": false
       }
+    },
+    {
+      "id": "cursor",
+      "available": true,
+      "efforts": [],
+      "plan": false,
+      "chat": {
+        "interrupt": true,
+        "compact": false,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
+    },
+    {
+      "id": "grok",
+      "available": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "plan": true,
+      "chat": {
+        "interrupt": true,
+        "compact": false,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
+    },
+    {
+      "id": "opencode",
+      "available": true,
+      "efforts": [],
+      "plan": true,
+      "chat": {
+        "interrupt": true,
+        "compact": false,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
+    },
+    {
+      "id": "pi",
+      "available": true,
+      "efforts": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "plan": true,
+      "neverAsks": true,
+      "chat": {
+        "interrupt": true,
+        "compact": true,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
+    },
+    {
+      "id": "omp",
+      "available": true,
+      "efforts": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "plan": true,
+      "neverAsks": true,
+      "chat": {
+        "interrupt": true,
+        "compact": true,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
+    },
+    {
+      "id": "fx",
+      "available": true,
+      "efforts": [],
+      "plan": false,
+      "chat": {
+        "interrupt": true,
+        "compact": false,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
+    },
+    {
+      "id": "hermes",
+      "available": true,
+      "efforts": [],
+      "plan": false,
+      "chat": {
+        "interrupt": true,
+        "compact": false,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
+    },
+    {
+      "id": "antigravity",
+      "available": true,
+      "efforts": [],
+      "plan": false,
+      "chat": {
+        "interrupt": true,
+        "compact": false,
+        "sendWhileWorking": true,
+        "subAgents": false,
+        "sendNow": false
+      }
     }
   ],
   "maxAccess": "full",

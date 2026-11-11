@@ -4,11 +4,13 @@ import (
 	"cmp"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 )
 
 // Spec is the Session run starts: the folder as it is, or a fresh Worktree off
 // the automation's base that pocketd names from the prompt, with its model and
-// effort, on its access, else the agent's own permission settings.
+// effort, on its access, else the agent's own permission settings. It is a
+// chat for an agent whose run is followed only there.
 func Spec(a proto.Automation, run string) proto.LaunchSpec {
 	checkout := proto.Checkout{Worktree: a.Folder}
 	if a.NewWorktree {
@@ -23,5 +25,6 @@ func Spec(a proto.Automation, run string) proto.LaunchSpec {
 		Effort:   a.Effort,
 		Access:   cmp.Or(a.Access, "settings"),
 		Prompt:   a.Prompt,
+		Chat:     providers.Get(a.Provider).OnlyChats(),
 	}
 }

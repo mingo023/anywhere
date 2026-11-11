@@ -273,6 +273,9 @@ pub const MENTION: Token = Token::new(0x0284c7ff, 0x5bb8f0ff);
 pub const COMMAND: Token = Token::new(0x5b5bd6ff, 0xb1a9ffff);
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
 pub const AGENT_CODEX: Token = Token::fixed(0x0f9d8aff);
+/// The middle of omp's gradient.
+pub const AGENT_OMP: Token = Token::fixed(0x9362f4ff);
+pub const AGENT_ANTIGRAVITY: Token = Token::fixed(0x3186ffff);
 
 pub const DIFF_ADD_BG: Token = Token::fixed(0x30a46c1c).or_blue_orange(0x0090ff1c, 0x0090ff1c).diff(true, 0x1c);
 pub const DIFF_ADD_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff).or_blue_orange(0x0b5fb5ff, 0x70b8ffff).diff(true, 0xff);
@@ -440,9 +443,18 @@ pub struct Brand {
     pub tinted: bool,
 }
 
-pub const BRANDS: [Brand; 2] = [
+pub const BRANDS: [Brand; 10] = [
     Brand { id: "claude", name: "Claude Code", short: "Claude", color: AGENT_CLAUDE, glyph: "claude", tinted: true },
     Brand { id: "codex", name: "Codex", short: "Codex", color: AGENT_CODEX, glyph: "openai", tinted: false },
+    // Their makers draw these marks in the ink around them, so they have no colour of their own.
+    Brand { id: "cursor", name: "Cursor", short: "Cursor", color: TEXT_2, glyph: "cursor", tinted: false },
+    Brand { id: "grok", name: "Grok Build", short: "Grok", color: TEXT_2, glyph: "grok", tinted: false },
+    Brand { id: "opencode", name: "OpenCode", short: "OpenCode", color: TEXT_2, glyph: "opencode", tinted: false },
+    Brand { id: "pi", name: "Pi", short: "Pi", color: TEXT_2, glyph: "pi", tinted: false },
+    Brand { id: "omp", name: "omp", short: "omp", color: AGENT_OMP, glyph: "omp", tinted: true },
+    Brand { id: "fx", name: "fx", short: "fx", color: TEXT_2, glyph: "fx", tinted: false },
+    Brand { id: "hermes", name: "Hermes Agent", short: "Hermes", color: TEXT_2, glyph: "hermes", tinted: false },
+    Brand { id: "antigravity", name: "Antigravity", short: "Antigravity", color: AGENT_ANTIGRAVITY, glyph: "antigravity", tinted: true },
 ];
 
 pub const PROVIDER_NAMES: [&str; BRANDS.len()] = {
@@ -463,7 +475,8 @@ pub fn provider_color(provider: &str) -> Token {
     brand(provider).map_or(TEXT_3, |b| b.color)
 }
 
-/// Claude's spark in its orange; OpenAI's knot, or a terminal for anything else, in `ink`.
+/// A tinted brand's mark in its own colour, as Claude's spark in its orange; any other, or a terminal for a provider
+/// with no brand, in `ink`.
 pub fn provider_icon(provider: &str, size: f32, ink: impl Into<Hsla>) -> Svg {
     let ink = match brand(provider) {
         Some(b) if b.tinted => b.color.into(),
@@ -607,8 +620,8 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "diff-multiple", "diff-split",
-    "discard", "explorer", "external", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "github", "globe", "grip", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "openai", "pencil", "phone", "pin", "play", "plus", "priority-high", "priority-low", "priority-medium", "priority-none", "priority-urgent", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
+    "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "antigravity", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "cursor", "diff-multiple", "diff-split",
+    "discard", "explorer", "external", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "fx", "github", "globe", "grip", "grok", "hermes", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "omp", "openai", "opencode", "pencil", "phone", "pi", "pin", "play", "plus", "priority-high", "priority-low", "priority-medium", "priority-none", "priority-urgent", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stacked-tickets", "star", "star-fill", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "team", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
 
@@ -698,6 +711,7 @@ mod tests {
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, NAV, glass_alpha, highlight_theme_with, material, material_icon, nav_rgba,
         ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_lead, gradient_opacity,
+        BRANDS, PROVIDER_NAMES, provider_glyph, provider_name, provider_svg,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
     use gpui_kit::{Hsla, SpringState, rgba};
@@ -897,6 +911,19 @@ mod tests {
     #[test]
     fn glass_percent_maps_onto_the_windows_alpha_and_85_keeps_the_default() {
         assert_eq!([glass_alpha(85), glass_alpha(100), glass_alpha(40), glass_alpha(0)], [WINDOW.pick(true) & 0xff, 0xff, 0x66, 0]);
+    }
+
+    #[test]
+    fn every_agent_has_a_brand_whose_mark_is_one_filled_shape_the_caller_or_its_colour_inks() {
+        assert_eq!(BRANDS.each_ref().map(|b| b.id), ["claude", "codex", "cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity"]);
+        assert_eq!(PROVIDER_NAMES[2..], ["Cursor", "Grok Build", "OpenCode", "Pi", "omp", "fx", "Hermes Agent", "Antigravity"]);
+        for b in &BRANDS {
+            let svg = String::from_utf8_lossy(provider_svg(b.id));
+            assert!(svg.contains("<path") && !["gradient", "mask", "fill=\"", "stroke"].iter().any(|paint| svg.contains(paint)), "{}", b.id);
+        }
+        let tinted: Vec<&str> = BRANDS.iter().filter(|b| b.tinted).map(|b| b.id).collect();
+        assert_eq!(tinted, ["claude", "omp", "antigravity"]);
+        assert_eq!((provider_glyph("gemini"), provider_name("gemini")), ("terminal", "Shell"));
     }
 
     #[test]

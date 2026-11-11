@@ -286,6 +286,9 @@ struct StartingTests {
         #expect(SessionText.creating(step: nil, waiting: false, provider: "claude") == "Asking your Mac…")
         #expect(SessionText.creating(step: "worktree", waiting: false, provider: "claude") == "Creating git worktree…")
         #expect(SessionText.creating(step: "agent", waiting: false, provider: "claude") == "Starting Claude…")
+        #expect(SessionText.creating(step: "agent", waiting: false, provider: "opencode") == "Starting OpenCode…")
+        #expect(SessionText.creating(step: "agent", waiting: false, provider: "omp") == "Starting omp…")
+        #expect(SessionText.creating(step: "agent", waiting: false, provider: "gemini") == "Starting Gemini…")
         #expect(SessionText.creating(step: "agent", waiting: true, provider: "claude") == "Waiting for your Mac…")
     }
 

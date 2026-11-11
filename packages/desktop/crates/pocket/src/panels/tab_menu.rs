@@ -81,7 +81,7 @@ impl Desktop {
                     })),
             )
             .child(div().h(px(0.5)).my(px(4.)).mx(px(6.)).bg(SEPARATOR))
-            .children(self.store.agents.enabled().into_iter().map(|p| agent(p, cx)))
+            .children(self.offered().into_iter().map(|p| agent(p, cx)))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.panels.menu = None;
                 cx.notify();

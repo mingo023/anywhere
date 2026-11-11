@@ -203,6 +203,8 @@ h1 em { font-style: italic; }
 .app .pr { color: #3dd68c; }
 .app .merged { color: #a371f7; }
 .app .claude { color: #d97757; }
+.app .omp { color: #9362f4; }
+.app .antigravity { color: #3186ff; }
 
 .pane { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .bar { display: flex; align-items: center; gap: 6px; flex: none; height: 42px; padding: 0 10px; }

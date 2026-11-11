@@ -1,7 +1,8 @@
 use super::catalog::{Look, Setting};
 use super::dropdown::dropdown;
-use super::models::{model_label, model_options};
+use super::models::{model_label, model_rows};
 use super::{action, row};
+use crate::composer::model_menu::model_name;
 use crate::desktop::Desktop;
 use git::github::GhStatus;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -14,6 +15,11 @@ use workspace::Place;
 pub(super) const ACCOUNT_MENU: &str = "gh-account";
 const AGENTS: [&str; agents::providers::COUNT] = agents::providers::IDS;
 const STYLES: [Style; 4] = [Style::Recent, Style::Conventional, Style::Plain, Style::Custom];
+
+/// Whether the `i`th agent can write a commit message: offered, and run once without a session.
+fn writes_commits(s: &Store, live: &agents::Agents, i: usize) -> bool {
+    agents::providers::ALL[i].oneshot.is_some() && super::agents::offered_provider(s, live, i)
+}
 
 fn index<T: PartialEq>(all: &[T], value: &T) -> usize {
     all.iter().position(|v| v == value).unwrap_or(0)
@@ -34,7 +40,7 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::switch("ai", "AI commit messages", "Write commit messages with AI", |s| s.git.ai, |s, on| s.git.ai = on)
         .hint("Drafts a message from the changes to commit. You can edit it before committing"),
     Setting::choice("ai-agent", "AI commit messages", "Agent", &PROVIDER_NAMES, Look::Dropdown, |s| index(&AGENTS, &s.git.agent.as_str()), |s, i| s.git.set_agent(AGENTS[i]))
-        .offers(super::agents::enabled_provider)
+        .offers(writes_commits)
         .under(|s| s.git.ai),
     Setting::custom("ai-model", "AI commit messages", "Model", |d, s, cx| d.ai_model_row(s, cx))
         .resets(|s| model_label(&s.git.model), |s, d| s.git.model = d.git.model.clone())
@@ -84,11 +90,11 @@ impl Desktop {
     /// The commit agent's models, as its CLI lists them.
     fn ai_model_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let model = self.store.git.model.clone();
-        let options = model_options(&self.store.git.agent, self.models_of(&self.store.git.agent), &model);
-        let shown = options.iter().find(|(v, _)| *v == model).map_or_else(|| model_label(&model), |(_, l)| l.clone());
-        let trigger = action(setting.id, "").child(shown).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
+        let (agent, offered) = (self.store.git.agent.as_str(), self.offered_models(&self.store.git.agent));
+        let trigger = action(setting.id, "").child(model_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
         let title = div().flex().items_center().gap(px(10.)).child(div().w(px(16.)).text_color(TEXT_4).child("↳")).child(setting.label);
-        row(title, setting.hint, dropdown(setting.id, trigger, options, &model, self, |d, v, _| d.store.git.model = v, cx))
+        let from = (agent, self.settings.models.revision, &model);
+        row(title, setting.hint, dropdown(setting.id, trigger, from, || model_rows(agent, offered, &model), &model, self, |d, v, _| d.store.git.model = v, cx))
     }
 
     fn gh_row(&mut self, cx: &mut Context<Self>) -> Div {
@@ -233,9 +239,20 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{gh_line, index, AGENTS, STYLES};
+    use super::{gh_line, index, writes_commits, AGENTS, STYLES};
     use git::github::GhStatus;
     use store::prefs::git::Style;
+
+    #[test]
+    fn only_an_offered_agent_that_runs_once_writes_commit_messages() {
+        let mut store = store::Store::default();
+        let installed = AGENTS.map(|id| agents::providers::ProviderInfo { id: id.into(), available: true, ..Default::default() }).to_vec();
+        let live = agents::Agents { providers: installed, ..Default::default() };
+        let listed = |s: &store::Store| AGENTS.into_iter().enumerate().filter(|(i, _)| writes_commits(s, &live, *i)).map(|(_, id)| id).collect::<Vec<_>>();
+        assert_eq!(listed(&store), ["claude", "codex"]);
+        store.agents.disable("codex", &live);
+        assert_eq!(listed(&store), ["claude"]);
+    }
 
     #[test]
     fn the_gh_line_names_the_account_or_what_is_missing() {

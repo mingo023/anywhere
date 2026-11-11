@@ -111,6 +111,40 @@ func TestNamingGivesUpAfterThreeFailuresAndSaysSo(t *testing.T) {
 	}
 }
 
+func TestAnAgentWithNoHeadlessRunIsNamedByItsOwnTitleOrLeftUnnamedWithNoFailure(t *testing.T) {
+	old := replyPoll
+	replyPoll = time.Millisecond
+	t.Cleanup(func() { replyPoll = old })
+	l, _, j := placed(t)
+	l.Locals = locals.Open(t.TempDir())
+	l.Locals.Create("l1", j.project, "Local 1")
+	l.Locals.Create("l2", j.project, "Local 2")
+	msgs, stop := l.Names.Subscribe()
+	defer stop()
+
+	hermes := l.d.Agents.Add("a2", j.tree, "hermes", nil)
+	hermes.Record(timeline.Event{Kind: "user", Text: "reply with the single word ok"})
+	time.AfterFunc(20*time.Millisecond, func() { hermes.SetTitle("Reply with ok") })
+	j.provider, j.local = "hermes", "l1"
+	name(l, hermes, j)
+	if got, _ := l.Locals.Get("l1"); got.Name != "Reply with ok" || l.Locals.Auto("l1", "Later") || l.Names.Titles()[j.tree] != "Reply with ok" || current(t, j.tree) != "calm-otter" {
+		t.Fatalf("%+v %v %s", got, l.Names.Titles(), current(t, j.tree))
+	}
+
+	pi := l.d.Agents.Add("a3", j.project, "pi", nil)
+	pi.Record(timeline.Event{Kind: "user", Text: "say hi"})
+	time.AfterFunc(20*time.Millisecond, func() { l.d.Agents.Remove("a3") })
+	name(l, pi, job{provider: "pi", prompt: "say hi", local: "l2"})
+	if got, _ := l.Locals.Get("l2"); got.Name != "Local 2" || !l.Locals.Auto("l2", "Later") {
+		t.Fatalf("%+v", got)
+	}
+	for len(msgs) > 0 {
+		if m := <-msgs; strings.Contains(string(m), "naming.failed") {
+			t.Fatalf("%s", m)
+		}
+	}
+}
+
 func TestARenamedWorktreeKeepsTheUsersName(t *testing.T) {
 	l, a, j := placed(t)
 	l.Names.Rename(j.tree, "Mine")

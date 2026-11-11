@@ -78,6 +78,35 @@ struct NewSessionTests {
         var d = draft(.tree("/w")) { $0.model = "opus"; $0.effort = "max"; $0.account = "a"; $0.access = .ask }
         d.pick(provider: .codex)
         #expect(d.provider == .codex && d.model == nil && d.effort == nil && d.account == nil && d.access == .ask)
+        d.effort = "high"
+        d.pick(provider: "pi")
+        #expect(d.provider == "pi" && d.effort == nil && d.plan(taken: [], localId: "l", localName: "x").spec.provider == "pi")
+    }
+
+    @Test("an agent that never asks before a tool starts with Full whatever the pill held, and Start asks first as picking Full does")
+    func neverAsks() {
+        for held in [Access.settings, .ask, .edits, .auto] {
+            let d = draft(.tree("/w")) { $0.provider = "pi"; $0.access = held }
+            #expect(d.access(neverAsks: true) == .full && d.confirmsStart(neverAsks: true), "\(held.rawValue)")
+            #expect(d.plan(taken: [], localId: "l", localName: "x", neverAsks: true).spec.access == .full, "\(held.rawValue)")
+        }
+        let asks = draft(.tree("/w")) { $0.access = .ask }
+        #expect(asks.access(neverAsks: false) == .ask && !asks.confirmsStart(neverAsks: false))
+        #expect(asks.plan(taken: [], localId: "l", localName: "x").spec.access == .ask)
+    }
+
+    @Test("Full picked on purpose was already confirmed, so Start doesn't ask again")
+    func fullPickedOnPurposeStartsAtOnce() {
+        let d = draft(.tree("/w")) { $0.provider = "omp"; $0.access = .full }
+        #expect(!d.confirmsStart(neverAsks: true) && !d.confirmsStart(neverAsks: false))
+    }
+
+    @Test("only Claude's models are offered by name: another agent's catalog is on the Mac")
+    func models() {
+        #expect(NewSessionDraft.models(.claude) == ["opus", "sonnet", "haiku"])
+        for provider: ProviderId in ["codex", "cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity", "gemini"] {
+            #expect(NewSessionDraft.models(provider).isEmpty, "\(provider.rawValue)")
+        }
     }
 
     @Test("another project starts a fresh worktree: the last one's base, branch, name and workspace don't carry over")

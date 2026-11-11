@@ -59,9 +59,51 @@ func codexSendsGoalAndSkillsAndLeavesItsTuiCommandsOut() {
     #expect(codex.command("mcp", "") == .local(.mcp))
 }
 
+@Test("pi sets its model and thinking and compacts itself, and leaves its TUI's commands out")
+func piSetsItsModelAndThinkingAndCompactsItself() {
+    let pi = Adapter.for("pi")
+    #expect(pi.command("model", "deepseek/deepseek-v4-pro") == .local(.model))
+    #expect(pi.command("thinking", "high") == .local(.effort))
+    #expect(pi.command("compact", "keep the plan") == .local(.compact))
+    #expect(pi.command("new", "") == .local(.new))
+    #expect(pi.command("settings", "") == .unsupported)
+    #expect(pi.command("llama", "") == .unsupported, "its own extension runs it only in the TUI")
+    #expect(pi.command("skill:review", "") == .send)
+    #expect(Adapter.for("omp").command("thinking", "") == .local(.effort))
+    #expect(Adapter.for("omp").command("settings", "") == .send, "omp lists what its RPC runs")
+}
+
+@Test("an ACP agent sends what it lists and leaves its TUI's commands out")
+func anAcpAgentSendsWhatItListsAndLeavesItsTuisCommandsOut() {
+    let hermes = Adapter.for("hermes")
+    let opencode = Adapter.for("opencode")
+    #expect(hermes.command("model", "") == .local(.model))
+    #expect(hermes.command("compress", "") == .send)
+    #expect(hermes.command("tools", "") == .send, "its ACP server answers this one")
+    #expect(hermes.command("skin", "") == .unsupported)
+    #expect(opencode.command("review", "") == .send)
+    #expect(opencode.command("sessions", "") == .unsupported)
+    #expect(opencode.command("compact", "") == .unsupported, "its ACP server can't compact")
+    #expect(names(menu(opencode, listed(["review", "models", "my-skill"]), "")) == ["model", "new", "review", "my-skill"])
+}
+
+@Test("every new agent sets its model and effort and starts a new chat from the phone")
+func everyNewAgentSetsItsModelAndEffortAndStartsANewChatFromThePhone() {
+    for provider in ["cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity"] {
+        let adapter = Adapter.for(provider)
+        #expect(adapter.command("model", "") == .local(.model), "\(provider)")
+        #expect(adapter.command("effort", "high") == .local(.effort), "\(provider)")
+        #expect(adapter.command("new", "fix it") == .local(.new), "\(provider)")
+        let own = provider == "pi" || provider == "omp" ? ["model", "thinking", "compact", "new"] : ["model", "new"]
+        #expect(adapter.builtins.map(\.name) == own, "\(provider)")
+    }
+    #expect(Adapter.for("grok").command("thinking", "high") == .send, "Pi's name for it")
+}
+
 @Test("an unknown provider sends every command")
 func anUnknownProviderSendsEveryCommand() {
     #expect(Adapter.for("gemini").command("cost", "") == .send)
+    #expect(Adapter.for("gemini").builtins.isEmpty)
 }
 
 @Test("the menu puts the agent's own first, then its list without panels or twins")
@@ -83,6 +125,16 @@ func codexAndUnknownProvidersGetAnAdapter() {
         let can = Adapter.for(provider).capabilities
         #expect(can.interrupt && can.compact && can.sendWhileWorking, "\(provider)")
         #expect(can.subAgents == (provider != "codex"), "\(provider)")
+    }
+}
+
+@Test("without pocketd's caps a new agent stops and takes a prompt mid-turn, and only Pi's RPC compacts")
+func withoutPocketdsCapsANewAgentStopsAndTakesAPromptMidTurnAndOnlyPisRpcCompacts() {
+    for provider in ["pi", "omp"] {
+        #expect(capabilities(provider, nil) == Capabilities(interrupt: true, compact: true, sendWhileWorking: true), "\(provider)")
+    }
+    for provider in ["cursor", "grok", "opencode", "fx", "hermes", "antigravity"] {
+        #expect(capabilities(provider, nil) == Capabilities(interrupt: true, sendWhileWorking: true), "\(provider)")
     }
 }
 

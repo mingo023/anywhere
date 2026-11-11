@@ -3,7 +3,7 @@ use super::logic::{Surface, Field, LABELS, PRIORITIES, priority_name};
 use super::parts::{label_dot, priority_glyph, prop_chip};
 use super::values::Picks;
 use crate::desktop::Desktop;
-use agents::providers;
+use crate::settings::models::listed_agents;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -61,12 +61,12 @@ impl Desktop {
                     ui::menu_pick(("ticket-project-row", i), self.repo_tile_for(&folder, 14.), &self.repo_name(&folder), chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_project(surface, folder.clone(), cx)))
                 })
                 .collect(),
-            Field::Agent => providers::IDS
-                .iter()
+            Field::Agent => listed_agents(&self.offered(), &[&p.values.provider])
+                .into_iter()
                 .enumerate()
                 .map(|(i, id)| {
                     let id = id.to_string();
-                    ui::menu_pick(("ticket-agent-row", i), theme::provider_icon(&id, 13., TEXT_2), &self.agent_name(&id), id == p.values.provider).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    self.agent_row(&id, ui::menu_pick(("ticket-agent-row", i), theme::provider_icon(&id, 13., TEXT_2), &self.agent_name(&id), id == p.values.provider)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.picks_mut(surface).values.provider = id.clone();
                         pick(this, cx);
                     }))

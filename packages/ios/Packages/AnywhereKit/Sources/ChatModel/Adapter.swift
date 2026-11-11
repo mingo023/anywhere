@@ -36,29 +36,43 @@ public struct Capabilities: Hashable, Sendable {
 
 /// How the chat treats one provider's agent: what it can do and which commands it runs itself.
 public struct Adapter: Hashable, Sendable {
-    public enum Provider: Hashable, Sendable {
-        case claude, codex, other
+    public enum Provider: String, Hashable, Sendable {
+        case claude, codex, cursor, grok, opencode, pi, omp, fx, hermes, antigravity, other
     }
 
     public let provider: Provider
 
     /// The adapter for a pocketd agent, by its summary's `provider`; a generic one for a provider this build doesn't know.
     public static func `for`(_ provider: String) -> Adapter {
+        Adapter(provider: Provider(rawValue: provider) ?? .other)
+    }
+
+    /// What pocketd drives the agent's chat over.
+    private enum Driver { case claude, codex, pi, acp, other }
+
+    private var driver: Driver {
         switch provider {
-        case "claude": Adapter(provider: .claude)
-        case "codex": Adapter(provider: .codex)
-        default: Adapter(provider: .other)
+        case .claude: .claude
+        case .codex: .codex
+        case .pi, .omp: .pi
+        case .cursor, .grok, .opencode, .fx, .hermes, .antigravity: .acp
+        case .other: .other
         }
     }
 
     public var capabilities: Capabilities {
-        Capabilities(interrupt: true, compact: true, sendWhileWorking: true, subAgents: provider != .codex, sendNow: false)
+        switch driver {
+        case .claude, .other: Capabilities(interrupt: true, compact: true, sendWhileWorking: true, subAgents: true)
+        case .codex, .pi: Capabilities(interrupt: true, compact: true, sendWhileWorking: true)
+        // ACP has no way to compact.
+        case .acp: Capabilities(interrupt: true, sendWhileWorking: true)
+        }
     }
 
     /// What the chat does with command `name` given `arg`. One that opens a panel in the agent's terminal is
     /// unsupported: the chat can't show it, and the next send would land in its keys.
     public func command(_ name: String, _ arg: String) -> Kind {
-        switch provider {
+        switch driver {
         case .claude:
             switch name {
             case "model": return .local(.model)
@@ -85,14 +99,27 @@ public struct Adapter: Hashable, Sendable {
             }
         case .other:
             return .send
+        // Over Pi's RPC or ACP a command of the agent's TUI would reach the model as a prompt.
+        case .pi, .acp:
+            switch name {
+            case "model": return .local(.model)
+            case "effort": return .local(.effort)
+            case "new": return .local(.new)
+            case "thinking" where driver == .pi: return .local(.effort)
+            case "compact" where driver == .pi: return .local(.compact)
+            case _ where tuiOnly.contains(name): return .unsupported
+            default: return .send
+            }
         }
     }
 
     /// The commands the `/` menu offers before the agent's CLI lists its own.
     public var builtins: [Builtin] {
-        switch provider {
+        switch driver {
         case .claude: Self.claudeBuiltins
         case .codex: Self.codexBuiltins
+        case .pi: Self.piBuiltins
+        case .acp: Self.acpBuiltins
         case .other: []
         }
     }
@@ -130,6 +157,51 @@ public struct Adapter: Hashable, Sendable {
     static let codexTuiOnly: Set = [
         "approvals", "permissions", "experimental", "skills", "review", "rename", "resume", "fork", "init", "plan", "collab", "agent", "diff",
         "mention", "status", "statusline", "theme", "apps", "logout", "quit", "exit", "feedback", "ps", "personality", "undo",
+    ]
+
+    static let acpBuiltins = [
+        Builtin(name: "model", hint: "[model]", description: "Set the model"),
+        Builtin(name: "new", hint: "", description: "Start a new chat"),
+    ]
+
+    static let piBuiltins = [
+        Builtin(name: "model", hint: "[model]", description: "Set the model"),
+        Builtin(name: "thinking", hint: "[level]", description: "Set the thinking level"),
+        Builtin(name: "compact", hint: "", description: "Summarize the conversation to free up context"),
+        Builtin(name: "new", hint: "", description: "Start a new chat"),
+    ]
+
+    /// The commands only the agent's TUI runs. None for omp, which lists what its RPC runs.
+    private var tuiOnly: Set<String> {
+        switch provider {
+        case .pi: Self.piTuiOnly
+        case .opencode: Self.opencodeTuiOnly
+        case .hermes: Self.hermesTuiOnly
+        default: []
+        }
+    }
+
+    /// OpenCode 1.19's TUI commands, by name and alias; its ACP server lists only skills, `init` and `review`.
+    static let opencodeTuiOnly: Set = [
+        "agents", "clear", "compact", "connect", "continue", "copy", "debug", "diff", "editor", "exit", "export", "fork", "help", "mcps", "mo",
+        "models", "move", "org", "orgs", "q", "quit", "redo", "rename", "resume", "sessions", "skills", "slash", "status", "summarize",
+        "switch-org", "themes", "thinking", "timeline", "timestamps", "toggle-thinking", "toggle-timestamps", "undo", "update", "variants",
+        "warp", "workspaces",
+    ]
+
+    /// Pi's built-in commands, which only its interactive mode handles (`BUILTIN_SLASH_COMMANDS`), and `llama`, which its
+    /// own extension adds and runs only there.
+    static let piTuiOnly: Set = [
+        "settings", "tree", "scoped-models", "export", "import", "share", "bug", "copy", "name", "session", "changelog", "hotkeys", "fork",
+        "clone", "trust", "login", "logout", "resume", "reload", "quit", "llama",
+    ]
+
+    /// The commands Hermes marks `cli_only`, by name and alias, but `tools`, which its ACP server answers.
+    static let hermesTuiOnly: Set = [
+        "clear", "redraw", "history", "prompt", "compose", "handoff", "worktree", "snapshot", "snap", "export", "import", "journey", "learning",
+        "memory-graph", "config", "statusbar", "sb", "battery", "timestamps", "ts", "verbose", "focus", "skin", "indicator", "wake", "toolsets",
+        "skills", "pet", "hatch", "generate-pet", "cron", "reload", "browser", "plugins", "palette", "subscription", "upgrade", "platforms",
+        "gateway", "copy", "paste", "image", "quit", "exit",
     ]
 }
 

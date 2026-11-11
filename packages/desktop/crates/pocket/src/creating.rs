@@ -115,6 +115,11 @@ impl Create {
         self.spec["checkout"]["new"]["base"].as_str().unwrap_or_default()
     }
 
+    /// Whether the session it starts is a chat, as `Agents::launch` decided.
+    pub(crate) fn chat(&self) -> bool {
+        self.spec["chat"] == true
+    }
+
     pub(crate) fn prompt(&self) -> &str {
         self.spec["prompt"].as_str().unwrap_or_default()
     }

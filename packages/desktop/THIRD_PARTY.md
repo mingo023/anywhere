@@ -63,6 +63,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Monocode agent marks
+
+The Cursor, Grok, OpenCode, Pi, omp, fx, Hermes and Antigravity icons (`crates/theme/assets/icons/{cursor,grok,opencode,pi,omp,fx,hermes,antigravity}.svg`) are the marks in Monocode's `src/features/sessions/ui/HarnessIcon.tsx` and `src/assets/providers/`, under the MIT License above; omp's and Antigravity's are redrawn in one colour. Each mark is a trademark of its owner, used only to identify that product.
+
 ## Zed extensions' syntax queries
 
 The highlight and injection queries in `crates/pocket/src/syntax/` come from Zed's language extensions; the injection queries are rewritten into tree-sitter's `injection.*` captures.

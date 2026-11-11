@@ -95,6 +95,11 @@ public enum Composer {
         chatOnly ? "\(command) isn't available in the chat." : "\(command) runs only in \(who(provider))'s terminal. Run it there."
     }
 
+    /// Why the chat won't compact: only Claude's `/compact` takes instructions, and the chat's own has no way to pass them.
+    public static func compactTakesNoInstructions(provider: String) -> String {
+        "\(who(provider))'s /compact takes no instructions. Send /compact alone."
+    }
+
     /// On a turn, which an agent asking the user still is.
     public static func working(_ agent: AgentSummary) -> Bool {
         switch Status(status: agent.status.rawValue, failed: agent.failed ?? false, attached: agent.attached) {

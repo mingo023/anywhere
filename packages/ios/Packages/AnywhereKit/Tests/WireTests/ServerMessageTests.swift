@@ -85,6 +85,16 @@ struct ServerMessageTests {
         #expect(try !decode(#"{"type":"agent.created","id":"c","requestId":"r","agentId":"a","terminalId":"t"}"#).message.isInterim)
     }
 
+    @Test("an agent that never asks before a tool says so, and one that asks says nothing")
+    func neverAsks() throws {
+        let json = #"{"type":"agent.providers","id":"p","maxAccess":"full","phoneMaxAccess":"full","providers":["#
+            + #"{"id":"pi","available":true,"efforts":[],"plan":true,"neverAsks":true},{"id":"claude","available":true,"efforts":[],"plan":true}]}"#
+        let frame = try decode(json)
+        guard case .agentProviders(let p) = frame.message else { Issue.record("not providers"); return }
+        #expect(p.providers.map(\.neverAsks) == [true, nil])
+        #expect(try JSONDecoder().decode(JSONValue.self, from: frame.encoded()) == JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)))
+    }
+
     @Test("a hello.ok from a Mac whose newest protocol is older than the phone's is too old")
     func serverTooOld() {
         #expect(HelloOk(serverId: "m", hostname: "m", protocolVersion: 2, protocol: .init(min: 1, max: 2)).serverTooOld)

@@ -139,6 +139,7 @@ type ProviderInfo struct {
 	Available bool           `json:"available"`
 	Efforts   []string       `json:"efforts"`
 	Plan      bool           `json:"plan"`
+	NeverAsks bool           `json:"neverAsks,omitempty"` // it runs every tool without asking, so its only access is full
 	Chat      providers.Chat `json:"chat"`
 }
 

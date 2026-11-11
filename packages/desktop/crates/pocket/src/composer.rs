@@ -66,6 +66,11 @@ pub(crate) struct Draft {
     pub(crate) menu: Option<Menu>,
     /// The rail entry the model menu lists, once one is clicked: an agent, or `model_menu::FAVORITES`.
     pub(crate) viewing: Option<&'static str>,
+    /// Where the model menu's list is scrolled to, and its rail of agents.
+    pub(crate) scroll: UniformListScrollHandle,
+    pub(crate) rail: ScrollHandle,
+    /// What the model menu lists.
+    pub(crate) listed: model_menu::KeptList,
     pub(crate) effort: effort_menu::EffortMenu,
     pub(crate) images: Vec<Attachment>,
     /// The Team chip: the next send asks the agent for a team plan.
@@ -97,6 +102,7 @@ impl Draft {
     /// Lists `entry`'s models in the model panel; the efforts are the last entry's.
     pub(crate) fn view(&mut self, entry: &'static str) {
         self.viewing = Some(entry);
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.effort.fold();
     }
 
@@ -104,6 +110,7 @@ impl Draft {
     pub(crate) fn toggle(&mut self, menu: Menu) -> bool {
         self.menu = (self.menu != Some(menu)).then_some(menu);
         self.viewing = None;
+        (self.scroll, self.rail) = Default::default();
         self.effort = Default::default();
         self.menu.is_some()
     }
@@ -306,7 +313,7 @@ impl Desktop {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, typing: bool, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, send: Stateful<Div>, cx: &mut Context<Self>) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
-        let team = team_offered(self.agents.teams_offered(), self.store.agents.start_as_chat, &pick.provider).then_some(c.draft.team);
+        let team = team_offered(self.agents.teams_offered(), self.store.agents.starts_as_chat(&pick.provider), &pick.provider).then_some(c.draft.team);
         let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let attached = (!pills.is_empty() || !c.draft.images.is_empty()).then(|| {
             div().flex().items_center().gap(px(8.)).pt(px(14.)).px(px(16.)).children(pills).children(c.draft.images.iter().enumerate().map(|(i, a)| {
@@ -382,6 +389,9 @@ impl Desktop {
     }
 
     pub(crate) fn access_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
+        if self.agents.provider_info(&pick.provider).never_asks() {
+            return div().child(launch::full_access_chip("composer-access", self.agent_name(&pick.provider)));
+        }
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Access));
         let app = self.store.agents.access();
         let chip = launch::access_chip("composer-access", open, &pick.access, app, move |this, cx| this.toggle_composer(slot, Menu::Access, cx), cx);

@@ -74,11 +74,6 @@ func aGoalKeepsItsPillOnlyWhileActiveOrPaused() {
     #expect(GoalPill.label("complete") == nil && GoalPill.label("blocked") == nil)
 }
 
-@Test("the model menu names effort as the provider does")
-func theModelMenuNamesEffortAsTheProviderDoes() {
-    #expect(ModelPill.effortWord("claude") == "Effort" && ModelPill.effortWord("codex") == "Reasoning")
-}
-
 @Test("a goal shows its tokens against a budget only when it has one")
 func aGoalShowsItsTokens() {
     let goal = { (used: Int, budget: Int) in Goal(objective: "", status: "active", tokensUsed: used, tokenBudget: budget) }
@@ -97,6 +92,8 @@ func theModelPillReads() {
     #expect(ModelPill.label(summary(model: "claude-opus-4-5", effort: "xhigh")) == ("Opus 4.5", "Extra high"))
     #expect(ModelPill.label(summary(model: "claude-opus-4-5", effort: "medium")).effort == "Medium")
     #expect(ModelPill.label(summary(model: "claude-opus-4-5")).effort == nil)
+    #expect(ModelPill.label(summary(provider: "pi", model: "openai-codex/gpt-5.4", effort: "off")) == ("GPT 5.4", "Off"))
+    #expect(ModelPill.label(summary(provider: "opencode")).model == "OpenCode", "its name until it says its model")
 }
 
 @Test("a claude alias is the model its full id names")

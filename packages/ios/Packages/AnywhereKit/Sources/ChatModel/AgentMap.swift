@@ -157,7 +157,7 @@ public enum AgentMap {
             case .done: "Done"
             case .failed: "Failed"
             }
-        return model.isEmpty ? state : "\(state) · \(modelName(model))"
+        return model.isEmpty ? state : "\(state) · \(Sidebar.modelName(model))"
     }
 
     /// How many tools the sub-agent called.

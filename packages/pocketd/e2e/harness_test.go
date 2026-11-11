@@ -48,6 +48,8 @@ func TestMain(m *testing.M) {
 	if err := os.Symlink(filepath.Join(dir, "pocketd"), filepath.Join(dir, "anywhere")); err != nil {
 		panic(err)
 	}
+	buildFakeACP(filepath.Join(dir, "fake"))
+	buildFakePi(filepath.Join(dir, "fake"))
 	binDir = dir
 	code := m.Run()
 	os.RemoveAll(dir)

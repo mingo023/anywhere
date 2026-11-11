@@ -130,13 +130,16 @@ public struct ProviderInfo: Codable, Hashable, Sendable, Identifiable {
     public var plan: Bool
     /// Older pocketds don't send it.
     public var chat: ChatCaps?
+    /// It runs every tool without asking, so its access is always Full. Sent only when true.
+    public var neverAsks: Bool?
 
-    public init(id: String, available: Bool, efforts: [String], plan: Bool, chat: ChatCaps? = nil) {
+    public init(id: String, available: Bool, efforts: [String], plan: Bool, chat: ChatCaps? = nil, neverAsks: Bool? = nil) {
         self.id = id
         self.available = available
         self.efforts = efforts
         self.plan = plan
         self.chat = chat
+        self.neverAsks = neverAsks
     }
 }
 

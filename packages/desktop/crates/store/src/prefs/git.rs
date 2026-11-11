@@ -45,13 +45,18 @@ impl Default for Git {
             force_with_lease: false,
             ai: true,
             agent: providers::ALL[0].id.into(),
-            model: providers::ALL[0].oneshot.model.into(),
+            model: oneshot(providers::ALL[0].id).model.into(),
             style: Style::Recent,
             prompt: String::new(),
             draft: false,
             in_app: false,
         }
     }
+}
+
+/// How `agent` runs once; one that writes no messages, or that this app doesn't know, runs as Claude does.
+fn oneshot(agent: &str) -> &'static providers::Oneshot {
+    providers::get(agent).and_then(|b| b.oneshot.as_ref()).or(providers::ALL[0].oneshot.as_ref()).expect("Claude runs once")
 }
 
 const RECENT: &str = "Write a git commit message for the diff on stdin, in the style of the recent subjects. Reply with the message only.";
@@ -81,7 +86,7 @@ impl Git {
     }
 
     fn agent_argv(&self, command: &str, prompt: &str) -> Vec<String> {
-        let o = &providers::known(&self.agent).oneshot;
+        let o = oneshot(&self.agent);
         let mut argv: Vec<String> = std::iter::once(command).chain(o.args.iter().copied()).map(String::from).collect();
         if !self.model.is_empty() {
             argv.extend([o.model_flag.into(), self.model.clone()]);
@@ -90,10 +95,11 @@ impl Git {
         argv
     }
 
-    /// Picks the agent; a model chosen for the other one goes back to this one's default.
+    /// Picks the agent, if it writes messages; a model chosen for the other one goes back to this one's default.
     pub fn set_agent(&mut self, agent: &str) {
+        let Some(o) = providers::get(agent).and_then(|b| b.oneshot.as_ref()) else { return };
         if agent != self.agent {
-            self.model = providers::get(agent).map_or("", |b| b.oneshot.model).into();
+            self.model = o.model.into();
             self.agent = agent.into();
         }
     }
@@ -125,6 +131,13 @@ mod tests {
         assert_eq!(git.message_argv("codex")[7..], ["-m", "gpt-5.6-sol", RECENT]);
         git.set_agent("claude");
         assert_eq!(git.model, "haiku");
+    }
+
+    #[test]
+    fn an_agent_that_writes_no_messages_is_not_picked() {
+        let mut git = Git::default();
+        git.set_agent("pi");
+        assert_eq!((git.agent.as_str(), git.model.as_str()), ("claude", "haiku"));
     }
 
     #[test]

@@ -350,4 +350,13 @@ func labelsModelsLikeThePicker() {
     #expect(modelLabel(model: "claude-opus-5-5", provider: "claude") == "Opus 5.5")
     #expect(modelLabel(model: "claude-haiku-4-5-20251001", provider: "claude") == "Haiku 4.5")
     #expect(modelLabel(model: nil, provider: "codex") == "Codex")
+    #expect(modelLabel(model: nil, provider: "opencode") == "OpenCode")
+    #expect(modelLabel(model: nil, provider: "gemini") == "Gemini")
+    #expect(modelLabel(model: "opencode/big-pickle", provider: "opencode") == "Big Pickle")
+}
+
+@Test("each agent goes by its short name, one this build doesn't know by Agent")
+func eachAgentGoesByItsShortName() {
+    let ids = ["claude", "codex", "cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity", "gemini"]
+    #expect(ids.map(who) == ["Claude", "Codex", "Cursor", "Grok", "OpenCode", "Pi", "omp", "fx", "Hermes", "Antigravity", "Agent"])
 }

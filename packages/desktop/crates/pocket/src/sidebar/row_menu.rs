@@ -45,13 +45,13 @@ fn session_items(s: &Summary, observe: bool, prefs: &Agents, fork: bool) -> Vec<
 }
 
 /// A create that starts a copy of `s` in its folder, with its model, effort and account.
-/// `plan` and `efforts` are what the session's agent and model take.
-fn fork_spec(s: &Summary, project: &str, prefs: &Agents, plan: bool, efforts: &[String]) -> Option<Value> {
+/// `efforts` are what the session's model takes.
+fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String]) -> Option<Value> {
     let account = if s.account.is_empty() { accounts::BUILT_IN.into() } else { s.account.clone() };
     let pick = LaunchPick { provider: s.provider.clone(), model: s.model.clone().unwrap_or_default(), effort: s.effort.clone().unwrap_or_default(), access: String::new(), account };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), "");
     spec["fork"] = s.provider_session_id.clone()?.into();
-    prefs.launch(&mut spec, plan, efforts);
+    prefs.launch(&mut spec, live, efforts);
     Some(spec)
 }
 
@@ -72,7 +72,7 @@ impl Desktop {
         }
         let projects = self.projects();
         let Some(s) = self.agents.get(id) else { return };
-        let Some(spec) = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, self.agents.provider_info(&s.provider).plan, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()))) else { return };
+        let Some(spec) = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()))) else { return };
         self.send_create(spec);
         cx.notify();
     }
@@ -444,20 +444,22 @@ mod tests {
     fn a_fork_starts_in_the_session_s_folder_with_its_model_and_effort() {
         let s = Summary { provider: "claude".into(), cwd: "/w/tree".into(), provider_session_id: Some("s1".into()), model: Some("opus".into()), effort: Some("high".into()), ..Default::default() };
         let claude = agents::providers::builtin("claude");
-        let spec = fork_spec(&s, "/w", &Agents::default(), claude.plan, &claude.efforts).unwrap();
+        let live = agents::Agents::default();
+        let spec = fork_spec(&s, "/w", &Agents::default(), &live, &claude.efforts).unwrap();
         assert_eq!((&spec["project"], &spec["checkout"], &spec["fork"]), (&json!("/w"), &json!({"worktree": "/w/tree"}), &json!("s1")));
         assert_eq!((&spec["provider"], &spec["model"], &spec["effort"]), (&json!("claude"), &json!("opus"), &json!("high")));
         assert!(spec.get("prompt").is_none());
-        assert_eq!(fork_spec(&Summary { provider_session_id: None, ..s }, "/w", &Agents::default(), claude.plan, &claude.efforts), None);
+        assert_eq!(fork_spec(&Summary { provider_session_id: None, ..s }, "/w", &Agents::default(), &live, &claude.efforts), None);
     }
 
     #[test]
     fn a_fork_runs_on_the_account_its_session_runs_on() {
         let s = Summary { provider: "codex".into(), cwd: "/w".into(), provider_session_id: Some("s1".into()), account: "work".into(), ..Default::default() };
         let codex = agents::providers::builtin("codex");
-        assert_eq!(fork_spec(&s, "/w", &Agents::default(), codex.plan, &codex.efforts).unwrap()["account"], json!("work"));
+        let live = agents::Agents::default();
+        assert_eq!(fork_spec(&s, "/w", &Agents::default(), &live, &codex.efforts).unwrap()["account"], json!("work"));
         let built_in = Summary { account: String::new(), ..s };
-        assert_eq!(fork_spec(&built_in, "/w", &Agents::default(), codex.plan, &codex.efforts).unwrap()["account"], json!("builtin"));
+        assert_eq!(fork_spec(&built_in, "/w", &Agents::default(), &live, &codex.efforts).unwrap()["account"], json!("builtin"));
     }
 
     #[test]
