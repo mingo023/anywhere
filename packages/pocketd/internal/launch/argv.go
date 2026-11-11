@@ -44,8 +44,10 @@ type cli interface {
 
 var clis = func() map[string]cli {
 	m := map[string]cli{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}}
-	for _, a := range specCLIs {
-		m[a.p.ID] = a
+	for _, p := range providers.All {
+		if p.OnlyChats() {
+			m[p.ID] = specCLI{p}
+		}
 	}
 	return m
 }()

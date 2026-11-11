@@ -13,25 +13,7 @@ import (
 
 // specCLI runs a provider from its providers.Spec: its TUI by Spec.Flags, and
 // its chat by Spec.Transport.
-type specCLI struct {
-	p *providers.Spec
-	// sub is the subcommand a new session's flags follow.
-	sub string
-	// signIn follows the command to sign in; nil when it has no one command for that.
-	signIn []string
-}
-
-var specCLIs = []specCLI{
-	{p: &providers.Cursor, signIn: []string{"login"}},
-	{p: &providers.Grok, signIn: []string{"login"}},
-	{p: &providers.OpenCode, signIn: []string{"auth", "login"}},
-	{p: &providers.Pi},
-	{p: &providers.Omp},
-	{p: &providers.Fx, signIn: []string{"login"}},
-	{p: &providers.Hermes, sub: "chat", signIn: []string{"model"}},
-	// agy signs in the first time it runs.
-	{p: &providers.Antigravity, signIn: []string{}},
-}
+type specCLI struct{ p *providers.Spec }
 
 // acpArgv adds what runs argv's command as an ACP server on stdio. It has
 // flags only for what the CLI takes as one; the rest of l is carried.
@@ -125,8 +107,8 @@ func (c specCLI) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string,
 	if c.chat(s) {
 		return c.chatArgv(l, argv), true, nil
 	}
-	if c.sub != "" {
-		argv = append(argv, c.sub)
+	if c.p.Sub != "" {
+		argv = append(argv, c.p.Sub)
 	}
 	return flags(c.p, l, plan(c.p, l, argv)), false, nil
 }
@@ -166,10 +148,10 @@ func (c specCLI) resume(t state.Terminal, l state.Launch, argv []string) []strin
 func (specCLI) untrusted([]string, string) *Failure { return nil }
 
 func (c specCLI) login(exe string) []string {
-	if c.signIn == nil {
+	if c.p.SignIn == nil && !c.p.SignInBare {
 		return nil
 	}
-	return append([]string{exe}, c.signIn...)
+	return append([]string{exe}, c.p.SignIn...)
 }
 
 // logout is none: pocketd keeps no accounts for these.

@@ -28,19 +28,15 @@ type pipeChat interface {
 	out(line string) // a line the agent wrote
 }
 
-// kindOf has every providers.All id, the only ones Provider returns.
-var kindOf = map[string]kind{
-	providers.Claude.ID:      claudeKind{},
-	providers.Codex.ID:       codexKind{},
-	providers.Cursor.ID:      acpKind{},
-	providers.Grok.ID:        acpKind{},
-	providers.OpenCode.ID:    acpKind{},
-	providers.Pi.ID:          piKind{},
-	providers.Omp.ID:         piKind{},
-	providers.Fx.ID:          acpKind{},
-	providers.Hermes.ID:      acpKind{},
-	providers.Antigravity.ID: acpKind{},
-}
+// kindOf has every providers.All id, the only ones Provider returns, by the transport of its chat.
+var kindOf = func() map[string]kind {
+	byTransport := map[string]kind{providers.StreamJSON: claudeKind{}, providers.AppServer: codexKind{}, providers.ACP: acpKind{}, providers.PiRPC: piKind{}}
+	m := map[string]kind{}
+	for _, p := range providers.All {
+		m[p.ID] = byTransport[p.Transport]
+	}
+	return m
+}()
 
 // tuiKind is an agent whose TUI tells pocketd nothing: its Session shows
 // only what its Terminal does, and is driven from its chat or not at all.

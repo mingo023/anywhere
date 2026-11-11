@@ -27,6 +27,11 @@ type Spec struct {
 	Args      [3]string // default promptArgs, resumeArgs, forkArgs (config.ArgKeys order)
 	NotAgent  []string  // argv[1]s that run it as a tool, not a session
 	Help      []string  // what its --help says, where another command has its name
+	Sub       string    // the subcommand a new TUI session's flags follow
+	// SignIn follows its command to sign in, or SignInBare has the command
+	// alone do it; with neither, no one command signs it in.
+	SignIn     []string
+	SignInBare bool
 }
 
 // Flags name what a launch asks for on a provider's command line; "" where it has no flag for it.
