@@ -1,4 +1,4 @@
-use crate::ListedModel;
+use crate::{ListedModel, ModelSetting};
 use crate::providers::{GROK_EFFORTS, THINKING};
 use serde_json::Value;
 
@@ -69,9 +69,19 @@ fn plain(line: &str) -> String {
     out.trim().to_string()
 }
 
-/// The models `cursor-agent --list-models` prints as "id - Name" lines, among headings and tips. Each variant it lists is
-/// a model of its own: its id is what `--model` takes.
+/// The models Cursor's ACP server answers `cursor/list_available_models` with. It keeps one model for all its variants:
+/// what tells them apart, as effort or "Fast", are the model's own `configOptions`, each set by its id once the model is.
 pub fn cursor(output: &str) -> Vec<ListedModel> {
+    let Some(reply) = reply(output, is_acp_session) else { return Vec::new() };
+    let models = items(&reply["result"]["models"]).iter().map(|m| {
+        let id = text(m, &["value"]);
+        ListedModel { settings: items(&m["configOptions"]).iter().filter_map(setting).collect(), ..listed(id, &name_of(m, &["name"], id), Vec::new()) }
+    });
+    unique(models.filter(|m| !m.value.is_empty()).collect())
+}
+
+/// The models a CLI prints as "id - Name" lines, among headings and tips.
+fn lines(output: &str) -> Vec<ListedModel> {
     let models = output.lines().filter_map(|l| {
         let line = plain(l);
         let (id, name) = line.split_once(" - ").or_else(|| line.split_once(" \u{2014} "))?;
@@ -95,9 +105,21 @@ pub fn grok(output: &str) -> Vec<ListedModel> {
 /// Lowest effort first, as OpenCode's own picker sorts them; ones it doesn't know go last, by name.
 const VARIANTS: [&str; 9] = ["none", "minimal", "low", "medium", "high", "xhigh", "extra-high", "max", "ultra"];
 
+/// The agents OpenCode runs its own turns as; a session can't be switched to one.
+const OPENCODE_OWN_AGENTS: [&str; 3] = ["compaction", "summary", "title"];
+
+/// The agent a session runs as, of the ones `opencode agent list` heads "name (primary)" or "name (all)". "plan" is
+/// left to plan mode; ACP calls the rest the session's "mode".
+fn opencode_agent(output: &str) -> Option<ModelSetting> {
+    let agents = output.lines().filter_map(|l| l.strip_suffix(" (primary)").or_else(|| l.strip_suffix(" (all)"))).filter(|a| *a != "plan" && !OPENCODE_OWN_AGENTS.contains(a));
+    let choices: Vec<(String, String)> = agents.map(|a| (a.to_string(), crate::model_name(a))).collect();
+    (choices.len() > 1).then(|| ModelSetting { id: "mode".into(), name: "Agent".into(), default: "build".into(), choices })
+}
+
 /// The models `opencode models --verbose` prints, each a "provider/model" line above its JSON, by name; a model's
-/// variants are its efforts.
+/// variants are its efforts. Each runs as any of the agents `opencode agent list` prints after them.
 pub fn opencode(output: &str) -> Vec<ListedModel> {
+    let agent = opencode_agent(output);
     let mut models = Vec::new();
     let mut lines = output.lines().peekable();
     while let Some(line) = lines.next() {
@@ -113,7 +135,7 @@ pub fn opencode(output: &str) -> Vec<ListedModel> {
         let mut efforts: Vec<String> = model["variants"].as_object().into_iter().flat_map(|v| v.keys().cloned()).collect();
         efforts.sort_by_cached_key(|e| (VARIANTS.iter().position(|v| *v == e.to_lowercase()).unwrap_or(VARIANTS.len()), e.clone()));
         let upstream = slug.split_once('/').map_or("", |(who, _)| who);
-        models.push(served_by(upstream, listed(slug, &name_of(&model, &["name"], slug), efforts)));
+        models.push(ListedModel { settings: agent.iter().cloned().collect(), ..served_by(upstream, listed(slug, &name_of(&model, &["name"], slug), efforts)) });
     }
     by_name(unique(models))
 }
@@ -137,6 +159,13 @@ pub fn pi(output: &str) -> Vec<ListedModel> {
         offered.then(|| served_by(provider, listed(&format!("{provider}/{id}"), text(m, &["name", "id"]), if m["reasoning"] == true { owned(THINKING) } else { Vec::new() })))
     });
     by_name(unique(models.collect()))
+}
+
+/// omp's models, each with its "Fast": the priority tier of who serves the model. Its list doesn't say which models
+/// have one, so every model offers it and omp says when one can't.
+pub fn omp(output: &str) -> Vec<ListedModel> {
+    let fast = ModelSetting { id: "fast".into(), name: "Fast".into(), choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())], default: "false".into() };
+    pi(output).into_iter().map(|m| ListedModel { settings: vec![fast.clone()], ..m }).collect()
 }
 
 /// Copilot lists models that only its own tools run, and dated twins of the ones it offers.
@@ -171,6 +200,13 @@ fn choices(option: &Value) -> Vec<(&str, &str)> {
     items(&option["options"]).iter().flat_map(|c| if c["options"].is_array() { choices(c) } else { vec![(text(c, &["value"]), text(c, &["name", "label", "value"]))] }).filter(|(value, _)| !value.is_empty()).collect()
 }
 
+/// A config option as a setting, when it has a choice to make.
+fn setting(option: &Value) -> Option<ModelSetting> {
+    let id = text(option, &["id"]);
+    let choices: Vec<(String, String)> = choices(option).into_iter().map(|(value, name)| (value.to_string(), name.to_string())).collect();
+    (!id.is_empty() && choices.len() > 1).then(|| ModelSetting { id: id.into(), name: text(option, &["name", "id"]).into(), default: text(option, &["currentValue"]).into(), choices })
+}
+
 /// The models an ACP agent's reply to `session/new` offers: its model option's choices, each taking the thought levels
 /// when it has two or more, else its `models` with the one it's on first.
 pub fn acp(output: &str) -> Vec<ListedModel> {
@@ -192,11 +228,11 @@ pub fn acp(output: &str) -> Vec<ListedModel> {
 }
 
 /// The models `fx models --json` lists, as ids or as objects, under `ids`, `models` or `data` or as the array itself;
-/// the lines Cursor prints too, from an fx that prints no JSON. fx isn't installed where this was written, so it reads
+/// "id - Name" lines too, from an fx that prints no JSON. fx isn't installed where this was written, so it reads
 /// every shape MonoCode's `fxProtocol.ts` does and no other.
 pub fn fx(output: &str) -> Vec<ListedModel> {
     let json = output.find(['{', '[']).and_then(|at| serde_json::from_str::<Value>(output[at..].trim()).ok());
-    let Some(json) = json else { return cursor(output) };
+    let Some(json) = json else { return lines(output) };
     let list = ["models", "ids", "data"].iter().map(|k| &json[*k]).find(|v| v.is_array()).unwrap_or(&json);
     let models = items(list).iter().filter_map(|m| {
         let id = m.as_str().map(str::trim).unwrap_or_else(|| text(m, &["id", "modelId", "model_id", "model", "value"]));
@@ -309,10 +345,48 @@ openai/alpha
         assert!(opencode("Error: unknown command models").is_empty());
     }
 
+    type Shown<'a> = (&'a str, &'a str, &'a str, Vec<(&'a str, &'a str)>);
+
+    fn settings(model: &ListedModel) -> Vec<Shown<'_>> {
+        model.settings.iter().map(|s| (s.id.as_str(), s.name.as_str(), s.default.as_str(), s.choices.iter().map(|(v, n)| (v.as_str(), n.as_str())).collect())).collect()
+    }
+
     #[test]
-    fn cursor_lists_every_id_dash_name_line_without_its_colours_or_default_mark() {
+    fn cursor_lists_one_model_for_its_variants_with_what_tells_them_apart_as_its_settings() {
+        let out = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}
+{"jsonrpc":"2.0","id":2,"result":{"models":[{"value":"composer-2.5","name":"Composer 2.5","configOptions":[]},{"value":"gpt-5.4","name":"GPT-5.4","configOptions":[{"id":"reasoning","name":"Reasoning","category":"thought_level","type":"select","currentValue":"medium","options":[{"value":"low","name":"Low"},{"value":"medium","name":"Medium"},{"value":"high","name":"High"}]},{"id":"fast","name":"Fast","category":"model_config","type":"select","currentValue":"false","options":[{"value":"false","name":"Off"},{"value":"true","name":"On"}]},{"id":"context","name":"Context","category":"model_config","type":"select","currentValue":"272k","options":[{"value":"272k","name":"272K"}]}]},{"value":"gpt-5.4","name":"Twin"},{"value":"unnamed"},{"name":"No value"}]}}"#;
+        let models = cursor(out);
+        assert_eq!(shown(&models), [("composer-2.5", "Composer 2.5", vec![]), ("gpt-5.4", "GPT-5.4", vec![]), ("unnamed", "Unnamed", vec![])]);
+        assert_eq!(settings(&models[0]), []);
+        assert_eq!(settings(&models[1]), [("reasoning", "Reasoning", "medium", vec![("low", "Low"), ("medium", "Medium"), ("high", "High")]), ("fast", "Fast", "false", vec![("false", "Off"), ("true", "On")])], "a setting with one value is no choice");
+        assert!(cursor("auto - Auto (default)\n").is_empty());
+    }
+
+    #[test]
+    fn every_omp_model_offers_fast_and_pi_s_offer_none() {
+        let out = r#"{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"gpt-5.5","name":"GPT-5.5","provider":"openai","reasoning":true},{"id":"glm-5","name":"GLM 5","provider":"zai"}]}}"#;
+        let models = omp(out);
+        assert_eq!(shown(&models), shown(&pi(out)));
+        assert!(models.iter().all(|m| settings(m) == [("fast", "Fast", "false", vec![("false", "Off"), ("true", "On")])]));
+        assert!(pi(out).iter().all(|m| m.settings.is_empty()));
+    }
+
+    #[test]
+    fn opencode_models_run_as_any_agent_a_session_can_but_plan() {
+        let models = "opencode/big-pickle\n{\n  \"name\": \"Big Pickle\"\n}\n";
+        let agents = "build (primary)\n  [\n  {\n    \"permission\": \"*\"\n  }\n]\ncompaction (primary)\n]\nexplore (subagent)\nplan (primary)\nsummary (primary)\ntitle (primary)\ndocs-writer (all)\nhelper (subagent)\nreview (primary)\n]\n";
+        let listed = opencode(&format!("{models}{agents}"));
+        assert_eq!(shown(&listed), [("opencode/big-pickle", "Big Pickle", vec![])]);
+        assert_eq!(settings(&listed[0]), [("mode", "Agent", "build", vec![("build", "Build"), ("docs-writer", "Docs Writer"), ("review", "Review")])]);
+        let own = "build (primary)\nplan (primary)\ntitle (primary)\n";
+        assert!(opencode(&format!("{models}{own}"))[0].settings.is_empty(), "its own agents alone leave nothing to pick");
+        assert!(opencode(models)[0].settings.is_empty());
+    }
+
+    #[test]
+    fn fx_without_json_lists_every_id_dash_name_line_without_its_colours_or_default_mark() {
         let out = "Available models\n\n\x1b[1mauto\x1b[0m - Auto (default)\ncomposer-2.5 - Composer 2.5\ngpt-5.4-high-fast - GPT-5.4 High Fast\ncomposer-2.5 - Twin\n\nTip: use --model <id> to pick one - or not\n";
-        assert_eq!(shown(&cursor(out)), [("auto", "Auto", vec![]), ("composer-2.5", "Composer 2.5", vec![]), ("gpt-5.4-high-fast", "GPT-5.4 High Fast", vec![])]);
+        assert_eq!(shown(&fx(out)), [("auto", "Auto", vec![]), ("composer-2.5", "Composer 2.5", vec![]), ("gpt-5.4-high-fast", "GPT-5.4 High Fast", vec![])]);
     }
 
     #[test]

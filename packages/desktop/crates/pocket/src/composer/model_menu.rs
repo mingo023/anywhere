@@ -1,11 +1,11 @@
-use super::effort_menu::{Effort, effort_menu};
+use super::effort_menu::{Effort, choice_menu, effort_menu};
 use super::{Composer, Draft, Menu, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
 use crate::settings::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_label, model_options, not_found};
 use crate::pick_menu::{Line, Memo, checked, pick_list};
-use agents::ListedModel;
 use agents::providers;
+use agents::{ListedModel, ModelSetting};
 use gpui_kit::component::input::InputState;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -47,7 +47,21 @@ fn effort_shown<'a>(pick: &'a LaunchPick, app: &'a Provider, efforts: &[String],
     [&pick.effort, &app.effort].into_iter().chain(default).find(|e| efforts.contains(e))
 }
 
-/// The provider's icon, the model and, after it, the effort it runs on.
+/// What the pill says of the `settings` picked off the model's own: a switch by its name, any other by its choice's.
+fn settings_shown(pick: &LaunchPick, settings: &[ModelSetting]) -> Vec<String> {
+    let shown = |s: &ModelSetting| {
+        let value = pick.options.get(&s.id).filter(|v| **v != s.default)?;
+        let (_, label) = s.choices.iter().find(|(v, _)| v == value)?;
+        Some(match value.as_str() {
+            "true" => s.name.clone(),
+            "false" => format!("{} off", s.name),
+            _ => label.clone(),
+        })
+    };
+    settings.iter().filter_map(shown).collect()
+}
+
+/// The provider's icon, the model and, after it, the effort and settings it runs on.
 pub(crate) fn model_effort_pill(provider: &str, model: String, effort: Option<String>) -> Div {
     super::pill()
         .max_w(px(248.))
@@ -81,9 +95,12 @@ pub(crate) type KeptList = Memo<Listed>;
 /// Picks the model of a line that was clicked.
 pub(crate) type Choose = Rc<dyn Fn(&mut Desktop, &Entry, &mut Context<Desktop>)>;
 
-/// The panel the model pill opens: `rail` beside a search, the models, a `note` on them and the efforts.
-pub(crate) fn panel(rail: Div, search: &Entity<InputState>, list: Div, note: Option<String>, effort: Option<Effort>) -> Div {
-    let (row, levels) = effort.map_or((None, None), |e| (Some(div().flex_none().p(px(PAD)).border_t(px(0.5)).border_color(SEPARATOR).child(e.row)), e.list));
+/// The panel the model pill opens: `rail` beside a search, the models, a `note` on them and a row for the effort and
+/// for each of the model's settings.
+pub(crate) fn panel(rail: Div, search: &Entity<InputState>, list: Div, note: Option<String>, settings: Vec<Effort>) -> Div {
+    let (rows, lists): (Vec<_>, Vec<_>) = settings.into_iter().map(|e| (e.row, e.list)).unzip();
+    let levels = lists.into_iter().flatten().next();
+    let row = (!rows.is_empty()).then(|| div().flex_none().p(px(PAD)).flex().flex_col().gap(px(GAP)).border_t(px(0.5)).border_color(SEPARATOR).children(rows));
     let note = note.map(|n| div().flex_none().px(px(PAD + 10.)).pb(px(10.)).text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(n));
     let column = div().flex_1().min_w_0().flex().flex_col().child(menu_input("search", search)).child(list).children(note).children(row);
     let panel = ui::pop(div()).w(px(PANEL_WIDTH)).flex_none().flex().overflow_hidden().child(rail).child(column);
@@ -270,8 +287,9 @@ impl Desktop {
         let names = self.offered_models(&pick.provider);
         let levels = self.launch_efforts(&pick.provider, &pick.model);
         let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &levels, names);
+        let detail: Vec<String> = effort.into_iter().chain(settings_shown(pick, self.launch_settings(&pick.provider, &pick.model))).collect();
         let (open, provider, opened_in) = (c.draft.menu == Some(Menu::Model), pick.provider.clone(), project.clone());
-        let chip = super::picker(model_effort_pill(&pick.provider, model, effort), "composer-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+        let chip = super::picker(model_effort_pill(&pick.provider, model, (!detail.is_empty()).then(|| detail.join(" \u{b7} "))), "composer-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             this.toggle_composer(slot, Menu::Model, cx);
             let c = slot(this);
@@ -385,7 +403,7 @@ impl Desktop {
         self.settings.models.failure(viewed).map(|why| couldnt_list(&self.agent_name(viewed), why))
     }
 
-    /// The rail, the viewed entry's models and the picked model's efforts; only picking a model switches agent.
+    /// The rail, the viewed entry's models and the picked model's efforts and settings; only picking a model switches agent.
     fn launch_panel(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, levels: &[String], names: &[ListedModel], cx: &mut Context<Self>) -> Div {
         let slot = c.slot;
         let viewed = c.draft.viewing.unwrap_or(&pick.provider);
@@ -406,25 +424,35 @@ impl Desktop {
                 // An effort the new model lacks would still be sent, though its chip no longer shows it.
                 let effort = if this.launch_efforts(&entry.provider, &entry.value).contains(&base.effort) { base.effort.clone() } else { String::new() };
                 this.model_used(&entry.provider, &entry.value, cx);
-                this.choose_launch(slot, project.clone(), LaunchPick { model: entry.value.clone(), effort, ..base }, cx)
+                let pick = LaunchPick { effort, ..base.on_model(&entry.value, this.launch_settings(&entry.provider, &entry.value)) };
+                this.choose_launch(slot, project.clone(), pick, cx)
             });
             model_list("composer-model-row", listed, viewed == FAVORITES, &c.draft.scroll, choose, cx)
         };
 
-        // Another entry lists other models, but the efforts below would still be the picked model's.
-        let effort = (viewed == pick.provider && !levels.is_empty()).then(|| {
-            let current = pick.clone();
+        // Another entry lists other models, but the efforts and settings below would still be the picked model's.
+        let own = viewed == pick.provider;
+        let effort = (own && !levels.is_empty()).then(|| {
+            let (current, project) = (pick.clone(), project.clone());
             let choose: launch::Pick = Rc::new(move |this, effort, cx| this.adjust_launch(slot, project.clone(), LaunchPick { effort, ..current.clone() }, cx));
             let on = effort_shown(pick, &self.store.agents.provider(&pick.provider), levels, names).cloned();
             effort_menu("composer-effort", providers::known(&pick.provider).effort_word, (levels, on.as_ref()), &c.draft.effort, move |d: &mut Desktop| &mut slot(d).draft, choose, cx)
         });
-        panel(rail, &c.search, list, self.models_note(viewed), effort)
+        let settings = if own { self.launch_settings(&pick.provider, &pick.model) } else { &[] };
+        let settings = settings.iter().enumerate().map(|(i, s)| {
+            let (current, project, id) = (pick.clone(), project.clone(), s.id.clone());
+            let choose: launch::Pick = Rc::new(move |this, value, cx| this.adjust_launch(slot, project.clone(), current.with_option(&id, value), cx));
+            let on = pick.options.get(&s.id).unwrap_or(&s.default);
+            choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &c.draft.effort, move |d: &mut Desktop| &mut slot(d).draft, choose, cx)
+        });
+        let rows: Vec<Effort> = effort.into_iter().chain(settings.collect::<Vec<_>>()).collect();
+        panel(rail, &c.search, list, self.models_note(viewed), rows)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, FAVORITES, Line, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_tab, saved_entries};
+    use super::{Entry, FAVORITES, Line, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_tab, saved_entries, settings_shown};
     use agents::ListedModel;
     use store::LaunchPick;
     use store::prefs::agents::Provider;
@@ -483,6 +511,16 @@ mod tests {
         assert_eq!(pill_label("Codex", &pick("codex", "", ""), &none, &efforts, &names), ("Codex".into(), None));
         let lacking = Provider { effort: "ultra".into(), ..Provider::default() };
         assert_eq!(pill_label("Codex", &pick("codex", "gpt-6-sol", ""), &lacking, &efforts, &names).1.as_deref(), Some("Low"));
+    }
+
+    #[test]
+    fn the_pill_names_the_settings_picked_off_the_models_own() {
+        let setting = |id: &str, name: &str, choices: &[(&str, &str)]| agents::ModelSetting { id: id.into(), name: name.into(), choices: choices.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect(), default: choices[0].0.into() };
+        let settings = [setting("fast", "Fast", &[("false", "Off"), ("true", "On")]), setting("thinking", "Thinking", &[("true", "On"), ("false", "Off")]), setting("mode", "Agent", &[("build", "Build"), ("review", "Review")])];
+        let picked = |options: &[(&str, &str)]| settings_shown(&LaunchPick { options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), ..pick("cursor", "gpt-5.4", "") }, &settings);
+        assert_eq!(picked(&[]), Vec::<String>::new());
+        assert_eq!(picked(&[("fast", "true"), ("thinking", "false"), ("mode", "review")]), ["Fast", "Thinking off", "Review"]);
+        assert_eq!(picked(&[("fast", "false"), ("thinking", "true"), ("mode", "build"), ("gone", "x"), ("mode", "nope")]), Vec::<String>::new(), "its own, or one it lacks");
     }
 
     #[test]

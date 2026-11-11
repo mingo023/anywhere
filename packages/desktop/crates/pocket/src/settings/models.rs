@@ -1,8 +1,8 @@
 use super::dropdown::{Choice, Row};
 use crate::desktop::Desktop;
 use crate::modals::form::home;
-use agents::ListedModel;
 use agents::providers;
+use agents::{ListedModel, ModelSetting};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use std::sync::LazyLock;
@@ -203,13 +203,19 @@ pub(crate) fn listed_agents(offered: &[&'static str], current: &[&str]) -> Vec<&
 /// How long a server gets to list its models before it's stopped.
 const ANSWER_WITHIN: Duration = Duration::from_secs(45);
 
-/// What `argv` printed, run where a session would be with `input` on stdin; a server is stopped at its `answer`.
-fn list_models(argv: &[String], input: &str, answer: Option<fn(&str) -> bool>) -> Result<String, String> {
+/// What `argv` printed, run where a session would be with `input` on stdin; a server is stopped at its `answer`. Then
+/// what the command printed run with `also`, where the catalog has more to ask; that failing adds nothing.
+fn list_models(argv: &[String], input: &str, answer: Option<fn(&str) -> bool>, also: &[&str]) -> Result<String, String> {
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
-    match answer {
+    let printed = match answer {
         Some(answer) => daemon::run_login_until(&argv, &home(), input, answer, ANSWER_WITHIN),
         None => daemon::run_login(&argv, &home(), input),
+    }?;
+    if also.is_empty() {
+        return Ok(printed);
     }
+    let more = daemon::run_login(&[&argv[..1], also].concat(), &home(), "").unwrap_or_default();
+    Ok(format!("{printed}\n{more}"))
 }
 
 fn capitalised(word: &str) -> String {
@@ -256,7 +262,7 @@ impl Desktop {
         let catalog = &providers::known(provider).models;
         let (argv, input) = (self.store.agents.catalog_argv(provider), catalog.input_in(&home()));
         cx.spawn(async move |this, cx| {
-            let read = cx.background_executor().spawn(async move { list_models(&argv, &input, catalog.answer).and_then(|printed| catalog.read(&printed)) }).await;
+            let read = cx.background_executor().spawn(async move { list_models(&argv, &input, catalog.answer, catalog.also).and_then(|printed| catalog.read(&printed)) }).await;
             this.update(cx, |d, cx| {
                 if d.settings.models.answer(provider, asked, read) {
                     cx.notify();
@@ -291,6 +297,12 @@ impl Desktop {
     pub(crate) fn launch_efforts(&self, provider: &str, model: &str) -> Vec<String> {
         let settings = self.store.agents.provider(provider).model;
         self.efforts_on(provider, if model.is_empty() { &settings } else { model })
+    }
+
+    /// The settings of the model a launch of `provider` on `model` runs; with no model picked, it starts on Settings'.
+    pub(crate) fn launch_settings(&self, provider: &str, model: &str) -> &[ModelSetting] {
+        let settings = self.store.agents.provider(provider).model;
+        self.listed_model(provider, if model.is_empty() { &settings } else { model }).map_or(&[], |m| &m.settings)
     }
 }
 

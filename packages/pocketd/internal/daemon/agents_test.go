@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -93,7 +94,7 @@ func TestAnAgentPocketdStartedKeepsTheLaunchItsCommandLineNoLongerShows(t *testi
 		pr.mu.Lock()
 		l := pr.launch
 		pr.mu.Unlock()
-		if a.Provider != "pi" || l != want || a.Model != want.Model || a.Effort != want.Effort {
+		if a.Provider != "pi" || !reflect.DeepEqual(l, want) || a.Model != want.Model || a.Effort != want.Effort {
 			t.Errorf("started by %q: launch %+v, agent %+v", origin, l, a)
 		}
 	}

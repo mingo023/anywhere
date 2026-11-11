@@ -55,7 +55,7 @@ impl Desktop {
             let project = self.chat_project(agent);
             let rail = self.model_rail(viewed, &agent.provider, project.as_deref(), &self.chats.composer.draft.rail, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
             let effort = (viewed == agent.provider && !levels.is_empty()).then(|| self.chat_effort_menu(agent, &levels, default, cx));
-            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort), cx)
+            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort.into_iter().collect()), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }

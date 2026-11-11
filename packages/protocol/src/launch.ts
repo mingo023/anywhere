@@ -46,6 +46,8 @@ export const LaunchSpec = Schema.Struct({
   access: Access,
   plan: Schema.Boolean,
   prompt: Schema.optional(Schema.String),
+  // The model's own settings, by the agent's id for each; only a chat sets them.
+  options: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   fork: Schema.optional(Schema.String),
   account: Schema.optional(Schema.String),
   chat: Schema.optional(Schema.Boolean),

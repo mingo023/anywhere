@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"c12","requestId":"r12","spec":{"project":"/Users/me/pocket","checkout":{"worktree":"/Users/me/.worktrees/pocket/fix"},"provider":"cursor","model":"gpt-5.4","options":{"fast":"true","reasoning":"high"},"access":"ask","plan":false,"prompt":"fix the flaky test","chat":true}}

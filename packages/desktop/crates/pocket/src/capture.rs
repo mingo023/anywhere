@@ -28,7 +28,7 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 264] = [
+const STEPS: [(&str, Step); 265] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -704,6 +704,16 @@ const STEPS: [(&str, Step); 264] = [
         for p in d.projects() {
             d.store.repos.entry(p).or_default().hidden.insert("codex".into());
         }
+    }),
+    ("models-settings", |d, _, cx| {
+        for p in d.agents.providers.iter_mut() {
+            p.available |= p.id == "cursor";
+        }
+        let reply = r#"{"jsonrpc":"2.0","id":2,"result":{"models":[{"value":"composer-2.5","name":"Composer 2.5","configOptions":[]},{"value":"gpt-5.4","name":"GPT-5.4","configOptions":[{"id":"reasoning","name":"Reasoning","category":"thought_level","type":"select","currentValue":"medium","options":[{"value":"low","name":"Low"},{"value":"medium","name":"Medium"},{"value":"high","name":"High"}]},{"id":"fast","name":"Fast","category":"model_config","type":"select","currentValue":"false","options":[{"value":"false","name":"Off"},{"value":"true","name":"On"}]}]}]}}"#;
+        d.settings.models.set("cursor", providers::known("cursor").models.read(reply).ok());
+        let pick = store::LaunchPick { provider: "cursor".into(), model: "gpt-5.4".into(), access: "ask".into(), options: [("fast".to_string(), "true".to_string())].into(), ..Default::default() };
+        let repo = d.project.clone(); crate::modals::new_session::slot(d).draft.choose(repo, pick);
+        cx.notify();
     }),
     // Hermes still listing its models, and this Mac's agents: the others say how to install them.
     ("models-loading", |d, _, _| d.settings.models.set("hermes", None)),

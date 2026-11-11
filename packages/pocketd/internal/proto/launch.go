@@ -37,6 +37,8 @@ type LaunchSpec struct {
 	Access   string   `json:"access"`
 	Plan     bool     `json:"plan"`
 	Prompt   string   `json:"prompt,omitempty"`
+	// Options are the model's own settings, by the agent's id for each; only a chat sets them.
+	Options map[string]string `json:"options,omitempty"`
 	// Fork is the provider session id this one starts as a copy of.
 	Fork string `json:"fork,omitempty"`
 	// Account is an account id, or "builtin"; empty is the provider's default.
@@ -174,7 +176,7 @@ func strictObject(raw json.RawMessage, allowed ...string) (map[string]json.RawMe
 }
 
 func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
-	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "fork", "account", "chat", "parent", "team")
+	spec, ok := strictObject(raw, "project", "checkout", "provider", "model", "effort", "access", "plan", "prompt", "options", "fork", "account", "chat", "parent", "team")
 	if !ok {
 		return false
 	}

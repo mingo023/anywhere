@@ -172,6 +172,12 @@ func (s *Session) Open(w Wire, l state.Launch, midTurn bool) (unsent []string, e
 			log.Printf("pi %s: thinking %s: %v", s.agentID, l.Effort, err)
 		}
 	}
+	// omp's Fast is the priority service tier, which only some providers' models have.
+	if fast, ok := l.Options["fast"]; ok {
+		if _, err := s.call(c, CallWait, "set_fast_mode", map[string]any{"enabled": fast == "true"}); err != nil {
+			s.notice(fmt.Sprintf("%s couldn't set fast to %s: %v", s.name, fast, err))
+		}
+	}
 	var history struct {
 		Messages []message `json:"messages"`
 	}

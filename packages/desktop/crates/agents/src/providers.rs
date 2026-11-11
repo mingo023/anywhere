@@ -44,6 +44,8 @@ pub const CWD: &str = "{cwd}";
 pub struct Catalog {
     /// Run after the provider's command.
     pub args: &'static [&'static str],
+    /// Run after it too, for what `args` doesn't list; what this prints follows what that did. Empty for none.
+    pub also: &'static [&'static str],
     pub input: &'static str,
     /// The line that answers, from a server that runs on after it: `daemon::run_login_until` stops there. `None` when
     /// the CLI exits by itself, as `daemon::run_login` waits for.
@@ -54,7 +56,7 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    const NONE: Self = Self { args: &[], input: "", answer: None, parse: |_| Vec::new(), fallback: &[] };
+    const NONE: Self = Self { args: &[], also: &[], input: "", answer: None, parse: |_| Vec::new(), fallback: &[] };
 
     /// The models `output` lists, or what a server answered instead of a list, as "Authentication required".
     pub fn read(&self, output: &str) -> Result<Vec<crate::ListedModel>, String> {
@@ -143,6 +145,10 @@ pub(crate) const GROK_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 /// Opens an ACP agent and a session in `CWD`, whose reply lists its models.
 const ACP_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false,"session":{"configOptions":{"boolean":{}}}},"clientInfo":{"name":"anywhere","version":"0"}}}
 {"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":{cwd},"mcpServers":[]}}"#;
+
+/// Asks Cursor's ACP server for its models, each with its own settings; `catalogs::acp_answered` is its reply.
+const CURSOR_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"anywhere","version":"0"}}}
+{"jsonrpc":"2.0","id":2,"method":"cursor/list_available_models","params":{}}"#;
 
 /// What the agents after Claude and Codex share: Anywhere reads no hooks or session files of theirs, so only a chat reports status.
 const NEWER: Builtin = Builtin {
@@ -247,7 +253,7 @@ pub const ALL: [Builtin; 10] = [
     Builtin {
         id: "cursor",
         command: "cursor-agent",
-        models: Catalog { args: &["--list-models"], parse: catalogs::cursor, fallback: &["composer-2.5", "gpt-5.4", "claude-sonnet-4-6", "grok-4.6"], ..Catalog::NONE },
+        models: Catalog { args: &["acp"], input: CURSOR_INPUT, answer: Some(catalogs::acp_answered), parse: catalogs::cursor, fallback: &["composer-2.5", "gpt-5.4", "claude-sonnet-4-6", "grok-4.6"], ..Catalog::NONE },
         plan: true,
         resume_args: "--resume",
         install: Install { command: "curl https://cursor.com/install -fsS | bash", ..Install::NONE },
@@ -269,7 +275,7 @@ pub const ALL: [Builtin; 10] = [
         command: "opencode",
         effort_word: "Variant",
         plan: true,
-        models: Catalog { args: &["models", "--verbose"], parse: catalogs::opencode, ..Catalog::NONE },
+        models: Catalog { args: &["models", "--verbose"], also: &["agent", "list"], parse: catalogs::opencode, ..Catalog::NONE },
         prompt_args: "--prompt",
         resume_args: "-s",
         fork_args: "-s {sessionId} --fork",
@@ -303,7 +309,7 @@ pub const ALL: [Builtin; 10] = [
         effort_word: "Thinking",
         plan: true,
         // Pi's extensions can add models, so its list loads them; omp's only run for a session.
-        models: Catalog { args: &["--mode", "rpc", "--no-session", "--no-extensions"], ..PI_MODELS },
+        models: Catalog { args: &["--mode", "rpc", "--no-session", "--no-extensions"], parse: catalogs::omp, ..PI_MODELS },
         resume_args: "--resume",
         install: Install { command: "curl -fsSL https://omp.sh/install | sh", ..Install::NONE },
         never_asks: true,
@@ -492,13 +498,15 @@ mod tests {
         let pi = r#"{"type":"response","command":"get_available_models","success":false,"error":"No models configured"}"#;
         assert_eq!(known("pi").models.read(pi), Err("No models configured".to_string()));
         assert_eq!(known("hermes").models.read(r#"{"jsonrpc":"2.0","id":2,"result":{}}"#), Ok(Vec::new()), "an answer that lists none is no error");
-        assert_eq!(known("cursor").models.read("Error: not logged in"), Ok(Vec::new()), "a CLI that exits has no answer to read an error from");
+        let cursor = r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required","data":{"message":"Authentication required. Please run 'agent login' first, then call authenticate() with methodId 'cursor_login'."}}}"#;
+        assert_eq!(known("cursor").models.read(cursor), Err("Authentication required".to_string()));
+        assert_eq!(known("grok").models.read("Error: not logged in"), Ok(Vec::new()), "a CLI that exits has no answer to read an error from");
     }
 
     #[test]
     fn a_server_s_catalog_says_which_line_answers_and_a_cli_that_exits_does_not() {
         let servers: Vec<&str> = ALL.iter().filter(|b| b.models.answer.is_some()).map(|b| b.id).collect();
-        assert_eq!(servers, ["pi", "omp", "hermes", "antigravity"]);
+        assert_eq!(servers, ["cursor", "pi", "omp", "hermes", "antigravity"]);
         let models = &known("pi").models;
         let answer = r#"{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"m","name":"M","provider":"p","reasoning":false}]}}"#;
         assert!(models.answer.unwrap()(answer));

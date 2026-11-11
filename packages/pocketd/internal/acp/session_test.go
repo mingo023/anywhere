@@ -357,6 +357,44 @@ func TestOpenCodeTakesItsLaunchAsConfigOptions(t *testing.T) {
 	}
 }
 
+func TestOpenCodesAgentIsTheModeItLeavesPlanningFor(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "opencode", launch: state.Launch{Access: "ask", Plan: true, Options: map[string]string{"mode": "review"}}, answer: script(opencodeNew, says())})
+	sk.wait(t, "model:opencode/big-pickle")
+	equal(t, a.called("session/set_config_option", 1), []string{`{"configId":"mode","sessionId":"s1","value":"plan"}`})
+	if err := s.Access("edits"); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, a.called("session/set_config_option", 2)[1:], []string{`{"configId":"mode","sessionId":"s1","value":"review"}`})
+
+	_, a, sk, _ = start(t, opts{provider: "opencode", launch: state.Launch{Access: "ask", Options: map[string]string{"mode": "review"}}, answer: script(opencodeNew, says())})
+	sk.wait(t, "model:opencode/big-pickle")
+	equal(t, a.called("session/set_config_option", 1), []string{`{"configId":"mode","sessionId":"s1","value":"review"}`})
+}
+
+func TestCursorsModelSettingsAreSetOnTheModelOnceItIsPicked(t *testing.T) {
+	picked := `{"configOptions":[{"id":"model","category":"model","currentValue":"gpt-5.4"},
+		{"id":"reasoning","category":"thought_level","type":"select","currentValue":"medium"},
+		{"id":"fast","category":"model_config","type":"select","currentValue":"false"}]}`
+	_, a, sk, _ := start(t, opts{provider: "cursor", launch: state.Launch{Model: "gpt-5.4", Options: map[string]string{"context": "1m", "fast": "true", "reasoning": "high"}},
+		answer: func(a *agent, method string, params json.RawMessage) string {
+			switch {
+			case method == "session/new":
+				return `{"sessionId":"s1","configOptions":[{"id":"model","category":"model","currentValue":"composer-2.5"}]}`
+			case strings.Contains(string(params), `"fast"`):
+				return `!{"code":-32602,"message":"Invalid value for fast: true"}`
+			case method == "session/set_config_option":
+				return picked
+			}
+			return `{}`
+		}})
+	sk.wait(t, "notice:Cursor couldn't set fast to true: Invalid value for fast: true")
+	equal(t, a.called("session/set_config_option", 3), []string{
+		`{"configId":"model","sessionId":"s1","value":"gpt-5.4"}`,
+		`{"configId":"fast","sessionId":"s1","value":"true"}`,
+		`{"configId":"reasoning","sessionId":"s1","value":"high"}`,
+	})
+}
+
 func TestHermesSwitchesModelAndModeByTheirOwnCalls(t *testing.T) {
 	s, a, sk, _ := start(t, opts{provider: "hermes", launch: state.Launch{Access: "full", Model: "moa:default", Effort: "high"},
 		answer: func(a *agent, method string, params json.RawMessage) string {
