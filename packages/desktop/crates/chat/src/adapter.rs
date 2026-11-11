@@ -4,7 +4,7 @@ mod codex;
 mod other;
 mod pi;
 
-use crate::commands::{Builtin, Kind};
+use crate::commands::{Builtin, Kind, Local};
 use crate::{Action, Ask, Fold, Transcript, Turn};
 use agents::providers::{self, Transport};
 use std::sync::LazyLock;
@@ -37,6 +37,12 @@ impl Capabilities {
             Action::Send => true,
             Action::Stopping => false,
         }
+    }
+
+    /// What the chat does with a command the adapter made `kind` of: a pocketd from before ACP chats compacted leaves
+    /// `/compact` to the agent.
+    pub fn runs(&self, kind: Kind) -> Kind {
+        if kind == Kind::Local(Local::Compact) && !self.compact { Kind::Send } else { kind }
     }
 }
 
@@ -122,6 +128,15 @@ mod tests {
                 _ => assert_eq!(b.capabilities(), queues, "{provider}"),
             }
         }
+    }
+
+    #[test]
+    fn a_pocketd_that_cant_compact_the_chat_leaves_compact_to_the_agent() {
+        let older = capabilities("grok", Some(agents::providers::ChatCaps { interrupt: true, send_while_working: true, ..Default::default() }));
+        let newer = capabilities("grok", Some(agents::providers::ChatCaps { compact: true, ..Default::default() }));
+        let compact = for_provider("grok").command("compact", "");
+        assert_eq!((older.runs(compact), newer.runs(compact)), (Kind::Send, Kind::Local(Local::Compact)));
+        assert_eq!(older.runs(Kind::Local(Local::Model)), Kind::Local(Local::Model));
     }
 
     #[test]

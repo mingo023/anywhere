@@ -36,6 +36,9 @@ type flavor struct {
 	// compact has it summarise its context: a method of its own, or the
 	// command it takes as a prompt. "" for one that only compacts by itself.
 	compact string
+	// summary is how its compaction summary starts, which a loaded history
+	// replays as a reply: nothing else marks it.
+	summary string
 }
 
 // flavors has every ACP provider.
@@ -57,7 +60,8 @@ var flavors = map[string]flavor{
 		compact:    "_x.ai/compact_conversation",
 	},
 	// OpenCode lists no /compact among its commands, and runs it all the same.
-	providers.OpenCode.ID: {plan: [2]string{"plan", "build"}, modeOption: true, compact: "/compact"},
+	// Its summary follows a template of its own.
+	providers.OpenCode.ID: {plan: [2]string{"plan", "build"}, modeOption: true, compact: "/compact", summary: "## Objective\n"},
 	// fx asks before every read in its own ask mode, so it runs in auto mode
 	// and polices itself. Neither it nor Hermes has a plan mode: each plans in
 	// the mode that asks the most.

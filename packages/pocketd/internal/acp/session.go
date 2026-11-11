@@ -87,7 +87,7 @@ type Session struct {
 	turn     int             // counts the turns and compactions started, so a late answer ends only its own
 	began    time.Time       // when this pocketd started the turn running
 	adopted  bool            // the turn running was started by a pocketd before this one
-	stopping bool            // the user stopped the turn
+	stopping bool            // the user stopped the turn or the compaction
 	stray    json.RawMessage // the end of a turn a pocketd before this one started, come before the session opened
 	held     []func()        // the agent's requests from before the session opened
 	asks     map[string]context.CancelFunc
@@ -100,6 +100,8 @@ type Session struct {
 	commands []proto.Command
 	// compacting is while the agent summarises its context for Compact.
 	compacting bool
+	// compactNext is a Compact asked for mid-turn, which waits for the turn to end.
+	compactNext bool
 }
 
 // block is the message the agent is writing, a chunk at a time.
@@ -548,9 +550,14 @@ func (s *Session) start(text string) {
 	}()
 }
 
-// next starts the turn of the oldest prompt that waits.
+// next starts the compaction asked for mid-turn, else the turn of the oldest prompt that waits.
 func (s *Session) next() {
-	if s.ready && len(s.queue) > 0 {
+	switch {
+	case !s.ready:
+	case s.compactNext:
+		s.compactNext = false
+		s.compact()
+	case len(s.queue) > 0:
 		text := s.queue[0]
 		s.queue = s.queue[1:]
 		s.start(text)
@@ -598,7 +605,7 @@ func (s *Session) finish(res json.RawMessage, err error) {
 	s.next()
 }
 
-// Compact has the agent summarise its context, between turns.
+// Compact has the agent summarise its context, once the turn under way ends.
 func (s *Session) Compact() error {
 	if err := s.usable(); err != nil {
 		return err
@@ -608,9 +615,17 @@ func (s *Session) Compact() error {
 	switch {
 	case s.f.compact == "":
 		return fmt.Errorf("%s compacts its context by itself", s.name)
-	case s.running || s.compacting:
-		return fmt.Errorf("%s compacts once its turn ends", s.name)
+	case s.compacting || s.compactNext:
+		return fmt.Errorf("%s is compacting already", s.name)
+	case s.running:
+		s.compactNext = true
+	default:
+		s.compact()
 	}
+	return nil
+}
+
+func (s *Session) compact() {
 	s.compacting = true
 	s.turn++
 	s.sink.Compacting()
@@ -626,30 +641,34 @@ func (s *Session) Compact() error {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		// A stop has ended it already.
-		if !s.compacting || s.turn != turn {
-			return
+		// A stop the agent was slow to answer has ended it already.
+		if s.compacting && s.turn == turn {
+			s.compacted(err)
 		}
-		s.compacting = false
-		if err != nil {
-			s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't compact: %v", s.name, err)})
-		} else {
-			s.sink.Apply(timeline.Event{Kind: "compacted", Trigger: "manual"})
-		}
-		s.sink.Compacted()
-		s.next()
 	}()
-	return nil
 }
 
-// Stray ends the turn a pocketd before this one started.
+// compacted ends the compaction under way with what the agent answered; one
+// the user stopped ends without a word.
+func (s *Session) compacted(err error) {
+	stopped := s.stopping
+	s.compacting, s.stopping = false, false
+	switch {
+	case stopped:
+	case err != nil:
+		s.sink.Apply(timeline.Event{Kind: "notice", Text: fmt.Sprintf("%s couldn't compact: %v", s.name, err)})
+	default:
+		s.sink.Apply(timeline.Event{Kind: "compacted", Trigger: "manual"})
+	}
+	if !stopped {
+		s.sink.Compacted()
+	}
+	s.next()
+}
+
+// Stray ends the turn a pocketd before this one started, or its compaction,
+// which Grok answers with no stopReason.
 func (s *Session) Stray(result json.RawMessage) {
-	var r struct {
-		StopReason string `json:"stopReason"`
-	}
-	if json.Unmarshal(result, &r) != nil || r.StopReason == "" {
-		return
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
@@ -661,25 +680,29 @@ func (s *Session) Stray(result json.RawMessage) {
 }
 
 // Cancel stops the turn or the compaction under way and drops the prompts
-// that waited for its end. Whatever the agent asked is answered cancelled. An
-// agent that never answers the prompt it was told to stop would hold up the
-// next one, so the turn ends here once StopWait is up.
+// and the compaction that waited for its end. Whatever the agent asked is
+// answered cancelled. An agent that never answers the call it was told to
+// stop would hold up the next one, so the call ends here once StopWait is up.
 func (s *Session) Cancel() {
 	s.mu.Lock()
-	running, compacting, c, id, turn := s.running, s.compacting, s.c, s.id, s.turn
-	s.stopping, s.compacting, s.queue = running, false, nil
+	busy, c, id, turn := s.running || s.compacting, s.c, s.id, s.turn
+	s.stopping, s.compactNext, s.queue = busy, false, nil
 	asks := s.asks
 	s.asks = map[string]context.CancelFunc{}
 	s.mu.Unlock()
-	if running || compacting {
+	if busy {
 		c.Notify("session/cancel", map[string]any{"sessionId": id})
-	}
-	if running {
 		time.AfterFunc(StopWait, func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			if s.running && s.stopping && s.turn == turn && s.ctx.Err() == nil {
+			if !s.stopping || s.turn != turn || s.ctx.Err() != nil {
+				return
+			}
+			switch {
+			case s.running:
 				s.finish(nil, nil)
+			case s.compacting:
+				s.compacted(nil)
 			}
 		})
 	}
@@ -741,6 +764,7 @@ func (s *Session) update(raw string) {
 		Title     string          `json:"title"`
 		Used      int64           `json:"used"`
 		Size      int64           `json:"size"`
+		After     int64           `json:"tokens_after"` // Grok's, once it compacted
 		Usage     struct {
 			Total int64 `json:"totalTokens"`
 		} `json:"usage"`
@@ -789,6 +813,8 @@ func (s *Session) update(raw string) {
 		}
 	case "config_option_update":
 		s.setOptions(u.Options)
+	case "auto_compact_completed":
+		s.sink.SetTokens(u.After, 0)
 	default:
 		// Grok tells a turn's tokens as it ends.
 		if u.Usage.Total > 0 {
@@ -842,6 +868,14 @@ func (s *Session) flush() {
 		s.answered = false
 		return
 	case "assistant":
+		if s.opening && s.f.summary != "" && strings.HasPrefix(b.text, s.f.summary) {
+			if s.answered {
+				s.record(timeline.Event{Kind: "result", OK: true})
+			}
+			s.record(timeline.Event{Kind: "compacted"})
+			s.answered = false
+			return
+		}
 		s.record(timeline.Event{Kind: "assistant_text", Text: b.text})
 	default:
 		s.record(timeline.Event{Kind: "thinking", Text: b.text})

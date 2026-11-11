@@ -429,6 +429,42 @@ struct ChatStoreTests {
         #expect(compacts() == 1, "only the bare /compact compacted")
     }
 
+    @Test("/compact goes to an ACP agent as its own command when the Mac can't compact its chat")
+    func compactGoesToTheAgentWhenTheMacCantCompactIt() async throws {
+        let server = try await TestServer { peer, frame in
+            if case .hello = frame.message { peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello))) }
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(config: .init(host: server.host, token: "t", clientId: "c"))
+        await connection.start()
+        defer { Task { await connection.stop() } }
+        for _ in 0..<200 where await !connection.isOnline { try await Task.sleep(for: .milliseconds(5)) }
+        let sent = {
+            server.received.compactMap {
+                switch $0.message {
+                case .agentCompact: "compact"
+                case .agentPrompt(let p): p.text
+                default: nil
+                }
+            }
+        }
+        let older = chat(of: "opencode", connection: connection)
+        _ = older.apply(.agentProviders(Sample.providers))
+        older.draft.text = "/compact"
+        older.send()
+        for _ in 0..<200 where sent().isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(sent() == ["/compact"])
+
+        let newer = chat(of: "opencode", connection: connection)
+        let caps = ChatCaps(interrupt: true, compact: true, sendWhileWorking: true, subAgents: false)
+        _ = newer.apply(.agentProviders(AgentProviders(providers: [ProviderInfo(id: "opencode", available: true, efforts: [], plan: true, chat: caps)],
+                                                       maxAccess: "full", phoneMaxAccess: "full")))
+        newer.draft.text = "/compact"
+        newer.send()
+        for _ in 0..<200 where sent().count < 2 { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(sent() == ["/compact", "compact"])
+    }
+
     @Test("the access pill is a menu in a chat the phone drives, but not for an agent that never asks and so has only Full")
     func anAgentThatNeverAsksHasNoAccessToPick() {
         let pi = chat(of: "pi")

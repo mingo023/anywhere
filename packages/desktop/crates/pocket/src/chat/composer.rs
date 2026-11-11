@@ -480,8 +480,8 @@ impl Desktop {
         if self.chat_mode(terminal) != Mode::Prompt {
             return;
         }
-        let busy = self.chat_busy(a);
-        if busy && !self.chat_caps(&a.provider).send_while_working {
+        let (busy, caps) = (self.chat_busy(a), self.chat_caps(&a.provider));
+        if busy && !caps.send_while_working {
             return;
         }
         let steer = busy && !self.chat_stopping(a) && !queue;
@@ -493,7 +493,7 @@ impl Desktop {
             return;
         }
         // From what was typed: the prompt adds the attached images, which no command's argument holds.
-        let slash = chat::slash(&typed).map(|(name, arg)| (chat::for_provider(&provider).command(name, arg), name, arg.to_string()));
+        let slash = chat::slash(&typed).map(|(name, arg)| (caps.runs(chat::for_provider(&provider).command(name, arg)), name, arg.to_string()));
         if let Some((Kind::Unsupported, name, _)) = slash {
             return self.show_notice(Notice::InTerminal { agent, text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }

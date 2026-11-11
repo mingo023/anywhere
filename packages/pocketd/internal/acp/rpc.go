@@ -68,6 +68,7 @@ type Client struct {
 	w       Wire
 	h       Handler
 	mu      sync.Mutex
+	first   int // the ids this client calls by follow it
 	next    int
 	pending map[string]chan frame
 	done    chan struct{}
@@ -76,7 +77,8 @@ type Client struct {
 // Connect reads w for h. Its ids start anywhere, so a reply meant for an
 // earlier pocketd on the same pipe answers none of its calls.
 func Connect(w Wire, h Handler) *Client {
-	c := &Client{w: w, h: h, next: rand.IntN(1 << 30), pending: map[string]chan frame{}, done: make(chan struct{})}
+	first := rand.IntN(1 << 30)
+	c := &Client{w: w, h: h, first: first, next: first, pending: map[string]chan frame{}, done: make(chan struct{})}
 	go c.read()
 	return c
 }
@@ -103,10 +105,13 @@ func (c *Client) read() {
 			c.mu.Lock()
 			ch := c.pending[string(f.ID)]
 			delete(c.pending, string(f.ID))
+			id, _ := strconv.Atoi(string(f.ID))
+			// A call of this client's that gave up waiting is answered late.
+			ours := id > c.first && id <= c.next
 			c.mu.Unlock()
 			if ch != nil {
 				ch <- f
-			} else if f.Error == nil {
+			} else if f.Error == nil && !ours {
 				c.h.Stray(f.Result)
 			}
 		}

@@ -70,8 +70,13 @@ func (s *Session) permission(id json.RawMessage, params json.RawMessage) {
 		s.show(t)
 	}
 	kind = cmp.Or(kind, "other")
-	if s.f.heldPlan && s.launch.Plan && kind != "read" && kind != "search" {
-		s.selected(id, pick(p.Options, reject...))
+	if s.f.heldPlan && s.launch.Plan {
+		// fx's and Hermes's plan modes ask before every read.
+		if kind == "read" || kind == "search" {
+			s.selected(id, pick(p.Options, allowOnce...))
+		} else {
+			s.selected(id, pick(p.Options, reject...))
+		}
 		return
 	}
 	if option := auto(s.launch.Access, kind, p.Options); option != "" {

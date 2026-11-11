@@ -942,9 +942,9 @@ func TestGrokSwitchesNeitherPlanNorFullAccessOnceItRuns(t *testing.T) {
 
 func TestGrokFxAndHermesPlanningAreRefusedWhatIsNoReadOrSearch(t *testing.T) {
 	const options = `"options":[{"optionId":"o1","kind":"allow_once","name":"Allow"},{"optionId":"o2","kind":"allow_always","name":"Always"},{"optionId":"o3","kind":"reject_once","name":"Reject"}]`
-	for _, provider := range []string{"grok", "fx", "hermes"} {
-		t.Run(provider, func(t *testing.T) {
-			_, a, _, b := start(t, opts{provider: provider, launch: state.Launch{Access: "full", Plan: true}, answer: script(`{"sessionId":"s1"}`, says())})
+	for _, c := range []struct{ provider, access string }{{"grok", "full"}, {"fx", "full"}, {"hermes", "full"}, {"grok", "ask"}, {"fx", "ask"}, {"hermes", "ask"}} {
+		t.Run(c.provider+" "+c.access, func(t *testing.T) {
+			_, a, _, b := start(t, opts{provider: c.provider, launch: state.Launch{Access: c.access, Plan: true}, answer: script(`{"sessionId":"s1"}`, says())})
 			a.ask("1", "session/request_permission", `{"toolCall":{"toolCallId":"c1","title":"Edit a.go","kind":"edit"},`+options+`}`)
 			a.ask("2", "session/request_permission", `{"toolCall":{"toolCallId":"c2","title":"Read a.go","kind":"read"},`+options+`}`)
 			if got := a.replied("1"); got != `{"outcome":{"optionId":"o3","outcome":"selected"}}` {
@@ -1144,20 +1144,20 @@ func TestGrokCompactsByItsOwnCallAndHoldsThePromptSentMeanwhile(t *testing.T) {
 	s, a, sk := compacts(t, "grok", func(a *agent) string {
 		<-release
 		// As Grok 1.0.77 tells of the compaction it was asked for.
-		a.say(`{"jsonrpc":"2.0","method":"_x.ai/session_notification","params":{"sessionId":"s1","update":{"sessionUpdate":"auto_compact_completed","tokens_before":120,"tokens_after":120,"summary_preview":null}}}`)
+		a.say(`{"jsonrpc":"2.0","method":"_x.ai/session_notification","params":{"sessionId":"s1","update":{"sessionUpdate":"auto_compact_completed","tokens_before":1200,"tokens_after":120,"summary_preview":null}}}`)
 		return `{}`
 	})
 	if err := s.Compact(); err != nil {
 		t.Fatal(err)
 	}
 	sk.wait(t, "compacting")
-	if err := s.Compact(); err == nil || err.Error() != "Grok Build compacts once its turn ends" {
+	if err := s.Compact(); err == nil || err.Error() != "Grok Build is compacting already" {
 		t.Fatalf("compacting twice: %v", err)
 	}
 	s.Prompt("next")
 	close(release)
 	equal(t, after(sk.wait(t, "ended:false"), "compacting"), []string{
-		"compacting", "compacted:manual", "compactingEnded", "user:next", "working", "result:true:", "ended:false"})
+		"compacting", "tokens:120/0", "compacted:manual", "compactingEnded", "user:next", "working", "result:true:", "ended:false"})
 	equal(t, a.called("_x.ai/compact_conversation", 1), []string{`{"sessionId":"s1"}`})
 }
 
@@ -1184,37 +1184,142 @@ func TestACompactionThatFailsIsANoticeWithTheAgentsReason(t *testing.T) {
 		"compacting", "notice:Grok Build couldn't compact: Internal error: degenerate summary (8 chars for ~2012 input tokens)", "compactingEnded"})
 }
 
-func TestAStopEndsACompactionAndShowsNoneOfIt(t *testing.T) {
-	answered := make(chan struct{})
-	s, _, sk := compacts(t, "grok", func(a *agent) string {
-		a.called("session/cancel", 1)
-		defer close(answered)
-		return `!{"code":-32603,"message":"Internal error","data":{"kind":"compact_cancelled","message":"compact cancelled"}}`
+func TestAStopEndsACompactionOnceTheAgentAnswersAndShowsNoneOfIt(t *testing.T) {
+	cancelled := make(chan struct{})
+	s, a, sk := compacts(t, "opencode", func(a *agent) string {
+		<-cancelled
+		// OpenCode goes on with its summary until it takes the cancel.
+		a.update(`{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"## Objective"}}`)
+		return `{"stopReason":"cancelled"}`
 	})
 	s.Compact()
 	sk.wait(t, "compacting")
 	s.Prompt("dropped")
 	s.Cancel()
-	<-answered
+	s.Prompt("after")
+	if got := a.called("session/prompt", 1); len(got) != 1 {
+		t.Fatalf("a prompt went while the compaction was still open: %v", got)
+	}
+	close(cancelled)
+	equal(t, after(sk.wait(t, "ended:false"), "compacting"), []string{"compacting", "user:after", "working", "result:true:", "ended:false"})
+	equal(t, a.called("session/prompt", 2), []string{
+		`{"prompt":[{"text":"/compact","type":"text"}],"sessionId":"s1"}`, `{"prompt":[{"text":"after","type":"text"}],"sessionId":"s1"}`})
+}
+
+func TestACompactionTheAgentNeverEndsAfterAStopEndsOnceStopWaitIsUp(t *testing.T) {
+	defer func(w time.Duration) { StopWait = w }(StopWait)
+	StopWait = 50 * time.Millisecond
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	s, _, sk := compacts(t, "grok", func(*agent) string {
+		<-release
+		return `{}`
+	})
+	s.Compact()
+	sk.wait(t, "compacting")
+	s.Cancel()
 	s.Prompt("after")
 	equal(t, after(sk.wait(t, "ended:false"), "compacting"), []string{"compacting", "user:after", "working", "result:true:", "ended:false"})
 }
 
-func TestAnAgentCompactsOnlyBetweenTurnsAndOnlyIfItCanBeAsked(t *testing.T) {
+func TestACompactionAskedForMidTurnRunsOnceTheTurnEnds(t *testing.T) {
 	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	for provider, want := range map[string]string{"hermes": "Hermes Agent compacts its context by itself", "grok": "Grok Build compacts once its turn ends"} {
-		s, a, sk, _ := start(t, opts{provider: provider, answer: script(`{"sessionId":"s1"}`, func(*agent, string) string {
+	s, a, sk, _ := start(t, opts{provider: "grok", answer: func(a *agent, method string, params json.RawMessage) string {
+		switch method {
+		case "session/new":
+			return `{"sessionId":"s1"}`
+		case "session/prompt":
 			<-release
 			return endTurn
-		})})
-		s.Prompt("slow")
-		a.called("session/prompt", 1)
-		if err := s.Compact(); err == nil || err.Error() != want {
-			t.Errorf("%s: %v", provider, err)
 		}
-		if got := sk.lines(); slices.Contains(got, "compacting") {
-			t.Errorf("%s: %v", provider, got)
+		return `{}`
+	}})
+	s.Prompt("slow")
+	a.called("session/prompt", 1)
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	if got := sk.lines(); slices.Contains(got, "compacting") {
+		t.Fatalf("compacted mid-turn: %v", got)
+	}
+	close(release)
+	equal(t, after(sk.wait(t, "compactingEnded"), "user:slow"), []string{
+		"user:slow", "working", "result:true:", "ended:false", "compacting", "compacted:manual", "compactingEnded"})
+	equal(t, a.called("_x.ai/compact_conversation", 1), []string{`{"sessionId":"s1"}`})
+}
+
+func TestAStopDropsTheCompactionAskedForMidTurn(t *testing.T) {
+	s, a, sk, _ := start(t, opts{provider: "grok", answer: func(a *agent, method string, _ json.RawMessage) string {
+		switch method {
+		case "session/new":
+			return `{"sessionId":"s1"}`
+		case "session/prompt":
+			a.called("session/cancel", 1)
+			return `{"stopReason":"cancelled"}`
 		}
+		return `{}`
+	}})
+	s.Prompt("slow")
+	a.called("session/prompt", 1)
+	s.Compact()
+	s.Cancel()
+	sk.wait(t, "stopped")
+	if got := a.called("_x.ai/compact_conversation", 0); got != nil {
+		t.Fatalf("compacted after the stop: %v", got)
+	}
+}
+
+func TestARestartMidCompactionEndsTheCompactionWhenGrokAnswersIt(t *testing.T) {
+	_, a, sk, _ := start(t, opts{provider: "grok", saved: "s1", left: Running, answer: func(a *agent, method string, _ json.RawMessage) string {
+		return `{"sessionId":"s1"}`
+	}})
+	sk.wait(t, "bound:s1")
+	a.say(`{"jsonrpc":"2.0","id":7,"result":{}}`)
+	equal(t, after(sk.wait(t, "ended:false"), "result:true:"), []string{"result:true:", "ended:false"})
+}
+
+func TestALateAnswerToACallThisPocketdGaveUpOnEndsNoTurnLeftRunning(t *testing.T) {
+	defer func(w time.Duration) { CallWait = w }(CallWait)
+	CallWait = 50 * time.Millisecond
+	release := make(chan struct{})
+	s, a, sk, _ := start(t, opts{provider: "grok", saved: "s1", left: Running, answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method == "session/set_model" {
+			<-release
+		}
+		return `{"sessionId":"s1"}`
+	}})
+	if err := s.Settings("grok-5", ""); err == nil {
+		t.Fatal("the switch was answered in time")
+	}
+	close(release)
+	a.say(`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"session_info_update","title":"after"}}}`)
+	if got := sk.wait(t, "title:after"); slices.Contains(got, "result:true:") {
+		t.Fatalf("the late answer ended the turn: %v", got)
+	}
+}
+
+func TestOpenCodesSummaryInALoadedHistoryShowsAsTheCompaction(t *testing.T) {
+	_, _, sk, _ := start(t, opts{provider: "opencode", saved: "s1", answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method == "session/load" {
+			// What OpenCode 1.19.5 replays after a /compact: none of the compaction's prompt, and its summary as a reply.
+			a.update(`{"content":{"text":"fix it","type":"text"},"messageId":"u1","sessionUpdate":"user_message_chunk"}`)
+			a.update(`{"content":{"text":"done","type":"text"},"messageId":"m1","sessionUpdate":"agent_message_chunk"}`)
+			a.update(`{"content":{"text":"## Objective\n- Fix it\n\n## Next Move\n1. (none)","type":"text"},"messageId":"m2","sessionUpdate":"agent_message_chunk"}`)
+			a.update(`{"content":{"text":"go on","type":"text"},"messageId":"u3","sessionUpdate":"user_message_chunk"}`)
+			a.update(`{"content":{"text":"## Objective\nmine","type":"text"},"messageId":"u4","sessionUpdate":"user_message_chunk"}`)
+		}
+		return opencodeNew
+	}})
+	equal(t, after(sk.wait(t, "bound:s1"), "loaded")[:7], []string{
+		"loaded", "user:fix it", "assistant_text:done", "result:true:", "compacted:", "user:go on", "user:## Objective\nmine"})
+}
+
+func TestAnAgentThatCompactsOnlyByItselfIsNotAskedTo(t *testing.T) {
+	s, _, sk, _ := start(t, opts{provider: "hermes", answer: script(`{"sessionId":"s1"}`, says())})
+	if err := s.Compact(); err == nil || err.Error() != "Hermes Agent compacts its context by itself" {
+		t.Fatal(err)
+	}
+	if got := sk.lines(); slices.Contains(got, "compacting") {
+		t.Fatal(got)
 	}
 }

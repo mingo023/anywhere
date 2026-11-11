@@ -504,6 +504,8 @@ public final class ChatStore: HostStore {
         case (.btw, ""): break
         case (.model, let model): settings(model: model)
         case (.effort, let effort): settings(effort: effort)
+        // A pocketd from before ACP chats compacted leaves `/compact` to the agent.
+        case (.compact, "") where !capabilities.compact: deliver("/compact", steer: busy && !stopping, busy: busy)
         case (.compact, ""): compact()
         case (.compact, _): notice = Composer.compactTakesNoInstructions(provider: provider)
         case (.btw, let question): ask(btw: question)
