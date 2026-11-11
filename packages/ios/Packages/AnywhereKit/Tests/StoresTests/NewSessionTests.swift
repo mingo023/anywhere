@@ -15,37 +15,37 @@ private func draft(_ place: NewSessionDraft.Place, _ change: (inout NewSessionDr
 struct NewSessionTests {
     @Test("an existing worktree or Local starts the agent there, with only the choices made")
     func existing() {
-        let plan = draft(.tree("/w")) { $0.prompt = "  fix it \n"; $0.model = ""; $0.account = "acc-work" }.plan(taken: [], localId: "l", localName: "Local 1")
+        let plan = draft(.tree("/w")) { $0.prompt = "  fix it \n"; $0.model = ""; $0.account = "acc-work" }.plan(taken: [], localId: "l", localName: "Local 1", neverAsks: false)
         #expect(plan.local == nil && plan.worktree == nil)
         #expect(plan.spec == LaunchSpec(project: project, checkout: .worktree("/w"), provider: .claude, access: .edits, plan: false,
                                         prompt: "fix it", account: "acc-work", chat: true))
-        #expect(draft(.local("review")).plan(taken: [], localId: "l", localName: "x").spec.checkout == .local("review"))
+        #expect(draft(.local("review")).plan(taken: [], localId: "l", localName: "x", neverAsks: false).spec.checkout == .local("review"))
     }
 
     @Test("a new Local is made first under the id the agent then starts in")
     func newLocal() {
-        let plan = draft(.newLocal).plan(taken: [], localId: "local-1f", localName: "Local 2")
+        let plan = draft(.newLocal).plan(taken: [], localId: "local-1f", localName: "Local 2", neverAsks: false)
         #expect(plan.local == .init(localId: "local-1f", project: project, name: "Local 2"))
         #expect(plan.spec.checkout == .local("local-1f"))
     }
 
     @Test("a new worktree off the default base goes in agent.create, named from the prompt when no name is typed")
     func newWorktree() {
-        let named = draft(.newWorktree) { $0.prompt = "add dark mode" }.plan(taken: [], localId: "", localName: "")
+        let named = draft(.newWorktree) { $0.prompt = "add dark mode" }.plan(taken: [], localId: "", localName: "", neverAsks: false)
         guard case .new(let new) = named.spec.checkout else { Issue.record("not a new worktree"); return }
         #expect(new.autoName == true && new.name?.isEmpty == false)
         #expect(named.worktree == nil)
-        let typed = draft(.newWorktree) { $0.prompt = "x"; $0.name = "dark-mode" }.plan(taken: [], localId: "", localName: "")
+        let typed = draft(.newWorktree) { $0.prompt = "x"; $0.name = "dark-mode" }.plan(taken: [], localId: "", localName: "", neverAsks: false)
         #expect(typed.spec.checkout == .new(NewWorktree(name: "dark-mode")))
     }
 
     @Test("a worktree from a base, a branch or a PR is made with worktree.create first, since a phone can't ask agent.create for one")
     func twoSteps() {
-        let base = draft(.newWorktree) { $0.base = "origin/dev"; $0.name = "t" }.plan(taken: [], localId: "", localName: "")
+        let base = draft(.newWorktree) { $0.base = "origin/dev"; $0.name = "t" }.plan(taken: [], localId: "", localName: "", neverAsks: false)
         #expect(base.worktree == .init(requestId: "", project: project, name: "t", base: "origin/dev"))
-        let branch = draft(.newWorktree) { $0.source = .branch("origin/fix/login") }.plan(taken: [], localId: "", localName: "")
+        let branch = draft(.newWorktree) { $0.source = .branch("origin/fix/login") }.plan(taken: [], localId: "", localName: "", neverAsks: false)
         #expect(branch.worktree == .init(requestId: "", project: project, name: "", branch: "fix/login"))
-        let pr = draft(.newWorktree) { $0.source = .pr("https://github.com/o/r/pull/118") }.plan(taken: [], localId: "", localName: "")
+        let pr = draft(.newWorktree) { $0.source = .pr("https://github.com/o/r/pull/118") }.plan(taken: [], localId: "", localName: "", neverAsks: false)
         #expect(pr.worktree?.pr == 118)
         let alone = draft(.newWorktree) { $0.name = "t" }.worktreeCreate(taken: [], setup: false)
         #expect(alone == .init(requestId: "", project: project, name: "t", setup: false), "a worktree made on its own may skip setup")
@@ -80,7 +80,7 @@ struct NewSessionTests {
         #expect(d.provider == .codex && d.model == nil && d.effort == nil && d.account == nil && d.access == .ask)
         d.effort = "high"
         d.pick(provider: "pi")
-        #expect(d.provider == "pi" && d.effort == nil && d.plan(taken: [], localId: "l", localName: "x").spec.provider == "pi")
+        #expect(d.provider == "pi" && d.effort == nil && d.plan(taken: [], localId: "l", localName: "x", neverAsks: false).spec.provider == "pi")
     }
 
     @Test("an agent that never asks before a tool starts with Full whatever the pill held, and Start asks first as picking Full does")
@@ -92,7 +92,7 @@ struct NewSessionTests {
         }
         let asks = draft(.tree("/w")) { $0.access = .ask }
         #expect(asks.access(neverAsks: false) == .ask && !asks.confirmsStart(neverAsks: false))
-        #expect(asks.plan(taken: [], localId: "l", localName: "x").spec.access == .ask)
+        #expect(asks.plan(taken: [], localId: "l", localName: "x", neverAsks: false).spec.access == .ask)
     }
 
     @Test("Full picked on purpose was already confirmed, so Start doesn't ask again")

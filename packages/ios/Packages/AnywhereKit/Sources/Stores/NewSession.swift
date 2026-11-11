@@ -89,7 +89,7 @@ public struct NewSessionDraft: Hashable, Sendable {
     }
 
     /// The plan that starts this draft. `localId` names a new Local; `localName` is what it's called.
-    public func plan(taken: Set<String>, localId: String, localName: String, neverAsks: Bool = false) -> LaunchPlan {
+    public func plan(taken: Set<String>, localId: String, localName: String, neverAsks: Bool) -> LaunchPlan {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         var spec = LaunchSpec(
             project: project, checkout: .worktree(project), provider: provider, model: model.flatMap { $0.isEmpty ? nil : $0 },
