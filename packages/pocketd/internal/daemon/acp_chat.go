@@ -6,7 +6,6 @@ import (
 
 	"pocketd/internal/acp"
 	"pocketd/internal/agent"
-	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 	"pocketd/internal/state"
 )
@@ -28,8 +27,8 @@ func newACPChat(d *Daemon, pr *presence) pipeChat {
 
 // driver makes the session too: it is the first to know the agent.
 func (x *acpChat) driver(c termDriver) agent.Driver {
-	x.s = acp.NewSession(c.a.ID(), x.pr.provider, acpSink{chatSink{x.d, x.pr, c.a}}, x.d.Broker)
-	return acpDriver{c, x}
+	x.s = acp.NewSession(c.a.ID(), x.pr.provider, chatSink{x.d, x.pr, c.a}, x.d.Broker)
+	return acpDriver{pipeDriver{c, x.d, x.s}, x}
 }
 
 // attach opens the session: the one a resumed or handed-down agent had, else a new one.
@@ -54,59 +53,10 @@ func (x *acpChat) attach() {
 	})
 }
 
-// acpSink is a chatSink for ACP, which has no status of its own.
-type acpSink struct{ chatSink }
-
-// Loaded starts the timeline over: the agent replays the session's history into it.
-func (s acpSink) Loaded() { s.a.ClearTimeline() }
-
-func (s acpSink) Compacting() { s.a.SetCompacting() }
-func (s acpSink) Compacted()  { s.a.Compacted() }
-
 // acpDriver drives an agent through its ACP session.
 type acpDriver struct {
-	termDriver
+	pipeDriver
 	x *acpChat
-}
-
-func (c acpDriver) Prompt(text string) error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	return c.x.s.Prompt(text)
-}
-
-// Interrupt drops the prompts sent mid-turn with the turn; the chat puts them back in its queue.
-func (c acpDriver) Interrupt() error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	if !c.a.Stop() {
-		return nil
-	}
-	c.x.s.Cancel()
-	c.x.d.cleared(c.pr)
-	return nil
-}
-
-func (c acpDriver) Compact() error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	return c.x.s.Compact()
-}
-
-// Settings applies to the session's next turns; a resume keeps it, as the
-// switch is saved with the Terminal.
-func (c acpDriver) Settings(model, effort string) error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	if err := c.x.s.Settings(model, effort); err != nil {
-		return err
-	}
-	c.pr.switched(model, effort)
-	return nil
 }
 
 func (c acpDriver) Access(access string) error {
@@ -135,11 +85,4 @@ func (x *acpChat) respawn(access string) error {
 		return errors.New(name + " couldn't switch")
 	}
 	return nil
-}
-
-func (c acpDriver) Commands() ([]proto.Command, error) {
-	if !c.inForeground() {
-		return nil, errNotForeground
-	}
-	return c.x.s.Commands()
 }

@@ -6,7 +6,6 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/pi"
-	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 	"pocketd/internal/state"
 )
@@ -28,8 +27,8 @@ func newPiChat(d *Daemon, pr *presence) pipeChat {
 
 // driver makes the session too: it is the first to know the agent.
 func (x *piChat) driver(c termDriver) agent.Driver {
-	x.s = pi.NewSession(c.a.ID(), x.pr.provider, piSink{chatSink{x.d, x.pr, c.a}}, x.d.Broker)
-	return piDriver{c, x}
+	x.s = pi.NewSession(c.a.ID(), x.pr.provider, chatSink{x.d, x.pr, c.a}, x.d.Broker)
+	return piDriver{pipeDriver{c, x.d, x.s}, x}
 }
 
 // attach reads the session pi is on: its command line named the one a
@@ -51,57 +50,9 @@ func (x *piChat) attach() {
 	})
 }
 
-// piSink is a chatSink for pi, which tells its status only as the events of
-// its runs, which the session reads.
-type piSink struct{ chatSink }
-
-func (s piSink) SetEffort(effort string) { s.a.SetEffort(effort) }
-func (s piSink) Compacting()             { s.a.SetCompacting() }
-func (s piSink) Compacted()              { s.a.Compacted() }
-
 type piDriver struct {
-	termDriver
+	pipeDriver
 	x *piChat
-}
-
-func (c piDriver) Prompt(text string) error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	return c.x.s.Prompt(text)
-}
-
-// Interrupt drops the prompts sent mid-turn with the turn; the chat puts them back in its queue.
-func (c piDriver) Interrupt() error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	if !c.a.Stop() {
-		return nil
-	}
-	c.x.s.Cancel()
-	c.x.d.cleared(c.pr)
-	return nil
-}
-
-func (c piDriver) Compact() error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	return c.x.s.Compact()
-}
-
-// Settings applies to the session's next turns; a resume keeps it, as the
-// switch is saved with the Terminal.
-func (c piDriver) Settings(model, effort string) error {
-	if !c.inForeground() {
-		return errNotForeground
-	}
-	if err := c.x.s.Settings(model, effort); err != nil {
-		return err
-	}
-	c.pr.switched(model, effort)
-	return nil
 }
 
 // Access to full leaves plan, which is the read-only tools pi started with;
@@ -141,11 +92,4 @@ func (x *piChat) leavePlan(name string) error {
 		return errors.New(name + " couldn't leave plan")
 	}
 	return nil
-}
-
-func (c piDriver) Commands() ([]proto.Command, error) {
-	if !c.inForeground() {
-		return nil, errNotForeground
-	}
-	return c.x.s.Commands()
 }

@@ -17,7 +17,7 @@ func TestAPiThatLeftTheForegroundIsNotRestartedToLeavePlan(t *testing.T) {
 	}
 	t.Cleanup(term.Close)
 	pr := &presence{t: term, provider: "pi", launch: state.Launch{Access: "full", Plan: true}}
-	c := piDriver{termDriver{t: term, pr: pr}, &piChat{d: d, pr: pr}}
+	c := piDriver{pipeDriver{termDriver: termDriver{t: term, pr: pr}, d: d}, &piChat{d: d, pr: pr}}
 	if err := c.Access("full"); err != errNotForeground {
 		t.Fatalf("got %v", err)
 	}

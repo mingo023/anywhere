@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"pocketd/internal/agent"
+	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 	"pocketd/internal/terminal"
 	"pocketd/internal/timeline"
@@ -76,11 +77,80 @@ func (s chatSink) Working()                     { s.a.Working() }
 func (s chatSink) NeedsYou()                    { s.a.NeedsYou() }
 func (s chatSink) TurnEnded(failed bool)        { s.d.turnEnded(s.pr, failed) }
 func (s chatSink) Stopped()                     { s.a.Clear() }
+func (s chatSink) SetEffort(effort string)      { s.a.SetEffort(effort) }
+func (s chatSink) Compacting()                  { s.a.SetCompacting() }
+func (s chatSink) Compacted()                   { s.a.Compacted() }
+
+// Loaded starts the timeline over: the agent replays the session's history into it.
+func (s chatSink) Loaded() { s.a.ClearTimeline() }
 
 // Bound saves the session as the agent's Conversation, which a restart resumes.
 func (s chatSink) Bound(session string) {
 	s.a.SetConversation(session)
 	s.d.resumed(s.pr, session)
+}
+
+// pipeSession is the session a chat behind a pipe drives its agent through.
+type pipeSession interface {
+	Prompt(text string) error
+	Cancel()
+	Compact() error
+	Settings(model, effort string) error
+	Commands() ([]proto.Command, error)
+}
+
+// pipeDriver drives an agent through the session of its chat behind a pipe.
+type pipeDriver struct {
+	termDriver
+	d *Daemon
+	s pipeSession
+}
+
+func (c pipeDriver) Prompt(text string) error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	return c.s.Prompt(text)
+}
+
+// Interrupt drops the prompts sent mid-turn with the turn; the chat puts them back in its queue.
+func (c pipeDriver) Interrupt() error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	if !c.a.Stop() {
+		return nil
+	}
+	c.s.Cancel()
+	c.d.cleared(c.pr)
+	return nil
+}
+
+func (c pipeDriver) Compact() error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	return c.s.Compact()
+}
+
+// Settings applies to the session's next turns; a resume keeps it, as the
+// switch is saved with the Terminal.
+func (c pipeDriver) Settings(model, effort string) error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
+	if err := c.s.Settings(model, effort); err != nil {
+		return err
+	}
+	c.pr.switched(model, effort)
+	return nil
+}
+
+func (c pipeDriver) Commands() ([]proto.Command, error) {
+	if !c.inForeground() {
+		return nil, errNotForeground
+	}
+	return c.s.Commands()
 }
 
 // openChat opens pr's chat off the poller. open gives back the prompts that
