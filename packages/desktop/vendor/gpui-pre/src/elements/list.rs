@@ -181,11 +181,13 @@ pub enum ListSizingBehavior {
     Auto,
 }
 
+/// How long one frame spends measuring items [`ListState::measure_all`] hasn't reached yet; the rest wait for the next.
+const MEASURE_ALL_BUDGET: std::time::Duration = std::time::Duration::from_millis(4);
+
 /// The measuring behavior to apply during layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ListMeasuringBehavior {
-    /// Measure all items in the list.
-    /// Note: This can be expensive for the first frame in a large list.
+    /// Measure all items in the list, [`MEASURE_ALL_BUDGET`]'s worth a frame.
     Measure(bool),
     /// Only measure visible items
     #[default]
@@ -333,7 +335,7 @@ impl ListState {
         state
     }
 
-    /// Set the list to measure all items in the list in the first layout phase.
+    /// Set the list to measure all items, spending at most a few milliseconds a frame on it until done.
     ///
     /// This is useful for ensuring that the scrollbar size is correct instead of based on only rendered elements.
     pub fn measure_all(self) -> Self {
@@ -1054,12 +1056,22 @@ impl StateInner {
         );
 
         let mut measured_items = Vec::default();
+        let start = std::time::Instant::now();
+        let mut out_of_time = false;
 
         for (ix, item) in cursor.enumerate() {
-            let size = item.size().unwrap_or_else(|| {
-                let mut element = render_item(ix, window, cx);
-                element.layout_as_root(available_item_space, window, cx)
-            });
+            let size = match item.size() {
+                Some(size) => size,
+                None if out_of_time || start.elapsed() >= MEASURE_ALL_BUDGET => {
+                    out_of_time = true;
+                    measured_items.push(item.clone());
+                    continue;
+                }
+                None => {
+                    let mut element = render_item(ix, window, cx);
+                    element.layout_as_root(available_item_space, window, cx)
+                }
+            };
 
             measured_items.push(item.with_measurement(size, self.is_item_ready(ix, cx)));
         }
@@ -1067,6 +1079,9 @@ impl StateInner {
         self.items = SumTree::from_iter(measured_items, ());
         self.measuring_behavior =
             ListMeasuringBehavior::Measure(self.items.summary().unrendered_count == 0);
+        if out_of_time {
+            window.request_animation_frame();
+        }
     }
 
     fn layout_items(
@@ -2229,6 +2244,42 @@ mod test {
             view.into_any_element()
         });
         assert_eq!(state.max_offset_for_scrollbar().y, px(300.));
+    }
+
+    #[gpui::test]
+    fn measuring_every_item_carries_over_to_later_frames_once_a_frames_budget_runs_out(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+
+        let state = ListState::new(4, crate::ListAlignment::Top, px(0.)).measure_all();
+
+        struct TestView(ListState);
+        impl Render for TestView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                list(self.0.clone(), |_, _, _| {
+                    std::thread::sleep(super::MEASURE_ALL_BUDGET);
+                    div().h(px(50.)).w_full().into_any()
+                })
+                .w_full()
+                .h_full()
+            }
+        }
+
+        let view = cx.update(|_, cx| cx.new(|_| TestView(state.clone())));
+        let draw = |cx: &mut VisualTestContext| {
+            cx.draw(point(px(0.), px(0.)), size(px(100.), px(50.)), |_, _| {
+                view.clone().into_any_element()
+            });
+        };
+
+        draw(cx);
+        assert!(state.max_offset_for_scrollbar().y < px(150.));
+
+        for _ in 0..4 {
+            draw(cx);
+        }
+        assert_eq!(state.max_offset_for_scrollbar().y, px(150.));
     }
 
     #[gpui::test]
