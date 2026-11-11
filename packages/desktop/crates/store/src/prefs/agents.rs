@@ -186,11 +186,10 @@ impl Agents {
         Some(self.provider(provider).command).filter(|c| !c.is_empty()).unwrap_or_else(|| providers::get(provider).map_or(provider, |b| b.command).into())
     }
 
-    /// What lists `provider`'s models: its command, or the one its catalog runs instead, and the catalog's args.
+    /// What lists `provider`'s models: its command and the catalog's args.
     pub fn catalog_argv(&self, provider: &str) -> Vec<String> {
         let models = &providers::known(provider).models;
-        let command = if models.command.is_empty() { self.command(provider) } else { models.command.into() };
-        std::iter::once(command).chain(models.args.iter().map(|a| a.to_string())).collect()
+        std::iter::once(self.command(provider)).chain(models.args.iter().map(|a| a.to_string())).collect()
     }
 
     /// What the project last started, else the default agent; a provider no longer offered falls back too.
@@ -368,13 +367,13 @@ mod tests {
     }
 
     #[test]
-    fn models_are_listed_by_the_agent_s_command_unless_its_catalog_runs_another() {
+    fn models_are_listed_by_the_agent_s_command() {
         let mut a = Agents::default();
         a.provider_mut("pi").command = "/opt/pi".into();
         a.provider_mut("antigravity").command = "/opt/agy".into();
         assert_eq!(a.catalog_argv("pi"), ["/opt/pi", "--mode", "rpc", "--no-session"]);
         assert_eq!(a.catalog_argv("cursor"), ["cursor-agent", "--list-models"]);
-        assert_eq!(a.catalog_argv("antigravity")[..2], ["sh", "-c"]);
+        assert_eq!(a.catalog_argv("antigravity"), ["/opt/agy", "acp"]);
     }
 
     #[test]

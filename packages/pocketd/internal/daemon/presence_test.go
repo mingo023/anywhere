@@ -30,7 +30,7 @@ import (
 // state in FAKE_AGENT_REPORT: the first at start, the rest after a line of input.
 func TestMain(m *testing.M) {
 	name := filepath.Base(os.Args[0])
-	if name == "pocketd" || name == "python3" || slices.ContainsFunc(providers.All, func(p *providers.Spec) bool { return name == p.Cmd() || name == p.ChatCmd() }) {
+	if name == "pocketd" || name == "python3" || slices.ContainsFunc(providers.All, func(p *providers.Spec) bool { return name == p.Cmd() }) {
 		lines := bufio.NewScanner(os.Stdin)
 		for i, state := range strings.Fields(os.Getenv("FAKE_AGENT_REPORT")) {
 			if i > 0 {

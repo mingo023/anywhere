@@ -2,17 +2,12 @@ package launch
 
 import (
 	"errors"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 
 	"pocketd/internal/config"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
-	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 )
 
@@ -42,48 +37,17 @@ var specCLIs = []specCLI{
 // flags only for what the CLI takes as one; the rest of l is carried.
 func acpArgv(p *providers.Spec, l state.Launch, argv []string) []string {
 	switch p {
-	// --no-leader and Linux's --uid= are as MonoCode starts these two servers.
-	// Neither CLI says what it does without its flag.
+	// --no-leader is as MonoCode starts Grok's server; Grok doesn't say what
+	// it does without it.
 	case &providers.Grok:
 		argv = append(argv, "--no-auto-update")
 		argv = append(flags(p, l, append(plan(p, l, argv), "agent", "--no-leader")), "stdio")
-	case &providers.Antigravity:
-		if runtime.GOOS == "linux" {
-			argv = append(argv, "--uid=")
-		}
 	case &providers.Fx:
 		argv = flags(p, l, append(argv, "acp"))
 	default:
 		argv = append(argv, "acp")
 	}
 	return argv
-}
-
-// agyDirs are where Antigravity's installer leaves its ACP server under the
-// home when not on PATH: a wrapper in the first, the server itself in the next.
-var agyDirs = []string{".local/bin", ".local/share/agy-acp"}
-
-func agyServer() (string, error) {
-	home, _ := os.UserHomeDir()
-	for _, dir := range agyDirs {
-		if path := filepath.Join(home, dir, providers.Antigravity.ChatCommand); shellenv.IsExecutable(path) {
-			return path, nil
-		}
-	}
-	return "", exec.ErrNotFound
-}
-
-// inOwnFolder has Antigravity's server, which piped runs as its argv[2],
-// start in its own folder, where it looks for its resources; only the wrapper
-// sets that itself. sh execs the pipe, so the process is still `pocketd pipe …`
-// and the Terminal stays in the project.
-func inOwnFolder(provider string, piped []string) []string {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Dir(piped[2])
-	if provider != providers.Antigravity.ID || dir == filepath.Join(home, agyDirs[0]) {
-		return piped
-	}
-	return append([]string{"/bin/sh", "-c", `cd "$0" && exec "$@"`, dir}, piped...)
 }
 
 // piArgv adds what runs argv's command for pi's RPC on stdio. Planning is
@@ -173,7 +137,7 @@ func (c specCLI) chatResume(t state.Terminal, l state.Launch) ([]string, bool) {
 	if !t.Chat {
 		return nil, false
 	}
-	argv := []string{c.p.ChatCmd()}
+	argv := []string{c.p.Cmd()}
 	if c.p.Transport == providers.PiRPC {
 		argv = append(append(argv, config.DefaultArgs(c.p.ID).Resume...), t.ConversationID)
 	}

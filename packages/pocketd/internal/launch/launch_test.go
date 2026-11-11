@@ -84,7 +84,7 @@ func TestNamingRunsAShellFunctionThroughTheShell(t *testing.T) {
 }
 
 func TestProvidersShowWhatIsInstalled(t *testing.T) {
-	onPath(t, "claude", "pi", "agy_acp_server.par", "cursor")
+	onPath(t, "claude", "pi", "agy", "cursor")
 	l := launcher(t, `[]`)
 	list := l.Providers()
 	var ids, available []string
@@ -93,7 +93,7 @@ func TestProvidersShowWhatIsInstalled(t *testing.T) {
 			available = append(available, p.ID)
 		}
 	}
-	// Antigravity is installed as its ACP server alone; a file named after an id isn't its command.
+	// A file named after an id isn't its command.
 	if strings.Join(ids, " ") != "claude codex cursor grok opencode pi omp fx hermes antigravity" || strings.Join(available, " ") != "claude pi antigravity" {
 		t.Fatalf("got %v, available %v", ids, available)
 	}

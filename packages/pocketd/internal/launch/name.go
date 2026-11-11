@@ -59,7 +59,7 @@ func (l *Launcher) Prompted(a *agent.Agent, prompt string, env []string) {
 		return
 	}
 	go func() {
-		if exe, ok := l.find(a.Provider(), false, env); ok {
+		if exe, ok := l.find(a.Provider(), env); ok {
 			l.name(a, claim, job{provider: a.Provider(), exe: exe, env: env, prompt: prompt})
 		}
 	}()

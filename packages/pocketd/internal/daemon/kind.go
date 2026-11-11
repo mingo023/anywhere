@@ -66,7 +66,7 @@ func (tuiKind) resumable(state.Terminal) bool { return true }
 type acpKind struct{ tuiKind }
 
 // serves the subcommand most run their ACP server as. Grok's comes after
-// flags and Antigravity's is its own command, which detect.go reads without it.
+// flags, which detect.go reads without it.
 func (acpKind) serves(arg string) bool { return arg == "acp" }
 
 func (acpKind) pipe(d *Daemon, pr *presence) pipeChat { return newACPChat(d, pr) }

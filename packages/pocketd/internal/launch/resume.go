@@ -30,7 +30,7 @@ func Resume(t state.Terminal, args config.AgentArgs) ([]string, *Failure) {
 	if argv, ok := c.chatResume(t, l); ok {
 		return argv, ValidResume(argv)
 	}
-	argv := append(append([]string{command(t.Provider, false)}, args.Resume...), t.ConversationID)
+	argv := append(append([]string{command(t.Provider)}, args.Resume...), t.ConversationID)
 	argv = c.resume(t, l, argv)
 	if len(args.Resume) == 0 {
 		return nil, &Failure{Code: "resume_not_accepted", Message: "This agent has no resume args in Settings"}
@@ -76,7 +76,7 @@ func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, a
 	}
 	argv[0] = path
 	if saved.Chat {
-		argv = inOwnFolder(saved.Provider, Piped(exe, argv))
+		argv = Piped(exe, argv)
 	}
 	return shell, Wrap(shell, exe, "", argv, account), ""
 }

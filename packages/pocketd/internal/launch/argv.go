@@ -71,15 +71,11 @@ func Chat(s proto.LaunchSpec) bool {
 }
 
 // command is what runs provider before config.json or the user's PATH place it.
-func command(provider string, chat bool) string {
-	p := providers.Get(provider)
-	switch {
-	case p == nil:
-		return provider
-	case chat:
-		return p.ChatCmd()
+func command(provider string) string {
+	if p := providers.Get(provider); p != nil {
+		return p.Cmd()
 	}
-	return p.Cmd()
+	return provider
 }
 
 // Piped runs argv behind `pocketd pipe`, which relays its stdio to pocketd.
@@ -99,7 +95,7 @@ func Argv(s proto.LaunchSpec, name string, args config.AgentArgs) ([]string, *Fa
 	if err != nil {
 		return nil, fail("invalid_spec", err.Error())
 	}
-	argv := []string{command(s.Provider, Chat(s))}
+	argv := []string{command(s.Provider)}
 	if s.Fork != "" {
 		if len(args.Fork) == 0 {
 			return nil, fail("fork_unsupported", "This agent has no fork args in Settings")

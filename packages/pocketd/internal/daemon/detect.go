@@ -55,15 +55,15 @@ func piped(argv []string) []string {
 	return nil
 }
 
-// pipedProvider is the provider a pipe runs for the chat, or "": one whose
-// chat is a command of its own, or a subcommand its kind serves.
+// pipedProvider is the provider a pipe runs for the chat, or "": one run
+// with a subcommand its kind serves.
 func pipedProvider(argv []string) string {
 	inner := piped(argv)
 	if inner == nil {
 		return ""
 	}
 	for _, p := range providers.All {
-		if p.ChatCmd() == named(inner) && (p.ChatCommand != "" || len(inner) > 1 && kindOf[p.ID].serves(inner[1])) {
+		if p.Cmd() == named(inner) && len(inner) > 1 && kindOf[p.ID].serves(inner[1]) {
 			return p.ID
 		}
 	}

@@ -64,7 +64,7 @@ func TestProvider(t *testing.T) {
 		{[]string{"fx", "acp"}, ""},
 		{[]string{"agy"}, "antigravity"},
 		{[]string{"antigravity"}, ""},
-		{[]string{"agy_acp_server.par"}, ""},
+		{[]string{"agy", "acp"}, ""},
 		{hermesArgv(), "hermes"},
 		{hermesArgv("chat", "-m", "gpt-6-sol"), "hermes"},
 		{hermesArgv("--resume", "local-1"), "hermes"},
@@ -99,7 +99,7 @@ func TestAHermesRunByPythonReadsAsTheCommandTheUserTyped(t *testing.T) {
 	}
 }
 
-func TestAPipeRunsEachAgentsChatCommand(t *testing.T) {
+func TestAPipeRunsEachAgentsACPServer(t *testing.T) {
 	for _, c := range []struct {
 		inner string
 		want  string
@@ -111,8 +111,7 @@ func TestAPipeRunsEachAgentsChatCommand(t *testing.T) {
 		{"/bin/omp --resume c-1 --mode rpc --pocketd --access full", "omp"},
 		{"/bin/fx acp --model gpt-6 --pocketd --access ask", "fx"},
 		{"/bin/hermes acp --pocketd --access ask", "hermes"},
-		{"/bin/agy_acp_server.par --pocketd --access ask", "antigravity"},
-		{"/bin/agy_acp_server.par --uid= --pocketd --access ask", "antigravity"},
+		{"/bin/agy acp --pocketd --access ask", "antigravity"},
 		{"/bin/hermes gateway", ""},
 		{"/bin/opencode serve", ""},
 	} {

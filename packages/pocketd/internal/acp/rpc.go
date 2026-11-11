@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -34,7 +35,8 @@ type Error struct {
 }
 
 // Error is the agent's message with the detail it gave: Hermes says only
-// "Internal error" and puts the reason in data.details.
+// "Internal error" and puts the reason in data.details; Cursor's detail
+// repeats its message.
 func (e *Error) Error() string {
 	var d struct {
 		Details string `json:"details"`
@@ -44,7 +46,7 @@ func (e *Error) Error() string {
 	switch detail := d.Details + d.Message; {
 	case detail == "":
 		return e.Message
-	case e.Message == "":
+	case strings.HasPrefix(detail, e.Message):
 		return detail
 	default:
 		return e.Message + ": " + detail

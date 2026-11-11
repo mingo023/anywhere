@@ -2,7 +2,6 @@ package launch
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -83,15 +82,6 @@ func TestEachNewAgentRunsForTheChatOnItsTransportAndCarriesItsLaunch(t *testing.
 		if run, _, _ := state.Cut(argv); slices.Contains(run, state.Carry) || len(run) == len(argv) {
 			t.Errorf("%s: the agent would run %q", c.provider, run)
 		}
-	}
-}
-
-func TestAntigravitysChatIsItsOwnCommand(t *testing.T) {
-	s := spec("antigravity", "edits", false)
-	s.Chat = true
-	argv, f := argvOf(s, "")
-	if f != nil || argv[0] != "agy_acp_server.par" || slices.Contains(argv, "acp") || state.Parse("antigravity", argv).Access != "edits" {
-		t.Fatalf("got %q %v", argv, f)
 	}
 }
 
@@ -213,12 +203,12 @@ func TestANewAgentResumesInItsTUIAndForTheChat(t *testing.T) {
 		{"grok", state.Launch{Access: "full", Effort: "high"}, true, "grok --no-auto-update agent --no-leader --reasoning-effort high stdio --pocketd --access ask --effort high"},
 		{"pi", state.Launch{Access: "full", Plan: true, Model: "a/b"}, true, "pi --session c-1 --mode rpc --tools read,grep,find,ls --model a/b --pocketd --access full --plan --model a/b"},
 		{"omp", state.Launch{Access: "full", Effort: "low"}, true, "omp --resume c-1 --mode rpc --pocketd --access full --effort low"},
-		{"antigravity", state.Launch{Access: "edits"}, true, "agy_acp_server.par --pocketd --access edits"},
+		{"antigravity", state.Launch{Access: "edits"}, true, "agy acp --pocketd --access edits"},
 	} {
 		s := saved(c.provider, c.l)
 		s.Chat = c.chat
 		argv, f := resumeOf(s)
-		if got := strings.Join(argv, " "); f != nil || got != c.want && got != strings.Replace(c.want, "par ", "par --uid= ", 1) {
+		if got := strings.Join(argv, " "); f != nil || got != c.want {
 			t.Errorf("%s chat=%v: got %q %v, want %q", c.provider, c.chat, argv, f, c.want)
 		}
 	}
@@ -242,13 +232,13 @@ func TestAMoveKeepsANewAgentsFullAccess(t *testing.T) {
 	}
 }
 
-func TestAChatResumeRunsTheChatCommandBehindAPipe(t *testing.T) {
+func TestAChatResumeRunsTheAgentBehindAPipe(t *testing.T) {
 	s := saved("antigravity", state.Launch{Access: "ask"})
 	s.Chat = true
 	var asked string
-	found := func(p string) (string, bool) { asked = p; return "/opt/agy_acp_server.par", true }
+	found := func(p string) (string, bool) { asked = p; return "/opt/agy", true }
 	_, args, reason := resumeCmd(s, config.DefaultArgs("antigravity"), "/bin/zsh", "/pd", nil, found)
-	if reason != "" || asked != "antigravity" || !strings.Contains(strings.Join(args, " "), "/pd pipe /opt/agy_acp_server.par") {
+	if reason != "" || asked != "antigravity" || !strings.Contains(strings.Join(args, " "), "/pd pipe /opt/agy acp") {
 		t.Fatalf("resumeCmd = %q %q", args, reason)
 	}
 }
@@ -269,29 +259,20 @@ func TestSignInRunsTheCommandEachCLISignsInWith(t *testing.T) {
 	}
 }
 
-func TestAnAgentIsFoundByItsOwnCommandAndItsChatByItsChatCommand(t *testing.T) {
-	onPath(t, "cursor-agent", "agy_acp_server.par", "pi", "cursor", "antigravity")
+func TestAnAgentIsFoundByItsOwnCommandOrTheOneConfigNames(t *testing.T) {
+	onPath(t, "cursor-agent", "agy", "pi", "cursor", "antigravity")
 	l := launcher(t, `[]`)
 	env := os.Environ()
-	if path, ok := l.find("cursor", false, env); !ok || filepath.Base(path) != "cursor-agent" {
-		t.Fatalf("cursor runs %q", path)
-	}
-	if path, ok := l.find("antigravity", true, env); !ok || filepath.Base(path) != "agy_acp_server.par" {
-		t.Fatalf("antigravity's chat runs %q", path)
-	}
-	if path, ok := l.find("antigravity", false, env); ok {
-		t.Fatalf("antigravity's TUI runs %q", path)
-	}
-	if path, ok := l.find("pi", true, env); !ok || filepath.Base(path) != "pi" {
-		t.Fatalf("pi's chat runs %q", path)
+	for provider, want := range map[string]string{"cursor": "cursor-agent", "antigravity": "agy", "pi": "pi"} {
+		if path, ok := l.find(provider, env); !ok || filepath.Base(path) != want {
+			t.Fatalf("%s runs %q", provider, path)
+		}
 	}
 	custom := filepath.Join(t.TempDir(), "cursor-nightly")
 	os.WriteFile(custom, []byte("#!/bin/sh\n"), 0o755)
 	l.set.Set("cursor.command", custom)
-	for _, chat := range []bool{false, true} {
-		if path, _ := l.find("cursor", chat, env); path != custom {
-			t.Fatalf("chat=%v: cursor runs %q", chat, path)
-		}
+	if path, _ := l.find("cursor", env); path != custom {
+		t.Fatalf("cursor runs %q", path)
 	}
 }
 
@@ -300,7 +281,7 @@ func TestACommandNamedAsAnAgentIsItOnlyWhenItsHelpSaysSo(t *testing.T) {
 	env := os.Environ()
 	l := launcher(t, `[]`)
 	for _, provider := range []string{"fx", "pi", "omp"} {
-		if _, ok := l.find(provider, true, env); !ok {
+		if _, ok := l.find(provider, env); !ok {
 			t.Errorf("%s isn't found", provider)
 		}
 	}
@@ -311,7 +292,7 @@ func TestACommandNamedAsAnAgentIsItOnlyWhenItsHelpSaysSo(t *testing.T) {
 	l = launcher(t, `[]`)
 	for range 2 {
 		for _, provider := range []string{"fx", "pi", "omp"} {
-			if path, ok := l.find(provider, provider != "fx", env); ok {
+			if path, ok := l.find(provider, env); ok {
 				t.Errorf("%s runs %q, which isn't it", provider, path)
 			}
 		}
@@ -323,48 +304,6 @@ func TestACommandNamedAsAnAgentIsItOnlyWhenItsHelpSaysSo(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(asked); strings.Count(string(b), "\n") != 3 {
 		t.Fatalf("each is asked once, not:\n%s", b)
-	}
-}
-
-func TestAntigravitysServerIsFoundWhereItsInstallerLeavesItAndRunsFromItsOwnFolder(t *testing.T) {
-	onPath(t)
-	home, project := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
-	pd := filepath.Join(t.TempDir(), "pd")
-	os.WriteFile(pd, []byte("#!/bin/sh\necho \"$1 in $(pwd -P)\"\n"), 0o755)
-	s := saved("antigravity", state.Launch{Access: "ask"})
-	s.Chat = true
-	ran := func(want string) string {
-		t.Helper()
-		l := launcher(t, `[]`)
-		shell, args, reason := resumeCmd(s, config.DefaultArgs("antigravity"), "/bin/sh", pd, nil, func(p string) (string, bool) { return l.find(p, true, os.Environ()) })
-		if reason != "" || !strings.Contains(strings.Join(args, " "), pd+" pipe "+want) {
-			t.Fatalf("resumeCmd = %q %q, want %s", args, reason, want)
-		}
-		cmd := exec.Command(shell, args...)
-		cmd.Dir = project
-		out, _ := cmd.Output()
-		return string(out)
-	}
-	if _, ok := launcher(t, `[]`).find("antigravity", true, os.Environ()); ok {
-		t.Fatal("found with nothing installed")
-	}
-	real := func(dir string) string {
-		path, _ := filepath.EvalSymlinks(dir)
-		return path
-	}
-	share, bin := filepath.Join(home, ".local/share/agy-acp"), filepath.Join(home, ".local/bin")
-	for _, dir := range []string{share, bin} {
-		os.MkdirAll(dir, 0o755)
-		os.WriteFile(filepath.Join(dir, "agy_acp_server.par"), []byte("#!/bin/sh\n"), 0o755)
-		in := real(dir)
-		if dir == bin {
-			// The wrapper is preferred, and sets the server's folder itself.
-			in = real(project)
-		}
-		if got, want := ran(filepath.Join(dir, "agy_acp_server.par")), "pipe in "+in+"\nhook in "+real(project)+"\n"; got != want {
-			t.Errorf("with one in %s: ran\n%swant\n%s", dir, got, want)
-		}
 	}
 }
 

@@ -21,7 +21,7 @@ func buildFakeACP(dir string) {
 	var names []string
 	for _, p := range providers.All {
 		if p.Transport == providers.ACP {
-			names = append(names, p.ChatCmd())
+			names = append(names, p.Cmd())
 		}
 	}
 	if out, err := exec.Command("go", "build", "-o", filepath.Join(dir, names[0]), "./fakeacp").CombinedOutput(); err != nil {
@@ -51,7 +51,7 @@ func chatACP(t *testing.T, provider string, extra map[string]any, opts ...func(*
 		t.Fatalf("got %s", done.Raw)
 	}
 	term, agent = done.TerminalID, done.AgentID
-	h.WaitScreen(term, "fake "+providers.Get(provider).ChatCmd()+" ready")
+	h.WaitScreen(term, "fake "+providers.Get(provider).Cmd()+" ready")
 	h.WaitScreen(term, "session: ")
 	return h, phone, term, agent
 }

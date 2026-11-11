@@ -159,9 +159,9 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	}
 	// Before trust, the spawn and naming, so each reads the account's folder.
 	env = slices.Concat(env, account)
-	exe, ok := l.find(s.Provider, Chat(s), env)
+	exe, ok := l.find(s.Provider, env)
 	if !ok {
-		return Result{Err: fail("provider_unavailable", command(s.Provider, Chat(s))+" isn't installed on your Mac")}
+		return Result{Err: fail("provider_unavailable", command(s.Provider)+" isn't installed on your Mac")}
 	}
 	name := ""
 	if s.Checkout.New != nil {
@@ -173,7 +173,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	}
 	argv[0] = exe
 	if Chat(s) {
-		argv = inOwnFolder(s.Provider, Piped(l.d.Exe, argv))
+		argv = Piped(l.d.Exe, argv)
 	}
 	cwd, setup, fl := l.checkout(w, f, s, env, progress)
 	if fl != nil {
@@ -460,10 +460,7 @@ func (l *Launcher) Providers() []proto.ProviderInfo {
 	env := l.d.LoginEnv()
 	list := make([]proto.ProviderInfo, len(providers.All))
 	each(func(i int, p *providers.Spec) {
-		_, ok := l.find(p.ID, false, env)
-		if !ok && p.ChatCommand != "" {
-			_, ok = l.find(p.ID, true, env)
-		}
+		_, ok := l.find(p.ID, env)
 		list[i] = proto.ProviderInfo{ID: p.ID, Available: ok, Efforts: p.Efforts, Plan: p.Plan, NeverAsks: p.NeverAsks, Chat: p.Chat}
 	})
 	return list
@@ -473,7 +470,7 @@ func (l *Launcher) Providers() []proto.ProviderInfo {
 func (l *Launcher) Paths() map[string]string {
 	env := l.d.LoginEnv()
 	found := make([]string, len(providers.All))
-	each(func(i int, p *providers.Spec) { found[i], _ = l.find(p.ID, false, env) })
+	each(func(i int, p *providers.Spec) { found[i], _ = l.find(p.ID, env) })
 	paths := map[string]string{}
 	for i, p := range providers.All {
 		paths[p.ID] = found[i]
@@ -501,7 +498,7 @@ func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 			return "", nil, fl.Code
 		}
 	}
-	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, func(p string) (string, bool) { return l.find(p, saved.Chat, env) })
+	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, func(p string) (string, bool) { return l.find(p, env) })
 }
 
 // AgentTab is Daemon.AgentTab: argv wrapped as a launch wraps its agent,
@@ -546,13 +543,10 @@ func (l *Launcher) account(provider, id string) ([]string, *Failure) {
 	return l.d.Accounts.Env(provider, id), nil
 }
 
-// find resolves the command config.json gives provider, or the one for its
-// chat. It holds no lock while the shell looks, so Providers can look for all at once.
-func (l *Launcher) find(provider string, chat bool, env []string) (string, bool) {
+// find resolves the command config.json gives provider. It holds no lock
+// while the shell looks, so Providers can look for all at once.
+func (l *Launcher) find(provider string, env []string) (string, bool) {
 	cmd := l.set.AgentCommand(provider)
-	if chat {
-		cmd = l.set.ChatCommand(provider)
-	}
 	l.mu.Lock()
 	f, ok := l.found[cmd]
 	l.mu.Unlock()
@@ -560,9 +554,6 @@ func (l *Launcher) find(provider string, chat bool, env []string) (string, bool)
 		return f.path, f.path != ""
 	}
 	path, err := resolve(cmd, env)
-	if err != nil && chat && provider == providers.Antigravity.ID {
-		path, err = agyServer()
-	}
 	if err != nil || !isAgent(providers.Get(provider), path, env) {
 		path = ""
 	}

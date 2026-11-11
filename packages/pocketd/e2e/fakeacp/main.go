@@ -1,6 +1,6 @@
 // Command fakeacp stands in for the agents Pocket's chat drives over ACP in
-// e2e tests: hermes, opencode, cursor-agent, grok, fx and agy_acp_server.par,
-// whichever name it is built under. It speaks JSON-RPC on stdio, one session,
+// e2e tests: hermes, opencode, cursor-agent, grok, fx and agy, whichever
+// name it is built under. It speaks JSON-RPC on stdio, one session,
 // with notes on stderr, which is the Terminal's screen. Sessions are kept
 // under $HOME/.acp-fake, so a restarted one loads. Prompts:
 //
@@ -63,7 +63,7 @@ func main() {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "fake %s ready %s\r\n", name, strings.Join(args, " "))
-	if name != "agy_acp_server.par" && !slices.Contains(args, "acp") && !slices.Contains(args, "stdio") {
+	if !slices.Contains(args, "acp") && !slices.Contains(args, "stdio") {
 		in := bufio.NewScanner(os.Stdin)
 		for in.Scan() {
 			fmt.Printf("typed: %s\r\n", in.Text())

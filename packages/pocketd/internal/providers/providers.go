@@ -15,19 +15,18 @@ const (
 
 // Spec is one agent CLI pocketd runs. ID is its config.json section.
 type Spec struct {
-	ID          string
-	Name        string    // as its maker writes it
-	Command     string    // runs it, when not ID
-	ChatCommand string    // runs its chat, when not Command
-	Transport   string    // of its chat
-	Efforts     []string  // a session may start with; never nil, sent as []
-	Plan        bool      // may start planning first
-	NeverAsks   bool      // runs every tool without asking, so its access is always full
-	Chat        Chat      // what its chat driver does
-	Flags       Flags     // what its TUI takes, for one launch and state run from this Spec
-	Args        [3]string // default promptArgs, resumeArgs, forkArgs (config.ArgKeys order)
-	NotAgent    []string  // argv[1]s that run it as a tool, not a session
-	Help        []string  // what its --help says, where another command has its name
+	ID        string
+	Name      string    // as its maker writes it
+	Command   string    // runs it, when not ID
+	Transport string    // of its chat
+	Efforts   []string  // a session may start with; never nil, sent as []
+	Plan      bool      // may start planning first
+	NeverAsks bool      // runs every tool without asking, so its access is always full
+	Chat      Chat      // what its chat driver does
+	Flags     Flags     // what its TUI takes, for one launch and state run from this Spec
+	Args      [3]string // default promptArgs, resumeArgs, forkArgs (config.ArgKeys order)
+	NotAgent  []string  // argv[1]s that run it as a tool, not a session
+	Help      []string  // what its --help says, where another command has its name
 }
 
 // Flags name what a launch asks for on a provider's command line; "" where it has no flag for it.
@@ -43,14 +42,6 @@ func (p *Spec) Cmd() string {
 		return p.Command
 	}
 	return p.ID
-}
-
-// ChatCmd is the command that runs p for the chat.
-func (p *Spec) ChatCmd() string {
-	if p.ChatCommand != "" {
-		return p.ChatCommand
-	}
-	return p.Cmd()
 }
 
 // OnlyChats says p tells its status only to its chat: its TUI has no hooks,

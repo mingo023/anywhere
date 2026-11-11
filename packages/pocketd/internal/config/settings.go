@@ -163,14 +163,6 @@ func (s *Settings) AgentCommand(provider string) string {
 	return provider
 }
 
-// ChatCommand is what starts provider for the chat: AgentCommand, unless its chat is a command of its own.
-func (s *Settings) ChatCommand(provider string) string {
-	if p := providers.Get(provider); p != nil && p.ChatCommand != "" {
-		return p.ChatCommand
-	}
-	return s.AgentCommand(provider)
-}
-
 // Values is every setting by its config-set key, for the owner's settings screen.
 func (s *Settings) Values() map[string]any {
 	terminals := "off"

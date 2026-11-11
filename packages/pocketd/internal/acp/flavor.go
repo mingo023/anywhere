@@ -34,9 +34,10 @@ type flavor struct {
 
 // flavors has every ACP provider.
 var flavors = map[string]flavor{
+	// Cursor reads its sign-in at start; its authenticate opens a browser
+	// sign-in on the Mac and waits on it.
 	providers.Cursor.ID: {
 		caps:    map[string]any{"_meta": map[string]any{"parameterizedModelPicker": true}},
-		auth:    func(json.RawMessage) string { return "cursor_login" },
 		lenient: true,
 	},
 	providers.Grok.ID: {

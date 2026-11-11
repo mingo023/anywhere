@@ -42,9 +42,7 @@ pub const CWD: &str = "{cwd}";
 
 /// How a provider's CLI lists its models.
 pub struct Catalog {
-    /// Run instead of the provider's command; empty runs that.
-    pub command: &'static str,
-    /// Run after the command.
+    /// Run after the provider's command.
     pub args: &'static [&'static str],
     pub input: &'static str,
     /// The line that answers, from a server that runs on after it: `daemon::run_login_until` stops there. `None` when
@@ -56,7 +54,7 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    const NONE: Self = Self { command: "", args: &[], input: "", answer: None, parse: |_| Vec::new(), fallback: &[] };
+    const NONE: Self = Self { args: &[], input: "", answer: None, parse: |_| Vec::new(), fallback: &[] };
 
     /// The models `output` lists, or what a server answered instead of a list, as "Authentication required".
     pub fn read(&self, output: &str) -> Result<Vec<crate::ListedModel>, String> {
@@ -143,13 +141,6 @@ pub(crate) const GROK_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 /// Opens an ACP agent and a session in `CWD`, whose reply lists its models.
 const ACP_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false,"session":{"configOptions":{"boolean":{}}}},"clientInfo":{"name":"anywhere","version":"0"}}}
 {"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":{cwd},"mcpServers":[]}}"#;
-
-/// Antigravity's ACP server is a file of its own that `agy` installs, and it finds its resources from the folder it runs in.
-const AGY_ACP: &str = r#"for p in ~/.local/bin/agy_acp_server.par ~/.local/share/agy-acp/agy_acp_server.par "$(command -v agy_acp_server.par)"; do [ -x "$p" ] && cd "$(dirname "$p")" && exec "$p" "$@"; done; exit 127"#;
-#[cfg(not(target_os = "linux"))]
-const AGY_ARGS: &[&str] = &["-c", AGY_ACP, "sh"];
-#[cfg(target_os = "linux")]
-const AGY_ARGS: &[&str] = &["-c", AGY_ACP, "sh", "--uid="];
 
 /// What the agents after Claude and Codex share: Anywhere reads no hooks or session files of theirs, so only a chat reports status.
 const NEWER: Builtin = Builtin {
@@ -334,7 +325,7 @@ pub const ALL: [Builtin; 10] = [
     Builtin {
         id: "antigravity",
         command: "agy",
-        models: Catalog { command: "sh", args: AGY_ARGS, fallback: &["gemini-3.8-flash-high"], ..ACP_MODELS },
+        models: Catalog { args: &["acp"], fallback: &["gemini-3.8-flash-high"], ..ACP_MODELS },
         install: Install { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", then: "run agy once to sign in" },
         ..NEWER
     },
@@ -513,23 +504,5 @@ mod tests {
         assert!(hermes.answer.unwrap()(r#"{"jsonrpc":"2.0","id":2,"result":{}}"#));
         let claude = &known("claude").models;
         assert_eq!(claude.input_in("/w"), claude.input);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn antigravity_s_acp_server_runs_from_its_own_folder_wherever_agy_put_it() {
-        let home = std::env::temp_dir().join(format!("pocket-agy-{}", std::process::id()));
-        let dir = home.join(".local/share/agy-acp");
-        std::fs::create_dir_all(&dir).unwrap();
-        let server = dir.join("agy_acp_server.par");
-        std::fs::write(&server, "#!/bin/sh\necho \"$PWD $*\"\n").unwrap();
-        std::fs::set_permissions(&server, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        let models = &known("antigravity").models;
-        let run = |home: &std::path::Path| std::process::Command::new(models.command).args(models.args).current_dir("/").env_clear().env("HOME", home).env("PATH", "/usr/bin:/bin").output().unwrap();
-        let out = run(&home);
-        let extra = models.args[3..].join(" ");
-        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), format!("{} {extra}", dir.display()).trim());
-        assert_eq!(run(&home.join("none")).status.code(), Some(127));
-        std::fs::remove_dir_all(&home).unwrap();
     }
 }

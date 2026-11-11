@@ -79,7 +79,7 @@ func (l *Launcher) ConfigDir(provider, account, project string) (string, error) 
 func (l *Launcher) signIn(provider, id string) ops.Msg {
 	s := l.d.Accounts
 	env := l.d.LoginEnv()
-	exe, ok := l.find(provider, false, env)
+	exe, ok := l.find(provider, env)
 	if !ok {
 		return ops.Msg{Ev: "error", Error: provider + " isn't installed on this machine"}
 	}
@@ -126,7 +126,7 @@ func loginArgv(provider, exe string) []string {
 // signOut runs provider's own logout on account id, which also drops its Keychain item.
 func (l *Launcher) signOut(provider, id string) {
 	env := l.d.LoginEnv()
-	exe, ok := l.find(provider, false, env)
+	exe, ok := l.find(provider, env)
 	c := clis[provider]
 	if !ok || c == nil {
 		return

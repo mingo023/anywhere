@@ -416,9 +416,8 @@ func TestEachAgentOpensItsSessionItsOwnWay(t *testing.T) {
 		calls    map[string]string
 	}{
 		{"cursor", state.Launch{Access: "ask"}, `{}`, map[string]string{
-			"initialize":   `{"clientCapabilities":{"_meta":{"parameterizedModelPicker":true},"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"anywhere","title":"Anywhere","version":"0"},"protocolVersion":1}`,
-			"authenticate": `{"methodId":"cursor_login"}`,
-			"session/new":  `{"cwd":"/work","mcpServers":[]}`,
+			"initialize":  `{"clientCapabilities":{"_meta":{"parameterizedModelPicker":true},"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"anywhere","title":"Anywhere","version":"0"},"protocolVersion":1}`,
+			"session/new": `{"cwd":"/work","mcpServers":[]}`,
 		}},
 		{"grok", state.Launch{Access: "full", Effort: "high"}, grokInit, map[string]string{
 			"authenticate":     `{"_meta":{"headless":true},"methodId":"xai.api_key"}`,
@@ -457,6 +456,23 @@ func TestEachAgentOpensItsSessionItsOwnWay(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCursorNeverSignsInThroughABrowser(t *testing.T) {
+	_, a, _, _ := start(t, opts{provider: "cursor", answer: func(a *agent, method string, _ json.RawMessage) string {
+		if method == "session/new" {
+			return `{"sessionId":"s1"}`
+		}
+		return `{}`
+	}})
+	a.called("session/new", 1)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, c := range a.calls {
+		if strings.HasPrefix(c, "authenticate ") {
+			t.Errorf("called %s", c)
+		}
 	}
 }
 
@@ -1050,5 +1066,20 @@ func TestAnAgentThatNeverAnswersFailsToOpenSayingWhatItLeftUnanswered(t *testing
 	t.Cleanup(s.Close)
 	if _, err := s.Open(a, "/work", "", state.Launch{Access: "ask"}, Ended); err == nil || err.Error() != "it didn't answer initialize in 20ms" {
 		t.Fatalf("open: %v", err)
+	}
+}
+
+func TestAnAgentsRefusalSaysItsReasonOnce(t *testing.T) {
+	for _, c := range []struct {
+		e    Error
+		want string
+	}{
+		{Error{Message: "Internal error", Data: json.RawMessage(`{"details":"model_resolution_failed"}`)}, "Internal error: model_resolution_failed"},
+		{Error{Message: "Authentication required", Data: json.RawMessage(`{"message":"Authentication required. Please run 'agent login' first."}`)}, "Authentication required. Please run 'agent login' first."},
+		{Error{Message: "Authentication required"}, "Authentication required"},
+	} {
+		if got := c.e.Error(); got != c.want {
+			t.Errorf("%q, want %q", got, c.want)
+		}
 	}
 }

@@ -31,22 +31,6 @@ func TestProvidersAreListedInTheOrderClientsShowThem(t *testing.T) {
 	}
 }
 
-func TestAProviderRunsAsItsCommandAndItsChatAsItsChatCommand(t *testing.T) {
-	for _, c := range []struct {
-		p         *Spec
-		cmd, chat string
-	}{
-		{&Claude, "claude", "claude"},
-		{&Cursor, "cursor-agent", "cursor-agent"},
-		{&Pi, "pi", "pi"},
-		{&Antigravity, "agy", "agy_acp_server.par"},
-	} {
-		if c.p.Cmd() != c.cmd || c.p.ChatCmd() != c.chat {
-			t.Errorf("%s: runs as %q, chat as %q", c.p.ID, c.p.Cmd(), c.p.ChatCmd())
-		}
-	}
-}
-
 func TestEveryProviderHasANameAndATransportPocketdDrives(t *testing.T) {
 	for _, p := range All {
 		if !slices.Contains([]string{StreamJSON, AppServer, ACP, PiRPC}, p.Transport) || p.Name == "" {
