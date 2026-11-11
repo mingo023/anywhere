@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 )
 
@@ -41,7 +42,7 @@ func Cut(argv []string) (run []string, l Launch, ok bool) {
 	}
 	var access string
 	scan(argv[i:], map[string]*string{"--access": &access, "--model": &l.Model, "--effort": &l.Effort}, map[string]*bool{"--plan": &l.Plan}, nil)
-	if l.Access = "ask"; slices.Contains([]string{"settings", "edits", "auto", "full"}, access) {
+	if l.Access = "ask"; slices.Contains(proto.Accesses, access) {
 		l.Access = access
 	}
 	for j := i + 1; j+1 < len(argv); j++ {
