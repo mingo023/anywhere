@@ -79,6 +79,8 @@ public struct LaunchSpec: Codable, Hashable, Sendable {
     public var access: Access
     public var plan: Bool
     public var prompt: String?
+    /// The model's own settings, by the agent's id for each; only the desktop's chat sets them.
+    public var options: [String: String]?
     /// A provider session to fork (fork.v1).
     public var fork: String?
     public var account: String?
@@ -89,7 +91,7 @@ public struct LaunchSpec: Codable, Hashable, Sendable {
 
     public init(
         project: String, checkout: Checkout, provider: ProviderId, model: String? = nil, effort: String? = nil, access: Access,
-        plan: Bool, prompt: String? = nil, fork: String? = nil, account: String? = nil, chat: Bool? = nil, team: Bool? = nil
+        plan: Bool, prompt: String? = nil, options: [String: String]? = nil, fork: String? = nil, account: String? = nil, chat: Bool? = nil, team: Bool? = nil
     ) {
         self.project = project
         self.checkout = checkout
@@ -99,6 +101,7 @@ public struct LaunchSpec: Codable, Hashable, Sendable {
         self.access = access
         self.plan = plan
         self.prompt = prompt
+        self.options = options
         self.fork = fork
         self.account = account
         self.chat = chat
