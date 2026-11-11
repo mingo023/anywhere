@@ -140,10 +140,12 @@ pub(crate) fn by_upstream<T>(provider: &str, items: Vec<T>, upstream: impl Fn(&T
     groups.into_iter().map(|(who, group)| (Some(who.replace('-', " ").to_uppercase()), group)).collect()
 }
 
-/// `provider`'s models as a Settings menu lists them.
+/// `provider`'s models as a Settings menu lists them, after the agent's own default, so a pick can be undone.
 pub(crate) fn model_rows(provider: &str, offered: &[ListedModel], current: &str) -> Vec<Row> {
+    let choice = |value: &str, label: &str| Choice { value: value.into(), label: label.into() };
+    let default = (!offered.iter().any(|m| m.value.is_empty())).then(|| Row::Pick(choice("", &model_or_default(""))));
     let groups = by_upstream(provider, model_options(offered, current).collect(), |(_, _, upstream)| upstream);
-    grouped(groups.into_iter().map(|(who, models)| (who, models.into_iter().map(|(value, label, _)| Choice { value: value.into(), label: label.into() }).collect())))
+    default.into_iter().chain(grouped(groups.into_iter().map(|(who, models)| (who, models.into_iter().map(|(value, label, _)| choice(value, label)).collect())))).collect()
 }
 
 pub(crate) fn effort_options(efforts: &[String], none: &str) -> Vec<(String, String)> {
@@ -416,12 +418,24 @@ mod tests {
             rows.into_iter().map(|r| match r { Row::Heading(who) => format!("# {who}"), Row::Pick(Choice { label, .. }) => label }).collect::<Vec<_>>()
         };
         for provider in ["opencode", "pi", "omp", "hermes"] {
-            assert_eq!(shown(provider, ""), ["# ANTHROPIC", "Claude Opus 4.5", "Claude Haiku 4.5", "# AMAZON BEDROCK", "Claude Opus 4.5"], "{provider}");
+            assert_eq!(shown(provider, "")[1..], ["# ANTHROPIC", "Claude Opus 4.5", "Claude Haiku 4.5", "# AMAZON BEDROCK", "Claude Opus 4.5"], "{provider}");
         }
-        assert_eq!(shown("cursor", ""), ["Claude Opus 4.5", "Claude Opus 4.5", "Claude Haiku 4.5"]);
-        assert_eq!(shown("pi", "local")[..2], ["# PI", "local"], "a stored model that names nobody sits under the agent");
+        assert_eq!(shown("cursor", "")[1..], ["Claude Opus 4.5", "Claude Opus 4.5", "Claude Haiku 4.5"]);
+        assert_eq!(shown("pi", "local")[1..3], ["# PI", "local"], "a stored model that names nobody sits under the agent");
         let own = by_upstream("hermes", vec!["", ""], |upstream| upstream);
         assert_eq!(own, [(None, vec!["", ""])], "a list that names nobody has no groups");
+    }
+
+    #[test]
+    fn a_settings_model_menu_offers_the_agent_default_first_and_only_once() {
+        let first = |offered: &[ListedModel]| match model_rows("claude", offered, "opus").into_iter().next() {
+            Some(Row::Pick(Choice { value, label })) => (value, label),
+            _ => panic!("no pick first"),
+        };
+        assert_eq!(first(&[listed("opus", "Opus")]), (String::new(), "Agent default".to_string()));
+        let models = Models::default();
+        let rows = model_rows("hermes", models.offered("hermes", true), "");
+        assert_eq!(rows, [Row::Pick(Choice { value: String::new(), label: "Agent default".into() })], "an agent with no list already offers it");
     }
 
     #[test]
