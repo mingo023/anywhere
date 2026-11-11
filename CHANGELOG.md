@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.39
+
+- Sidebar lists only the worktrees Anywhere made or you imported (#223): (373d2525)
+
 ## 0.1.38
 
 - Chat rows stay put when opened or shut (#221): (f0a18006)
