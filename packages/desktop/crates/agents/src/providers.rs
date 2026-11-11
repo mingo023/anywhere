@@ -146,8 +146,9 @@ pub(crate) const GROK_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const ACP_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false,"session":{"configOptions":{"boolean":{}}}},"clientInfo":{"name":"anywhere","version":"0"}}}
 {"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":{cwd},"mcpServers":[]}}"#;
 
-/// Asks Cursor's ACP server for its models, each with its own settings; `catalogs::acp_answered` is its reply.
-const CURSOR_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"anywhere","version":"0"}}}
+/// Asks Cursor's ACP server for its models, each with its own settings; `catalogs::acp_answered` is its reply. It
+/// declares the model picker pocketd's Cursor session does, so it lists the models and settings a session takes.
+const CURSOR_INPUT: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false,"_meta":{"parameterizedModelPicker":true}},"clientInfo":{"name":"anywhere","version":"0"}}}
 {"jsonrpc":"2.0","id":2,"method":"cursor/list_available_models","params":{}}"#;
 
 /// What the agents after Claude and Codex share: Anywhere reads no hooks or session files of theirs, so only a chat reports status.
@@ -426,6 +427,12 @@ mod tests {
         assert!(!builtin_info("gemini").available);
         let missing: ProviderInfo = serde_json::from_str(r#"{"id":"pi","efforts":[],"plan":true}"#).unwrap();
         assert!(!missing.available);
+    }
+
+    #[test]
+    fn cursors_model_probe_asks_for_the_model_picker_its_sessions_use() {
+        let init: serde_json::Value = serde_json::from_str(CURSOR_INPUT.lines().next().unwrap()).unwrap();
+        assert_eq!(init["params"]["clientCapabilities"]["_meta"]["parameterizedModelPicker"], true);
     }
 
     #[test]
