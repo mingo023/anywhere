@@ -744,14 +744,9 @@ const STEPS: [(&str, Step); 265] = [
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("new-scratch", |d, window, cx| d.new_session_without_project(window, cx)),
-    // As a click on the pill: the panel opens with the agent in use in the rail's view.
-    ("form-model", |d, _, cx| {
-        let slot = crate::modals::new_session::slot;
-        d.toggle_composer(slot, Menu::Model, cx);
-        if slot(d).draft.menu == Some(Menu::Model) {
-            let (pick, repo) = (d.new_form_pick(), d.new_form.project().map(str::to_string));
-            d.models_opened(move |d| &mut slot(d).draft, &pick.provider, repo.as_deref(), cx);
-        }
+    ("form-model", |d, window, cx| {
+        let (pick, repo) = (d.new_form_pick(), d.new_form.project().map(str::to_string));
+        d.toggle_model_menu(crate::modals::new_session::slot, &pick.provider, repo.as_deref(), window, cx);
     }),
     ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
