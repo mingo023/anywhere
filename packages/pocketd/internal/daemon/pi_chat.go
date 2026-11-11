@@ -107,6 +107,9 @@ func (c piDriver) Settings(model, effort string) error {
 // Access to full leaves plan, which is the read-only tools pi started with;
 // there is no other access to switch to, as pi asks before no tool.
 func (c piDriver) Access(access string) error {
+	if !c.inForeground() {
+		return errNotForeground
+	}
 	name := providers.Get(c.pr.provider).Name
 	if access != "full" {
 		return errors.New(name + " runs every tool without asking, so its access is always full")
