@@ -74,7 +74,7 @@ struct ComposerView: View {
             case .permission(let answerable):
                 if let ask = store.ask {
                     PermissionCard(
-                        ask: ask, who: who(store.provider), feedback: store.feedback, answerable: answerable, sent: store.answering == ask.requestId,
+                        ask: ask, who: AgentName.who(store.provider), feedback: store.feedback, answerable: answerable, sent: store.answering == ask.requestId,
                         online: store.online, focus: focus, allow: { store.allow() }, deny: { store.deny($0) }
                     )
                     .id(ask.requestId)
@@ -82,7 +82,7 @@ struct ComposerView: View {
             case .question(let answerable):
                 if let wizard = store.wizard {
                     QuestionWizard(
-                        wizard: wizard, answerable: answerable, online: store.online, who: who(store.provider), change: { store.wizard($0) },
+                        wizard: wizard, answerable: answerable, online: store.online, who: AgentName.who(store.provider), change: { store.wizard($0) },
                         skip: { store.skipQuestions() }, openLink: openLink, focus: focus)
                 }
             case .viewOnly:
@@ -273,7 +273,7 @@ struct ComposerView: View {
                         }
                         if let access = agent.access, !access.isEmpty {
                             AccessPillView(
-                                access: access, editable: store.setsAccess, who: who(agent.provider)) { store.settings(access: $0) }
+                                access: access, editable: store.setsAccess, who: AgentName.who(agent.provider)) { store.settings(access: $0) }
                         }
                     }
                     agentsChip

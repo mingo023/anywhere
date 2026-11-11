@@ -145,7 +145,7 @@ struct RowBuilder {
     }
 
     var t: Transcript { session.transcript }
-    var who: String { ChatModel.who(provider) }
+    var who: String { AgentName.who(provider) }
 
     /// Whether the fold over `turn` shows open: the user's choice, or held open while its reply is at work.
     func foldOpen(_ turn: Int) -> Bool {

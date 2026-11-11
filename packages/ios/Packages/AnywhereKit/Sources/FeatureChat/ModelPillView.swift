@@ -59,7 +59,7 @@ struct ModelChoices: View {
         }
         let models = ModelPill.aliases(agent.provider)
         if efforts.isEmpty && models.isEmpty {
-            Text("Set by \(who(agent.provider))")
+            Text("Set by \(AgentName.who(agent.provider))")
         }
         if !models.isEmpty {
             Section("Model") {

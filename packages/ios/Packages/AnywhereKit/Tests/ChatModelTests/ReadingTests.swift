@@ -18,8 +18,8 @@ private let done = End.done(durationMs: 1, usage: nil)
 
 @Test("a live fold says who works and for how long")
 func aLiveFoldSaysWhoWorks() {
-    #expect(liveLabel(who("claude"), "Opus 5.5", .working(secs: 7, background: 0)) == "Opus 5.5 working for 7s")
-    #expect(liveLabel(who("codex"), "", .working(secs: 64, background: 0)) == "Codex working for 1m 4s")
+    #expect(liveLabel("Claude", "Opus 5.5", .working(secs: 7, background: 0)) == "Opus 5.5 working for 7s")
+    #expect(liveLabel("Codex", "", .working(secs: 64, background: 0)) == "Codex working for 1m 4s")
     #expect(liveLabel("Claude", "Opus 5.5", .working(secs: 3, background: 1)) == "Opus 5.5 working for 3s · in the background")
     #expect(liveLabel("Claude", "Opus 5.5", .working(secs: 3, background: 2)) == "Opus 5.5 working for 3s · 2 in the background")
     #expect(liveLabel("Claude", "Opus 5.5", .thinking) == "Thinking…")
@@ -353,10 +353,4 @@ func labelsModelsLikeThePicker() {
     #expect(modelLabel(model: nil, provider: "opencode") == "OpenCode")
     #expect(modelLabel(model: nil, provider: "gemini") == "Gemini")
     #expect(modelLabel(model: "opencode/big-pickle", provider: "opencode") == "Big Pickle")
-}
-
-@Test("each agent goes by its short name, one this build doesn't know by Agent")
-func eachAgentGoesByItsShortName() {
-    let ids = ["claude", "codex", "cursor", "grok", "opencode", "pi", "omp", "fx", "hermes", "antigravity", "gemini"]
-    #expect(ids.map(who) == ["Claude", "Codex", "Cursor", "Grok", "OpenCode", "Pi", "omp", "fx", "Hermes", "Antigravity", "Agent"])
 }

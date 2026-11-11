@@ -17,11 +17,6 @@ public enum Live: Hashable, Sendable {
     case approval, answer
 }
 
-/// The agent as the fold names it: "Claude", "Codex".
-public func who(_ provider: String) -> String {
-    AgentName.short(provider) ?? "Agent"
-}
-
 /// "Opus 5.5 working for 7s · in the background"; the agent's name stands in for an unknown model.
 public func liveLabel(_ who: String, _ model: String, _ live: Live) -> String {
     switch live {
