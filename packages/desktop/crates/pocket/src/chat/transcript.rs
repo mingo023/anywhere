@@ -56,6 +56,8 @@ pub(crate) struct View {
     expanded: HashSet<String>,
     /// The row last shown more or less of, and when.
     toggled: Option<(String, Instant)>,
+    /// When the user last opened or shut a row, until it has eased to its height: the chat holds still meanwhile.
+    held: Option<Instant>,
     code: Highlights,
     docs: Docs,
     /// Messages still streaming onto the screen, by id.
@@ -77,8 +79,15 @@ impl View {
         });
         let tools = cx.new(|_| Tools::default());
         let agent = agent.to_string();
-        let _tools = cx.observe(&tools, move |d, _, _| d.chats.views.get(&agent).into_iter().for_each(View::remeasure_under_pin));
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
+        let _tools = cx.observe(&tools, move |d, tools, cx| {
+            // It notifies once more when a diff's colours land, long after the row opened.
+            let toggled = tools.read(cx).toggled.as_ref().map(|(_, at)| *at).filter(|at| easing(*at, Instant::now()));
+            if let Some(view) = d.chats.views.get_mut(&agent) {
+                view.held = view.held.max(toggled);
+                view.remeasure_under_pin();
+            }
+        });
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
     }
 
     /// How far the list sits above its end.
@@ -110,10 +119,30 @@ impl View {
         f32::from(self.list.viewport_bounds().size.height) - pin::BOTTOM - self.pin.as_ref().map_or(0., |p| p.spacer)
     }
 
+    /// Keeps a row the user opened or shut where it shows while it eases to its height. Following its end, the list
+    /// would push that row and all above it up instead. Under a held prompt the room, sized from the heights last
+    /// measured, would run a frame behind a row shrinking, and the list, too short, would scroll up to the turn before.
+    fn hold_row(&mut self, window: &mut Window) {
+        if !self.held.is_some_and(|at| easing(at, Instant::now())) {
+            return;
+        }
+        window.request_animation_frame();
+        if self.pin.as_ref().is_some_and(|p| p.anchored || p.unmeasured()) {
+            self.remeasure_under_pin();
+        } else if self.list.is_following_tail() {
+            let ix = self.top_row().0;
+            if let Some(top) = self.row_top(ix) {
+                self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+                self.list.scroll_by(px(pin::TOP - top));
+            }
+        }
+    }
+
     /// Sizes the room that holds the sent prompt a quarter down and keeps the list on it, gliding it there, until its
     /// reply fills what's under it.
     fn hold_pin(&mut self, glide: bool, window: &mut Window) {
         let scrolled = self.scrolled.take();
+        let opened = self.held.is_some();
         let Some(pin) = &mut self.pin else { return };
         if let Some(at_end) = scrolled.or_else(|| (!pin.unmeasured() && !pin.anchored && self.list.is_following_tail()).then_some(true)) {
             pin.moved(at_end);
@@ -127,11 +156,12 @@ impl View {
         let above = f32::from(self.list.laid_out_height_from(0) - self.list.laid_out_height_from(ix));
         let now = Instant::now();
         if !pin.step(viewport, above, pin.below(self.list.height_from(ix).map(f32::from), laid_out), glide.then_some(now)) {
-            // On the prompt the list follows the tail from here; scrolled away, it stays put until back at the end.
+            // On the prompt the list follows the tail from here; scrolled away, or filled by a row the user opened, it
+            // stays put until back at the end.
             let (anchored, top) = (pin.anchored, self.list.logical_scroll_top());
             self.pin = None;
             self.list.set_follow_mode(FollowMode::Tail);
-            if !anchored {
+            if !anchored || opened {
                 self.list.scroll_to(top);
             }
             return;
@@ -391,6 +421,11 @@ fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: b
     div().flex().flex_col().items_end().gap(px(4.)).child(bubble).child(under)
 }
 
+/// Whether a row opened or shut at `toggled` can still be easing to its height at `now`.
+fn easing(toggled: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(toggled) < user_bubble::TWEEN_MAX
+}
+
 fn toggle(agent: &str, id: &str, default: bool, cx: &mut Context<Desktop>) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
     let (agent, id) = (agent.to_string(), id.to_string());
     cx.listener(move |this, _, _, cx| this.chat_toggle(&agent, &id, default, cx))
@@ -435,7 +470,9 @@ impl Desktop {
         if view.list.item_count() == 0 {
             return div().flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("Send a message to start.");
         }
+        view.hold_row(window);
         view.hold_pin(!cx.reduce_motion(), window);
+        view.held = view.held.filter(|at| easing(*at, Instant::now()));
         let busy = chat::busy(&view.session.transcript, &view.session.outgoing, super::composer::working(&agent));
         view.jump = view.glide.is_none() && jump::jump_visibility(view.jump, view.distance(), busy);
         let spacer = view.pin.as_ref().map_or(0., |p| p.spacer);
@@ -464,6 +501,7 @@ impl Desktop {
     /// Opens or closes a fold, phase or sub-agent, and has the list measure again what that shows or hides.
     pub(crate) fn chat_toggle(&mut self, agent: &str, id: &str, default: bool, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get_mut(agent) else { return };
+        view.held = Some(Instant::now());
         let s = &mut view.session;
         s.toggle(id, default);
         if let Some(ix) = s.ids.iter().position(|i| i == id) {
@@ -583,6 +621,7 @@ impl Desktop {
             view.expanded.insert(row.to_string());
         }
         view.toggled = Some((row.to_string(), Instant::now()));
+        view.held = Some(Instant::now());
         view.remeasure_under_pin();
         cx.notify();
     }
@@ -870,7 +909,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Live, answer, code_span, content_width, in_fold, live_state, notice_label, phase_live, shown, stream_in, took};
+    use super::{Live, answer, code_span, content_width, easing, in_fold, live_state, notice_label, phase_live, shown, stream_in, took};
     use chat::{Block, End, Message, Row, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
@@ -922,6 +961,13 @@ mod tests {
         let after = HashMap::from([("same".to_string(), 9), ("grew".to_string(), 14), ("new".to_string(), 9)]);
         stream_in(&mut reveals, &after, &t, now + Duration::from_secs(2));
         assert!(reveals.is_empty(), "finished reveals are forgotten");
+    }
+
+    #[test]
+    fn a_row_the_user_opened_holds_the_chat_no_longer_than_a_height_eases() {
+        let t0 = Instant::now();
+        assert!(easing(t0, t0) && easing(t0, t0 + Duration::from_millis(849)));
+        assert!(!easing(t0, t0 + Duration::from_millis(850)));
     }
 
     #[test]

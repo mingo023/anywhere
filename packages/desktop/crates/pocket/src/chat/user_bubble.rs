@@ -105,9 +105,12 @@ pub(super) fn needs_collapse(lines: usize) -> bool {
     lines > COLLAPSED_LINES
 }
 
-/// Growing or shrinking by `delta` px takes longer the further it goes, up to 850ms.
+/// The longest a height eases.
+pub(super) const TWEEN_MAX: Duration = Duration::from_millis(850);
+
+/// Growing or shrinking by `delta` px takes longer the further it goes, up to `TWEEN_MAX`.
 pub(super) fn tween(delta: f32) -> Duration {
-    Duration::from_millis((220. + delta * 0.32).min(850.) as u64)
+    Duration::from_millis((220. + delta * 0.32) as u64).min(TWEEN_MAX)
 }
 
 /// A height easing over `delta` px: a long way eases in too, so it doesn't leap off.
