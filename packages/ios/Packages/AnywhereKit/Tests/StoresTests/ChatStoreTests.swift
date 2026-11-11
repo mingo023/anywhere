@@ -246,6 +246,23 @@ struct ChatStoreTests {
         #expect(c.settingsMenu == .model)
     }
 
+    @Test("a bare /model or /effort with nothing for the phone to list says to name one instead of opening an empty menu")
+    func aBareSettingWithNothingToListSaysToNameOne() {
+        let c = chat(of: "opencode")
+        _ = c.apply(.agentProviders(Sample.providers))
+        for command in ["/model", "/effort"] {
+            c.draft.text = command
+            c.send()
+            #expect(c.settingsMenu == nil, "\(command)")
+            #expect(c.notice == "There's no list of OpenCode's choices here. Send \(command) with one.")
+        }
+        let pi = chat(of: "pi")
+        _ = pi.apply(.agentProviders(Sample.providers))
+        pi.draft.text = "/thinking"
+        pi.send()
+        #expect(pi.settingsMenu == .effort, "Pi lists its levels")
+    }
+
     @Test("picking /mcp leaves the caret after the tag it puts in")
     func pickMcp() {
         let c = chat([])

@@ -499,6 +499,8 @@ public final class ChatStore: HostStore {
     /// Runs a command the phone does itself.
     func runLocal(_ local: ChatModel.Local, _ arg: String) {
         switch (local, arg) {
+        case (.model, "") where ModelPill.aliases(provider).isEmpty: notice = Composer.noChoices("/model", provider: provider)
+        case (.effort, "") where (info?.efforts ?? []).isEmpty: notice = Composer.noChoices("/effort", provider: provider)
         case (.model, ""), (.effort, ""): settingsMenu = local
         case (.new, let prompt): startNewSession(prompt)
         case (.btw, ""): break

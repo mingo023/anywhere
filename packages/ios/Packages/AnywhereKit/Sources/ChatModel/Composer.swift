@@ -95,6 +95,11 @@ public enum Composer {
         chatOnly ? "\(command) isn't available in the chat." : "\(command) runs only in \(who(provider))'s terminal. Run it there."
     }
 
+    /// Why a bare `/model` or `/effort` opens no menu: the phone has nothing of the agent's to list, but sends a name.
+    public static func noChoices(_ command: String, provider: String) -> String {
+        "There's no list of \(who(provider))'s choices here. Send \(command) with one."
+    }
+
     /// Why the chat won't compact: only Claude's `/compact` takes instructions, and the chat's own has no way to pass them.
     public static func compactTakesNoInstructions(provider: String) -> String {
         "\(who(provider))'s /compact takes no instructions. Send /compact alone."
