@@ -766,6 +766,11 @@ const poll = 100 * time.Millisecond
 // Tail waits for the file at path, then calls fn with each complete line
 // until ctx ends, and with the lines already written when it does.
 func Tail(ctx context.Context, path string, fn func([]byte)) {
+	tailFrom(ctx, path, 0, fn)
+}
+
+// tailFrom is Tail from offset from, the end of a whole line.
+func tailFrom(ctx context.Context, path string, from int64, fn func([]byte)) {
 	var f *os.File
 	for f == nil {
 		f, _ = os.Open(path)
@@ -774,6 +779,9 @@ func Tail(ctx context.Context, path string, fn func([]byte)) {
 		}
 	}
 	defer f.Close()
+	if _, err := f.Seek(from, io.SeekStart); err != nil {
+		return
+	}
 	r := bufio.NewReader(f)
 	var partial []byte
 	for {
@@ -788,6 +796,25 @@ func Tail(ctx context.Context, path string, fn func([]byte)) {
 			return
 		}
 		sleep(ctx)
+	}
+}
+
+// readLines calls fn with each whole line written to path so far, and
+// returns how far they reach.
+func readLines(path string, fn func([]byte)) (n int64) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	for {
+		line, err := r.ReadBytes('\n')
+		if err != nil {
+			return n
+		}
+		n += int64(len(line))
+		fn(line[:len(line)-1])
 	}
 }
 
