@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.42
+
+- Anywhere uses the Curious mascot icon across platforms (#245): (cc4a6ab3)
+- A chat's top tab opens its session in the terminal from a right-click (#244): (7d18bef7)
+- New sessions start as a chat by default (#243): (ff25f451)
+- Light Factory has a PRD, user stories, a prototype and seven plans (#242): (b2b5671d)
+
 ## 0.1.41
 
 - Account moves no longer freeze a chat or bounce to a limited account (#233): (0f35e228)
