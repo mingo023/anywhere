@@ -61,7 +61,7 @@ func (s *Store) Pick(provider, id, prefer string) (string, error) {
 			break
 		}
 	}
-	if a := listed(picked); a != nil && a.Usage.Limited() && s.AutoSwitch() {
+	if a := listed(picked); a != nil && s.limited(*a) && s.AutoSwitch() {
 		if best, ok := s.Best(provider, picked); ok {
 			return best, nil
 		}
@@ -76,7 +76,7 @@ func (s *Store) Pick(provider, id, prefer string) (string, error) {
 func (s *Store) Best(provider, except string) (string, bool) {
 	best, ok, unread, peak := "", false, false, 0.0
 	for _, a := range s.List(func(string, string) int { return 0 }) {
-		if a.Provider != provider || a.ID == except || a.Same != "" || a.Pending || !a.SignedIn || a.Usage.Limited() {
+		if a.Provider != provider || a.ID == except || a.Same != "" || a.Pending || !a.SignedIn || s.limited(a) {
 			continue
 		}
 		u, p := a.Usage == nil, a.Usage.Peak()
@@ -85,6 +85,32 @@ func (s *Store) Best(provider, except string) (string, bool) {
 		}
 	}
 	return best, ok
+}
+
+// Hit notes that provider's account id refused a turn at a limit its usage may
+// not show, as when its credits run out: it counts as limited until its 5-hour
+// window resets, else for 5 hours.
+func (s *Store) Hit(provider, id string) {
+	now := time.Now()
+	until := now.Add(5 * time.Hour).UnixMilli()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := provider + "/" + id
+	if u, ok := s.usage[key]; ok && u.Session != nil && u.Session.ResetsAt > now.UnixMilli() {
+		until = u.Session.ResetsAt
+	}
+	if s.hits == nil {
+		s.hits = map[string]int64{}
+	}
+	s.hits[key] = until
+}
+
+// limited is whether a is at a limit, by its usage or a turn it refused.
+func (s *Store) limited(a Account) bool {
+	s.mu.Lock()
+	until := s.hits[a.Provider+"/"+a.ID]
+	s.mu.Unlock()
+	return a.Usage.Limited() || time.Now().UnixMilli() < until
 }
 
 // AutoSwitch is whether an agent at its account's limit moves to another;

@@ -151,3 +151,27 @@ func TestAnAccountSignedInAsTheBuiltInLoginIsListedAsItsDuplicateAndNeverMovedTo
 		t.Fatalf("best %q", got)
 	}
 }
+
+func TestAnAccountThatRefusedATurnAtALimitIsSkippedUntilItsWindowResets(t *testing.T) {
+	s := store(t)
+	signInClaude(t, s, BuiltIn, "me@home.dev")
+	work := add(t, s, "claude", "me@work.dev")
+	acme := add(t, s, "claude", "me@acme.dev")
+	used(s, "claude", work, 90, 90)
+	s.mu.Lock()
+	s.usage["claude/"+BuiltIn] = Usage{Session: &Window{Percent: 84, ResetsAt: time.Now().Add(time.Second).UnixMilli()}}
+	s.mu.Unlock()
+
+	s.Hit("claude", BuiltIn)
+
+	if got, _ := s.Best("claude", acme); got != work {
+		t.Fatalf("best %q", got)
+	}
+	if got := pick(t, s, BuiltIn, ""); got != work {
+		t.Fatalf("picked %q", got)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if got, _ := s.Best("claude", acme); got != BuiltIn {
+		t.Fatalf("best after the reset %q", got)
+	}
+}

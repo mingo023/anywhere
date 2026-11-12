@@ -451,6 +451,8 @@ func (d *Daemon) endAgent(pr *presence) {
 	// The session took the turns that showed its mail with it.
 	d.settle(pr.a.ID(), "", false)
 	if moving {
+		// It may have started a turn after the move checked it was idle; that turn died with it.
+		pr.a.Clear()
 		return
 	}
 	d.Broker.DenyAll(pr.a.ID())

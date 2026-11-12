@@ -140,6 +140,8 @@ type Store struct {
 	share   sync.Mutex // one Share at a time: launches and moves can overlap
 	usage   map[string]Usage
 	pending map[string]pending
+	// hits holds, by provider/id, until when an account that refused a turn at a limit counts as at one (unix ms).
+	hits map[string]int64
 }
 
 type pending struct{ provider, err string }
@@ -366,6 +368,7 @@ func (s *Store) Remove(provider, id string, running int, signOut func()) error {
 			delete(x.Defaults, provider)
 		}
 		delete(s.usage, provider+"/"+id)
+		delete(s.hits, provider+"/"+id)
 		return os.RemoveAll(s.Dir(provider, id))
 	})
 }

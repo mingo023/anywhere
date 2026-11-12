@@ -56,7 +56,12 @@ func (d *Daemon) Switch(agentID, account string) error {
 // account with the most left, and continues its turn there. With
 // switching at a limit off, or every account at one, the agent's own error stands.
 func (d *Daemon) limitHit(pr *presence) {
-	if pr.typed || d.Resume == nil || d.Accounts == nil || !d.Accounts.AutoSwitch() {
+	if d.Accounts == nil {
+		return
+	}
+	// Before the refresh, which a move may outlast: the account is the one that refused.
+	d.Accounts.Hit(pr.provider, storeAccount(pr.a.Summary().Account))
+	if pr.typed || d.Resume == nil || !d.Accounts.AutoSwitch() {
 		return
 	}
 	ctx, cancel := context.WithTimeout(pr.ctx, LimitRefresh)
