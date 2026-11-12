@@ -324,6 +324,7 @@ func TestLiveActivityUpdatesCoalesceButNeedsYouGoesAtOnce(t *testing.T) {
 	r := newRig(t, fast)
 	r.register("d1", false)
 	agents := []*agent.Agent{r.add("a1"), r.add("a2"), r.add("a3")}
+	begun := time.Now()
 	if err := r.n.Activity("d1", "act-1", h("act-d1"), false); err != nil {
 		t.Fatal(err)
 	}
@@ -352,8 +353,10 @@ func TestLiveActivityUpdatesCoalesceButNeedsYouGoesAtOnce(t *testing.T) {
 	if jsonOf(got) != jsonOf(want) {
 		t.Fatalf("%v\nwant %v", got, want)
 	}
-	if gap := sent[1].at.Sub(sent[0].at); gap < fast.Coalesce-20*time.Millisecond {
-		t.Fatalf("second update after %s", gap)
+	// The relay stamps an update when it arrives, late by however long the first one took to deliver; the first
+	// is only sent once the activity begins, so the second can't arrive within Coalesce of that.
+	if gap := sent[1].at.Sub(begun); gap < fast.Coalesce {
+		t.Fatalf("second update %s after the activity began", gap)
 	}
 	var p map[string]map[string]any
 	json.Unmarshal(sent[2].Payload, &p)
