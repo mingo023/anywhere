@@ -229,6 +229,9 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		if n := s.Checkout.New; n != nil && n.AutoName {
 			j.project, j.tree, j.branch = s.Project, cwd, n.Name
 		}
+		if s.Checkout.AutoName {
+			j.tree = cwd
+		}
 		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
 			if claim, ok := a.ClaimNaming(); ok {
 				go l.name(a, claim, j)

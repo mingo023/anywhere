@@ -172,6 +172,23 @@ func TestAnAutoNamedWorktreeTakesItsNamesFromThePrompt(t *testing.T) {
 		func(m Message) bool { return m.Type == "agent.update" && m.Agent.Branch == "say-hello" })
 }
 
+func TestAnAutoNamedFolderTakesItsNameFromThePromptAndKeepsItsBranch(t *testing.T) {
+	h := Start(t, launchReady(""))
+	branch := gitOut(t, h.Repo, "branch", "--show-current")
+	o := h.Owner("names.v1")
+	o.WaitFor("the names snapshot", func(m Message) bool { return m.Type == "worktree.names" })
+	create(o, "r1", inRepo(h, map[string]any{"checkout": map[string]any{"worktree": h.Repo, "autoName": true}, "prompt": "hello"}))
+	if c := reply(o, "agent.creating", "error"); c.Type != "agent.creating" {
+		t.Fatalf("got %s", c.Raw)
+	}
+	o.WaitAll("the folder's name and the session's name",
+		func(m Message) bool { return m.Type == "worktree.names" && m.Names[h.Repo] == "Say hello" },
+		func(m Message) bool { return m.Type == "agent.update" && m.Agent.Title == "Say hello" })
+	if got := gitOut(t, h.Repo, "branch", "--show-current"); got != branch {
+		t.Fatalf("branch %s, want %s", got, branch)
+	}
+}
+
 func TestANewLocalTakesItsNameFromTheFirstPrompt(t *testing.T) {
 	h := Start(t, launchReady(""))
 	o := h.Owner("locals.v1")

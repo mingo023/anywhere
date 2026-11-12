@@ -377,6 +377,11 @@ pub(crate) fn may_start(agents: &Agents) -> bool {
     !agents.observe_only()
 }
 
+/// pocketd names a Scratch folder from its first prompt until it has a name.
+fn names_folder(offered: bool, given: Option<&str>, prompt: &str) -> bool {
+    offered && given.is_none() && !prompt.is_empty()
+}
+
 pub(crate) fn default_first(branches: &mut [(String, Option<i64>)], preferred: &str, current: &str) {
     let default = default_base(branches.iter().map(|(b, _)| b.as_str()), preferred, current);
     if !branches.is_empty() {
@@ -609,6 +614,9 @@ impl Desktop {
 
     fn send_in_scratch(&mut self, folder: String, pick: LaunchPick, sent: String, cx: &mut Context<Self>) {
         let mut spec = pick.spec(&folder, json!({"worktree": folder}), sent.trim());
+        if names_folder(self.agents.names_offered(), self.agents.given_name(&folder), sent.trim()) {
+            spec["checkout"]["autoName"] = true.into();
+        }
         self.fill_launch(&mut spec, pick, &folder);
         self.store.save();
         self.select_tree(folder, None, cx);
@@ -798,7 +806,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Local, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, parse_pr, taken_names};
+    use super::{Draft, Local, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, names_folder, parse_pr, taken_names};
     use agents::CreateReply;
     use serde_json::json;
     use store::LaunchPick;
@@ -1113,5 +1121,13 @@ mod tests {
         assert!(!new.auto_names("fix the login", false));
         assert!(!Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix".into()), ..Draft::default() }.auto_names("fix", true));
         assert!(!Draft::default().auto_names("fix the login", true));
+    }
+
+    #[test]
+    fn pocketd_names_only_an_unnamed_scratch_folder_from_a_prompt() {
+        assert!(names_folder(true, None, "check the disk"));
+        assert!(!names_folder(true, Some("Checking disk space"), "check the disk"));
+        assert!(!names_folder(true, None, ""));
+        assert!(!names_folder(false, None, "check the disk"));
     }
 }
