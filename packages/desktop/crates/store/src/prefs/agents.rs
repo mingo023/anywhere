@@ -115,7 +115,7 @@ impl Default for Agents {
             send_now: false,
             chat_to: "focused".into(),
             close_on_exit: false,
-            start_as_chat: false,
+            start_as_chat: true,
             providers: BTreeMap::new(),
             favorites: Vec::new(),
             recent: Vec::new(),
@@ -486,7 +486,7 @@ mod tests {
 
     #[test]
     fn a_launch_starts_as_a_chat_only_when_set_unless_it_names_its_own() {
-        let (off, on) = (Agents::default(), Agents { start_as_chat: true, ..Agents::default() });
+        let (off, on) = (Agents { start_as_chat: false, ..Agents::default() }, Agents::default());
         let (mut tui, mut chat, mut named) = (json!({"provider": "claude"}), json!({"provider": "claude"}), json!({"provider": "claude", "chat": true}));
         let live = agents::Agents::default();
         off.launch(&mut tui, &live, &claude_efforts());
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn an_agent_whose_status_only_a_chat_reports_starts_as_a_chat_whatever_settings_say() {
-        let a = Agents::default();
+        let a = Agents { start_as_chat: false, ..Agents::default() };
         let chats = LaunchPick::PROVIDERS.map(|provider| {
             let mut spec = json!({"provider": provider, "prompt": "fix the build"});
             a.launch(&mut spec, &agents::Agents::default(), &[]);
@@ -507,7 +507,7 @@ mod tests {
         let mut tui = json!({"provider": "hermes", "chat": false});
         a.launch(&mut tui, &agents::Agents::default(), &[]);
         assert_eq!(tui["chat"], true);
-        assert!(Agents { start_as_chat: true, ..Agents::default() }.starts_as_chat("claude"));
+        assert!(Agents::default().starts_as_chat("claude"));
     }
 
     #[test]
@@ -554,7 +554,7 @@ mod tests {
     fn a_file_without_agent_settings_keeps_todays_behaviour() {
         let a: Agents = serde_json::from_str("{}").unwrap();
         assert_eq!((a.access(), a.plan, a.new_worktree, a.tabs_open_agent, a.send_now), ("settings", false, false, false, false));
-        assert_eq!((a.chat_to(), a.close_on_exit, a.start_as_chat, a.provider("claude")), ("focused", false, false, Provider::default()));
+        assert_eq!((a.chat_to(), a.close_on_exit, a.start_as_chat, a.provider("claude")), ("focused", false, true, Provider::default()));
     }
 
     #[test]
