@@ -7,6 +7,7 @@ pub mod handoff;
 mod marks;
 pub mod mcp;
 mod outgoing;
+pub mod rich;
 mod rows;
 mod session;
 mod spawned;

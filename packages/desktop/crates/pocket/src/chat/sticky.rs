@@ -1,5 +1,5 @@
 use super::{meta, user_bubble};
-use crate::composer::split_images;
+use crate::composer::{Sent, split_attachments};
 use crate::desktop::Desktop;
 use chat::Row;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -84,8 +84,9 @@ fn one_line(text: &str) -> String {
 }
 
 /// What a prompt with no text shows.
-fn image_count(n: usize) -> String {
-    format!("{n} image{}", if n == 1 { "" } else { "s" })
+fn attached_count(images: usize, files: usize) -> String {
+    let count = |n: usize, what: &str| (n > 0).then(|| format!("{n} {what}{}", if n == 1 { "" } else { "s" }));
+    [count(images, "image"), count(files, "file")].into_iter().flatten().collect::<Vec<_>>().join(", ")
 }
 
 /// How far the card moves up so the next prompt, `next` px under the list's top, pushes it out rather than slides
@@ -159,6 +160,7 @@ fn card(
     id: &str,
     text: &str,
     images: &[&str],
+    files: usize,
     time: Option<String>,
     long: bool,
     open: bool,
@@ -171,14 +173,14 @@ fn card(
 ) -> Div {
     let knob = || div().size(px(KNOB)).flex_none().rounded_full().flex().items_center().justify_center();
     let arrow = knob().bg(ink(0.07)).group_hover("sticky", |s| s.bg(ink(0.12))).child(icon("arrow-up", 12., TEXT_2).group_hover("sticky", |s| s.text_color(TEXT)));
-    // A prompt of only images counts them in its label instead.
+    // A prompt of only attachments counts them in its label instead.
     let rest = if text.is_empty() { 0 } else { images.len().saturating_sub(THUMBS) };
     let thumbs = (!images.is_empty()).then(|| {
         let rest = (rest > 0).then(|| div().px(px(2.)).text_size(px(11.)).text_color(TEXT_3).child(format!("+{rest}")));
         div().flex().flex_none().items_center().gap(px(THUMB_GAP)).children(images.iter().take(THUMBS).map(|path| thumb(path))).children(rest)
     });
     let body = if text.is_empty() {
-        div().flex_none().text_color(TEXT_2).child(image_count(images.len())).into_any_element()
+        div().flex_none().text_color(TEXT_2).child(attached_count(images.len(), files)).into_any_element()
     } else if open {
         let text = div().id(SharedString::from(format!("sticky-text-{id}"))).max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll().child(user_bubble::styled(&format!("sticky-{id}"), text));
         div().flex_1().min_w_0().pt(px(1.)).text_color(TEXT_BODY).child(text).into_any_element()
@@ -259,7 +261,7 @@ impl Desktop {
         let ix = stuck(&s.rows, top, offset)?;
         let Row::Prompt { turn } = s.rows[ix] else { return None };
         let prompt = s.transcript.turns.get(turn)?.prompt.as_ref()?;
-        let (text, images) = split_images(&prompt.text);
+        let Sent { text, files, images } = split_attachments(&prompt.text);
         let text = text.trim();
         let id = s.ids.get(ix)?.clone();
         let viewport = view.list.viewport_bounds();
@@ -298,7 +300,7 @@ impl Desktop {
             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_sticky(&agent, &row, cx))
         };
         let cover = bottom + shift;
-        Some((card(&id, text, &images, time, long, open, max, shift, cover, !cx.reduce_motion(), on_jump, on_more), cover))
+        Some((card(&id, text, &images, files.len(), time, long, open, max, shift, cover, !cx.reduce_motion(), on_jump, on_more), cover))
     }
 
     fn chat_toggle_sticky(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
@@ -310,7 +312,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{HEIGHT, KNOB, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, height, image_count, lift, next_prompt, one_line, pushed, stuck, top_at_end};
+    use super::{HEIGHT, KNOB, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, attached_count, height, lift, next_prompt, one_line, pushed, stuck, top_at_end};
     use chat::Row;
 
     fn rows() -> Vec<Row> {
@@ -384,8 +386,10 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_of_only_images_counts_them() {
-        assert_eq!(image_count(1), "1 image");
-        assert_eq!(image_count(4), "4 images");
+    fn a_prompt_of_only_attachments_counts_them() {
+        assert_eq!(attached_count(1, 0), "1 image");
+        assert_eq!(attached_count(4, 0), "4 images");
+        assert_eq!(attached_count(0, 1), "1 file");
+        assert_eq!(attached_count(2, 3), "2 images, 3 files");
     }
 }

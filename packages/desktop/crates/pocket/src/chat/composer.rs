@@ -1,6 +1,6 @@
 mod access_pill;
 mod account_chip;
-pub(crate) mod attachments;
+mod attachments;
 mod background;
 pub(crate) mod btw;
 mod goal;
@@ -12,7 +12,7 @@ mod switch_agent;
 
 use super::question::Wizard;
 use suggest::Prompt;
-use crate::composer::{Attachment, Draft, Menu};
+use crate::composer::{Draft, Menu};
 use crate::composer::add_menu::{self, Opens};
 use crate::composer::model_menu::focus_search;
 use crate::composer::{team_chip, team_offered};
@@ -24,7 +24,7 @@ use crate::status::Status;
 use crate::util::now_ms;
 use agents::{Decision, Summary};
 use chat::{Action, Ask, Command, Kind, Local, Session};
-use gpui_kit::component::input::{InputEvent, InputState, RopeExt as _, Textarea, TextareaState};
+use gpui_kit::component::input::{InputEditsEvent, InputEvent, InputState, RopeExt as _, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
@@ -130,7 +130,7 @@ fn text_view_focused(contexts: &[KeyContext]) -> bool {
 
 /// The prompt input, built here since dropped files and Enter are wired at construction.
 pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<TextareaState> {
-    let drop = attachments::drop_images(cx.weak_entity());
+    let drop = crate::composer::drop_handler(cx.weak_entity(), |d| &mut d.chats.composer.draft);
     cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(MIN_ROWS, MAX_ROWS).submit_on_enter(true).on_drop_paths(drop).decorate(super::mention::decorations))
 }
 
@@ -170,6 +170,7 @@ impl ComposerState {
                 }
                 _ => {}
             }),
+            cx.subscribe_in(input, window, |this, _, ev: &InputEditsEvent, window, cx| this.rich_typed(Prompt::Chat, ev, window, cx)),
             cx.subscribe_in(&answer, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, .. } => this.chat_answer_enter(window, cx),
                 InputEvent::Change => cx.notify(),
@@ -194,9 +195,14 @@ impl ComposerState {
 }
 
 /// A code span's rounded shade, inset from the line it sits on; none for a span wrapped onto another line.
-fn code_shade(span: Bounds<Pixels>) -> Option<PaintQuad> {
+pub(super) fn code_shade(span: Bounds<Pixels>) -> Option<PaintQuad> {
     let one_line = span.size.width > px(0.) && span.size.height <= px(INPUT_LINE_HEIGHT);
     one_line.then(|| quad(Bounds::new(span.origin + point(px(0.), px(2.)), size(span.size.width, span.size.height - px(4.))), px(5.), Hsla::from(FILL_3), px(1.), HAIRLINE, BorderStyle::Solid))
+}
+
+/// A fenced block's shade, from its opening fence's line down to its closing one's and as wide as `within`.
+pub(super) fn block_shade(top: Pixels, bottom: Pixels, within: Bounds<Pixels>) -> PaintQuad {
+    quad(Bounds::from_corners(point(within.left(), top), point(within.right(), bottom)), px(8.), Hsla::from(FILL_2), px(1.), HAIRLINE, BorderStyle::Solid)
 }
 
 /// Paints over `input` once it painted this frame, so each sits where the text does: a rounded shade over each code
@@ -208,9 +214,15 @@ pub(crate) fn marks_overlay(input: Entity<TextareaState>) -> impl IntoElement {
             let input = input.read(cx);
             let text = input.value();
             let (marks, code) = chat::marks_outside_code(&text);
-            let shades: Vec<PaintQuad> = code.iter().filter_map(|c| if let chat::Code::Inline(r) = c { input.range_to_bounds(r).and_then(code_shade) } else { None }).collect();
-            let slots: Vec<(Bounds<Pixels>, String)> = marks.mentions.into_iter().filter_map(|r| Some((input.range_to_bounds(&(r.start..r.start + 1))?, text[r.start + 1..r.end].to_string()))).collect();
             let visible = input.input_bounds();
+            let shades: Vec<PaintQuad> = code
+                .iter()
+                .filter_map(|c| match c {
+                    chat::Code::Inline(r) => input.range_to_bounds(r).and_then(code_shade),
+                    chat::Code::Block { open, close } => Some(block_shade(input.range_to_bounds(open)?.top(), input.range_to_bounds(close)?.bottom(), visible)),
+                })
+                .collect();
+            let slots: Vec<(Bounds<Pixels>, String)> = marks.mentions.into_iter().filter_map(|r| Some((input.range_to_bounds(&(r.start..r.start + 1))?, text[r.start + 1..r.end].to_string()))).collect();
             window.with_content_mask(Some(ContentMask { bounds: visible }), |window| {
                 shades.into_iter().for_each(|q| window.paint_quad(q));
                 super::mention::paint_icons(slots.iter().map(|(slot, path)| (*slot, path.as_str())), 13., window, cx)
@@ -559,7 +571,7 @@ impl Desktop {
 
     fn chat_press(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(a) = self.summary(terminal) else { return };
-        let empty = self.chats.input.read(cx).value().trim().is_empty() && self.chats.composer.draft.images.is_empty();
+        let empty = self.chats.input.read(cx).value().trim().is_empty() && !self.chats.composer.draft.has_attachments();
         if chat::action(self.chat_busy(a), self.chat_stopping(a), empty) == Action::Stop {
             let agent = a.id.clone();
             self.chat_command(&agent, Command::Interrupt, cx);
@@ -587,11 +599,11 @@ impl Desktop {
     }
 
     /// What `agent`'s chat has typed and attached: the input's while it holds that chat, else what waits for it.
-    pub(super) fn chat_draft(&self, agent: &str, cx: &App) -> (String, &[Attachment]) {
+    pub(super) fn chat_draft(&self, agent: &str, cx: &App) -> (String, Option<&Draft>) {
         if self.chats.drafts.owner() == Some(agent) {
-            return (self.chats.input.read(cx).value().to_string(), &self.chats.composer.draft.images);
+            return (self.chats.input.read(cx).value().to_string(), Some(&self.chats.composer.draft));
         }
-        self.chats.drafts.parked(agent).map_or((String::new(), &[][..]), |(text, draft)| (text.clone(), &draft.images))
+        self.chats.drafts.parked(agent).map_or((String::new(), None), |(text, draft)| (text.clone(), Some(draft)))
     }
 
     /// Whether `agent`'s draft has the Team chip set, held in the input or parked.
@@ -675,8 +687,8 @@ impl Desktop {
         let background = matches!(mode, Mode::Prompt | Mode::ViewOnly).then(|| view.and_then(|v| self.background_tray(&agent.id, &v.session.transcript, stop, cx))).flatten();
         let background = background.map(|t| fade_in(id(format!("chat-background-in:{terminal}")), t));
         let btw = matches!(mode, Mode::Prompt).then(|| self.btw_card(&agent.id, cx)).flatten();
-        let (typed, images) = self.chat_draft(&agent.id, cx);
-        let empty = typed.trim().is_empty() && images.is_empty();
+        let (typed, draft) = self.chat_draft(&agent.id, cx);
+        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
         let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
@@ -734,8 +746,8 @@ impl Desktop {
     fn prompt_box(&self, terminal: &str, agent: &Summary, view_only: bool, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let caps = self.chat_caps(&agent.provider);
         let held = self.chats.drafts.owner() == Some(agent.id.as_str());
-        let (typed, images) = self.chat_draft(&agent.id, cx);
-        let empty = typed.trim().is_empty() && images.is_empty();
+        let (typed, draft) = self.chat_draft(&agent.id, cx);
+        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
         let typing = !empty || (held && self.chats.input.read(cx).focus_handle(cx).is_focused(window));
         let stopping = self.chat_stopping(agent);
         let action = chat::action(self.chat_busy(agent), stopping, empty);
@@ -766,7 +778,7 @@ impl Desktop {
                 this.chats.composer.draft.team = false;
             }, cx)
         });
-        let strip = attachments::strip(images, cx);
+        let strip = draft.and_then(|d| attachments::strip(d, cx));
         let input = if view_only {
             div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child("View only").into_any_element()
         } else if !held {
@@ -798,7 +810,8 @@ impl Desktop {
             .children(ghost)
             .children(send);
         let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
-        self.suggest_keys(Prompt::Chat, frame(typing), cx)
+        let keyed = self.suggest_keys(Prompt::Chat, frame(typing), cx);
+        self.rich_keys(Prompt::Chat, keyed, cx)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)),

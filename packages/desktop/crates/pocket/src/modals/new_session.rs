@@ -396,7 +396,7 @@ impl NewForm {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let dropped = composer::drop_images(cx.entity().downgrade(), slot);
+        let dropped = composer::drop_handler(cx.entity().downgrade(), move |d| &mut slot(d).draft);
         let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(MIN_ROWS, MAX_ROWS).submit_on_enter(true).on_drop_paths(dropped).decorate(mention::decorations));
         let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let composer = Composer::new(prompt.clone(), models.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
@@ -446,7 +446,7 @@ impl Desktop {
         let worktree = worktree || self.store.agents.new_worktree;
         let f = &mut self.new_form;
         let typed = f.composer.prompt.read(cx).value().to_string();
-        let keep = !typed.trim().is_empty() || !f.composer.draft.images.is_empty();
+        let keep = !typed.trim().is_empty() || f.composer.draft.has_attachments();
         let keep_project = keep && prompt.is_none();
         let text = appended(&typed, prompt);
         f.draft.seed = crate::util::now_ms() as usize;
@@ -739,7 +739,7 @@ impl Desktop {
         };
         let link = (!scratch && pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
         let prompt = &self.new_form.composer.prompt;
-        let empty = prompt.read(cx).value().trim().is_empty() && self.new_form.composer.draft.images.is_empty();
+        let empty = prompt.read(cx).value().trim().is_empty() && !self.new_form.composer.draft.has_attachments();
         let typing = !empty || prompt.read(cx).focus_handle(cx).is_focused(window);
         let ready = self.session_ready();
         let send = send_button("form-start".into(), Action::Send, empty, !ready).when(ready && !empty, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))));
@@ -763,7 +763,8 @@ impl Desktop {
         let textarea = Textarea::new(&self.new_form.composer.prompt);
         let trailing = link.map(IntoElement::into_any_element).into_iter().collect();
         let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, typing, pill.into_iter().collect(), trailing, send, cx);
-        let composer = self.suggest_keys(Prompt::Launch, composer, cx).children(self.suggest_list(Prompt::Launch, cx));
+        let composer = self.suggest_keys(Prompt::Launch, composer, cx);
+        let composer = self.rich_keys(Prompt::Launch, composer, cx).children(self.suggest_list(Prompt::Launch, cx));
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
         let footer = div()
             .w_full()

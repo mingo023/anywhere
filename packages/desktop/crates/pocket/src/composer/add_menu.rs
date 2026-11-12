@@ -13,8 +13,8 @@ pub(crate) enum Opens {
     Up,
 }
 
-/// The "+" button and, while `open`, its menu: Attach images, and Team, checked while set.
-/// Where Team isn't offered (`team` is `None`) the button attaches images itself; a one-row menu would only cost a click.
+/// The "+" button and, while `open`, its menu: Attach files, and Team, checked while set.
+/// Where Team isn't offered (`team` is `None`) the button attaches files itself; a one-row menu would only cost a click.
 /// `toggle` opens or closes the menu; `draft` reaches the box's draft.
 pub(crate) fn add_button(
     id: impl Into<ElementId>,
@@ -38,28 +38,28 @@ pub(crate) fn add_button(
         .hover(|s| s.bg(FILL_3))
         .active(|s| s.bg(FILL_4))
         .child(icon("plus", 17., TEXT_2))
-        .when(team.is_none(), |d| d.tooltip(|window, cx| Tooltip::new("Attach images").build(window, cx)))
+        .when(team.is_none(), |d| d.tooltip(|window, cx| Tooltip::new("Attach files").build(window, cx)))
         .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
             if team.is_some() {
                 toggle(this, window, cx);
             } else {
-                attach_images(this, draft, window, cx);
+                attach_files(this, draft, window, cx);
             }
         }));
     div().relative().flex_none().child(button).children(open.then(|| menu(team, opens, draft, cx)))
 }
 
-fn attach_images(d: &mut Desktop, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, window: &mut Window, cx: &mut Context<Desktop>) {
+fn attach_files(d: &mut Desktop, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, window: &mut Window, cx: &mut Context<Desktop>) {
     draft(d).menu = None;
     d.pick_path(false, window, cx, move |d, paths, _, _| {
-        draft(d).drop_images(&paths);
+        draft(d).drop_files(&paths);
     });
     cx.notify();
 }
 
 fn menu(team: Option<bool>, opens: Opens, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, cx: &mut Context<Desktop>) -> Div {
-    let attach = ui::menu_row("composer-add-images", "file-plus", "Attach images", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| attach_images(this, draft, window, cx)));
+    let attach = ui::menu_row("composer-add-files", "file-plus", "Attach files", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| attach_files(this, draft, window, cx)));
     let team = team.map(|on| {
         ui::menu_pick("composer-add-team", icon("team", 14., TEXT_2), "Team", on).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             draft(this).toggle_team();
