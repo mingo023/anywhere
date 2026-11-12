@@ -195,7 +195,7 @@ impl Desktop {
             |_, _, _, _| {},
         )
         .absolute()
-        .size_full();
+        .inset_0();
         let observe = self.agents.observe_only();
         let drag_tree = tree.to_string();
         div()
