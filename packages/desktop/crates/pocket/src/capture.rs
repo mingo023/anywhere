@@ -1156,12 +1156,17 @@ fn models_sample(d: &mut Desktop) {
         ("deepseek:deepseek-flash", "DeepSeek"),
         ("deepseek:deepseek-v4-pro", "DeepSeek"),
     ];
-    let opencode: String = OPENCODE.iter().map(|slug| format!("{slug}\n{}\n", json!({"name": agents::model_name(slug), "variants": {"low": {}, "medium": {}, "high": {}}}))).collect();
+    let opencode: Vec<_> = OPENCODE.iter().map(|slug| json!({"value": slug, "name": slug.split_once('/').map_or(slug.to_string(), |(who, id)| format!("{who}/{}", agents::model_name(id)))})).collect();
+    let efforts: Vec<_> = ["low", "medium", "high", "default"].iter().map(|e| json!({"value": e, "name": e})).collect();
+    let opencode = json!({"jsonrpc": "2.0", "id": 2, "result": {"configOptions": [
+        {"id": "model", "category": "model", "type": "select", "currentValue": OPENCODE[0], "options": opencode},
+        {"id": "effort", "category": "thought_level", "type": "select", "currentValue": "default", "options": efforts},
+    ]}});
     let pi: Vec<_> = PI.iter().filter_map(|slug| slug.split_once('/')).map(|(provider, id)| json!({"id": id, "provider": provider, "name": agents::model_name(id), "reasoning": true})).collect();
     let pi = json!({"type": "response", "command": "get_available_models", "success": true, "data": {"models": pi}});
     let hermes: Vec<_> = HERMES.iter().map(|(id, who)| json!({"modelId": id, "name": format!("{who} \u{b7} {}", id.split_once(':').map_or(*id, |(_, model)| model))})).collect();
     let hermes = json!({"jsonrpc": "2.0", "id": 2, "result": {"models": {"availableModels": hermes, "currentModelId": "openai-codex:gpt-6-sol"}}});
-    for (provider, printed) in [("opencode", opencode), ("pi", pi.to_string()), ("hermes", hermes.to_string())] {
+    for (provider, printed) in [("opencode", opencode.to_string()), ("pi", pi.to_string()), ("hermes", hermes.to_string())] {
         d.models.set(provider, providers::known(provider).models.read(&printed).ok());
     }
 }

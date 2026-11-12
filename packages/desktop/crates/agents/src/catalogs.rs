@@ -171,42 +171,23 @@ pub fn grok(output: &str) -> Vec<ListedModel> {
     unique(models.collect())
 }
 
-/// Lowest effort first, as OpenCode's own picker sorts them; ones it doesn't know go last, by name.
-const VARIANTS: [&str; 9] = ["none", "minimal", "low", "medium", "high", "xhigh", "extra-high", "max", "ultra"];
-
-/// The agents OpenCode runs its own turns as; a session can't be switched to one.
-const OPENCODE_OWN_AGENTS: [&str; 3] = ["compaction", "summary", "title"];
-
-/// The agent a session runs as, of the ones `opencode agent list` heads "name (primary)" or "name (all)". "plan" is
-/// left to plan mode; ACP calls the rest the session's "mode".
-fn opencode_agent(output: &str) -> Option<ModelSetting> {
-    let agents = output.lines().filter_map(|l| l.strip_suffix(" (primary)").or_else(|| l.strip_suffix(" (all)"))).filter(|a| *a != "plan" && !OPENCODE_OWN_AGENTS.contains(a));
-    let choices: Vec<(String, String)> = agents.map(|a| (a.to_string(), crate::model_name(a))).collect();
-    (choices.len() > 1).then(|| ModelSetting { id: "mode".into(), name: "Agent".into(), default: "build".into(), choices })
+/// The agent an OpenCode session runs as, of its "mode" option's choices. "plan" is left to plan mode.
+fn opencode_agent(mode: &Value) -> Option<ModelSetting> {
+    let choices: Vec<(String, String)> = choices(mode).into_iter().filter(|(a, _)| *a != "plan").map(|(a, _)| (a.to_string(), crate::model_name(a))).collect();
+    (choices.len() > 1).then(|| ModelSetting { id: "mode".into(), name: "Agent".into(), default: text(mode, &["currentValue"]).into(), choices })
 }
 
-/// The models `opencode models --verbose` prints, each a "provider/model" line above its JSON, by name; a model's
-/// variants are its efforts. Each runs as any of the agents `opencode agent list` prints after them.
+/// The models OpenCode's ACP server offers, named without the "Provider/" it puts before each, under who serves it. Its
+/// "default" effort is left out: a picker offers "Agent default" itself. Each runs as any agent its session's mode lists but plan.
 pub fn opencode(output: &str) -> Vec<ListedModel> {
-    let agent = opencode_agent(output);
-    let mut models = Vec::new();
-    let mut lines = output.lines().peekable();
-    while let Some(line) = lines.next() {
-        let slug = line.trim_end();
-        if line.starts_with(|c: char| c.is_whitespace() || c == '{') || slug.contains(char::is_whitespace) || !slug.contains('/') {
-            continue;
-        }
-        let mut json = String::new();
-        while let Some(body) = lines.next_if(|l| l.starts_with(|c: char| c.is_whitespace() || c == '{' || c == '}')) {
-            json.push_str(body);
-        }
-        let Ok(model) = serde_json::from_str::<Value>(&json) else { continue };
-        let mut efforts: Vec<String> = model["variants"].as_object().into_iter().flat_map(|v| v.keys().cloned()).collect();
-        efforts.sort_by_cached_key(|e| (VARIANTS.iter().position(|v| *v == e.to_lowercase()).unwrap_or(VARIANTS.len()), e.clone()));
-        let upstream = slug.split_once('/').map_or("", |(who, _)| who);
-        models.push(ListedModel { settings: agent.iter().cloned().collect(), ..served_by(upstream, listed(slug, &name_of(&model, &["name"], slug), efforts)) });
-    }
-    by_name(unique(models))
+    let agent = reply(output, is_acp_session).and_then(|r| items(&r["result"]["configOptions"]).iter().find(|o| o["id"] == "mode").and_then(opencode_agent));
+    let models = acp(output).into_iter().map(|m| {
+        let upstream = m.value.split_once('/').map_or("", |(who, _)| who).to_string();
+        let name = m.name.split_once('/').map_or(m.name.as_str(), |(_, model)| model).to_string();
+        let efforts = m.efforts.iter().filter(|e| *e != "default").cloned().collect();
+        served_by(&upstream, ListedModel { name, efforts, settings: m.settings.into_iter().chain(agent.clone()).collect(), ..m })
+    });
+    by_name(models.collect())
 }
 
 fn is_pi_models(line: &Value) -> bool {
@@ -403,45 +384,26 @@ mod tests {
         assert!(acp(antigravity).iter().all(|m| m.settings == [fast.clone()]), "its boolean option, as an On/Off setting");
     }
 
+    /// OpenCode 2.2's reply to `session/new`, cut to three models.
+    const OPENCODE_SESSION: &str = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}
+{"jsonrpc":"2.0","id":2,"result":{"sessionId":"ses_e320","configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"opencode/big-pickle","options":[{"value":"opencode/big-pickle","name":"OpenCode/Big Pickle"},{"value":"amazon-bedrock/au.anthropic.claude-opus-4-6-v1","name":"amazon-bedrock/AU Anthropic Claude Opus 4.6"},{"value":"openai/alpha","name":"OpenAI/Alpha"}]},{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"default","options":[{"value":"low","name":"low"},{"value":"high","name":"high"},{"value":"max","name":"max"},{"value":"default","name":"default"}]},{"id":"mode","name":"Session Mode","category":"mode","type":"select","currentValue":"build","options":[{"value":"build","name":"build"},{"value":"plan","name":"plan"}]}]}}"#;
+
     #[test]
-    fn opencode_lists_each_slug_by_its_json_name_with_variants_sorted_low_to_high() {
-        let out = r#"opencode/big-pickle
-{
-  "id": "big-pickle",
-  "providerID": "opencode",
-  "name": "Big Pickle",
-  "api": {
-    "url": "https://opencode.ai/inference/openai/v1"
-  },
-  "variants": {
-    "max": {
-      "reasoningEffort": "max"
-    },
-    "turbo": {},
-    "none": {},
-    "high": {
-      "reasoningEffort": "high"
-    },
-    "xhigh": {}
-  }
-}
-opencode/broken
-{
-  "id": "broken",
-anthropic/claude-sonnet-4-5
-{
-  "id": "claude-sonnet-4-5",
-  "variants": {}
-}
-openai/alpha
-{ "id": "alpha", "name": "Alpha" }
-"#;
+    fn opencode_lists_its_acp_models_by_name_under_who_serves_each_with_every_effort_but_its_default() {
+        let models = opencode(OPENCODE_SESSION);
+        let efforts = vec!["low", "high", "max"];
         assert_eq!(
-            shown(&opencode(out)),
-            [("openai/alpha", "Alpha", vec![]), ("opencode/big-pickle", "Big Pickle", vec!["none", "high", "xhigh", "max", "turbo"]), ("anthropic/claude-sonnet-4-5", "Sonnet 4.5", vec![])]
+            shown(&models),
+            [
+                ("openai/alpha", "Alpha", efforts.clone()),
+                ("amazon-bedrock/au.anthropic.claude-opus-4-6-v1", "AU Anthropic Claude Opus 4.6", efforts.clone()),
+                ("opencode/big-pickle", "Big Pickle", efforts)
+            ]
         );
-        assert_eq!(opencode(out).iter().map(|m| m.upstream.as_str()).collect::<Vec<_>>(), ["openai", "opencode", "anthropic"]);
-        assert!(opencode("Error: unknown command models").is_empty());
+        assert_eq!(models.iter().map(|m| m.upstream.as_str()).collect::<Vec<_>>(), ["openai", "amazon-bedrock", "opencode"]);
+        let one_x = r#"{"jsonrpc":"2.0","id":2,"result":{"configOptions":[{"id":"model","category":"model","type":"select","options":[{"value":"opencode/big-pickle","name":"OpenCode/Big Pickle"}]}]}}"#;
+        assert_eq!(shown(&opencode(one_x)), [("opencode/big-pickle", "Big Pickle", vec![])], "1.x offers no effort");
+        assert!(opencode(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required"}}"#).is_empty());
     }
 
     type Shown<'a> = (&'a str, &'a str, &'a str, Vec<(&'a str, &'a str)>);
@@ -471,15 +433,12 @@ openai/alpha
     }
 
     #[test]
-    fn opencode_models_run_as_any_agent_a_session_can_but_plan() {
-        let models = "opencode/big-pickle\n{\n  \"name\": \"Big Pickle\"\n}\n";
-        let agents = "build (primary)\n  [\n  {\n    \"permission\": \"*\"\n  }\n]\ncompaction (primary)\n]\nexplore (subagent)\nplan (primary)\nsummary (primary)\ntitle (primary)\ndocs-writer (all)\nhelper (subagent)\nreview (primary)\n]\n";
-        let listed = opencode(&format!("{models}{agents}"));
-        assert_eq!(shown(&listed), [("opencode/big-pickle", "Big Pickle", vec![])]);
-        assert_eq!(settings(&listed[0]), [("mode", "Agent", "build", vec![("build", "Build"), ("docs-writer", "Docs Writer"), ("review", "Review")])]);
-        let own = "build (primary)\nplan (primary)\ntitle (primary)\n";
-        assert!(opencode(&format!("{models}{own}"))[0].settings.is_empty(), "its own agents alone leave nothing to pick");
-        assert!(opencode(models)[0].settings.is_empty());
+    fn opencode_models_run_as_any_agent_its_session_mode_lists_but_plan() {
+        assert!(opencode(OPENCODE_SESSION)[0].settings.is_empty(), "build alone leaves nothing to pick");
+        let with_docs_writer = OPENCODE_SESSION.replace(r#"{"value":"plan","name":"plan"}"#, r#"{"value":"plan","name":"plan"},{"value":"docs-writer","name":"docs-writer"}"#);
+        assert_eq!(settings(&opencode(&with_docs_writer)[0]), [("mode", "Agent", "build", vec![("build", "Build"), ("docs-writer", "Docs Writer")])]);
+        let on_docs_writer = with_docs_writer.replace(r#""currentValue":"build""#, r#""currentValue":"docs-writer""#);
+        assert_eq!(opencode(&on_docs_writer)[0].settings[0].default, "docs-writer", "the agent OpenCode starts a session as");
     }
 
     #[test]
