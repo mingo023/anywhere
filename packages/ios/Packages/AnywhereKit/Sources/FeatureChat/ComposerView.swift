@@ -1,5 +1,6 @@
 import ChatModel
 import DesignSystem
+import Domain
 import MarkdownView
 import Stores
 import SwiftUI
@@ -73,7 +74,7 @@ struct ComposerView: View {
             case .permission(let answerable):
                 if let ask = store.ask {
                     PermissionCard(
-                        ask: ask, who: who(store.provider), feedback: store.feedback, answerable: answerable, sent: store.answering == ask.requestId,
+                        ask: ask, who: AgentName.who(store.provider), feedback: store.feedback, answerable: answerable, sent: store.answering == ask.requestId,
                         online: store.online, focus: focus, allow: { store.allow() }, deny: { store.deny($0) }
                     )
                     .id(ask.requestId)
@@ -81,7 +82,7 @@ struct ComposerView: View {
             case .question(let answerable):
                 if let wizard = store.wizard {
                     QuestionWizard(
-                        wizard: wizard, answerable: answerable, online: store.online, who: who(store.provider), change: { store.wizard($0) },
+                        wizard: wizard, answerable: answerable, online: store.online, who: AgentName.who(store.provider), change: { store.wizard($0) },
                         skip: { store.skipQuestions() }, openLink: openLink, focus: focus)
                 }
             case .viewOnly:
@@ -107,7 +108,7 @@ struct ComposerView: View {
         // Here, not on the box, which goes away while the agent asks something.
         .sheet(isPresented: $editing) { ComposerEditor(text: $store.draft.text, attach: attach) }
         .confirmationDialog(
-            store.settingsMenu == .effort ? ModelPill.effortWord(store.provider) : "Model",
+            store.settingsMenu == .effort ? AgentName.effort(store.provider) : "Model",
             isPresented: Binding(get: { store.settingsMenu != nil }, set: { if !$0 { store.settingsMenu = nil } })
         ) {
             if let agent = store.summary { settingsChoices(agent) }
@@ -267,12 +268,12 @@ struct ComposerView: View {
                 HStack(spacing: 2) {
                     if let agent = store.summary {
                         if let goal = agent.goal { GoalPillView(goal: goal, pauses: store.adapter.pausesGoal) { store.goal($0) } }
-                        ModelPillView(agent: agent, efforts: efforts(agent), editable: store.hasCap(Caps.settings)) { model, effort in
+                        ModelPillView(agent: agent, efforts: efforts, editable: store.hasCap(Caps.settings)) { model, effort in
                             store.settings(model: model, effort: effort)
                         }
                         if let access = agent.access, !access.isEmpty {
                             AccessPillView(
-                                access: access, editable: agent.chatOnly == true && store.hasCap(Caps.access), who: who(agent.provider)) { store.settings(access: $0) }
+                                access: access, editable: store.setsAccess, who: AgentName.who(agent.provider)) { store.settings(access: $0) }
                         }
                     }
                     agentsChip
@@ -357,14 +358,12 @@ struct ComposerView: View {
         return all.first { $0.id == agent.account } ?? all.first { $0.isDefault == true } ?? all.first
     }
 
-    private func efforts(_ agent: AgentSummary) -> [String] {
-        store.providers?.providers.first { $0.id == agent.provider }?.efforts ?? []
-    }
+    private var efforts: [String] { store.info?.efforts ?? [] }
 
     @ViewBuilder
     private func settingsChoices(_ agent: AgentSummary) -> some View {
         if store.settingsMenu == .effort {
-            ForEach(efforts(agent), id: \.self) { e in Button(ModelPill.effortLabel(e)) { store.settings(effort: e) } }
+            ForEach(efforts, id: \.self) { e in Button(ModelPill.effortLabel(e)) { store.settings(effort: e) } }
         } else {
             ForEach(ModelPill.aliases(agent.provider), id: \.self) { m in Button(modelName(m)) { store.settings(model: m) } }
         }

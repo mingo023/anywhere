@@ -111,6 +111,7 @@ mod tests {
         assert_eq!(action("claude", &server("a", McpStatus::Failed)), Some(McpAction::Reconnect));
         assert_eq!(action("claude", &server("a", McpStatus::Disabled)), Some(McpAction::Enable));
         assert_eq!(action("codex", &server("a", McpStatus::Disabled)), None, "codex can't enable one from the chat");
+        assert_eq!(action("opencode", &server("a", McpStatus::Disabled)), None, "nor can any agent but Claude");
         assert_eq!(action("claude", &server("a", McpStatus::Connected)), None);
     }
 

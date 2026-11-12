@@ -5,6 +5,7 @@ import (
 	"errors"
 	"pocketd/internal/accounts"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"pocketd/internal/codex"
 	"pocketd/internal/proc"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
@@ -29,11 +31,13 @@ type presence struct {
 	argv, env []string
 	ctx       context.Context
 	cancel    context.CancelFunc
-	sock      string   // codex's app-server; set under Daemon.mu
-	stream    *stream  // the stdio of an agent run for the chat; nil for one in its TUI
-	chat      pipeChat // its chat behind `pocketd pipe`; nil in a TUI
+	sock      string         // codex's app-server; set under Daemon.mu
+	stream    *stream        // the stdio of an agent run for the chat; nil for one in its TUI
+	chat      pipeChat       // its chat behind `pocketd pipe`; nil in a TUI
+	opening   sync.WaitGroup // the call that opens its chat, which says so if it fails
 
 	mu         sync.Mutex
+	exit       string // how the agent behind its pipe exited, as its wrapper told
 	transcript string
 	stopTail   func()
 	enter      time.Time
@@ -64,7 +68,7 @@ type presence struct {
 
 func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) *presence {
 	ctx, cancel := context.WithCancel(context.Background())
-	argv, s := p.Argv, (*stream)(nil)
+	argv, s := invoked(p.Argv), (*stream)(nil)
 	if inner := piped(argv); inner != nil {
 		argv, s = inner, newStream()
 	}
@@ -92,12 +96,16 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	}
 	// A handed-down Terminal has lost its origin; its hint still knows.
 	pr.typed = origin == "" && (h == nil || h.saved.Typed)
+	if l, ok := launched(provider, info.Args); ok && !pr.typed {
+		pr.launch = l
+	}
 	pr.a.SetTerminal(info.ID)
 	if s != nil {
 		pr.a.SetChatOnly()
 	}
 	pr.a.SetEffort(pr.launch.Effort)
 	pr.a.SetAccess(pr.launch.Access)
+	pr.a.SetOptions(pr.launch.Options)
 	// Claude names its model only in its first reply; until then the one it was started with stands in.
 	if pr.launch.Model != "" && pr.a.Summary().Model == "" {
 		pr.a.SetModel(pr.launch.Model)
@@ -120,6 +128,30 @@ func (d *Daemon) startAgent(t *terminal.Terminal, provider string, p proc.Proc) 
 	d.mu.Unlock()
 	d.catchUp(pr)
 	return pr
+}
+
+// launched reads the launch of provider's agent from the command line pocketd
+// gave its Terminal. Pi and omp rewrite their own to their name alone, so
+// the running process no longer tells its model, effort or plan.
+func launched(provider string, args []string) (state.Launch, bool) {
+	p := providers.Get(provider)
+	i := slices.IndexFunc(args, func(arg string) bool { return providers.ByCmd(named([]string{arg})) == p })
+	if i < 0 {
+		return state.Launch{}, false
+	}
+	return state.Parse(provider, args[i:]), true
+}
+
+// ChatExited notes how the agent behind the chat in Terminal id exited, for
+// a chat that never opened to say: its wrapper reports it while the screen
+// still ends with what the agent wrote.
+func (d *Daemon) ChatExited(id string, status int) {
+	if pr := d.presentIn(id); pr != nil && pr.chat != nil {
+		why := exitOf(pr.t, " "+strconv.Itoa(status))
+		pr.mu.Lock()
+		pr.exit = why
+		pr.mu.Unlock()
+	}
 }
 
 // Running counts the agents running on provider's account id.
@@ -403,6 +435,8 @@ func (d *Daemon) endAgent(pr *presence) {
 	}
 	d.mu.Unlock()
 	pr.cancel()
+	// A chat that never opened says so before its agent closes.
+	pr.opening.Wait()
 	if !moving {
 		pr.t.ClearProgram()
 	}
@@ -542,6 +576,13 @@ func (pr *presence) switched(model, effort string) {
 	if effort != "" {
 		pr.a.SetEffort(effort)
 	}
+}
+
+func (pr *presence) setOptions(options map[string]string) {
+	pr.mu.Lock()
+	pr.launch.Options = options
+	pr.mu.Unlock()
+	pr.a.SetOptions(options)
 }
 
 func (c termDriver) inForeground() bool {

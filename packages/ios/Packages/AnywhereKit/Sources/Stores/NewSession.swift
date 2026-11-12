@@ -80,12 +80,20 @@ public struct NewSessionDraft: Hashable, Sendable {
             && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// The access the picked agent starts with: Full for one that never asks before a tool, whatever the pill held.
+    public func access(neverAsks: Bool) -> Access { neverAsks ? .full : access }
+
+    /// Whether Start asks first, as picking Full does: the agent takes Full without it having been picked.
+    public func confirmsStart(neverAsks: Bool) -> Bool {
+        AccessPill.confirms(access(neverAsks: neverAsks).rawValue, from: access.rawValue)
+    }
+
     /// The plan that starts this draft. `localId` names a new Local; `localName` is what it's called.
-    public func plan(taken: Set<String>, localId: String, localName: String) -> LaunchPlan {
+    public func plan(taken: Set<String>, localId: String, localName: String, neverAsks: Bool) -> LaunchPlan {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         var spec = LaunchSpec(
             project: project, checkout: .worktree(project), provider: provider, model: model.flatMap { $0.isEmpty ? nil : $0 },
-            effort: effort.flatMap { $0.isEmpty ? nil : $0 }, access: access, plan: plan, prompt: trimmed.isEmpty ? nil : trimmed,
+            effort: effort.flatMap { $0.isEmpty ? nil : $0 }, access: access(neverAsks: neverAsks), plan: plan, prompt: trimmed.isEmpty ? nil : trimmed,
             account: account.flatMap { $0.isEmpty ? nil : $0 }, chat: chat ? true : nil)
         var plan = LaunchPlan(spec: spec)
         switch place {

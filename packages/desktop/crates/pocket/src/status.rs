@@ -96,6 +96,15 @@ pub fn title(a: &Summary) -> String {
     if a.title.is_empty() { "New session".into() } else { a.title.clone() }
 }
 
+/// The model a session runs as a short name, else its agent's: "Opus 5.5", "OpenCode".
+pub(crate) fn model_or_agent(a: &Summary) -> String {
+    match (a.model.as_deref(), theme::brand(&a.provider)) {
+        (Some(m), _) if !m.is_empty() => agents::model_name(m),
+        (_, Some(brand)) => brand.short.into(),
+        _ => agents::model_label(a),
+    }
+}
+
 /// "Opus 5.5 · high": the model, else the provider, then the effort it was started with.
 fn model(a: &Summary) -> String {
     let name = match a.model.as_deref() {
@@ -216,6 +225,13 @@ mod tests {
 
     fn agent(terminal: &str, status: &str) -> Summary {
         Summary { id: format!("agent-{terminal}"), terminal_id: terminal.into(), status: status.into(), attached: true, ..Default::default() }
+    }
+
+    #[test]
+    fn a_session_reads_as_its_model_else_as_its_agent() {
+        let of = |provider: &str, model: Option<&str>| model_or_agent(&Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() });
+        assert_eq!((of("claude", Some("claude-opus-4-5")), of("opencode", Some("opencode/big-pickle"))), ("Opus 4.5".to_string(), "Big Pickle".to_string()));
+        assert_eq!([of("claude", None), of("codex", Some("")), of("opencode", None), of("omp", None), of("gemini", None)], ["Claude", "Codex", "OpenCode", "omp", "Gemini"]);
     }
 
     #[test]

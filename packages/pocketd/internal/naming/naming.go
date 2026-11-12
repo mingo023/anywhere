@@ -65,12 +65,13 @@ var commands = map[string]func(exe, prompt string) []string{
 	},
 }
 
-// Command runs provider's CLI at exe once, headless, on a cheap model. A
-// provider without a command runs as Claude.
+// Command runs provider's CLI at exe once, headless, on a cheap model. It is
+// nil for a provider with no such run: another CLI's flags would start
+// something else.
 func Command(provider, exe, prompt string) []string {
 	c, ok := commands[provider]
 	if !ok {
-		c = commands[providers.Claude.ID]
+		return nil
 	}
 	return c(exe, prompt)
 }

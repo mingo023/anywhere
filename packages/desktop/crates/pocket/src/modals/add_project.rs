@@ -1,4 +1,5 @@
 pub(crate) mod accounts;
+pub(crate) mod agents;
 pub(crate) mod host_folder;
 pub(crate) mod icon;
 
@@ -7,10 +8,11 @@ use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use crate::modals::form::{footer, typed_or};
 use crate::util::{basename, tilde};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use host_folder::Browse;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Duration;
 use store::{ProjectIcon, RepoConfig};
@@ -37,6 +39,7 @@ pub struct RepoForm {
     teardown: Entity<InputState>,
     host_path: Entity<InputState>,
     host_scroll: UniformListScrollHandle,
+    scroll: ScrollHandle,
     draft: RepoDraft,
 }
 
@@ -51,6 +54,8 @@ struct RepoDraft {
     accounts: BTreeMap<String, String>,
     /// The provider whose account menu is open.
     account_menu: Option<&'static str>,
+    /// The agents its model panel leaves out.
+    hidden: BTreeSet<String>,
     /// Reset is asking to be confirmed.
     resetting: bool,
     editing: Option<String>,
@@ -70,6 +75,7 @@ impl Default for RepoDraft {
             icon: None,
             accounts: BTreeMap::new(),
             account_menu: None,
+            hidden: BTreeSet::new(),
             resetting: false,
             editing: None,
             browse: None,
@@ -99,12 +105,15 @@ impl RepoDraft {
     }
 }
 
-/// What Reset would put back, as (setting, now, default); name, colour and icon are the project's own.
-fn project_changes(cfg: &RepoConfig) -> Vec<(&'static str, String, String)> {
+/// What Reset would put back, as (setting, now, default), where the agents `offered` are the ones whose switch shows; name,
+/// colour and icon are the project's own.
+fn project_changes(cfg: &RepoConfig, offered: &[&str]) -> Vec<(&'static str, String, String)> {
     let script = |s: &str| if s.is_empty() { "empty" } else { "edited" }.to_string();
     let accounts = |n: usize| if n == 0 { "default".to_string() } else { "picked".to_string() };
+    let agents = |n: usize| if n == 0 { "all shown".to_string() } else { "some hidden".to_string() };
     [
         ("Accounts", accounts(cfg.accounts.len()), accounts(0)),
+        ("Agents", agents(cfg.hidden.iter().filter(|p| offered.contains(&p.as_str())).count()), agents(0)),
         ("When a worktree is created", script(&cfg.setup), script("")),
         ("When a worktree is deleted", script(&cfg.teardown), script("")),
     ]
@@ -153,6 +162,11 @@ fn folder_facts(probe: Option<&Probe>) -> Vec<Fact> {
     }
 }
 
+/// Whether settings scrolled `offset` down to at most `max` run on below the sheet's footer. As f32: Pixels orders -0 below 0.
+fn more_below(offset: f32, max: f32) -> bool {
+    offset > -max
+}
+
 fn fact_chip(Fact { glyph, label, tone }: Fact) -> Div {
     let color = match tone {
         Tone::Plain | Tone::Dirty => TEXT_2,
@@ -179,6 +193,12 @@ fn fact_chip(Fact { glyph, label, tone }: Fact) -> Div {
 /// A row on a `group` plate.
 fn plate_row() -> Div {
     div().h(px(46.)).px(px(12.)).flex().items_center().gap(px(10.))
+}
+
+/// A `plate_row` for `provider`, named `name`: its mark, then its name.
+fn agent_row(provider: &str, name: String) -> Div {
+    let lead = div().size(px(24.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(provider, 14., TEXT_2));
+    plate_row().child(lead).child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(name))
 }
 
 /// Rows on one rounded plate, split by hairlines, with an optional heading above and note below.
@@ -223,7 +243,7 @@ impl RepoForm {
             }),
             cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
         ];
-        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), draft: RepoDraft::default() }, subs)
+        (Self { name, setup, teardown, host_path, host_scroll: UniformListScrollHandle::new(), scroll: ScrollHandle::new(), draft: RepoDraft::default() }, subs)
     }
 }
 
@@ -299,7 +319,8 @@ impl Desktop {
         };
         self.settings.menu = None;
         let f = &mut self.repo_form;
-        f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, editing: editing.clone(), ..RepoDraft::default() };
+        f.draft = RepoDraft { color, icon: cfg.icon, accounts: cfg.accounts, hidden: cfg.hidden, editing: editing.clone(), ..RepoDraft::default() };
+        f.scroll = ScrollHandle::new();
         f.name.update(cx, |s, cx| {
             s.set_value(cfg.name, window, cx);
             s.set_placeholder("", window, cx);
@@ -391,6 +412,7 @@ impl Desktop {
             dev_url: saved.map(|r| r.dev_url.clone()).unwrap_or_default(),
             gh_account: saved.map(|r| r.gh_account.clone()).unwrap_or_default(),
             accounts: f.draft.accounts.clone(),
+            hidden: f.draft.hidden.clone(),
         }
     }
 
@@ -399,6 +421,7 @@ impl Desktop {
         let f = &mut self.repo_form;
         f.draft.resetting = false;
         f.draft.accounts.clear();
+        f.draft.hidden.clear();
         for input in [&f.setup, &f.teardown] {
             input.update(cx, |s, cx| s.set_value("", window, cx));
         }
@@ -407,7 +430,7 @@ impl Desktop {
 
     /// Reset and Remove, on their own plate under an edited project's settings.
     fn project_actions(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let changed = match project_changes(&self.repo_config(path, name.into(), cx)).len() {
+        let changed = match project_changes(&self.repo_config(path, name.into(), cx), &self.offered()).len() {
             0 => "At defaults".to_string(),
             n => format!("{n} changed"),
         };
@@ -439,7 +462,7 @@ impl Desktop {
 
     /// The settings Reset would put back, asking to be confirmed.
     fn reset_confirm(&self, path: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let changes = project_changes(&self.repo_config(path, name.into(), cx));
+        let changes = project_changes(&self.repo_config(path, name.into(), cx), &self.offered());
         let lead = match changes.len() {
             0 => "Every setting here is already at its default.".to_string(),
             1 => "Only this project changes. 1 setting will go back:".to_string(),
@@ -539,6 +562,10 @@ impl Desktop {
         if !accounts.is_empty() {
             body.push(group(Some("Sessions"), accounts, Some("New chats in this project start on these accounts.")).into_any_element());
         }
+        let agents = self.project_agent_rows(cx);
+        if !agents.is_empty() {
+            body.push(group(Some("Agents"), agents, Some("One switched off stays out of this project\u{2019}s model menu.")).into_any_element());
+        }
         let f = &self.repo_form;
         if !f.draft.plain_folder() {
             let scripts = vec![script_row("When one is created", "Runs in the new worktree", &f.setup), script_row("When one is deleted", "Runs before it\u{2019}s removed", &f.teardown)];
@@ -565,7 +592,15 @@ impl Desktop {
         let header = div().flex().items_center().child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).child(close);
         // The settings scroll between a fixed header and footer when the window is too short for them.
         let max_h = window.viewport_size().height - px(2. * SHEET_TOP);
-        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let scroll = div().id("repo-scroll").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.repo_form.scroll).px(px(24.)).flex().flex_col().gap(px(20.)).children(body);
+        let handle = &self.repo_form.scroll;
+        // The scrollbar hides at rest, so a line over the footer shows the settings run on below it. A sheet just
+        // opened has no layout to tell by until its next frame.
+        if handle.bounds().size.height <= px(0.) {
+            window.request_animation_frame();
+        }
+        let more = more_below(f32::from(handle.offset().y), f32::from(handle.max_offset().y));
+        let scroll = div().relative().flex_1().min_h_0().flex().flex_col().border_b(px(0.5)).border_color(if more { SEPARATOR.into() } else { transparent_black() }).child(scroll).vertical_scrollbar(handle);
         div().absolute().top(px(SHEET_TOP)).left_0().right_0().flex().justify_center().child(
             ui::pop(div().w(px(600.)).max_h(max_h).pt(px(14.)).pb(px(20.)).flex().flex_col().gap(px(14.)))
                 .rounded(px(R_DIALOG))
@@ -579,7 +614,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Fact, Probe, RepoDraft, Tone, folder_facts, project_changes};
+    use super::{Fact, Probe, RepoDraft, Tone, folder_facts, more_below, project_changes};
     use store::{ProjectIcon, RepoConfig};
 
     fn local(probe: Option<Probe>) -> RepoDraft {
@@ -627,11 +662,21 @@ mod tests {
         assert_eq!(RepoDraft::default().fallback_name(), "");
     }
 
+    const OFFERED: &[&str] = &["claude", "codex"];
+
     #[test]
     fn reset_puts_back_the_accounts_a_project_picks() {
         let cfg = RepoConfig { accounts: [("claude".to_string(), "work".to_string())].into(), ..RepoConfig::default() };
-        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        let lines: Vec<_> = project_changes(&cfg, OFFERED).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
         assert_eq!(lines, ["Accounts: picked > default"]);
+    }
+
+    #[test]
+    fn reset_shows_again_the_agents_a_project_hides_but_counts_none_no_longer_on_offer() {
+        let cfg = RepoConfig { hidden: ["codex".to_string()].into(), ..RepoConfig::default() };
+        let lines: Vec<_> = project_changes(&cfg, OFFERED).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        assert_eq!(lines, ["Agents: some hidden > all shown"]);
+        assert!(project_changes(&cfg, &["claude"]).is_empty());
     }
 
     #[test]
@@ -644,8 +689,16 @@ mod tests {
             setup: "pnpm install".into(),
             ..RepoConfig::default()
         };
-        let lines: Vec<_> = project_changes(&cfg).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
+        let lines: Vec<_> = project_changes(&cfg, OFFERED).iter().map(|(l, now, d)| format!("{l}: {now} > {d}")).collect();
         assert_eq!(lines, ["When a worktree is created: edited > empty"]);
-        assert!(project_changes(&RepoConfig::default()).is_empty());
+        assert!(project_changes(&RepoConfig::default(), OFFERED).is_empty());
+    }
+
+    #[test]
+    fn a_line_over_the_footer_shows_only_while_settings_run_on_below_it() {
+        assert!(more_below(0., 120.), "opened at the top of settings taller than the sheet");
+        assert!(more_below(-60., 120.), "scrolled halfway");
+        assert!(!more_below(-120., 120.), "scrolled to the end");
+        assert!(!more_below(-0., 0.), "settings that fit");
     }
 }

@@ -30,7 +30,7 @@ func Resume(t state.Terminal, args config.AgentArgs) ([]string, *Failure) {
 	if argv, ok := c.chatResume(t, l); ok {
 		return argv, ValidResume(argv)
 	}
-	argv := append(append([]string{t.Provider}, args.Resume...), t.ConversationID)
+	argv := append(append([]string{command(t.Provider)}, args.Resume...), t.ConversationID)
 	argv = c.resume(t, l, argv)
 	if len(args.Resume) == 0 {
 		return nil, &Failure{Code: "resume_not_accepted", Message: "This agent has no resume args in Settings"}

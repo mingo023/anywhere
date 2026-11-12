@@ -1,3 +1,4 @@
+import Domain
 import Foundation
 import Testing
 @testable import ChatModel

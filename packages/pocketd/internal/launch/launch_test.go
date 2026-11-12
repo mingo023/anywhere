@@ -33,10 +33,11 @@ func launcher(t *testing.T, projects string) *Launcher {
 
 func quiet(step, note string) {}
 
+// onPath has each of names on PATH be a command whose --help reads as fx's, pi's and omp's do.
 func onPath(t *testing.T, names ...string) {
 	dir := t.TempDir()
 	for _, n := range names {
-		os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\n"), 0o755)
+		os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\necho 'Usage: acp, --mode rpc'\n"), 0o755)
 	}
 	t.Setenv("PATH", dir+":/usr/bin:/bin")
 	t.Setenv("SHELL", "/bin/sh")
@@ -83,10 +84,20 @@ func TestNamingRunsAShellFunctionThroughTheShell(t *testing.T) {
 }
 
 func TestProvidersShowWhatIsInstalled(t *testing.T) {
-	onPath(t, "claude")
+	onPath(t, "claude", "pi", "agy", "cursor")
 	l := launcher(t, `[]`)
 	list := l.Providers()
-	if len(list) != 2 || !list[0].Available || list[1].Available || len(list[0].Efforts) != 5 || !list[0].Plan || list[1].Plan {
+	var ids, available []string
+	for _, p := range list {
+		if ids = append(ids, p.ID); p.Available {
+			available = append(available, p.ID)
+		}
+	}
+	// A file named after an id isn't its command.
+	if strings.Join(ids, " ") != "claude codex cursor grok opencode pi omp fx hermes antigravity" || strings.Join(available, " ") != "claude pi antigravity" {
+		t.Fatalf("got %v, available %v", ids, available)
+	}
+	if !list[0].Available || list[1].Available || len(list[0].Efforts) != 5 || !list[0].Plan || list[1].Plan {
 		t.Fatalf("got %+v", list)
 	}
 	if list[1].Efforts == nil || len(list[1].Efforts) != 0 || list[0].ID != "claude" || list[1].ID != "codex" {

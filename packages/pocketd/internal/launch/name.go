@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	"errors"
 	"log"
 	"path/filepath"
 	"time"
@@ -31,8 +32,13 @@ var (
 	replyPoll = time.Second
 )
 
+var errNoNaming = errors.New("naming: this agent has no headless run to name with")
+
 func generate(provider, exe, prompt string, env []string) (naming.Result, error) {
 	argv := naming.Command(provider, exe, prompt)
+	if argv == nil {
+		return naming.Result{}, errNoNaming
+	}
 	if !filepath.IsAbs(exe) {
 		argv = InShell(shellOf(env), argv)
 	}
@@ -66,7 +72,12 @@ func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 	reply := ""
 	for try := 0; try < tries; try++ {
 		n, err := l.generate(j.provider, j.exe, naming.Prompt(j.prompt, reply), j.env)
-		if err != nil {
+		if errors.Is(err, errNoNaming) {
+			// No failure: such an agent titles its session itself, or leaves it unnamed.
+			if n.Title = ownTitle(a); n.Title == "" {
+				return
+			}
+		} else if err != nil {
 			continue
 		}
 		named = &n
@@ -114,6 +125,17 @@ func (l *Launcher) title(a *agent.Agent, claim int, j job, title string) {
 	if j.local != "" && l.Locals != nil {
 		l.Locals.Auto(j.local, title)
 	}
+}
+
+// ownTitle waits for the title a's agent gives its session; "" when a closes
+// or replyWait passes first.
+func ownTitle(a *agent.Agent) string {
+	for end := time.Now().Add(replyWait); time.Now().Before(end); time.Sleep(replyPoll) {
+		if title := a.OwnTitle(); title != "" || a.Turn() == "closed" {
+			return title
+		}
+	}
+	return ""
 }
 
 // firstReply waits for a's first turn to end and returns what the agent last

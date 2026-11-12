@@ -1,5 +1,6 @@
 import ChatModel
 import DesignSystem
+import Domain
 import SwiftUI
 import Wire
 
@@ -46,7 +47,7 @@ struct ModelChoices: View {
 
     var body: some View {
         if !efforts.isEmpty {
-            Section(ModelPill.effortWord(agent.provider)) {
+            Section(AgentName.effort(agent.provider)) {
                 ForEach(efforts, id: \.self) { effort in
                     Button {
                         pick(nil, effort)
@@ -58,7 +59,7 @@ struct ModelChoices: View {
         }
         let models = ModelPill.aliases(agent.provider)
         if efforts.isEmpty && models.isEmpty {
-            Text("Set by \(who(agent.provider))")
+            Text("Set by \(AgentName.who(agent.provider))")
         }
         if !models.isEmpty {
             Section("Model") {

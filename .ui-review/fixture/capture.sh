@@ -14,6 +14,8 @@ for spec in "$@"; do
   case ${spec%%=*} in
     compact-sidebar-open|repositories-worktrees) scenario=worktrees ;;
     restore-*) scenario=restored ;;
+    agents-chat*) scenario=agents-chat ;;
+    agents*) scenario=agents ;;
     chat*) scenario=chat ;;
     team*) scenario=team ;;
     *) scenario=sessions ;;

@@ -2,11 +2,13 @@
 
 use super::plan::{Kept, branch, can_start};
 use super::{PROPOSED, plural};
-use crate::composer::model_menu::model_name;
-use crate::settings::models::model_options;
+use crate::composer::model_menu::listed_name;
+use crate::models::{listed_agents, model_options};
 use crate::composer::{menu_title, picker, pill};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
+use crate::pick_menu::{Line, pick_list};
+use agents::ListedModel;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -15,6 +17,35 @@ use theme::*;
 use ui::Variant;
 
 const WIDTH: f32 = 580.;
+/// A row of the model menu and the gap under it, and the menu's height before it scrolls.
+const MENU_ROW: f32 = 34.;
+const MENU_HEIGHT: f32 = 352.;
+
+/// A model of an agent, as the model menu lists it.
+#[derive(Debug, PartialEq)]
+pub(super) struct TaskModel {
+    agent: &'static str,
+    model: String,
+    label: String,
+}
+
+/// A row of the model menu: an agent, by its id, over its models.
+pub(super) type MenuRow = Line<TaskModel>;
+
+/// The agents a task can run on: the `offered` ones but those that never ask before they act, which an allowlist can't hold.
+pub(super) fn workers(offered: &[&'static str], live: &agents::Agents) -> Vec<&'static str> {
+    offered.iter().copied().filter(|p| !live.provider_info(p).never_asks()).collect()
+}
+
+/// The menu of a task on (`agent`, `model`): each of `agents` over what `models` offer of it, the task's own model kept
+/// where its agent's list lacks it.
+fn menu_rows<'m>(agents: &[&'static str], (agent, model): (&str, &str), models: impl Fn(&str) -> &'m [ListedModel]) -> Vec<MenuRow> {
+    let listed = |of: &'static str| {
+        let picked = if of == agent { model } else { "" };
+        model_options(models(of), picked).map(move |(model, label, _)| MenuRow::Pick(TaskModel { agent: of, model: model.into(), label: label.into() })).collect::<Vec<_>>()
+    };
+    agents.iter().flat_map(|of| std::iter::once(MenuRow::Heading(of.to_string())).chain(listed(of))).collect()
+}
 
 impl Desktop {
     /// Each task with its agent and model, what it runs without asking, and ×; then Not now and Start.
@@ -110,7 +141,7 @@ impl Desktop {
     /// The task's agent and model; its menu picks both.
     fn agent_chip(&self, t: &Kept, cx: &mut Context<Self>) -> Div {
         let open = self.team.island.menu.as_deref() == Some(t.id.as_str());
-        let label = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(model_name(&t.model, self.models_of(&t.agent)));
+        let label = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(listed_name(&t.model, self.models_of(&t.agent)));
         let task = t.id.clone();
         let chip = picker(pill().child(provider_icon(&t.agent, 14., TEXT_2)).child(label), id(format!("team-agent:{}", t.id)), open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             cx.stop_propagation();
@@ -120,35 +151,33 @@ impl Desktop {
         div().relative().flex_none().child(chip).children(menu)
     }
 
-    /// Each agent's models, as the composer lists them; with none picked, the one Settings starts that agent with is checked.
+    /// Each agent's models, as the composer lists them; with none picked, the one Settings starts the task's agent with is
+    /// checked. An agent can list hundreds, so the rows are kept until a list changes and only those in view are built.
     fn model_menu(&self, t: &Kept, cx: &mut Context<Self>) -> Stateful<Div> {
-        let enabled = self.store.agents.enabled();
-        let mut rows: Vec<AnyElement> = Vec::new();
-        for agent in agents::providers::IDS.into_iter().filter(|a| enabled.contains(a)) {
-            let settings = self.store.agents.provider(agent).model;
-            let picked = if t.agent == agent { t.model.as_str() } else { "" };
-            rows.push(menu_title(self.agent_name(agent)).into_any_element());
-            let runs = if picked.is_empty() { settings.as_str() } else { picked };
-            for (i, (model, label)) in model_options(agent, self.models_of(agent), picked).into_iter().enumerate() {
-                let chosen = t.agent == agent && model == runs;
-                let task = t.id.clone();
-                let row = ui::menu_pick(id(format!("team-model:{}:{agent}:{i}", t.id)), provider_icon(agent, 14., TEXT_2), &label, chosen)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.team_pick(&task, agent, &model, cx)));
-                rows.push(row.into_any_element());
+        let agents = listed_agents(&workers(&self.offered(), &self.agents), &[&t.agent]);
+        let rows = self.team.menu_rows.get((&agents, &t.agent, &t.model, self.models.revision), || menu_rows(&agents, (&t.agent, &t.model), |p| self.offered_models(p)));
+        let runs = if t.model.is_empty() { self.store.agents.provider(&t.agent).model } else { t.model.clone() };
+        let (task, on, count) = (t.id.clone(), t.agent.clone(), rows.len());
+        let line = move |this: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
+            let line = div().w_full().h(px(MENU_ROW));
+            match &rows[i] {
+                MenuRow::Heading(agent) => line.flex().items_end().child(menu_title(this.agent_name(agent))),
+                MenuRow::Pick(TaskModel { agent, model, label }) => {
+                    let (agent, chosen, model, task) = (*agent, *agent == on && *model == runs, model.clone(), task.clone());
+                    let row = ui::menu_pick(id(format!("team-model:{task}:{agent}:{i}")), provider_icon(agent, 14., TEXT_2), label, chosen);
+                    line.child(this.agent_row(agent, row).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.team_pick(&task, agent, &model, cx))))
+                }
             }
-        }
+        };
+        let list = pick_list("team-models", count, &self.team.menu_scroll, div().h(px((count as f32 * MENU_ROW).min(MENU_HEIGHT))), |list| list.size_full(), line, cx);
         let task = t.id.clone();
         ui::pop(div().id("team-model-menu"))
             .w(px(260.))
-            .max_h(px(360.))
-            .overflow_y_scroll()
-            .p(px(5.))
-            .flex()
-            .flex_col()
-            .gap(px(2.))
+            .px(px(5.))
+            .pb(px(3.))
             // Menus hang over the sheet; without this a click on one also lands on what it covers.
             .occlude()
-            .children(rows)
+            .child(list)
             .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 if this.team.island.menu.as_deref() == Some(task.as_str()) {
                     this.team.island.menu = None;
@@ -201,5 +230,30 @@ impl Desktop {
                 .into_any_element()
         };
         div().mt(px(6.)).flex().flex_wrap().items_center().gap(px(4.)).text_size(px(12.)).text_color(TEXT_3).child(div().mr(px(2.)).child("Runs without asking")).children(pills).child(add)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ListedModel, MenuRow, TaskModel, menu_rows, workers};
+    use agents::providers::ProviderInfo;
+
+    #[test]
+    fn a_task_cannot_run_on_an_agent_that_never_asks() {
+        let offered = ["claude", "codex", "pi", "omp", "hermes"];
+        assert_eq!(workers(&offered, &agents::Agents::default()), ["claude", "codex", "hermes"]);
+        let says = |never_asks: bool| agents::Agents { providers: vec![ProviderInfo { id: "hermes".into(), available: true, never_asks: Some(never_asks), ..Default::default() }], ..Default::default() };
+        assert_eq!(workers(&offered, &says(true)), ["claude", "codex"], "pocketd's word on it");
+        assert_eq!(workers(&offered, &says(false)), ["claude", "codex", "hermes"]);
+    }
+
+    #[test]
+    fn the_menu_lists_each_agent_over_its_models_and_keeps_the_task_s_own() {
+        let listed = |value: &str, name: &str| ListedModel { value: value.into(), name: name.into(), ..ListedModel::default() };
+        let (claude, codex) = ([listed("opus", "Opus")], [listed("gpt-6-sol", "GPT-6-Sol")]);
+        let rows = menu_rows(&["claude", "codex"], ("codex", "gpt-5"), |p| if p == "claude" { &claude } else { &codex });
+        let model = |agent: &'static str, model: &str, label: &str| MenuRow::Pick(TaskModel { agent, model: model.into(), label: label.into() });
+        let agent = |id: &str| MenuRow::Heading(id.into());
+        assert_eq!(rows, [agent("claude"), model("claude", "opus", "Opus"), agent("codex"), model("codex", "gpt-5", "gpt-5"), model("codex", "gpt-6-sol", "GPT-6-Sol")]);
     }
 }

@@ -420,6 +420,50 @@ fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, inp
     }
 }
 
+/// [`run_login`] for a server: it answers on stdout and runs on, and may quit unanswered if stdin closes first. So stdin gets
+/// `input` and stays open until a line is the `answer` or `timeout` passes, then the server is killed with whatever it started.
+/// What it printed up to its answer.
+pub fn run_login_until(argv: &[&str], cwd: &str, input: &str, answer: impl Fn(&str) -> bool, timeout: Duration) -> Result<String, String> {
+    run_until(login_shell(), terminal_env(), argv, cwd, input, answer, timeout)
+}
+
+fn run_until(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, input: &str, answer: impl Fn(&str) -> bool, timeout: Duration) -> Result<String, String> {
+    let mut cmd = login_command(shell, argv);
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    let mut child = cmd.current_dir(cwd).env_clear().envs(env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let input = format!("{input}\n");
+    let (done, wait) = std::sync::mpsc::channel::<()>();
+    // Holds stdin open until `done` drops with this call.
+    std::thread::spawn(move || {
+        let _ = stdin.write_all(input.as_bytes());
+        let _ = wait.recv();
+    });
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || BufReader::new(stdout).lines().map_while(Result::ok).try_for_each(|line| tx.send(line)));
+    let deadline = std::time::Instant::now() + timeout;
+    let mut out = Vec::new();
+    let answered = loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(line) => {
+                let last = answer(&line);
+                out.push(line);
+                if last {
+                    break Ok(());
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break Err(format!("Timed out after {timeout:?}")),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break Err("Exited without an answer".to_string()),
+        }
+    };
+    kill_tree(&child);
+    let _ = child.wait();
+    drop(done);
+    answered.map(|()| out.join("\n"))
+}
+
 /// Runs `script` in `cwd` under the login shell with `env` added, in its own process group so a timeout kills whatever it started too.
 /// Its output, or on failure its last 20 lines.
 pub fn run_script(script: &str, cwd: &str, env: &[(String, String)], timeout: Duration) -> Result<String, String> {
@@ -672,6 +716,26 @@ mod tests {
             assert_eq!(ok, Ok("in\n[it's \"x\"]".to_string()), "{shell}");
             assert_eq!(run_in(shell, env, &["sh", "-c", "echo out; echo oops >&2; exit 3"], "/", ""), Err("oops".to_string()), "{shell}");
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_server_gets_its_input_is_read_up_to_its_answer_and_is_then_killed_in_real_shells() {
+        for shell in ["/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/fish"].into_iter().filter(|s| Path::new(s).exists()) {
+            let started = std::time::Instant::now();
+            let serve = ["sh", "-c", "read a; read b || exit 0; echo \"got $a\"; echo \"answer $b\"; echo late; sleep 30"];
+            let out = run_until(shell, bare_env(), &serve, "/", "one\ntwo", |l| l.starts_with("answer"), Duration::from_secs(10));
+            assert_eq!(out, Ok("got one\nanswer two".to_string()), "{shell}");
+            assert!(started.elapsed() < Duration::from_secs(10), "{shell} waited for the server to exit");
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_server_that_never_answers_times_out_and_one_that_exits_says_so() {
+        let never = |_: &str| false;
+        assert_eq!(run_until("/bin/sh", bare_env(), &["sh", "-c", "echo hello; sleep 30"], "/", "", never, Duration::from_millis(300)), Err("Timed out after 300ms".to_string()));
+        assert_eq!(run_until("/bin/sh", bare_env(), &["sh", "-c", "echo hello"], "/", "", never, Duration::from_secs(10)), Err("Exited without an answer".to_string()));
     }
 
     #[cfg(unix)]

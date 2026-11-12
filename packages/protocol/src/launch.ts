@@ -4,7 +4,18 @@ import { LocalId } from "./locals.js";
 export const Access = Schema.Literal("settings", "ask", "edits", "auto", "full");
 export type Access = typeof Access.Type;
 
-export const ProviderId = Schema.Literal("claude", "codex");
+export const ProviderId = Schema.Literal(
+  "claude",
+  "codex",
+  "cursor",
+  "grok",
+  "opencode",
+  "pi",
+  "omp",
+  "fx",
+  "hermes",
+  "antigravity",
+);
 export type ProviderId = typeof ProviderId.Type;
 
 export const PhoneAccess = Schema.Literal("ask", "edits", "auto", "full");
@@ -35,6 +46,8 @@ export const LaunchSpec = Schema.Struct({
   access: Access,
   plan: Schema.Boolean,
   prompt: Schema.optional(Schema.String),
+  // The model's own settings, by the agent's id for each; only a chat sets them.
+  options: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   fork: Schema.optional(Schema.String),
   account: Schema.optional(Schema.String),
   chat: Schema.optional(Schema.Boolean),
@@ -58,6 +71,8 @@ export const ProviderInfo = Schema.Struct({
   plan: Schema.Boolean,
   // Optional: older pocketds don't send it.
   chat: Schema.optional(ChatCaps),
+  // It runs every tool without asking, so its access is always full. Sent only when true.
+  neverAsks: Schema.optional(Schema.Boolean),
 });
 export type ProviderInfo = typeof ProviderInfo.Type;
 

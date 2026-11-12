@@ -64,6 +64,8 @@ public enum Palette {
     /// A prompt's opening `/command`.
     public static let command = Token(0x5b5bd6ff, 0xb1a9ffff)
     public static let agentClaude = Token.fixed(0xd97757ff)
+    public static let agentOmp = Token.fixed(0x9362f4ff)
+    public static let agentAntigravity = Token.fixed(0x3186ffff)
 
     public static let diffAddBackground = Token.fixed(0x30a46c1c)
     public static let diffAddText = Token(0x18794eff, 0x3dd68cff)

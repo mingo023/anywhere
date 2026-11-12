@@ -25,10 +25,10 @@ const WEEK: [(u8, &str); 7] = [(1, "M"), (2, "T"), (3, "W"), (4, "T"), (5, "F"),
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::choice("automation-agent", DEFAULTS, "Agent", &PROVIDER_NAMES, Look::Dropdown, |s| {
-        LaunchPick::PROVIDERS.iter().position(|p| *p == s.automations.agent).unwrap_or(0)
+        agents::providers::index(&s.automations.agent).unwrap_or(0)
     }, |s, i| s.automations.agent = LaunchPick::PROVIDERS[i].into())
     .hint("The agent a new automation starts with")
-    .offers(super::agents::enabled_provider),
+    .offers(super::agents::offered_provider),
     Setting::custom("automation-schedule", DEFAULTS, "Schedule", |d, s, cx| d.schedule_row(s, cx))
         .resets(|s| format!("{}, {} days", s.automations.time, s.automations.days.len()), |s, d| (s.automations.time, s.automations.days) = (d.automations.time.clone(), d.automations.days.clone())).hint("For automations that run at a time of day"),
     Setting::stepper("automation-every", DEFAULTS, "Repeat interval", (5, 10080, 5), " min", |s| s.automations.every as i32, |s, n| s.automations.every = n as u32)

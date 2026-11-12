@@ -21,6 +21,7 @@ import (
 	"pocketd/internal/ops"
 	"pocketd/internal/proc"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/terminal"
 )
 
@@ -28,8 +29,8 @@ import (
 // would not do, the kernel shows its argv as /bin/sh <script>. It reports each
 // state in FAKE_AGENT_REPORT: the first at start, the rest after a line of input.
 func TestMain(m *testing.M) {
-	switch filepath.Base(os.Args[0]) {
-	case "claude", "codex", "pocketd":
+	name := filepath.Base(os.Args[0])
+	if name == "pocketd" || name == "python3" || slices.ContainsFunc(providers.All, func(p *providers.Spec) bool { return name == p.Cmd() }) {
 		lines := bufio.NewScanner(os.Stdin)
 		for i, state := range strings.Fields(os.Getenv("FAKE_AGENT_REPORT")) {
 			if i > 0 {

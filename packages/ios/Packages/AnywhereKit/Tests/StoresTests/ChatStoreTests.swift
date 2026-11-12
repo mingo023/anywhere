@@ -12,6 +12,16 @@ private func agent(_ status: AgentStatus = .idle, resets: Int? = nil) -> AgentSu
                  epoch: 1, maxSeq: 0, resets: resets, createdAt: 0, updatedAt: 0)
 }
 
+/// A chat the phone drives, of `provider`.
+@MainActor
+private func chat(of provider: String, connection: DaemonConnection? = nil) -> ChatStore {
+    let chat = ChatStore(agentId: "a1", connection: connection)
+    let agent = AgentSummary(id: "a1", terminalId: "t-a1", title: "a1", cwd: "/w", provider: provider, status: .idle, attached: true,
+                             epoch: 1, maxSeq: 0, createdAt: 0, updatedAt: 0, chatOnly: true)
+    chat.seed(agent, requests: [], hello: Sample.hello)
+    return chat
+}
+
 private func item(_ id: String, _ seq: Int, _ text: String = "hi") -> TimelineItem {
     TimelineItem(id: id, seq: seq, ts: seq * 1000, body: .assistant(text: text))
 }
@@ -236,6 +246,23 @@ struct ChatStoreTests {
         #expect(c.settingsMenu == .model)
     }
 
+    @Test("a bare /model or /effort with nothing for the phone to list says to name one instead of opening an empty menu")
+    func aBareSettingWithNothingToListSaysToNameOne() {
+        let c = chat(of: "opencode")
+        _ = c.apply(.agentProviders(Sample.providers))
+        for command in ["/model", "/effort"] {
+            c.draft.text = command
+            c.send()
+            #expect(c.settingsMenu == nil, "\(command)")
+            #expect(c.notice == "There's no list of OpenCode's choices here. Send \(command) with one.")
+        }
+        let pi = chat(of: "pi")
+        _ = pi.apply(.agentProviders(Sample.providers))
+        pi.draft.text = "/thinking"
+        pi.send()
+        #expect(pi.settingsMenu == .effort, "Pi lists its levels")
+    }
+
     @Test("picking /mcp leaves the caret after the tag it puts in")
     func pickMcp() {
         let c = chat([])
@@ -384,6 +411,82 @@ struct ChatStoreTests {
         c.draft.text = ""
         c.press()
         #expect(!c.stopping)
+    }
+
+    @Test("a setting the Mac refuses says why in the notice, and /compact with instructions says an agent's own compact takes none")
+    func refusalsAreSaid() async throws {
+        let refusal = "Pi runs every tool without asking, so its access is always full"
+        let server = try await TestServer { peer, frame in
+            switch frame.message {
+            case .hello: peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello)))
+            case .agentSettings: peer.send(ServerFrame(id: frame.id, .error(ServerError(message: refusal))))
+            default: break
+            }
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(config: .init(host: server.host, token: "t", clientId: "c"))
+        await connection.start()
+        defer { Task { await connection.stop() } }
+        for _ in 0..<200 where await !connection.isOnline { try await Task.sleep(for: .milliseconds(5)) }
+        let c = chat(of: "pi", connection: connection)
+        let compacts = { server.received.filter { if case .agentCompact = $0.message { true } else { false } }.count }
+
+        c.settings(access: "ask")
+        for _ in 0..<200 where c.notice == nil { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(c.notice == refusal)
+
+        c.draft.text = "/compact keep the plan"
+        c.send()
+        #expect(c.notice == "Pi's /compact takes no instructions. Send /compact alone.")
+        c.draft.text = "/compact"
+        c.send()
+        #expect(c.notice == nil)
+        for _ in 0..<200 where compacts() == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(compacts() == 1, "only the bare /compact compacted")
+    }
+
+    @Test("an ACP agent's /compact compacts once the Mac says it can, and never reaches the model before")
+    func anAcpAgentsCompactCompactsOnceTheMacSaysItCan() async throws {
+        let server = try await TestServer { peer, frame in
+            if case .hello = frame.message { peer.send(ServerFrame(id: frame.id, .helloOk(Sample.hello))) }
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(config: .init(host: server.host, token: "t", clientId: "c"))
+        await connection.start()
+        defer { Task { await connection.stop() } }
+        for _ in 0..<200 where await !connection.isOnline { try await Task.sleep(for: .milliseconds(5)) }
+        let sent = {
+            server.received.compactMap {
+                switch $0.message {
+                case .agentCompact: "compact"
+                case .agentPrompt(let p): p.text
+                default: nil
+                }
+            }
+        }
+        let c = chat(of: "opencode", connection: connection)
+        c.draft.text = "/compact"
+        c.send()
+        #expect(c.notice != nil, "OpenCode's own /compact is its TUI's")
+
+        _ = c.apply(.agentProviders(Sample.providers))
+        c.draft.text = "/compact"
+        c.send()
+        for _ in 0..<200 where sent().isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(sent() == ["compact"])
+    }
+
+    @Test("the access pill is a menu in a chat the phone drives, but not for an agent that never asks and so has only Full")
+    func anAgentThatNeverAsksHasNoAccessToPick() {
+        let pi = chat(of: "pi")
+        let opencode = chat(of: "opencode")
+        #expect(pi.setsAccess && opencode.setsAccess, "until the Mac says which agents never ask")
+        _ = pi.apply(.agentProviders(Sample.providers))
+        _ = opencode.apply(.agentProviders(Sample.providers))
+        #expect(!pi.setsAccess && opencode.setsAccess)
+        #expect(!chat([]).setsAccess, "an agent in its terminal sets its own")
     }
 
     @Test("the notice clears once the Mac is back")

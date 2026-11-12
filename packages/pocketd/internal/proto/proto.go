@@ -232,6 +232,8 @@ type AgentSummary struct {
 	Goal Goal `json:"goal,omitzero"`
 	// Parent is the agent this one was started under, as a team's worker under its lead; empty for none.
 	Parent string `json:"parent,omitempty"`
+	// Options are the model settings the agent runs on, by the agent's id for each.
+	Options map[string]string `json:"options,omitempty"`
 }
 
 // GoalFailed is Claude's judge giving a goal up; Codex has no such status.

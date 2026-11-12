@@ -3,6 +3,7 @@
 package launch
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -69,8 +70,8 @@ type exit struct {
 }
 
 type found struct {
-	path, cmd string
-	at        time.Time
+	path string
+	at   time.Time
 }
 
 type Launcher struct {
@@ -138,6 +139,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	if fl := Check(w, s); fl != nil {
 		return Result{Err: fl}
 	}
+	s.Access, s.Chat = Access(s), Chats(s)
 	if s.Team && (s.Prompt == "" || !Chat(s)) {
 		return Result{Err: fail("invalid_spec", "A team starts from a chat session's first prompt")}
 	}
@@ -159,7 +161,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	env = slices.Concat(env, account)
 	exe, ok := l.find(s.Provider, env)
 	if !ok {
-		return Result{Err: fail("provider_unavailable", s.Provider+" isn't installed on your Mac")}
+		return Result{Err: fail("provider_unavailable", command(s.Provider)+" isn't installed on your Mac")}
 	}
 	name := ""
 	if s.Checkout.New != nil {
@@ -208,7 +210,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
 	}
 	creating(Creating{Terminal: id, Cwd: cwd, Setup: setup != ""})
-	r := l.wait(t, id, exits, progress)
+	r := l.wait(t, id, exits, clis[s.Provider].attaches(s), progress)
 	r.Cwd = cwd
 	if r.Err == nil && s.Prompt != "" && Chat(s) {
 		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
@@ -366,7 +368,8 @@ func gitFailure(err error) *Failure {
 	return &Failure{Code: "spawn_failed", Message: "git couldn't make the worktree", Detail: Tail(err.Error())}
 }
 
-func (l *Launcher) wait(t *terminal.Terminal, id string, exits chan exit, progress func(step, note string)) Result {
+// wait is over once the agent runs, and attaches if it is one that does.
+func (l *Launcher) wait(t *terminal.Terminal, id string, exits chan exit, attaches bool, progress func(step, note string)) Result {
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
 	deadline := time.After(createWait)
@@ -399,7 +402,8 @@ func (l *Launcher) wait(t *terminal.Terminal, id string, exits chan exit, progre
 			a, ok := l.agentIn(id)
 			switch {
 			case !ok:
-			case a.Attached:
+			// A chat that failed to open has said so, and never attaches.
+			case a.Attached || !attaches || a.Failed:
 				return Result{AgentID: a.ID, TerminalID: id}
 			case present.IsZero():
 				present = time.Now()
@@ -433,6 +437,7 @@ func (l *Launcher) agentIn(terminalID string) (proto.AgentSummary, bool) {
 func (l *Launcher) Exited(terminalID, phase string, status int) {
 	if phase == "agent" {
 		l.d.RestoreExited(terminalID)
+		l.d.ChatExited(terminalID, status)
 	}
 	l.mu.Lock()
 	ch, ok := l.pending[terminalID]
@@ -450,24 +455,36 @@ func (l *Launcher) Exited(terminalID, phase string, status int) {
 	}
 }
 
-// Providers lists the agents the user's shell can run.
-func (l *Launcher) Providers() (list []proto.ProviderInfo) {
+// Providers lists the agents the user's shell can run, in a terminal or for the chat.
+func (l *Launcher) Providers() []proto.ProviderInfo {
 	env := l.d.LoginEnv()
-	for _, p := range providers.All {
+	list := make([]proto.ProviderInfo, len(providers.All))
+	each(func(i int, p *providers.Spec) {
 		_, ok := l.find(p.ID, env)
-		list = append(list, proto.ProviderInfo{ID: p.ID, Available: ok, Efforts: p.Efforts, Plan: p.Plan, Chat: p.Chat})
-	}
+		list[i] = proto.ProviderInfo{ID: p.ID, Available: ok, Efforts: p.Efforts, Plan: p.Plan, NeverAsks: p.NeverAsks, Chat: p.Chat}
+	})
 	return list
 }
 
 // Paths is what runs each built-in agent: a path, a shell function's name, or empty.
 func (l *Launcher) Paths() map[string]string {
 	env := l.d.LoginEnv()
+	found := make([]string, len(providers.All))
+	each(func(i int, p *providers.Spec) { found[i], _ = l.find(p.ID, env) })
 	paths := map[string]string{}
-	for _, p := range providers.All {
-		paths[p.ID], _ = l.find(p.ID, env)
+	for i, p := range providers.All {
+		paths[p.ID] = found[i]
 	}
 	return paths
+}
+
+// each runs f for every provider at once: finding one is a shell run of its own.
+func each(f func(i int, p *providers.Spec)) {
+	var wg sync.WaitGroup
+	for i, p := range providers.All {
+		wg.Go(func() { f(i, p) })
+	}
+	wg.Wait()
 }
 
 func (l *Launcher) SetPhoneMaxAccess(v string) error { return l.set.SetPhoneMaxAccess(v) }
@@ -526,20 +543,38 @@ func (l *Launcher) account(provider, id string) ([]string, *Failure) {
 	return l.d.Accounts.Env(provider, id), nil
 }
 
-// find resolves provider's command from config.json, rechecking once it changes.
+// find resolves the command config.json gives provider. It holds no lock
+// while the shell looks, so Providers can look for all at once.
 func (l *Launcher) find(provider string, env []string) (string, bool) {
 	cmd := l.set.AgentCommand(provider)
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if f, ok := l.found[provider]; ok && f.cmd == cmd && time.Since(f.at) < probeTTL {
+	f, ok := l.found[cmd]
+	l.mu.Unlock()
+	if ok && time.Since(f.at) < probeTTL {
 		return f.path, f.path != ""
 	}
 	path, err := resolve(cmd, env)
-	if err != nil {
+	if err != nil || !isAgent(providers.Get(provider), path, env) {
 		path = ""
 	}
-	l.found[provider] = found{path, cmd, time.Now()}
+	l.mu.Lock()
+	l.found[cmd] = found{path, time.Now()}
+	l.mu.Unlock()
 	return path, path != ""
+}
+
+// isAgent is whether path is p's CLI, by what its --help says. A shell
+// function can't be asked from here.
+func isAgent(p *providers.Spec, path string, env []string) bool {
+	if len(p.Help) == 0 || !strings.Contains(path, "/") {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), probeWait)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--help")
+	cmd.Env = env
+	out, _ := cmd.CombinedOutput()
+	return !slices.ContainsFunc(p.Help, func(word string) bool { return !bytes.Contains(out, []byte(word)) })
 }
 
 // CheckCommand refuses a command for config-set that the user's shell can't run.

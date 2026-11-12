@@ -5,28 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"sync"
 
 	"github.com/coder/websocket"
 
 	"pocketd/internal/envdir"
+	"pocketd/internal/jsonrpc"
 )
 
 type Handler interface {
 	Notify(method string, params json.RawMessage)
 	Request(id json.RawMessage, method string, params json.RawMessage)
-}
-
-// Wire carries JSON-RPC messages, one per Read or Write.
-type Wire interface {
-	Read(ctx context.Context) ([]byte, error)
-	Write(ctx context.Context, msg []byte) error
-	Close()
 }
 
 type wsWire struct{ *websocket.Conn }
@@ -43,23 +35,10 @@ func (w wsWire) Write(ctx context.Context, msg []byte) error {
 func (w wsWire) Close() { w.CloseNow() }
 
 type Client struct {
-	w        Wire
+	conn     *jsonrpc.Conn
 	h        Handler
 	handlers sync.WaitGroup
-	mu       sync.Mutex
-	next     int
-	pending  map[string]chan frame
-	done     chan struct{}
-}
-
-type frame struct {
-	ID     json.RawMessage `json:"id,omitempty"`
-	Method string          `json:"method,omitempty"`
-	Params json.RawMessage `json:"params,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	handled  chan struct{} // closed once the handler has taken the last message read
 }
 
 // Dial connects to the app-server control socket. It only speaks
@@ -89,15 +68,16 @@ const errInitialized = "initialize: Already initialized"
 // Connect initializes the app-server at the other end of w. Its ids start
 // anywhere, so a reply meant for an earlier pocketd on the same pipe answers
 // none of its calls.
-func Connect(ctx context.Context, w Wire, h Handler, capabilities any) (*Client, error) {
-	c := &Client{w: w, h: h, next: rand.IntN(1 << 30), pending: map[string]chan frame{}, done: make(chan struct{})}
-	go c.read()
+func Connect(ctx context.Context, w jsonrpc.Wire, h Handler, capabilities any) (*Client, error) {
+	c := &Client{h: h, handled: make(chan struct{})}
+	close(c.handled)
+	c.conn = jsonrpc.Connect(w, "", c.take)
 	_, err := c.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]any{"name": "codex_app_server_daemon", "title": nil, "version": "0"}, "capabilities": capabilities})
 	if err != nil && err.Error() == errInitialized {
 		return c, nil
 	}
 	if err == nil {
-		err = c.send(frame{Method: "initialized"})
+		err = c.conn.Send(jsonrpc.Message{Method: "initialized"})
 	}
 	if err != nil {
 		w.Close()
@@ -106,42 +86,22 @@ func Connect(ctx context.Context, w Wire, h Handler, capabilities any) (*Client,
 	return c, nil
 }
 
-// read hands notifications and server requests to the handler in order, but
-// off this goroutine, so a handler may Call: only read delivers the reply.
-func (c *Client) read() {
-	defer close(c.done)
-	handled := make(chan struct{})
-	close(handled)
-	for {
-		raw, err := c.w.Read(context.Background())
-		if err != nil {
-			return
-		}
-		var f frame
-		if json.Unmarshal(raw, &f) != nil {
-			continue
-		}
-		if f.Method != "" {
-			prev, next := handled, make(chan struct{})
-			c.handlers.Go(func() {
-				<-prev
-				c.handle(f)
-				close(next)
-			})
-			handled = next
-			continue
-		}
-		c.mu.Lock()
-		ch := c.pending[string(f.ID)]
-		delete(c.pending, string(f.ID))
-		c.mu.Unlock()
-		if ch != nil {
-			ch <- f
-		}
+// take hands notifications and server requests to the handler in order, but
+// off the reader, so a handler may Call: only the reader delivers the reply.
+func (c *Client) take(f jsonrpc.Message) {
+	if f.Method == "" {
+		return
 	}
+	prev, next := c.handled, make(chan struct{})
+	c.handlers.Go(func() {
+		<-prev
+		c.handle(f)
+		close(next)
+	})
+	c.handled = next
 }
 
-func (c *Client) handle(f frame) {
+func (c *Client) handle(f jsonrpc.Message) {
 	if f.ID != nil {
 		c.h.Request(f.ID, f.Method, f.Params)
 	} else {
@@ -149,52 +109,29 @@ func (c *Client) handle(f frame) {
 	}
 }
 
-func (c *Client) send(f frame) error {
-	raw, _ := json.Marshal(f)
-	return c.w.Write(context.Background(), raw)
-}
-
 func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	p, _ := json.Marshal(params)
-	c.mu.Lock()
-	c.next++
-	id := json.RawMessage(strconv.Itoa(c.next))
-	ch := make(chan frame, 1)
-	c.pending[string(id)] = ch
-	c.mu.Unlock()
-	defer func() {
-		c.mu.Lock()
-		delete(c.pending, string(id))
-		c.mu.Unlock()
-	}()
-	if err := c.send(frame{ID: id, Method: method, Params: p}); err != nil {
-		return nil, err
-	}
-	select {
-	case f := <-ch:
-		if f.Error != nil {
-			return nil, errors.New(method + ": " + f.Error.Message)
-		}
-		return f.Result, nil
-	case <-c.done:
+	f, err := c.conn.Call(ctx, method, params)
+	switch {
+	case errors.Is(err, jsonrpc.ErrClosed):
 		return nil, errors.New("codex app-server closed the connection")
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	case err != nil:
+		return nil, err
+	case f.Error != nil:
+		return nil, errors.New(method + ": " + f.Error.Message)
 	}
+	return f.Result, nil
 }
 
 func (c *Client) Reply(id json.RawMessage, result any) error {
-	r, _ := json.Marshal(result)
-	return c.send(frame{ID: id, Result: r})
+	return c.conn.Reply(id, result)
 }
 
-func (c *Client) Done() <-chan struct{} { return c.done }
+func (c *Client) Done() <-chan struct{} { return c.conn.Done() }
 
 // Close returns once the handler has taken its last message, so the handler
 // must not call it.
 func (c *Client) Close() {
-	c.w.Close()
-	<-c.done
+	c.conn.Close()
 	c.handlers.Wait()
 }
 

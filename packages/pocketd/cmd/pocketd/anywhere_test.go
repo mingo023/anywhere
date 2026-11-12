@@ -47,6 +47,15 @@ func TestLaunchSpecFindsTheProjectHoldingTheFolderAndItsMainWorktree(t *testing.
 	}
 }
 
+func TestASessionRunsAsAnyAgentPocketdDrivesAChatOf(t *testing.T) {
+	if spec, err := launchSpec(twoProjects, "/code/web", newSession{provider: "hermes", access: "settings"}); err != nil || spec.Provider != "hermes" || !spec.Chat {
+		t.Fatalf("spec = %+v, err = %v", spec, err)
+	}
+	if !strings.Contains(anywhereUsage(), "|hermes|") {
+		t.Fatal(anywhereUsage())
+	}
+}
+
 func TestLaunchSpecTakesAProjectByNameAndAWorktreeByName(t *testing.T) {
 	spec, err := launchSpec(twoProjects, "/elsewhere", newSession{project: "api", worktree: "calm-otter"})
 	if err != nil || spec.Checkout.Worktree != "/wt/calm-otter" {

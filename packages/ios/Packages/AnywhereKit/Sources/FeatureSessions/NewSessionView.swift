@@ -13,6 +13,7 @@ struct NewSessionView: View {
     let host: HostModel
     let mac: String
     @State private var confirmingFull = false
+    @State private var confirmingStart = false
     @State private var draft: NewSessionDraft
     @State private var requestId: String?
     @State private var worktreeOptions = false
@@ -35,7 +36,8 @@ struct NewSessionView: View {
     private var project: Project? { workspace.project(draft.project) }
     private var mainTree: String { Self.main(of: project) ?? draft.project }
     private var providers: AgentProviders? { workspace.providers }
-    private var info: ProviderInfo? { providers?.providers.first { $0.id == draft.provider.rawValue } }
+    private var info: ProviderInfo? { providers?.info(draft.provider.rawValue) }
+    private var neverAsks: Bool { info?.neverAsks == true }
     private var taken: Set<String> { Places.taken(project: project, branches: workspace.branches[mainTree]) }
     private var canSpawn: Bool { host.hello?.scopes?.contains(.spawn) ?? true }
     private var problem: String? {
@@ -181,7 +183,14 @@ struct NewSessionView: View {
 
     private var startButton: some View {
         let blocked = requestId != nil || !online || providers == nil || problem != nil
-        return Button(action: start) {
+        return Button {
+            if draft.confirmsStart(neverAsks: neverAsks) {
+                Haptics.warning()
+                confirmingStart = true
+            } else {
+                start()
+            }
+        } label: {
             Image(systemName: "arrow.up")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle((blocked ? Palette.text4 : Palette.onText).color)
@@ -192,12 +201,13 @@ struct NewSessionView: View {
         .buttonStyle(.plain)
         .disabled(blocked)
         .accessibilityLabel("Start")
+        .confirmsFullAccess($confirmingStart, who: AgentName.label(draft.provider.rawValue), action: "Start with Full", confirm: start)
     }
 
     private var agentMenu: some View {
         Menu {
             Picker("Agent", selection: Binding(get: { draft.provider }, set: { draft.pick(provider: $0) })) {
-                ForEach(providers?.providers.filter(\.available) ?? [], id: \.id) { Text(SessionText.provider($0.id)).tag(ProviderId(rawValue: $0.id)) }
+                ForEach(providers?.providers.filter(\.available) ?? [], id: \.id) { Text(AgentName.label($0.id)).tag(ProviderId(rawValue: $0.id)) }
             }
             if info?.plan == true { Toggle("Plan First", isOn: $draft.plan) }
             Toggle("Chat Only", isOn: $draft.chat)
@@ -210,7 +220,7 @@ struct NewSessionView: View {
                 .pickerStyle(.menu)
             }
         } label: {
-            ComposerPill(text: SessionText.provider(draft.provider.rawValue), filled: true) { BrandMark(draft.provider.rawValue, size: 12) }
+            ComposerPill(text: AgentName.label(draft.provider.rawValue), filled: true) { BrandMark(draft.provider.rawValue, size: 12) }
         }
         .menuOrder(.fixed)
     }
@@ -218,17 +228,18 @@ struct NewSessionView: View {
     private var modelMenu: some View {
         let models = NewSessionDraft.models(draft.provider)
         let efforts = info?.efforts ?? []
-        let model = draft.model.map(Sidebar.modelName) ?? "Default model"
+        let model = draft.model.map(modelName) ?? "Default model"
+        let effortWord = AgentName.effort(draft.provider.rawValue)
         return Menu {
             if !models.isEmpty {
                 Picker("Model", selection: $draft.model) {
                     Text("Default").tag(String?.none)
-                    ForEach(models, id: \.self) { Text(Sidebar.modelName($0)).tag(Optional($0)) }
+                    ForEach(models, id: \.self) { Text(modelName($0)).tag(Optional($0)) }
                 }
             }
             if !efforts.isEmpty {
-                Picker("Effort", selection: $draft.effort) {
-                    Text("Default Effort").tag(String?.none)
+                Picker(effortWord, selection: $draft.effort) {
+                    Text("Default \(effortWord)").tag(String?.none)
                     ForEach(efforts, id: \.self) { Text($0.capitalized).tag(Optional($0)) }
                 }
                 .pickerStyle(.menu)
@@ -240,7 +251,18 @@ struct NewSessionView: View {
         .disabled(models.isEmpty && efforts.isEmpty)
     }
 
+    /// An agent that never asks before a tool has only Full, so nothing to pick.
+    @ViewBuilder
     private var accessMenu: some View {
+        if neverAsks {
+            ComposerPill(text: AccessPill.label(Access.full.rawValue), chevron: false, filled: true) { Image(systemName: "shield") }
+                .accessibilityLabel("Access: \(AccessPill.label(Access.full.rawValue))")
+        } else {
+            accessChoices
+        }
+    }
+
+    private var accessChoices: some View {
         Menu {
             AccessChoices(choices: AccessPill.choices(launching: true), picked: draft.access.rawValue) { value in
                 if AccessPill.confirms(value, from: draft.access.rawValue) {
@@ -254,7 +276,7 @@ struct NewSessionView: View {
             ComposerPill(text: AccessPill.label(draft.access.rawValue), filled: true) { Image(systemName: "shield") }
         }
         .menuOrder(.fixed)
-        .confirmsFullAccess($confirmingFull, who: draft.provider.rawValue.capitalized) { draft.access = .full }
+        .confirmsFullAccess($confirmingFull, who: AgentName.label(draft.provider.rawValue)) { draft.access = .full }
     }
 
     /// The desktop's footer: the project · a new Worktree or Local · the branch a worktree starts from.
@@ -334,7 +356,8 @@ struct NewSessionView: View {
 
     private func start() {
         let id = WorkspaceStore.newRequestId()
-        let plan = draft.plan(taken: taken, localId: Sidebar.newLocalId(), localName: workspace.nextLocalName(project: draft.project))
+        let plan = draft.plan(
+            taken: taken, localId: Sidebar.newLocalId(), localName: workspace.nextLocalName(project: draft.project), neverAsks: neverAsks)
         workspace.add(plan, requestId: id, title: Self.title(draft.prompt), place: Self.key(plan.spec.checkout, makesWorktree: plan.worktree != nil))
         requestId = id
         workspace.runKept(id)

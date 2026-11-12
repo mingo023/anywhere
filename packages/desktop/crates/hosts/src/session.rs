@@ -255,6 +255,10 @@ impl Outboxes {
         self.by_id(agent_id, |o, id| o.settings(id, model, effort));
     }
 
+    pub fn option(&self, agent_id: &str, setting: &str, value: &str) {
+        self.by_id(agent_id, |o, id| o.option(id, setting, value));
+    }
+
     pub fn access(&self, agent_id: &str, access: &str) {
         self.by_id(agent_id, |o, id| o.access(id, access));
     }

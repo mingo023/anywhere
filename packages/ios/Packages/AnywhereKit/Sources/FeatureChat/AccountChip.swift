@@ -48,7 +48,7 @@ struct AccountChip: View {
 
     private var usagePage: some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            Text("\(who(provider)) usage").font(ChatFont.small.weight(.semibold))
+            Text("\(AgentName.who(provider)) usage").font(ChatFont.small.weight(.semibold))
             Text(["In use: \(current.name)", current.plan, current.email].compactMap { $0 }.joined(separator: " · "))
                 .font(ChatFont.caption).foregroundStyle(Palette.text3.color)
             if let five = current.fiveHour { block("5-hour", five) }
@@ -118,7 +118,7 @@ struct AccountChip: View {
                 .buttonStyle(.plain)
                 .disabled(!a.signedIn || a.id == current.id)
             }
-            Text("Only \(who(provider)) accounts on \(machine)").font(.system(size: 11)).foregroundStyle(Palette.text4.color)
+            Text("Only \(AgentName.who(provider)) accounts on \(machine)").font(.system(size: 11)).foregroundStyle(Palette.text4.color)
         }
     }
 }

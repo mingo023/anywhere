@@ -202,8 +202,8 @@ impl Desktop {
         let main = card(format!("chat-map-node:{}:main", agent.id), at[0], selected == 0, false)
             .child(title(provider_icon(&agent.provider, 14., TEXT_2), "Main agent".into(), TEXT))
             .child(sub(match agent.tokens_used {
-                0 => agents::model_label(agent),
-                n => format!("{} · {} context", agents::model_label(agent), thousands(n)),
+                0 => crate::status::model_or_agent(agent),
+                n => format!("{} · {} context", crate::status::model_or_agent(agent), thousands(n)),
             }))
             .child(line(main_line(t, map), false, TEXT_4));
         let nodes = map.iter().enumerate().map(|(i, s)| {

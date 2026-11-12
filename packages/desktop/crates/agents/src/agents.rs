@@ -1,4 +1,5 @@
 pub mod automations;
+pub mod catalogs;
 pub mod tickets;
 pub mod locals;
 pub mod providers;
@@ -61,6 +62,8 @@ pub struct Summary {
     pub goal: Option<Goal>,
     /// The session it was started under, as a team's worker under its lead; empty for none.
     pub parent: String,
+    /// The model settings it runs on, by the agent's id for each.
+    pub options: HashMap<String, String>,
 }
 
 /// An agent's `/goal`.
@@ -501,7 +504,7 @@ impl Agents {
 
     /// pocketd's word on provider `id`, else what this build knows.
     pub fn provider_info(&self, id: &str) -> &ProviderInfo {
-        self.providers.iter().find(|p| p.id == id).unwrap_or_else(|| providers::builtin(id))
+        self.providers.iter().find(|p| p.id == id).unwrap_or_else(|| providers::builtin_info(id))
     }
 
     pub fn apply(&mut self, ev: Event) {
@@ -742,14 +745,33 @@ pub fn model_label(a: &Summary) -> String {
     model_name(model)
 }
 
-/// "claude-haiku-4-5-20251001" reads as "Haiku 4.5", "haiku" as "Haiku".
+/// "claude-haiku-4-5-20251001" reads as "Haiku 4.5", "haiku" as "Haiku", "openai-codex/gpt-5.4" as "GPT 5.4",
+/// "opencode/big-pickle" as "Big Pickle" and "us.anthropic.claude-opus-5-5" as "Opus 5.5": the id without who serves
+/// it, its date or "claude-", numbers joined by a dot. Claude's "[1m]" for its 1M-context window stays as written.
 pub fn model_name(model: &str) -> String {
-    let mut words = model.strip_prefix("claude-").unwrap_or(model).split('-').filter(|w| w.len() < 8);
-    let family = words.next().unwrap_or_default();
-    let mut f = family.chars();
-    let family: String = f.next().map(|c| c.to_uppercase().chain(f).collect()).unwrap_or_default();
-    let version: Vec<&str> = words.collect();
-    if version.is_empty() { family } else { format!("{family} {}", version.join(".")) }
+    let number = |w: &str| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit());
+    let id = model.rsplit('/').next().unwrap_or(model);
+    // Hermes writes "provider:model"; Bedrock ends an id in ":0".
+    let id = id.rsplit_once(':').filter(|(_, m)| !number(m)).map_or(id, |(_, m)| m);
+    let (id, window) = id.find('[').map_or((id, ""), |at| id.split_at(at));
+    // Bedrock leads with where and who, as "us.anthropic."; the dot of a version, as "v3.2", has no two letters after it.
+    let id = id.rmatch_indices('.').map(|(at, _)| &id[at + 1..]).find(|rest| rest.len() > 1 && rest.bytes().take(2).all(|b| b.is_ascii_alphabetic())).unwrap_or(id);
+    let mut name = String::new();
+    let mut after_number = false;
+    for word in id.strip_prefix("claude-").unwrap_or(id).split('-').filter(|w| !w.is_empty() && !(w.len() >= 8 && number(w))) {
+        if !name.is_empty() {
+            name.push(if after_number && number(word) { '.' } else { ' ' });
+        }
+        // A word without a vowel is initials, as "gpt".
+        if word.contains(['a', 'e', 'i', 'o', 'u', 'y']) {
+            let mut c = word.chars();
+            name.extend(c.next().into_iter().flat_map(char::to_uppercase).chain(c));
+        } else {
+            name.push_str(&word.to_uppercase());
+        }
+        after_number = number(word);
+    }
+    name + window
 }
 
 /// One model a provider's CLI lists.
@@ -763,73 +785,22 @@ pub struct ListedModel {
     pub efforts: Vec<String>,
     /// The effort it runs on when none is picked; "" when the CLI doesn't say.
     pub default_effort: String,
+    /// Who serves it, as the agent names them: "amazon-bedrock" or "ChatGPT or Codex Subscription". It tells apart two
+    /// models of one name; "" for an agent's own.
+    pub upstream: String,
+    pub settings: Vec<ModelSetting>,
 }
 
-#[derive(Deserialize)]
-struct CodexModel {
-    slug: String,
-    #[serde(default)]
-    display_name: String,
-    #[serde(default)]
-    visibility: String,
-    #[serde(default)]
-    supported_reasoning_levels: Vec<CodexLevel>,
-    #[serde(default)]
-    default_reasoning_level: String,
-}
-
-#[derive(Deserialize)]
-struct CodexLevel {
-    effort: String,
-}
-
-/// The models `codex debug models` lists; hidden ones are left out.
-pub fn codex_catalog(json: &str) -> Vec<ListedModel> {
-    #[derive(Deserialize)]
-    struct Catalog {
-        models: Vec<CodexModel>,
-    }
-    let Ok(c) = serde_json::from_str::<Catalog>(json) else { return Vec::new() };
-    c.models
-        .into_iter()
-        .filter(|m| m.visibility == "list")
-        .map(|m| ListedModel {
-            name: if m.display_name.is_empty() { m.slug.clone() } else { m.display_name },
-            resolved: m.slug.clone(),
-            value: m.slug,
-            efforts: m.supported_reasoning_levels.into_iter().map(|l| l.effort).collect(),
-            default_effort: m.default_reasoning_level,
-        })
-        .collect()
-}
-
-/// The models Claude Code's answer to `initialize` lists, but "default", which only stands for one of the others.
-pub fn claude_catalog(output: &str) -> Vec<ListedModel> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ClaudeModel {
-        value: String,
-        display_name: String,
-        resolved_model: String,
-        #[serde(default)]
-        supported_effort_levels: Vec<String>,
-    }
-    #[derive(Deserialize)]
-    struct Init {
-        models: Vec<ClaudeModel>,
-    }
-    output
-        .lines()
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .find(|l| l["type"] == "control_response")
-        .and_then(|l| Init::deserialize(&l["response"]["response"]).ok())
-        .map_or_else(Vec::new, |init| {
-            init.models
-                .into_iter()
-                .filter(|m| m.value != "default")
-                .map(|m| ListedModel { value: m.value, name: m.display_name, resolved: m.resolved_model, efforts: m.supported_effort_levels, default_effort: String::new() })
-                .collect()
-        })
+/// One of a model's own settings besides its effort, as Cursor's "Fast" or OpenCode's "Agent".
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ModelSetting {
+    /// What the agent calls it; a launch's `options` set it by this.
+    pub id: String,
+    pub name: String,
+    /// Each value it takes, and what a menu calls that.
+    pub choices: Vec<(String, String)>,
+    /// The value it's on when none is picked.
+    pub default: String,
 }
 
 /// A reply to a permission ask. pocketd interrupts the turn on a deny.
@@ -1049,6 +1020,11 @@ impl Outbox {
             msg[key] = value.into();
         }
         self.send(msg);
+    }
+
+    /// Switches the model's own setting `id` to `value`.
+    pub fn option(&self, agent_id: &str, id: &str, value: &str) {
+        self.send(json!({"type": "agent.settings", "id": SETTINGS, "agentId": agent_id, "options": {id: value}}));
     }
 
     /// Switches what the agent may do without asking.
@@ -1388,30 +1364,45 @@ mod tests {
     }
 
     #[test]
-    fn codex_lists_its_shown_models_by_name_and_nothing_from_bad_output() {
-        let json = r#"{"models":[{"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list","default_reasoning_level":"ultra","supported_reasoning_levels":[{"effort":"low","description":"Fast"},{"effort":"ultra","description":"Most"}]},{"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
-        let listed: Vec<_> = super::codex_catalog(json).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts, m.default_effort)).collect();
-        let s = |v: &str| v.to_string();
-        assert_eq!(listed, [(s("gpt-6-sol"), s("GPT-6-Sol"), s("gpt-6-sol"), vec![s("low"), s("ultra")], s("ultra")), (s("gpt-5.6-luna"), s("gpt-5.6-luna"), s("gpt-5.6-luna"), vec![], s(""))]);
-        assert!(super::codex_catalog("error: not logged in").is_empty());
-    }
-
-    #[test]
-    fn claude_lists_what_initialize_answers_but_its_default() {
-        let out = r#"{"type":"system","subtype":"init"}
-{"type":"control_response","response":{"subtype":"success","request_id":"m","response":{"commands":[],"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","supportedEffortLevels":["low"]},{"value":"fable","resolvedModel":"claude-fable-5-1","displayName":"Fable 5.1","supportsEffort":true,"supportedEffortLevels":["low","max"]},{"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5"}]}}}"#;
-        let listed: Vec<_> = super::claude_catalog(out).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts)).collect();
-        let s = |v: &str| v.to_string();
-        assert_eq!(listed, [(s("fable"), s("Fable 5.1"), s("claude-fable-5-1"), vec![s("low"), s("max")]), (s("claude-haiku-4-5-20251001"), s("Haiku 4.5"), s("claude-haiku-4-5-20251001"), vec![])]);
-        assert!(super::claude_catalog("Error: not logged in").is_empty());
-    }
-
-    #[test]
     fn labels_models_like_the_picker() {
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5"))), "Opus 5");
         assert_eq!(model_label(&summary("claude", Some("claude-opus-5-5"))), "Opus 5.5");
         assert_eq!(model_label(&summary("claude", Some("claude-haiku-4-5-20251001"))), "Haiku 4.5");
         assert_eq!(model_label(&summary("codex", None)), "Codex");
+    }
+
+    #[test]
+    fn a_model_reads_without_who_serves_it_its_date_or_its_dashes() {
+        let names = ["openai-codex/gpt-5.4", "opencode/big-pickle", "anthropic/claude-sonnet-4-5", "openai-codex:gpt-6-sol", "zai/glm-5.2-fast", "composer-2.5", "gemini-3.8-flash-high", "claude-3-5-sonnet-20241022", "haiku", ""];
+        assert_eq!(names.map(model_name), ["GPT 5.4", "Big Pickle", "Sonnet 4.5", "GPT 6 Sol", "GLM 5.2 Fast", "Composer 2.5", "Gemini 3.8 Flash High", "3.5 Sonnet", "Haiku", ""]);
+        assert_eq!(model_label(&summary("pi", Some("deepseek/deepseek-v4-pro"))), "Deepseek V4 Pro");
+    }
+
+    #[test]
+    fn claude_s_1m_context_mark_stays_as_written_after_the_name() {
+        let names = ["claude-opus-4-7[1m]", "sonnet[1m]", "claude-haiku-4-5-20251001[1m]", "[1m]"];
+        assert_eq!(names.map(model_name), ["Opus 4.7[1m]", "Sonnet[1m]", "Haiku 4.5[1m]", "[1m]"]);
+    }
+
+    #[test]
+    fn a_bedrock_id_reads_without_where_and_who_serve_it() {
+        let names = [
+            "amazon-bedrock/us.anthropic.claude-opus-5-5",
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "amazon-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0",
+            "amazon-bedrock/amazon.nova-lite-v1:0",
+            "amazon-bedrock/us-gov.openai.gpt-oss-120b-1:0",
+            "amazon-bedrock/global.openai.gpt-6.1-sol",
+            "amazon-bedrock/moonshotai.kimi-k2.5",
+            "amazon-bedrock/qwen.qwen3-32b-v1:0",
+        ];
+        assert_eq!(names.map(model_name), ["Opus 5.5", "Sonnet 4.5 V1:0", "Haiku 4.5 V1:0", "Nova Lite V1:0", "GPT Oss 120B 1:0", "GPT 6.1 Sol", "Kimi K2.5", "Qwen3 32B V1:0"]);
+    }
+
+    #[test]
+    fn a_version_s_dot_is_no_vendor_prefix() {
+        let names = ["gpt-5.4", "qwen3.5-coder", "MiniMax-M2.5", "amazon-bedrock/deepseek.v3.2", "opencode/mimo-v2.6-flash-free", "a.b"];
+        assert_eq!(names.map(model_name), ["GPT 5.4", "Qwen3.5 Coder", "MiniMax M2.5", "Deepseek.v3.2", "Mimo V2.6 Flash Free", "A.b"]);
     }
 
     #[test]
@@ -2421,6 +2412,11 @@ mod tests {
     }
 
     #[test]
+    fn option_sends_the_golden_agent_settings_options_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.option("a1", "fast", "true")), without_id(golden!("client/agent_settings_options.json")));
+    }
+
+    #[test]
     fn access_sends_the_golden_agent_access_frame_but_its_id() {
         assert_eq!(sent_but_id(|o| o.access("a1", "edits")), without_id(golden!("client/agent_access.json")));
     }
@@ -2508,6 +2504,12 @@ mod tests {
         let f: Frame = serde_json::from_value(golden!("server/agent_update_goal.json")).unwrap();
         let goal = Goal { objective: "tests pass".into(), status: GoalStatus::Active, tokens_used: 16510, token_budget: 50000 };
         assert_eq!(f.agent.unwrap().goal, Some(goal));
+    }
+
+    #[test]
+    fn the_golden_options_ride_on_their_agent() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_update_options.json")).unwrap();
+        assert_eq!(f.agent.unwrap().options, HashMap::from([("fast".to_string(), "true".to_string())]));
     }
 
     #[test]

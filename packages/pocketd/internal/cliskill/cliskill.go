@@ -1,5 +1,6 @@
 // Package cliskill puts the skill that teaches agents the `anywhere` command
-// where Claude and Codex read skills.
+// where Claude reads skills, and in ~/.agents/skills, which Codex and the
+// other agents that follow that convention read.
 package cliskill
 
 import (
@@ -22,7 +23,7 @@ func paths(home string) []string {
 	}
 }
 
-// Install writes the skill for Claude and Codex under the user's home.
+// Install writes the skill to both places under the user's home.
 func Install(home string) error {
 	for _, p := range paths(home) {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {

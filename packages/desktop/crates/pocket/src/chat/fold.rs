@@ -45,7 +45,7 @@ pub(crate) fn settled_label(who: &str, ms: u64) -> String {
 }
 
 fn glyph(provider: &str) -> Svg {
-    provider_icon(provider, 14., AGENT_CODEX)
+    provider_icon(provider, 14., provider_color(provider))
 }
 
 fn line() -> Div {

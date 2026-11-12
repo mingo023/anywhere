@@ -9,19 +9,41 @@ import (
 	"pocketd/internal/providers"
 )
 
+// hermesMain is in the script Hermes's launcher has python run with -c.
+const hermesMain = "hermes_cli.main"
+
+// invoked is argv as its agent was typed. Hermes runs as
+// `python3 -I -c <script> args…`, which reads here as `hermes args…`. Only
+// python's own -c counts, among its first words: Hermes takes a -c too.
+func invoked(argv []string) []string {
+	if len(argv) == 0 || !strings.HasPrefix(filepath.Base(argv[0]), "python") {
+		return argv
+	}
+	for i, arg := range argv[:min(len(argv), 4)] {
+		if arg == "-c" && i+1 < len(argv) && strings.Contains(argv[i+1], hermesMain) {
+			return append([]string{providers.Hermes.Cmd()}, argv[i+2:]...)
+		}
+	}
+	return argv
+}
+
+// named is the name of the command argv runs.
+func named(argv []string) string {
+	return strings.TrimSuffix(filepath.Base(argv[0]), ".exe")
+}
+
 func Provider(argv []string) string {
-	if len(argv) == 0 {
+	if argv = invoked(argv); len(argv) == 0 {
 		return ""
 	}
-	name := strings.TrimSuffix(filepath.Base(argv[0]), ".exe")
-	p := providers.Get(name)
+	p := providers.ByCmd(named(argv))
 	if p == nil {
 		return ""
 	}
-	if len(argv) > 1 && (slices.Contains(p.NotAgent, argv[1]) || kindOf[name].tool(argv[1])) {
+	if len(argv) > 1 && (slices.Contains(p.NotAgent, argv[1]) || kindOf[p.ID].tool(argv[1])) {
 		return ""
 	}
-	return name
+	return p.ID
 }
 
 // piped is the argv `pocketd pipe` runs, or nil for any other process.
@@ -32,13 +54,15 @@ func piped(argv []string) []string {
 	return nil
 }
 
-// pipedProvider is the provider a pipe runs for the chat, or "".
+// pipedProvider is the provider a pipe runs for the chat, or "": one run
+// with a subcommand its kind serves.
 func pipedProvider(argv []string) string {
 	inner := piped(argv)
-	if len(inner) > 1 {
-		if p := Provider(inner[:1]); p != "" && kindOf[p].serves(inner[1]) {
-			return p
-		}
+	if inner == nil {
+		return ""
+	}
+	if p := providers.ByCmd(named(inner)); p != nil && len(inner) > 1 && kindOf[p.ID].serves(inner[1]) {
+		return p.ID
 	}
 	return Provider(inner)
 }

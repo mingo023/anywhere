@@ -109,7 +109,7 @@ impl Values {
     pub fn pick(&self) -> LaunchPick {
         // Saved without one, a run used the agent's own settings: shown as that, not as Settings' default.
         let access = if self.id.is_some() && self.access.is_empty() { "settings".into() } else { self.access.clone() };
-        LaunchPick { provider: self.provider.into(), model: self.model.clone(), effort: self.effort.clone(), access, account: String::new() }
+        LaunchPick { provider: self.provider.into(), model: self.model.clone(), effort: self.effort.clone(), access, ..LaunchPick::default() }
     }
 
     pub fn set_pick(&mut self, pick: &LaunchPick) {
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn a_pick_from_the_chips_sets_the_agent_model_effort_and_access() {
         let mut v = ready();
-        v.set_pick(&LaunchPick { provider: "codex".into(), model: "gpt-5.5".into(), effort: String::new(), access: "auto".into(), account: "x".into() });
+        v.set_pick(&LaunchPick { provider: "codex".into(), model: "gpt-5.5".into(), effort: String::new(), access: "auto".into(), account: "x".into(), ..LaunchPick::default() });
         let d = v.draft().unwrap();
         assert_eq!((d.provider.as_str(), d.model.as_str(), d.effort.as_str(), d.access.as_str()), ("codex", "gpt-5.5", "", "auto"));
         v.set_pick(&LaunchPick { provider: "gemini".into(), ..LaunchPick::default() });

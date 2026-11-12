@@ -22,3 +22,12 @@ func TestLookup(t *testing.T) {
 		}
 	}
 }
+
+func TestValueIsTheLastOneSetOrNothing(t *testing.T) {
+	if got := Value([]string{"X=a", "XY=b", "X=c"}, "X"); got != "c" {
+		t.Errorf("got %q", got)
+	}
+	if got := Value([]string{"XY=b"}, "X"); got != "" {
+		t.Errorf("got %q", got)
+	}
+}

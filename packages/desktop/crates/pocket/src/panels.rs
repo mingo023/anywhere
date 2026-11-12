@@ -375,16 +375,17 @@ impl Desktop {
         if self.agents.observe_only() {
             return pane.child(title);
         }
-        let provider = self.store.agents.default_agent();
-        let agent = ui::menu_pick(id(format!("pane-new-agent:{p}")), provider_icon(provider, 14., TEXT_2), &self.agent_name(provider), false)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_agent_tab(provider, Place::Pane(Some(p)), cx)));
+        let agent = (!self.offered().is_empty()).then(|| self.store.agents.default_agent(&self.agents)).map(|provider| {
+            ui::menu_pick(id(format!("pane-new-agent:{p}")), provider_icon(provider, 14., TEXT_2), &self.agent_name(provider), false)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_agent_tab(provider, Place::Pane(Some(p)), cx)))
+        });
         let terminal = ui::menu_row(id(format!("pane-new-terminal:{p}")), "prompt", "Terminal", Some("⌘T"))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.new_shell(Place::Pane(Some(p)), cx)));
         let browser = ui::menu_row(id(format!("pane-new-browser:{p}")), "globe", "Browser", Some("⌘⇧B"))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_browser(&crate::actions::NewBrowser, window, cx)));
         let file = ui::menu_row(id(format!("pane-go-to-file:{p}")), "search", "Go to file", Some("⌘P"))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_to_file(&crate::actions::GoToFile, window, cx)));
-        pane.child(div().w(px(260.)).flex().flex_col().gap(px(2.)).child(title).child(agent).child(terminal).child(browser).child(file))
+        pane.child(div().w(px(260.)).flex().flex_col().gap(px(2.)).child(title).children(agent).child(terminal).child(browser).child(file))
     }
 
     fn pane_body(&mut self, p: PaneId, focused: bool, tab: Option<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Div {

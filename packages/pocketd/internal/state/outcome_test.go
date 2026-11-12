@@ -17,6 +17,8 @@ func TestFailedBeatsInterruptedBeatsAccessLoweredBeatsResumed(t *testing.T) {
 		{Terminal{Status: "working", Launch: full}, "idle", true, proto.RestoreFailed},
 		{Terminal{Status: "working", Launch: full}, "idle", false, proto.RestoreInterrupted},
 		{Terminal{Status: "idle", Launch: full}, "idle", false, proto.RestoreAccessLowered},
+		{Terminal{Provider: "codex", Status: "idle", Launch: full}, "idle", false, proto.RestoreAccessLowered},
+		{Terminal{Provider: "pi", Status: "idle", Launch: full}, "idle", false, proto.RestoreResumed},
 		{Terminal{Status: "idle", Launch: &Launch{Access: "edits"}}, "idle", false, proto.RestoreResumed},
 		{Terminal{Status: "done"}, "done", false, proto.RestoreResumed},
 	} {

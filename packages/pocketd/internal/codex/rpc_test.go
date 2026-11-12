@@ -87,7 +87,7 @@ func TestRoutesNotificationsAndServerRequests(t *testing.T) {
 	}
 }
 
-func TestCallForgetsAbandonedCalls(t *testing.T) {
+func TestCallsFailOnceAbandonedOrClosed(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	s := codextest.Start(t, sock(t), func(method string, _ json.RawMessage) (any, string) {
@@ -105,11 +105,6 @@ func TestCallForgetsAbandonedCalls(t *testing.T) {
 	c.Close()
 	if _, err := c.Call(context.Background(), "after-close", nil); err == nil {
 		t.Fatal("call on closed conn succeeded")
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.pending) != 0 {
-		t.Fatalf("%d calls still pending", len(c.pending))
 	}
 }
 

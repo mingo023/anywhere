@@ -1,9 +1,13 @@
+mod acp;
 mod claude;
 mod codex;
 mod other;
+mod pi;
 
-use crate::commands::{Builtin, Kind};
+use crate::commands::{Builtin, Kind, Local};
 use crate::{Action, Ask, Fold, Transcript, Turn};
+use agents::providers::{self, Transport};
+use std::sync::LazyLock;
 
 /// What an agent's chat can do; the view hides what it can't.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,6 +38,12 @@ impl Capabilities {
             Action::Stopping => false,
         }
     }
+
+    /// What the chat does with a command the adapter made `kind` of: a pocketd from before ACP chats compacted leaves
+    /// `/compact` to the agent.
+    pub fn runs(&self, kind: Kind) -> Kind {
+        if kind == Kind::Local(Local::Compact) && !self.compact { Kind::Send } else { kind }
+    }
 }
 
 /// Turns one agent's raw history into the shared transcript.
@@ -63,12 +73,26 @@ pub trait Backend: Sync {
     }
 }
 
+type Adapter = dyn Backend<Item = agents::Item, Ask = agents::Permission> + Send;
+
+/// One adapter per agent this build knows, in `providers::ALL`'s order: the one for how pocketd drives it.
+static KNOWN: LazyLock<Vec<Box<Adapter>>> = LazyLock::new(|| {
+    let adapter = |b: &providers::Builtin| -> Box<Adapter> {
+        match b.transport {
+            Transport::Claude => Box::new(claude::Claude),
+            Transport::Codex => Box::new(codex::Codex),
+            Transport::Acp => Box::new(acp::Acp { tui_only: b.tui_only, compacts: b.compacts }),
+            Transport::Pi => Box::new(pi::Pi { tui_only: b.tui_only }),
+        }
+    };
+    providers::ALL.iter().map(adapter).collect()
+});
+
 /// The adapter for a pocketd agent, by its `Summary::provider`; a generic one for a provider this build doesn't know.
 pub fn for_provider(provider: &str) -> &'static dyn Backend<Item = agents::Item, Ask = agents::Permission> {
-    match provider {
-        "claude" => &claude::Claude,
-        "codex" => &codex::Codex,
-        _ => &other::Other,
+    match providers::index(provider) {
+        Some(i) => &*KNOWN[i],
+        None => &other::Other,
     }
 }
 
@@ -90,6 +114,29 @@ mod tests {
             assert!(can.interrupt && can.compact && can.send_while_working, "{provider}");
             assert_eq!(can.sub_agents, provider != "codex", "{provider}");
         }
+    }
+
+    #[test]
+    fn every_agent_this_build_knows_has_its_own_adapter_with_pocketd_s_chat_caps() {
+        let queues = Capabilities { interrupt: true, send_while_working: true, ..Default::default() };
+        for provider in agents::providers::IDS {
+            let b = for_provider(provider);
+            assert!(!b.builtins().is_empty(), "{provider} has the generic adapter");
+            match provider {
+                "claude" | "codex" => {}
+                "pi" | "omp" => assert_eq!(b.capabilities(), Capabilities { compact: true, ..queues }, "{provider}"),
+                _ => assert_eq!(b.capabilities(), queues, "{provider}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_pocketd_that_cant_compact_the_chat_leaves_compact_to_the_agent() {
+        let older = capabilities("grok", Some(agents::providers::ChatCaps { interrupt: true, send_while_working: true, ..Default::default() }));
+        let newer = capabilities("grok", Some(agents::providers::ChatCaps { compact: true, ..Default::default() }));
+        let compact = for_provider("grok").command("compact", "");
+        assert_eq!((older.runs(compact), newer.runs(compact)), (Kind::Send, Kind::Local(Local::Compact)));
+        assert_eq!(older.runs(Kind::Local(Local::Model)), Kind::Local(Local::Model));
     }
 
     #[test]

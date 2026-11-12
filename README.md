@@ -1,7 +1,7 @@
 <h1 align="center">Anywhere</h1>
 
 <p align="center">
-  Watch and drive your Claude Code and Codex agents, from your Mac and your phone.
+  Watch and drive Claude Code, Codex and other coding agents, from your Mac and your phone.
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@ Anywhere is a native macOS app for running many coding agents at once. Every `cl
 - **Know who needs you.** Status in the sidebar, inbox, Dock badge and notifications; jump straight to the session that's asking.
 - **Review beside the terminal.** Browse files, read diffs and commit without leaving the session that made the change.
 - **Worktrees from a branch or PR.** Create a worktree and start an agent in it, with your setup script run for you.
-- **Automations.** Schedule Claude Code or Codex runs, and get told when one needs a decision.
+- **Automations.** Schedule agent runs, and get told when one needs a decision.
 - **Scriptable.** Settings → General → Command line tool adds an `anywhere` command that starts, prompts and reads sessions, with a skill that teaches Claude Code and Codex to use it.
 - **Sessions that survive.** A daemon owns the terminals, so agents keep running when you close the window.
 - **On your phone, too.** Answer an agent from anywhere; your phone reaches your Mac over Tailscale.
@@ -32,6 +32,23 @@ Download [Anywhere.dmg](https://github.com/mingo023/anywhere/releases/latest/dow
 Requires macOS 13 or later. Updates install automatically through Sparkle.
 
 On Linux (x86_64) or Windows (x64), unpack [Anywhere-linux-amd64.tar.gz](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-linux-amd64.tar.gz) or [Anywhere-windows-amd64.zip](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-windows-amd64.zip) and run `pocket-desktop`. These builds are unsigned and don't update themselves.
+
+## Agents
+
+Anywhere runs the agents it finds on your Mac. Install each one you want, then sign in to it:
+
+- **Claude Code**: [install](https://claude.com/product/claude-code), then `claude auth login`
+- **Codex**: [install](https://developers.openai.com/codex/cli), then `codex login`
+- **Cursor**: `curl https://cursor.com/install -fsS | bash`, then `cursor-agent login`
+- **Grok Build**: `curl -fsSL https://x.ai/cli/install.sh | bash`, then `grok login`
+- **OpenCode**: `npm i -g opencode-ai`, then `opencode auth login`
+- **Pi**: `npm i -g @earendil-works/pi-coding-agent`, then run `pi` and type `/login`
+- **omp**: `curl -fsSL https://omp.sh/install | sh`, then run `omp` once to sign in
+- **fx**: `curl -fsSL https://fx.sh/setup.sh | bash`, then `fx login`
+- **Hermes Agent**: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`, then `hermes model`
+- **Antigravity**: `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run `agy` once to sign in
+
+Claude Code and Codex run in a terminal or as a chat. The others run as a chat: in a terminal Anywhere lists them but can't tell when they need you. Pi and omp never ask before they use a tool, so they always run with Full access.
 
 ## Architecture
 

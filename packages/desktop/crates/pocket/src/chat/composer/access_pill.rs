@@ -15,8 +15,12 @@ fn access_pill(access: &str) -> Div {
 }
 
 impl Desktop {
-    /// The agent's access, once pocketd names it; a picker on a chat agent, as only those switch it.
+    /// The agent's access, once pocketd names it; a picker on a chat agent, as only those switch it. An agent with one
+    /// access to run with shows that, whatever pocketd names.
     pub(super) fn chat_access_pill(&self, agent: &Summary, view_only: bool, cx: &mut Context<Self>) -> Option<Div> {
+        if self.agents.provider_info(&agent.provider).never_asks() {
+            return Some(div().child(launch::full_access_chip("chat-access", self.agent_name(&agent.provider))));
+        }
         let access = agent.access.as_deref().filter(|a| !a.is_empty())?;
         if view_only || !agent.chat_only || !self.agents.access_offered() {
             return Some(access_pill(access));

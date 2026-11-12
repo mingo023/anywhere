@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"pocketd/internal/atomicfile"
+	"pocketd/internal/envdir"
 	"pocketd/internal/providers"
 )
 
@@ -44,12 +45,26 @@ type login interface {
 
 var logins = map[string]login{providers.Claude.ID: claude{}, providers.Codex.ID: codex{}}
 
-// loginOf reads a provider without a login as Claude.
+// noLogin is the login of a provider pocketd keeps no accounts of: it runs only
+// on its own built-in login, which pocketd never reads or points elsewhere.
+type noLogin struct{}
+
+func (noLogin) envKey() string                           { return "" }
+func (noLogin) unset() []string                          { return nil }
+func (noLogin) identity(*Store, string) (string, string) { return "", "" }
+func (noLogin) signedIn(*Store, string) bool             { return false }
+func (noLogin) usage(context.Context, *Store, string) (Usage, error) {
+	return Usage{}, ErrUnknown
+}
+func (noLogin) shared() []string               { return nil }
+func (noLogin) history() string                { return "" }
+func (noLogin) shareMore(*Store, string) error { return nil }
+
 func loginOf(provider string) login {
 	if l, ok := logins[provider]; ok {
 		return l
 	}
-	return claude{}
+	return noLogin{}
 }
 
 // Providers are the ones with accounts, in providers.All order.
@@ -139,10 +154,11 @@ func (s *Store) Dir(provider, id string) string {
 
 // Env is what points provider's CLI at account id; the built-in one needs nothing.
 func (s *Store) Env(provider, id string) []string {
-	if id == BuiltIn {
+	key := envKey(provider)
+	if id == BuiltIn || key == "" {
 		return nil
 	}
-	return []string{envKey(provider) + "=" + s.Dir(provider, id)}
+	return []string{key + "=" + s.Dir(provider, id)}
 }
 
 func envKey(provider string) string {
@@ -151,12 +167,11 @@ func envKey(provider string) string {
 
 // Of is the managed account a process with env runs on, or "" for any other login.
 func (s *Store) Of(provider string, env []string) string {
-	dir := ""
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, envKey(provider)+"="); ok {
-			dir = v
-		}
+	key := envKey(provider)
+	if key == "" {
+		return ""
 	}
+	dir := envdir.Value(env, key)
 	if dir == "" || filepath.Dir(filepath.Clean(dir)) != filepath.Join(s.Root, provider) {
 		return ""
 	}

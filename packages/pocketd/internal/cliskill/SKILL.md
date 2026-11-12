@@ -1,6 +1,6 @@
 ---
 name: anywhere
-description: Run and follow Claude Code and Codex sessions in Anywhere, the user's desktop app for coding agents, with the `anywhere` command. Use when the user asks to start a session in Anywhere, manage tickets on its Board, hand work to another agent there, send a session a prompt, check on sessions, or read what one replied.
+description: Run and follow coding agent sessions (Claude Code, Codex and the other agents it runs) in Anywhere, the user's desktop app for coding agents, with the `anywhere` command. Use when the user asks to start a session in Anywhere, manage tickets on its Board, hand work to another agent there, send a session a prompt, check on sessions, or read what one replied.
 ---
 
 # anywhere
@@ -12,19 +12,19 @@ description: Run and follow Claude Code and Codex sessions in Anywhere, the user
 ```sh
 anywhere project list [--json]
 anywhere session list [--json]
-anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider claude|codex] [--access settings|ask|edits|auto|full] [--prompt <text>]
+anywhere session create [--project <name|path>] [--worktree <name> | --new-worktree [<name>] [--base <branch>]] [--provider <agent>] [--access settings|ask|edits|auto|full] [--prompt <text>]
 anywhere session prompt <id> <text|->
 anywhere session wait [--timeout 30m] <id>
 anywhere session read [--limit 200] [--json] <id>
 anywhere session close <id>
-anywhere ticket create [--project <name|path>] [--provider claude|codex] [--base <branch>] [--title <text>] [--start] <prompt|->
+anywhere ticket create [--project <name|path>] [--provider <agent>] [--base <branch>] [--title <text>] [--start] <prompt|->
 anywhere ticket list [--json]
 anywhere ticket read [--json] <id>
-anywhere ticket update [--title <text>] [--provider claude|codex] [--base <branch>] [--prompt <text|->] <id>
+anywhere ticket update [--title <text>] [--provider <agent>] [--base <branch>] [--prompt <text|->] <id>
 anywhere ticket delete <id>
 ```
 
-`create` prints the session's id. Without `--project` it takes the project holding the current folder. Without a worktree flag it runs in the project's main worktree, the same folder the user works in. `--new-worktree` makes a worktree from the default branch (`main`), or from `--base`; without a name, Anywhere names it from the prompt, as the app does. `prompt <id> -` reads the text from stdin.
+`<agent>` is `claude` when left out; `anywhere` run with no arguments lists the others it can start. `create` prints the session's id. Without `--project` it takes the project holding the current folder. Without a worktree flag it runs in the project's main worktree, the same folder the user works in. `--new-worktree` makes a worktree from the default branch (`main`), or from `--base`; without a name, Anywhere names it from the prompt, as the app does. `prompt <id> -` reads the text from stdin.
 
 ## Hand over a task
 

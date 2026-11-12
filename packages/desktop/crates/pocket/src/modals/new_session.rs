@@ -435,10 +435,9 @@ pub(crate) fn slot(d: &mut Desktop) -> &mut Composer {
 }
 
 impl Desktop {
-    /// What `project` last started, else the default agent, with an agent this app knows.
+    /// What `project` last started, else the default agent, with an agent this app knows and the project shows.
     pub(crate) fn last_pick(&self, project: Option<&str>) -> LaunchPick {
-        let repo = project.and_then(|p| self.store.repos.get(p));
-        self.store.agents.pick(repo.map(|r| r.launch.clone()).unwrap_or_default())
+        self.store.launch_pick(project, &self.agents)
     }
 
     /// A draft not yet sent keeps its words, images, checkout and project; `prompt` adds to its words,
@@ -602,8 +601,8 @@ impl Desktop {
 
     /// Gives `spec` what the settings and the Team chip add to it, and remembers `pick` as `project`'s.
     fn fill_launch(&mut self, spec: &mut serde_json::Value, pick: LaunchPick, project: &str) {
-        let (plan, efforts) = (self.agents.provider_info(&pick.provider).plan, self.launch_efforts(&pick.provider, &pick.model));
-        self.store.agents.launch(spec, plan, &efforts);
+        let efforts = self.launch_efforts(&pick.provider, &pick.model);
+        self.store.agents.launch(spec, &self.agents, &efforts);
         composer::ask_team(spec, self.new_form.composer.draft.team, self.agents.teams_offered());
         self.store.repos.entry(project.to_string()).or_default().launch = pick;
     }
@@ -630,9 +629,9 @@ impl Desktop {
                 self.terminals.created(&request, terminal.clone(), cwd.clone(), setup);
                 self.creates.made_terminal(&request, terminal.clone(), Instant::now());
                 self.daemon.send(json!({"op": "list"}));
-                if self.creates.get(&request).is_some() {
+                if let Some(chat) = self.creates.get(&request).map(|c| c.chat()) {
                     self.store.track(&cwd);
-                    if self.store.agents.start_as_chat {
+                    if chat {
                         self.store.chats.insert(terminal.clone());
                     }
                     self.save_soon(cx);
@@ -643,7 +642,7 @@ impl Desktop {
                     }
                     self.refresh_git(cx);
                 } else if self.new_form.draft.reply.answer(&request, None) {
-                    if self.store.agents.start_as_chat {
+                    if self.store.agents.starts_as_chat(&self.new_form_pick().provider) {
                         self.store.chats.insert(terminal);
                         self.save_soon(cx);
                     }

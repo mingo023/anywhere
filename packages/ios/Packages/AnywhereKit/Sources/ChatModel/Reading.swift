@@ -17,15 +17,6 @@ public enum Live: Hashable, Sendable {
     case approval, answer
 }
 
-/// The agent as the fold names it: "Claude", "Codex".
-public func who(_ provider: String) -> String {
-    switch provider {
-    case "claude": "Claude"
-    case "codex": "Codex"
-    default: "Agent"
-    }
-}
-
 /// "Opus 5.5 working for 7s · in the background"; the agent's name stands in for an unknown model.
 public func liveLabel(_ who: String, _ model: String, _ live: Live) -> String {
     switch live {
@@ -50,18 +41,9 @@ public func settledLabel(_ who: String, _ ms: Int) -> String {
     "\(who) worked for \(TimeText.elapsed(seconds: ms / 1000))"
 }
 
-/// "claude-haiku-4-5-20251001" reads as "Haiku 4.5", "haiku" as "Haiku".
-public func modelName(_ model: String) -> String {
-    let bare = model.hasPrefix("claude-") ? String(model.dropFirst(7)) : model
-    let words = bare.split(separator: "-", omittingEmptySubsequences: false).filter { $0.utf8.count < 8 }
-    let family = words.first.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? ""
-    let version = words.dropFirst()
-    return version.isEmpty ? family : "\(family) \(version.joined(separator: "."))"
-}
-
 /// "claude-opus-5-5" reads as "Opus 5.5"; a missing model falls back to the provider.
 public func modelLabel(model: String?, provider: String) -> String {
-    guard let model, !model.isEmpty else { return provider.prefix(1).uppercased() + provider.dropFirst() }
+    guard let model, !model.isEmpty else { return AgentName.label(provider) }
     return modelName(model)
 }
 

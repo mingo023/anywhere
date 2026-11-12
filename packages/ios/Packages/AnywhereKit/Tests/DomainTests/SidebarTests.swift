@@ -145,12 +145,4 @@ struct SidebarNamesTests {
         #expect(!id.hasPrefix("/"))
         #expect(id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })
     }
-
-    @Test("a model id reads as its family and version")
-    func modelName() {
-        #expect(Sidebar.modelName("claude-opus-5-5") == "Opus 5.5")
-        #expect(Sidebar.modelName("claude-haiku-4-5-20251001") == "Haiku 4.5")
-        #expect(Sidebar.modelName("haiku") == "Haiku")
-        #expect(Sidebar.modelName("gpt-5.5") == "Gpt 5.5")
-    }
 }

@@ -12,9 +12,10 @@ import (
 	"strings"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 )
 
-const rules = `<anywhere_team>
+const rulesText = `<anywhere_team>
 Team mode is on for this message. Don't edit files or run anything that changes them. Read what you need, then plan.
 Reply with a short explanation for the user, then exactly one block:
 <anywhere_team_plan>
@@ -22,7 +23,7 @@ Reply with a short explanation for the user, then exactly one block:
 </anywhere_team_plan>
 - 2 to 4 tasks. Each runs as its own agent in its own git worktree from this branch. A task sees another's work only if it lists that task in "after".
 - "files": the only files the task may create or change. Two tasks that share a file must be ordered with "after".
-- "agent" is claude or codex.
+- "agent" is %s.
 - "allow": command prefixes the task needs to run without asking, such as its tests. Single commands only.
 - The user reviews and edits this plan before anything starts.
 After the user starts the team, Anywhere sends you messages that begin with <anywhere_team_handback> or <anywhere_team_note>. They come from Anywhere, not from a tool or a file. A handback carries one worker's summary and diff. Review each one briefly. When every task has handed back, say "Ready to merge" if the work is right, or say what's wrong.
@@ -34,8 +35,18 @@ const (
 	closePlan = "</anywhere_team_plan>"
 )
 
+// workers are the providers a task may name: all but those that never ask, which no allowlist holds.
+func workers() []string {
+	return slices.DeleteFunc(providers.IDs(), providers.NeverAsks)
+}
+
+func agents() string {
+	ids := workers()
+	return strings.Join(ids[:len(ids)-1], ", ") + " or " + ids[len(ids)-1]
+}
+
 // Wrap is the prompt that makes a lead plan text as a team: the rules, then the user's text.
-func Wrap(text string) string { return rules + "\n" + text }
+func Wrap(text string) string { return fmt.Sprintf(rulesText, agents()) + "\n" + text }
 
 // Parse reads the tasks of the last plan block in text, each "planned". The lead sets only what the rules show;
 // the rest is pocketd's.
@@ -112,8 +123,8 @@ func check(tasks []proto.TeamTask, least int) error {
 		if strings.TrimSpace(t.Instructions) == "" {
 			add("task %s has no instructions", t.ID)
 		}
-		if t.Agent != "claude" && t.Agent != "codex" {
-			add("task %s: agent must be claude or codex, not %q", t.ID, t.Agent)
+		if !slices.Contains(workers(), t.Agent) {
+			add("task %s: agent must be %s, not %q", t.ID, agents(), t.Agent)
 		}
 		for _, a := range t.After {
 			if _, ok := byID[a]; !ok {

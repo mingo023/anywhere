@@ -173,6 +173,21 @@ func TestAProviderCommandIsANameOnPathOrAFullPath(t *testing.T) {
 	}
 }
 
+func TestAProviderStartsAsItsOwnCommandUnlessConfigNamesAnother(t *testing.T) {
+	s := NewSettings(t.TempDir())
+	for provider, want := range map[string]string{"cursor": "cursor-agent", "antigravity": "agy", "pi": "pi"} {
+		if got := s.AgentCommand(provider); got != want {
+			t.Errorf("%s: got %q", provider, got)
+		}
+	}
+	if err := s.Set("cursor.command", "/opt/cursor/agent"); err != nil || s.AgentCommand("cursor") != "/opt/cursor/agent" {
+		t.Fatalf("err %v, got %q", err, s.AgentCommand("cursor"))
+	}
+	if v := s.Values(); v["hermes.resumeArgs"] != "chat --resume" || v["opencode.forkArgs"] != "-s {sessionId} --fork" || v["pi.promptArgs"] != "--" {
+		t.Fatalf("got %v", v)
+	}
+}
+
 func TestAgentArgsSplitLikeAShellAndFallBackToTheirDefaults(t *testing.T) {
 	s := NewSettings(t.TempDir())
 	if got := s.AgentArgs("claude"); !slices.Equal(got.Fork, []string{"--resume", SessionID, "--fork-session"}) || !slices.Equal(got.Prompt, []string{"--"}) {

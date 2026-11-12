@@ -32,10 +32,10 @@ struct SessionRow: View {
                     Text(detail).font(Typography.codeSmall).foregroundStyle((status == .failed ? Palette.failedText : Palette.text3).color).lineLimit(1)
                         .shimmer(status == .working && s.activity != nil && stale == nil)
                 }
-                if let model = s.model.map(Sidebar.modelName), !model.isEmpty {
+                if let model = s.model.map(modelName), !model.isEmpty {
                     HStack(spacing: Space.xs) {
                         BrandMark(s.provider, size: 11)
-                        Text("\(SessionText.provider(s.provider)) · \(model)").font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
+                        Text("\(AgentName.label(s.provider)) · \(model)").font(Typography.caption).foregroundStyle(Palette.text3.color).lineLimit(1)
                     }
                 }
             }

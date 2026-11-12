@@ -3,7 +3,7 @@ use super::logic::{Action, Field, LABELS, PRIORITIES, action_field, column, menu
 use super::parts::{label_dot, priority_glyph};
 use super::values::Values;
 use crate::desktop::Desktop;
-use agents::providers;
+use crate::models::listed_agents;
 use agents::tickets::Ticket;
 use gpui_kit::*;
 use std::collections::HashSet;
@@ -88,12 +88,12 @@ impl Desktop {
                         .into_any_element()
                 })
                 .collect(),
-            Field::Agent => providers::IDS
-                .iter()
+            Field::Agent => listed_agents(&self.offered(), tickets.first().map(|t| t.provider.as_str()).filter(|p| all(&|t| t.provider == *p)).as_slice())
+                .into_iter()
                 .enumerate()
                 .map(|(i, provider)| {
                     let ids = ids.clone();
-                    ui::menu_pick(("board-agent", i), theme::provider_icon(provider, 13., TEXT_2), &self.agent_name(provider), all(&|t| t.provider == *provider))
+                    self.agent_row(provider, ui::menu_pick(("board-agent", i), theme::provider_icon(provider, 13., TEXT_2), &self.agent_name(provider), all(&|t| t.provider == provider)))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.set_tickets_props(&ids, |v| v.provider = provider.to_string());
                             settle(this, cx);

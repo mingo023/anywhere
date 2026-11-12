@@ -153,16 +153,6 @@ public enum Sidebar {
         "local-" + String(UInt64(now.timeIntervalSince1970 * 1_000_000_000), radix: 16)
     }
 
-    /// "claude-opus-5-5" reads as "Opus 5.5", "claude-haiku-4-5-20251001" as "Haiku 4.5", "haiku" as "Haiku" (`agents::model_name`).
-    public static func modelName(_ model: String) -> String {
-        let bare = model.hasPrefix("claude-") ? String(model.dropFirst(7)) : model
-        let words = bare.split(separator: "-", omittingEmptySubsequences: false).filter { $0.count < 8 }
-        guard let family = words.first else { return "" }
-        let name = String(family.prefix(1)).uppercased() + String(family.dropFirst())
-        let version = words.dropFirst()
-        return version.isEmpty ? name : name + " " + version.joined(separator: ".")
-    }
-
     static func basename(_ path: String) -> String {
         path.split(separator: "/").last.map(String.init) ?? path
     }

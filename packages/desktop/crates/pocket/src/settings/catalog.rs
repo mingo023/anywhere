@@ -12,6 +12,12 @@ pub(crate) type Apply = fn(&mut Desktop, &mut Context<Desktop>);
 /// A custom row's value as the reset sheet names it, and how to put it back from the defaults.
 pub(crate) type Resets = (fn(&Store) -> String, fn(&mut Store, &Store));
 
+/// Whether a dropdown lists its `usize`th option.
+pub(crate) type Offers = fn(&Store, &agents::Agents, usize) -> bool;
+
+/// The option a dropdown shows as chosen.
+pub(crate) type Shows = fn(&Store, &agents::Agents) -> usize;
+
 /// What a row's control reads and writes in the store.
 #[derive(Clone, Copy)]
 pub(crate) enum Control {
@@ -44,8 +50,10 @@ pub(crate) struct Setting {
     pub advanced: bool,
     /// Shown only while this holds; drawn as a ↳ row.
     pub parent: Option<fn(&Store) -> bool>,
-    /// Which of a dropdown's options its menu lists; all of them when unset.
-    pub offers: Option<fn(&Store, usize) -> bool>,
+    /// Which of a dropdown's options its menu lists, given what pocketd says is installed; all of them when unset.
+    pub offers: Option<Offers>,
+    /// The option a dropdown shows as chosen when that depends on what pocketd says is installed; its `get`'s when unset.
+    pub shows: Option<Shows>,
     pub control: Control,
     pub effect: Option<Apply>,
     pub resets: Option<Resets>,
@@ -53,7 +61,7 @@ pub(crate) struct Setting {
 
 impl Setting {
     const fn new(id: &'static str, group: &'static str, label: &'static str, control: Control) -> Self {
-        Self { id, group, label, hint: None, note: None, advanced: false, parent: None, offers: None, control, effect: None, resets: None }
+        Self { id, group, label, hint: None, note: None, advanced: false, parent: None, offers: None, shows: None, control, effect: None, resets: None }
     }
 
     pub const fn switch(id: &'static str, group: &'static str, label: &'static str, get: fn(&Store) -> bool, set: fn(&mut Store, bool)) -> Self {
@@ -100,8 +108,13 @@ impl Setting {
         self
     }
 
-    pub const fn offers(mut self, offers: fn(&Store, usize) -> bool) -> Self {
+    pub const fn offers(mut self, offers: Offers) -> Self {
         self.offers = Some(offers);
+        self
+    }
+
+    pub const fn shows(mut self, shows: Shows) -> Self {
+        self.shows = Some(shows);
         self
     }
 
@@ -150,12 +163,28 @@ impl Setting {
         }
     }
 
-    fn fields(&self) -> impl Iterator<Item = &'static str> {
+    /// Whether its menu lists option `i`: the one chosen, and every other unless it `offers` only some.
+    pub fn lists(&self, store: &Store, live: &agents::Agents, i: usize) -> bool {
+        i == self.chosen(store, live) || self.offers.is_none_or(|offers| offers(store, live, i))
+    }
+
+    /// The option its dropdown shows as chosen.
+    pub fn chosen(&self, store: &Store, live: &agents::Agents) -> usize {
+        match (self.shows, self.control) {
+            (Some(shows), _) => shows(store, live),
+            (None, Control::Choice { get, .. }) => get(store),
+            _ => 0,
+        }
+    }
+
+    /// What a search reads of it: of its options, only the ones its menu lists.
+    fn fields(&self, store: &Store, live: &agents::Agents) -> impl Iterator<Item = &'static str> {
         let options = match self.control {
             Control::Choice { options, .. } => options,
             _ => &[],
         };
-        [self.label, self.group].into_iter().chain(self.hint).chain(options.iter().copied())
+        let listed = options.iter().enumerate().filter(move |(i, _)| self.lists(store, live, *i)).map(|(_, o)| *o);
+        [self.label, self.group].into_iter().chain(self.hint).chain(listed)
     }
 }
 
@@ -218,14 +247,14 @@ pub(crate) fn words(query: &str) -> Vec<String> {
     query.split_whitespace().map(str::to_lowercase).collect()
 }
 
-/// Every row whose label, group, hint or options hold each word, by section.
-pub(crate) fn search(words: &[String]) -> Vec<(Section, Vec<&'static Setting>)> {
+/// Every row whose label, group, hint or listed options hold each word, by section.
+pub(crate) fn search(words: &[String], store: &Store, live: &agents::Agents) -> Vec<(Section, Vec<&'static Setting>)> {
     if words.is_empty() {
         return Vec::new();
     }
     Section::ALL
         .into_iter()
-        .map(|s| (s, s.rows().iter().filter(|r| crate::palette::matches(words, &r.fields().collect::<Vec<_>>())).collect::<Vec<_>>()))
+        .map(|s| (s, s.rows().iter().filter(|r| crate::palette::matches(words, &r.fields(store, live).collect::<Vec<_>>())).collect::<Vec<_>>()))
         .filter(|(_, hits)| !hits.is_empty())
         .collect()
 }
@@ -299,7 +328,8 @@ mod tests {
 
     #[test]
     fn a_row_matches_on_its_hint_group_and_options_too() {
-        let hit = |q: &str| ROWS.iter().filter(|r| crate::palette::matches(&words(q), &r.fields().collect::<Vec<_>>())).map(|r| r.id).collect::<Vec<_>>();
+        let (store, live) = (Store::default(), agents::Agents::default());
+        let hit = |q: &str| ROWS.iter().filter(|r| crate::palette::matches(&words(q), &r.fields(&store, &live).collect::<Vec<_>>())).map(|r| r.id).collect::<Vec<_>>();
         assert_eq!(hit("macos"), ["banners"]);
         assert_eq!(hit("sounds"), ["sounds", "done"]);
         assert_eq!(hit("dark theme"), ["mode"]);
@@ -307,6 +337,18 @@ mod tests {
 
     #[test]
     fn an_empty_query_finds_nothing() {
-        assert!(search(&words(" ")).is_empty());
+        assert!(search(&words(" "), &Store::default(), &agents::Agents::default()).is_empty());
+    }
+
+    #[test]
+    fn a_search_finds_an_agent_only_in_the_menus_that_list_it() {
+        let store = Store::default();
+        let found = |query: &str, live: &agents::Agents| search(&words(query), &store, live).into_iter().flat_map(|(_, rows)| rows).map(|r| r.id).collect::<Vec<_>>();
+        let two = agents::Agents::default();
+        assert!(found("hermes", &two).is_empty(), "pocketd named only Claude Code and Codex");
+        assert_eq!(found("codex", &two), ["default-agent", "automation-agent", "ai-agent"]);
+        let installed = agents::providers::IDS.map(|id| agents::providers::ProviderInfo { id: id.into(), available: true, ..Default::default() }).to_vec();
+        let ten = agents::Agents { providers: installed, ..Default::default() };
+        assert_eq!(found("hermes", &ten), ["default-agent", "automation-agent"], "Hermes writes no commit messages");
     }
 }

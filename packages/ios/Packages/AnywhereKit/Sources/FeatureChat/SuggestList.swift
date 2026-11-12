@@ -1,5 +1,6 @@
 import ChatModel
 import DesignSystem
+import Domain
 import SwiftUI
 import Wire
 
@@ -74,7 +75,7 @@ struct SuggestList: View {
 
     private func server(_ i: Int, _ s: McpServer, pickable: Bool) -> some View {
         let (label, tone) = Mcp.label(provider, s, signingIn: signsIn(s.name), acting: acting(s.name))
-        let place = [provider == "codex" ? "Codex" : "Claude", s.scope ?? ""] + (Mcp.action(provider, s) != nil ? [Mcp.status(s, signingIn: signsIn(s.name))] : [])
+        let place = [AgentName.who(provider), s.scope ?? ""] + (Mcp.action(provider, s) != nil ? [Mcp.status(s, signingIn: signsIn(s.name))] : [])
         return row(i, enabled: pickable) {
             BrandMark(provider, size: 14)
             VStack(alignment: .leading, spacing: 1) {

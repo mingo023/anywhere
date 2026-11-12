@@ -203,7 +203,7 @@ func aSlashAfterOnlyWhitespace() {
 @Test("a slash past the drafts start lists only what can go mid prompt")
 func aSlashPastTheStartListsOnlyPrompts() {
     let s = Suggest()
-    guard case .commands(let at, _, let rows)? = s.rows("ok /", 4, agent: "a", provider: "claude", cwd: "/r", touched: []) else {
+    guard case .commands(let at, _, let rows)? = s.rows("ok /", 4, agent: "a", adapter: Adapter.for("claude", nil), cwd: "/r", touched: []) else {
         Issue.record("a slash lists commands")
         return
     }
@@ -215,7 +215,7 @@ func aSlashPastTheStartListsOnlyPrompts() {
 func aMentionListsFiles() {
     var s = Suggest()
     s.filesListed("/r", ["a.rs", "b.rs"])
-    guard case .files(_, _, let paths)? = s.rows("@", 1, agent: "a", provider: "claude", cwd: "/r", touched: ["/r/b.rs", "/x/a.rs"]) else {
+    guard case .files(_, _, let paths)? = s.rows("@", 1, agent: "a", adapter: Adapter.for("claude", nil), cwd: "/r", touched: ["/r/b.rs", "/x/a.rs"]) else {
         Issue.record("an at lists files")
         return
     }

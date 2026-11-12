@@ -8,6 +8,7 @@ pub(crate) mod team_chip;
 use crate::chat::composer::suggest::Suggest;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
+use agents::providers::{self, Transport};
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -66,6 +67,11 @@ pub(crate) struct Draft {
     pub(crate) menu: Option<Menu>,
     /// The rail entry the model menu lists, once one is clicked: an agent, or `model_menu::FAVORITES`.
     pub(crate) viewing: Option<&'static str>,
+    /// Where the model menu's list is scrolled to, and its rail of agents.
+    pub(crate) scroll: UniformListScrollHandle,
+    pub(crate) rail: ScrollHandle,
+    /// What the model menu lists.
+    pub(crate) listed: model_menu::KeptList,
     pub(crate) effort: effort_menu::EffortMenu,
     pub(crate) images: Vec<Attachment>,
     /// The Team chip: the next send asks the agent for a team plan.
@@ -97,6 +103,7 @@ impl Draft {
     /// Lists `entry`'s models in the model panel; the efforts are the last entry's.
     pub(crate) fn view(&mut self, entry: &'static str) {
         self.viewing = Some(entry);
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.effort.fold();
     }
 
@@ -104,6 +111,7 @@ impl Draft {
     pub(crate) fn toggle(&mut self, menu: Menu) -> bool {
         self.menu = (self.menu != Some(menu)).then_some(menu);
         self.viewing = None;
+        (self.scroll, self.rail) = Default::default();
         self.effort = Default::default();
         self.menu.is_some()
     }
@@ -189,9 +197,9 @@ pub(crate) fn split_images(prompt: &str) -> (&str, Vec<&str>) {
     }
 }
 
-/// A team's lead plans in a chat pocketd drives, which only Claude and Codex have; `served` is `Agents::teams_offered`.
+/// A team's lead plans in a chat pocketd drives over Claude's or Codex's transport; `served` is `Agents::teams_offered`.
 pub(crate) fn team_offered(served: bool, chat: bool, provider: &str) -> bool {
-    served && chat && matches!(provider, "claude" | "codex")
+    served && chat && providers::get(provider).is_some_and(|b| matches!(b.transport, Transport::Claude | Transport::Codex))
 }
 
 /// Has a create's first prompt ask for a team plan, when `team` is set and the session the spec starts can lead one.
@@ -306,7 +314,7 @@ impl Desktop {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, typing: bool, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, send: Stateful<Div>, cx: &mut Context<Self>) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
-        let team = team_offered(self.agents.teams_offered(), self.store.agents.start_as_chat, &pick.provider).then_some(c.draft.team);
+        let team = team_offered(self.agents.teams_offered(), self.store.agents.starts_as_chat(&pick.provider), &pick.provider).then_some(c.draft.team);
         let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let attached = (!pills.is_empty() || !c.draft.images.is_empty()).then(|| {
             div().flex().items_center().gap(px(8.)).pt(px(14.)).px(px(16.)).children(pills).children(c.draft.images.iter().enumerate().map(|(i, a)| {
@@ -382,6 +390,9 @@ impl Desktop {
     }
 
     pub(crate) fn access_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
+        if self.agents.provider_info(&pick.provider).never_asks() {
+            return div().child(launch::full_access_chip("composer-access", self.agent_name(&pick.provider)));
+        }
         let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Access));
         let app = self.store.agents.access();
         let chip = launch::access_chip("composer-access", open, &pick.access, app, move |this, cx| this.toggle_composer(slot, Menu::Access, cx), cx);
@@ -493,7 +504,7 @@ mod tests {
     #[test]
     fn viewing_another_rail_entry_closes_the_list_of_efforts() {
         let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
-        draft.effort.toggle();
+        draft.effort.toggle(&"Effort".into());
         draft.view("codex");
         assert_eq!(draft.viewing, Some("codex"));
         assert!(!draft.effort.fold());
@@ -502,7 +513,7 @@ mod tests {
     #[test]
     fn esc_closes_the_list_of_efforts_before_the_model_panel() {
         let mut draft = Draft { menu: Some(Menu::Model), ..Draft::default() };
-        draft.effort.toggle();
+        draft.effort.toggle(&"Effort".into());
         assert!(draft.escape_model());
         assert!(draft.menu == Some(Menu::Model));
         assert!(draft.escape_model());
@@ -631,7 +642,8 @@ mod tests {
         assert!(team_offered(true, true, "codex"));
         assert!(!team_offered(false, true, "claude"), "pocketd doesn't advertise team.v1");
         assert!(!team_offered(true, false, "claude"), "a terminal session can't lead");
-        assert!(!team_offered(true, true, "opencode"), "a provider this build doesn't know");
+        assert!(!team_offered(true, true, "opencode"), "only Claude and Codex lead teams");
+        assert!(!team_offered(true, true, "gemini"), "a provider this build doesn't know");
     }
 
     #[test]

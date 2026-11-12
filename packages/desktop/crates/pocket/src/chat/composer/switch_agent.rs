@@ -11,12 +11,12 @@ use workspace::Place;
 
 /// A create for a chat on the (provider, model) in `s`'s folder, opening with `prompt`. It takes `s`'s access rather than
 /// Settings', so moving to another agent never grants more.
-fn switched_spec(s: &Summary, project: &str, (provider, model): (&str, &str), prompt: &str, prefs: &Agents, plan: bool, efforts: &[String]) -> Value {
+fn switched_spec(s: &Summary, project: &str, (provider, model): (&str, &str), prompt: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String]) -> Value {
     let access = s.access.clone().unwrap_or_else(|| "settings".into());
-    let pick = LaunchPick { provider: provider.into(), model: model.into(), effort: String::new(), access, account: String::new() };
+    let pick = LaunchPick { provider: provider.into(), model: model.into(), access, ..LaunchPick::default() };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), prompt);
     spec["chat"] = true.into();
-    prefs.launch(&mut spec, plan, efforts);
+    prefs.launch(&mut spec, live, efforts);
     spec
 }
 
@@ -75,12 +75,12 @@ impl Desktop {
             return false;
         };
         let prompt = if fork { chat::handoff::prompt(&self.chat_conversation(s), &self.agent_name(&s.provider)) } else { String::new() };
-        let (plan, efforts) = (self.agents.provider_info(provider).plan, self.launch_efforts(provider, model));
-        let spec = switched_spec(s, project, (provider, model), &prompt, &self.store.agents, plan, &efforts);
+        let spec = switched_spec(s, project, (provider, model), &prompt, &self.store.agents, &self.agents, &self.launch_efforts(provider, model));
         let request = self.send_create(spec);
         let sent = request.is_some();
         if let Some(request) = request {
             self.terminals.tab_chats.insert(request, Place::Pane(None));
+            self.model_used(provider, model, cx);
         }
         cx.notify();
         sent
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn the_new_chat_runs_the_picked_model_as_a_chat_in_the_same_folder() {
-        let spec = switched_spec(&chat(Some("edits")), "/w", ("codex", "gpt-6-sol"), "Continue", &Agents::default(), false, &[]);
+        let spec = switched_spec(&chat(Some("edits")), "/w", ("codex", "gpt-6-sol"), "Continue", &Agents::default(), &agents::Agents::default(), &[]);
         assert_eq!((&spec["project"], &spec["checkout"], &spec["provider"]), (&json!("/w"), &json!({"worktree": "/w/tree"}), &json!("codex")));
         assert_eq!((&spec["model"], &spec["chat"], &spec["prompt"]), (&json!("gpt-6-sol"), &json!(true), &json!("Continue")));
     }
@@ -118,13 +118,13 @@ mod tests {
     #[test]
     fn moving_to_another_agent_never_grants_more_access_than_the_chat_had() {
         let full = Agents { access: "full".into(), ..Agents::default() };
-        assert_eq!(switched_spec(&chat(Some("ask")), "/w", ("codex", "m"), "", &full, false, &[])["access"], json!("ask"));
-        assert_eq!(switched_spec(&chat(None), "/w", ("codex", "m"), "", &full, false, &[])["access"], json!("settings"));
+        assert_eq!(switched_spec(&chat(Some("ask")), "/w", ("codex", "m"), "", &full, &agents::Agents::default(), &[])["access"], json!("ask"));
+        assert_eq!(switched_spec(&chat(None), "/w", ("codex", "m"), "", &full, &agents::Agents::default(), &[])["access"], json!("settings"));
     }
 
     #[test]
     fn the_old_chats_effort_and_account_stay_behind() {
-        let spec = switched_spec(&chat(None), "/w", ("codex", "m"), "", &Agents::default(), false, &[]);
+        let spec = switched_spec(&chat(None), "/w", ("codex", "m"), "", &Agents::default(), &agents::Agents::default(), &[]);
         assert!(spec.get("effort").is_none());
         assert!(spec.get("account").is_none());
         assert!(spec.get("prompt").is_none(), "a fresh chat opens empty");

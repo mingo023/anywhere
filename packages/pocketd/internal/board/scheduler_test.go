@@ -57,6 +57,16 @@ func TestANewTicketGetsAFreshWorktreeOffItsBase(t *testing.T) {
 	}
 }
 
+func TestATicketOfAnAgentFollowedOnlyInItsChatStartsAsOne(t *testing.T) {
+	x := draft("a")
+	for provider, chat := range map[string]bool{"claude": false, "codex": false, "pi": true, "hermes": true} {
+		x.Provider = provider
+		if spec := Spec(x, "0123456789"); spec.Chat != chat {
+			t.Errorf("%s: chat %v", provider, spec.Chat)
+		}
+	}
+}
+
 func TestAStartAgainReusesTheWorktree(t *testing.T) {
 	x := draft("a")
 	x.Worktree = "/wt"

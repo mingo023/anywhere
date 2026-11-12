@@ -729,6 +729,21 @@ func TestATurnLeavingSubagentsInTheBackgroundEndsWithThem(t *testing.T) {
 	}
 }
 
+// As Hermes's background delegations, whose end it takes no turn on.
+func TestEveryTurnEndsBesideADetachedSubagentStillRunning(t *testing.T) {
+	a := NewRegistry(hub.New()).Add("a1", "/w", "hermes", fakeDriver{})
+	a.Working()
+	a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "t1", Name: "task", Detail: &proto.ToolDetail{Kind: "task", Description: "Look"}})
+	a.Record(timeline.Event{Kind: "tool_background", ToolUseID: "t1", Detached: true})
+	if a.TurnEnded(false); state(a.Summary()) != "done" {
+		t.Fatalf("the turn that delegated: %q", state(a.Summary()))
+	}
+	a.Working()
+	if a.TurnEnded(false); state(a.Summary()) != "done" {
+		t.Fatalf("a later turn: %q", state(a.Summary()))
+	}
+}
+
 func TestAStopIsNothingWithoutATurnOfClaudesOwn(t *testing.T) {
 	a := NewRegistry(hub.New()).Add("a1", "/w", "claude", fakeDriver{})
 	if a.Stop() || a.Refilled() {

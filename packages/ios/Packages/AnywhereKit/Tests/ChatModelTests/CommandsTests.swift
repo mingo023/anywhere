@@ -1,3 +1,4 @@
+import Domain
 import Testing
 import Wire
 
@@ -5,8 +6,10 @@ import Wire
 
 private func listed(_ names: [String]) -> [Command] { names.map { Command(name: $0) } }
 private func names(_ rows: [Slash]) -> [String] { rows.map(\.name) }
-private let claude = Adapter.for("claude")
-private let codex = Adapter.for("codex")
+private let claude = Adapter.for("claude", nil)
+private let codex = Adapter.for("codex", nil)
+/// pocketd's caps for an ACP agent that compacts, as for Grok and OpenCode.
+private let compacting = ChatCaps(interrupt: true, compact: true, sendWhileWorking: true, subAgents: true)
 
 @Test("a slash command is its name and argument")
 func aSlashCommandIsItsNameAndArgument() {
@@ -59,9 +62,64 @@ func codexSendsGoalAndSkillsAndLeavesItsTuiCommandsOut() {
     #expect(codex.command("mcp", "") == .local(.mcp))
 }
 
+@Test("pi sets its model and thinking and compacts itself, and leaves its TUI's commands out")
+func piSetsItsModelAndThinkingAndCompactsItself() {
+    let pi = Adapter.for("pi", nil)
+    #expect(pi.command("model", "deepseek/deepseek-v4-pro") == .local(.model))
+    #expect(pi.command("thinking", "high") == .local(.effort))
+    #expect(pi.command("compact", "keep the plan") == .local(.compact))
+    #expect(pi.command("new", "") == .local(.new))
+    #expect(pi.command("settings", "") == .unsupported)
+    #expect(pi.command("llama", "") == .unsupported, "its own extension runs it only in the TUI")
+    #expect(pi.command("skill:review", "") == .send)
+    #expect(Adapter.for("omp", nil).command("thinking", "") == .local(.effort))
+    #expect(Adapter.for("omp", nil).command("settings", "") == .send, "omp lists what its RPC runs")
+}
+
+@Test("an ACP agent sends what it lists and leaves its TUI's commands out")
+func anAcpAgentSendsWhatItListsAndLeavesItsTuisCommandsOut() {
+    let hermes = Adapter.for("hermes", nil)
+    let opencode = Adapter.for("opencode", compacting)
+    #expect(hermes.command("model", "") == .local(.model))
+    #expect(hermes.command("compress", "") == .send)
+    #expect(hermes.command("tools", "") == .send, "its ACP server answers this one")
+    #expect(hermes.command("skin", "") == .unsupported)
+    #expect(opencode.command("review", "") == .send)
+    #expect(opencode.command("sessions", "") == .unsupported)
+    #expect(names(menu(opencode, listed(["review", "models", "my-skill"]), "")) == ["model", "compact", "new", "review", "my-skill"])
+}
+
+@Test("an ACP agent compacts in the chat when pocketd says it can, and else sends it or leaves its TUI's out")
+func anAcpAgentCompactsInTheChatWhenPocketdSaysItCan() {
+    let plain = ChatCaps(interrupt: true, compact: false, sendWhileWorking: true, subAgents: false)
+    #expect(Adapter.for("grok", compacting).command("compact", "") == .local(.compact))
+    #expect(Adapter.for("fx", compacting).command("compact", "") == .local(.compact), "pocketd decides, not the phone")
+    #expect(Adapter.for("grok", plain).command("compact", "") == .send)
+    #expect(Adapter.for("opencode", nil).command("compact", "") == .unsupported, "its TUI's compact would reach the model")
+    #expect(names(menu(Adapter.for("grok", compacting), listed(["compact", "context"]), "")) == ["model", "compact", "new", "context"])
+    #expect(Adapter.for("grok", plain).builtins.map(\.name) == ["model", "new"])
+}
+
+@Test("every new agent sets its model and effort and starts a new chat from the phone")
+func everyNewAgentSetsItsModelAndEffortAndStartsANewChatFromThePhone() {
+    for provider in AgentName.allCases.map(\.rawValue) where !["claude", "codex"].contains(provider) {
+        let adapter = Adapter.for(provider, nil)
+        #expect(adapter.command("model", "") == .local(.model), "\(provider)")
+        #expect(adapter.command("effort", "high") == .local(.effort), "\(provider)")
+        #expect(adapter.command("new", "fix it") == .local(.new), "\(provider)")
+        let own = switch provider {
+        case "pi", "omp": ["model", "thinking", "compact", "new"]
+        default: ["model", "new"]
+        }
+        #expect(adapter.builtins.map(\.name) == own, "\(provider)")
+    }
+    #expect(Adapter.for("grok", nil).command("thinking", "high") == .send, "Pi's name for it")
+}
+
 @Test("an unknown provider sends every command")
 func anUnknownProviderSendsEveryCommand() {
-    #expect(Adapter.for("gemini").command("cost", "") == .send)
+    #expect(Adapter.for("gemini", nil).command("cost", "") == .send)
+    #expect(Adapter.for("gemini", nil).builtins.isEmpty)
 }
 
 @Test("the menu puts the agent's own first, then its list without panels or twins")
@@ -80,17 +138,26 @@ func theMenuKeepsNamesThatHoldTheQueryThoseItStartsFirst() {
 @Test("codex and unknown providers get an adapter")
 func codexAndUnknownProvidersGetAnAdapter() {
     for provider in ["claude", "codex", "gemini"] {
-        let can = Adapter.for(provider).capabilities
+        let can = Adapter.for(provider, nil).capabilities
         #expect(can.interrupt && can.compact && can.sendWhileWorking, "\(provider)")
         #expect(can.subAgents == (provider != "codex"), "\(provider)")
+    }
+}
+
+@Test("without pocketd's caps Pi's RPC does what pocketd says it does, and an ACP agent only what every one can")
+func withoutPocketdsCapsPisRpcDoesWhatPocketdSaysAndAnAcpAgentOnlyWhatEveryOneCan() {
+    for provider in ["pi", "omp"] {
+        #expect(Adapter.for(provider, nil).capabilities == Capabilities(interrupt: true, compact: true, sendWhileWorking: true, subAgents: true), "\(provider)")
+    }
+    for provider in ["cursor", "grok", "opencode", "fx", "hermes", "antigravity"] {
+        #expect(Adapter.for(provider, nil).capabilities == Capabilities(interrupt: true, sendWhileWorking: true), "\(provider)")
     }
 }
 
 @Test("pocketd's chat caps win over the adapter's")
 func pocketdsChatCapsWinOverTheAdapters() {
     let said = ChatCaps(interrupt: true, compact: false, sendWhileWorking: false, subAgents: false)
-    #expect(capabilities("claude", said) == Capabilities(interrupt: true))
-    #expect(capabilities("codex", nil) == Adapter.for("codex").capabilities)
+    #expect(Adapter.for("claude", said).capabilities == Capabilities(interrupt: true))
 }
 
 @Test("the composer blocks only what the agent can't do")

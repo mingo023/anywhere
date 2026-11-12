@@ -48,16 +48,18 @@ func TestEachProviderRunsHeadlessOnACheapModel(t *testing.T) {
 	if got := Command("codex", "/bin/codex", "P"); !reflect.DeepEqual(got, []string{"/bin/codex", "exec", "--skip-git-repo-check", "-m", "gpt-5.6-luna", "P"}) {
 		t.Fatal(got)
 	}
-	if got := Command("gemini", "/bin/gemini", "P"); !reflect.DeepEqual(got, []string{"/bin/gemini", "--strict-mcp-config", "-p", "--model", "haiku", "P"}) {
-		t.Fatal(got)
-	}
 }
 
-func TestEveryProviderHasANamingCommand(t *testing.T) {
+// Claude's flags on another CLI would start a session, not name one.
+func TestAProviderWithNoHeadlessRunHasNoNamingCommand(t *testing.T) {
 	for _, p := range providers.All {
-		if _, ok := commands[p.ID]; !ok {
-			t.Errorf("%s has no naming command", p.ID)
+		_, has := commands[p.ID]
+		if got := Command(p.ID, "/bin/"+p.ID, "P"); (got != nil) != has || has != (p == &providers.Claude || p == &providers.Codex) {
+			t.Errorf("%s: %v", p.ID, got)
 		}
+	}
+	if got := Command("gemini", "/bin/gemini", "P"); got != nil {
+		t.Fatal(got)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"pocketd/internal/accounts"
 	"pocketd/internal/ops"
 	"pocketd/internal/shellenv"
 )
@@ -52,11 +53,15 @@ func (l *Launcher) Accounts(ctx context.Context, m ops.Msg) ops.Msg {
 }
 
 // ConfigDir is where provider keeps the config of the account a new session
-// in project would run on, account being the one it names.
+// in project would run on, account being the one it names; "" for a provider
+// pocketd keeps no accounts of.
 func (l *Launcher) ConfigDir(provider, account, project string) (string, error) {
 	f := l.reg.Load()
 	if !slices.Contains(f.Projects, project) {
 		return "", errors.New("This project isn't on your Mac anymore")
+	}
+	if !slices.Contains(accounts.Providers, provider) {
+		return "", nil
 	}
 	if l.d.Accounts == nil {
 		home, _ := os.UserHomeDir()
@@ -78,7 +83,15 @@ func (l *Launcher) signIn(provider, id string) ops.Msg {
 	if !ok {
 		return ops.Msg{Ev: "error", Error: provider + " isn't installed on this machine"}
 	}
+	login := loginArgv(provider, exe)
+	if login == nil {
+		return ops.Msg{Ev: "error", Error: provider + " signs in from its own session"}
+	}
 	var err error
+	// A provider pocketd keeps no accounts of has only its own login to sign in.
+	if id == "" && !slices.Contains(accounts.Providers, provider) {
+		id = accounts.BuiltIn
+	}
 	if id == "" {
 		id, err = s.Add(provider)
 	} else {
@@ -89,7 +102,7 @@ func (l *Launcher) signIn(provider, id string) ops.Msg {
 	}
 	home, _ := os.UserHomeDir()
 	account := s.Env(provider, id)
-	argv := inAccount(shellenv.LoginShell(), loginArgv(provider, exe), account)
+	argv := inAccount(shellenv.LoginShell(), login, account)
 	t, err := l.d.Spawn(ops.Msg{Cmd: argv[0], Args: argv[1:], Cwd: home, Env: slices.Concat(env, account), Cols: 100, Rows: 30})
 	if err != nil {
 		s.Finish(provider, id, func() {})
@@ -102,23 +115,25 @@ func (l *Launcher) signIn(provider, id string) ops.Msg {
 	return ops.Msg{Ev: "spawned", ID: t.Info().ID, Text: id}
 }
 
+// loginArgv is nil for a provider with no command that signs it in.
 func loginArgv(provider, exe string) []string {
 	if c := clis[provider]; c != nil {
 		return c.login(exe)
 	}
-	return []string{exe, "auth", "login"}
+	return nil
 }
 
 // signOut runs provider's own logout on account id, which also drops its Keychain item.
 func (l *Launcher) signOut(provider, id string) {
 	env := l.d.LoginEnv()
 	exe, ok := l.find(provider, env)
-	if !ok {
+	c := clis[provider]
+	if !ok || c == nil {
 		return
 	}
-	argv := []string{exe, "logout"}
-	if c := clis[provider]; c != nil {
-		argv = c.logout(exe)
+	argv := c.logout(exe)
+	if argv == nil {
+		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

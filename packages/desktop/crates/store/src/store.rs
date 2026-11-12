@@ -28,6 +28,8 @@ pub struct RepoConfig {
     pub gh_account: String,
     /// The account by provider its new sessions start on, on the project's host; one missing uses the provider's default.
     pub accounts: BTreeMap<String, String>,
+    /// Agents its model panel leaves out.
+    pub hidden: BTreeSet<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -48,6 +50,9 @@ pub struct LaunchPick {
     pub access: String,
     /// The account on the project's host, `builtin` for the built-in login; empty uses the provider's default.
     pub account: String,
+    /// The model's own settings picked, by `ModelSetting::id`; one missing is left as the agent has it.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub options: BTreeMap<String, String>,
 }
 
 impl LaunchPick {
@@ -64,7 +69,7 @@ impl LaunchPick {
         Self { provider: Self::known_provider(&self.provider).into(), ..self }
     }
 
-    /// A model, effort or account remembered for one agent means nothing to another; access holds for any.
+    /// A model, effort, account or model setting remembered for one agent means nothing to another; access holds for any.
     pub fn switched(&self, provider: &str) -> Self {
         if self.provider == provider {
             return Self { provider: provider.into(), ..self.clone() };
@@ -72,7 +77,7 @@ impl LaunchPick {
         Self { provider: provider.into(), access: self.access.clone(), ..Self::default() }
     }
 
-    /// A create's agent, model, effort, access, account and `prompt` as given.
+    /// A create's agent, model, effort, access, account, model settings and `prompt` as given.
     pub fn spec(&self, project: &str, checkout: serde_json::Value, prompt: &str) -> serde_json::Value {
         let mut spec = serde_json::json!({"project": project, "checkout": checkout, "provider": self.provider, "plan": false});
         for (key, value) in [("model", &self.model), ("effort", &self.effort), ("access", &self.access), ("account", &self.account)] {
@@ -80,10 +85,26 @@ impl LaunchPick {
                 spec[key] = value.as_str().into();
             }
         }
+        if !self.options.is_empty() {
+            spec["options"] = serde_json::json!(self.options);
+        }
         if !prompt.is_empty() {
             spec["prompt"] = prompt.into();
         }
         spec
+    }
+
+    /// This pick on `model`, keeping the picked settings that are among `settings`, the model's own.
+    pub fn on_model(&self, model: &str, settings: &[agents::ModelSetting]) -> Self {
+        let has = |id: &String, value: &String| settings.iter().any(|s| s.id == *id && s.choices.iter().any(|(v, _)| v == value));
+        Self { model: model.into(), options: self.options.iter().filter(|(id, value)| has(id, value)).map(|(id, value)| (id.clone(), value.clone())).collect(), ..self.clone() }
+    }
+
+    /// This pick with the model setting `id` on `value`.
+    pub fn with_option(&self, id: &str, value: String) -> Self {
+        let mut pick = self.clone();
+        pick.options.insert(id.into(), value);
+        pick
     }
 }
 
@@ -451,6 +472,23 @@ impl Store {
         self.scratch.contains(path)
     }
 
+    /// The agents `project` keeps out of its model panel.
+    pub fn hidden(&self, project: Option<&str>) -> &BTreeSet<String> {
+        static NONE: BTreeSet<String> = BTreeSet::new();
+        project.and_then(|p| self.repos.get(p)).map_or(&NONE, |r| &r.hidden)
+    }
+
+    /// What `project` last started, else the default agent; an agent it hides falls back to the first it shows.
+    pub fn launch_pick(&self, project: Option<&str>, live: &agents::Agents) -> LaunchPick {
+        let last = project.and_then(|p| self.repos.get(p)).map(|r| r.launch.clone()).unwrap_or_default();
+        let (pick, hidden) = (self.agents.pick(last, live), self.hidden(project));
+        let shown = self.agents.shown(live, hidden);
+        match shown.first() {
+            Some(first) if hidden.contains(&pick.provider) && !shown.contains(&pick.provider.as_str()) => pick.switched(first),
+            _ => pick,
+        }
+    }
+
     /// `projects` without the Scratch folders, for lists only real projects belong in.
     pub fn without_scratch(&self, mut projects: Vec<String>) -> Vec<String> {
         projects.retain(|p| !self.is_scratch(p));
@@ -595,6 +633,25 @@ mod tests {
     }
 
     #[test]
+    fn a_project_starts_no_agent_it_hides_unless_it_hides_them_all() {
+        let live = agents::Agents::default();
+        let last = LaunchPick { provider: "claude".into(), model: "opus".into(), access: "auto".into(), ..LaunchPick::default() };
+        let mut store = Store::default();
+        store.repos.insert("/app".into(), RepoConfig { launch: last.clone(), ..RepoConfig::default() });
+        assert_eq!(store.launch_pick(Some("/app"), &live), last);
+        store.repos.get_mut("/app").unwrap().hidden.insert("claude".into());
+        assert_eq!(store.launch_pick(Some("/app"), &live), LaunchPick { provider: "codex".into(), access: "auto".into(), ..LaunchPick::default() });
+        assert_eq!(store.agents.shown(&live, store.hidden(Some("/app"))), ["codex"]);
+        assert_eq!((store.launch_pick(Some("/other"), &live).provider.as_str(), store.launch_pick(None, &live).provider.as_str()), ("claude", "claude"), "it hides them for itself only");
+        store.repos.get_mut("/app").unwrap().hidden.insert("codex".into());
+        assert_eq!(store.launch_pick(Some("/app"), &live), last);
+        let codex = LaunchPick { provider: "codex".into(), ..last };
+        store.repos.get_mut("/app").unwrap().launch = codex.clone();
+        assert_eq!(store.launch_pick(Some("/app"), &live), codex);
+        assert!(serde_json::from_str::<RepoConfig>("{}").unwrap().hidden.is_empty());
+    }
+
+    #[test]
     fn the_last_agent_keeps_its_model_and_effort() {
         let pick = LaunchPick { provider: "claude".into(), model: "opus".into(), effort: "high".into(), access: String::new(), ..LaunchPick::default() };
         assert_eq!(pick.switched("claude"), pick);
@@ -622,6 +679,27 @@ mod tests {
             serde_json::json!({"project": "/p", "checkout": {"worktree": "/p"}, "provider": "codex", "access": "edits", "plan": false, "model": "gpt-5", "prompt": "Fix the failing tests"})
         );
         assert_eq!(pick.spec("/p", serde_json::json!({"worktree": "/p"}), "").get("prompt"), None);
+    }
+
+    fn setting(id: &str, choices: &[&str]) -> agents::ModelSetting {
+        agents::ModelSetting { id: id.into(), name: id.into(), choices: choices.iter().map(|c| (c.to_string(), c.to_string())).collect(), default: choices[0].into() }
+    }
+
+    #[test]
+    fn a_launch_sends_the_model_settings_picked_and_leaves_the_rest_to_the_agent() {
+        let pick = LaunchPick { provider: "cursor".into(), model: "gpt-5.4".into(), ..LaunchPick::default() };
+        assert_eq!(pick.spec("/p", serde_json::json!({"worktree": "/p"}), "").get("options"), None);
+        let picked = pick.with_option("fast", "true".into()).with_option("reasoning", "high".into()).with_option("fast", "false".into());
+        assert_eq!(picked.spec("/p", serde_json::json!({"worktree": "/p"}), "")["options"], serde_json::json!({"fast": "false", "reasoning": "high"}));
+    }
+
+    #[test]
+    fn another_model_keeps_only_the_settings_it_has_and_another_agent_none() {
+        let pick = LaunchPick { provider: "cursor".into(), model: "gpt-5.4".into(), options: [("fast", "true"), ("reasoning", "xhigh"), ("context", "1m")].map(|(k, v)| (k.to_string(), v.to_string())).into(), ..LaunchPick::default() };
+        let other = pick.on_model("claude-opus-4-8", &[setting("fast", &["false", "true"]), setting("reasoning", &["medium", "high"])]);
+        assert_eq!((other.model.as_str(), other.options), ("claude-opus-4-8", [("fast".to_string(), "true".to_string())].into()));
+        assert!(pick.on_model("composer-2.5", &[]).options.is_empty());
+        assert!(pick.switched("opencode").options.is_empty());
     }
 
     #[test]

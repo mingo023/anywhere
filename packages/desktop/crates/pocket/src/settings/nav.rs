@@ -9,7 +9,7 @@ use theme::*;
 impl Desktop {
     pub(crate) fn settings_nav(&self, cx: &mut Context<Self>) -> Div {
         let words = self.settings.query(cx);
-        let hits = catalog::search(&words);
+        let hits = catalog::search(&words, &self.store, &self.agents);
         let searching = !words.is_empty();
         let groups = nav_groups().into_iter().map(|(title, sections)| {
             let items = sections.into_iter().map(|s| {

@@ -3,7 +3,7 @@ use super::logic::{COLS, Choice, FilterCat, Filters, LABELS, PRIORITIES, column,
 use super::parts::{bar_button, label_dot, priority_glyph, status_glyph};
 use super::views::can_save_view;
 use crate::desktop::Desktop;
-use agents::providers;
+use crate::models::listed_agents;
 use agents::tickets::{Status, Ticket};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::tooltip::Tooltip;
@@ -96,8 +96,8 @@ impl Desktop {
                     (c.name().to_string(), self.toggles_filter(row, *c, |f| &mut f.status, cx))
                 })
                 .collect(),
-            FilterCat::Agent => providers::IDS
-                .iter()
+            FilterCat::Agent => listed_agents(&self.offered(), &tickets.iter().map(|t| t.provider.as_str()).chain(filters.agent.values.iter().map(String::as_str)).collect::<Vec<_>>())
+                .into_iter()
                 .enumerate()
                 .map(|(i, p)| {
                     let name = self.agent_name(p);

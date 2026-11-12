@@ -649,7 +649,7 @@ impl Desktop {
     }
 
     fn chat_row(&mut self, agent: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let (provider, model) = self.agents.get(agent).map(|a| (a.provider.clone(), agents::model_label(a))).unwrap_or_default();
+        let (provider, model) = self.agents.get(agent).map(|a| (a.provider.clone(), crate::status::model_or_agent(a))).unwrap_or_default();
         let ask = self.agents.pending.iter().find(|p| p.agent_id == agent).map(|p| !chat::for_provider(&provider).ask(p).questions.is_empty());
         let send_now = self.chat_caps(&provider).send_now;
         let open: markdown::Open = {
