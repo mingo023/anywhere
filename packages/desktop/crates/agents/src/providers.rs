@@ -44,8 +44,6 @@ pub const CWD: &str = "{cwd}";
 pub struct Catalog {
     /// Run after the provider's command.
     pub args: &'static [&'static str],
-    /// Run after it too, for what `args` doesn't list; what this prints follows what that did. Empty for none.
-    pub also: &'static [&'static str],
     pub input: &'static str,
     /// The line that answers, from a server that runs on after it: `daemon::run_login_until` stops there. `None` when
     /// the CLI exits by itself, as `daemon::run_login` waits for.
@@ -56,7 +54,7 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    const NONE: Self = Self { args: &[], also: &[], input: "", answer: None, parse: |_| Vec::new(), fallback: &[] };
+    const NONE: Self = Self { args: &[], input: "", answer: None, parse: |_| Vec::new(), fallback: &[] };
 
     /// The models `output` lists, or what a server answered instead of a list, as "Authentication required".
     pub fn read(&self, output: &str) -> Result<Vec<crate::ListedModel>, String> {
@@ -254,7 +252,7 @@ pub const ALL: [Builtin; 10] = [
     Builtin {
         id: "cursor",
         command: "cursor-agent",
-        models: Catalog { args: &["acp"], input: CURSOR_INPUT, answer: Some(catalogs::acp_answered), parse: catalogs::cursor, fallback: &["composer-2.5", "gpt-5.4", "claude-sonnet-4-6", "grok-4.6"], ..Catalog::NONE },
+        models: Catalog { args: &["acp"], input: CURSOR_INPUT, answer: Some(catalogs::acp_answered), parse: catalogs::cursor, fallback: &["composer-2.5", "gpt-5.4", "claude-sonnet-4-6", "grok-4.6"] },
         plan: true,
         resume_args: "--resume",
         install: Install { command: "curl https://cursor.com/install -fsS | bash", ..Install::NONE },
@@ -276,7 +274,7 @@ pub const ALL: [Builtin; 10] = [
         command: "opencode",
         effort_word: "Variant",
         plan: true,
-        models: Catalog { args: &["models", "--verbose"], also: &["agent", "list"], parse: catalogs::opencode, ..Catalog::NONE },
+        models: Catalog { args: &["acp"], parse: catalogs::opencode, ..ACP_MODELS },
         prompt_args: "--prompt",
         resume_args: "-s",
         fork_args: "-s {sessionId} --fork",
@@ -494,7 +492,7 @@ mod tests {
         assert_eq!(grouped, ["opencode", "pi", "omp", "hermes"]);
         let pi = r#"{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"m","name":"M","provider":"p"}]}}"#;
         let hermes = r#"{"jsonrpc":"2.0","id":2,"result":{"models":{"availableModels":[{"modelId":"p:m","name":"P · m"}]}}}"#;
-        let opencode = "p/m\n{ \"name\": \"M\" }\n";
+        let opencode = r#"{"jsonrpc":"2.0","id":2,"result":{"configOptions":[{"id":"model","category":"model","options":[{"value":"p/m","name":"P/M"}]}]}}"#;
         for (id, output) in [("opencode", opencode), ("pi", pi), ("omp", pi), ("hermes", hermes)] {
             let models = known(id).models.read(output).unwrap();
             assert_eq!(models.iter().map(|m| m.upstream.as_str()).collect::<Vec<_>>(), [if id == "hermes" { "P" } else { "p" }], "{id}");
@@ -518,7 +516,7 @@ mod tests {
     #[test]
     fn a_server_s_catalog_says_which_line_answers_and_a_cli_that_exits_does_not() {
         let servers: Vec<&str> = ALL.iter().filter(|b| b.models.answer.is_some()).map(|b| b.id).collect();
-        assert_eq!(servers, ["cursor", "pi", "omp", "hermes", "antigravity"]);
+        assert_eq!(servers, ["cursor", "opencode", "pi", "omp", "hermes", "antigravity"]);
         let models = &known("pi").models;
         let answer = r#"{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"m","name":"M","provider":"p","reasoning":false}]}}"#;
         assert!(models.answer.unwrap()(answer));
