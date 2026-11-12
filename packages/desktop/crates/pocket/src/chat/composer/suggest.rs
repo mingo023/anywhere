@@ -314,7 +314,7 @@ pub(crate) fn launch_key(provider: &str, account: &str, cwd: &str) -> String {
 }
 
 impl Desktop {
-    fn suggest_input(&self, p: Prompt) -> &Entity<TextareaState> {
+    pub(crate) fn suggest_input(&self, p: Prompt) -> &Entity<TextareaState> {
         match p {
             Prompt::Chat => &self.chats.input,
             Prompt::Launch => &self.new_form.composer.prompt,

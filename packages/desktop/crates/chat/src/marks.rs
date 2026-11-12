@@ -103,13 +103,17 @@ fn inline_code(text: &str, within: Range<usize>) -> Vec<Code> {
     found
 }
 
+/// Whether any of `r` is in `code`.
+pub(crate) fn in_code(code: &[Code], r: &Range<usize>) -> bool {
+    code.iter().map(Code::range).any(|c| c.start < r.end && r.start < c.end)
+}
+
 /// `text`'s marks outside its code, which reads as typed, and its code.
 pub fn marks_outside_code(text: &str) -> (Marks, Vec<Code>) {
     let code = code(text);
     let mut marks = marks(text);
-    let outside = |r: &Range<usize>| !code.iter().map(Code::range).any(|c| c.start < r.end && r.start < c.end);
-    marks.commands.retain(outside);
-    marks.mentions.retain(outside);
+    marks.commands.retain(|r| !in_code(&code, r));
+    marks.mentions.retain(|r| !in_code(&code, r));
     (marks, code)
 }
 

@@ -12,7 +12,8 @@ pub(super) fn hidden() -> HighlightStyle {
 }
 
 /// The input's colours for `text`: its commands, its mentions with each `@` hidden under its icon, and its code: a
-/// span's backticks hidden inside the shade `marks_overlay` paints, a block's fences dimmed.
+/// span's backticks hidden inside the shade `marks_overlay` paints, a block's fences dimmed. Its markdown shows as
+/// `rich::highlight` has it.
 pub(crate) fn decorations(text: &str) -> Vec<TextDecoration> {
     let (marks, code) = chat::marks_outside_code(text);
     let mentions = marks.mentions.into_iter().flat_map(|r| [TextDecoration::new(r.start..r.start + 1, hidden()), TextDecoration::new(r.start + 1..r.end, tint(MENTION))]);
@@ -20,7 +21,8 @@ pub(crate) fn decorations(text: &str) -> Vec<TextDecoration> {
         chat::Code::Inline(r) => vec![TextDecoration::new(r.start..r.start + 1, hidden()), TextDecoration::new(r.end - 1..r.end, hidden())],
         chat::Code::Block { open, close, .. } => vec![TextDecoration::new(open, tint(TEXT_4)), TextDecoration::new(close, tint(TEXT_4))],
     });
-    marks.commands.into_iter().map(|r| TextDecoration::new(r, tint(COMMAND))).chain(mentions).chain(code).collect()
+    let rich = chat::rich::spans(text).into_iter().map(|(r, style)| TextDecoration::new(r, crate::composer::rich::highlight(style)));
+    marks.commands.into_iter().map(|r| TextDecoration::new(r, tint(COMMAND))).chain(mentions).chain(code).chain(rich).collect()
 }
 
 /// Paints the file icon of each `path` over its `slot`, as tall as `size` at most; a folder's when the path ends in `/`.

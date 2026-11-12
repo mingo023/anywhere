@@ -28,7 +28,12 @@ use workspace::{Doc, Tab};
 
 type Step = fn(&mut Desktop, &mut Window, &mut Context<Desktop>);
 
-const STEPS: [(&str, Step); 265] = [
+const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [the notes](https://example.com/notes):\n- [x] read `lexer.rs`\n- [ ] rewrite _tokenize_\n  1. keep ~~the old path~~\n  2. add tests\n> ship behind a flag\n```rust\nfn quiet() {}\n```";
+/// Short enough for its bubble to show whole.
+const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
+const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
+
+const STEPS: [(&str, Step); 267] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -247,6 +252,19 @@ const STEPS: [(&str, Step); 265] = [
         let content = gpui_kit::component::input::InputContent::new(text).with_token(4..17, crate::composer::pills::command_token("apple-design")).expect("the pill's text");
         d.chats.input.update(cx, |s, cx| s.set_value(content, window, cx));
         cx.notify();
+    }),
+    // A draft with a list, emphasis, links, a fenced block and a dropped file.
+    ("chat-rich", |d, window, cx| {
+        d.set_chat_text(RICH, window, cx);
+        d.chats.composer.draft.drop_files(&[RICH_FILE.into()]);
+    }),
+    // The same draft sent, as its bubble shows it.
+    ("chat-rich-sent", |d, _, cx| {
+        let mut draft = crate::composer::Draft::default();
+        draft.drop_files(&[RICH_FILE.into()]);
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send(draft.prompt(RICH_SENT)), cx);
+        }
     }),
     ("chat-model-open", |d, _, cx| {
         d.chats.composer.draft.toggle(Menu::Model);

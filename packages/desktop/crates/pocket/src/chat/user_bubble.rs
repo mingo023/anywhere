@@ -1,11 +1,15 @@
+use super::composer::{RADIUS, block_shade, code_shade};
 use super::mention::{paint_icons, hidden, tint};
 use super::selectable::selectable;
-use crate::composer::split_images;
+use crate::composer::file_card::file_card;
+use crate::composer::rich::highlight;
+use crate::composer::{Sent, split_attachments};
+use chat::rich::Style;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use theme::*;
 
@@ -26,23 +30,21 @@ struct Shown {
     highlights: Vec<(Range<usize>, HighlightStyle)>,
     /// Where each mention shows, and its path.
     mentions: Vec<(Range<usize>, String)>,
+    /// Where each link shows, and where it goes.
+    links: Vec<(Range<usize>, String)>,
+    /// Where each code span shows, and whether it's a fenced block.
+    code: Vec<(Range<usize>, bool)>,
 }
 
-/// `text` with its commands tinted and each mention shown as its icon and name.
+/// `text` as the composer showed it while typed: its commands tinted, each mention as its icon and name, its markdown
+/// styled and its code set apart.
 fn shown(text: &str) -> Shown {
-    let marks = chat::marks(text);
+    let (marks, code) = chat::marks_outside_code(text);
     let mut out = Shown::default();
-    let mut commands = marks.commands.into_iter().peekable();
-    // A mention changes the text's length, so a command after it moves by what the bubble has shown so far.
-    let mut tint_commands = |out: &mut Shown, until: usize, copied: usize| {
-        while let Some(r) = commands.next_if(|r| r.start < until) {
-            let at = out.text.len() + r.start - copied;
-            out.highlights.push((at..at + r.len(), tint(COMMAND)));
-        }
-    };
+    // A mention changes the text's length, so what follows it moves: each mention's place in the prompt, and in the bubble.
+    let mut moved: Vec<(Range<usize>, Range<usize>)> = Vec::new();
     let mut copied = 0;
     for m in marks.mentions {
-        tint_commands(&mut out, m.start, copied);
         out.text.push_str(&text[copied..m.start]);
         let path = &text[m.start + 1..m.end];
         let start = out.text.len();
@@ -51,34 +53,59 @@ fn shown(text: &str) -> Shown {
         out.highlights.push((start..start + SLOT.len(), hidden()));
         out.highlights.push((start + SLOT.len()..out.text.len(), tint(MENTION)));
         out.mentions.push((start..out.text.len(), path.to_string()));
+        moved.push((m.clone(), start..out.text.len()));
         copied = m.end;
     }
-    tint_commands(&mut out, text.len(), copied);
     out.text.push_str(&text[copied..]);
+    let place = |at: usize| match moved.iter().rev().find(|(m, _)| m.start <= at) {
+        Some((m, shown)) if at < m.end => shown.start,
+        Some((m, shown)) => shown.end + at - m.end,
+        None => at,
+    };
+    let placed = |r: &Range<usize>| place(r.start)..place(r.end);
+    out.highlights.extend(marks.commands.iter().map(|r| (placed(r), tint(COMMAND))));
+    for c in &code {
+        match c {
+            chat::Code::Inline(r) => out.highlights.extend([(place(r.start)..place(r.start) + 1, hidden()), (place(r.end) - 1..place(r.end), hidden())]),
+            chat::Code::Block { open, close } => out.highlights.extend([(placed(open), tint(TEXT_4)), (placed(close), tint(TEXT_4))]),
+        }
+        out.code.push((placed(&c.range()), matches!(c, chat::Code::Block { .. })));
+    }
+    let rich = chat::rich::spans(text);
+    out.links = rich.iter().filter(|(_, style)| *style == Style::Link).map(|(r, _)| (placed(r), chat::rich::link_target(text, r.clone()).to_string())).collect();
+    out.highlights = combine_highlights(std::mem::take(&mut out.highlights), rich.iter().map(|(r, style)| (placed(r), highlight(*style)))).collect();
     out
 }
 
-/// The prompt's text, its mentions' icons painted over their slots and their paths on hover.
+/// The prompt's text, its mentions' icons and its code's shades painted over it, its mentions' paths on hover and its
+/// links opening on a click.
 pub(super) fn styled(id: &str, text: &str) -> Div {
-    let Shown { text, highlights, mentions } = shown(text);
+    let Shown { text, highlights, mentions, links, code } = shown(text);
     let text = SharedString::from(text);
     let styled = StyledText::new(text.clone()).with_highlights(highlights);
     let layout = styled.layout().clone();
     let slots: Vec<(usize, String)> = mentions.iter().map(|(r, path)| (r.start, path.clone())).collect();
-    let icons = canvas(
-        |_, _, _| (),
-        move |_, _, window, cx| {
+    let marks = canvas(|_, _, _| (), {
+        let layout = layout.clone();
+        move |within, _, window, cx| {
             let line = layout.line_height();
-            let slot = |at: usize| Some(Bounds::from_corners(layout.position_for_index(at)?, layout.position_for_index(at + SLOT.len())? + point(px(0.), line)));
-            let found: Vec<(Bounds<Pixels>, &str)> = slots.iter().filter_map(|(at, path)| Some((slot(*at)?, path.as_str()))).collect();
+            let span = |r: &Range<usize>| Some(Bounds::from_corners(layout.position_for_index(r.start)?, layout.position_for_index(r.end)? + point(px(0.), line)));
+            for shade in code.iter().filter_map(|(r, block)| if *block { span(r).map(|s| block_shade(s.top(), s.bottom(), within)) } else { span(r).and_then(code_shade) }) {
+                window.paint_quad(shade);
+            }
+            let found: Vec<(Bounds<Pixels>, &str)> = slots.iter().filter_map(|(at, path)| Some((span(&(*at..*at + SLOT.len()))?, path.as_str()))).collect();
             paint_icons(found, ICON, window, cx);
-        },
-    )
+        }
+    })
     .absolute()
-    .size_0();
+    .top_0()
+    .left_0()
+    .size_full();
     let tip = move |ix: usize, window: &mut Window, cx: &mut App| mentions.iter().find(|(r, _)| r.contains(&ix)).map(|(_, path)| Tooltip::new(path.clone()).build(window, cx));
-    let shown = selectable(SharedString::from(format!("{id}-select")), text, styled.layout().clone(), InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip));
-    div().child(shown).child(icons)
+    let (ranges, targets): (Vec<Range<usize>>, Vec<String>) = links.into_iter().unzip();
+    let interactive = InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip).on_click(ranges, move |ix, _, cx| cx.open_url(&targets[ix]));
+    let shown = selectable(SharedString::from(format!("{id}-select")), text, layout.clone(), interactive);
+    div().relative().child(shown).child(marks)
 }
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.
@@ -88,7 +115,7 @@ pub(super) fn lines(text: &str, width: f32, window: &Window) -> usize {
 
 /// The lines a prompt's `text` wraps to at `size` px in `width` px, as a bubble shows it.
 pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
-    text_lines(&shown(split_images(text).0).text, size, width, window)
+    text_lines(&shown(split_attachments(text).text).text, size, width, window)
 }
 
 /// The lines plain `text` wraps to at `size` px in `width` px.
@@ -177,14 +204,16 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
         .child("Send now")
 }
 
-/// A prompt, right-aligned in a wash; one over five lines clips to five with "Show more".
+/// A prompt, right-aligned in a wash rounded and ringed as the composer it was typed in, its files and images under
+/// it; one over five lines clips to five with "Show more".
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
 pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {
-    let (text, images) = split_images(&prompt);
+    let Sent { text, files, images } = split_attachments(&prompt);
     let text = text.to_string();
-    let thumbs = (!images.is_empty()).then(|| {
+    let attached = (!images.is_empty() || !files.is_empty()).then(|| {
         let tile = |path: &str| div().size(px(56.)).flex_none().rounded(px(8.)).border_1().border_color(hairline(0.10)).child(img(PathBuf::from(path)).size(px(54.)).rounded(px(7.)).object_fit(ObjectFit::Cover));
-        div().flex().flex_wrap().gap(px(8.)).when(!text.is_empty(), |d| d.mt(px(8.))).children(images.into_iter().map(tile))
+        let card = |(i, path): (usize, &str)| file_card(SharedString::from(format!("{id}-file-{i}")), Path::new(path));
+        div().flex().flex_wrap().gap(px(8.)).when(!text.is_empty(), |d| d.mt(px(8.))).mb(px(3.)).children(images.into_iter().map(tile)).children(files.into_iter().enumerate().map(card))
     });
     let collapsed = toggle.is_some() && !expanded;
     let clipped = LINE_HEIGHT * (COLLAPSED_LINES + 1) as f32;
@@ -227,7 +256,9 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
         .min_w_0()
         .max_w(px(width * WIDTH))
         .bg(BUBBLE)
-        .rounded(px(18.))
+        .border_1()
+        .border_color(HAIRLINE)
+        .rounded(px(RADIUS))
         .px(px(16.))
         .py(px(9.))
         .text_size(px(TEXT_SIZE))
@@ -235,7 +266,7 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
         .text_color(TEXT)
         .when(pending, |d| d.opacity(0.65))
         .child(body)
-        .children(thumbs)
+        .children(attached)
         .children(expander);
     div().w_full().flex().justify_end().child(bubble)
 }
@@ -267,9 +298,28 @@ mod tests {
     }
 
     #[test]
+    fn a_bubble_styles_markdown_and_links_where_they_show_after_a_mention() {
+        let s = shown("@src/parser.rs **fix** it, see https://a.dev/x and [docs](https://b.dev)");
+        let links: Vec<(&str, &str)> = s.links.iter().map(|(r, to)| (&s.text[r.clone()], to.as_str())).collect();
+        assert_eq!(links, [("https://a.dev/x", "https://a.dev/x"), ("docs", "https://b.dev")]);
+        let bold: Vec<&str> = s.highlights.iter().filter(|(_, h)| h.font_weight.is_some()).map(|(r, _)| &s.text[r.clone()]).collect();
+        assert_eq!(bold, ["fix"]);
+    }
+
+    #[test]
+    fn a_bubble_sets_code_apart_and_leaves_what_it_holds_as_typed() {
+        let s = shown("run `/review @a.rs` then\n```\n- **b**\n```");
+        let code: Vec<(&str, bool)> = s.code.iter().map(|(r, block)| (&s.text[r.clone()], *block)).collect();
+        assert_eq!(code, [("`/review @a.rs`", false), ("```\n- **b**\n```", true)]);
+        assert!(s.mentions.is_empty() && s.links.is_empty());
+        assert!(s.highlights.iter().all(|(_, h)| h.font_weight.is_none()));
+    }
+
+    #[test]
     fn a_bubble_eases_longer_the_further_it_moves_up_to_850ms() {
         assert_eq!(tween(0.), Duration::from_millis(220));
         assert_eq!(tween(500.), Duration::from_millis(380));
         assert_eq!(tween(5000.), Duration::from_millis(850));
     }
 }
+
