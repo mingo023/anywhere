@@ -7,6 +7,7 @@ mod shortcuts;
 mod strip;
 mod tab_actions;
 mod tab_menu;
+mod top_actions;
 mod top_tabs;
 
 use crate::desktop::Desktop;
@@ -38,6 +39,8 @@ pub(crate) struct Panels {
     pub(crate) menu: Option<Place>,
     /// The tab whose right-click menu is open, its pane, and where the click was.
     pub(crate) actions: Option<(PaneId, Tab, Point<Pixels>)>,
+    /// The agent whose top tab's right-click menu is open, and where the click was.
+    pub(crate) top_actions: Option<(String, Point<Pixels>)>,
     /// The tab held on a strip, and the strip's pane.
     pub(crate) drag: Option<(PaneId, strip::TabDrag)>,
     /// Where the click that opened the More menu was.

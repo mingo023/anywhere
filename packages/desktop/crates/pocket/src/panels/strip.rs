@@ -232,6 +232,7 @@ impl Desktop {
                 cx.stop_propagation();
                 this.panels.menu = if open { None } else { Some(place) };
                 this.panels.actions = None;
+                this.panels.top_actions = None;
                 this.row_menu = None;
                 cx.notify();
             }));
