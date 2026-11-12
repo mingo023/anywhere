@@ -108,7 +108,7 @@ impl Desktop {
             Tab::Term(id) => self.summary(id),
             _ => None,
         });
-        let fork = agent.filter(|a| self.chat_shown(&a.terminal_id) && self.can_fork(a)).map(|a| a.id.clone());
+        let forkable = agent.filter(|a| self.chat_shown(&a.terminal_id) && self.can_fork(a)).map(|a| a.id.clone());
         let lead = match (agent, head) {
             (Some(a), _) => provider_icon(&a.provider, 14., ink).into_any_element(),
             (None, Some(Tab::Doc(Doc::Commit(_)))) => icon("diff-multiple", 14., ink).into_any_element(),
@@ -184,7 +184,7 @@ impl Desktop {
                 }
             })
             .when(closable, |d| d.on_mouse_up(MouseButton::Middle, cx.listener(move |this, _: &MouseUpEvent, _, cx| this.close_top(i, cx))))
-            .when_some(fork, |d, agent| {
+            .when_some(forkable, |d, agent| {
                 d.on_mouse_down(
                     MouseButton::Right,
                     cx.listener(move |this, e: &MouseDownEvent, _, cx| {

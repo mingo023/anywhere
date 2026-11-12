@@ -14,6 +14,7 @@ use store::sections::Pin;
 use store::prefs::agents::{Agents, Args};
 use theme::*;
 use ui::{self, icon_button_sized};
+use workspace::Place;
 
 #[derive(Debug, PartialEq)]
 enum SessionItem {
@@ -77,19 +78,19 @@ impl Desktop {
         offers_fork(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered())
     }
 
-    /// Starts a copy of agent `id`'s session (see `fork_spec`); the create's request, once sent.
-    pub(crate) fn fork_session(&mut self, id: &str, in_terminal: bool, cx: &mut Context<Self>) -> Option<String> {
+    /// Starts a copy of agent `id`'s session; with a `terminal` place, in its agent's TUI with its tab there (see `fork_spec`).
+    pub(crate) fn fork_session(&mut self, id: &str, terminal: Option<Place>, cx: &mut Context<Self>) {
         if self.terminals.link.stale().is_some() {
             self.error = Some(link::UPDATING.into());
-            cx.notify();
-            return None;
+            return cx.notify();
         }
         let projects = self.projects();
-        let s = self.agents.get(id)?;
-        let spec = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), in_terminal))?;
-        let request = self.send_create(spec);
+        let Some(s) = self.agents.get(id) else { return };
+        let Some(spec) = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), terminal.is_some())) else { return };
+        if let (Some(request), Some(place)) = (self.send_create(spec), terminal) {
+            self.terminals.tab_terms.insert(request, place);
+        }
         cx.notify();
-        request
     }
 
     fn ask_close_session(&mut self, id: String, cx: &mut Context<Self>) {
@@ -378,7 +379,7 @@ impl Desktop {
                             let id = id.clone();
                             ui::menu_row("aside-menu-fork", "branch", "Fork session", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.row_menu = None;
-                                this.fork_session(&id, false, cx);
+                                this.fork_session(&id, None, cx);
                             }))
                         }
                         SessionItem::Close => {

@@ -469,8 +469,7 @@ impl Desktop {
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self) -> bool {
         let open = self.menu_open();
-        (self.panels.menu, self.panels.actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, false, false);
-        self.panels.top_actions = None;
+        (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) = (None, None, None, None, false, false);
         self.compare.menu = false;
         (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
         self.sidebar.menu_at = None;

@@ -6,11 +6,10 @@ impl Desktop {
     /// A top tab's right-click menu, while it is open.
     pub(super) fn top_actions(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (agent, at) = self.panels.top_actions.clone()?;
+        self.agents.get(&agent).filter(|a| self.can_fork(a))?;
         let open = ui::menu_row("top-open-terminal", "terminal", "Open in Terminal chat", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.panels.top_actions = None;
-            if let Some(request) = this.fork_session(&agent, true, cx) {
-                this.terminals.tab_terms.insert(request, Place::Top);
-            }
+            this.fork_session(&agent, Some(Place::Top), cx);
             cx.notify();
         }));
         let menu = ui::pop(div().id("top-actions"))
