@@ -75,6 +75,17 @@ struct CodeStyleTests {
         #expect(CodeStyle.diffRow(line, gutter: .old, digits: 2, spans: [], dark: false).string.hasPrefix("   + "))
     }
 
+    @Test("the gutter pinned over sideways-scrolled code is the row's own numbers and sign, as wide as the columns before its code")
+    func diffGutter() {
+        let line = UnifiedLine(id: 0, kind: .deleted, old: 7, text: "x")
+        for gutter in [CodeStyle.Gutter.both, .old, .new, .one] {
+            var runs = LineRuns()
+            CodeStyle.diffGutter(line, gutter: gutter, digits: 3, dark: false, into: &runs)
+            #expect(runs.string.count == CodeStyle.diffCodeStart(gutter, digits: 3))
+            #expect(CodeStyle.diffRow(line, gutter: gutter, digits: 3, spans: [], dark: false).string == runs.string + "x")
+        }
+    }
+
     @Test("a drawn line is as wide as its text and puts a word's tint over that word")
     func drawn() {
         var runs = LineRuns()

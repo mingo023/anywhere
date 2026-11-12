@@ -279,6 +279,7 @@ private struct CodeBlock: View {
         let cells = range.map(cells)
         let width = wrap ? minWidth : cells.reduce(minWidth) { max($0, ($1.text?.width ?? 0) + Space.m * 2) }
         DrawnRows(rows: cells.map { [$0] }, rowHeight: rowHeight, width: width, window: wrap ? nil : (scrollX, minWidth))
+            .overlay(alignment: .topLeading) { pinnedNumbers }
             .overlay(alignment: .topLeading) { marks }
             .contentShape(Rectangle())
             .onTapGesture(coordinateSpace: .local) { tapped(row(at: $0)) }
@@ -311,8 +312,7 @@ private struct CodeBlock: View {
             Color.clear.frame(width: 1, height: rowHeight).offset(x: mark.x, y: y(mark.row)).id(Mark.id)
         }
         if let handles {
-            let x = Space.m + CGFloat(CodeStyle.codeStart(digits: digits)) * DrawnText.advance(size)
-            PickHandles(handles: handles, range: range, x: x, rowHeight: rowHeight, moved: handleMoved, ended: handleEnded)
+            PickHandles(handles: handles, range: range, x: codeX, rowHeight: rowHeight, moved: handleMoved, ended: handleEnded)
         }
     }
 
@@ -323,9 +323,34 @@ private struct CodeBlock: View {
         return out
     }
 
+    /// Where code starts in a row, past the gutter.
+    private var codeX: CGFloat { Space.m + CGFloat(CodeStyle.codeStart(digits: digits)) * DrawnText.advance(size) }
+
+    private func selectionFill(_ line: Int) -> CGColor? {
+        picked.map { $0.contains(line) } == true ? DrawnText.cgColor(Palette.selection.rgba(dark: dark)) : nil
+    }
+
+    /// The line numbers, kept at the left edge once the code scrolls sideways.
+    @ViewBuilder
+    private var pinnedNumbers: some View {
+        if !wrap, scrollX > 0, let digits {
+            PinnedGutter(
+                rows: range.map { [Cell(fill: selectionFill(rows[$0].line), text: number(rows[$0].line, digits: digits), inset: Space.m)] },
+                rowHeight: rowHeight, width: codeX, x: scrollX, dark: dark)
+        }
+    }
+
+    private func number(_ line: Int, digits: Int) -> DrawnText {
+        spans.texts.text(RowKey(line: line, part: -2..<(-1), numbers: true, dark: dark, size: size), coloured: true) {
+            var runs = LineRuns()
+            CodeStyle.number(line + 1, digits: digits, dark: dark, into: &runs)
+            return DrawnText(runs, size: size, color: Palette.text.rgba(dark: dark))
+        }
+    }
+
     private func cells(_ i: Int) -> Cell {
         let row = rows[i]
-        let fill = picked.map { $0.contains(row.line) } == true ? DrawnText.cgColor(Palette.selection.rgba(dark: dark)) : nil
+        let fill = selectionFill(row.line)
         guard !row.more else {
             let text = spans.texts.text(RowKey(line: row.line, part: -1..<0, numbers: digits != nil, dark: dark, size: size), coloured: true) {
                 var runs = LineRuns()

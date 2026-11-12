@@ -2,6 +2,10 @@ import DesignSystem
 import Observation
 import SwiftUI
 
+#if os(iOS)
+    import UIKit
+#endif
+
 /// A button a row shows when swiped from one edge, as `swipeActions` does in a `List`.
 struct SwipeAction {
     let title: String
@@ -21,6 +25,17 @@ final class SwipeOpen {
 }
 
 extension View {
+    /// Scrolling shuts the open row, as it does in a `List`.
+    @MainActor @ViewBuilder func closesSwipe(_ open: SwipeOpen) -> some View {
+        #if os(iOS)
+            onScrollPhaseChange { _, phase in
+                if phase == .interacting, open.id != nil { withAnimation(Swipe.spring) { open.close() } }
+            }
+        #else
+            self
+        #endif
+    }
+
     /// Swipe from the leading edge for `leading`, from the trailing edge for `trailing`; a full swipe runs it. Rows of a
     /// lazy stack can't use `swipeActions`, which only a `List` draws.
     @MainActor func swipe(_ id: String, open: SwipeOpen, leading: SwipeAction?, trailing: SwipeAction?) -> some View {
@@ -38,10 +53,10 @@ private struct Swipe: ViewModifier {
     static let button: CGFloat = 80
     /// Past this a swipe runs the action without a tap, as a full swipe does.
     static let full: CGFloat = 200
+    static let spring = Animation.spring(duration: 0.3, bounce: 0.1)
 
     #if os(iOS)
         @State private var drag: CGFloat = 0
-        @State private var axis: Axis?
 
         func body(content: Content) -> some View {
             let x = offset(drag)
@@ -54,7 +69,8 @@ private struct Swipe: ViewModifier {
                     if open.id == id { Color.clear.contentShape(Rectangle()).onTapGesture { settle { open.close() } } }
                 }
                 .clipped()
-                .simultaneousGesture(gesture)
+                // `simultaneousGesture` takes no UIKit recognizer.
+                .gesture(SidewaysPan(began: closeOthers, moved: { drag = $0 }, ended: ended, cancelled: { settle { drag = 0 } }))
                 .accessibilityActions {
                     if let leading { Button(leading.title, action: leading.action) }
                     if let trailing { Button(trailing.title, action: trailing.action) }
@@ -71,40 +87,30 @@ private struct Swipe: ViewModifier {
             return min(max(x, trailing == nil ? 0 : -.infinity), leading == nil ? 0 : .infinity)
         }
 
-        private var gesture: some Gesture {
-            DragGesture(minimumDistance: 12)
-                .onChanged { v in
-                    if axis == nil {
-                        axis = abs(v.translation.width) > abs(v.translation.height) ? .horizontal : .vertical
-                        // Scrolling the list, or swiping another row, shuts the open one.
-                        if open.id != nil, open.id != id || axis == .vertical { settle { open.close() } }
-                    }
-                    guard axis == .horizontal else { return }
-                    drag = v.translation.width
+        private func closeOthers() {
+            if open.id != nil, open.id != id { settle { open.close() } }
+        }
+
+        private func ended(_ translation: CGFloat) {
+            let x = offset(translation)
+            settle {
+                drag = 0
+                if x >= Self.full, let leading {
+                    open.close()
+                    leading.action()
+                } else if x <= -Self.full, let trailing {
+                    open.close()
+                    trailing.action()
+                } else if x > Self.button / 2 {
+                    open.id = id
+                    open.edge = .leading
+                } else if x < -Self.button / 2 {
+                    open.id = id
+                    open.edge = .trailing
+                } else if open.id == id {
+                    open.close()
                 }
-                .onEnded { v in
-                    defer { axis = nil }
-                    guard axis == .horizontal else { return }
-                    let x = offset(v.translation.width)
-                    settle {
-                        drag = 0
-                        if x >= Self.full, let leading {
-                            open.close()
-                            leading.action()
-                        } else if x <= -Self.full, let trailing {
-                            open.close()
-                            trailing.action()
-                        } else if x > Self.button / 2 {
-                            open.id = id
-                            open.edge = .leading
-                        } else if x < -Self.button / 2 {
-                            open.id = id
-                            open.edge = .trailing
-                        } else if open.id == id {
-                            open.close()
-                        }
-                    }
-                }
+            }
         }
 
         private func button(_ a: SwipeAction, width: CGFloat) -> some View {
@@ -124,9 +130,51 @@ private struct Swipe: ViewModifier {
         }
 
         private func settle(_ change: () -> Void) {
-            withAnimation(.spring(duration: 0.3, bounce: 0.1), change)
+            withAnimation(Swipe.spring, change)
         }
     #else
         func body(content: Content) -> some View { content }
     #endif
 }
+
+#if os(iOS)
+    /// A pan that starts only when the finger moves more sideways than up or down, and reports how far across. A SwiftUI
+    /// drag on a row of a scroll view holds up the scroll and leaves the row's link pressed, so a vertical drag that
+    /// starts on a row opens it instead of scrolling.
+    private struct SidewaysPan: UIGestureRecognizerRepresentable {
+        let began: () -> Void
+        let moved: (CGFloat) -> Void
+        let ended: (CGFloat) -> Void
+        /// The system took the touch (a multitasking gesture, a call); nothing is run.
+        let cancelled: () -> Void
+
+        func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+        func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+            let pan = UIPanGestureRecognizer()
+            pan.delegate = context.coordinator
+            return pan
+        }
+
+        func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+            let x = recognizer.translation(in: recognizer.view).x
+            switch recognizer.state {
+            case .began:
+                began()
+                moved(x)
+            case .changed: moved(x)
+            case .ended: ended(x)
+            case .cancelled, .failed: cancelled()
+            default: break
+            }
+        }
+
+        final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+            func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+                guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
+                let v = pan.velocity(in: pan.view)
+                return abs(v.x) > abs(v.y)
+            }
+        }
+    }
+#endif

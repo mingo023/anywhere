@@ -252,6 +252,25 @@ struct DrawnRows: View {
     nonisolated static func blocks(_ count: Int) -> Int { (count + block - 1) / block }
 }
 
+/// A gutter drawn over a block of rows at the scroll view's left edge `x`, on the surface colour, so it stays put while
+/// the rows scroll sideways under it. It isn't clamped to the block's width: a block of short lines still shows its
+/// gutter when a longer block elsewhere scrolls the view past it. Touches pass through to the rows.
+@MainActor
+struct PinnedGutter: View {
+    let rows: [[Cell]]
+    let rowHeight: CGFloat
+    let width: CGFloat
+    let x: CGFloat
+    let dark: Bool
+
+    var body: some View {
+        let surface = Cell(fill: DrawnText.cgColor(Palette.surface.rgba(dark: dark)))
+        DrawnRows(rows: rows.map { [surface] + $0 }, rowHeight: rowHeight, width: width)
+            .offset(x: x)
+            .allowsHitTesting(false)
+    }
+}
+
 /// How far a two-way scroll view's content has moved left, read off the content's frame: the macOS 14 SDK has no scroll
 /// geometry to ask.
 struct ScrollX: PreferenceKey {

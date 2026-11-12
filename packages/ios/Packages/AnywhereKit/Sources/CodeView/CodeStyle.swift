@@ -55,7 +55,23 @@ public enum CodeStyle {
         _ line: UnifiedLine, gutter: Gutter, digits: Int, spans: [HighlightSpan], dark: Bool, part: Range<Int>? = nil
     ) -> LineRuns {
         var runs = LineRuns()
-        let first = (part?.lowerBound ?? 0) == 0
+        diffGutter(line, gutter: gutter, digits: digits, dark: dark, first: (part?.lowerBound ?? 0) == 0, into: &runs)
+        let word: Token? =
+            switch line.kind {
+            case .added: Palette.diffAddWord
+            case .deleted: Palette.diffDelWord
+            default: nil
+            }
+        runs.code(line.text, spans: spans, words: line.words, word: word?.rgba(dark: dark), dark: dark, part: part)
+        if line.cut, (part?.upperBound ?? .max) >= line.text.utf16.count { runs.append(" …", rgba: Palette.text4.rgba(dark: dark)) }
+        return runs
+    }
+
+    /// A diff row's numbers and sign, the `diffCodeStart` columns before its code; blank but for spacing when the row
+    /// isn't a line's `first`.
+    nonisolated static func diffGutter(
+        _ line: UnifiedLine, gutter: Gutter, digits: Int, dark: Bool, first: Bool = true, into runs: inout LineRuns
+    ) {
         func num(_ n: Int?) { number(first ? n : nil, digits: digits, dark: dark, into: &runs) }
         switch gutter {
         case .both:
@@ -66,15 +82,6 @@ public enum CodeStyle {
         case .one: num(line.new ?? line.old)
         }
         runs.append((first ? sign(line.kind) : " ") + " ", rgba: signColor(line.kind).rgba(dark: dark))
-        let word: Token? =
-            switch line.kind {
-            case .added: Palette.diffAddWord
-            case .deleted: Palette.diffDelWord
-            default: nil
-            }
-        runs.code(line.text, spans: spans, words: line.words, word: word?.rgba(dark: dark), dark: dark, part: part)
-        if line.cut, (part?.upperBound ?? .max) >= line.text.utf16.count { runs.append(" …", rgba: Palette.text4.rgba(dark: dark)) }
-        return runs
     }
 
     nonisolated static func sign(_ kind: UnifiedLine.Kind) -> String {

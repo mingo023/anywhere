@@ -175,6 +175,7 @@ struct ChangesScreen: View {
             .padding(.bottom, Space.xl)
         }
         .refreshable { await store.refresh(tree) }
+        .closesSwipe(swiped)
     }
 
     private func toggleSelecting() {
