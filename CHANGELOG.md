@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.41
+
+- Account moves no longer freeze a chat or bounce to a limited account (#233): (0f35e228)
+- Composer styles markdown as you type and attaches dropped files as cards (#231): (6d1764f3)
+- Files drop anywhere on a chat or the new session page (#230): (58a141be)
+- OpenCode 2 lists its models in the model picker again (#229): (480f51e5)
+- Dragged pane's drop overlay lines up with the pane it lands on (#228): (96da6833)
+
 ## 0.1.40
 
 - Run Pi, Hermes, OpenCode, Cursor, Grok, omp, fx and Antigravity (#224): (ab8b779b)
