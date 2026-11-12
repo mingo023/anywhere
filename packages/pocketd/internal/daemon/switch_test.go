@@ -365,6 +365,25 @@ func TestAMovedAgentKeepsFullAccessWithoutANotice(t *testing.T) {
 	}
 }
 
+func TestAMovedAgentIsIdleThoughItsOldProcessStartedATurnAsItWent(t *testing.T) {
+	s := onBuiltIn(t)
+	asks := asking(s, settleOn(fakeAgent(t, "claude"), s.work, "--resume", "c1"))
+
+	s.d.Switch("a-1", "work")
+	<-asks
+	eventually(t, "the move to commit", func() bool {
+		s.d.mu.Lock()
+		defer s.d.mu.Unlock()
+		return s.d.restoring["t-1"] != nil
+	})
+	s.pr.working("")
+	s.settle(t, s.next(t, s.pr))
+
+	if st := s.pr.a.Summary().Status; st != "idle" {
+		t.Fatalf("status %q with no turn running", st)
+	}
+}
+
 func TestAnAgentTheUserStartedCannotSwitch(t *testing.T) {
 	d := newDaemon(t)
 	d.Accounts = &accounts.Store{Root: t.TempDir(), Home: t.TempDir()}
@@ -388,10 +407,15 @@ func TestAnAgentTheUserStartedCannotSwitch(t *testing.T) {
 // usageOf serves claude's usage by token: the built-in login at its 5-hour
 // limit, and work at peak.
 func usageOf(t *testing.T, peak int) {
+	usagesOf(t, 100, peak)
+}
+
+// usagesOf serves the built-in login's 5-hour use as builtin, and work's as work.
+func usagesOf(t *testing.T, builtin, work int) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		used := 100
+		used := builtin
 		if r.Header.Get("Authorization") == "Bearer tok-work" {
-			used = peak
+			used = work
 		}
 		fmt.Fprintf(w, `{"five_hour":{"utilization":%d},"seven_day":{"utilization":5}}`, used)
 	}))
@@ -421,6 +445,22 @@ func TestAnAgentAtItsLimitMovesToTheAccountWithTheMostLeftAndContinuesThere(t *t
 		defer next.sending.Unlock()
 		return slices.Equal(next.typing, []string{"continue"})
 	})
+}
+
+func TestAnAgentDoesntMoveBackToTheAccountWhoseLimitItLeft(t *testing.T) {
+	usagesOf(t, 50, 30)
+	s := onBuiltIn(t)
+	asks := asking(s, settleOn(fakeAgent(t, "claude"), s.work, "--resume", "c1"))
+	appendLine(t, s.transcript, limitLine)
+	hookFrom(s.d, s.pr, `{"hook_event_name":"StopFailure","session_id":"c1"}`)
+	<-asks
+	next := s.next(t, s.pr)
+	s.settle(t, next)
+
+	appendLine(t, s.transcript, limitLine)
+	hookFrom(s.d, next, `{"hook_event_name":"StopFailure","session_id":"c1"}`)
+
+	noAsk(t, asks, "moved back to the account at its limit")
 }
 
 func TestAtEveryAccountsLimitTheAgentStays(t *testing.T) {
