@@ -1,4 +1,4 @@
-// Package envdir finds a tool's config directory from an environment.
+// Package envdir reads an environment, as for a tool's config directory.
 package envdir
 
 import (
@@ -7,14 +7,20 @@ import (
 	"strings"
 )
 
-// Lookup returns key's last value in env, or ~/fallback when it is unset or empty.
-func Lookup(env []string, key, fallback string) string {
-	dir := ""
+// Value returns key's last value in env, or "" when it is unset.
+func Value(env []string, key string) string {
+	v := ""
 	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, key+"="); ok {
-			dir = v
+		if value, ok := strings.CutPrefix(kv, key+"="); ok {
+			v = value
 		}
 	}
+	return v
+}
+
+// Lookup returns key's last value in env, or ~/fallback when it is unset or empty.
+func Lookup(env []string, key, fallback string) string {
+	dir := Value(env, key)
 	if dir == "" {
 		home, _ := os.UserHomeDir()
 		dir = filepath.Join(home, fallback)

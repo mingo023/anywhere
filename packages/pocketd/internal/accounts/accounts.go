@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"pocketd/internal/atomicfile"
+	"pocketd/internal/envdir"
 	"pocketd/internal/providers"
 )
 
@@ -166,15 +167,11 @@ func envKey(provider string) string {
 
 // Of is the managed account a process with env runs on, or "" for any other login.
 func (s *Store) Of(provider string, env []string) string {
-	dir, key := "", envKey(provider)
+	key := envKey(provider)
 	if key == "" {
 		return ""
 	}
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, key+"="); ok {
-			dir = v
-		}
-	}
+	dir := envdir.Value(env, key)
 	if dir == "" || filepath.Dir(filepath.Clean(dir)) != filepath.Join(s.Root, provider) {
 		return ""
 	}

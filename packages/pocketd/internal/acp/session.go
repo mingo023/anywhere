@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"pocketd/internal/broker"
+	"pocketd/internal/envdir"
 	"pocketd/internal/jsonrpc"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
@@ -106,9 +107,8 @@ type Session struct {
 	tools    map[string]*tool
 	cwd      string
 	// server is OpenCode's HTTP server, which names a sub-agent's session
-	// while it runs, and login the basic auth it asks for, if any.
+	// while it runs, with the basic auth it asks for, if any.
 	server string
-	login  *url.Userinfo
 	// carried says the agent's process ran under the pocketd before this one, so what it left in the background may still run.
 	carried bool
 	// children maps a sub-agent's session to the call that spawned it.
@@ -1137,22 +1137,12 @@ func (s *Session) Server(args, env []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if i := slices.Index(args, "--port"); i >= 0 && i+1 < len(args) && args[i+1] != "0" {
-		s.server = "http://127.0.0.1:" + args[i+1]
-	}
-	if password := lookup(env, "OPENCODE_SERVER_PASSWORD"); password != "" {
-		s.login = url.UserPassword(cmp.Or(lookup(env, "OPENCODE_SERVER_USERNAME"), "opencode"), password)
-	}
-}
-
-// lookup is key's last value in env.
-func lookup(env []string, key string) string {
-	v := ""
-	for _, kv := range env {
-		if value, ok := strings.CutPrefix(kv, key+"="); ok {
-			v = value
+		server := url.URL{Scheme: "http", Host: "127.0.0.1:" + args[i+1]}
+		if password := envdir.Value(env, "OPENCODE_SERVER_PASSWORD"); password != "" {
+			server.User = url.UserPassword(cmp.Or(envdir.Value(env, "OPENCODE_SERVER_USERNAME"), "opencode"), password)
 		}
+		s.server = server.String()
 	}
-	return v
 }
 
 // Carried says the agent's process ran under the pocketd before this one.
@@ -1187,9 +1177,6 @@ func (s *Session) discover(call, description string) {
 		var kids []struct{ ID, Title string }
 		ctx, cancel := context.WithTimeout(s.ctx, CallWait)
 		req, _ := http.NewRequestWithContext(ctx, "GET", s.server+"/session/"+url.PathEscape(id)+"/children?directory="+url.QueryEscape(cwd), nil)
-		if password, ok := s.login.Password(); ok {
-			req.SetBasicAuth(s.login.Username(), password)
-		}
 		if res, err := http.DefaultClient.Do(req); err == nil {
 			json.NewDecoder(res.Body).Decode(&kids)
 			res.Body.Close()

@@ -1477,14 +1477,16 @@ func TestAnOpenCodeSubAgentStillRunningInTheHistoryLoadsSoWhatItAsksReachesTheUs
 	equal(t, a.called("session/load", 2)[1:], []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
 }
 
-// OpenCode's server asks for basic auth once OPENCODE_SERVER_PASSWORD is set, as user OPENCODE_SERVER_USERNAME or "opencode".
+// OpenCode's server asks for basic auth once OPENCODE_SERVER_PASSWORD is set,
+// as user OPENCODE_SERVER_USERNAME or "opencode", and for none without it.
 func TestOpenCodesServerIsAskedAsTheLoginTheAgentsEnvSetsForIt(t *testing.T) {
 	for user, env := range map[string][]string{
 		"opencode": {"OPENCODE_SERVER_PASSWORD=secret"},
 		"me":       {"OPENCODE_SERVER_USERNAME=me", "OPENCODE_SERVER_PASSWORD=secret"},
+		"":         {"OPENCODE_SERVER_USERNAME=me"},
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if u, p, _ := r.BasicAuth(); u != user || p != "secret" {
+			if u, p, ok := r.BasicAuth(); ok != (user != "") || u != user || ok && p != "secret" {
 				http.Error(w, "Authentication required", http.StatusUnauthorized)
 				return
 			}
