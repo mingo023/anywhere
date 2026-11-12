@@ -13,11 +13,11 @@ import (
 	"pocketd/internal/worktree"
 )
 
-// job names a new session from its prompt, and the Worktree it made when its Name was a placeholder.
+// job names a new session from its prompt, and its Worktree when that Worktree's name is a placeholder.
 type job struct {
 	provider, exe, prompt string
 	env                   []string
-	// tree is "" unless naming may name the Worktree and rename its branch.
+	// tree is "" unless naming may name the Worktree; branch is "" unless it may also rename the branch.
 	project, tree, branch string
 	// local is the Local the session started in, which naming names while its name is a placeholder.
 	local string
@@ -67,7 +67,7 @@ func (l *Launcher) Prompted(a *agent.Agent, prompt string, env []string) {
 
 // name runs on claim, which a.ClaimNaming gave.
 func (l *Launcher) name(a *agent.Agent, claim int, j job) {
-	renamable := j.tree != "" && worktree.Renamable(j.tree, j.branch)
+	renamable := j.branch != "" && worktree.Renamable(j.tree, j.branch)
 	var named *naming.Result
 	reply := ""
 	for try := 0; try < tries; try++ {

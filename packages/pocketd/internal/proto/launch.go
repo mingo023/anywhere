@@ -57,6 +57,8 @@ type Checkout struct {
 	Worktree string       `json:"worktree,omitempty"`
 	New      *NewWorktree `json:"new,omitempty"`
 	Local    string       `json:"local,omitempty"`
+	// AutoName: Worktree's name is a placeholder; pocketd names it from the prompt.
+	AutoName bool `json:"autoName,omitempty"`
 }
 
 type NewWorktree struct {
@@ -185,7 +187,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 			return false
 		}
 	}
-	checkout, ok := strictObject(spec["checkout"], "worktree", "new", "local")
+	checkout, ok := strictObject(spec["checkout"], "worktree", "autoName", "new", "local")
 	if !ok {
 		return false
 	}
@@ -205,7 +207,7 @@ func decodeSpec(raw json.RawMessage, dst **LaunchSpec) bool {
 			set++
 		}
 	}
-	if set != 1 || c.New != nil && !c.New.valid() || c.Local != "" && !ValidLocalID(c.Local) {
+	if set != 1 || c.AutoName && c.Worktree == "" || c.New != nil && !c.New.valid() || c.Local != "" && !ValidLocalID(c.Local) {
 		return false
 	}
 	if providers.Get(s.Provider) == nil || !slices.Contains(Accesses, s.Access) || len(s.Prompt) > MaxPrompt {

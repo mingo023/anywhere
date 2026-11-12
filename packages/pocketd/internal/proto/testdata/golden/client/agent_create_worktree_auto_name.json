@@ -1,0 +1,1 @@
+{"type":"agent.create","id":"create-r1","requestId":"r1","spec":{"project":"/Users/me/.anywhere/sessions/calm-otter","checkout":{"worktree":"/Users/me/.anywhere/sessions/calm-otter","autoName":true},"provider":"claude","access":"ask","plan":false,"prompt":"check the disk space"}}

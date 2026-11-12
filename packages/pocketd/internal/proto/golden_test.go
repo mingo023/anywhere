@@ -267,6 +267,8 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"worktree.rename","id":"1","path":"/p","title":null}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","branch":"b","autoName":true}},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"pr":"1","autoName":true}},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":"l1","autoName":true},"provider":"claude","access":"ask","plan":false}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n"},"autoName":true},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"local.create","id":"1","localId":"/x","project":"/p","name":"n"}`,
 		`{"type":"local.create","id":"1","localId":"","project":"/p","name":"n"}`,
 		`{"type":"local.create","id":"1","localId":"a b","project":"/p","name":"n"}`,
@@ -318,6 +320,7 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"local.create","id":"1","localId":"` + strings.Repeat("a", 64) + `","project":"/p","name":""}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":"Az09_-"},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","base":"main","autoName":true}},"provider":"claude","access":"ask","plan":false,"prompt":"x"}}`,
+		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","autoName":true},"provider":"claude","access":"ask","plan":false,"prompt":"x"}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,"chat":true,"parent":"a1"}}`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != nil {

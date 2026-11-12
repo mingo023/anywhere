@@ -32,7 +32,7 @@ export const NewWorktree = Schema.Struct({
 });
 
 export const Checkout = Schema.Union(
-  Schema.Struct({ worktree: Schema.String }),
+  Schema.Struct({ worktree: Schema.String, autoName: Schema.optional(Schema.Boolean) }),
   Schema.Struct({ new: NewWorktree }),
   Schema.Struct({ local: LocalId }),
 );
