@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"pocketd/internal/claude"
@@ -444,22 +443,22 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool)
 	resumed = resumed && replay > 0
 	go func() {
 		defer close(done)
-		var spawns sync.Map
+		subs := claude.NewSubagents(path)
+		// A call's sub-agents are read only once the call is in, and before what follows it, so their items sit under it.
+		var record func([]timeline.Event)
+		record = func(events []timeline.Event) {
+			for _, e := range events {
+				pr.a.Record(e)
+				if e.Kind == "tool_start" {
+					subs.Spawned(e.ToolUseID, record)
+				}
+			}
+		}
 		subagents := make(chan struct{})
 		kick := make(chan struct{}, 1)
 		go func() {
 			defer close(subagents)
-			claude.TailSubagents(ctx, path, kick, func(id string) bool {
-				_, ok := spawns.Load(id)
-				return ok
-			}, func(events []timeline.Event) {
-				for _, e := range events {
-					if e.Kind == "tool_start" {
-						spawns.Store(e.ToolUseID, true)
-					}
-					pr.a.Record(e)
-				}
-			})
+			subs.Tail(ctx, kick, record)
 		}()
 		defer func() { <-subagents }()
 		keys := map[string]string{}
@@ -487,21 +486,18 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool)
 				events = nil
 			}
 			for _, e := range events {
-				if e.Kind == "tool_start" {
-					spawns.Store(e.ToolUseID, true)
-					// A sub-agent's transcript starts with its call, so look for it now.
-					if e.Name == "Task" || e.Name == "Agent" {
-						select {
-						case kick <- struct{}{}:
-						default:
-						}
-					}
-				}
 				d.dismissAnswered(pr.a.ID(), keys, e)
 				if e.Kind == "user" {
 					pr.shown(e.Text)
 				}
-				pr.a.Record(e)
+				record([]timeline.Event{e})
+				// A sub-agent's transcript starts with its call, so look for it now.
+				if e.Kind == "tool_start" && (e.Name == "Task" || e.Name == "Agent") {
+					select {
+					case kick <- struct{}{}:
+					default:
+					}
+				}
 				if e.Limit && read > replay {
 					go d.limitHit(pr)
 				}

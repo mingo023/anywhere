@@ -41,11 +41,14 @@ func TestSidechainLinesCarryTheirTaskToolUseID(t *testing.T) {
 	cancel()
 	var mu sync.Mutex
 	var got []timeline.Event
-	TailSubagents(ctx, filepath.Join(dir, "s1.jsonl"), nil, func(id string) bool { return id == "toolu_spawn" }, func(events []timeline.Event) {
+	collect := func(events []timeline.Event) {
 		mu.Lock()
 		got = append(got, events...)
 		mu.Unlock()
-	})
+	}
+	agents := NewSubagents(filepath.Join(dir, "s1.jsonl"))
+	agents.Spawned("toolu_spawn", collect)
+	agents.Tail(ctx, nil, collect)
 
 	if want := []string{"user", "tool_start", "tool_end", "assistant_text"}; !reflect.DeepEqual(kinds(got), want) {
 		t.Fatalf("got %v want %v", kinds(got), want)
@@ -112,5 +115,39 @@ func TestAForkThatReplaysTheCallThatSpawnedItStillEndsThatCall(t *testing.T) {
 	}
 	if !reflect.DeepEqual(calls, []string{"ok"}) {
 		t.Fatalf("calls %v", calls)
+	}
+}
+
+func TestTailGoesOnFromTheWholeLinesSpawnedReadWithNoneTwice(t *testing.T) {
+	dir := t.TempDir()
+	subs := filepath.Join(dir, "s1", "subagents")
+	write(t, filepath.Join(subs, "agent-a1.meta.json"), `{"toolUseId":"toolu_spawn"}`)
+	line := func(text string) string {
+		return `{"type":"user","isSidechain":true,"message":{"role":"user","content":"` + text + `"}}`
+	}
+	half := len(line("two")) / 2
+	os.WriteFile(filepath.Join(subs, "agent-a1.jsonl"), []byte(line("one")+"\n"+line("two")[:half]), 0o644)
+
+	var mu sync.Mutex
+	var got []string
+	collect := func(events []timeline.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, e := range events {
+			got = append(got, e.Text)
+		}
+	}
+	agents := NewSubagents(filepath.Join(dir, "s1.jsonl"))
+	agents.Spawned("toolu_spawn", collect)
+	agents.Spawned("toolu_spawn", collect)
+	f, _ := os.OpenFile(filepath.Join(subs, "agent-a1.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString(line("two")[half:] + "\n" + line("three") + "\n")
+	f.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	agents.Tail(ctx, nil, collect)
+
+	if want := []string{"one", "two", "three"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
