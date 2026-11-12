@@ -288,7 +288,12 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{ListedModel, Models, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
+    use super::{ListedModel, Models, by_upstream, couldnt_list, effort_label, listed_agents, model_or_default, model_options, not_found};
+
+    #[test]
+    fn a_list_that_names_nobody_has_no_groups() {
+        assert_eq!(by_upstream("hermes", vec!["", ""], |upstream| upstream), [(None, vec!["", ""])]);
+    }
 
     #[test]
     fn a_picker_lists_each_agent_on_offer_and_the_one_picked() {

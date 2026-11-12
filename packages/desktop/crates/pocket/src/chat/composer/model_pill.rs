@@ -25,6 +25,13 @@ pub(super) fn label(agent: &Summary, levels: &[String], default: Option<&str>) -
     (crate::status::model_or_agent(agent), running_effort(agent, levels, default).map(effort_label))
 }
 
+/// The pill's model name: the one `own`, its provider's models, gives the exact id the agent runs, as the list shows it,
+/// else one made from the id. An alias isn't matched, so Claude's pill keeps the version its id names.
+fn pill_name(agent: &Summary, own: &[ListedModel]) -> Option<String> {
+    let model = agent.model.as_deref()?;
+    own.iter().find(|m| m.value == model).map(|m| m.name.clone())
+}
+
 /// Whether the agent runs `model`; Claude Code reports an alias's full id, as "claude-opus-5-5" for "opus". Until the CLI
 /// says what a fallback alias stands for, the alias in the id is the best guess.
 fn runs(agent: &Summary, model: &ListedModel) -> bool {
@@ -51,7 +58,7 @@ impl Desktop {
         let levels = self.efforts_on(&agent.provider, model);
         let default = self.listed_model(&agent.provider, model).map(|m| m.default_effort.as_str());
         let (name, effort) = label(agent, &levels, default);
-        let name = self.models_of(&agent.provider).iter().find(|m| m.value == model).map_or(name, |m| m.name.clone());
+        let name = pill_name(agent, self.models_of(&agent.provider)).unwrap_or(name);
         let pill = model_effort_pill(&agent.provider, name, effort);
         if view_only || !self.agents.settings_offered() {
             return pill;
@@ -89,11 +96,16 @@ impl Desktop {
         let Some((provider, project)) = self.agents.get(id).map(|a| (a.provider.clone(), self.chat_project(a))) else { return };
         self.models_opened(|d| &mut d.chats.composer.draft, &provider, project.as_deref(), cx);
         let Some(agent) = self.agents.get(id) else { return };
-        let own = self.offered_models(&provider);
-        let lines = self.model_lines(&provider, unlisted_running(agent, own), "", project.as_deref());
-        if let Some(on) = running_line(&lines, agent, own) {
+        if let Some(on) = self.chat_listed(agent, &provider, "", project.as_deref()).on {
             self.chats.composer.draft.scroll.scroll_to_item(on, ScrollStrategy::Center);
         }
+    }
+
+    /// The lines `viewed` lists that hold `query`, the model the agent runs among them and checked.
+    fn chat_listed(&self, agent: &Summary, viewed: &str, query: &str, project: Option<&str>) -> Listed {
+        let own = self.offered_models(&agent.provider);
+        let lines = self.model_lines(viewed, if viewed == agent.provider { unlisted_running(agent, own) } else { "" }, query, project);
+        Listed { on: running_line(&lines, agent, own), lines }
     }
 
     /// What `viewed` lists that holds the search, the model the agent runs checked. Picking one of its provider's switches
@@ -101,11 +113,7 @@ impl Desktop {
     fn chat_models(&self, agent: &Summary, viewed: &str, project: Option<&str>, cx: &mut Context<Self>) -> Div {
         let draft = &self.chats.composer.draft;
         let query = self.chats.composer.search.read(cx).value();
-        let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || {
-            let own = self.offered_models(&agent.provider);
-            let lines = self.model_lines(viewed, if viewed == agent.provider { unlisted_running(agent, own) } else { "" }, &query, project);
-            Listed { on: running_line(&lines, agent, own), lines }
-        });
+        let listed = draft.listed.get((viewed, &*query, &agent.provider, &agent.model, self.lines_from(project)), || self.chat_listed(agent, viewed, &query, project));
         if listed.lines.is_empty() {
             return self.no_models(viewed, &query);
         }
@@ -145,7 +153,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Line, ListedModel, ModelSetting, Summary, label, running_effort, running_line, running_option, runs, unlisted_running};
+    use super::{Entry, Line, ListedModel, ModelSetting, Summary, label, pill_name, running_effort, running_line, running_option, runs, unlisted_running};
 
     #[test]
     fn the_line_checked_is_the_model_the_chat_runs() {
@@ -178,6 +186,15 @@ mod tests {
         assert_eq!(label(&agent("claude-opus-4-5", Some("medium")), &levels, Some("low")).1.as_deref(), Some("Medium"));
         assert_eq!(label(&agent("claude-opus-4-5", None), &levels, Some("low")).1.as_deref(), Some("Low"));
         assert_eq!(label(&agent("claude-opus-4-5", None), &levels, Some("")).1, None);
+    }
+
+    #[test]
+    fn the_pill_names_the_model_as_its_list_does_but_keeps_an_aliased_models_version() {
+        let listed = |value: &str, name: &str| ListedModel { value: value.into(), name: name.into(), resolved: "claude-opus-5-5".into(), ..ListedModel::default() };
+        let agent = |model: Option<&str>| Summary { provider: "cursor".into(), model: model.map(Into::into), ..Default::default() };
+        assert_eq!(pill_name(&agent(Some("gpt-5.4")), &[listed("gpt-5.4", "GPT-5.4")]).as_deref(), Some("GPT-5.4"));
+        assert_eq!(pill_name(&agent(Some("claude-opus-5-5")), &[listed("opus", "Opus")]), None);
+        assert_eq!(pill_name(&agent(None), &[listed("gpt-5.4", "GPT-5.4")]), None);
     }
 
     #[test]

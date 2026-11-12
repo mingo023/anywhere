@@ -23,7 +23,7 @@ pub(crate) fn count_line(models: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Choice, ListedModel, Row, count_line, effort_options, model_rows};
-    use crate::models::{Models, by_upstream};
+    use crate::models::Models;
 
     fn listed(value: &str, name: &str) -> ListedModel {
         ListedModel { value: value.into(), name: name.into(), resolved: value.into(), ..ListedModel::default() }
@@ -45,8 +45,6 @@ mod tests {
         }
         assert_eq!(shown("cursor", "")[1..], ["Claude Opus 4.5", "Claude Opus 4.5", "Claude Haiku 4.5"]);
         assert_eq!(shown("pi", "local")[1..3], ["# PI", "local"], "a stored model that names nobody sits under the agent");
-        let own = by_upstream("hermes", vec!["", ""], |upstream| upstream);
-        assert_eq!(own, [(None, vec!["", ""])], "a list that names nobody has no groups");
     }
 
     #[test]

@@ -30,7 +30,7 @@ const RAIL_PAD: f32 = 6.;
 /// The tabs the rail shows before it scrolls: as many whole ones as the search over a full list has room for. Ten agents
 /// then make the panel no taller than a long list does, so it still hangs clear of the pill that opened it.
 const RAIL_TABS: usize = ((SEARCH_HEIGHT + LIST_HEIGHT - 2. * RAIL_PAD + TAB_GAP) / (TAB + TAB_GAP)) as usize;
-const RAIL_HEIGHT: f32 = RAIL_TABS as f32 * (TAB + TAB_GAP) - TAB_GAP + 2. * RAIL_PAD;
+const RAIL_HEIGHT: f32 = rail_extent(RAIL_TABS);
 /// Room beside the tabs for the scrollbar's thumb, so it doesn't sit on the tab in use.
 const RAIL_BAR: f32 = 10.;
 const ROW_GROUP: &str = "model-row";
@@ -261,7 +261,7 @@ fn rail_tab(offered: &[&'static str], current: &str, agent: &str) -> Option<usiz
 }
 
 /// How tall the rail is with `tabs` tabs, unscrolled.
-fn rail_extent(tabs: usize) -> f32 {
+const fn rail_extent(tabs: usize) -> f32 {
     tabs as f32 * (TAB + TAB_GAP) - TAB_GAP + 2. * RAIL_PAD
 }
 
@@ -481,7 +481,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, FAVORITES, Line, RAIL_HEIGHT, RAIL_PAD, TAB, TAB_GAP, rail_extent, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_offset, rail_tab, saved_entries, settings_shown};
+    use super::{Entry, FAVORITES, Line, RAIL_HEIGHT, RAIL_PAD, TAB, TAB_GAP, empty_note, entries, favorite_lines, launching_line, lines, matching, pill_label, rail_offset, rail_tab, saved_entries, settings_shown};
     use agents::ListedModel;
     use store::LaunchPick;
     use store::prefs::agents::Provider;
@@ -676,7 +676,7 @@ mod tests {
             assert!(top >= offset && top + TAB + RAIL_PAD <= offset + RAIL_HEIGHT, "tab {tab} at {top} shows with the rail scrolled {offset}");
             assert_eq!(offset % pitch, 0., "tab {tab}: the top tab shows whole");
         }
-        assert_eq!(RAIL_HEIGHT, rail_extent(7), "the rail holds seven whole tabs");
+        assert_eq!(super::RAIL_TABS, 7, "the rail holds seven whole tabs");
         assert_eq!(rail_offset(7), pitch);
     }
 }
