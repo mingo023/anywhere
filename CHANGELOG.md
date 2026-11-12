@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.40
+
+- Run Pi, Hermes, OpenCode, Cursor, Grok, omp, fx and Antigravity (#224): (ab8b779b)
+- Large markdown files open without freezing the window (#226): (7219caa6)
+- Chat links starting with ~ open the file in your home folder (#225): (26ff61c2)
+
 ## 0.1.39
 
 - Sidebar lists only the worktrees Anywhere made or you imported (#223): (373d2525)
