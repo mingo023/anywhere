@@ -6,7 +6,7 @@ pub(crate) mod pills;
 pub(crate) mod team_chip;
 
 use crate::chat::composer::suggest::Suggest;
-use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, dragged_over, frame, hand_focus, marks_overlay};
+use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
 use agents::providers::{self, Transport};
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
@@ -358,12 +358,8 @@ impl Desktop {
             .child(send);
         // The search takes the keys while the model panel is open; closing it would leave them nowhere.
         let handoff = (c.draft.menu != Some(Menu::Model)).then(|| hand_focus(vec![c.search.read(cx).focus_handle(cx)], c.prompt.read(cx).focus_handle(cx)));
-        let prompt = c.prompt.clone();
         frame(typing)
             .children(handoff)
-            // Files dropped anywhere on the box go to the prompt. Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
-            .drag_over::<ExternalPaths>(|s, _, _, _| dragged_over(s))
-            .on_drop(move |paths: &ExternalPaths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)))
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))
             .children(attached)
             .child(prompt_text().child(textarea).child(marks_overlay(c.prompt.clone())))

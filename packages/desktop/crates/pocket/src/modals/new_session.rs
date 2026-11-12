@@ -5,7 +5,7 @@ use agents::{Agents, CreateReply, Event};
 use chat::Action;
 use crate::chat::composer::send_button::send_button;
 use crate::chat::composer::suggest::Prompt;
-use crate::chat::composer::{MAX_ROWS, MIN_ROWS, PLACEHOLDER};
+use crate::chat::composer::{MAX_ROWS, MIN_ROWS, PLACEHOLDER, drop_zone};
 use crate::chat::mention;
 use crate::composer::{self, Composer};
 use crate::creating::Create;
@@ -786,7 +786,10 @@ impl Desktop {
             .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
             .children(error)
             .child(footer);
-        let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx);
+        let prompt = self.new_form.composer.prompt.clone();
+        // Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
+        let drop = drop_zone(move |paths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)));
+        let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx).relative().child(drop);
         div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
     }
 }

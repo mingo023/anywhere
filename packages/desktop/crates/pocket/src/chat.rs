@@ -182,7 +182,8 @@ impl Desktop {
         };
         let crumb = agent.as_deref().and_then(|a| self.chat_breadcrumb(a, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
-        div().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).children(crumb).child(transcript).child(composer).children(files)
+        let drop = self.chat_drop_zone(terminal, cx);
+        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).children(crumb).child(transcript).child(composer).children(files).children(drop)
     }
 }
 
