@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anywhere · Light Factory</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="window" id="window">
+  <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="resize" id="resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
+  <main class="main" id="main">
+    <div class="view" id="view"></div>
+    <div class="detail" id="detail" hidden></div>
+  </main>
+</div>
+<div id="layer"></div>
+<script src="spring.js"></script>
+<script src="icons.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
