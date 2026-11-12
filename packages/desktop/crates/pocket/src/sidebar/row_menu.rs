@@ -35,23 +35,31 @@ fn resume_command(prefs: &Agents, provider: &str, session_id: &str, cwd: &str) -
     (LaunchPick::PROVIDERS.contains(&provider) && !args.is_empty()).then(|| format!("cd {} && {} {args} {}", quoted(cwd), quoted(&prefs.command(provider)), quoted(session_id)))
 }
 
+/// Whether `s` can be forked: pocketd takes a fork (`offered`), and its agent has a session and fork args to copy it with.
+fn offers_fork(s: &Summary, observe: bool, prefs: &Agents, offered: bool) -> bool {
+    offered && !observe && s.provider_session_id.is_some() && LaunchPick::PROVIDERS.contains(&s.provider.as_str()) && !prefs.args(&s.provider, Args::Fork).is_empty()
+}
+
 /// `fork` is whether pocketd takes a fork.
 fn session_items(s: &Summary, observe: bool, prefs: &Agents, fork: bool) -> Vec<SessionItem> {
     let resume = s.provider_session_id.as_deref().and_then(|id| resume_command(prefs, &s.provider, id, &s.cwd));
-    let fork = fork && !observe && s.provider_session_id.is_some() && LaunchPick::PROVIDERS.contains(&s.provider.as_str()) && !prefs.args(&s.provider, Args::Fork).is_empty();
+    let fork = offers_fork(s, observe, prefs, fork);
     let pin = (!observe).then_some(SessionItem::Pin(!s.pinned));
     let close = (!observe).then_some(SessionItem::Close);
     [pin, Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), fork.then_some(SessionItem::Fork), close].into_iter().flatten().collect()
 }
 
 /// A create that starts a copy of `s` in its folder, with its model, effort and account.
-/// `efforts` are what the session's model takes.
-fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String]) -> Option<Value> {
+/// `efforts` are what the session's model takes; `in_terminal` runs the copy in its agent's TUI even where Settings would start a chat.
+fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String], in_terminal: bool) -> Option<Value> {
     let account = if s.account.is_empty() { accounts::BUILT_IN.into() } else { s.account.clone() };
     let pick = LaunchPick { provider: s.provider.clone(), model: s.model.clone().unwrap_or_default(), effort: s.effort.clone().unwrap_or_default(), account, ..LaunchPick::default() };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), "");
     spec["fork"] = s.provider_session_id.clone()?.into();
     prefs.launch(&mut spec, live, efforts);
+    if in_terminal {
+        spec["chat"] = false.into();
+    }
     Some(spec)
 }
 
@@ -65,16 +73,23 @@ impl Desktop {
         })
     }
 
-    fn fork_session(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn can_fork(&self, s: &Summary) -> bool {
+        offers_fork(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered())
+    }
+
+    /// Starts a copy of agent `id`'s session (see `fork_spec`); the create's request, once sent.
+    pub(crate) fn fork_session(&mut self, id: &str, in_terminal: bool, cx: &mut Context<Self>) -> Option<String> {
         if self.terminals.link.stale().is_some() {
             self.error = Some(link::UPDATING.into());
-            return cx.notify();
+            cx.notify();
+            return None;
         }
         let projects = self.projects();
-        let Some(s) = self.agents.get(id) else { return };
-        let Some(spec) = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()))) else { return };
-        self.send_create(spec);
+        let s = self.agents.get(id)?;
+        let spec = self.project_of(&s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), in_terminal))?;
+        let request = self.send_create(spec);
         cx.notify();
+        request
     }
 
     fn ask_close_session(&mut self, id: String, cx: &mut Context<Self>) {
@@ -363,7 +378,7 @@ impl Desktop {
                             let id = id.clone();
                             ui::menu_row("aside-menu-fork", "branch", "Fork session", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.row_menu = None;
-                                this.fork_session(&id, cx);
+                                this.fork_session(&id, false, cx);
                             }))
                         }
                         SessionItem::Close => {
@@ -445,11 +460,11 @@ mod tests {
         let s = Summary { provider: "claude".into(), cwd: "/w/tree".into(), provider_session_id: Some("s1".into()), model: Some("opus".into()), effort: Some("high".into()), ..Default::default() };
         let claude = agents::providers::builtin_info("claude");
         let live = agents::Agents::default();
-        let spec = fork_spec(&s, "/w", &Agents::default(), &live, &claude.efforts).unwrap();
+        let spec = fork_spec(&s, "/w", &Agents::default(), &live, &claude.efforts, false).unwrap();
         assert_eq!((&spec["project"], &spec["checkout"], &spec["fork"]), (&json!("/w"), &json!({"worktree": "/w/tree"}), &json!("s1")));
         assert_eq!((&spec["provider"], &spec["model"], &spec["effort"]), (&json!("claude"), &json!("opus"), &json!("high")));
         assert!(spec.get("prompt").is_none());
-        assert_eq!(fork_spec(&Summary { provider_session_id: None, ..s }, "/w", &Agents::default(), &live, &claude.efforts), None);
+        assert_eq!(fork_spec(&Summary { provider_session_id: None, ..s }, "/w", &Agents::default(), &live, &claude.efforts, false), None);
     }
 
     #[test]
@@ -457,9 +472,18 @@ mod tests {
         let s = Summary { provider: "codex".into(), cwd: "/w".into(), provider_session_id: Some("s1".into()), account: "work".into(), ..Default::default() };
         let codex = agents::providers::builtin_info("codex");
         let live = agents::Agents::default();
-        assert_eq!(fork_spec(&s, "/w", &Agents::default(), &live, &codex.efforts).unwrap()["account"], json!("work"));
+        assert_eq!(fork_spec(&s, "/w", &Agents::default(), &live, &codex.efforts, false).unwrap()["account"], json!("work"));
         let built_in = Summary { account: String::new(), ..s };
-        assert_eq!(fork_spec(&built_in, "/w", &Agents::default(), &live, &codex.efforts).unwrap()["account"], json!("builtin"));
+        assert_eq!(fork_spec(&built_in, "/w", &Agents::default(), &live, &codex.efforts, false).unwrap()["account"], json!("builtin"));
+    }
+
+    #[test]
+    fn a_fork_for_a_terminal_starts_no_chat_whatever_settings_say() {
+        let s = Summary { provider: "pi".into(), cwd: "/w".into(), provider_session_id: Some("s1".into()), ..Default::default() };
+        let prefs = Agents { start_as_chat: true, ..Agents::default() };
+        let live = agents::Agents::default();
+        assert_eq!(fork_spec(&s, "/w", &prefs, &live, &[], false).unwrap()["chat"], json!(true));
+        assert_eq!(fork_spec(&s, "/w", &prefs, &live, &[], true).unwrap()["chat"], json!(false));
     }
 
     #[test]

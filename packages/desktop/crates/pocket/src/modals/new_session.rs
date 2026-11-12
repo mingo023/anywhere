@@ -664,6 +664,7 @@ impl Desktop {
             }
             Event::CreateFailed { request, message, detail, .. } => {
                 self.terminals.tab_chats.remove(&request);
+                self.terminals.tab_terms.remove(&request);
                 self.creates.failed_in_place(&request);
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());

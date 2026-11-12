@@ -94,6 +94,7 @@ impl Desktop {
             .children(toggle)
             .child(strip)
             .children(self.open_in_button(cx))
+            .children(self.top_actions(cx))
     }
 
     /// Top tab `i` of worktree `tree`, holding the panes of `t`.
@@ -107,6 +108,7 @@ impl Desktop {
             Tab::Term(id) => self.summary(id),
             _ => None,
         });
+        let fork = agent.filter(|a| self.chat_shown(&a.terminal_id) && self.can_fork(a)).map(|a| a.id.clone());
         let lead = match (agent, head) {
             (Some(a), _) => provider_icon(&a.provider, 14., ink).into_any_element(),
             (None, Some(Tab::Doc(Doc::Commit(_)))) => icon("diff-multiple", 14., ink).into_any_element(),
@@ -182,6 +184,16 @@ impl Desktop {
                 }
             })
             .when(closable, |d| d.on_mouse_up(MouseButton::Middle, cx.listener(move |this, _: &MouseUpEvent, _, cx| this.close_top(i, cx))))
+            .when_some(fork, |d, agent| {
+                d.on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                        this.close_menus();
+                        this.panels.top_actions = Some((agent.clone(), e.position));
+                        cx.notify();
+                    }),
+                )
+            })
     }
 
     /// Follows a held top tab: along the bar it makes room among the others; below it, one not shown leaves the bar to join the shown one beside a pane.

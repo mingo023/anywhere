@@ -460,6 +460,7 @@ impl Desktop {
         let menus = [
             ("panels.menu", self.panels.menu.is_some()),
             ("panels.actions", self.panels.actions.is_some()),
+            ("panels.top_actions", self.panels.top_actions.is_some()),
             ("row_menu", self.row_menu.is_some()),
             ("changes.commit_menu", self.changes.commit_menu),
             ("changes.menu", self.changes.menu),
