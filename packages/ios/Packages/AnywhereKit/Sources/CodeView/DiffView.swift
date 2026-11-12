@@ -249,6 +249,7 @@ struct DiffBlock: View {
             sideBySide ? column * 2 + 1 : wrap ? min : cells.reduce(min) { w, row in max(w, row.last.map { $0.inset + ($0.text?.width ?? 0) + Space.m } ?? 0) }
         }
         let drawn = DrawnRows(rows: cells, rowHeight: rowHeight, width: width, window: wrap ? nil : minWidth.map { (scrollX, $0) })
+            .overlay(alignment: .topLeading) { pinnedGutter(texts) }
         Group {
             if let actions {
                 drawn
@@ -289,8 +290,7 @@ struct DiffBlock: View {
             Color.clear.frame(width: 1, height: rowHeight).offset(y: y(mark.row)).id(Mark.id)
         }
         if let handles {
-            let x = Space.xs + CGFloat(CodeStyle.diffCodeStart(gutter, digits: digits)) * DrawnText.advance(size)
-            PickHandles(handles: handles, range: rows, x: x, rowHeight: rowHeight, moved: actions.handleMoved, ended: actions.handleEnded)
+            PickHandles(handles: handles, range: rows, x: codeX, rowHeight: rowHeight, moved: actions.handleMoved, ended: actions.handleEnded)
         }
     }
 
@@ -312,6 +312,27 @@ struct DiffBlock: View {
         if line.kind == .hunk { return [Cell(fill: DiffRow.fill(.hunk, dark: dark), text: texts.hunk(line), inset: Space.xs + Space.m)] }
         let cell = Cell(fill: DiffRow.fill(line.kind, dark: dark), text: texts.row(line, gutter, part: part), inset: Space.xs)
         return isPicked(i) ? [Cell(fill: selection), cell] : [cell]
+    }
+
+    /// Where code starts in a unified row, past its numbers and sign.
+    private var codeX: CGFloat { Space.xs + CGFloat(CodeStyle.diffCodeStart(gutter, digits: digits)) * DrawnText.advance(size) }
+
+    /// A unified diff's numbers and signs, kept at the left edge once the code scrolls sideways; side by side, the
+    /// right half's numbers sit mid-row, so neither half's are kept.
+    @ViewBuilder
+    private func pinnedGutter(_ texts: DiffTexts) -> some View {
+        if !sideBySide, !wrap, scrollX > 0 {
+            PinnedGutter(rows: rows.map { pinned($0, texts) }, rowHeight: rowHeight, width: codeX, x: scrollX, dark: dark)
+        }
+    }
+
+    private func pinned(_ row: Int, _ texts: DiffTexts) -> [Cell] {
+        let i = index(row).line
+        let line = lines[i]
+        let fill = DiffRow.fill(line.kind, dark: dark)
+        guard line.kind != .hunk else { return [Cell(fill: fill)] }
+        let numbers = Cell(fill: fill, text: texts.numbers(line, gutter), inset: Space.xs)
+        return isPicked(i) ? [Cell(fill: selection), numbers] : [numbers]
     }
 
     private func pair(_ pair: SplitRow, _ texts: DiffTexts) -> [Cell] {
@@ -343,6 +364,14 @@ private struct DiffTexts {
             DrawnText(
                 CodeStyle.diffRow(line, gutter: gutter, digits: digits, spans: spans.spans(line.id), dark: dark, part: part), size: size,
                 color: Palette.text.rgba(dark: dark))
+        }
+    }
+
+    func numbers(_ line: UnifiedLine, _ gutter: CodeStyle.Gutter) -> DrawnText {
+        spans.texts.text(DiffRowKey(row: line.id, part: -1..<0, gutter: gutter, dark: dark, size: size), coloured: true) {
+            var runs = LineRuns()
+            CodeStyle.diffGutter(line, gutter: gutter, digits: digits, dark: dark, into: &runs)
+            return DrawnText(runs, size: size, color: Palette.text.rgba(dark: dark))
         }
     }
 
