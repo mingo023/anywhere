@@ -1528,7 +1528,7 @@ func TestAHermesSubAgentShowsUnderItsCallWhatItsTranscriptTellsAndEndsItWithItsS
 		return endTurn
 	})})
 	s.Prompt("Delegate")
-	sk.wait(t, "ended:false")
+	sk.wait(t, "result:true:")
 	f, _ := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0)
 	f.WriteString("12:00:02 think    | Listing them.\n12:00:02 tool     | -> terminal(ls)\n12:00:03 result   | terminal ok 0.1s: {\"output\": \"a.txt\", \"exit_code\": 0}\n" +
 		"12:00:04 assistant| Found a.txt\n12:00:04 final    | status=completed duration=3.1s summary: Found a.txt\n12:00:04 final    | end status=")
@@ -1536,13 +1536,12 @@ func TestAHermesSubAgentShowsUnderItsCallWhatItsTranscriptTellsAndEndsItWithItsS
 	f.WriteString("completed\n")
 	f.Close()
 	os.WriteFile(manifest, []byte(`{"delegation_id":"deleg_1","completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"completed"}]}`), 0o600)
-	equal(t, after(sk.waitN(t, "ended:false", 2), "working"), []string{
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
 		"working",
 		"tool_start:tc-d:task:task:List the files",
 		"tc-d>user:List the files",
 		"tool_background:tc-d:detached",
 		"result:true:",
-		"ended:false",
 		"tc-d>thinking:Listing them.",
 		"tc-d>tool_start:tc-d.1:shell:shell:ls",
 		`tool_end:tc-d.1:true:{"output": "a.txt", "exit_code": 0}`,
@@ -1554,16 +1553,25 @@ func TestAHermesSubAgentShowsUnderItsCallWhatItsTranscriptTellsAndEndsItWithItsS
 	})
 }
 
-func TestAHermesSubAgentWhoseTranscriptIsGoneEndsItsCallFailed(t *testing.T) {
-	defer func(p time.Duration) { DelegationPoll = p }(DelegationPoll)
-	DelegationPoll = 10 * time.Millisecond
-	dispatched := `{"status": "dispatched", "mode": "background", "live_transcripts": ["` + filepath.Join(t.TempDir(), "task-0.log") + `"]}`
-	s, _, sk, _ := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, _ string) string {
-		hermesDelegates(a, "List the files", dispatched)
-		return endTurn
-	})})
-	s.Prompt("Delegate")
-	sk.wait(t, "tool_end:tc-d:false")
+// Hermes writes the manifest just before it dispatches, and rewrites it as its sub-agents end.
+func TestAHermesDelegationRunsOnUntilItsManifestSaysEveryTaskItListsHasEnded(t *testing.T) {
+	for _, manifest := range []string{"", `{"completed":"2026-11-11 12:00:04","tasks":[]}`,
+		`{"completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"pending"}]}`,
+		`{"completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"finalizing"}]}`} {
+		s, _, sk, dir := handsBack(t, "", nil)
+		os.Remove(filepath.Join(dir, "manifest.json"))
+		if manifest != "" {
+			writeManifest(dir, manifest)
+		}
+		s.Prompt("Delegate")
+		sk.wait(t, "result:true:")
+		time.Sleep(5 * DelegationPoll)
+		if got := sk.lines(); slices.ContainsFunc(got, func(l string) bool { return strings.HasPrefix(l, "tool_end:tc-d") }) {
+			t.Fatalf("ended on %q: %v", manifest, got)
+		}
+		writeManifest(dir, completed)
+		sk.wait(t, "tool_end:tc-d:true")
+	}
 }
 
 // delegated is a delegation's transcript and manifest in a folder of their
@@ -1572,7 +1580,7 @@ func delegated(t *testing.T, manifest, transcript string) (dir, handle string) {
 	dir = t.TempDir()
 	os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(manifest), 0o600)
 	os.WriteFile(filepath.Join(dir, "task-0.log"), []byte("=== Hermes subagent live transcript ===\n"+transcript), 0o600)
-	b, _ := json.Marshal(map[string]any{"status": "dispatched", "mode": "background", "live_transcripts": []string{filepath.Join(dir, "task-0.log")}})
+	b, _ := json.Marshal(map[string]any{"status": "dispatched", "mode": "background", "delegation_id": "deleg_1", "live_transcripts": []string{filepath.Join(dir, "task-0.log")}})
 	return dir, string(b)
 }
 
@@ -1643,7 +1651,7 @@ func TestAHermesDelegationEndsOnceEveryOneOfItsSubAgentsHas(t *testing.T) {
 		return endTurn
 	})})
 	s.Prompt("Delegate")
-	sk.wait(t, "ended:false")
+	sk.wait(t, "result:true:")
 	os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"completed"},{"index":1,"status":"running"}]}`), 0o600)
 	time.Sleep(5 * DelegationPoll)
 	if got := sk.lines(); slices.ContainsFunc(got, func(l string) bool { return strings.HasPrefix(l, "tool_end:tc-d") }) {
@@ -1653,37 +1661,59 @@ func TestAHermesDelegationEndsOnceEveryOneOfItsSubAgentsHas(t *testing.T) {
 	sk.wait(t, "tool_end:tc-d:true")
 }
 
-// handsBack runs Hermes delegating in the background on "Delegate", and
-// replying "Took it." to anything else, with what the sub-agent's transcript says.
-func handsBack(t *testing.T, transcript string) (s *Session, a *agent, sk *sink, end func()) {
+const completed = `{"completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"completed"}]}`
+
+func writeManifest(dir, manifest string) {
+	os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(manifest), 0o600)
+}
+
+// handsBack runs Hermes delegating in the background on "Delegate", as turn
+// does if given, and replying "Took it." to anything else, with what the
+// sub-agent's transcript says. Its manifest is in dir.
+func handsBack(t *testing.T, transcript string, turn func(delegate func()) string) (s *Session, a *agent, sk *sink, dir string) {
 	t.Helper()
 	p := DelegationPoll
 	t.Cleanup(func() { DelegationPoll = p })
 	DelegationPoll = 10 * time.Millisecond
 	dir, handle := delegated(t, `{"tasks":[{"index":0,"status":"running"}]}`, transcript)
-	end = func() {
-		os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"completed":"2026-11-11 12:00:04","tasks":[{"index":0,"status":"completed"}]}`), 0o600)
+	if turn == nil {
+		turn = func(delegate func()) string {
+			delegate()
+			return endTurn
+		}
 	}
 	s, a, sk, _ = start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, text string) string {
 		if text == "Delegate" {
-			hermesDelegates(a, "List the files", handle)
-		} else {
-			a.update(`{"content":{"text":"Took it.","type":"text"},"messageId":"m2","sessionUpdate":"agent_message_chunk"}`)
+			return turn(func() { hermesDelegates(a, "List the files", handle) })
 		}
+		a.update(`{"content":{"text":"Took it.","type":"text"},"messageId":"m2","sessionUpdate":"agent_message_chunk"}`)
 		return endTurn
 	})})
-	return s, a, sk, end
+	return s, a, sk, dir
+}
+
+// handedBack is what pocketd handed Hermes in the nth prompt.
+func handedBack(t *testing.T, a *agent, n int) []transcriptTail {
+	t.Helper()
+	head, data, _ := strings.Cut(promptOf(json.RawMessage(a.called("session/prompt", n)[n-1])), "\n\n")
+	var tails []transcriptTail
+	if !strings.HasPrefix(head, handoffHeader) || json.Unmarshal([]byte(data), &tails) != nil {
+		t.Fatalf("prompted %q", head)
+	}
+	return tails
 }
 
 // Hermes's ACP server never takes what its background sub-agents hand back,
-// as its CLI does, so pocketd hands it over in a turn of its own.
+// as its CLI does, so the turn goes on until pocketd has handed it over.
 func TestATurnHandsHermesWhatItsBackgroundSubAgentsToldOnceTheyEnd(t *testing.T) {
 	transcript := "12:00:04 final    | status=completed duration=3.1s summary: Found a.txt\n"
-	s, a, sk, end := handsBack(t, transcript)
+	s, a, sk, dir := handsBack(t, transcript, nil)
 	s.Prompt("Delegate")
-	sk.wait(t, "ended:false")
-	end()
-	equal(t, after(sk.waitN(t, "ended:false", 2), "tool_end:tc-d:true:Found a.txt"), []string{
+	sk.wait(t, "result:true:")
+	writeManifest(dir, completed)
+	equal(t, after(sk.wait(t, "ended:false"), "tool_background:tc-d:detached"), []string{
+		"tool_background:tc-d:detached",
+		"result:true:",
 		"tool_end:tc-d:true:Found a.txt",
 		"working",
 		"assistant_draft:Took it.",
@@ -1691,45 +1721,88 @@ func TestATurnHandsHermesWhatItsBackgroundSubAgentsToldOnceTheyEnd(t *testing.T)
 		"result:true:",
 		"ended:false",
 	})
-	head, data, _ := strings.Cut(promptOf(json.RawMessage(a.called("session/prompt", 2)[1])), "\n\n")
-	var told []struct{ Path, Tail string }
-	json.Unmarshal([]byte(data), &told)
-	if !strings.HasPrefix(head, handoffHeader) || len(told) != 1 || filepath.Base(told[0].Path) != "task-0.log" ||
-		told[0].Tail != "=== Hermes subagent live transcript ===\n"+transcript {
-		t.Fatalf("handed back %q then %+v", head, told)
+	tails := handedBack(t, a, 2)
+	if len(tails) != 1 || tails[0].DelegationID != "deleg_1" || filepath.Base(tails[0].Path) != "task-0.log" ||
+		tails[0].Tail != "=== Hermes subagent live transcript ===\n"+transcript {
+		t.Fatalf("handed back %+v", tails)
+	}
+}
+
+func TestAHandoffHandsTheEndOfEachTranscriptFromItsFirstWholeCharacter(t *testing.T) {
+	s, a, sk, dir := handsBack(t, strings.Repeat("é", tailSize)+"x", nil)
+	s.Prompt("Delegate")
+	sk.wait(t, "result:true:")
+	writeManifest(dir, completed)
+	if tails := handedBack(t, a, 2); len(tails) != 1 || tails[0].Tail != strings.Repeat("é", tailSize/2-1)+"x" {
+		t.Fatalf("handed back %+v", tails)
 	}
 }
 
 func TestSubAgentsThatEndMidTurnAreHandedBackOnceTheTurnEnds(t *testing.T) {
-	s, a, sk, end := handsBack(t, "")
+	hold := make(chan struct{})
+	s, a, sk, dir := handsBack(t, "", func(delegate func()) string {
+		delegate()
+		<-hold
+		return endTurn
+	})
 	s.Prompt("Delegate")
 	sk.wait(t, "tool_background:tc-d:detached")
-	end()
+	writeManifest(dir, completed)
 	sk.wait(t, "tool_end:tc-d:true")
-	if got := a.called("session/prompt", 2); !strings.Contains(got[1], handoffHeader) {
+	close(hold)
+	equal(t, after(sk.wait(t, "ended:false"), "tool_end:tc-d:true"), []string{
+		"tool_end:tc-d:true",
+		"result:true:",
+		"working",
+		"assistant_draft:Took it.",
+		"assistant_text:Took it.",
+		"result:true:",
+		"ended:false",
+	})
+	handedBack(t, a, 2)
+}
+
+func TestAPromptSentWhileHermesSubAgentsRunWaitsBehindTheirHandoff(t *testing.T) {
+	s, a, sk, dir := handsBack(t, "", nil)
+	s.Prompt("Delegate")
+	sk.wait(t, "result:true:")
+	s.Prompt("Next")
+	writeManifest(dir, completed)
+	sk.waitN(t, "ended:false", 2)
+	handedBack(t, a, 2)
+	if got := a.called("session/prompt", 3); promptOf(json.RawMessage(got[2])) != "Next" {
 		t.Fatalf("prompted %v", got)
 	}
 }
 
-func TestATurnTheUserStartsBeforeTheSubAgentsEndDropsTheirHandoff(t *testing.T) {
-	s, a, sk, end := handsBack(t, "")
+func TestAStopEndsTheTurnThatWaitsOnHermesSubAgentsAndDropsTheirHandoff(t *testing.T) {
+	s, a, sk, dir := handsBack(t, "", nil)
 	s.Prompt("Delegate")
-	s.Prompt("Next")
-	sk.waitN(t, "ended:false", 2)
-	end()
+	sk.wait(t, "result:true:")
+	s.Cancel()
+	sk.wait(t, "stopped")
+	writeManifest(dir, completed)
 	sk.wait(t, "tool_end:tc-d:true")
 	time.Sleep(5 * DelegationPoll)
-	if got := a.called("session/prompt", 2); len(got) != 2 {
-		t.Fatalf("handed back after the user's turn: %v", got)
+	if got := a.called("session/prompt", 1); len(got) != 1 {
+		t.Fatalf("handed back after a stop: %v", got)
 	}
 }
 
-func TestAStopDropsTheHandoffOfSubAgentsStillRunning(t *testing.T) {
-	s, a, sk, end := handsBack(t, "")
+// Hermes may tell of a delegation it dispatched after the user stopped the turn, before its answer to the stop.
+func TestADelegationToldAfterAStopIsNotHandedBack(t *testing.T) {
+	hold := make(chan struct{})
+	s, a, sk, dir := handsBack(t, "", func(delegate func()) string {
+		<-hold
+		delegate()
+		return `{"stopReason":"cancelled"}`
+	})
 	s.Prompt("Delegate")
-	sk.wait(t, "ended:false")
+	sk.wait(t, "working")
 	s.Cancel()
-	end()
+	close(hold)
+	sk.wait(t, "stopped")
+	writeManifest(dir, completed)
 	sk.wait(t, "tool_end:tc-d:true")
 	time.Sleep(5 * DelegationPoll)
 	if got := a.called("session/prompt", 1); len(got) != 1 {
@@ -1744,7 +1817,7 @@ func TestAHistoryShowsTheTurnThatHandedHermesBackItsSubAgentsWorkWithoutItsPromp
 		}
 		a.update(`{"content":{"text":"Delegate","type":"text"},"sessionUpdate":"user_message_chunk"}`)
 		a.update(`{"content":{"text":"On it.","type":"text"},"sessionUpdate":"agent_message_chunk"}`)
-		a.update(`{"content":{"text":` + strconv.Quote(handoff([]report{{Path: "/t/task-0.log", Tail: "done"}})) + `,"type":"text"},"sessionUpdate":"user_message_chunk"}`)
+		a.update(`{"content":{"text":` + strconv.Quote(handoffPrompt([]transcriptTail{{Path: "/t/task-0.log", Tail: "done"}})) + `,"type":"text"},"sessionUpdate":"user_message_chunk"}`)
 		a.update(`{"content":{"text":"Took it.","type":"text"},"sessionUpdate":"agent_message_chunk"}`)
 		return hermesNew
 	}})

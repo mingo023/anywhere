@@ -286,6 +286,7 @@ type subAgent struct {
 	background bool // it runs on past the call
 	// transcripts are the files Hermes's sub-agents tell their work in, as it runs them in the background.
 	transcripts []string
+	delegation  string // Hermes's id of them
 }
 
 func (t *toolCall) subAgent() subAgent {
@@ -303,6 +304,7 @@ func (t *toolCall) subAgent() subAgent {
 	}
 	var dispatched struct {
 		Status      string   `json:"status"`
+		ID          string   `json:"delegation_id"`
 		Transcripts []string `json:"live_transcripts"`
 	}
 	json.Unmarshal(t.RawOutput, &out)
@@ -313,7 +315,7 @@ func (t *toolCall) subAgent() subAgent {
 	}
 	// Hermes's, whose call ends as its sub-agents start.
 	if json.Unmarshal([]byte(t.said()), &dispatched) == nil && dispatched.Status == "dispatched" {
-		return subAgent{background: true, transcripts: dispatched.Transcripts}
+		return subAgent{background: true, transcripts: dispatched.Transcripts, delegation: dispatched.ID}
 	}
 	// Grok's, whose session is named as it is.
 	for line := range strings.SplitSeq(t.said(), "\n") {
