@@ -550,8 +550,10 @@ func (l *Launcher) account(provider, id string) ([]string, *Failure) {
 // while the shell looks, so Providers can look for all at once.
 func (l *Launcher) find(provider string, env []string) (string, bool) {
 	cmd := l.set.AgentCommand(provider)
+	// What a lookup found holds for the env it ran in: a login env read again may find more.
+	key := strings.Join([]string{cmd, lookup(env, "SHELL"), lookup(env, "PATH")}, "\x00")
 	l.mu.Lock()
-	f, ok := l.found[cmd]
+	f, ok := l.found[key]
 	l.mu.Unlock()
 	if ok && time.Since(f.at) < probeTTL {
 		return f.path, f.path != ""
@@ -561,7 +563,7 @@ func (l *Launcher) find(provider string, env []string) (string, bool) {
 		path = ""
 	}
 	l.mu.Lock()
-	l.found[cmd] = found{path, time.Now()}
+	l.found[key] = found{path, time.Now()}
 	l.mu.Unlock()
 	return path, path != ""
 }
