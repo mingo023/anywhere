@@ -1,6 +1,6 @@
 use super::card::DragTicket;
 use super::logic::{Col, Slot, busy, set_away};
-use super::parts::col_heading;
+use super::parts::{col_heading, empty_hint};
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use theme::*;
@@ -26,12 +26,8 @@ impl Desktop {
         div().h(px(38.)).flex_none().pl(px(12.)).pr(px(8.)).flex().items_center().child(col_heading(col, count)).child(div().flex_1()).child(hide).children(add)
     }
 
-    fn empty_slot(col: Col) -> Div {
-        div().mx(px(8.)).min_h(px(72.)).flex().flex_none().items_center().justify_center().px(px(18.)).py(px(12.)).rounded(px(9.)).border_1().border_dashed().border_color(SEPARATOR).text_center().text_size(px(12.)).line_height(px(18.)).text_color(TEXT_4).child(col.hint())
-    }
-
     pub(super) fn board_column(&mut self, col: Col, cx: &mut Context<Self>) -> Stateful<Div> {
-        let empty = self.board.columns[col as usize].is_empty().then(|| Self::empty_slot(col));
+        let empty = self.board.columns[col as usize].is_empty().then(|| empty_hint(col.hint()));
         let cards = list(self.board.lists[col as usize].clone(), cx.processor(move |this, ix, _, cx| {
             let index = this.board.columns[col as usize].get(ix).copied();
             index.map_or_else(|| div().into_any_element(), |index| this.ticket_card(Slot { col, pos: ix, index }, cx))

@@ -626,6 +626,7 @@ impl Desktop {
         hosts::remote::forget(id);
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);
+        self.activity_changed();
         if let Some(at) = self.store.hosts.iter().position(|h| h.id == id) {
             let host = self.store.hosts.remove(at);
             let home = self.store.home().to_path_buf();

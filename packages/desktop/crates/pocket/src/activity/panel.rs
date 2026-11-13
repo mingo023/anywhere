@@ -1,32 +1,14 @@
 use super::card::col_glyph;
-use super::logic::column;
-use crate::board::parts::quick_button;
+use super::logic::{column, label};
 use crate::desktop::Desktop;
 use crate::inbox::first_line;
 use crate::git_ui::pull_requests::{detail, glyph as pr_glyph, tone};
-use crate::status::Status;
 use crate::util::{ago, now_ms};
-use agents::Decision;
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
 impl Desktop {
-    /// Deny and Allow once for the session's permission ask; `None` for a question, which needs its dialog.
-    pub(super) fn activity_answers(&self, id: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let ask = self.agents.pending.iter().find(|p| p.agent_id == id).filter(|p| p.questions().is_empty() && !self.agents.observe_only())?;
-        let (allow, deny) = (ask.request_id.clone(), ask.request_id.clone());
-        let deny = quick_button(SharedString::from(format!("activity-deny-{id}")), None, "Deny").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            cx.stop_propagation();
-            this.answer_pending(&deny, Decision::Deny, cx);
-        }));
-        let allow = quick_button(SharedString::from(format!("activity-allow-{id}")), None, "Allow once").bg(PRIMARY).text_color(ON_PRIMARY).hover(|s| s.bg(PRIMARY).opacity(0.9)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            cx.stop_propagation();
-            this.answer_pending(&allow, Decision::Allow, cx);
-        }));
-        Some(div().flex().flex_none().items_center().gap(px(4.)).child(deny).child(allow))
-    }
-
     fn activity_ask(&self, id: &str, cx: &mut Context<Self>) -> Option<Div> {
         let p = self.agents.pending.iter().find(|p| p.agent_id == id)?;
         let answer = self.activity_answers(id, cx).map(IntoElement::into_any_element).unwrap_or_else(|| div().text_size(px(12.)).text_color(TEXT_3).child("Answer it in the session.").into_any_element());
@@ -37,8 +19,7 @@ impl Desktop {
         let id = self.activity.previewed.clone()?;
         let item = self.activity.item(&id)?;
         let col = column(item.status, item.pr_open);
-        let label = if item.status == Some(Status::Failed) { "Failed" } else { col.name() };
-        let chip = div().h(px(22.)).px(px(8.)).flex().flex_none().items_center().gap(px(5.)).rounded(px(11.)).bg(FILL_2).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(col_glyph(col)).child(label);
+        let chip = div().h(px(22.)).px(px(8.)).flex().flex_none().items_center().gap(px(5.)).rounded(px(11.)).bg(FILL_2).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(col_glyph(col)).child(label(item.status, item.pr_open));
         let go = id.clone();
         let open = ui::button("activity-open-session", Variant::Primary, None, "Open session").child(ui::kbd("↵")).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_previewed(&go, window, cx)));
         let close = ui::icon_button_sized("activity-panel-close", "x", 24., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {

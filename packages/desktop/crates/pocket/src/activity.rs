@@ -14,13 +14,8 @@ use agents::Summary;
 use git::github::PrState;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use logic::{COLS, Columns, Filters, Item, arrange, marks_seen};
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(crate) enum Menu {
-    Project,
-    Agent,
-}
+pub(crate) use logic::Menu;
+use logic::{COLS, Columns, Escape, Filters, Item, arrange, escape, marks_seen, opens_preview};
 
 pub struct ActivityState {
     pub(crate) previewed: Option<String>,
@@ -37,6 +32,7 @@ impl ActivityState {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions"));
         let subs = vec![cx.subscribe(&search, |this: &mut Desktop, s, _: &InputEvent, cx| {
             this.activity.filters.query = s.read(cx).value().to_string();
+            this.activity_changed();
             cx.notify();
         })];
         let state = Self { previewed: None, filters: Filters::default(), menu: None, items: Vec::new(), columns: Default::default(), lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), search };
@@ -78,6 +74,7 @@ impl Desktop {
         }
         self.activity.previewed = None;
         self.screen = Screen::Activity;
+        self.activity_changed();
         window.focus(&self.root, cx);
         cx.notify();
     }
@@ -90,14 +87,12 @@ impl Desktop {
 
     /// Esc lets go of a focused search field first, then closes the preview, then leaves the page.
     pub(crate) fn escape_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.activity.search.focus_handle(cx).is_focused(window) {
-            window.focus(&self.root, cx);
-            cx.notify();
-        } else if self.activity.previewed.take().is_some() {
-            cx.notify();
-        } else {
-            self.leave_activity(cx);
+        match escape(self.activity.search.focus_handle(cx).is_focused(window), self.activity.previewed.is_some()) {
+            Escape::LeaveSearch => window.focus(&self.root, cx),
+            Escape::ClosePreview => self.activity.previewed = None,
+            Escape::LeavePage => self.leave_activity(cx),
         }
+        cx.notify();
     }
 
     fn preview_session(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -118,13 +113,21 @@ impl Desktop {
 
     /// ↵ or ⌘↵ opens the previewed session, unless a field has the keyboard.
     pub(crate) fn activity_key(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let plain_or_command = !key.modifiers.modified() || key.modifiers == Modifiers::command();
-        if self.screen != Screen::Activity || self.overlay.is_some() || self.activity.menu.is_some() || !self.root.is_focused(window) || key.key != "enter" || !plain_or_command {
+        let opens = opens_preview(&key.key, !key.modifiers.modified(), key.modifiers == Modifiers::command());
+        if self.screen != Screen::Activity || self.overlay.is_some() || self.activity.menu.is_some() || !self.root.is_focused(window) || !opens {
             return false;
         }
         let Some(id) = self.activity.previewed.clone() else { return false };
         self.open_previewed(&id, window, cx);
         true
+    }
+
+    /// Off the screen nothing reads the columns; opening it regroups.
+    pub(crate) fn activity_changed(&mut self) {
+        if self.screen == Screen::Activity {
+            let items = self.activity_items();
+            self.activity.regroup(items);
+        }
     }
 
     /// Every session with a terminal, as the page shows it.

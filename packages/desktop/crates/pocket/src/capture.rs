@@ -519,6 +519,7 @@ const STEPS: [(&str, Step); 270] = [
             d.activity.filters.projects.insert(p);
         }
         d.activity.menu = Some(crate::activity::Menu::Project);
+        d.activity_changed();
         cx.notify();
     }),
     ("chat-only-done", |d, _, _| {
@@ -901,6 +902,7 @@ const STEPS: [(&str, Step); 270] = [
             d.prs.start(&tree, now);
             d.prs.apply(tree, now, Ok(Some(pr)), now);
         }
+        d.activity_changed();
     }),
     ("pr-loop", |d, _, _| {
         let Some(tree) = d.cwd() else { return };

@@ -61,7 +61,7 @@ impl Desktop {
     }
 
     /// Answers the ask the button was drawn for, never one that has replaced it since.
-    pub(crate) fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
+    fn answer_ticket(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
         if self.agents.pending.iter().any(|p| p.request_id == request) {
             self.outbox.resolve(request, decision);
         }
@@ -81,8 +81,17 @@ impl Desktop {
         let request = request.to_string();
         row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             cx.stop_propagation();
-            this.answer_pending(&request, decision, cx);
+            this.answer_ticket(&request, decision, cx);
         }))
+    }
+
+    /// Deny and Allow once for `request`, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`.
+    pub(crate) fn answer_buttons(&self, scope: &str, id: &str, request: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
+        let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
+        vec![
+            self.answer_click(quick_button(button("deny"), None, "Deny"), request, Decision::Deny, cx),
+            self.answer_click(quick_button(button("allow"), None, "Allow once").bg(PRIMARY).text_color(ON_PRIMARY).hover(|s| s.bg(PRIMARY).opacity(0.9)), request, Decision::Allow, cx),
+        ]
     }
 
     /// What the ticket offers at a glance, its buttons side by side.
@@ -98,10 +107,7 @@ impl Desktop {
             Quick::Start => vec![self.quick_click(quick_button(button("start"), Some("play"), "Start"), Action::Start, id, cx)],
             Quick::StartAgain => vec![self.quick_click(quick_button(button("again"), Some("reload"), "Start again"), Action::StartAgain, id, cx)],
             Quick::CreatePr => vec![self.quick_click(quick_button(button("pr"), Some("pull-request"), "Create PR"), Action::CreatePr, id, cx)],
-            Quick::Answer => vec![
-                self.answer_click(quick_button(button("deny"), None, "Deny"), request, Decision::Deny, cx),
-                self.answer_click(quick_button(button("allow"), None, "Allow once").bg(PRIMARY).text_color(ON_PRIMARY).hover(|s| s.bg(PRIMARY).opacity(0.9)), request, Decision::Allow, cx),
-            ],
+            Quick::Answer => self.answer_buttons("ticket", id, request, cx),
         };
         Some(div().flex().flex_none().items_center().gap(px(4.)).children(buttons))
     }

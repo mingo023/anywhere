@@ -68,6 +68,11 @@ pub(crate) fn column(status: Option<Status>, pr_open: bool) -> Col {
     }
 }
 
+/// What the session's status reads as: its column, but a failed turn says so.
+pub(crate) fn label(status: Option<Status>, pr_open: bool) -> &'static str {
+    if status == Some(Status::Failed) { "Failed" } else { column(status, pr_open).name() }
+}
+
 pub(crate) type Columns = [Vec<usize>; COLS.len()];
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -86,18 +91,81 @@ impl Filters {
             && (self.providers.is_empty() || self.providers.contains(&item.provider))
             && self.query.split_whitespace().all(|w| text.contains(&w.to_lowercase()))
     }
+
+    pub(crate) fn picks(&self, menu: Menu) -> &BTreeSet<String> {
+        match menu {
+            Menu::Project => &self.projects,
+            Menu::Agent => &self.providers,
+        }
+    }
+
+    /// Picks `value` in `menu`, or lets go of it when it was picked.
+    pub(crate) fn toggle(&mut self, menu: Menu, value: &str) {
+        let set = match menu {
+            Menu::Project => &mut self.projects,
+            Menu::Agent => &mut self.providers,
+        };
+        if !set.remove(value) {
+            set.insert(value.to_string());
+        }
+    }
+}
+
+/// The filter menus in the page's bar.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Menu {
+    Project,
+    Agent,
+}
+
+impl Menu {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Menu::Project => "Project",
+            Menu::Agent => "Agent",
+        }
+    }
+
+    /// What the menu filters an item by: its project's path or its agent's provider.
+    pub(crate) fn value(self, item: &Item) -> &String {
+        match self {
+            Menu::Project => &item.project,
+            Menu::Agent => &item.provider,
+        }
+    }
 }
 
 /// The values a filter menu offers, each with how many sessions have it, in the order they first appear.
-pub(crate) fn values(items: &[Item], value: fn(&Item) -> &String) -> Vec<(String, usize)> {
+pub(crate) fn values(items: &[Item], menu: Menu) -> Vec<(String, usize)> {
     let mut out: Vec<(String, usize)> = Vec::new();
     for item in items {
-        match out.iter_mut().find(|(v, _)| v == value(item)) {
+        match out.iter_mut().find(|(v, _)| v == menu.value(item)) {
             Some((_, n)) => *n += 1,
-            None => out.push((value(item).clone(), 1)),
+            None => out.push((menu.value(item).clone(), 1)),
         }
     }
     out
+}
+
+/// What Esc does on Activity, nearest thing first.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Escape {
+    LeaveSearch,
+    ClosePreview,
+    LeavePage,
+}
+
+pub(crate) fn escape(searching: bool, previewing: bool) -> Escape {
+    match (searching, previewing) {
+        (true, _) => Escape::LeaveSearch,
+        (false, true) => Escape::ClosePreview,
+        (false, false) => Escape::LeavePage,
+    }
+}
+
+/// ↵ or ⌘↵ opens the previewed session; other modifiers leave the key alone.
+pub(crate) fn opens_preview(key: &str, plain: bool, command: bool) -> bool {
+    key == "enter" && (plain || command)
 }
 
 /// Each column's kept items as indexes into `items`: what wants you oldest first, as Up next orders it; the rest newest first.
@@ -237,7 +305,31 @@ mod tests {
     #[test]
     fn a_menu_counts_each_value_once_in_first_seen_order() {
         let items = vec![named("a", "web", "claude", ""), named("b", "app", "codex", ""), named("c", "web", "codex", "")];
-        assert_eq!(values(&items, |i| &i.provider), [("claude".to_string(), 1), ("codex".to_string(), 2)]);
-        assert_eq!(values(&items, |i| &i.project), [("/repos/web".to_string(), 2), ("/repos/app".to_string(), 1)]);
+        assert_eq!(values(&items, Menu::Agent), [("claude".to_string(), 1), ("codex".to_string(), 2)]);
+        assert_eq!(values(&items, Menu::Project), [("/repos/web".to_string(), 2), ("/repos/app".to_string(), 1)]);
+    }
+
+    #[test]
+    fn picking_a_value_again_lets_go_of_it() {
+        let mut f = Filters::default();
+        f.toggle(Menu::Agent, "codex");
+        assert!(f.picks(Menu::Agent).contains("codex") && f.picks(Menu::Project).is_empty());
+        f.toggle(Menu::Agent, "codex");
+        assert_eq!(f, Filters::default());
+    }
+
+    #[test]
+    fn esc_lets_go_of_search_then_closes_the_preview_then_leaves() {
+        assert_eq!(escape(true, true), Escape::LeaveSearch);
+        assert_eq!(escape(false, true), Escape::ClosePreview);
+        assert_eq!(escape(false, false), Escape::LeavePage);
+    }
+
+    #[test]
+    fn enter_opens_the_preview_bare_or_with_command_only() {
+        assert!(opens_preview("enter", true, false));
+        assert!(opens_preview("enter", false, true));
+        assert!(!opens_preview("enter", false, false));
+        assert!(!opens_preview("space", true, false));
     }
 }

@@ -226,6 +226,7 @@ impl Desktop {
                 let repos_changed = merge_repos(&mut d.repos, repos);
                 let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || worktrees != d.worktrees;
                 (d.explorer.tree, d.worktrees) = (tree, worktrees);
+                d.activity_changed();
                 if d.screen == Screen::Board {
                     d.rescue_board_composer(cx);
                 }

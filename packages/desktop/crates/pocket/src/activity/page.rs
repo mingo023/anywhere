@@ -5,8 +5,6 @@ use theme::*;
 
 impl Desktop {
     pub(crate) fn activity_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let items = self.activity_items();
-        self.activity.regroup(items);
         let columns: Vec<_> = COLS.into_iter().map(|col| self.activity_column(col, cx)).collect();
         let body = div().id("activity-columns").flex_1().min_h_0().overflow_x_scroll().px(px(12.)).pb(px(8.)).flex().gap(px(8.)).children(columns);
         div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().bg(CANVAS).child(self.activity_bar(cx)).child(body).children(self.activity_panel(cx))

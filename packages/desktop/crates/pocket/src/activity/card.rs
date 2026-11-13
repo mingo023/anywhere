@@ -67,6 +67,12 @@ impl Desktop {
         div().w_full().px(px(8.)).pb(px(6.)).child(card).into_any_element()
     }
 
+    /// Deny and Allow once for the session's permission ask; `None` for a question, which needs its dialog.
+    pub(super) fn activity_answers(&self, id: &str, cx: &mut Context<Self>) -> Option<Div> {
+        let ask = self.agents.pending.iter().find(|p| p.agent_id == id).filter(|p| p.questions().is_empty() && !self.agents.observe_only())?;
+        Some(div().flex().flex_none().items_center().gap(px(4.)).children(self.answer_buttons("activity", id, &ask.request_id, cx)))
+    }
+
     /// Its PR and its uncommitted diff, when it has them.
     fn activity_pills(&self, item: &Item) -> Vec<Div> {
         let pr = self.prs.get(&item.tree).map(|pr| {

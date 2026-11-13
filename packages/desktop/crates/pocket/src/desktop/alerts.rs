@@ -265,6 +265,7 @@ impl Desktop {
         if board {
             self.board_changed();
         }
+        self.activity_changed();
         self.sync_alerts(cx);
         if !self.capturing {
             self.badge.show(&self.agents.list, self.store.notifications.badge);

@@ -10,16 +10,15 @@ use theme::*;
 impl Desktop {
     pub(super) fn activity_filters(&self, cx: &mut Context<Self>) -> Div {
         let search = div().w(px(220.)).h(px(26.)).px(px(8.)).flex().items_center().gap(px(6.)).rounded(px(7.)).bg(FILL_1).child(icon("search", 12., TEXT_3)).child(div().flex_1().min_w_0().text_size(px(12.5)).child(Input::new(&self.activity.search).appearance(false).p_0()));
-        let project = self.activity_filter_chip("activity-project", "Project", self.activity.filters.projects.len(), Menu::Project, cx);
-        let agent = self.activity_filter_chip("activity-agent", "Agent", self.activity.filters.providers.len(), Menu::Agent, cx);
-        div().flex().items_center().gap(px(6.)).child(search).child(project).child(agent)
+        div().flex().items_center().gap(px(6.)).child(search).child(self.activity_filter_chip(Menu::Project, cx)).child(self.activity_filter_chip(Menu::Agent, cx))
     }
 
-    fn activity_filter_chip(&self, id: &'static str, label: &'static str, picked: usize, menu: Menu, cx: &mut Context<Self>) -> Div {
+    fn activity_filter_chip(&self, menu: Menu, cx: &mut Context<Self>) -> Div {
         let open = self.activity.menu == Some(menu);
-        let text = if picked == 0 { label.to_string() } else { format!("{label} · {picked}") };
+        let picked = self.activity.filters.picks(menu).len();
+        let text = if picked == 0 { menu.label().to_string() } else { format!("{} · {picked}", menu.label()) };
         let chip = div()
-            .id(id)
+            .id(("activity-filter-chip", menu as usize))
             .h(px(26.))
             .px(px(10.))
             .flex()
@@ -46,31 +45,22 @@ impl Desktop {
     }
 
     fn activity_filter_menu(&self, menu: Menu, cx: &mut Context<Self>) -> Div {
-        let field: fn(&super::logic::Item) -> &String = match menu {
-            Menu::Project => |i| &i.project,
-            Menu::Agent => |i| &i.provider,
-        };
-        let rows: Vec<_> = values(&self.activity.items, field).into_iter().enumerate().map(|(i, (value, count))| {
-            let on = match menu {
-                Menu::Project => self.activity.filters.projects.contains(&value),
-                Menu::Agent => self.activity.filters.providers.contains(&value),
-            };
-            let (lead, name) = match menu {
-                Menu::Project => (icon("folder", 13., TEXT_3).into_any_element(), self.repo_name(&value)),
-                Menu::Agent => (theme::provider_icon(&value, 12., TEXT_2).into_any_element(), self.agent_name(&value)),
-            };
-            value_row(("activity-filter", i), on, lead, &name, count).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                let set = match menu {
-                    Menu::Project => &mut this.activity.filters.projects,
-                    Menu::Agent => &mut this.activity.filters.providers,
+        let rows: Vec<_> = values(&self.activity.items, menu)
+            .into_iter()
+            .enumerate()
+            .map(|(i, (value, count))| {
+                let on = self.activity.filters.picks(menu).contains(&value);
+                let (lead, name) = match menu {
+                    Menu::Project => (icon("folder", 13., TEXT_3).into_any_element(), self.repo_name(&value)),
+                    Menu::Agent => (theme::provider_icon(&value, 12., TEXT_2).into_any_element(), self.agent_name(&value)),
                 };
-                if !set.remove(&value) {
-                    set.insert(value.clone());
-                }
-                cx.notify();
-            }))
-        })
-        .collect();
+                value_row(("activity-filter", i), on, lead, &name, count).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.activity.filters.toggle(menu, &value);
+                    this.activity_changed();
+                    cx.notify();
+                }))
+            })
+            .collect();
         ui::dropdown_right(30., ui::menu_in("activity-filter-in", self.popup("activity-filter-menu", 260., cx).children(rows)))
     }
 }

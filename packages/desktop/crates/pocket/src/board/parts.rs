@@ -61,7 +61,17 @@ pub(super) fn prop_chip() -> Div {
 
 /// A column's mark, name and count.
 pub(super) fn col_heading(col: Col, count: String) -> Div {
-    div().flex().items_center().gap(px(8.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(status_glyph(col, Status::None)).child(col.name()).child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(count))
+    heading(status_glyph(col, Status::None), col.name(), count)
+}
+
+/// A column's mark, name and count.
+pub(crate) fn heading(glyph: impl IntoElement, name: &'static str, count: String) -> Div {
+    div().flex().items_center().gap(px(8.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(glyph).child(name).child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(count))
+}
+
+/// What an empty column says in place of its cards.
+pub(crate) fn empty_hint(hint: &'static str) -> Div {
+    div().mx(px(8.)).min_h(px(72.)).flex().flex_none().items_center().justify_center().px(px(18.)).py(px(12.)).rounded(px(9.)).border_1().border_dashed().border_color(SEPARATOR).text_center().text_size(px(12.)).line_height(px(18.)).text_color(TEXT_4).child(hint)
 }
 
 /// The agent on a ticket, where a person's avatar would go.
