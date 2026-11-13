@@ -446,6 +446,11 @@ Bun.serve({
           { name: "review", description: "Review a pull request", argumentHint: "<pr>" },
           { name: "release-notes", description: "Draft release notes from the merged pull requests" },
           { name: "goal", description: "Set a goal — keep working until the condition is met" },
+          {
+            name: "auto-mode-setup",
+            description: "Set up auto mode",
+            argumentHint: "[--request-id <uuid>] (--wizard posture=… scope=… depth=… --propose | --expect-sha256 <64-hex> --apply-file <path>)",
+          },
         ];
         ws.send(JSON.stringify({ type: "agent.commands", id: f.id, agentId: f.agentId, commands }));
       }
