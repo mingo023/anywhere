@@ -209,7 +209,8 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
 /// A prompt, right-aligned in a wash rounded and ringed as the composer it was typed in, its files and images under
 /// it; one over five lines clips to five with "Show more".
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
-pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {
+/// `lit` brightens its wash and ring, fading back, to show the prompt the timeline landed on.
+pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, lit: bool, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {
     let Sent { text, files, images, elements } = split_attachments(&prompt);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
@@ -282,6 +283,12 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
         .child(body)
         .children(attached)
         .children(expander);
+    let bubble = if lit {
+        let fade = Animation::new(super::transcript::FLASH).with_easing(ease_in_out);
+        bubble.with_animation(SharedString::from(format!("{id}-lit")), fade, |d, t| d.bg(Hsla::from(BUBBLE).blend(ink(0.08 * (1. - t)))).border_color(Hsla::from(HAIRLINE).blend(hairline(0.4 * (1. - t))))).into_any_element()
+    } else {
+        bubble.into_any_element()
+    };
     div().w_full().flex().justify_end().child(bubble)
 }
 

@@ -66,6 +66,15 @@ impl Pointer {
     }
 }
 
+/// The pointer on the rail: a press glides the chat to its prompt, a drag follows the pointer at once, and letting go
+/// lights the prompt.
+#[derive(Clone, Copy)]
+enum Gesture {
+    Press,
+    Drag,
+    Release,
+}
+
 /// The rail's ticks laid out for `prompts` prompts in a viewport: each tick stands for one prompt, or for evenly
 /// spread ones when there are too many to fit.
 #[derive(Clone, Debug, PartialEq)]
@@ -170,9 +179,15 @@ impl Desktop {
         let at = move |e: Point<Pixels>| f32::from(e.y) - origin;
         let jump = {
             let (desktop, agent, prompts, rail) = (cx.weak_entity(), agent.to_string(), prompts.clone(), rail.clone());
-            Rc::new(move |tick: usize, land: bool, cx: &mut App| {
+            Rc::new(move |tick: usize, gesture: Gesture, window: &mut Window, cx: &mut App| {
                 let ix = prompts[rail.prompt(tick)];
-                desktop.update(cx, |d, cx| if land { d.chat_land_on_prompt(&agent, ix, cx) } else { d.chat_jump_to_prompt(&agent, ix, cx) }).ok();
+                desktop
+                    .update(cx, |d, cx| match gesture {
+                        Gesture::Press => d.chat_seek_prompt(&agent, ix, window, cx),
+                        Gesture::Drag => d.chat_jump_to_prompt(&agent, ix, cx),
+                        Gesture::Release => d.chat_land_on_prompt(&agent, ix, cx),
+                    })
+                    .ok();
             })
         };
         let p = view.pointer.clone();
@@ -199,29 +214,29 @@ impl Desktop {
             })
             .on_mouse_move({
                 let (p, jump, rail) = (p.clone(), jump.clone(), rail.clone());
-                move |e: &MouseMoveEvent, _, cx| {
+                move |e: &MouseMoveEvent, window, cx| {
                     let y = at(e.position);
                     let scrub = p.update(cx, |p, cx| {
                         cx.notify();
                         p.moved(y, &rail)
                     });
                     if scrub {
-                        jump(rail.tick_at(y), false, cx);
+                        jump(rail.tick_at(y), Gesture::Drag, window, cx);
                     }
                 }
             })
             .on_mouse_down(MouseButton::Left, {
                 let (p, jump, rail) = (p.clone(), jump.clone(), rail.clone());
-                move |e: &MouseDownEvent, _, cx| {
+                move |e: &MouseDownEvent, window, cx| {
                     p.update(cx, |p, _| p.pressed = true);
-                    jump(rail.tick_at(at(e.position)), false, cx);
+                    jump(rail.tick_at(at(e.position)), Gesture::Press, window, cx);
                 }
             })
             .on_mouse_up(MouseButton::Left, {
                 let (p, rail) = (p.clone(), rail.clone());
-                move |e: &MouseUpEvent, _, cx| {
+                move |e: &MouseUpEvent, window, cx| {
                     if p.update(cx, |p, _| p.release()) {
-                        jump(rail.tick_at(at(e.position)), true, cx);
+                        jump(rail.tick_at(at(e.position)), Gesture::Release, window, cx);
                     }
                 }
             });
