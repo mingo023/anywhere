@@ -67,9 +67,13 @@ impl Item {
         self.status == Some(Status::Failed)
     }
 
-    /// What its status reads as: its column, but a failed turn says so.
+    /// What its status reads as: its column, but a failed turn says so, and an agent that reports none says it isn't attached.
     pub(crate) fn label(&self) -> &'static str {
-        if self.failed() { "Failed" } else { self.col().name() }
+        match self.status {
+            None => "Not attached",
+            Some(_) if self.failed() => "Failed",
+            Some(_) => self.col().name(),
+        }
     }
 }
 
@@ -415,5 +419,12 @@ mod tests {
         assert_eq!(g.ended_in_view(Some("a")), Some("a".into()));
         assert_eq!(g.ended_in_view(Some("b")), None);
         assert_eq!(g.ended_in_view(None), None);
+    }
+
+    #[test]
+    fn the_status_chip_says_failed_or_not_attached_where_its_column_would_mislead() {
+        assert_eq!(item("a", Some(Status::Failed), false, 0).label(), "Failed");
+        assert_eq!(item("a", None, true, 0).label(), "Not attached");
+        assert_eq!(item("a", Some(Status::Idle), true, 0).label(), "In review");
     }
 }
