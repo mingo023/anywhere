@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket · Prompt timeline prototype</title>
+<style>
+:root{
+  --text:#111113;--body:#3f3f46;--t2:#6f6f78;--t3:#8b8b94;--t4:#a1a1aa;--t5:#b4b4bc;--t6:#d4d4d8;
+  --window:#f4f4f5;--panel:#fafafa;--pop:#fff;--bubble:#fff;
+  --fill2:rgba(17,17,19,.043);--fill3:rgba(17,17,19,.055);--fill4:rgba(17,17,19,.067);
+  --hair:rgba(17,17,19,.071);--sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);--highlight:rgba(255,255,255,.95);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),inset 0 .5px 0 var(--highlight),0 12px 32px rgba(17,17,19,.14),0 2px 6px rgba(17,17,19,.06);
+  --flash:rgba(17,17,19,.22);
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --slow:1;
+}
+[data-theme=dark]{
+  --text:#ebebeb;--body:#bcbcbc;--t2:#a1a1a1;--t3:#818181;--t4:#6c6c6c;--t5:#616161;--t6:#414141;
+  --window:#121212;--panel:#121212;--pop:#232323;--bubble:rgba(235,235,235,.1);
+  --fill2:rgba(235,235,235,.078);--fill3:rgba(235,235,235,.1);--fill4:rgba(235,235,235,.12);
+  --hair:rgba(235,235,235,.07);--sep:rgba(235,235,235,.078);--sep-strong:rgba(235,235,235,.14);--highlight:rgba(255,255,255,.06);
+  --pop-shadow:0 0 0 .5px rgba(235,235,235,.12),inset 0 .5px 0 var(--highlight),0 16px 40px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.3);
+  --flash:rgba(235,235,235,.4);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+body[data-theme=dark]{background:radial-gradient(1100px 700px at 12% 0%,#2a2f38 0%,transparent 60%),#16181c}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+
+#win{position:absolute;inset:28px 28px 84px;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;background:var(--panel);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1)}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:60}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.head{height:42px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;font-weight:600;border-bottom:.5px solid var(--sep);user-select:none}
+.head .dot{width:7px;height:7px;border-radius:50%;background:#d97757}
+.head .sub{font-weight:500;color:var(--t3)}
+
+/* transcript */
+#stage{position:relative;flex:1;min-height:0}
+#scroll{position:absolute;inset:0;overflow-y:auto}
+#col{max-width:880px;margin:0 auto;padding:24px 56px 40px 32px}
+#col.dip{animation:dip calc(280ms * var(--slow)) ease-out}
+@keyframes dip{from{opacity:.35}}
+.turn{padding-bottom:28px}
+.ask{display:flex;flex-direction:column;align-items:flex-end}
+.bubble{max-width:78%;padding:9px 14px;border-radius:18px;background:var(--bubble);box-shadow:0 0 0 .5px var(--sep-strong);font-size:14.5px;line-height:22px;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere}
+.bubble.flash{animation:flash calc(900ms * var(--slow)) ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 .5px var(--sep-strong),0 0 0 4px var(--flash)}100%{box-shadow:0 0 0 .5px var(--sep-strong),0 0 0 4px transparent}}
+.when{font-size:12px;color:var(--t4);padding:4px 4px 0}
+.reply{margin-top:14px;font-size:14.5px;line-height:22px;color:var(--body)}
+.reply p{margin:0 0 10px;white-space:pre-line}
+.tool{display:flex;align-items:center;gap:7px;height:26px;font-size:12.5px;color:var(--t3)}
+.tool i{width:6px;height:6px;border-radius:50%;background:var(--t5);flex:none}
+.tool code{font:12px var(--mono);color:var(--t2)}
+
+/* sticky prompt (exists in the app; kept beside the timeline) */
+#sticky{position:absolute;top:10px;left:50%;z-index:20;display:flex;align-items:center;gap:8px;height:34px;max-width:560px;width:max-content;padding:0 14px 0 6px;border-radius:17px;
+  background:var(--pop);box-shadow:var(--pop-shadow);font-size:13px;color:var(--body);white-space:nowrap;
+  opacity:0;transform:translate(-50%,-6px);pointer-events:none;transition:opacity calc(160ms * var(--slow)) ease-out,transform calc(220ms * var(--slow)) cubic-bezier(.2,.9,.3,1)}
+#sticky.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#sticky:hover{background:color-mix(in srgb,var(--pop),var(--text) 4%)}
+#sticky .knob{width:22px;height:22px;border-radius:50%;background:var(--fill4);display:grid;place-items:center;color:var(--t2);flex:none}
+#sticky .txt{overflow:hidden;text-overflow:ellipsis;max-width:470px}
+
+/* the timeline */
+#rail{position:absolute;right:0;width:44px;z-index:30;touch-action:none}
+.tick{position:absolute;right:12px;width:24px;height:2px;margin-top:-1px;border-radius:1px;background:var(--t6);transform-origin:right center;
+  transition:background-color calc(140ms * var(--slow)) ease-out}
+.tick.on{background:var(--t3)}
+.tick.hov{background:var(--text)}
+
+#card{position:absolute;top:0;right:48px;z-index:40;width:max-content;max-width:320px;padding:10px 14px;border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow);
+  pointer-events:none;transform-origin:right center;opacity:0;will-change:transform,opacity}
+#card .p{font-size:13.5px;line-height:19px;font-weight:500;color:var(--text);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+
+.composer{flex:none;margin:0 auto 16px;width:calc(100% - 64px);max-width:816px;height:92px;border-radius:16px;background:var(--pop);box-shadow:0 0 0 .5px var(--sep-strong),0 2px 8px rgba(17,17,19,.05);
+  padding:12px 16px;font-size:14.5px;color:var(--t4);user-select:none}
+
+/* prototype chrome: dark so it never reads as app UI */
+#hud{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;height:44px;padding:0 8px 0 16px;border-radius:22px;background:rgba(28,28,32,.84);
+  -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14),0 10px 30px rgba(0,0,0,.25);color:#fff;font-size:12px;z-index:2000;user-select:none;white-space:nowrap}
+.hud-t{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.5)}
+.hud-g{display:flex;align-items:center;gap:8px}
+.hud-g+.hud-g{padding-left:14px;border-left:.5px solid rgba(255,255,255,.16)}
+.hud-l{color:rgba(255,255,255,.6)}
+.hseg{display:flex;padding:2px;border-radius:9px;background:rgba(255,255,255,.08)}
+.hseg button{height:26px;padding:0 10px;border-radius:7px;color:rgba(255,255,255,.72);font-weight:500;font-size:12px}
+.hseg button:hover{color:#fff}
+.hseg button.on{background:rgba(255,255,255,.2);color:#fff;font-weight:600}
+#help{position:fixed;left:0;right:0;top:7px;text-align:center;font-size:11.5px;color:rgba(0,0,0,.45);user-select:none}
+body[data-theme=dark] #help{color:rgba(255,255,255,.4)}
+</style>
+</head>
+<body>
+<div id="help">Hover the ticks at the right edge · drag along them to scrub the chat · click to jump · wheel-scroll any time to take over</div>
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <div class="head"><span class="dot"></span>Prompt timeline<span class="sub">· anywhere</span></div>
+  <div id="stage">
+    <div id="scroll"><div id="col"></div></div>
+    <button id="sticky"><span class="knob"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="txt"></span></button>
+    <div id="rail" role="navigation" aria-label="Prompts"></div>
+    <div id="card" aria-hidden="true"><div class="p"></div></div>
+  </div>
+  <div class="composer">Ask for follow-up changes</div>
+</div>
+
+<div id="hud" role="toolbar" aria-label="Prototype controls">
+  <span class="hud-t">Prototype</span>
+  <div class="hud-g"><span class="hud-l">Prompts</span><div class="hseg" data-k="n"><button data-v="2">2</button><button data-v="12">12</button><button data-v="40">40</button><button data-v="150">150</button></div></div>
+  <div class="hud-g"><span class="hud-l">Theme</span><div class="hseg" data-k="theme"><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+  <div class="hud-g"><span class="hud-l">Motion</span><div class="hseg" data-k="motion"><button data-v="full">Full</button><button data-v="reduced">Reduced</button></div></div>
+  <div class="hud-g"><span class="hud-l">Speed</span><div class="hseg" data-k="slow"><button data-v="1">1×</button><button data-v="5">⅕×</button></div></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+const POOL = [
+  ['Count from 1 to 2', '1\n2', []],
+  ['The Changes list stutters when a repo has 1000+ changed files. Find out why and fix it without changing how it looks.',
+   'Every row was built per frame. I moved the list to `uniform_list`, so a frame now costs only the rows on screen.\nWith 1137 files one frame dropped from 67ms to 3ms. Rows got `w_full()` and the list keeps its scrollbar.',
+   ['Read  git_ui/changes.rs', 'Edited  git_ui/changes.rs  +48 −31', 'Ran  cargo test -p pocket']],
+  ['why does clicking a file wait so long before the diff shows?',
+   'The click waited on `refresh_git`, which reads every worktree in turn. Now the click loads only that file\'s diff in its own task and applies it if the selection still matches.',
+   ['Read  git_ui/diff.rs', 'Edited  git_ui/diff.rs  +22 −9']],
+  ['Add a test that a folded folder hides its children in the tree',
+   'Added `tree_hides_what_a_folded_folder_holds` beside the tree logic. It builds a plain `Tree`, folds `src/`, and checks the visible rows.',
+   ['Edited  explorer/tree.rs  +27']],
+  ['Can the sticky prompt show the time it was sent?',
+   'Yes. The pill now ends with "· 2:14 PM" in TEXT_3, and drops it when the pill is too narrow for the text.',
+   ['Edited  chat/sticky.rs  +14 −2']],
+  ['Rename DiffState::apply to something that says it checks the selection first',
+   'Renamed it to `apply_if_current` and updated the four callers. No behaviour change.',
+   ['Edited  git_ui/diff.rs  +6 −6', 'Edited  desktop.rs  +2 −2']],
+  ['ok ship it', 'Committed on `prompt-timeline-ui` and opened the PR.', ['Ran  git push -u origin prompt-timeline-ui']],
+  ['Look at the screenshot: the composer is 2px taller than the design. Which constant is off?',
+   'The footer margin was 10 instead of 8. Fixed in `composer.rs`; the capture now diffs at 0.12%.',
+   ['Read  composer.rs', 'Edited  composer.rs  +1 −1']],
+  ['Explain how pocketd survives an upgrade without dropping chats',
+   'pocketd hands its listening socket to the new binary and the new one replays each session\'s log before taking input, so a chat keeps every message it had.\nSee ADR 0005 for the exact handoff.',
+   ['Read  docs/adr/0005-pocketd-upgrades-in-place.md']],
+  ['make the hover on sidebar rows respond on press, not release',
+   'Rows now take FILL_4 on mouse down and commit the selection on mouse up, so the press is felt at once.',
+   ['Edited  sidebar/row.rs  +5 −2']],
+  ['Run clippy across the workspace and fix anything new',
+   'Two new warnings, both `needless_borrow` in `board/views.rs`. Fixed; clippy is clean.',
+   ['Ran  cargo clippy --workspace --all-targets', 'Edited  board/views.rs  +2 −2']],
+  ['Summarise what changed today in one paragraph for the changelog',
+   'The Changes list now draws only what is on screen, a file\'s diff opens without waiting on the git refresh, and the sticky prompt shows when it was sent.',
+   []],
+];
+
+const S = { n: 12, theme: 'light', motion: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduced' : 'full', slow: 1 };
+const reduced = () => S.motion === 'reduced';
+
+const scroller = $('#scroll'), col = $('#col'), stage = $('#stage'), rail = $('#rail'), card = $('#card'), sticky = $('#sticky');
+const LAND = 24;             // where a jumped-to bubble lands under the stage's top
+const BASE_W = 10, ACTIVE_W = 16, MAG = 10, SIGMA = 14, TICK_BOX = 24;
+
+let turns = [], ticks = [], active = -1, hov = -1, pitch = 10, railTop = 0;
+
+// ── springs: Apple's damping ratio + response, mass 1 ─────────────────────────
+class Spring {
+  constructor(x, response, damping = 1) { this.x = x; this.v = 0; this.target = x; this.response = response; this.damping = damping; }
+  step(dt) {
+    const k = (2 * Math.PI / this.response) ** 2, c = 4 * Math.PI * this.damping / this.response;
+    for (let t = 0; t < dt; t += 1 / 240) {
+      const h = Math.min(1 / 240, dt - t);
+      this.v += (-k * (this.x - this.target) - c * this.v) * h;
+      this.x += this.v * h;
+    }
+  }
+  settled(eps = .001) { return Math.abs(this.x - this.target) < eps && Math.abs(this.v) < eps * 10; }
+  snap(x) { this.x = this.target = x; this.v = 0; }
+}
+
+const show = new Spring(0, .26);          // card + magnification presence
+const cardY = new Spring(0, .22);         // card follows the hovered tick
+const scroll = new Spring(0, .42);        // programmatic scroll
+let scrolling = false, pendingFlash = -1;
+let pointerY = 0, inside = false, pressed = false, hideTimer = 0;
+let tickW = [];                           // per-tick base width spring
+
+// ── build ────────────────────────────────────────────────────────────────────
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function time(i) { const m = 9 * 60 + 12 + i * 4; return `${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, '0')} ${m >= 720 ? 'PM' : 'AM'}`; }
+
+function build() {
+  col.innerHTML = ''; rail.innerHTML = ''; turns = []; ticks = []; tickW = []; active = hov = -1;
+  for (let i = 0; i < S.n; i++) {
+    const [prompt, reply, tools] = POOL[i % POOL.length];
+    const turn = el('div', 'turn'), ask = el('div', 'ask'), bubble = el('div', 'bubble', prompt);
+    ask.append(bubble, el('div', 'when', time(i)));
+    const r = el('div', 'reply');
+    for (const t of tools) { const row = el('div', 'tool'); row.append(el('i')); const [verb, ...rest] = t.split('  '); row.append(verb, el('code', null, rest.join('  '))); r.append(row); }
+    for (const p of reply.split('\n')) r.append(el('p', null, p.replaceAll('`', '')));
+    turn.append(ask, r); col.append(turn);
+    turns.push({ bubble, prompt, top: 0, bottom: 0 });
+    const t = el('div', 'tick'); rail.append(t); ticks.push(t); tickW.push(new Spring(BASE_W, .2));
+  }
+  rail.style.display = S.n > 1 ? '' : 'none';
+  layout();
+  scroller.scrollTop = scroller.scrollHeight;
+  onScroll();
+  for (const s of tickW) s.snap(s.target);
+  paintTicks();
+}
+
+function layout() {
+  const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
+  for (const t of turns) { const r = t.bubble.getBoundingClientRect(); t.top = r.top - base; t.bottom = r.bottom - base; }
+  const h = stage.clientHeight;
+  pitch = clamp((h - 160) / S.n, 3, 10);
+  const railH = pitch * S.n + 24;           // 12px of hit area above and below the ticks
+  railTop = (h - railH) / 2;
+  rail.style.top = railTop + 'px'; rail.style.height = railH + 'px';
+  ticks.forEach((t, i) => t.style.top = tickY(i) + 'px');
+}
+const tickY = i => 12 + pitch * (i + .5);   // within the rail
+
+// ── which prompt is being read ───────────────────────────────────────────────
+function onScroll() {
+  const st = scroller.scrollTop, max = scroller.scrollHeight - scroller.clientHeight;
+  let a = 0;
+  for (let i = 0; i < turns.length; i++) if (turns[i].top <= st + LAND + 40) a = i;
+  if (st >= max - 2) a = turns.length - 1;
+  if (a !== active) {
+    if (ticks[active]) ticks[active].classList.remove('on');
+    active = a; ticks[a]?.classList.add('on');
+    tickW.forEach((s, i) => s.target = i === a ? ACTIVE_W : BASE_W);
+    kick();
+  }
+  const cur = turns[active];
+  const out = cur && cur.bottom < st + 8;
+  sticky.classList.toggle('on', !!out);
+  if (out) sticky.querySelector('.txt').textContent = cur.prompt.split('\n')[0];
+}
+scroller.addEventListener('scroll', onScroll, { passive: true });
+
+// ── jumping ──────────────────────────────────────────────────────────────────
+function jumpTo(i, flash) {
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  const to = clamp(turns[i].top - LAND, 0, max);
+  pendingFlash = flash ? i : -1;
+  if (reduced()) { scroller.scrollTop = to; flashNow(); return; }
+  if (!scrolling) { scroll.x = scroller.scrollTop; scroll.v = 0; }   // start from the presentation value
+  scroll.target = to; scrolling = true;
+  // Far away: cut to a viewport short of the target and arrive moving, with the column dipped so the cut doesn't read as a glitch.
+  const vh = scroller.clientHeight, d = to - scroll.x;
+  if (Math.abs(d) > 3 * vh) {
+    scroll.x = to - Math.sign(d) * vh * 1.2; scroll.v = Math.sign(d) * 2400;
+    col.classList.remove('dip'); void col.offsetWidth; col.classList.add('dip');
+  }
+  kick();
+}
+function flashNow() {
+  const t = turns[pendingFlash]; pendingFlash = -1;
+  if (!t) return;
+  t.bubble.classList.remove('flash'); void t.bubble.offsetWidth; t.bubble.classList.add('flash');
+}
+// The user's own scroll always wins over a jump in flight.
+for (const ev of ['wheel', 'touchstart', 'keydown']) scroller.addEventListener(ev, () => { scrolling = false; pendingFlash = -1; }, { passive: true });
+sticky.addEventListener('click', () => jumpTo(active, true));
+
+// ── rail input ───────────────────────────────────────────────────────────────
+function indexAt(clientY) { pointerY = clientY - rail.getBoundingClientRect().top; return clamp(Math.floor((pointerY - 12) / pitch), 0, turns.length - 1); }
+function hover(i) {
+  if (i === hov) return;
+  ticks[hov]?.classList.remove('hov'); hov = i; ticks[i].classList.add('hov');
+  card.querySelector('.p').textContent = turns[i].prompt;
+  cardY.target = clamp(railTop + tickY(i) - card.offsetHeight / 2, 8, stage.clientHeight - card.offsetHeight - 8);
+  if (show.x < .05) cardY.snap(cardY.target);     // appear in place, don't slide in from the last spot
+  kick();
+}
+function open() { clearTimeout(hideTimer); show.target = 1; kick(); }
+function close() { hideTimer = setTimeout(() => { show.target = 0; ticks[hov]?.classList.remove('hov'); hov = -1; kick(); }, 90); }
+
+rail.addEventListener('pointerenter', e => { inside = true; hover(indexAt(e.clientY)); open(); });
+rail.addEventListener('pointerleave', () => { inside = false; if (!pressed) close(); });
+rail.addEventListener('pointermove', e => {
+  const i = indexAt(e.clientY); hover(i);
+  if (pressed) jumpTo(i, false);       // scrub: the chat follows the finger
+  kick();
+});
+rail.addEventListener('pointerdown', e => {
+  rail.setPointerCapture(e.pointerId); pressed = true; open();
+  const i = indexAt(e.clientY); hover(i); jumpTo(i, false);   // respond on press
+});
+rail.addEventListener('pointerup', e => {
+  pressed = false; pendingFlash = hov;
+  if (!scrolling) flashNow();
+  const r = rail.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) { inside = false; close(); }
+});
+
+// ── frame loop ───────────────────────────────────────────────────────────────
+let last = 0, raf = 0;
+function kick() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000) / S.slow; last = now;
+  let busy = false;
+  for (const s of [show, cardY]) { s.step(dt); busy ||= !s.settled(.002); }
+  for (const s of tickW) { s.step(dt); busy ||= !s.settled(.01); }
+  if (scrolling) {
+    scroll.step(dt);
+    if (Math.abs(scroll.x - scroll.target) < .5 && Math.abs(scroll.v) < 5) { scroll.snap(scroll.target); scrolling = false; }
+    scroller.scrollTop = scroll.x;
+    if (!scrolling && pendingFlash >= 0 && !pressed) flashNow();
+    busy ||= scrolling;
+  }
+  paintTicks(); paintCard();
+  raf = busy ? requestAnimationFrame(frame) : 0;
+}
+
+function paintTicks() {
+  const s = reduced() ? Math.round(show.target) : show.x;
+  ticks.forEach((t, i) => {
+    const d = (tickY(i) - pointerY) / SIGMA;
+    const w = tickW[i].x + s * MAG * Math.exp(-d * d / 2);
+    t.style.transform = `scaleX(${w / TICK_BOX})`;
+  });
+}
+function paintCard() {
+  const s = clamp(show.x, 0, 1);
+  card.style.opacity = s;
+  card.style.transform = reduced()
+    ? `translateY(${cardY.x}px)`
+    : `translate(${(1 - s) * 10}px, ${cardY.x}px) scale(${.95 + .05 * s})`;   // grows out of the rail, leaves back into it
+}
+
+// ── prototype controls ───────────────────────────────────────────────────────
+function syncHud() {
+  document.querySelectorAll('.hseg').forEach(g => g.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(S[g.dataset.k]) === b.dataset.v)));
+  document.body.dataset.theme = S.theme;
+  document.documentElement.style.setProperty('--slow', S.slow);
+}
+$('#hud').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const k = b.closest('.hseg').dataset.k;
+  S[k] = k === 'n' || k === 'slow' ? +b.dataset.v : b.dataset.v;
+  syncHud();
+  if (k === 'n') build();
+});
+new ResizeObserver(() => { layout(); onScroll(); paintTicks(); }).observe(stage);
+
+syncHud();
+build();
+</script>
+</body>
+</html>

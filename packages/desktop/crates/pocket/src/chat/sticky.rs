@@ -79,12 +79,12 @@ fn text_width(max: f32, beside: &[f32]) -> f32 {
 }
 
 /// A prompt folded onto one line, its line breaks read as spaces.
-fn one_line(text: &str) -> String {
+pub(super) fn one_line(text: &str) -> String {
     text.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
 /// What a prompt with no text shows.
-fn attached_count(images: usize, files: usize, elements: usize) -> String {
+pub(super) fn attached_count(images: usize, files: usize, elements: usize) -> String {
     let count = |n: usize, what: &str| (n > 0).then(|| format!("{n} {what}{}", if n == 1 { "" } else { "s" }));
     [count(images, "image"), count(files, "file"), count(elements, "element")].into_iter().flatten().collect::<Vec<_>>().join(", ")
 }
