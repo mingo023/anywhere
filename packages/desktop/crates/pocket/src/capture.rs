@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 267] = [
+const STEPS: [(&str, Step); 270] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -509,6 +509,18 @@ const STEPS: [(&str, Step); 267] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("activity", |d, window, cx| d.open_activity(&crate::actions::OpenActivity, window, cx)),
+    ("activity-panel", |d, _, cx| {
+        d.activity.previewed = d.agents.list.iter().find(|a| a.status == "needsYou").map(|a| a.id.clone());
+        cx.notify();
+    }),
+    ("activity-filtered", |d, _, cx| {
+        if let Some(p) = d.project.clone() {
+            d.activity.filters.projects.insert(p);
+        }
+        d.activity.menu = Some(crate::activity::Menu::Project);
+        cx.notify();
+    }),
     ("chat-only-done", |d, _, _| {
         for a in d.agents.list.iter_mut() {
             (a.chat_only, a.status) = if a.id == "parser" { (true, "done".into()) } else { (a.chat_only, "idle".into()) };

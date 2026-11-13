@@ -28,6 +28,7 @@ pub enum Pick {
     Tree { project: String, tree: Option<String> },
     UpNext,
     Browser,
+    Activity,
     Automations,
     Board,
     PairPhone,
@@ -264,6 +265,7 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Go to next Needs you".into(), detail: String::new(), keys: Some("⌘ J") },
         Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
         Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
+        Entry { pick: Pick::Activity, lead: Lead::Icon("activity"), title: "Go to Activity".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::Automations, lead: Lead::Icon("bolt"), title: "Go to Automations".into(), detail: String::new(), keys: Some("⌘ ⇧ A") },
         Entry { pick: Pick::Board, lead: Lead::Icon("blocks"), title: "Go to Board".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
@@ -381,6 +383,7 @@ impl Desktop {
             }
             Pick::UpNext => self.go_to_up_next(&crate::actions::GoToUpNext, window, cx),
             Pick::Browser => self.open_browser(None, window, cx),
+            Pick::Activity => self.open_activity(&crate::actions::OpenActivity, window, cx),
             Pick::Automations => self.open_automations(&crate::actions::OpenAutomations, window, cx),
             Pick::Board => self.open_board(&crate::actions::OpenBoard, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
@@ -711,6 +714,7 @@ mod tests {
             (Pick::Next, "Go to next Needs you"),
             (Pick::UpNext, "Go to Up next"),
             (Pick::Browser, "Open browser"),
+            (Pick::Activity, "Go to Activity"),
             (Pick::Automations, "Go to Automations"),
             (Pick::HostFolder, "Open folder on a host…"),
             (Pick::Sound(Cue::NeedsYou), "Needs you sound: On"),
@@ -730,9 +734,9 @@ mod tests {
             action_entries(&[], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
-        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::PairPhone, Pick::HostFolder]);
-        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::HostFolder]);
-        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Automations, Pick::HostFolder]);
+        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Activity, Pick::Automations, Pick::PairPhone, Pick::HostFolder]);
+        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Activity, Pick::Automations, Pick::HostFolder]);
+        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Activity, Pick::Automations, Pick::HostFolder]);
     }
 
     #[test]

@@ -61,7 +61,7 @@ impl Desktop {
     }
 
     /// Answers the ask the button was drawn for, never one that has replaced it since.
-    fn answer_ticket(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
+    pub(crate) fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
         if self.agents.pending.iter().any(|p| p.request_id == request) {
             self.outbox.resolve(request, decision);
         }
@@ -81,7 +81,7 @@ impl Desktop {
         let request = request.to_string();
         row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             cx.stop_propagation();
-            this.answer_ticket(&request, decision, cx);
+            this.answer_pending(&request, decision, cx);
         }))
     }
 

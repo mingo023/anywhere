@@ -31,7 +31,7 @@ fn filter_pop(id: &'static str) -> Stateful<Div> {
 }
 
 /// A value in the filter menu: its tick, mark, name and how many tickets have it.
-fn value_row(id: impl Into<ElementId>, on: bool, lead: impl IntoElement, name: &str, tickets: usize) -> Stateful<Div> {
+pub(crate) fn value_row(id: impl Into<ElementId>, on: bool, lead: impl IntoElement, name: &str, tickets: usize) -> Stateful<Div> {
     let tick = div().size(px(14.)).flex().flex_none().items_center().justify_center().rounded(px(4.)).when(on, |d| d.bg(INDIGO).child(icon("check", 9., ON_INDIGO))).when(!on, |d| d.border_1().border_color(SEPARATOR_STRONG));
     div().id(id).h(px(ROW_H)).px(px(8.)).flex().flex_none().items_center().gap(px(8.)).rounded(px(6.)).cursor_pointer().text_size(px(12.5)).hover(|s| s.bg(FILL_2)).child(tick).child(div().w(px(14.)).flex().flex_none().justify_center().child(lead)).child(div().flex_1().min_w_0().truncate().child(name.to_string())).child(div().text_size(px(12.)).text_color(TEXT_4).child(tickets.to_string()))
 }

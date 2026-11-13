@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anywhere · Activity prototype</title>
+<style>
+:root{
+  --text:#ebebeb;--text-body:#bcbcbc;--text-2:#a1a1a1;--text-3:#818181;--text-4:#6c6c6c;
+  --window:rgba(18,18,18,.85);--surface:#2a2a2a;--side:#0e0e0e;--popover:#232323;--well:rgba(235,235,235,.05);
+  --fill-1:rgba(235,235,235,.05);--fill-2:rgba(235,235,235,.08);--fill-3:rgba(235,235,235,.10);--fill-4:rgba(235,235,235,.12);
+  --sep:rgba(235,235,235,.08);--sep-strong:rgba(235,235,235,.14);
+  --primary:#ebebeb;--on-primary:#171717;--ring:rgba(235,235,235,.4);
+  --working:#f76b15;--waiting:#ffb224;--waiting-text:#ffca16;--waiting-bg:rgba(255,178,36,.14);
+  --failed:#e5484d;--failed-text:#ff9592;--failed-bg:rgba(229,72,77,.14);
+  --success:#30a46c;--success-text:#3dd68c;--success-bg:rgba(48,164,108,.13);
+  --add:#3dd68c;--del:#ff9592;--review:#70b8ff;--review-bg:rgba(112,184,255,.12);
+  --claude:#d97757;--codex:#0f9d8a;--cursor:#a1a1a1;
+  --row-shadow:0 0 0 .5px rgba(235,235,235,.12);
+  --lift-shadow:0 0 0 .5px rgba(235,235,235,.16),0 16px 36px rgba(0,0,0,.55);
+  --pop-shadow:0 0 0 .5px rgba(235,235,235,.14),0 12px 32px rgba(0,0,0,.5);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --spring:cubic-bezier(.23,1,.32,1);
+  --sheet:cubic-bezier(.32,.72,0,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font:13px/1.4 var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);background:radial-gradient(1000px 700px at 15% 0%,#2b3350 0%,transparent 60%),radial-gradient(900px 600px at 90% 100%,#3a2b4d 0%,transparent 60%),#12141c}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:default}
+svg{display:block;flex:none}
+code{font:11.5px var(--mono)}
+
+#win{position:absolute;inset:20px 20px 76px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);-webkit-backdrop-filter:blur(40px) saturate(1.6);backdrop-filter:blur(40px) saturate(1.6);box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:60}
+.lights i{width:12px;height:12px;border-radius:50%}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+#side{width:224px;flex:none;display:flex;flex-direction:column;gap:1px;background:var(--side);border-right:.5px solid var(--sep);padding:44px 8px 10px}
+.nav{display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:8px;font-weight:500;color:var(--text-2);width:100%;text-align:left}
+.nav svg{color:var(--text-3)}
+.nav:hover{background:var(--fill-2)}
+.nav.sel{background:var(--fill-4);color:var(--text)}
+.nav.sel svg{color:var(--text)}
+.nav kbd{margin-left:auto;font:500 11px var(--sans);color:var(--text-4)}
+.badge{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--waiting);color:#1a1300;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+.sgroup{margin:16px 10px 6px;font-size:12px;font-weight:600;color:var(--text-3)}
+.pi{width:16px;height:16px;border-radius:4px;flex:none;display:inline-flex;align-items:center;justify-content:center;font:600 9px var(--sans);color:#fff;font-style:normal;background:#555}
+.spacer{flex:1}
+
+#stage{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.phead{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:4px 20px 0}
+.phead h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.015em}
+.phead .sub{flex:1;font-size:12.5px;color:var(--text-3);font-variant-numeric:tabular-nums;padding-left:4px}
+.find{width:220px;height:28px;display:flex;align-items:center;gap:7px;padding:0 9px;border-radius:8px;background:var(--fill-2);color:var(--text-3)}
+.find input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:12.5px;color:var(--text);user-select:text;-webkit-user-select:text}
+.find input::placeholder{color:var(--text-3)}
+.live{height:28px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border-radius:8px;font-size:12px;font-weight:500;color:var(--text-2)}
+.live:hover{background:var(--fill-2)}
+.live i{width:6px;height:6px;border-radius:50%;background:var(--success)}
+.live.off i{background:var(--text-4)}
+.btn{height:28px;padding:0 11px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;white-space:nowrap;transition:transform 100ms ease-out,background 120ms ease-out}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--primary);color:var(--on-primary)}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.ghost{background:var(--fill-3)}
+.btn.ghost:hover{background:var(--fill-4)}
+.btn.plain{color:var(--text-2)}
+.btn.plain:hover{background:var(--fill-2);color:var(--text)}
+.btn.sm{height:24px;padding:0 9px;font-size:12px;border-radius:7px;gap:4px}
+.btn kbd{font:500 11px var(--sans);opacity:.55}
+.fbar{height:38px;flex:none;display:flex;align-items:center;gap:6px;padding:0 20px 6px;border-bottom:.5px solid var(--sep)}
+.chip{height:24px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border-radius:7px;background:var(--fill-2);font-size:12px;font-weight:500;color:var(--text-2)}
+.chip:hover{background:var(--fill-3)}
+.sp{flex:1}
+
+/* shared atoms */
+.dash{width:10px;height:10px;border-radius:50%;border:1.25px dashed var(--text-3)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.dot.halo{box-shadow:0 0 0 3px color-mix(in srgb,currentColor 24%,transparent)}
+.si{width:12px;height:12px;flex:none;display:flex;align-items:center;justify-content:center}
+.c-w{color:var(--working)}.c-ny{color:var(--waiting)}.c-ok{color:var(--success)}.c-no{color:var(--failed)}.c-rv{color:var(--review)}.c-m{color:var(--text-3)}
+.spin{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ag{display:inline-flex;align-items:center;gap:4px;color:var(--text-3)}
+.ag i{width:6px;height:6px;border-radius:50%}
+.ag.claude i{background:var(--claude)}.ag.codex i{background:var(--codex)}.ag.cursor i{background:var(--cursor)}
+.pill{height:20px;display:inline-flex;align-items:center;gap:4px;padding:0 6px;border-radius:6px;box-shadow:inset 0 0 0 .5px var(--sep-strong);font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill.mono{font-family:var(--mono)}
+.pill.pr{color:var(--text-2)}
+.pill.pr.draft{color:var(--text-3)}
+.add{color:var(--add)}.del{color:var(--del)}
+.ok{color:var(--success-text)}.bad{color:var(--failed-text)}.warn{color:var(--waiting-text)}
+.br{display:flex;align-items:center;gap:5px;font:11px var(--mono);color:var(--text-3);white-space:nowrap;overflow:hidden}
+.br span{overflow:hidden;text-overflow:ellipsis}
+
+/* ask / detail blocks (shared by Board peek, Triage detail, Map popover) */
+.ask{border-radius:10px;background:var(--waiting-bg);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.ask.fail{background:var(--failed-bg)}
+.ask.done{background:var(--success-bg)}
+.ask .q{font-size:12.5px;line-height:1.45;color:var(--text)}
+.ask .q b{font-weight:600}
+.ask .q code{display:inline-block;margin-top:4px;padding:2px 6px;border-radius:5px;background:rgba(0,0,0,.25)}
+.ask .row{display:flex;gap:6px;flex-wrap:wrap}
+.log{display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.55;user-select:text;-webkit-user-select:text}
+.log .you{align-self:flex-end;max-width:85%;background:var(--fill-3);padding:7px 11px;border-radius:12px}
+.log .tool{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-3)}
+.log .tool b{font-weight:500;color:var(--text-2)}
+.log .tool svg{color:var(--text-4)}
+.log .agent{color:var(--text-body)}
+.box{border-radius:10px;box-shadow:inset 0 0 0 .5px var(--sep-strong);overflow:hidden}
+.box h4{margin:0;display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:12px;font-weight:600;color:var(--text-2);border-bottom:.5px solid var(--sep)}
+.box h4 .sp{flex:1}
+.box h4 .btn{margin:-4px -6px -4px 0}
+.frow{display:flex;align-items:center;gap:8px;height:28px;padding:0 12px;font:11.5px var(--mono);color:var(--text-2)}
+.frow span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow + .frow{border-top:.5px solid var(--sep)}
+.ck{display:flex;align-items:center;gap:8px;height:28px;padding:0 12px;font-size:12px;color:var(--text-2)}
+.ck + .ck{border-top:.5px solid var(--sep)}
+.ck .sp{flex:1}
+.composer{display:flex;align-items:center;gap:8px;height:40px;padding:0 6px 0 12px;border-radius:12px;background:var(--surface);box-shadow:var(--row-shadow)}
+.composer:focus-within{box-shadow:0 0 0 2px var(--ring),var(--row-shadow)}
+.composer input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:13px;user-select:text;-webkit-user-select:text}
+.composer input::placeholder{color:var(--text-4)}
+.composer kbd{font:500 11px var(--sans);color:var(--text-4);padding-right:6px}
+
+/* ───────── 1 · Board (styles) ───────── */
+.bd{flex:1;min-height:0;display:flex;gap:10px;padding:14px 20px;overflow:auto hidden;scrollbar-width:thin;scrollbar-color:var(--fill-4) transparent}
+.bcol{flex:1 1 0;min-width:208px;max-width:320px;display:flex;flex-direction:column;border-radius:10px;background:var(--fill-1)}
+.ch{flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.cn{font-size:13px;font-weight:500}
+.cc{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.ch .why{margin-left:auto;font-size:11px;color:var(--text-4)}
+.cb{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:0 8px 8px;overflow-y:auto;scrollbar-width:none}
+.hint{padding:6px 6px 12px;font-size:12px;line-height:1.5;color:var(--text-4)}
+.card{position:relative;flex:none;background:var(--surface);border-radius:10px;box-shadow:var(--row-shadow);padding:10px 12px;text-align:left;transition:transform 100ms ease-out,box-shadow 120ms ease-out}
+.card:hover{box-shadow:0 0 0 .5px var(--sep-strong),0 0 0 4px var(--fill-1)}
+.card:active:not(:has(button:active)){transform:scale(.985)}
+.card.sel{box-shadow:0 0 0 1.5px var(--ring)}
+.card .r1{display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:11px;color:var(--text-3);white-space:nowrap}
+.card .r1 .pn{overflow:hidden;text-overflow:ellipsis}
+.card .r1 .ago{margin-left:auto;font-variant-numeric:tabular-nums}
+.card .t{font-size:13px;font-weight:500;line-height:18px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card.unseen .t{font-weight:600}
+.card .br{margin-top:4px}
+.card .p{margin-top:6px;font-size:12px;line-height:1.4;color:var(--text-3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .ask{margin-top:8px;padding:8px 10px;gap:7px}
+.card .ask .q{font-size:12px}
+.card .pills{margin-top:8px;display:flex;align-items:center;gap:6px}
+.card .pills:empty{display:none}
+.card .pills .btn{margin:-2px -4px -2px auto}
+.ghost{animation:none!important}
+
+.peek{position:absolute;top:96px;right:10px;bottom:10px;width:440px;z-index:30;display:flex;flex-direction:column;border-radius:12px;background:color-mix(in srgb,var(--popover) 86%,transparent);-webkit-backdrop-filter:blur(28px) saturate(1.6);backdrop-filter:blur(28px) saturate(1.6);box-shadow:var(--pop-shadow);transform:translateX(calc(100% + 24px));pointer-events:none;transition:transform 440ms var(--sheet)}
+.peek.open{transform:none;pointer-events:auto}
+.phd{flex:none;display:flex;align-items:flex-start;gap:10px;padding:14px 12px 12px 16px;border-bottom:.5px solid var(--sep);cursor:grab;touch-action:none}
+.phd:active{cursor:grabbing}
+.phd .ti{flex:1;min-width:0}
+.phd .ti b{display:block;font-size:14.5px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.phd .meta{margin-top:5px;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-3)}
+.icon{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.icon:hover{background:var(--fill-3);color:var(--text)}
+.pbody{flex:1;min-height:0;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px;scrollbar-width:thin}
+.pfoot{flex:none;padding:0 12px 12px}
+.stchip{height:20px;display:inline-flex;align-items:center;gap:5px;padding:0 7px 0 6px;border-radius:10px;background:var(--fill-3);font-size:11px;font-weight:600;color:var(--text-2)}
+
+/* ───────── 2 · Triage ───────── */
+.tri{flex:1;min-height:0;display:flex;border-top:.5px solid var(--sep)}
+.tl{width:420px;flex:none;display:flex;flex-direction:column;border-right:.5px solid var(--sep)}
+.seg{position:relative;margin:10px 12px 6px;display:flex;padding:2px;border-radius:9px;background:var(--fill-2)}
+.seg .thumb{position:absolute;top:2px;left:0;height:calc(100% - 4px);border-radius:7px;background:var(--fill-4);box-shadow:0 0 0 .5px var(--sep-strong),0 1px 2px rgba(0,0,0,.3)}
+.seg[data-ready] .thumb{transition:transform 260ms var(--spring),width 260ms var(--spring)}
+.seg button{position:relative;flex:1 1 auto;min-width:0;height:26px;padding:0 6px;border-radius:7px;font-size:11.5px;font-weight:500;color:var(--text-3);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:4px;transition:color 120ms ease-out}
+.seg button:hover{color:var(--text-2)}
+.seg button[data-on]{color:var(--text)}
+.seg button em{font-style:normal;color:var(--text-4);font-variant-numeric:tabular-nums}
+.seg button[data-on] em{color:var(--text-3)}
+.seg button em.hot{color:var(--waiting-text)}
+.tlist{flex:1;min-height:0;overflow:auto;padding:0 8px 12px;scrollbar-width:thin;scrollbar-color:var(--fill-4) transparent}
+.sec{display:flex;align-items:center;gap:7px;padding:12px 8px 5px;font-size:11.5px;font-weight:600;color:var(--text-3);position:sticky;top:0;background:linear-gradient(var(--window) 70%,transparent);z-index:2}
+.sec em{font-style:normal;font-weight:500;color:var(--text-4);font-variant-numeric:tabular-nums}
+.row{width:100%;display:flex;align-items:flex-start;gap:10px;padding:8px 8px;border-radius:8px;text-align:left;position:relative}
+.row:hover{background:var(--fill-2)}
+.row.sel{background:var(--fill-4)}
+.row .si{margin-top:3px}
+.row .rt{flex:1;min-width:0}
+.row .rt b{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.unseen .rt b{font-weight:650}
+.row .rt span{display:flex;align-items:center;gap:6px;margin-top:2px;font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden}
+.row .rt span i{font-style:normal;overflow:hidden;text-overflow:ellipsis}
+.row .rr{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.td{flex:1;min-width:0;display:flex;flex-direction:column}
+.tdb{flex:1;min-height:0;overflow:auto;padding:22px max(24px,calc(50% - 330px)) 16px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin}
+.tdf{flex:none;padding:0 max(24px,calc(50% - 330px)) 16px}
+.tdh h2{margin:8px 0 0;font-size:20px;font-weight:650;letter-spacing:-.018em;line-height:1.25}
+.tdh .meta{margin-top:7px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-3)}
+.keys{display:flex;gap:12px;font-size:11px;color:var(--text-4)}
+.keys kbd{font:500 10.5px var(--sans);padding:1px 5px;border-radius:4px;background:var(--fill-3);color:var(--text-3);margin-right:3px}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-3)}
+.empty b{font-size:15px;color:var(--text-2);font-weight:600}
+
+/* ───────── 3 · Map ───────── */
+.map{flex:1;min-height:0;overflow:auto;padding:14px 20px 24px;scrollbar-width:thin;scrollbar-color:var(--fill-4) transparent}
+.ctr{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:22px}
+.ct{position:relative;display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:12px;background:var(--fill-1);box-shadow:inset 0 0 0 .5px var(--sep);text-align:left;transition:transform 100ms ease-out,background 120ms ease-out,box-shadow 120ms ease-out}
+.ct:hover{background:var(--fill-2)}
+.ct:active{transform:scale(.98)}
+.ct[data-on]{background:var(--fill-3);box-shadow:inset 0 0 0 1.5px var(--ring)}
+.ct .l{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;color:var(--text-2)}
+.ct .n{font-size:30px;line-height:1;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.ct .n.z{color:var(--text-4)}
+.ct .d{font-size:11px;color:var(--text-4)}
+.proj{margin-bottom:20px}
+.proj h3{margin:0 0 8px;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.proj h3 em{font-style:normal;font-weight:500;color:var(--text-4);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.tile{position:relative;display:flex;flex-direction:column;gap:6px;min-height:92px;padding:10px 11px;border-radius:10px;background:var(--surface);box-shadow:var(--row-shadow);text-align:left;color:var(--text);transition:transform 100ms ease-out,opacity 200ms ease-out,background 200ms ease-out}
+.tile:hover{box-shadow:0 0 0 .5px var(--sep-strong),0 0 0 4px var(--fill-1)}
+.tile:active{transform:scale(.98)}
+.tile.k-idle{background:var(--fill-1);box-shadow:inset 0 0 0 .5px var(--sep)}
+.tile.k-idle .tn{color:var(--text-2)}
+.tile.k-needs{background:color-mix(in srgb,var(--surface) 82%,var(--waiting))}
+.tile.k-needs.failed{background:color-mix(in srgb,var(--surface) 82%,var(--failed))}
+.tile.k-done{background:color-mix(in srgb,var(--surface) 86%,var(--success))}
+.tile.dim{opacity:.22}
+.tile.open{box-shadow:0 0 0 1.5px var(--ring)}
+.tile .tt{display:flex;align-items:flex-start;gap:7px}
+.tile .tt .si{margin-top:3px}
+.tile .tn{font-size:12.5px;font-weight:500;line-height:17px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tile .tf{margin-top:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)}
+.tile .tf .ago{margin-left:auto;font-variant-numeric:tabular-nums}
+.tile .br{padding-left:19px}
+.tile::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 0 0 2px currentColor;opacity:0;pointer-events:none}
+.tile.ping::after{animation:ping 1100ms ease-out}
+.tile.k-needs{color:var(--waiting)}.tile.k-done{color:var(--success)}.tile.k-working{color:var(--working)}.tile.k-review{color:var(--review)}.tile.k-idle{color:var(--text-3)}
+.tile.k-needs .tn,.tile.k-done .tn,.tile.k-working .tn,.tile.k-review .tn{color:var(--text)}
+@keyframes ping{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(1.035)}}
+.pop{position:absolute;z-index:40;width:360px;padding:12px;border-radius:14px;background:color-mix(in srgb,var(--popover) 88%,transparent);-webkit-backdrop-filter:blur(28px) saturate(1.6);backdrop-filter:blur(28px) saturate(1.6);box-shadow:var(--pop-shadow);display:flex;flex-direction:column;gap:10px;opacity:0;transform:scale(.94);pointer-events:none;transition:opacity 140ms ease-out,transform 240ms var(--spring)}
+.pop.open{opacity:1;transform:none;pointer-events:auto}
+.pop .ph{display:flex;align-items:flex-start;gap:8px}
+.pop .ph b{flex:1;font-size:13.5px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.pop .meta{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-3)}
+.pop .last{font-size:12.5px;line-height:1.5;color:var(--text-body)}
+.pop .acts{display:flex;gap:6px}
+.pop .composer{height:34px;border-radius:10px}
+
+/* ───────── session screen (where Open session goes) ───────── */
+#sess{position:absolute;top:0;right:0;bottom:0;left:224px;z-index:50;display:flex;flex-direction:column;background:#141414;opacity:0;transform:scale(.97);pointer-events:none;transition:opacity 160ms ease-out,transform 340ms var(--spring)}
+#sess.open{opacity:1;transform:none;pointer-events:auto}
+.sbar{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:4px 16px 0 10px;border-bottom:.5px solid var(--sep)}
+.back{height:28px;display:inline-flex;align-items:center;gap:3px;padding:0 10px 0 5px;border-radius:8px;font-weight:500;color:var(--text-2);transition:transform 100ms ease-out}
+.back:hover{background:var(--fill-2);color:var(--text)}
+.back:active{transform:scale(.97)}
+.back kbd{font:500 11px var(--sans);color:var(--text-4);margin-left:5px}
+.crumb{flex:1;min-width:0;display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-3);white-space:nowrap}
+.crumb b{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis}
+.crumb .sl{color:var(--text-4)}
+.ttabs{flex:none;display:flex;gap:2px;padding:8px 16px 0}
+.ttab{height:28px;display:inline-flex;align-items:center;gap:7px;padding:0 12px;border-radius:8px 8px 0 0;background:#0b0b0b;font-size:12px;font-weight:500;color:var(--text);box-shadow:inset 0 .5px 0 var(--sep-strong)}
+.ttab.off{background:transparent;color:var(--text-3);box-shadow:none}
+.term{flex:1;min-height:0;overflow:auto;margin:0 16px;border-radius:0 10px 10px 10px;background:#0b0b0b;box-shadow:inset 0 0 0 .5px var(--sep-strong);padding:16px 18px;font:12.5px/1.65 var(--mono);color:#cfcfcf;display:flex;flex-direction:column;gap:10px;user-select:text;-webkit-user-select:text;scrollbar-width:thin}
+.term .u{color:#fff}
+.term .u::before{content:"> ";color:var(--text-4)}
+.term .t{color:var(--text-3)}
+.term .t::before,.term .a::before{content:"⏺ ";color:var(--success)}
+.term .t.w::before{color:var(--working)}
+.term .ask{font-family:var(--sans);max-width:560px}
+.sfoot{flex:none;padding:10px 16px 14px}
+@media (prefers-reduced-motion:reduce){#sess{transform:none}}
+
+/* ───────── picker (verbatim) ───────── */
+.proto-picker{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:rgba(10,10,10,0.82);-webkit-backdrop-filter:blur(12px) saturate(1.4);backdrop-filter:blur(12px) saturate(1.4);box-shadow:0 0 0 1px rgba(255,255,255,0.08) inset,0 8px 24px rgba(0,0,0,0.24),0 2px 6px rgba(0,0,0,0.12);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;line-height:1;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
+.proto-picker-highlight{position:absolute;top:4px;left:0;height:28px;border-radius:999px;background:rgba(255,255,255,0.12);will-change:transform}
+.proto-picker[data-ready] .proto-picker-highlight{transition:transform 250ms cubic-bezier(0.23,1,0.32,1),width 250ms cubic-bezier(0.23,1,0.32,1)}
+@media (prefers-reduced-motion:reduce){.proto-picker[data-ready] .proto-picker-highlight{transition:none}}
+.proto-picker-item{position:relative;display:flex;align-items:center;height:28px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:rgba(255,255,255,0.55);font:inherit;cursor:pointer;transition:color 150ms ease-out}
+.proto-picker-item:hover{color:rgba(255,255,255,0.85)}
+.proto-picker-item:active{transform:scale(0.97)}
+.proto-picker-item:focus-visible{outline:2px solid rgba(255,255,255,0.4);outline-offset:2px}
+.proto-picker-item[data-active]{color:#fff}
+.proto-picker-divider{width:1px;height:16px;margin:0 4px;background:rgba(255,255,255,0.12)}
+.proto-picker-replay{padding:0 10px;font-size:14px}
+.proto-picker[data-position="top"]{bottom:auto;top:24px}
+
+@media (prefers-reduced-motion:reduce){
+  .peek{transform:none;opacity:0;transition:opacity 180ms ease}
+  .peek.open{opacity:1}
+  .pop{transform:none}
+  .tile.ping::after{animation:none}
+  .spin{animation-duration:2.4s}
+  .seg[data-ready] .thumb{transition:none}
+}
+@media (prefers-reduced-transparency:reduce){
+  #win{-webkit-backdrop-filter:none;backdrop-filter:none;background:#121212}
+  .peek,.pop{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--popover)}
+}
+</style>
+</head>
+<body>
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="side"></aside>
+  <main id="stage"></main>
+  <section id="sess" aria-label="Session"></section>
+</div>
+
+<nav class="proto-picker" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Board</button>
+  <button class="proto-picker-item">Triage</button>
+  <button class="proto-picker-item">Map</button>
+</nav>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+const SPRING = 'cubic-bezier(.23,1,.32,1)';
+
+const I = {
+  spin: '<svg class="spin" width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="1.5"/><path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  pr: '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>',
+  branch: '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/></svg>',
+  check: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.3 5 8.7l4.5-5.2"/></svg>',
+  x: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3l6 6M9 3 3 9"/></svg>',
+  close: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/></svg>',
+  search: '<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4.25"/><path d="m9.2 9.2 3 3" stroke-linecap="round"/></svg>',
+  plus: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 2v8M2 6h8"/></svg>',
+  term: '<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="11" height="9" rx="2"/><path d="m4 6 1.8 1.5L4 9M7.5 9H10"/></svg>',
+  file: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 1.5h4l2.5 2.5v6.5h-6.5z" stroke-linejoin="round"/></svg>',
+  pen: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="m2 10 .5-2.2L8 2.3l1.7 1.7-5.5 5.5z"/></svg>',
+  inbox: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 9.5 3.8 3h8.4L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>',
+  board: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="3.5" height="11" rx="1"/><rect x="6.25" y="2.5" width="3.5" height="7" rx="1"/><rect x="10.5" y="2.5" width="3.5" height="9" rx="1"/></svg>',
+  agents: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5" cy="5" r="2.2"/><circle cx="11" cy="5" r="2.2"/><circle cx="5" cy="11" r="2.2"/><circle cx="11" cy="11" r="2.2"/></svg>',
+  bolt: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z"/></svg>',
+  cog: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>',
+};
+
+/* ───────── data ───────── */
+const P = {
+  anywhere: { name: 'anywhere', c: '#6e56cf', files: ['crates/pocket/src/sessions.rs', 'crates/pocket/src/sessions/board.rs', 'crates/agents/src/status.rs', 'crates/git/src/github.rs'] },
+  rail: { name: 'rail-changer-backend', c: '#12a594', files: ['.github/workflows/build.yml', 'src/gateway/gateway.module.ts', 'Dockerfile', 'infra/pilot/main.tf'] },
+  regask: { name: 'regask-web', c: '#d6409f', files: ['app/search/saved-filters.tsx', 'lib/export/csv.ts', 'app/alerts/empty-state.tsx', 'next.config.ts'] },
+  ios: { name: 'pocket-ios', c: '#3e63dd', files: ['PocketWidgets/NeedsYouActivity.swift', 'Pocket/Push/RetryPolicy.swift', 'Pocket/Code/LineNumbers.swift'] },
+  scratch: { name: 'Scratch', c: null, files: ['notes.md'] },
+};
+const PROJ_ORDER = ['anywhere', 'rail', 'regask', 'ios', 'scratch'];
+const now = Date.now(), m = 60e3, h = 60 * m, d = 24 * h;
+const store = {
+  list: [
+    { id: 's1', p: 'anywhere', branch: 'capital-wasp', agent: 'claude', title: 'Sessions page groups agents by status', status: 'working', since: now - 4 * m - 12e3, add: 412, del: 38, last: 'Editing crates/pocket/src/sessions/board.rs' },
+    { id: 's2', p: 'anywhere', branch: 'brave-otter', agent: 'codex', title: 'Changes list keeps its scroll on refresh', status: 'needs', since: now - 3 * m, add: 57, del: 19, ask: { kind: 'perm', tool: 'Bash', cmd: 'cargo test -p git' }, last: 'Wants to run the git crate tests.' },
+    { id: 's3', p: 'anywhere', branch: 'quiet-heron', agent: 'claude', title: 'Pin Board columns per project', status: 'done', since: now - 6 * m, add: 188, del: 41, last: 'Columns now persist per project in prefs. Added 3 tests; cargo test --workspace passes.' },
+    { id: 's4', p: 'anywhere', branch: 'main', agent: 'claude', title: 'Changelog for 0.1.43', status: 'idle', since: now - 2 * h, add: 0, del: 0, last: 'Drafted the CHANGELOG.md entry: 6 items under Desktop, 2 under iOS.' },
+    { id: 's5', p: 'anywhere', branch: 'swift-lynx', agent: 'claude', title: 'Browser tabs pick page elements into the chat', status: 'idle', since: now - 3 * h, add: 623, del: 88, pr: { n: 249, state: 'open', checks: 'pass', review: 'approved' }, last: 'Opened #249. Element picker works in every tab.' },
+    { id: 's6', p: 'anywhere', branch: 'amber-finch', agent: 'codex', title: 'Terminal reflows when the font size changes', status: 'idle', since: now - 40 * m, add: 141, del: 27, pr: { n: 251, state: 'draft', checks: 'pending' }, last: 'Draft PR is up; reflow still flickers once on 4K displays.' },
+    { id: 's7', p: 'rail', branch: 'ci/merseyrail-multiarch', agent: 'claude', title: 'Build multi-arch images in CI', status: 'idle', since: now - 1 * d, add: 8405, del: 3134, pr: { n: 2131, state: 'open', checks: 'fail' }, last: 'arm64 build is green locally; pushed and opened #2131.' },
+    { id: 's8', p: 'rail', branch: 'fix/storage-ignore-foreign-sns', agent: 'claude', title: 'Deploy WeOne pilot environment', status: 'idle', since: now - 3 * d, add: 2986, del: 66, last: 'Pilot stack applies cleanly. Not pushed yet.' },
+    { id: 's9', p: 'rail', branch: 'fix/bump-nestjs-api-gateway', agent: 'codex', title: 'Debug commschanger-dev gateway 502s', status: 'working', since: now - 11 * m, add: 12, del: 4, last: 'Reading api-gateway-dev logs from CloudWatch' },
+    { id: 's10', p: 'rail', branch: 'main', agent: 'cursor', title: 'Rotate staging DB credentials', status: 'needs', since: now - 9 * m, add: 0, del: 0, ask: { kind: 'q', text: 'Which secret store should the rotation script write to?', opts: ['AWS SSM', 'Vault'] }, last: 'Asked where to store the rotated secret.' },
+    { id: 's11', p: 'regask', branch: 'REG-1432-saved-filters', agent: 'claude', title: 'Saved filters on regulation search', status: 'working', since: now - 2 * m, add: 233, del: 10, last: 'Running pnpm test --filter search' },
+    { id: 's12', p: 'regask', branch: 'REG-1418-csv-export', agent: 'claude', title: 'CSV export drops accented names', status: 'failed', since: now - 14 * m, add: 31, del: 6, ask: { kind: 'fail', text: 'pnpm test exited 1 — 2 failing in export.spec.ts' }, last: 'The turn ended with an error.' },
+    { id: 's13', p: 'regask', branch: 'REG-1440-alerts-empty', agent: 'codex', title: 'Empty state for the alerts inbox', status: 'done', since: now - 1 * m, add: 96, del: 12, last: 'Added the empty state with the copy from Figma and an illustration slot.' },
+    { id: 's14', p: 'regask', branch: 'REG-1401-next-16', agent: 'claude', title: 'Upgrade to Next 16', status: 'idle', since: now - 5 * h, add: 1204, del: 977, pr: { n: 812, state: 'open', checks: 'pass', review: 'changes' }, last: 'Opened #812. Middleware moved to the new proxy API.' },
+    { id: 's15', p: 'ios', branch: 'line-numbers', agent: 'claude', title: 'Line numbers stay put on rotate', status: 'idle', since: now - 1 * d, add: 0, del: 0, last: 'Merged in #248. Nothing left here.' },
+    { id: 's16', p: 'ios', branch: 'live-activity', agent: 'claude', title: 'Live Activity for Needs you', status: 'working', since: now - 7 * m, add: 318, del: 2, last: 'Building PocketWidgets in Xcode' },
+    { id: 's17', p: 'ios', branch: 'push-retry', agent: 'codex', title: 'Retry pushes on 429', status: 'done', since: now - 18 * m, add: 44, del: 9, last: 'Pushes now back off 1s → 30s with jitter. Tests in PushRelayTests.' },
+    { id: 's18', p: 'scratch', branch: null, agent: 'claude', title: 'Compare Zed and Lapce diff rendering', status: 'idle', since: now - 5 * h, add: 0, del: 0, last: 'Wrote research-zed-diff-rendering.md.' },
+    { id: 's19', p: 'scratch', branch: null, agent: 'codex', title: 'Draft release notes for 0.1.43', status: 'idle', since: now - 2 * d, add: 0, del: 0, last: 'Release notes drafted in notes.md.' },
+  ],
+  q: '', viewing: null, live: true, subs: new Set(), nextPr: 252,
+  get(id) { return this.list.find(s => s.id === id) },
+  on(f) { this.subs.add(f); return () => this.subs.delete(f) },
+  emit() { this.subs.forEach(f => f()) },
+};
+
+const route = { session: null, prevViewing: null };
+
+/* Paradev's rule, in Anywhere's words: status first, then an open PR files an idle session under In review. */
+function col(s) {
+  if (s.status === 'needs' || s.status === 'failed') return 'needs';
+  if (s.status === 'working') return 'working';
+  if (s.status === 'done') return 'done';
+  if (s.pr && (s.pr.state === 'open' || s.pr.state === 'draft')) return 'review';
+  return 'idle';
+}
+const ST = {
+  idle: { name: 'Idle', icon: '<span class="si"><span class="dash"></span></span>', hint: 'At the prompt, nothing unseen.', why: '' },
+  working: { name: 'Working', icon: `<span class="si c-w">${I.spin}</span>`, hint: 'Agents running a turn show up here.', why: '' },
+  needs: { name: 'Needs you', icon: '<span class="si c-ny"><span class="dot halo"></span></span>', hint: 'Questions and permissions land here.', why: '' },
+  done: { name: 'Done', icon: '<span class="si c-ok"><span class="dot"></span></span>', hint: 'Finished turns you haven’t seen yet.', why: 'unseen' },
+  review: { name: 'In review', icon: `<span class="si c-rv">${I.pr}</span>`, hint: 'Idle sessions with an open or draft PR.', why: 'PR open' },
+};
+const BOARD_ORDER = ['idle', 'working', 'needs', 'done', 'review'];
+const URGENT_ORDER = ['needs', 'done', 'working', 'review', 'idle'];
+const statusIcon = s => s.status === 'failed' ? '<span class="si c-no"><span class="dot halo"></span></span>' : ST[col(s)].icon;
+function sorted(items, c) {
+  const asc = c === 'needs' || c === 'done' || c === 'working';
+  return items.slice().sort((a, b) => (a.status === 'failed') - (b.status === 'failed') || (asc ? a.since - b.since : b.since - a.since));
+}
+const visible = s => {
+  const q = store.q.trim().toLowerCase();
+  return !q || [s.title, P[s.p].name, s.branch, s.agent].join(' ').toLowerCase().includes(q);
+};
+function ago(t) {
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h';
+  return Math.floor(s / 86400) + 'd';
+}
+const since = s => `<span class="ago" data-since="${s.since}">${ago(s.since)}</span>`;
+const badge = s => P[s.p].c ? `<i class="pi" style="background:${P[s.p].c}">${P[s.p].name[0].toUpperCase()}</i>` : '<i class="pi">S</i>';
+const agentTag = s => `<span class="ag ${s.agent}"><i></i>${s.agent}</span>`;
+const branchLine = s => s.branch ? `<div class="br">${I.branch}<span>${esc(s.branch)}</span></div>` : '';
+const diffPill = s => s.add || s.del ? `<span class="pill mono"><span class="add">+${s.add}</span><span class="del">−${s.del}</span></span>` : '';
+const checksIcon = c => c === 'pass' ? `<span class="ok">${I.check}</span>` : c === 'fail' ? `<span class="bad">${I.x}</span>` : '<span class="warn"><span class="dot" style="width:6px;height:6px"></span></span>';
+function prPill(s) {
+  if (!s.pr) return '';
+  const r = s.pr.review === 'approved' ? '<span class="ok">Approved</span>' : s.pr.review === 'changes' ? '<span class="bad">Changes</span>' : '';
+  return `<span class="pill pr ${s.pr.state === 'draft' ? 'draft' : ''}"><span class="c-rv">${I.pr}</span>#${s.pr.n}${checksIcon(s.pr.checks)}${r}${s.pr.state === 'draft' ? 'Draft' : ''}</span>`;
+}
+const canPr = s => !s.pr && s.branch && s.branch !== 'main' && s.add > 0 && col(s) === 'idle';
+function quick(s) {
+  if (s.status === 'done') return `<button class="btn sm ghost" data-act="seen" data-id="${s.id}">${I.check}Seen</button>`;
+  if (canPr(s)) return `<button class="btn sm ghost" data-act="pr" data-id="${s.id}">${I.pr}Create PR</button>`;
+  return '';
+}
+
+/* blocks shared by every detail surface */
+function askBlock(s, compact) {
+  const a = s.ask;
+  if (s.status === 'needs' && a?.kind === 'perm') return `<div class="ask"><div class="q"><b>${esc(a.tool)}</b> wants to run<br><code>${esc(a.cmd)}</code></div><div class="row"><button class="btn sm primary" data-act="allow" data-id="${s.id}">Allow${compact ? '' : '<kbd>A</kbd>'}</button>${compact ? '' : `<button class="btn sm ghost" data-act="allow" data-v="session" data-id="${s.id}">Always in this session</button>`}<button class="btn sm ghost" data-act="deny" data-id="${s.id}">Deny</button></div></div>`;
+  if (s.status === 'needs' && a?.kind === 'q') return `<div class="ask"><div class="q">${esc(a.text)}</div><div class="row">${a.opts.map((o, i) => `<button class="btn sm ${i ? 'ghost' : 'primary'}" data-act="answer" data-v="${esc(o)}" data-id="${s.id}">${esc(o)}</button>`).join('')}</div></div>`;
+  if (s.status === 'failed') return `<div class="ask fail"><div class="q"><b class="bad">Turn failed.</b> ${esc(a.text)}</div><div class="row"><button class="btn sm primary" data-act="retry" data-id="${s.id}">Retry</button><button class="btn sm ghost" data-act="dismiss" data-id="${s.id}">Dismiss</button></div></div>`;
+  return '';
+}
+function logBlock(s) {
+  const f = P[s.p].files;
+  const n = Math.min(f.length, 1 + (s.add % 3));
+  return `<div class="log"><div class="you">${esc(s.title)}</div><div class="tool">${I.file}<b>Read</b> ${3 + (s.add % 7)} files</div>${s.add ? `<div class="tool">${I.pen}<b>Edited</b> ${n} file${n > 1 ? 's' : ''} <span class="add">+${s.add}</span><span class="del">−${s.del}</span></div>` : ''}${s.status === 'working' ? `<div class="tool c-w">${I.spin}<b style="color:inherit">${esc(s.last)}</b></div>` : `<div class="agent">${esc(s.last)}</div>`}</div>`;
+}
+function filesBlock(s) {
+  if (!s.add && !s.del) return '';
+  const f = P[s.p].files.slice(0, Math.min(P[s.p].files.length, 1 + (s.add % 3)));
+  const w = f.map((_, i) => f.length - i), tot = w.reduce((a, b) => a + b, 0);
+  return `<div class="box"><h4>Changes<span class="sp"></span><span class="pill mono"><span class="add">+${s.add}</span><span class="del">−${s.del}</span></span></h4>${f.map((p, i) => `<div class="frow"><span>${esc(p)}</span><span class="add">+${Math.round(s.add * w[i] / tot)}</span><span class="del">−${Math.round(s.del * w[i] / tot)}</span></div>`).join('')}</div>`;
+}
+function prBlock(s) {
+  if (s.pr) {
+    const ck = { pass: ['ok', 'Checks passed'], fail: ['bad', '1 check failing · build (arm64)'], pending: ['warn', 'Checks running'] }[s.pr.checks];
+    const rv = s.pr.review === 'approved' ? ['ok', 'Approved by kiet'] : s.pr.review === 'changes' ? ['bad', 'Changes requested by lan'] : [null, s.pr.state === 'draft' ? 'Draft — not asking for review' : 'Waiting for review'];
+    return `<div class="box"><h4><span class="c-rv">${I.pr}</span>Pull request #${s.pr.n}<span class="sp"></span><button class="btn sm plain">Open on GitHub</button></h4><div class="ck">${checksIcon(s.pr.checks)}<span class="${ck[0]}">${ck[1]}</span></div><div class="ck">${rv[0] ? `<span class="${rv[0]}">${rv[0] === 'ok' ? I.check : I.x}</span>` : '<span class="si"><span class="dash"></span></span>'}<span>${rv[1]}</span></div></div>`;
+  }
+  if (canPr(s)) return `<div class="box"><h4>No pull request<span class="sp"></span><button class="btn sm ghost" data-act="pr" data-id="${s.id}">${I.pr}Create PR</button></h4><div class="ck" style="color:var(--text-3)">Opening one moves this session to In review.</div></div>`;
+  return '';
+}
+const composer = s => `<form class="composer" data-compose="${s.id}" autocomplete="off"><input placeholder="Reply to ${s.agent}…" aria-label="Reply"><kbd>↵</kbd></form>`;
+
+/* ───────── actions ───────── */
+function setStatus(s, status, patch = {}) { Object.assign(s, { status, since: Date.now(), ask: null }, patch) }
+const act = {
+  allow(s, v) { setStatus(s, 'working', { last: v === 'session' ? `Allowed ${s.ask.cmd} for this session` : `Running ${s.ask.cmd}` }) },
+  answer(s, v) { setStatus(s, 'working', { last: `Writing the rotated secret to ${v}` }) },
+  deny(s) { setStatus(s, 'idle', { last: 'Permission denied — waiting for instructions.' }) },
+  retry(s) { setStatus(s, 'working', { last: 'Re-running the failing tests' }) },
+  dismiss(s) { setStatus(s, 'idle') },
+  seen(s) { if (s.status === 'done') s.status = 'idle' },
+  pr(s) { s.pr = { n: store.nextPr++, state: 'open', checks: 'pending' }; s.last = `Opened #${s.pr.n}.` },
+  send(s, text) { setStatus(s, 'working', { last: text }) },
+};
+function run(kind, id, v) {
+  const s = store.get(id);
+  if (!s || !act[kind]) return;
+  act[kind](s, v);
+  store.emit();
+  document.dispatchEvent(new CustomEvent('acted', { detail: { id, kind } }));
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  e.stopPropagation();
+  run(b.dataset.act, b.dataset.id, b.dataset.v);
+}, true);
+document.addEventListener('submit', e => {
+  const f = e.target.closest('[data-compose]');
+  if (!f) return;
+  e.preventDefault();
+  const v = f.querySelector('input').value.trim();
+  if (!v) return;
+  f.querySelector('input').value = '';
+  run('send', f.dataset.compose, v);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'a' && !e.metaKey && !e.ctrlKey && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) {
+    const s = store.get(store.viewing);
+    if (s?.status === 'needs' && s.ask?.kind === 'perm') run('allow', s.id);
+  }
+});
+
+/* ───────── simulated pocketd ───────── */
+const DONE_LINES = ['All tests pass. Ready for a look.', 'Implemented and added a regression test.', 'Done — left one TODO about pagination in the PR notes.', 'Fixed. The flaky snapshot was a timezone issue.'];
+const PERMS = [{ tool: 'Bash', cmd: 'pnpm lint --fix' }, { tool: 'Bash', cmd: 'git push -u origin HEAD' }, { tool: 'Edit', cmd: '.github/workflows/ci.yml' }, { tool: 'Bash', cmd: 'cargo clippy --workspace' }];
+function tick() {
+  if (store.live) {
+    const working = store.list.filter(s => s.status === 'working');
+    const pending = store.list.filter(s => s.pr?.checks === 'pending');
+    const idle = store.list.filter(s => col(s) === 'idle' && s.id !== store.viewing);
+    if (working.length < 2 && idle.length) {
+      setStatus(pick(idle), 'working', { last: 'Picked up a prompt you sent from your phone' });
+    } else if (pending.length && Math.random() < .25) {
+      pick(pending).pr.checks = Math.random() < .75 ? 'pass' : 'fail';
+    } else if (working.length) {
+      const s = pick(working);
+      if (Math.random() < .65) {
+        // A turn that ends while its session is on screen is already seen, so it never becomes Done.
+        setStatus(s, store.viewing === s.id ? 'idle' : 'done', { last: pick(DONE_LINES), add: s.add + 20 + Math.floor(Math.random() * 90), del: s.del + Math.floor(Math.random() * 20) });
+      } else {
+        setStatus(s, 'needs', { ask: { kind: 'perm', ...pick(PERMS) }, last: 'Waiting for permission.' });
+      }
+    }
+    store.emit();
+  }
+  setTimeout(tick, 4200 + Math.random() * 2800);
+}
+setTimeout(tick, 3000);
+setInterval(() => document.querySelectorAll('[data-since]').forEach(el => { el.textContent = ago(+el.dataset.since) }), 1000);
+
+/* ───────── motion: FLIP from the on-screen position ───────── */
+const ghosts = new Map();
+function flip(container, render) {
+  const before = new Map();
+  if (!reduce.matches) {
+    container.querySelectorAll('[data-k]').forEach(el => before.set(el.dataset.k, el.getBoundingClientRect()));
+    // A card still in flight starts its next move from where it is now, not where it was headed.
+    ghosts.forEach((g, k) => { before.set(k, g.getBoundingClientRect()); g.remove() });
+    ghosts.clear();
+  }
+  const scrolls = [...container.querySelectorAll('[data-scroll]')].map(el => [el.dataset.scroll, el.scrollTop]);
+  const top = container.scrollTop;
+  render();
+  container.scrollTop = top;
+  scrolls.forEach(([k, t]) => { const el = container.querySelector(`[data-scroll="${k}"]`); if (el) el.scrollTop = t });
+  if (reduce.matches || !before.size) return;
+  container.querySelectorAll('[data-k]').forEach(el => {
+    const b = before.get(el.dataset.k);
+    if (!b) { el.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: SPRING }); return }
+    const a = el.getBoundingClientRect();
+    const dx = b.left - a.left, dy = b.top - a.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    if (Math.abs(dx) < 4) { el.animate([{ transform: `translate(0,${dy}px)` }, { transform: 'none' }], { duration: 340, easing: SPRING }); return }
+    // Crossing columns: fly a copy above the columns' clipping, then reveal the real card.
+    const g = el.cloneNode(true);
+    g.classList.add('ghost');
+    Object.assign(g.style, { position: 'fixed', left: a.left + 'px', top: a.top + 'px', width: a.width + 'px', height: a.height + 'px', margin: 0, zIndex: 45, pointerEvents: 'none', boxShadow: 'var(--lift-shadow)' });
+    document.body.appendChild(g);
+    ghosts.set(el.dataset.k, g);
+    el.style.opacity = 0;
+    g.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: 'none' }], { duration: 520, easing: SPRING }).onfinish = () => {
+      if (ghosts.get(el.dataset.k) === g) { g.remove(); ghosts.delete(el.dataset.k) }
+      el.style.opacity = '';
+    };
+  });
+}
+
+/* ───────── chrome ───────── */
+const count = c => store.list.filter(s => col(s) === c).length;
+function renderSide() {
+  const n = count('needs'), at = store.get(route.session);
+  $('#side').innerHTML = `<button class="nav">${I.search}Search<kbd>⌘K</kbd></button><button class="nav">${I.inbox}Inbox</button><button class="nav">${I.board}Board</button><button class="nav ${at ? '' : 'sel'}">${I.agents}Activity${n ? `<span class="badge">${n}</span>` : ''}</button><button class="nav">${I.bolt}Automations</button><div class="sgroup">Projects</div>${PROJ_ORDER.filter(k => P[k].c).map(k => `<button class="nav ${at?.p === k ? 'sel' : ''}"><i class="pi" style="background:${P[k].c}">${P[k].name[0].toUpperCase()}</i>${P[k].name}</button>`).join('')}<div class="sgroup">Sessions</div>${store.list.filter(s => s.p === 'scratch').map(s => `<button class="nav ${at?.id === s.id ? 'sel' : ''}" style="font-weight:400">${statusIcon(s)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.title)}</span></button>`).join('')}<div class="spacer"></div><button class="nav">${I.cog}Settings</button>`;
+}
+store.on(renderSide);
+renderSide();
+
+function header(root) {
+  root.insertAdjacentHTML('afterbegin', `<header class="phead"><h1>Activity</h1><span class="sub" data-sum></span><button class="live ${store.live ? '' : 'off'}" data-live title="Simulated pocketd activity"><i></i>${store.live ? 'Live' : 'Paused'}</button><label class="find">${I.search}<input placeholder="Search sessions" value="${esc(store.q)}" data-q aria-label="Search sessions"></label><button class="btn primary">${I.plus}New session<kbd>⌘N</kbd></button></header>`);
+  root.querySelector('[data-q]').addEventListener('input', e => { store.q = e.target.value; store.emit() });
+  root.querySelector('[data-live]').addEventListener('click', e => {
+    store.live = !store.live;
+    e.currentTarget.classList.toggle('off', !store.live);
+    e.currentTarget.lastChild.textContent = store.live ? 'Live' : 'Paused';
+  });
+  const sum = root.querySelector('[data-sum]');
+  return () => { sum.textContent = `${store.list.length} sessions · ${count('working')} working${count('needs') ? ` · ${count('needs')} need you` : ''}` };
+}
+
+/* ───────── Open session: leave Activity for the session's own terminal, and come back ───────── */
+const sess = $('#sess');
+function renderSess() {
+  const s = store.get(route.session);
+  if (!s) return;
+  const body = `<div class="u">${esc(s.title)}</div><div class="t">Read ${3 + (s.add % 7)} files</div>${s.add ? `<div class="t">Update(${esc(P[s.p].files[0])}) <span class="add">+${s.add}</span> <span class="del">−${s.del}</span></div>` : ''}${s.status === 'working' ? `<div class="t w">${esc(s.last)}…</div>` : `<div class="a">${esc(s.last)}</div>`}${askBlock(s)}`;
+  const term = sess.querySelector('.term');
+  if (term) { term.innerHTML = body; sess.querySelector('[data-st]').innerHTML = `${statusIcon(s)}${s.status === 'failed' ? 'Failed' : ST[col(s)].name}`; return }
+  sess.innerHTML = `<div class="sbar"><button class="back" data-back title="Back to Activity (Esc)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 3 4.5 7l4 4"/></svg>Activity<kbd>Esc</kbd></button><div class="crumb"><span class="sl">/</span>${badge(s)}<span>${esc(P[s.p].name)}</span>${s.branch ? `<span class="sl">/</span><span class="br">${I.branch}<span>${esc(s.branch)}</span></span>` : ''}<span class="sl">/</span><b>${esc(s.title)}</b></div><span class="stchip" data-st></span>${diffPill(s)}${prPill(s)}</div><div class="ttabs"><span class="ttab">${agentTag(s)}${esc(s.branch || 'scratch')}</span><span class="ttab off">zsh</span></div><div class="term"></div><div class="sfoot">${composer(s)}</div>`;
+  renderSess();
+}
+function go(id) {
+  if (!store.get(id)) return;
+  const r = document.querySelector(`#stage [data-k="${id}"], #stage [data-tile="${id}"]`)?.getBoundingClientRect();
+  const W = sess.getBoundingClientRect();
+  // Grow out of the card that was opened; Back shrinks into the same spot.
+  sess.style.transformOrigin = r ? `${r.left + r.width / 2 - W.left}px ${r.top + r.height / 2 - W.top}px` : '50% 50%';
+  route.prevViewing = store.viewing;
+  route.session = id;
+  store.viewing = id;
+  act.seen(store.get(id));
+  sess.innerHTML = '';
+  renderSess();
+  sess.classList.add('open');
+  store.emit();
+}
+function back() {
+  if (!route.session) return;
+  route.session = null;
+  store.viewing = route.prevViewing;
+  sess.classList.remove('open');
+  document.activeElement?.blur();
+  store.emit();
+}
+store.on(renderSess);
+document.addEventListener('click', e => {
+  const g = e.target.closest('[data-go]');
+  if (g) { e.stopPropagation(); return go(g.dataset.go) }
+  if (e.target.closest('[data-back]')) { e.stopPropagation(); back() }
+}, true);
+document.addEventListener('dblclick', e => {
+  const c = e.target.closest('#stage [data-k], #stage [data-tile]');
+  if (c && !e.target.closest('button[data-act]')) go(c.dataset.k || c.dataset.tile);
+});
+// Capture phase, so while the session is up its keys don't also drive the Activity page underneath.
+window.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+  if (route.session) {
+    if (e.key === 'Escape') { e.stopPropagation(); typing ? e.target.blur() : back() }
+    else if (!typing && /^(j|k|ArrowUp|ArrowDown|Enter)$/.test(e.key)) e.stopPropagation();
+    return;
+  }
+  if (e.key === 'Enter' && !typing && store.viewing) { e.preventDefault(); e.stopPropagation(); go(store.viewing) }
+}, true);
+
+/* ───────── 1 · Board — columns by status, peek sheet on the side ───────── */
+function Board(root) {
+  root.innerHTML = `<div class="fbar"><button class="chip">All projects</button><button class="chip">All agents</button><span class="sp"></span><span style="font-size:11.5px;color:var(--text-4)">Opening a Done card marks it seen</span></div><div class="bd"></div><aside class="peek" aria-label="Session"><div class="phd"></div><div class="pbody"></div><div class="pfoot"></div></aside>`;
+  const sum = header(root);
+  const bd = $('.bd', root), peek = $('.peek', root);
+  let openId = null;
+
+  const card = s => `<div class="card ${s.status === 'done' ? 'unseen' : ''} ${s.id === openId ? 'sel' : ''}" data-k="${s.id}" data-open="${s.id}">
+    <div class="r1">${badge(s)}<span class="pn">${esc(P[s.p].name)}</span>${agentTag(s)}${since(s)}</div>
+    <div class="t">${esc(s.title)}</div>${branchLine(s)}
+    ${askBlock(s, true) || (s.status === 'working' || s.status === 'done' ? `<div class="p ${s.status === 'working' ? 'c-w' : ''}">${esc(s.last)}</div>` : '')}
+    <div class="pills">${diffPill(s)}${prPill(s)}${quick(s)}</div></div>`;
+  const column = c => {
+    const items = sorted(store.list.filter(s => col(s) === c && visible(s)), c);
+    return `<section class="bcol"><div class="ch">${ST[c].icon}<span class="cn">${ST[c].name}</span><span class="cc">${items.length}</span>${ST[c].why ? `<span class="why">${ST[c].why}</span>` : ''}</div><div class="cb" data-scroll="${c}">${items.map(card).join('') || `<div class="hint">${ST[c].hint}</div>`}</div></section>`;
+  };
+  function renderPeek() {
+    const s = store.get(openId);
+    if (!s) return;
+    $('.phd', peek).innerHTML = `<div class="ti"><span class="stchip">${statusIcon(s)}${s.status === 'failed' ? 'Failed' : ST[col(s)].name}</span><b style="margin-top:8px">${esc(s.title)}</b><div class="meta">${badge(s)}${esc(P[s.p].name)}${agentTag(s)}${since(s)}</div>${s.branch ? `<div class="meta">${branchLine(s)}</div>` : ''}</div><button class="btn sm primary" data-go="${s.id}" title="Open session (↵)">Open session<kbd>↵</kbd></button><button class="icon" data-close title="Close (Esc)">${I.close}</button>`;
+    $('.pbody', peek).innerHTML = askBlock(s) + logBlock(s) + filesBlock(s) + prBlock(s);
+  }
+  function render() { sum(); flip(bd, () => { bd.innerHTML = BOARD_ORDER.map(column).join('') }); renderPeek() }
+  function open(id) {
+    openId = id; store.viewing = id;
+    const s = store.get(id);
+    if (s.status === 'done') act.seen(s);
+    $('.pfoot', peek).innerHTML = composer(s);
+    peek.classList.add('open');
+    store.emit();
+  }
+  function close() {
+    if (!openId) return;
+    openId = null; store.viewing = null;
+    peek.classList.remove('open');
+    render();
+  }
+  root.addEventListener('click', e => {
+    if (e.target.closest('[data-close]')) return close();
+    const c = e.target.closest('[data-open]');
+    if (c) return c.dataset.open === openId ? null : open(c.dataset.open);
+    if (!e.target.closest('.peek, .phead, .fbar')) close();
+  });
+
+  // Drag the sheet's header right to dismiss: 1:1 tracking, rubber-band to the left, momentum decides.
+  const hd = $('.phd', peek);
+  let x0 = null, hist = [];
+  hd.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    hd.setPointerCapture(e.pointerId);
+    x0 = e.clientX; hist = [[e.clientX, e.timeStamp]];
+    peek.style.transition = 'none';
+  });
+  hd.addEventListener('pointermove', e => {
+    if (x0 == null) return;
+    let dx = e.clientX - x0;
+    if (dx < 0) dx = -(-dx * 440 * .55) / (440 + .55 * -dx);
+    peek.style.transform = `translateX(${dx}px)`;
+    hist.push([e.clientX, e.timeStamp]); if (hist.length > 6) hist.shift();
+  });
+  const release = e => {
+    if (x0 == null) return;
+    const dx = e.clientX - x0, a = hist[0], b = hist[hist.length - 1];
+    const v = b[1] > a[1] ? (b[0] - a[0]) / (b[1] - a[1]) * 1000 : 0;
+    x0 = null;
+    peek.style.transition = ''; peek.style.transform = '';
+    if (dx + (v / 1000) * .998 / (1 - .998) > peek.offsetWidth / 2) close();
+  };
+  hd.addEventListener('pointerup', release);
+  hd.addEventListener('pointercancel', release);
+
+  const onKey = e => { if (e.key === 'Escape') close() };
+  document.addEventListener('keydown', onKey);
+  const off = store.on(render);
+  render();
+  return () => { off(); document.removeEventListener('keydown', onKey); ghosts.forEach(g => g.remove()); ghosts.clear() };
+}
+
+/* ───────── 2 · Triage — one queue in urgency order, act in place, keyboard first ───────── */
+function Triage(root) {
+  const SEGS = ['all', ...URGENT_ORDER];
+  root.innerHTML = `<div class="tri"><div class="tl"><div class="seg"><span class="thumb"></span>${SEGS.map(k => `<button data-seg="${k}">${k === 'all' ? 'All' : k === 'review' ? 'Review' : ST[k].name}<em></em></button>`).join('')}</div><div class="tlist" data-scroll="list"></div></div><div class="td"><div class="tdb"></div><div class="tdf"></div></div></div>`;
+  const sum = header(root);
+  const seg = $('.seg', root), list = $('.tlist', root), body = $('.tdb', root), foot = $('.tdf', root);
+  let filter = 'all', sel = null;
+  // The selected row keeps its section until you move on, so answering it doesn't yank the list.
+  const stick = new Map();
+  const group = s => stick.get(s.id) ?? col(s);
+  let order = [];
+
+  function renderSeg() {
+    seg.querySelectorAll('[data-seg]').forEach(b => {
+      const k = b.dataset.seg, n = k === 'all' ? store.list.length : count(k);
+      b.toggleAttribute('data-on', k === filter);
+      const em = b.querySelector('em');
+      em.textContent = n; em.className = k === 'needs' && n ? 'hot' : '';
+    });
+    const on = seg.querySelector('[data-on]');
+    const th = $('.thumb', seg);
+    th.style.width = on.offsetWidth + 'px';
+    th.style.transform = `translateX(${on.offsetLeft}px)`;
+  }
+  function renderList() {
+    const secs = (filter === 'all' ? URGENT_ORDER : [filter]).map(c => [c, sorted(store.list.filter(s => group(s) === c && visible(s)), c)]).filter(([, l]) => l.length);
+    order = secs.flatMap(([, l]) => l.map(s => s.id));
+    flip(list, () => {
+      list.innerHTML = secs.map(([c, l]) => `<div class="sec">${ST[c].name}<em>${l.length}</em></div>${l.map(s => `<button class="row ${s.id === sel ? 'sel' : ''} ${s.status === 'done' ? 'unseen' : ''}" data-k="${s.id}" data-row="${s.id}">${statusIcon(s)}<span class="rt"><b>${esc(s.title)}</b><span>${badge(s)}<i>${esc(P[s.p].name)}${s.branch ? ' · ' + esc(s.branch) : ''}</i></span></span><span class="rr">${since(s)}${s.pr ? `<span style="display:flex;gap:3px;align-items:center"><span class="c-rv">${I.pr}</span>${checksIcon(s.pr.checks)}</span>` : ''}</span></button>`).join('')}`).join('') || '<div class="hint" style="padding:16px 8px">Nothing here.</div>';
+    });
+  }
+  function renderDetail() {
+    const s = store.get(sel);
+    if (!s) { body.innerHTML = `<div class="empty"><b>${count('needs') ? `${count('needs')} need you` : 'All caught up'}</b><span>Pick a session, or press J to start at the top.</span></div>`; foot.innerHTML = ''; return }
+    body.innerHTML = `<div class="tdh"><div style="display:flex;align-items:center;justify-content:space-between"><span class="stchip">${statusIcon(s)}${s.status === 'failed' ? 'Failed' : ST[col(s)].name}</span><button class="btn sm primary" data-go="${s.id}" title="Open session (↵)">Open session<kbd>↵</kbd></button></div><h2>${esc(s.title)}</h2><div class="meta">${badge(s)}${esc(P[s.p].name)}${s.branch ? branchLine(s) : ''}${agentTag(s)}${since(s)}</div></div>${askBlock(s)}${logBlock(s)}${filesBlock(s)}${prBlock(s)}<div class="keys"><span><kbd>J</kbd><kbd>K</kbd>move</span><span><kbd>↵</kbd>open session</span><span><kbd>A</kbd>allow</span><span><kbd>Esc</kbd>deselect</span></div>`;
+    if (foot.dataset.for !== s.id) { foot.innerHTML = composer(s); foot.dataset.for = s.id }
+  }
+  function render() { sum(); renderSeg(); renderList(); renderDetail() }
+  function select(id) {
+    stick.clear();
+    sel = id; store.viewing = id;
+    const s = store.get(id);
+    if (s) { stick.set(id, col(s)); act.seen(s) }
+    store.emit();
+    list.querySelector(`[data-row="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+  const step = d => {
+    if (!order.length) return;
+    const i = order.indexOf(sel);
+    select(order[i < 0 ? 0 : Math.max(0, Math.min(order.length - 1, i + d))]);
+  };
+  root.addEventListener('click', e => {
+    const r = e.target.closest('[data-row]');
+    if (r) return select(r.dataset.row);
+    const g = e.target.closest('[data-seg]');
+    if (g) { filter = g.dataset.seg; stick.clear(); render(); if (!order.includes(sel)) order[0] ? select(order[0]) : (sel = store.viewing = null, render()) }
+  });
+  // Like Mail after archiving: resolving one moves you to the next thing that wants you.
+  const onActed = e => {
+    if (e.detail.id !== sel || e.detail.kind === 'pr' || e.detail.kind === 'send') return;
+    const i = order.indexOf(sel), next = order[i + 1] ?? order[i - 1];
+    if (next && next !== sel) setTimeout(() => select(next), 180);
+  };
+  const onKey = e => {
+    if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) || e.metaKey || e.ctrlKey) return;
+    if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); step(1) }
+    else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); step(-1) }
+    else if (e.key === 'Escape') { sel = null; store.viewing = null; stick.clear(); render() }
+  };
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('acted', onActed);
+  const off = store.on(render);
+  render();
+  requestAnimationFrame(() => requestAnimationFrame(() => seg.setAttribute('data-ready', '')));
+  const first = order.find(id => col(store.get(id)) === 'needs');
+  if (first) select(first);
+  return () => { off(); document.removeEventListener('keydown', onKey); document.removeEventListener('acted', onActed) };
+}
+
+/* ───────── 3 · Map — sessions stay where their project is; status is a colour, counters filter ───────── */
+function Map_(root) {
+  root.innerHTML = `<div class="map"><div class="ctr"></div><div class="projs"></div></div><div class="pop" role="dialog"><div class="pb" style="display:contents"></div><div class="pf"></div></div>`;
+  const sum = header(root);
+  const ctr = $('.ctr', root), projs = $('.projs', root), pop = $('.pop', root), map = $('.map', root);
+  const on = new Set();
+  let openId = null;
+  const prev = new Map(store.list.map(s => [s.id, col(s)]));
+  const DESC = { idle: 'at the prompt', working: 'running a turn', needs: 'waiting on you', done: 'unseen results', review: 'PR open or draft' };
+
+  function render() {
+    sum();
+    ctr.innerHTML = BOARD_ORDER.map(c => { const n = count(c); return `<button class="ct" data-f="${c}" ${on.has(c) ? 'data-on' : ''}><span class="l">${ST[c].icon}${ST[c].name}</span><span class="n ${n ? '' : 'z'}">${n}</span><span class="d">${DESC[c]}</span></button>` }).join('');
+    const pinged = [];
+    projs.innerHTML = PROJ_ORDER.map(k => {
+      const l = store.list.filter(s => s.p === k);
+      return `<section class="proj"><h3>${P[k].c ? `<i class="pi" style="background:${P[k].c}">${P[k].name[0].toUpperCase()}</i>` : '<i class="pi">S</i>'}${P[k].name}<em>${l.length}</em></h3><div class="grid">${l.map(s => {
+        const c = col(s), dim = (on.size && !on.has(c)) || !visible(s);
+        if (prev.get(s.id) !== c) pinged.push(s.id);
+        prev.set(s.id, c);
+        return `<button class="tile k-${c} ${s.status === 'failed' ? 'failed' : ''} ${dim ? 'dim' : ''} ${s.id === openId ? 'open' : ''}" data-tile="${s.id}"><div class="tt">${statusIcon(s)}<span class="tn">${esc(s.title)}</span></div>${branchLine(s)}<div class="tf">${agentTag(s)}${diffPill(s) ? `<span class="add">+${s.add}</span>` : ''}${s.pr ? `<span style="display:flex;gap:3px;align-items:center"><span class="c-rv">${I.pr}</span>#${s.pr.n}${checksIcon(s.pr.checks)}</span>` : ''}${since(s)}</div></button>`;
+      }).join('')}</div></section>`;
+    }).join('');
+    pinged.forEach(id => projs.querySelector(`[data-tile="${id}"]`)?.classList.add('ping'));
+    renderPop();
+  }
+  function renderPop() {
+    const s = store.get(openId);
+    if (!s) return;
+    $('.pb', pop).innerHTML = `<div class="ph"><span style="margin-top:3px">${statusIcon(s)}</span><b>${esc(s.title)}</b><button class="icon" data-close style="margin:-4px -4px 0 0">${I.close}</button></div><div class="meta">${agentTag(s)}${branchLine(s)}${since(s)}</div>${askBlock(s, true) || `<div class="last">${esc(s.last)}</div>`}${s.pr || s.add ? `<div class="acts">${diffPill(s)}${prPill(s)}</div>` : ''}<div class="acts"><button class="btn sm primary" data-go="${s.id}" title="Open session (↵)">Open session<kbd>↵</kbd></button>${quick(s)}</div>`;
+    place();
+  }
+  function place() {
+    const t = projs.querySelector(`[data-tile="${openId}"]`);
+    if (!t) return;
+    const r = t.getBoundingClientRect(), R = root.getBoundingClientRect();
+    const w = pop.offsetWidth, hgt = pop.offsetHeight;
+    const left = Math.max(12, Math.min(r.left - R.left, R.width - w - 12));
+    const below = r.bottom - R.top + 6 + hgt < R.height - 8;
+    const top = below ? r.bottom - R.top + 6 : Math.max(8, r.top - R.top - hgt - 6);
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+    // Grow out of the tile that was clicked.
+    pop.style.transformOrigin = `${r.left - R.left - left + r.width / 2}px ${below ? 0 : hgt}px`;
+  }
+  function open(id) {
+    openId = id; store.viewing = id;
+    const s = store.get(id);
+    if (s.status === 'done') act.seen(s);
+    $('.pf', pop).innerHTML = composer(s);
+    store.emit();
+    requestAnimationFrame(() => pop.classList.add('open'));
+  }
+  function close() {
+    if (!openId) return;
+    openId = null; store.viewing = null;
+    pop.classList.remove('open');
+    render();
+  }
+  root.addEventListener('click', e => {
+    if (e.target.closest('[data-close]')) return close();
+    const f = e.target.closest('[data-f]');
+    if (f) { on.has(f.dataset.f) ? on.delete(f.dataset.f) : on.add(f.dataset.f); return openId ? close() : render() }
+    const t = e.target.closest('[data-tile]');
+    if (t) return t.dataset.tile === openId ? null : open(t.dataset.tile);
+    if (!e.target.closest('.pop')) close();
+  });
+  map.addEventListener('scroll', () => { if (openId) close() });
+  const onKey = e => { if (e.key === 'Escape') close() };
+  document.addEventListener('keydown', onKey);
+  const off = store.on(render);
+  render();
+  return () => { off(); document.removeEventListener('keydown', onKey) };
+}
+
+/* ───────── picker wiring (PICKER.md reference, mount adapted to live views) ───────── */
+const variants = [Board, Triage, Map_];
+const stage = document.getElementById('stage');
+const picker = document.querySelector('.proto-picker');
+const highlight = picker.querySelector('.proto-picker-highlight');
+const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')];
+const replay = picker.querySelector('.proto-picker-replay');
+let current = 0, cleanup = null;
+
+function moveHighlight() {
+  const el = items[current];
+  highlight.style.width = el.offsetWidth + 'px';
+  highlight.style.transform = `translateX(${el.offsetLeft}px)`;
+}
+function mount(i) {
+  cleanup?.(); cleanup = null;
+  if (route.session) back();
+  store.viewing = null;
+  stage.innerHTML = '';
+  requestAnimationFrame(() => { cleanup = variants[i](stage) });
+}
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return;
+  current = i;
+  items.forEach((el, j) => {
+    el.toggleAttribute('data-active', j === i);
+    if (j === i) el.setAttribute('aria-current', 'true');
+    else el.removeAttribute('aria-current');
+  });
+  moveHighlight();
+  const url = new URL(location);
+  url.searchParams.set('v', i + 1);
+  history.replaceState(null, '', url);
+  mount(i);
+}
+items.forEach((el, i) => el.addEventListener('click', () => setActive(i)));
+replay?.addEventListener('click', () => mount(current));
+window.addEventListener('resize', moveHighlight);
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= variants.length) setActive(num - 1);
+  else if (e.key === 'ArrowRight') setActive((current + 1) % variants.length);
+  else if (e.key === 'ArrowLeft') setActive((current - 1 + variants.length) % variants.length);
+  else if (e.key === 'r' || e.key === 'R') mount(current);
+});
+setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 1) - 1);
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')));
+</script>
+</body>
+</html>

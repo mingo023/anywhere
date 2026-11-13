@@ -289,6 +289,9 @@ impl Desktop {
         let board = ui::nav_row("aside-board", "blocks", "Board", self.screen == Screen::Board)
             .mb(px(2.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_board(&crate::actions::OpenBoard, window, cx)));
+        let activity = ui::nav_row("aside-activity", "activity", "Activity", self.screen == Screen::Activity)
+            .mb(px(2.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_activity(&crate::actions::OpenActivity, window, cx)));
         let t1 = Instant::now(); // [DEBUG-sidebar]
         let header = self.projects_header(cx);
         let t_header = t1.elapsed(); // [DEBUG-sidebar]
@@ -310,6 +313,7 @@ impl Desktop {
             .flex_col()
             .child(top)
             .child(search)
+            .child(activity)
             .children(self.agents.board_offered().then_some(board))
             .children(self.agents.automations_offered().then_some(automations))
             .children(self.scratch_section(cx))

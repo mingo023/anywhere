@@ -22,7 +22,7 @@ pub struct Note {
     pub at: i64,
 }
 
-fn first_line(s: &str) -> String {
+pub(crate) fn first_line(s: &str) -> String {
     s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string()
 }
 

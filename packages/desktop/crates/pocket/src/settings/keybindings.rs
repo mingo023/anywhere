@@ -60,6 +60,7 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "NextPrompt" => ("Next prompt in chat", Sessions),
         "OpenPalette" => ("Command palette", Navigation),
         "GoToFile" => ("Go to file", Navigation),
+        "OpenActivity" => ("Go to Activity", Navigation),
         "OpenAutomations" => ("Go to Automations", Navigation),
         "OpenBoard" => ("Go to Board", Navigation),
         "ToggleSidebar" => ("Toggle sidebar", Navigation),
@@ -511,6 +512,12 @@ mod tests {
         for b in bindings().iter().filter(|b| place(b).is_some() && b.action().name() != "desktop::PageEdit") {
             assert!(label(b.action().name()).is_some(), "{} has no label", b.action().name());
         }
+    }
+
+    // Unbound actions still list in Keyboard settings so they can be given a key.
+    #[test]
+    fn go_to_activity_has_a_label() {
+        assert_eq!(label("desktop::OpenActivity"), Some(("Go to Activity", Topic::Navigation)));
     }
 
     #[test]

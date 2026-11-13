@@ -101,6 +101,12 @@ _Avoid_: job, cron, task, routine
 One firing of an automation, from its start to its end. It shows the status of its session: Starting, Working, Needs you, Done, Failed, or Stopped when its session closed first. A run that never launched is Skipped, because the Mac was asleep past the grace window or the automation was still working from the last run. An automation has one active run at a time.
 _Avoid_: execution, job run, trigger, running (use Working)
 
+### Activity
+
+**Activity**:
+One screen of every session across projects, in columns by where it stands: Idle, Working, Needs you, Done and In review. A session sits in the column its Status says, Failed with Needs you. An Idle session whose worktree's branch has an open or draft PR is In review instead: it waits on other people. That differs from the Board's In review, which holds every idle ticket. Opening a card previews the session and marks a Done or Failed one seen; Open session goes to its pane.
+_Avoid_: Sessions page, Agents, dashboard
+
 ### Board
 
 **Board**:
