@@ -5,7 +5,7 @@ use super::markdown::{self, Docs, Highlights};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
-use super::{end_row, meta, phase, pr_link, question_marker, sticky, sub_agent, todos, user_bubble};
+use super::{end_row, meta, phase, pr_link, question_marker, sticky, sub_agent, timeline, todos, user_bubble};
 use crate::creating;
 use crate::desktop::Desktop;
 use crate::explorer::mermaid;
@@ -46,7 +46,7 @@ pub(crate) struct View {
     pin: Option<Pin>,
     /// When the user last sent a prompt: its row rises into the chat.
     sent: Option<Instant>,
-    /// The row just shown from the background tray, and when: it flashes.
+    /// The row just shown from the background tray or the prompt timeline, and when: it flashes.
     flash: Option<(String, Instant)>,
     /// Whether the user's last scroll left the list at its end, until the next render reads it.
     scrolled: Rc<Cell<Option<bool>>>,
@@ -64,6 +64,8 @@ pub(crate) struct View {
     reveals: HashMap<String, Reveal>,
     /// The prompt row whose card over the top is opened in full.
     pub(crate) sticky_open: Option<String>,
+    /// Where the pointer is on the prompt timeline; its moves redraw only the transcript.
+    pub(super) pointer: Entity<timeline::Pointer>,
     /// Whether the chat has shown what it opened with; text after that streams in.
     primed: bool,
 }
@@ -78,6 +80,7 @@ impl View {
             move |e, _, _| scrolled.set(Some(!e.is_scrolled))
         });
         let tools = cx.new(|_| Tools::default());
+        let pointer = cx.new(|_| timeline::Pointer::default());
         let agent = agent.to_string();
         let _tools = cx.observe(&tools, move |d, tools, cx| {
             // It notifies once more when a diff's colours land, long after the row opened.
@@ -87,11 +90,11 @@ impl View {
                 view.remeasure_under_pin();
             }
         });
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false }
     }
 
     /// How far the list sits above its end.
-    fn distance(&self) -> f32 {
+    pub(super) fn distance(&self) -> f32 {
         f32::from(self.list.max_offset_for_scrollbar().y + self.list.scroll_px_offset_for_scrollbar().y).max(0.)
     }
 
@@ -486,7 +489,8 @@ impl Desktop {
         });
         let sticky = self.chat_sticky(&id, window, cx);
         let cover = sticky.as_ref().map_or(0., |(_, cover)| *cover);
-        div().relative().flex_1().min_h_0().child(sticky::below(cover, rows)).children(sticky.map(|(card, _)| card)).children(pill)
+        let timeline = self.chat_timeline(&id, window, cx);
+        div().relative().flex_1().min_h_0().child(sticky::below(cover, rows)).children(sticky.map(|(card, _)| card)).children(timeline).children(pill)
     }
 
     /// Opens a page in the browser the settings pick, or a file in the preview.
@@ -547,6 +551,14 @@ impl Desktop {
         (view.pin, view.glide) = (None, None);
         view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
         cx.notify();
+    }
+
+    /// Scrolls `agent`'s chat to its prompt row `ix` and flashes it, as letting go on the prompt timeline does.
+    pub(super) fn chat_land_on_prompt(&mut self, agent: &str, ix: usize, cx: &mut Context<Self>) {
+        if let Some(view) = self.chats.views.get_mut(agent) {
+            view.flash = view.session.ids.get(ix).map(|id| (id.clone(), Instant::now()));
+        }
+        self.chat_jump_to_prompt(agent, ix, cx);
     }
 
     /// Scrolls the shown chat a prompt up or down from the exchange at its top.

@@ -22,6 +22,7 @@ mod shimmer;
 mod sticky;
 mod sub_agent;
 mod thinking;
+mod timeline;
 mod todos;
 mod tool_detail;
 pub(crate) mod tool_row;
