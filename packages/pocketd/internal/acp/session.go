@@ -95,6 +95,7 @@ type Session struct {
 	began    time.Time       // when this pocketd started the turn running
 	adopted  bool            // the turn running was started by a pocketd before this one
 	stopping bool            // the user stopped the turn or the compaction
+	sent     chan struct{}   // closed once the turn's or compaction's call has gone out; a stop sent before it would reach the agent first
 	stray    json.RawMessage // the end of a turn a pocketd before this one started, come before the session opened
 	held     []func()        // the agent's requests from before the session opened
 	asks     map[string]context.CancelFunc
@@ -714,8 +715,10 @@ func (s *Session) send(text string) {
 	s.turn++
 	s.sink.Working()
 	c, id, turn := s.c, s.id, s.turn
+	sent := make(chan struct{})
+	s.sent = sent
 	go func() {
-		res, err := c.Call(s.ctx, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": text}}})
+		res, err := s.deliver(c, sent, "session/prompt", map[string]any{"sessionId": id, "prompt": []map[string]string{{"type": "text", "text": text}}})
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -726,6 +729,16 @@ func (s *Session) send(text string) {
 			s.finish(res, err)
 		}
 	}()
+}
+
+// deliver sends method, closes sent once it has gone out, and returns its result.
+func (s *Session) deliver(c *Client, sent chan struct{}, method string, params any) (json.RawMessage, error) {
+	wait, err := c.Start(method, params)
+	close(sent)
+	if err != nil {
+		return nil, err
+	}
+	return wait(s.ctx)
 }
 
 // next starts the compaction asked for mid-turn, else the turn of the oldest prompt that waits.
@@ -828,8 +841,10 @@ func (s *Session) compact() {
 		method, params["prompt"] = "session/prompt", []map[string]string{{"type": "text", "text": s.f.compactPrompt}}
 	}
 	c, turn := s.c, s.turn
+	sent := make(chan struct{})
+	s.sent = sent
 	go func() {
-		_, err := c.Call(s.ctx, method, params)
+		_, err := s.deliver(c, sent, method, params)
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -879,7 +894,7 @@ func (s *Session) Stray(result json.RawMessage) {
 // stop would hold up the next one, so the call ends here once StopWait is up.
 func (s *Session) Cancel() {
 	s.mu.Lock()
-	busy, c, id, turn := s.running || s.compacting, s.c, s.id, s.turn
+	busy, c, id, turn, sent := s.running || s.compacting, s.c, s.id, s.turn, s.sent
 	s.stopping, s.compactNext, s.queue = busy, false, nil
 	// A turn that waits only on Hermes's background sub-agents has no prompt out to stop.
 	if s.handoff.waiting {
@@ -889,6 +904,9 @@ func (s *Session) Cancel() {
 	s.asks = map[string]context.CancelFunc{}
 	s.mu.Unlock()
 	if busy {
+		if sent != nil {
+			<-sent
+		}
 		c.Notify("session/cancel", map[string]any{"sessionId": id})
 		time.AfterFunc(StopWait, func() {
 			s.mu.Lock()
