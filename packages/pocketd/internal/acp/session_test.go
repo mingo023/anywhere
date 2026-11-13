@@ -2,8 +2,6 @@ package acp
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1287,7 +1285,7 @@ func TestWhatAnotherSessionTellsWhileASavedOneLoadsIsNotItsHistory(t *testing.T)
 	equal(t, sk.wait(t, "bound:s1"), []string{"loaded", "user:Hi", "assistant_text:Hello.", "result:true:", "bound:s1"})
 }
 
-// As opencode 1.19.5 replays a session whose task ran, and then the task's own session.
+// As opencode 2.2.7 replays a session whose sub-agent ran, and then the sub-agent's own session.
 func TestAnOpenCodeHistoryLoadsEachTasksSessionUnderItOnceItHasLoaded(t *testing.T) {
 	_, a, sk, _ := start(t, opts{provider: "opencode", saved: "s1", answer: func(a *agent, method string, params json.RawMessage) string {
 		switch {
@@ -1300,8 +1298,9 @@ func TestAnOpenCodeHistoryLoadsEachTasksSessionUnderItOnceItHasLoaded(t *testing
 			return `{}`
 		}
 		a.update(`{"sessionUpdate":"user_message_chunk","messageId":"u1","content":{"type":"text","text":"Delegate"}}`)
-		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Read the note","kind":"think","status":"completed","rawInput":{"description":"Read the note","prompt":"read NOTE.md","subagent_type":"general"},
-			"content":[{"type":"content","content":{"type":"text","text":"<task_result>\nhello\n</task_result>"}}],"rawOutput":{"metadata":{"sessionId":"kid","model":{"modelID":"glm","providerID":"opencode"}}}}`)
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","name":"subagent","title":"subagent","kind":"think","status":"pending","locations":[],"rawInput":{"agent":"general","description":"Read the note","prompt":"read NOTE.md"}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","locations":[],"content":[{"type":"content","content":{"type":"text","text":"<subagent sessionID=\"kid\" state=\"completed\">\nhello\n</subagent>"}}],
+			"rawOutput":{"metadata":{"sessionID":"kid","status":"completed","truncated":false}}}`)
 		a.update(`{"sessionUpdate":"agent_message_chunk","messageId":"a1","content":{"type":"text","text":"It said hello."}}`)
 		return opencodeNew
 	}})
@@ -1309,7 +1308,6 @@ func TestAnOpenCodeHistoryLoadsEachTasksSessionUnderItOnceItHasLoaded(t *testing
 		"loaded",
 		"user:Delegate",
 		"tool_start:t1:task:task:Read the note",
-		"tool_model:t1:opencode/glm",
 		"tool_end:t1:true:hello",
 		"assistant_text:It said hello.",
 		"result:true:",
@@ -1346,93 +1344,30 @@ func TestTheMessagesOfSubAgentsWritingAtOnceEachGoInWhole(t *testing.T) {
 	})
 }
 
-// As opencode 1.19.5 tells a task: its sub-agent's session only as the call ends, and that session's work only once it is loaded.
-func TestAnOpenCodeSubAgentsWorkLoadsUnderItsTaskOnceItEnds(t *testing.T) {
-	loaded := make(chan struct{})
-	turn := script(opencodeNew, func(a *agent, _ string) string {
-		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"task","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
-		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"Read the note","locations":[],"rawInput":{"description":"Read the note","prompt":"read NOTE.md","subagent_type":"general"}}`)
-		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","title":"Read the note","content":[{"type":"content","content":{"type":"text","text":"<task id=\"kid\" state=\"completed\">\n<task_result>\nhello\n</task_result>\n</task>"}}],
-			"rawOutput":{"output":"<task id=\"kid\" state=\"completed\">\n<task_result>\nhello\n</task_result>\n</task>","metadata":{"parentSessionId":"s1","sessionId":"kid","model":{"modelID":"glm-5.3-flash-free","providerID":"opencode"},"truncated":false}}}`)
-		<-loaded
-		return endTurn
-	})
-	s, a, sk, _ := start(t, opts{provider: "opencode", answer: func(a *agent, method string, params json.RawMessage) string {
-		if method != "session/load" {
-			return turn(a, method, params)
-		}
-		sayIn(a, "kid", `{"sessionUpdate":"user_message_chunk","messageId":"m1","content":{"type":"text","text":"read NOTE.md"}}`)
-		sayIn(a, "kid", `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"NOTE.md","kind":"read","status":"pending","locations":[{"path":"/work/NOTE.md"}],"rawInput":{"filePath":"/work/NOTE.md"}}`)
-		sayIn(a, "kid", `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","title":"NOTE.md","content":[{"type":"content","content":{"type":"text","text":"hello"}}]}`)
-		sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"hello"}}`)
-		sayIn(a, "kid", `{"sessionUpdate":"available_commands_update","availableCommands":[]}`)
-		close(loaded)
-		return opencodeNew
-	}})
-	s.Prompt("Delegate")
-	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
-		"working",
-		"tool_start:t1:task:task:Read the note",
-		"tool_model:t1:opencode/glm-5.3-flash-free",
-		"tool_end:t1:true:hello",
-		"t1>user:read NOTE.md",
-		"t1>tool_start:c1:read:read:/work/NOTE.md",
-		"tool_end:c1:true:hello",
-		"t1>assistant_text:hello",
-		"result:true:",
-		"ended:false",
-	})
-	equal(t, a.called("session/load", 1), []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
-}
-
-// As opencode 1.19.5 runs a task whose sub-agent asks to run a command: it
-// passes on what that sub-agent asks only once its session is loaded, which
-// its server names while the call runs.
-func TestAnOpenCodeSubAgentsSessionLoadsAsItStartsSoWhatItAsksReachesTheUser(t *testing.T) {
-	children := make(chan string, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/session/s1/children" || r.URL.Query().Get("directory") != "/work" {
-			http.NotFound(w, r)
-			return
-		}
-		select {
-		case kids := <-children:
-			w.Write([]byte(kids))
-		default:
-			w.Write([]byte(`[]`))
-		}
-	}))
-	defer server.Close()
-	loaded := make(chan struct{})
-	turn := script(opencodeNew, func(a *agent, _ string) string {
-		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"task","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
-		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"Run echo","locations":[],"rawInput":{"description":"Run echo","prompt":"run echo sub","subagent_type":"general"}}`)
-		children <- `[{"id":"old","title":"Run echo (@general subagent)"},{"id":"other","title":"Read the note (@general subagent)"},{"id":"kid","title":"Run echo (@general subagent)"}]`
-		<-loaded
-		sayIn(a, "kid", `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"bash","kind":"execute","status":"pending","locations":[{"path":"/work"}],"rawInput":{"cwd":"/work"}}`)
-		sayIn(a, "kid", `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"in_progress","kind":"execute","title":"echo sub","locations":[{"path":"/work"}],"rawInput":{"command":"echo sub","cwd":"/work"}}`)
-		a.ask("7", "session/request_permission", `{"sessionId":"kid","toolCall":{"toolCallId":"c1","title":"echo sub","kind":"execute","status":"pending","locations":[],"rawInput":{"command":"echo sub"}},`+
-			`"options":[{"optionId":"once","kind":"allow_once","name":"Allow once"},{"optionId":"always","kind":"allow_always","name":"Always allow"},{"optionId":"reject","kind":"reject_once","name":"Reject"}]}`)
+// As opencode 2.2.7 runs a sub-agent: it tells the sub-agent's work, and asks
+// about its calls, in the session, each marked with the sub-agent's session,
+// which is titled as the call is described. It names that session only as the call ends.
+func TestAnOpenCodeSubAgentsWorkShowsUnderItsCallAsItRunsAndWhatItAsksReachesTheUser(t *testing.T) {
+	child := func(update string) string {
+		return strings.TrimSuffix(update, "}") + `,"_meta":{"opencode/child-session":{"id":"kid","parentID":"s1","depth":1,"title":"Run echo"}}}`
+	}
+	s, a, sk, b := start(t, opts{provider: "opencode", answer: script(opencodeNew, func(a *agent, _ string) string {
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t0","name":"subagent","title":"subagent","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t0","status":"in_progress","kind":"think","title":"subagent","locations":[],"rawInput":{"agent":"general","description":"Read the note","prompt":"read NOTE.md"}}`)
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","name":"subagent","title":"subagent","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"subagent","locations":[],"rawInput":{"agent":"general","description":"Run echo","prompt":"run echo sub"}}`)
+		a.update(child(`{"sessionUpdate":"tool_call","toolCallId":"kid:c1","name":"shell","title":"Run echo: shell","kind":"execute","status":"pending","locations":[{"path":"/work"}],"rawInput":{"cwd":"/work"}}`))
+		a.update(child(`{"sessionUpdate":"tool_call_update","toolCallId":"kid:c1","status":"in_progress","kind":"execute","title":"Run echo: echo sub","locations":[{"path":"/work"}],"rawInput":{"command":"echo sub","cwd":"/work"}}`))
+		a.ask("7", "session/request_permission", child(`{"sessionId":"s1","toolCall":{"toolCallId":"kid:c1","title":"Run echo: echo sub","kind":"execute","status":"pending","locations":[],"rawInput":{"command":"echo sub"}},`+
+			`"options":[{"optionId":"once","kind":"allow_once","name":"Allow once"},{"optionId":"always","kind":"allow_always","name":"Always allow"},{"optionId":"reject","kind":"reject_once","name":"Reject"}]}`))
 		a.replied("7")
-		sayIn(a, "kid", `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","title":"echo sub","content":[{"type":"content","content":{"type":"text","text":"sub\n"}}]}`)
-		sayIn(a, "kid", `{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"sub"}}`)
-		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","title":"Run echo","content":[{"type":"content","content":{"type":"text","text":"<task id=\"kid\" state=\"completed\">\n<task_result>\nsub\n</task_result>\n</task>"}}],
-			"rawOutput":{"output":"<task id=\"kid\" state=\"completed\">\n<task_result>\nsub\n</task_result>\n</task>","metadata":{"parentSessionId":"s1","sessionId":"kid","model":{"modelID":"glm-5.3-flash-free","providerID":"opencode"}}}}`)
+		a.update(child(`{"sessionUpdate":"tool_call_update","toolCallId":"kid:c1","status":"completed","locations":[{"path":"/work"}],"content":[{"type":"content","content":{"type":"text","text":"sub\n"}}]}`))
+		a.update(child(`{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"su"}}`))
+		a.update(child(`{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"b"}}`))
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","locations":[],"content":[{"type":"content","content":{"type":"text","text":"<subagent sessionID=\"kid\" state=\"completed\">\nsub\n</subagent>"}}],
+			"rawOutput":{"metadata":{"sessionID":"kid","status":"completed","truncated":false}}}`)
 		return endTurn
-	})
-	s, a, sk, b := start(t, opts{provider: "opencode", answer: func(a *agent, method string, params json.RawMessage) string {
-		if method != "session/load" {
-			return turn(a, method, params)
-		}
-		sayIn(a, "kid", `{"sessionUpdate":"user_message_chunk","messageId":"m1","content":{"type":"text","text":"run echo sub"}}`)
-		close(loaded)
-		return opencodeNew
-	}})
-	// "old" is a sub-agent an earlier task ran, loaded once that task ended.
-	s.mu.Lock()
-	s.children["old"] = "t0"
-	s.mu.Unlock()
-	s.Server([]string{"pipe", "opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:"), "--pocketd"}, nil)
+	})})
 	s.Prompt("Delegate")
 	req := asked(t, b)
 	if req.ToolName != "shell" || req.Detail.Command != "echo sub" {
@@ -1444,65 +1379,47 @@ func TestAnOpenCodeSubAgentsSessionLoadsAsItStartsSoWhatItAsksReachesTheUser(t *
 	}
 	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
 		"working",
+		"tool_start:t0:task:task:Read the note",
 		"tool_start:t1:task:task:Run echo",
-		"t1>user:run echo sub",
-		"t1>tool_start:c1:shell:shell:echo sub",
+		"t1>tool_start:kid:c1:shell:shell:echo sub",
 		"needsYou",
 		"working",
-		"tool_end:c1:true:sub\n",
+		"tool_end:kid:c1:true:sub\n",
 		"t1>assistant_text:sub",
-		"tool_model:t1:opencode/glm-5.3-flash-free",
 		"tool_end:t1:true:sub",
 		"result:true:",
 		"ended:false",
 	})
-	equal(t, a.called("session/load", 1), []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
+	equal(t, a.called("session/load", 0), nil)
 }
 
-// As after a pocketd restart while OpenCode runs a task: the history replays the call still running.
-func TestAnOpenCodeSubAgentStillRunningInTheHistoryLoadsSoWhatItAsksReachesTheUser(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`[{"id":"kid","title":"Run echo (@general subagent)"}]`))
-	}))
-	defer server.Close()
-	_, a, _, _ := start(t, opts{provider: "opencode", saved: "s1", left: Running, args: []string{"opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:")},
-		answer: func(a *agent, method string, params json.RawMessage) string {
-			if method == "session/load" && strings.Contains(string(params), `"s1"`) {
-				a.update(`{"sessionUpdate":"user_message_chunk","messageId":"m0","content":{"type":"text","text":"Delegate"}}`)
-				a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"task","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
-				a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"Run echo","locations":[],"rawInput":{"description":"Run echo","prompt":"run echo sub","subagent_type":"general"}}`)
-			}
-			return opencodeNew
-		}})
-	equal(t, a.called("session/load", 2)[1:], []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
-}
-
-// OpenCode's server asks for basic auth once OPENCODE_SERVER_PASSWORD is set,
-// as user OPENCODE_SERVER_USERNAME or "opencode", and for none without it.
-func TestOpenCodesServerIsAskedAsTheLoginTheAgentsEnvSetsForIt(t *testing.T) {
-	for user, env := range map[string][]string{
-		"opencode": {"OPENCODE_SERVER_PASSWORD=secret"},
-		"me":       {"OPENCODE_SERVER_USERNAME=me", "OPENCODE_SERVER_PASSWORD=secret"},
-		"":         {"OPENCODE_SERVER_USERNAME=me"},
-	} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if u, p, ok := r.BasicAuth(); ok != (user != "") || u != user || ok && p != "secret" {
-				http.Error(w, "Authentication required", http.StatusUnauthorized)
-				return
-			}
-			w.Write([]byte(`[{"id":"kid","title":"Run echo (@general subagent)"}]`))
-		}))
-		_, a, _, _ := start(t, opts{provider: "opencode", saved: "s1", left: Running, args: []string{"opencode", "acp", "--port", strings.TrimPrefix(server.URL, "http://127.0.0.1:")}, env: env,
-			answer: func(a *agent, method string, params json.RawMessage) string {
-				if method == "session/load" && strings.Contains(string(params), `"s1"`) {
-					a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"task","kind":"think","status":"pending","locations":[],"rawInput":{}}`)
-					a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","kind":"think","title":"Run echo","locations":[],"rawInput":{"description":"Run echo","prompt":"run echo sub","subagent_type":"general"}}`)
-				}
-				return opencodeNew
-			}})
-		equal(t, a.called("session/load", 2)[1:], []string{`{"cwd":"/work","mcpServers":[],"sessionId":"kid"}`})
-		server.Close()
+// As opencode 2.2.7 tells a sub-agent's own sub-agent: its call titled under
+// the first's description, its work marked with its session two deep.
+func TestAnOpenCodeSubAgentsOwnSubAgentShowsUnderItsCall(t *testing.T) {
+	in := func(id, title string, depth int, update string) string {
+		return strings.TrimSuffix(update, "}") + `,"_meta":{"opencode/child-session":{"id":"` + id + `","depth":` + strconv.Itoa(depth) + `,"title":"` + title + `"}}}`
 	}
+	s, _, sk, _ := start(t, opts{provider: "opencode", answer: script(opencodeNew, func(a *agent, _ string) string {
+		a.update(`{"sessionUpdate":"tool_call","toolCallId":"t1","name":"subagent","title":"subagent","kind":"think","status":"pending","rawInput":{}}`)
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"in_progress","title":"subagent","rawInput":{"agent":"general","description":"Outer","prompt":"go"}}`)
+		a.update(in("kid", "Outer", 1, `{"sessionUpdate":"tool_call","toolCallId":"kid:c1","name":"subagent","title":"Outer: subagent","kind":"think","status":"pending","rawInput":{}}`))
+		a.update(in("kid", "Outer", 1, `{"sessionUpdate":"tool_call_update","toolCallId":"kid:c1","status":"in_progress","title":"Outer: subagent","rawInput":{"agent":"general","description":"Inner","prompt":"go on"}}`))
+		a.update(in("grandkid", "Inner", 2, `{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"deep"}}`))
+		a.update(in("kid", "Outer", 1, `{"sessionUpdate":"tool_call_update","toolCallId":"kid:c1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"<subagent sessionID=\"grandkid\" state=\"completed\">\ndeep\n</subagent>"}}],"rawOutput":{"metadata":{"sessionID":"grandkid"}}}`))
+		a.update(`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"<subagent sessionID=\"kid\" state=\"completed\">\ndeep\n</subagent>"}}],"rawOutput":{"metadata":{"sessionID":"kid"}}}`)
+		return endTurn
+	})})
+	s.Prompt("Delegate")
+	equal(t, after(sk.wait(t, "ended:false"), "working"), []string{
+		"working",
+		"tool_start:t1:task:task:Outer",
+		"t1>tool_start:kid:c1:task:task:Inner",
+		"kid:c1>assistant_text:deep",
+		"tool_end:kid:c1:true:deep",
+		"tool_end:t1:true:deep",
+		"result:true:",
+		"ended:false",
+	})
 }
 
 // hermesDelegates is what Hermes's ACP server tells of a delegate_task call, as its acp_adapter/tools.py builds it.

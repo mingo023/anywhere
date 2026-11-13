@@ -6,7 +6,7 @@
 //
 //	<text>          reply "echo: <text>" in two chunks
 //	run <cmd>       ask to run cmd, then reply "echo: ran <cmd>", or "echo: skipped <cmd>" if refused
-//	delegate <task> run a sub-agent on task in a session of its own, as OpenCode does, which reports "did <task>";
+//	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
@@ -23,7 +23,8 @@
 //
 // As hermes it has models and modes, asks about a call of its own making and
 // tells a command only as content. As opencode it has config options, tells a
-// call before its input and asks about that call. As grok it compacts by
+// call before its input and asks about that call, and its server refuses any
+// flag, as OpenCode 2's does. As grok it compacts by
 // _x.ai/compact_conversation. Without a server's arguments it echoes input,
 // as a TUI.
 package main
@@ -76,6 +77,14 @@ func main() {
 			fmt.Printf("typed: %s\r\n", in.Text())
 		}
 		return
+	}
+	if name == "opencode" {
+		for _, f := range args {
+			if strings.HasPrefix(f, "-") {
+				fmt.Fprintf(os.Stderr, "Unrecognized flag: %s in command opencode acp\r\n", f)
+				os.Exit(1)
+			}
+		}
 	}
 	start, _ := os.ReadFile(filepath.Join(dir(), "start"))
 	if msg, ok := strings.CutPrefix(string(start), "exit "); ok {
@@ -429,8 +438,10 @@ func (a *agent) end() {
 	a.mu.Unlock()
 }
 
-// delegate runs a sub-agent on task as OpenCode does: it names the
-// sub-agent's session only as the call ends, and tells its work only to a load of that session.
+// delegate runs a sub-agent on task as OpenCode 2 does: it tells the
+// sub-agent's work in the session as it runs, marked with the sub-agent's
+// session, names that session only as the call ends, and its history tells
+// that work only to a load of that session.
 func (a *agent) delegate(task string) {
 	if a.name == "hermes" {
 		a.background(task)
@@ -443,12 +454,14 @@ func (a *agent) delegate(task string) {
 	}}
 	b, _ := json.Marshal(kid)
 	os.WriteFile(filepath.Join(dir(), kid.ID+".json"), b, 0o600)
-	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "title": "task", "kind": "think", "status": "pending", "rawInput": map[string]any{}})
-	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "title": task, "kind": "think", "status": "in_progress",
-		"rawInput": map[string]string{"description": task, "prompt": task, "subagent_type": "general"}})
-	out := "<task_result>\ndid " + task + "\n</task_result>"
+	a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": call, "name": "subagent", "title": "subagent", "kind": "think", "status": "pending", "rawInput": map[string]any{}})
+	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "title": "subagent", "kind": "think", "status": "in_progress",
+		"rawInput": map[string]string{"agent": "general", "description": task, "prompt": task}})
+	a.tell(map[string]any{"sessionUpdate": "agent_message_chunk", "messageId": "msg-" + hex(4), "content": textBlock("did " + task),
+		"_meta": map[string]any{"opencode/child-session": map[string]any{"id": kid.ID, "parentID": a.session.ID, "depth": 1, "title": task}}})
+	out := "<subagent sessionID=\"" + kid.ID + "\" state=\"completed\">\ndid " + task + "\n</subagent>"
 	a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": []map[string]any{{"type": "content", "content": textBlock(out)}},
-		"rawOutput": map[string]any{"output": out, "metadata": map[string]any{"sessionId": kid.ID, "model": map[string]string{"modelID": a.session.Model, "providerID": "fake"}}}})
+		"rawOutput": map[string]any{"metadata": map[string]any{"sessionID": kid.ID, "status": "completed", "truncated": false}}})
 	a.say("delegated " + task)
 }
 
