@@ -2,7 +2,6 @@ use super::logic::{Col, Item};
 use ui::{CARD_RADIUS, agent_avatar, card_pill as pill};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
-use crate::status::Status;
 use crate::util::{ago, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -22,7 +21,7 @@ pub(super) fn col_glyph(col: Col) -> Svg {
 
 /// A card's mark: its column's, but a failed turn shows as failed.
 fn card_glyph(col: Col, item: &Item) -> Svg {
-    if item.status == Some(Status::Failed) { icon("status-closed", 14., FAILED) } else { col_glyph(col) }
+    if item.failed() { icon("status-closed", 14., FAILED) } else { col_glyph(col) }
 }
 
 impl Desktop {
@@ -43,9 +42,9 @@ impl Desktop {
         let title = div().min_w_0().flex_1().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).line_clamp(2).child(item.title.clone());
         let head = div().flex().items_start().gap(px(7.)).child(div().flex_none().h(px(18.)).flex().items_center().child(card_glyph(col, item))).child(title);
         let branch = (!item.branch.is_empty()).then(|| div().flex().items_center().gap(px(5.)).text_size(px(11.)).font_family(MONO).text_color(TEXT_3).child(icon("branch", 11., TEXT_4)).child(div().min_w_0().truncate().child(item.branch.clone())));
-        let tone = match (col, item.status) {
-            (_, Some(Status::Failed)) => FAILED_TEXT,
-            (Col::NeedsYou, _) => WAITING_TEXT,
+        let tone = match col {
+            _ if item.failed() => FAILED_TEXT,
+            Col::NeedsYou => WAITING_TEXT,
             _ => TEXT_3,
         };
         let note = (!item.note.is_empty()).then(|| div().text_size(px(12.)).line_height(px(16.)).text_color(tone).line_clamp(2).child(item.note.clone()));
@@ -69,7 +68,7 @@ impl Desktop {
 
     /// Deny and Allow once for the session's permission ask; `None` for a question, which needs its dialog.
     pub(super) fn activity_answers(&self, id: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let ask = self.agents.pending.iter().find(|p| p.agent_id == id).filter(|p| p.questions().is_empty() && !self.agents.observe_only())?;
+        let ask = self.card_ask(id)?;
         Some(div().flex().flex_none().items_center().gap(px(4.)).children(self.answer_buttons("activity", id, &ask.request_id, cx)))
     }
 

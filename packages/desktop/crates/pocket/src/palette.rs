@@ -258,7 +258,7 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         detail: String::new(),
         keys: None,
     };
-    let pages = pages::offered(agents).map(|p| Entry { pick: Pick::Go(p.screen), lead: Lead::Icon(p.icon), title: format!("Go to {}", p.name), detail: String::new(), keys: p.keys });
+    let pages = pages::offered(agents).map(|p| Entry { pick: Pick::Go(p.screen), lead: Lead::Icon(p.icon), title: p.title.into(), detail: String::new(), keys: p.keys });
     [
         Entry { pick: Pick::New, lead: Lead::Icon("sparkle"), title: format!("New session in {project}"), detail: String::new(), keys: Some("⌘ N") },
         Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: None },

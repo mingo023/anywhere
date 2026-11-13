@@ -535,11 +535,10 @@ impl Desktop {
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() => self.link_page(cx),
             None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(window, cx),
-            None if matches!(self.screen, Screen::Inbox) => self.inbox_detail(window, cx),
-            None if matches!(self.screen, Screen::Activity) => self.activity_page(cx),
-            None if matches!(self.screen, Screen::Automations) => self.automations_page(cx),
-            None if matches!(self.screen, Screen::Board) => self.board_page(cx),
-            None => self.blank_page(cx),
+            None => match self.screen_view(window, cx) {
+                Some(page) => page,
+                None => self.blank_page(cx),
+            },
         };
         ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast()).children(self.tree_toast(cx)).children(self.pr_notice(cx))
     }

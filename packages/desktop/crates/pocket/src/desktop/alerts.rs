@@ -309,6 +309,11 @@ impl Desktop {
         cx.dismiss_system_notification(agent);
     }
 
+    /// The agent's pending permission a card can answer: a question needs its dialog, and observing answers nothing.
+    pub(crate) fn card_ask(&self, agent: &str) -> Option<&Permission> {
+        self.agents.pending.iter().find(|p| p.agent_id == agent).filter(|p| p.questions().is_empty() && !self.agents.observe_only())
+    }
+
     /// Deny and Allow once for a card's permission ask, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`.
     pub(crate) fn answer_buttons(&self, scope: &str, id: &str, request: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
         let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));

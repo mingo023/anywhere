@@ -74,8 +74,7 @@ impl Desktop {
         let id = &t.id;
         let button = |name: &str| SharedString::from(format!("ticket-{name}-{id}"));
         let has_pr = self.prs.get(&t.worktree).is_some();
-        // A question needs its dialog, in the session.
-        let ask = self.pending_ask(t).filter(|p| p.questions().is_empty() && !self.agents.observe_only());
+        let ask = self.card_ask(&t.agent_id);
         let found = quick(t, slot.col, ask.is_some(), self.ticket_reach(t), has_pr)?;
         let request = ask.map_or("", |p| p.request_id.as_str());
         let buttons = match found {

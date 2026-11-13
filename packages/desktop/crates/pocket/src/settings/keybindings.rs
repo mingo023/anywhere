@@ -2,6 +2,7 @@ use super::catalog::Setting;
 use super::{Section, card, group, row};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
+use crate::desktop::pages;
 use crate::{actions, browser, inbox, settings};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -46,7 +47,11 @@ const FIXED: [(&str, &[&str]); 5] = [
 /// What an action does and the group listing it; `None` leaves it out.
 fn label(action: &str) -> Option<(&'static str, Topic)> {
     use Topic::*;
-    Some(match action.strip_prefix("desktop::")? {
+    let action = action.strip_prefix("desktop::")?;
+    if let Some(page) = pages::by_action(action) {
+        return Some((page.title, Navigation));
+    }
+    Some(match action {
         "StartSession" => ("New session", Sessions),
         "NewWorktree" => ("New worktree", Sessions),
         "OpenSession" => ("Open session", Sessions),
@@ -60,9 +65,6 @@ fn label(action: &str) -> Option<(&'static str, Topic)> {
         "NextPrompt" => ("Next prompt in chat", Sessions),
         "OpenPalette" => ("Command palette", Navigation),
         "GoToFile" => ("Go to file", Navigation),
-        "OpenActivity" => ("Go to Activity", Navigation),
-        "OpenAutomations" => ("Go to Automations", Navigation),
-        "OpenBoard" => ("Go to Board", Navigation),
         "ToggleSidebar" => ("Toggle sidebar", Navigation),
         "ToggleRail" => ("Toggle rail", Navigation),
         "ToggleFocus" => ("Focus mode", Navigation),

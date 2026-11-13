@@ -57,6 +57,22 @@ pub(crate) struct Item {
     pub note: String,
 }
 
+impl Item {
+    pub(crate) fn col(&self) -> Col {
+        column(self.status, self.pr_open)
+    }
+
+    /// Its turn failed: it sits in Needs you but reads, and is marked, as failed.
+    pub(crate) fn failed(&self) -> bool {
+        self.status == Some(Status::Failed)
+    }
+
+    /// What its status reads as: its column, but a failed turn says so.
+    pub(crate) fn label(&self) -> &'static str {
+        if self.failed() { "Failed" } else { self.col().name() }
+    }
+}
+
 /// Status decides; an open PR files a session with nothing for you under In review, where it waits on other people.
 pub(crate) fn column(status: Option<Status>, pr_open: bool) -> Col {
     match status {
@@ -68,10 +84,6 @@ pub(crate) fn column(status: Option<Status>, pr_open: bool) -> Col {
     }
 }
 
-/// What the session's status reads as: its column, but a failed turn says so.
-pub(crate) fn label(status: Option<Status>, pr_open: bool) -> &'static str {
-    if status == Some(Status::Failed) { "Failed" } else { column(status, pr_open).name() }
-}
 
 pub(crate) type Columns = [Vec<usize>; COLS.len()];
 

@@ -8,6 +8,10 @@ use gpui_kit::*;
 pub(crate) struct Page {
     pub screen: Screen,
     pub name: &'static str,
+    /// The palette entry and the shortcut table's label.
+    pub title: &'static str,
+    /// The action a shortcut binds to go there.
+    pub action: &'static str,
     pub icon: &'static str,
     /// The shortcut the palette shows beside it.
     pub keys: Option<&'static str>,
@@ -16,10 +20,15 @@ pub(crate) struct Page {
 
 /// In the order the sidebar, the rail and the palette list them.
 const PAGES: [Page; 3] = [
-    Page { screen: Screen::Activity, name: "Activity", icon: "activity", keys: None, offered: |_| true },
-    Page { screen: Screen::Board, name: "Board", icon: "blocks", keys: None, offered: Agents::board_offered },
-    Page { screen: Screen::Automations, name: "Automations", icon: "bolt", keys: Some("⌘ ⇧ A"), offered: Agents::automations_offered },
+    Page { screen: Screen::Activity, name: "Activity", title: "Go to Activity", action: "OpenActivity", icon: "activity", keys: None, offered: |_| true },
+    Page { screen: Screen::Board, name: "Board", title: "Go to Board", action: "OpenBoard", icon: "blocks", keys: None, offered: Agents::board_offered },
+    Page { screen: Screen::Automations, name: "Automations", title: "Go to Automations", action: "OpenAutomations", icon: "bolt", keys: Some("⌘ ⇧ A"), offered: Agents::automations_offered },
 ];
+
+/// The page an action named `action` goes to.
+pub(crate) fn by_action(action: &str) -> Option<&'static Page> {
+    PAGES.iter().find(|p| p.action == action)
+}
 
 /// The pages pocketd runs what they need for.
 pub(crate) fn offered(agents: &Agents) -> impl Iterator<Item = &'static Page> + '_ {
@@ -54,6 +63,17 @@ impl Desktop {
         }
     }
 
+    /// The page on screen's body; `None` for the sessions and Settings, which draw their own.
+    pub(crate) fn screen_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
+        match self.screen {
+            Screen::Inbox => Some(self.inbox_detail(window, cx)),
+            Screen::Activity => Some(self.activity_page(cx)),
+            Screen::Automations => Some(self.automations_page(cx)),
+            Screen::Board => Some(self.board_page(cx)),
+            Screen::Sessions | Screen::Settings => None,
+        }
+    }
+
     /// Esc on the page on screen; false when the page has no use for it.
     pub(crate) fn escape_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         match self.screen {
@@ -78,7 +98,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::offered;
+    use super::{by_action, offered};
     use crate::desktop::chrome::Screen;
     use agents::{Agents, Event};
 
@@ -92,5 +112,11 @@ mod tests {
         let mut a = Agents::default();
         a.apply(Event::Connected { scopes: vec![], caps: vec!["board.v1".into(), "automations.v1".into()], version: String::new() });
         assert_eq!(screens(&a), [Screen::Activity, Screen::Board, Screen::Automations]);
+    }
+
+    #[test]
+    fn a_pages_action_names_it_in_the_shortcut_table() {
+        assert_eq!(by_action("OpenBoard").map(|p| p.title), Some("Go to Board"));
+        assert!(by_action("OpenSettings").is_none());
     }
 }
