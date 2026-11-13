@@ -1,6 +1,6 @@
 use crate::status::Status;
 use std::cmp::Reverse;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Col {
@@ -27,11 +27,20 @@ impl Col {
     /// What it says while it holds nothing.
     pub(crate) fn hint(self) -> &'static str {
         match self {
-            Col::Idle => "Sessions at the prompt with nothing unseen.",
-            Col::Working => "Sessions mid-turn show up here.",
-            Col::NeedsYou => "Questions, permissions and failed turns land here.",
-            Col::Done => "Ended turns you haven't seen yet.",
-            Col::InReview => "Idle sessions whose branch has an open PR.",
+            Col::Idle => "At the prompt, nothing unseen.",
+            Col::Working => "Agents mid-turn show up here.",
+            Col::NeedsYou => "Questions and permissions land here.",
+            Col::Done => "Ended turns you haven’t seen yet.",
+            Col::InReview => "Idle sessions with an open or draft PR.",
+        }
+    }
+
+    /// Why a session sits here, where its name alone doesn't say.
+    pub(crate) fn why(self) -> Option<&'static str> {
+        match self {
+            Col::Done => Some("unseen"),
+            Col::InReview => Some("PR open"),
+            Col::Idle | Col::Working | Col::NeedsYou => None,
         }
     }
 }
@@ -77,6 +86,22 @@ impl Item {
     }
 }
 
+/// The button a card offers beside its pills.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Quick {
+    Seen,
+    CreatePr,
+}
+
+/// Seen on a turn that ended unseen; Create PR on an idle session whose branch holds changes and no PR.
+pub(crate) fn quick(col: Col, branch: &str, changed: bool, has_pr: bool) -> Option<Quick> {
+    match col {
+        Col::Done => Some(Quick::Seen),
+        Col::Idle if changed && !has_pr && !branch.is_empty() && branch != "main" => Some(Quick::CreatePr),
+        _ => None,
+    }
+}
+
 /// Status decides; an open PR files a session with nothing for you under In review, where it waits on other people.
 pub(crate) fn column(status: Option<Status>, pr_open: bool) -> Col {
     match status {
@@ -90,6 +115,9 @@ pub(crate) fn column(status: Option<Status>, pr_open: bool) -> Col {
 
 
 pub(crate) type Columns = [Vec<usize>; COLS.len()];
+
+/// Where each shown session sits: its column and its place in it.
+pub(crate) type Places = HashMap<String, (usize, usize)>;
 
 /// The sessions as last gathered, and the columns their kept ones fill.
 #[derive(Default)]
@@ -125,6 +153,10 @@ impl Grouped {
 
     pub(crate) fn item(&self, id: &str) -> Option<&Item> {
         self.items.iter().find(|i| i.id == id)
+    }
+
+    pub(crate) fn places(&self) -> Places {
+        self.columns.iter().enumerate().flat_map(|(col, line)| line.iter().enumerate().map(move |(ix, &i)| (self.items[i].id.clone(), (col, ix)))).collect()
     }
 }
 
@@ -244,6 +276,16 @@ mod tests {
 
     fn ids(items: &[Item], columns: &Columns, col: Col) -> Vec<String> {
         columns[col as usize].iter().map(|&i| items[i].id.clone()).collect()
+    }
+
+    #[test]
+    fn a_card_offers_seen_once_its_turn_ends_and_create_pr_for_changes_on_a_branch() {
+        assert_eq!(quick(Col::Done, "main", false, false), Some(Quick::Seen));
+        assert_eq!(quick(Col::Idle, "fix/x", true, false), Some(Quick::CreatePr));
+        assert_eq!(quick(Col::Idle, "fix/x", true, true), None, "it has a PR already");
+        assert_eq!(quick(Col::Idle, "main", true, false), None, "changes on main go nowhere");
+        assert_eq!(quick(Col::Idle, "fix/x", false, false), None, "nothing to send");
+        assert_eq!(quick(Col::Working, "fix/x", true, false), None);
     }
 
     #[test]

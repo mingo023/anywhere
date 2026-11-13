@@ -510,9 +510,10 @@ const STEPS: [(&str, Step); 270] = [
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
     ("activity", |d, window, cx| d.open_activity(window, cx)),
-    ("activity-panel", |d, _, cx| {
-        d.activity.previewed = d.agents.list.iter().find(|a| a.status == "needsYou").map(|a| a.id.clone());
-        cx.notify();
+    ("activity-panel", |d, window, cx| {
+        if let Some(id) = d.agents.list.iter().find(|a| a.status == "needsYou").map(|a| a.id.clone()) {
+            d.preview_session(&id, window, cx);
+        }
     }),
     ("activity-filtered", |d, _, cx| {
         if let Some(p) = d.project.clone() {

@@ -198,6 +198,8 @@ pub const WINDOW: Token = Token::new(0xf4f4f5ff, 0x121212d9);
 /// The window colour where nothing shows through: floated panels and images.
 pub const WINDOW_SOLID: Token = Token::new(0xf4f4f5ff, 0x121212ff);
 pub const SURFACE: Token = Token::new(0xffffffff, 0xebebeb1a);
+/// `SURFACE` with nothing showing through: Activity's cards.
+pub const SURFACE_SOLID: Token = Token::new(0xffffffff, 0x2a2a2aff);
 pub const SURFACE_SUNKEN: Token = Token::new(0xfafafaff, 0x00000000);
 pub const PAGE: Token = Token::new(0xf7f7f7ff, 0x00000000);
 pub const CANVAS: Token = Token::new(0xffffffff, 0x00000000);
@@ -624,7 +626,7 @@ macro_rules! embed {
 const ICONS: &[(&str, &[u8])] = embed!(
     "activity", "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "antigravity", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "cursor", "diff-multiple", "diff-split",
     "discard", "explorer", "external", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "fx", "github", "globe", "grip", "grok", "hermes", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "omp", "openai", "opencode", "pencil", "phone", "pi", "pin", "play", "plus", "pointer", "priority-high", "priority-low", "priority-medium", "priority-none", "priority-urgent", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
-    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "split-down", "split-right", "stacked-tickets", "star", "star-fill", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "team", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
+    "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "spinner-ring", "split-down", "split-right", "stacked-tickets", "star", "star-fill", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "team", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
 
 const MATERIAL: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/material.rs"));

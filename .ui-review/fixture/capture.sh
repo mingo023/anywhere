@@ -18,6 +18,7 @@ for spec in "$@"; do
     agents*) scenario=agents ;;
     chat*) scenario=chat ;;
     team*) scenario=team ;;
+    card|drawer) scenario=activity ;;
     *) scenario=sessions ;;
   esac
   fx=$(mktemp -d)
