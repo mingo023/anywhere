@@ -56,9 +56,6 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::switch("confirm-paste", "Keyboard & mouse", "Confirm multi-line paste", |s| s.terminal.confirm_paste, |s, on| s.terminal.confirm_paste = on)
         .hint("Asks before pasting text that would run several commands"),
     Setting::choice("link-click", "Keyboard & mouse", "Open links with", &LINK_CLICKS, Look::Segmented, |s| s.terminal.click_opens_links as usize, |s, i| s.terminal.click_opens_links = i == 1),
-    Setting::choice("link-browser", "Keyboard & mouse", "Open links in", &["In-app browser", "System browser"], Look::Segmented, |s| s.terminal.system_browser as usize, |s, i| {
-        s.terminal.system_browser = i == 1
-    }),
     Setting::choice("shell", "Shell", "Shell", &["Login shell", "Custom"], Look::Segmented, |s| s.terminal.shell as usize, |s, i| s.terminal.shell = SHELLS[i])
         .note(|_| Some(format!("Login shell is {}{SHELL_SOURCE}", daemon::login_shell()))),
     Setting::custom("shell-path", "Shell", "Shell path", shell_path)
@@ -253,7 +250,7 @@ mod tests {
             }
         }
         let t = &store.terminal;
-        assert_eq!((t.scheme, t.cursor, t.option_as_meta, t.click_opens_links, t.system_browser, t.shell), (Scheme::Custom, Cursor::Underline, Meta::Right, true, true, Shell::Custom));
+        assert_eq!((t.scheme, t.cursor, t.option_as_meta, t.click_opens_links, t.shell), (Scheme::Custom, Cursor::Underline, Meta::Right, true, Shell::Custom));
     }
 
     #[test]
