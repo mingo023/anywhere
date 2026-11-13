@@ -1,4 +1,6 @@
 use crate::composer::Draft;
+use crate::composer::element_card::element_card;
+use crate::composer::elements;
 use crate::composer::file_card::file_card;
 use crate::desktop::Desktop;
 use gpui_kit::*;
@@ -47,5 +49,9 @@ pub(super) fn strip(draft: &Draft, cx: &mut Context<Desktop>) -> Option<Div> {
     let files = draft.files.iter().enumerate().map(|(i, path)| {
         div().group(SharedString::from(format!("chat-file-remove:{i}"))).relative().flex_none().child(file_card(("chat-file", i), path)).child(remove("chat-file-remove", |d, i| _ = d.files.remove(i), i))
     });
-    Some(div().w_full().flex().flex_wrap().gap(px(8.)).px(px(16.)).pt(px(12.)).children(images).children(files))
+    let elements = draft.elements.iter().enumerate().map(|(i, e)| {
+        let card = element_card(("chat-element", i), &(i + 1).to_string(), web::host(&e.url), &elements::title(e), Some(e.clone()));
+        div().group(SharedString::from(format!("chat-element-remove:{i}"))).relative().flex_none().child(card).child(remove("chat-element-remove", |d, i| _ = d.elements.remove(i), i))
+    });
+    Some(div().w_full().flex().flex_wrap().gap(px(8.)).px(px(16.)).pt(px(12.)).children(images).children(files).children(elements))
 }

@@ -600,7 +600,7 @@ impl Desktop {
     }
 
     /// What `agent`'s chat has typed and attached: the input's while it holds that chat, else what waits for it.
-    pub(super) fn chat_draft(&self, agent: &str, cx: &App) -> (String, Option<&Draft>) {
+    pub(crate) fn chat_draft(&self, agent: &str, cx: &App) -> (String, Option<&Draft>) {
         if self.chats.drafts.owner() == Some(agent) {
             return (self.chats.input.read(cx).value().to_string(), Some(&self.chats.composer.draft));
         }
@@ -630,6 +630,14 @@ impl Desktop {
             s.set_cursor_position(end, window, cx);
         });
         cx.notify();
+    }
+
+    /// `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
+    pub(crate) fn chat_draft_mut(&mut self, agent: &str) -> &mut Draft {
+        if self.chats.drafts.owner() == Some(agent) {
+            return &mut self.chats.composer.draft;
+        }
+        &mut self.chats.drafts.parked_mut(agent).1
     }
 
     /// `set_value` emits no change, so the composer redraws here.

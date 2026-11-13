@@ -28,6 +28,8 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::choice("home-page", "General", "Home page", &["Dev server", "Blank", "Custom"], Look::Segmented, |s| s.browser.home as usize, |s, i| s.browser.home = HOMES[i])
         .hint("Project dev server opens the URL below for the focused project"),
     Setting::text("custom-home", "General", "Custom home page", "https://", |s| s.browser.custom_home.clone(), |s, v| s.browser.custom_home = v).under(|s| s.browser.home == Home::Custom),
+    Setting::choice("link-browser", "General", "Open links in", &["In-app browser", "System browser"], Look::Segmented, |s| s.terminal.system_browser as usize, |s, i| s.terminal.system_browser = i == 1)
+        .hint("Links clicked in terminals and chats"),
     Setting::custom("dev-servers", "Dev servers", "Dev servers", |d, _, _| d.dev_servers()).resets(dev_urls, |s, _| s.repos.values_mut().for_each(|r| r.dev_url.clear())),
 ];
 

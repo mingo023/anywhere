@@ -1,5 +1,7 @@
 pub(crate) mod add_menu;
 pub(crate) mod effort_menu;
+pub(crate) mod element_card;
+pub(crate) mod elements;
 pub(crate) mod file_card;
 pub(crate) mod launch;
 pub(crate) mod model_menu;
@@ -80,6 +82,8 @@ pub(crate) struct Draft {
     pub(crate) images: Vec<Attachment>,
     /// The dropped files and long pastes, which the agent reads where they lie.
     pub(crate) files: Vec<PathBuf>,
+    /// Elements picked on a browser page, numbered by their place here.
+    pub(crate) elements: Vec<web::Element>,
     /// The Team chip: the next send asks the agent for a team plan.
     pub(crate) team: bool,
 }
@@ -160,7 +164,7 @@ impl Draft {
     }
 
     pub(crate) fn has_attachments(&self) -> bool {
-        !self.images.is_empty() || !self.files.is_empty()
+        !self.images.is_empty() || !self.files.is_empty() || !self.elements.is_empty()
     }
 
     /// Attaches the dropped files where they lie: an image shows as itself, any other file as a card.
@@ -183,6 +187,15 @@ impl Draft {
         new
     }
 
+    /// Whether the element is new to this draft: one picked again on the same page isn't added twice.
+    pub(crate) fn pick_element(&mut self, element: web::Element) -> bool {
+        let new = !self.elements.iter().any(|e| e.url == element.url && e.selector == element.selector);
+        if new {
+            self.elements.push(element);
+        }
+        new
+    }
+
     /// Drops the attachment whose file couldn't be written; false if this draft no longer held it.
     fn unsaved(&mut self, path: &Path) -> bool {
         let held = self.images.len() + self.files.len();
@@ -195,7 +208,8 @@ impl Draft {
     pub(crate) fn prompt(&self, typed: &str) -> String {
         let block = |title: &str, paths: Vec<&Path>| (!paths.is_empty()).then(|| format!("{title}{}", paths.iter().map(|p| format!("- {}", p.display())).collect::<Vec<_>>().join("\n")));
         let typed = typed.trim();
-        let parts = [(!typed.is_empty()).then(|| typed.to_string()), block(FILES, self.files.iter().map(PathBuf::as_path).collect()), block(IMAGES, self.images.iter().map(|a| a.path.as_path()).collect())];
+        let elements = (!self.elements.is_empty()).then(|| elements::block(&self.elements));
+        let parts = [(!typed.is_empty()).then(|| typed.to_string()), block(FILES, self.files.iter().map(PathBuf::as_path).collect()), block(IMAGES, self.images.iter().map(|a| a.path.as_path()).collect()), elements];
         parts.into_iter().flatten().collect::<Vec<_>>().join("\n\n")
     }
 }
@@ -209,13 +223,16 @@ pub(crate) struct Sent<'a> {
     pub(crate) text: &'a str,
     pub(crate) files: Vec<&'a str>,
     pub(crate) images: Vec<&'a str>,
+    /// Each picked element's heading: `<n> <host> › <title>`.
+    pub(crate) elements: Vec<&'a str>,
 }
 
 /// Undoes [`Draft::prompt`].
 pub(crate) fn split_attachments(prompt: &str) -> Sent<'_> {
-    let (rest, images) = split_block(prompt, IMAGES);
+    let (rest, elements) = elements::split(prompt);
+    let (rest, images) = split_block(rest, IMAGES);
     let (text, files) = split_block(rest, FILES);
-    Sent { text, files, images }
+    Sent { text, files, images, elements }
 }
 
 /// `prompt` without the list of paths under `title` that ends it, and those paths.
@@ -753,7 +770,7 @@ mod tests {
         let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
         let at = |path: &str| Attachment { path: path.into(), image: image.clone().into() };
         let draft = Draft { images: vec![at("/h/a.png"), at("/h/b c.png")], ..Draft::default() };
-        let sent = |text, files, images| Sent { text, files, images };
+        let sent = |text, files, images| Sent { text, files, images, elements: vec![] };
         assert_eq!(split_attachments(&draft.prompt("Fix CI")), sent("Fix CI", vec![], vec!["/h/a.png", "/h/b c.png"]));
         assert_eq!(split_attachments(&draft.prompt("")), sent("", vec![], vec!["/h/a.png", "/h/b c.png"]));
         assert_eq!(split_attachments("Fix CI"), sent("Fix CI", vec![], vec![]));
@@ -766,9 +783,9 @@ mod tests {
         let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
         let files = vec!["/r/main.rs".into(), "/r/a b.pdf".into()];
         let both = Draft { files: files.clone(), images: vec![Attachment { path: "/h/a.png".into(), image: image.into() }], ..Draft::default() };
-        assert_eq!(split_attachments(&both.prompt("Fix CI")), Sent { text: "Fix CI", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec!["/h/a.png"] });
+        assert_eq!(split_attachments(&both.prompt("Fix CI")), Sent { text: "Fix CI", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec!["/h/a.png"], elements: vec![] });
         let only = Draft { files, ..Draft::default() };
-        assert_eq!(split_attachments(&only.prompt("")), Sent { text: "", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec![] });
+        assert_eq!(split_attachments(&only.prompt("")), Sent { text: "", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec![], elements: vec![] });
     }
 
     #[test]
@@ -806,5 +823,39 @@ mod tests {
         assert_eq!(ask(json!({"provider": "claude"}), true, true), None);
         assert_eq!(ask(json!({"provider": "claude", "chat": true}), false, true), None);
         assert_eq!(ask(json!({"provider": "claude", "chat": true}), true, false), None);
+    }
+
+    fn element(url: &str, text: &str, html: &str) -> web::Element {
+        web::Element { url: url.into(), selector: "form > input".into(), name: "input.email".into(), text: text.into(), html: html.into(), width: 420, height: 41 }
+    }
+
+    #[test]
+    fn picked_elements_follow_the_prompt_headed_by_their_number_host_and_words() {
+        let draft = Draft { elements: vec![element("https://github.com/", "Enter your email", "<input>")], ..Draft::default() };
+        assert_eq!(
+            draft.prompt("Fix this"),
+            "Fix this\n\n# Selected elements\n\n## 1 github.com › Enter your email\nURL: https://github.com/\nSelector: `form > input`\nSize: 420 × 41\nText: Enter your email\n```html\n<input>\n```"
+        );
+        assert!(draft.has_attachments());
+    }
+
+    #[test]
+    fn an_element_picked_again_on_the_same_page_is_added_once() {
+        let mut draft = Draft::default();
+        assert!(draft.pick_element(element("https://a.dev/", "Hi", "<b>")));
+        assert!(!draft.pick_element(element("https://a.dev/", "Hi", "<b>")));
+        assert!(draft.pick_element(element("https://b.dev/", "Hi", "<b>")), "the same selector on another page is another element");
+        assert_eq!(draft.elements.len(), 2);
+    }
+
+    #[test]
+    fn a_sent_prompt_splits_back_into_its_elements_headings() {
+        let draft = Draft { files: vec!["/r/main.rs".into()], elements: vec![element("https://github.com/", "Enter your email", "<p>\n## not a heading\n</p>"), element("https://github.com/", "", "<div>")], ..Draft::default() };
+        let prompt = draft.prompt("Fix");
+        let sent = split_attachments(&prompt);
+        assert_eq!(sent, Sent { text: "Fix", files: vec!["/r/main.rs"], images: vec![], elements: vec!["1 github.com › Enter your email", "2 github.com › input.email"] });
+        let only = Draft { elements: vec![element("https://a.dev/", "Hi", "<b>")], ..Draft::default() };
+        assert_eq!(split_attachments(&only.prompt("")).elements, vec!["1 a.dev › Hi"]);
+        assert_eq!(split_attachments(&only.prompt("")).text, "");
     }
 }

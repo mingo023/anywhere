@@ -1,4 +1,5 @@
 pub(crate) mod view;
+mod pick;
 
 use crate::actions::{Back, FocusAddress, Forward, NewBrowser, PageEdit, Reload};
 use crate::desktop::Desktop;
@@ -24,6 +25,10 @@ pub(crate) struct Browser {
     pub(crate) loading: bool,
     /// What the page showed when a tab was picked up; drawn in its place while the page is parked for the drag.
     pub(crate) shot: Option<Arc<RenderImage>>,
+    /// Whether a click on the page picks the element under it for a chat.
+    pub(crate) picking: bool,
+    /// The agent whose chat took this page's last pick; its elements of this page show as badges while picking.
+    pub(crate) picked_into: Option<String>,
 }
 
 impl Browser {
@@ -225,7 +230,12 @@ impl Desktop {
         let Some(b) = self.browsers.tabs.get_mut(&id) else { return };
         match ev {
             web::Event::Started(url) => (b.loading, b.url) = (true, url),
-            web::Event::Finished(url) => (b.loading, b.url) = (false, url),
+            web::Event::Finished(url) => {
+                (b.loading, b.url) = (false, url);
+                if let Some(page) = &b.page {
+                    page.reapply();
+                }
+            }
             web::Event::Title(title) => b.title = title,
             web::Event::Moved => {
                 if let Some(url) = b.page.as_ref().and_then(|p| p.url()) {
@@ -238,6 +248,18 @@ impl Desktop {
                 if self.overlay.is_none() {
                     self.confirm = Some(Confirm::OpenExternal(url));
                     self.open(Overlay::Confirm, window, cx);
+                }
+            }
+            // A page's own script can post a pick; only one made while picking counts.
+            web::Event::Picked(element) => {
+                if b.picking {
+                    self.pick_into_chat(id, element, cx);
+                }
+            }
+            web::Event::PickEnded => {
+                b.picking = false;
+                if let Some(page) = &b.page {
+                    page.set_picking(false);
                 }
             }
             web::Event::Pressed => {

@@ -1,5 +1,5 @@
 #[cfg(not(target_os = "linux"))]
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 #[cfg(not(target_os = "linux"))]
 use std::rc::Rc;
 #[cfg(target_os = "windows")]
@@ -38,6 +38,10 @@ pub enum Event {
     /// A link to a scheme another app handles.
     External(String),
     Pressed,
+    /// The picker's click on an element; see [`Page::set_picking`].
+    Picked(crate::Element),
+    /// Esc in the page turned the picker off.
+    PickEnded,
 }
 
 /// Edits WKWebView takes only as responder actions: without an Edit menu, ⌘C in the page copies nothing.
@@ -79,6 +83,9 @@ const SCHEMES: [&str; 7] = ["http:", "https:", "about:", "data:", "blob:", "file
 pub struct Page {
     view: WebView,
     placed: Cell<Option<Rect>>,
+    /// What the picker script was last told, sent again to each new document.
+    picking: Cell<bool>,
+    marks: RefCell<Vec<(usize, String)>>,
     #[cfg(target_os = "macos")]
     glue: macos::Glue,
 }
@@ -93,9 +100,13 @@ impl Page {
         let builder = WebViewBuilder::new()
             .with_url(url)
             .with_initialization_script(MOVED)
-            .with_ipc_handler(move |request| {
-                if request.body() == "moved" {
-                    ipc(Event::Moved);
+            .with_initialization_script(crate::pick::SCRIPT)
+            .with_ipc_handler(move |request| match request.body().as_str() {
+                "moved" => ipc(Event::Moved),
+                body => {
+                    if let Some(event) = crate::pick::event(body) {
+                        ipc(event);
+                    }
                 }
             })
             .with_on_page_load_handler(move |event, url| {
@@ -124,12 +135,18 @@ impl Page {
             let frame = macos::Frame::new(parent, parked)?;
             let view = builder.with_user_agent(macos::user_agent()).build_as_child(&frame)?;
             frame.fill(&view);
-            Ok(Self { view, placed: Cell::new(None), glue: macos::Glue::new(frame, move || sink(Event::Pressed)) })
+            Ok(Self {
+                view,
+                placed: Cell::new(None),
+                picking: Cell::new(false),
+                marks: RefCell::default(),
+                glue: macos::Glue::new(frame, move || sink(Event::Pressed)),
+            })
         }
         #[cfg(not(target_os = "macos"))]
         {
             let view = builder.with_bounds(bounds(parked)).with_visible(false).build_as_child(parent)?;
-            Ok(Self { view, placed: Cell::new(None) })
+            Ok(Self { view, placed: Cell::new(None), picking: Cell::new(false), marks: RefCell::default() })
         }
     }
 
@@ -239,6 +256,32 @@ impl Page {
         let _ = edit;
     }
 
+    /// While on, a click on the page picks the element under it, posted as [`Event::Picked`], instead of pressing it.
+    pub fn set_picking(&self, on: bool) {
+        if self.picking.replace(on) != on {
+            self.run(&format!("window.__anywherePick?.set({on})"));
+        }
+    }
+
+    /// Badges each element a selector finds with its number, in place of the last badges. Cheap when unchanged, so
+    /// it can run on every frame.
+    pub fn set_marks(&self, marks: &[(usize, String)]) {
+        if *self.marks.borrow() != marks {
+            *self.marks.borrow_mut() = marks.to_vec();
+            self.run(&format!("window.__anywherePick?.marks({})", marks_json(marks)));
+        }
+    }
+
+    /// A new document starts with the picker off and no badges; call once it loads.
+    pub fn reapply(&self) {
+        let marks = marks_json(&self.marks.borrow());
+        self.run(&format!("window.__anywherePick?.set({});window.__anywherePick?.marks({marks})", self.picking.get()));
+    }
+
+    fn run(&self, js: &str) {
+        let _ = self.view.evaluate_script(js);
+    }
+
     /// wry's `set_bounds` and `focus` unwrap the page's window, gone once it closes.
     fn closed(&self) -> bool {
         #[cfg(target_os = "macos")]
@@ -259,6 +302,11 @@ impl Drop for Page {
 #[cfg(any(test, not(target_os = "linux")))]
 fn opens_here(url: &str) -> bool {
     SCHEMES.iter().any(|s| url.starts_with(s))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn marks_json(marks: &[(usize, String)]) -> String {
+    serde_json::to_string(marks).unwrap_or_else(|_| "[]".into())
 }
 
 #[cfg(target_os = "windows")]
