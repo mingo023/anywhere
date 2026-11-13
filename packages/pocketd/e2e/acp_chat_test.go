@@ -353,13 +353,15 @@ func TestARestartLoadsTheChatHermesSessionAndShowsItsHistory(t *testing.T) {
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
 }
 
-// OpenCode tells a task's sub-agent only of its session loaded, live and on a restart alike.
+// OpenCode tells a sub-agent's work in the session as it runs, and its
+// history tells it only of the sub-agent's session loaded, prompt and all.
 func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *testing.T) {
 	h, phone, _, id := chatACP(t, "opencode", nil, func(h *Harness) { h.resume = true })
 	phone.Prompt(id, "delegate ls")
 	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
-	want := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> user ls", "> assistant did ls"}
-	settled := func(phone *Phone) []string {
+	live := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> assistant did ls"}
+	loaded := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> user ls", "> assistant did ls"}
+	settled := func(phone *Phone, want []string) []string {
 		var got []string
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 			// The sub-agent's session loads beside the turn, so its work lands wherever that is by then.
@@ -372,12 +374,12 @@ func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *test
 		}
 		return got
 	}
-	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
+	if got := settled(h.Owner(proto.CapSubagents), live); strings.Join(got, "|") != strings.Join(live, "|") {
 		t.Fatalf("got %q", got)
 	}
 
 	h.Restart()
-	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
+	if got := settled(h.Owner(proto.CapSubagents), loaded); strings.Join(got, "|") != strings.Join(loaded, "|") {
 		t.Fatalf("after the restart got %q", got)
 	}
 }
