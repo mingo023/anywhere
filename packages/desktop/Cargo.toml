@@ -126,6 +126,10 @@ split-debuginfo = "packed"
 [profile.dev.package."*"]
 opt-level = 2
 
+# chat's five-thousand-item refold test takes three minutes on CI unoptimized.
+[profile.dev.package.chat]
+opt-level = 2
+
 # What scripts/release-mac.sh ships: smaller and slower to build than release, which stays quick for local measuring.
 # Thin, not fat, LTO: fat linked pocket 2.4× slower for a 10% smaller binary.
 [profile.dist]

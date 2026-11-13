@@ -113,3 +113,5 @@ jobs:
         run: |
           cargo build --workspace
           cargo test --workspace --no-run
+          # What ci.yml compares a PR's files against to tell which the cache was built from.
+          git -C "$GITHUB_WORKSPACE" ls-files -s > target/sources

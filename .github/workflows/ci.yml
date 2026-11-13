@@ -1,4 +1,4 @@
-# Tests pocketd and builds and tests the desktop workspace on every PR to main.
+# Tests pocketd and builds and tests the desktop workspace on every PR to main, each only when the PR touches what it reads.
 name: CI
 
 on:
@@ -13,7 +13,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      go: ${{ steps.files.outputs.go }}
+      desktop: ${{ steps.files.outputs.desktop }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, .previous_filename // empty')
+          touched() { grep -qE "^(scripts/build-ghostty\.sh|\.github/workflows/ci\.yml)$|$1" <<< "$files" && echo true || echo false; }
+          echo "go=$(touched '^packages/pocketd/')" >> "$GITHUB_OUTPUT"
+          # Desktop tests read pocketd's golden frames and the chat fixture.
+          echo "desktop=$(touched '^(packages/desktop|packages/pocketd/internal/proto/testdata|\.ui-review/fixture)/')" >> "$GITHUB_OUTPUT"
+
   go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -44,6 +66,8 @@ jobs:
         run: go test ./...
 
   desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: macos-15
     timeout-minutes: 120
     steps:
@@ -70,6 +94,14 @@ jobs:
           key: cargo-ci-${{ steps.rust.outputs.rustc }}-${{ hashFiles('packages/desktop/Cargo.lock', 'packages/desktop/Cargo.toml') }}
           restore-keys: cargo-ci-${{ steps.rust.outputs.rustc }}-
 
+      # Checkout stamps every file with now, which cargo reads as every path crate having changed since the cache
+      # was built. Files still as target/sources lists them go back to before it.
+      - name: Source mtimes
+        run: |
+          sources=packages/desktop/target/sources
+          [ -f "$sources" ] || exit 0
+          git ls-files -s | grep -Fxf "$sources" | cut -f2 | tr '\n' '\0' | xargs -0 touch -h -t 200001010000
+
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         if: steps.ghostty.outputs.cache-hit != 'true'
         with:
@@ -85,3 +117,7 @@ jobs:
       - name: Test
         working-directory: packages/desktop
         run: cargo test --workspace
+
+      # A cache this run saves must list the sources it was built from, not those of the cache it restored.
+      - name: Sources
+        run: git ls-files -s > packages/desktop/target/sources
