@@ -113,6 +113,9 @@ impl Desktop {
         if self.screen == Screen::Activity {
             let items = self.activity_items();
             self.activity.regroup(items);
+            if let Some(id) = self.activity.grouped.ended_in_view(self.activity.previewed.as_deref()) {
+                self.outbox.seen(&[id]);
+            }
         }
     }
 
@@ -147,7 +150,7 @@ impl Desktop {
 
     fn activity_note(&self, a: &Summary, status: Option<Status>) -> String {
         match status {
-            Some(Status::NeedsYou) => self.agents.pending.iter().find(|p| p.agent_id == a.id).map(|p| p.ask()).unwrap_or_default(),
+            Some(Status::NeedsYou) => self.agents.pending.iter().find(|p| p.agent_id == a.id).map(|p| p.ask()).unwrap_or_else(|| first_line(self.agents.last_text(&a.id).unwrap_or_default())),
             Some(Status::Failed) => first_line(self.agents.last_result(&a.id).map_or("", |r| r.error.as_str())),
             Some(Status::Working) => a.activity.clone(),
             Some(Status::Done) => first_line(self.agents.last_text(&a.id).unwrap_or_default()),

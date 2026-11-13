@@ -513,7 +513,6 @@ impl Desktop {
                         }
                         d.close_pr_composer(window, cx);
                         d.poll_prs(cx);
-                        d.activity_changed();
                     }
                     Err(e) => d.pr.error = Some(e),
                 }

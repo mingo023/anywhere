@@ -98,6 +98,11 @@ impl Grouped {
         previewed.filter(|id| self.items.iter().any(|i| &i.id == id))
     }
 
+    /// The previewed session, when its turn ended while you were looking: seen, as opening it would make it.
+    pub(crate) fn ended_in_view(&self, previewed: Option<&str>) -> Option<String> {
+        previewed.and_then(|id| self.item(id)).filter(|i| marks_seen(i.status)).map(|i| i.id.clone())
+    }
+
     pub(crate) fn shown(&self, col: Col, ix: usize) -> Option<&Item> {
         self.columns[col as usize].get(ix).and_then(|&i| self.items.get(i))
     }
@@ -391,5 +396,14 @@ mod tests {
         assert_eq!(g.keep(Some("a".into())), Some("a".into()));
         g.take(Vec::new(), &Filters::default());
         assert_eq!(g.keep(Some("a".into())), None);
+    }
+
+    #[test]
+    fn a_turn_that_ends_under_the_preview_is_seen() {
+        let mut g = Grouped::default();
+        g.take(vec![item("a", Some(Status::Done), false, 0), item("b", Some(Status::NeedsYou), false, 0)], &Filters::default());
+        assert_eq!(g.ended_in_view(Some("a")), Some("a".into()));
+        assert_eq!(g.ended_in_view(Some("b")), None);
+        assert_eq!(g.ended_in_view(None), None);
     }
 }
