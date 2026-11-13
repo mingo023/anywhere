@@ -561,8 +561,8 @@ pub fn dot_spinner(id: impl Into<ElementId>, size: f32, color: impl Into<Hsla>) 
         })
 }
 
-/// The gradient spinner's rows, cool blue at the top through amber to pink, and the opacity a dot rests at between pulses.
-const GRADIENT_ROWS: [u32; 3] = [0xb6d3ef, 0xedb185, 0xf888a0];
+/// The gradient spinner's diagonals, blue at the top-left through violet to peach, and the opacity a dot rests at between pulses.
+const GRADIENT_DIAGONALS: [u32; 5] = [0x8fb8ff, 0xa9aafa, 0xc39cf5, 0xe19db7, 0xff9f7a];
 const GRADIENT_DIM: f32 = 0.1;
 
 /// A dot's opacity `t` through its own pulse: full at the start, down to dim by 45%, resting, back to full over the last 8%.
@@ -577,12 +577,12 @@ fn gradient_opacity(t: f32) -> f32 {
     }
 }
 
-/// How far ahead in its pulse the dot at `row`, `col` of the 3×3 grid runs, as a fraction of a period.
-fn gradient_lead(row: usize, col: usize) -> f32 {
-    (2. - row as f32 + (col as f32 - 1.).abs()) / 4.
+/// How far behind in its pulse the dot at `row`, `col` of the 3×3 grid runs, as a fraction of a period.
+fn gradient_delay(row: usize, col: usize) -> f32 {
+    (row + col) as f32 / 8.
 }
 
-/// A `size`-px 3×3 grid of dots tinted by row, a pulse of light passing over them; Zeron's working indicator (MIT).
+/// A `size`-px 3×3 grid of dots tinted along the diagonal, a pulse of light sweeping over them from the top-left.
 pub fn gradient_spinner(id: impl Into<ElementId>, size: f32) -> impl IntoElement {
     let dot = size / 4.;
     div()
@@ -592,9 +592,11 @@ pub fn gradient_spinner(id: impl Into<ElementId>, size: f32) -> impl IntoElement
         .flex_col()
         .gap(px(dot / 2.))
         // Uncapped, a repeating animation redraws the whole window every vsync; 20fps shares frames with the chat's shimmer.
-        .with_animation(id, Animation::new(std::time::Duration::from_millis(750)).repeat_synced().with_max_fps(20.), move |d, t| {
-            d.children(GRADIENT_ROWS.iter().enumerate().map(|(row, &tint)| {
-                div().flex().gap(px(dot / 2.)).children((0..3).map(move |col| div().size(px(dot)).rounded_full().bg(Hsla::from(rgb(tint)).opacity(gradient_opacity(t + gradient_lead(row, col))))))
+        .with_animation(id, Animation::new(std::time::Duration::from_millis(800)).repeat_synced().with_max_fps(20.), move |d, t| {
+            d.children((0..3).map(|row| {
+                div().flex().gap(px(dot / 2.)).children((0..3).map(move |col| {
+                    div().size(px(dot)).rounded_full().bg(Hsla::from(rgb(GRADIENT_DIAGONALS[row + col])).opacity(gradient_opacity(t - gradient_delay(row, col))))
+                }))
             }))
         })
 }
@@ -710,7 +712,7 @@ mod tests {
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, NAV, glass_alpha, highlight_theme_with, material, material_icon, nav_rgba,
-        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_lead, gradient_opacity,
+        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_delay, gradient_opacity,
         BRANDS, PROVIDER_NAMES, provider_glyph, provider_name, provider_svg,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
@@ -951,8 +953,8 @@ mod tests {
     }
 
     #[test]
-    fn gradient_spinner_dots_run_ahead_by_their_distance_from_the_bottom_centre() {
-        let leads: Vec<Vec<f32>> = (0..3).map(|row| (0..3).map(|col| gradient_lead(row, col)).collect()).collect();
-        assert_eq!(leads, [[0.75, 0.5, 0.75], [0.5, 0.25, 0.5], [0.25, 0., 0.25]]);
+    fn gradient_spinner_pulse_sweeps_diagonally_from_the_top_left() {
+        let delays: Vec<Vec<f32>> = (0..3).map(|row| (0..3).map(|col| gradient_delay(row, col)).collect()).collect();
+        assert_eq!(delays, [[0., 0.125, 0.25], [0.125, 0.25, 0.375], [0.25, 0.375, 0.5]]);
     }
 }
