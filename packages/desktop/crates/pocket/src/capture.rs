@@ -516,7 +516,7 @@ const STEPS: [(&str, Step); 270] = [
     }),
     ("activity-filtered", |d, _, cx| {
         if let Some(p) = d.project.clone() {
-            d.activity.filters.projects.insert(p);
+            d.activity.filters.toggle(crate::activity::Menu::Project, &p);
         }
         d.activity.menu = Some(crate::activity::Menu::Project);
         d.activity_changed();

@@ -127,33 +127,23 @@ impl Grouped {
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct Filters {
     pub query: String,
-    /// Project paths; empty keeps every project.
-    pub projects: BTreeSet<String>,
-    /// Agent providers; empty keeps every agent.
-    pub providers: BTreeSet<String>,
+    /// What each menu has picked, by `Menu`; an empty set keeps everything.
+    picked: [BTreeSet<String>; Menu::ALL.len()],
 }
 
 impl Filters {
     pub(crate) fn keeps(&self, item: &Item) -> bool {
         let text = format!("{} {} {}", item.title, item.project_name, item.branch).to_lowercase();
-        (self.projects.is_empty() || self.projects.contains(&item.project))
-            && (self.providers.is_empty() || self.providers.contains(&item.provider))
-            && self.query.split_whitespace().all(|w| text.contains(&w.to_lowercase()))
+        Menu::ALL.iter().all(|&m| self.picks(m).is_empty() || self.picks(m).contains(m.value(item))) && self.query.split_whitespace().all(|w| text.contains(&w.to_lowercase()))
     }
 
     pub(crate) fn picks(&self, menu: Menu) -> &BTreeSet<String> {
-        match menu {
-            Menu::Project => &self.projects,
-            Menu::Agent => &self.providers,
-        }
+        &self.picked[menu as usize]
     }
 
     /// Picks `value` in `menu`, or lets go of it when it was picked.
     pub(crate) fn toggle(&mut self, menu: Menu, value: &str) {
-        let set = match menu {
-            Menu::Project => &mut self.projects,
-            Menu::Agent => &mut self.providers,
-        };
+        let set = &mut self.picked[menu as usize];
         if !set.remove(value) {
             set.insert(value.to_string());
         }
@@ -168,6 +158,8 @@ pub(crate) enum Menu {
 }
 
 impl Menu {
+    pub(crate) const ALL: [Menu; 2] = [Menu::Project, Menu::Agent];
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Menu::Project => "Project",
@@ -312,6 +304,12 @@ mod tests {
         assert!(!marks_seen(None));
     }
 
+    fn picked(menu: Menu, value: &str) -> Filters {
+        let mut f = Filters::default();
+        f.toggle(menu, value);
+        f
+    }
+
     fn named(id: &str, project: &str, provider: &str, branch: &str) -> Item {
         Item { id: id.into(), title: format!("Fix {id}"), project: format!("/repos/{project}"), project_name: project.into(), provider: provider.into(), branch: branch.into(), ..Item::default() }
     }
@@ -323,14 +321,14 @@ mod tests {
 
     #[test]
     fn a_project_filter_keeps_only_its_projects() {
-        let f = Filters { projects: ["/repos/app".to_string()].into(), ..Filters::default() };
+        let f = picked(Menu::Project, "/repos/app");
         assert!(f.keeps(&named("a", "app", "claude", "")));
         assert!(!f.keeps(&named("b", "web", "claude", "")));
     }
 
     #[test]
     fn an_agent_filter_keeps_only_its_agents() {
-        let f = Filters { providers: ["codex".to_string()].into(), ..Filters::default() };
+        let f = picked(Menu::Agent, "codex");
         assert!(f.keeps(&named("a", "app", "codex", "")));
         assert!(!f.keeps(&named("b", "app", "claude", "")));
     }
@@ -347,7 +345,7 @@ mod tests {
     #[test]
     fn filtered_out_sessions_leave_their_column() {
         let items = vec![named("a", "app", "claude", ""), named("b", "web", "claude", "")];
-        let f = Filters { projects: ["/repos/web".to_string()].into(), ..Filters::default() };
+        let f = picked(Menu::Project, "/repos/web");
         assert_eq!(ids(&items, &arrange(&items, &f), Col::Idle), ["b"]);
     }
 
@@ -395,7 +393,7 @@ mod tests {
         let mut g = Grouped::default();
         let items = vec![named("a", "app", "claude", ""), named("b", "web", "claude", "")];
         g.take(items.clone(), &Filters::default());
-        let f = Filters { projects: ["/repos/web".to_string()].into(), ..Filters::default() };
+        let f = picked(Menu::Project, "/repos/web");
         assert!(g.take(items, &f));
         assert_eq!(g.shown(Col::Idle, 0).map(|i| i.id.as_str()), Some("b"));
         assert!(g.shown(Col::Idle, 1).is_none());
