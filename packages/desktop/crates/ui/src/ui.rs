@@ -1330,6 +1330,11 @@ pub fn failure(message: String, detail: String) -> Div {
 /// How round a Board or Activity card is.
 pub const CARD_RADIUS: f32 = 9.;
 
+/// A Board or Activity card's surface, before what it shows.
+pub fn card(id: impl Into<ElementId>) -> Stateful<Div> {
+    div().id(id).px(px(10.)).py(px(9.)).rounded(px(CARD_RADIUS)).bg(SURFACE).shadow(row_shadow())
+}
+
 /// A small outlined tag on a card: its PR, its diff.
 pub fn card_pill() -> Div {
     div().h(px(20.)).px(px(7.)).flex().flex_none().items_center().gap(px(4.)).rounded(px(10.)).border_1().border_color(SEPARATOR).text_size(px(11.5)).text_color(TEXT_2)

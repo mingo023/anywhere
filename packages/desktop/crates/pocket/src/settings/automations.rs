@@ -142,7 +142,7 @@ impl Desktop {
             action("settings-open-automations", "Open Automations")
                 .gap(px(6.))
                 .child(icon("external", 12., TEXT_3))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(window, cx)))
         });
         let line = service_line(items.len(), next);
         row(title, Some(&line), div().children(open))

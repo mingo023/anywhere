@@ -509,7 +509,7 @@ const STEPS: [(&str, Step); 270] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
-    ("activity", |d, window, cx| d.open_activity(&crate::actions::OpenActivity, window, cx)),
+    ("activity", |d, window, cx| d.open_activity(window, cx)),
     ("activity-panel", |d, _, cx| {
         d.activity.previewed = d.agents.list.iter().find(|a| a.status == "needsYou").map(|a| a.id.clone());
         cx.notify();
@@ -527,7 +527,7 @@ const STEPS: [(&str, Step); 270] = [
             (a.chat_only, a.status) = if a.id == "parser" { (true, "done".into()) } else { (a.chat_only, "idle".into()) };
         }
     }),
-    ("board", |d, window, cx| d.open_board(&crate::actions::OpenBoard, window, cx)),
+    ("board", |d, window, cx| d.open_board(window, cx)),
     ("board-list", |d, _, cx| {
         d.board.layout = crate::board::Layout::List;
         cx.notify();
@@ -579,7 +579,7 @@ const STEPS: [(&str, Step); 270] = [
         d.board_changed();
         cx.notify();
     }),
-    ("automations", |d, window, cx| d.open_automations(&crate::actions::OpenAutomations, window, cx)),
+    ("automations", |d, window, cx| d.open_automations(window, cx)),
     ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
     ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
     ("automations-editor", |d, window, cx| {

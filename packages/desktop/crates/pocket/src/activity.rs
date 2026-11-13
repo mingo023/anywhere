@@ -5,7 +5,6 @@ mod logic;
 mod page;
 mod panel;
 
-use crate::actions::OpenActivity;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::util::first_line;
@@ -53,7 +52,7 @@ impl ActivityState {
 }
 
 impl Desktop {
-    pub(crate) fn open_activity(&mut self, _: &OpenActivity, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus();
         if self.overlay.is_some() {
             self.close_overlay(window, cx);

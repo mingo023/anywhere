@@ -156,7 +156,7 @@ impl Desktop {
         let col = slot.col;
         let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
         let hoverable = opens(t, self.ticket_reach(t)).is_some() && !picked;
-        let card = div().id(SharedString::from(format!("ticket-{}", t.id))).px(px(10.)).py(px(9.)).rounded(px(CARD_RADIUS)).bg(SURFACE).shadow(ui::row_shadow()).when(col.finished(), |d| d.opacity(0.6)).when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])).when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)).shadow(vec![ui::ring(Hsla::from(INDIGO).opacity(0.5), 1.)])).when(hoverable, |d| d.hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))).child(self.ticket_body(t, slot, cx));
+        let card = ui::card(SharedString::from(format!("ticket-{}", t.id))).when(col.finished(), |d| d.opacity(0.6)).when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])).when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)).shadow(vec![ui::ring(Hsla::from(INDIGO).opacity(0.5), 1.)])).when(hoverable, |d| d.hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))).child(self.ticket_body(t, slot, cx));
         let card = self.ticket_shell(card, t, cx).when(col.lifts(), |d| {
             let before = t.id.clone();
             d.on_drag(DragTicket { id: t.id.clone(), from: col, title: t.title.clone() }, |d, _, _, cx| cx.new(|_| d.clone())).on_drop(cx.listener(move |this, d: &DragTicket, _, cx| {

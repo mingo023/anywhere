@@ -1,5 +1,5 @@
 use super::logic::{Col, Item};
-use ui::{CARD_RADIUS, agent_avatar, card_pill as pill};
+use ui::{agent_avatar, card_pill as pill};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
 use crate::util::{ago, now_ms};
@@ -51,13 +51,7 @@ impl Desktop {
         let meta = div().flex().flex_wrap().items_center().gap(px(6.)).children(self.activity_pills(item)).children(self.activity_answers(&item.id, cx).map(|a| a.ml_auto()));
         let body = div().flex().flex_col().gap(px(6.)).child(top).child(head).children(branch).children(note).child(meta);
         let previewed = self.activity.previewed.as_deref() == Some(item.id.as_str());
-        let card = div()
-            .id(SharedString::from(format!("activity-{id}")))
-            .px(px(10.))
-            .py(px(9.))
-            .rounded(px(CARD_RADIUS))
-            .bg(SURFACE)
-            .shadow(ui::row_shadow())
+        let card = ui::card(SharedString::from(format!("activity-{id}")))
             .cursor_pointer()
             .hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))
             .when(previewed, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.5)]))

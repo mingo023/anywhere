@@ -1,6 +1,6 @@
 use super::Desktop;
 use super::chrome::Screen;
-use crate::actions::{OpenActivity, OpenAutomations, OpenBoard, OpenSettings};
+use crate::actions::OpenSettings;
 use agents::Agents;
 use gpui_kit::*;
 
@@ -18,12 +18,26 @@ pub(crate) struct Page {
     offered: fn(&Agents) -> bool,
 }
 
-/// In the order the sidebar, the rail and the palette list them.
-const PAGES: [Page; 3] = [
-    Page { screen: Screen::Activity, name: "Activity", title: "Go to Activity", action: "OpenActivity", icon: "activity", keys: None, offered: |_| true },
-    Page { screen: Screen::Board, name: "Board", title: "Go to Board", action: "OpenBoard", icon: "blocks", keys: None, offered: Agents::board_offered },
-    Page { screen: Screen::Automations, name: "Automations", title: "Go to Automations", action: "OpenAutomations", icon: "bolt", keys: Some("⌘ ⇧ A"), offered: Agents::automations_offered },
-];
+/// Declares each page's action, its entry in `PAGES` and the listener the action goes through, so a page is one line.
+macro_rules! page_list {
+    ($($action:ident => $screen:ident, $name:literal, $icon:literal, $keys:expr, $offered:expr;)*) => {
+        actions!(desktop, [$($action),*]);
+
+        /// In the order the sidebar, the rail and the palette list them.
+        const PAGES: [Page; [$(stringify!($action)),*].len()] = [$(Page { screen: Screen::$screen, name: $name, title: concat!("Go to ", $name), action: stringify!($action), icon: $icon, keys: $keys, offered: $offered }),*];
+
+        /// `root` taking each page's action, as a shortcut sends it.
+        pub(crate) fn on_actions<E: InteractiveElement>(root: E, cx: &mut Context<Desktop>) -> E {
+            root$(.on_action(cx.listener(|this, _: &$action, window, cx| this.go_to_screen(Screen::$screen, window, cx))))*
+        }
+    };
+}
+
+page_list! {
+    OpenActivity => Activity, "Activity", "activity", None, |_| true;
+    OpenBoard => Board, "Board", "blocks", None, Agents::board_offered;
+    OpenAutomations => Automations, "Automations", "bolt", Some("⌘ ⇧ A"), Agents::automations_offered;
+}
 
 /// The page an action named `action` goes to.
 pub(crate) fn by_action(action: &str) -> Option<&'static Page> {
@@ -39,9 +53,9 @@ impl Desktop {
     /// Goes to `screen`, as its nav row, rail button or palette entry does.
     pub(crate) fn go_to_screen(&mut self, screen: Screen, window: &mut Window, cx: &mut Context<Self>) {
         match screen {
-            Screen::Activity => self.open_activity(&OpenActivity, window, cx),
-            Screen::Board => self.open_board(&OpenBoard, window, cx),
-            Screen::Automations => self.open_automations(&OpenAutomations, window, cx),
+            Screen::Activity => self.open_activity(window, cx),
+            Screen::Board => self.open_board(window, cx),
+            Screen::Automations => self.open_automations(window, cx),
             Screen::Inbox => self.open_inbox(window, cx),
             Screen::Settings => self.open_settings(&OpenSettings, window, cx),
             Screen::Sessions => {

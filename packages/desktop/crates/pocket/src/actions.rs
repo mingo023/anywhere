@@ -1,3 +1,4 @@
+use crate::desktop::pages::OpenAutomations;
 use crate::explorer::menu::{self, Arrow, Item};
 use crate::{browser, inbox, settings};
 use gpui_kit::*;
@@ -5,7 +6,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, OpenActivity, OpenAutomations, OpenBoard, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath, FormatBold, FormatItalic, FormatCode, FormatLink]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath, FormatBold, FormatItalic, FormatCode, FormatLink]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
