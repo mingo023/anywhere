@@ -601,7 +601,7 @@ impl Desktop {
                 .map(|i| {
                     let c = &rows[i];
                     r(i).child(div().flex_none().font_family(code_font()).child(marked(format!("/{}", c.name), &[query.to_lowercase()])))
-                        .when(!c.hint.is_empty(), |r| r.child(div().flex_none().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone())))
+                        .when(!c.hint.is_empty(), |r| r.child(div().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(c.hint.clone())))
                         .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(c.description.clone()))
                 })
                 .collect(),
