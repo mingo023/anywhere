@@ -1,6 +1,8 @@
 use super::composer::{RADIUS, block_shade, code_shade};
 use super::mention::{paint_icons, hidden, tint};
 use super::selectable::selectable;
+use crate::composer::element_card::element_card;
+use crate::composer::elements::heading_parts;
 use crate::composer::file_card::file_card;
 use crate::composer::rich::highlight;
 use crate::composer::{Sent, split_attachments};
@@ -208,12 +210,24 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
 /// it; one over five lines clips to five with "Show more".
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
 pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {
-    let Sent { text, files, images } = split_attachments(&prompt);
+    let Sent { text, files, images, elements } = split_attachments(&prompt);
     let text = text.to_string();
-    let attached = (!images.is_empty() || !files.is_empty()).then(|| {
+    let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
         let tile = |path: &str| div().size(px(56.)).flex_none().rounded(px(8.)).border_1().border_color(hairline(0.10)).child(img(PathBuf::from(path)).size(px(54.)).rounded(px(7.)).object_fit(ObjectFit::Cover));
         let card = |(i, path): (usize, &str)| file_card(SharedString::from(format!("{id}-file-{i}")), Path::new(path));
-        div().flex().flex_wrap().gap(px(8.)).when(!text.is_empty(), |d| d.mt(px(8.))).mb(px(3.)).children(images.into_iter().map(tile)).children(files.into_iter().enumerate().map(card))
+        let element = |(i, heading): (usize, &str)| {
+            let (number, host, title) = heading_parts(heading);
+            element_card(SharedString::from(format!("{id}-element-{i}")), number, host, title, None)
+        };
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(px(8.))
+            .when(!text.is_empty(), |d| d.mt(px(8.)))
+            .mb(px(3.))
+            .children(images.into_iter().map(tile))
+            .children(files.into_iter().enumerate().map(card))
+            .children(elements.into_iter().enumerate().map(element))
     });
     let collapsed = toggle.is_some() && !expanded;
     let clipped = LINE_HEIGHT * (COLLAPSED_LINES + 1) as f32;

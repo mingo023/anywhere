@@ -3,7 +3,9 @@
 mod address;
 mod link;
 mod page;
+mod pick;
 
 pub use address::{host, resolve};
 pub use link::link_at;
 pub use page::{Edit, Event, Page, Rect};
+pub use pick::Element;

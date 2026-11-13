@@ -71,4 +71,16 @@ impl Page {
     pub fn edit(&self, _: Edit) {
         match self.0 {}
     }
+
+    pub fn set_picking(&self, _: bool) {
+        match self.0 {}
+    }
+
+    pub fn set_marks(&self, _: &[(usize, String)]) {
+        match self.0 {}
+    }
+
+    pub fn reapply(&self) {
+        match self.0 {}
+    }
 }

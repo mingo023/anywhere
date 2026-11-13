@@ -8711,6 +8711,8 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "objc2-web-kit",
+ "serde",
+ "serde_json",
  "wry",
 ]
 

@@ -19,6 +19,11 @@ impl Desktop {
         }
         let back = b.page.as_ref().is_some_and(|p| p.can_go_back());
         let forward = b.page.as_ref().is_some_and(|p| p.can_go_forward());
+        let picking = b.picking;
+        let can_pick = b.page.is_some();
+        if let Some(page) = &b.page {
+            page.set_marks(&self.pick_marks(b, cx));
+        }
         let nav = |id: &'static str, name: &str, on: bool| ui::icon_button(id, name).when(!on, |d| d.opacity(0.35));
         let bar = div()
             .h(px(40.))
@@ -45,6 +50,12 @@ impl Desktop {
                     .bg(FILL_2)
                     .text_size(px(13.))
                     .child(Input::new(&address).appearance(false).p_0().text_size(px(13.))),
+            )
+            .child(
+                ui::icon_button("browser-pick", "pointer")
+                    .when(picking, |d| d.bg(FILL_3))
+                    .when(!can_pick, |d| d.opacity(0.35))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.toggle_pick(id, window, cx))),
             )
             .child(ui::icon_button("browser-external", "external").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if let Some(b) = this.browsers.tabs.get(&id).filter(|b| !b.url.is_empty()) {
