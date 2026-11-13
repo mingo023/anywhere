@@ -1,5 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Screen, state};
+use crate::desktop::pages;
 use crate::desktop::sounds::Cue;
 use crate::modals::may_open;
 use crate::status::{self, Card, Status};
@@ -28,9 +29,7 @@ pub enum Pick {
     Tree { project: String, tree: Option<String> },
     UpNext,
     Browser,
-    Activity,
-    Automations,
-    Board,
+    Go(Screen),
     PairPhone,
     HostFolder,
     Sound(Cue),
@@ -259,25 +258,24 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         detail: String::new(),
         keys: None,
     };
+    let pages = pages::offered(agents).map(|p| Entry { pick: Pick::Go(p.screen), lead: Lead::Icon(p.icon), title: format!("Go to {}", p.name), detail: String::new(), keys: p.keys });
     [
         Entry { pick: Pick::New, lead: Lead::Icon("sparkle"), title: format!("New session in {project}"), detail: String::new(), keys: Some("⌘ N") },
         Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: None },
         Entry { pick: Pick::Next, lead: Lead::Waiting, title: "Go to next Needs you".into(), detail: String::new(), keys: Some("⌘ J") },
         Entry { pick: Pick::UpNext, lead: Lead::Icon("forward"), title: "Go to Up next".into(), detail: String::new(), keys: Some("⌘ ⇧ J") },
         Entry { pick: Pick::Browser, lead: Lead::Icon("globe"), title: "Open browser".into(), detail: String::new(), keys: Some("⌘ ⇧ B") },
-        Entry { pick: Pick::Activity, lead: Lead::Icon("activity"), title: "Go to Activity".into(), detail: String::new(), keys: None },
-        Entry { pick: Pick::Automations, lead: Lead::Icon("bolt"), title: "Go to Automations".into(), detail: String::new(), keys: Some("⌘ ⇧ A") },
-        Entry { pick: Pick::Board, lead: Lead::Icon("blocks"), title: "Go to Board".into(), detail: String::new(), keys: None },
-        Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
-        Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new(), keys: None },
     ]
     .into_iter()
+    .chain(pages)
+    .chain([
+        Entry { pick: Pick::PairPhone, lead: Lead::Icon("shield"), title: "Pair phone…".into(), detail: String::new(), keys: None },
+        Entry { pick: Pick::HostFolder, lead: Lead::Icon("globe"), title: "Open folder on a host…".into(), detail: String::new(), keys: None },
+    ])
     .chain(Cue::ALL.map(sound))
     .filter(|e| match e.pick {
         Pick::New | Pick::Split => crate::modals::new_session::may_start(agents),
         Pick::PairPhone => may_open(Overlay::PairPhone, agents),
-        Pick::Automations => agents.automations_offered(),
-        Pick::Board => agents.board_offered(),
         _ => true,
     })
     .filter(|e| matches(words, &[&e.title]))
@@ -383,9 +381,7 @@ impl Desktop {
             }
             Pick::UpNext => self.go_to_up_next(&crate::actions::GoToUpNext, window, cx),
             Pick::Browser => self.open_browser(None, window, cx),
-            Pick::Activity => self.open_activity(&crate::actions::OpenActivity, window, cx),
-            Pick::Automations => self.open_automations(&crate::actions::OpenAutomations, window, cx),
-            Pick::Board => self.open_board(&crate::actions::OpenBoard, window, cx),
+            Pick::Go(screen) => self.go_to_screen(screen, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
             Pick::HostFolder => self.open_host_folder(window, cx),
             Pick::Sound(cue) => {
@@ -512,6 +508,7 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Entry, Lead, Local, Nav, Pick, Query, action_entries, file_entries, local_entries, matches, nav, query, row_child, runs, session_entries, tree_entries, up_next_entries};
+    use crate::desktop::chrome::Screen;
     use crate::desktop::sounds::Cue;
     use crate::status::{Card, Kind, Status};
     use agents::{Agents, Event};
@@ -700,7 +697,7 @@ mod tests {
 
     #[test]
     fn automations_is_listed_only_once_pocketd_offers_it() {
-        let listed = |a: &Agents| action_entries(&[], "app", &Sounds::default(), a).iter().any(|e| e.pick == Pick::Automations);
+        let listed = |a: &Agents| action_entries(&[], "app", &Sounds::default(), a).iter().any(|e| e.pick == Pick::Go(Screen::Automations));
         assert!(!listed(&Agents::default()));
         assert!(listed(&offering_automations()));
     }
@@ -714,8 +711,8 @@ mod tests {
             (Pick::Next, "Go to next Needs you"),
             (Pick::UpNext, "Go to Up next"),
             (Pick::Browser, "Open browser"),
-            (Pick::Activity, "Go to Activity"),
-            (Pick::Automations, "Go to Automations"),
+            (Pick::Go(Screen::Activity), "Go to Activity"),
+            (Pick::Go(Screen::Automations), "Go to Automations"),
             (Pick::HostFolder, "Open folder on a host…"),
             (Pick::Sound(Cue::NeedsYou), "Needs you sound: On"),
             (Pick::Sound(Cue::Done), "Done sound: On"),
@@ -734,9 +731,9 @@ mod tests {
             action_entries(&[], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
-        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Activity, Pick::Automations, Pick::PairPhone, Pick::HostFolder]);
-        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Activity, Pick::Automations, Pick::HostFolder]);
-        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Activity, Pick::Automations, Pick::HostFolder]);
+        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::PairPhone, Pick::HostFolder]);
+        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::HostFolder]);
+        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::HostFolder]);
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub(crate) mod geometry;
 pub(crate) mod dock;
 pub(crate) mod jump;
 pub(crate) mod locals;
+pub(crate) mod pages;
 pub(crate) mod project;
 pub(crate) mod quit;
 pub(crate) mod sounds;
@@ -654,21 +655,13 @@ impl Render for Desktop {
                     this.close_overlay(window, cx);
                 } else if this.overlay.is_none() && this.new_form.shown && this.screen == Screen::Sessions && !this.idle_main() {
                     this.leave_new_session(window, cx);
-                } else if this.overlay.is_none() && this.screen == Screen::Settings {
-                    this.escape_settings(window, cx);
-                } else if this.overlay.is_none() && this.screen == Screen::Activity {
-                    this.escape_activity(window, cx);
-                } else if this.overlay.is_none() && this.screen == Screen::Automations {
-                    this.escape_automations(cx);
-                } else if this.overlay.is_none() && this.screen == Screen::Board {
-                    this.escape_board(window, cx);
-                } else {
+                } else if this.overlay.is_some() || !this.escape_screen(window, cx) {
                     return;
                 }
                 cx.stop_propagation();
             }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                if this.board_key(&ev.keystroke, window, cx) || this.activity_key(&ev.keystroke, window, cx) || this.type_into_chat(&ev.keystroke, window, cx) {
+                if this.screen_key(&ev.keystroke, window, cx) || this.type_into_chat(&ev.keystroke, window, cx) {
                     cx.stop_propagation();
                 }
             }))
