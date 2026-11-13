@@ -1,6 +1,7 @@
 use super::card::DragTicket;
 use super::logic::{Col, Slot, busy, set_away};
-use super::parts::{col_heading, empty_hint};
+use super::parts::col_heading;
+use ui::empty_hint;
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use theme::*;

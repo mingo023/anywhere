@@ -8,21 +8,20 @@ mod panel;
 use crate::actions::OpenActivity;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
-use crate::inbox::first_line;
+use crate::util::first_line;
 use crate::status::{self, Status};
 use agents::Summary;
 use git::github::PrState;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 pub(crate) use logic::Menu;
-use logic::{COLS, Columns, Escape, Filters, Item, arrange, escape, marks_seen, opens_preview};
+use logic::{COLS, Escape, Filters, Grouped, Item, escape, marks_seen, opens_preview};
 
 pub struct ActivityState {
     pub(crate) previewed: Option<String>,
     pub(crate) filters: Filters,
     pub(crate) menu: Option<Menu>,
-    items: Vec<Item>,
-    columns: Columns,
+    grouped: Grouped,
     lists: Vec<ListState>,
     search: Entity<InputState>,
 }
@@ -35,34 +34,21 @@ impl ActivityState {
             this.activity_changed();
             cx.notify();
         })];
-        let state = Self { previewed: None, filters: Filters::default(), menu: None, items: Vec::new(), columns: Default::default(), lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), search };
+        let state = Self { previewed: None, filters: Filters::default(), menu: None, grouped: Grouped::default(), lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), search };
         (state, subs)
     }
 
-    /// Takes the sessions as they are now; the lists measure afresh only when what they show changed.
     fn regroup(&mut self, items: Vec<Item>) {
-        let columns = arrange(&items, &self.filters);
-        if items == self.items && columns == self.columns {
+        if !self.grouped.take(items, &self.filters) {
             return;
         }
         // A card's height follows its note, so the lists measure again, keeping where each was scrolled to.
-        for (list, line) in self.lists.iter().zip(&columns) {
+        for (list, line) in self.lists.iter().zip(&self.grouped.columns) {
             let top = list.logical_scroll_top();
             list.reset(line.len());
             list.scroll_to(top);
         }
-        (self.items, self.columns) = (items, columns);
-        if self.previewed.as_ref().is_some_and(|id| !self.items.iter().any(|i| &i.id == id)) {
-            self.previewed = None;
-        }
-    }
-
-    fn shown(&self, col: logic::Col, ix: usize) -> Option<&Item> {
-        self.columns[col as usize].get(ix).and_then(|&i| self.items.get(i))
-    }
-
-    fn item(&self, id: &str) -> Option<&Item> {
-        self.items.iter().find(|i| i.id == id)
+        self.previewed = self.grouped.keep(self.previewed.take());
     }
 }
 

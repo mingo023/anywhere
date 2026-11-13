@@ -1,7 +1,7 @@
 use super::card::col_glyph;
 use super::logic::{column, label};
 use crate::desktop::Desktop;
-use crate::inbox::first_line;
+use crate::util::first_line;
 use crate::git_ui::pull_requests::{detail, glyph as pr_glyph, tone};
 use crate::util::{ago, now_ms};
 use gpui_kit::*;
@@ -17,7 +17,7 @@ impl Desktop {
 
     pub(super) fn activity_panel(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let id = self.activity.previewed.clone()?;
-        let item = self.activity.item(&id)?;
+        let item = self.activity.grouped.item(&id)?;
         let col = column(item.status, item.pr_open);
         let chip = div().h(px(22.)).px(px(8.)).flex().flex_none().items_center().gap(px(5.)).rounded(px(11.)).bg(FILL_2).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(col_glyph(col)).child(label(item.status, item.pr_open));
         let go = id.clone();

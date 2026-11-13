@@ -5,7 +5,7 @@ use crate::actions::OpenSession;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::status::Status;
-use crate::util::basename;
+use crate::util::{basename, first_line};
 use agents::{Agents, Summary};
 use gpui_kit::*;
 use std::cmp::Reverse;
@@ -20,10 +20,6 @@ pub struct Note {
     pub title: String,
     pub subtitle: String,
     pub at: i64,
-}
-
-pub(crate) fn first_line(s: &str) -> String {
-    s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string()
 }
 
 pub(crate) fn noted(a: &Summary) -> Option<Status> {
@@ -168,7 +164,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Note, arrange, count, first_line, heading, notes, readable, reselect, select, step};
+    use super::{Note, arrange, count, heading, notes, readable, reselect, select, step};
     use store::prefs::sidebar::{InboxFilter, InboxSort};
     use crate::status::Status;
     use agents::{Agents, Item, Permission, Summary};
@@ -260,11 +256,5 @@ mod tests {
         assert_eq!(terminals(arrange(all(), InboxSort::Newest, InboxFilter::All)), ["a", "c", "b"]);
         assert_eq!(terminals(arrange(all(), InboxSort::Oldest, InboxFilter::All)), ["b", "c", "a"]);
         assert_eq!(terminals(arrange(all(), InboxSort::Urgent, InboxFilter::Failed)), ["b"]);
-    }
-
-    #[test]
-    fn first_line_skips_blank_lines() {
-        assert_eq!(first_line("\n  Tagged, changelog updated\nmore"), "Tagged, changelog updated");
-        assert_eq!(first_line(""), "");
     }
 }

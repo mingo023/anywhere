@@ -1,6 +1,6 @@
 use super::Menu;
 use super::logic::values;
-use crate::board::filter_bar::value_row;
+use ui::value_row;
 use crate::desktop::Desktop;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -45,7 +45,7 @@ impl Desktop {
     }
 
     fn activity_filter_menu(&self, menu: Menu, cx: &mut Context<Self>) -> Div {
-        let rows: Vec<_> = values(&self.activity.items, menu)
+        let rows: Vec<_> = values(&self.activity.grouped.items, menu)
             .into_iter()
             .enumerate()
             .map(|(i, (value, count))| {

@@ -75,6 +75,38 @@ pub(crate) fn label(status: Option<Status>, pr_open: bool) -> &'static str {
 
 pub(crate) type Columns = [Vec<usize>; COLS.len()];
 
+/// The sessions as last gathered, and the columns their kept ones fill.
+#[derive(Default)]
+pub(crate) struct Grouped {
+    pub items: Vec<Item>,
+    pub columns: Columns,
+}
+
+impl Grouped {
+    /// Takes the sessions as they are now; false when nothing shown changed.
+    pub(crate) fn take(&mut self, items: Vec<Item>, filters: &Filters) -> bool {
+        let columns = arrange(&items, filters);
+        if items == self.items && columns == self.columns {
+            return false;
+        }
+        (self.items, self.columns) = (items, columns);
+        true
+    }
+
+    /// The preview, while its session is still here.
+    pub(crate) fn keep(&self, previewed: Option<String>) -> Option<String> {
+        previewed.filter(|id| self.items.iter().any(|i| &i.id == id))
+    }
+
+    pub(crate) fn shown(&self, col: Col, ix: usize) -> Option<&Item> {
+        self.columns[col as usize].get(ix).and_then(|&i| self.items.get(i))
+    }
+
+    pub(crate) fn item(&self, id: &str) -> Option<&Item> {
+        self.items.iter().find(|i| i.id == id)
+    }
+}
+
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct Filters {
     pub query: String,
@@ -331,5 +363,33 @@ mod tests {
         assert!(opens_preview("enter", false, true));
         assert!(!opens_preview("enter", false, false));
         assert!(!opens_preview("space", true, false));
+    }
+
+    #[test]
+    fn the_same_sessions_again_change_nothing() {
+        let mut g = Grouped::default();
+        let items = vec![named("a", "app", "claude", "")];
+        assert!(g.take(items.clone(), &Filters::default()));
+        assert!(!g.take(items, &Filters::default()));
+    }
+
+    #[test]
+    fn a_new_filter_regroups_the_same_sessions() {
+        let mut g = Grouped::default();
+        let items = vec![named("a", "app", "claude", ""), named("b", "web", "claude", "")];
+        g.take(items.clone(), &Filters::default());
+        let f = Filters { projects: ["/repos/web".to_string()].into(), ..Filters::default() };
+        assert!(g.take(items, &f));
+        assert_eq!(g.shown(Col::Idle, 0).map(|i| i.id.as_str()), Some("b"));
+        assert!(g.shown(Col::Idle, 1).is_none());
+    }
+
+    #[test]
+    fn a_preview_closes_once_its_session_is_gone() {
+        let mut g = Grouped::default();
+        g.take(vec![named("a", "app", "claude", "")], &Filters::default());
+        assert_eq!(g.keep(Some("a".into())), Some("a".into()));
+        g.take(Vec::new(), &Filters::default());
+        assert_eq!(g.keep(Some("a".into())), None);
     }
 }

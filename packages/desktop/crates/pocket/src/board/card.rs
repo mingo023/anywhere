@@ -1,9 +1,9 @@
 use super::Menu;
 use super::logic::{Action, Col, Field, Quick, Slot, Tone, column, note, opens, quick, ticket_key};
-use super::parts::{CARD_RADIUS, agent_avatar, label_dot, pill, priority_glyph, prop_chip, quick_button, status_glyph};
+use super::parts::{label_dot, priority_glyph, prop_chip, status_glyph};
+use ui::{CARD_RADIUS, agent_avatar, card_pill as pill, quick_button};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
-use agents::Decision;
 use agents::tickets::{ClosedWhy, Ticket};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -60,14 +60,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Answers the ask the button was drawn for, never one that has replaced it since.
-    fn answer_ticket(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
-        if self.agents.pending.iter().any(|p| p.request_id == request) {
-            self.outbox.resolve(request, decision);
-        }
-        cx.notify();
-    }
-
     /// `row`, running `action` on ticket `id` without opening the ticket.
     fn quick_click(&self, row: Stateful<Div>, action: Action, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = id.to_string();
@@ -75,23 +67,6 @@ impl Desktop {
             cx.stop_propagation();
             this.run_action(action, &id, window, cx);
         }))
-    }
-
-    fn answer_click(&self, row: Stateful<Div>, request: &str, decision: Decision, cx: &mut Context<Self>) -> Stateful<Div> {
-        let request = request.to_string();
-        row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            cx.stop_propagation();
-            this.answer_ticket(&request, decision, cx);
-        }))
-    }
-
-    /// Deny and Allow once for `request`, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`.
-    pub(crate) fn answer_buttons(&self, scope: &str, id: &str, request: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
-        let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
-        vec![
-            self.answer_click(quick_button(button("deny"), None, "Deny"), request, Decision::Deny, cx),
-            self.answer_click(quick_button(button("allow"), None, "Allow once").bg(PRIMARY).text_color(ON_PRIMARY).hover(|s| s.bg(PRIMARY).opacity(0.9)), request, Decision::Allow, cx),
-        ]
     }
 
     /// What the ticket offers at a glance, its buttons side by side.

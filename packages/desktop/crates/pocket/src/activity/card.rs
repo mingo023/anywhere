@@ -1,5 +1,5 @@
 use super::logic::{Col, Item};
-use crate::board::parts::{CARD_RADIUS, agent_avatar, pill};
+use ui::{CARD_RADIUS, agent_avatar, card_pill as pill};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
 use crate::status::Status;
@@ -27,7 +27,7 @@ fn card_glyph(col: Col, item: &Item) -> Svg {
 
 impl Desktop {
     pub(super) fn activity_card(&self, col: Col, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(item) = self.activity.shown(col, ix) else { return div().into_any_element() };
+        let Some(item) = self.activity.grouped.shown(col, ix) else { return div().into_any_element() };
         let id = item.id.clone();
         let top = div()
             .flex()

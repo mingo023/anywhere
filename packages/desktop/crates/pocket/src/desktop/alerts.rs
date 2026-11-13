@@ -309,6 +309,30 @@ impl Desktop {
         cx.dismiss_system_notification(agent);
     }
 
+    /// Deny and Allow once for a card's permission ask, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`.
+    pub(crate) fn answer_buttons(&self, scope: &str, id: &str, request: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
+        let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
+        let answer = |row: Stateful<Div>, decision: Decision, cx: &mut Context<Self>| {
+            let request = request.to_string();
+            row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.answer_pending(&request, decision, cx);
+            }))
+        };
+        vec![
+            answer(ui::quick_button(button("deny"), None, "Deny"), Decision::Deny, cx),
+            answer(ui::quick_button(button("allow"), None, "Allow once").bg(theme::PRIMARY).text_color(theme::ON_PRIMARY).hover(|s| s.bg(theme::PRIMARY).opacity(0.9)), Decision::Allow, cx),
+        ]
+    }
+
+    /// Answers the ask the button was drawn for, never one that has replaced it since.
+    fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
+        if self.agents.pending.iter().any(|p| p.request_id == request) {
+            self.outbox.resolve(request, decision);
+        }
+        cx.notify();
+    }
+
     /// The terminals on screen: those of the tabs the drawn panes show.
     fn visible_panes(&mut self) -> Vec<String> {
         let Some(tree) = self.place().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };

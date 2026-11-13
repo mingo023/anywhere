@@ -1,5 +1,6 @@
 use super::logic::{Field, Surface, column, in_line, place_in_column};
-use super::parts::{bar_button, flush_textarea, pill, prop_chip, start_kbd, status_glyph};
+use super::parts::{bar_button, flush_textarea, prop_chip, start_kbd, status_glyph};
+use ui::card_pill as pill;
 use crate::desktop::Desktop;
 use crate::util::{ago_long, now_ms};
 use agents::tickets::State;

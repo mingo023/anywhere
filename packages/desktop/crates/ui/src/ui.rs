@@ -1,6 +1,7 @@
 use theme::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use gpui_kit::component::tooltip::Tooltip;
 use std::path::PathBuf;
 
 mod scramble;
@@ -1324,6 +1325,41 @@ pub fn failure(message: String, detail: String) -> Div {
         .text_color(FAILED_TEXT)
         .child(message)
         .when(!detail.is_empty(), |d| d.child(div().font_family(MONO).text_size(px(12.)).text_color(TEXT_2).child(detail)))
+}
+
+/// How round a Board or Activity card is.
+pub const CARD_RADIUS: f32 = 9.;
+
+/// A small outlined tag on a card: its PR, its diff.
+pub fn card_pill() -> Div {
+    div().h(px(20.)).px(px(7.)).flex().flex_none().items_center().gap(px(4.)).rounded(px(10.)).border_1().border_color(SEPARATOR).text_size(px(11.5)).text_color(TEXT_2)
+}
+
+/// A column's mark, name and count.
+pub fn column_heading(glyph: impl IntoElement, name: &'static str, count: String) -> Div {
+    div().flex().items_center().gap(px(8.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(glyph).child(name).child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(count))
+}
+
+/// What an empty column says in place of its cards.
+pub fn empty_hint(hint: &'static str) -> Div {
+    div().mx(px(8.)).min_h(px(72.)).flex().flex_none().items_center().justify_center().px(px(18.)).py(px(12.)).rounded(px(9.)).border_1().border_dashed().border_color(SEPARATOR).text_center().text_size(px(12.)).line_height(px(18.)).text_color(TEXT_4).child(hint)
+}
+
+/// The agent on a card, where a person's avatar would go.
+pub fn agent_avatar(id: impl Into<ElementId>, provider: &str, name: String) -> Stateful<Div> {
+    let name = SharedString::from(name);
+    div().id(id).size(px(18.)).flex().flex_none().items_center().justify_center().rounded(px(9.)).bg(FILL_2).child(theme::provider_icon(provider, 11., TEXT_2)).tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
+}
+
+/// A card's small action button.
+pub fn quick_button(id: impl Into<ElementId>, lead: Option<&'static str>, label: &'static str) -> Stateful<Div> {
+    div().id(id).h(px(20.)).px(px(7.)).flex().flex_none().items_center().gap(px(4.)).rounded(px(6.)).cursor_pointer().bg(FILL_2).hover(|s| s.bg(FILL_3)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).whitespace_nowrap().children(lead.map(|n| icon(n, 10., TEXT))).child(label)
+}
+
+/// A value in a filter menu: its tick, mark, name and how many items have it.
+pub fn value_row(id: impl Into<ElementId>, on: bool, lead: impl IntoElement, name: &str, count: usize) -> Stateful<Div> {
+    let tick = div().size(px(14.)).flex().flex_none().items_center().justify_center().rounded(px(4.)).when(on, |d| d.bg(INDIGO).child(icon("check", 9., ON_INDIGO))).when(!on, |d| d.border_1().border_color(SEPARATOR_STRONG));
+    div().id(id).h(px(28.)).px(px(8.)).flex().flex_none().items_center().gap(px(8.)).rounded(px(6.)).cursor_pointer().text_size(px(12.5)).hover(|s| s.bg(FILL_2)).child(tick).child(div().w(px(14.)).flex().flex_none().justify_center().child(lead)).child(div().flex_1().min_w_0().truncate().child(name.to_string())).child(div().text_size(px(12.)).text_color(TEXT_4).child(count.to_string()))
 }
 
 #[cfg(test)]
