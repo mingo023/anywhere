@@ -21,9 +21,12 @@ pub(crate) const ROW: f32 = 34.;
 pub(crate) const GAP: f32 = 2.;
 pub(crate) const PAD: f32 = 5.;
 const PANEL_WIDTH: f32 = 340.;
-/// The list's height before it scrolls; a taller rail stretches it further.
+/// The list's height over one effort row; it takes whatever room the panel has left.
 const LIST_HEIGHT: f32 = 264.;
 const SEARCH_HEIGHT: f32 = 44.;
+/// One height whatever the panel shows: it hangs above the pill, so growing would slide the rail under a still pointer
+/// and point it at another agent.
+const PANEL_HEIGHT: f32 = SEARCH_HEIGHT + LIST_HEIGHT + 2. * PAD + ROW;
 const TAB: f32 = 36.;
 const TAB_GAP: f32 = 4.;
 const RAIL_PAD: f32 = 6.;
@@ -107,7 +110,7 @@ pub(crate) fn panel(rail: Div, search: &Entity<InputState>, list: Div, note: Opt
     let row = (!rows.is_empty()).then(|| div().flex_none().p(px(PAD)).flex().flex_col().gap(px(GAP)).border_t(px(0.5)).border_color(SEPARATOR).children(rows));
     let note = note.map(|n| div().flex_none().px(px(PAD + 10.)).pb(px(10.)).text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(n));
     let column = div().flex_1().min_w_0().flex().flex_col().child(menu_input("search", search)).child(list).children(note).children(row);
-    let panel = ui::pop(div()).w(px(PANEL_WIDTH)).flex_none().flex().overflow_hidden().child(rail).child(column);
+    let panel = ui::pop(div()).w(px(PANEL_WIDTH)).h(px(PANEL_HEIGHT)).flex_none().flex().overflow_hidden().child(rail).child(column);
     // The list sits inside this box, not over its edge: a press outside the box closes the menu, and the box keeps the list on screen.
     div().flex().items_end().gap(px(6.)).child(panel).children(levels)
 }
@@ -121,9 +124,7 @@ pub(crate) fn empty_list(note: String) -> Div {
 /// row names its agent, and `choose` what a click on a model does.
 pub(crate) fn model_list(id: &'static str, listed: Rc<Listed>, mixed: bool, scroll: &UniformListScrollHandle, choose: Choose, cx: &mut Context<Desktop>) -> Div {
     let pitch = ROW + GAP;
-    // The last row's gap stands in for part of the padding under it.
     let count = listed.lines.len();
-    let height = (count as f32 * pitch + 2. * PAD - GAP).min(LIST_HEIGHT);
     let line = move |this: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
         let line = div().w_full().h(px(pitch));
         match &listed.lines[i] {
@@ -141,8 +142,9 @@ pub(crate) fn model_list(id: &'static str, listed: Rc<Listed>, mixed: bool, scro
             }
         }
     };
+    // The last row's gap stands in for part of the padding under it.
     let fit = |list: UniformList| list.size_full().px(px(PAD)).pt(px(PAD)).pb(px(PAD - GAP));
-    pick_list("model-list", count, scroll, div().h(px(height)).flex_grow(1.).min_h_0(), fit, line, cx)
+    pick_list("model-list", count, scroll, div().flex_1().min_h_0(), fit, line, cx)
 }
 
 /// What the models under it share, small and in capitals.
