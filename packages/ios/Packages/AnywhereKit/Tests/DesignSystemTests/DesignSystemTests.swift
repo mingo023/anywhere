@@ -56,8 +56,9 @@ struct DesignSystemTests {
         #expect(GradientSpinner.opacity(0.45) == GradientSpinner.dim)
         #expect(GradientSpinner.opacity(0.7) == GradientSpinner.dim)
         #expect(GradientSpinner.opacity(1.25) == GradientSpinner.opacity(0.25))
-        #expect(GradientSpinner.lead(row: 2, col: 1) == 0)
-        #expect(GradientSpinner.lead(row: 0, col: 0) == 0.75)
+        #expect(GradientSpinner.delay(row: 0, col: 0) == 0)
+        #expect(GradientSpinner.delay(row: 1, col: 2) == 0.375)
+        #expect(GradientSpinner.delay(row: 2, col: 2) == 0.5)
     }
 
     @Test("a cell clear of the content shows a dot, and under the lens a glyph of the map")
