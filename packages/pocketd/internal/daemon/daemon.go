@@ -41,6 +41,9 @@ type Daemon struct {
 	Registry  *registry.Registry // the Projects an agent is placed in
 	// Capture reads the user's login-shell environment. Nil keeps pocketd's own.
 	Capture func() shellenv.Result
+	// OnEnv hears a capture that worked where none had: what was looked up in
+	// pocketd's own environment, or a failed capture's, may be found now.
+	OnEnv func()
 	// OnPrompt hears each prompt typed to a claude, with its environment.
 	OnPrompt func(a *agent.Agent, prompt string, env []string)
 	// AgentTab gives shell's args that run argv, a provider's agent, in cwd
@@ -53,6 +56,8 @@ type Daemon struct {
 
 	mu       sync.Mutex
 	env      *shellenv.Result
+	retrying bool                          // a failed capture is to be read again
+	backoff  time.Duration                 // the wait before that, doubled each time it fails again
 	present  map[string]*presence          // by terminal id
 	watchers map[string]context.CancelFunc // by app-server socket
 	watch    sync.Mutex                    // one observe at a time: the poller and hooks both run it
@@ -97,14 +102,53 @@ func (d *Daemon) terminalEnv(spec terminal.Spec) []string {
 	return d.Env(d.GhEnv(env, spec.Cwd), spec.ID, spec.Local)
 }
 
+// captureRetry is the first wait before a failed capture is read again; a var so tests needn't wait.
+var captureRetry = 15 * time.Second
+
+const captureRetryMax = 5 * time.Minute
+
+// Recapture reads the login shell's environment again. A failed read keeps one
+// that worked; with none, it is read again later until it works, as a shell
+// that timed out while the Mac was busy logging in starts in time once idle.
 func (d *Daemon) Recapture() {
 	r := d.Capture()
 	if r.Err != "" {
 		log.Printf("login shell env: %s", r)
 	}
 	d.mu.Lock()
-	d.env = &r
+	hadWorking := d.env != nil && d.env.Err == ""
+	if r.Err == "" || !hadWorking {
+		d.env = &r
+	}
+	if r.Err == "" {
+		d.backoff = 0
+	}
 	d.mu.Unlock()
+	if hadWorking {
+		return
+	}
+	if r.Err != "" {
+		d.retryCapture()
+	} else if d.OnEnv != nil {
+		d.OnEnv()
+	}
+}
+
+// retryCapture reads the env again later, once however many fail meanwhile.
+func (d *Daemon) retryCapture() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.retrying {
+		return
+	}
+	d.retrying = true
+	d.backoff = min(max(2*d.backoff, captureRetry), captureRetryMax)
+	time.AfterFunc(d.backoff, func() {
+		d.mu.Lock()
+		d.retrying = false
+		d.mu.Unlock()
+		d.Recapture()
+	})
 }
 
 // LoginEnv is pocketd's own environment until the first capture lands.
@@ -117,7 +161,7 @@ func (d *Daemon) LoginEnv() []string {
 	return d.env.Env
 }
 
-// ShellEnv describes the last capture for pocketd status.
+// ShellEnv describes the capture in use for pocketd status.
 func (d *Daemon) ShellEnv() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()

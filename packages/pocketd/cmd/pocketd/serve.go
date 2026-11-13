@@ -255,6 +255,8 @@ func serve(sock, handed string) error {
 		log.Printf("skills: %v", err)
 	}
 	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore, Teams: teams}
+	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
+	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}

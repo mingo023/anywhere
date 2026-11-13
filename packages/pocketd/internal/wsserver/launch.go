@@ -50,13 +50,22 @@ func (c *conn) create(m proto.ClientMessage) {
 }
 
 func (c *conn) providers(m proto.ClientMessage) {
-	list := c.s.Launch.Providers()
+	c.send(c.s.providers(m.ID))
+}
+
+// PublishProviders tells every client which agents are installed now.
+func (s *Server) PublishProviders() {
+	s.Hub.Publish(s.providers(""))
+}
+
+func (s *Server) providers(id string) proto.AgentProviders {
+	list := s.Launch.Providers()
 	var defaultAccess string
-	if c.s.Registry != nil {
-		defaultAccess = c.s.Registry.Load().Agents.Access
+	if s.Registry != nil {
+		defaultAccess = s.Registry.Load().Agents.Access
 	}
 	// Full, as a phone picks any access; older phone apps still read these ceilings.
-	c.send(proto.NewAgentProviders(m.ID, list, "full", "full", defaultAccess))
+	return proto.NewAgentProviders(id, list, "full", "full", defaultAccess)
 }
 
 // skills sends the slash commands m's provider offers in its project as last

@@ -293,6 +293,18 @@ func TestAnAgentIsFoundByItsOwnCommandOrTheOneConfigNames(t *testing.T) {
 	}
 }
 
+func TestAnAgentMissingFromOneEnvIsFoundInAnotherThatHasIt(t *testing.T) {
+	onPath(t)
+	l := launcher(t, `[]`)
+	if _, ok := l.find("claude", os.Environ()); ok {
+		t.Fatal("claude found before it was on the PATH")
+	}
+	onPath(t, "claude")
+	if _, ok := l.find("claude", os.Environ()); !ok {
+		t.Fatal("claude stayed missing in an env that has it")
+	}
+}
+
 func TestACommandNamedAsAnAgentIsItOnlyWhenItsHelpSaysSo(t *testing.T) {
 	onPath(t, "fx", "pi", "omp")
 	env := os.Environ()
