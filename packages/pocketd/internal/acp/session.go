@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"log"
 	"maps"
-	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,7 +15,6 @@ import (
 	"time"
 
 	"pocketd/internal/broker"
-	"pocketd/internal/envdir"
 	"pocketd/internal/jsonrpc"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
@@ -106,9 +103,6 @@ type Session struct {
 	answered bool // the history's last prompt has an answer after it
 	tools    map[string]*tool
 	cwd      string
-	// server is OpenCode's HTTP server, which names a sub-agent's session
-	// while it runs, with the basic auth it asks for, if any.
-	server string
 	// carried says the agent's process ran under the pocketd before this one, so what it left in the background may still run.
 	carried bool
 	// children maps a sub-agent's session to the call that spawned it.
@@ -1003,6 +997,11 @@ func (s *Session) update(raw, parent string) {
 				ToolCallID string `json:"toolCallId"`
 				Model      string `json:"model"`
 			} `json:"cursor"`
+			// OpenCode marks a sub-agent's update with its session, titled as the call that spawned it is described.
+			Child struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"opencode/child-session"`
 		} `json:"_meta"`
 		// Grok's, as a turn ends.
 		PromptID   string `json:"prompt_id"`
@@ -1038,6 +1037,13 @@ func (s *Session) update(raw, parent string) {
 			s.record(e)
 		}
 		return
+	}
+	if c := u.Meta.Child; c.ID != "" {
+		// A sub-agent's work shows only under its call, never as the session's own.
+		if parent = cmp.Or(s.children[c.ID], s.spawning(c.Title)); parent == "" {
+			return
+		}
+		s.children[c.ID] = parent
 	}
 	if parent != "" {
 		s.child(parent, kind, u.MessageID, said, raw)
@@ -1093,8 +1099,8 @@ func (s *Session) update(raw, parent string) {
 	}
 }
 
-// spawning is the call Grok starts a sub-agent for while the call runs, which
-// it doesn't name: the oldest that waits for one described so.
+// spawning is the call Grok or OpenCode starts a sub-agent for while the call
+// runs, which it doesn't name: the oldest that waits for one described so.
 func (s *Session) spawning(description string) string {
 	var id string
 	for _, t := range s.tools {
@@ -1131,67 +1137,11 @@ func (s *Session) adopt(sid, call string) {
 	load()
 }
 
-// Server takes the agent's command line and env: OpenCode's names the port
-// of the server its ACP server runs on, and the password that server asks for.
-func (s *Session) Server(args, env []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if i := slices.Index(args, "--port"); i >= 0 && i+1 < len(args) && args[i+1] != "0" {
-		server := url.URL{Scheme: "http", Host: "127.0.0.1:" + args[i+1]}
-		if password := envdir.Value(env, "OPENCODE_SERVER_PASSWORD"); password != "" {
-			server.User = url.UserPassword(cmp.Or(envdir.Value(env, "OPENCODE_SERVER_USERNAME"), "opencode"), password)
-		}
-		s.server = server.String()
-	}
-}
-
 // Carried says the agent's process ran under the pocketd before this one.
 func (s *Session) Carried() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.carried = true
-}
-
-// ChildPoll is how often OpenCode's server is asked for the session of a sub-agent that just started.
-var ChildPoll = 100 * time.Millisecond
-
-// discover has the agent load the session of the sub-agent OpenCode runs
-// for call, which its server names as its own title: OpenCode tells nothing
-// of a session it hasn't loaded, not even what it asks the user, and names
-// the session to the client only as the call ends.
-func (s *Session) discover(call, description string) {
-	tick := time.NewTicker(ChildPoll)
-	defer tick.Stop()
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-tick.C:
-		}
-		s.mu.Lock()
-		id, cwd, running := s.id, s.cwd, s.tools[call] != nil
-		s.mu.Unlock()
-		if !running {
-			return
-		}
-		var kids []struct{ ID, Title string }
-		ctx, cancel := context.WithTimeout(s.ctx, CallWait)
-		req, _ := http.NewRequestWithContext(ctx, "GET", s.server+"/session/"+url.PathEscape(id)+"/children?directory="+url.QueryEscape(cwd), nil)
-		if res, err := http.DefaultClient.Do(req); err == nil {
-			json.NewDecoder(res.Body).Decode(&kids)
-			res.Body.Close()
-		}
-		cancel()
-		s.mu.Lock()
-		for _, k := range kids {
-			if strings.HasPrefix(k.Title, description+" (@") && s.children[k.ID] == "" && s.tools[call] != nil {
-				s.adopt(k.ID, call)
-				s.mu.Unlock()
-				return
-			}
-		}
-		s.mu.Unlock()
-	}
 }
 
 // texts are the kinds of message each update that streams one writes.
@@ -1347,7 +1297,7 @@ func (s *Session) tool(u toolCall, starts bool, parent string) {
 		s.watch(t.ID, cmp.Or(sub.delegation, t.ID), sub.transcripts)
 		return
 	case sub.session == "":
-	// OpenCode tells a sub-agent's work only of a session loaded, as does Grok of one in its history.
+	// OpenCode's and Grok's histories tell a sub-agent's work only of a session loaded.
 	case !sub.live || s.opening:
 		s.adopt(sub.session, t.ID)
 	// Grok's call ends as the sub-agent it leaves running starts, and that one's end ends it here.
@@ -1369,10 +1319,6 @@ func (s *Session) show(t *tool) {
 	s.calls[t.ID] = t.parent
 	name, detail := t.describe()
 	t.task = name == "task"
-	// A call the history replays may run on still, as after a pocketd restart mid-task.
-	if t.task && t.parent == "" && s.server != "" {
-		go s.discover(t.ID, detail.Description)
-	}
 	if t.parent != "" {
 		s.record(timeline.Event{Kind: "tool_start", ToolUseID: t.ID, Name: name, Detail: &detail, ParentToolUseID: t.parent})
 		return

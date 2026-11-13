@@ -51,7 +51,6 @@ func (x *acpChat) attach() {
 	launch := pr.launch
 	pr.mu.Unlock()
 	context.AfterFunc(pr.ctx, x.s.Close)
-	x.s.Server(pr.t.Info().Args, pr.env)
 	x.d.openChat(pr, func() ([]string, error) {
 		return x.s.Open(x, pr.t.Info().Cwd, saved, launch, left)
 	})

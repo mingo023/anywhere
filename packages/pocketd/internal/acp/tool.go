@@ -13,6 +13,7 @@ import (
 // toolCall is a tool call as a tool_call, a tool_call_update or a permission request tells it.
 type toolCall struct {
 	ID     string `json:"toolCallId"`
+	Name   string `json:"name"` // OpenCode's
 	Title  string `json:"title"`
 	Kind   string `json:"kind"`
 	Status string `json:"status"`
@@ -80,6 +81,7 @@ func empty(raw json.RawMessage) bool {
 func (t *toolCall) merge(u toolCall) {
 	t.ID = cmp.Or(u.ID, t.ID)
 	t.Command = cmp.Or(u.Command, t.Command)
+	t.Name = cmp.Or(u.Name, t.Name)
 	t.Title = cmp.Or(u.Title, u.Meta.Tool.Label, t.Title)
 	t.Kind = cmp.Or(u.Kind, u.Meta.Tool.Kind, t.Kind)
 	t.Status = cmp.Or(u.Status, t.Status)
@@ -212,8 +214,8 @@ func (t *toolCall) command() string {
 
 // describe is the call's name and the card the phone draws for it, by its ACP kind.
 func (t *toolCall) describe() (string, proto.ToolDetail) {
-	// A sub-agent's call is a think to OpenCode and an other to Cursor, and has no kind in Grok's history.
-	if t.Kind == "task" || t.input("subagent_type") != "" || t.input("variant") == "Task" || t.input("_toolName") == "task" {
+	// A sub-agent's call is OpenCode's subagent, an other to Cursor, and has no kind in Grok's history.
+	if t.Kind == "task" || t.Name == "subagent" || t.input("subagent_type") != "" || t.input("variant") == "Task" || t.input("_toolName") == "task" {
 		return "task", proto.ToolDetail{Kind: "task", Description: t.input("description"), Model: t.input("model")}
 	}
 	if brief, ok := t.delegation(); ok {
@@ -292,11 +294,7 @@ type subAgent struct {
 func (t *toolCall) subAgent() subAgent {
 	var out struct {
 		Metadata struct {
-			SessionID string `json:"sessionId"`
-			Model     struct {
-				ModelID    string `json:"modelID"`
-				ProviderID string `json:"providerID"`
-			} `json:"model"`
+			SessionID string `json:"sessionID"`
 		} `json:"metadata"`
 	}
 	var in struct {
@@ -310,8 +308,8 @@ func (t *toolCall) subAgent() subAgent {
 	json.Unmarshal(t.RawOutput, &out)
 	json.Unmarshal(t.RawInput, &in)
 	// OpenCode's.
-	if m := out.Metadata; m.SessionID != "" {
-		return subAgent{session: m.SessionID, model: strings.Trim(m.Model.ProviderID+"/"+m.Model.ModelID, "/")}
+	if id := out.Metadata.SessionID; id != "" {
+		return subAgent{session: id}
 	}
 	// Hermes's, whose call ends as its sub-agents start.
 	if json.Unmarshal([]byte(t.said()), &dispatched) == nil && dispatched.Status == "dispatched" {
@@ -344,9 +342,10 @@ func (t *toolCall) report() *string {
 	if raw.Type == "SubagentCompleted" {
 		said = raw.Output
 	}
-	// OpenCode's.
-	if _, rest, ok := strings.Cut(said, "<task_result>"); ok {
-		said, _, _ = strings.Cut(rest, "</task_result>")
+	// OpenCode's: <subagent sessionID="…" state="…">…</subagent>.
+	if strings.HasPrefix(said, "<subagent ") {
+		_, said, _ = strings.Cut(said, ">")
+		said = strings.TrimSuffix(strings.TrimSpace(said), "</subagent>")
 	}
 	said = strings.TrimSpace(said)
 	return &said

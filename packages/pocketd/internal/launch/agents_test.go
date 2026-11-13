@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -55,8 +54,6 @@ func TestEachNewAgentStartsInItsTUIWithTheFlagsItsCLITakes(t *testing.T) {
 	}
 }
 
-var port = regexp.MustCompile(`--port [1-9][0-9]*`)
-
 func TestEachNewAgentRunsForTheChatOnItsTransportAndCarriesItsLaunch(t *testing.T) {
 	for _, c := range []struct {
 		provider, access string
@@ -68,7 +65,7 @@ func TestEachNewAgentRunsForTheChatOnItsTransportAndCarriesItsLaunch(t *testing.
 		{"grok", "auto", false, "", "", "grok --no-auto-update agent --no-leader stdio --pocketd --access auto"},
 		{"grok", "full", false, "grok-4.6", "high", "grok --no-auto-update agent --no-leader --model grok-4.6 --reasoning-effort high --always-approve stdio --pocketd --access full --model grok-4.6 --effort high"},
 		{"grok", "full", true, "", "", "grok --no-auto-update --permission-mode plan agent --no-leader stdio --pocketd --access full --plan"},
-		{"opencode", "ask", true, "opencode/big-pickle", "", "opencode acp --port N --pocketd --access ask --plan --model opencode/big-pickle"},
+		{"opencode", "ask", true, "opencode/big-pickle", "", "opencode acp --pocketd --access ask --plan --model opencode/big-pickle"},
 		{"pi", "ask", false, "deepseek/deepseek-v4-pro", "high", "pi --mode rpc --model deepseek/deepseek-v4-pro --thinking high --pocketd --access full --model deepseek/deepseek-v4-pro --effort high"},
 		{"pi", "edits", true, "", "", "pi --mode rpc --tools read,grep,find,ls --pocketd --access full --plan"},
 		{"omp", "ask", false, "x/y", "max", "omp --mode rpc --model x/y --pocketd --access full --model x/y --effort max"},
@@ -80,8 +77,7 @@ func TestEachNewAgentRunsForTheChatOnItsTransportAndCarriesItsLaunch(t *testing.
 		s := spec(c.provider, c.access, c.plan)
 		s.Model, s.Effort, s.Prompt, s.Chat = c.model, c.effort, "fix it", true
 		argv, f := argvOf(s, "")
-		// OpenCode's port is whichever is free.
-		if f != nil || port.ReplaceAllString(strings.Join(argv, " "), "--port N") != c.want {
+		if f != nil || strings.Join(argv, " ") != c.want {
 			t.Errorf("%s %s plan=%v: got %q %v, want %q", c.provider, c.access, c.plan, argv, f, c.want)
 			continue
 		}
@@ -294,6 +290,18 @@ func TestAnAgentIsFoundByItsOwnCommandOrTheOneConfigNames(t *testing.T) {
 	l.set.Set("cursor.command", custom)
 	if path, _ := l.find("cursor", env); path != custom {
 		t.Fatalf("cursor runs %q", path)
+	}
+}
+
+func TestAnAgentMissingFromOneEnvIsFoundInAnotherThatHasIt(t *testing.T) {
+	onPath(t)
+	l := launcher(t, `[]`)
+	if _, ok := l.find("claude", os.Environ()); ok {
+		t.Fatal("claude found before it was on the PATH")
+	}
+	onPath(t, "claude")
+	if _, ok := l.find("claude", os.Environ()); !ok {
+		t.Fatal("claude stayed missing in an env that has it")
 	}
 }
 

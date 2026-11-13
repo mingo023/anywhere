@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -221,5 +223,59 @@ func TestSpawnRecapturesOnceWhenTheCommandIsMissing(t *testing.T) {
 	}
 	if captures != 3 {
 		t.Fatalf("captures %d, want 3: one retry per missing command", captures)
+	}
+}
+
+func TestAFailedCaptureIsReadAgainUntilItWorksThenHeard(t *testing.T) {
+	was := captureRetry
+	captureRetry = time.Millisecond
+	t.Cleanup(func() { captureRetry = was })
+	d := newDaemon(t)
+	var mu sync.Mutex
+	captures, heard := 0, 0
+	d.Capture = func() shellenv.Result {
+		mu.Lock()
+		defer mu.Unlock()
+		if captures++; captures < 3 {
+			return shellenv.Result{Env: []string{"PATH=/usr/bin:/bin"}, Mode: "base", Err: "interactive: timeout"}
+		}
+		return shellenv.Result{Env: []string{"PATH=/usr/bin:/bin", "POCKET_LOGIN=yes"}, Mode: "interactive"}
+	}
+	d.OnEnv = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		heard++
+	}
+	d.Recapture()
+	eventually(t, "the working env heard", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return heard == 1
+	})
+	if !slices.Contains(d.LoginEnv(), "POCKET_LOGIN=yes") {
+		t.Fatal("the working env isn't the login env")
+	}
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if captures != 3 || heard != 1 {
+		t.Fatalf("captures %d, heard %d; want 3 and 1: retried until it worked, then stopped", captures, heard)
+	}
+}
+
+func TestAFailedCaptureKeepsTheEnvThatWorked(t *testing.T) {
+	d := newDaemon(t)
+	fail := false
+	d.Capture = func() shellenv.Result {
+		if fail {
+			return shellenv.Result{Env: []string{"PATH=/usr/bin:/bin"}, Mode: "base", Err: "interactive: timeout"}
+		}
+		return shellenv.Result{Env: []string{"PATH=/usr/bin:/bin", "POCKET_LOGIN=yes"}, Mode: "interactive"}
+	}
+	d.Recapture()
+	fail = true
+	d.Recapture()
+	if !slices.Contains(d.LoginEnv(), "POCKET_LOGIN=yes") {
+		t.Fatal("a timed-out capture replaced the login env")
 	}
 }
