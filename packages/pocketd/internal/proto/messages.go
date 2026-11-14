@@ -197,6 +197,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && strings.TrimSpace(m.Text) != ""
 	case m.Type == "agent.interrupt", m.Type == "agent.send_now", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
 		ok = get("agentId", &m.AgentID)
+	case m.Type == "agent.remote_control":
+		ok = get("agentId", &m.AgentID) && get("enabled", &m.Enabled)
 	case m.Type == "agent.mcp":
 		ok = get("agentId", &m.AgentID) && optionalString("action", &m.Action) && optionalString("server", &m.Server) &&
 			(m.Action == "" && m.Server == "" || slices.Contains(McpActions, m.Action) && m.Server != "")
@@ -373,6 +375,19 @@ type AgentBtw struct {
 
 func NewAgentBtw(id, agentID, answer string) AgentBtw {
 	return AgentBtw{"agent.btw", id, agentID, answer}
+}
+
+// AgentRemoteControl answers agent.remote_control: the link the session continues at in
+// the Claude app or claude.ai, or none once Remote Control is off.
+type AgentRemoteControl struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	AgentID string `json:"agentId"`
+	URL     string `json:"url,omitempty"`
+}
+
+func NewAgentRemoteControl(id, agentID, url string) AgentRemoteControl {
+	return AgentRemoteControl{"agent.remote_control", id, agentID, url}
 }
 
 // McpServer is an MCP server the agent's session has, and how its connection stands:

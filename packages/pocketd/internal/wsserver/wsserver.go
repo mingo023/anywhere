@@ -737,6 +737,21 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 			c.send(proto.NewAgentBtw(m.ID, a.ID(), answer))
 		}()
 		return nil
+	case "agent.remote_control":
+		rc, ok := a.Driver().(agent.RemoteController)
+		if !ok {
+			return errors.New("This agent has no Remote Control")
+		}
+		// Turning it on registers the session with claude.ai; the conn's other messages don't wait.
+		go func() {
+			url, err := rc.RemoteControl(m.Enabled)
+			if err != nil {
+				c.send(errorReply(m.ID, err))
+				return
+			}
+			c.send(proto.NewAgentRemoteControl(m.ID, a.ID(), url))
+		}()
+		return nil
 	case "agent.close":
 		a.Driver().Close()
 	case "agent.pin":

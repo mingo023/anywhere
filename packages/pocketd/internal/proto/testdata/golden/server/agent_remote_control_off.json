@@ -1,0 +1,5 @@
+{
+  "type": "agent.remote_control",
+  "id": "r2",
+  "agentId": "a1"
+}

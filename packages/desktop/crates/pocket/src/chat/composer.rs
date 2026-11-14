@@ -303,10 +303,10 @@ fn fade_in<E: Styled + IntoElement + 'static>(id: ElementId, e: E) -> AnimationE
     e.with_animation(id, Animation::new(MENU_IN).with_easing(ease_out_quint()), |e, t| e.opacity(t))
 }
 
-/// Why `agent`'s last send went nowhere, while that shows.
-pub(super) fn said_in_terminal<'a>(notice: Option<&'a Notice>, agent: &str) -> Option<&'a str> {
+/// What the chat said to `agent`'s footer, while that shows.
+pub(super) fn said_in_chat<'a>(notice: Option<&'a Notice>, agent: &str) -> Option<(&'static str, &'a str)> {
     match notice {
-        Some(Notice::InTerminal { agent: to, text }) if to == agent => Some(text),
+        Some(Notice::InChat { agent: to, icon, text }) if to == agent => Some((icon, text)),
         _ => None,
     }
 }
@@ -318,6 +318,20 @@ fn terminal_only_said(command: &str, provider: &str, chat_only: bool) -> String 
     } else {
         format!("{command} runs only in {}'s terminal. Run it there.", super::fold::who(provider))
     }
+}
+
+/// Whether `/remote-control <arg>` turns it on or off; none for an argument it doesn't take.
+fn remote_control_on(arg: &str) -> Option<bool> {
+    match arg {
+        "" | "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
+    }
+}
+
+/// What the footer says once Remote Control answered; a link it gave is on the clipboard.
+fn remote_control_said(url: &str) -> &'static str {
+    if url.is_empty() { "Remote Control is off." } else { "Remote Control is on. Its link is copied." }
 }
 
 /// On a turn, which an agent asking the user still is.
@@ -516,7 +530,7 @@ impl Desktop {
         // From what was typed: the prompt adds the attached images, which no command's argument holds.
         let slash = chat::slash(&typed).map(|(name, arg)| (caps.runs(chat::for_provider(&provider).command(name, arg)), name, arg.to_string()));
         if let Some((Kind::Unsupported, name, _)) = slash {
-            return self.show_notice(Notice::InTerminal { agent, text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
+            return self.show_notice(Notice::InChat { agent, icon: "terminal", text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
         let team = team_send(self.chats.composer.draft.team && team_offered(self.agents.teams_offered(), chat_only, &provider), slash.is_some(), busy);
         if team == TeamSend::Wait {
@@ -548,6 +562,22 @@ impl Desktop {
         cx.notify();
     }
 
+    /// Remote Control's answer for `agent`'s chat: its link goes to the clipboard and the footer says so.
+    pub(crate) fn chat_remote_controlled(&mut self, agent: String, url: Result<String, String>, cx: &mut Context<Self>) {
+        match url {
+            Ok(url) => {
+                if !url.is_empty() {
+                    cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
+                }
+                self.show_notice(Notice::InChat { agent, icon: "check", text: remote_control_said(&url).into() }, cx);
+            }
+            Err(reason) => {
+                self.error = Some(reason);
+                cx.notify();
+            }
+        }
+    }
+
     /// Runs a command the desktop does itself: a picker without its argument opens the model pill on its side, and
     /// `/mcp` lists the servers to tag, its argument as the query.
     fn chat_local(&mut self, agent: &str, local: Local, arg: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -566,6 +596,10 @@ impl Desktop {
             (Local::Btw, "") => {}
             (Local::Btw, question) => self.chat_btw_ask(agent, question),
             (Local::Mcp, query) => self.type_text(Prompt::Chat, &format!("{}{query}", chat::mcp::TAG), window, cx),
+            (Local::RemoteControl, arg) => match remote_control_on(arg) {
+                Some(on) => self.outbox.remote_control(agent, on),
+                None => self.show_notice(Notice::InChat { agent: agent.into(), icon: "warning", text: "/remote-control takes on or off.".into() }, cx),
+            },
         }
         cx.notify();
     }
@@ -699,7 +733,7 @@ impl Desktop {
         let (typed, draft) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
-        let said = said_in_terminal(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
+        let said = said_in_chat(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
         let team = team_offered(self.agents.teams_offered(), agent.chat_only, &agent.provider) && self.chat_team(&agent.id);
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue, team), said, asking, cx.reduce_motion());
@@ -710,7 +744,7 @@ impl Desktop {
     }
 
     /// The agent's branch and `account`, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
-    fn composer_footer(&self, agent: &Summary, account: Option<Div>, hint: Option<&'static str>, said: Option<&str>, asking: bool, reduce_motion: bool) -> Div {
+    fn composer_footer(&self, agent: &Summary, account: Option<Div>, hint: Option<&'static str>, said: Option<(&'static str, &str)>, asking: bool, reduce_motion: bool) -> Div {
         let branch = self.worktree_of(&agent.cwd).filter(|t| !t.branch.is_empty()).map(|t| {
             div()
                 .min_w_0()
@@ -733,7 +767,7 @@ impl Desktop {
             .children(account)
             .child(div().flex_1())
             .children(match said {
-                Some(said) => Some(div().min_w_0().flex().items_center().gap(px(6.)).text_color(TEXT_2).child(icon("terminal", 13., TEXT_3)).child(div().min_w_0().truncate().child(said.to_string()))),
+                Some((glyph, said)) => Some(div().min_w_0().flex().items_center().gap(px(6.)).text_color(TEXT_2).child(icon(glyph, 13., TEXT_3)).child(div().min_w_0().truncate().child(said.to_string()))),
                 None => hint.map(|h| div().flex_none().whitespace_nowrap().text_color(if asking { WAITING_TEXT } else { TEXT_4 }).child(h)),
             })
     }
@@ -848,7 +882,7 @@ fn added(draft: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, TeamSend, added, busy, composer_mode, hint, placeholder, said_in_terminal, stop_beside_steer, team_send, terminal_only_said, text_view_focused, typed_text, working};
+    use super::{Mode, TeamSend, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, said_in_chat, stop_beside_steer, team_send, terminal_only_said, text_view_focused, typed_text, working};
     use gpui_kit::{KeyContext, Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
@@ -967,11 +1001,23 @@ mod tests {
 
     #[test]
     fn the_footer_of_the_chat_that_sent_a_terminal_command_says_where_to_run_it() {
-        let said = Notice::InTerminal { agent: "a1".into(), text: "/cost opens a panel in Claude's terminal. Run it there.".into() };
-        assert_eq!(said_in_terminal(Some(&said), "a1"), Some("/cost opens a panel in Claude's terminal. Run it there."));
-        assert_eq!(said_in_terminal(Some(&said), "a2"), None, "another chat's footer keeps its hint");
-        assert_eq!(said_in_terminal(Some(&Notice::Copied("a.rs".into())), "a1"), None);
-        assert_eq!(said_in_terminal(None, "a1"), None);
+        let said = Notice::InChat { agent: "a1".into(), icon: "terminal", text: "/cost opens a panel in Claude's terminal. Run it there.".into() };
+        assert_eq!(said_in_chat(Some(&said), "a1"), Some(("terminal", "/cost opens a panel in Claude's terminal. Run it there.")));
+        assert_eq!(said_in_chat(Some(&said), "a2"), None, "another chat's footer keeps its hint");
+        assert_eq!(said_in_chat(Some(&Notice::Copied("a.rs".into())), "a1"), None);
+        assert_eq!(said_in_chat(None, "a1"), None);
+    }
+
+    #[test]
+    fn remote_control_says_its_link_is_copied_or_that_it_is_off() {
+        assert_eq!(remote_control_said("https://claude.ai/code/session_1"), "Remote Control is on. Its link is copied.");
+        assert_eq!(remote_control_said(""), "Remote Control is off.");
+    }
+
+    #[test]
+    fn remote_control_turns_on_bare_or_with_on_off_with_off_and_takes_nothing_else() {
+        assert_eq!([remote_control_on(""), remote_control_on("on"), remote_control_on("off")], [Some(true), Some(true), Some(false)]);
+        assert_eq!(remote_control_on("of"), None, "a typo turns nothing on");
     }
 
     #[test]

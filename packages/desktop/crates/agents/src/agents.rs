@@ -446,6 +446,8 @@ pub enum Event {
     Skills { provider: String, account: String, project: String, commands: Vec<Command> },
     /// The answer to the side question `request` asked, or why there's none.
     Btw { request: String, answer: Result<String, String> },
+    /// Remote Control turned on, with the link the agent's session continues at, off with none, or why it didn't.
+    RemoteControl { agent: String, url: Result<String, String> },
     /// How the agent's MCP servers stand, or why pocketd couldn't tell; after a sign-in starts, the URL the user
     /// finishes it at.
     /// `acted` when it answers an action rather than a plain ask, as replies can cross.
@@ -582,7 +584,7 @@ impl Agents {
                 self.teams.retain(|lead, _| !mine(lead) || list.iter().any(|t| &t.lead == lead));
                 list.into_iter().for_each(|t| team::keep(&mut self.teams, t));
             }
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } => {}
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } => {}
         }
     }
 
@@ -818,6 +820,7 @@ const BOARD: &str = "board-";
 const PROMPT: &str = "prompt-";
 const COMMANDS: &str = "commands-";
 const BTW: &str = "btw-";
+const REMOTE_CONTROL: &str = "remotecontrol-";
 const MCP: &str = "mcp-";
 const MCP_ACT: &str = "mcpact-";
 const INTERRUPT: &str = "interrupt-";
@@ -868,6 +871,8 @@ fn names_event(f: &Frame) -> Option<Event> {
         "skills.list" => Some(Event::Skills { provider: f.provider.clone(), account: f.account.clone(), project: f.project.clone(), commands: f.commands.clone() }),
         "agent.btw" => Some(Event::Btw { request: f.id.clone(), answer: Ok(f.answer.clone()) }),
         "error" if f.id.starts_with(BTW) => Some(Event::Btw { request: f.id.clone(), answer: Err(readable(&f.message)) }),
+        "agent.remote_control" => Some(Event::RemoteControl { agent: f.agent_id.clone(), url: Ok(f.url.clone()) }),
+        "error" if f.id.starts_with(REMOTE_CONTROL) => Some(Event::RemoteControl { agent: f.id[REMOTE_CONTROL.len()..].to_string(), url: Err(readable(&f.message)) }),
         "agent.mcp" => Some(Event::Mcp { agent: f.agent_id.clone(), servers: Ok(f.servers.clone()), auth_url: f.auth_url.clone(), acted: f.id.starts_with(MCP_ACT) }),
         "error" if f.id.starts_with(MCP) => Some(Event::Mcp { agent: f.id[MCP.len()..].to_string(), servers: Err(readable(&f.message)), auth_url: String::new(), acted: false }),
         "error" if f.id.starts_with(MCP_ACT) => Some(Event::McpActFailed { agent: f.id[MCP_ACT.len()..].to_string(), reason: readable(&f.message) }),
@@ -1011,6 +1016,11 @@ impl Outbox {
         let id = format!("{BTW}{}", NEXT.fetch_add(1, Ordering::Relaxed));
         self.send(json!({"type": "agent.btw", "id": id, "agentId": agent_id, "text": question}));
         id
+    }
+
+    /// Turns Remote Control on or off for the agent's session.
+    pub fn remote_control(&self, agent_id: &str, on: bool) {
+        self.send(json!({"type": "agent.remote_control", "id": format!("{REMOTE_CONTROL}{agent_id}"), "agentId": agent_id, "enabled": on}));
     }
 
     /// Switches the agent's model, effort or both; "" keeps one as it is.
@@ -2491,6 +2501,21 @@ mod tests {
         assert!(matches!(names_event(&f), Some(Event::Btw { request, answer: Ok(a) }) if request == "b1" && a == "It reads the config once at start."));
         let f: Frame = serde_json::from_str(r#"{"type":"error","id":"btw-7","message":"The agent had no answer"}"#).unwrap();
         assert!(matches!(names_event(&f), Some(Event::Btw { request, answer: Err(e) }) if request == "btw-7" && e == "The agent had no answer"));
+    }
+
+    #[test]
+    fn remote_control_sends_the_golden_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.remote_control("a1", true)), without_id(golden!("client/agent_remote_control.json")));
+    }
+
+    #[test]
+    fn remote_control_brings_its_link_none_once_off_or_why_it_failed() {
+        let f: Frame = serde_json::from_value(golden!("server/agent_remote_control.json")).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::RemoteControl { agent, url: Ok(u) }) if agent == "a1" && u == "https://claude.ai/code/session_01La8mPYSeyy7PpSsj7a8Yjq"));
+        let f: Frame = serde_json::from_value(golden!("server/agent_remote_control_off.json")).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::RemoteControl { url: Ok(u), .. }) if u.is_empty()));
+        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"remotecontrol-a1","message":"Remote Control requires a claude.ai subscription"}"#).unwrap();
+        assert!(matches!(names_event(&f), Some(Event::RemoteControl { agent, url: Err(e) }) if agent == "a1" && e == "Remote Control requires a claude.ai subscription"));
     }
 
     #[test]

@@ -86,6 +86,7 @@ export const ClientMessage = Schema.Union(
     server: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("agent.btw"), id: Schema.String, agentId: Schema.String, text: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("agent.remote_control"), id: Schema.String, agentId: Schema.String, enabled: Schema.Boolean }),
   Schema.Struct({
     type: Schema.Literal("agent.settings"),
     id: Schema.String,
@@ -216,6 +217,7 @@ export const ServerMessage = Schema.Union(
     authUrl: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("agent.btw"), id: Schema.String, agentId: Schema.String, answer: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("agent.remote_control"), id: Schema.String, agentId: Schema.String, url: Schema.optional(Schema.String) }),
   Schema.Struct({ type: Schema.Literal("agent.stream"), agentId: Schema.String, epoch: Schema.Number, item: TimelineItem }),
   Schema.Struct({
     type: Schema.Literal("agent.timeline"),

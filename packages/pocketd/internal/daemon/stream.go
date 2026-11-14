@@ -614,6 +614,28 @@ func (c streamDriver) Mcp() ([]proto.McpServer, error) {
 	return servers, nil
 }
 
+// RemoteControlWait is how long claude has to register the session with claude.ai.
+var RemoteControlWait = 30 * time.Second
+
+// RemoteControl turns claude's Remote Control on or off; on, it returns the link the session continues at.
+func (c streamDriver) RemoteControl(enabled bool) (string, error) {
+	if !c.inForeground() {
+		return "", errNotForeground
+	}
+	body, err := c.pr.stream.controlFor(c.pr.ctx, map[string]any{"subtype": "remote_control", "enabled": enabled}, RemoteControlWait)
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		SessionURL string `json:"session_url"`
+	}
+	json.Unmarshal(body, &r)
+	if enabled && r.SessionURL == "" {
+		return "", errors.New("Remote Control gave no link")
+	}
+	return r.SessionURL, nil
+}
+
 // McpAct asks claude to sign in to, reconnect or enable server. A sign-in asked again
 // starts over, as when its browser tab was closed; one claude can't hear finish is
 // reconnected each time the servers are listed.

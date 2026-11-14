@@ -21,6 +21,8 @@ pub enum Local {
     Btw,
     /// Picks an MCP server for the draft to tag.
     Mcp,
+    /// Lets the Claude app and claude.ai drive the session, or stops them with `off`.
+    RemoteControl,
 }
 
 /// A command an agent offers before its CLI lists any.
@@ -120,6 +122,8 @@ mod tests {
         assert_eq!(claude.command("clear", ""), Kind::Unsupported);
         assert_eq!(claude.command("cost", ""), Kind::Unsupported);
         assert_eq!(claude.command("resume", ""), Kind::Unsupported);
+        assert_eq!(claude.command("remote-control", ""), Kind::Local(Local::RemoteControl), "claude -p takes it only as a control request");
+        assert_eq!(claude.command("rc", "off"), Kind::Local(Local::RemoteControl));
         assert_eq!(claude.command("add-dir", ""), Kind::Unsupported);
         assert_eq!(claude.command("add-dir", "../other"), Kind::Send);
         assert_eq!(claude.command("goal", "tests pass"), Kind::Send);
@@ -204,7 +208,7 @@ mod tests {
     #[test]
     fn the_menu_puts_the_agents_own_first_then_its_list_without_panels_or_twins() {
         let rows = menu(for_provider("claude"), &listed(&["goal", "cost", "clear", "review"]), "");
-        assert_eq!(names(&rows), ["model", "effort", "compact", "btw", "goal", "mcp", "review"]);
+        assert_eq!(names(&rows), ["model", "effort", "compact", "btw", "goal", "mcp", "remote-control", "review"]);
         assert_eq!(rows[0].kind, Kind::Local(Local::Model));
     }
 

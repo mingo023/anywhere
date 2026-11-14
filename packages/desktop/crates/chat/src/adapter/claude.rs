@@ -32,6 +32,7 @@ impl Backend for Claude {
             "new" => Kind::Local(Local::New),
             "btw" => Kind::Local(Local::Btw),
             "mcp" => Kind::Local(Local::Mcp),
+            "remote-control" | "rc" => Kind::Local(Local::RemoteControl),
             "clear" | "reset" | "resume" => Kind::Unsupported,
             "add-dir" if arg.is_empty() => Kind::Unsupported,
             _ if PANELS.contains(&name) => Kind::Unsupported,
@@ -51,6 +52,7 @@ const BUILTINS: &[Builtin] = &[
     Builtin { name: "btw", hint: "[question]", description: "Ask a quick side question without interrupting" },
     Builtin { name: "goal", hint: "[<condition> | clear]", description: "Keep working until the condition is met" },
     Builtin { name: "mcp", hint: "", description: "Find an MCP server for this message" },
+    Builtin { name: "remote-control", hint: "[on|off]", description: "Continue this session in the Claude app or on claude.ai" },
 ];
 
 /// Claude's commands that open a panel, by name and alias.

@@ -46,6 +46,12 @@ type SideAsker interface {
 	Btw(question string) (string, error)
 }
 
+// RemoteController is a driver whose session Remote Control lets the Claude app and claude.ai drive; turned on, it
+// returns the session's link there.
+type RemoteController interface {
+	RemoteControl(enabled bool) (string, error)
+}
+
 // McpLister is a driver that tells how its session's MCP servers stand, and acts on one.
 type McpLister interface {
 	Mcp() ([]proto.McpServer, error)

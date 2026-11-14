@@ -481,6 +481,10 @@ Bun.serve({
         ];
         ws.send(JSON.stringify({ type: "agent.mcp", id: f.id, agentId: f.agentId, servers }));
       }
+      if (f.type === "agent.remote_control") {
+        const url = f.enabled ? { url: "https://claude.ai/code/session_fixture" } : {};
+        ws.send(JSON.stringify({ type: "agent.remote_control", id: f.id, agentId: f.agentId, ...url }));
+      }
       // A session from the New session page: its terminal and agent appear, then the agent answers the prompt.
       if (f.type === "agent.create") {
         const { project, checkout, provider, prompt } = f.spec;

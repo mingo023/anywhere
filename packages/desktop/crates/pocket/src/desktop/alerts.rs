@@ -192,6 +192,9 @@ impl Desktop {
         if let Event::Btw { request, answer } = ev {
             return self.chat_btw_answered(&request, answer, cx);
         }
+        if let Event::RemoteControl { agent, url } = ev {
+            return self.chat_remote_controlled(agent, url, cx);
+        }
         if let Event::NamingFailed(_) = ev {
             self.error = Some("Couldn't name the session from its prompt".into());
             return cx.notify();

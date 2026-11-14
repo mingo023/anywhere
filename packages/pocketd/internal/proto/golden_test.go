@@ -67,7 +67,9 @@ var serverGolden = map[string]any{
 		{Name: "fix-root-cause", Description: "Trace each symptom to its root cause"},
 		{Name: "skill-creator:skill-creator", ArgumentHint: "<skill>"},
 	}),
-	"agent_btw": NewAgentBtw("b1", "a1", "It reads the config once at start."),
+	"agent_btw":                NewAgentBtw("b1", "a1", "It reads the config once at start."),
+	"agent_remote_control":     NewAgentRemoteControl("r1", "a1", "https://claude.ai/code/session_01La8mPYSeyy7PpSsj7a8Yjq"),
+	"agent_remote_control_off": NewAgentRemoteControl("r2", "a1", ""),
 	"agent_mcp": NewAgentMcp("m1", "a1", []McpServer{
 		{Name: "fff", Status: "connected", Scope: "user"},
 		{Name: "claude.ai Linear", Status: "needsAuth", Scope: "claude.ai"},

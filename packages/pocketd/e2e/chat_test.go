@@ -216,6 +216,22 @@ func TestACompactRunsAsATurn(t *testing.T) {
 	phone.WaitStatus(id, "done")
 }
 
+func TestRemoteControlTurnsOnWithTheSessionsLinkAndOffWithout(t *testing.T) {
+	h, phone, term, id := chatClaude(t)
+	phone.Send(map[string]any{"type": "agent.remote_control", "id": "rc1", "agentId": id, "enabled": true})
+	on := phone.WaitFor("remote control on", func(m Message) bool { return m.ID == "rc1" })
+	if on.Type != "agent.remote_control" || !strings.Contains(on.Raw, `"url":"https://claude.ai/code/session_fake"`) {
+		t.Fatalf("on: %s", on.Raw)
+	}
+	h.WaitScreen(term, "remote_control: true")
+	phone.Send(map[string]any{"type": "agent.remote_control", "id": "rc2", "agentId": id, "enabled": false})
+	off := phone.WaitFor("remote control off", func(m Message) bool { return m.ID == "rc2" })
+	if off.Type != "agent.remote_control" || strings.Contains(off.Raw, "url") {
+		t.Fatalf("off: %s", off.Raw)
+	}
+	h.WaitScreen(term, "remote_control: false")
+}
+
 func TestAnUpgradeKeepsTheChatAgentAndReasksItsOpenTool(t *testing.T) {
 	h, phone, term, id := chatClaude(t)
 	phone.Prompt(id, "run ls")

@@ -145,7 +145,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(request);
             t(agent);
         }
-        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } | Event::TeamFailed { lead: agent, .. } => t(agent),
+        Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } | Event::RemoteControl { agent, .. } | Event::TeamFailed { lead: agent, .. } => t(agent),
         Event::Skills { project, .. } => *project = crate::place(host, project),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
         Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } => {}
@@ -280,6 +280,10 @@ impl Outboxes {
 
     pub fn mcp_act(&self, agent_id: &str, action: McpAction, server: &str) {
         self.by_id(agent_id, |o, id| o.mcp_act(id, action, server));
+    }
+
+    pub fn remote_control(&self, agent_id: &str, on: bool) {
+        self.by_id(agent_id, |o, id| o.remote_control(id, on));
     }
 
     pub fn btw(&self, agent_id: &str, question: &str) -> Option<String> {
