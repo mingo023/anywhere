@@ -14,6 +14,7 @@ mod composer;
 mod creating;
 mod desktop;
 mod explorer;
+mod factory;
 mod field;
 mod fleet;
 mod fs;

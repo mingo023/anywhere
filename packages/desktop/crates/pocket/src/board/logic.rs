@@ -326,7 +326,7 @@ impl Filters {
         }
     }
 
-    fn keeper(&self) -> impl Fn(&Ticket) -> bool + '_ {
+    pub(crate) fn keeper(&self) -> impl Fn(&Ticket) -> bool + '_ {
         let query = self.query.trim().to_lowercase();
         move |t| self.status.keeps(|c| *c == column(t))
             && self.agent.keeps(|a| *a == t.provider)
@@ -471,7 +471,7 @@ pub(crate) fn activity(t: &Ticket) -> i64 {
 }
 
 /// How many finished tickets a column shows, the latest ones.
-const FINISHED_SHOWN: usize = 50;
+pub(crate) const FINISHED_SHOWN: usize = 50;
 
 /// Indices into the snapshot, per column of `COLS`.
 pub(crate) type Columns = [Vec<usize>; COLS.len()];
