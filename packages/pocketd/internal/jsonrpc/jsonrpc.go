@@ -117,6 +117,15 @@ func (c *Conn) Send(m Message) error {
 
 // Call returns the reply to method, which may carry an Error, or ErrClosed.
 func (c *Conn) Call(ctx context.Context, method string, params any) (Message, error) {
+	wait, err := c.Start(method, params)
+	if err != nil {
+		return Message{}, err
+	}
+	return wait(ctx)
+}
+
+// Start sends method and returns the wait for its reply, so what is sent after Start returns reaches the other side after it.
+func (c *Conn) Start(method string, params any) (func(context.Context) (Message, error), error) {
 	p, _ := json.Marshal(params)
 	c.mu.Lock()
 	c.next++
@@ -124,22 +133,26 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (Message, er
 	ch := make(chan Message, 1)
 	c.pending[string(id)] = ch
 	c.mu.Unlock()
-	defer func() {
+	forget := func() {
 		c.mu.Lock()
 		delete(c.pending, string(id))
 		c.mu.Unlock()
-	}()
+	}
 	if err := c.Send(Message{ID: id, Method: method, Params: p}); err != nil {
-		return Message{}, err
+		forget()
+		return nil, err
 	}
-	select {
-	case m := <-ch:
-		return m, nil
-	case <-c.done:
-		return Message{}, ErrClosed
-	case <-ctx.Done():
-		return Message{}, ctx.Err()
-	}
+	return func(ctx context.Context) (Message, error) {
+		defer forget()
+		select {
+		case m := <-ch:
+			return m, nil
+		case <-c.done:
+			return Message{}, ErrClosed
+		case <-ctx.Done():
+			return Message{}, ctx.Err()
+		}
+	}, nil
 }
 
 func (c *Conn) Reply(id json.RawMessage, result any) error {

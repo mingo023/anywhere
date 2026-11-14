@@ -10,7 +10,7 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
-use ui::Variant;
+use ui::{Variant, value_row};
 
 const FIELD_H: f32 = 30.;
 const FIELD_GAP: f32 = 5.;
@@ -28,12 +28,6 @@ fn cat_icon(cat: FilterCat) -> AnyElement {
 
 fn filter_pop(id: &'static str) -> Stateful<Div> {
     ui::pop(div().id(id)).w(px(240.)).p(px(5.)).flex().flex_col().occlude()
-}
-
-/// A value in the filter menu: its tick, mark, name and how many tickets have it.
-fn value_row(id: impl Into<ElementId>, on: bool, lead: impl IntoElement, name: &str, tickets: usize) -> Stateful<Div> {
-    let tick = div().size(px(14.)).flex().flex_none().items_center().justify_center().rounded(px(4.)).when(on, |d| d.bg(INDIGO).child(icon("check", 9., ON_INDIGO))).when(!on, |d| d.border_1().border_color(SEPARATOR_STRONG));
-    div().id(id).h(px(ROW_H)).px(px(8.)).flex().flex_none().items_center().gap(px(8.)).rounded(px(6.)).cursor_pointer().text_size(px(12.5)).hover(|s| s.bg(FILL_2)).child(tick).child(div().w(px(14.)).flex().flex_none().justify_center().child(lead)).child(div().flex_1().min_w_0().truncate().child(name.to_string())).child(div().text_size(px(12.)).text_color(TEXT_4).child(tickets.to_string()))
 }
 
 impl Desktop {

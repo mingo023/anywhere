@@ -243,6 +243,7 @@ impl Desktop {
                 for id in self.terminals.listed(items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
+                self.activity_changed();
                 let restoring = !self.panels.restored;
                 match host {
                     None => self.restore_layouts(),

@@ -73,7 +73,19 @@ func (c *Client) take(f frame) {
 
 // Call returns the agent's result, or its *Error.
 func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	f, err := c.conn.Call(ctx, method, params)
+	return result(c.conn.Call(ctx, method, params))
+}
+
+// Start sends method and returns the wait for its result, so what is sent after Start returns reaches the agent after it.
+func (c *Client) Start(method string, params any) (func(context.Context) (json.RawMessage, error), error) {
+	wait, err := c.conn.Start(method, params)
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context) (json.RawMessage, error) { return result(wait(ctx)) }, nil
+}
+
+func result(f frame, err error) (json.RawMessage, error) {
 	switch {
 	case errors.Is(err, jsonrpc.ErrClosed):
 		return nil, errors.New("the agent closed the connection")

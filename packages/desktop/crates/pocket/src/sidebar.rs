@@ -16,6 +16,7 @@ mod update;
 mod usage;
 
 use crate::desktop::Desktop;
+use crate::desktop::pages;
 use crate::desktop::chrome::{Column, Layout, Overlay, RAIL, RowMenu, Screen, Side, drag_area, id, state};
 use crate::glide::Glide;
 use crate::region;
@@ -283,12 +284,14 @@ impl Desktop {
             .h(px(32.))
             .rounded(px(10.))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
-        let automations = ui::nav_row("aside-automations", "bolt", "Automations", self.screen == Screen::Automations)
-            .mb(px(2.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(&crate::actions::OpenAutomations, window, cx)));
-        let board = ui::nav_row("aside-board", "blocks", "Board", self.screen == Screen::Board)
-            .mb(px(2.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_board(&crate::actions::OpenBoard, window, cx)));
+        let pages: Vec<_> = pages::offered(&self.agents)
+            .map(|p| {
+                let screen = p.screen;
+                ui::nav_row(SharedString::from(format!("aside-{}", p.name.to_lowercase())), p.icon, p.name, self.screen == screen)
+                    .mb(px(2.))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.go_to_screen(screen, window, cx)))
+            })
+            .collect();
         let t1 = Instant::now(); // [DEBUG-sidebar]
         let header = self.projects_header(cx);
         let t_header = t1.elapsed(); // [DEBUG-sidebar]
@@ -310,8 +313,7 @@ impl Desktop {
             .flex_col()
             .child(top)
             .child(search)
-            .children(self.agents.board_offered().then_some(board))
-            .children(self.agents.automations_offered().then_some(automations))
+            .children(pages)
             .children(self.scratch_section(cx))
             .child(header)
             .child(body)

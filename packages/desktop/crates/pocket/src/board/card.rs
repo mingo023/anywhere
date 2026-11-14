@@ -1,9 +1,9 @@
 use super::Menu;
 use super::logic::{Action, Col, Field, Quick, Slot, Tone, column, note, opens, quick, ticket_key};
-use super::parts::{CARD_RADIUS, agent_avatar, label_dot, pill, priority_glyph, prop_chip, quick_button, status_glyph};
+use super::parts::{label_dot, priority_glyph, prop_chip, status_glyph};
+use ui::{CARD_RADIUS, agent_avatar, card_pill as pill, quick_button};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
-use agents::Decision;
 use agents::tickets::{ClosedWhy, Ticket};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -60,14 +60,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Answers the ask the button was drawn for, never one that has replaced it since.
-    fn answer_ticket(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
-        if self.agents.pending.iter().any(|p| p.request_id == request) {
-            self.outbox.resolve(request, decision);
-        }
-        cx.notify();
-    }
-
     /// `row`, running `action` on ticket `id` without opening the ticket.
     fn quick_click(&self, row: Stateful<Div>, action: Action, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = id.to_string();
@@ -77,31 +69,19 @@ impl Desktop {
         }))
     }
 
-    fn answer_click(&self, row: Stateful<Div>, request: &str, decision: Decision, cx: &mut Context<Self>) -> Stateful<Div> {
-        let request = request.to_string();
-        row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            cx.stop_propagation();
-            this.answer_ticket(&request, decision, cx);
-        }))
-    }
-
     /// What the ticket offers at a glance, its buttons side by side.
     pub(super) fn ticket_quick(&self, t: &Ticket, slot: Slot, cx: &mut Context<Self>) -> Option<Div> {
         let id = &t.id;
         let button = |name: &str| SharedString::from(format!("ticket-{name}-{id}"));
         let has_pr = self.prs.get(&t.worktree).is_some();
-        // A question needs its dialog, in the session.
-        let ask = self.pending_ask(t).filter(|p| p.questions().is_empty() && !self.agents.observe_only());
+        let ask = self.card_ask(&t.agent_id);
         let found = quick(t, slot.col, ask.is_some(), self.ticket_reach(t), has_pr)?;
         let request = ask.map_or("", |p| p.request_id.as_str());
         let buttons = match found {
             Quick::Start => vec![self.quick_click(quick_button(button("start"), Some("play"), "Start"), Action::Start, id, cx)],
             Quick::StartAgain => vec![self.quick_click(quick_button(button("again"), Some("reload"), "Start again"), Action::StartAgain, id, cx)],
             Quick::CreatePr => vec![self.quick_click(quick_button(button("pr"), Some("pull-request"), "Create PR"), Action::CreatePr, id, cx)],
-            Quick::Answer => vec![
-                self.answer_click(quick_button(button("deny"), None, "Deny"), request, Decision::Deny, cx),
-                self.answer_click(quick_button(button("allow"), None, "Allow once").bg(PRIMARY).text_color(ON_PRIMARY).hover(|s| s.bg(PRIMARY).opacity(0.9)), request, Decision::Allow, cx),
-            ],
+            Quick::Answer => self.answer_buttons("ticket", id, request, cx),
         };
         Some(div().flex().flex_none().items_center().gap(px(4.)).children(buttons))
     }
@@ -176,7 +156,7 @@ impl Desktop {
         let col = slot.col;
         let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
         let hoverable = opens(t, self.ticket_reach(t)).is_some() && !picked;
-        let card = div().id(SharedString::from(format!("ticket-{}", t.id))).px(px(10.)).py(px(9.)).rounded(px(CARD_RADIUS)).bg(SURFACE).shadow(ui::row_shadow()).when(col.finished(), |d| d.opacity(0.6)).when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])).when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)).shadow(vec![ui::ring(Hsla::from(INDIGO).opacity(0.5), 1.)])).when(hoverable, |d| d.hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))).child(self.ticket_body(t, slot, cx));
+        let card = ui::card(SharedString::from(format!("ticket-{}", t.id))).when(col.finished(), |d| d.opacity(0.6)).when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])).when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)).shadow(vec![ui::ring(Hsla::from(INDIGO).opacity(0.5), 1.)])).when(hoverable, |d| d.hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))).child(self.ticket_body(t, slot, cx));
         let card = self.ticket_shell(card, t, cx).when(col.lifts(), |d| {
             let before = t.id.clone();
             d.on_drag(DragTicket { id: t.id.clone(), from: col, title: t.title.clone() }, |d, _, _, cx| cx.new(|_| d.clone())).on_drop(cx.listener(move |this, d: &DragTicket, _, cx| {

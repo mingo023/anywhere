@@ -257,6 +257,35 @@ func TestAStopCancelsTheTurnAndDropsThePromptsThatWaited(t *testing.T) {
 	}
 }
 
+func TestAStopSentRightAfterAPromptReachesTheAgentAfterIt(t *testing.T) {
+	cancelled := make(chan struct{})
+	s, a, sk, _ := start(t, opts{provider: "hermes", answer: func(a *agent, method string, _ json.RawMessage) string {
+		switch method {
+		case "session/new":
+			return hermesNew
+		case "session/cancel":
+			close(cancelled)
+		case "session/prompt":
+			<-cancelled
+			return `{"stopReason":"cancelled"}`
+		}
+		return `{}`
+	}})
+	s.Prompt("slow")
+	s.Cancel()
+	sk.wait(t, "stopped")
+	a.called("session/cancel", 1)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var order []string
+	for _, c := range a.calls {
+		if m, _, _ := strings.Cut(c, " "); m == "session/prompt" || m == "session/cancel" {
+			order = append(order, m)
+		}
+	}
+	equal(t, order, []string{"session/prompt", "session/cancel"})
+}
+
 func TestAStopEndsTheCallsTheAgentLeftOpenSoALaterCallWithTheirIDShows(t *testing.T) {
 	cancelled := make(chan struct{})
 	call := `{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"sleep 45","kind":"execute","status":"in_progress","rawInput":{"command":"sleep 45"}}`

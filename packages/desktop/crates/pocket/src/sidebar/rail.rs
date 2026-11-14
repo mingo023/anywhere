@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use crate::desktop::pages;
 use crate::desktop::chrome::{HEADER, Overlay, RAIL, Screen, drag_area};
 use crate::terminal_view::context;
 use agents::Level;
@@ -25,32 +26,6 @@ pub(super) fn rail_button(id: impl Into<ElementId>, name: &str, active: bool) ->
 }
 
 impl Desktop {
-    fn toggle_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.screen == Screen::Inbox {
-            self.screen = Screen::Sessions;
-            cx.notify();
-        } else {
-            self.open_inbox(window, cx);
-        }
-    }
-
-    fn toggle_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.screen == Screen::Board {
-            self.leave_board(window, cx);
-        } else {
-            self.open_board(&crate::actions::OpenBoard, window, cx);
-        }
-    }
-
-    fn toggle_automations(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.screen == Screen::Automations {
-            self.screen = Screen::Sessions;
-            cx.notify();
-        } else {
-            self.open_automations(&crate::actions::OpenAutomations, window, cx);
-        }
-    }
-
     /// The compact layout's rail: sidebar toggle, project switcher, search, inbox and settings.
     pub(crate) fn nav(&self, cx: &mut Context<Self>) -> Div {
         let expand = rail_button("nav-expand", "sidebar-expand", false)
@@ -70,10 +45,13 @@ impl Desktop {
         let unseen = crate::inbox::count(&self.agents);
         let inbox = rail_button("nav-inbox", "inbox", self.screen == Screen::Inbox)
             .when(unseen > 0, |d| d.child(ui::count_badge(unseen).top(px(-3.)).right(px(-3.))))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_inbox(window, cx)));
-        let board = rail_button("nav-board", "blocks", self.screen == Screen::Board).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_board(window, cx)));
-        let automations = rail_button("nav-automations", "bolt", self.screen == Screen::Automations)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_automations(window, cx)));
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_screen(Screen::Inbox, window, cx)));
+        let pages: Vec<_> = pages::offered(&self.agents)
+            .map(|p| {
+                let screen = p.screen;
+                rail_button(SharedString::from(format!("nav-{}", p.name.to_lowercase())), p.icon, self.screen == screen).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.toggle_screen(screen, window, cx)))
+            })
+            .collect();
         let settings = rail_button("nav-settings", "settings", self.screen == Screen::Settings)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
         let bars = self.usage().into_iter().map(|(p, left, level)| {
@@ -98,8 +76,7 @@ impl Desktop {
             .child(project)
             .child(search)
             .child(inbox)
-            .children(self.agents.board_offered().then_some(board))
-            .children(self.agents.automations_offered().then_some(automations))
+            .children(pages)
             .child(
                 div()
                     .mt_auto()

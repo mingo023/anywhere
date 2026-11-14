@@ -21,7 +21,6 @@ mod top_bar;
 mod values;
 mod views;
 
-use crate::actions::OpenBoard;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use agents::tickets::{Board, Ticket};
@@ -175,7 +174,7 @@ impl Desktop {
         self.store.without_scratch(self.projects())
     }
 
-    pub(crate) fn open_board(&mut self, _: &OpenBoard, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.agents.board_offered() {
             return;
         }

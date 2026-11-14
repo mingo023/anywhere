@@ -10,7 +10,6 @@ mod run_detail;
 mod runs;
 mod trigger;
 
-use crate::actions::OpenAutomations;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::util::now_ms;
@@ -87,7 +86,7 @@ impl AutomationsState {
 }
 
 impl Desktop {
-    pub(crate) fn open_automations(&mut self, _: &OpenAutomations, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_automations(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.agents.automations_offered() {
             return;
         }

@@ -134,9 +134,14 @@ pub fn ago_long(ms: i64, now: i64) -> String {
     }
 }
 
+/// The first line with text in it, trimmed; empty when there is none.
+pub fn first_line(s: &str) -> String {
+    s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, folder, initials, list_dir, mark, tilde, tree_icon, untilde};
+    use super::{ago, ago_long, first_line, folder, initials, list_dir, mark, tilde, tree_icon, untilde};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -209,5 +214,11 @@ mod tests {
     #[test]
     fn a_local_shows_a_laptop_and_a_worktree_its_own_icon() {
         assert_eq!((tree_icon("local-1"), tree_icon("/w/app-login")), ("laptop", "worktree"));
+    }
+
+    #[test]
+    fn first_line_skips_blank_lines() {
+        assert_eq!(first_line("\n  Tagged, changelog updated\nmore"), "Tagged, changelog updated");
+        assert_eq!(first_line(""), "");
     }
 }

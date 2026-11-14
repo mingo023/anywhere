@@ -192,6 +192,16 @@
       "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
       "open": ["press Cmd+,", "type worktree in Search"],
       "capture": ["dark", "settings", "settings-search"]
+    },
+    "card": {
+      "files": ["packages/desktop/crates/pocket/src/activity/**", "packages/desktop/crates/pocket/src/desktop/pages.rs"],
+      "open": ["click Activity in the sidebar"],
+      "capture": ["dark", "activity"]
+    },
+    "drawer": {
+      "files": ["packages/desktop/crates/pocket/src/activity/**", "packages/desktop/crates/pocket/src/desktop/pages.rs"],
+      "open": ["click Activity in the sidebar", "click a session card"],
+      "capture": ["dark", "activity", "activity-panel"]
     }
   }
 }

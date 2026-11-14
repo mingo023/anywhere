@@ -1,5 +1,6 @@
 use super::logic::{Action, Col, Row, Slot, action_field, activity, change_reaches, column, opens, stuck_head};
-use super::parts::{agent_avatar, col_heading, prop_chip};
+use super::parts::{col_heading, prop_chip};
+use ui::agent_avatar;
 use crate::desktop::Desktop;
 use crate::util::{ago_long, now_ms};
 use agents::tickets::Ticket;

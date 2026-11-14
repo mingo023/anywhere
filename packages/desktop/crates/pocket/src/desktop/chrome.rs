@@ -16,6 +16,7 @@ use workspace::tree::Axis;
 pub enum Screen {
     Sessions,
     Inbox,
+    Activity,
     Automations,
     Board,
     Settings,

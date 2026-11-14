@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 267] = [
+const STEPS: [(&str, Step); 270] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -509,12 +509,26 @@ const STEPS: [(&str, Step); 267] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("activity", |d, window, cx| d.open_activity(window, cx)),
+    ("activity-panel", |d, window, cx| {
+        if let Some(id) = d.agents.list.iter().find(|a| a.status == "needsYou").map(|a| a.id.clone()) {
+            d.preview_session(&id, window, cx);
+        }
+    }),
+    ("activity-filtered", |d, _, cx| {
+        if let Some(p) = d.project.clone() {
+            d.activity.filters.toggle(crate::activity::Menu::Project, &p);
+        }
+        d.activity.menu = Some(crate::activity::Menu::Project);
+        d.activity_changed();
+        cx.notify();
+    }),
     ("chat-only-done", |d, _, _| {
         for a in d.agents.list.iter_mut() {
             (a.chat_only, a.status) = if a.id == "parser" { (true, "done".into()) } else { (a.chat_only, "idle".into()) };
         }
     }),
-    ("board", |d, window, cx| d.open_board(&crate::actions::OpenBoard, window, cx)),
+    ("board", |d, window, cx| d.open_board(window, cx)),
     ("board-list", |d, _, cx| {
         d.board.layout = crate::board::Layout::List;
         cx.notify();
@@ -566,7 +580,7 @@ const STEPS: [(&str, Step); 267] = [
         d.board_changed();
         cx.notify();
     }),
-    ("automations", |d, window, cx| d.open_automations(&crate::actions::OpenAutomations, window, cx)),
+    ("automations", |d, window, cx| d.open_automations(window, cx)),
     ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
     ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
     ("automations-editor", |d, window, cx| {
@@ -889,6 +903,7 @@ const STEPS: [(&str, Step); 267] = [
             d.prs.start(&tree, now);
             d.prs.apply(tree, now, Ok(Some(pr)), now);
         }
+        d.activity_changed();
     }),
     ("pr-loop", |d, _, _| {
         let Some(tree) = d.cwd() else { return };

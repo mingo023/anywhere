@@ -17,7 +17,7 @@ const PROVIDER_IDS = ["claude", "codex", "cursor", "grok", "opencode", "pi", "om
 type Provider = (typeof PROVIDER_IDS)[number];
 type Agent = {
   id: string; title: string; provider: Provider; repo: string; branch?: string;
-  status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string; effort?: string; pinned?: boolean;
+  status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string; effort?: string; pinned?: boolean; activity?: string;
   diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string; parent?: string;
 };
 type Scenario = { repos: string[]; merged?: string[]; agents: Agent[] };
@@ -100,6 +100,10 @@ SCENARIOS["agents-chat"] = {
 };
 
 const RESTORED: Record<string, string> = { fix: "resumed", crash: "interrupted", haptics: "access_lowered", rn: "failed" };
+// Activity's card and drawer: the sessions, with what the prototype's sample data says of them (its working line, and a diff its Read and Edited counts and per-file split come out to).
+const ACTIVITY_DIFF: [string, number, number][] = [["components/terminal-view.tsx", 25, 9], ["hooks/index.ts", 17, 6], ["hooks/use-restore-preview.ts", 8, 3]];
+const DOING: Record<string, string> = { split: "Editing src/hooks/use-restore.ts", migrate: "Reading src/hooks/legacy.ts", hook: "Running pnpm test --filter webhooks", mkt: "Drafting the launch post" };
+SCENARIOS.activity = { ...SCENARIOS.sessions, agents: SCENARIOS.sessions.agents.map((a) => ({ ...a, ...(a.id === "fix" && { diff: ACTIVITY_DIFF }), ...(DOING[a.id] && { activity: DOING[a.id] }) })) };
 SCENARIOS.restored = { ...SCENARIOS.sessions, agents: SCENARIOS.sessions.agents.map((a) => ({ ...a, restore: RESTORED[a.id] })) };
 
 const [name, arg] = process.argv.slice(2);
@@ -193,11 +197,24 @@ const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.re
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left: Record<Provider, number> = { claude: 62, codex: 41, cursor: 77, grok: 58, opencode: 49, pi: 83, omp: 91, fx: 66, hermes: 35, antigravity: 72 };
 const summaries = scenario.agents.map((a) => ({
-  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, status: status(a), restore: a.restore, parent: a.parent,
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, status: status(a), restore: a.restore, parent: a.parent, activity: a.activity ?? "",
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
   tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000, resets: 0,
 }));
-const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : [{
+// A session waiting on a permission is mid-turn: its prompt, what it read and edited, and why it asks.
+const asking = (a: Agent): Item[] => {
+  const tool = (kind: string, path: string, i: number) => ({ id: `${a.id}-${kind}-${i}`, kind: "tool", call: { toolUseId: `${a.id}-${kind}-${i}`, name: kind, status: "ok", detail: { kind, path } } });
+  const files = (a.diff ?? []).map(([path]) => path);
+  return [
+    { id: `${a.id}-user`, kind: "user", text: a.title },
+    ...["package.json", ...files].map((path, i) => tool("read", path, i)),
+    ...files.map((path, i) => tool("edit", path, i)),
+    { id: `${a.id}-said`, kind: "assistant", text: `Wants to run the ${a.repo} tests.` },
+  ] as Item[];
+};
+// Only Activity's screens show a turn's prompt and steps; the others keep the one result they were reviewed with.
+const turns = name === "activity";
+const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : turns && a.waiting ? stamp(a.id, asking(a)) : [...(turns && a.failed ? [{ id: `${a.id}-user`, seq: 0, ts: now - (a.ago + 1) * 60_000, kind: "user", text: a.title }] : []), {
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
 }];

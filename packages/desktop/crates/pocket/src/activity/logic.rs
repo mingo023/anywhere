@@ -1,0 +1,472 @@
+use crate::status::Status;
+use std::cmp::Reverse;
+use std::collections::{BTreeSet, HashMap};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Col {
+    Idle,
+    Working,
+    NeedsYou,
+    Done,
+    InReview,
+}
+
+pub(crate) const COLS: [Col; 5] = [Col::Idle, Col::Working, Col::NeedsYou, Col::Done, Col::InReview];
+
+impl Col {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Col::Idle => "Idle",
+            Col::Working => "Working",
+            Col::NeedsYou => "Needs you",
+            Col::Done => "Done",
+            Col::InReview => "In review",
+        }
+    }
+
+    /// What it says while it holds nothing.
+    pub(crate) fn hint(self) -> &'static str {
+        match self {
+            Col::Idle => "At the prompt, nothing unseen.",
+            Col::Working => "Agents mid-turn show up here.",
+            Col::NeedsYou => "Questions and permissions land here.",
+            Col::Done => "Ended turns you haven’t seen yet.",
+            Col::InReview => "Idle sessions with an open or draft PR.",
+        }
+    }
+
+    /// Why a session sits here, where its name alone doesn't say.
+    pub(crate) fn why(self) -> Option<&'static str> {
+        match self {
+            Col::Done => Some("unseen"),
+            Col::InReview => Some("PR open"),
+            Col::Idle | Col::Working | Col::NeedsYou => None,
+        }
+    }
+}
+
+/// One session as the page shows it, gathered from the agent list, its terminal and its worktree.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub(crate) struct Item {
+    pub id: String,
+    /// `None` while the agent isn't attached: it reports only terminal activity.
+    pub status: Option<Status>,
+    /// Its worktree's branch has an open or draft PR.
+    pub pr_open: bool,
+    pub at: i64,
+    pub title: String,
+    /// The project's path, and the name the sidebar shows for it.
+    pub project: String,
+    pub project_name: String,
+    pub branch: String,
+    /// Its worktree's path, which PRs and diffs are kept under; empty outside a worktree.
+    pub tree: String,
+    pub provider: String,
+    /// The pending ask, the error, what it's doing or what it last said, by status.
+    pub note: String,
+}
+
+impl Item {
+    pub(crate) fn col(&self) -> Col {
+        column(self.status, self.pr_open)
+    }
+
+    /// Its turn failed: it sits in Needs you but reads, and is marked, as failed.
+    pub(crate) fn failed(&self) -> bool {
+        self.status == Some(Status::Failed)
+    }
+
+    /// What its status reads as: its column, but a failed turn says so, and an agent that reports none says it isn't attached.
+    pub(crate) fn label(&self) -> &'static str {
+        match self.status {
+            None => "Not attached",
+            Some(_) if self.failed() => "Failed",
+            Some(_) => self.col().name(),
+        }
+    }
+}
+
+/// The button a card offers beside its pills.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Quick {
+    Seen,
+    CreatePr,
+}
+
+/// Seen on a turn that ended unseen; Create PR on an idle session whose branch holds changes and no PR.
+pub(crate) fn quick(col: Col, branch: &str, changed: bool, has_pr: bool) -> Option<Quick> {
+    match col {
+        Col::Done => Some(Quick::Seen),
+        Col::Idle if changed && !has_pr && !branch.is_empty() && branch != "main" => Some(Quick::CreatePr),
+        _ => None,
+    }
+}
+
+/// Status decides; an open PR files a session with nothing for you under In review, where it waits on other people.
+pub(crate) fn column(status: Option<Status>, pr_open: bool) -> Col {
+    match status {
+        Some(Status::NeedsYou | Status::Failed) => Col::NeedsYou,
+        Some(Status::Working) => Col::Working,
+        Some(Status::Done) => Col::Done,
+        Some(Status::Idle) | None if pr_open => Col::InReview,
+        Some(Status::Idle) | None => Col::Idle,
+    }
+}
+
+
+pub(crate) type Columns = [Vec<usize>; COLS.len()];
+
+/// Where each shown session sits: its column and its place in it.
+pub(crate) type Places = HashMap<String, (usize, usize)>;
+
+/// The sessions as last gathered, and the columns their kept ones fill.
+#[derive(Default)]
+pub(crate) struct Grouped {
+    pub items: Vec<Item>,
+    pub columns: Columns,
+}
+
+impl Grouped {
+    /// Takes the sessions as they are now; false when nothing shown changed.
+    pub(crate) fn take(&mut self, items: Vec<Item>, filters: &Filters) -> bool {
+        let columns = arrange(&items, filters);
+        if items == self.items && columns == self.columns {
+            return false;
+        }
+        (self.items, self.columns) = (items, columns);
+        true
+    }
+
+    /// The preview, while its session is still here.
+    pub(crate) fn keep(&self, previewed: Option<String>) -> Option<String> {
+        previewed.filter(|id| self.items.iter().any(|i| &i.id == id))
+    }
+
+    /// The previewed session, when its turn ended while you were looking: seen, as opening it would make it.
+    pub(crate) fn ended_in_view(&self, previewed: Option<&str>) -> Option<String> {
+        previewed.and_then(|id| self.item(id)).filter(|i| marks_seen(i.status)).map(|i| i.id.clone())
+    }
+
+    pub(crate) fn shown(&self, col: Col, ix: usize) -> Option<&Item> {
+        self.columns[col as usize].get(ix).and_then(|&i| self.items.get(i))
+    }
+
+    pub(crate) fn item(&self, id: &str) -> Option<&Item> {
+        self.items.iter().find(|i| i.id == id)
+    }
+
+    pub(crate) fn places(&self) -> Places {
+        self.columns.iter().enumerate().flat_map(|(col, line)| line.iter().enumerate().map(move |(ix, &i)| (self.items[i].id.clone(), (col, ix)))).collect()
+    }
+}
+
+#[derive(Clone, Default, PartialEq, Debug)]
+pub(crate) struct Filters {
+    pub query: String,
+    /// What each menu has picked, by `Menu`; an empty set keeps everything.
+    picked: [BTreeSet<String>; Menu::ALL.len()],
+}
+
+impl Filters {
+    pub(crate) fn keeps(&self, item: &Item) -> bool {
+        let text = format!("{} {} {}", item.title, item.project_name, item.branch).to_lowercase();
+        Menu::ALL.iter().all(|&m| self.picks(m).is_empty() || self.picks(m).contains(m.value(item))) && self.query.split_whitespace().all(|w| text.contains(&w.to_lowercase()))
+    }
+
+    pub(crate) fn picks(&self, menu: Menu) -> &BTreeSet<String> {
+        &self.picked[menu as usize]
+    }
+
+    /// Picks `value` in `menu`, or lets go of it when it was picked.
+    pub(crate) fn toggle(&mut self, menu: Menu, value: &str) {
+        let set = &mut self.picked[menu as usize];
+        if !set.remove(value) {
+            set.insert(value.to_string());
+        }
+    }
+}
+
+/// The filter menus in the page's bar.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Menu {
+    Project,
+    Agent,
+}
+
+impl Menu {
+    pub(crate) const ALL: [Menu; 2] = [Menu::Project, Menu::Agent];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Menu::Project => "Project",
+            Menu::Agent => "Agent",
+        }
+    }
+
+    /// What the menu filters an item by: its project's path or its agent's provider.
+    pub(crate) fn value(self, item: &Item) -> &String {
+        match self {
+            Menu::Project => &item.project,
+            Menu::Agent => &item.provider,
+        }
+    }
+}
+
+/// The values a filter menu offers, each with how many sessions have it, in the order they first appear.
+pub(crate) fn values(items: &[Item], menu: Menu) -> Vec<(String, usize)> {
+    let mut out: Vec<(String, usize)> = Vec::new();
+    for item in items {
+        match out.iter_mut().find(|(v, _)| v == menu.value(item)) {
+            Some((_, n)) => *n += 1,
+            None => out.push((menu.value(item).clone(), 1)),
+        }
+    }
+    out
+}
+
+/// What Esc does on Activity, nearest thing first.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Escape {
+    LeaveSearch,
+    ClosePreview,
+    LeavePage,
+}
+
+pub(crate) fn escape(searching: bool, previewing: bool) -> Escape {
+    match (searching, previewing) {
+        (true, _) => Escape::LeaveSearch,
+        (false, true) => Escape::ClosePreview,
+        (false, false) => Escape::LeavePage,
+    }
+}
+
+/// ↵ or ⌘↵ opens the previewed session; other modifiers leave the key alone.
+pub(crate) fn opens_preview(key: &str, plain: bool, command: bool) -> bool {
+    key == "enter" && (plain || command)
+}
+
+/// Each column's kept items as indexes into `items`: what wants you oldest first, as Up next orders it; the rest newest first.
+pub(crate) fn arrange(items: &[Item], filters: &Filters) -> Columns {
+    let mut out: Columns = Default::default();
+    for (i, item) in items.iter().enumerate().filter(|(_, item)| filters.keeps(item)) {
+        out[column(item.status, item.pr_open) as usize].push(i);
+    }
+    for (col, line) in COLS.iter().zip(out.iter_mut()) {
+        match col {
+            Col::NeedsYou => line.sort_by_key(|&i| (items[i].status, items[i].at)),
+            Col::Working | Col::Done => line.sort_by_key(|&i| items[i].at),
+            Col::Idle | Col::InReview => line.sort_by_key(|&i| Reverse(items[i].at)),
+        }
+    }
+    out
+}
+
+/// Opening a session's preview marks it seen when an unseen turn is all it was waiting on.
+pub(crate) fn marks_seen(status: Option<Status>) -> bool {
+    matches!(status, Some(Status::Done | Status::Failed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(id: &str, status: Option<Status>, pr_open: bool, at: i64) -> Item {
+        Item { id: id.into(), status, pr_open, at, ..Item::default() }
+    }
+
+    fn ids(items: &[Item], columns: &Columns, col: Col) -> Vec<String> {
+        columns[col as usize].iter().map(|&i| items[i].id.clone()).collect()
+    }
+
+    #[test]
+    fn a_card_offers_seen_once_its_turn_ends_and_create_pr_for_changes_on_a_branch() {
+        assert_eq!(quick(Col::Done, "main", false, false), Some(Quick::Seen));
+        assert_eq!(quick(Col::Idle, "fix/x", true, false), Some(Quick::CreatePr));
+        assert_eq!(quick(Col::Idle, "fix/x", true, true), None, "it has a PR already");
+        assert_eq!(quick(Col::Idle, "main", true, false), None, "changes on main go nowhere");
+        assert_eq!(quick(Col::Idle, "fix/x", false, false), None, "nothing to send");
+        assert_eq!(quick(Col::Working, "fix/x", true, false), None);
+    }
+
+    #[test]
+    fn a_session_sits_in_the_column_its_status_says() {
+        assert_eq!(column(Some(Status::NeedsYou), false), Col::NeedsYou);
+        assert_eq!(column(Some(Status::Working), false), Col::Working);
+        assert_eq!(column(Some(Status::Done), false), Col::Done);
+        assert_eq!(column(Some(Status::Idle), false), Col::Idle);
+    }
+
+    // Failed asks for a look like Needs you does.
+    #[test]
+    fn a_failed_turn_needs_you() {
+        assert_eq!(column(Some(Status::Failed), false), Col::NeedsYou);
+    }
+
+    // An open PR only matters once the agent has nothing for you.
+    #[test]
+    fn an_idle_session_with_an_open_pr_is_in_review() {
+        assert_eq!(column(Some(Status::Idle), true), Col::InReview);
+        assert_eq!(column(None, true), Col::InReview);
+        assert_eq!(column(None, false), Col::Idle);
+    }
+
+    #[test]
+    fn a_pr_never_hides_work_or_a_question() {
+        assert_eq!(column(Some(Status::Working), true), Col::Working);
+        assert_eq!(column(Some(Status::NeedsYou), true), Col::NeedsYou);
+        assert_eq!(column(Some(Status::Done), true), Col::Done);
+    }
+
+    #[test]
+    fn what_wants_you_comes_oldest_first_and_the_rest_newest_first() {
+        let items = vec![
+            item("done-new", Some(Status::Done), false, 30),
+            item("done-old", Some(Status::Done), false, 10),
+            item("idle-old", Some(Status::Idle), false, 10),
+            item("idle-new", Some(Status::Idle), false, 30),
+            item("work-new", Some(Status::Working), false, 30),
+            item("work-old", Some(Status::Working), false, 10),
+        ];
+        let columns = arrange(&items, &Filters::default());
+        assert_eq!(ids(&items, &columns, Col::Done), ["done-old", "done-new"]);
+        assert_eq!(ids(&items, &columns, Col::Working), ["work-old", "work-new"]);
+        assert_eq!(ids(&items, &columns, Col::Idle), ["idle-new", "idle-old"]);
+    }
+
+    #[test]
+    fn needs_you_lists_questions_before_failed_turns() {
+        let items = vec![item("failed", Some(Status::Failed), false, 1), item("asks", Some(Status::NeedsYou), false, 9)];
+        assert_eq!(ids(&items, &arrange(&items, &Filters::default()), Col::NeedsYou), ["asks", "failed"]);
+    }
+
+    // Previewing clears what was waiting to be seen, never a question.
+    #[test]
+    fn opening_marks_only_a_done_or_failed_turn_seen() {
+        assert!(marks_seen(Some(Status::Done)));
+        assert!(marks_seen(Some(Status::Failed)));
+        assert!(!marks_seen(Some(Status::NeedsYou)));
+        assert!(!marks_seen(Some(Status::Working)));
+        assert!(!marks_seen(Some(Status::Idle)));
+        assert!(!marks_seen(None));
+    }
+
+    fn picked(menu: Menu, value: &str) -> Filters {
+        let mut f = Filters::default();
+        f.toggle(menu, value);
+        f
+    }
+
+    fn named(id: &str, project: &str, provider: &str, branch: &str) -> Item {
+        Item { id: id.into(), title: format!("Fix {id}"), project: format!("/repos/{project}"), project_name: project.into(), provider: provider.into(), branch: branch.into(), ..Item::default() }
+    }
+
+    #[test]
+    fn no_filter_keeps_every_session() {
+        assert!(Filters::default().keeps(&named("a", "app", "claude", "main")));
+    }
+
+    #[test]
+    fn a_project_filter_keeps_only_its_projects() {
+        let f = picked(Menu::Project, "/repos/app");
+        assert!(f.keeps(&named("a", "app", "claude", "")));
+        assert!(!f.keeps(&named("b", "web", "claude", "")));
+    }
+
+    #[test]
+    fn an_agent_filter_keeps_only_its_agents() {
+        let f = picked(Menu::Agent, "codex");
+        assert!(f.keeps(&named("a", "app", "codex", "")));
+        assert!(!f.keeps(&named("b", "app", "claude", "")));
+    }
+
+    #[test]
+    fn search_matches_every_word_in_title_project_or_branch() {
+        let item = named("parser", "app", "claude", "fix/lexer");
+        let q = |s: &str| Filters { query: s.into(), ..Filters::default() };
+        assert!(q("PARSER app").keeps(&item));
+        assert!(q("lexer").keeps(&item));
+        assert!(!q("parser web").keeps(&item));
+    }
+
+    #[test]
+    fn filtered_out_sessions_leave_their_column() {
+        let items = vec![named("a", "app", "claude", ""), named("b", "web", "claude", "")];
+        let f = picked(Menu::Project, "/repos/web");
+        assert_eq!(ids(&items, &arrange(&items, &f), Col::Idle), ["b"]);
+    }
+
+    #[test]
+    fn a_menu_counts_each_value_once_in_first_seen_order() {
+        let items = vec![named("a", "web", "claude", ""), named("b", "app", "codex", ""), named("c", "web", "codex", "")];
+        assert_eq!(values(&items, Menu::Agent), [("claude".to_string(), 1), ("codex".to_string(), 2)]);
+        assert_eq!(values(&items, Menu::Project), [("/repos/web".to_string(), 2), ("/repos/app".to_string(), 1)]);
+    }
+
+    #[test]
+    fn picking_a_value_again_lets_go_of_it() {
+        let mut f = Filters::default();
+        f.toggle(Menu::Agent, "codex");
+        assert!(f.picks(Menu::Agent).contains("codex") && f.picks(Menu::Project).is_empty());
+        f.toggle(Menu::Agent, "codex");
+        assert_eq!(f, Filters::default());
+    }
+
+    #[test]
+    fn esc_lets_go_of_search_then_closes_the_preview_then_leaves() {
+        assert_eq!(escape(true, true), Escape::LeaveSearch);
+        assert_eq!(escape(false, true), Escape::ClosePreview);
+        assert_eq!(escape(false, false), Escape::LeavePage);
+    }
+
+    #[test]
+    fn enter_opens_the_preview_bare_or_with_command_only() {
+        assert!(opens_preview("enter", true, false));
+        assert!(opens_preview("enter", false, true));
+        assert!(!opens_preview("enter", false, false));
+        assert!(!opens_preview("space", true, false));
+    }
+
+    #[test]
+    fn the_same_sessions_again_change_nothing() {
+        let mut g = Grouped::default();
+        let items = vec![named("a", "app", "claude", "")];
+        assert!(g.take(items.clone(), &Filters::default()));
+        assert!(!g.take(items, &Filters::default()));
+    }
+
+    #[test]
+    fn a_new_filter_regroups_the_same_sessions() {
+        let mut g = Grouped::default();
+        let items = vec![named("a", "app", "claude", ""), named("b", "web", "claude", "")];
+        g.take(items.clone(), &Filters::default());
+        let f = picked(Menu::Project, "/repos/web");
+        assert!(g.take(items, &f));
+        assert_eq!(g.shown(Col::Idle, 0).map(|i| i.id.as_str()), Some("b"));
+        assert!(g.shown(Col::Idle, 1).is_none());
+    }
+
+    #[test]
+    fn a_preview_closes_once_its_session_is_gone() {
+        let mut g = Grouped::default();
+        g.take(vec![named("a", "app", "claude", "")], &Filters::default());
+        assert_eq!(g.keep(Some("a".into())), Some("a".into()));
+        g.take(Vec::new(), &Filters::default());
+        assert_eq!(g.keep(Some("a".into())), None);
+    }
+
+    #[test]
+    fn a_turn_that_ends_under_the_preview_is_seen() {
+        let mut g = Grouped::default();
+        g.take(vec![item("a", Some(Status::Done), false, 0), item("b", Some(Status::NeedsYou), false, 0)], &Filters::default());
+        assert_eq!(g.ended_in_view(Some("a")), Some("a".into()));
+        assert_eq!(g.ended_in_view(Some("b")), None);
+        assert_eq!(g.ended_in_view(None), None);
+    }
+
+    #[test]
+    fn the_status_chip_says_failed_or_not_attached_where_its_column_would_mislead() {
+        assert_eq!(item("a", Some(Status::Failed), false, 0).label(), "Failed");
+        assert_eq!(item("a", None, true, 0).label(), "Not attached");
+        assert_eq!(item("a", Some(Status::Idle), true, 0).label(), "In review");
+    }
+}
