@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 276] = [
+const STEPS: [(&str, Step); 277] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -714,6 +714,12 @@ const STEPS: [(&str, Step); 276] = [
     ("settings-files", |d, _, _| d.settings.section = Section::Files),
     ("settings-browser", |d, _, _| d.settings.section = Section::Browser),
     ("settings-git", |d, _, _| d.settings.section = Section::Git),
+    ("settings-factory", |d, window, cx| {
+        d.show_section(Section::Factory, cx);
+        let Some(project) = d.settings.factory.project.clone() else { return };
+        let config = agents::Config { enabled: true, spec: true, reviewer: true, lead: "claude-opus".into(), workers: "claude-sonnet".into(), review: "codex".into(), slots: 4, fix: 2, checks: vec!["cargo test".into(), "cargo clippy --all-targets".into()] };
+        d.on_agents(agents::Event::FactoryConfig { project, config, problem: String::new() }, window, cx);
+    }),
     ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
     ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),

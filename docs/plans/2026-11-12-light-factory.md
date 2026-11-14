@@ -443,6 +443,8 @@ From `2026-11-12-light-factory-3-spec-plan.md`.
 - **Desktop crates, `factory/tabs.rs`.** Add: "`OFFERED`: the tabs that have a body. Plan 3 offers Spec and Activity. Plans 4, 5 and 6 each add their tab." Add: "`shown(picked, column) -> Tab`: your pick, else `default_tab(column)`, each only while offered."
 - **Desktop crates, `pocket::settings`.** Add to the `Section::Factory` sentence: "It sits in the nav group Agents, after Automations. A change waits 400ms for the next before `Outbox::factory_save` sends the whole config, and each open of a project sends `Outbox::factory_config`."
 
+- **Built (copy).** `pocket/tests/avoid_list.rs` bans "waiting" and "running" in desktop copy, so the Plan gate's status word reads `needs you`, and the Slot limit hint reads "Tickets an agent works on at once. A ticket that needs you holds no slot". The Factory ticket page keeps its own state in `FactoryState` (an `Entity` holder), so its logic sits in free functions. The e2e plan-gate test awaits the `team.start` ack, the Board frame and `factory.update` together, because the engine writes the Ticket before the ack arrives.
+
 ### Light Factory 4: Implement, Ask and Profiles
 
 From `2026-11-12-light-factory-4-implement-profiles.md`.

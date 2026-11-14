@@ -6,6 +6,7 @@ mod browser;
 pub(crate) mod catalog;
 mod diff;
 pub(crate) mod dropdown;
+mod factory;
 mod files;
 mod general;
 mod git;
@@ -49,6 +50,7 @@ pub enum Section {
     Agents,
     Accounts,
     Automations,
+    Factory,
     Phone,
     Hosts,
     Projects,
@@ -63,7 +65,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 16] = [
+    pub const ALL: [Section; 17] = [
         Section::General,
         Section::Appearance,
         Section::Notifications,
@@ -71,6 +73,7 @@ impl Section {
         Section::Agents,
         Section::Accounts,
         Section::Automations,
+        Section::Factory,
         Section::Phone,
         Section::Hosts,
         Section::Projects,
@@ -91,6 +94,7 @@ impl Section {
             Section::Agents => "Agents",
             Section::Accounts => "Accounts",
             Section::Automations => "Automations",
+            Section::Factory => "Factory",
             Section::Phone => "Phone & Remote",
             Section::Hosts => "Hosts",
             Section::Projects => "Projects",
@@ -114,6 +118,7 @@ impl Section {
             Section::Agents => "agents",
             Section::Accounts => "accounts",
             Section::Automations => "automations",
+            Section::Factory => "factory",
             Section::Phone => "phone",
             Section::Hosts => "hosts",
             Section::Projects => "projects",
@@ -130,7 +135,7 @@ impl Section {
     fn group(self) -> &'static str {
         match self {
             Section::General | Section::Appearance | Section::Notifications | Section::Keyboard => "App",
-            Section::Agents | Section::Accounts | Section::Automations | Section::Phone | Section::Hosts | Section::Provider(_) => "Agents",
+            Section::Agents | Section::Accounts | Section::Automations | Section::Factory | Section::Phone | Section::Hosts | Section::Provider(_) => "Agents",
             Section::Projects | Section::Sidebar | Section::Terminal | Section::Files | Section::Browser => "Projects",
             Section::Git | Section::Diff => "Git",
         }
@@ -145,6 +150,7 @@ impl Section {
             Section::Agents => "The agent providers you use, and what a new session starts with.",
             Section::Accounts => "Claude Code and Codex sign-ins on each machine, and the one new agents start on.",
             Section::Automations => "Defaults for new automations, and what happens to runs the Mac missed.",
+            Section::Factory => "How a project's tickets move through spec, plan, checks and review.",
             Section::Phone => "Pair the iPhone app and decide how much it can approve, and from where.",
             Section::Hosts => "Machines your agents run on: this Mac, and any machine you can sign in to over SSH.",
             Section::Projects => "Where code lives on disk, per-project setup, and what happens when a worktree is deleted.",
@@ -167,6 +173,7 @@ impl Section {
             Section::Agents | Section::Provider(_) => "sparkle",
             Section::Accounts => "shield",
             Section::Automations => "clock",
+            Section::Factory => "blocks",
             Section::Phone => "phone",
             Section::Hosts => "server",
             Section::Projects => "folder",
@@ -188,6 +195,7 @@ impl Section {
             Section::Agents => agents::ROWS,
             Section::Accounts => accounts::ROWS,
             Section::Automations => automations::ROWS,
+            Section::Factory => factory::ROWS,
             Section::Phone => phone::ROWS,
             Section::Hosts => ssh_hosts::ROWS,
             Section::Projects => projects::ROWS,
@@ -259,6 +267,7 @@ pub struct SettingsState {
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
     pub(crate) glass: Entity<SliderState>,
+    pub(crate) factory: factory::FactorySettings,
 }
 
 impl SettingsState {
@@ -291,8 +300,10 @@ impl SettingsState {
         subs.extend(launch_subs);
         let (glass, glass_sub) = appearance::glass_slider(store, window, cx);
         subs.push(glass_sub);
+        let (factory, factory_subs) = factory::FactorySettings::new(window, cx);
+        subs.extend(factory_subs);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass };
+        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass, factory };
         (state, subs)
     }
 
@@ -467,6 +478,9 @@ impl Desktop {
     fn load_section(&mut self, cx: &mut Context<Self>) {
         if self.settings.section == Section::Git && self.prs.gh.is_none() {
             self.check_gh(cx);
+        }
+        if self.settings.section == Section::Factory {
+            self.open_factory_project(None, cx);
         }
         self.models.retry();
         match self.settings.section {
@@ -822,13 +836,13 @@ mod tests {
     #[test]
     fn sections_follow_the_spec_order() {
         assert_eq!(Section::ALL.map(Section::label)[..5], ["General", "Appearance", "Notifications & Sounds", "Keyboard", "Agents"]);
-        assert_eq!(Section::ALL.len(), 16);
+        assert_eq!(Section::ALL.len(), 17);
     }
 
     #[test]
     fn the_nav_groups_sections_by_what_they_set() {
         let groups: Vec<_> = nav_groups().into_iter().map(|(g, s)| (g, s.len())).collect();
-        assert_eq!(groups, [("App", 4), ("Agents", 5), ("Projects", 5), ("Git", 2)]);
+        assert_eq!(groups, [("App", 4), ("Agents", 6), ("Projects", 5), ("Git", 2)]);
     }
 
     #[test]

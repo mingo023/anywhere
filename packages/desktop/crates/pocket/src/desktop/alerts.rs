@@ -125,6 +125,12 @@ impl Desktop {
 
     /// An agent event from this Mac's pocketd, or from `host`'s already tagged; a host's hello says nothing of this Mac's pocketd.
     pub(crate) fn on_agents_from(&mut self, host: Option<&str>, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
+        if let Event::FactoryConfig { project, problem, .. } = &ev {
+            self.settings.factory.answered(project, problem);
+        }
+        if let Event::FactoryError(_) = &ev {
+            self.settings.factory.draft.refused();
+        }
         if let Event::Team(team) = &ev {
             self.team_updated(team, window, cx);
         }

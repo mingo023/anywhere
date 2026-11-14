@@ -153,6 +153,11 @@
       "open": ["press Cmd+,", "click Automations"],
       "capture": ["dark", "settings", "settings-automations"]
     },
+    "settings-factory": {
+      "files": ["packages/desktop/crates/pocket/src/settings/factory.rs"],
+      "open": ["press Cmd+,", "click Factory under Agents"],
+      "capture": ["settings", "settings-factory"]
+    },
     "settings-automations-stopped": {
       "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
       "open": ["press Cmd+,", "click Automations", "pocketd is not running"],
