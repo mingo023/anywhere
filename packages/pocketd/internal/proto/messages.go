@@ -108,6 +108,8 @@ type ClientMessage struct {
 	Lead  string
 	Task  string
 	Tasks []TaskPick
+	// factory.config.save's.
+	Config *FactoryConfig
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -252,6 +254,10 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("lead", &m.Lead) && get("task", &m.Task)
 	case m.Type == "team.merge":
 		ok = get("lead", &m.Lead)
+	case m.Type == "factory.config.get":
+		ok = f.text("project", &m.Project)
+	case m.Type == "factory.config.save":
+		ok = f.text("project", &m.Project) && decodeFactoryConfig(f["config"], &m.Config)
 	default:
 		decode := phoneVerb(m.Type)
 		ok = decode != nil && decode(f, &m)

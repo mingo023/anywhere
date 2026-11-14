@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "factory-3",
+  "message": "This project has no GitHub remote",
+  "code": "factory_unavailable"
+}

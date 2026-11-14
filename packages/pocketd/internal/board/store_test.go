@@ -253,6 +253,27 @@ func TestATicketChangesProjectOnlyBeforeItStarts(t *testing.T) {
 	}
 }
 
+func TestSavingATicketTakesNoFactoryFieldFromIt(t *testing.T) {
+	s := Open(t.TempDir())
+	d := draft("a")
+	d.Station, d.Gate, d.PR, d.Fix, d.Hint = proto.StationPlan, proto.GatePlan, 7, 2, true
+	x, err := s.Save(d, false, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := got(t, s, x.ID); g.Station != "" || g.Gate != "" || g.PR != 0 || g.Fix != 0 || g.Hint {
+		t.Fatalf("a new ticket took them: %+v", g)
+	}
+	s.Update(x.ID, func(t *proto.Ticket) { t.Station, t.Fix = proto.StationSpec, 1 })
+	d.ID, d.Title, d.Station, d.Fix = x.ID, "b", proto.StationMerged, 0
+	if _, err := s.Save(d, false, at); err != nil {
+		t.Fatal(err)
+	}
+	if g := got(t, s, x.ID); g.Title != "b" || g.Station != proto.StationSpec || g.Fix != 1 {
+		t.Fatalf("an edit changed them: %+v", g)
+	}
+}
+
 func TestAStartedTicketStillTakesAPriorityAndLabels(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)

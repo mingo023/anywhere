@@ -1,0 +1,17 @@
+{
+  "type": "factory.config",
+  "id": "factory-2",
+  "project": "/app",
+  "config": {
+    "enabled": false,
+    "spec": true,
+    "reviewer": true,
+    "lead": "claude-opus",
+    "workers": "claude-sonnet",
+    "review": "codex",
+    "slots": 0,
+    "fix": 2,
+    "checks": []
+  },
+  "problem": "Install GitHub CLI (gh) to use the Factory"
+}

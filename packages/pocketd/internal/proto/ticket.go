@@ -78,6 +78,17 @@ type Ticket struct {
 	// Priority is 1 (urgent) to 4 (low); 0 is none. It never moves a ticket in line.
 	Priority int      `json:"priority,omitempty"`
 	Labels   []string `json:"labels,omitempty"`
+	// The Factory's fields. Only pocketd sets them: no client message carries one.
+	// Station is where the Factory has the ticket; empty for a ticket it doesn't run.
+	Station string `json:"station,omitempty"`
+	// Gate is what waits on the user: a plan, a PR or an ask.
+	Gate string `json:"gate,omitempty"`
+	// PR is its pull request's number once one is open.
+	PR int `json:"pr,omitempty"`
+	// Fix is how many auto-fix attempts it has used.
+	Fix int `json:"fix,omitempty"`
+	// Hint: the user's hint granted one more attempt.
+	Hint bool `json:"hint,omitempty"`
 }
 
 // Valid is what a client's board.save must satisfy.

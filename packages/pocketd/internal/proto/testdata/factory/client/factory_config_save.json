@@ -1,0 +1,1 @@
+{"type":"factory.config.save","id":"factory-2","project":"/app","config":{"enabled":true,"spec":true,"reviewer":true,"lead":"claude-opus","workers":"claude-sonnet","review":"codex","slots":2,"fix":1,"checks":["cargo test","cargo clippy --all-targets"]}}

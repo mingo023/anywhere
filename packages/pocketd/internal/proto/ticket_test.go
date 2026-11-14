@@ -75,6 +75,11 @@ func TestDecodeTicketRefusesFieldsAClientMayNotSet(t *testing.T) {
 	for _, raw := range []string{
 		`{"title":"T","prompt":"P","provider":"claude","folder":"/app","state":"live"}`,
 		`{"title":"T","prompt":"P","provider":"claude","folder":"/app","agentId":"a"}`,
+		`{"title":"T","prompt":"P","provider":"claude","folder":"/app","station":"plan"}`,
+		`{"title":"T","prompt":"P","provider":"claude","folder":"/app","gate":"plan"}`,
+		`{"title":"T","prompt":"P","provider":"claude","folder":"/app","pr":7}`,
+		`{"title":"T","prompt":"P","provider":"claude","folder":"/app","fix":1}`,
+		`{"title":"T","prompt":"P","provider":"claude","folder":"/app","hint":true}`,
 		`{"prompt":"P","provider":"claude","folder":"/app"}`,
 		`not json`,
 	} {

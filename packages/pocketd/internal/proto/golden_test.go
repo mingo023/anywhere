@@ -167,14 +167,21 @@ func all(goldens ...map[string]any) map[string]any {
 	return out
 }
 
-// TestServerGolden pins the exact JSON the phone decodes.
+// TestServerGolden pins the exact JSON the phone decodes and, under
+// testdata/factory, the Factory's, which only the desktop decodes.
 func TestServerGolden(t *testing.T) {
-	for name, msg := range all(serverGolden, phoneServerGolden) {
+	serverGoldens(t, "golden", all(serverGolden, phoneServerGolden))
+	serverGoldens(t, "factory", factoryServerGolden)
+}
+
+func serverGoldens(t *testing.T, dir string, goldens map[string]any) {
+	t.Helper()
+	for name, msg := range goldens {
 		got, err := json.MarshalIndent(msg, "", "  ")
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		path := filepath.Join("testdata", "golden", "server", name+".json")
+		path := filepath.Join("testdata", dir, "server", name+".json")
 		if *update {
 			if err := os.WriteFile(path, append(got, '\n'), 0o644); err != nil {
 				t.Fatal(err)
@@ -191,16 +198,19 @@ func TestServerGolden(t *testing.T) {
 	}
 }
 
-// TestClientGolden proves every message the phone may send decodes here.
+// TestClientGolden proves every message the phone may send decodes here, and
+// under testdata/factory every Factory message the desktop may.
 func TestClientGolden(t *testing.T) {
-	files, _ := filepath.Glob(filepath.Join("testdata", "golden", "client", "*.json"))
-	if len(files) == 0 {
-		t.Fatal("no client golden files")
-	}
-	for _, f := range files {
-		raw, _ := os.ReadFile(f)
-		if _, err := DecodeClient(raw); err != nil {
-			t.Errorf("%s: %v", filepath.Base(f), err)
+	for _, dir := range []string{"golden", "factory"} {
+		files, _ := filepath.Glob(filepath.Join("testdata", dir, "client", "*.json"))
+		if len(files) == 0 {
+			t.Fatalf("no client golden files in testdata/%s", dir)
+		}
+		for _, f := range files {
+			raw, _ := os.ReadFile(f)
+			if _, err := DecodeClient(raw); err != nil {
+				t.Errorf("%s: %v", filepath.Base(f), err)
+			}
 		}
 	}
 }

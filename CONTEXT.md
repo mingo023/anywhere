@@ -142,3 +142,33 @@ _Avoid_: report, result
 **Mailbox**:
 A session's queue of messages from pocketd, such as handbacks and notes. A message stays queued until a turn that showed it ends normally; one shown in a turn that failed or was stopped is sent again.
 _Avoid_: inbox, queue
+
+### Factory
+
+**Factory**:
+A project's pipeline for its Tickets, and the Board layout that shows it. With the Factory on for a project, pocketd takes each started Ticket of that project through the Stations and stops at each Gate. The project can set a slot limit of its own, which only lowers the Board's. The Factory is off for every project until the user turns it on.
+_Avoid_: run (a Run is one firing of an automation), line, workflow, conveyor
+
+**Station**:
+One step of the Factory: To do, Spec, Plan, Implement, Checks, PR review or Merged. A Ticket is in exactly one.
+_Avoid_: stage, phase, column (a column is how the Board draws a Station)
+
+**Gate**:
+A Station where only the user moves the Ticket on: Plan, where the user approves the plan, and PR review, where the user merges. No agent passes a Gate.
+_Avoid_: approval step, checkpoint
+
+**Ask**:
+A permission request from an agent, such as a command outside its allowlist. The Ticket waits on the user until the Ask is answered. An Ask is not a Gate: it can come at any Station.
+_Avoid_: prompt, approval, question (a question is one kind of Ask)
+
+**Auto-fix**:
+One attempt by a Ticket's lead to repair failed checks, started by pocketd. A project allows 0 to 2 for each Ticket. After the last one the Ticket is Failed until the user sends a hint.
+_Avoid_: retry, self-heal
+
+**Reviewer**:
+A second session in a Ticket's Worktree that reads the changes and reports findings before the PR review Gate. It cannot edit, write or run shell commands, and it cannot pass a Gate.
+_Avoid_: approver, critic
+
+**Profile**:
+A named setup for one agent session: a provider and model, a soul (who the agent is), instructions (how it works) and skills. Every project shares the Profiles. A project picks one for its lead, one for its workers and one for its Reviewer.
+_Avoid_: persona, preset, role
