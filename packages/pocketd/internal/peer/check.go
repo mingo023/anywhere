@@ -26,6 +26,7 @@ var Needs = map[string]Scope{
 	"ws:agent.settings":       Drive,
 	"ws:agent.pin":            Drive,
 	"ws:agent.btw":            Drive,
+	"ws:agent.remote_control": Drive,
 	"ws:permission.resolve":   Approve,
 	"ws:pair.begin":           Own,
 	"ws:agent.create":         Spawn,

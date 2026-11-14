@@ -79,6 +79,7 @@ func (c *chatter) read(prompts chan message) {
 				Model        string         `json:"model"`
 				Settings     map[string]any `json:"settings"`
 				CancelQueued bool           `json:"cancel_queued"`
+				Enabled      bool           `json:"enabled"`
 			} `json:"request"`
 			Response map[string]any `json:"response"`
 			Message  struct {
@@ -124,7 +125,14 @@ func (c *chatter) read(prompts chan message) {
 				default:
 				}
 			}
-			c.send(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": l.RequestID, "response": map[string]any{}}})
+			response := map[string]any{}
+			if l.Request.Subtype == "remote_control" {
+				note("remote_control: %v", l.Request.Enabled)
+				if l.Request.Enabled {
+					response["session_url"] = "https://claude.ai/code/session_fake"
+				}
+			}
+			c.send(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": l.RequestID, "response": response}})
 		}
 	}
 }

@@ -1,0 +1,6 @@
+{
+  "type": "agent.remote_control",
+  "id": "r1",
+  "agentId": "a1",
+  "url": "https://claude.ai/code/session_01La8mPYSeyy7PpSsj7a8Yjq"
+}

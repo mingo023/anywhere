@@ -15,8 +15,8 @@ pub(crate) enum Notice {
     Copied(String),
     Trashed(PathBuf),
     Mentioned { provider: String, title: String },
-    /// Why the chat sent nothing to `agent`, pointing at its terminal. It shows in that chat's footer.
-    InTerminal { agent: String, text: String },
+    /// A word for `agent`'s chat beside `icon`, as why it sent nothing; it shows in that chat's footer.
+    InChat { agent: String, icon: &'static str, text: String },
 }
 
 /// What the last trash moved, and the focused file it closed.
@@ -53,7 +53,7 @@ impl Desktop {
     pub(crate) fn show_notice(&mut self, notice: Notice, cx: &mut Context<Self>) {
         let showing = match notice {
             Notice::Trashed(_) => TRASHED_FOR,
-            Notice::InTerminal { .. } => READ_FOR,
+            Notice::InChat { .. } => READ_FOR,
             _ => COPIED_FOR,
         };
         let hide = cx.spawn(async move |this, cx| {
@@ -154,7 +154,7 @@ impl Desktop {
             Notice::Mentioned { provider, title } => toast
                 .child(provider_icon(provider, 13., TEXT_2))
                 .child(div().flex().gap(px(4.)).child("Mentioned in").child(div().max_w(px(240.)).truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title.clone()))),
-            Notice::InTerminal { .. } => return None,
+            Notice::InChat { .. } => return None,
             Notice::Trashed(from) => toast
                 .child(icon("trash", 14., TEXT_3))
                 .child(
