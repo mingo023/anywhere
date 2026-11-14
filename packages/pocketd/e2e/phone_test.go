@@ -69,25 +69,28 @@ type Message struct {
 			Command string `json:"command"`
 		} `json:"detail"`
 	} `json:"request"`
-	RequestID      string             `json:"requestId"`
-	Decision       string             `json:"decision"`
-	TerminalID     string             `json:"terminalId"`
-	Cwd            string             `json:"cwd"`
-	Setup          bool               `json:"setup"`
-	Code           string             `json:"code"`
-	Detail         string             `json:"detail"`
-	MaxAccess      string             `json:"maxAccess"`
-	PhoneMaxAccess string             `json:"phoneMaxAccess"`
-	DeviceID       string             `json:"deviceId"`
-	Token          string             `json:"token"`
-	Names          map[string]string  `json:"names"`
-	Automations    []proto.Automation `json:"automations"`
-	Runs           []proto.Run        `json:"runs"`
-	Tickets        []proto.Ticket     `json:"tickets"`
-	Limit          int                `json:"limit"`
-	Team           proto.Team         `json:"team"`
-	Teams          []proto.Team       `json:"teams"`
-	Raw            string             `json:"-"`
+	RequestID      string              `json:"requestId"`
+	Decision       string              `json:"decision"`
+	TerminalID     string              `json:"terminalId"`
+	Cwd            string              `json:"cwd"`
+	Setup          bool                `json:"setup"`
+	Code           string              `json:"code"`
+	Detail         string              `json:"detail"`
+	MaxAccess      string              `json:"maxAccess"`
+	PhoneMaxAccess string              `json:"phoneMaxAccess"`
+	DeviceID       string              `json:"deviceId"`
+	Token          string              `json:"token"`
+	Names          map[string]string   `json:"names"`
+	Automations    []proto.Automation  `json:"automations"`
+	Runs           []proto.Run         `json:"runs"`
+	Tickets        []proto.Ticket      `json:"tickets"`
+	Limit          int                 `json:"limit"`
+	Team           proto.Team          `json:"team"`
+	Teams          []proto.Team        `json:"teams"`
+	TicketID       string              `json:"ticketId"`
+	Ticket         proto.FactoryTicket `json:"ticket"`
+	Config         proto.FactoryConfig `json:"config"`
+	Raw            string              `json:"-"`
 }
 
 func (h *Harness) Phone() *Phone {

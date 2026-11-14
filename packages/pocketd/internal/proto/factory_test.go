@@ -31,6 +31,16 @@ var factoryServerGolden = map[string]any{
 		Slots: 2, Fix: 1, Checks: []string{"cargo test", "cargo clippy --all-targets"}}, ""),
 	"factory_config_problem":    NewFactoryConfig("factory-2", "/app", DefaultFactoryConfig(), "Install GitHub CLI (gh) to use the Factory"),
 	"error_factory_unavailable": NewErrorCode("factory-3", CodeFactoryUnavailable, "This project has no GitHub remote"),
+	"factory_ticket": NewFactoryTicket("factory-4", FactoryTicket{
+		TicketID: "t1",
+		Spec:     "## Brief\nSends wait in a queue.\n## Acceptance criteria\n- [ ] A send survives a restart\n## Risks\n- None",
+		Activity: []FactoryEvent{
+			{At: 1790000000000, Station: StationSpec, Actor: "anywhere", Kind: "moved"},
+			{At: 1790000060000, Station: StationPlan, Actor: "anywhere", Kind: "moved"},
+			{At: 1790000120000, Station: StationPlan, Actor: "you", Kind: "approved", Text: "2 workers"},
+		},
+	}),
+	"factory_update": NewFactoryUpdate("t1"),
 }
 
 func TestAFactoryTicketCarriesItsStationOnTheBoard(t *testing.T) {
@@ -155,5 +165,32 @@ func TestAFactoryConfigReplyAlwaysListsItsCommands(t *testing.T) {
 	}
 	if CodeFactoryOff != "factory_off" || CodeFactoryUnavailable != "factory_unavailable" || CodeInvalidConfig != "invalid_config" {
 		t.Fatal("a Factory error code changed its wire name")
+	}
+}
+
+func TestFactoryTicketDecodesWithItsTicketID(t *testing.T) {
+	m, err := DecodeClient(factoryGolden(t, "client", "factory_ticket.json"))
+	if err != nil || m.Type != "factory.ticket" || m.ID != "factory-4" || m.TicketID != "t1" {
+		t.Fatalf("got %+v, %v", m, err)
+	}
+	for _, raw := range []string{
+		`{"type":"factory.ticket","id":"1"}`,
+		`{"type":"factory.ticket","id":"1","ticketId":""}`,
+		`{"type":"factory.ticket","id":"1","ticketId":7}`,
+	} {
+		if _, err := DecodeClient([]byte(raw)); err == nil {
+			t.Errorf("accepted %s", raw)
+		}
+	}
+}
+
+func TestATicketWithNoActivitySendsAnEmptyList(t *testing.T) {
+	got, _ := json.Marshal(NewFactoryTicket("f1", FactoryTicket{TicketID: "t1", Activity: []FactoryEvent{}}))
+	if string(got) != `{"type":"factory.ticket","id":"f1","ticket":{"ticketId":"t1","activity":[]}}` {
+		t.Fatalf("%s", got)
+	}
+	got, _ = json.Marshal(NewFactoryUpdate("t1"))
+	if string(got) != `{"type":"factory.update","ticketId":"t1"}` {
+		t.Fatalf("%s", got)
 	}
 }

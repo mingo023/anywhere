@@ -159,8 +159,11 @@ func serve(sock, handed string) error {
 	}
 	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
 	d.Broker.OnAsk = notifier.Ask
+	// Assigned once below, before the first agent exists. A nil engine ignores its hooks.
+	var fac *factory.Engine
 	d.Agents.OnStatus = func(id, provider, from, to string) {
 		teams.Status(id, from, to)
+		fac.Status(id, from, to)
 		evs.Emit(events.Event{Kind: "status", Agent: id, Provider: provider, From: from, To: to})
 		notifier.Kick(id, from, to)
 		d.Pump(id)
@@ -215,7 +218,10 @@ func serve(sock, handed string) error {
 			}
 			return r.AgentID, r.Cwd, nil
 		}
-		d.Agents.OnTurnEnd = teams.TurnEnded
+		d.Agents.OnTurnEnd = func(id string, ok bool) {
+			teams.TurnEnded(id, ok)
+			fac.TurnEnded(id, ok)
+		}
 		d.Broker.Allow = teams.Allow
 	}
 	go teams.Run(ctx)
@@ -247,8 +253,19 @@ func serve(sock, handed string) error {
 		}}
 	tickets := board.Open(home)
 	factoryConfigs := factory.OpenConfigs(home)
-	boardScheduler := &board.Scheduler{Store: tickets, Now: time.Now, Watch: board.AgentWatcher(d.Agents), Limit: factoryConfigs.Limit,
+	if teams != nil {
+		fac = &factory.Engine{Home: home, Board: tickets, Configs: factoryConfigs, Teams: teams, Agents: d.Agents, Now: time.Now, Mail: d.Mail,
+			Launch: func(key, requestID string, s proto.LaunchSpec, created func(string)) launch.Result {
+				return l.Create(launch.Who{Owner: true, Key: key}, requestID, s, func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
+			}}
+		teams.OnChange = fac.TeamChanged
+		go fac.Run(ctx)
+	}
+	boardScheduler := &board.Scheduler{Store: tickets, Now: time.Now, Watch: board.AgentWatcher(d.Agents), Limit: factoryConfigs.Limit, Owns: fac.Owns,
 		Start: func(requestID string, t proto.Ticket, created func(string)) launch.Result {
+			if fac.Owns(t) {
+				return fac.Start(requestID, t, created)
+			}
 			return l.Create(launch.Who{Owner: true, Key: "board:" + t.ID}, requestID, board.Spec(t, requestID), func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
 		}}
 	ownerTokens := &owners.Store{Path: owners.Path(home)}
@@ -256,7 +273,7 @@ func serve(sock, handed string) error {
 	if err != nil {
 		log.Printf("skills: %v", err)
 	}
-	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore, Teams: teams, FactoryConfigs: factoryConfigs}
+	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore, Teams: teams, FactoryConfigs: factoryConfigs, Factory: fac}
 	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
@@ -302,6 +319,7 @@ func serve(sock, handed string) error {
 	go func() {
 		if d.WaitRestored(ctx) == nil {
 			teams.Recover()
+			fac.Recover()
 			claimWorktrees(home, reg.Load(), usedFolders(worktreeNames, d.Terminals, tickets, autos))
 		}
 	}()

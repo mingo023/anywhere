@@ -1,0 +1,29 @@
+{
+  "type": "factory.ticket",
+  "id": "factory-4",
+  "ticket": {
+    "ticketId": "t1",
+    "spec": "## Brief\nSends wait in a queue.\n## Acceptance criteria\n- [ ] A send survives a restart\n## Risks\n- None",
+    "activity": [
+      {
+        "at": 1790000000000,
+        "station": "spec",
+        "actor": "anywhere",
+        "kind": "moved"
+      },
+      {
+        "at": 1790000060000,
+        "station": "plan",
+        "actor": "anywhere",
+        "kind": "moved"
+      },
+      {
+        "at": 1790000120000,
+        "station": "plan",
+        "actor": "you",
+        "kind": "approved",
+        "text": "2 workers"
+      }
+    ]
+  }
+}

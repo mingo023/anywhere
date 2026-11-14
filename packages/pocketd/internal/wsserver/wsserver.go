@@ -111,6 +111,10 @@ type Server struct {
 	Teams *team.Teams
 	// FactoryConfigs serves the factory.config verbs; nil drops factory.v1.
 	FactoryConfigs *factory.Configs
+	// Factory serves factory.ticket and the factory.update feed; nil answers factory_off.
+	Factory *factory.Engine
+	// factoryFeed hands each changed Ticket to every owner conn that asked.
+	factoryFeed factoryFeed
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -142,6 +146,7 @@ type conn struct {
 
 	stopAutomations func()
 	stopBoard       func()
+	stopFactory     func()
 	// boardMu keeps a verb's ack ahead of the snapshot it causes.
 	boardMu sync.Mutex
 	// automationMu keeps a verb's ack ahead of the snapshot its change triggers.
@@ -202,6 +207,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.stopBoard != nil {
 			c.stopBoard()
+		}
+		if c.stopFactory != nil {
+			c.stopFactory()
 		}
 		if c.stopLocals != nil {
 			c.stopLocals()
@@ -342,6 +350,7 @@ func (c *conn) handle(raw []byte) {
 		c.send(proto.NewAgentList("", c.s.Agents.List()))
 		c.automations(caps)
 		c.boardFeed(caps)
+		c.factoryUpdates(caps)
 		for _, req := range c.s.Broker.Open() {
 			c.send(proto.NewPermissionRequest(req))
 		}
@@ -625,6 +634,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.teamRun(m)
 	case "factory.config.get", "factory.config.save":
 		return c.factoryVerb(m)
+	case "factory.ticket":
+		return c.factoryTicket(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")

@@ -137,3 +137,24 @@ type Finding struct {
 	Line     int    `json:"line,omitempty"`
 	Message  string `json:"message"`
 }
+
+// FactoryTicketReply answers factory.ticket.
+type FactoryTicketReply struct {
+	Type   string        `json:"type"`
+	ID     string        `json:"id"`
+	Ticket FactoryTicket `json:"ticket"`
+}
+
+func NewFactoryTicket(id string, t FactoryTicket) FactoryTicketReply {
+	return FactoryTicketReply{Type: "factory.ticket", ID: id, Ticket: t}
+}
+
+// FactoryUpdate says a Ticket's detail changed. The desktop asks again with factory.ticket.
+type FactoryUpdate struct {
+	Type     string `json:"type"`
+	TicketID string `json:"ticketId"`
+}
+
+func NewFactoryUpdate(ticketID string) FactoryUpdate {
+	return FactoryUpdate{Type: "factory.update", TicketID: ticketID}
+}

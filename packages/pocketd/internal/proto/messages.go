@@ -258,6 +258,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = f.text("project", &m.Project)
 	case m.Type == "factory.config.save":
 		ok = f.text("project", &m.Project) && decodeFactoryConfig(f["config"], &m.Config)
+	case m.Type == "factory.ticket":
+		ok = get("ticketId", &m.TicketID) && m.TicketID != ""
 	default:
 		decode := phoneVerb(m.Type)
 		ok = decode != nil && decode(f, &m)
