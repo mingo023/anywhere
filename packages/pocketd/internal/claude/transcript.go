@@ -63,6 +63,9 @@ type line struct {
 		Command string `json:"command"`
 		Args    string `json:"args"`
 	} `json:"commandRun"`
+	CommandOutcome struct {
+		Kind string `json:"kind"`
+	} `json:"commandOutcome"`
 }
 
 // origin says who wrote a line Claude didn't take from the human.
@@ -271,6 +274,12 @@ func (l line) events() (events []timeline.Event) {
 			}
 		case "compact_boundary":
 			return []timeline.Event{{Kind: "compacted", Trigger: l.CompactMetadata.Trigger}}
+		case "local_command":
+			// claude -p writes no caveat before refusing a command only its terminal runs, so the refusal ends its own turn.
+			if l.CommandOutcome.Kind == "unavailable_headless" {
+				out, _ := l.localOutput()
+				return append(notice(out), timeline.Event{Kind: "result", OK: true})
+			}
 		}
 	case "attachment":
 		// A task notification or prompt that comes mid-turn joins the turn as a queued command, not a user line.

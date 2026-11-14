@@ -120,6 +120,8 @@ mod tests {
         assert_eq!(claude.command("clear", ""), Kind::Unsupported);
         assert_eq!(claude.command("cost", ""), Kind::Unsupported);
         assert_eq!(claude.command("resume", ""), Kind::Unsupported);
+        assert_eq!(claude.command("remote-control", ""), Kind::Unsupported, "claude -p refuses it");
+        assert_eq!(claude.command("rc", ""), Kind::Unsupported);
         assert_eq!(claude.command("add-dir", ""), Kind::Unsupported);
         assert_eq!(claude.command("add-dir", "../other"), Kind::Send);
         assert_eq!(claude.command("goal", "tests pass"), Kind::Send);

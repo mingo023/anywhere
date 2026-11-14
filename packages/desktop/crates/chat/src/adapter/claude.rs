@@ -32,7 +32,7 @@ impl Backend for Claude {
             "new" => Kind::Local(Local::New),
             "btw" => Kind::Local(Local::Btw),
             "mcp" => Kind::Local(Local::Mcp),
-            "clear" | "reset" | "resume" => Kind::Unsupported,
+            "clear" | "reset" | "resume" | "remote-control" | "rc" => Kind::Unsupported,
             "add-dir" if arg.is_empty() => Kind::Unsupported,
             _ if PANELS.contains(&name) => Kind::Unsupported,
             _ => Kind::Send,
