@@ -195,7 +195,7 @@ fn relisted(text: &str, list: Range<usize>, changed: &str, restart: &[usize], se
 /// text around it. None under another item, whose list it is already part of, and for a quote.
 pub fn list_started(text: &str, typed: Range<usize>, selection: Range<usize>) -> Option<Edit> {
     let at = typed.end;
-    if typed.is_empty() || !text[..at].ends_with(' ') || selection != (at..at) || in_block(text, at) {
+    if typed.is_empty() || !text.get(..at).is_some_and(|t| t.ends_with(' ')) || selection != (at..at) || in_block(text, at) {
         return None;
     }
     let line = line_at(text, at);
@@ -491,6 +491,11 @@ mod tests {
     fn a_bullet_backed_into_or_undone_stays_where_it_is() {
         assert_eq!(list_started("- a", 2..2, 2..2), None, "a deletion types nothing");
         assert_eq!(list_started("- ", 0..2, 2..2).map(|e| e.text).as_deref(), Some("  "), "an input method's whole-text edit still ends in the space");
+    }
+
+    #[test]
+    fn a_typed_range_the_text_no_longer_holds_starts_no_list() {
+        assert_eq!(list_started("", 19..20, 0..0), None, "a send cleared the prompt before its edit was read");
     }
 
     #[test]
