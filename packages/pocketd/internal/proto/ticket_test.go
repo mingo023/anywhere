@@ -57,7 +57,7 @@ func TestATicketNeedsATitleAPromptAKnownAgentAndAFolder(t *testing.T) {
 }
 
 func TestOnlyTicketsWithWorkInHandHoldASlot(t *testing.T) {
-	for status, want := range map[string]bool{TicketStarting: true, TicketWorking: true, TicketNeedsYou: true, TicketDone: false, TicketIdle: false, TicketFailed: false, TicketStopped: false} {
+	for status, want := range map[string]bool{TicketStarting: true, TicketWorking: true, TicketNeedsYou: false, TicketDone: false, TicketIdle: false, TicketFailed: false, TicketStopped: false} {
 		if got := (Ticket{State: TicketLive, Status: status}).HoldsSlot(); got != want {
 			t.Errorf("%s: %v", status, got)
 		}

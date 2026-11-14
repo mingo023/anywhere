@@ -118,7 +118,7 @@ A piece of work on the Board: a title, a prompt, an agent, a project and the bra
 _Avoid_: task, issue
 
 **Queued**:
-Started and waiting for a slot. pocketd starts the first in line while fewer Tickets than the limit are Starting, Working or Needs you.
+Started and waiting for a slot. pocketd starts the first in line while fewer Tickets than the limit are Starting or Working. A Ticket that waits on you holds no slot. When you answer, it works again at once, even if that puts the count above the limit, and no queued Ticket starts until the count is below the limit again.
 _Avoid_: pending, backlog
 
 ### Teams

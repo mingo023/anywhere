@@ -78,6 +78,8 @@ func TestAStartAgainReusesTheWorktree(t *testing.T) {
 type world struct {
 	mu     sync.Mutex
 	result launch.Result
+	// each gives every ticket an agent named after its title instead of result.
+	each   bool
 	seen   map[string]Seen
 	starts []proto.Ticket
 	// cwd is the Worktree told about while launching.
@@ -91,7 +93,16 @@ func (w *world) start(_ string, t proto.Ticket, created func(string)) launch.Res
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.starts = append(w.starts, t)
+	if w.each {
+		return launch.Result{AgentID: t.Title, TerminalID: "tm-" + t.Title}
+	}
 	return w.result
+}
+
+func (w *world) see(agentID, status string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.seen[agentID] = Seen{Status: status}
 }
 
 func (w *world) watch(id string, _ bool) (Seen, bool) {
@@ -162,7 +173,7 @@ func TestALaunchThatDiesKeepsTheWorktreeItMade(t *testing.T) {
 func TestAMissingAgentRightAfterARestartIsGivenTimeToComeBack(t *testing.T) {
 	s := Open(t.TempDir())
 	x := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(x.ID, func(t *proto.Ticket) { t.AgentID, t.Status = "gone", proto.TicketWorking })
 	running(t, s, &world{seen: map[string]Seen{}}, nil)
 	time.Sleep(40 * time.Millisecond)
@@ -175,7 +186,7 @@ func TestAMergedPullRequestClosesTheTicket(t *testing.T) {
 	s := Open(t.TempDir())
 	dir := t.TempDir()
 	x := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(x.ID, func(t *proto.Ticket) { t.AgentID, t.Status, t.Worktree = "a", proto.TicketIdle, dir })
 	w := &world{seen: map[string]Seen{"a": {Status: "idle"}}}
 	running(t, s, w, func(_ context.Context, tree string) bool { return tree == dir })
@@ -188,7 +199,7 @@ func TestAMergedPullRequestClosesTheTicket(t *testing.T) {
 func TestADeletedWorktreeClosesAnEndedTicket(t *testing.T) {
 	s := Open(t.TempDir())
 	x := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(x.ID, func(t *proto.Ticket) { t.AgentID, t.Status, t.Worktree = "a", proto.TicketStopped, "/nowhere/at/all" })
 	(&Scheduler{Store: s, Now: time.Now}).sweep(at)
 	if g := got(t, s, x.ID); g.State != proto.TicketClosed || g.ClosedWhy != proto.ClosedDeleted || g.Worktree != "" {
@@ -199,7 +210,7 @@ func TestADeletedWorktreeClosesAnEndedTicket(t *testing.T) {
 func TestDeletingTheWorktreeOfAMergedTicketKeepsItMerged(t *testing.T) {
 	s := Open(t.TempDir())
 	x := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(x.ID, func(t *proto.Ticket) {
 		t.State, t.ClosedWhy, t.Status, t.Worktree = proto.TicketClosed, proto.ClosedMerged, proto.TicketIdle, "/nowhere/at/all"
 	})
@@ -213,10 +224,81 @@ func TestAWorktreeThatStillExistsIsLeftAlone(t *testing.T) {
 	s := Open(t.TempDir())
 	dir := t.TempDir()
 	x := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(x.ID, func(t *proto.Ticket) { t.Status, t.Worktree = proto.TicketIdle, dir })
 	(&Scheduler{Store: s, Now: time.Now}).sweep(at)
 	if g := got(t, s, x.ID); g.State != proto.TicketLive || g.Worktree != dir {
 		t.Fatalf("got %+v", g)
 	}
+}
+
+func TestATicketThatWaitsOnYouFreesItsSlotForTheNextInLine(t *testing.T) {
+	s := Open(t.TempDir())
+	s.SetLimit(1)
+	w := &world{each: true, seen: map[string]Seen{"a": {Status: "working"}, "b": {Status: "working"}}}
+	a := saved(t, s, "a", true)
+	b := saved(t, s, "b", true)
+	running(t, s, w, nil)
+	waitFor(t, "a working", func() bool { return got(t, s, a.ID).Status == proto.TicketWorking })
+	if g := got(t, s, b.ID); g.State != proto.TicketQueued {
+		t.Fatalf("b started under a full limit: %+v", g)
+	}
+	w.see("a", "needsYou")
+	waitFor(t, "b working", func() bool { return got(t, s, b.ID).Status == proto.TicketWorking })
+	if g := got(t, s, a.ID); g.State != proto.TicketLive || g.Status != proto.TicketNeedsYou {
+		t.Fatalf("got %+v", g)
+	}
+}
+
+func TestAnAnsweredTicketResumesAboveTheLimitAndNothingStartsUntilTheCountIsBelowIt(t *testing.T) {
+	s := Open(t.TempDir())
+	s.SetLimit(1)
+	w := &world{each: true, seen: map[string]Seen{"a": {Status: "needsYou"}, "b": {Status: "working"}, "c": {Status: "working"}}}
+	a := saved(t, s, "a", true)
+	b := saved(t, s, "b", true)
+	c := saved(t, s, "c", true)
+	running(t, s, w, nil)
+	waitFor(t, "a asking and b working", func() bool {
+		return got(t, s, a.ID).Status == proto.TicketNeedsYou && got(t, s, b.ID).Status == proto.TicketWorking
+	})
+	w.see("a", "working")
+	waitFor(t, "a working again", func() bool { return got(t, s, a.ID).Status == proto.TicketWorking })
+	w.see("b", "done")
+	waitFor(t, "b done", func() bool { return got(t, s, b.ID).Status == proto.TicketDone })
+	time.Sleep(40 * time.Millisecond)
+	if g := got(t, s, c.ID); g.State != proto.TicketQueued {
+		t.Fatalf("c started while a held the only slot: %+v", g)
+	}
+	w.see("a", "done")
+	waitFor(t, "c working", func() bool { return got(t, s, c.ID).Status == proto.TicketWorking })
+}
+
+func TestADeletedWorktreeLeavesATicketThatWaitsOnYouAlone(t *testing.T) {
+	s := Open(t.TempDir())
+	x := saved(t, s, "a", true)
+	s.Claim(at, nil)
+	s.Update(x.ID, func(t *proto.Ticket) { t.AgentID, t.Status, t.Worktree = "a", proto.TicketNeedsYou, "/nowhere/at/all" })
+	(&Scheduler{Store: s, Now: time.Now}).sweep(at)
+	if g := got(t, s, x.ID); g.State != proto.TicketLive || g.Worktree != "/nowhere/at/all" {
+		t.Fatalf("got %+v", g)
+	}
+}
+
+func TestTheSchedulerHoldsAProjectToItsOwnLimit(t *testing.T) {
+	s := Open(t.TempDir())
+	w := &world{each: true, seen: map[string]Seen{"a": {Status: "working"}, "b": {Status: "working"}}}
+	a := saved(t, s, "a", true)
+	b := saved(t, s, "b", true)
+	ctx, cancel := context.WithCancel(context.Background())
+	sch := &Scheduler{Store: s, Now: time.Now, Poll: 5 * time.Millisecond, Start: w.start, Watch: w.watch, Limit: func(string) int { return 1 }}
+	done := make(chan struct{})
+	go func() { sch.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	waitFor(t, "a working", func() bool { return got(t, s, a.ID).Status == proto.TicketWorking })
+	time.Sleep(40 * time.Millisecond)
+	if g := got(t, s, b.ID); g.State != proto.TicketQueued {
+		t.Fatalf("b started over its project's limit: %+v", g)
+	}
+	w.see("a", "done")
+	waitFor(t, "b working", func() bool { return got(t, s, b.ID).Status == proto.TicketWorking })
 }

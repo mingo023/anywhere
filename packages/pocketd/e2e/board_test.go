@@ -65,8 +65,8 @@ func TestOverTheLimitATicketWaitsInQueued(t *testing.T) {
 	if a := o.Board("limit", "l1", map[string]any{"limit": 1}); a.Type != "ack" {
 		t.Fatalf("got %s", a.Raw)
 	}
-	o.Board("save", "s1", map[string]any{"ticket": ticketDraft(h, "run ls"), "start": true})
-	first := o.WaitTicket("the first asking", func(x proto.Ticket) bool { return x.Status == proto.TicketNeedsYou })
+	o.Board("save", "s1", map[string]any{"ticket": ticketDraft(h, "hang"), "start": true})
+	first := o.WaitTicket("the first working", func(x proto.Ticket) bool { return x.Status == proto.TicketWorking })
 	o.Board("save", "s2", map[string]any{"ticket": ticketDraft(h, "hello"), "start": true})
 	second := o.WaitTicket("the second waiting", func(x proto.Ticket) bool { return x.ID != first.ID && x.State == proto.TicketQueued })
 
@@ -74,6 +74,18 @@ func TestOverTheLimitATicketWaitsInQueued(t *testing.T) {
 		t.Fatalf("got %s", a.Raw)
 	}
 	o.WaitTicket("the second started", func(x proto.Ticket) bool { return x.ID == second.ID && x.State == proto.TicketLive })
+}
+
+func TestATicketThatAsksLetsTheNextInLineStart(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner(proto.CapBoard)
+	if a := o.Board("limit", "l1", map[string]any{"limit": 1}); a.Type != "ack" {
+		t.Fatalf("got %s", a.Raw)
+	}
+	o.Board("save", "s1", map[string]any{"ticket": ticketDraft(h, "run ls"), "start": true})
+	first := o.WaitTicket("the first asking", func(x proto.Ticket) bool { return x.Status == proto.TicketNeedsYou })
+	o.Board("save", "s2", map[string]any{"ticket": ticketDraft(h, "hello"), "start": true})
+	o.WaitTicket("the second started", func(x proto.Ticket) bool { return x.ID != first.ID && x.State == proto.TicketLive })
 }
 
 func TestALiveTicketCannotBeDeleted(t *testing.T) {

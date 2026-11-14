@@ -208,14 +208,14 @@ pub(crate) fn column(t: &Ticket) -> Col {
     }
 }
 
-/// The tickets counted against the Board's limit.
+/// The tickets counted against the Board's limit. One that waits on you holds no slot, as in pocketd's `Ticket.HoldsSlot`.
 pub(crate) fn busy(tickets: &[Ticket]) -> usize {
-    tickets.iter().filter(|t| t.state == State::Live && matches!(t.status, Status::Starting | Status::Working | Status::NeedsYou)).count()
+    tickets.iter().filter(|t| t.state == State::Live && matches!(t.status, Status::Starting | Status::Working)).count()
 }
 
-/// Said in the composer when a new ticket would not start right away.
+/// Said in the composer when a new ticket would not start right away. A ticket that resumes can put `busy` above `limit`.
 pub(crate) fn wait_hint(busy: usize, limit: usize) -> Option<String> {
-    (busy >= limit).then(|| format!("{limit} of {limit} working, so it will wait in Queued"))
+    (busy >= limit).then(|| format!("{} of {limit} working, so it will wait in Queued", busy))
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -881,13 +881,20 @@ mod tests {
     #[test]
     fn only_live_tickets_with_work_in_hand_count_against_the_limit() {
         let tickets = [live(Status::Working), live(Status::NeedsYou), live(Status::Starting), live(Status::Done), live(Status::Idle), ticket("q", State::Queued, Status::None), ticket("c", State::Closed, Status::Working)];
-        assert_eq!(busy(&tickets), 3);
+        assert_eq!(busy(&tickets), 2);
+    }
+
+    #[test]
+    fn a_ticket_that_waits_on_you_holds_no_slot() {
+        assert_eq!(busy(&[live(Status::NeedsYou)]), 0);
+        assert_eq!(busy(&[live(Status::Working), live(Status::NeedsYou)]), 1);
     }
 
     #[test]
     fn the_composer_warns_only_when_every_slot_is_taken() {
         assert_eq!(wait_hint(3, 4), None);
         assert_eq!(wait_hint(4, 4).as_deref(), Some("4 of 4 working, so it will wait in Queued"));
+        assert_eq!(wait_hint(6, 4).as_deref(), Some("6 of 4 working, so it will wait in Queued"));
     }
 
     #[test]

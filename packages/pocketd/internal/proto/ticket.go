@@ -100,9 +100,10 @@ func validLabels(labels []string) bool {
 	return true
 }
 
-// HoldsSlot is whether t counts against the Board's limit.
+// HoldsSlot is whether t counts against the Board's limit. One that waits on
+// the user doesn't, so the user's delay holds no other ticket back.
 func (t Ticket) HoldsSlot() bool {
-	return t.State == TicketLive && slices.Contains([]string{TicketStarting, TicketWorking, TicketNeedsYou}, t.Status)
+	return t.State == TicketLive && (t.Status == TicketStarting || t.Status == TicketWorking)
 }
 
 // Board is the full snapshot; it is never a delta.

@@ -314,16 +314,20 @@ func (s *Store) SetLimit(n int) error {
 }
 
 // Claim returns the tickets to launch now: every one asked to start again,
-// then the first in line that fit under the limit, marked as starting.
-func (s *Store) Claim(now time.Time) []proto.Ticket {
+// then the first in line that fit under the limit, marked as starting. limit
+// is a project folder's own limit, 0 for none; it only lowers the Board's. A
+// nil limit gives no project one.
+func (s *Store) Claim(now time.Time, limit func(folder string) int) []proto.Ticket {
 	var claimed []proto.Ticket
 	err := s.commit(func(f *File) error {
 		claimed = nil
 		busy := 0
+		busyIn := map[string]int{}
 		var queued []int
 		for i, t := range f.Tickets {
 			if t.HoldsSlot() {
 				busy++
+				busyIn[t.Folder]++
 			}
 			if t.State == proto.TicketQueued {
 				queued = append(queued, i)
@@ -339,9 +343,15 @@ func (s *Store) Claim(now time.Time) []proto.Ticket {
 				break
 			}
 			t := &f.Tickets[i]
+			if limit != nil {
+				if n := limit(t.Folder); n > 0 && busyIn[t.Folder] >= n {
+					continue
+				}
+			}
 			t.State, t.Status, t.ChangedAt = proto.TicketLive, proto.TicketStarting, now.UnixMilli()
 			claimed = append(claimed, *t)
 			busy++
+			busyIn[t.Folder]++
 		}
 		if len(claimed) == 0 {
 			return errNoChange

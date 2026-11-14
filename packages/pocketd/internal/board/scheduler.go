@@ -50,6 +50,8 @@ type Scheduler struct {
 	Watch Watcher
 	// Merged says tree's PR is merged; nil never closes a ticket for it.
 	Merged func(ctx context.Context, tree string) bool
+	// Limit is a project folder's own slot limit, 0 for none; nil gives no project one.
+	Limit func(folder string) int
 
 	asking atomic.Bool
 }
@@ -116,7 +118,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 	for {
 		changed := s.Store.Changed()
 		now := s.Now()
-		for _, t := range s.Store.Claim(now) {
+		for _, t := range s.Store.Claim(now, s.Limit) {
 			go s.launch(t)
 		}
 		s.observe(now.Sub(began) < reattachWait)
@@ -186,12 +188,18 @@ func (s *Scheduler) observe(reattaching bool) {
 	}
 }
 
+// inHand is whether t's session still works or waits on the user. sweep
+// leaves such a ticket alone, though one that waits holds no slot.
+func inHand(t proto.Ticket) bool {
+	return t.HoldsSlot() || t.State == proto.TicketLive && t.Status == proto.TicketNeedsYou
+}
+
 // sweep notices Worktrees deleted outside the Board: a live ticket closes, a
 // closed one stops offering what is gone.
 func (s *Scheduler) sweep(now time.Time) {
 	tickets, _ := s.Store.Snapshot()
 	for _, t := range tickets {
-		if t.Worktree == "" || t.HoldsSlot() {
+		if t.Worktree == "" || inHand(t) {
 			continue
 		}
 		if !gone(t.Worktree) {

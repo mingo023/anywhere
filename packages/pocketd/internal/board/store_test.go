@@ -36,6 +36,21 @@ func got(t *testing.T, s *Store, id string) proto.Ticket {
 	return tickets[i]
 }
 
+func savedIn(t *testing.T, s *Store, title, folder string) proto.Ticket {
+	t.Helper()
+	d := draft(title)
+	d.Folder = folder
+	x, err := s.Save(d, true, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return x
+}
+
+func limits(by map[string]int) func(string) int {
+	return func(folder string) int { return by[folder] }
+}
+
 func titles(tickets []proto.Ticket) []string {
 	var out []string
 	for _, t := range tickets {
@@ -49,7 +64,7 @@ func TestANewTicketWaitsInToDoUntilStarted(t *testing.T) {
 	if x := saved(t, s, "a", false); x.State != proto.TicketTodo || x.Order == 0 || x.ID == "" {
 		t.Fatalf("got %+v", x)
 	}
-	if c := s.Claim(at); len(c) != 0 {
+	if c := s.Claim(at, nil); len(c) != 0 {
 		t.Fatalf("claimed %+v", c)
 	}
 }
@@ -67,11 +82,46 @@ func TestClaimStartsTheOldestQueuedUpToTheLimit(t *testing.T) {
 	for _, n := range []string{"a", "b", "c"} {
 		saved(t, s, n, true)
 	}
-	if c := titles(s.Claim(at)); !slices.Equal(c, []string{"a", "b"}) {
+	if c := titles(s.Claim(at, nil)); !slices.Equal(c, []string{"a", "b"}) {
 		t.Fatalf("got %v", c)
 	}
-	if c := s.Claim(at); len(c) != 0 {
+	if c := s.Claim(at, nil); len(c) != 0 {
 		t.Fatalf("over the limit: %v", titles(c))
+	}
+}
+
+func TestAProjectLimitOnlyLowersTheBoardLimit(t *testing.T) {
+	s := Open(t.TempDir())
+	s.SetLimit(2)
+	for _, n := range []string{"a", "b", "c"} {
+		saved(t, s, n, true)
+	}
+	if c := titles(s.Claim(at, limits(map[string]int{"/repo": 1}))); !slices.Equal(c, []string{"a"}) {
+		t.Fatalf("a project limit of 1 under a Board limit of 2: %v", c)
+	}
+	if c := titles(s.Claim(at, limits(map[string]int{"/repo": 8}))); !slices.Equal(c, []string{"b"}) {
+		t.Fatalf("a project limit of 8 under a Board limit of 2: %v", c)
+	}
+}
+
+func TestTheBoardLimitStillCapsAllProjectsTogether(t *testing.T) {
+	s := Open(t.TempDir())
+	s.SetLimit(2)
+	savedIn(t, s, "a", "/one")
+	savedIn(t, s, "b", "/two")
+	savedIn(t, s, "c", "/three")
+	if c := titles(s.Claim(at, limits(map[string]int{"/one": 2, "/two": 2, "/three": 2}))); !slices.Equal(c, []string{"a", "b"}) {
+		t.Fatalf("got %v", c)
+	}
+}
+
+func TestAProjectAtItsLimitDoesNotHoldBackAnotherProjectsTicket(t *testing.T) {
+	s := Open(t.TempDir())
+	savedIn(t, s, "a", "/one")
+	savedIn(t, s, "b", "/one")
+	savedIn(t, s, "c", "/two")
+	if c := titles(s.Claim(at, limits(map[string]int{"/one": 1}))); !slices.Equal(c, []string{"a", "c"}) {
+		t.Fatalf("got %v", c)
 	}
 }
 
@@ -80,9 +130,9 @@ func TestAFinishedTicketFreesItsSlotForTheNextInLine(t *testing.T) {
 	s.SetLimit(1)
 	a := saved(t, s, "a", true)
 	saved(t, s, "b", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketDone })
-	if c := titles(s.Claim(at)); !slices.Equal(c, []string{"b"}) {
+	if c := titles(s.Claim(at, nil)); !slices.Equal(c, []string{"b"}) {
 		t.Fatalf("got %v", c)
 	}
 }
@@ -92,12 +142,12 @@ func TestAClosedTicketStopsHoldingItsSlot(t *testing.T) {
 	s.SetLimit(1)
 	a := saved(t, s, "a", true)
 	saved(t, s, "b", true)
-	s.Claim(at)
-	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketNeedsYou })
+	s.Claim(at, nil)
+	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketWorking })
 	if err := s.Close(a.ID, proto.ClosedByUser, at); err != nil {
 		t.Fatal(err)
 	}
-	if c := titles(s.Claim(at)); !slices.Equal(c, []string{"b"}) {
+	if c := titles(s.Claim(at, nil)); !slices.Equal(c, []string{"b"}) {
 		t.Fatalf("got %v", c)
 	}
 }
@@ -110,7 +160,7 @@ func TestMoveReordersAQueueAndSoWhatStartsNext(t *testing.T) {
 	if err := s.Move(b.ID, proto.TicketQueued, a.ID, at); err != nil {
 		t.Fatal(err)
 	}
-	if c := titles(s.Claim(at)); !slices.Equal(c, []string{"b"}) {
+	if c := titles(s.Claim(at, nil)); !slices.Equal(c, []string{"b"}) {
 		t.Fatalf("got %v", c)
 	}
 }
@@ -121,7 +171,7 @@ func TestMoveBackToToDoTakesATicketOutOfTheQueue(t *testing.T) {
 	if err := s.Move(a.ID, proto.TicketTodo, "", at); err != nil {
 		t.Fatal(err)
 	}
-	if got(t, s, a.ID).State != proto.TicketTodo || len(s.Claim(at)) != 0 {
+	if got(t, s, a.ID).State != proto.TicketTodo || len(s.Claim(at, nil)) != 0 {
 		t.Fatalf("got %+v", got(t, s, a.ID))
 	}
 }
@@ -129,7 +179,7 @@ func TestMoveBackToToDoTakesATicketOutOfTheQueue(t *testing.T) {
 func TestALiveTicketCanNeitherBeMovedNorDeleted(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	for _, err := range []error{s.Move(a.ID, proto.TicketTodo, "", at), s.Delete(a.ID)} {
 		if !errors.Is(err, ErrBusy) {
 			t.Fatalf("got %v", err)
@@ -141,12 +191,12 @@ func TestAnEndedTicketStartsAgainAtOnceInItsWorktreeEvenOverTheLimit(t *testing.
 	s := Open(t.TempDir())
 	s.SetLimit(1)
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(a.ID, func(x *proto.Ticket) {
 		x.Status, x.Why, x.AgentID, x.Worktree = proto.TicketStopped, "Session closed", "ag", "/wt"
 	})
 	b := saved(t, s, "b", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	if err := s.Start(a.ID, at); err != nil {
 		t.Fatal(err)
 	}
@@ -154,10 +204,10 @@ func TestAnEndedTicketStartsAgainAtOnceInItsWorktreeEvenOverTheLimit(t *testing.
 	if x.State != proto.TicketLive || x.Status != proto.TicketStarting || x.Worktree != "/wt" || x.AgentID != "" || x.Why != "" {
 		t.Fatalf("got %+v", x)
 	}
-	if c := s.Claim(at); len(c) != 1 || c[0].ID != a.ID {
+	if c := s.Claim(at, nil); len(c) != 1 || c[0].ID != a.ID {
 		t.Fatalf("claimed %v", titles(c))
 	}
-	if c := s.Claim(at); len(c) != 0 {
+	if c := s.Claim(at, nil); len(c) != 0 {
 		t.Fatalf("launched twice: %v", titles(c))
 	}
 	if got(t, s, b.ID).State != proto.TicketLive {
@@ -168,7 +218,7 @@ func TestAnEndedTicketStartsAgainAtOnceInItsWorktreeEvenOverTheLimit(t *testing.
 func TestAFailedTicketWhoseAgentLivesCannotStartAgain(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(a.ID, func(x *proto.Ticket) { x.Status, x.AgentID = proto.TicketFailed, "ag" })
 	if err := s.Start(a.ID, at); !errors.Is(err, ErrBusy) {
 		t.Fatalf("got %v", err)
@@ -178,7 +228,7 @@ func TestAFailedTicketWhoseAgentLivesCannotStartAgain(t *testing.T) {
 func TestAStartedTicketSaysSoWhenEdited(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	edit := draft("b")
 	edit.ID = a.ID
 	if _, err := s.Save(edit, false, at); !errors.Is(err, ErrStarted) {
@@ -195,7 +245,7 @@ func TestATicketChangesProjectOnlyBeforeItStarts(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	b := saved(t, s, "b", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	late := draft("b")
 	late.ID, late.Folder = b.ID, "/other"
 	if _, err := s.Save(late, false, at); err != ErrStarted {
@@ -206,7 +256,7 @@ func TestATicketChangesProjectOnlyBeforeItStarts(t *testing.T) {
 func TestAStartedTicketStillTakesAPriorityAndLabels(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	edit := draft("a")
 	edit.ID, edit.Priority, edit.Labels = a.ID, 2, []string{"Bug"}
 	got, err := s.Save(edit, false, at.Add(time.Hour))
@@ -256,7 +306,7 @@ func TestReopenIsRefusedOnceWhatClosedItStillHolds(t *testing.T) {
 	s := Open(t.TempDir())
 	for _, c := range []struct{ why, tree string }{{proto.ClosedMerged, ""}, {proto.ClosedDeleted, ""}, {proto.ClosedByUser, "/nowhere/at/all"}} {
 		a := saved(t, s, "a", true)
-		s.Claim(at)
+		s.Claim(at, nil)
 		s.Update(a.ID, func(x *proto.Ticket) { x.Status, x.Worktree = proto.TicketIdle, c.tree })
 		s.Close(a.ID, c.why, at)
 		if err := s.Reopen(a.ID, at); !errors.Is(err, ErrBusy) {
@@ -268,14 +318,14 @@ func TestReopenIsRefusedOnceWhatClosedItStillHolds(t *testing.T) {
 func TestReconcileClearsAStartAgainARestartInterrupted(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketStopped })
 	s.Start(a.ID, at)
 	s.Reconcile(at)
 	if x := got(t, s, a.ID); x.Status != proto.TicketFailed || x.Relaunch {
 		t.Fatalf("got %+v", x)
 	}
-	if c := s.Claim(at); len(c) != 0 {
+	if c := s.Claim(at, nil); len(c) != 0 {
 		t.Fatalf("claimed %v", titles(c))
 	}
 }
@@ -283,7 +333,7 @@ func TestReconcileClearsAStartAgainARestartInterrupted(t *testing.T) {
 func TestAWorkingTicketCannotBeStartedAgain(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	if err := s.Start(a.ID, at); !errors.Is(err, ErrBusy) {
 		t.Fatalf("got %v", err)
 	}
@@ -292,7 +342,7 @@ func TestAWorkingTicketCannotBeStartedAgain(t *testing.T) {
 func TestReopenUndoesClose(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(a.ID, func(x *proto.Ticket) { x.Status = proto.TicketDone })
 	s.Close(a.ID, proto.ClosedByUser, at)
 	if err := s.Reopen(a.ID, at); err != nil {
@@ -306,7 +356,7 @@ func TestReopenUndoesClose(t *testing.T) {
 func TestReconcileFailsWhatARestartLeftStarting(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	if err := s.Reconcile(at); err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +368,7 @@ func TestReconcileFailsWhatARestartLeftStarting(t *testing.T) {
 func TestReconcileLeavesAStartingTicketThatHasItsAgent(t *testing.T) {
 	s := Open(t.TempDir())
 	a := saved(t, s, "a", true)
-	s.Claim(at)
+	s.Claim(at, nil)
 	s.Update(a.ID, func(x *proto.Ticket) { x.AgentID = "ag" })
 	s.Reconcile(at)
 	if x := got(t, s, a.ID); x.Status != proto.TicketStarting {
