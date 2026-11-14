@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 270] = [
+const STEPS: [(&str, Step); 274] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -577,6 +577,34 @@ const STEPS: [(&str, Step); 270] = [
     }),
     ("board-filtered", |d, _, cx| {
         d.board.filters.priority.toggle(1);
+        d.board_changed();
+        cx.notify();
+    }),
+    ("board-factory", |d, window, cx| {
+        let tasks = ["Split the store into sections", "Read each section on its own", "Move desktop.json to the sections"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, title)| agents::TeamTask { id: format!("t{}", i + 1), title: title.into(), agent: "claude".into(), state: "planned".into(), ..Default::default() })
+            .collect();
+        let team = agents::Team { lead: "plan-lead".into(), state: crate::team::PROPOSED.into(), tasks, updated_at: crate::util::now_ms(), ..Default::default() };
+        d.on_agents(agents::Event::Team(team), window, cx);
+        d.board.layout = crate::board::Layout::Factory;
+        d.board_changed();
+        cx.notify();
+    }),
+    ("board-factory-todo", |d, _, cx| {
+        d.factory.toggle(crate::factory::station::Column::Todo);
+        d.board_changed();
+        cx.notify();
+    }),
+    ("board-factory-you", |d, _, cx| {
+        d.board.filters.needs = Some(crate::factory::station::Needs::You);
+        d.board_changed();
+        cx.notify();
+    }),
+    ("board-many", |d, _, cx| {
+        let more: Vec<_> = (0..40).flat_map(|n| d.agents.board.tickets.iter().map(move |t| (n, t.clone()))).map(|(n, t)| agents::tickets::Ticket { id: format!("{}-{n}", t.id), ..t }).collect();
+        d.agents.board.tickets.extend(more);
         d.board_changed();
         cx.notify();
     }),

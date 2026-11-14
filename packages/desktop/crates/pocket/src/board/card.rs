@@ -1,8 +1,9 @@
-use super::Menu;
 use super::logic::{Action, Col, Field, Quick, Slot, Tone, column, note, opens, quick, ticket_key};
-use super::parts::{label_dot, priority_glyph, prop_chip, status_glyph};
+use super::parts::{label_dot, priority_glyph, prop_chip, station_glyph, status_glyph};
+use super::{Layout, Menu};
 use ui::{CARD_RADIUS, agent_avatar, card_pill as pill, quick_button};
 use crate::desktop::Desktop;
+use crate::factory::station;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
 use agents::tickets::{ClosedWhy, Ticket};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -41,7 +42,15 @@ impl Desktop {
 
     pub(super) fn ticket_note(&self, t: &Ticket, slot: Slot) -> Option<(String, Token)> {
         let activity = self.agents.get(&t.agent_id).map(|a| a.activity.as_str());
-        let (text, tone) = note(t, slot, activity, self.pending_ask(t).map(|p| p.ask()))?;
+        let found = if self.board.layout == Layout::Factory {
+            let team = self.agents.team(&t.agent_id);
+            let ask = station::asker(t, team, &self.agents.pending).map(|p| p.parts().1);
+            // A working ticket still says what its agent is at. Queued's place in line belongs to the Status layout's column.
+            station::note(t, team, self.prs.get(&t.worktree), ask).or_else(|| note(t, slot, activity, None).filter(|_| slot.col == Col::Working))
+        } else {
+            note(t, slot, activity, self.pending_ask(t).map(|p| p.ask()))
+        };
+        let (text, tone) = found?;
         Some((text, match tone {
             Tone::Dim => TEXT_4,
             Tone::Asking => WAITING_TEXT,
@@ -74,7 +83,8 @@ impl Desktop {
         let id = &t.id;
         let button = |name: &str| SharedString::from(format!("ticket-{name}-{id}"));
         let has_pr = self.prs.get(&t.worktree).is_some();
-        let ask = self.card_ask(&t.agent_id);
+        // A Factory card decides nothing (B8): its Ask is answered in the session it opens.
+        let ask = self.card_ask(&t.agent_id).filter(|_| self.board.layout != Layout::Factory);
         let found = quick(t, slot.col, ask.is_some(), self.ticket_reach(t), has_pr)?;
         let request = ask.map_or("", |p| p.request_id.as_str());
         let buttons = match found {
@@ -88,27 +98,40 @@ impl Desktop {
 
     /// The pills for what the ticket has: its PR, its diff, how it closed.
     pub(super) fn ticket_pills(&self, t: &Ticket, slot: Slot) -> Vec<Div> {
-        let pr = self.prs.get(&t.worktree).map(|pr| {
+        let found = self.prs.get(&t.worktree);
+        let pr = found.map(|pr| {
             let (name, color) = pr_glyph(pr);
             let green = pr.checks.failed == 0 && pr.checks.pending == 0 && pr.checks.passed > 0;
             pill().child(icon(name, 12., color)).child(format!("#{}", pr.number)).when(green, |d| d.child(icon("check", 11., SUCCESS)))
         });
+        let factory = self.board.layout == Layout::Factory;
+        let progress = factory.then(|| self.agents.team(&t.agent_id).and_then(station::progress)).flatten().map(|done| pill().font_family(MONO).child(icon("team", 12., TEXT_3)).child(done));
+        let tag = (factory && found.is_none()).then(|| station::tag(t, self.board_tree(t).map(|w| w.branch.as_str()))).flatten().map(|tag| pill().max_w(px(150.)).font_family(MONO).child(div().truncate().child(tag)));
         let diff = self.repos.get(&t.worktree).filter(|r| !r.files.is_empty()).map(|r| {
             let (added, removed) = r.totals();
             pill().font_family(MONO).child(ui::meta_diff(added, removed, 11.))
         });
         let closed = (slot.col == Col::Closed).then(|| pill().child(closed_label(t.closed_why)));
-        [pr, diff, closed].into_iter().flatten().collect()
+        [progress, pr, tag, diff, closed].into_iter().flatten().collect()
     }
 
     pub(super) fn ticket_status(&self, t: &Ticket, slot: Slot, cx: &mut Context<Self>) -> AnyElement {
         let id = t.id.clone();
-        div().id(SharedString::from(format!("ticket-status-{id}"))).size(px(20.)).flex().flex_none().items_center().justify_center().rounded(px(5.)).cursor_pointer().hover(|s| s.bg(FILL_3)).child(status_glyph(slot.col, t.status)).on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+        div().id(SharedString::from(format!("ticket-status-{id}"))).size(px(20.)).flex().flex_none().items_center().justify_center().rounded(px(5.)).cursor_pointer().hover(|s| s.bg(FILL_3)).child(self.ticket_glyph(t, slot)).on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
             cx.stop_propagation();
             this.close_menus();
             this.board.menu = Some(Menu::Status { id: id.clone(), at: e.position() });
             cx.notify();
         })).into_any_element()
+    }
+
+    /// The Status layout marks a ticket by its column, the Factory layout by its station.
+    fn ticket_glyph(&self, t: &Ticket, slot: Slot) -> AnyElement {
+        if self.board.layout != Layout::Factory {
+            return status_glyph(slot.col, t.status).into_any_element();
+        }
+        let team = self.agents.team(&t.agent_id);
+        station_glyph(station::column(t, team, self.prs.get(&t.worktree)), station::gate(t, team), station::failed(t)).into_any_element()
     }
 
     pub(super) fn ticket_priority(&self, t: &Ticket, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -157,7 +180,7 @@ impl Desktop {
         let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
         let hoverable = opens(t, self.ticket_reach(t)).is_some() && !picked;
         let card = ui::card(SharedString::from(format!("ticket-{}", t.id))).when(col.finished(), |d| d.opacity(0.6)).when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])).when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)).shadow(vec![ui::ring(Hsla::from(INDIGO).opacity(0.5), 1.)])).when(hoverable, |d| d.hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))).child(self.ticket_body(t, slot, cx));
-        let card = self.ticket_shell(card, t, cx).when(col.lifts(), |d| {
+        let card = self.ticket_shell(card, t, cx).when(col.lifts() && self.board.layout != Layout::Factory, |d| {
             let before = t.id.clone();
             d.on_drag(DragTicket { id: t.id.clone(), from: col, title: t.title.clone() }, |d, _, _, cx| cx.new(|_| d.clone())).on_drop(cx.listener(move |this, d: &DragTicket, _, cx| {
                 cx.stop_propagation();

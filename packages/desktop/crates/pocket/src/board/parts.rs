@@ -1,5 +1,6 @@
 use super::logic::Col;
-use agents::tickets::Status;
+use crate::factory::station::Column;
+use agents::tickets::{Gate, Status};
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
@@ -19,6 +20,26 @@ pub(super) fn status_glyph(col: Col, status: Status) -> impl IntoElement {
         (Col::Todo, _) => ("status-todo", TEXT_4),
         (Col::Queued, _) => ("status-queued", TEXT_3),
     };
+    icon(name, 14., color)
+}
+
+/// A Factory ticket's mark and colour: a gate first, then a failure, then its station.
+pub(crate) fn station_mark(column: Column, gate: Gate, failed: bool) -> (&'static str, Token) {
+    match (gate, failed, column) {
+        (Gate::Plan | Gate::Pr | Gate::Ask, _, _) => ("status-needs", WAITING_DOT),
+        (Gate::None, true, _) => ("status-closed", FAILED),
+        (Gate::None, false, Column::Todo) => ("status-todo", TEXT_4),
+        (Gate::None, false, Column::Spec) => ("status-queued", WORKING),
+        (Gate::None, false, Column::Plan) => ("status-quarter", WORKING),
+        (Gate::None, false, Column::Implement) => ("status-half", WORKING),
+        (Gate::None, false, Column::Checks) => ("status-three-quarters", SUCCESS),
+        (Gate::None, false, Column::Pr) => ("status-full", GOAL_TEXT),
+        (Gate::None, false, Column::Merged) => ("status-merged", INDIGO),
+    }
+}
+
+pub(crate) fn station_glyph(column: Column, gate: Gate, failed: bool) -> impl IntoElement {
+    let (name, color) = station_mark(column, gate, failed);
     icon(name, 14., color)
 }
 
@@ -48,7 +69,7 @@ pub(super) fn flush_textarea(field: Div) -> Div {
     field.mx(px(-10.)).my(px(-8.))
 }
 
-pub(super) fn prop_chip() -> Div {
+pub(crate) fn prop_chip() -> Div {
     div().h(px(22.)).px(px(6.)).flex().flex_none().items_center().gap(px(5.)).max_w(px(170.)).rounded(px(11.)).border_1().border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_2).whitespace_nowrap()
 }
 
@@ -66,10 +87,42 @@ pub(super) fn key_chip(keys: &str, fill: impl Into<Fill>) -> Div {
     div().px(px(4.)).py(px(3.)).rounded(px(4.)).bg(fill).opacity(0.85).text_size(px(10.5)).line_height(px(11.)).font_weight(FontWeight::MEDIUM).child(ui::os_keys(keys))
 }
 
-pub(super) fn start_kbd() -> Div {
+pub(crate) fn start_kbd() -> Div {
     key_chip("⌘↵", rgba(0x0000001a))
 }
 
-pub(super) fn bar_button(id: impl Into<ElementId>, v: Variant, lead: Option<&str>, label: impl IntoElement) -> Stateful<Div> {
+pub(crate) fn bar_button(id: impl Into<ElementId>, v: Variant, lead: Option<&str>, label: impl IntoElement) -> Stateful<Div> {
     ui::button(id, v, lead, label).h(px(26.)).px(px(10.)).rounded(px(7.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::station_mark;
+    use crate::factory::station::{COLUMNS, Column};
+    use agents::tickets::Gate;
+    use gpui_kit::AssetSource;
+    use theme::{FAILED, GOAL_TEXT, INDIGO, SUCCESS, TEXT_4, WAITING_DOT, WORKING};
+
+    #[test]
+    fn each_station_has_the_prototypes_mark_and_colour() {
+        let marks = COLUMNS.map(|c| station_mark(c, Gate::None, false));
+        assert_eq!(marks, [("status-todo", TEXT_4), ("status-queued", WORKING), ("status-quarter", WORKING), ("status-half", WORKING), ("status-three-quarters", SUCCESS), ("status-full", GOAL_TEXT), ("status-merged", INDIGO)]);
+    }
+
+    #[test]
+    fn a_ticket_at_a_gate_shows_the_needs_you_mark_before_a_failure() {
+        assert_eq!(station_mark(Column::Plan, Gate::Plan, false), ("status-needs", WAITING_DOT));
+        assert_eq!(station_mark(Column::Checks, Gate::Ask, true), ("status-needs", WAITING_DOT));
+        assert_eq!(station_mark(Column::Checks, Gate::None, true), ("status-closed", FAILED));
+    }
+
+    #[test]
+    fn every_station_mark_is_an_embedded_icon() {
+        for column in COLUMNS {
+            for (gate, failed) in [(Gate::None, false), (Gate::Plan, false), (Gate::None, true)] {
+                let (name, _) = station_mark(column, gate, failed);
+                assert!(theme::Assets.load(&format!("icons/{name}.svg")).ok().flatten().is_some(), "{name} is not in theme::ICONS");
+            }
+        }
+    }
 }

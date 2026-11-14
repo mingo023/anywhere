@@ -11,9 +11,10 @@ mod form_chips;
 mod hidden_columns;
 pub(crate) mod logic;
 mod page;
-mod parts;
+pub(crate) mod parts;
 mod row;
 mod selection;
+mod stations;
 mod tabs;
 mod ticket_page;
 mod toast;
@@ -58,6 +59,21 @@ impl From<Layout> for BoardLayout {
             Layout::List => BoardLayout::List,
         }
     }
+}
+
+impl Layout {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Layout::Factory => "Factory",
+            Layout::Board => "Status",
+            Layout::List => "List",
+        }
+    }
+}
+
+/// The layouts the switch offers.
+pub(crate) fn layouts(factory: bool) -> Vec<Layout> {
+    [Layout::Factory, Layout::Board, Layout::List].into_iter().filter(|l| factory || *l != Layout::Factory).collect()
 }
 
 /// The tab and the closed tickets that the hidden count runs over. The Factory layout has no tabs and never shows a ticket that closed without a merge.
@@ -232,6 +248,14 @@ impl Desktop {
         cx.notify();
     }
 
+    fn set_board_layout(&mut self, layout: Layout, cx: &mut Context<Self>) {
+        self.board.layout = layout;
+        self.store.board_layout = layout.into();
+        self.store.save();
+        self.board_changed();
+        cx.notify();
+    }
+
     /// Off the screen nothing reads the columns; opening it regroups.
     pub(crate) fn board_changed(&mut self) {
         if self.screen == Screen::Board {
@@ -242,6 +266,14 @@ impl Desktop {
             let slots = self.board_slots();
             self.board.keep_selection(&slots, &self.agents.board.tickets);
             self.drop_stale_ticket_page();
+        }
+    }
+
+    fn reveal_slot(&self, slot: Slot) {
+        if self.board.layout == Layout::Factory {
+            self.factory.reveal(slot);
+        } else {
+            self.board.reveal(slot);
         }
     }
 
@@ -431,7 +463,7 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::logic::Tab;
-    use super::{Layout, hidden_scope, shown_layout};
+    use super::{Layout, hidden_scope, layouts, shown_layout};
     use store::BoardLayout;
 
     #[test]
@@ -454,5 +486,12 @@ mod tests {
         assert_eq!(hidden_scope(Layout::Factory, Tab::Todo, true), (Tab::All, false));
         assert_eq!(hidden_scope(Layout::Board, Tab::Todo, true), (Tab::Todo, true));
         assert_eq!(hidden_scope(Layout::List, Tab::Active, false), (Tab::Active, false));
+    }
+
+    #[test]
+    fn the_switch_offers_factory_only_when_pocketd_serves_it() {
+        assert_eq!(layouts(true), [Layout::Factory, Layout::Board, Layout::List]);
+        assert_eq!(layouts(false), [Layout::Board, Layout::List]);
+        assert_eq!(layouts(true).into_iter().map(Layout::name).collect::<Vec<_>>(), ["Factory", "Status", "List"]);
     }
 }

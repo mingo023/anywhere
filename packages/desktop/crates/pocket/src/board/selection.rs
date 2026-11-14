@@ -55,7 +55,7 @@ impl Desktop {
         let tickets = &self.agents.board.tickets;
         let ids: Vec<&str> = slots.iter().map(|s| tickets.get(s.index).map_or("", |t| t.id.as_str())).collect();
         if let Some(at) = self.board.selection.step(&ids, delta) {
-            self.board.reveal(slots[at]);
+            self.reveal_slot(slots[at]);
             cx.notify();
         }
     }

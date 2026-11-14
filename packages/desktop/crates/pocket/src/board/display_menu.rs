@@ -20,33 +20,6 @@ fn section(label: &'static str) -> Div {
 
 impl Desktop {
     pub(super) fn display_menu(&self, cx: &mut Context<Self>) -> Div {
-        let layouts = [(Layout::List, "list", "List"), (Layout::Board, "blocks", "Board")].into_iter().enumerate().map(|(i, (l, glyph, label))| {
-            let on = self.board.layout == l;
-            div()
-                .id(("board-layout", i))
-                .flex_1()
-                .h(px(52.))
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(px(4.))
-                .rounded(px(9.))
-                .when(on, |d| d.bg(FILL_3))
-                .when(!on, |d| d.border_1().border_color(SEPARATOR))
-                .cursor_pointer()
-                .text_size(px(12.))
-                .text_color(if on { TEXT } else { TEXT_3 })
-                .child(icon(glyph, 14., if on { TEXT } else { TEXT_3 }))
-                .child(label)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.board.layout = l;
-                    this.store.board_layout = l.into();
-                    this.store.save();
-                    this.board_changed();
-                    cx.notify();
-                }))
-        }).collect::<Vec<_>>();
         let orders = [(Order::Activity, "Updated"), (Order::Created, "Created"), (Order::Priority, "Priority"), (Order::Name, "Name")].into_iter().enumerate().map(|(i, (o, label))| {
             choice(("board-order", i), label, self.board.order == o).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.board.order = o;
@@ -76,15 +49,15 @@ impl Desktop {
             this.board_changed();
             cx.notify();
         }));
+        // A Factory column keeps the Up next order (B13) and never holds a ticket closed without a merge.
+        let factory = self.board.layout == Layout::Factory;
         let body = div()
             .p(px(7.))
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(div().flex().gap(px(6.)).children(layouts))
-            .child(section("Ordering").child(div().flex().flex_wrap().gap(px(4.)).children(orders)))
-            .child(div().h(px(1.)).bg(HAIRLINE))
-            .child(div().flex().flex_col().child(setting_row("Work on at once").child(stepper)).child(setting_row("Show closed tickets").child(closed)))
+            .when(!factory, |d| d.child(section("Ordering").child(div().flex().flex_wrap().gap(px(4.)).children(orders))).child(div().h(px(1.)).bg(HAIRLINE)))
+            .child(div().flex().flex_col().child(setting_row("Work on at once").child(stepper)).when(!factory, |d| d.child(setting_row("Show closed tickets").child(closed))))
             .child(div().h(px(1.)).bg(HAIRLINE))
             .child(section("Display properties").child(div().flex().flex_wrap().gap(px(4.)).children(props)));
         ui::dropdown_right(30., ui::menu_in("board-display-in", self.popup("board-display-menu", 316., cx).child(body)))

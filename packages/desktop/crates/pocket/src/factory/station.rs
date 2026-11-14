@@ -248,6 +248,11 @@ pub(crate) fn counts(tickets: &[Ticket]) -> Counts {
     Counts { you: n(Needs::You), ask: n(Needs::Ask), failed: n(Needs::Failed), slots: busy(tickets) }
 }
 
+/// What a card names the ticket's work by when the desktop holds no PR for it: the PR number pocketd wrote, else the branch.
+pub(crate) fn tag(t: &Ticket, branch: Option<&str>) -> Option<String> {
+    if t.pr > 0 { Some(format!("#{}", t.pr)) } else { branch.map(str::to_string) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,5 +542,12 @@ mod tests {
         assert_eq!(only(Needs::You), [vec![], vec![], vec![0], vec![], vec![], vec![], vec![]]);
         assert_eq!(only(Needs::Ask), Stations::default());
         assert_eq!(only(Needs::Failed)[Column::Checks as usize], [2]);
+    }
+
+    #[test]
+    fn a_card_names_its_pr_and_else_its_branch() {
+        assert_eq!(tag(&Ticket { pr: 203, ..live(Status::Working) }, Some("feat/x")), Some("#203".to_string()));
+        assert_eq!(tag(&live(Status::Working), Some("feat/x")), Some("feat/x".to_string()));
+        assert_eq!(tag(&live(Status::Working), None), None);
     }
 }

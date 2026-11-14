@@ -14,6 +14,16 @@
       "open": ["click Board in the sidebar", "clear all tickets"],
       "capture": ["dark", "board", "board-empty"]
     },
+    "factory-board": {
+      "files": ["packages/desktop/crates/pocket/src/factory.rs", "packages/desktop/crates/pocket/src/factory/**", "packages/desktop/crates/pocket/src/board/stations.rs", "packages/desktop/crates/pocket/src/board/tabs.rs", "packages/desktop/crates/pocket/src/board/top_bar.rs"],
+      "open": ["click Board in the sidebar", "pick Factory in the Board's top bar"],
+      "capture": ["board", "board-factory"]
+    },
+    "factory-board-you": {
+      "files": ["packages/desktop/crates/pocket/src/factory/station.rs", "packages/desktop/crates/pocket/src/board/tabs.rs"],
+      "open": ["click Board in the sidebar", "pick Factory", "click the needs you chip"],
+      "capture": ["board", "board-factory", "board-factory-you"]
+    },
     "sessions": {
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
       "open": ["launch the app", "click a session card in the left sessions list"],

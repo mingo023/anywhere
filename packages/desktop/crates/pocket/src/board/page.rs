@@ -5,13 +5,19 @@ use gpui_kit::*;
 use theme::*;
 
 impl Desktop {
-    pub(crate) fn board_page(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn board_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         if self.board.page.is_some() {
             return self.ticket_page(cx);
         }
-        let shown = body(self.board.layout == Layout::List, self.agents.board.tickets.len(), self.board.rows.len(), self.board.hidden);
+        let factory = self.board.layout == Layout::Factory;
+        let rows = if factory { self.factory.shown() } else { self.board.rows.len() };
+        let shown = body(self.board.layout == Layout::List, self.agents.board.tickets.len(), rows, self.board.hidden);
         let main = match shown {
             Body::Hero => self.board_hero(cx).into_any_element(),
+            Body::Columns if factory => {
+                let available = f32::from(window.viewport_size().width) - self.lead_width();
+                self.station_columns(available, cx).into_any_element()
+            }
             Body::Columns => {
                 let columns: Vec<_> = self.board.shown.clone().into_iter().map(|col| self.board_column(col, cx)).collect();
                 div().id("board-columns").flex_1().min_h_0().overflow_x_scroll().track_scroll(&self.board.columns_scroll).px(px(12.)).pb(px(8.)).flex().gap(px(8.)).children(columns).children(self.hidden_columns(cx)).into_any_element()

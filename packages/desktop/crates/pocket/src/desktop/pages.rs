@@ -83,7 +83,7 @@ impl Desktop {
             Screen::Inbox => Some(self.inbox_detail(window, cx)),
             Screen::Activity => Some(self.activity_page(cx)),
             Screen::Automations => Some(self.automations_page(cx)),
-            Screen::Board => Some(self.board_page(cx)),
+            Screen::Board => Some(self.board_page(window, cx)),
             Screen::Sessions | Screen::Settings => None,
         }
     }

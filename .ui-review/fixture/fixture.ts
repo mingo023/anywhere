@@ -293,6 +293,22 @@ const TICKETS = [
   ticket("t11", "Reveal worktree in Finder", "closed", "idle", 15, { closedWhy: "merged", closedAt: now - 15 * MIN, worktree: "/tmp/wt/reveal" }),
   ticket("t12", "Try a denser session list", "closed", "idle", 150, { closedWhy: "closed", closedAt: now - 150 * MIN, worktree: "/tmp/wt/denser" }),
 ];
+// Several per station, one at each gate, one failed. Plan 2's capture step gives `plan-lead` a proposed Team of three tasks.
+const FACTORY_TICKETS = [
+  ticket("t13", "Spec the offline send queue", "live", "working", 6, { station: "spec", worktree: "/tmp/wt/offline-queue" }),
+  ticket("t14", "Spec the share sheet", "live", "starting", 2, { provider: "codex", station: "spec", worktree: "/tmp/wt/share-sheet" }),
+  ticket("t15", "Split the settings store by section", "live", "needsYou", 12, { station: "plan", gate: "plan", agentId: "plan-lead", worktree: "/tmp/wt/settings-split", priority: 2 }),
+  ticket("t16", "Plan drag to reorder for tabs", "live", "working", 5, { station: "plan", worktree: "/tmp/wt/tab-reorder" }),
+  ticket("t17", "Stream the diff into the review pane", "live", "working", 9, { station: "implement", agentId: "hook", terminalId: "hook", worktree: "/tmp/wt/stream-diff", labels: ["Feature"] }),
+  ticket("t18", "Run the iOS UI tests on every push", "live", "needsYou", 14, { provider: "codex", station: "implement", gate: "ask", agentId: "ios", terminalId: "ios", worktree: "/tmp/wt/ios-ui-tests", labels: ["Infra"] }),
+  ticket("t19", "Cache the syntax themes", "live", "working", 8, { station: "checks", worktree: "/tmp/wt/syntax-cache" }),
+  ticket("t20", "Paste files into the composer", "live", "failed", 20, { station: "checks", fix: 2, why: "cargo test failed in composer.rs", worktree: "/tmp/wt/paste-files", labels: ["Bug"], priority: 1 }),
+  ticket("t21", "Batch the git status reads", "live", "working", 7, { provider: "codex", station: "checks", fix: 1, worktree: "/tmp/wt/batch-status" }),
+  ticket("t22", "Show the PR checks on the card", "live", "needsYou", 16, { station: "pr", gate: "pr", pr: 203, worktree: "/tmp/wt/pr-checks" }),
+  ticket("t23", "Keep the scroll place per tab", "live", "working", 4, { station: "pr", pr: 202, worktree: "/tmp/wt/scroll-place" }),
+  ticket("t24", "Fold long tool output", "closed", "idle", 30, { station: "merged", pr: 198, closedWhy: "merged", closedAt: now - 30 * MIN, worktree: "/tmp/wt/fold-output" }),
+  ticket("t25", "Name worktrees after the ticket", "closed", "idle", 60, { provider: "codex", station: "merged", pr: 197, closedWhy: "merged", closedAt: now - 60 * MIN, worktree: "/tmp/wt/name-trees" }),
+];
 const run = (id: string, automationId: string, status: string, ago: number, why: string, summary: string, took = 0, agent = "") =>
   ({ id, automationId, status, trigger: why === "Run now" ? "manual" : "schedule", why, summary, startedAt: now - ago * MIN, finishedAt: took ? now - (ago - took) * MIN : 0, agentId: agent, terminalId: agent });
 const RUNS = [
@@ -418,10 +434,10 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "team.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "team.v1", "factory.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
-        ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
+        ws.send(JSON.stringify({ type: "board", tickets: [...TICKETS, ...FACTORY_TICKETS], limit: 4 }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }
