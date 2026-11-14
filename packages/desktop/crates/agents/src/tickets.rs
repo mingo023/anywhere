@@ -38,6 +38,35 @@ pub enum ClosedWhy {
     Closed,
 }
 
+/// Where the Factory has a ticket.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Station {
+    Spec,
+    Plan,
+    Implement,
+    Checks,
+    Pr,
+    Merged,
+    /// A ticket the Factory doesn't run, or a station a newer pocketd added.
+    #[default]
+    #[serde(other)]
+    None,
+}
+
+/// What a Factory ticket waits on the user for.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Gate {
+    Plan,
+    Pr,
+    Ask,
+    /// Nothing, or a gate a newer pocketd added.
+    #[default]
+    #[serde(other)]
+    None,
+}
+
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
@@ -77,6 +106,53 @@ pub struct Ticket {
     pub priority: u8,
     #[serde(default)]
     pub labels: Vec<String>,
+    /// Only pocketd sets the five below; `TicketDraft` carries none.
+    #[serde(default)]
+    pub station: Station,
+    #[serde(default)]
+    pub gate: Gate,
+    /// Its pull request's number; 0 until one is open.
+    #[serde(default)]
+    pub pr: u32,
+    /// Auto-fix attempts used.
+    #[serde(default)]
+    pub fix: u8,
+    /// The user's hint granted one more attempt.
+    #[serde(default)]
+    pub hint: bool,
+}
+
+impl Ticket {
+    /// A ticket in To do with nothing else set, for tests to build on with `..Ticket::sample()`: a new field is added here once.
+    pub fn sample() -> Self {
+        Self {
+            id: "t".into(),
+            title: "T".into(),
+            prompt: "P".into(),
+            provider: "claude".into(),
+            folder: "/app".into(),
+            base: String::new(),
+            state: State::Todo,
+            order: 0,
+            status: Status::None,
+            why: String::new(),
+            agent_id: String::new(),
+            terminal_id: String::new(),
+            worktree: String::new(),
+            created_at: 0,
+            changed_at: 0,
+            closed_at: 0,
+            closed_why: ClosedWhy::default(),
+            number: 0,
+            priority: 0,
+            labels: Vec::new(),
+            station: Station::None,
+            gate: Gate::None,
+            pr: 0,
+            fix: 0,
+            hint: false,
+        }
+    }
 }
 
 fn is_zero(n: &u8) -> bool {

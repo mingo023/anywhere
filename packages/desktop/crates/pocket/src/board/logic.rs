@@ -762,28 +762,7 @@ mod tests {
     use super::*;
 
     fn ticket(id: &str, state: State, status: Status) -> Ticket {
-        Ticket {
-            id: id.into(),
-            title: id.into(),
-            prompt: "do".into(),
-            provider: "claude".into(),
-            folder: "/repo".into(),
-            base: String::new(),
-            state,
-            order: 0,
-            status,
-            why: String::new(),
-            agent_id: "a".into(),
-            terminal_id: String::new(),
-            worktree: String::new(),
-            created_at: 0,
-            changed_at: 0,
-            closed_at: 0,
-            closed_why: ClosedWhy::default(),
-            number: 0,
-            priority: 0,
-            labels: Vec::new(),
-        }
+        Ticket { id: id.into(), title: id.into(), prompt: "do".into(), folder: "/repo".into(), state, status, agent_id: "a".into(), ..Ticket::sample() }
     }
 
     const FOLDED: [bool; COLS.len()] = [false; COLS.len()];

@@ -140,7 +140,7 @@ impl Desktop {
             self.error = Some(message);
             return cx.notify();
         }
-        if let Event::AutomationError(message) | Event::BoardError(message) = ev {
+        if let Event::AutomationError(message) | Event::BoardError(message) | Event::FactoryError(message) = ev {
             self.error = Some(message);
             return cx.notify();
         }

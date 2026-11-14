@@ -128,7 +128,7 @@ pub(super) fn default_folder(filter: Option<&str>, current: Option<&str>, first:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agents::tickets::{ClosedWhy, Status};
+    use agents::tickets::Status;
 
     fn values() -> Values {
         Values::new_in("/app".into())
@@ -196,28 +196,7 @@ mod tests {
     }
 
     fn saved(state: State) -> Ticket {
-        Ticket {
-            id: "t".into(),
-            title: "T".into(),
-            prompt: "P".into(),
-            provider: "claude".into(),
-            folder: "/app".into(),
-            base: String::new(),
-            state,
-            order: 0,
-            status: Status::None,
-            why: String::new(),
-            agent_id: String::new(),
-            terminal_id: String::new(),
-            worktree: String::new(),
-            created_at: 0,
-            changed_at: 0,
-            closed_at: 0,
-            closed_why: ClosedWhy::default(),
-            number: 0,
-            priority: 0,
-            labels: Vec::new(),
-        }
+        Ticket { state, ..Ticket::sample() }
     }
 
     #[test]

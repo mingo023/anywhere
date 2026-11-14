@@ -158,7 +158,9 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::Automations { .. }
         | Event::AutomationError(_)
         | Event::Board { .. }
-        | Event::BoardError(_) => return false,
+        | Event::BoardError(_)
+        | Event::FactoryConfig { .. }
+        | Event::FactoryError(_) => return false,
     }
     true
 }
@@ -417,6 +419,12 @@ mod tests {
         let daemons = Daemons::new(local);
         assert!(!daemons.send(serde_json::json!({"op": "input", "id": "devbox/7f3a"})));
         assert!(!daemons.input("devbox/7f3a", b"ls"));
+    }
+
+    #[test]
+    fn a_hosts_factory_news_is_dropped_as_its_board_is() {
+        assert!(!tag_event("devbox", &mut Event::FactoryConfig { project: "/home/me/app".into(), config: Default::default(), problem: String::new() }));
+        assert!(!tag_event("devbox", &mut Event::FactoryError("Nope".into())));
     }
 
     #[test]

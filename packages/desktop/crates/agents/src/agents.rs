@@ -1,10 +1,12 @@
 pub mod automations;
 pub mod catalogs;
+pub mod factory;
 pub mod tickets;
 pub mod locals;
 pub mod providers;
 pub mod team;
 
+pub use factory::Config;
 pub use team::{TaskPick, Team, TeamAction, TeamTask};
 
 use automations::{Automation, AutomationDraft, Automations, Run};
@@ -380,6 +382,8 @@ struct Frame {
     limit: Option<usize>,
     team: Option<Team>,
     teams: Vec<Team>,
+    config: Option<Config>,
+    problem: String,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -460,6 +464,10 @@ pub enum Event {
     Teams(Vec<Team>),
     /// pocketd refused a team request from `lead`'s chat, or the socket never took it; `message` says why.
     TeamFailed { lead: String, action: TeamAction, message: String },
+    /// `project`'s Factory settings as pocketd keeps them; `problem` says why the Factory can't be turned on there, empty when it can.
+    FactoryConfig { project: String, config: Config, problem: String },
+    /// pocketd refused a Factory message.
+    FactoryError(String),
 }
 
 #[derive(Default)]
@@ -485,6 +493,8 @@ pub struct Agents {
     pub board: Board,
     /// Each team by its lead's id, from `team.list` and `team.update`.
     pub teams: HashMap<String, Team>,
+    /// Each project's Factory settings by its folder, from `factory.config`.
+    pub factory: HashMap<String, Config>,
 }
 
 impl Agents {
@@ -584,7 +594,10 @@ impl Agents {
                 self.teams.retain(|lead, _| !mine(lead) || list.iter().any(|t| &t.lead == lead));
                 list.into_iter().for_each(|t| team::keep(&mut self.teams, t));
             }
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } => {}
+            Event::FactoryConfig { project, config, .. } => {
+                self.factory.insert(project, config);
+            }
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } | Event::FactoryError(_) => {}
         }
     }
 
@@ -698,6 +711,16 @@ impl Agents {
     /// pocketd plans and runs teams for this owner.
     pub fn teams_offered(&self) -> bool {
         self.caps.iter().any(|c| c == TEAM_CAP) && !self.observe_only()
+    }
+
+    /// pocketd runs the Factory for this owner.
+    pub fn factory_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == FACTORY_CAP) && !self.observe_only()
+    }
+
+    /// `project`'s Factory settings, once pocketd has sent them.
+    pub fn factory_config(&self, project: &str) -> Option<&Config> {
+        self.factory.get(project)
     }
 
     /// Shows a rename before pocketd echoes it; a blank title clears the name.
@@ -826,6 +849,7 @@ const MCP_ACT: &str = "mcpact-";
 const INTERRUPT: &str = "interrupt-";
 const TEAMS: &str = "teams";
 const TEAM: &str = "team-";
+const FACTORY: &str = "factory-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
 
@@ -841,6 +865,10 @@ fn board_id() -> String {
 
 fn team_id() -> String {
     format!("{TEAM}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn factory_id() -> String {
+    format!("{FACTORY}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 fn launch_event(f: &Frame) -> Option<Event> {
@@ -891,6 +919,7 @@ const ACCOUNTS_CAP: &str = "accounts.v1";
 const SETTINGS_CAP: &str = "settings.v1";
 const ACCESS_CAP: &str = "access.v1";
 const TEAM_CAP: &str = "team.v1";
+const FACTORY_CAP: &str = "factory.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
@@ -912,6 +941,14 @@ fn team_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
         "team.update" => f.team.clone().map(Event::Team),
         "team.list" => Some(Event::Teams(f.teams.clone())),
+        _ => None,
+    }
+}
+
+fn factory_event(f: &Frame) -> Option<Event> {
+    match f.kind.as_str() {
+        "factory.config" => Some(Event::FactoryConfig { project: f.project.clone(), config: f.config.clone()?, problem: f.problem.clone() }),
+        "error" if f.id.starts_with(FACTORY) => Some(Event::FactoryError(readable(&f.message))),
         _ => None,
     }
 }
@@ -1164,6 +1201,16 @@ impl Outbox {
         self.send(json!({"type": "team.merge", "id": team_id(), "lead": lead}));
     }
 
+    /// Asks for `project`'s Factory settings; `Event::FactoryConfig` answers.
+    pub fn factory_config(&self, project: &str) {
+        self.send(json!({"type": "factory.config.get", "id": factory_id(), "project": project}));
+    }
+
+    /// Saves `project`'s Factory settings whole; `Event::FactoryConfig` answers with what pocketd kept, or `Event::FactoryError` says why it kept nothing.
+    pub fn factory_save(&self, project: &str, config: &Config) {
+        self.send(json!({"type": "factory.config.save", "id": factory_id(), "project": project, "config": config}));
+    }
+
     fn send(&self, m: Value) {
         let _ = self.0.send(m);
     }
@@ -1194,7 +1241,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 17] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", TEAM_CAP];
+const CAPS: [&str; 18] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", TEAM_CAP, FACTORY_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1239,7 +1286,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| team_event(&f)) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| team_event(&f)).or_else(|| factory_event(&f)) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -1636,7 +1683,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "team.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "team.v1", "factory.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -1985,6 +2032,19 @@ mod tests {
     }
 
     #[test]
+    fn the_factory_is_offered_only_by_a_pocketd_that_serves_it_to_an_owner() {
+        let mut a = Agents::default();
+        assert!(!a.factory_offered());
+        let caps = vec![FACTORY_CAP.to_string()];
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: caps.clone(), version: String::new() });
+        assert!(a.factory_offered());
+        a.apply(Event::Connected { scopes: vec!["observe".into()], caps, version: String::new() });
+        assert!(!a.factory_offered());
+        a.apply(Event::Connected { scopes: vec!["owner".into()], caps: vec![], version: String::new() });
+        assert!(!a.factory_offered());
+    }
+
+    #[test]
     fn a_refused_prompt_reports_which_send_failed() {
         let mut prompts = Requests::default();
         prompts.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "Fix it"}));
@@ -2223,6 +2283,49 @@ mod tests {
     }
 
     #[test]
+    fn a_factory_ticket_carries_its_station_gate_pr_and_fixes() {
+        let snapshot = include_str!("../../../../pocketd/internal/proto/testdata/factory/server/board.json");
+        let Some(Event::Board { tickets, limit: 4 }) = board_event(&serde_json::from_str::<Frame>(snapshot).unwrap()) else { panic!("not a board") };
+        let t = &tickets[0];
+        assert_eq!((t.station, t.gate, t.pr, t.fix, t.hint), (tickets::Station::Checks, tickets::Gate::Ask, 12, 1, true));
+        let plain = &tickets[1];
+        assert_eq!((plain.station, plain.gate, plain.pr, plain.fix, plain.hint), (tickets::Station::None, tickets::Gate::None, 0, 0, false));
+        let newer: Ticket = serde_json::from_value(json!({"id": "t", "title": "T", "prompt": "P", "provider": "claude", "folder": "/app", "state": "live", "station": "deploy", "gate": "legal"})).unwrap();
+        assert_eq!((newer.station, newer.gate), (tickets::Station::None, tickets::Gate::None));
+        let sample = Ticket::sample();
+        assert_eq!((sample.state, sample.station, sample.gate), (tickets::State::Todo, tickets::Station::None, tickets::Gate::None));
+    }
+
+    #[test]
+    fn factory_frames_become_factory_events() {
+        let ev = |raw: &str| factory_event(&serde_json::from_str::<Frame>(raw).unwrap());
+        let reply = include_str!("../../../../pocketd/internal/proto/testdata/factory/server/factory_config.json");
+        assert!(matches!(ev(reply), Some(Event::FactoryConfig { project, config, problem })
+            if project == "/app" && config.enabled && config.spec && config.lead == "claude-opus" && (config.slots, config.fix) == (2, 1) && config.checks == ["cargo test", "cargo clippy --all-targets"] && problem.is_empty()));
+        let blocked = include_str!("../../../../pocketd/internal/proto/testdata/factory/server/factory_config_problem.json");
+        assert!(matches!(ev(blocked), Some(Event::FactoryConfig { config, problem, .. })
+            if !config.enabled && config.reviewer && config.checks.is_empty() && problem == "Install GitHub CLI (gh) to use the Factory"));
+        let refused = include_str!("../../../../pocketd/internal/proto/testdata/factory/server/error_factory_unavailable.json");
+        assert!(matches!(ev(refused), Some(Event::FactoryError(m)) if m == "This project has no GitHub remote"));
+        assert!(ev(r#"{"type":"error","id":"board-3","message":"Nope"}"#).is_none());
+        assert!(ev(r#"{"type":"factory.config","id":"factory-1","project":"/app"}"#).is_none());
+    }
+
+    #[test]
+    fn a_projects_factory_settings_are_kept_as_pocketd_last_sent_them() {
+        let mut a = Agents::default();
+        assert!(a.factory_config("/app").is_none());
+        let on = factory::Config { enabled: true, slots: 2, ..Default::default() };
+        a.apply(Event::FactoryConfig { project: "/app".into(), config: on.clone(), problem: String::new() });
+        assert_eq!(a.factory_config("/app"), Some(&on));
+        a.apply(Event::FactoryConfig { project: "/app".into(), config: factory::Config::default(), problem: "Run gh auth login to use the Factory".into() });
+        assert_eq!(a.factory_config("/app").map(|c| c.enabled), Some(false));
+        assert!(a.factory_config("/other").is_none());
+        a.apply(Event::FactoryError("Nope".into()));
+        assert!(a.factory_config("/app").is_some());
+    }
+
+    #[test]
     fn automation_frames_become_automation_events() {
         let ev = |raw: &str| automation_event(&serde_json::from_str::<Frame>(raw).unwrap());
         let snapshot = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/automations.json");
@@ -2314,6 +2417,25 @@ mod tests {
         ($name:literal) => {
             serde_json::from_str::<Value>(include_str!(concat!("../../../../pocketd/internal/proto/testdata/golden/", $name))).unwrap()
         };
+    }
+
+    macro_rules! factory_golden {
+        ($name:literal) => {
+            serde_json::from_str::<Value>(include_str!(concat!("../../../../pocketd/internal/proto/testdata/factory/", $name))).unwrap()
+        };
+    }
+
+    #[test]
+    fn factory_messages_are_the_golden_frames_with_a_factory_request_id() {
+        assert_eq!(sent_but_id(|o| o.factory_config("/app")), without_id(factory_golden!("client/factory_config_get.json")));
+        let config = Config { enabled: true, spec: true, reviewer: true, lead: "claude-opus".into(), workers: "claude-sonnet".into(), review: "codex".into(), slots: 2, fix: 1, checks: vec!["cargo test".into(), "cargo clippy --all-targets".into()] };
+        assert_eq!(sent_but_id(|o| o.factory_save("/app", &config)), without_id(factory_golden!("client/factory_config_save.json")));
+        let (tx, rx) = channel();
+        let out = Outbox(tx);
+        out.factory_config("/app");
+        out.factory_save("/app", &config);
+        let ids: Vec<String> = rx.try_iter().map(|m| m["id"].as_str().unwrap().to_string()).collect();
+        assert!(ids.len() == 2 && ids[0] != ids[1] && ids.iter().all(|id| id.starts_with(FACTORY)));
     }
 
     fn sent_but_id(send: impl FnOnce(&Outbox)) -> Value {
