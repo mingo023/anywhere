@@ -155,13 +155,18 @@ impl Desktop {
 
     /// Starts the sheet's team with the tasks kept; false when there's no sheet to start.
     pub(crate) fn team_start(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.overlay != Some(Overlay::Team) {
+        if self.overlay != Some(Overlay::Team) || !self.start_team() {
             return false;
         }
+        self.close_overlay(window, cx);
+        true
+    }
+
+    /// Starts the sheet's lead's team with the tasks kept, while its plan still waits. The Factory page's bar calls it with no overlay.
+    pub(crate) fn start_team(&mut self) -> bool {
         let state = self.team.island.sheet.as_deref().and_then(|l| self.agents.team(l)).map(|t| t.state.clone());
         let Some((lead, picks)) = self.team.island.start(state.as_deref()) else { return false };
         self.outbox.team_start(&lead, &picks);
-        self.close_overlay(window, cx);
         true
     }
 

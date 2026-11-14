@@ -384,6 +384,8 @@ struct Frame {
     teams: Vec<Team>,
     config: Option<Config>,
     problem: String,
+    ticket: Option<factory::Detail>,
+    ticket_id: String,
 }
 
 /// What pocketd reports about the Mac it runs on.
@@ -468,6 +470,10 @@ pub enum Event {
     FactoryConfig { project: String, config: Config, problem: String },
     /// pocketd refused a Factory message.
     FactoryError(String),
+    /// One ticket's spec and activity, asked for with `Outbox::factory_ticket`.
+    FactoryTicket(factory::Detail),
+    /// The detail of the ticket with this id changed; ask again if it is shown.
+    FactoryUpdate(String),
 }
 
 #[derive(Default)]
@@ -495,6 +501,8 @@ pub struct Agents {
     pub teams: HashMap<String, Team>,
     /// Each project's Factory settings by its folder, from `factory.config`.
     pub factory: HashMap<String, Config>,
+    /// Each ticket's detail by its id, as last asked for.
+    pub details: HashMap<String, factory::Detail>,
 }
 
 impl Agents {
@@ -597,7 +605,10 @@ impl Agents {
             Event::FactoryConfig { project, config, .. } => {
                 self.factory.insert(project, config);
             }
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } | Event::FactoryError(_) => {}
+            Event::FactoryTicket(detail) => {
+                self.details.insert(detail.ticket_id.clone(), detail);
+            }
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } | Event::FactoryError(_) | Event::FactoryUpdate(_) => {}
         }
     }
 
@@ -721,6 +732,11 @@ impl Agents {
     /// `project`'s Factory settings, once pocketd has sent them.
     pub fn factory_config(&self, project: &str) -> Option<&Config> {
         self.factory.get(project)
+    }
+
+    /// `ticket`'s spec and activity, once pocketd has sent them.
+    pub fn detail(&self, ticket: &str) -> Option<&factory::Detail> {
+        self.details.get(ticket)
     }
 
     /// Shows a rename before pocketd echoes it; a blank title clears the name.
@@ -949,6 +965,8 @@ fn factory_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
         "factory.config" => Some(Event::FactoryConfig { project: f.project.clone(), config: f.config.clone()?, problem: f.problem.clone() }),
         "error" if f.id.starts_with(FACTORY) => Some(Event::FactoryError(readable(&f.message))),
+        "factory.ticket" => f.ticket.clone().map(Event::FactoryTicket),
+        "factory.update" if !f.ticket_id.is_empty() => Some(Event::FactoryUpdate(f.ticket_id.clone())),
         _ => None,
     }
 }
@@ -1209,6 +1227,11 @@ impl Outbox {
     /// Saves `project`'s Factory settings whole; `Event::FactoryConfig` answers with what pocketd kept, or `Event::FactoryError` says why it kept nothing.
     pub fn factory_save(&self, project: &str, config: &Config) {
         self.send(json!({"type": "factory.config.save", "id": factory_id(), "project": project, "config": config}));
+    }
+
+    /// Asks for `ticket`'s spec and activity; `Event::FactoryTicket` answers.
+    pub fn factory_ticket(&self, ticket: &str) {
+        self.send(json!({"type": "factory.ticket", "id": factory_id(), "ticketId": ticket}));
     }
 
     fn send(&self, m: Value) {
@@ -2326,6 +2349,32 @@ mod tests {
     }
 
     #[test]
+    fn a_factory_ticket_frame_carries_the_spec_and_the_activity() {
+        let ev = |raw: &str| factory_event(&serde_json::from_str::<Frame>(raw).unwrap());
+        let reply = include_str!("../../../../pocketd/internal/proto/testdata/factory/server/factory_ticket.json");
+        let Some(Event::FactoryTicket(d)) = ev(reply) else { panic!("not a detail") };
+        assert_eq!(d.ticket_id, "t1");
+        assert!(d.spec.starts_with("## Brief\nSends wait in a queue."));
+        assert_eq!(d.activity.len(), 3);
+        assert_eq!(d.activity[2], factory::Activity { at: 1790000120000, station: tickets::Station::Plan, actor: "you".into(), kind: "approved".into(), text: "2 workers".into() });
+        let update = include_str!("../../../../pocketd/internal/proto/testdata/factory/server/factory_update.json");
+        assert!(matches!(ev(update), Some(Event::FactoryUpdate(id)) if id == "t1"));
+        assert!(ev(r#"{"type":"factory.ticket","id":"factory-1"}"#).is_none());
+        assert!(ev(r#"{"type":"factory.update"}"#).is_none());
+    }
+
+    #[test]
+    fn a_tickets_detail_is_kept_by_its_id_and_replaced_by_the_next() {
+        let mut a = Agents::default();
+        assert!(a.detail("t1").is_none());
+        a.apply(Event::FactoryTicket(factory::Detail { ticket_id: "t1".into(), spec: "old".into(), ..Default::default() }));
+        a.apply(Event::FactoryTicket(factory::Detail { ticket_id: "t1".into(), spec: "new".into(), ..Default::default() }));
+        a.apply(Event::FactoryUpdate("t1".into()));
+        assert_eq!(a.detail("t1").map(|d| d.spec.as_str()), Some("new"));
+        assert!(a.detail("t2").is_none());
+    }
+
+    #[test]
     fn automation_frames_become_automation_events() {
         let ev = |raw: &str| automation_event(&serde_json::from_str::<Frame>(raw).unwrap());
         let snapshot = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/automations.json");
@@ -2436,6 +2485,11 @@ mod tests {
         out.factory_save("/app", &config);
         let ids: Vec<String> = rx.try_iter().map(|m| m["id"].as_str().unwrap().to_string()).collect();
         assert!(ids.len() == 2 && ids[0] != ids[1] && ids.iter().all(|id| id.starts_with(FACTORY)));
+    }
+
+    #[test]
+    fn factory_ticket_sends_the_golden_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.factory_ticket("t1")), without_id(factory_golden!("client/factory_ticket.json")));
     }
 
     fn sent_but_id(send: impl FnOnce(&Outbox)) -> Value {

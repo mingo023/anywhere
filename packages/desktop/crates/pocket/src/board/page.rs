@@ -6,6 +6,9 @@ use theme::*;
 
 impl Desktop {
     pub(crate) fn board_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        if let Some(page) = self.factory.page.clone() {
+            return self.factory_page(&page, cx);
+        }
         if self.board.page.is_some() {
             return self.ticket_page(cx);
         }

@@ -187,7 +187,7 @@ impl Desktop {
     }
 
     /// What the task runs without asking: each prefix with its ×, then Allow, or the input while adding.
-    fn allow_row(&self, t: &Kept, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn allow_row(&self, t: &Kept, cx: &mut Context<Self>) -> Div {
         let pills: Vec<AnyElement> = t
             .allow
             .iter()

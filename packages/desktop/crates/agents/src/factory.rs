@@ -20,3 +20,26 @@ pub struct Config {
     /// The local commands the Checks station runs, in order.
     pub checks: Vec<String>,
 }
+
+/// One ticket's spec and what happened to it, as `factory.ticket` answers.
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Detail {
+    pub ticket_id: String,
+    /// The spec block's markdown; empty until the lead wrote one.
+    pub spec: String,
+    /// Oldest first.
+    pub activity: Vec<Activity>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Activity {
+    /// Unix ms.
+    pub at: i64,
+    pub station: crate::tickets::Station,
+    /// `you`, `lead`, `worker:<task>`, `reviewer` or `anywhere`.
+    pub actor: String,
+    pub kind: String,
+    pub text: String,
+}

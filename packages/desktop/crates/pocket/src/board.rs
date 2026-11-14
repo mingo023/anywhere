@@ -16,7 +16,7 @@ mod row;
 mod selection;
 mod stations;
 mod tabs;
-mod ticket_page;
+pub(crate) mod ticket_page;
 mod toast;
 mod top_bar;
 mod values;
@@ -243,6 +243,7 @@ impl Desktop {
         if self.board.page.is_some() {
             self.leave_ticket_page(window, cx);
         }
+        self.factory.page = None;
         self.board_changed();
         window.focus(&self.root, cx);
         cx.notify();
@@ -266,6 +267,7 @@ impl Desktop {
             let slots = self.board_slots();
             self.board.keep_selection(&slots, &self.agents.board.tickets);
             self.drop_stale_ticket_page();
+            self.drop_stale_factory_page();
         }
     }
 
@@ -310,9 +312,10 @@ impl Desktop {
     }
 
     pub(crate) fn escape_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (composer, title, prompt, search) = (self.board.composer.text.focus_handle(cx), self.board.form.title.focus_handle(cx), self.board.form.prompt.focus_handle(cx), self.board.search.focus_handle(cx));
-        let typing = [composer, title, prompt, search].iter().any(|field| field.is_focused(window));
-        match escape(self.board.page.is_some(), self.board.searching, typing, !self.board.selection.picked.is_empty()) {
+        let (composer, title, prompt, search, changes) = (self.board.composer.text.focus_handle(cx), self.board.form.title.focus_handle(cx), self.board.form.prompt.focus_handle(cx), self.board.search.focus_handle(cx), self.factory.changes.focus_handle(cx));
+        let typing = [composer, title, prompt, search, changes].iter().any(|field| field.is_focused(window));
+        match escape(self.board.page.is_some() || self.factory.page.is_some(), self.board.searching, typing, !self.board.selection.picked.is_empty()) {
+            Escape::LeavePage if self.factory.page.is_some() => self.leave_factory_ticket(window, cx),
             Escape::LeavePage => self.leave_ticket_page(window, cx),
             Escape::CloseSearch => self.set_board_search(false, window, cx),
             Escape::LeaveField => {
@@ -344,7 +347,7 @@ impl Desktop {
         if self.screen != Screen::Board || self.overlay.is_some() || self.board.menu.is_some() || (!command && key.modifiers.modified()) || !free {
             return false;
         }
-        match board_key(&key.key, command, self.board.page.is_some()) {
+        match board_key(&key.key, command, self.board.page.is_some() || self.factory.page.is_some()) {
             Some(Key::Compose) => self.focus_board_composer(window, cx),
             Some(Key::Search) => self.set_board_search(true, window, cx),
             Some(Key::Filter) => self.open_filter_menu(window, cx),
@@ -378,6 +381,7 @@ impl Desktop {
             Some(Opens::Edit) => self.edit_ticket(id, window, cx),
             Some(Opens::Session) => self.focus_agent(&t.agent_id, window, cx),
             Some(Opens::Worktree) => self.select_tree(t.folder, Some(t.worktree), cx),
+            Some(Opens::Factory) => self.open_factory_ticket(id, window, cx),
             None => {}
         }
     }

@@ -131,6 +131,10 @@ impl Desktop {
         if let Event::Teams(teams) = &ev {
             teams.iter().for_each(|t| _ = self.team.island.saw(t));
         }
+        if let Event::FactoryUpdate(ticket) = &ev {
+            self.factory_updated(ticket);
+        }
+        let teamed = matches!(ev, Event::Team(_) | Event::Teams(_));
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
             return self.on_pair(ev, cx);
         }
@@ -232,6 +236,9 @@ impl Desktop {
             self.renames.connected(host);
         }
         self.agents.apply_from(host, ev);
+        if teamed {
+            self.aim_plan_edits();
+        }
         if let Some((feed, before)) = named {
             let trees = &self.worktrees;
             let unnamed = |path: &str| trees.values().flatten().find(|w| w.path == path).map(crate::sidebar::tree_place);

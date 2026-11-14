@@ -590,10 +590,14 @@ pub(crate) enum Opens {
     Edit,
     Session,
     Worktree,
+    Factory,
 }
 
-/// Where clicking a ticket goes: its page before it starts, then its session, else its Worktree.
+/// Where clicking a ticket goes: the Factory page once it has a station, its page before it starts, then its session, else its Worktree.
 pub(crate) fn opens(t: &Ticket, reach: Reach) -> Option<Opens> {
+    if t.station != agents::tickets::Station::None {
+        return Some(Opens::Factory);
+    }
     match column(t) {
         Col::Todo | Col::Queued => Some(Opens::Edit),
         Col::Closed => None,
@@ -1328,6 +1332,26 @@ mod tests {
         assert_eq!(opens(&live(Status::Stopped), BOTH), Some(Opens::Worktree));
         assert_eq!(opens(&live(Status::Done), TREE), Some(Opens::Worktree));
         assert_eq!(opens(&live(Status::Failed), NOTHING), None);
+    }
+
+    #[test]
+    fn a_ticket_with_a_station_opens_the_factory_page_whatever_is_left_of_its_session() {
+        use agents::tickets::Station;
+        let at_plan = Ticket { station: Station::Plan, ..ticket("a", State::Live, Status::NeedsYou) };
+        let merged = Ticket { station: Station::Merged, ..ticket("b", State::Closed, Status::None) };
+        assert_eq!(opens(&at_plan, BOTH), Some(Opens::Factory));
+        assert_eq!(opens(&merged, NOTHING), Some(Opens::Factory));
+        assert_eq!(opens(&ticket("c", State::Live, Status::Working), BOTH), Some(Opens::Session));
+        assert_eq!(opens(&ticket("d", State::Todo, Status::None), BOTH), Some(Opens::Edit));
+    }
+
+    #[test]
+    fn the_edit_page_never_holds_a_ticket_with_a_station() {
+        use agents::tickets::Station;
+        // `edit_ticket` and `drop_stale_ticket_page` both ask `lifts`, and a station is set when a ticket leaves Queued.
+        for (state, status) in [(State::Live, Status::Starting), (State::Live, Status::Failed), (State::Closed, Status::None)] {
+            assert!(!column(&Ticket { station: Station::Spec, ..ticket("a", state, status) }).lifts());
+        }
     }
 
     #[test]

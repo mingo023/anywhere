@@ -36,7 +36,7 @@ impl Desktop {
 
     fn page_properties(&self, cx: &mut Context<Self>) -> Div {
         let f = &self.board.form;
-        let row = |name: &'static str, value: AnyElement| div().h(px(28.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_3).child(div().w(px(84.)).flex_none().child(name)).child(value);
+        let row = prop_row;
         let id = f.picks.values.id.as_deref().unwrap_or_default();
         let t = self.ticket(id);
         let status = t.map(|t| {
@@ -73,4 +73,9 @@ impl Desktop {
         let body = div().flex_1().min_h_0().flex().child(main).child(self.page_properties(cx));
         div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().bg(CANVAS).child(self.ticket_page_bar(cx)).child(body)
     }
+}
+
+/// One row of a ticket page's Properties panel.
+pub(crate) fn prop_row(name: &'static str, value: AnyElement) -> Div {
+    div().h(px(28.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_3).child(div().w(px(84.)).flex_none().child(name)).child(value)
 }

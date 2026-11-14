@@ -160,7 +160,9 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::Board { .. }
         | Event::BoardError(_)
         | Event::FactoryConfig { .. }
-        | Event::FactoryError(_) => return false,
+        | Event::FactoryError(_)
+        | Event::FactoryTicket(_)
+        | Event::FactoryUpdate(_) => return false,
     }
     true
 }
@@ -425,6 +427,12 @@ mod tests {
     fn a_hosts_factory_news_is_dropped_as_its_board_is() {
         assert!(!tag_event("devbox", &mut Event::FactoryConfig { project: "/home/me/app".into(), config: Default::default(), problem: String::new() }));
         assert!(!tag_event("devbox", &mut Event::FactoryError("Nope".into())));
+    }
+
+    #[test]
+    fn a_hosts_factory_tickets_are_not_this_macs() {
+        assert!(!tag_event("devbox", &mut Event::FactoryTicket(Default::default())));
+        assert!(!tag_event("devbox", &mut Event::FactoryUpdate("t1".into())));
     }
 
     #[test]

@@ -43,7 +43,7 @@ pub(crate) fn station_glyph(column: Column, gate: Gate, failed: bool) -> impl In
     icon(name, 14., color)
 }
 
-pub(super) fn priority_glyph(priority: u8) -> impl IntoElement {
+pub(crate) fn priority_glyph(priority: u8) -> impl IntoElement {
     let (name, color) = match priority {
         1 => ("priority-urgent", WORKING),
         2 => ("priority-high", TEXT_3),
@@ -54,7 +54,7 @@ pub(super) fn priority_glyph(priority: u8) -> impl IntoElement {
     icon(name, 14., color)
 }
 
-pub(super) fn label_dot(label: &str) -> Div {
+pub(crate) fn label_dot(label: &str) -> Div {
     let color = match label {
         "Bug" => FAILED,
         "Docs" => WAITING_DOT,

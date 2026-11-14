@@ -32,7 +32,7 @@ fn closed_label(why: ClosedWhy) -> &'static str {
 }
 
 impl Desktop {
-    pub(super) fn ticket_key(&self, t: &Ticket) -> Option<String> {
+    pub(crate) fn ticket_key(&self, t: &Ticket) -> Option<String> {
         ticket_key(&self.repo_name(&t.folder), t.number)
     }
 

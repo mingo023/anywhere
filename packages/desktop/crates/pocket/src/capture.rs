@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 274] = [
+const STEPS: [(&str, Step); 276] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -556,6 +556,8 @@ const STEPS: [(&str, Step); 274] = [
         cx.notify();
     }),
     ("board-ticket", |d, window, cx| d.edit_ticket("t1", window, cx)),
+    ("factory-ticket-plan", show_factory_plan),
+    ("factory-ticket-activity", |d, _, cx| d.factory_tab(crate::factory::tabs::Tab::Activity, cx)),
     ("board-nomatch", |d, _, cx| {
         d.board.filters.query = "nothing is called this".into();
         d.board_changed();
@@ -1236,6 +1238,38 @@ fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
         d.focus_agent(&card.id, window, cx);
     }
+}
+
+/// `t15` at the Plan gate: its lead's proposed plan of three tasks, the spec and the activity so far.
+fn show_factory_plan(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    use agents::tickets::Station;
+    let task = |id: &str, title: &str, agent: &str, files: &[&str], after: &[&str], instructions: &str| agents::TeamTask {
+        id: id.into(),
+        title: title.into(),
+        agent: agent.into(),
+        files: files.iter().map(|f| f.to_string()).collect(),
+        after: after.iter().map(|a| a.to_string()).collect(),
+        instructions: instructions.into(),
+        state: "planned".into(),
+        ..Default::default()
+    };
+    let tasks = vec![
+        task("t1", "Split the store into one file per section", "claude", &["crates/store/src/store.rs", "crates/store/src/prefs.rs"], &[], "Move each section's prefs into its own file and keep one reader."),
+        task("t2", "Read the old file once and write the new ones", "codex", &["crates/store/src/migrate.rs"], &["t1"], "Read desktop.json when the new files are missing, then write them."),
+        task("t3", "Test that a bad section keeps the others", "claude", &["crates/store/src/store.rs"], &["t1"], "A section that fails to parse falls back to its defaults alone."),
+    ];
+    let now = crate::util::now_ms();
+    d.on_agents(agents::Event::Team(agents::Team { lead: "plan-lead".into(), state: crate::team::PROPOSED.into(), tasks, updated_at: now, ..Default::default() }), window, cx);
+    d.board.layout = crate::board::Layout::Factory;
+    d.board_changed();
+    d.open_factory_ticket("t15", window, cx);
+    let ev = |ago: i64, station: Station| agents::factory::Activity { at: now - ago * 60_000, station, actor: "anywhere".into(), kind: "moved".into(), text: String::new() };
+    let detail = agents::factory::Detail {
+        ticket_id: "t15".into(),
+        spec: "## Brief\nSplit desktop.json into one file per Settings section, so a bad value in one section no longer resets every setting. The old file is read once and then left alone.\n## Acceptance criteria\n- [ ] Each Settings section saves to its own file\n- [ ] A section that fails to parse falls back to its defaults alone\n- [ ] The first start after the update keeps every setting\n## Risks\n- None".into(),
+        activity: vec![ev(30, Station::Spec), ev(24, Station::Plan)],
+    };
+    d.on_agents(agents::Event::FactoryTicket(detail), window, cx);
 }
 
 /// The plan of the team captures, proposed by the shown chat's agent, each task in `states`' state; `edit` adjusts the rest.
