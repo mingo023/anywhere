@@ -1,5 +1,5 @@
 use super::fold::{self, Live};
-use super::jump::{self, Glide};
+use super::jump::{self, Glide, Seek};
 use super::pin::{self, Pin};
 use super::markdown::{self, Docs, Highlights};
 use super::reveal::{self, Reveal};
@@ -23,8 +23,8 @@ use theme::*;
 
 /// The transcript's reading width.
 pub(super) const WIDTH: f32 = 880.;
-/// How long a row shown from the background tray stays lit.
-const FLASH: Duration = Duration::from_millis(900);
+/// How long a row shown from the background tray, or a prompt landed on from the timeline, stays lit.
+pub(super) const FLASH: Duration = Duration::from_millis(900);
 /// A sent prompt fades in where it's held, from just below.
 const SENT: creating::Part = (0., 12.);
 
@@ -42,11 +42,13 @@ pub(crate) struct View {
     _tools: Subscription,
     jump: bool,
     glide: Option<(Instant, Glide)>,
+    seek: Option<(Instant, Seek)>,
     /// The prompt just sent, held at the top while its reply grows.
     pin: Option<Pin>,
     /// When the user last sent a prompt: its row rises into the chat.
     sent: Option<Instant>,
-    /// The row just shown from the background tray or the prompt timeline, and when: it flashes.
+    /// The row just shown from the background tray or the prompt timeline, and when: it flashes, or a prompt's bubble
+    /// lights.
     flash: Option<(String, Instant)>,
     /// Whether the user's last scroll left the list at its end, until the next render reads it.
     scrolled: Rc<Cell<Option<bool>>>,
@@ -90,7 +92,7 @@ impl View {
                 view.remeasure_under_pin();
             }
         });
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false }
     }
 
     /// How far the list sits above its end.
@@ -106,6 +108,27 @@ impl View {
             return (top.item_ix, f32::from(top.offset_in_item));
         }
         sticky::top_at_end(count, self.shown_at_end(), |ix| f32::from(self.list.laid_out_height_from(ix)))
+    }
+
+    /// How far the list would scroll to bring row `ix` to the top, by the heights laid out so far.
+    fn offset_to(&self, ix: usize) -> f32 {
+        let (top, offset) = self.top_row();
+        f32::from(self.list.laid_out_height_from(top) - self.list.laid_out_height_from(ix)) - offset
+    }
+
+    /// Row `ix`'s height as last laid out.
+    fn row_height(&self, ix: usize) -> f32 {
+        f32::from(self.list.laid_out_height_from(ix) - self.list.laid_out_height_from(ix + 1))
+    }
+
+    /// Whether row `id` is lit just now.
+    fn flashing(&self, id: &str) -> bool {
+        self.flash.as_ref().is_some_and(|(row, at)| row == id && at.elapsed() < FLASH)
+    }
+
+    /// Lights row `ix`.
+    fn flash_row(&mut self, ix: usize) {
+        self.flash = self.session.ids.get(ix).map(|id| (id.clone(), Instant::now()));
     }
 
     /// How far under the viewport's top row `ix` starts; None while that's unmeasured.
@@ -194,6 +217,7 @@ impl View {
     /// Holds the prompt just sent at the top once its row shows.
     pub(super) fn pin(&mut self) {
         self.pin = Some(Pin::new());
+        self.seek = None;
         self.sent = Some(Instant::now());
         self.list.set_follow_mode(FollowMode::Tail);
     }
@@ -416,7 +440,7 @@ fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: b
         let (agent, row) = (agent.to_string(), id.to_string());
         (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx)))
     });
-    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), toggle);
+    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), toggle);
     let under = under.unwrap_or_else(|| {
         let key = format!("prompt:{id}");
         user_bubble::actions(id, view.copied(&key), copy(agent, key, text.to_string(), cx), Some(at))
@@ -472,6 +496,9 @@ impl Desktop {
         }
         if view.list.item_count() == 0 {
             return div().flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("Send a message to start.");
+        }
+        if view.scrolled.get().is_some() {
+            view.seek = None;
         }
         view.hold_row(window);
         view.hold_pin(!cx.reduce_motion(), window);
@@ -535,7 +562,7 @@ impl Desktop {
         let id = s.ids[ix].clone();
         let shut = s.shut_phase(ix);
         // A prompt held at the top, or a glide to the end, would scroll the list off the row.
-        (view.pin, view.glide) = (None, None);
+        (view.pin, view.glide, view.seek) = (None, None, None);
         view.flash = Some((id.clone(), Instant::now()));
         self.chat_reveal(agent, ix, cx);
         if shut {
@@ -548,16 +575,63 @@ impl Desktop {
     pub(super) fn chat_jump_to_prompt(&mut self, agent: &str, ix: usize, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get_mut(agent) else { return };
         // A prompt held at the top, or a glide to the end, would scroll the list off the prompt.
-        (view.pin, view.glide) = (None, None);
+        (view.pin, view.glide, view.seek) = (None, None, None);
         view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
         cx.notify();
     }
 
-    /// Scrolls `agent`'s chat to its prompt row `ix` and flashes it, as letting go on the prompt timeline does.
-    pub(super) fn chat_land_on_prompt(&mut self, agent: &str, ix: usize, cx: &mut Context<Self>) {
-        if let Some(view) = self.chats.views.get_mut(agent) {
-            view.flash = view.session.ids.get(ix).map(|id| (id.clone(), Instant::now()));
+    /// Glides `agent`'s chat to its prompt row `ix`, as a click on the prompt timeline does; one far off is jumped to
+    /// a viewport short of first.
+    pub(super) fn chat_seek_prompt(&mut self, agent: &str, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if cx.reduce_motion() {
+            return self.chat_jump_to_prompt(agent, ix, cx);
         }
+        let Some(view) = self.chats.views.get_mut(agent) else { return };
+        let (top, offset) = view.top_row();
+        let viewport = f32::from(view.list.viewport_bounds().size.height);
+        let start = jump::lead_in(top, ix, viewport, |row| view.list.laid_out(row).then(|| view.row_height(row)));
+        if start == top && view.offset_to(ix).abs() < 0.5 {
+            // Already there: letting go lights it at once.
+            return self.chat_jump_to_prompt(agent, ix, cx);
+        }
+        (view.pin, view.glide) = (None, None);
+        let offset = if start == top { offset } else { 0. };
+        view.list.scroll_to(ListOffset { item_ix: start, offset_in_item: px(offset) });
+        // A seek under way already has a frame coming that steps this one.
+        if view.seek.replace((Instant::now(), Seek::new(ix))).is_none() {
+            self.chat_seek(agent.to_string(), window, cx);
+        }
+    }
+
+    /// One frame of a glide to a prompt; once there it lights the prompt if it was let go on.
+    fn chat_seek(&mut self, agent: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(view) = self.chats.views.get_mut(&agent) else { return };
+        let Some(row) = view.seek.as_ref().map(|(_, seek)| seek.row) else { return };
+        let remaining = view.offset_to(row);
+        let Some((start, seek)) = &mut view.seek else { return };
+        let (by, done) = seek.step(start.elapsed(), remaining);
+        if done {
+            let lights = seek.lights;
+            view.seek = None;
+            view.list.scroll_to(ListOffset { item_ix: row, offset_in_item: px(0.) });
+            if lights {
+                view.flash_row(row);
+            }
+        } else {
+            view.list.scroll_by(px(by));
+            cx.on_next_frame(window, move |this, window, cx| this.chat_seek(agent, window, cx));
+        }
+        cx.notify();
+    }
+
+    /// Scrolls `agent`'s chat to its prompt row `ix` and lights it, as letting go on the prompt timeline does; a glide
+    /// still on its way there lights it on arrival.
+    pub(super) fn chat_land_on_prompt(&mut self, agent: &str, ix: usize, cx: &mut Context<Self>) {
+        let Some(view) = self.chats.views.get_mut(agent) else { return };
+        if view.seek.as_mut().is_some_and(|(_, seek)| seek.land(ix)) {
+            return;
+        }
+        view.flash_row(ix);
         self.chat_jump_to_prompt(agent, ix, cx);
     }
 
@@ -581,6 +655,7 @@ impl Desktop {
     pub(crate) fn chat_jump_to_bottom(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get_mut(agent) else { return };
         view.jump = false;
+        view.seek = None;
         match Glide::new(view.distance(), f32::from(view.list.viewport_bounds().size.height)) {
             Some(glide) => {
                 view.glide = Some((Instant::now(), glide));
@@ -892,7 +967,8 @@ impl Desktop {
             None => inner,
         };
         let inner = match &view.flash {
-            Some((row, at)) if *row == id && at.elapsed() < FLASH => {
+            // A prompt lights its bubble instead.
+            Some(_) if view.flashing(&id) && !prompt(&row) => {
                 let flash = inner.rounded(px(8.)).with_animation(SharedString::from(format!("flash-{id}")), Animation::new(FLASH).with_easing(ease_out_quint()), |d, t| d.bg(Hsla::from(FILL_4).opacity(1. - t)));
                 div().child(flash)
             }
