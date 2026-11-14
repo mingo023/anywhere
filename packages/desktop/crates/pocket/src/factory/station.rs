@@ -1,4 +1,4 @@
-use crate::board::logic::{FINISHED_SHOWN, Filters, Slot, Tone, activity, column as status_column};
+use crate::board::logic::{FINISHED_SHOWN, Filters, Slot, Tone, activity, busy, column as status_column};
 use crate::team::progress::counts as task_counts;
 use crate::team::{PROPOSED, plural};
 use agents::team::state::RUNNING;
@@ -188,6 +188,64 @@ pub(crate) fn widths(available: f32, open: &[bool; COLUMNS.len()]) -> [f32; COLU
     let middle = COLUMNS.iter().filter(|c| !c.rail()).count() as f32;
     let each = ((available - 2. * PAD - (COLUMNS.len() - 1) as f32 * GAP - rails) / middle).floor().clamp(COL_MIN, COL_MAX);
     COLUMNS.map(|c| if c.rail() { rail(c) } else { each })
+}
+
+/// What a filter chip of the Factory layout keeps.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Needs {
+    You,
+    Ask,
+    Failed,
+}
+
+impl Needs {
+    pub(crate) const ALL: [Needs; 3] = [Needs::You, Needs::Ask, Needs::Failed];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Needs::You => "needs you",
+            Needs::Ask => "ask",
+            Needs::Failed => "failed",
+        }
+    }
+
+    pub(crate) fn keeps(self, t: &Ticket) -> bool {
+        match self {
+            Needs::You => waits(t),
+            Needs::Ask => gate(t, None) == Gate::Ask,
+            Needs::Failed => failed(t),
+        }
+    }
+
+    /// The chip that is on after a click on `clicked`: a second click on the same chip clears it.
+    pub(crate) fn toggled(current: Option<Needs>, clicked: Needs) -> Option<Needs> {
+        (current != Some(clicked)).then_some(clicked)
+    }
+}
+
+/// What the chips say, over every ticket whatever the filters hide.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub(crate) struct Counts {
+    pub(crate) you: usize,
+    pub(crate) ask: usize,
+    pub(crate) failed: usize,
+    /// The tickets that hold a slot.
+    pub(crate) slots: usize,
+}
+
+impl Counts {
+    pub(crate) fn of(&self, needs: Needs) -> usize {
+        match needs {
+            Needs::You => self.you,
+            Needs::Ask => self.ask,
+            Needs::Failed => self.failed,
+        }
+    }
+}
+
+pub(crate) fn counts(tickets: &[Ticket]) -> Counts {
+    let n = |needs: Needs| tickets.iter().filter(|t| needs.keeps(t)).count();
+    Counts { you: n(Needs::You), ask: n(Needs::Ask), failed: n(Needs::Failed), slots: busy(tickets) }
 }
 
 #[cfg(test)]
@@ -445,5 +503,39 @@ mod tests {
         let widths = widths(1384., &open);
         assert_eq!((widths[Column::Todo as usize], widths[Column::Plan as usize], widths[Column::Merged as usize]), (RAIL_OPEN, 202., RAIL_W));
         assert!(taken(widths) <= 1384.);
+    }
+
+    #[test]
+    fn the_chips_count_what_waits_on_you_what_asks_and_what_failed() {
+        let tickets = [
+            Ticket { gate: Gate::Plan, ..live(Status::NeedsYou) },
+            Ticket { gate: Gate::Ask, ..live(Status::NeedsYou) },
+            Ticket { gate: Gate::Pr, ..live(Status::NeedsYou) },
+            live(Status::NeedsYou),
+            live(Status::Failed),
+            live(Status::Working),
+            live(Status::Starting),
+            Ticket::sample(),
+        ];
+        let c = counts(&tickets);
+        assert_eq!(c, Counts { you: 4, ask: 2, failed: 1, slots: 2 });
+        assert_eq!(Needs::ALL.map(|n| c.of(n)), [4, 2, 1]);
+        assert_eq!(Needs::ALL.map(Needs::name), ["needs you", "ask", "failed"]);
+    }
+
+    #[test]
+    fn a_second_click_on_a_chip_clears_it_and_another_chip_replaces_it() {
+        assert_eq!(Needs::toggled(None, Needs::You), Some(Needs::You));
+        assert_eq!(Needs::toggled(Some(Needs::You), Needs::You), None);
+        assert_eq!(Needs::toggled(Some(Needs::You), Needs::Failed), Some(Needs::Failed));
+    }
+
+    #[test]
+    fn a_chip_keeps_only_its_tickets_in_the_columns() {
+        let tickets = [Ticket { station: Station::Plan, gate: Gate::Plan, ..live(Status::NeedsYou) }, Ticket { station: Station::Plan, ..live(Status::Working) }, Ticket { station: Station::Checks, ..live(Status::Failed) }];
+        let only = |needs| arrange(&tickets, &Filters { needs: Some(needs), ..Filters::default() }, |_| None, |_| None);
+        assert_eq!(only(Needs::You), [vec![], vec![], vec![0], vec![], vec![], vec![], vec![]]);
+        assert_eq!(only(Needs::Ask), Stations::default());
+        assert_eq!(only(Needs::Failed)[Column::Checks as usize], [2]);
     }
 }

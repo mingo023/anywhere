@@ -51,7 +51,7 @@ impl Desktop {
         if self.board.page.is_some() {
             return self.step_ticket_page(delta, window, cx);
         }
-        let slots = self.board.walk_slots();
+        let slots = self.board_slots();
         let tickets = &self.agents.board.tickets;
         let ids: Vec<&str> = slots.iter().map(|s| tickets.get(s.index).map_or("", |t| t.id.as_str())).collect();
         if let Some(at) = self.board.selection.step(&ids, delta) {
@@ -89,7 +89,7 @@ impl Desktop {
 
     pub(super) fn pick_all_tickets(&mut self, cx: &mut Context<Self>) {
         let tickets = &self.agents.board.tickets;
-        let ids = self.board.walk_slots().into_iter().filter(|s| !s.col.finished()).filter_map(|s| tickets.get(s.index)).map(|t| t.id.clone());
+        let ids = self.board_slots().into_iter().filter(|s| !s.col.finished()).filter_map(|s| tickets.get(s.index)).map(|t| t.id.clone());
         self.board.selection.picked.extend(ids);
         cx.notify();
     }

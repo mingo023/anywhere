@@ -1,3 +1,4 @@
+use crate::board::Layout;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::inbox;
@@ -206,7 +207,7 @@ impl Desktop {
         }
         let connected = matches!(ev, Event::Connected { .. });
         let automations = matches!(ev, Event::Automations { .. });
-        let board = matches!(ev, Event::Board { .. });
+        let board = matches!(ev, Event::Board { .. }) || (self.board.layout == Layout::Factory && matches!(ev, Event::Team(_) | Event::Teams(_)));
         let locals = matches!(ev, Event::Locals(_));
         if let (Event::Connected { version, .. }, None) = (&ev, host) {
             self.terminals.link.connected(channel::version(), version, channel::is_release(), Instant::now());

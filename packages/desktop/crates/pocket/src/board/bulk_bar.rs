@@ -25,7 +25,7 @@ fn bulk_button(id: impl Into<ElementId>, lead: impl IntoElement, label: &'static
 impl Desktop {
     /// The picked tickets `action` reaches, in the order the page shows them.
     pub(super) fn bulk_ids(&self, action: Action) -> Vec<String> {
-        bulk_targets(&self.board.walk_slots(), &self.agents.board.tickets, &self.board.selection.picked, action).into_iter().map(|t| t.id.clone()).collect()
+        bulk_targets(&self.board_slots(), &self.agents.board.tickets, &self.board.selection.picked, action).into_iter().map(|t| t.id.clone()).collect()
     }
 
     pub(super) fn bulk_status_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -68,7 +68,7 @@ impl Desktop {
             return None;
         }
         let tickets = &self.agents.board.tickets;
-        let slots: Vec<_> = self.board.walk_slots().into_iter().filter(|s| tickets.get(s.index).is_some_and(|t| picked.contains(&t.id))).collect();
+        let slots: Vec<_> = self.board_slots().into_iter().filter(|s| tickets.get(s.index).is_some_and(|t| picked.contains(&t.id))).collect();
         let can = |a: Action| slots.iter().any(|s| change_reaches(s.col, a));
         let clear = ui::glyph_frame("board-bulk-clear", 20., 20., 7.).child(icon("x", 11., TEXT_3)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.board.selection.picked.clear();

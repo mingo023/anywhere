@@ -27,6 +27,7 @@ use crate::desktop::jump::Chips;
 use crate::desktop::sounds::Chime;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
+use crate::factory::FactoryState;
 use crate::fleet::Fleet;
 use crate::host_agents::HostAgents;
 use crate::git_ui::changes::ChangesState;
@@ -114,6 +115,7 @@ pub struct Desktop {
     pub(crate) activity: ActivityState,
     pub(crate) automations: AutomationsState,
     pub(crate) board: BoardState,
+    pub(crate) factory: FactoryState,
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: PaletteState,
@@ -160,6 +162,7 @@ impl Desktop {
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
         let (board, board_subs) = BoardState::new(window, cx);
+        let (factory, factory_subs) = FactoryState::new(window, cx);
         let (activity, activity_subs) = ActivityState::new(window, cx);
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
@@ -204,6 +207,7 @@ impl Desktop {
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
         _subs.extend(board_subs);
+        _subs.extend(factory_subs);
         _subs.extend(activity_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
         let graph = GraphState::new(store.graph_share, &store.diff);
@@ -254,6 +258,7 @@ impl Desktop {
             activity,
             automations,
             board,
+            factory,
             palette,
             sidebar,
             settings,

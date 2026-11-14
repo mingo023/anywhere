@@ -274,6 +274,7 @@ impl Desktop {
                 if d.prs.apply(tree, started, result, Instant::now()) {
                     d.refresh_pr_diffs(cx);
                     d.activity_changed();
+                    d.stations_changed();
                     cx.notify();
                 }
             })

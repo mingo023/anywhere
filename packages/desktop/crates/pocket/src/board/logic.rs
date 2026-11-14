@@ -1,3 +1,4 @@
+use crate::factory::station::Needs;
 use agents::tickets::{ClosedWhy, State, Status, Ticket};
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -278,6 +279,8 @@ pub(crate) struct Filters {
     pub(crate) priority: Choice<u8>,
     pub(crate) label: Choice<String>,
     pub(crate) query: String,
+    /// The Factory layout's chip that is on.
+    pub(crate) needs: Option<Needs>,
 }
 
 impl Filters {
@@ -333,6 +336,7 @@ impl Filters {
             && self.project.keeps(|p| *p == t.folder)
             && self.priority.keeps(|p| *p == t.priority)
             && self.label.keeps(|l| t.labels.contains(l))
+            && self.needs.is_none_or(|n| n.keeps(t))
             && (query.is_empty() || t.title.to_lowercase().contains(&query) || crate::util::basename(&t.worktree).to_lowercase().contains(&query))
     }
 }
@@ -1332,5 +1336,16 @@ mod tests {
         assert_eq!(opens(&t, BOTH), None);
         t.closed_why = ClosedWhy::Merged;
         assert_eq!(opens(&t, BOTH), Some(Opens::Session));
+    }
+
+    #[test]
+    fn the_waiting_on_you_chip_filters_the_status_layout_too() {
+        let tickets = [ticket("a", State::Live, Status::NeedsYou), ticket("b", State::Live, Status::Working), ticket("c", State::Live, Status::Failed)];
+        let you = Filters { needs: Some(Needs::You), ..Filters::default() };
+        assert_eq!(hidden_by(&tickets, &you, Tab::All, false), 2);
+        assert_eq!(arrange(&tickets, &you, Order::Activity)[Col::NeedsYou as usize], [0]);
+        assert!(!you.any(), "the chip is not one of the Filter menu's fields");
+        let failed = Filters { needs: Some(Needs::Failed), ..Filters::default() };
+        assert_eq!(arrange(&tickets, &failed, Order::Activity)[Col::NeedsYou as usize], [2]);
     }
 }

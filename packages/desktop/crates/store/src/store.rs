@@ -329,6 +329,16 @@ pub struct BoardView {
     pub not: Vec<String>,
 }
 
+/// How the Board lays its tickets out. Board is the Status layout.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BoardLayout {
+    Factory,
+    #[default]
+    Board,
+    List,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Layout {
@@ -386,8 +396,8 @@ pub struct Store {
     /// Each worktree's Changes scope, keyed by the worktree's path.
     #[serde(deserialize_with = "lenient")]
     pub scopes: BTreeMap<String, scope::Scope>,
-    /// The Board shows its list rather than its columns.
-    pub board_list: bool,
+    #[serde(deserialize_with = "lenient")]
+    pub board_layout: BoardLayout,
     #[serde(deserialize_with = "lenient")]
     pub board_views: Vec<BoardView>,
     /// The app version that last launched, so a relaunch on another one says what's new.
@@ -434,9 +444,20 @@ pub struct Store {
 impl Store {
     pub fn load(home: &Path) -> Self {
         let path = home.join("desktop.json");
-        let mut s: Self = std::fs::read(&path).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default();
+        let mut s = std::fs::read(&path).ok().and_then(|raw| Self::parse(&raw)).unwrap_or_default();
         s.path = path;
         s
+    }
+
+    /// A `desktop.json` from before `board_layout` says List with `board_list`.
+    fn parse(raw: &[u8]) -> Option<Self> {
+        let json: serde_json::Value = serde_json::from_slice(raw).ok()?;
+        let listed = json.get("board_layout").is_none() && json.get("board_list").and_then(serde_json::Value::as_bool) == Some(true);
+        let mut s: Self = serde_json::from_value(json).ok()?;
+        if listed {
+            s.board_layout = BoardLayout::List;
+        }
+        Some(s)
     }
 
     /// The folder Pocket keeps its files in.
@@ -1078,5 +1099,45 @@ mod tests {
     fn a_desktop_json_from_before_updates_has_seen_no_version() {
         let s: Store = serde_json::from_str(r#"{"projects":["/w"]}"#).unwrap();
         assert_eq!(s.seen_version, None);
+    }
+
+    fn loaded(name: &str, json: &str) -> Store {
+        let dir = std::env::temp_dir().join(format!("pocket-store-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("desktop.json"), json).unwrap();
+        let s = Store::load(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        s
+    }
+
+    #[test]
+    fn an_old_board_list_pref_opens_the_list_layout() {
+        assert_eq!(loaded("board-list", r#"{"board_list":true}"#).board_layout, BoardLayout::List);
+        assert_eq!(loaded("board-columns", r#"{"board_list":false}"#).board_layout, BoardLayout::Board);
+        assert_eq!(loaded("board-unset", r#"{"projects":["/w"]}"#).board_layout, BoardLayout::Board);
+    }
+
+    #[test]
+    fn the_board_layout_key_wins_over_the_old_one() {
+        assert_eq!(loaded("board-both", r#"{"board_list":true,"board_layout":"factory"}"#).board_layout, BoardLayout::Factory);
+        assert_eq!(loaded("board-new", r#"{"board_layout":"list"}"#).board_layout, BoardLayout::List);
+    }
+
+    #[test]
+    fn a_save_writes_the_layout_and_drops_the_old_key() {
+        let dir = std::env::temp_dir().join(format!("pocket-store-board-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("desktop.json"), r#"{"board_list":true}"#).unwrap();
+        Store::load(&dir).save();
+        let raw = std::fs::read_to_string(dir.join("desktop.json")).unwrap();
+        assert!(raw.contains(r#""board_layout": "list""#) && !raw.contains("board_list"), "{raw}");
+        assert_eq!(Store::load(&dir).board_layout, BoardLayout::List);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_board_layout_this_build_does_not_know_opens_the_status_layout() {
+        let s = loaded("board-newer", r#"{"projects":["/w"],"board_layout":"timeline"}"#);
+        assert_eq!((s.board_layout, s.projects.len()), (BoardLayout::Board, 1));
     }
 }

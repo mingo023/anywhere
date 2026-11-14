@@ -41,7 +41,7 @@ impl Desktop {
                 .child(label)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.board.layout = l;
-                    this.store.board_list = l == Layout::List;
+                    this.store.board_layout = l.into();
                     this.store.save();
                     this.board_changed();
                     cx.notify();

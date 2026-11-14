@@ -29,13 +29,48 @@ use gpui_kit::*;
 use logic::{Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Landing, Opens, Order, Props, Reach, Row, Slot, Surface, Tab, action_field, arrange, board_cols, board_key, closed_note, column, escape, hidden_by, landing, opens, page_ids, reorders_nothing, rows, tab_count};
 use selection::{Selection, walk};
 use std::collections::HashSet;
+use store::BoardLayout;
 use toast::Toast;
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub(crate) enum Layout {
+    Factory,
     #[default]
     Board,
     List,
+}
+
+impl From<BoardLayout> for Layout {
+    fn from(saved: BoardLayout) -> Self {
+        match saved {
+            BoardLayout::Factory => Layout::Factory,
+            BoardLayout::Board => Layout::Board,
+            BoardLayout::List => Layout::List,
+        }
+    }
+}
+
+impl From<Layout> for BoardLayout {
+    fn from(layout: Layout) -> Self {
+        match layout {
+            Layout::Factory => BoardLayout::Factory,
+            Layout::Board => BoardLayout::Board,
+            Layout::List => BoardLayout::List,
+        }
+    }
+}
+
+/// The tab and the closed tickets that the hidden count runs over. The Factory layout has no tabs and never shows a ticket that closed without a merge.
+fn hidden_scope(layout: Layout, tab: Tab, show_closed: bool) -> (Tab, bool) {
+    if layout == Layout::Factory { (Tab::All, false) } else { (tab, show_closed) }
+}
+
+/// The layout the Board opens in: the saved one, or Status when Factory was saved and pocketd does not offer it.
+pub(crate) fn shown_layout(saved: BoardLayout, factory: bool) -> Layout {
+    match Layout::from(saved) {
+        Layout::Factory if !factory => Layout::Board,
+        layout => layout,
+    }
 }
 
 /// The popups the Board opens, one at a time.
@@ -132,7 +167,8 @@ impl BoardState {
 
     fn regroup(&mut self, board: &Board) {
         self.columns = arrange(&board.tickets, &self.filters, self.order);
-        self.hidden = hidden_by(&board.tickets, &self.filters, self.tab, self.show_closed);
+        let (tab, show_closed) = hidden_scope(self.layout, self.tab, self.show_closed);
+        self.hidden = hidden_by(&board.tickets, &self.filters, tab, show_closed);
         self.counts = Tab::ALL.map(|tab| tab_count(&board.tickets, tab, self.show_closed));
         (self.shown, self.away) = board_cols(&self.columns, self.tab, self.show_closed, &self.tucked);
         // A ticket's height follows its content, so the lists measure afresh whenever the snapshot changes.
@@ -145,8 +181,11 @@ impl BoardState {
         let top = self.rows_list.logical_scroll_top();
         self.rows_list.reset(self.rows.len());
         self.rows_list.scroll_to(top);
-        let slots = self.walk_slots();
-        let ids = |finished: bool| -> HashSet<&str> { slots.iter().filter(|s| finished || !s.col.finished()).filter_map(|s| board.tickets.get(s.index)).map(|t| t.id.as_str()).collect() };
+    }
+
+    /// Forgets the cursor and the picks that are no longer among `slots`, the cards on the page.
+    fn keep_selection(&mut self, slots: &[Slot], tickets: &[Ticket]) {
+        let ids = |finished: bool| -> HashSet<&str> { slots.iter().filter(|s| finished || !s.col.finished()).filter_map(|s| tickets.get(s.index)).map(|t| t.id.as_str()).collect() };
         self.selection.keep(&ids(true), &ids(false));
     }
 
@@ -183,7 +222,7 @@ impl Desktop {
             self.close_overlay(window, cx);
         }
         self.screen = Screen::Board;
-        self.board.layout = if self.store.board_list { Layout::List } else { Layout::Board };
+        self.board.layout = shown_layout(self.store.board_layout, self.agents.factory_offered());
         self.aim_board_composer(cx);
         if self.board.page.is_some() {
             self.leave_ticket_page(window, cx);
@@ -197,8 +236,21 @@ impl Desktop {
     pub(crate) fn board_changed(&mut self) {
         if self.screen == Screen::Board {
             self.board.regroup(&self.agents.board);
+            if self.board.layout == Layout::Factory {
+                self.regroup_stations();
+            }
+            let slots = self.board_slots();
+            self.board.keep_selection(&slots, &self.agents.board.tickets);
             self.drop_stale_ticket_page();
         }
+    }
+
+    /// The cards on the page in reading order, whatever the layout.
+    fn board_slots(&self) -> Vec<Slot> {
+        if self.board.layout == Layout::Factory {
+            return crate::factory::station::walk(&self.factory.columns, &self.factory.open, &self.agents.board.tickets);
+        }
+        self.board.walk_slots()
     }
 
     /// Keeps the open page's steps current; a ticket that started or went away has no page left to show.
@@ -373,5 +425,34 @@ impl Desktop {
     /// The ticket a column or list row shows, if the snapshot still has it there.
     fn shown_ticket(&self, col: Col, index: usize) -> Option<&Ticket> {
         self.agents.board.tickets.get(index).filter(|t| column(t) == col)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::logic::Tab;
+    use super::{Layout, hidden_scope, shown_layout};
+    use store::BoardLayout;
+
+    #[test]
+    fn the_board_opens_in_the_saved_layout_and_in_status_when_the_factory_is_not_offered() {
+        assert_eq!(shown_layout(BoardLayout::Factory, true), Layout::Factory);
+        assert_eq!(shown_layout(BoardLayout::Factory, false), Layout::Board);
+        assert_eq!(shown_layout(BoardLayout::List, false), Layout::List);
+        assert_eq!(shown_layout(BoardLayout::Board, true), Layout::Board);
+    }
+
+    #[test]
+    fn a_layout_reads_back_from_the_pref_it_was_saved_as() {
+        for layout in [Layout::Factory, Layout::Board, Layout::List] {
+            assert_eq!(Layout::from(BoardLayout::from(layout)), layout);
+        }
+    }
+
+    #[test]
+    fn the_factory_layout_counts_what_the_filters_hide_on_every_tab_and_never_a_closed_ticket() {
+        assert_eq!(hidden_scope(Layout::Factory, Tab::Todo, true), (Tab::All, false));
+        assert_eq!(hidden_scope(Layout::Board, Tab::Todo, true), (Tab::Todo, true));
+        assert_eq!(hidden_scope(Layout::List, Tab::Active, false), (Tab::Active, false));
     }
 }
