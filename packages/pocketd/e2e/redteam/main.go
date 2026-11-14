@@ -169,6 +169,10 @@ func wsOutcomes(sock, terminalID, agentID, requestID string, note func(string, s
 		{"ws.terminal.list", map[string]any{"type": "terminal.list", "id": "7"}},
 		{"ws.terminal.attach", map[string]any{"type": "terminal.attach", "id": "8", "terminalId": terminalID}},
 		{"ws.terminal.input", map[string]any{"type": "terminal.input", "id": "9", "terminalId": terminalID, "data": "bHMNCg=="}},
+		{"ws.team.start", map[string]any{"type": "team.start", "id": "10", "lead": agentID, "tasks": []map[string]any{{"id": "t1", "agent": "claude"}, {"id": "t2", "agent": "claude"}}}},
+		{"ws.gh.pr.merge", map[string]any{"type": "gh.pr.merge", "id": "11", "tree": "/", "number": 1, "method": "squash"}},
+		{"ws.factory.config.save", map[string]any{"type": "factory.config.save", "id": "12", "project": "/", "config": map[string]any{
+			"enabled": true, "spec": false, "reviewer": false, "lead": "claude-opus", "workers": "claude-sonnet", "review": "codex", "slots": 0, "fix": 0, "checks": []string{}}}},
 	} {
 		note(p.name, outcome(call(ctx, ws, p.msg)))
 	}

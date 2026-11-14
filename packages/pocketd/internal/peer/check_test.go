@@ -94,11 +94,39 @@ func TestEveryVerbAndPrincipalMatchesTheMatrix(t *testing.T) {
 		"ops:launch-exit":       {"", "", "", ""},
 		"ops:config-set":        {"", "scope_denied", "scope_denied", "scope_denied"},
 		"ops:upgrade":           {"", "scope_denied", "scope_denied", "scope_denied"},
+
+		"ws:factory.config.get":     {"", "", "", ""},
+		"ws:factory.config.save":    {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:factory.ticket":         {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:factory.advance":        {"", "", "", "scope_denied"},
+		"ws:factory.hint":           {"", "", "", "scope_denied"},
+		"ws:factory.profile.list":   {"", "", "", ""},
+		"ws:factory.profile.get":    {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:factory.profile.save":   {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:factory.profile.delete": {"", "scope_denied", "scope_denied", "scope_denied"},
+		"ws:factory.metrics":        {"", "scope_denied", "scope_denied", "scope_denied"},
 	} {
 		for i, p := range []Principal{owner, phone, legacy, pty} {
 			if got := code(p.Check(verb, "", "")); got != want[i] {
 				t.Errorf("%s by principal %d: %q, want %q", verb, i, got, want[i])
 			}
+		}
+	}
+}
+
+func TestNoAgentInATerminalCanAdvanceAGate(t *testing.T) {
+	pty := Principal{Kind: PTY, Pid: 2, Terminal: "t1", Scopes: PTYScopes}
+	for _, verb := range []string{"team.start", "permission.resolve", "gh.pr.merge", "factory.hint", "factory.advance", "factory.config.save", "factory.profile.save", "factory.profile.delete"} {
+		if _, listed := Needs["ws:"+verb]; !listed {
+			t.Errorf("%s has no row in Needs", verb)
+		}
+		if got := code(pty.Check("ws:"+verb, "", "")); got != "scope_denied" {
+			t.Errorf("%s: %q, want scope_denied", verb, got)
+		}
+	}
+	for _, verb := range []string{"factory.config.get", "factory.profile.list"} {
+		if got := code(pty.Check("ws:"+verb, "", "")); got != "" {
+			t.Errorf("%s: %q, want a terminal agent to read it", verb, got)
 		}
 	}
 }

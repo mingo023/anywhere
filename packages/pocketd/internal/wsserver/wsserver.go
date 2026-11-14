@@ -23,6 +23,7 @@ import (
 	"pocketd/internal/config"
 	"pocketd/internal/devices"
 	"pocketd/internal/events"
+	"pocketd/internal/factory"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
@@ -108,6 +109,8 @@ type Server struct {
 	Skills *skills.Store
 	// Teams serves team prompts and team.list; nil refuses them.
 	Teams *team.Teams
+	// FactoryConfigs serves the factory.config verbs; nil drops factory.v1.
+	FactoryConfigs *factory.Configs
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -143,6 +146,8 @@ type conn struct {
 	boardMu sync.Mutex
 	// automationMu keeps a verb's ack ahead of the snapshot its change triggers.
 	automationMu sync.Mutex
+	// factoryTurn closes when this conn's last factory.config verb has answered.
+	factoryTurn chan struct{}
 
 	// Each phone area's per-conn state, typed in its own file.
 	terminal  terminalConn
@@ -262,6 +267,9 @@ func (c *conn) handle(raw []byte) {
 		served := proto.ServerCaps
 		if c.s.Teams == nil {
 			served = slices.DeleteFunc(slices.Clone(served), func(c string) bool { return c == proto.CapTeam })
+		}
+		if c.s.FactoryConfigs == nil {
+			served = slices.DeleteFunc(slices.Clone(served), func(c string) bool { return c == proto.CapFactory })
 		}
 		version, caps, code := proto.Negotiate(m.Versions(), m.Caps, served)
 		c.caps = caps
@@ -615,6 +623,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return nil
 	case "team.start", "team.stop", "team.merge":
 		return c.teamRun(m)
+	case "factory.config.get", "factory.config.save":
+		return c.factoryVerb(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")

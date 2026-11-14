@@ -132,6 +132,17 @@ var Needs = map[string]Scope{
 	"ops:accounts.remove":     Own,
 	"ops:accounts.switch":     Own,
 	"ops:accounts.autoswitch": Own,
+
+	"ws:factory.config.get":     Observe,
+	"ws:factory.config.save":    Own,
+	"ws:factory.ticket":         Own,
+	"ws:factory.advance":        Drive,
+	"ws:factory.hint":           Drive,
+	"ws:factory.profile.list":   Observe,
+	"ws:factory.profile.get":    Own,
+	"ws:factory.profile.save":   Own,
+	"ws:factory.profile.delete": Own,
+	"ws:factory.metrics":        Own,
 }
 
 var guarded = map[string]bool{

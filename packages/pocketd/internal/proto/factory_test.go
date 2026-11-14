@@ -140,6 +140,13 @@ func TestAConfigOutOfRangeStillDecodesSoItsRefusalCanSayWhy(t *testing.T) {
 	}
 }
 
+func TestTheServerOffersTheFactoryCap(t *testing.T) {
+	_, caps, code := Negotiate(Range{Min: 3, Max: 3}, []string{CapFactory}, ServerCaps)
+	if code != "" || !slices.Equal(caps, []string{CapFactory}) {
+		t.Fatalf("caps %v, code %q", caps, code)
+	}
+}
+
 func TestAFactoryConfigReplyAlwaysListsItsCommands(t *testing.T) {
 	got, _ := json.Marshal(NewFactoryConfig("g", "/app", FactoryConfig{}, ""))
 	want := `{"type":"factory.config","id":"g","project":"/app","config":{"enabled":false,"spec":false,"reviewer":false,"lead":"","workers":"","review":"","slots":0,"fix":0,"checks":[]}}`
