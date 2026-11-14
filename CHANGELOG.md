@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.43
+
+- /remote-control turns on Remote Control from a Claude chat (#261): (f31eddc1)
+- Timeline clicks glide to the prompt and light its bubble (#260): (b1a9b947)
+- Activity shows every session across projects by status (#253): (871a4adf)
+- Add MIT license (#259): (7fb7e9f1)
+- Model panel holds still while pointing at agents in its rail (#257): (eb97b006)
+- Long command hints stay inside the slash menu (#255): (fb67065a)
+- Installed agents stay pickable after a slow shell start (#254): (677ecc58)
+- OpenCode 2 chats start and show sub-agent work under their call (#252): (b75ef729)
+- Working spinner sweeps diagonally in its own colours (#251): (475daedb)
+- Chat shows a prompt timeline to jump between prompts (#250): (aef626b2)
+- Browser tabs pick page elements into the chat (#249): (cc6805ae)
+- iOS line numbers stay put and the Changes tree scrolls from a row (#248): (b8ca6d4e)
+- A chat keeps its messages after pocketd upgrades or restarts (#246): (6da0b79c)
+- No-project sessions name their folder from the first prompt (#247): (6ed845b5)
+
 ## 0.1.42
 
 - Anywhere uses the Curious mascot icon across platforms (#245): (cc4a6ab3)
