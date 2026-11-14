@@ -45,6 +45,8 @@ type Teams struct {
 	Projects *registry.Registry
 	// Names takes the display name each worker's Worktree gets from its task; nil names none.
 	Names *names.Names
+	// OnChange hears every saved change of a team. It runs under mu, so it must only queue.
+	OnChange func(proto.Team)
 
 	// mu is held by change, so one team change runs at a time; it also guards since.
 	mu sync.Mutex
@@ -256,6 +258,9 @@ func (t *Teams) change(lead string, f func(proto.Team) (proto.Team, bool)) (prot
 	}
 	t.Hub.Publish(proto.NewTeamUpdate(next))
 	t.awaits(lead, next.State)
+	if t.OnChange != nil {
+		t.OnChange(next)
+	}
 	return next, true
 }
 

@@ -1,0 +1,482 @@
+package factory
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"log"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"pocketd/internal/agent"
+	"pocketd/internal/board"
+	"pocketd/internal/launch"
+	"pocketd/internal/proto"
+	"pocketd/internal/team"
+)
+
+const (
+	// reads is how often a turn's end is looked for before the turn is taken as it stands.
+	reads = 5
+	// turnItems bounds the items a turn is read from.
+	turnItems = 500
+)
+
+// ErrOff refuses every verb of a nil Engine.
+var ErrOff = errors.New("The Factory is off")
+
+// Engine moves every Factory ticket through its stations. Hooks only queue what happened. Run handles the queue
+// in order on one goroutine, and step is the one place a Ticket is decided. A nil Engine ignores every hook.
+type Engine struct {
+	Home    string
+	Board   *board.Store
+	Configs *Configs
+	Teams   *team.Teams
+	Agents  *agent.Registry
+	Now     func() time.Time
+	// Poll is the wait between reads of a turn whose end isn't in the timeline yet. Zero is a second.
+	Poll time.Duration
+	// Launch starts a session as the owner.
+	Launch func(key, requestID string, s proto.LaunchSpec, created func(cwd string)) launch.Result
+	// Mail queues text for an agent's chat (daemon.Mail).
+	Mail func(agentID, text string) error
+
+	// mu guards specs and changed.
+	mu sync.Mutex
+	// specs is how far each Ticket at Spec got, and where its lead's timeline stood at the prompt.
+	specs   map[string]asked
+	changed chan string
+	// recovered is set once the restored sessions are back, so a lead still resuming isn't taken for gone.
+	recovered atomic.Bool
+
+	qmu   sync.Mutex
+	queue []event
+	wake  chan struct{}
+}
+
+type asked struct {
+	state SpecState
+	since int64
+}
+
+// event is something that happened, queued by a hook that may run under an agent's lock.
+type event struct {
+	ticket string // the Ticket to step, or
+	agent  string // the agent whose Ticket to step
+	turn   bool   // the agent's turn ended
+	ok     bool   // and ended normally
+}
+
+// Owns is whether t is the engine's to move: it has a station, or it has no session yet and its project's
+// Factory is on.
+func (e *Engine) Owns(t proto.Ticket) bool {
+	return e != nil && (t.Station != "" || t.AgentID == "" && e.Configs.Get(t.Folder).Enabled)
+}
+
+// Start is the board.Starter for a Ticket the engine owns: it puts t at its first station and launches its lead.
+func (e *Engine) Start(requestID string, t proto.Ticket, created func(cwd string)) launch.Result {
+	station := cmp.Or(t.Station, First(e.Configs.Get(t.Folder)))
+	at := e.now().UnixMilli()
+	e.update(t.ID, func(x *proto.Ticket) {
+		x.Station, x.Gate, x.Status, x.Why = station, "", proto.TicketStarting, ""
+	})
+	if t.Station == "" {
+		e.note(t.ID, proto.FactoryEvent{At: at, Station: station, Actor: "anywhere", Kind: "moved"})
+	}
+	res := e.Launch("factory:"+t.ID, requestID, leadSpec(t, requestID), created)
+	if res.Err != nil {
+		e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: station, Actor: "anywhere", Kind: "failed", Text: res.Err.Message})
+		return res
+	}
+	if lead, err := e.Agents.Get(res.AgentID); err == nil {
+		// Claimed before the first prompt, so the spec request doesn't become the session's title.
+		if claim, ok := lead.ClaimNaming(); ok {
+			lead.SetNamed(claim, t.Title)
+		}
+	}
+	e.mu.Lock()
+	delete(e.specs, t.ID)
+	e.mu.Unlock()
+	// The scheduler records the same ids once Start returns. They are written here first, so the step queued below
+	// finds the lead.
+	e.update(t.ID, func(x *proto.Ticket) {
+		x.AgentID, x.TerminalID = res.AgentID, res.TerminalID
+		if res.Cwd != "" {
+			x.Worktree = res.Cwd
+		}
+	})
+	e.post(event{ticket: t.ID})
+	return res
+}
+
+// leadSpec is the lead's session: a chat that may edit, in the Ticket's own worktree, with no first prompt.
+func leadSpec(t proto.Ticket, requestID string) proto.LaunchSpec {
+	s := proto.LaunchSpec{Project: t.Folder, Provider: t.Provider, Access: "edits", Chat: true}
+	if t.Worktree != "" {
+		s.Checkout = proto.Checkout{Worktree: t.Worktree}
+		return s
+	}
+	s.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: "ticket-" + requestID[:min(8, len(requestID))], Base: t.Base}}
+	return s
+}
+
+// Status is Registry.OnStatus's. It runs under the agent's lock, so it only queues.
+func (e *Engine) Status(id, from, to string) {
+	if e != nil {
+		e.post(event{agent: id})
+	}
+}
+
+// TurnEnded is Registry.OnTurnEnd's. It only queues.
+func (e *Engine) TurnEnded(id string, ok bool) {
+	if e != nil {
+		e.post(event{agent: id, turn: true, ok: ok})
+	}
+}
+
+// TeamChanged is Teams.OnChange's. It runs under Teams.mu, so it only queues.
+func (e *Engine) TeamChanged(t proto.Team) {
+	if e != nil {
+		e.post(event{agent: t.Lead})
+	}
+}
+
+func (e *Engine) post(ev event) {
+	e.qmu.Lock()
+	e.queue = append(e.queue, ev)
+	e.qmu.Unlock()
+	select {
+	case e.wakeup() <- struct{}{}:
+	default:
+	}
+}
+
+func (e *Engine) wakeup() chan struct{} {
+	e.qmu.Lock()
+	defer e.qmu.Unlock()
+	if e.wake == nil {
+		e.wake = make(chan struct{}, 1)
+	}
+	return e.wake
+}
+
+// Run handles what happened, in order, until ctx ends.
+func (e *Engine) Run(ctx context.Context) {
+	if e == nil {
+		return
+	}
+	wake := e.wakeup()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		}
+		e.drain(ctx)
+	}
+}
+
+// drain handles the queue until it is empty. Handling an event can queue more.
+func (e *Engine) drain(ctx context.Context) {
+	for {
+		e.qmu.Lock()
+		queue := e.queue
+		e.queue = nil
+		e.qmu.Unlock()
+		if len(queue) == 0 {
+			return
+		}
+		for _, ev := range queue {
+			// Shutting down closes every session. Those closes aren't leads failing.
+			if ctx.Err() != nil {
+				return
+			}
+			e.handle(ev)
+		}
+	}
+}
+
+func (e *Engine) handle(ev event) {
+	if ev.ticket != "" {
+		e.step(ev.ticket, ev)
+		return
+	}
+	tickets, _ := e.Board.Snapshot()
+	for _, t := range tickets {
+		if t.AgentID == ev.agent && t.Station != "" && t.State == proto.TicketLive {
+			e.step(t.ID, ev)
+		}
+	}
+}
+
+// step decides one Ticket: it gathers the facts, asks Next, writes the Ticket, notes what changed, and does the
+// actions.
+func (e *Engine) step(id string, ev event) {
+	t, ok := e.ticket(id)
+	if !ok || t.State != proto.TicketLive || t.Station == "" || t.AgentID == "" {
+		return
+	}
+	f := e.facts(t, ev)
+	if !f.Lead.Present && !e.recovered.Load() {
+		return
+	}
+	next, acts := Next(f)
+	if !same(t, next) {
+		at := e.now().UnixMilli()
+		ok := e.update(id, func(x *proto.Ticket) {
+			// The user may have closed it since the snapshot.
+			if x.State != proto.TicketLive {
+				return
+			}
+			x.Station, x.Gate, x.Status, x.Why = next.Station, next.Gate, next.Status, next.Why
+			x.AgentID, x.TerminalID, x.ChangedAt = next.AgentID, next.TerminalID, at
+		})
+		if !ok {
+			return
+		}
+		for _, n := range Notes(t, next, f.Team, at) {
+			e.note(id, n)
+		}
+		e.tell(id)
+	}
+	for _, a := range acts {
+		if !e.act(next, a) {
+			return
+		}
+	}
+}
+
+// same compares the fields Next may change.
+func same(a, b proto.Ticket) bool {
+	return a.Station == b.Station && a.Gate == b.Gate && a.Status == b.Status && a.Why == b.Why && a.AgentID == b.AgentID && a.TerminalID == b.TerminalID
+}
+
+func (e *Engine) facts(t proto.Ticket, ev event) Facts {
+	f := Facts{Ticket: t, Config: e.Configs.Get(t.Folder)}
+	lead, ok := e.lead(t.AgentID)
+	if !ok {
+		return f
+	}
+	f.Lead = Session{Present: true, Turn: lead.Turn()}
+	tm, found, err := e.Teams.Store.Get(t.AgentID)
+	if err != nil {
+		log.Printf("factory: ticket %s: %v", t.ID, err)
+	}
+	if found {
+		f.Team = &tm
+	}
+	var since int64
+	f.Spec, since = e.spec(t)
+	if f.Spec == SpecAsked || f.Spec == SpecRepaired {
+		f.Reply = e.read(lead, since, ev)
+	}
+	return f
+}
+
+// lead is the session with this id, and whether it is still there: not closed, and back after a restart.
+func (e *Engine) lead(id string) (*agent.Agent, bool) {
+	a, err := e.Agents.Get(id)
+	if err != nil {
+		return nil, false
+	}
+	s := a.Summary()
+	return a, s.Status != "closed" && s.Restore != proto.RestoreFailed
+}
+
+// spec is how far t's Spec station got, and where the lead's timeline stood at the last prompt.
+func (e *Engine) spec(t proto.Ticket) (SpecState, int64) {
+	if _, err := os.Stat(specPath(e.Home, t.ID)); err == nil {
+		return SpecSaved, 0
+	}
+	if t.Station != proto.StationSpec {
+		return SpecNone, 0
+	}
+	if t.Status == proto.TicketFailed {
+		return SpecFailed, 0
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	a, ok := e.specs[t.ID]
+	if !ok {
+		return SpecNone, 0
+	}
+	return a.state, a.since
+}
+
+// read is the lead's turn after since. When ev says the turn ended, it looks again while the end hasn't reached
+// the timeline. An end that never shows is taken as it stands, unless the lead works on a newer turn.
+func (e *Engine) read(lead *agent.Agent, since int64, ev event) Turn {
+	var r Turn
+	for i := range reads {
+		if i > 0 {
+			time.Sleep(cmp.Or(e.Poll, time.Second))
+		}
+		items, _ := lead.Timeline.Page(since, turnItems)
+		r.Text, r.Ended, r.Failed = team.Reply(items)
+		if r.Ended || !ev.turn {
+			return r
+		}
+	}
+	if lead.Turn() != "working" {
+		r.Ended, r.Failed = true, !ev.ok
+	}
+	return r
+}
+
+// act does one action for t. False stops the actions after it.
+func (e *Engine) act(t proto.Ticket, a Action) bool {
+	lead, ok := e.lead(t.AgentID)
+	if !ok {
+		return false
+	}
+	switch a.Kind {
+	case ActAskSpec:
+		return e.ask(t, lead, SpecAsked, Rules+"\n\n"+SpecRequest(t))
+	case ActRepairSpec:
+		return e.ask(t, lead, SpecRepaired, a.Text)
+	case ActSaveSpec:
+		if err := saveSpec(e.Home, t.ID, a.Text); err != nil {
+			e.fail(t.ID, "The spec couldn't be saved: "+err.Error())
+			return false
+		}
+		e.tell(t.ID)
+	case ActAskPlan:
+		spec := readSpec(e.Home, t.ID)
+		text := PlanRequest(t, spec)
+		// With no spec turn, this is the lead's first prompt.
+		if spec == "" {
+			text = Rules + "\n\n" + text
+		}
+		if err := e.Teams.Prompt(lead, text); err != nil {
+			e.fail(t.ID, "The lead couldn't be asked for a plan: "+err.Error())
+			return false
+		}
+	case ActAwait:
+		lead.SetAwaiting(true)
+	}
+	return true
+}
+
+// ask prompts the lead for its spec, noting where its timeline stood so only the answer is read.
+func (e *Engine) ask(t proto.Ticket, lead *agent.Agent, state SpecState, text string) bool {
+	_, seq := lead.Timeline.State()
+	e.mu.Lock()
+	if e.specs == nil {
+		e.specs = map[string]asked{}
+	}
+	e.specs[t.ID] = asked{state: state, since: seq}
+	e.mu.Unlock()
+	d := lead.Driver()
+	if d == nil {
+		e.fail(t.ID, "The lead couldn't be asked: its session is not a chat")
+		return false
+	}
+	if err := d.Prompt(text); err != nil {
+		e.fail(t.ID, "The lead couldn't be asked: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// fail records an action that could not be done.
+func (e *Engine) fail(id, why string) {
+	var station string
+	at := e.now().UnixMilli()
+	ok := e.update(id, func(x *proto.Ticket) {
+		x.Status, x.Why, x.Gate, x.ChangedAt = proto.TicketFailed, why, "", at
+		station = x.Station
+	})
+	if ok {
+		e.note(id, proto.FactoryEvent{At: at, Station: station, Actor: "anywhere", Kind: "failed", Text: why})
+	}
+}
+
+func (e *Engine) update(id string, change func(*proto.Ticket)) bool {
+	if err := e.Board.Update(id, change); err != nil {
+		log.Printf("factory: ticket %s: %v", id, err)
+		return false
+	}
+	return true
+}
+
+func (e *Engine) ticket(id string) (proto.Ticket, bool) {
+	tickets, _ := e.Board.Snapshot()
+	i := slices.IndexFunc(tickets, func(t proto.Ticket) bool { return t.ID == id })
+	if i < 0 {
+		return proto.Ticket{}, false
+	}
+	return tickets[i], true
+}
+
+func (e *Engine) now() time.Time {
+	if e.Now != nil {
+		return e.Now()
+	}
+	return time.Now()
+}
+
+// Changed carries the id of each Ticket the engine wrote, for the factory.update feed.
+func (e *Engine) Changed() <-chan string {
+	if e == nil {
+		return nil
+	}
+	return e.changes()
+}
+
+func (e *Engine) changes() chan string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.changed == nil {
+		e.changed = make(chan string, 64)
+	}
+	return e.changed
+}
+
+// tell never blocks: an update is a hint, and a full channel drops it.
+func (e *Engine) tell(ticket string) {
+	select {
+	case e.changes() <- ticket:
+	default:
+	}
+}
+
+// Detail is what factory.ticket answers with.
+func (e *Engine) Detail(ticket string) (proto.FactoryTicket, error) {
+	out := proto.FactoryTicket{TicketID: ticket, Activity: []proto.FactoryEvent{}}
+	if e == nil {
+		return out, ErrOff
+	}
+	// The id names a folder, so only an id the Board holds is read.
+	if _, ok := e.ticket(ticket); !ok {
+		return out, board.ErrUnknown
+	}
+	out.Spec = readSpec(e.Home, ticket)
+	acts, err := ReadActivity(e.Home, ticket)
+	if err != nil {
+		return out, err
+	}
+	out.Activity = append(out.Activity, acts...)
+	return out, nil
+}
+
+func specPath(home, ticket string) string {
+	return filepath.Join(dir(home, ticket), "spec.md")
+}
+
+func saveSpec(home, ticket, text string) error {
+	if err := os.MkdirAll(dir(home, ticket), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(specPath(home, ticket), []byte(text+"\n"), 0o600)
+}
+
+// readSpec is the saved spec, or "" when there is none.
+func readSpec(home, ticket string) string {
+	raw, _ := os.ReadFile(specPath(home, ticket))
+	return strings.TrimSpace(string(raw))
+}

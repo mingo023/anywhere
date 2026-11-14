@@ -302,3 +302,31 @@ func TestTheSchedulerHoldsAProjectToItsOwnLimit(t *testing.T) {
 	w.see("a", "done")
 	waitFor(t, "b working", func() bool { return got(t, s, b.ID).Status == proto.TicketWorking })
 }
+
+func TestATicketWithAnOwnerIsNotMovedByItsAgentOrClosedByItsMerge(t *testing.T) {
+	s := Open(t.TempDir())
+	dir := t.TempDir()
+	x := saved(t, s, "a", true)
+	s.Claim(at, nil)
+	s.Update(x.ID, func(t *proto.Ticket) { t.AgentID, t.Status, t.Worktree = "a", proto.TicketWorking, dir })
+	w := &world{seen: map[string]Seen{"a": {Status: "done"}}}
+	sch := &Scheduler{Store: s, Now: time.Now, Start: w.start, Watch: w.watch,
+		Merged: func(context.Context, string) bool { return true },
+		Owns:   func(t proto.Ticket) bool { return t.ID == x.ID }}
+
+	sch.observe(false)
+	if g := got(t, s, x.ID); g.Status != proto.TicketWorking {
+		t.Fatalf("observe moved it: %+v", g)
+	}
+	s.Update(x.ID, func(t *proto.Ticket) { t.Status = proto.TicketDone })
+	sch.closeMerged(context.Background())
+	if g := got(t, s, x.ID); g.State != proto.TicketLive {
+		t.Fatalf("closeMerged closed it: %+v", g)
+	}
+
+	sch.Owns = nil
+	sch.closeMerged(context.Background())
+	if g := got(t, s, x.ID); g.ClosedWhy != proto.ClosedMerged {
+		t.Fatalf("with no owner it stays open: %+v", g)
+	}
+}

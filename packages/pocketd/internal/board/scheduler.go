@@ -52,6 +52,8 @@ type Scheduler struct {
 	Merged func(ctx context.Context, tree string) bool
 	// Limit is a project folder's own slot limit, 0 for none; nil gives no project one.
 	Limit func(folder string) int
+	// Owns says a Ticket's status is someone else's to move (the Factory engine): observe and closeMerged skip it.
+	Owns func(proto.Ticket) bool
 
 	asking atomic.Bool
 }
@@ -139,6 +141,10 @@ func (s *Scheduler) Run(ctx context.Context) {
 	}
 }
 
+func (s *Scheduler) owned(t proto.Ticket) bool {
+	return s.Owns != nil && s.Owns(t)
+}
+
 func (s *Scheduler) launch(t proto.Ticket) {
 	// Recorded before the launch ends, so a restart can't orphan a Worktree a Start again wouldn't find.
 	res := s.Start(terminal.NewID(), t, func(cwd string) {
@@ -168,7 +174,7 @@ func (s *Scheduler) launch(t proto.Ticket) {
 func (s *Scheduler) observe(reattaching bool) {
 	tickets, _ := s.Store.Snapshot()
 	for _, t := range tickets {
-		if t.State != proto.TicketLive || t.AgentID == "" {
+		if t.State != proto.TicketLive || t.AgentID == "" || s.owned(t) {
 			continue
 		}
 		seen, present := s.Watch(t.AgentID, t.Status == proto.TicketStarting)
@@ -228,7 +234,7 @@ func (s *Scheduler) closeMerged(ctx context.Context) {
 	tickets, _ := s.Store.Snapshot()
 	for _, t := range tickets {
 		review := t.Status == proto.TicketDone || t.Status == proto.TicketIdle || t.Status == proto.TicketStopped
-		if t.State != proto.TicketLive || !review || t.Worktree == "" || !s.Merged(ctx, t.Worktree) {
+		if t.State != proto.TicketLive || !review || t.Worktree == "" || s.owned(t) || !s.Merged(ctx, t.Worktree) {
 			continue
 		}
 		if err := s.Store.Close(t.ID, proto.ClosedMerged, s.Now()); err != nil {

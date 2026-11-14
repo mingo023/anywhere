@@ -400,3 +400,21 @@ func TestALeadStopsNeedingYouWhenItsTeamLeavesProposed(t *testing.T) {
 		t.Fatalf("a re-plan that couldn't be sent: %s", s)
 	}
 }
+
+func TestEveryTeamChangeIsToldToOnChangeOnceItIsSaved(t *testing.T) {
+	h := hub.New()
+	reg := agent.NewRegistry(h)
+	lead := reg.Add("3f9a0c1b-0000-4000-8000-00000000000a", "/w", "claude", &chat{})
+	teams := &Teams{Store: open(t, t.TempDir()), Agents: reg, Hub: h, Poll: time.Millisecond}
+	var seen []string
+	teams.OnChange = func(tm proto.Team) {
+		saved, _, _ := teams.Store.Get(tm.Lead)
+		seen = append(seen, tm.State+"/"+saved.State)
+	}
+	if err := teams.Prompt(lead, "split this"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seen, []string{"planning/planning"}) {
+		t.Fatalf("got %v", seen)
+	}
+}

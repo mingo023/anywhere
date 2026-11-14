@@ -103,3 +103,37 @@ func NewFactoryConfig(id, project string, config FactoryConfig, problem string) 
 	config.Checks = orEmpty(config.Checks)
 	return FactoryConfigReply{"factory.config", id, project, config, problem}
 }
+
+// FactoryTicket is what factory.ticket answers with: one Ticket's spec and what happened to it.
+type FactoryTicket struct {
+	TicketID string         `json:"ticketId"`
+	Spec     string         `json:"spec,omitempty"`
+	Activity []FactoryEvent `json:"activity"`
+	Checks   []FactoryCheck `json:"checks,omitempty"`
+	Findings []Finding      `json:"findings,omitempty"`
+	NoChecks bool           `json:"noChecks,omitempty"`
+}
+
+// FactoryEvent is one line of a Ticket's activity.
+type FactoryEvent struct {
+	At      int64  `json:"at"` // Unix ms
+	Station string `json:"station"`
+	Actor   string `json:"actor"` // you | lead | worker:<task> | reviewer | anywhere
+	Kind    string `json:"kind"`  // moved | approved | changes | asked | allowed | denied | autoAllowed | handback | check | fix | hint | finding | skill | merged | failed
+	Text    string `json:"text,omitempty"`
+}
+
+type FactoryCheck struct {
+	Command string `json:"command"`
+	Exit    int    `json:"exit"`
+	Output  string `json:"output"`
+	Attempt int    `json:"attempt"`
+	At      int64  `json:"at"`
+}
+
+type Finding struct {
+	Severity string `json:"severity"` // critical | minor | nit
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Message  string `json:"message"`
+}
