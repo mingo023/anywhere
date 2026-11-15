@@ -264,6 +264,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = f.text("project", &m.Project) && decodeFactoryConfig(f["config"], &m.Config)
 	case m.Type == "factory.ticket", m.Type == "factory.advance":
 		ok = get("ticketId", &m.TicketID) && m.TicketID != ""
+	case m.Type == "factory.hint":
+		ok = get("ticketId", &m.TicketID) && m.TicketID != "" && get("text", &m.Text) && strings.TrimSpace(m.Text) != ""
 	case m.Type == "factory.profile.list":
 	case m.Type == "factory.profile.get", m.Type == "factory.profile.delete":
 		ok = get("profile", &m.Profile) && m.Profile != ""

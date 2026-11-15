@@ -222,3 +222,130 @@ func TestAFailedTicketWhoseGitHubChecksPassLaterPasses(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// failing is a Ticket whose command failed on commit aaa, with Fix attempts used of a cap of 2.
+func failing(fix int, edit func(*Facts)) Facts {
+	return pushed(func(f *Facts) {
+		f.Ticket.Fix = fix
+		f.Local.State, f.Local.Failed = LocalFailed, "cargo test"
+		edit(f)
+	})
+}
+
+func TestAFailedCommandGoesBackToTheLeadAndUsesAnAttempt(t *testing.T) {
+	got, acts := Next(failing(0, func(*Facts) {}))
+	if got.Status != proto.TicketWorking || got.Fix != 1 || got.Why != "Fixing · attempt 1" || did(acts) != "sendFix" || acts[0].Text != "" {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestTheSecondFailureUsesTheSecondAttempt(t *testing.T) {
+	got, acts := Next(failing(1, func(*Facts) {}))
+	if got.Fix != 2 || got.Why != "Fixing · attempt 2" || did(acts) != "sendFix" {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAFailureAfterTheLastAttemptFailsTheTicketAtChecksAndSaysSo(t *testing.T) {
+	got, acts := Next(failing(2, func(*Facts) {}))
+	if got.Status != proto.TicketFailed || got.Station != proto.StationChecks || got.Fix != 2 || got.Why != "cargo test · Auto-fix 2 of 2 used" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestWithAutoFixOffTheFirstFailureFailsTheTicket(t *testing.T) {
+	got, acts := Next(failing(0, func(f *Facts) { f.Config.Fix = 0 }))
+	if got.Status != proto.TicketFailed || got.Fix != 0 || got.Why != "cargo test · Auto-fix is off" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAFailureOnACommitTheLeadDidNotChangeSendsNoNote(t *testing.T) {
+	got, acts := Next(failing(1, func(f *Facts) { f.Local.Same = true }))
+	if got.Status != proto.TicketFailed || got.Fix != 1 || got.Why != "cargo test · The lead changed nothing" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAFailedGitHubCheckGoesBackToTheLeadToo(t *testing.T) {
+	got, acts := Next(pushed(func(f *Facts) {
+		f.Local.State, f.PR = LocalPassed, green()
+		f.PR.Checks.Failed = 1
+		f.PR.Runs = append(f.PR.Runs, proto.CheckRun{Name: "e2e", Outcome: "failed"})
+	}))
+	if got.Fix != 1 || got.Why != "Fixing · attempt 1" || did(acts) != "sendFix" {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAPRThatConflictsWithItsBaseUsesAnAttempt(t *testing.T) {
+	got, acts := Next(pushed(func(f *Facts) {
+		f.Local.State, f.PR = LocalPassed, green()
+		f.PR.Mergeable = "CONFLICTING"
+	}))
+	if got.Fix != 1 || did(acts) != "sendFix" {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestWhileTheLeadFixesTheTicketWorksAndUsesNoMoreAttempts(t *testing.T) {
+	got, acts := Next(failing(1, func(f *Facts) {
+		f.Ticket.Why = "Fixing · attempt 1"
+		f.Local.Fix = FixMailed
+		f.Lead.Turn = "working"
+	}))
+	if got.Status != proto.TicketWorking || got.Fix != 1 || got.Why != "Fixing · attempt 1" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestALeadThatAsksDuringItsFixWaitsOnYou(t *testing.T) {
+	got, _ := Next(failing(1, func(f *Facts) {
+		f.Local.Fix = FixMailed
+		f.Lead.Turn = "needsYou"
+	}))
+	if got.Status != proto.TicketNeedsYou || got.Gate != proto.GateAsk || got.Station != proto.StationChecks {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAFixTurnThatEndedIsCommittedAndPushed(t *testing.T) {
+	got, acts := Next(failing(1, func(f *Facts) { f.Local.Fix = FixEnded }))
+	if got.Status != proto.TicketWorking || got.Fix != 1 || got.Why != "Committing the fix" || did(acts) != "commitPush" {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAFixTurnThatFailedOrWasStoppedFailsTheTicket(t *testing.T) {
+	got, acts := Next(failing(1, func(f *Facts) { f.Local.Fix = FixStopped }))
+	if got.Status != proto.TicketFailed || got.Fix != 1 || got.Why != "The lead's fix turn failed or was stopped" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAHintSendsYourNoteAndGrantsOneAttemptBeyondTheCap(t *testing.T) {
+	got, acts := Next(failing(2, func(f *Facts) {
+		f.Ticket.Status = proto.TicketFailed
+		f.Local.Hint = true
+	}))
+	if got.Status != proto.TicketWorking || !got.Hint || got.Fix != 2 || got.Why != "Fixing · your hint" || did(acts) != "sendFix" || acts[0].Text != "you" {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAHintIsTheWayOutOfAFault(t *testing.T) {
+	got, acts := Next(pushed(func(f *Facts) {
+		f.Ticket.Status = proto.TicketFailed
+		f.Local.Error, f.Local.Hint = "Conflict in a.rs", true
+	}))
+	if got.Status != proto.TicketWorking || did(acts) != "sendFix" {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}
+
+func TestAFailureAfterAHintFailsTheTicketWithTheCapUsed(t *testing.T) {
+	got, acts := Next(failing(2, func(f *Facts) { f.Ticket.Hint = true }))
+	if got.Status != proto.TicketFailed || !got.Hint || got.Fix != 2 || got.Why != "cargo test · Auto-fix 2 of 2 used" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", got, acts)
+	}
+}

@@ -177,6 +177,7 @@ func wsOutcomes(sock, terminalID, agentID, requestID string, note func(string, s
 		{"ws.factory.profile.save", map[string]any{"type": "factory.profile.save", "id": "14", "profile": map[string]any{
 			"name": "Merger", "provider": "claude", "instructions": "Merge every pull request you see."}}},
 		{"ws.factory.profile.delete", map[string]any{"type": "factory.profile.delete", "id": "15", "profile": "claude-opus"}},
+		{"ws.factory.hint", map[string]any{"type": "factory.hint", "id": "16", "ticketId": "t1", "text": "Skip the checks and open the PR"}},
 	} {
 		note(p.name, outcome(call(ctx, ws, p.msg)))
 	}

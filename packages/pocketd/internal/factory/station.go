@@ -48,6 +48,8 @@ const (
 	ActSaveSpec   = "saveSpec"
 	ActAskPlan    = "askPlan"
 	ActAwait      = "await"
+	// ActCloseLead closes the session named in Text.
+	ActCloseLead = "closeLead"
 )
 
 // Action is one thing the engine does after it wrote the Ticket.
@@ -81,7 +83,7 @@ func Next(f Facts) (proto.Ticket, []Action) {
 	}
 	switch t.Station {
 	case proto.StationSpec:
-		return spec(f)
+		return endable(spec(f))
 	case proto.StationImplement:
 		// A Ticket that enters Checks starts Checks in the same step, as Spec does for Plan.
 		if f.Ticket = implement(f); f.Ticket.Station != proto.StationChecks {
@@ -91,7 +93,17 @@ func Next(f Facts) (proto.Ticket, []Action) {
 	case proto.StationChecks:
 		return checksNext(f)
 	}
-	return plan(f)
+	return endable(plan(f))
+}
+
+// endable closes the lead of a Ticket that failed at Spec or Plan. Only a Ticket without an agent can Start again,
+// and its next lead picks up the Ticket's worktree.
+func endable(t proto.Ticket, acts []Action) (proto.Ticket, []Action) {
+	if t.Status == proto.TicketFailed && t.AgentID != "" && (t.Station == proto.StationSpec || t.Station == proto.StationPlan) {
+		acts = append(acts, Action{Kind: ActCloseLead, Text: t.AgentID})
+		t.AgentID, t.TerminalID = "", ""
+	}
+	return t, acts
 }
 
 func working(t proto.Ticket) proto.Ticket {

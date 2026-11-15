@@ -4,6 +4,7 @@ package factory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -368,4 +369,226 @@ func TestATicketWhoseGitHubChecksPassedDoesNotSayNoChecksRan(t *testing.T) {
 	if d, _ := r.e.Detail(r.ticket); d.NoChecks {
 		t.Fatalf("got %+v", d)
 	}
+}
+
+// note is the next note mailed to the lead.
+func (r *rig) note() string {
+	r.t.Helper()
+	select {
+	case text := <-r.mail:
+		return text
+	case <-time.After(15 * time.Second):
+		r.t.Fatalf("no note was mailed: %+v", r.get())
+		return ""
+	}
+}
+
+// silent fails when a note is mailed within d.
+func (r *rig) silent(d time.Duration) {
+	r.t.Helper()
+	select {
+	case text := <-r.mail:
+		r.t.Fatalf("mailed %q", text)
+	case <-time.After(d):
+	}
+}
+
+// fixes is the lead's fix turn: it writes file in the checkout, then ends normally.
+func (r *rig) fixes(file, body string) {
+	r.t.Helper()
+	if file != "" {
+		if err := os.WriteFile(filepath.Join(r.tree, file), []byte(body), 0o644); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+	r.e.TurnEnded(leadID, true)
+}
+
+const needsFixed = `test -f fixed.txt || { echo "fixed.txt is missing"; exit 1; }`
+
+func TestAFailedCommandIsMailedToTheLeadAndItsFixPassesOnTheFirstAttempt(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{needsFixed}})
+	r.e.Recover()
+	note := r.note()
+	if want := "<anywhere_factory_fix attempt=\"1\" of=\"2\">\nThe checks failed. Fix the cause in this checkout. Don't commit and don't push: Anywhere does both when you finish.\n$ " + needsFixed + "   (exit 1)\nfixed.txt is missing\n</anywhere_factory_fix>"; note != want {
+		t.Fatalf("note\n%s\nwant\n%s", note, want)
+	}
+	if got := r.get(); got.Fix != 1 || got.Status != proto.TicketWorking || got.Why != "Fixing · attempt 1" {
+		t.Fatalf("while fixing: %+v", got)
+	}
+	r.fixes("fixed.txt", "ok\n")
+	got := r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+	if got.Fix != 1 || got.Status != proto.TicketWorking {
+		t.Fatalf("got %+v", got)
+	}
+	if msg := gitIn(t, r.tree, "log", "-1", "--format=%s"); msg != "Fix the failed checks" {
+		t.Fatalf("the last commit is %q", msg)
+	}
+	if remote, local := gitIn(t, filepath.Join(filepath.Dir(r.tree), "origin.git"), "rev-parse", "fix"), gitIn(t, r.tree, "rev-parse", "HEAD"); remote != local {
+		t.Fatalf("the fix was not pushed: %s, %s", remote, local)
+	}
+	if d, _ := r.e.Detail(r.ticket); len(d.Checks) != 1 || d.Checks[0].Exit != 0 || d.Checks[0].Attempt != 1 {
+		t.Fatalf("the newest record: %+v", d.Checks)
+	}
+}
+
+func TestATicketFailsAtChecksAfterTheLastAttemptAndSaysSo(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{needsFixed}})
+	r.e.Recover()
+	if note := r.note(); !strings.HasPrefix(note, `<anywhere_factory_fix attempt="1" of="2">`) {
+		t.Fatalf("first note %q", note)
+	}
+	r.fixes("a.txt", "one\n")
+	if note := r.note(); !strings.HasPrefix(note, `<anywhere_factory_fix attempt="2" of="2">`) {
+		t.Fatalf("second note %q", note)
+	}
+	r.fixes("a.txt", "two\n")
+	got := r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	if got.Station != proto.StationChecks || got.Fix != 2 || got.Why != needsFixed+" · Auto-fix 2 of 2 used" {
+		t.Fatalf("got %+v", got)
+	}
+	r.silent(300 * time.Millisecond)
+}
+
+func TestAFixTurnThatChangesNothingIsCheckedAgainButNotSentAgain(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{needsFixed}})
+	r.e.Recover()
+	r.note()
+	r.fixes("", "")
+	got := r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	if got.Fix != 1 || got.Why != needsFixed+" · The lead changed nothing" {
+		t.Fatalf("got %+v", got)
+	}
+	if rec, _ := ReadRecord(r.home, r.ticket); !rec.Same || rec.State != LocalFailed {
+		t.Fatalf("the commands did not run again on the same commit: %+v", rec)
+	}
+	r.silent(300 * time.Millisecond)
+}
+
+func TestAStoppedFixTurnFailsTheTicketAndTheLeadsNextNormalEndCarriesOn(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{needsFixed}})
+	r.e.Recover()
+	r.note()
+	r.e.TurnEnded(leadID, false)
+	got := r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	if got.Fix != 1 || got.Why != "The lead's fix turn failed or was stopped" {
+		t.Fatalf("got %+v", got)
+	}
+	r.fixes("fixed.txt", "ok\n")
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+}
+
+func TestAFailedGitHubCheckIsMailedWithItsLink(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 1})
+	r.view(`[{"__typename":"CheckRun","name":"e2e","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/acme/app/actions/runs/9"}]`)
+	r.e.Recover()
+	if note := r.note(); !strings.Contains(note, "\nGitHub check failed: e2e https://github.com/acme/app/actions/runs/9\n") {
+		t.Fatalf("note %q", note)
+	}
+	r.view(passedCI)
+	r.fixes("b.txt", "x\n")
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+}
+
+// spent is a rig whose Ticket failed at Checks after both attempts.
+func spent(t *testing.T) *rig {
+	t.Helper()
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{needsFixed}})
+	r.e.Recover()
+	r.note()
+	r.fixes("a.txt", "one\n")
+	r.note()
+	r.fixes("a.txt", "two\n")
+	r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	return r
+}
+
+func TestAHintSendsYourTextToTheLeadAndGrantsExactlyOneMoreAttempt(t *testing.T) {
+	r := spent(t)
+	if err := r.e.Hint(r.ticket, "  Create fixed.txt.  "); err != nil {
+		t.Fatal(err)
+	}
+	note := r.note()
+	if !strings.HasPrefix(note, "<anywhere_factory_fix attempt=\"3\" of=\"2\" by=\"you\">\nCreate fixed.txt.\nThe checks failed.") || !strings.Contains(note, "fixed.txt is missing") {
+		t.Fatalf("note %q", note)
+	}
+	if got := r.get(); !got.Hint || got.Fix != 2 || got.Status != proto.TicketWorking || got.Why != "Fixing · your hint" {
+		t.Fatalf("while fixing: %+v", got)
+	}
+	r.fixes("a.txt", "three\n")
+	got := r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	if got.Fix != 2 || !got.Hint || got.Why != needsFixed+" · Auto-fix 2 of 2 used" {
+		t.Fatalf("got %+v", got)
+	}
+	r.silent(300 * time.Millisecond)
+
+	if err := r.e.Hint(r.ticket, "Really, create fixed.txt."); err != nil {
+		t.Fatal(err)
+	}
+	r.note()
+	r.fixes("fixed.txt", "ok\n")
+	got = r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+	if got.Hint || got.Fix != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	events, _ := ReadActivity(r.home, r.ticket)
+	hints := slices.DeleteFunc(slices.Clone(events), func(ev proto.FactoryEvent) bool { return ev.Kind != "hint" })
+	if len(hints) != 2 || hints[0].Actor != "you" || hints[0].Station != proto.StationChecks {
+		t.Fatalf("hints in the activity: %+v", hints)
+	}
+}
+
+func TestAHintIsRefusedUnlessTheTicketFailedAtChecksAndTheTextSaysSomething(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{"sleep 5"}})
+	r.e.Recover()
+	r.until("the commands", func(x proto.Ticket) bool { return strings.HasPrefix(x.Why, "Checks · ") })
+	if err := r.e.Hint(r.ticket, "try harder"); !errors.Is(err, ErrNoHint) {
+		t.Fatalf("a working ticket: %v", err)
+	}
+	if err := r.e.Hint("nope", "try harder"); !errors.Is(err, board.ErrUnknown) {
+		t.Fatalf("an unknown ticket: %v", err)
+	}
+	r.e.Board.Update(r.ticket, func(x *proto.Ticket) { x.Status = proto.TicketFailed })
+	if err := r.e.Hint(r.ticket, " \n "); !errors.Is(err, ErrNoHint) {
+		t.Fatalf("a blank hint: %v", err)
+	}
+	var off *Engine
+	if err := off.Hint(r.ticket, "try harder"); !errors.Is(err, ErrOff) {
+		t.Fatalf("a nil engine: %v", err)
+	}
+}
+
+func TestARestartGrantsNoAttemptToATicketThatUsedThemAll(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{needsFixed}})
+	head := gitIn(t, r.tree, "rev-parse", "HEAD")
+	failed := Record{Head: head, Pushed: time.Now().UnixMilli(), State: LocalFailed, Total: 1, Checks: []proto.FactoryCheck{{Command: needsFixed, Exit: 1, Output: "fixed.txt is missing\n", Attempt: 2}}}
+	if err := WriteRecord(r.home, r.ticket, failed, true); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Board.Update(r.ticket, func(x *proto.Ticket) {
+		x.PR, x.Fix, x.Status, x.Why = 57, 2, proto.TicketFailed, needsFixed+" · Auto-fix 2 of 2 used"
+	})
+	r.e.Recover()
+	r.silent(500 * time.Millisecond)
+	if got := r.get(); got.Status != proto.TicketFailed || got.Fix != 2 || got.Station != proto.StationChecks {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAFixNoteThatWasOutWhenPocketdStoppedIsNotSentAgain(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Fix: 2, Checks: []string{needsFixed}})
+	os.Remove(filepath.Join(r.fake, "nopr"))
+	head := gitIn(t, r.tree, "rev-parse", "HEAD")
+	out := Record{Head: head, Pushed: time.Now().UnixMilli(), State: LocalFailed, Total: 1, Fix: FixMailed, Checks: []proto.FactoryCheck{{Command: needsFixed, Exit: 1, Attempt: 0}}}
+	if err := WriteRecord(r.home, r.ticket, out, true); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Board.Update(r.ticket, func(x *proto.Ticket) { x.PR, x.Fix, x.Why = 57, 1, "Fixing · attempt 1" })
+	r.e.Recover()
+	r.silent(500 * time.Millisecond)
+	if got := r.get(); got.Status != proto.TicketWorking || got.Fix != 1 || got.Why != "Fixing · attempt 1" {
+		t.Fatalf("got %+v", got)
+	}
+	r.fixes("fixed.txt", "ok\n")
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
 }

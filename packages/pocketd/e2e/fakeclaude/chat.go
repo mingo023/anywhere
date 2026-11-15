@@ -202,7 +202,7 @@ func (c *chatter) turn(m message) {
 		time.Sleep(300 * time.Millisecond)
 		c.s.hook("SessionStart", map[string]any{"source": "compact", "model": model})()
 		note("compacted")
-	case strings.HasPrefix(text, "<anywhere_team_assignment"):
+	case strings.HasPrefix(text, "<anywhere_team_assignment"), strings.HasPrefix(text, "<anywhere_factory_fix"):
 		failed = c.assignment(model, text)
 	case strings.HasPrefix(text, "run "):
 		failed = c.run(model, id, strings.TrimPrefix(text, "run "))

@@ -645,6 +645,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.profileVerb(m)
 	case "factory.advance":
 		return c.factoryAdvance(m)
+	case "factory.hint":
+		return c.factoryHint(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")

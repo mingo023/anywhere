@@ -63,6 +63,7 @@ func TestRedTeamFromInsideATerminal(t *testing.T) {
 		"ws.factory.advance":        "scope_denied",
 		"ws.factory.profile.save":   "scope_denied",
 		"ws.factory.profile.delete": "scope_denied",
+		"ws.factory.hint":           "scope_denied",
 	} {
 		if got[probe] != want {
 			t.Errorf("%s: %q, want %q", probe, got[probe], want)

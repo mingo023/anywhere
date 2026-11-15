@@ -31,9 +31,11 @@ const (
 )
 
 const (
-	ActIntegrate = "integrate"
-	ActOpenPR    = "openPR"
-	ActRunChecks = "runChecks"
+	ActIntegrate  = "integrate"
+	ActOpenPR     = "openPR"
+	ActRunChecks  = "runChecks"
+	ActSendFix    = "sendFix"
+	ActCommitPush = "commitPush"
 )
 
 // LocalChecks is what Checks knows about the commit in the lead's checkout.
@@ -142,7 +144,7 @@ func section(spec, heading string) string {
 // checksNext is Next for a Ticket at Checks. The table in docs/plans/2026-11-12-light-factory-5-checks.md
 // lists the rows in the order the stages below read them.
 func checksNext(f Facts) (proto.Ticket, []Action) {
-	for _, stage := range []func(*Facts) ([]Action, bool){faulted, integration, pullRequest, commands} {
+	for _, stage := range []func(*Facts) ([]Action, bool){fixing, faulted, integration, pullRequest, commands} {
 		if acts, done := stage(&f); done {
 			return f.Ticket, acts
 		}
@@ -240,9 +242,39 @@ func failedRun(pr *proto.PR) string {
 	return "GitHub checks"
 }
 
-// broken is a failed check named what.
+// broken is a failed check named what: the fix rows.
 func broken(f *Facts, what string) ([]Action, bool) {
-	return fail(f, what)
+	limit := f.Config.Fix
+	switch {
+	case f.Local.Same:
+		return fail(f, what+" · The lead changed nothing")
+	case limit == 0:
+		return fail(f, what+" · Auto-fix is off")
+	case f.Ticket.Fix >= limit:
+		// A cap lowered after attempts were used reads as all of it used.
+		return fail(f, fmt.Sprintf("%s · Auto-fix %d of %d used", what, min(f.Ticket.Fix, limit), limit))
+	}
+	f.Ticket.Fix++
+	return work(f, fmt.Sprintf("Fixing · attempt %d", f.Ticket.Fix), Action{Kind: ActSendFix})
+}
+
+// fixing is rows 1 to 5.
+func fixing(f *Facts) ([]Action, bool) {
+	switch {
+	case f.Local.Fix == FixMailed && f.Lead.Turn == "needsYou":
+		f.Ticket.Status, f.Ticket.Gate = proto.TicketNeedsYou, proto.GateAsk
+		return nil, true
+	case f.Local.Fix == FixMailed:
+		return work(f, f.Ticket.Why)
+	case f.Local.Fix == FixEnded:
+		return work(f, "Committing the fix", Action{Kind: ActCommitPush})
+	case f.Local.Hint:
+		f.Ticket.Hint = true
+		return work(f, "Fixing · your hint", Action{Kind: ActSendFix, Text: "you"})
+	case f.Local.Fix == FixStopped:
+		return fail(f, "The lead's fix turn failed or was stopped")
+	}
+	return nil, false
 }
 
 // OutputLimit is how much of a check command's output is kept.
@@ -574,4 +606,72 @@ func (e *Engine) quiet(ticket, head string) {
 	rec.Quiet = true
 	e.save(ticket, rec, false)
 	e.post(event{ticket: ticket})
+}
+
+// sendFix mails the lead the fix note for t's newest record. by is "you" for the note of a hint.
+func (e *Engine) sendFix(t proto.Ticket, by string) {
+	rec, fresh := e.current(t)
+	limit := e.Configs.Get(t.Folder).Fix
+	attempt, hint := t.Fix, ""
+	if by == "you" {
+		attempt, hint = t.Fix+1, rec.Hint
+	}
+	checks, pr := rec.Checks, e.prs[t.Worktree]
+	if rec.State != LocalFailed {
+		checks = nil
+	}
+	if rec.State != LocalPassed {
+		pr = nil
+	}
+	if err := e.Mail(t.AgentID, FixNote(attempt, limit, hint, checks, pr)); err != nil {
+		rec.Hint, rec.Error = "", "Couldn't send the fix note: "+err.Error()
+		e.save(t.ID, rec, fresh)
+		e.post(event{ticket: t.ID})
+		return
+	}
+	rec.Fix, rec.Hint = FixMailed, ""
+	e.save(t.ID, rec, fresh)
+	if by == "you" {
+		e.say(t.ID, "you", "hint", "Sent your hint to the lead")
+		return
+	}
+	e.say(t.ID, "anywhere", "fix", fmt.Sprintf("Sent the failure to the lead: attempt %d of %d", attempt, limit))
+}
+
+// fixEnded records how lead's turn ended while its fix note was out. The next normal end after a stopped fix turn
+// counts too, because the mailbox shows a stopped turn's note again.
+func (e *Engine) fixEnded(lead string, ok bool) {
+	for _, t := range e.atChecks() {
+		rec, has := ReadRecord(e.Home, t.ID)
+		if t.AgentID != lead || !has || (rec.Fix != FixMailed && rec.Fix != FixStopped) || (rec.Fix == FixStopped && !ok) {
+			continue
+		}
+		rec.Fix = FixStopped
+		if ok {
+			rec.Fix = FixEnded
+			e.say(t.ID, "lead", "fix", "Finished the fix")
+		}
+		e.save(t.ID, rec, false)
+	}
+}
+
+// commitPush commits what the fix turn changed and starts the record of the commit. The next step pushes it and
+// runs the commands again, also on the same commit, once.
+func (e *Engine) commitPush(t proto.Ticket) {
+	old, _ := ReadRecord(e.Home, t.ID)
+	if _, err := worktree.Commit(t.Worktree, "Fix the failed checks"); err != nil {
+		old.Fix, old.Error = "", "Couldn't commit the fix: "+err.Error()
+		e.save(t.ID, old, false)
+		e.post(event{ticket: t.ID})
+		return
+	}
+	head, _ := worktree.Head(t.Worktree)
+	same := head == old.Head
+	e.save(t.ID, Record{Head: head, Same: same}, true)
+	text := "Committed the fix " + head[:min(7, len(head))]
+	if same {
+		text = "The lead changed nothing: checking the same commit once more"
+	}
+	e.say(t.ID, "anywhere", "fix", text)
+	e.post(event{ticket: t.ID})
 }

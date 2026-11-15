@@ -55,7 +55,7 @@ func TestASpecWithoutCriteriaGetsOneRepairPrompt(t *testing.T) {
 
 func TestASecondUnusableSpecFailsTheTicketAtSpecWithTheReason(t *testing.T) {
 	next, acts := Next(Facts{Ticket: at(proto.StationSpec), Lead: here, Spec: SpecRepaired, Reply: Turn{Text: "Still nothing.", Ended: true}})
-	if next.Station != proto.StationSpec || next.Status != proto.TicketFailed || !strings.Contains(next.Why, "<anywhere_factory_spec>") || len(acts) != 0 {
+	if next.Station != proto.StationSpec || next.Status != proto.TicketFailed || !strings.Contains(next.Why, "<anywhere_factory_spec>") || did(acts) != "closeLead" {
 		t.Fatalf("got %+v %v", next, kinds(acts))
 	}
 }
@@ -71,7 +71,7 @@ func TestATicketThatFailedAtSpecStaysFailed(t *testing.T) {
 	x := at(proto.StationSpec)
 	x.Status, x.Why = proto.TicketFailed, "The lead's turn failed"
 	next, acts := Next(Facts{Ticket: x, Lead: here, Spec: SpecFailed})
-	if !same(next, x) || len(acts) != 0 {
+	if next.Status != proto.TicketFailed || next.Why != x.Why || next.Station != x.Station || did(acts) != "closeLead" {
 		t.Fatalf("got %+v %v", next, kinds(acts))
 	}
 }
@@ -231,5 +231,17 @@ func TestALeadThatIsGoneAtImplementFailsTheTicket(t *testing.T) {
 	next, _ := Next(Facts{Ticket: at(proto.StationImplement), Team: implementing("running", task("t1", "running"))})
 	if next.Status != proto.TicketFailed || next.Why != "The lead's session closed" || next.AgentID != "" {
 		t.Fatalf("got %+v", next)
+	}
+}
+
+func TestATicketThatFailedAtSpecOrPlanClosesItsLeadSoItCanStartAgain(t *testing.T) {
+	for name, f := range map[string]Facts{
+		"spec": {Ticket: at(proto.StationSpec), Lead: here, Spec: SpecRepaired, Reply: Turn{Text: "Still nothing.", Ended: true}},
+		"plan": {Ticket: at(proto.StationPlan), Lead: here, Team: &proto.Team{State: "failed", Error: "a plan needs 2 to 4 tasks, not 1"}},
+	} {
+		next, acts := Next(f)
+		if next.Status != proto.TicketFailed || next.AgentID != "" || next.TerminalID != "" || next.Why == "" || did(acts) != "closeLead" || acts[0].Text != "lead" {
+			t.Fatalf("%s: got %+v %v", name, next, acts)
+		}
 	}
 }

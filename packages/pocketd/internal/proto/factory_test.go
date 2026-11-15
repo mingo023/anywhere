@@ -218,3 +218,24 @@ func TestTheChecksOfAFactoryTicketAreWhatTheServerWrites(t *testing.T) {
 		t.Fatalf("got %+v", frame.Ticket)
 	}
 }
+
+func TestTheFactoryHintGoldenDecodesToItsFields(t *testing.T) {
+	m, err := DecodeClient(factoryGolden(t, "client", "factory_hint.json"))
+	if err != nil || m.Type != "factory.hint" || m.ID != "factory-7" || m.TicketID != "t1" || m.Text != "Update the snapshot instead of the test." {
+		t.Fatalf("%+v %v", m, err)
+	}
+}
+
+func TestAHintWithoutATicketOrWithABlankTextIsMalformed(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"factory.hint","id":"1","text":"x"}`,
+		`{"type":"factory.hint","id":"1","ticketId":"","text":"x"}`,
+		`{"type":"factory.hint","id":"1","ticketId":"t1"}`,
+		`{"type":"factory.hint","id":"1","ticketId":"t1","text":" \n "}`,
+		`{"type":"factory.hint","id":"1","ticketId":"t1","text":7}`,
+	} {
+		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
+			t.Errorf("%s: got %v, want ErrMalformed", raw, err)
+		}
+	}
+}

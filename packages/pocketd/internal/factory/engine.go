@@ -170,6 +170,7 @@ func (e *Engine) Status(id, from, to string) {
 // TurnEnded is Registry.OnTurnEnd's. It only queues.
 func (e *Engine) TurnEnded(id string, ok bool) {
 	if e != nil {
+		e.later(func() { e.fixEnded(id, ok) })
 		e.post(event{agent: id, turn: true, ok: ok})
 	}
 }
@@ -381,6 +382,10 @@ func (e *Engine) read(lead *agent.Agent, since int64, ev event) Turn {
 
 // act does one action for t. False stops the actions after it.
 func (e *Engine) act(t proto.Ticket, a Action) bool {
+	if a.Kind == ActCloseLead {
+		e.closeLead(a.Text)
+		return true
+	}
 	lead, ok := e.lead(t.AgentID)
 	if !ok {
 		return false
@@ -410,6 +415,10 @@ func (e *Engine) act(t proto.Ticket, a Action) bool {
 		e.openPR(t)
 	case ActRunChecks:
 		e.runChecks(t)
+	case ActSendFix:
+		e.sendFix(t, a.Text)
+	case ActCommitPush:
+		e.commitPush(t)
 	}
 	return true
 }
@@ -435,16 +444,29 @@ func (e *Engine) ask(t proto.Ticket, lead *agent.Agent, state SpecState, text st
 	return true
 }
 
-// fail records an action that could not be done.
+// fail records an action that could not be done. A Ticket at Spec or Plan loses its lead, so it can Start again.
 func (e *Engine) fail(id, why string) {
-	var station string
+	var station, lead string
 	at := e.now().UnixMilli()
 	ok := e.update(id, func(x *proto.Ticket) {
 		x.Status, x.Why, x.Gate, x.ChangedAt = proto.TicketFailed, why, "", at
 		station = x.Station
+		if station == proto.StationSpec || station == proto.StationPlan {
+			lead, x.AgentID, x.TerminalID = x.AgentID, "", ""
+		}
 	})
 	if ok {
 		e.note(id, proto.FactoryEvent{At: at, Station: station, Actor: "anywhere", Kind: "failed", Text: why})
+		e.closeLead(lead)
+	}
+}
+
+// closeLead closes the session with this id, if it is still there.
+func (e *Engine) closeLead(id string) {
+	if a, err := e.Agents.Get(id); err == nil {
+		if d := a.Driver(); d != nil {
+			d.Close()
+		}
 	}
 }
 

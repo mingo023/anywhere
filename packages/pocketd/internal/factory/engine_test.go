@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ type chat struct {
 	mu      sync.Mutex
 	prompts []string
 	err     error
+	closed  atomic.Bool
 }
 
 func (c *chat) Prompt(text string) error {
@@ -45,7 +47,7 @@ func (c *chat) Compact() error                     { return nil }
 func (c *chat) Settings(string, string) error      { return nil }
 func (c *chat) Access(string) error                { return nil }
 func (c *chat) Commands() ([]proto.Command, error) { return nil, nil }
-func (c *chat) Close()                             {}
+func (c *chat) Close()                             { c.closed.Store(true) }
 func (c *chat) sent() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -506,5 +508,39 @@ func TestTheLeadsSessionIsNamedAfterTheTicketsKeyAndTitle(t *testing.T) {
 	}
 	if Title("", "Queue sends") != "Queue sends" {
 		t.Fatal("a Ticket without a key lost its title")
+	}
+}
+
+func TestATicketThatFailedTwiceAtSpecClosesItsLeadAndStartsAgainWithTheBoardsOwnAction(t *testing.T) {
+	w := newWorld(t)
+	x := w.started(true)
+	w.turn("I read the code.", true)
+	w.e.TurnEnded(leadID, true)
+	w.settle()
+	w.turn("Sorry.", true)
+	w.e.TurnEnded(leadID, true)
+	w.settle()
+	g := w.got(x.ID)
+	if g.Status != proto.TicketFailed || !strings.HasPrefix(g.Why, "The lead sent no usable spec: ") || g.AgentID != "" || g.TerminalID != "" {
+		t.Fatalf("got %+v", g)
+	}
+	if !w.chat.closed.Load() {
+		t.Fatal("the lead is still open")
+	}
+	if err := w.e.Board.Start(x.ID, time.Now()); err != nil {
+		t.Fatalf("Start again: %v", err)
+	}
+	again := w.got(x.ID)
+	if again.Status != proto.TicketStarting || !again.Relaunch || again.Station != proto.StationSpec || again.Worktree != g.Worktree {
+		t.Fatalf("after Start again: %+v", again)
+	}
+}
+
+func TestATicketWhoseLeadCouldNotBeAskedClosesItToo(t *testing.T) {
+	w := newWorld(t)
+	w.chat.err = errors.New("the chat is gone")
+	x := w.started(true)
+	if x.AgentID != "" || !w.chat.closed.Load() {
+		t.Fatalf("got %+v", x)
 	}
 }
