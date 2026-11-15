@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 285] = [
+const STEPS: [(&str, Step); 286] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -509,6 +509,14 @@ const STEPS: [(&str, Step); 285] = [
         }
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
+    ("inbox-factory", |d, window, cx| {
+        show_factory_plan(d, window, cx);
+        d.leave_factory_ticket(window, cx);
+        d.open_inbox(window, cx);
+        if let Some(i) = d.inbox.notes.iter().position(|n| n.factory.as_ref().is_some_and(|f| f.ticket == "t15")) {
+            d.select_note(i, cx);
+        }
+    }),
     ("activity", |d, window, cx| d.open_activity(window, cx)),
     ("activity-panel", |d, window, cx| {
         if let Some(id) = d.agents.list.iter().find(|a| a.status == "needsYou").map(|a| a.id.clone()) {

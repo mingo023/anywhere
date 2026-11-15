@@ -86,9 +86,19 @@ pub(crate) fn ask_label(worker: &str) -> String {
 }
 
 impl Desktop {
-    /// The open ask the page answers, unless this connection may only watch.
+    /// The page whose bar acts: the open ticket page, or the Inbox's selected Factory row.
+    pub(crate) fn bar_page(&self) -> Option<&Page> {
+        if self.screen == Screen::Inbox { self.inbox.page.as_ref() } else { self.factory.page.as_ref() }
+    }
+
+    pub(crate) fn bar_page_mut(&mut self) -> Option<&mut Page> {
+        if self.screen == Screen::Inbox { self.inbox.page.as_mut() } else { self.factory.page.as_mut() }
+    }
+
+    /// The open ask the page answers, unless this connection may only watch. A page that names its ask answers that one.
     fn page_ask(&self, t: &Ticket) -> Option<&Permission> {
-        ticket_ask(&self.agents.pending, &t.agent_id, self.agents.team(&t.agent_id)).filter(|_| !self.agents.observe_only())
+        let named = self.bar_page().filter(|p| !p.ask.is_empty()).and_then(|p| self.agents.pending.iter().find(|q| q.request_id == p.ask));
+        named.or_else(|| ticket_ask(&self.agents.pending, &t.agent_id, self.agents.team(&t.agent_id))).filter(|_| !self.agents.observe_only())
     }
 
     /// The page's decision, with the count of the tasks you kept at the gate.
@@ -103,7 +113,7 @@ impl Desktop {
 
     /// Points Team mode's plan edits at the page's lead while its ticket waits at the Plan gate.
     pub(crate) fn aim_plan_edits(&mut self) {
-        let Some(t) = self.factory.page.as_ref().and_then(|p| self.agents.board.get(&p.ticket)).filter(|t| t.gate == Gate::Plan) else { return };
+        let Some(t) = self.bar_page().and_then(|p| self.agents.board.get(&p.ticket)).filter(|t| t.gate == Gate::Plan) else { return };
         let Some(team) = self.agents.team(&t.agent_id).filter(|team| team.state == PROPOSED).cloned() else { return };
         let island = &mut self.team.island;
         if island.sheet.as_deref() != Some(team.lead.as_str()) || !island.edits.contains_key(&team.lead) {
@@ -120,7 +130,7 @@ impl Desktop {
     }
 
     pub(crate) fn factory_changes(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(page) = self.factory.page.as_mut() else { return };
+        let Some(page) = self.bar_page_mut() else { return };
         page.changes = open;
         self.factory.changes.update(cx, |s, cx| {
             s.set_value("", window, cx);
@@ -137,15 +147,24 @@ impl Desktop {
     pub(crate) fn factory_send_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let typed = self.factory.changes.read(cx).value().to_string();
         let Some(note) = change_note(&typed) else { return false };
-        let Some((lead, gate)) = self.factory.page.as_ref().and_then(|p| self.agents.board.get(&p.ticket)).map(|t| (t.agent_id.clone(), t.gate)) else { return false };
+        let Some((lead, gate)) = self.bar_page().and_then(|p| self.agents.board.get(&p.ticket)).map(|t| (t.agent_id.clone(), t.gate)) else { return false };
         self.outbox.prompt(&lead, note, super::pr::replans(gate));
         self.factory_changes(false, window, cx);
         true
     }
 
-    /// ⌘↵ on the page: send the change request while it is open, else approve the plan.
+    /// ⌘↵ on a page or an Inbox row of a Factory ticket.
     pub(crate) fn factory_key(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Some(page) = self.factory.page.clone().filter(|_| self.screen == Screen::Board && self.overlay.is_none()) else { return false };
+        if !matches!(self.screen, Screen::Board | Screen::Inbox) || self.overlay.is_some() {
+            return false;
+        }
+        self.factory_primary(window, cx)
+    }
+
+    /// The bar's primary action: send the change request while it is open, else approve the plan, allow the ask, send the hint or merge.
+    /// False when the bar has none.
+    pub(crate) fn factory_primary(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(page) = self.bar_page().cloned() else { return false };
         let Some(t) = self.agents.board.get(&page.ticket).cloned() else { return false };
         match self.page_decision(&t) {
             Some(Decision::Plan { .. }) if page.changes => self.factory_send_changes(window, cx),
@@ -162,7 +181,7 @@ impl Desktop {
         }
     }
 
-    pub(super) fn factory_bar(&self, t: &Ticket, page: &Page, cx: &mut Context<Self>) -> Option<Div> {
+    pub(crate) fn factory_bar(&self, t: &Ticket, page: &Page, cx: &mut Context<Self>) -> Option<Div> {
         let content = match self.page_decision(t)? {
             Decision::Plan { kept } => self.plan_bar(kept, page, cx),
             Decision::Ask { command, worker } => self.ask_bar(t, &command, &worker, cx)?,
@@ -300,7 +319,7 @@ impl Desktop {
     pub(crate) fn factory_send_hint(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let typed = self.factory.hint.read(cx).value().to_string();
         let Some(text) = hint_text(&typed) else { return false };
-        let Some(ticket) = self.factory.page.as_ref().map(|p| p.ticket.clone()) else { return false };
+        let Some(ticket) = self.bar_page().map(|p| p.ticket.clone()) else { return false };
         self.outbox.local.factory_hint(&ticket, text);
         self.factory.hint.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();

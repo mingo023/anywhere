@@ -16,7 +16,7 @@ const SOUND: &str = "Notification sound";
 
 fn show_badge(d: &mut Desktop, _: &mut Context<Desktop>) {
     if !d.capturing {
-        d.badge.show(&d.agents.list, d.store.notifications.badge);
+        d.badge.show(&d.agents, d.store.notifications.badge);
     }
 }
 

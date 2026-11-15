@@ -19,6 +19,8 @@ pub(crate) struct Page {
     pub(crate) tab: Option<Tab>,
     /// Request changes was clicked: the bar shows its text field.
     pub(crate) changes: bool,
+    /// The request id of the ask the bar answers; empty answers the ticket's first.
+    pub(crate) ask: String,
 }
 
 impl Page {
@@ -75,26 +77,32 @@ pub(crate) fn tasks_text(n: usize) -> String {
 
 impl Desktop {
     pub(crate) fn factory_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        if let Some(page) = self.factory.page.as_mut() {
+        if let Some(page) = self.bar_page_mut() {
             page.tab = Some(tab);
         }
         cx.notify();
     }
 
+    /// The ticket's title, status line, tabs and the tab's body, with the footer bar over them.
+    pub(crate) fn factory_pane(&mut self, t: &Ticket, page: &Page, cx: &mut Context<Self>) -> Div {
+        let col = column(t, self.agents.team(&t.agent_id), self.prs.get(&t.worktree));
+        let tab = shown(page.tab, col);
+        let head = div().flex().flex_col().gap(px(10.)).child(div().text_size(px(24.)).line_height(px(28.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(t.title.clone())).child(self.factory_status(t, col)).child(self.factory_tabs(tab, cx));
+        let body = match tab {
+            Tab::Activity => self.factory_activity_tab(t, cx).into_any_element(),
+            Tab::Checks => div().id("factory-checks").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_checks_tab(t)).into_any_element(),
+            Tab::Pr => div().id("factory-pr").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_pr_tab(t)).into_any_element(),
+            Tab::Workers => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_workers_tab(t)).into_any_element(),
+            _ => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_spec_tab(t, cx)).into_any_element(),
+        };
+        let doc = div().w_full().max_w(px(760.)).flex_1().min_h_0().flex().flex_col().child(head).child(body);
+        div().relative().flex_1().min_w_0().min_h_0().px(px(24.)).pt(px(18.)).flex().flex_col().items_center().child(doc).children(self.factory_bar(t, page, cx))
+    }
+
     pub(crate) fn factory_page(&mut self, page: &Page, cx: &mut Context<Self>) -> Div {
         let Some(t) = self.agents.board.get(&page.ticket).cloned() else { return div() };
         let col = column(&t, self.agents.team(&t.agent_id), self.prs.get(&t.worktree));
-        let tab = shown(page.tab, col);
-        let head = div().flex().flex_col().gap(px(10.)).child(div().text_size(px(24.)).line_height(px(28.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(t.title.clone())).child(self.factory_status(&t, col)).child(self.factory_tabs(tab, cx));
-        let body = match tab {
-            Tab::Activity => self.factory_activity_tab(&t, cx).into_any_element(),
-            Tab::Checks => div().id("factory-checks").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_checks_tab(&t)).into_any_element(),
-            Tab::Pr => div().id("factory-pr").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_pr_tab(&t)).into_any_element(),
-            Tab::Workers => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_workers_tab(&t)).into_any_element(),
-            _ => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_spec_tab(&t, cx)).into_any_element(),
-        };
-        let doc = div().w_full().max_w(px(760.)).flex_1().min_h_0().flex().flex_col().child(head).child(body);
-        let pane = div().relative().flex_1().min_w_0().min_h_0().px(px(24.)).pt(px(18.)).flex().flex_col().items_center().child(doc).children(self.factory_bar(&t, page, cx));
+        let pane = self.factory_pane(&t, page, cx);
         let main = div().flex_1().min_h_0().flex().child(pane).child(self.factory_properties(&t, col));
         div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().bg(CANVAS).child(self.factory_page_bar(&t, cx)).child(main)
     }

@@ -1,7 +1,6 @@
 use crate::board::Layout;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
-use crate::inbox;
 use crate::renames::Feed;
 use crate::status::{self, Alert, Status};
 use crate::terminals::link;
@@ -143,6 +142,7 @@ impl Desktop {
         }
         if let Event::FactoryUpdate(ticket) = &ev {
             self.factory_updated(ticket);
+            self.inbox_ticket_updated(ticket);
         }
         if let Event::FactoryTicket(d) = &ev {
             match crate::factory::checks::failed_output(&d.checks) {
@@ -284,7 +284,7 @@ impl Desktop {
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
         if self.screen == Screen::Inbox {
-            (self.inbox.selected, self.terminal.focused) = inbox::reselect(&self.shown_notes(), self.terminal.focused.as_deref(), self.inbox.selected);
+            self.inbox_changed();
         }
         if automations {
             self.automations_changed();
@@ -295,7 +295,7 @@ impl Desktop {
         self.activity_changed();
         self.sync_alerts(cx);
         if !self.capturing {
-            self.badge.show(&self.agents.list, self.store.notifications.badge);
+            self.badge.show(&self.agents, self.store.notifications.badge);
             self.chime(connected, cx);
         }
         cx.notify();

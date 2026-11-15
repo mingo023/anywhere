@@ -68,6 +68,11 @@
       "files": ["packages/desktop/crates/pocket/src/view.rs", "packages/desktop/crates/workspace/**", "packages/desktop/crates/pocket/src/termview.rs"],
       "open": ["select a session", "click the split-pane button to add panes to the active tab"]
     },
+    "inbox-factory": {
+      "files": ["packages/desktop/crates/pocket/src/inbox.rs", "packages/desktop/crates/pocket/src/inbox/**"],
+      "open": ["click the bell in the sidebar", "the first Factory row, Plan approval, is selected"],
+      "capture": ["inbox", "inbox-factory"]
+    },
     "inbox": {
       "files": ["packages/desktop/crates/pocket/src/inbox.rs"],
       "open": ["click the bell in the sidebar"],

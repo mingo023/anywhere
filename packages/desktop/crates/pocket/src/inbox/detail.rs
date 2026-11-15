@@ -10,9 +10,12 @@ use ui::{self, State, Variant, kbd};
 
 impl Desktop {
     pub fn inbox_detail(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let Some(n) = self.shown_notes().into_iter().nth(self.inbox.selected) else {
-            return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("You're all caught up.");
+        let Some(n) = self.inbox.notes.get(self.inbox.selected).cloned() else {
+            return super::ticket::nothing_waiting();
         };
+        if let Some(f) = &n.factory {
+            return self.inbox_ticket(f, cx);
+        }
         let path = self.project_path(&n.agent);
         let project = basename(&path);
         let title = self.agents.get(&n.agent).map(|a| a.title.clone()).unwrap_or_default();
