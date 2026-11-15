@@ -60,7 +60,9 @@ type Result struct {
 	AgentID, TerminalID string
 	// Cwd is where the agent runs: a new Worktree's path once it exists.
 	Cwd string
-	Err *Failure
+	// Skipped are the profile's skills the checkout already had a folder for.
+	Skipped []string
+	Err     *Failure
 }
 
 type exit struct {
@@ -84,7 +86,10 @@ type Launcher struct {
 	// Locals are the Locals a create may start in; nil has none.
 	Locals *locals.Locals
 	// Teams starts the team a create's first prompt asks for.
-	Teams    *team.Teams
+	Teams *team.Teams
+	// Profiles prepares a spec's Profile in its checkout: it returns the file
+	// with the session's system prompt and the skills it left alone. nil has no profiles.
+	Profiles func(profile, provider, checkout string) (system string, skipped []string, err error)
 	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
 	receipts *receipts[Result]
 	trees    *receipts[built]
@@ -167,6 +172,25 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	if s.Checkout.New != nil {
 		name = s.Checkout.New.Name
 	}
+	if s.Profile != "" && (l.Profiles == nil || !Chat(s)) {
+		return Result{Err: fail("invalid_spec", "A profile needs the Factory and a chat session")}
+	}
+	// Checked before the checkout, so a spec that can't run makes no Worktree.
+	if _, fl := Argv(s, name, l.set.AgentArgs(s.Provider)); fl != nil {
+		return Result{Err: fl}
+	}
+	cwd, setup, fl := l.checkout(w, f, s, env, progress)
+	if fl != nil {
+		return Result{Err: fl}
+	}
+	var skipped []string
+	if s.Profile != "" {
+		// After the checkout, so the skills land in it; before the spawn, so the agent starts with them.
+		var err error
+		if s.System, skipped, err = l.Profiles(s.Profile, s.Provider, cwd); err != nil {
+			return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't prepare the profile", Detail: err.Error()}}
+		}
+	}
 	argv, fl := Argv(s, name, l.set.AgentArgs(s.Provider))
 	if fl != nil {
 		return Result{Err: fl}
@@ -174,10 +198,6 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	argv[0] = exe
 	if Chat(s) {
 		argv = Piped(l.d.Exe, argv)
-	}
-	cwd, setup, fl := l.checkout(w, f, s, env, progress)
-	if fl != nil {
-		return Result{Err: fl}
 	}
 	if n := s.Checkout.New; n != nil && n.Branch == "" && n.PR == "" && l.Names != nil {
 		// A deleted Worktree's name would otherwise stick to the new one at its path.
@@ -211,7 +231,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	}
 	creating(Creating{Terminal: id, Cwd: cwd, Setup: setup != ""})
 	r := l.wait(t, id, exits, clis[s.Provider].attaches(s), progress)
-	r.Cwd = cwd
+	r.Cwd, r.Skipped = cwd, skipped
 	if r.Err == nil && s.Prompt != "" && Chat(s) {
 		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
 			send := a.Driver().Prompt

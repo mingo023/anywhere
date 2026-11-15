@@ -143,3 +143,30 @@ func TestAnAgentThatNeverAsksIsFullWhateverItsArgvSays(t *testing.T) {
 		}
 	}
 }
+
+func TestAClaudeArgvWithAPromptFileParsesToItsPath(t *testing.T) {
+	l := Parse("claude", []string{"claude", "--permission-mode", "acceptEdits", "--append-system-prompt-file", "/s/prompts/abc.md", "--model", "opus"})
+	if l.System != "/s/prompts/abc.md" || l.Access != "edits" || l.Model != "opus" {
+		t.Fatalf("%+v", l)
+	}
+}
+
+func TestACarriedLaunchKeepsItsPromptFile(t *testing.T) {
+	want := Launch{Access: "edits", Model: "gpt-5", System: "/s/prompts/abc.md"}
+	argv := append([]string{"codex", "app-server"}, want.Carried()...)
+	run, got, ok := Cut(argv)
+	if !ok || !reflect.DeepEqual(got, want) || !reflect.DeepEqual(run, []string{"codex", "app-server"}) {
+		t.Fatalf("run %q, launch %+v, carried %t", run, got, ok)
+	}
+	if l := Parse("codex", argv); l.System != want.System || l.Access != "edits" {
+		t.Fatalf("parsed %+v", l)
+	}
+}
+
+func TestALaunchWithoutAPromptFileCarriesNoSystemWord(t *testing.T) {
+	for _, word := range (Launch{Access: "ask"}).Carried() {
+		if word == "--system" {
+			t.Fatal("a launch without a prompt file carried --system")
+		}
+	}
+}

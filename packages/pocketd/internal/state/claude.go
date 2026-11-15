@@ -1,13 +1,13 @@
 package state
 
 func parseClaude(argv []string) Launch {
-	var mode, model, effort string
+	var mode, model, effort, system string
 	var bypass bool
 	scan(argv,
-		map[string]*string{"--model": &model, "--permission-mode": &mode, "--effort": &effort},
+		map[string]*string{"--model": &model, "--permission-mode": &mode, "--effort": &effort, "--append-system-prompt-file": &system},
 		map[string]*bool{"--dangerously-skip-permissions": &bypass},
 		nil)
-	l := Launch{Access: "ask", Model: model, Effort: effort}
+	l := Launch{Access: "ask", Model: model, Effort: effort, System: system}
 	switch {
 	case bypass:
 		l.Access = "full"

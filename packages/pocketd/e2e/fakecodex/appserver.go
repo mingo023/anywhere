@@ -155,6 +155,7 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 		a.thread = &thread{ID: "th-" + uuid()}
 		a.save()
 		note("thread: %s", a.thread.ID)
+		instructed(p)
 		a.opened(id)
 	case "thread/resume":
 		if a.thread == nil || a.thread.ID != threadID {
@@ -167,6 +168,7 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 			json.Unmarshal(b, a.thread)
 		}
 		note("resume: %s", threadID)
+		instructed(p)
 		a.opened(id)
 	case "turn/start":
 		text := inputText(p)
@@ -372,4 +374,12 @@ func inputText(p map[string]any) string {
 	}
 	text, _ := input[0].(map[string]any)["text"].(string)
 	return text
+}
+
+// instructed notes the first line of the developer instructions a thread opens with.
+func instructed(p map[string]any) {
+	if text, _ := p["developerInstructions"].(string); text != "" {
+		first, _, _ := strings.Cut(text, "\n")
+		note("developer instructions: %s", first)
+	}
 }

@@ -62,6 +62,9 @@ func (c claude) argv(s proto.LaunchSpec, argv []string, name, prompt string) ([]
 	if s.Effort != "" {
 		argv = append(argv, "--effort", s.Effort)
 	}
+	if s.System != "" {
+		argv = append(argv, "--append-system-prompt-file", s.System)
+	}
 	if name == "" {
 		name = Slug(prompt)
 	}
@@ -95,6 +98,10 @@ func (claude) resume(t state.Terminal, l state.Launch, argv []string) []string {
 	}
 	if l.Effort != "" {
 		argv = append(argv, "--effort", l.Effort)
+	}
+	if l.System != "" {
+		// claude reads the launch flags again after a compaction, so a resumed session names the same file.
+		argv = append(argv, "--append-system-prompt-file", l.System)
 	}
 	if t.Chat {
 		argv = append(argv, chatFlags...)

@@ -50,6 +50,10 @@ type LaunchSpec struct {
 	// Parent is the id of the listed agent this one starts under, as a team's
 	// worker under its lead; empty for none. Only the owner may set it.
 	Parent string `json:"parent,omitempty"`
+	// Profile is the id of the Factory profile this session runs with. Only pocketd sets it.
+	Profile string `json:"-"`
+	// System is the file launch wrote for Profile; the agent takes its text into its system prompt.
+	System string `json:"-"`
 }
 
 // Checkout is exactly one of Worktree, New and Local.

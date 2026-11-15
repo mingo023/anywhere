@@ -2,7 +2,10 @@ package daemon
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"pocketd/internal/proto"
@@ -65,5 +68,32 @@ func TestCodexMcpStatusReadsInTheWiresTermsWithItsNextPage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) || next != "c2" {
 		t.Fatalf("%+v %q", got, next)
+	}
+}
+
+func TestACodexThreadOpensWithThePromptFilesTextAsDeveloperInstructions(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "abc.md")
+	os.WriteFile(file, []byte("rules\n\nsoul\n"), 0o600)
+	method, params, err := threadParams("/w", "", file)
+	if err != nil || method != "thread/start" || params["cwd"] != "/w" || params["developerInstructions"] != "rules\n\nsoul\n" {
+		t.Fatalf("%s %v %v", method, params, err)
+	}
+	method, params, err = threadParams("/w", "th-1", file)
+	if err != nil || method != "thread/resume" || params["threadId"] != "th-1" || params["developerInstructions"] != "rules\n\nsoul\n" {
+		t.Fatalf("%s %v %v", method, params, err)
+	}
+}
+
+func TestACodexThreadWithoutAPromptFileSendsNoDeveloperInstructions(t *testing.T) {
+	_, params, err := threadParams("/w", "", "")
+	if _, has := params["developerInstructions"]; err != nil || has {
+		t.Fatalf("%v %v", params, err)
+	}
+}
+
+func TestACodexThreadWhosePromptFileIsGoneDoesNotOpen(t *testing.T) {
+	_, _, err := threadParams("/w", "th-1", filepath.Join(t.TempDir(), "gone.md"))
+	if err == nil || !strings.Contains(err.Error(), "system prompt") {
+		t.Fatalf("got %v", err)
 	}
 }

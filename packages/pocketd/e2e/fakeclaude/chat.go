@@ -51,6 +51,16 @@ func chat() {
 		c.model = os.Args[i+1]
 	}
 	c.s.hook("SessionStart", map[string]any{"source": "startup", "model": c.model})()
+	if i := slices.Index(os.Args, "--append-system-prompt-file"); i > 0 && i+1 < len(os.Args) {
+		// As claude does: a file that can't be read ends the process before any request.
+		text, err := os.ReadFile(os.Args[i+1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Append system prompt file not found: %s\n", os.Args[i+1])
+			os.Exit(1)
+		}
+		first, _, _ := strings.Cut(string(text), "\n")
+		note("system prompt: %s", first)
+	}
 	note("fake claude ready")
 	prompts := make(chan message, 16)
 	go c.read(prompts)

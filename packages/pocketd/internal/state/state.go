@@ -22,6 +22,9 @@ type Launch struct {
 	Effort string `json:"effort,omitempty"`
 	// Options are the model's own settings, by the agent's id for each, as Cursor's "fast".
 	Options map[string]string `json:"options,omitempty"`
+	// System is the file whose text the agent takes into its system prompt. A
+	// resumed session names the same file, so it keeps the text it started with.
+	System string `json:"system,omitempty"`
 }
 
 type Terminal struct {

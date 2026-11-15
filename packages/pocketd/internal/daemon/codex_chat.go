@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -211,9 +213,14 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 		x.fail(err)
 		return
 	}
-	method, params := "thread/start", map[string]any{"cwd": pr.t.Info().Cwd}
-	if saved != "" {
-		method, params = "thread/resume", map[string]any{"threadId": saved}
+	pr.mu.Lock()
+	system := pr.launch.System
+	pr.mu.Unlock()
+	method, params, err := threadParams(pr.t.Info().Cwd, saved, system)
+	if err != nil {
+		c.Close()
+		x.fail(err)
+		return
 	}
 	res, err := c.Call(ctx, method, params)
 	if err != nil {
@@ -267,6 +274,25 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 			log.Printf("codex %s: goal: %v", thread, err)
 		}
 	}
+}
+
+// threadParams opens a codex thread: a new one in cwd, or saved again. system
+// is the file whose text codex takes as its developer instructions; a resumed
+// thread gets it again, since codex keeps it only for the life of its process.
+func threadParams(cwd, saved, system string) (string, map[string]any, error) {
+	method, params := "thread/start", map[string]any{"cwd": cwd}
+	if saved != "" {
+		method, params = "thread/resume", map[string]any{"threadId": saved}
+	}
+	if system == "" {
+		return method, params, nil
+	}
+	text, err := os.ReadFile(system)
+	if err != nil {
+		return "", nil, fmt.Errorf("reading the system prompt: %w", err)
+	}
+	params["developerInstructions"] = string(text)
+	return method, params, nil
 }
 
 func (x *codexChat) fail(err error) {

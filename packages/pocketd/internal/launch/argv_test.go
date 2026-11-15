@@ -226,3 +226,45 @@ func TestEveryProviderHasACLI(t *testing.T) {
 		}
 	}
 }
+
+func TestAClaudeSessionWithAPromptFileNamesItAtStartAndAtResume(t *testing.T) {
+	s := spec("claude", "edits", false)
+	s.Chat, s.System = true, "/s/prompts/abc.md"
+	argv, f := argvOf(s, "")
+	i := slices.Index(argv, "--append-system-prompt-file")
+	if f != nil || i < 0 || i+1 >= len(argv) || argv[i+1] != "/s/prompts/abc.md" {
+		t.Fatalf("start argv %q, failure %+v", argv, f)
+	}
+	again := clis["claude"].resume(state.Terminal{Chat: true}, state.Parse("claude", argv), []string{"claude", "--resume", "id"})
+	if i := slices.Index(again, "--append-system-prompt-file"); i < 0 || again[i+1] != "/s/prompts/abc.md" {
+		t.Fatalf("resume argv %q", again)
+	}
+}
+
+func TestACodexChatWithAPromptFileCarriesItsPathAndNeverShowsItToCodex(t *testing.T) {
+	s := spec("codex", "edits", false)
+	s.Chat, s.System = true, "/s/prompts/abc.md"
+	argv, f := argvOf(s, "")
+	if f != nil {
+		t.Fatalf("%+v", f)
+	}
+	run, carried, ok := state.Cut(argv)
+	if !ok || carried.System != "/s/prompts/abc.md" || carried.Access != "edits" || slices.Contains(run, "/s/prompts/abc.md") {
+		t.Fatalf("codex runs %q and pocketd reads %+v", run, carried)
+	}
+	again, ok := clis["codex"].chatResume(state.Terminal{Chat: true}, state.Parse("codex", argv))
+	if l := state.Parse("codex", again); !ok || l.System != "/s/prompts/abc.md" || l.Access != "edits" {
+		t.Fatalf("resume argv %q parses to %+v", again, l)
+	}
+}
+
+func TestASessionWithoutAPromptFileKeepsItsArgv(t *testing.T) {
+	for _, provider := range []string{"claude", "codex"} {
+		s := spec(provider, "edits", false)
+		s.Chat = true
+		argv, _ := argvOf(s, "")
+		if slices.Contains(argv, "--append-system-prompt-file") || slices.Contains(argv, state.Carry) {
+			t.Fatalf("%s: %q", provider, argv)
+		}
+	}
+}

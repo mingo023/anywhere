@@ -30,6 +30,9 @@ func (l Launch) Carried() []string {
 	for _, id := range slices.Sorted(maps.Keys(l.Options)) {
 		argv = append(argv, "--option", id+"="+l.Options[id])
 	}
+	if l.System != "" {
+		argv = append(argv, "--system", l.System)
+	}
 	return argv
 }
 
@@ -41,7 +44,7 @@ func Cut(argv []string) (run []string, l Launch, ok bool) {
 		return argv, Launch{}, false
 	}
 	var access string
-	scan(argv[i:], map[string]*string{"--access": &access, "--model": &l.Model, "--effort": &l.Effort}, map[string]*bool{"--plan": &l.Plan}, nil)
+	scan(argv[i:], map[string]*string{"--access": &access, "--model": &l.Model, "--effort": &l.Effort, "--system": &l.System}, map[string]*bool{"--plan": &l.Plan}, nil)
 	if l.Access = "ask"; slices.Contains(proto.Accesses, access) {
 		l.Access = access
 	}

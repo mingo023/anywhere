@@ -1,9 +1,11 @@
 package launch
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -248,7 +250,7 @@ func TestARetryOfARunningCreateJoinsItInsteadOfStartingASecondAgent(t *testing.T
 	}
 	var joined Creating
 	again := l.Create(owner, "r1", s, func(string, string) { t.Error("a retry got progress") }, func(c Creating) { joined = c })
-	if r := <-first; again != r || joined != c {
+	if r := <-first; !reflect.DeepEqual(again, r) || joined != c {
 		t.Fatalf("retry got %+v %+v, first %+v %+v", again, joined, r, c)
 	}
 	if n := len(l.d.Terminals.All()); n != 1 {
@@ -518,5 +520,61 @@ func TestATeamStartsOnlyFromAChatSessionsFirstPrompt(t *testing.T) {
 	s.Prompt = "Add truncate"
 	if r := l.Create(owner, "r3", s, quiet, func(Creating) { t.Fatal("creating") }); r.Err == nil || r.Err.Code != "unknown_project" {
 		t.Fatalf("a chat with a prompt goes on to the project check: %+v", r.Err)
+	}
+}
+
+func TestASessionWithAProfileIsPreparedInItsNewCheckoutBeforeItSpawns(t *testing.T) {
+	defer func(w time.Duration) { createWait = w }(createWait)
+	createWait = 500 * time.Millisecond
+	l, s := newWorktree(t, "")
+	s.Chat, s.Profile = true, "go-backend"
+	var got []string
+	l.Profiles = func(profile, provider, checkout string) (string, []string, error) {
+		if _, err := os.Stat(checkout); err != nil {
+			t.Errorf("the checkout doesn't exist yet: %v", err)
+		}
+		got = []string{profile, provider, checkout}
+		return "/s/prompts/abc.md", []string{"review"}, nil
+	}
+	var argv string
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, quiet, func(c Creating) {
+		if term := l.d.Terminals.Get(c.Terminal); term != nil {
+			argv = strings.Join(term.Info().Args, " ")
+		}
+	})
+	if term := l.d.Terminals.Get(r.TerminalID); term != nil {
+		t.Cleanup(term.Close)
+	}
+	if len(got) != 3 || got[0] != "go-backend" || got[1] != "claude" || got[2] != r.Cwd {
+		t.Fatalf("the hook got %q, the session runs in %q", got, r.Cwd)
+	}
+	if !strings.Contains(argv, "--append-system-prompt-file") || !strings.Contains(argv, "/s/prompts/abc.md") {
+		t.Fatalf("argv %q", argv)
+	}
+	if !slices.Equal(r.Skipped, []string{"review"}) {
+		t.Fatalf("skipped %q", r.Skipped)
+	}
+}
+
+func TestAProfileIsRefusedWithoutAChatOrWithoutTheFactory(t *testing.T) {
+	l, s := newWorktree(t, "")
+	s.Chat, s.Profile = true, "go-backend"
+	if r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, quiet, func(Creating) {}); r.Err == nil || r.Err.Code != "invalid_spec" || r.Cwd != "" {
+		t.Fatalf("no Factory: %+v", r)
+	}
+	l.Profiles = func(string, string, string) (string, []string, error) { return "/s/x.md", nil, nil }
+	s.Chat = false
+	if r := l.Create(Who{Owner: true, Key: "owner"}, "r2", s, quiet, func(Creating) {}); r.Err == nil || r.Err.Code != "invalid_spec" {
+		t.Fatalf("no chat: %+v", r)
+	}
+}
+
+func TestAProfileThatCantBePreparedFailsTheCreate(t *testing.T) {
+	l, s := newWorktree(t, "")
+	s.Chat, s.Profile = true, "gone"
+	l.Profiles = func(string, string, string) (string, []string, error) { return "", nil, errors.New("No such profile") }
+	r := l.Create(Who{Owner: true, Key: "owner"}, "r1", s, quiet, func(Creating) {})
+	if r.Err == nil || r.Err.Code != "spawn_failed" || r.Err.Detail != "No such profile" {
+		t.Fatalf("%+v", r.Err)
 	}
 }

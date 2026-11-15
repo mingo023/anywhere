@@ -27,12 +27,17 @@ var codexChatAccess = map[string][]string{
 
 // codexChat runs codex for the chat: its app-server on stdio, which pocketd
 // drives over JSON-RPC.
-func codexChat(access, model, effort string) []string {
+func codexChat(access, model, effort, system string) []string {
 	argv := append([]string{"codex", "app-server"}, codexChatAccess[access]...)
 	if model != "" {
 		argv = append(argv, "-c", `model="`+model+`"`)
 	}
-	return append(argv, effortConfig(effort)...)
+	argv = append(argv, effortConfig(effort)...)
+	if system != "" {
+		// codex takes the text over thread/start, so the path is for pocketd alone: pipe cuts it off.
+		argv = append(argv, state.Launch{Access: access, Model: model, Effort: effort, System: system}.Carried()...)
+	}
+	return argv
 }
 
 // effortConfig sets codex's reasoning effort, the same in its TUI and
@@ -61,7 +66,7 @@ func (c codex) argv(s proto.LaunchSpec, argv []string, _, _ string) ([]string, b
 		return nil, false, fail("invalid_spec", badEffort)
 	}
 	if c.chat(s) {
-		return codexChat(s.Access, s.Model, s.Effort), true, nil
+		return codexChat(s.Access, s.Model, s.Effort, s.System), true, nil
 	}
 	argv = append(argv, codexAccess[s.Access]...)
 	if s.Model != "" {
@@ -78,7 +83,7 @@ func (codex) chatResume(t state.Terminal, l state.Launch) ([]string, bool) {
 	if l.Access == "full" && !t.KeepAccess {
 		l.Access = "ask"
 	}
-	return codexChat(l.Access, l.Model, l.Effort), true
+	return codexChat(l.Access, l.Model, l.Effort, l.System), true
 }
 
 func (codex) resume(t state.Terminal, l state.Launch, argv []string) []string {
