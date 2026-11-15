@@ -306,6 +306,10 @@ func (d *Daemon) decide(ctx context.Context, pr *presence, in hookInput) *hookDe
 	defer context.AfterFunc(pr.ctx, cancel)()
 	ag := pr.a
 	req := proto.PermissionRequest{AgentID: ag.ID(), ToolName: in.ToolName, Detail: timeline.Detail(in.ToolName, in.ToolInput), Options: in.options(), Feedback: true}
+	if reason, denied := d.Broker.Denied(req); denied {
+		// No interrupt: the agent reads the reason and its turn goes on.
+		return &hookDecision{Behavior: "deny", Message: reason}
+	}
 	if d.Broker.Auto(req) {
 		return &hookDecision{Behavior: "allow"}
 	}

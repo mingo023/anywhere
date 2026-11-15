@@ -490,6 +490,10 @@ func (s *Session) Request(id json.RawMessage, method string, params json.RawMess
 
 func (s *Session) ask(id json.RawMessage, name string, detail proto.ToolDetail) {
 	req := proto.PermissionRequest{AgentID: s.agentID, ToolName: name, Detail: detail}
+	if _, denied := s.broker.Denied(req); denied {
+		s.c.Reply(id, map[string]string{"decision": "decline"})
+		return
+	}
 	if s.broker.Auto(req) {
 		s.c.Reply(id, map[string]string{"decision": "accept"})
 		return

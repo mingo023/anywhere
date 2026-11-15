@@ -136,11 +136,17 @@ func (s *Session) ask(id json.RawMessage, req proto.PermissionRequest, reply fun
 	s.asks[key] = cancel
 	go func() {
 		defer cancel()
-		if s.broker.Auto(req) {
+		answer, settled := broker.Answer{Decision: "allow"}, false
+		if reason, denied := s.broker.Denied(req); denied {
+			answer, settled = broker.Answer{Decision: "deny", Message: reason}, true
+		} else {
+			settled = s.broker.Auto(req)
+		}
+		if settled {
 			s.mu.Lock()
 			delete(s.asks, key)
 			s.mu.Unlock()
-			reply(broker.Answer{Decision: "allow"})
+			reply(answer)
 			return
 		}
 		s.sink.NeedsYou()

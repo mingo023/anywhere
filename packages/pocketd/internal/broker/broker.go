@@ -37,6 +37,9 @@ type Broker struct {
 	// Allow is what Auto asks: true answers an ask allow without showing it
 	// to anyone. Set it before the first Ask.
 	Allow func(proto.PermissionRequest) bool
+	// Deny is what Denied asks, and it wins over Allow: true answers an ask deny
+	// with reason without showing it to anyone. Set it before the first Ask.
+	Deny func(proto.PermissionRequest) (reason string, deny bool)
 	// Forever is whether a request waits for a person however long it takes; nil lets every request time out.
 	Forever func(proto.PermissionRequest) bool
 	// OnResolve runs after a person answered a request. A timeout isn't an answer.
@@ -57,9 +60,20 @@ func newRequestID() string {
 
 func New(h *hub.Hub) *Broker { return &Broker{hub: h, open: map[string]*pending{}} }
 
+// Denied is whether Deny answers req deny by itself, and why. Callers check it before Auto.
+func (b *Broker) Denied(req proto.PermissionRequest) (string, bool) {
+	if b.Deny == nil {
+		return "", false
+	}
+	return b.Deny(req)
+}
+
 // Auto is whether Allow answers req allow by itself. Callers check it before
 // Ask, and before showing the agent as needing you, which it then doesn't.
 func (b *Broker) Auto(req proto.PermissionRequest) bool {
+	if _, denied := b.Denied(req); denied {
+		return false
+	}
 	return b.Allow != nil && b.Allow(req)
 }
 

@@ -33,6 +33,36 @@ func waitOpen(t *testing.T, b *Broker, n int) []proto.PermissionRequest {
 	return nil
 }
 
+func TestOnlyAnAskTheDenyHookTakesIsRefusedWithItsReason(t *testing.T) {
+	b := New(hub.New())
+	write := proto.PermissionRequest{AgentID: "a1", ToolName: "Write", Detail: proto.ToolDetail{Kind: "write", Path: "a.go"}}
+	if _, denied := b.Denied(write); denied {
+		t.Fatal("denied with no hook")
+	}
+	b.Deny = func(req proto.PermissionRequest) (string, bool) {
+		return "The reviewer is read-only", req.Detail.Kind == "write"
+	}
+	read := write
+	read.Detail.Kind = "read"
+	reason, denied := b.Denied(write)
+	if _, other := b.Denied(read); !denied || reason != "The reviewer is read-only" || other {
+		t.Fatalf("reason %q, denied %v, other %v", reason, denied, other)
+	}
+}
+
+func TestAnAskTheDenyHookTakesIsNeverAllowedByTheAllowHook(t *testing.T) {
+	b := New(hub.New())
+	b.Allow = func(proto.PermissionRequest) bool { return true }
+	b.Deny = func(proto.PermissionRequest) (string, bool) { return "no", true }
+	if b.Auto(proto.PermissionRequest{AgentID: "a1", ToolName: "Bash", Detail: proto.ToolDetail{Kind: "shell", Command: "rm x"}}) {
+		t.Fatal("Auto allowed an ask that Deny takes")
+	}
+	b.Deny = func(req proto.PermissionRequest) (string, bool) { return "no", req.Detail.Command == "rm x" }
+	if !b.Auto(proto.PermissionRequest{AgentID: "a1", ToolName: "Bash", Detail: proto.ToolDetail{Kind: "shell", Command: "ls"}}) {
+		t.Fatal("Auto refused an ask that Deny leaves alone")
+	}
+}
+
 func types(ch <-chan []byte) []string {
 	var out []string
 	for {

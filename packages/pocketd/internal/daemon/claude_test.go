@@ -339,6 +339,28 @@ func TestAnAskTheBrokerAllowsByItselfNeverShowsTheAgentNeedingYou(t *testing.T) 
 	}
 }
 
+func TestAnAskTheBrokerDeniesIsRefusedWithItsReasonAndNeverShown(t *testing.T) {
+	d := newDaemon(t)
+	_, pr := claudeIn(t, d)
+	var statuses []string
+	d.Agents.OnStatus = func(_, _, _, to string) { statuses = append(statuses, to) }
+	d.Broker.Allow = func(proto.PermissionRequest) bool { return true }
+	d.Broker.Deny = func(req proto.PermissionRequest) (string, bool) {
+		return "The reviewer is read-only", req.Detail.Kind == "write"
+	}
+	out := string(hookFrom(d, pr, `{"hook_event_name":"PermissionRequest","tool_name":"Write","tool_input":{"file_path":"/w/a.go","content":"x"}}`))
+	if !strings.Contains(out, `"behavior":"deny"`) || !strings.Contains(out, "The reviewer is read-only") || strings.Contains(out, "interrupt") {
+		t.Fatalf("out %s", out)
+	}
+	if slices.Contains(statuses, "needsYou") || len(d.Broker.Open()) != 0 {
+		t.Fatalf("statuses %v, open %v", statuses, d.Broker.Open())
+	}
+	out = string(hookFrom(d, pr, `{"hook_event_name":"PermissionRequest","tool_name":"Read","tool_input":{"file_path":"/w/a.go"}}`))
+	if !strings.Contains(out, `"behavior":"allow"`) {
+		t.Fatalf("an ask the hook leaves alone: %s", out)
+	}
+}
+
 func TestNearestClaudeOwnsTheHook(t *testing.T) {
 	for _, c := range []struct {
 		name  string

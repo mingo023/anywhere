@@ -906,6 +906,49 @@ func TestWhatTheBrokerAllowsIsNotAsked(t *testing.T) {
 	}
 }
 
+func TestWhatTheDenyHookLeavesAloneIsStillAllowedByTheAllowHook(t *testing.T) {
+	answered := make(chan struct{})
+	s, ag, sk, b := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, _ string) string {
+		<-answered
+		return endTurn
+	})})
+	b.Allow = func(proto.PermissionRequest) bool { return true }
+	b.Deny = func(req proto.PermissionRequest) (string, bool) { return "no", req.Detail.Kind == "write" }
+	s.Prompt("go")
+	ag.called("session/prompt", 1)
+	ag.ask("5", "session/request_permission", hermesPermission)
+	if got := ag.replied("5"); got != `{"outcome":{"optionId":"allow_once","outcome":"selected"}}` {
+		t.Fatalf("answered %s", got)
+	}
+	close(answered)
+	sk.wait(t, "ended:false")
+}
+
+func TestWhatTheBrokerDeniesIsRejectedAndNotAsked(t *testing.T) {
+	answered := make(chan struct{})
+	s, ag, sk, b := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, _ string) string {
+		<-answered
+		return endTurn
+	})})
+	b.Allow = func(proto.PermissionRequest) bool { return true }
+	b.Deny = func(req proto.PermissionRequest) (string, bool) {
+		return "The reviewer is read-only", req.Detail.Kind == "shell"
+	}
+	s.Prompt("go")
+	ag.called("session/prompt", 1)
+	ag.ask("5", "session/request_permission", hermesPermission)
+	if got := ag.replied("5"); got != `{"outcome":{"optionId":"deny","outcome":"selected"}}` {
+		t.Fatalf("answered %s", got)
+	}
+	close(answered)
+	if got := sk.wait(t, "ended:false"); slices.Contains(got, "needsYou") {
+		t.Fatalf("needed you: %v", got)
+	}
+	if open := b.Open(); len(open) != 0 {
+		t.Fatalf("shown: %+v", open)
+	}
+}
+
 func TestOpenCodeShowsACallOnceItsInputComesAndAsksAboutIt(t *testing.T) {
 	// What OpenCode 1.19.5 wrote for a command its config has it ask about.
 	s, a, sk, b := start(t, opts{provider: "opencode", answer: script(opencodeNew, func(a *agent, _ string) string {

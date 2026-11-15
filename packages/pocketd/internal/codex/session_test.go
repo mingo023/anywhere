@@ -239,6 +239,25 @@ func TestPhoneAnswersApproval(t *testing.T) {
 	}
 }
 
+func TestAnApprovalTheBrokerDeniesIsDeclinedAndNeverShown(t *testing.T) {
+	srv, _, _, b := open(t, emptyThread)
+	b.Allow = func(proto.PermissionRequest) bool { return true }
+	b.Deny = func(req proto.PermissionRequest) (string, bool) {
+		return "The reviewer is read-only", req.Detail.Kind == "shell" && req.Detail.Command == "rm -rf build"
+	}
+	srv.Push("item/commandExecution/requestApproval", 7, `{"threadId":"th1","turnId":"t2","itemId":"c2","startedAtMs":1,"command":"rm -rf build"}`)
+	if got := srv.Reply("7"); got != `{"decision":"decline"}` {
+		t.Fatal(got)
+	}
+	if open := b.Open(); len(open) != 0 {
+		t.Fatalf("shown: %+v", open)
+	}
+	srv.Push("item/commandExecution/requestApproval", 8, `{"threadId":"th1","turnId":"t2","itemId":"c3","startedAtMs":1,"command":"git diff"}`)
+	if got := srv.Reply("8"); got != `{"decision":"accept"}` {
+		t.Fatal(got)
+	}
+}
+
 func TestFileApprovalShowsStartedItem(t *testing.T) {
 	srv, _, _, b := open(t, emptyThread)
 	srv.Push("item/started", nil, `{"threadId":"th1","turnId":"t2","item":{"type":"fileChange","id":"f2","status":"inProgress","changes":[{"path":"/w/b.go","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"}]}}`)
