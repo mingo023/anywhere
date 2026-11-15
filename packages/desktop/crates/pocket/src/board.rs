@@ -24,10 +24,11 @@ mod views;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
+use crate::factory::station::{COLUMNS, Stations};
 use agents::tickets::{Board, Ticket};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use logic::{Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Landing, Opens, Order, Props, Reach, Row, Slot, Surface, Tab, action_field, arrange, board_cols, board_key, closed_note, column, escape, hidden_by, landing, opens, page_ids, reorders_nothing, rows, tab_count};
+use logic::{Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Landing, Opens, Order, Props, Reach, Row, Slot, Surface, Tab, action_field, arrange, board_cols, board_key, by_station, closed_note, column, escape, hidden_by, landing, opens, page_ids, reorders_nothing, rows, station_rows, tab_count};
 use selection::{Selection, walk};
 use std::collections::HashSet;
 use store::BoardLayout;
@@ -118,6 +119,8 @@ pub struct BoardState {
     tucked: [bool; COLS.len()],
     /// The list's sections showing only their heads.
     folded: [bool; COLS.len()],
+    /// The List's station sections folded away, per column of `COLUMNS`.
+    pub(crate) folded_stations: [bool; COLUMNS.len()],
     pub(crate) props: Props,
     pub(crate) searching: bool,
     /// The tickets the open ticket page steps through; `None` shows the Board.
@@ -162,6 +165,7 @@ impl BoardState {
             away: Vec::new(),
             tucked: Default::default(),
             folded: Default::default(),
+            folded_stations: Default::default(),
             props: Props::default(),
             searching: false,
             page: None,
@@ -181,7 +185,8 @@ impl BoardState {
         (state, subs)
     }
 
-    fn regroup(&mut self, board: &Board) {
+    /// `stations` is set when the List groups by station.
+    fn regroup(&mut self, board: &Board, stations: Option<&Stations>) {
         self.columns = arrange(&board.tickets, &self.filters, self.order);
         let (tab, show_closed) = hidden_scope(self.layout, self.tab, self.show_closed);
         self.hidden = hidden_by(&board.tickets, &self.filters, tab, show_closed);
@@ -193,7 +198,10 @@ impl BoardState {
             list.reset(line.len());
             list.scroll_to(top);
         }
-        self.rows = rows(&self.columns, self.tab, self.show_closed, &self.folded);
+        self.rows = match stations {
+            Some(lines) => station_rows(lines, &board.tickets, &self.columns, self.tab, self.show_closed, &self.folded_stations),
+            None => rows(&self.columns, self.tab, self.show_closed, &self.folded),
+        };
         let top = self.rows_list.logical_scroll_top();
         self.rows_list.reset(self.rows.len());
         self.rows_list.scroll_to(top);
@@ -260,10 +268,11 @@ impl Desktop {
     /// Off the screen nothing reads the columns; opening it regroups.
     pub(crate) fn board_changed(&mut self) {
         if self.screen == Screen::Board {
-            self.board.regroup(&self.agents.board);
-            if self.board.layout == Layout::Factory {
+            let grouped = by_station(&self.agents.board.tickets);
+            if grouped || self.board.layout == Layout::Factory {
                 self.regroup_stations();
             }
+            self.board.regroup(&self.agents.board, grouped.then_some(&self.factory.columns));
             let slots = self.board_slots();
             self.board.keep_selection(&slots, &self.agents.board.tickets);
             self.drop_stale_ticket_page();

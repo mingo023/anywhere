@@ -691,6 +691,33 @@ func ticketState(t proto.Ticket) string {
 	return t.State
 }
 
+// ticketRow is a ticket's line in ticket list. A ticket outside the Factory has no station.
+func ticketRow(t proto.Ticket) string {
+	station := t.Station
+	if station == "" {
+		station = "-"
+	}
+	return strings.Join([]string{t.ID, ticketState(t), station, t.Provider, filepath.Base(t.Folder), t.Title}, "\t")
+}
+
+// factoryLine is where a Factory ticket stands, as ticket read shows it, or "" outside the Factory.
+func factoryLine(t proto.Ticket) string {
+	if t.Station == "" {
+		return ""
+	}
+	parts := []string{"station " + t.Station}
+	if t.Gate != "" {
+		parts = append(parts, "gate "+t.Gate)
+	}
+	if t.Fix > 0 {
+		parts = append(parts, fmt.Sprintf("fix %d", t.Fix))
+	}
+	if t.PR > 0 {
+		parts = append(parts, fmt.Sprintf("PR #%d", t.PR))
+	}
+	return strings.Join(parts, " · ")
+}
+
 func ticketListCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
 	asJSON := flags.Bool("json", false, "")
 	if pos, err := positional(flags, args); err != nil || len(pos) != 0 {
@@ -710,7 +737,7 @@ func ticketListCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
 	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	for _, t := range list {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.ID, ticketState(t), t.Provider, filepath.Base(t.Folder), t.Title)
+		fmt.Fprintln(tw, ticketRow(t))
 	}
 	return tw.Flush()
 }
@@ -733,7 +760,11 @@ func ticketReadCmd(flags *flag.FlagSet, args []string, w io.Writer) error {
 	if *asJSON {
 		return printJSON(w, t)
 	}
-	_, err = fmt.Fprintf(w, "%s\n%s %s %s\n\n%s\n", t.Title, ticketState(t), t.Provider, t.Folder, t.Prompt)
+	head := fmt.Sprintf("%s\n%s %s %s\n", t.Title, ticketState(t), t.Provider, t.Folder)
+	if line := factoryLine(t); line != "" {
+		head += line + "\n"
+	}
+	_, err = fmt.Fprintf(w, "%s\n%s\n", head, t.Prompt)
 	return err
 }
 

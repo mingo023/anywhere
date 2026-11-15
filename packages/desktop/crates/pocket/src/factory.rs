@@ -145,9 +145,9 @@ impl Desktop {
         self.factory.regroup(&agents.board.tickets, &self.board.filters, |t| agents.team(&t.agent_id), |t| prs.get(&t.worktree));
     }
 
-    /// A team or a PR changed. Only the Factory layout places a ticket by them.
+    /// A team or a PR changed. Only the Factory layout, and a List grouped by station, place a ticket by them.
     pub(crate) fn stations_changed(&mut self) {
-        if self.board.layout == Layout::Factory {
+        if self.board.layout == Layout::Factory || crate::board::logic::by_station(&self.agents.board.tickets) {
             self.board_changed();
         }
     }

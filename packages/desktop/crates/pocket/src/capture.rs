@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 289] = [
+const STEPS: [(&str, Step); 290] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -539,6 +539,17 @@ const STEPS: [(&str, Step); 289] = [
     ("board", |d, window, cx| d.open_board(window, cx)),
     ("board-list", |d, _, cx| {
         d.board.layout = crate::board::Layout::List;
+        cx.notify();
+    }),
+    ("board-list-stations", |d, _, cx| {
+        use agents::tickets::{Gate, State, Station};
+        let at = [(Station::Spec, Gate::None), (Station::Plan, Gate::Plan), (Station::Implement, Gate::None), (Station::Checks, Gate::None), (Station::Pr, Gate::Pr)];
+        let mut next = at.into_iter().cycle();
+        for t in d.agents.board.tickets.iter_mut().filter(|t| t.state == State::Live && t.station == Station::None) {
+            (t.station, t.gate) = next.next().unwrap_or((Station::Implement, Gate::None));
+        }
+        d.board.layout = crate::board::Layout::List;
+        d.board_changed();
         cx.notify();
     }),
     ("board-search", |d, _, cx| {

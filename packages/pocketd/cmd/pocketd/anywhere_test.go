@@ -292,3 +292,27 @@ func TestALiveTicketShowsWhatItsSessionIsDoing(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestTicketListShowsAFactoryTicketsStationAndADashForAnyOther(t *testing.T) {
+	factory := proto.Ticket{ID: "t1", State: proto.TicketLive, Status: proto.TicketNeedsYou, Provider: "claude", Folder: "/code/api", Title: "Fold hunks", Station: proto.StationPlan}
+	if got, want := ticketRow(factory), "t1\tneedsYou\tplan\tclaude\tapi\tFold hunks"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	plain := proto.Ticket{ID: "t2", State: proto.TicketTodo, Provider: "codex", Folder: "/code/web", Title: "Dark mode"}
+	if got, want := ticketRow(plain), "t2\ttodo\t-\tcodex\tweb\tDark mode"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestTicketReadShowsTheStationGateFixesAndPROfAFactoryTicket(t *testing.T) {
+	full := proto.Ticket{Station: proto.StationChecks, Gate: proto.GateAsk, Fix: 1, PR: 12}
+	if got, want := factoryLine(full), "station checks · gate ask · fix 1 · PR #12"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got, want := factoryLine(proto.Ticket{Station: proto.StationImplement}), "station implement"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got := factoryLine(proto.Ticket{State: proto.TicketTodo}); got != "" {
+		t.Fatalf("a ticket outside the Factory got %q", got)
+	}
+}

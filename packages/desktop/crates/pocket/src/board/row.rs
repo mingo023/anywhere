@@ -1,9 +1,10 @@
 use super::logic::{Action, Col, Row, Slot, action_field, activity, change_reaches, column, opens, stuck_head};
-use super::parts::{col_heading, prop_chip};
+use super::parts::{col_heading, prop_chip, station_glyph};
 use ui::agent_avatar;
 use crate::desktop::Desktop;
+use crate::factory::station::Column;
 use crate::util::{ago_long, now_ms};
-use agents::tickets::Ticket;
+use agents::tickets::{Gate, Ticket};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -25,9 +26,33 @@ impl Desktop {
         div().w_full().px(px(8.)).when(!first, |d| d.pt(px(6.))).child(self.section_bar(col, cx)).into_any_element()
     }
 
+    fn station_bar(&self, column: Column, n: usize, cx: &mut Context<Self>) -> Div {
+        let add = (column == Column::Todo).then(|| self.add_ticket_button("board-list-add", cx));
+        let folded = self.board.folded_stations[column as usize];
+        let fold = ui::icon_button_sized(("station-fold", column as usize), if folded { "chevron-right" } else { "chevron-down" }, 18., TEXT_4).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.board.folded_stations[column as usize] = !folded;
+            this.board_changed();
+            cx.notify();
+        }));
+        let heading = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .text_size(px(12.5))
+            .font_weight(FontWeight::MEDIUM)
+            .child(station_glyph(column, Gate::None, false))
+            .child(column.name())
+            .child(div().font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(n.to_string()));
+        div().h(px(32.)).pl(px(4.)).pr(px(6.)).flex().items_center().gap(px(8.)).rounded(px(7.)).bg(FILL_1).child(fold).child(heading).child(div().flex_1()).children(add)
+    }
+
+    fn station_head(&self, column: Column, n: usize, first: bool, cx: &mut Context<Self>) -> AnyElement {
+        div().w_full().px(px(8.)).when(!first, |d| d.pt(px(6.))).child(self.station_bar(column, n, cx)).into_any_element()
+    }
+
     /// `CANVAS` is clear in dark mode, so a head stuck over rows needs a solid fill or they show through it.
-    fn stuck_section(&self, col: Col, cx: &mut Context<Self>) -> Div {
-        div().absolute().top_0().left_0().right_0().px(px(8.)).child(div().rounded(px(7.)).bg(POPOVER).occlude().child(self.section_bar(col, cx)))
+    fn stuck(&self, bar: Div) -> Div {
+        div().absolute().top_0().left_0().right_0().px(px(8.)).child(div().rounded(px(7.)).bg(POPOVER).occlude().child(bar))
     }
 
     /// `face`, opening `action`'s choices on a click while the ticket still takes them.
@@ -118,12 +143,20 @@ impl Desktop {
     pub(super) fn board_list(&mut self, cx: &mut Context<Self>) -> Div {
         let rows = list(self.board.rows_list.clone(), cx.processor(|this, ix, _, cx| match this.board.rows.get(ix).copied() {
             Some(Row::Head(col)) => this.section_head(col, ix == 0, cx),
+            Some(Row::Station(column, n)) => this.station_head(column, n, ix == 0, cx),
             Some(Row::Ticket(slot)) => this.ticket_row(slot, cx),
             None => div().into_any_element(),
         }))
         .size_full();
         let top = self.board.rows_list.logical_scroll_top();
-        let stuck = stuck_head(&self.board.rows, top.item_ix, top.offset_in_item > px(0.)).map(|col| self.stuck_section(col, cx));
+        let stuck = stuck_head(&self.board.rows, top.item_ix, top.offset_in_item > px(0.)).map(|head| {
+            let bar = match head {
+                Row::Station(column, n) => self.station_bar(column, n, cx),
+                Row::Head(col) => self.section_bar(col, cx),
+                Row::Ticket(_) => div(),
+            };
+            self.stuck(bar)
+        });
         div().relative().flex_1().min_h_0().child(rows).children(stuck)
     }
 }

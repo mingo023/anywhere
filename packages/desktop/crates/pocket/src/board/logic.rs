@@ -1,7 +1,7 @@
-use crate::factory::station::Needs;
-use agents::tickets::{ClosedWhy, State, Status, Ticket};
+use crate::factory::station::{COLUMNS, Column, Needs, Stations};
+use agents::tickets::{ClosedWhy, State, Station, Status, Ticket};
 use std::cmp::Reverse;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Col {
@@ -438,11 +438,12 @@ pub(crate) fn tab_for_new(tab: Tab, start: bool) -> Tab {
 }
 
 /// The section the list's top row is in, once that section's own head is off the top.
-pub(crate) fn stuck_head(rows: &[Row], top: usize, past_start: bool) -> Option<Col> {
-    if !past_start && matches!(rows.get(top), Some(Row::Head(_))) {
+pub(crate) fn stuck_head(rows: &[Row], top: usize, past_start: bool) -> Option<Row> {
+    let head = |r: &Row| matches!(r, Row::Head(_) | Row::Station(..));
+    if !past_start && rows.get(top).is_some_and(head) {
         return None;
     }
-    rows.iter().take(top + 1).rev().find_map(|r| if let Row::Head(col) = r { Some(*col) } else { None })
+    rows.iter().take(top + 1).rev().find(|r| head(r)).copied()
 }
 
 /// Folds column `col` away by hand or brings it back; Closed has its own switch.
@@ -519,6 +520,8 @@ pub(crate) struct Slot {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Row {
     Head(Col),
+    /// A station's section and how many tickets it holds, when the List groups by station.
+    Station(Column, usize),
     Ticket(Slot),
 }
 
@@ -532,6 +535,33 @@ pub(crate) fn rows(columns: &Columns, tab: Tab, show_closed: bool, folded: &[boo
             if !folded[col as usize] {
                 out.extend(line.iter().enumerate().map(|(pos, &index)| Row::Ticket(Slot { col, pos, index })));
             }
+        }
+    }
+    out
+}
+
+/// Whether the List groups by station: the Board holds a ticket the Factory moves.
+pub(crate) fn by_station(tickets: &[Ticket]) -> bool {
+    tickets.iter().any(|t| t.station != Station::None)
+}
+
+/// The List's sections by station, in the order `stations` holds them. An empty one is left out.
+/// Each row keeps the ticket's status column and its place there, so it acts as in the status sections.
+pub(crate) fn station_rows(stations: &Stations, tickets: &[Ticket], columns: &Columns, tab: Tab, show_closed: bool, folded: &[bool; COLUMNS.len()]) -> Vec<Row> {
+    let place: HashMap<usize, usize> = columns.iter().flat_map(|line| line.iter().enumerate().map(|(pos, &index)| (index, pos))).collect();
+    let mut out = Vec::new();
+    for (station, line) in COLUMNS.iter().zip(stations) {
+        let slots: Vec<Slot> = line
+            .iter()
+            .filter_map(|&index| Some(Slot { col: column(tickets.get(index)?), pos: place.get(&index).copied().unwrap_or(0), index }))
+            .filter(|s| on_page(s.col, tab, show_closed))
+            .collect();
+        if slots.is_empty() {
+            continue;
+        }
+        out.push(Row::Station(*station, slots.len()));
+        if !folded[*station as usize] {
+            out.extend(slots.into_iter().map(Row::Ticket));
         }
     }
     out
@@ -906,10 +936,73 @@ mod tests {
         let slot = Slot { col: Col::Todo, pos: 0, index: 0 };
         let rows = [Row::Head(Col::Todo), Row::Ticket(slot), Row::Head(Col::Done), Row::Ticket(slot)];
         assert_eq!(stuck_head(&rows, 0, false), None);
-        assert_eq!(stuck_head(&rows, 0, true), Some(Col::Todo));
-        assert_eq!(stuck_head(&rows, 1, false), Some(Col::Todo));
+        assert_eq!(stuck_head(&rows, 0, true), Some(Row::Head(Col::Todo)));
+        assert_eq!(stuck_head(&rows, 1, false), Some(Row::Head(Col::Todo)));
         assert_eq!(stuck_head(&rows, 2, false), None);
-        assert_eq!(stuck_head(&rows, 3, false), Some(Col::Done));
+        assert_eq!(stuck_head(&rows, 3, false), Some(Row::Head(Col::Done)));
+        let rows = [Row::Station(Column::Plan, 1), Row::Ticket(slot)];
+        assert_eq!(stuck_head(&rows, 1, false), Some(Row::Station(Column::Plan, 1)));
+    }
+
+    const OPEN: [bool; COLUMNS.len()] = [false; COLUMNS.len()];
+
+    fn at(id: &str, station: Station, state: State, status: Status) -> Ticket {
+        Ticket { station, ..ticket(id, state, status) }
+    }
+
+    fn stations(lines: &[(Column, &[usize])]) -> Stations {
+        let mut out: Stations = Default::default();
+        for (column, line) in lines {
+            out[*column as usize] = line.to_vec();
+        }
+        out
+    }
+
+    #[test]
+    fn the_list_groups_factory_tickets_by_station_and_keeps_each_status_column() {
+        let merged = Ticket { closed_why: ClosedWhy::Merged, ..at("old", Station::Merged, State::Closed, Status::Idle) };
+        let tickets = [at("todo", Station::None, State::Queued, Status::None), at("plan", Station::Plan, State::Live, Status::NeedsYou), at("pr", Station::Pr, State::Live, Status::Done), merged];
+        let columns = arrange(&tickets, &Filters::default(), Order::Activity);
+        let lines = stations(&[(Column::Todo, &[0]), (Column::Plan, &[1]), (Column::Pr, &[2]), (Column::Merged, &[3])]);
+        let got = station_rows(&lines, &tickets, &columns, Tab::All, false, &OPEN);
+        let want = vec![
+            Row::Station(Column::Todo, 1),
+            Row::Ticket(Slot { col: Col::Queued, pos: 0, index: 0 }),
+            Row::Station(Column::Plan, 1),
+            Row::Ticket(Slot { col: Col::NeedsYou, pos: 0, index: 1 }),
+            Row::Station(Column::Pr, 1),
+            Row::Ticket(Slot { col: Col::Done, pos: 0, index: 2 }),
+            Row::Station(Column::Merged, 1),
+            Row::Ticket(Slot { col: Col::Merged, pos: 0, index: 3 }),
+        ];
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn a_folded_station_keeps_its_bar_and_the_tab_filters_by_status() {
+        let tickets = [at("todo", Station::None, State::Todo, Status::None), at("plan", Station::Plan, State::Live, Status::NeedsYou)];
+        let columns = arrange(&tickets, &Filters::default(), Order::Activity);
+        let lines = stations(&[(Column::Todo, &[0]), (Column::Plan, &[1])]);
+        let mut folded = OPEN;
+        folded[Column::Todo as usize] = true;
+        assert_eq!(station_rows(&lines, &tickets, &columns, Tab::All, false, &folded), vec![Row::Station(Column::Todo, 1), Row::Station(Column::Plan, 1), Row::Ticket(Slot { col: Col::NeedsYou, pos: 0, index: 1 })]);
+        assert_eq!(station_rows(&lines, &tickets, &columns, Tab::Todo, false, &OPEN), vec![Row::Station(Column::Todo, 1), Row::Ticket(Slot { col: Col::Todo, pos: 0, index: 0 })]);
+    }
+
+    #[test]
+    fn a_queued_ticket_keeps_its_place_in_line_in_a_station_section() {
+        let tickets = [Ticket { order: 2, ..at("second", Station::None, State::Queued, Status::None) }, Ticket { order: 1, ..at("first", Station::None, State::Queued, Status::None) }];
+        let columns = arrange(&tickets, &Filters::default(), Order::Activity);
+        let got = station_rows(&stations(&[(Column::Todo, &[0, 1])]), &tickets, &columns, Tab::All, false, &OPEN);
+        assert_eq!(got[1], Row::Ticket(Slot { col: Col::Queued, pos: 1, index: 0 }));
+        assert_eq!(got[2], Row::Ticket(Slot { col: Col::Queued, pos: 0, index: 1 }));
+    }
+
+    #[test]
+    fn the_list_groups_by_station_only_when_a_ticket_has_one() {
+        let plain = [ticket("a", State::Todo, Status::None)];
+        assert!(!by_station(&plain));
+        assert!(by_station(&[plain[0].clone(), at("b", Station::Checks, State::Live, Status::Working)]));
     }
 
     #[test]

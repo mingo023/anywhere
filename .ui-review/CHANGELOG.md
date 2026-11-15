@@ -1,5 +1,19 @@
 # UI Review Changelog
 
+## 2026-11-15 · beb7991d..d058cdac · round 1 of at most 4, board-list-stations
+- passed: board-list-stations — 7.92% raw mismatch (92.08% match), clears the >90% target; no code change this round
+- measured: caller's capture `/tmp/lf7-after/impl-board-list-stations.png` (2880×1800 @2x); design re-rendered via headless Chrome (`--headless=new --window-size=1440,900`, no `agent-browser` in this environment) from a temp copy of the prototype with `S.layout` defaulted to `'list'` and `S.theme` forced to `'light'` (matches the capture's light theme); `compare.py --width 1440`, with `--crop` on the "To do" bar and its right edge to isolate structural noise from fixture-text noise
+- designs: board-list-stations = `064d414fdef9`
+- trigger: uncommitted work on `board.rs`, `board/logic.rs`, `board/row.rs`
+- most of the 7.92% is fixture-data text (different seed tickets/IDs/ages between the mock and the real capture, and an unrelated sidebar project list) — ignored per the skill's live-data rule
+- **kept per brief, not a defect:** the "+" on the "To do" station bar (`board/row.rs:30`, `add_ticket_button`) has no counterpart in the prototype — `listHTML`'s `.lgroup-h` (`app.js:260`) never emits an add button for any station. The task brief names "+ on To do" as part of the intended design, so this is treated as a deliberate addition beyond the static mock, not reverted
+- **flagged, not fixed (shared row code, out of this feature's scope):**
+  - row content starts ~16px further right than the design's `.lrow` (10px padding) because `board/row.rs:119` uses `pl(26.)` to leave room for the selection checkbox (`board/row.rs:83-85`, absolute `left(5.)` + `size(15.)`) — removing the padding would overlap the checkbox
+  - the age column is 52px wide (`board/row.rs:139`) showing e.g. "41m ago", vs the design's 36px `.lrow .age` showing bare units ("1d", "9m"); the " ago" suffix comes from the shared `ago_long` (`util.rs:130-134`) vs the mock's terse `age()` (`app.js:82`) — an app-wide convention, not specific to station grouping
+  - every row shows a project chip (`Props::project` defaults `true`, `board/logic.rs:121`); the design's row templates (`listHTML`/`cardHTML` in `app.js`) never include a project chip in any board layout — likely an intentional multi-repo affordance, shared across every board screen, not unique to this one
+- **verified by code, not by pixels:** the PR-review and Merged station bars sit below the capture's scroll (behind the ticket composer) and never render in the screenshot. Checked `station_mark` (`board/parts.rs:27-38`) against the design's `GLYPH` table (`app.js:157-160`) directly — icon name and color match 1:1 for every station, including `pr` (full/goal) and `merged` (merged/indigo)
+- out of scope (different files/screens, not touched): the top bar's segmented control and filter chips (`top_bar.rs`, `tabs.rs`, `filter_bar.rs`) and the bottom ticket composer (`composer.rs`) all differ from the mock's toolbar, but none of that lives in `board.rs`/`board/row.rs`; the sidebar differs entirely but is fixture/seed data plus an unrelated component
+
 ## 2026-11-15 · beb7991d.. · round 2, re-measure only (settings-factory-profiles)
 - passed: settings-factory-profiles 5.4% raw mismatch (94.6% match) after moving the Profiles card to follow Profile per role (`settings/factory.rs` `ROWS`, groups test updated)
 - measured: `.ui-review/fixture/capture.sh /tmp/lf7-after settings-factory-profiles=settings,settings-factory-profiles`, `compare.py --width 1440` against the round 1 design render

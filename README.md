@@ -21,6 +21,7 @@ Anywhere is a native macOS app for running many coding agents at once. Every `cl
 - **Review beside the terminal.** Browse files, read diffs and commit without leaving the session that made the change.
 - **Worktrees from a branch or PR.** Create a worktree and start an agent in it, with your setup script run for you.
 - **Automations.** Schedule agent runs, and get told when one needs a decision.
+- **Light Factory.** Turn it on for a project, and each ticket goes from spec to plan, to code, to checks, to a reviewed pull request on its own. It stops where you decide: the plan, a command it wants to run, and the merge. The Inbox lists each decision, and Settings › Factory holds the agent profiles and two weeks of numbers. It needs the GitHub CLI signed in.
 - **Scriptable.** Settings → General → Command line tool adds an `anywhere` command that starts, prompts and reads sessions, with a skill that teaches Claude Code and Codex to use it.
 - **Sessions that survive.** A daemon owns the terminals, so agents keep running when you close the window.
 - **On your phone, too.** Answer an agent from anywhere; your phone reaches your Mac over Tailscale.

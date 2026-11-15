@@ -66,6 +66,8 @@ anywhere ticket delete "$id"
 
 `update` changes only the flags you pass, and only until the ticket starts. `delete` refuses a ticket with a live session.
 
+In a project with the Factory on, `ticket list` adds the ticket's station, and `ticket read` adds its station, the gate it waits at, its auto-fix attempts and its pull request. `--json` carries `station`, `gate`, `fix` and `pr`. No `anywhere` command approves a plan, answers an Ask, merges or sends a hint. The user decides those in the app.
+
 Use a ticket for work the user will pick up or follow on the Board. Use a session when you need the reply yourself.
 
 ## Rules

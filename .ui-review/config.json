@@ -19,6 +19,11 @@
       "open": ["click Board in the sidebar", "pick Factory in the Board's top bar"],
       "capture": ["board", "board-factory"]
     },
+    "board-list-stations": {
+      "files": ["packages/desktop/crates/pocket/src/board.rs", "packages/desktop/crates/pocket/src/board/**"],
+      "open": ["click Board in the sidebar", "pick List in the Board's top bar", "the tickets sit under their stations"],
+      "capture": ["board", "board-list-stations"]
+    },
     "factory-ticket-plan": {
       "files": ["packages/desktop/crates/pocket/src/factory/page.rs", "packages/desktop/crates/pocket/src/factory/spec.rs", "packages/desktop/crates/pocket/src/factory/activity.rs", "packages/desktop/crates/pocket/src/factory/bar.rs", "packages/desktop/crates/pocket/src/factory/tabs.rs"],
       "open": ["click Board in the sidebar", "pick Factory", "click the ticket at the Plan gate"],
