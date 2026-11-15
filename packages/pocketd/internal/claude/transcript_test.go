@@ -563,20 +563,39 @@ func TestAnAPIErrorThatEndsTheTurnIsNotRetriedByTheNextOne(t *testing.T) {
 
 const stillWorking = "<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>"
 
+var waitingNotices = map[string]string{
+	"summary":          notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" is waiting on its own background work</summary>\n<result>Waiting for the e2e run to finish.</result>"),
+	"note":             notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n" + stillWorking + "\n<result>Waiting for the e2e run to finish.</result>"),
+	"not reported yet": notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n" + stillWorking + "\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>"),
+}
+
 func TestAnAgentWaitingOnItsOwnBackgroundWorkRunsOnUntilItNotifiesAgain(t *testing.T) {
-	for name, waiting := range map[string]string{
-		"summary":          notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" is waiting on its own background work</summary>\n<result>Waiting for the e2e run to finish.</result>"),
-		"note":             notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n" + stillWorking + "\n<result>Waiting for the e2e run to finish.</result>"),
-		"not reported yet": notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n" + stillWorking + "\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>"),
-	} {
+	for name, waiting := range waitingNotices {
 		tl := replay(asyncAgent, agentLaunched, waiting, nextPrompt)
-		if c := callOf(t, tl, "t1"); c.Status != "running" || tl.BackgroundAgents() != 1 || !reflect.DeepEqual(tl.Lasting(), []string{"t1"}) {
+		if c := callOf(t, tl, "t1"); c.Status != "running" || !reflect.DeepEqual(tl.Lasting(), []string{"t1"}) {
 			t.Errorf("%s: waiting ended it: %+v", name, c)
 		}
 		tl = replay(asyncAgent, agentLaunched, waiting, nextPrompt,
 			notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" finished</summary>\n<result>All green: the e2e run passed and lint is clean.</result>"))
 		if c := callOf(t, tl, "t1"); c.Status != "ok" || output(c) != "All green: the e2e run passed and lint is clean." {
 			t.Errorf("%s: %+v %s", name, c, output(c))
+		}
+	}
+}
+
+// Claude marks such an agent completed and may never notify again, so a turn held for it would never end.
+func TestNoTurnWaitsOnAnAgentWaitingOnItsOwnBackgroundWork(t *testing.T) {
+	waitingAgain := notification("<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" is waiting on its own background work</summary>\n" + stillWorking + "\n<result>Those notifications are the monitors I started finishing.</result>")
+	cases := map[string][]string{
+		"waiting again": {notification("<task-id>a1</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Review the branch\" is waiting on its own background work</summary>\n<result>Waiting for the monitors.</result>"), nextPrompt, waitingAgain},
+	}
+	for name, waiting := range waitingNotices {
+		cases[name] = []string{waiting}
+	}
+	for name, lines := range cases {
+		tl := replay(append([]string{asyncAgent, agentLaunched}, append(lines, nextPrompt)...)...)
+		if c := callOf(t, tl, "t1"); c.Status != "running" || tl.BackgroundAgents() != 0 {
+			t.Errorf("%s: %s with %d background agents held", name, c.Status, tl.BackgroundAgents())
 		}
 	}
 }

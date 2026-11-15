@@ -35,7 +35,7 @@ type Event struct {
 	Draft string
 	// Limit marks a result that the account's usage limit ended.
 	Limit bool
-	// Detached marks a tool_background whose end the agent takes no turn on, so no turn waits for it.
+	// Detached marks a tool_background no turn waits for: its end takes no turn of the agent's, or may never come.
 	Detached bool
 }
 
