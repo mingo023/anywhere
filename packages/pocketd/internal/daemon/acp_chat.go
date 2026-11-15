@@ -82,7 +82,7 @@ func (x *acpChat) respawn(access string) error {
 	switch {
 	case x.d.Resume == nil:
 		return errors.New(name + " switches plan and full access by resuming its session, which Settings has off")
-	case !restartable(between(x.pr.a)):
+	case !restartable(x.pr.a.Summary()):
 		return errors.New(name + " can switch plan and full access once its turn ends")
 	case !x.d.restart(x.pr, func(e *state.Terminal) { e.Launch.Access, e.Launch.Plan = access, false }, restartable, ""):
 		return errors.New(name + " couldn't switch")

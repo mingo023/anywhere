@@ -887,25 +887,6 @@ func TestHermesAsksAboutAnEditAsACallOfItsOwnWithTheDiff(t *testing.T) {
 		"result:true:", "ended:false"})
 }
 
-func TestWhatTheBrokerAllowsIsNotAsked(t *testing.T) {
-	answered := make(chan struct{})
-	s, ag, sk, b := start(t, opts{provider: "hermes", answer: script(hermesNew, func(a *agent, _ string) string {
-		<-answered
-		return endTurn
-	})})
-	b.Allow = func(proto.PermissionRequest) bool { return true }
-	s.Prompt("go")
-	ag.called("session/prompt", 1)
-	ag.ask("5", "session/request_permission", hermesPermission)
-	if got := ag.replied("5"); got != `{"outcome":{"optionId":"allow_once","outcome":"selected"}}` {
-		t.Fatalf("answered %s", got)
-	}
-	close(answered)
-	if got := sk.wait(t, "ended:false"); slices.Contains(got, "needsYou") {
-		t.Fatalf("needed you: %v", got)
-	}
-}
-
 func TestOpenCodeShowsACallOnceItsInputComesAndAsksAboutIt(t *testing.T) {
 	// What OpenCode 1.19.5 wrote for a command its config has it ask about.
 	s, a, sk, b := start(t, opts{provider: "opencode", answer: script(opencodeNew, func(a *agent, _ string) string {

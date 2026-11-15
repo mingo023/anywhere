@@ -9,7 +9,6 @@ import { GitClient, GitServer } from "./git.js";
 import { GhClient, GhServer } from "./gh.js";
 import { FsClient, FsServer } from "./fs.js";
 import { PushClient } from "./push.js";
-import { TeamClient, TeamServer } from "./team.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
 export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
@@ -59,13 +58,7 @@ export const ClientMessage = Schema.Union(
   }),
   Schema.Struct({ type: Schema.Literal("agent.list"), id: Schema.String }),
   Schema.Struct({ type: Schema.Literal("pair.begin"), id: Schema.String }),
-  Schema.Struct({
-    type: Schema.Literal("agent.prompt"),
-    id: Schema.String,
-    agentId: Schema.String,
-    text: Schema.String,
-    team: Schema.optional(Schema.Boolean),
-  }),
+  Schema.Struct({ type: Schema.Literal("agent.prompt"), id: Schema.String, agentId: Schema.String, text: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.interrupt"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.send_now"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.compact"), id: Schema.String, agentId: Schema.String }),
@@ -162,7 +155,6 @@ export const ClientMessage = Schema.Union(
   ...GhClient,
   ...FsClient,
   ...PushClient,
-  ...TeamClient,
 );
 export type ClientMessage = typeof ClientMessage.Type;
 
@@ -281,7 +273,6 @@ export const ServerMessage = Schema.Union(
   ...GitServer,
   ...GhServer,
   ...FsServer,
-  ...TeamServer,
 );
 export type ServerMessage = typeof ServerMessage.Type;
 

@@ -80,7 +80,7 @@ func (x *piChat) leavePlan(name string) error {
 	switch {
 	case x.d.Resume == nil:
 		return errors.New(name + " leaves plan by resuming its session, which Settings has off")
-	case !restartable(between(x.pr.a)):
+	case !restartable(x.pr.a.Summary()):
 		return errors.New(name + " can leave plan once its turn ends")
 	}
 	switch saved, err := x.s.Saved(); {

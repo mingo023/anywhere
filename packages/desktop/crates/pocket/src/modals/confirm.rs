@@ -147,11 +147,6 @@ impl ConfirmText {
         Self { title: format!("Sign out of {name}?"), action: "Sign out", facts, dirty: 0, lost: 0, danger: false }
     }
 
-    fn merge_team(branches: usize, into: &str) -> Self {
-        let facts = vec!["The lead hasn't said \"Ready to merge\"".into(), format!("Merges {} into {into}", crate::team::plural(branches, "branch", "branches"))];
-        Self { title: "Merge without the lead's go-ahead?".into(), action: "Merge anyway", facts, dirty: 0, lost: 0, danger: false }
-    }
-
     fn switch_agent(to: &str, from: &str) -> Self {
         let facts = vec!["A chat can't switch to another provider partway through".into(), format!("Start a fresh {to} chat, or fork this conversation into one"), format!("This {from} chat stays open")];
         Self { title: format!("Open a new {to} chat?"), action: "Fork conversation", facts, dirty: 0, lost: 0, danger: false }
@@ -224,7 +219,6 @@ impl Desktop {
             Some(Confirm::UpdateHost { name, windows, .. }) => ConfirmText::update_host(name, *windows),
             Some(Confirm::RemoveAccount { key, name }) => ConfirmText::remove_account(name, &self.machine_name(&key.host)),
             Some(Confirm::SignOutAccount { name, .. }) => ConfirmText::sign_out_account(name),
-            Some(Confirm::MergeTeam(lead)) => ConfirmText::merge_team(self.agents.team(lead).map_or(0, |t| t.tasks.len()), &self.lead_branch(lead)),
             Some(Confirm::SwitchAgent { agent, provider, .. }) => {
                 let from = self.agents.get(agent).map_or_else(String::new, |a| self.agent_name(&a.provider));
                 ConfirmText::switch_agent(&self.agent_name(provider), &from)
@@ -328,7 +322,6 @@ impl Desktop {
             Some(Confirm::UpdateHost { id, .. }) => self.install_host(&id, true, cx),
             Some(Confirm::RemoveAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.remove"), cx),
             Some(Confirm::SignOutAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.signout"), cx),
-            Some(Confirm::MergeTeam(lead)) => self.outbox.team_merge(&lead),
             None => {}
         }
         self.close_overlay(window, cx);
@@ -340,12 +333,6 @@ mod tests {
     use super::{Busy, Confirm, ConfirmText, FileStat, Takes, enter_confirms};
     use crate::removal::Removal;
     use gpui_kit::Keystroke;
-
-    #[test]
-    fn merging_a_team_the_lead_hasn_t_passed_says_so() {
-        let facts = vec!["The lead hasn't said \"Ready to merge\"".to_string(), "Merges 4 branches into main".to_string()];
-        assert_eq!(ConfirmText::merge_team(4, "main"), ConfirmText { title: "Merge without the lead's go-ahead?".into(), action: "Merge anyway", facts, dirty: 0, lost: 0, danger: false });
-    }
 
     fn text(title: &str, action: &'static str, facts: &[&str], dirty: usize) -> ConfirmText {
         ConfirmText { title: title.into(), action, facts: facts.iter().map(|f| f.to_string()).collect(), dirty, lost: 0, danger: true }

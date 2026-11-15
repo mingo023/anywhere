@@ -3,7 +3,6 @@ package main
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -15,7 +14,6 @@ import (
 	"pocketd/internal/accounts"
 	"runtime"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -42,7 +40,6 @@ import (
 	"pocketd/internal/locals"
 	"pocketd/internal/lock"
 	"pocketd/internal/logfile"
-	"pocketd/internal/mailbox"
 	"pocketd/internal/names"
 	"pocketd/internal/ops"
 	"pocketd/internal/owners"
@@ -55,7 +52,6 @@ import (
 	"pocketd/internal/shellenv"
 	"pocketd/internal/skills"
 	"pocketd/internal/state"
-	"pocketd/internal/team"
 	"pocketd/internal/terminal"
 	"pocketd/internal/workspace"
 	"pocketd/internal/worktree"
@@ -132,19 +128,6 @@ func serve(sock, handed string) error {
 		Sock:      sock,
 		Registry:  reg,
 	}
-	mail, err := mailbox.Open(home)
-	if err != nil {
-		log.Printf("mailbox: %v", err)
-	} else {
-		defer mail.Close()
-		d.Mailbox = mail
-	}
-	teams := &team.Teams{Agents: d.Agents, Hub: h}
-	if teams.Store, err = team.OpenStore(home); err != nil || d.Mailbox == nil {
-		// Without a mailbox the lead would never hear a handback.
-		log.Printf("teams: %v; serving without them", cmp.Or(err, errors.New("no mailbox")))
-		teams = nil
-	}
 	d.Capture = func() shellenv.Result {
 		shell := shellenv.LoginShell()
 		return shellenv.Capture(ctx, shell, shellenv.Base(os.Environ(), shell), 5*time.Second)
@@ -159,10 +142,8 @@ func serve(sock, handed string) error {
 	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
 	d.Broker.OnAsk = notifier.Ask
 	d.Agents.OnStatus = func(id, provider, from, to string) {
-		teams.Status(id, from, to)
 		evs.Emit(events.Event{Kind: "status", Agent: id, Provider: provider, From: from, To: to})
 		notifier.Kick(id, from, to)
-		d.Pump(id)
 		select {
 		case kick <- struct{}{}:
 		default:
@@ -203,21 +184,6 @@ func serve(sock, handed string) error {
 	l.Names = worktreeNames
 	localStore := locals.Open(home)
 	l.Locals = localStore
-	l.Teams = teams
-	if teams != nil {
-		teams.Mail, teams.Projects, teams.Names = d.Mail, reg, worktreeNames
-		teams.Launch = func(lead, task string, s proto.LaunchSpec) (string, string, error) {
-			// A fresh request id each time: a lead's next plan reuses task ids.
-			r := l.Create(launch.Who{Owner: true, Key: "team:" + lead}, task+"-"+strconv.FormatInt(time.Now().UnixNano(), 36), s, func(string, string) {}, func(launch.Creating) {})
-			if r.Err != nil {
-				return "", "", errors.New(r.Err.Message)
-			}
-			return r.AgentID, r.Cwd, nil
-		}
-		d.Agents.OnTurnEnd = teams.TurnEnded
-		d.Broker.Allow = teams.Allow
-	}
-	go teams.Run(ctx)
 	d.OnPrompt = l.Prompted
 	if settings.ResumeAgents() {
 		d.Resume = l.ResumeCmd
@@ -254,7 +220,7 @@ func serve(sock, handed string) error {
 	if err != nil {
 		log.Printf("skills: %v", err)
 	}
-	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore, Teams: teams}
+	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
 	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
@@ -299,7 +265,6 @@ func serve(sock, handed string) error {
 	go d.Watch(context.Background())
 	go func() {
 		if d.WaitRestored(ctx) == nil {
-			teams.Recover()
 			claimWorktrees(home, reg.Load(), usedFolders(worktreeNames, d.Terminals, tickets, autos))
 		}
 	}()

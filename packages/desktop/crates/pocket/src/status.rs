@@ -66,8 +66,6 @@ pub struct Card {
     pub pinned: bool,
     /// The account it runs on; empty is the built-in login.
     pub account: String,
-    /// The session it was started under; empty for none.
-    pub parent: String,
 }
 
 /// An agent's card, placed by the folder its terminal started in.
@@ -87,7 +85,6 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         notice: notice(a),
         pinned: a.pinned,
         account: a.shown_account().to_string(),
-        parent: a.parent.clone(),
     }
 }
 

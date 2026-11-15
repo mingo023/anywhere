@@ -60,8 +60,6 @@ pub enum Overlay {
     More,
     Confirm,
     PairPhone,
-    /// A lead's team plan, to edit and start.
-    Team,
 }
 
 #[derive(Clone)]
@@ -86,7 +84,6 @@ pub enum Confirm {
     UpdateHost { id: String, name: String, windows: bool },
     RemoveAccount { key: Key, name: String },
     SignOutAccount { key: Key, name: String },
-    MergeTeam(String),
     /// A model from another provider, picked in the chat `agent`.
     SwitchAgent { agent: String, provider: String, model: String },
 }

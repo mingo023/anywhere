@@ -17,7 +17,6 @@ for spec in "$@"; do
     agents-chat*) scenario=agents-chat ;;
     agents*) scenario=agents ;;
     chat*) scenario=chat ;;
-    team*) scenario=team ;;
     card|drawer) scenario=activity ;;
     *) scenario=sessions ;;
   esac

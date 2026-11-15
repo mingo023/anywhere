@@ -34,7 +34,6 @@ import (
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/skills"
-	"pocketd/internal/team"
 	"pocketd/internal/terminal"
 )
 
@@ -106,8 +105,6 @@ type Server struct {
 
 	// Skills keeps what skills.list last found; nil serves none.
 	Skills *skills.Store
-	// Teams serves team prompts and team.list; nil refuses them.
-	Teams *team.Teams
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -259,11 +256,7 @@ func (c *conn) handle(raw []byte) {
 		return
 	}
 	if m.Type == "hello" {
-		served := proto.ServerCaps
-		if c.s.Teams == nil {
-			served = slices.DeleteFunc(slices.Clone(served), func(c string) bool { return c == proto.CapTeam })
-		}
-		version, caps, code := proto.Negotiate(m.Versions(), m.Caps, served)
+		version, caps, code := proto.Negotiate(m.Versions(), m.Caps, proto.ServerCaps)
 		c.caps = caps
 		if code != "" {
 			c.tooOld(m.ID, code)
@@ -438,9 +431,6 @@ func errorReply(id string, err error) proto.Error {
 	if errors.Is(err, agent.ErrResuming) {
 		return proto.NewErrorCode(id, proto.CodeAgentResuming, err.Error())
 	}
-	if errors.Is(err, team.ErrBusy) {
-		return proto.NewErrorCode(id, proto.CodeTeamBusy, err.Error())
-	}
 	if code := peer.CodeOf(err); code != "" {
 		return proto.NewErrorCode(id, code, err.Error())
 	}
@@ -606,15 +596,6 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.filesVerb(m)
 	case "push.register", "push.activity", "push.prefs", "push.unregister", "push.test":
 		return c.pushVerb(m)
-	case "team.list":
-		teams, err := c.s.Teams.List()
-		if err != nil {
-			return err
-		}
-		c.send(proto.NewTeamList(m.ID, teams))
-		return nil
-	case "team.start", "team.stop", "team.merge":
-		return c.teamRun(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")
@@ -660,11 +641,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		c.send(proto.NewAgentTimeline(m.ID, a.ID(), epoch, items, older, maxSeq))
 		return nil
 	case "agent.prompt":
-		if m.Team {
-			err = c.s.Teams.Prompt(a, m.Text)
-		} else if err = a.Driver().Prompt(m.Text); err == nil {
-			c.s.Teams.Told(a.ID(), m.Text)
-		}
+		err = a.Driver().Prompt(m.Text)
 	case "agent.interrupt":
 		err = a.Driver().Interrupt()
 	case "agent.send_now":

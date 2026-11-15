@@ -604,11 +604,10 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Gives `spec` what the settings and the Team chip add to it, and remembers `pick` as `project`'s.
+    /// Gives `spec` what the settings add to it, and remembers `pick` as `project`'s.
     fn fill_launch(&mut self, spec: &mut serde_json::Value, pick: LaunchPick, project: &str) {
         let efforts = self.launch_efforts(&pick.provider, &pick.model);
         self.store.agents.launch(spec, &self.agents, &efforts);
-        composer::ask_team(spec, self.new_form.composer.draft.team, self.agents.teams_offered());
         self.store.repos.entry(project.to_string()).or_default().launch = pick;
     }
 

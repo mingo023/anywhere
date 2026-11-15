@@ -1,8 +1,8 @@
 use crate::actions::{GoToUpNext, JumpTo, NextNeedsYou, NextSession, PrevSession};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Side;
-use crate::sidebar::sessions::{matching, nest, with_family};
-use crate::sidebar::team_fold::nearest_listed;
+use crate::sidebar::in_tree;
+use crate::sidebar::sessions::matching;
 use crate::status::{self, Card};
 use gpui_kit::*;
 use std::time::Duration;
@@ -16,11 +16,11 @@ fn jump_modifier() -> Modifiers {
     if cfg!(target_os = "macos") { Modifiers::control() } else { Modifiers::alt() }
 }
 
-/// The sessions ⌃n and ⌃Tab walk, in the order the Sessions column shows them: pinned first, each followed by the sessions started under it, with how deep each sits.
-pub(crate) fn walkable(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>, query: &str) -> Vec<(Card, usize)> {
-    let mut cards = matching(with_family(cards, tree, tree_of), query);
+/// The sessions ⌃n and ⌃Tab walk, in the order the Sessions column shows them: pinned first.
+pub(crate) fn walkable(cards: Vec<Card>, tree: Option<&str>, tree_of: impl Fn(&str) -> Option<String>, query: &str) -> Vec<Card> {
+    let mut cards = matching(in_tree(cards, tree, tree_of), query);
     cards.sort_by_key(|c| !c.pinned);
-    nest(cards)
+    cards
 }
 
 /// The ⌃1–⌃9 chips on session rows, shown once ⌃ has been held alone for the hint delay.
@@ -48,13 +48,11 @@ impl Chips {
 }
 
 impl Desktop {
-    /// The sessions with a row: a search holds folded teams open.
-    pub(crate) fn visible_sessions(&self, cx: &App) -> Vec<(Card, usize)> {
-        let query = self.sidebar.search.read(cx).value();
-        self.sidebar.team_folds.shown(self.sessions_matching(&query), !query.is_empty())
+    pub(crate) fn visible_sessions(&self, cx: &App) -> Vec<Card> {
+        self.sessions_matching(&self.sidebar.search.read(cx).value())
     }
 
-    pub(crate) fn sessions_matching(&self, query: &str) -> Vec<(Card, usize)> {
+    pub(crate) fn sessions_matching(&self, query: &str) -> Vec<Card> {
         let Some(project) = self.project.as_deref() else { return Vec::new() };
         let tree = self.place();
         walkable(self.cards(project), tree.as_deref(), |cwd| self.tree_of(cwd), query)
@@ -85,14 +83,13 @@ impl Desktop {
         if self.overlay.is_some() {
             return;
         }
-        let nth = self.visible_sessions(cx).into_iter().nth(a.0.saturating_sub(1)).map(|(c, _)| c.id);
+        let nth = self.visible_sessions(cx).into_iter().nth(a.0.saturating_sub(1)).map(|c| c.id);
         self.go_to(nth, window, cx);
     }
 
     fn step_session(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let ids: Vec<String> = self.visible_sessions(cx).into_iter().map(|(c, _)| c.id).collect();
-        let current = self.session().and_then(|s| nearest_listed(&ids, s, |x| self.agents.get(x).map(|a| a.parent.clone())));
-        let next = status::cycle(&ids, current.as_deref(), forward);
+        let ids: Vec<String> = self.visible_sessions(cx).into_iter().map(|c| c.id).collect();
+        let next = status::cycle(&ids, self.session(), forward);
         self.go_to(next, window, cx);
     }
 
@@ -144,7 +141,7 @@ mod tests {
 
     fn ids(query: &str) -> Vec<String> {
         let cards = vec![card("a", "idle", "/app"), card("b", "working", "/app-wt"), card("c", "done", "/app"), card("d", "idle", "/app")];
-        walkable(cards, Some("/app"), |cwd| Some(cwd.to_string()), query).into_iter().map(|(c, _)| c.id).collect()
+        walkable(cards, Some("/app"), |cwd| Some(cwd.to_string()), query).into_iter().map(|c| c.id).collect()
     }
 
     #[test]
@@ -157,16 +154,8 @@ mod tests {
     fn pinned_sessions_come_first_in_their_own_order() {
         let pinned = |id: &str| Card { pinned: true, ..card(id, "idle", "/app") };
         let cards = vec![card("a", "idle", "/app"), pinned("b"), card("c", "idle", "/app"), pinned("d")];
-        let order: Vec<String> = walkable(cards, Some("/app"), |cwd| Some(cwd.to_string()), "").into_iter().map(|(c, _)| c.id).collect();
+        let order: Vec<String> = walkable(cards, Some("/app"), |cwd| Some(cwd.to_string()), "").into_iter().map(|c| c.id).collect();
         assert_eq!(order, vec!["b", "d", "a", "c"]);
-    }
-
-    #[test]
-    fn ctrl_n_walks_a_child_right_after_its_parent() {
-        let child = status::card(&Summary { id: "w".into(), title: "Fix w".into(), status: "idle".into(), attached: true, parent: "lead".into(), ..Default::default() }, "/app-wt");
-        let cards = vec![child, card("a", "idle", "/app"), card("lead", "idle", "/app")];
-        let order: Vec<String> = walkable(cards, Some("/app"), |cwd| Some(cwd.to_string()), "").into_iter().map(|(c, _)| c.id).collect();
-        assert_eq!(order, vec!["a", "lead", "w"]);
     }
 
     #[test]

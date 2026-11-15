@@ -120,25 +120,3 @@ _Avoid_: task, issue
 **Queued**:
 Started and waiting for a slot. pocketd starts the first in line while fewer Tickets than the limit are Starting, Working or Needs you.
 _Avoid_: pending, backlog
-
-### Teams
-
-**Team**:
-A request a lead split into tasks that workers do side by side, each in its own worktree, and that the user merges back. A team prompt starts it: the lead answers with a plan, which pocketd checks and proposes. The user edits and starts it, answers what workers ask beyond their allowlist, and merges. A lead has one team; a new team prompt replaces it, unless that team is running, in review or merging.
-_Avoid_: swarm, crew, run (a Run is one firing of an automation)
-
-**Lead**:
-The chat session a team prompt went to. It plans the team, reviews each handback, and says "Ready to merge" when the work is right. It has no tools for the team; pocketd does what its plan says.
-_Avoid_: orchestrator, manager, parent
-
-**Worker**:
-A chat session pocketd starts for one task of a team, in a new worktree on its own branch, nested under its lead. It changes only its task's files, and each of its turns that ends normally becomes a handback. It is never a pi or an omp: they run every tool without asking, so no allowlist can hold them.
-_Avoid_: sub-agent (a sub-agent runs inside one session), child
-
-**Handback**:
-What pocketd mails a lead when a worker's turn ends normally: the worker's summary and the `git diff --stat` of the commit pocketd made of its worktree.
-_Avoid_: report, result
-
-**Mailbox**:
-A session's queue of messages from pocketd, such as handbacks and notes. A message stays queued until a turn that showed it ends normally; one shown in a turn that failed or was stopped is sent again.
-_Avoid_: inbox, queue

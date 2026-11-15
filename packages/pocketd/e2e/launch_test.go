@@ -5,6 +5,7 @@ package e2e
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,15 @@ import (
 
 func create(p *Phone, requestID string, spec map[string]any) {
 	p.Send(map[string]any{"type": "agent.create", "id": "c-" + requestID, "requestId": requestID, "spec": spec})
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func inRepo(h *Harness, extra map[string]any) map[string]any {

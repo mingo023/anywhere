@@ -45,7 +45,6 @@ type Message struct {
 	} `json:"agent"`
 	Agents []struct {
 		ID       string `json:"id"`
-		Status   string `json:"status"`
 		Restore  string `json:"restore"`
 		ChatOnly bool   `json:"chatOnly"`
 	} `json:"agents"`
@@ -85,8 +84,6 @@ type Message struct {
 	Runs           []proto.Run        `json:"runs"`
 	Tickets        []proto.Ticket     `json:"tickets"`
 	Limit          int                `json:"limit"`
-	Team           proto.Team         `json:"team"`
-	Teams          []proto.Team       `json:"teams"`
 	Raw            string             `json:"-"`
 }
 

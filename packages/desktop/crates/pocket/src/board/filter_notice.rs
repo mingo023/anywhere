@@ -1,6 +1,6 @@
 use super::parts::bar_button;
 use crate::desktop::Desktop;
-use crate::team::plural;
+use crate::util::plural;
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;

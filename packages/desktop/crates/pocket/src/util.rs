@@ -134,6 +134,11 @@ pub fn ago_long(ms: i64, now: i64) -> String {
     }
 }
 
+/// "1 ticket", "2 tickets".
+pub(crate) fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
 /// The first line with text in it, trimmed; empty when there is none.
 pub fn first_line(s: &str) -> String {
     s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string()

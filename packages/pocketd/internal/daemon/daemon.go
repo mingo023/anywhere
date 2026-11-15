@@ -14,7 +14,6 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
-	"pocketd/internal/mailbox"
 	"pocketd/internal/ops"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -51,8 +50,6 @@ type Daemon struct {
 	AgentTab func(provider, cwd, shell string, argv []string) []string
 	// Accounts are the sign-ins an agent may run on; nil runs each on its built-in login.
 	Accounts *accounts.Store
-	// Mailbox keeps Mail's messages until a turn that showed them ends normally; nil takes none.
-	Mailbox *mailbox.Store
 
 	mu       sync.Mutex
 	env      *shellenv.Result
@@ -64,7 +61,6 @@ type Daemon struct {
 	binding  sync.Mutex                    // one claude binds a transcript it found at a time
 
 	restoring map[string]*hint // by terminal id; under mu
-	mailing   sync.Map         // a *sync.Mutex per agent id: one delivery or settle at a time
 }
 
 // Spawn starts m in a terminal. Without m.Env it gets the login-shell
@@ -306,9 +302,6 @@ func (d *Daemon) decide(ctx context.Context, pr *presence, in hookInput) *hookDe
 	defer context.AfterFunc(pr.ctx, cancel)()
 	ag := pr.a
 	req := proto.PermissionRequest{AgentID: ag.ID(), ToolName: in.ToolName, Detail: timeline.Detail(in.ToolName, in.ToolInput), Options: in.options(), Feedback: true}
-	if d.Broker.Auto(req) {
-		return &hookDecision{Behavior: "allow"}
-	}
 	key := permissionKey(ag.ID(), in.ToolName, in.ToolInput)
 	pr.mu.Lock()
 	pr.asks[key]++
