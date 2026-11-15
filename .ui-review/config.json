@@ -188,6 +188,16 @@
       "open": ["press Cmd+,", "click Factory under Agents"],
       "capture": ["settings", "settings-factory"]
     },
+    "settings-factory-profiles": {
+      "files": ["packages/desktop/crates/pocket/src/settings/factory.rs"],
+      "open": ["press Cmd+,", "click Factory under Agents", "scroll to the Profiles card"],
+      "capture": ["settings", "settings-factory-profiles"]
+    },
+    "profile-sheet-import": {
+      "files": ["packages/desktop/crates/pocket/src/factory/profile_sheet.rs", "packages/desktop/crates/pocket/src/factory/import.rs"],
+      "open": ["press Cmd+,", "click Factory under Agents", "click New profile", "choose a folder to import"],
+      "capture": ["settings", "settings-factory", "profile-sheet-import"]
+    },
     "settings-automations-stopped": {
       "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
       "open": ["press Cmd+,", "click Automations", "pocketd is not running"],

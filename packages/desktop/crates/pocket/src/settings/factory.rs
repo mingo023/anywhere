@@ -3,6 +3,7 @@ use super::dropdown::{dropdown, picks};
 use super::{field_box, row};
 use crate::desktop::Desktop;
 use agents::Config;
+use agents::factory::ProfileInfo;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -11,6 +12,18 @@ use std::time::Duration;
 use theme::*;
 
 /// The most check commands a project can have, and the longest one.
+/// The line under a profile's name.
+pub(crate) fn profile_meta(p: &ProfileInfo, agent: &str) -> String {
+    let model = if p.model.is_empty() { String::new() } else { format!(" · {}", p.model) };
+    let skills = match (p.built_in, p.skills) {
+        (true, _) => "No soul, instructions or skills".to_string(),
+        (_, 0) => "No skills".into(),
+        (_, 1) => "1 skill".into(),
+        (_, n) => format!("{n} skills"),
+    };
+    format!("{agent}{model} · {skills}")
+}
+
 const MAX_CHECKS: usize = 16;
 const MAX_CHECK: usize = 400;
 const MAX_SLOTS: u8 = 8;
@@ -30,6 +43,7 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::custom("factory-role-lead", "Profile per role", "Lead", |d, s, cx| d.factory_role_row(Role::Lead, s, cx)).hint("Writes the spec and the plan, fixes failed checks"),
     Setting::custom("factory-role-workers", "Profile per role", "Workers", |d, s, cx| d.factory_role_row(Role::Workers, s, cx)).hint("Default for each task. Change it per task at the Plan gate"),
     Setting::custom("factory-role-reviewer", "Profile per role", "Reviewer", |d, s, cx| d.factory_role_row(Role::Reviewer, s, cx)).hint("Read-only. A profile never lifts that"),
+    Setting::custom("factory-profiles", "Profiles", "Profiles", |d, _, cx| d.factory_profiles_row(cx)),
     Setting::custom("factory-slots", "Limits", "Slot limit", |d, s, cx| d.factory_slots_row(s, cx)).hint("Tickets an agent works on at once. A ticket that needs you holds no slot"),
     Setting::custom("factory-fix", "Limits", "Auto-fix attempts", |d, s, cx| d.factory_fix_row(s, cx)).hint("Tries by the lead before failed checks come to you"),
     Setting::custom("factory-checks", "Check commands", "Check commands", |d, _, cx| d.factory_checks_rows(cx)),
@@ -386,6 +400,44 @@ impl Desktop {
         }
     }
 
+    /// Every profile, then a row that makes a new one. Shared by all projects.
+    fn factory_profiles_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let profiles = self.agents.profiles().to_vec();
+        let lead = div().px(px(14.)).pt(px(10.)).pb(px(4.)).text_size(px(12.)).text_color(TEXT_3).child("Shared by all projects. Factory rules always win over a profile.");
+        let rows = profiles.iter().enumerate().map(|(i, p)| {
+            let id = p.id.clone();
+            let title = div().flex().items_center().gap(px(10.)).child(ui::agent_avatar(("profile-avatar", i), &p.provider, self.agent_name(&p.provider))).child(p.name.clone());
+            let tag = p.built_in.then(|| div().px(px(7.)).h(px(20.)).flex().items_center().rounded(px(6.)).bg(FILL_2).text_size(px(11.5)).text_color(TEXT_2).child("Built-in"));
+            let end = div().flex().items_center().gap(px(8.)).children(tag).child(icon("chevron-right", 12., TEXT_4));
+            div()
+                .id(("profile-row", i))
+                .min_h(px(48.))
+                .cursor_pointer()
+                .hover(|s| s.bg(FILL_1))
+                .border_t(px(0.5))
+                .border_color(SEPARATOR)
+                .child(row(title, Some(&profile_meta(p, &self.agent_name(&p.provider))), end))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_profile(Some(&id), window, cx)))
+        });
+        let new = div()
+            .id("profile-new")
+            .min_h(px(40.))
+            .px(px(14.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .cursor_pointer()
+            .hover(|s| s.bg(FILL_1))
+            .border_t(px(0.5))
+            .border_color(SEPARATOR)
+            .text_size(px(13.))
+            .text_color(ACCENT)
+            .child(icon("plus", 13., ACCENT))
+            .child("New profile")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_profile(None, window, cx)));
+        div().flex().flex_col().child(lead).children(rows).child(new)
+    }
+
     fn factory_checks_rows(&mut self, cx: &mut Context<Self>) -> Div {
         let checks = self.factory_shown().map(|(_, c)| c.checks).unwrap_or_default();
         let line = |i: usize, command: String, cx: &mut Context<Self>| {
@@ -400,8 +452,9 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{add_check, fix_label, pipeline, remove_check, slots_label, step_fix, step_slots, summary, Draft, MAX_CHECK, MAX_CHECKS, ROWS};
+    use super::{add_check, fix_label, pipeline, profile_meta, remove_check, slots_label, step_fix, step_slots, summary, Draft, MAX_CHECK, MAX_CHECKS, ROWS};
     use agents::Config;
+    use agents::factory::ProfileInfo;
 
     fn on() -> Config {
         Config { enabled: true, spec: true, reviewer: true, slots: 4, fix: 2, ..Config::default() }
@@ -504,6 +557,15 @@ mod tests {
     fn every_factory_row_is_drawn_by_the_section_so_none_has_a_reset() {
         assert!(ROWS.iter().all(|r| matches!(r.control, Control::Custom(_)) && r.resets.is_none()));
         let groups = crate::settings::catalog::groups(ROWS);
-        assert_eq!(groups, ["Project", "Pipeline", "Profile per role", "Limits", "Check commands"]);
+        assert_eq!(groups, ["Project", "Pipeline", "Profile per role", "Profiles", "Limits", "Check commands"]);
+    }
+
+    #[test]
+    fn a_profile_row_names_its_agent_its_model_and_its_skills() {
+        let p = |model: &str, skills, built_in| ProfileInfo { id: "p".into(), name: "P".into(), provider: "claude".into(), model: model.into(), skills, built_in };
+        assert_eq!(profile_meta(&p("sonnet", 2, false), "Claude Code"), "Claude Code · sonnet · 2 skills");
+        assert_eq!(profile_meta(&p("", 1, false), "Claude Code"), "Claude Code · 1 skill");
+        assert_eq!(profile_meta(&p("opus", 0, true), "Claude Code"), "Claude Code · opus · No soul, instructions or skills");
+        assert_eq!(profile_meta(&p("", 0, false), "Claude Code"), "Claude Code · No skills");
     }
 }

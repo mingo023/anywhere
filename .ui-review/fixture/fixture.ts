@@ -430,6 +430,7 @@ const PROFILES = [
   { id: "claude-sonnet", name: "Claude · Sonnet", provider: "claude", model: "sonnet", skills: 0, builtIn: true },
   { id: "codex", name: "Codex", provider: "codex", skills: 0, builtIn: true },
   { id: "go-backend", name: "Go backend", provider: "claude", model: "sonnet", skills: 2 },
+  { id: "reviewer", name: "Strict reviewer", provider: "codex", skills: 1 },
 ];
 
 Bun.serve({

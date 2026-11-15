@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 286] = [
+const STEPS: [(&str, Step); 288] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -742,6 +742,28 @@ const STEPS: [(&str, Step); 286] = [
         let config = agents::Config { enabled: true, spec: true, reviewer: true, lead: "claude-opus".into(), workers: "claude-sonnet".into(), review: "codex".into(), slots: 4, fix: 2, checks: vec!["cargo test".into(), "cargo clippy --all-targets".into()] };
         d.on_agents(agents::Event::FactoryConfig { project, config, problem: String::new() }, window, cx);
     }),
+    ("settings-factory-profiles", |d, window, cx| {
+        d.show_section(Section::Factory, cx);
+        show_profiles(d, window, cx);
+        d.settings.body_scroll.scroll_to_bottom();
+    }),
+    ("profile-sheet-import", |d, window, cx| {
+        show_profiles(d, window, cx);
+        d.edit_profile(None, window, cx);
+        let root = std::env::temp_dir().join(format!("pocket-capture-import-{}", std::process::id()));
+        let files = [("SOUL.md", "You are a careful backend engineer."), ("AGENTS.md", "Write a failing test first."), ("skills/review/SKILL.md", "# Review\n"), ("skills/review/checklist.md", "- Tests\n"), ("skills/deploy/SKILL.md", "# Deploy\n"), ("skills/deploy/deploy.sh", "#!/bin/sh\nmake deploy\n")];
+        for (path, text) in files {
+            let path = root.join(path);
+            _ = std::fs::create_dir_all(path.parent().unwrap());
+            _ = std::fs::write(path, text);
+        }
+        let preview = crate::factory::import::read(&root).ok();
+        if let Some(sheet) = d.factory.profile.as_mut() {
+            sheet.name.update(cx, |s, cx| s.set_value("Go services", window, cx));
+            sheet.lines = preview.as_ref().map(crate::factory::profile_sheet::lines).unwrap_or_default();
+            sheet.preview = preview;
+        }
+    }),
     ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
     ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
@@ -1269,6 +1291,19 @@ fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
 }
 
 /// `t15` at the Plan gate: its lead's proposed plan of three tasks, the spec and the activity so far.
+/// The profiles of the Profiles captures: the three built-in ones and two of the user's.
+fn show_profiles(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    let p = |id: &str, name: &str, provider: &str, model: &str, skills, built_in| agents::factory::ProfileInfo { id: id.into(), name: name.into(), provider: provider.into(), model: model.into(), skills, built_in };
+    let list = vec![
+        p("claude-opus", "Claude · Opus", "claude", "opus", 0, true),
+        p("claude-sonnet", "Claude · Sonnet", "claude", "sonnet", 0, true),
+        p("codex", "Codex", "codex", "", 0, true),
+        p("go-backend", "Go backend", "claude", "sonnet", 2, false),
+        p("reviewer", "Strict reviewer", "codex", "", 1, false),
+    ];
+    d.on_agents(agents::Event::FactoryProfiles(list), window, cx);
+}
+
 fn show_factory_plan(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     use agents::tickets::Station;
     let task = |id: &str, title: &str, agent: &str, files: &[&str], after: &[&str], instructions: &str| agents::TeamTask {
@@ -1660,6 +1695,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.pr.track.comments = false;
     d.pr.track.folded = false;
     d.agents.names.clear();
+    d.agents.profiles.clear();
+    d.factory.profile = None;
     d.agents.locals.clear();
     d.sidebar.rename = None;
     d.updates.update = Update::Idle;

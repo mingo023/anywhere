@@ -127,6 +127,7 @@ impl Desktop {
         if let Event::FactoryConfig { project, problem, .. } = &ev {
             self.settings.factory.answered(project, problem);
         }
+        self.profile_event(&ev, window, cx);
         if let Event::FactoryError(_) = &ev {
             self.settings.factory.draft.refused();
             self.factory.merging = false;

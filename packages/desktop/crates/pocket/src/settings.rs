@@ -267,6 +267,8 @@ pub struct SettingsState {
     /// When Start service was clicked.
     pub(crate) starting: Option<std::time::Instant>,
     pub(crate) glass: Entity<SliderState>,
+    /// Where the section's page is scrolled to.
+    pub(crate) body_scroll: ScrollHandle,
     pub(crate) factory: factory::FactorySettings,
 }
 
@@ -303,7 +305,7 @@ impl SettingsState {
         let (factory, factory_subs) = factory::FactorySettings::new(window, cx);
         subs.extend(factory_subs);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass, factory };
+        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass, body_scroll: ScrollHandle::new(), factory };
         (state, subs)
     }
 
@@ -311,6 +313,7 @@ impl SettingsState {
     pub fn reset(&mut self, window: &mut Window, cx: &mut App) {
         (self.section, self.back, self.fixed_open, self.found) = (Section::General, Return::default(), false, None);
         self.keyboard.stop();
+        self.body_scroll.set_offset(point(px(0.), px(0.)));
         self.search.update(cx, |s, cx| s.set_value("", window, cx));
     }
 
@@ -368,7 +371,7 @@ fn card(rows: Vec<Div>) -> Div {
     div().flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x00000009), 1., 2.)]).overflow_hidden().children(rows)
 }
 
-fn action(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
+pub(crate) fn action(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(26.))
@@ -827,7 +830,7 @@ impl Desktop {
             .flex()
             .flex_col()
             .child(bar)
-            .child(div().id("settings-body").flex_1().min_h_0().overflow_y_scroll().child(div().w_full().flex().justify_center().child(column)))
+            .child(div().id("settings-body").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.settings.body_scroll).child(div().w_full().flex().justify_center().child(column)))
     }
 }
 
