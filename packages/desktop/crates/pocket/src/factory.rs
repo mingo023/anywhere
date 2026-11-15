@@ -4,6 +4,7 @@ pub(crate) mod page;
 mod spec;
 pub(crate) mod station;
 pub(crate) mod tabs;
+pub(crate) mod workers;
 
 use crate::board::Layout;
 use crate::board::logic::{Filters, Slot};
@@ -29,11 +30,14 @@ pub(crate) struct FactoryState {
     pub(crate) page: Option<page::Page>,
     /// Where a change request to the lead is typed.
     pub(crate) changes: Entity<InputState>,
+    /// Where the words of a deny are typed, for a request that takes them.
+    pub(crate) deny: Entity<InputState>,
 }
 
 impl FactoryState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let changes = cx.new(|cx| InputState::new(window, cx).placeholder("What should the lead change?"));
+        let deny = cx.new(|cx| InputState::new(window, cx).placeholder("Tell it why (optional)"));
         let desktop = cx.entity().downgrade();
         // Ahead of the keymap: the change request's field would take ⌘↵ first.
         let key = cx.intercept_keystrokes(move |ev, window, cx| {
@@ -42,7 +46,7 @@ impl FactoryState {
                 cx.stop_propagation();
             }
         });
-        let state = Self { columns: Default::default(), lists: COLUMNS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), open: Default::default(), scroll: ScrollHandle::new(), counts: Counts::default(), page: None, changes };
+        let state = Self { columns: Default::default(), lists: COLUMNS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), open: Default::default(), scroll: ScrollHandle::new(), counts: Counts::default(), page: None, changes, deny };
         (state, vec![key])
     }
 
@@ -89,6 +93,10 @@ impl Desktop {
         self.factory.page = Some(page::Page::of(id));
         self.aim_plan_edits();
         self.outbox.local.factory_ticket(id);
+        self.outbox.local.profile_list();
+        if let Some(t) = self.agents.board.get(id) {
+            self.outbox.local.factory_config(&t.folder);
+        }
         window.focus(&self.root, cx);
         cx.notify();
     }

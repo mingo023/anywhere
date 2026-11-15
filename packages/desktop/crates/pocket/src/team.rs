@@ -196,6 +196,14 @@ impl Desktop {
         cx.notify();
     }
 
+    pub(crate) fn team_profile(&mut self, task: &str, profile: &agents::factory::ProfileInfo, cx: &mut Context<Self>) {
+        if let Some(e) = self.team.island.sheet_edits() {
+            e.profile(task, profile);
+        }
+        self.team.island.menu = None;
+        cx.notify();
+    }
+
     pub(crate) fn team_begin_allow(&mut self, task: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.team.island.adding = Some(task.to_string());
         self.team.allow.update(cx, |s, cx| {
@@ -282,7 +290,7 @@ mod tests {
         let mut i = Island::default();
         i.show_sheet(&team("proposed"), |_| "opus".into());
         assert_eq!(i.start(Some("running")), None);
-        let kept = vec![TaskPick { id: "t1".into(), agent: "claude".into(), model: "opus".into(), allow: vec![] }];
+        let kept = vec![TaskPick { id: "t1".into(), agent: "claude".into(), model: "opus".into(), allow: vec![], profile: String::new() }];
         assert_eq!(i.start(Some("proposed")), Some(("lead".to_string(), kept)));
         assert_eq!(i.start(Some("proposed")), None, "the edits went with the start");
     }

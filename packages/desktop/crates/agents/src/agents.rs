@@ -6,7 +6,7 @@ pub mod locals;
 pub mod providers;
 pub mod team;
 
-pub use factory::Config;
+pub use factory::{Config, Profile, ProfileFile, ProfileInfo};
 pub use team::{TaskPick, Team, TeamAction, TeamTask};
 
 use automations::{Automation, AutomationDraft, Automations, Run};
@@ -382,6 +382,8 @@ struct Frame {
     limit: Option<usize>,
     team: Option<Team>,
     teams: Vec<Team>,
+    profiles: Vec<ProfileInfo>,
+    profile: Option<Profile>,
     config: Option<Config>,
     problem: String,
     ticket: Option<factory::Detail>,
@@ -472,6 +474,10 @@ pub enum Event {
     FactoryError(String),
     /// One ticket's spec and activity, asked for with `Outbox::factory_ticket`.
     FactoryTicket(factory::Detail),
+    /// Every profile pocketd has, built-in ones first: the answer to a list, save or delete, and the news after any change.
+    FactoryProfiles(Vec<ProfileInfo>),
+    /// One whole profile, the answer to `profile_get`.
+    FactoryProfile(Profile),
     /// The detail of the ticket with this id changed; ask again if it is shown.
     FactoryUpdate(String),
 }
@@ -503,6 +509,8 @@ pub struct Agents {
     pub factory: HashMap<String, Config>,
     /// Each ticket's detail by its id, as last asked for.
     pub details: HashMap<String, factory::Detail>,
+    /// Every profile, from `factory.profiles`.
+    pub profiles: Vec<ProfileInfo>,
 }
 
 impl Agents {
@@ -605,10 +613,11 @@ impl Agents {
             Event::FactoryConfig { project, config, .. } => {
                 self.factory.insert(project, config);
             }
+            Event::FactoryProfiles(list) => self.profiles = list,
             Event::FactoryTicket(detail) => {
                 self.details.insert(detail.ticket_id.clone(), detail);
             }
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } | Event::FactoryError(_) | Event::FactoryUpdate(_) => {}
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } | Event::FactoryError(_) | Event::FactoryUpdate(_) | Event::FactoryProfile(_) => {}
         }
     }
 
@@ -732,6 +741,10 @@ impl Agents {
     /// `project`'s Factory settings, once pocketd has sent them.
     pub fn factory_config(&self, project: &str) -> Option<&Config> {
         self.factory.get(project)
+    }
+
+    pub fn profiles(&self) -> &[ProfileInfo] {
+        &self.profiles
     }
 
     /// `ticket`'s spec and activity, once pocketd has sent them.
@@ -966,6 +979,8 @@ fn factory_event(f: &Frame) -> Option<Event> {
         "factory.config" => Some(Event::FactoryConfig { project: f.project.clone(), config: f.config.clone()?, problem: f.problem.clone() }),
         "error" if f.id.starts_with(FACTORY) => Some(Event::FactoryError(readable(&f.message))),
         "factory.ticket" => f.ticket.clone().map(Event::FactoryTicket),
+        "factory.profiles" => Some(Event::FactoryProfiles(f.profiles.clone())),
+        "factory.profile" => f.profile.clone().map(Event::FactoryProfile),
         "factory.update" if !f.ticket_id.is_empty() => Some(Event::FactoryUpdate(f.ticket_id.clone())),
         _ => None,
     }
@@ -1232,6 +1247,31 @@ impl Outbox {
     /// Asks for `ticket`'s spec and activity; `Event::FactoryTicket` answers.
     pub fn factory_ticket(&self, ticket: &str) {
         self.send(json!({"type": "factory.ticket", "id": factory_id(), "ticketId": ticket}));
+    }
+
+    /// Moves a Ticket whose workers all handed back to Checks without the lead's verdict.
+    pub fn factory_advance(&self, ticket_id: &str) {
+        self.send(json!({"type": "factory.advance", "id": factory_id(), "ticketId": ticket_id}));
+    }
+
+    /// Asks for every profile; `Event::FactoryProfiles` answers.
+    pub fn profile_list(&self) {
+        self.send(json!({"type": "factory.profile.list", "id": factory_id()}));
+    }
+
+    /// Asks for one whole profile; `Event::FactoryProfile` answers.
+    pub fn profile_get(&self, id: &str) {
+        self.send(json!({"type": "factory.profile.get", "id": factory_id(), "profile": id}));
+    }
+
+    /// Saves a profile whole; one with an empty id is new. `Event::FactoryProfiles` answers, or `Event::FactoryError` says why not.
+    pub fn profile_save(&self, profile: &Profile) {
+        self.send(json!({"type": "factory.profile.save", "id": factory_id(), "profile": profile}));
+    }
+
+    /// Deletes a profile nothing uses; `Event::FactoryError` lists who does.
+    pub fn profile_delete(&self, id: &str) {
+        self.send(json!({"type": "factory.profile.delete", "id": factory_id(), "profile": id}));
     }
 
     fn send(&self, m: Value) {
@@ -2492,6 +2532,48 @@ mod tests {
         assert_eq!(sent_but_id(|o| o.factory_ticket("t1")), without_id(factory_golden!("client/factory_ticket.json")));
     }
 
+    #[test]
+    fn profile_frames_become_profile_events_and_the_list_is_kept() {
+        let ev = |raw: &Value| factory_event(&serde_json::from_value::<Frame>(raw.clone()).unwrap());
+        let Some(Event::FactoryProfiles(list)) = ev(&factory_golden!("server/profiles.json")) else { panic!("no FactoryProfiles") };
+        assert_eq!(list.iter().map(|p| (p.id.as_str(), p.built_in, p.skills)).collect::<Vec<_>>(), [("claude-opus", true, 0), ("go-backend", false, 1)]);
+        let Some(Event::FactoryProfile(doc)) = ev(&factory_golden!("server/profile.json")) else { panic!("no FactoryProfile") };
+        assert_eq!((doc.info.id.as_str(), doc.soul.as_str(), doc.files[0].path.as_str()), ("go-backend", "You are a careful backend engineer.", "skills/review/SKILL.md"));
+        let mut a = Agents::default();
+        a.apply(Event::FactoryProfiles(list.clone()));
+        assert_eq!(a.profiles(), list.as_slice());
+        a.apply(Event::FactoryProfile(doc));
+        assert_eq!(a.profiles().len(), 2);
+    }
+
+    #[test]
+    fn profile_messages_are_the_golden_frames_with_a_factory_request_id() {
+        assert_eq!(sent_but_id(|o| o.profile_list()), without_id(factory_golden!("client/profile_list.json")));
+        assert_eq!(sent_but_id(|o| o.profile_get("go-backend")), without_id(factory_golden!("client/profile_get.json")));
+        assert_eq!(sent_but_id(|o| o.profile_delete("go-backend")), without_id(factory_golden!("client/profile_delete.json")));
+        assert_eq!(sent_but_id(|o| o.factory_advance("t1")), without_id(factory_golden!("client/advance.json")));
+        let doc = Profile {
+            info: ProfileInfo { name: "Go backend".into(), provider: "claude".into(), model: "sonnet".into(), ..Default::default() },
+            soul: "You are a careful backend engineer.".into(),
+            instructions: "Write a failing test first.".into(),
+            files: vec![ProfileFile { path: "skills/review/SKILL.md".into(), text: "# Review\n".into(), binary: false }],
+        };
+        assert_eq!(sent_but_id(|o| o.profile_save(&doc)), without_id(factory_golden!("client/profile_save.json")));
+        let (tx, rx) = channel();
+        Outbox(tx).profile_list();
+        assert!(rx.try_iter().all(|m| m["id"].as_str().is_some_and(|id| id.starts_with(FACTORY))));
+    }
+
+    #[test]
+    fn a_pick_with_a_profile_says_so_and_one_without_leaves_it_off() {
+        let with = TaskPick { id: "t1".into(), agent: "claude".into(), model: "sonnet".into(), allow: vec![], profile: "go-backend".into() };
+        let without = TaskPick { profile: String::new(), ..with.clone() };
+        assert_eq!(serde_json::to_value(&with).unwrap()["profile"], "go-backend");
+        assert!(serde_json::to_value(&without).unwrap().get("profile").is_none());
+        let task: TeamTask = serde_json::from_str(r#"{"id":"t1","agent":"claude","profile":"go-backend"}"#).unwrap();
+        assert_eq!(task.profile, "go-backend");
+    }
+
     fn sent_but_id(send: impl FnOnce(&Outbox)) -> Value {
         let (tx, rx) = channel();
         send(&Outbox(tx));
@@ -2524,8 +2606,8 @@ mod tests {
 
     #[test]
     fn team_messages_name_the_lead_and_the_tasks_kept() {
-        let pick = TaskPick { id: "t1".into(), agent: "codex".into(), model: "gpt-6-sol".into(), allow: vec!["cargo test".into()] };
-        let bare = TaskPick { id: "t2".into(), agent: "claude".into(), model: String::new(), allow: vec![] };
+        let pick = TaskPick { id: "t1".into(), agent: "codex".into(), model: "gpt-6-sol".into(), allow: vec!["cargo test".into()], profile: String::new() };
+        let bare = TaskPick { id: "t2".into(), agent: "claude".into(), model: String::new(), allow: vec![], profile: String::new() };
         assert_eq!(sent_but_id(|o| o.team_list()), json!({"type": "team.list"}));
         assert_eq!(
             sent_but_id(|o| o.team_start("a1", &[pick, bare])),
@@ -2551,8 +2633,8 @@ mod tests {
     #[test]
     fn team_start_sends_the_golden_team_start_frame_but_its_id() {
         let tasks = [
-            TaskPick { id: "t1".into(), agent: "claude".into(), model: "sonnet".into(), allow: vec!["npm test".into()] },
-            TaskPick { id: "t2".into(), agent: "codex".into(), model: String::new(), allow: vec![] },
+            TaskPick { id: "t1".into(), agent: "claude".into(), model: "sonnet".into(), allow: vec!["npm test".into()], profile: String::new() },
+            TaskPick { id: "t2".into(), agent: "codex".into(), model: String::new(), allow: vec![], profile: String::new() },
         ];
         assert_eq!(sent_but_id(|o| o.team_start("5f0c2a9e-1b2c-4d3e-8f90-123456789abc", &tasks)), without_id(golden!("client/team_start.json")));
     }

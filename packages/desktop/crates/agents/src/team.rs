@@ -35,6 +35,8 @@ pub struct TeamTask {
     /// claude or codex.
     pub agent: String,
     pub model: String,
+    /// The Factory profile its worker runs with; empty for none.
+    pub profile: String,
     /// The only files it may change.
     pub files: Vec<String>,
     /// The tasks whose work it starts from.
@@ -64,6 +66,9 @@ pub struct TaskPick {
     pub model: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<String>,
+    /// The Factory profile the task runs with. pocketd then takes the agent and model from it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub profile: String,
 }
 
 /// Holds `team` unless the one held for its lead is newer: a list read before an update can arrive after it.

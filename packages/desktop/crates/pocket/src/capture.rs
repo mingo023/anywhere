@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 277] = [
+const STEPS: [(&str, Step); 279] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -557,6 +557,8 @@ const STEPS: [(&str, Step); 277] = [
     }),
     ("board-ticket", |d, window, cx| d.edit_ticket("t1", window, cx)),
     ("factory-ticket-plan", show_factory_plan),
+    ("factory-ticket-ask", |d, window, cx| show_factory_implement(d, "t18", "ios", ["done", RUNNING, WAITING], window, cx)),
+    ("factory-ticket-idle", |d, window, cx| show_factory_implement(d, "t17", "hook", ["done"; 3], window, cx)),
     ("factory-ticket-activity", |d, _, cx| d.factory_tab(crate::factory::tabs::Tab::Activity, cx)),
     ("board-nomatch", |d, _, cx| {
         d.board.filters.query = "nothing is called this".into();
@@ -1259,11 +1261,12 @@ fn show_factory_plan(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desk
         state: "planned".into(),
         ..Default::default()
     };
-    let tasks = vec![
+    let mut tasks = vec![
         task("t1", "Split the store into one file per section", "claude", &["crates/store/src/store.rs", "crates/store/src/prefs.rs"], &[], "Move each section's prefs into its own file and keep one reader."),
         task("t2", "Read the old file once and write the new ones", "codex", &["crates/store/src/migrate.rs"], &["t1"], "Read desktop.json when the new files are missing, then write them."),
         task("t3", "Test that a bad section keeps the others", "claude", &["crates/store/src/store.rs"], &["t1"], "A section that fails to parse falls back to its defaults alone."),
     ];
+    tasks[0].profile = "go-backend".into();
     let now = crate::util::now_ms();
     d.on_agents(agents::Event::Team(agents::Team { lead: "plan-lead".into(), state: crate::team::PROPOSED.into(), tasks, updated_at: now, ..Default::default() }), window, cx);
     d.board.layout = crate::board::Layout::Factory;
@@ -1276,6 +1279,44 @@ fn show_factory_plan(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desk
         activity: vec![ev(30, Station::Spec), ev(24, Station::Plan)],
     };
     d.on_agents(agents::Event::FactoryTicket(detail), window, cx);
+}
+
+/// `ticket` at Implement with a Team of three tasks. A running `t2` asks to merge. With no task running, the Ticket turns idle.
+fn show_factory_implement(d: &mut Desktop, ticket: &str, lead: &str, states: [&str; 3], window: &mut Window, cx: &mut Context<Desktop>) {
+    let task = |id: &str, title: &str, profile: &str, state: &str, stat: &str, summary: &str| agents::TeamTask {
+        id: id.into(),
+        title: title.into(),
+        agent: "claude".into(),
+        profile: profile.into(),
+        state: state.into(),
+        worker: format!("w-{id}"),
+        branch: format!("team-{lead}-{id}"),
+        stat: stat.into(),
+        summary: summary.into(),
+        after: if id == "t3" { vec!["t2".into()] } else { Vec::new() },
+        ..Default::default()
+    };
+    let tasks = vec![
+        task("t1", "Add a UI test target to the workflow", "go-backend", states[0], " 2 files changed, 41 insertions(+), 3 deletions(-)", "The workflow runs xcodebuild test on push."),
+        task("t2", "Boot one simulator and reuse it", "", states[1], " 1 file changed, 18 insertions(+)", "Booting the simulator once per job"),
+        task("t3", "Upload the test report on failure", "", states[2], "", ""),
+    ];
+    let now = crate::util::now_ms();
+    d.on_agents(agents::Event::Team(agents::Team { lead: lead.into(), state: RUNNING.into(), tasks, updated_at: now, ..Default::default() }), window, cx);
+    if states[1] == RUNNING {
+        d.on_agents(agents::Event::Resolved(format!("ask-{lead}")), window, cx);
+        let detail = agents::Detail { kind: "shell".into(), command: "gh pr merge 41 --squash".into(), ..Default::default() };
+        let ask = agents::Permission { request_id: "ask-w-t2".into(), agent_id: "w-t2".into(), tool_name: "Bash".into(), detail, feedback: true };
+        d.on_agents(agents::Event::Asked(ask), window, cx);
+    } else {
+        let mut tickets = d.agents.board.tickets.clone();
+        if let Some(t) = tickets.iter_mut().find(|t| t.id == ticket) {
+            t.status = agents::tickets::Status::Idle;
+        }
+        let limit = d.agents.board.limit;
+        d.on_agents(agents::Event::Board { tickets, limit }, window, cx);
+    }
+    d.open_factory_ticket(ticket, window, cx);
 }
 
 /// The plan of the team captures, proposed by the shown chat's agent, each task in `states`' state; `edit` adjusts the rest.

@@ -425,6 +425,13 @@ const ask = (ws: Ws, agentId: string, kind: "permission" | "question") => {
   ws.send(JSON.stringify({ type: "permission.request", request }));
 };
 
+const PROFILES = [
+  { id: "claude-opus", name: "Claude · Opus", provider: "claude", model: "opus", skills: 0, builtIn: true },
+  { id: "claude-sonnet", name: "Claude · Sonnet", provider: "claude", model: "sonnet", skills: 0, builtIn: true },
+  { id: "codex", name: "Codex", provider: "codex", skills: 0, builtIn: true },
+  { id: "go-backend", name: "Go backend", provider: "claude", model: "sonnet", skills: 2 },
+];
+
 Bun.serve({
   port,
   fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("fixture")),
@@ -438,10 +445,13 @@ Bun.serve({
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: [...TICKETS, ...FACTORY_TICKETS], limit: 4 }));
+        ws.send(JSON.stringify({ type: "factory.profiles", profiles: PROFILES }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }
       }
+      if (f.type === "factory.profile.list") ws.send(JSON.stringify({ type: "factory.profiles", id: f.id, profiles: PROFILES }));
+      if (f.type === "factory.config.get") ws.send(JSON.stringify({ type: "factory.config", id: f.id, project: f.project, config: { enabled: true, spec: true, reviewer: true, lead: "claude-opus", workers: "claude-sonnet", review: "codex", slots: 4, fix: 2, checks: ["cargo test", "cargo clippy --all-targets"] } }));
       if (f.type === "pair.begin") {
         const code = "abcdefghijklmnopqrstuv";
         ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));

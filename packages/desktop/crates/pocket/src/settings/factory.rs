@@ -1,4 +1,5 @@
 use super::catalog::Setting;
+use super::dropdown::{dropdown, picks};
 use super::{field_box, row};
 use crate::desktop::Desktop;
 use agents::Config;
@@ -26,10 +27,51 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::custom("factory-plan-gate", "Pipeline", "Plan gate", |_, s, _| always_on(s)).hint("No worker starts until you approve the lead's plan"),
     Setting::custom("factory-pr-gate", "Pipeline", "PR gate", |_, s, _| always_on(s)).hint("You review the PR and merge it. Agents never merge"),
     Setting::custom("factory-reviewer", "Pipeline", "Reviewer", |d, s, cx| d.factory_switch_row(s, |c| c.reviewer, |c, on| c.reviewer = on, cx)).hint("A separate read-only agent comments before the PR gate"),
+    Setting::custom("factory-role-lead", "Profile per role", "Lead", |d, s, cx| d.factory_role_row(Role::Lead, s, cx)).hint("Writes the spec and the plan, fixes failed checks"),
+    Setting::custom("factory-role-workers", "Profile per role", "Workers", |d, s, cx| d.factory_role_row(Role::Workers, s, cx)).hint("Default for each task. Change it per task at the Plan gate"),
+    Setting::custom("factory-role-reviewer", "Profile per role", "Reviewer", |d, s, cx| d.factory_role_row(Role::Reviewer, s, cx)).hint("Read-only. A profile never lifts that"),
     Setting::custom("factory-slots", "Limits", "Slot limit", |d, s, cx| d.factory_slots_row(s, cx)).hint("Tickets an agent works on at once. A ticket that needs you holds no slot"),
     Setting::custom("factory-fix", "Limits", "Auto-fix attempts", |d, s, cx| d.factory_fix_row(s, cx)).hint("Tries by the lead before failed checks come to you"),
     Setting::custom("factory-checks", "Check commands", "Check commands", |d, _, cx| d.factory_checks_rows(cx)),
 ];
+
+/// A Factory role that runs with a profile.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Role {
+    Lead,
+    Workers,
+    Reviewer,
+}
+
+impl Role {
+    /// The profile id `c` gives this role.
+    pub(crate) fn of(self, c: &Config) -> &str {
+        match self {
+            Role::Lead => &c.lead,
+            Role::Workers => &c.workers,
+            Role::Reviewer => &c.review,
+        }
+    }
+
+    fn menu(self) -> &'static str {
+        match self {
+            Role::Lead => "factory-role-lead-menu",
+            Role::Workers => "factory-role-workers-menu",
+            Role::Reviewer => "factory-role-reviewer-menu",
+        }
+    }
+}
+
+/// `c` with `role` run by `profile`.
+pub(crate) fn with_role(mut c: Config, role: Role, profile: &str) -> Config {
+    let field = match role {
+        Role::Lead => &mut c.lead,
+        Role::Workers => &mut c.workers,
+        Role::Reviewer => &mut c.review,
+    };
+    *field = profile.to_string();
+    c
+}
 
 /// The Factory section's state: the project shown, your change until pocketd answers, and why each project can't turn the Factory on.
 pub(crate) struct FactorySettings {
@@ -324,6 +366,26 @@ impl Desktop {
         row(s.label, s.hint, stepper(s.id, fix_label(n), less, more, cx))
     }
 
+    /// One role's profile, picked from every profile pocketd has.
+    fn factory_role_row(&mut self, role: Role, s: &'static Setting, cx: &mut Context<Self>) -> Div {
+        let Some((_, config)) = self.factory_shown() else { return div() };
+        let chosen = role.of(&config).to_string();
+        let options: Vec<(String, String)> = self.agents.profiles().iter().map(|p| (p.id.clone(), p.name.clone())).collect();
+        let name = options.iter().find(|(id, _)| *id == chosen).map_or(chosen.clone(), |(_, name)| name.clone());
+        let menu = role.menu();
+        let trigger = div().id(menu).h(px(26.)).px(px(10.)).flex().items_center().gap(px(6.)).rounded(px(7.)).bg(FILL_2).hover(|d| d.bg(FILL_3)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name).child(icon("chevron-down", 12., TEXT_3));
+        let rows = options.clone();
+        let control = dropdown(menu, trigger, &options, move || picks(rows), &chosen, self, move |this, picked, cx| this.factory_role(role, &picked, cx), cx);
+        row(s.label, s.hint, control)
+    }
+
+    /// Saves the shown project's config with `role` run by `profile`.
+    fn factory_role(&mut self, role: Role, profile: &str, cx: &mut Context<Self>) {
+        if let Some((_, config)) = self.factory_shown() {
+            self.factory_set(with_role(config, role, profile), cx);
+        }
+    }
+
     fn factory_checks_rows(&mut self, cx: &mut Context<Self>) -> Div {
         let checks = self.factory_shown().map(|(_, c)| c.checks).unwrap_or_default();
         let line = |i: usize, command: String, cx: &mut Context<Self>| {
@@ -424,12 +486,24 @@ mod tests {
         assert_eq!(d.shown("/app", Some(&Config::default())).map(|c| c.enabled), Some(false));
     }
 
+    use super::{Role, with_role};
+
+    #[test]
+    fn a_role_pick_changes_that_role_and_keeps_the_rest_of_the_config() {
+        let cfg = Config { enabled: true, lead: "claude-opus".into(), workers: "claude-sonnet".into(), review: "codex".into(), slots: 2, ..Default::default() };
+        let lead = with_role(cfg.clone(), Role::Lead, "go-backend");
+        assert_eq!((lead.lead.as_str(), lead.workers.as_str(), lead.review.as_str(), lead.slots, lead.enabled), ("go-backend", "claude-sonnet", "codex", 2, true));
+        assert_eq!(with_role(cfg.clone(), Role::Workers, "go-backend").workers, "go-backend");
+        assert_eq!(with_role(cfg.clone(), Role::Reviewer, "go-backend").review, "go-backend");
+        assert_eq!([Role::Lead, Role::Workers, Role::Reviewer].map(|r| r.of(&cfg).to_string()), ["claude-opus", "claude-sonnet", "codex"]);
+    }
+
     use crate::settings::catalog::Control;
 
     #[test]
     fn every_factory_row_is_drawn_by_the_section_so_none_has_a_reset() {
         assert!(ROWS.iter().all(|r| matches!(r.control, Control::Custom(_)) && r.resets.is_none()));
         let groups = crate::settings::catalog::groups(ROWS);
-        assert_eq!(groups, ["Project", "Pipeline", "Limits", "Check commands"]);
+        assert_eq!(groups, ["Project", "Pipeline", "Profile per role", "Limits", "Check commands"]);
     }
 }

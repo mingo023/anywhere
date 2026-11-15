@@ -481,6 +481,9 @@ impl Desktop {
         }
         if self.settings.section == Section::Factory {
             self.open_factory_project(None, cx);
+            if self.agents.factory_offered() {
+                self.outbox.local.profile_list();
+            }
         }
         self.models.retry();
         match self.settings.section {

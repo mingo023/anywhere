@@ -1,5 +1,7 @@
 //! The plan sheet's edits: what you keep of the lead's plan before Start.
 
+use agents::factory::{Config, ProfileInfo};
+use agents::tickets::{Station, Ticket};
 use agents::{TaskPick, Team};
 
 /// A task of the lead's plan as the sheet shows it, with your edits.
@@ -12,6 +14,8 @@ pub(crate) struct Kept {
     pub(crate) agent: String,
     pub(crate) model: String,
     pub(crate) allow: Vec<String>,
+    /// The Factory profile picked for it; empty runs the project's workers profile.
+    pub(crate) profile: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +37,7 @@ impl Edits {
                 agent: t.agent.clone(),
                 model: if t.model.is_empty() { default_model(&t.agent) } else { t.model.clone() },
                 allow: t.allow.clone(),
+                profile: t.profile.clone(),
             })
             .collect();
         Self { tasks }
@@ -55,7 +60,14 @@ impl Edits {
 
     pub(crate) fn pick(&mut self, id: &str, agent: &str, model: &str) {
         if let Some(t) = self.get_mut(id) {
-            (t.agent, t.model) = (agent.into(), model.into());
+            (t.agent, t.model, t.profile) = (agent.into(), model.into(), String::new());
+        }
+    }
+
+    /// Runs the task with `profile`: its agent and model come from it.
+    pub(crate) fn profile(&mut self, id: &str, profile: &ProfileInfo) {
+        if let Some(t) = self.get_mut(id) {
+            (t.agent, t.model, t.profile) = (profile.provider.clone(), profile.model.clone(), profile.id.clone());
         }
     }
 
@@ -75,7 +87,7 @@ impl Edits {
 
     /// What `team.start` takes: the kept tasks, in the plan's order.
     pub(crate) fn picks(&self) -> Vec<TaskPick> {
-        self.tasks.iter().map(|t| TaskPick { id: t.id.clone(), agent: t.agent.clone(), model: t.model.clone(), allow: t.allow.clone() }).collect()
+        self.tasks.iter().map(|t| TaskPick { id: t.id.clone(), agent: t.agent.clone(), model: t.model.clone(), allow: t.allow.clone(), profile: t.profile.clone() }).collect()
     }
 
     pub(crate) fn after_label(&self, t: &Kept) -> Option<String> {
@@ -86,6 +98,17 @@ impl Edits {
     fn get_mut(&mut self, id: &str) -> Option<&mut Kept> {
         self.tasks.iter_mut().find(|t| t.id == id)
     }
+}
+
+/// The profile a task runs: its own, else the project's workers profile, which pocketd gives a pick that names none.
+pub(crate) fn profile_shown<'a>(t: &'a Kept, workers: &'a str) -> &'a str {
+    if t.profile.is_empty() { workers } else { &t.profile }
+}
+
+/// The project's workers profile when `lead` leads a Factory ticket; `None` for a lead outside the Factory, whose tasks pick an agent and a model.
+pub(crate) fn factory_workers<'c>(tickets: &[Ticket], lead: &str, config: impl Fn(&str) -> Option<&'c Config>) -> Option<String> {
+    let t = tickets.iter().find(|t| t.agent_id == lead && t.station != Station::None)?;
+    Some(config(&t.folder).map(|c| c.workers.clone()).unwrap_or_default())
 }
 
 /// "after 1" or "after 1, 2": the tasks in `after` by their 1-based place among `ids`; none when it waits for none of them.
@@ -108,6 +131,8 @@ pub(crate) fn can_start(proposed: bool, kept: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agents::factory::{Config, ProfileInfo};
+    use agents::tickets::{Station, Ticket};
     use agents::{TaskPick, Team, TeamTask};
 
     fn task(id: &str, agent: &str, after: &[&str]) -> TeamTask {
@@ -134,7 +159,7 @@ mod tests {
     }
 
     fn pick(id: &str, agent: &str, model: &str, allow: &[&str]) -> TaskPick {
-        TaskPick { id: id.into(), agent: agent.into(), model: model.into(), allow: allow.iter().map(|a| a.to_string()).collect() }
+        TaskPick { id: id.into(), agent: agent.into(), model: model.into(), allow: allow.iter().map(|a| a.to_string()).collect(), profile: String::new() }
     }
 
     #[test]
@@ -189,6 +214,44 @@ mod tests {
     #[test]
     fn a_task_s_branch_is_the_name_pocketd_tries_first() {
         assert_eq!([branch("a1b2c3d4e5", "t2"), branch("devbox/a1b2c3d4e5", "t2")], ["team-a1b2c3-t2", "team-a1b2c3-t2"]);
+    }
+
+    fn go_backend() -> ProfileInfo {
+        ProfileInfo { id: "go-backend".into(), name: "Go backend".into(), provider: "codex".into(), model: "gpt-6.1-sol".into(), ..Default::default() }
+    }
+
+    #[test]
+    fn a_profile_sets_the_tasks_agent_and_model_and_goes_out_with_the_pick() {
+        let mut e = plan(vec![task("t1", "claude", &[]), task("t2", "claude", &[])]);
+        e.profile("t1", &go_backend());
+        let picks = e.picks();
+        assert_eq!((picks[0].agent.as_str(), picks[0].model.as_str(), picks[0].profile.as_str()), ("codex", "gpt-6.1-sol", "go-backend"));
+        assert_eq!(picks[1].profile, "");
+        e.pick("t1", "claude", "opus");
+        assert_eq!(e.picks()[0].profile, "", "a pick of an agent and model drops the profile");
+    }
+
+    #[test]
+    fn a_task_the_plan_gave_a_profile_keeps_it_and_one_without_shows_the_workers_profile() {
+        let mut named = task("t1", "claude", &[]);
+        named.profile = "go-backend".into();
+        let e = plan(vec![named, task("t2", "claude", &[])]);
+        assert_eq!(e.picks()[0].profile, "go-backend");
+        assert_eq!(profile_shown(&e.tasks()[0], "claude-sonnet"), "go-backend");
+        assert_eq!(profile_shown(&e.tasks()[1], "claude-sonnet"), "claude-sonnet");
+    }
+
+    #[test]
+    fn only_the_lead_of_a_factory_ticket_picks_profiles() {
+        let tickets = vec![
+            Ticket { agent_id: "lead".into(), folder: "/app".into(), station: Station::Plan, ..Ticket::sample() },
+            Ticket { agent_id: "plain".into(), folder: "/app".into(), ..Ticket::sample() },
+        ];
+        let cfg = Config { workers: "claude-sonnet".into(), ..Default::default() };
+        let config = |folder: &str| (folder == "/app").then_some(&cfg);
+        assert_eq!(factory_workers(&tickets, "lead", config).as_deref(), Some("claude-sonnet"));
+        assert_eq!(factory_workers(&tickets, "plain", config), None);
+        assert_eq!(factory_workers(&tickets, "nobody", config), None);
     }
 
     #[test]

@@ -162,7 +162,9 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::FactoryConfig { .. }
         | Event::FactoryError(_)
         | Event::FactoryTicket(_)
-        | Event::FactoryUpdate(_) => return false,
+        | Event::FactoryUpdate(_)
+        | Event::FactoryProfiles(_)
+        | Event::FactoryProfile(_) => return false,
     }
     true
 }
@@ -430,6 +432,12 @@ mod tests {
     }
 
     #[test]
+    fn profiles_are_news_of_this_macs_pocketd_only() {
+        assert!(!tag_event("devbox", &mut Event::FactoryProfiles(vec![])));
+        assert!(!tag_event("devbox", &mut Event::FactoryProfile(Default::default())));
+    }
+
+    #[test]
     fn a_hosts_factory_tickets_are_not_this_macs() {
         assert!(!tag_event("devbox", &mut Event::FactoryTicket(Default::default())));
         assert!(!tag_event("devbox", &mut Event::FactoryUpdate("t1".into())));
@@ -561,7 +569,7 @@ mod tests {
     fn a_host_leads_team_ops_reach_that_host_with_its_own_ids() {
         let (out, here, there) = outboxes();
         out.prompt("devbox/a1", "Plan it", true);
-        out.team_start("devbox/a1", &[agents::TaskPick { id: "t1".into(), agent: "claude".into(), model: String::new(), allow: vec![] }]);
+        out.team_start("devbox/a1", &[agents::TaskPick { id: "t1".into(), agent: "claude".into(), model: String::new(), allow: vec![], profile: String::new() }]);
         out.team_stop("devbox/a1", "t1");
         out.team_merge("a2");
         let sent: Vec<Value> = there.try_iter().collect();

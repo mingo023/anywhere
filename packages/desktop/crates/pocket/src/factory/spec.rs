@@ -2,7 +2,7 @@ use super::station::Column;
 use crate::board::parts::station_glyph;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
-use crate::team::plan::Edits;
+use crate::team::plan::{Edits, factory_workers};
 use crate::team::plural;
 use agents::Team;
 use agents::factory::Activity;
@@ -28,6 +28,8 @@ pub(crate) struct TaskRow {
     pub(crate) body: String,
     pub(crate) files: String,
     pub(crate) agent: String,
+    /// The profile id picked for the task; empty runs the project's workers profile.
+    pub(crate) profile: String,
     /// At the gate: "starts first" or "after 1". Empty once the plan started.
     pub(crate) order: String,
     /// At the gate: whether the task can be removed. `None` once the plan started.
@@ -108,6 +110,7 @@ pub(crate) fn task_rows(team: &Team, edits: Option<&Edits>) -> Vec<TaskRow> {
                 body: body(&k.id),
                 files: k.files.join("  "),
                 agent: k.agent.clone(),
+                profile: k.profile.clone(),
                 order: edits.after_label(k).unwrap_or_else(|| "starts first".into()),
                 removable: Some(edits.removable(&k.id)),
                 state: String::new(),
@@ -116,7 +119,7 @@ pub(crate) fn task_rows(team: &Team, edits: Option<&Edits>) -> Vec<TaskRow> {
         None => team
             .tasks
             .iter()
-            .map(|t| TaskRow { id: t.id.clone(), title: t.title.clone(), body: t.instructions.clone(), files: t.files.join("  "), agent: t.agent.clone(), order: String::new(), removable: None, state: t.state.clone() })
+            .map(|t| TaskRow { id: t.id.clone(), title: t.title.clone(), body: t.instructions.clone(), files: t.files.join("  "), agent: t.agent.clone(), profile: t.profile.clone(), order: String::new(), removable: None, state: t.state.clone() })
             .collect(),
     }
 }
@@ -126,7 +129,7 @@ fn clock(ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ms).map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string()).unwrap_or_default()
 }
 
-fn heading(title: &'static str, note: Option<String>, right: Option<&'static str>) -> Div {
+pub(super) fn heading(title: &'static str, note: Option<String>, right: Option<&'static str>) -> Div {
     let small = |text: String| div().text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child(text);
     div()
         .mt(px(26.))
@@ -175,11 +178,12 @@ impl Desktop {
         let edits = (t.gate == Gate::Plan).then(|| self.team.island.edits.get(&t.agent_id)).flatten();
         let rows = task_rows(team, edits);
         let cap = edits.is_some().then_some("Up to 4 workers at once");
-        let list = rows.iter().enumerate().map(|(i, row)| self.plan_row(row, edits, cx).when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR)));
+        let workers = factory_workers(&self.agents.board.tickets, &t.agent_id, |folder| self.agents.factory_config(folder)).unwrap_or_default();
+        let list = rows.iter().enumerate().map(|(i, row)| self.plan_row(row, edits, &workers, cx).when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR)));
         doc.child(heading("Plan", Some(plural(rows.len(), "task", "tasks")), cap)).child(div().flex().flex_col().rounded(px(10.)).bg(SURFACE).shadow(vec![ui::ring(SEPARATOR, 0.5)]).overflow_hidden().children(list))
     }
 
-    fn plan_row(&self, row: &TaskRow, edits: Option<&Edits>, cx: &mut Context<Self>) -> Div {
+    fn plan_row(&self, row: &TaskRow, edits: Option<&Edits>, workers: &str, cx: &mut Context<Self>) -> Div {
         let task = row.id.clone();
         let end: AnyElement = match row.removable {
             Some(can) => {
@@ -207,7 +211,7 @@ impl Desktop {
             .gap_y(px(4.))
             .text_color(TEXT_3)
             .children((!row.files.is_empty()).then(|| div().font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(row.files.clone())))
-            .child(div().flex().items_center().gap(px(5.)).child(agent_avatar(id(format!("plan-agent:{}", row.id)), &row.agent, self.agent_name(&row.agent))).child(self.agent_name(&row.agent)))
+            .child(self.plan_agent(row, edits.is_some(), workers, cx))
             .children((!row.order.is_empty()).then(|| div().child(row.order.clone())));
         let allow = edits.and_then(|e| e.tasks().iter().find(|k| k.id == row.id)).map(|k| self.allow_row(k, cx));
         div()
@@ -223,6 +227,45 @@ impl Desktop {
             .children((!row.body.is_empty()).then(|| div().child(row.body.clone())))
             .child(meta)
             .children(allow)
+    }
+}
+
+impl Desktop {
+    /// Who runs the task. At the gate it is a button whose menu picks a profile.
+    fn plan_agent(&self, row: &TaskRow, at_gate: bool, workers: &str, cx: &mut Context<Self>) -> Div {
+        if !at_gate {
+            return div().flex().items_center().gap(px(5.)).child(agent_avatar(id(format!("plan-agent:{}", row.id)), &row.agent, self.agent_name(&row.agent))).child(self.agent_name(&row.agent));
+        }
+        let shown = if row.profile.is_empty() { workers } else { &row.profile };
+        let known = self.agents.profiles().iter().find(|p| p.id == shown);
+        let (name, provider) = match known {
+            Some(p) => (p.name.clone(), p.provider.clone()),
+            None if shown.is_empty() => (self.agent_name(&row.agent), row.agent.clone()),
+            None => (shown.to_string(), row.agent.clone()),
+        };
+        let open = self.team.island.menu.as_deref() == Some(row.id.as_str());
+        let task = row.id.clone();
+        let button = div()
+            .id(id(format!("plan-profile:{}", row.id)))
+            .h(px(22.))
+            .px(px(6.))
+            .mx(px(-6.))
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .rounded(px(11.))
+            .cursor_pointer()
+            .when(open, |d| d.bg(FILL_2).text_color(TEXT))
+            .hover(|s| s.bg(FILL_2).text_color(TEXT))
+            .child(agent_avatar(id(format!("plan-agent:{}", row.id)), &provider, name.clone()))
+            .child(name)
+            .child(icon("chevron-down", 11., TEXT_3))
+            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.team_toggle_menu(&task, cx);
+            }));
+        let menu = open.then(|| ui::dropdown_right(26., ui::menu_in("plan-profile-menu-in", self.profile_menu(&row.id, shown, cx))));
+        div().relative().child(button).children(menu)
     }
 }
 
@@ -288,6 +331,17 @@ mod tests {
         let rows = task_rows(&team, Some(&edits));
         assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["t1"]);
         assert_eq!(rows[0].removable, Some(true));
+    }
+
+    #[test]
+    fn at_the_plan_gate_a_row_carries_the_profile_picked_for_its_task() {
+        let mut team = team();
+        team.tasks[0].profile = "go-backend".into();
+        let mut edits = Edits::new(&team, |_| String::new());
+        assert_eq!(task_rows(&team, Some(&edits)).iter().map(|r| r.profile.as_str()).collect::<Vec<_>>(), ["go-backend", ""]);
+        edits.profile("t2", &agents::factory::ProfileInfo { id: "codex".into(), provider: "codex".into(), ..Default::default() });
+        let rows = task_rows(&team, Some(&edits));
+        assert_eq!((rows[1].profile.as_str(), rows[1].agent.as_str()), ("codex", "codex"));
     }
 
     #[test]

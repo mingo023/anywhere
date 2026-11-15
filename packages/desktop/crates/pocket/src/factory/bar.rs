@@ -5,7 +5,8 @@ use crate::desktop::chrome::Screen;
 use crate::team::plan::can_start;
 use crate::team::{PROPOSED, plural};
 use agents::factory::Detail;
-use agents::tickets::{Gate, Ticket};
+use agents::tickets::{Gate, Station, Status, Ticket};
+use agents::Decision as Answer;
 use agents::{Permission, Team};
 use git::github::Pr;
 use gpui_kit::component::input::Input;
@@ -15,18 +16,35 @@ use theme::*;
 use ui::Variant;
 
 /// What the footer bar asks you to decide.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Decision {
     /// The plan waits for approval. `kept` is how many tasks it has.
     Plan { kept: usize },
+    /// A session of the Ticket waits for your answer before it runs `command`. `worker` names that session.
+    Ask { command: String, worker: String },
+    /// Every worker handed back and the lead stopped without a verdict.
+    Idle,
 }
 
-/// What the bar asks of `t`, if anything. Plans 4 to 6 read `pr`, `ask` and `detail`.
-pub(crate) fn decision(t: &Ticket, team: Option<&Team>, _pr: Option<&Pr>, _ask: Option<&Permission>, _detail: Option<&Detail>) -> Option<Decision> {
+/// What the bar asks of `t`, if anything. Plans 5 and 6 read `pr` and `detail`.
+pub(crate) fn decision(t: &Ticket, team: Option<&Team>, _pr: Option<&Pr>, ask: Option<&Permission>, _detail: Option<&Detail>) -> Option<Decision> {
     match t.gate {
         Gate::Plan => team.filter(|team| team.state == PROPOSED).map(|team| Decision::Plan { kept: team.tasks.len() }),
+        // A question has its own dialog, in the session.
+        Gate::Ask => ask.filter(|p| p.questions().is_empty()).map(|p| Decision::Ask { command: p.parts().1, worker: asker(p, team) }),
+        _ if t.station == Station::Implement && t.status == Status::Idle => Some(Decision::Idle),
         _ => None,
     }
+}
+
+/// Who asks: a worker by its task, else the lead.
+fn asker(p: &Permission, team: Option<&Team>) -> String {
+    team.and_then(|tm| tm.tasks.iter().find(|x| !x.worker.is_empty() && x.worker == p.agent_id)).map_or_else(|| "The lead".into(), |x| format!("Worker {}", x.id))
+}
+
+/// The first open ask of `lead` or of a worker of its team, in the order they came.
+pub(crate) fn ticket_ask<'a>(pending: &'a [Permission], lead: &str, team: Option<&Team>) -> Option<&'a Permission> {
+    pending.iter().find(|p| p.agent_id == lead || team.is_some_and(|tm| tm.tasks.iter().any(|x| !x.worker.is_empty() && x.worker == p.agent_id)))
 }
 
 pub(crate) fn summary(kept: usize) -> String {
@@ -41,12 +59,22 @@ pub(crate) fn change_note(typed: &str) -> Option<&str> {
     Some(typed.trim()).filter(|t| !t.is_empty())
 }
 
+pub(crate) fn ask_label(worker: &str) -> String {
+    format!("{worker} wants to run")
+}
+
 impl Desktop {
+    /// The open ask the page answers, unless this connection may only watch.
+    fn page_ask(&self, t: &Ticket) -> Option<&Permission> {
+        ticket_ask(&self.agents.pending, &t.agent_id, self.agents.team(&t.agent_id)).filter(|_| !self.agents.observe_only())
+    }
+
     /// The page's decision, with the count of the tasks you kept at the gate.
     fn page_decision(&self, t: &Ticket) -> Option<Decision> {
         let team = self.agents.team(&t.agent_id);
-        decision(t, team, None, None, self.agents.detail(&t.id)).map(|d| match d {
+        decision(t, team, None, self.page_ask(t), self.agents.detail(&t.id)).map(|d| match d {
             Decision::Plan { kept } => Decision::Plan { kept: self.team.island.edits.get(&t.agent_id).map_or(kept, |e| e.tasks().len()) },
+            other => other,
         })
     }
 
@@ -99,14 +127,27 @@ impl Desktop {
         match self.page_decision(&t) {
             Some(Decision::Plan { .. }) if page.changes => self.factory_send_changes(window, cx),
             Some(Decision::Plan { .. }) => self.factory_approve(cx),
-            None => false,
+            Some(Decision::Ask { .. }) => {
+                let Some(request) = self.page_ask(&t).map(|p| p.request_id.clone()) else { return false };
+                self.team_answer(&request, Answer::Allow, cx);
+                true
+            }
+            _ => false,
         }
     }
 
     pub(super) fn factory_bar(&self, t: &Ticket, page: &Page, cx: &mut Context<Self>) -> Option<Div> {
-        let Decision::Plan { kept } = self.page_decision(t)?;
+        let content = match self.page_decision(t)? {
+            Decision::Plan { kept } => self.plan_bar(kept, page, cx),
+            Decision::Ask { command, worker } => self.ask_bar(t, &command, &worker, cx)?,
+            Decision::Idle => self.idle_bar(t, cx),
+        };
+        Some(ui::pop(div()).absolute().left(px(12.)).right(px(12.)).bottom(px(10.)).min_h(px(42.)).pl(px(14.)).pr(px(8.)).py(px(7.)).rounded(px(11.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_2).child(content))
+    }
+
+    fn plan_bar(&self, kept: usize, page: &Page, cx: &mut Context<Self>) -> Div {
         let what = div().flex_1().min_w_0().flex().items_center().gap(px(7.)).child(div().size(px(6.)).rounded(px(3.)).bg(WAITING_DOT)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Plan approval")).child(div().text_color(TEXT_3).child(summary(kept)));
-        let content = if page.changes {
+        if page.changes {
             let field = div().flex_1().min_w_0().h(px(28.)).px(px(9.)).flex().items_center().rounded(px(7.)).bg(FILL_2).child(Input::new(&self.factory.changes).appearance(false).p_0().text_size(px(12.5)));
             div()
                 .flex_1()
@@ -132,17 +173,69 @@ impl Desktop {
                         .when(!can, |b| b.opacity(0.5))
                         .when(can, |b| b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| _ = this.factory_approve(cx)))),
                 )
-        };
-        Some(ui::pop(div()).absolute().left(px(12.)).right(px(12.)).bottom(px(10.)).min_h(px(42.)).pl(px(14.)).pr(px(8.)).py(px(7.)).rounded(px(11.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_2).child(content))
+        }
+    }
+
+    /// An Ask: who wants to run what, the words of a deny when the request takes them, Deny and Allow once.
+    fn ask_bar(&self, t: &Ticket, command: &str, worker: &str, cx: &mut Context<Self>) -> Option<Div> {
+        let p = self.page_ask(t)?;
+        let (deny, allow) = (p.request_id.clone(), p.request_id.clone());
+        let what = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(7.))
+            .child(div().flex_none().size(px(6.)).rounded(px(3.)).bg(WAITING_DOT))
+            .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(ask_label(worker)))
+            .child(div().min_w_0().truncate().font_family(MONO).text_color(TEXT_2).child(command.to_string()));
+        let field = p.feedback.then(|| div().w(px(200.)).h(px(28.)).px(px(9.)).flex().items_center().rounded(px(7.)).bg(FILL_2).child(Input::new(&self.factory.deny).appearance(false).p_0().text_size(px(12.5))));
+        let buttons = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(bar_button("factory-deny", Variant::Ghost, None, "Deny").h(px(28.)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.factory_deny(&deny, window, cx))))
+            .child(bar_button("factory-allow", Variant::Primary, None, "Allow once").h(px(28.)).child(start_kbd()).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.team_answer(&allow, Answer::Allow, cx))));
+        Some(div().flex_1().flex().items_center().gap(px(10.)).child(what).children(field).child(buttons))
+    }
+
+    /// Every worker handed back and the lead gave no verdict: you may move the Ticket on (I8).
+    fn idle_bar(&self, t: &Ticket, cx: &mut Context<Self>) -> Div {
+        let ticket = t.id.clone();
+        let what = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(div().flex().items_center().gap(px(7.)).child(div().size(px(6.)).rounded(px(3.)).bg(WAITING_DOT)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Every worker handed back")))
+            .child(div().pl(px(13.)).text_size(px(11.5)).text_color(TEXT_3).child("The lead stopped without saying the work is ready."));
+        let button = bar_button("factory-advance", Variant::Primary, None, "Move to Checks anyway").h(px(28.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.factory_advance(&ticket, cx)));
+        div().flex_1().flex().items_center().gap(px(10.)).child(what).child(button)
+    }
+
+    /// Denies `request`, with the typed words when there are any.
+    pub(crate) fn factory_deny(&mut self, request: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.factory.deny.read(cx).value().to_string();
+        match change_note(&typed) {
+            Some(words) => self.outbox.reply(request, words),
+            None => self.outbox.resolve(request, Answer::Deny),
+        }
+        self.factory.deny.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn factory_advance(&mut self, ticket: &str, cx: &mut Context<Self>) {
+        self.outbox.local.factory_advance(ticket);
+        cx.notify();
     }
 }
 
 #[cfg(test)]
 mod tests {
     // A glob would bring in gpui's `test` attribute, which shadows the std one.
-    use super::{Decision, approve_label, change_note, decision, summary};
+    use super::{Decision, approve_label, ask_label, change_note, decision, summary, ticket_ask};
     use agents::tickets::{Gate, State, Station, Status, Ticket};
-    use agents::{Team, TeamTask};
+    use agents::{Detail as ToolDetail, Permission, Team, TeamTask};
 
     fn gated() -> Ticket {
         Ticket { state: State::Live, station: Station::Plan, gate: Gate::Plan, status: Status::NeedsYou, agent_id: "a1".into(), ..Ticket::sample() }
@@ -150,6 +243,59 @@ mod tests {
 
     fn team(state: &str, tasks: usize) -> Team {
         Team { lead: "a1".into(), state: state.into(), tasks: (0..tasks).map(|i| TeamTask { id: format!("t{i}"), ..TeamTask::default() }).collect(), ..Team::default() }
+    }
+
+    fn shell(agent: &str, command: &str) -> Permission {
+        Permission { request_id: "r1".into(), agent_id: agent.into(), tool_name: "Bash".into(), detail: ToolDetail { kind: "shell".into(), command: command.into(), ..Default::default() }, feedback: true }
+    }
+
+    fn implementing(status: Status, gate: Gate) -> Ticket {
+        Ticket { state: State::Live, station: Station::Implement, gate, status, agent_id: "a1".into(), ..Ticket::sample() }
+    }
+
+    fn running() -> Team {
+        let mut tm = team("running", 2);
+        tm.tasks[0].worker = "w0".into();
+        tm.tasks[1].worker = "w1".into();
+        tm
+    }
+
+    #[test]
+    fn a_ticket_that_waits_on_a_workers_ask_shows_the_command_and_the_worker() {
+        let t = implementing(Status::NeedsYou, Gate::Ask);
+        let ask = shell("w1", "gh pr merge 7");
+        assert_eq!(decision(&t, Some(&running()), None, Some(&ask), None), Some(Decision::Ask { command: "gh pr merge 7".into(), worker: "Worker t1".into() }));
+        let leads = shell("a1", "make build");
+        assert_eq!(decision(&t, Some(&running()), None, Some(&leads), None), Some(Decision::Ask { command: "make build".into(), worker: "The lead".into() }));
+    }
+
+    #[test]
+    fn a_question_or_a_lifted_gate_asks_nothing_on_the_bar() {
+        let t = implementing(Status::NeedsYou, Gate::Ask);
+        let question = Permission { tool_name: "AskUserQuestion".into(), detail: ToolDetail { input: serde_json::json!({"questions": [{"question": "Which?"}]}), ..Default::default() }, ..shell("w1", "") };
+        assert_eq!(decision(&t, Some(&running()), None, Some(&question), None), None);
+        assert_eq!(decision(&t, Some(&running()), None, None, None), None);
+        assert_eq!(decision(&implementing(Status::Working, Gate::None), Some(&running()), None, Some(&shell("w1", "ls")), None), None);
+    }
+
+    #[test]
+    fn an_idle_ticket_at_implement_offers_the_move_to_checks() {
+        assert_eq!(decision(&implementing(Status::Idle, Gate::None), Some(&team("review", 2)), None, None, None), Some(Decision::Idle));
+        assert_eq!(decision(&implementing(Status::Working, Gate::None), Some(&team("review", 2)), None, None, None), None);
+    }
+
+    #[test]
+    fn the_tickets_ask_is_the_first_of_its_lead_or_its_workers() {
+        let pending = vec![shell("stranger", "ls"), Permission { request_id: "r2".into(), ..shell("w1", "make build") }, Permission { request_id: "r3".into(), ..shell("a1", "make") }];
+        assert_eq!(ticket_ask(&pending, "a1", Some(&running())).map(|p| p.request_id.as_str()), Some("r2"));
+        assert_eq!(ticket_ask(&pending, "a1", None).map(|p| p.request_id.as_str()), Some("r3"));
+        assert!(ticket_ask(&pending[..1], "a1", Some(&running())).is_none());
+    }
+
+    #[test]
+    fn the_ask_bar_names_who_wants_to_run_it() {
+        assert_eq!(ask_label("Worker t1"), "Worker t1 wants to run");
+        assert_eq!(ask_label("The lead"), "The lead wants to run");
     }
 
     #[test]

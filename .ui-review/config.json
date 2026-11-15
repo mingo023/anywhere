@@ -24,6 +24,16 @@
       "open": ["click Board in the sidebar", "pick Factory", "click the ticket at the Plan gate"],
       "capture": ["board", "factory-ticket-plan", "factory-ticket-activity"]
     },
+    "factory-ticket-ask": {
+      "files": ["packages/desktop/crates/pocket/src/factory/page.rs", "packages/desktop/crates/pocket/src/factory/bar.rs", "packages/desktop/crates/pocket/src/factory/workers.rs", "packages/desktop/crates/pocket/src/factory/tabs.rs", "packages/desktop/crates/pocket/src/team/plan.rs", "packages/desktop/crates/pocket/src/team/sheet.rs"],
+      "open": ["click Board in the sidebar", "pick Factory", "click the ticket whose worker asks to run a command"],
+      "capture": ["board", "factory-ticket-ask"]
+    },
+    "factory-ticket-idle": {
+      "files": ["packages/desktop/crates/pocket/src/factory/page.rs", "packages/desktop/crates/pocket/src/factory/bar.rs", "packages/desktop/crates/pocket/src/factory/workers.rs", "packages/desktop/crates/pocket/src/factory/tabs.rs"],
+      "open": ["click Board in the sidebar", "pick Factory", "click the ticket whose workers all handed back with no verdict from the lead"],
+      "capture": ["board", "factory-ticket-idle"]
+    },
     "factory-board-you": {
       "files": ["packages/desktop/crates/pocket/src/factory/station.rs", "packages/desktop/crates/pocket/src/board/tabs.rs"],
       "open": ["click Board in the sidebar", "pick Factory", "click the needs you chip"],

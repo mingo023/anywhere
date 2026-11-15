@@ -1,6 +1,6 @@
 //! The plan sheet: the lead's tasks as you'll start them.
 
-use super::plan::{Kept, branch, can_start};
+use super::plan::{Kept, branch, can_start, factory_workers, profile_shown};
 use super::{PROPOSED, plural};
 use crate::composer::model_menu::listed_name;
 use crate::models::{listed_agents, model_options};
@@ -133,9 +133,58 @@ impl Desktop {
             .pr(px(12.))
             .py(px(10.))
             .when(i > 0, |d| d.border_t(px(0.5)).border_color(HAIRLINE))
-            .child(div().flex().items_start().gap(px(12.)).child(num).child(main).child(self.agent_chip(t, cx)).child(remove))
+            .child(div().flex().items_start().gap(px(12.)).child(num).child(main).child(self.task_chip(lead, t, cx)).child(remove))
             // Under the title, across the chip's width too, so "+ Allow" follows the pills instead of wrapping early.
             .child(div().pl(px(32.)).child(self.allow_row(t, cx)))
+    }
+
+    /// A Factory lead's task picks a profile; any other task picks an agent and a model.
+    fn task_chip(&self, lead: &str, t: &Kept, cx: &mut Context<Self>) -> Div {
+        match factory_workers(&self.agents.board.tickets, lead, |folder| self.agents.factory_config(folder)) {
+            Some(workers) => self.profile_chip(t, &workers, cx),
+            None => self.agent_chip(t, cx),
+        }
+    }
+
+    /// The task's profile, by name; its menu lists every profile.
+    fn profile_chip(&self, t: &Kept, workers: &str, cx: &mut Context<Self>) -> Div {
+        let open = self.team.island.menu.as_deref() == Some(t.id.as_str());
+        let shown = profile_shown(t, workers).to_string();
+        let known = self.agents.profiles().iter().find(|p| p.id == shown);
+        let (name, provider) = known.map_or((shown.clone(), t.agent.clone()), |p| (p.name.clone(), p.provider.clone()));
+        let label = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name);
+        let task = t.id.clone();
+        let chip = picker(pill().child(provider_icon(&provider, 14., TEXT_2)).child(label), id(format!("team-profile:{}", t.id)), open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+            cx.stop_propagation();
+            this.team_toggle_menu(&task, cx);
+        }));
+        let menu = open.then(|| ui::dropdown_right(34., ui::menu_in("team-profile-menu-in", self.profile_menu(&t.id, &shown, cx))));
+        div().relative().flex_none().child(chip).children(menu)
+    }
+
+    /// Every profile, the one the task runs checked.
+    pub(crate) fn profile_menu(&self, task: &str, shown: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let profiles = self.agents.profiles().to_vec();
+        let (closes, task, shown, count) = (task.to_string(), task.to_string(), shown.to_string(), profiles.len());
+        let line = move |_: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
+            let (p, task) = (profiles[i].clone(), task.clone());
+            let row = ui::menu_pick(id(format!("team-profile:{task}:{i}")), provider_icon(&p.provider, 14., TEXT_2), &p.name, p.id == shown);
+            div().w_full().h(px(MENU_ROW)).child(row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.team_profile(&task, &p, cx))))
+        };
+        let list = pick_list("team-profiles", count, &self.team.menu_scroll, div().h(px((count as f32 * MENU_ROW).min(MENU_HEIGHT))), |list| list.size_full(), line, cx);
+        ui::pop(div().id("team-profile-menu"))
+            .w(px(260.))
+            .px(px(5.))
+            .pb(px(3.))
+            // Menus hang over the sheet; without this a click on one also lands on what it covers.
+            .occlude()
+            .child(list)
+            .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                if this.team.island.menu.as_deref() == Some(closes.as_str()) {
+                    this.team.island.menu = None;
+                    cx.notify();
+                }
+            }))
     }
 
     /// The task's agent and model; its menu picks both.
