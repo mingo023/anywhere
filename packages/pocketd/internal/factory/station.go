@@ -34,6 +34,8 @@ type Facts struct {
 	Team   *proto.Team
 	Spec   SpecState
 	Reply  Turn
+	// Advance is the user's Move to Checks anyway for a Ticket whose Team is in review.
+	Advance bool
 }
 
 const (
@@ -64,7 +66,7 @@ func Next(f Facts) (proto.Ticket, []Action) {
 	if t.State != proto.TicketLive || t.Station == "" || t.AgentID == "" {
 		return t, nil
 	}
-	if t.Station != proto.StationSpec && t.Station != proto.StationPlan {
+	if t.Station != proto.StationSpec && t.Station != proto.StationPlan && t.Station != proto.StationImplement {
 		return t, nil
 	}
 	if !f.Lead.Present {
@@ -73,8 +75,11 @@ func Next(f Facts) (proto.Ticket, []Action) {
 		t.AgentID, t.TerminalID = "", ""
 		return t, nil
 	}
-	if t.Station == proto.StationSpec {
+	switch t.Station {
+	case proto.StationSpec:
 		return spec(f)
+	case proto.StationImplement:
+		return implement(f), nil
 	}
 	return plan(f)
 }

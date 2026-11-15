@@ -2,6 +2,7 @@ package factory
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"pocketd/internal/proto"
+	"pocketd/internal/team"
 )
 
 // dir is where a Ticket's spec and activity are kept.
@@ -95,4 +98,57 @@ func (e *Engine) note(ticket string, ev proto.FactoryEvent) {
 		log.Printf("factory: ticket %s: %v", ticket, err)
 	}
 	e.tell(ticket)
+}
+
+// session names agentID in t's activity: the lead, or the worker of a task.
+func (e *Engine) session(agentID string, t proto.Ticket) string {
+	teams, _ := e.Teams.Store.List()
+	if _, task, ok := team.Find(teams, agentID); ok && agentID != t.AgentID {
+		return "worker:" + task.ID
+	}
+	return "lead"
+}
+
+// said notes one thing about a request of a Factory session. A request of any other session is not noted.
+func (e *Engine) said(req proto.PermissionRequest, kind string, you bool) {
+	if e == nil {
+		return
+	}
+	t, ok := e.owner(req.AgentID)
+	if !ok {
+		return
+	}
+	actor := "you"
+	if !you {
+		actor = e.session(req.AgentID, t)
+	}
+	e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: t.Station, Actor: actor, Kind: kind, Text: cmp.Or(req.Detail.Command, req.ToolName)})
+}
+
+// AutoAllowed notes a command the team plan's allowlist let through.
+func (e *Engine) AutoAllowed(req proto.PermissionRequest) { e.said(req, "autoAllowed", false) }
+
+// Asked is broker.Broker.OnAsk's: an Ask reached the user.
+func (e *Engine) Asked(req proto.PermissionRequest) { e.said(req, "asked", false) }
+
+// Resolved is broker.Broker.OnResolve's: the user's answer to an Ask.
+func (e *Engine) Resolved(req proto.PermissionRequest, decision string) {
+	kind := "denied"
+	if decision == "allow" {
+		kind = "allowed"
+	}
+	e.said(req, kind, true)
+}
+
+// Handback is team.Teams.OnHandback's: a worker handed its task back.
+func (e *Engine) Handback(lead string, task proto.TeamTask) {
+	if e == nil {
+		return
+	}
+	t, ok := e.led(lead)
+	if !ok {
+		return
+	}
+	first, _, _ := strings.Cut(strings.TrimSpace(task.Summary), "\n")
+	e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: t.Station, Actor: "worker:" + task.ID, Kind: "handback", Text: first})
 }

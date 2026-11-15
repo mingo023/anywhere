@@ -51,7 +51,9 @@ type Engine struct {
 	// mu guards specs and changed.
 	mu sync.Mutex
 	// specs is how far each Ticket at Spec got, and where its lead's timeline stood at the prompt.
-	specs   map[string]asked
+	specs map[string]asked
+	// advance holds the Tickets the user moved on from Implement, until Next has moved them. mu guards it.
+	advance map[string]bool
 	changed chan string
 	// recovered is set once the restored sessions are back, so a lead still resuming isn't taken for gone.
 	recovered atomic.Bool
@@ -106,12 +108,8 @@ func (e *Engine) Start(requestID string, t proto.Ticket, created func(cwd string
 	for _, skill := range res.Skipped {
 		e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: station, Actor: "lead", Kind: "skill", Text: skippedSkill(skill)})
 	}
-	if lead, err := e.Agents.Get(res.AgentID); err == nil {
-		// Claimed before the first prompt, so the spec request doesn't become the session's title.
-		if claim, ok := lead.ClaimNaming(); ok {
-			lead.SetNamed(claim, t.Title)
-		}
-	}
+	// Claimed before the first prompt, so the spec request doesn't become the session's title.
+	e.rename(t, res.AgentID)
 	e.mu.Lock()
 	delete(e.specs, t.ID)
 	e.mu.Unlock()
@@ -281,6 +279,7 @@ func (e *Engine) facts(t proto.Ticket, ev event) Facts {
 		return f
 	}
 	f.Lead = Session{Present: true, Turn: lead.Turn()}
+	f.Advance = e.advancing(t)
 	tm, found, err := e.Teams.Store.Get(t.AgentID)
 	if err != nil {
 		log.Printf("factory: ticket %s: %v", t.ID, err)

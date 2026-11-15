@@ -253,7 +253,7 @@ func Startable(t proto.Team) []proto.TeamTask {
 // allow followed by a space or the end, with no chaining, substitution or redirection. It may send its
 // errors to its output (2>&1) and pipe that into filters that only read, as workers do with their tests.
 func Allowed(allow []string, command string) bool {
-	command = unwrapped(command)
+	command = Unwrapped(command)
 	parts := strings.Split(command, "|")
 	if !slices.ContainsFunc(parts[1:], func(p string) bool { return !filter(p) }) {
 		command = strings.TrimSuffix(strings.TrimSpace(parts[0]), " 2>&1")
@@ -271,8 +271,8 @@ func Allowed(allow []string, command string) bool {
 	return false
 }
 
-// unwrapped is command without the login shell Codex runs it in (/bin/zsh -lc '…'), when its body is quoted whole.
-func unwrapped(command string) string {
+// Unwrapped is command without the login shell Codex runs it in (/bin/zsh -lc '…'), when its body is quoted whole.
+func Unwrapped(command string) string {
 	command = strings.TrimSpace(command)
 	shell, rest, ok := strings.Cut(command, " ")
 	if !ok || !slices.Contains([]string{"sh", "bash", "zsh"}, path.Base(shell)) {

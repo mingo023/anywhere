@@ -137,9 +137,103 @@ func TestALeadThatIsGoneFailsTheTicketAndLetsItStartAgain(t *testing.T) {
 }
 
 func TestATicketWithoutAStationOrPastPlanIsLeftAlone(t *testing.T) {
-	for _, x := range []proto.Ticket{at(""), at(proto.StationImplement), at(proto.StationChecks)} {
+	for _, x := range []proto.Ticket{at(""), at(proto.StationChecks)} {
 		if next, acts := Next(Facts{Ticket: x, Team: &proto.Team{State: "review"}}); !same(next, x) || len(acts) != 0 {
 			t.Fatalf("%q: got %+v %v", x.Station, next, kinds(acts))
 		}
+	}
+}
+
+func implementing(state string, tasks ...proto.TeamTask) *proto.Team {
+	return &proto.Team{Lead: "lead", State: state, Tasks: tasks}
+}
+
+func task(id, state string) proto.TeamTask { return proto.TeamTask{ID: id, State: state} }
+
+func TestATicketWhoseWorkersWorkReadsWorkingAtImplement(t *testing.T) {
+	next, acts := Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: implementing("running", task("t1", "running"), task("t2", "waiting"))})
+	if next.Station != proto.StationImplement || next.Status != proto.TicketWorking || next.Gate != "" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", next, kinds(acts))
+	}
+}
+
+func TestAWorkersAskPutsTheAskGateOnTheTicketAndAnAnswerLiftsIt(t *testing.T) {
+	asking := implementing("running", task("t1", "needsYou"), task("t2", "running"))
+	next, _ := Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: asking})
+	if next.Gate != proto.GateAsk || next.Status != proto.TicketNeedsYou || next.Station != proto.StationImplement {
+		t.Fatalf("while it asks: %+v", next)
+	}
+	again, _ := Next(Facts{Ticket: next, Lead: here, Team: implementing("running", task("t1", "running"), task("t2", "running"))})
+	if again.Gate != "" || again.Status != proto.TicketWorking {
+		t.Fatalf("after the answer: %+v", again)
+	}
+}
+
+func TestTheLeadsAskAtImplementIsAnAskToo(t *testing.T) {
+	for _, state := range []string{"running", "review"} {
+		next, _ := Next(Facts{Ticket: at(proto.StationImplement), Lead: Session{Present: true, Turn: "needsYou"}, Team: implementing(state, task("t1", "done"))})
+		if next.Gate != proto.GateAsk || next.Status != proto.TicketNeedsYou {
+			t.Fatalf("%s: %+v", state, next)
+		}
+	}
+}
+
+func TestAFailedOrStoppedTaskWithNoWorkerLeftFailsTheTicketWithItsReason(t *testing.T) {
+	broken := task("t1", "failed")
+	broken.Summary = "merge conflict in a.txt"
+	next, _ := Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: implementing("running", broken, task("t2", "waiting"))})
+	if next.Status != proto.TicketFailed || next.Why != "Task t1 failed: merge conflict in a.txt" || next.Station != proto.StationImplement {
+		t.Fatalf("failed: %+v", next)
+	}
+	next, _ = Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: implementing("running", task("t1", "done"), task("t2", "stopped"))})
+	if next.Status != proto.TicketFailed || next.Why != "Task t2 was stopped" {
+		t.Fatalf("stopped: %+v", next)
+	}
+	next, _ = Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: implementing("running", broken, task("t2", "running"))})
+	if next.Status != proto.TicketWorking {
+		t.Fatalf("another worker still works: %+v", next)
+	}
+}
+
+func TestWorkThatIsReadyMovesTheTicketToChecks(t *testing.T) {
+	ready := implementing("review", task("t1", "done"), task("t2", "done"))
+	ready.Ready = true
+	next, acts := Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: ready})
+	if next.Station != proto.StationChecks || next.Status != proto.TicketWorking || next.Gate != "" || len(acts) != 0 {
+		t.Fatalf("got %+v %v", next, kinds(acts))
+	}
+	again, _ := Next(Facts{Ticket: next, Lead: here, Team: ready})
+	if !same(again, next) {
+		t.Fatalf("a Ticket at Checks was moved: %+v", again)
+	}
+}
+
+func TestAReviewWithoutAVerdictReadsWorkingWhileTheLeadWorksAndIdleAfter(t *testing.T) {
+	review := implementing("review", task("t1", "done"))
+	next, _ := Next(Facts{Ticket: at(proto.StationImplement), Lead: Session{Present: true, Turn: "working"}, Team: review})
+	if next.Status != proto.TicketWorking || next.Station != proto.StationImplement {
+		t.Fatalf("while the lead reviews: %+v", next)
+	}
+	next, _ = Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: review})
+	if next.Status != proto.TicketIdle || next.Station != proto.StationImplement || next.Gate != "" {
+		t.Fatalf("after the lead stopped: %+v", next)
+	}
+	next, _ = Next(Facts{Ticket: next, Lead: here, Team: review, Advance: true})
+	if next.Station != proto.StationChecks || next.Status != proto.TicketWorking {
+		t.Fatalf("after Move to Checks anyway: %+v", next)
+	}
+}
+
+func TestAdvanceDoesNothingWhileWorkersStillWork(t *testing.T) {
+	next, _ := Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: implementing("running", task("t1", "running")), Advance: true})
+	if next.Station != proto.StationImplement {
+		t.Fatalf("got %+v", next)
+	}
+}
+
+func TestALeadThatIsGoneAtImplementFailsTheTicket(t *testing.T) {
+	next, _ := Next(Facts{Ticket: at(proto.StationImplement), Team: implementing("running", task("t1", "running"))})
+	if next.Status != proto.TicketFailed || next.Why != "The lead's session closed" || next.AgentID != "" {
+		t.Fatalf("got %+v", next)
 	}
 }

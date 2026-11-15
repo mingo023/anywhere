@@ -527,3 +527,18 @@ func TestAPlanMayNameAProfilePerTask(t *testing.T) {
 		t.Fatalf("%+v %v", tasks, err)
 	}
 }
+
+func TestStartRefusesAPickWhoseAllowlistHoldsACommandOnlyYouMayRun(t *testing.T) {
+	teams := &Teams{Refuse: func(allow []string) (string, bool) {
+		for _, p := range allow {
+			if p == "gh pr merge" {
+				return p, true
+			}
+		}
+		return "", false
+	}}
+	err := teams.Start(testLead, []proto.TaskPick{{ID: "t1", Agent: "claude", Allow: []string{"npm test"}}, {ID: "t2", Agent: "claude", Allow: []string{"gh pr merge"}}})
+	if err == nil || err.Error() != `Task t2 can't allow "gh pr merge": only you can run it` {
+		t.Fatalf("got %v", err)
+	}
+}

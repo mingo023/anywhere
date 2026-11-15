@@ -643,6 +643,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.factoryTicket(m)
 	case "factory.profile.list", "factory.profile.get", "factory.profile.save", "factory.profile.delete":
 		return c.profileVerb(m)
+	case "factory.advance":
+		return c.factoryAdvance(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")

@@ -223,7 +223,14 @@ func serve(sock, handed string) error {
 			teams.TurnEnded(id, ok)
 			fac.TurnEnded(id, ok)
 		}
-		d.Broker.Allow = teams.Allow
+		d.Broker.Allow = func(req proto.PermissionRequest) bool {
+			if fac.Never(req) || !teams.Allow(req) {
+				return false
+			}
+			fac.AutoAllowed(req)
+			return true
+		}
+		teams.Refuse = factory.RefusedPrefix
 	}
 	go teams.Run(ctx)
 	d.OnPrompt = l.Prompted
@@ -259,11 +266,19 @@ func serve(sock, handed string) error {
 			Launch: func(key, requestID string, s proto.LaunchSpec, created func(string)) launch.Result {
 				return l.Create(launch.Who{Owner: true, Key: key}, requestID, s, func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
 			}}
-		teams.OnChange = fac.TeamChanged
+		teams.OnChange, teams.OnHandback = fac.TeamChanged, fac.Handback
 		l.Profiles = fac.Prepare
 		teams.Profiles, teams.Workers = fac.Profile, fac.Workers
 		go fac.Run(ctx)
 	}
+	// notifier.Ask took the one OnAsk slot above. The Factory notes the Ask after it.
+	notify := d.Broker.OnAsk
+	d.Broker.OnAsk = func(req proto.PermissionRequest) {
+		notify(req)
+		fac.Asked(req)
+	}
+	d.Broker.OnResolve = fac.Resolved
+	d.Broker.Forever = func(req proto.PermissionRequest) bool { return fac.Runs(req.AgentID) }
 	boardScheduler := &board.Scheduler{Store: tickets, Now: time.Now, Watch: board.AgentWatcher(d.Agents), Limit: factoryConfigs.Limit, Owns: fac.Owns,
 		Start: func(requestID string, t proto.Ticket, created func(string)) launch.Result {
 			if fac.Owns(t) {

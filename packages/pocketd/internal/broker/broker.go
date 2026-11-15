@@ -37,6 +37,10 @@ type Broker struct {
 	// Allow is what Auto asks: true answers an ask allow without showing it
 	// to anyone. Set it before the first Ask.
 	Allow func(proto.PermissionRequest) bool
+	// Forever is whether a request waits for a person however long it takes; nil lets every request time out.
+	Forever func(proto.PermissionRequest) bool
+	// OnResolve runs after a person answered a request. A timeout isn't an answer.
+	OnResolve func(req proto.PermissionRequest, decision string)
 
 	mu   sync.Mutex
 	hub  *hub.Hub
@@ -77,14 +81,19 @@ func (b *Broker) Ask(ctx context.Context, req proto.PermissionRequest, key strin
 		b.OnAsk(p.req)
 	}
 
-	timer := time.NewTimer(Timeout)
-	defer timer.Stop()
+	// A nil channel never fires, so a request that waits forever has no timer.
+	var expired <-chan time.Time
+	if b.Forever == nil || !b.Forever(p.req) {
+		timer := time.NewTimer(Timeout)
+		defer timer.Stop()
+		expired = timer.C
+	}
 	select {
 	case d := <-p.answer:
 		return d
 	case <-ctx.Done():
 		return b.giveUp(p, "")
-	case <-timer.C:
+	case <-expired:
 		return b.giveUp(p, "deny")
 	}
 }
@@ -113,6 +122,9 @@ func (b *Broker) Resolve(requestID string, a Answer) bool {
 	p, ok := b.finish(requestID, a.Decision)
 	if ok {
 		p.answer <- a
+		if b.OnResolve != nil {
+			b.OnResolve(p.req, a.Decision)
+		}
 	}
 	return ok
 }
@@ -123,6 +135,9 @@ func (b *Broker) Dismiss(key, decision string) {
 	for _, id := range b.match(func(p *pending) bool { return p.key == key }) {
 		if p, ok := b.finish(id, decision); ok {
 			p.answer <- Answer{}
+			if b.OnResolve != nil {
+				b.OnResolve(p.req, decision)
+			}
 			return
 		}
 	}
@@ -130,7 +145,10 @@ func (b *Broker) Dismiss(key, decision string) {
 
 func (b *Broker) DenyAll(agentID string) {
 	for _, id := range b.match(func(p *pending) bool { return p.req.AgentID == agentID }) {
-		b.Resolve(id, Answer{Decision: "deny"})
+		// The agent closed. That is not the user's answer, so OnResolve isn't told.
+		if p, ok := b.finish(id, "deny"); ok {
+			p.answer <- Answer{Decision: "deny"}
+		}
 	}
 }
 

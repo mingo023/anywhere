@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -252,5 +253,45 @@ func TestAnAskTheAllowHookLeavesIsShownAsBefore(t *testing.T) {
 	b.Resolve(req.RequestID, Answer{Decision: "deny"})
 	if d := <-got; d != "deny" {
 		t.Fatalf("got %q", d)
+	}
+}
+
+func TestAnAskMarkedForeverOutlivesTheTimeoutAndReportsYourAnswer(t *testing.T) {
+	Timeout = 20 * time.Millisecond
+	defer func() { Timeout = 10 * time.Minute }()
+	b := New(hub.New())
+	b.Forever = func(req proto.PermissionRequest) bool { return req.AgentID == "a1" }
+	var resolved []string
+	b.OnResolve = func(req proto.PermissionRequest, decision string) {
+		resolved = append(resolved, req.AgentID+":"+decision)
+	}
+	got := ask(b, context.Background(), "a1", "k")
+	waitOpen(t, b, 1)
+	select {
+	case d := <-got:
+		t.Fatalf("the ask was answered %q with nobody there", d)
+	case <-time.After(100 * time.Millisecond):
+	}
+	b.Resolve(b.Open()[0].RequestID, Answer{Decision: "allow"})
+	if d := <-got; d != "allow" {
+		t.Fatalf("got %q", d)
+	}
+	if d := <-ask(b, context.Background(), "a2", "k2"); d != "deny" {
+		t.Fatalf("an ask of another session didn't time out: %q", d)
+	}
+	if !slices.Equal(resolved, []string{"a1:allow"}) {
+		t.Fatalf("reported %q", resolved)
+	}
+}
+
+func TestDenyingEverythingOfAClosedSessionIsNotYourAnswer(t *testing.T) {
+	b := New(hub.New())
+	var resolved []string
+	b.OnResolve = func(req proto.PermissionRequest, decision string) { resolved = append(resolved, decision) }
+	got := ask(b, context.Background(), "a1", "k")
+	waitOpen(t, b, 1)
+	b.DenyAll("a1")
+	if d := <-got; d != "deny" || len(resolved) != 0 {
+		t.Fatalf("got %q, reported %q", d, resolved)
 	}
 }

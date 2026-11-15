@@ -67,6 +67,13 @@ func (t *Teams) Start(lead string, picks []proto.TaskPick) error {
 	if t == nil {
 		return errOff
 	}
+	if t.Refuse != nil {
+		for _, p := range picks {
+			if prefix, refused := t.Refuse(p.Allow); refused {
+				return fmt.Errorf("Task %s can't allow %q: only you can run it", p.ID, prefix)
+			}
+		}
+	}
 	if _, err := t.leadCwd(lead); err != nil {
 		return err
 	}
@@ -202,6 +209,11 @@ func (t *Teams) handback(team proto.Team, task proto.TeamTask) {
 	}
 	if _, ok := t.change(team.Lead, func(tm proto.Team) (proto.Team, bool) { return Handed(tm, task.ID, turn, summary, stat) }); !ok {
 		return
+	}
+	if t.OnHandback != nil {
+		handed := task
+		handed.Summary, handed.Stat = summary, stat
+		t.OnHandback(team.Lead, handed)
 	}
 	t.tell(team.Lead, Handback(task, summary, stat))
 	t.pump(team.Lead)

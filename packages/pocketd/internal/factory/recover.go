@@ -16,6 +16,8 @@ func (e *Engine) Recover() {
 			continue
 		}
 		e.recall(t)
+		// A given name doesn't survive pocketd's restart.
+		e.rename(t, t.AgentID)
 		live = append(live, t.ID)
 	}
 	e.recovered.Store(true)

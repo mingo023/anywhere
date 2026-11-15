@@ -161,3 +161,12 @@ func TestAWorkerWithAProfileStartsWithItsPromptAndItsSkillsAndCommitsNeither(t *
 	// Fake claude prints the first line of the file its argv names.
 	h.WaitScreen(term, "system prompt: <anywhere_factory_rules>")
 }
+
+func TestMovingAnUnknownTicketToChecksIsRefusedByItsCode(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner("board.v1", "team.v1", "factory.v1")
+	o.Send(map[string]any{"type": "factory.advance", "id": "adv", "ticketId": "nope"})
+	if m := o.WaitFor("the reply", func(m Message) bool { return m.ID == "adv" }); m.Type != "error" || !strings.Contains(m.Raw, `"unknown_ticket"`) {
+		t.Fatalf("got %s", m.Raw)
+	}
+}

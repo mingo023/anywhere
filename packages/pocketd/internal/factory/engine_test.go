@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -395,5 +396,115 @@ func TestASkillAWorkersCheckoutAlreadyHadIsNotedUnderItsTask(t *testing.T) {
 	acts, _ := ReadActivity(w.home, x.ID)
 	if last := acts[len(acts)-1]; last.Kind != "skill" || last.Actor != "worker:t1" || last.Station != x.Station || last.Text != "Skill review was not copied: the checkout has its own" {
 		t.Fatalf("%+v", last)
+	}
+}
+
+// teamAt puts the lead's Team in state, changed by edit, and lets the engine see it.
+func (w *world) teamAt(state string, edit func(*proto.Team)) {
+	w.t.Helper()
+	tm, _, _ := w.teams.Store.Get(leadID)
+	tm.State = state
+	if edit != nil {
+		edit(&tm)
+	}
+	if err := w.teams.Store.Put(tm); err != nil {
+		w.t.Fatal(err)
+	}
+	w.e.TeamChanged(tm)
+	w.settle()
+}
+
+func allDone(tm *proto.Team) {
+	for i := range tm.Tasks {
+		tm.Tasks[i].State = "done"
+	}
+}
+
+func TestMoveToChecksAnywayMovesATicketWhoseLeadGaveNoVerdict(t *testing.T) {
+	w := newWorld(t)
+	x := w.gated()
+	w.teamAt("running", nil)
+	w.teamAt("review", allDone)
+	if g := w.got(x.ID); g.Station != proto.StationImplement || g.Status != proto.TicketIdle {
+		t.Fatalf("after the handbacks: %+v", g)
+	}
+	if err := w.e.Advance(x.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.settle()
+	if g := w.got(x.ID); g.Station != proto.StationChecks || g.Status != proto.TicketWorking {
+		t.Fatalf("after the move: %+v", g)
+	}
+	acts, _ := ReadActivity(w.home, x.ID)
+	if got := kindsOf(acts); !slices.Contains(got, "you:approved@implement") || got[len(got)-1] != "anywhere:moved@checks" {
+		t.Fatalf("activity %v", got)
+	}
+}
+
+func TestTheLeadsVerdictMovesTheTicketToChecksByItself(t *testing.T) {
+	w := newWorld(t)
+	x := w.gated()
+	w.teamAt("running", nil)
+	w.teamAt("review", func(tm *proto.Team) { allDone(tm); tm.Ready = true })
+	if g := w.got(x.ID); g.Station != proto.StationChecks || g.Status != proto.TicketWorking {
+		t.Fatalf("got %+v", g)
+	}
+}
+
+func TestMoveToChecksAnywayIsRefusedWhileWorkersWork(t *testing.T) {
+	w := newWorld(t)
+	x := w.gated()
+	w.teamAt("running", nil)
+	if err := w.e.Advance(x.ID); !errors.Is(err, ErrNotIdle) {
+		t.Fatalf("while workers work: %v", err)
+	}
+	if err := w.e.Advance("nope"); !errors.Is(err, board.ErrUnknown) {
+		t.Fatalf("an unknown ticket: %v", err)
+	}
+	var off *Engine
+	if err := off.Advance(x.ID); !errors.Is(err, ErrOff) {
+		t.Fatalf("no engine: %v", err)
+	}
+}
+
+func TestImplementWritesHandbacksAutoAllowedCommandsAndAskDecisionsToTheActivity(t *testing.T) {
+	w := newWorld(t)
+	x := w.gated()
+	w.teamAt("running", func(tm *proto.Team) { tm.Tasks[0].State, tm.Tasks[0].Worker = "running", "w1" })
+	shell := func(agent, command string) proto.PermissionRequest {
+		return proto.PermissionRequest{AgentID: agent, ToolName: "Bash", Detail: proto.ToolDetail{Kind: "shell", Command: command}}
+	}
+	w.e.AutoAllowed(shell("w1", "make test"))
+	w.e.Asked(shell("w1", "make build"))
+	w.e.Resolved(shell("w1", "make build"), "deny")
+	w.e.Asked(shell(leadID, "gh pr merge 7"))
+	w.e.Resolved(shell(leadID, "gh pr merge 7"), "allow")
+	w.e.Handback(leadID, proto.TeamTask{ID: "t1", Summary: "Wrote a.txt\nand its test"})
+	w.e.Asked(shell("stranger", "ls"))
+	acts, _ := ReadActivity(w.home, x.ID)
+	got := kindsOf(acts)
+	want := []string{"worker:t1:autoAllowed@implement", "worker:t1:asked@implement", "you:denied@implement", "lead:asked@implement", "you:allowed@implement", "worker:t1:handback@implement"}
+	if len(got) < len(want) || !slices.Equal(got[len(got)-len(want):], want) {
+		t.Fatalf("activity %v", got)
+	}
+	tail := acts[len(acts)-len(want):]
+	if tail[0].Text != "make test" || tail[2].Text != "make build" || tail[5].Text != "Wrote a.txt" {
+		t.Fatalf("texts %+v", tail)
+	}
+}
+
+func TestTheLeadsSessionIsNamedAfterTheTicketsKeyAndTitle(t *testing.T) {
+	w := newWorld(t)
+	x := w.started(true)
+	want := "REP-" + strconv.FormatInt(x.Number, 10) + " · Queue sends"
+	if got := w.lead().Summary().Title; x.Number == 0 || got != want {
+		t.Fatalf("the session is named %q, want %q", got, want)
+	}
+	w.e.Recover()
+	if got := w.lead().Summary().Title; got != want {
+		t.Fatalf("after a recover: %q", got)
+	}
+	if Title("", "Queue sends") != "Queue sends" {
+		t.Fatal("a Ticket without a key lost its title")
 	}
 }

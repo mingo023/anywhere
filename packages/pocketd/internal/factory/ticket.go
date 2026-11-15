@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -41,7 +42,7 @@ func (e *Engine) label(lead string) string {
 	if !ok {
 		return "A team's task"
 	}
-	if key := Key(e.Teams.Projects.Load().Name(t.Folder), t.Number); key != "" {
+	if key := Key(e.project(t.Folder), t.Number); key != "" {
 		return key
 	}
 	return strings.TrimSpace(t.Title)
@@ -79,5 +80,32 @@ func (e *Engine) Skipped(lead, task string, skills []string) {
 	}
 	for _, skill := range skills {
 		e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: t.Station, Actor: "worker:" + task, Kind: "skill", Text: skippedSkill(skill)})
+	}
+}
+
+// Title is a lead session's name: its Ticket's key, then its title.
+func Title(key, title string) string {
+	if key == "" {
+		return title
+	}
+	return key + " · " + title
+}
+
+// project is the name of the project in folder, as the desktop shows it.
+func (e *Engine) project(folder string) string {
+	if e.Teams == nil || e.Teams.Projects == nil {
+		return filepath.Base(folder)
+	}
+	return e.Teams.Projects.Load().Name(folder)
+}
+
+// rename names t's lead session for its Ticket, so a list of sessions reads as a list of Tickets.
+func (e *Engine) rename(t proto.Ticket, lead string) {
+	a, ok := e.lead(lead)
+	if !ok {
+		return
+	}
+	if claim, ok := a.ClaimNaming(); ok {
+		a.SetNamed(claim, Title(Key(e.project(t.Folder), t.Number), t.Title))
 	}
 }
