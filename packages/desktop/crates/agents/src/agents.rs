@@ -1254,6 +1254,11 @@ impl Outbox {
         self.send(json!({"type": "factory.advance", "id": factory_id(), "ticketId": ticket_id}));
     }
 
+    /// Sends a Ticket that failed at Checks back to its lead with `text`: one more attempt.
+    pub fn factory_hint(&self, ticket: &str, text: &str) {
+        self.send(json!({"type": "factory.hint", "id": factory_id(), "ticketId": ticket, "text": text}));
+    }
+
     /// Asks for every profile; `Event::FactoryProfiles` answers.
     pub fn profile_list(&self) {
         self.send(json!({"type": "factory.profile.list", "id": factory_id()}));
@@ -2525,6 +2530,20 @@ mod tests {
         out.factory_save("/app", &config);
         let ids: Vec<String> = rx.try_iter().map(|m| m["id"].as_str().unwrap().to_string()).collect();
         assert!(ids.len() == 2 && ids[0] != ids[1] && ids.iter().all(|id| id.starts_with(FACTORY)));
+    }
+
+    #[test]
+    fn a_factory_ticket_frame_carries_its_checks() {
+        let frame: Frame = serde_json::from_value(factory_golden!("server/factory_ticket_checks.json")).unwrap();
+        let Some(Event::FactoryTicket(d)) = factory_event(&frame) else { panic!("not a detail") };
+        assert_eq!(d.checks.len(), 2);
+        assert_eq!(d.checks[1], factory::Check { command: "cargo test".into(), exit: 101, output: "test result: FAILED. 41 passed; 1 failed\n".into(), attempt: 1, at: 1762900030000 });
+        assert!(!d.no_checks);
+    }
+
+    #[test]
+    fn factory_hint_sends_the_golden_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.factory_hint("t1", "Update the snapshot instead of the test.")), without_id(factory_golden!("client/factory_hint.json")));
     }
 
     #[test]

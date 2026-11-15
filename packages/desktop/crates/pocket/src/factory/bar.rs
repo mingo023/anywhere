@@ -1,4 +1,5 @@
 use super::page::Page;
+use crate::board::logic::ended;
 use crate::board::parts::{bar_button, start_kbd};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
@@ -24,6 +25,10 @@ pub(crate) enum Decision {
     Ask { command: String, worker: String },
     /// Every worker handed back and the lead stopped without a verdict.
     Idle,
+    /// The Ticket failed at Checks. `used` of `cap` auto-fix attempts are spent.
+    Failed { used: u8, cap: u8 },
+    /// The lead of a Spec or a Plan failed and is gone: Start again makes a new one.
+    Retry { why: String },
 }
 
 /// What the bar asks of `t`, if anything. Plans 5 and 6 read `pr` and `detail`.
@@ -33,6 +38,9 @@ pub(crate) fn decision(t: &Ticket, team: Option<&Team>, _pr: Option<&Pr>, ask: O
         // A question has its own dialog, in the session.
         Gate::Ask => ask.filter(|p| p.questions().is_empty()).map(|p| Decision::Ask { command: p.parts().1, worker: asker(p, team) }),
         _ if t.station == Station::Implement && t.status == Status::Idle => Some(Decision::Idle),
+        // The project's cap is not known here; page_decision fills it in.
+        _ if t.station == Station::Checks && t.status == Status::Failed => Some(Decision::Failed { used: t.fix, cap: t.fix }),
+        _ if matches!(t.station, Station::Spec | Station::Plan) && t.status == Status::Failed && ended(t) => Some(Decision::Retry { why: t.why.clone() }),
         _ => None,
     }
 }
@@ -59,6 +67,17 @@ pub(crate) fn change_note(typed: &str) -> Option<&str> {
     Some(typed.trim()).filter(|t| !t.is_empty())
 }
 
+pub(crate) fn retry_title(station: Station) -> &'static str {
+    match station {
+        Station::Plan => "The plan failed",
+        _ => "The spec failed",
+    }
+}
+
+pub(crate) fn hint_text(typed: &str) -> Option<&str> {
+    Some(typed.trim()).filter(|t| !t.is_empty())
+}
+
 pub(crate) fn ask_label(worker: &str) -> String {
     format!("{worker} wants to run")
 }
@@ -74,6 +93,7 @@ impl Desktop {
         let team = self.agents.team(&t.agent_id);
         decision(t, team, None, self.page_ask(t), self.agents.detail(&t.id)).map(|d| match d {
             Decision::Plan { kept } => Decision::Plan { kept: self.team.island.edits.get(&t.agent_id).map_or(kept, |e| e.tasks().len()) },
+            Decision::Failed { used, .. } => Decision::Failed { used, cap: self.agents.factory_config(&t.folder).map_or(used, |c| c.fix) },
             other => other,
         })
     }
@@ -132,6 +152,7 @@ impl Desktop {
                 self.team_answer(&request, Answer::Allow, cx);
                 true
             }
+            Some(Decision::Failed { .. }) => self.factory_send_hint(window, cx),
             _ => false,
         }
     }
@@ -141,6 +162,8 @@ impl Desktop {
             Decision::Plan { kept } => self.plan_bar(kept, page, cx),
             Decision::Ask { command, worker } => self.ask_bar(t, &command, &worker, cx)?,
             Decision::Idle => self.idle_bar(t, cx),
+            Decision::Failed { cap, .. } => self.failed_bar(t, cap, cx),
+            Decision::Retry { why } => self.retry_bar(t, &why, cx),
         };
         Some(ui::pop(div()).absolute().left(px(12.)).right(px(12.)).bottom(px(10.)).min_h(px(42.)).pl(px(14.)).pr(px(8.)).py(px(7.)).rounded(px(11.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_2).child(content))
     }
@@ -213,6 +236,76 @@ impl Desktop {
         div().flex_1().flex().items_center().gap(px(10.)).child(what).child(button)
     }
 
+    /// Failed at Checks: what failed and the attempts used, a hint for the lead, Close ticket and Send back with a hint.
+    fn failed_bar(&self, t: &Ticket, cap: u8, cx: &mut Context<Self>) -> Div {
+        let what = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(7.))
+            .child(div().size(px(6.)).rounded(px(3.)).bg(FAILED))
+            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Checks failed"))
+            .child(div().text_color(FAILED_TEXT).child(super::checks::attempt_line(t, cap)));
+        let field = div().flex_1().min_w(px(120.)).h(px(28.)).px(px(9.)).flex().items_center().rounded(px(7.)).bg(FILL_2).child(Input::new(&self.factory.hint).appearance(false).p_0().text_size(px(12.5)));
+        let can = hint_text(self.factory.hint.read(cx).value().as_ref()).is_some();
+        let ticket = t.id.clone();
+        let buttons = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .child(bar_button("factory-close", Variant::Ghost, None, "Close ticket").h(px(28.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.factory_close(&ticket, cx))))
+            .child(
+                bar_button("factory-hint", Variant::Primary, None, "Send back with a hint")
+                    .h(px(28.))
+                    .child(start_kbd())
+                    .when(!can, |b| b.opacity(0.5))
+                    .when(can, |b| b.on_click(cx.listener(|this, _: &ClickEvent, window, cx| _ = this.factory_send_hint(window, cx)))),
+            );
+        div().flex_1().flex().items_center().gap(px(10.)).child(what).child(field).child(buttons)
+    }
+
+    /// A Spec or a Plan failed and its lead is gone: say why, then Close ticket or Start again.
+    fn retry_bar(&self, t: &Ticket, why: &str, cx: &mut Context<Self>) -> Div {
+        let (close, start) = (t.id.clone(), t.id.clone());
+        let what = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(div().flex().items_center().gap(px(7.)).child(div().size(px(6.)).rounded(px(3.)).bg(FAILED)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(retry_title(t.station))))
+            .children((!why.is_empty()).then(|| div().pl(px(13.)).min_w_0().truncate().text_size(px(11.5)).text_color(TEXT_3).child(why.to_string())));
+        let buttons = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .child(bar_button("factory-close", Variant::Ghost, None, "Close ticket").h(px(28.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.factory_close(&close, cx))))
+            .child(bar_button("factory-start-again", Variant::Primary, None, "Start again").h(px(28.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.factory_start_again(&start, cx))));
+        div().flex_1().flex().items_center().gap(px(10.)).child(what).child(buttons)
+    }
+
+    /// Sends the typed hint to the page's lead; pocketd grants one more attempt.
+    pub(crate) fn factory_send_hint(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let typed = self.factory.hint.read(cx).value().to_string();
+        let Some(text) = hint_text(&typed) else { return false };
+        let Some(ticket) = self.factory.page.as_ref().map(|p| p.ticket.clone()) else { return false };
+        self.outbox.local.factory_hint(&ticket, text);
+        self.factory.hint.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+        true
+    }
+
+    fn factory_close(&mut self, ticket: &str, cx: &mut Context<Self>) {
+        self.outbox.local.board_close(ticket);
+        cx.notify();
+    }
+
+    fn factory_start_again(&mut self, ticket: &str, cx: &mut Context<Self>) {
+        self.outbox.local.board_start(ticket);
+        cx.notify();
+    }
+
     /// Denies `request`, with the typed words when there are any.
     pub(crate) fn factory_deny(&mut self, request: &str, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.factory.deny.read(cx).value().to_string();
@@ -233,7 +326,7 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     // A glob would bring in gpui's `test` attribute, which shadows the std one.
-    use super::{Decision, approve_label, ask_label, change_note, decision, summary, ticket_ask};
+    use super::{Decision, approve_label, ask_label, change_note, decision, hint_text, retry_title, summary, ticket_ask};
     use agents::tickets::{Gate, State, Station, Status, Ticket};
     use agents::{Detail as ToolDetail, Permission, Team, TeamTask};
 
@@ -309,6 +402,38 @@ mod tests {
         assert_eq!(decision(&gated(), Some(&team("planning", 3)), None, None, None), None);
         let working = Ticket { gate: Gate::None, status: Status::Working, ..gated() };
         assert_eq!(decision(&working, Some(&team("proposed", 3)), None, None, None), None);
+    }
+
+    #[test]
+    fn a_ticket_that_failed_at_checks_asks_for_a_hint() {
+        let t = Ticket { state: State::Live, station: Station::Checks, status: Status::Failed, fix: 2, agent_id: "a1".into(), ..Ticket::sample() };
+        assert_eq!(decision(&t, None, None, None, None), Some(Decision::Failed { used: 2, cap: 2 }));
+        assert_eq!(decision(&Ticket { status: Status::Working, ..t.clone() }, None, None, None, None), None);
+    }
+
+    #[test]
+    fn a_hint_needs_words() {
+        assert_eq!(hint_text("  Update the snapshot \n"), Some("Update the snapshot"));
+        assert_eq!(hint_text(" \n"), None);
+    }
+
+    #[test]
+    fn a_spec_or_a_plan_that_failed_with_its_lead_gone_offers_start_again() {
+        let failed = |station, agent: &str| Ticket { state: State::Live, station, status: Status::Failed, why: "The lead stopped".into(), agent_id: agent.into(), ..Ticket::sample() };
+        assert_eq!(decision(&failed(Station::Spec, ""), None, None, None, None), Some(Decision::Retry { why: "The lead stopped".into() }));
+        assert_eq!(decision(&failed(Station::Plan, ""), None, None, None, None), Some(Decision::Retry { why: "The lead stopped".into() }));
+    }
+
+    #[test]
+    fn start_again_waits_until_the_failed_lead_is_gone() {
+        let alive = Ticket { state: State::Live, station: Station::Plan, status: Status::Failed, agent_id: "a1".into(), ..Ticket::sample() };
+        assert_eq!(decision(&alive, None, None, None, None), None);
+    }
+
+    #[test]
+    fn the_retry_bar_names_what_failed() {
+        assert_eq!(retry_title(Station::Spec), "The spec failed");
+        assert_eq!(retry_title(Station::Plan), "The plan failed");
     }
 
     #[test]

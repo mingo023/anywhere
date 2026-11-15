@@ -1,5 +1,6 @@
 mod activity;
 pub(crate) mod bar;
+pub(crate) mod checks;
 pub(crate) mod page;
 mod spec;
 pub(crate) mod station;
@@ -13,8 +14,9 @@ use crate::desktop::chrome::Screen;
 use agents::Team;
 use agents::tickets::Ticket;
 use git::github::Pr;
-use gpui_kit::component::input::InputState;
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
+use std::collections::HashMap;
 use station::{COLUMNS, Column, Counts, Stations, arrange, counts};
 
 pub(crate) struct FactoryState {
@@ -32,12 +34,18 @@ pub(crate) struct FactoryState {
     pub(crate) changes: Entity<InputState>,
     /// Where the words of a deny are typed, for a request that takes them.
     pub(crate) deny: Entity<InputState>,
+    /// Where a hint for the lead of a Ticket that failed at Checks is typed.
+    pub(crate) hint: Entity<InputState>,
+    /// The tail of each ticket's failed command, cut when its detail arrived.
+    pub(crate) outputs: HashMap<String, checks::Output>,
 }
 
 impl FactoryState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let changes = cx.new(|cx| InputState::new(window, cx).placeholder("What should the lead change?"));
         let deny = cx.new(|cx| InputState::new(window, cx).placeholder("Tell it why (optional)"));
+        let hint = cx.new(|cx| InputState::new(window, cx).placeholder("Hint for the lead"));
+        let typed = cx.subscribe(&hint, |_: &mut Desktop, _, _: &InputEvent, cx| cx.notify());
         let desktop = cx.entity().downgrade();
         // Ahead of the keymap: the change request's field would take ⌘↵ first.
         let key = cx.intercept_keystrokes(move |ev, window, cx| {
@@ -46,8 +54,8 @@ impl FactoryState {
                 cx.stop_propagation();
             }
         });
-        let state = Self { columns: Default::default(), lists: COLUMNS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), open: Default::default(), scroll: ScrollHandle::new(), counts: Counts::default(), page: None, changes, deny };
-        (state, vec![key])
+        let state = Self { columns: Default::default(), lists: COLUMNS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), open: Default::default(), scroll: ScrollHandle::new(), counts: Counts::default(), page: None, changes, deny, hint, outputs: HashMap::new() };
+        (state, vec![key, typed])
     }
 
     pub(crate) fn regroup<'a>(&mut self, tickets: &[Ticket], filters: &Filters, team: impl Fn(&Ticket) -> Option<&'a Team>, pr: impl Fn(&Ticket) -> Option<&'a Pr>) {

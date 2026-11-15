@@ -140,6 +140,12 @@ impl Desktop {
         if let Event::FactoryUpdate(ticket) = &ev {
             self.factory_updated(ticket);
         }
+        if let Event::FactoryTicket(d) = &ev {
+            match crate::factory::checks::failed_output(&d.checks) {
+                Some(out) => _ = self.factory.outputs.insert(d.ticket_id.clone(), out),
+                None => _ = self.factory.outputs.remove(&d.ticket_id),
+            }
+        }
         let teamed = matches!(ev, Event::Team(_) | Event::Teams(_));
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
             return self.on_pair(ev, cx);

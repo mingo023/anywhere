@@ -30,6 +30,25 @@ pub struct Detail {
     pub spec: String,
     /// Oldest first.
     pub activity: Vec<Activity>,
+    /// The local commands of the newest commit, in the order they ran. A failure ends the list.
+    pub checks: Vec<Check>,
+    /// Checks passed with no local command and no GitHub check.
+    pub no_checks: bool,
+}
+
+/// One local command's run in the Checks station.
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Check {
+    pub command: String,
+    /// -1 when it ran too long or could not start.
+    pub exit: i32,
+    /// The last 64 KB.
+    pub output: String,
+    /// The auto-fix attempts used when it ran.
+    pub attempt: u32,
+    /// Unix ms.
+    pub at: i64,
 }
 
 #[derive(Deserialize, Clone, Debug, Default, PartialEq)]

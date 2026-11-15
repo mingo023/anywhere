@@ -155,6 +155,7 @@ pub(crate) fn note(t: &Ticket, team: Option<&Team>, pr: Option<&Pr>, ask: Option
             0 => "Ready to merge".to_string(),
             n => format!("Ready to merge · #{n}"),
         },
+        Gate::None if t.station == Station::Checks => return super::checks::checks_note(t),
         Gate::None if failed(t) && t.why.is_empty() => return Some(("Failed".to_string(), Tone::Failed)),
         Gate::None if failed(t) => return Some((format!("Failed · {}", t.why), Tone::Failed)),
         Gate::None => return None,
@@ -441,6 +442,14 @@ mod tests {
         let t = Ticket { station: Station::Checks, why: "cargo test failed twice".into(), ..live(Status::Failed) };
         assert_eq!(note(&t, None, None, None), Some(("Failed · cargo test failed twice".into(), Tone::Failed)));
         assert_eq!(note(&live(Status::Failed), None, None, None), Some(("Failed".into(), Tone::Failed)));
+    }
+
+    #[test]
+    fn a_card_at_checks_says_its_progress_then_only_what_failed() {
+        let t = Ticket { station: Station::Checks, why: "Checks · 2/3".into(), ..live(Status::Working) };
+        assert_eq!(note(&t, None, None, None), Some(("Checks · 2/3".into(), Tone::Dim)));
+        let failed = Ticket { station: Station::Checks, why: "cargo test · Auto-fix 2 of 2 used".into(), ..live(Status::Failed) };
+        assert_eq!(note(&failed, None, None, None), Some(("Failed · cargo test".into(), Tone::Failed)));
     }
 
     #[test]

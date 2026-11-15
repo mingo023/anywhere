@@ -88,6 +88,7 @@ impl Desktop {
         let head = div().flex().flex_col().gap(px(10.)).child(div().text_size(px(24.)).line_height(px(28.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(t.title.clone())).child(self.factory_status(&t, col)).child(self.factory_tabs(tab, cx));
         let body = match tab {
             Tab::Activity => self.factory_activity_tab(&t, cx).into_any_element(),
+            Tab::Checks => div().id("factory-checks").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_checks_tab(&t)).into_any_element(),
             Tab::Workers => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_workers_tab(&t)).into_any_element(),
             _ => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_spec_tab(&t, cx)).into_any_element(),
         };

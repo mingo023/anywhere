@@ -516,6 +516,8 @@ From `2026-11-12-light-factory-5-checks.md`.
 
 5. **Decisions, "Checks".** At the end, add: "Each commit of the Ticket's branch gets one record in `state/factory/<ticket>/checks/NNNN.json`. If GitHub reports no check 90 seconds after the push, the station passes on the local commands alone. Waiting for GitHub keeps the Ticket `working`, so it holds its slot."
 
+6. **Built (plan 5).** The engine closes the lead and clears `AgentID` when a Ticket fails at Spec or Plan, so Start again works at once. A lead's branch is named `<slug>-<req4>`. At Checks, `Next` runs `checksNext` (integrate, pull request, commands, GitHub checks, fix). `factory.hint` has the scope `Drive` (red-team probe `ws:factory.hint`). `factory.ticket` carries `checks` (the newest record's commands) and `noChecks`. The desktop's Checks tab reads the PR's checks from `Desktop.prs`; the failed bar is `Decision::Failed` (hint, Close ticket), and a Spec or Plan that failed with its lead gone gets `Decision::Retry` (Start again, Close ticket). A hint grants one attempt and does not add to `Ticket.Fix`.
+
 ### Light Factory 6: The Reviewer, the PR Review Gate and the Merge
 
 From `2026-11-12-light-factory-6-review.md`.

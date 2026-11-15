@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 279] = [
+const STEPS: [(&str, Step); 281] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -559,6 +559,8 @@ const STEPS: [(&str, Step); 279] = [
     ("factory-ticket-plan", show_factory_plan),
     ("factory-ticket-ask", |d, window, cx| show_factory_implement(d, "t18", "ios", ["done", RUNNING, WAITING], window, cx)),
     ("factory-ticket-idle", |d, window, cx| show_factory_implement(d, "t17", "hook", ["done"; 3], window, cx)),
+    ("factory-ticket-checks", show_factory_checks),
+    ("factory-hint-typed", |d, window, cx| d.factory.hint.update(cx, |s, cx| s.set_value("The test pastes two files, the fixture holds one", window, cx))),
     ("factory-ticket-activity", |d, _, cx| d.factory_tab(crate::factory::tabs::Tab::Activity, cx)),
     ("board-nomatch", |d, _, cx| {
         d.board.filters.query = "nothing is called this".into();
@@ -1277,7 +1279,34 @@ fn show_factory_plan(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desk
         ticket_id: "t15".into(),
         spec: "## Brief\nSplit desktop.json into one file per Settings section, so a bad value in one section no longer resets every setting. The old file is read once and then left alone.\n## Acceptance criteria\n- [ ] Each Settings section saves to its own file\n- [ ] A section that fails to parse falls back to its defaults alone\n- [ ] The first start after the update keeps every setting\n## Risks\n- None".into(),
         activity: vec![ev(30, Station::Spec), ev(24, Station::Plan)],
+        ..Default::default()
     };
+    d.on_agents(agents::Event::FactoryTicket(detail), window, cx);
+}
+
+/// `t20` failed at Checks, the fixture's two commands: `cargo test` failed after 2 of 2 auto-fixes, so clippy never ran. The PR's GitHub checks.
+fn show_factory_checks(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    let commands = ["cargo test", "cargo clippy --all-targets"];
+    let tree = "/tmp/wt/paste-files".to_string();
+    let run = |name: &str, outcome: Outcome| Check { name: name.into(), outcome, url: "https://github.com/acme/app/actions/runs/2".into() };
+    let pr = Pr {
+        number: 204,
+        title: "Paste files into the composer".into(),
+        url: "https://github.com/acme/app/pull/204".into(),
+        draft: true,
+        checks: Checks { passed: 2, failed: 0, pending: 1 },
+        runs: vec![run("build", Outcome::Passed), run("lint", Outcome::Passed), run("test (ubuntu)", Outcome::Pending)],
+        ..Pr::default()
+    };
+    let now = Instant::now();
+    d.prs.start(&tree, now);
+    d.prs.apply(tree, now, Ok(Some(pr)), now);
+    d.open_factory_ticket("t20", window, cx);
+    let mut output: String = (1..=44).map(|i| format!("   Compiling crate-{i:02} v0.1.0\n")).collect();
+    output.push_str("12 tests\ntest composer::paste_keeps_order ... ok\ntest composer::paste_two_files ... FAILED\n\nfailures:\n---- composer::paste_two_files stdout ----\nthread 'composer::paste_two_files' panicked at crates/composer/src/composer.rs:212:9:\nassertion `left == right` failed: left: 1, right: 2\n");
+    let at = crate::util::now_ms();
+    let check = |command: &str, exit: i32, output: &str| agents::factory::Check { command: command.into(), exit, output: output.into(), attempt: 2, at };
+    let detail = agents::factory::Detail { ticket_id: "t20".into(), checks: vec![check(commands[0], 101, &output)], ..Default::default() };
     d.on_agents(agents::Event::FactoryTicket(detail), window, cx);
 }
 

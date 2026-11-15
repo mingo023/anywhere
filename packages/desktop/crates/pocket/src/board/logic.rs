@@ -574,7 +574,7 @@ pub(crate) enum Action {
     Separator,
 }
 
-fn ended(t: &Ticket) -> bool {
+pub(crate) fn ended(t: &Ticket) -> bool {
     t.status == Status::Stopped || t.status == Status::Failed && t.agent_id.is_empty()
 }
 
