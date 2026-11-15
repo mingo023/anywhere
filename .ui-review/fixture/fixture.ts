@@ -295,6 +295,13 @@ const RUNS = [
   run("r8", "au4", "cancelled", 52 * 60, "Weekly, Monday 10:00", "Stopped before it finished.", 1),
 ];
 
+// Two Claude Code logins, so a chat shows its account chip; the built-in one is unlabelled, as most are.
+const usage = (session: number, week: number) => ({ session: { percent: session, resetsAt: now + 120 * MIN }, week: { percent: week, resetsAt: now + 4 * 1440 * MIN }, at: now });
+const ACCOUNTS = [
+  { id: "builtin", provider: "claude", email: "me@example.com", plan: "Max", signedIn: true, default: true, usage: usage(42, 72) },
+  { id: "work", provider: "claude", label: "Work", email: "work@example.com", plan: "Team", signedIn: true, usage: usage(100, 64) },
+];
+
 const ops = (c: Socket, first: Buffer) => {
   let buf = "";
   const read = (raw: Buffer) => {
@@ -304,6 +311,7 @@ const ops = (c: Socket, first: Buffer) => {
       const op = JSON.parse(line);
       const reply = (msg: object) => c.write(JSON.stringify(msg) + "\n");
       if (op.op === "list") reply({ ev: "terminals", items: sessions });
+      if (op.op === "accounts" || op.op === "accounts.usage") reply({ ev: "accounts", accounts: ACCOUNTS, autoSwitch: true });
       if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
     }
   };
@@ -481,7 +489,7 @@ Bun.serve({
         const tree = checkout?.new?.name ? join(`${project}.worktrees`, checkout.new.name) : project;
         mkdirSync(tree, { recursive: true });
         sessions.push({ id, cmd: provider, args: [], cwd: tree, local: checkout?.local ?? "" });
-        summaries.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: tree, provider, status: "working", pinned: false, createdAt: Date.now(), updatedAt: Date.now() });
+        summaries.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: tree, provider, status: "working", pinned: false, chatOnly: !!f.spec.chat, createdAt: Date.now(), updatedAt: Date.now() });
         ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd: tree, setup: false }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));

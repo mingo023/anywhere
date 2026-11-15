@@ -248,6 +248,11 @@ pub(crate) fn name(a: &Account) -> &str {
     [&a.label, &a.email].into_iter().find(|s| !s.is_empty()).map_or("Not signed in", String::as_str)
 }
 
+/// What an account is called where its email stays masked: its label, else its plan.
+pub(crate) fn alias(a: &Account) -> Option<&str> {
+    [&a.label, &a.plan].into_iter().find(|s| !s.is_empty()).map(String::as_str)
+}
+
 /// A built-in login nobody signed in to here.
 pub(crate) fn never_signed_in(a: &Account) -> bool {
     !a.signed_in && a.email.is_empty()
@@ -566,7 +571,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, back_at, checked, choices, default_of, device_code, on_page, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
+    use super::{Accounts, BUILT_IN, Tone, alias, back_at, checked, choices, default_of, device_code, on_page, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
     use std::collections::BTreeMap;
     use chrono::Utc;
     use daemon::Account;
@@ -590,6 +595,16 @@ mod tests {
         a.label = "Work".into();
         assert_eq!(name(&a), "Work");
         assert_eq!(name(&Account::default()), "Not signed in");
+    }
+
+    #[test]
+    fn a_masked_account_is_named_by_its_label_then_its_plan_never_its_email() {
+        let mut a = account("claude", "a");
+        assert_eq!(alias(&a), None);
+        a.plan = "Max".into();
+        assert_eq!(alias(&a), Some("Max"));
+        a.label = "Work".into();
+        assert_eq!(alias(&a), Some("Work"));
     }
 
     #[test]

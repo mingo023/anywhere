@@ -1,3 +1,4 @@
+mod email;
 mod switch;
 mod usage;
 
@@ -63,11 +64,11 @@ impl Desktop {
             .hover(|d| d.bg(FILL_2))
             .when(open, |d| d.bg(FILL_2))
             .child(provider_icon(&agent.provider, 12., TEXT_2))
-            .child(div().max_w(px(140.)).truncate().text_color(TEXT_2).child(accounts::name(a).to_string()))
+            .when(!a.label.is_empty(), |d| d.child(div().max_w(px(140.)).truncate().text_color(TEXT_2).child(a.label.clone())))
             .children(meter)
             .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                this.chats.composer.draft.menu = (!open).then_some(Menu::Usage { back: false });
+                this.chats.composer.draft.toggle_account();
                 cx.notify();
             }));
         let menu = open.then(|| self.chat_account_menu(agent, &host, a, cx));

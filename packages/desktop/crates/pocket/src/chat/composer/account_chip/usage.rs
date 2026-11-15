@@ -5,6 +5,7 @@ use crate::desktop::Desktop;
 use crate::util::now_ms;
 use agents::Summary;
 use daemon::Account;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
@@ -53,12 +54,20 @@ impl Desktop {
                     .child(div().text_size(px(12.)).text_color(TEXT_3).child(checked)),
             )
             .child(reload);
-        let who = [a.plan.clone(), a.email.clone()].into_iter().filter(|s| !s.is_empty() && s != accounts::name(a));
+        let label = match (accounts::alias(a), a.email.is_empty()) {
+            (None, _) => "In use:".to_string(),
+            (Some(who), true) => format!("In use: {who}"),
+            (Some(who), false) => format!("In use: {who} \u{b7}"),
+        };
         let in_use = div()
-            .truncate()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(4.))
             .text_size(px(12.5))
             .text_color(TEXT_2)
-            .child(format!("In use: {}", std::iter::once(accounts::name(a).to_string()).chain(who).collect::<Vec<_>>().join(" \u{b7} ")));
+            .child(div().flex_none().child(label))
+            .when(!a.email.is_empty(), |d| d.child(self.chat_account_email(a, 12.5, TEXT_2, cx)));
         let windows = a.usage.as_ref().into_iter().flat_map(|u| [("5-hour limit", &u.session), ("Weekly limit", &u.week)]).filter_map(|(t, w)| w.as_ref().map(|w| block(t, w, now)));
         let list = self.accounts.list(host);
         let more = accounts::choices(list, &agent.provider, &[]).filter(|x| x.id != a.id && x.signed_in).count();
