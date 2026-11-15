@@ -36,7 +36,20 @@ func newRig(t *testing.T, cfg proto.FactoryConfig) *rig {
 	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@t"} {
 		t.Setenv(k, v)
 	}
-	root, _ := filepath.EvalSymlinks(t.TempDir())
+	// gh and git may still be writing when the test ends, so the folder is removed by hand, with retries.
+	made, err := os.MkdirTemp("", "factory-checks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for range 50 {
+			if os.RemoveAll(made) == nil {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
+	root, _ := filepath.EvalSymlinks(made)
 	r := &rig{t: t, home: filepath.Join(root, "home"), project: filepath.Join(root, "app"), tree: filepath.Join(root, "app-fix"), fake: filepath.Join(root, "gh"), mail: make(chan string, 16)}
 	for _, d := range []string{r.home, r.project, r.fake} {
 		os.MkdirAll(d, 0o755)
@@ -92,8 +105,10 @@ func newRig(t *testing.T, cfg proto.FactoryConfig) *rig {
 		Env:    env,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go r.e.Run(ctx)
+	stopped := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-stopped })
+	go func() { r.e.Run(ctx); close(stopped) }()
+	t.Cleanup(func() { r.e.GitHub.Leave("factory") })
 	return r
 }
 
@@ -191,5 +206,166 @@ func TestAPushThatFailsFailsTheTicketWithoutAnAttempt(t *testing.T) {
 	got := r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
 	if got.Station != proto.StationChecks || got.Fix != 0 || !strings.HasPrefix(got.Why, "Couldn't open the pull request") {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// record is the Ticket's newest check record once ok holds.
+func (r *rig) record(what string, ok func(Record) bool) Record {
+	r.t.Helper()
+	for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if rec, has := ReadRecord(r.home, r.ticket); has && ok(rec) {
+			return rec
+		}
+	}
+	rec, _ := ReadRecord(r.home, r.ticket)
+	r.t.Fatalf("timed out waiting for %s: %+v", what, rec)
+	return Record{}
+}
+
+func TestTheCommandsRunInOrderInTheCheckoutAndTheirOutputIsSaved(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Checks: []string{"echo one > first.txt", "cat first.txt; pwd"}})
+	r.e.Recover()
+	rec := r.record("both commands", func(rec Record) bool { return rec.State == LocalPassed })
+	if rec.Total != 2 || len(rec.Checks) != 2 || rec.Checks[1].Exit != 0 || rec.Checks[1].Output != "one\n"+r.tree+"\n" || rec.Checks[1].Attempt != 0 || rec.Checks[1].At == 0 {
+		t.Fatalf("got %+v", rec)
+	}
+	if rec.Head != gitIn(t, r.tree, "rev-parse", "HEAD") {
+		t.Fatalf("the record is for %s", rec.Head)
+	}
+}
+
+func TestTheCommandsStopAtTheFirstFailureAndTheTicketFails(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Checks: []string{"true", "sh -c 'echo boom; exit 3'", "touch never.txt"}})
+	r.e.Recover()
+	got := r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	rec, _ := ReadRecord(r.home, r.ticket)
+	if got.Station != proto.StationChecks || !strings.HasPrefix(got.Why, "sh -c 'echo boom; exit 3'") || rec.State != LocalFailed || len(rec.Checks) != 2 || rec.Checks[1].Exit != 3 || rec.Checks[1].Output != "boom\n" {
+		t.Fatalf("got %+v\n%+v", got, rec)
+	}
+	if _, err := os.Stat(filepath.Join(r.tree, "never.txt")); err == nil {
+		t.Fatal("the command after the failure ran")
+	}
+	events, _ := ReadActivity(r.home, r.ticket)
+	var texts []string
+	for _, ev := range events {
+		if ev.Kind == "check" {
+			texts = append(texts, ev.Text)
+		}
+	}
+	if got := strings.Join(texts, " | "); !strings.HasSuffix(got, "Passed: true | Failed (exit 3): sh -c 'echo boom; exit 3'") {
+		t.Fatalf("activity: %s", got)
+	}
+}
+
+func TestACommandThatWasRunningWhenPocketdStoppedRunsAgain(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Checks: []string{"echo again >> ran.txt"}})
+	head := gitIn(t, r.tree, "rev-parse", "HEAD")
+	if err := WriteRecord(r.home, r.ticket, Record{Head: head, Pushed: time.Now().UnixMilli(), State: LocalRunning, Total: 1}, true); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Board.Update(r.ticket, func(x *proto.Ticket) { x.PR, x.Fix = 57, 1 })
+	r.e.Recover()
+	r.record("the command", func(rec Record) bool { return rec.State == LocalPassed })
+	if got := r.get(); got.Fix != 1 {
+		t.Fatalf("a restart changed the attempts: %+v", got)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(r.tree, "ran.txt")); string(raw) != "again\n" {
+		t.Fatalf("ran.txt: %q", raw)
+	}
+}
+
+// asked makes the PR cache ask gh again now. In production the poller asks every 30 seconds.
+func (r *rig) asked() {
+	r.t.Helper()
+	if err := r.e.GitHub.Push(context.Background(), r.tree); err != nil {
+		r.t.Fatal(err)
+	}
+	r.e.PRChanged(r.tree)
+}
+
+func TestATicketWhoseCommandsAndGitHubChecksPassMovesToPRReview(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Checks: []string{"true"}})
+	r.e.Recover()
+	got := r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+	if got.Status != proto.TicketWorking || got.Why != "" || got.PR != 57 || got.Fix != 0 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestAFailedGitHubCheckFailsTheTicket(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Checks: []string{"true"}})
+	r.view(`[{"__typename":"CheckRun","name":"e2e","status":"COMPLETED","conclusion":"FAILURE"}]`)
+	r.e.Recover()
+	got := r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	if got.Station != proto.StationChecks || !strings.HasPrefix(got.Why, "e2e") {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestPendingGitHubChecksHoldTheTicketUntilTheyPass(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{})
+	r.view(`[{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":""}]`)
+	r.e.Recover()
+	r.until("the wait", func(x proto.Ticket) bool { return x.Why == "GitHub checks · 0/1" && x.Status == proto.TicketWorking })
+	r.view(passedCI)
+	r.asked()
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+}
+
+func TestWithNoCommandsAndNoGitHubChecksTheTicketPassesAfterTheWait(t *testing.T) {
+	quietAfter = 300 * time.Millisecond
+	t.Cleanup(func() { quietAfter = 3 * github.WatchedEvery })
+	r := newRig(t, proto.FactoryConfig{})
+	r.view(`[]`)
+	r.e.Recover()
+	r.until("the wait", func(x proto.Ticket) bool { return x.Why == "Looking for GitHub checks" })
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+	if rec, _ := ReadRecord(r.home, r.ticket); !rec.Quiet || rec.State != LocalPassed || rec.Total != 0 {
+		t.Fatalf("got %+v", rec)
+	}
+}
+
+func TestAfterARestartTheWaitForGitHubCountsFromThePush(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{})
+	r.view(`[]`)
+	os.Remove(filepath.Join(r.fake, "nopr"))
+	head := gitIn(t, r.tree, "rev-parse", "HEAD")
+	pushed := time.Now().Add(-2 * quietAfter).UnixMilli()
+	if err := WriteRecord(r.home, r.ticket, Record{Head: head, Pushed: pushed, State: LocalPassed}, true); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Board.Update(r.ticket, func(x *proto.Ticket) { x.PR = 57 })
+	r.e.Recover()
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+}
+
+func TestTheTicketsDetailHoldsTheCommandsOfTheNewestRecord(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Checks: []string{"true", "sh -c 'echo boom; exit 3'"}})
+	r.e.Recover()
+	r.until("the failure", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	d, err := r.e.Detail(r.ticket)
+	if err != nil || len(d.Checks) != 2 || d.Checks[0].Command != "true" || d.Checks[1].Exit != 3 || d.Checks[1].Output != "boom\n" || d.NoChecks {
+		t.Fatalf("got %+v %v", d, err)
+	}
+}
+
+func TestATicketThatPassedWithNothingToRunSaysNoChecksRan(t *testing.T) {
+	quietAfter = 100 * time.Millisecond
+	t.Cleanup(func() { quietAfter = 3 * github.WatchedEvery })
+	r := newRig(t, proto.FactoryConfig{})
+	r.view(`[]`)
+	r.e.Recover()
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+	if d, _ := r.e.Detail(r.ticket); !d.NoChecks || len(d.Checks) != 0 {
+		t.Fatalf("got %+v", d)
+	}
+}
+
+func TestATicketWhoseGitHubChecksPassedDoesNotSayNoChecksRan(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{})
+	r.e.Recover()
+	r.until("PR review", func(x proto.Ticket) bool { return x.Station == proto.StationPR })
+	if d, _ := r.e.Detail(r.ticket); d.NoChecks {
+		t.Fatalf("got %+v", d)
 	}
 }

@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,11 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"pocketd/internal/atomicfile"
+	"pocketd/internal/github"
+	"pocketd/internal/hostop"
 	"pocketd/internal/proto"
 	"pocketd/internal/worktree"
 )
@@ -29,6 +33,7 @@ const (
 const (
 	ActIntegrate = "integrate"
 	ActOpenPR    = "openPR"
+	ActRunChecks = "runChecks"
 )
 
 // LocalChecks is what Checks knows about the commit in the lead's checkout.
@@ -137,12 +142,12 @@ func section(spec, heading string) string {
 // checksNext is Next for a Ticket at Checks. The table in docs/plans/2026-11-12-light-factory-5-checks.md
 // lists the rows in the order the stages below read them.
 func checksNext(f Facts) (proto.Ticket, []Action) {
-	for _, stage := range []func(*Facts) ([]Action, bool){faulted, integration, pullRequest} {
+	for _, stage := range []func(*Facts) ([]Action, bool){faulted, integration, pullRequest, commands} {
 		if acts, done := stage(&f); done {
 			return f.Ticket, acts
 		}
 	}
-	acts, _ := work(&f, "Draft PR open")
+	acts, _ := remote(&f)
 	return f.Ticket, acts
 }
 
@@ -189,6 +194,91 @@ func pullRequest(f *Facts) ([]Action, bool) {
 	return nil, false
 }
 
+// commands is rows 11 to 13.
+func commands(f *Facts) ([]Action, bool) {
+	switch f.Local.State {
+	case "":
+		return work(f, fmt.Sprintf("Checks · 0/%d", len(f.Config.Checks)), Action{Kind: ActRunChecks})
+	case LocalRunning:
+		return work(f, fmt.Sprintf("Checks · %d/%d", f.Local.Done, f.Local.Total))
+	case LocalFailed:
+		return broken(f, f.Local.Failed)
+	}
+	return nil, false
+}
+
+// remote is rows 14 to 21.
+func remote(f *Facts) ([]Action, bool) {
+	pr := f.PR
+	switch {
+	case pr == nil:
+		return work(f, "Asking GitHub")
+	case pr.State == "CLOSED":
+		return fail(f, "The pull request was closed")
+	case pr.State == "OPEN" && pr.Head != f.Local.Head:
+		return work(f, "Asking GitHub")
+	case pr.Mergeable == "CONFLICTING":
+		return broken(f, "Conflicts with "+pr.Base)
+	case pr.Checks.Failed > 0:
+		return broken(f, failedRun(pr))
+	case pr.Checks.Pending > 0:
+		return work(f, fmt.Sprintf("GitHub checks · %d/%d", pr.Checks.Passed, pr.Checks.Passed+pr.Checks.Failed+pr.Checks.Pending))
+	case len(pr.Runs) == 0 && !f.Local.Quiet:
+		return work(f, "Looking for GitHub checks")
+	}
+	f.Ticket.Station, f.Ticket.Hint = proto.StationPR, false
+	return work(f, "")
+}
+
+// failedRun is the name of pr's first failed check.
+func failedRun(pr *proto.PR) string {
+	for _, run := range pr.Runs {
+		if run.Outcome == "failed" {
+			return run.Name
+		}
+	}
+	return "GitHub checks"
+}
+
+// broken is a failed check named what.
+func broken(f *Facts, what string) ([]Action, bool) {
+	return fail(f, what)
+}
+
+// OutputLimit is how much of a check command's output is kept.
+const OutputLimit = 64 << 10
+
+// CheckLimit is how long one check command may run.
+const CheckLimit = 30 * time.Minute
+
+// Tail is the last limit bytes of out, from a line start when one is inside them.
+func Tail(out []byte, limit int) string {
+	if len(out) <= limit {
+		return string(out)
+	}
+	out = out[len(out)-limit:]
+	if i := bytes.IndexByte(out, '\n'); i >= 0 && i < len(out)-1 {
+		return string(out[i+1:])
+	}
+	for len(out) > 0 && !utf8.RuneStart(out[0]) {
+		out = out[1:]
+	}
+	return string(out)
+}
+
+// RunCheck runs command with sh in dir and returns its exit code and the end of its output. The code is -1 when
+// the command could not start, ran longer than limit, or ctx ended it.
+func RunCheck(ctx context.Context, env []string, dir, command string, limit time.Duration) (int, string) {
+	code, out, _, err := hostop.Run(ctx, env, dir, []string{"sh", "-c", "exec 2>&1\n" + command}, nil, limit)
+	switch {
+	case err != nil:
+		return -1, "Couldn't run the command: " + err.Error() + "\n"
+	case code == -1 && ctx.Err() == nil:
+		return -1, Tail(out, OutputLimit) + fmt.Sprintf("Stopped after %s.\n", limit)
+	}
+	return code, Tail(out, OutputLimit)
+}
+
 // later runs do on the engine's goroutine, after what is queued.
 func (e *Engine) later(do func()) { e.post(event{do: do}) }
 
@@ -225,6 +315,10 @@ func (e *Engine) local(t proto.Ticket) LocalChecks {
 		return LocalChecks{Head: rec.Head}
 	}
 	l := LocalChecks{Head: rec.Head, Pushed: rec.Pushed != 0, State: rec.State, Done: len(rec.Checks), Total: rec.Total, Fix: rec.Fix, Hint: rec.Hint != "", Same: rec.Same, Error: rec.Error, Quiet: rec.Quiet}
+	if l.State == LocalRunning && !e.flight[t.ID] {
+		// pocketd stopped while a command ran: run them again.
+		l.State, l.Done = "", 0
+	}
 	if n := len(rec.Checks); l.State == LocalFailed && n > 0 {
 		l.Failed = rec.Checks[n-1].Command
 	}
@@ -334,4 +428,150 @@ func (e *Engine) pushed(t proto.Ticket, head string, number int, err error) {
 	}
 	e.save(t.ID, rec, fresh)
 	e.post(event{ticket: t.ID})
+	if err == nil {
+		e.PRChanged(t.Worktree)
+	}
+}
+
+// runChecks runs the project's commands for the commit in t's checkout, one after another, and stops at the first
+// failure.
+func (e *Engine) runChecks(t proto.Ticket) {
+	if e.flight[t.ID] {
+		return
+	}
+	rec, fresh := e.current(t)
+	cmds := e.Configs.Get(t.Folder).Checks
+	rec.State, rec.Total, rec.Checks = LocalRunning, len(cmds), nil
+	if len(cmds) == 0 {
+		rec.State = LocalPassed
+		e.save(t.ID, rec, fresh)
+		e.post(event{ticket: t.ID})
+		return
+	}
+	e.save(t.ID, rec, fresh)
+	e.flight[t.ID] = true
+	head, run := rec.Head, e.ctx
+	go func() {
+		env := e.Env(t.Worktree)
+		for _, command := range cmds {
+			exit, output := RunCheck(run, env, t.Worktree, command, CheckLimit)
+			if run.Err() != nil {
+				// A result that arrives after pocketd began to stop is dropped: the record stays running, and the
+				// next start reads that as nothing having run.
+				return
+			}
+			check := proto.FactoryCheck{Command: command, Exit: exit, Output: output, Attempt: t.Fix, At: e.now().UnixMilli()}
+			e.later(func() { e.checked(t.ID, head, check) })
+			if exit != 0 {
+				break
+			}
+		}
+		e.later(func() {
+			delete(e.flight, t.ID)
+			e.post(event{ticket: t.ID})
+		})
+	}()
+}
+
+// checked takes one command's result for the commit head.
+func (e *Engine) checked(ticket, head string, c proto.FactoryCheck) {
+	rec, ok := ReadRecord(e.Home, ticket)
+	if !ok || rec.Head != head || rec.State != LocalRunning {
+		return
+	}
+	rec.Checks = append(rec.Checks, c)
+	text := "Passed: " + c.Command
+	switch {
+	case c.Exit != 0:
+		rec.State, text = LocalFailed, fmt.Sprintf("Failed (exit %d): %s", c.Exit, c.Command)
+	case len(rec.Checks) == rec.Total:
+		rec.State = LocalPassed
+	}
+	e.save(ticket, rec, false)
+	e.say(ticket, "anywhere", "check", text)
+	e.post(event{ticket: ticket})
+}
+
+// quietAfter is how long after a push GitHub has to report a check before the commit counts as having none.
+// GitHub creates the checks of a push within seconds, and the PR cache asks every 30 seconds: three polls.
+var quietAfter = 3 * github.WatchedEvery
+
+// PRChanged is github.Service.Listen's callback: the PR of tree changed. It reads the PR off the engine's
+// goroutine and queues it.
+func (e *Engine) PRChanged(tree string) {
+	if e == nil || e.GitHub == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		pr, _ := e.GitHub.PR(ctx, tree)
+		if pr == nil {
+			return
+		}
+		e.later(func() {
+			e.prs[tree] = pr
+			all, _ := e.Board.Snapshot()
+			for _, t := range all {
+				if t.State == proto.TicketLive && t.Station != "" && t.Worktree == tree {
+					e.post(event{ticket: t.ID})
+				}
+			}
+		})
+	}()
+}
+
+// watch keeps the PR cache polling the worktrees of the Tickets at Checks and PR review, and arms the wait for
+// GitHub's checks of each pushed commit.
+func (e *Engine) watch() {
+	if e.GitHub == nil {
+		return
+	}
+	all, _ := e.Board.Snapshot()
+	var trees []string
+	for _, t := range all {
+		if t.State != proto.TicketLive || t.Worktree == "" || (t.Station != proto.StationChecks && t.Station != proto.StationPR) {
+			continue
+		}
+		trees = append(trees, t.Worktree)
+		if rec, ok := ReadRecord(e.Home, t.ID); ok && t.Station == proto.StationChecks {
+			e.settle(t.ID, rec)
+		}
+	}
+	if slices.Equal(trees, e.watched) {
+		return
+	}
+	added := slices.DeleteFunc(slices.Clone(trees), func(tree string) bool { return slices.Contains(e.watched, tree) })
+	e.watched = trees
+	if len(trees) == 0 {
+		e.GitHub.Leave("factory")
+		return
+	}
+	e.GitHub.Listen("factory", e.PRChanged)
+	e.GitHub.Watch("factory", trees)
+	for _, tree := range added {
+		e.PRChanged(tree)
+	}
+}
+
+// settle arms the wait after which rec's commit, with no GitHub check, counts as having none.
+func (e *Engine) settle(ticket string, rec Record) {
+	if rec.Pushed == 0 || rec.Quiet || e.armed[ticket] == rec.Head {
+		return
+	}
+	e.armed[ticket] = rec.Head
+	head := rec.Head
+	wait := max(0, quietAfter-e.now().Sub(time.UnixMilli(rec.Pushed)))
+	time.AfterFunc(wait, func() { e.later(func() { e.quiet(ticket, head) }) })
+}
+
+// quiet marks the wait for GitHub's checks of the commit head as over.
+func (e *Engine) quiet(ticket, head string) {
+	rec, ok := ReadRecord(e.Home, ticket)
+	if !ok || rec.Head != head || rec.Quiet {
+		return
+	}
+	rec.Quiet = true
+	e.save(ticket, rec, false)
+	e.post(event{ticket: ticket})
 }

@@ -40,6 +40,14 @@ var factoryServerGolden = map[string]any{
 			{At: 1790000120000, Station: StationPlan, Actor: "you", Kind: "approved", Text: "2 workers"},
 		},
 	}),
+	"factory_ticket_checks": NewFactoryTicket("factory-9", FactoryTicket{
+		TicketID: "t1",
+		Activity: []FactoryEvent{{At: 1762900000000, Station: StationChecks, Actor: "anywhere", Kind: "check", Text: "Failed (exit 101): cargo test"}},
+		Checks: []FactoryCheck{
+			{Command: "cargo fmt --check", Exit: 0, Output: "", Attempt: 1, At: 1762900000000},
+			{Command: "cargo test", Exit: 101, Output: "test result: FAILED. 41 passed; 1 failed\n", Attempt: 1, At: 1762900030000},
+		},
+	}),
 	"factory_update": NewFactoryUpdate("t1"),
 }
 
@@ -192,5 +200,21 @@ func TestATicketWithNoActivitySendsAnEmptyList(t *testing.T) {
 	got, _ = json.Marshal(NewFactoryUpdate("t1"))
 	if string(got) != `{"type":"factory.update","ticketId":"t1"}` {
 		t.Fatalf("%s", got)
+	}
+}
+
+func TestTheChecksOfAFactoryTicketAreWhatTheServerWrites(t *testing.T) {
+	var frame struct {
+		Type   string        `json:"type"`
+		ID     string        `json:"id"`
+		Ticket FactoryTicket `json:"ticket"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(factoryGolden(t, "server", "factory_ticket_checks.json")))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&frame); err != nil {
+		t.Fatal(err)
+	}
+	if len(frame.Ticket.Checks) != 2 || frame.Ticket.Checks[1].Exit != 101 || frame.Ticket.Checks[1].Attempt != 1 || frame.Ticket.NoChecks {
+		t.Fatalf("got %+v", frame.Ticket)
 	}
 }

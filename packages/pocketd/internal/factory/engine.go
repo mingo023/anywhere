@@ -73,6 +73,10 @@ type Engine struct {
 	flight map[string]bool
 	// prs is the newest PR of each worktree.
 	prs map[string]*proto.PR
+	// watched is the worktrees the PR cache polls for the engine.
+	watched []string
+	// armed is, per Ticket, the commit whose wait for GitHub's checks is armed.
+	armed map[string]string
 }
 
 type asked struct {
@@ -217,7 +221,7 @@ func (e *Engine) Run(ctx context.Context) {
 func (e *Engine) drain(ctx context.Context) {
 	e.ctx = ctx
 	if e.flight == nil {
-		e.flight, e.prs = map[string]bool{}, map[string]*proto.PR{}
+		e.flight, e.prs, e.armed = map[string]bool{}, map[string]*proto.PR{}, map[string]string{}
 	}
 	for {
 		e.qmu.Lock()
@@ -234,6 +238,7 @@ func (e *Engine) drain(ctx context.Context) {
 			}
 			e.handle(ev)
 		}
+		e.watch()
 	}
 }
 
@@ -403,6 +408,8 @@ func (e *Engine) act(t proto.Ticket, a Action) bool {
 		e.integrate(t)
 	case ActOpenPR:
 		e.openPR(t)
+	case ActRunChecks:
+		e.runChecks(t)
 	}
 	return true
 }
@@ -506,6 +513,10 @@ func (e *Engine) Detail(ticket string) (proto.FactoryTicket, error) {
 		return out, err
 	}
 	out.Activity = append(out.Activity, acts...)
+	if rec, ok := ReadRecord(e.Home, ticket); ok {
+		out.Checks = rec.Checks
+		out.NoChecks = rec.State == LocalPassed && rec.Total == 0 && rec.Quiet
+	}
 	return out, nil
 }
 

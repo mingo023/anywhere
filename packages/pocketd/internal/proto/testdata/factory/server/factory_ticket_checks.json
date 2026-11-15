@@ -1,0 +1,32 @@
+{
+  "type": "factory.ticket",
+  "id": "factory-9",
+  "ticket": {
+    "ticketId": "t1",
+    "activity": [
+      {
+        "at": 1762900000000,
+        "station": "checks",
+        "actor": "anywhere",
+        "kind": "check",
+        "text": "Failed (exit 101): cargo test"
+      }
+    ],
+    "checks": [
+      {
+        "command": "cargo fmt --check",
+        "exit": 0,
+        "output": "",
+        "attempt": 1,
+        "at": 1762900000000
+      },
+      {
+        "command": "cargo test",
+        "exit": 101,
+        "output": "test result: FAILED. 41 passed; 1 failed\n",
+        "attempt": 1,
+        "at": 1762900030000
+      }
+    ]
+  }
+}

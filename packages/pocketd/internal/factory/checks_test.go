@@ -3,10 +3,14 @@
 package factory
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"pocketd/internal/proto"
 )
@@ -71,5 +75,75 @@ func TestATicketWithoutASpecHasOnlyItsKeyInThePRBody(t *testing.T) {
 func TestATicketWithoutAKeyOrASpecHasAnEmptyPRBody(t *testing.T) {
 	if got := PRBody("", ""); got != "" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAShortOutputIsKeptWhole(t *testing.T) {
+	if got := Tail([]byte("one\ntwo\n"), 64); got != "one\ntwo\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestALongOutputKeepsItsLastLinesFromALineStart(t *testing.T) {
+	out := strings.Repeat("0123456789\n", 10)
+	if got := Tail([]byte(out), 25); got != "0123456789\n0123456789\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestOneLineLongerThanTheLimitIsCutToValidText(t *testing.T) {
+	got := Tail([]byte(strings.Repeat("é", 100)), 15)
+	if !utf8.ValidString(got) || len(got) > 15 || len(got) < 13 {
+		t.Fatalf("got %q (%d bytes)", got, len(got))
+	}
+}
+
+var plain = []string{"PATH=/usr/bin:/bin", "GREETING=hello"}
+
+func TestACommandThatExitsZeroPasses(t *testing.T) {
+	if exit, out := RunCheck(context.Background(), plain, t.TempDir(), "true", time.Minute); exit != 0 || out != "" {
+		t.Fatalf("got %d %q", exit, out)
+	}
+}
+
+func TestACommandThatExitsOneFails(t *testing.T) {
+	if exit, _ := RunCheck(context.Background(), plain, t.TempDir(), "false", time.Minute); exit != 1 {
+		t.Fatalf("got %d", exit)
+	}
+}
+
+func TestACommandsExitCodeAndOutputAreKept(t *testing.T) {
+	exit, out := RunCheck(context.Background(), plain, t.TempDir(), "sh -c 'echo x; exit 3'", time.Minute)
+	if exit != 3 || out != "x\n" {
+		t.Fatalf("got %d %q", exit, out)
+	}
+}
+
+func TestStderrIsKeptWithStdoutInTheOrderWritten(t *testing.T) {
+	_, out := RunCheck(context.Background(), plain, t.TempDir(), "echo one; echo two >&2; echo three", time.Minute)
+	if out != "one\ntwo\nthree\n" {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestACommandRunsInTheCheckoutWithTheEnvironmentItIsGiven(t *testing.T) {
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	_, out := RunCheck(context.Background(), plain, dir, "pwd; echo $GREETING", time.Minute)
+	if out != dir+"\nhello\n" {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestACommandThatRunsTooLongIsStoppedAndFails(t *testing.T) {
+	exit, out := RunCheck(context.Background(), plain, t.TempDir(), "echo started; exec sleep 30", 200*time.Millisecond)
+	if exit != -1 || !strings.HasPrefix(out, "started\n") || !strings.HasSuffix(out, "Stopped after 200ms.\n") {
+		t.Fatalf("got %d %q", exit, out)
+	}
+}
+
+func TestOnlyTheEndOfALongOutputIsKept(t *testing.T) {
+	_, out := RunCheck(context.Background(), plain, t.TempDir(), "i=0; while [ $i -lt 9000 ]; do echo 0123456789; i=$((i+1)); done; echo last", time.Minute)
+	if len(out) > OutputLimit || !strings.HasSuffix(out, "0123456789\nlast\n") || !strings.HasPrefix(out, "0123456789\n") {
+		t.Fatalf("kept %d bytes", len(out))
 	}
 }
