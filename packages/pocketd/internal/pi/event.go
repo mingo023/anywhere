@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"pocketd/internal/teamrules"
 	"pocketd/internal/timeline"
 )
 
@@ -291,7 +290,7 @@ func (s *Session) echo(said string) {
 
 func (s *Session) user(said string) {
 	s.flush()
-	s.sink.Apply(timeline.Event{Kind: "user", Text: teamrules.Strip(said)})
+	s.sink.Apply(timeline.Event{Kind: "user", Text: said})
 }
 
 // chunk adds a delta to the block pi is writing, which drafts in the chat until it is whole.

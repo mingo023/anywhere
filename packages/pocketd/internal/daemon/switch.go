@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"pocketd/internal/accounts"
-	"pocketd/internal/agent"
 	"pocketd/internal/proto"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
@@ -87,14 +86,14 @@ func (d *Daemon) limitHit(pr *presence) {
 // between turns. An agent still settling switches once it has.
 func (d *Daemon) switchPending(pr *presence) {
 	id := pr.a.Summary().Switching
-	if id == "" || !d.settled(pr) || !movable(between(pr.a), summaryAccount(id)) || !d.resumable(pr) {
+	if id == "" || !d.settled(pr) || !movable(pr.a.Summary(), summaryAccount(id)) || !d.resumable(pr) {
 		return
 	}
 	pr.mu.Lock()
 	resend := pr.resend
 	pr.mu.Unlock()
 	// One that didn't move while it still could won't: the switch is dropped.
-	if d.move(pr, summaryAccount(id), resend) || d.settled(pr) && movable(between(pr.a), summaryAccount(id)) {
+	if d.move(pr, summaryAccount(id), resend) || d.settled(pr) && movable(pr.a.Summary(), summaryAccount(id)) {
 		pr.a.SetSwitching("")
 	}
 }
@@ -156,13 +155,6 @@ func restartable(s proto.AgentSummary) bool {
 	return idle && s.Attached && s.ProviderSessionID != ""
 }
 
-// between is a's summary with its turn as its status, so a wait for the user between turns doesn't hold a switch.
-func between(a *agent.Agent) proto.AgentSummary {
-	s := a.Summary()
-	s.Status = a.Turn()
-	return s
-}
-
 // move replaces pr's process with its provider resumed on account want, as
 // restart does.
 func (d *Daemon) move(pr *presence, want, resend string) bool {
@@ -197,7 +189,7 @@ func (d *Daemon) restart(pr *presence, edit func(*state.Terminal), ok func(proto
 		return false
 	}
 	// Resume did file IO: a prompt may have started a turn meanwhile.
-	if !ok(between(pr.a)) {
+	if !ok(pr.a.Summary()) {
 		return false
 	}
 	h := &hint{a: pr.a, saved: e, started: time.Now(), moved: true, resend: resend}

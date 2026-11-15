@@ -81,7 +81,7 @@ impl Desktop {
         let menu = RowMenu::Scratch(path.to_string());
         let trail = ui::row_trail(None, vec![self.row_menu_button(path, menu.clone(), cx)], self.row_menu.as_ref() == Some(&menu));
         let (key, to) = (path.to_string(), path.to_string());
-        ui::worktree_row(id(format!("aside-tree:{path}")), "folder", label, selected, mark, None)
+        ui::worktree_row(id(format!("aside-tree:{path}")), "folder", label, selected, mark)
             .pl(px(6.))
             .child(trail)
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {

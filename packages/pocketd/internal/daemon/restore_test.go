@@ -514,28 +514,6 @@ func TestTheFileKeepsWhoStartedTheAgent(t *testing.T) {
 	}
 }
 
-func TestTheFileKeepsTheSessionAnAgentWasStartedUnder(t *testing.T) {
-	d := newDaemon(t)
-	_, pr := claudeIn(t, d)
-	pr.a.SetParent("a-lead")
-	hookFrom(d, pr, sessionStart("s1", transcript(t, "hi")))
-	if e := d.Snapshot().Terminals[0]; e.Parent != "a-lead" {
-		t.Fatalf("entry = %+v", e)
-	}
-}
-
-func TestAnAgentComesBackUnderTheSessionItWasStartedUnder(t *testing.T) {
-	d := newDaemon(t)
-	resuming(d, "/bin/sh", "-c", "sleep 30")
-	saved := savedAgent(t.TempDir(), "claude")
-	saved.Terminals[0].Parent = "a-lead"
-	d.Restore(saved, "/bin/sh")
-	_, a := restoredIn(t, d)
-	if s := a.Summary(); s.Parent != "a-lead" {
-		t.Fatalf("parent = %q", s.Parent)
-	}
-}
-
 func TestTheFileKeepsWhetherTheUserStartedTheAgent(t *testing.T) {
 	d := newDaemon(t)
 	_, typed := claudeIn(t, d)

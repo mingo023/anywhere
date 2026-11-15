@@ -142,7 +142,6 @@ export const AgentSummary = Schema.Struct({
   switching: Schema.optional(Schema.String),
   chatOnly: Schema.optional(Schema.Boolean),
   goal: Schema.optional(Goal),
-  parent: Schema.optional(Schema.String),
   options: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
 });
 export type AgentSummary = typeof AgentSummary.Type;

@@ -39,4 +39,4 @@ Each feature file has an H1 title and one paragraph of user-visible behavior, th
 | `changes` | [Changes panel](./changes.md) | open-panel sub-feature, 2026-11-13 |
 | `settings` | [Settings](./settings.md) | open + toggle, 2026-11-13 |
 
-Not mapped yet: Board (`click` the sidebar's Board row, 12 seeded tickets), Automations (`cmd-shift-a`, 4 seeded automations and 8 runs), Inbox (sidebar bell, 3 needs-you), Explorer, terminal splits and tabs, team mode (`team` scenario), phone pairing.
+Not mapped yet: Board (`click` the sidebar's Board row, 12 seeded tickets), Automations (`cmd-shift-a`, 4 seeded automations and 8 runs), Inbox (sidebar bell, 3 needs-you), Explorer, terminal splits and tabs, phone pairing.

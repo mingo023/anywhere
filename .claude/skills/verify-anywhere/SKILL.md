@@ -49,7 +49,6 @@ Scenarios (fixture data):
 - `sessions`: five repos, `app-android` with six worktree sessions. "Fix stale terminal reveal" has 3 uncommitted files and an Allow-command prompt; a needs-you badge shows 3.
 - `worktrees`: like `sessions`, with extra sessions per worktree and a merged branch.
 - `chat`: one Claude session, "Refactor the transcript fold", with a full transcript.
-- `team`: a lead with two worker sessions.
 - `agents` and `agents-chat`: all ten providers installed.
 - `restored`: sessions after a pocketd restart (resumed, interrupted, failed).
 

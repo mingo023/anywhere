@@ -50,7 +50,6 @@ use crate::removal::Removals;
 use crate::renames::Renames;
 use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
-use crate::team::TeamUi;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use crate::terminals::link::Hint;
@@ -95,7 +94,6 @@ pub struct Desktop {
     pub(crate) diff: DiffState,
     pub(crate) chat: ChatComposer,
     pub(crate) chats: ChatState,
-    pub(crate) team: TeamUi,
     pub(crate) changes: ChangesState,
     pub(crate) compare: CompareState,
     pub(crate) prs: PullRequests,
@@ -149,7 +147,6 @@ impl Desktop {
         let (chips, chips_subs) = Chips::new(window, cx);
         let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (chats, chats_subs) = ChatState::new(window, cx);
-        let (team, team_subs) = TeamUi::new(window, cx);
         let regions = Regions::new(cx);
         let (changes, changes_subs) = ChangesState::new(window, cx);
         let (compare, compare_subs) = CompareState::new(window, cx);
@@ -194,7 +191,6 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(chats_subs);
-        _subs.extend(team_subs);
         _subs.extend(changes_subs);
         _subs.extend(compare_subs);
         _subs.extend(pr_subs);
@@ -232,7 +228,6 @@ impl Desktop {
             diff,
             chat,
             chats,
-            team,
             regions,
             changes,
             compare,
@@ -283,7 +278,6 @@ impl Desktop {
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
         let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
         self.show_tree(&tree);
-        self.sidebar.team_folds.reveal(id, |s| self.agents.get(s).map(|a| a.parent.clone()));
         self.side = Side::Sessions;
         let w = self.workspace(&tree);
         if let Some((pane, i)) = w.show_term(&term) {
@@ -469,7 +463,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.board.menu.is_some() || self.panels.menu.is_some() || self.panels.actions.is_some() || self.panels.top_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some() || self.team.island.menu_open() || self.open_in.menu.is_some() || self.activity.menu.is_some()
+        self.board.menu.is_some() || self.panels.menu.is_some() || self.panels.actions.is_some() || self.panels.top_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some() || self.open_in.menu.is_some() || self.activity.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -490,7 +484,6 @@ impl Desktop {
         self.explorer.close_menu();
         self.terminal.menu = None;
         self.chats.files = None;
-        self.team.island.close_menus();
         self.open_in.menu = None;
         open
     }

@@ -1,4 +1,3 @@
-pub(crate) mod add_menu;
 pub(crate) mod effort_menu;
 pub(crate) mod element_card;
 pub(crate) mod elements;
@@ -7,12 +6,11 @@ pub(crate) mod launch;
 pub(crate) mod model_menu;
 pub(crate) mod pills;
 pub(crate) mod rich;
-pub(crate) mod team_chip;
 
+use crate::chat::composer::attachments::attach_button;
 use crate::chat::composer::suggest::Suggest;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
-use agents::providers::{self, Transport};
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -23,7 +21,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use store::LaunchPick;
 use theme::*;
-use add_menu::Opens;
 
 /// Where a composer lives in `Desktop`, so its listeners can reach it.
 pub(crate) type Slot = fn(&mut Desktop) -> &mut Composer;
@@ -59,8 +56,6 @@ pub(crate) enum Menu {
     Usage { back: bool },
     /// The chat's account popover on the accounts to switch to.
     Switch,
-    /// The "+" button's: Attach files, and Team.
-    Add,
     /// The chat's goal, opened from its pill.
     Goal,
 }
@@ -84,8 +79,6 @@ pub(crate) struct Draft {
     pub(crate) files: Vec<PathBuf>,
     /// Elements picked on a browser page, numbered by their place here.
     pub(crate) elements: Vec<web::Element>,
-    /// The Team chip: the next send asks the agent for a team plan.
-    pub(crate) team: bool,
 }
 
 /// A pasted or dropped image and the file the agent reads it from.
@@ -124,11 +117,6 @@ impl Draft {
         (self.scroll, self.rail) = Default::default();
         self.effort = Default::default();
         self.menu.is_some()
-    }
-
-    /// The "+" menu's Team row: sets the Team chip, or takes it off, and closes the menu.
-    pub(crate) fn toggle_team(&mut self) {
-        (self.team, self.menu) = (!self.team, None);
     }
 
     /// Esc on the chat's account popover: its accounts go back to its usage, its usage closes. False while it isn't open.
@@ -246,18 +234,6 @@ fn split_block<'a>(prompt: &'a str, title: &str) -> (&'a str, Vec<&'a str>) {
     match paths {
         Some(paths) if !paths.is_empty() => (&prompt[..end], paths),
         _ => (prompt, Vec::new()),
-    }
-}
-
-/// A team's lead plans in a chat pocketd drives over Claude's or Codex's transport; `served` is `Agents::teams_offered`.
-pub(crate) fn team_offered(served: bool, chat: bool, provider: &str) -> bool {
-    served && chat && providers::get(provider).is_some_and(|b| matches!(b.transport, Transport::Claude | Transport::Codex))
-}
-
-/// Has a create's first prompt ask for a team plan, when `team` is set and the session the spec starts can lead one.
-pub(crate) fn ask_team(spec: &mut serde_json::Value, team: bool, served: bool) {
-    if team && team_offered(served, spec["chat"] == true, spec["provider"].as_str().unwrap_or_default()) {
-        spec["team"] = true.into();
     }
 }
 
@@ -439,7 +415,6 @@ impl Desktop {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, typing: bool, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, send: Stateful<Div>, cx: &mut Context<Self>) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
-        let team = team_offered(self.agents.teams_offered(), self.store.agents.starts_as_chat(&pick.provider), &pick.provider).then_some(c.draft.team);
         let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let remove = |id: ElementId, take: fn(&mut Draft, usize), i: usize| {
             div()
@@ -481,10 +456,9 @@ impl Desktop {
         let bar = prompt_bar()
             .child(self.model_pill(c, &pick, project.clone(), cx))
             .child(self.access_chip(c, &pick, project, cx))
-            .children((team == Some(true)).then(|| team_chip::team_chip("composer-team-remove", move |this, _, _| slot(this).draft.team = false, cx)))
             .child(div().flex_1())
             .children(trailing)
-            .child(add_menu::add_button("composer-add", c.draft.menu == Some(Menu::Add), team, Opens::Down, move |d| &mut slot(d).draft, move |this, _, cx| this.toggle_composer(slot, Menu::Add, cx), cx))
+            .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
             .child(send);
         // The search takes the keys while the model panel is open; closing it would leave them nowhere.
         let handoff = (c.draft.menu != Some(Menu::Model)).then(|| hand_focus(vec![c.search.read(cx).focus_handle(cx)], c.prompt.read(cx).focus_handle(cx)));
@@ -584,8 +558,7 @@ pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<
 
 #[cfg(test)]
 mod tests {
-    use super::{Attachment, Draft, Menu, Pasted, Sent, ask_team, attachment_path, copied_files, pasted, pasted_image, pasted_path, save_private, split_attachments, team_offered};
-    use serde_json::json;
+    use super::{Attachment, Draft, Menu, Pasted, Sent, attachment_path, copied_files, pasted, pasted_image, pasted_path, save_private, split_attachments};
     use gpui_kit::{ClipboardEntry, ClipboardItem, ClipboardString, ExternalPaths, Image, ImageFormat};
     use store::LaunchPick;
 
@@ -786,43 +759,6 @@ mod tests {
         assert_eq!(split_attachments(&both.prompt("Fix CI")), Sent { text: "Fix CI", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec!["/h/a.png"], elements: vec![] });
         let only = Draft { files, ..Draft::default() };
         assert_eq!(split_attachments(&only.prompt("")), Sent { text: "", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec![], elements: vec![] });
-    }
-
-    #[test]
-    fn the_add_menus_team_row_sets_the_chip_and_closes_the_menu_and_a_sent_draft_drops_it() {
-        let mut draft = Draft::default();
-        assert!(draft.toggle(Menu::Add));
-        draft.toggle_team();
-        assert!(draft.team && draft.menu.is_none());
-        draft.toggle(Menu::Add);
-        draft.toggle_team();
-        assert!(!draft.team, "picked again, it comes off");
-        draft.toggle_team();
-        draft.clear();
-        assert!(!draft.team, "the next draft starts without it");
-    }
-
-    #[test]
-    fn team_is_offered_only_to_a_chat_claude_or_codex_drives_on_a_pocketd_that_serves_teams() {
-        assert!(team_offered(true, true, "claude"));
-        assert!(team_offered(true, true, "codex"));
-        assert!(!team_offered(false, true, "claude"), "pocketd doesn't advertise team.v1");
-        assert!(!team_offered(true, false, "claude"), "a terminal session can't lead");
-        assert!(!team_offered(true, true, "opencode"), "only Claude and Codex lead teams");
-        assert!(!team_offered(true, true, "gemini"), "a provider this build doesn't know");
-    }
-
-    #[test]
-    fn a_create_asks_for_a_team_only_when_the_chip_is_set_on_a_chat_that_can_lead() {
-        let ask = |mut spec: serde_json::Value, team: bool, served: bool| {
-            ask_team(&mut spec, team, served);
-            spec.get("team").cloned()
-        };
-        assert_eq!(ask(json!({"provider": "claude", "chat": true}), true, true), Some(json!(true)));
-        assert_eq!(ask(json!({"provider": "codex", "chat": true}), true, true), Some(json!(true)));
-        assert_eq!(ask(json!({"provider": "claude"}), true, true), None);
-        assert_eq!(ask(json!({"provider": "claude", "chat": true}), false, true), None);
-        assert_eq!(ask(json!({"provider": "claude", "chat": true}), true, false), None);
     }
 
     fn element(url: &str, text: &str, html: &str) -> web::Element {

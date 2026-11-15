@@ -35,7 +35,6 @@ mod settings;
 mod sidebar;
 mod status;
 mod syntax;
-mod team;
 mod terminal_view;
 mod terminals;
 mod updates;

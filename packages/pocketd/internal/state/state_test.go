@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -23,6 +24,19 @@ func TestWhatIsSavedLoadsBackUnchanged(t *testing.T) {
 	}
 	got, err := Load(path)
 	if err != nil || !reflect.DeepEqual(got, sample()) {
+		t.Fatalf("Load = %+v, %v", got, err)
+	}
+}
+
+func TestASavedTerminalWithAKeyThisPocketdDroppedStillLoads(t *testing.T) {
+	path := Path(t.TempDir())
+	os.MkdirAll(filepath.Dir(path), 0o700)
+	raw := `{"version":` + strconv.Itoa(Version) + `,"terminals":[{"terminalId":"t1","launchDir":"/w","cols":100,"rows":30,"parent":"a0"}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil || len(got.Terminals) != 1 || got.Terminals[0].TerminalID != "t1" {
 		t.Fatalf("Load = %+v, %v", got, err)
 	}
 }

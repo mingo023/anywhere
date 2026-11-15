@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -55,7 +56,6 @@ var serverGolden = map[string]any{
 	"agent_update_switching":       NewAgentUpdate(with(func(s *AgentSummary) { s.Account = "3f9a0c1b2d4e"; s.Switching = "builtin" })),
 	"agent_update_resets":          NewAgentUpdate(with(func(s *AgentSummary) { s.Resets, s.ProviderSessionID = 1, "s2" })),
 	"agent_update_chat_only":       NewAgentUpdate(with(func(s *AgentSummary) { s.ChatOnly = true })),
-	"agent_update_parent":          NewAgentUpdate(with(func(s *AgentSummary) { s.Parent = "a0" })),
 	"agent_update_goal": NewAgentUpdate(with(func(s *AgentSummary) {
 		s.Status, s.Goal = "working", Goal{Objective: "tests pass", Status: "active", TokensUsed: 16510, TokenBudget: 50000}
 	})),
@@ -143,14 +143,6 @@ var serverGolden = map[string]any{
 	"naming_failed":    NewNamingFailed("a1"),
 	"local_list":       NewLocalList([]Local{{ID: "l1", Project: "/Users/me/dev/pocket", Name: "Local 2"}}),
 	"local_list_empty": NewLocalList(nil),
-	"team_update": NewTeamUpdate(Team{Lead: "a1", State: "proposed", UpdatedAt: 1790000000000, Tasks: []TeamTask{
-		{ID: "t1", Title: "Add truncate", Agent: "claude", Files: []string{"src/truncate.js", "test/truncate.test.js"}, After: []string{}, Allow: []string{"npm test"},
-			Instructions: "Write truncate(text, n) and its test", State: "planned"},
-		{ID: "t2", Title: "Export truncate", Agent: "codex", Model: "gpt-6.1-sol", Files: []string{"src/index.js"}, After: []string{"t1"},
-			Instructions: "Export truncate from src/index.js", State: "planned"},
-	}}),
-	"team_list":       NewTeamList("tl1", []Team{{Lead: "a2", State: "failed", Error: "a plan needs 2 to 4 tasks, not 1", Repaired: true, UpdatedAt: 1790000000000}}),
-	"team_list_empty": NewTeamList("tl1", nil),
 }
 
 func helloOKHost() HelloOK {
@@ -284,16 +276,6 @@ func TestDecodeClientRejects(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","local":"l1"},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":"/x"},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":""},"provider":"claude","access":"ask","plan":false}}`,
-		`{"type":"team.start","id":"1","lead":"a1"}`,
-		`{"type":"team.start","id":"1","tasks":[]}`,
-		`{"type":"team.start","id":"1","lead":"a1","tasks":null}`,
-		`{"type":"team.start","id":"1","lead":"a1","tasks":[{"id":"t1"}]}`,
-		`{"type":"team.start","id":"1","lead":"a1","tasks":[{"id":"t1","agent":"claude","files":["x"]}]}`,
-		`{"type":"team.start","id":"1","lead":"a1","tasks":[{"id":"t1","agent":"claude","allow":"npm test"}]}`,
-		`{"type":"team.start","id":"1","lead":"a1","tasks":[{"id":"t1","agent":"claude","model":null}]}`,
-		`{"type":"team.stop","id":"1","lead":"a1"}`,
-		`{"type":"team.stop","id":"1","task":"t1"}`,
-		`{"type":"team.merge","id":"1"}`,
 		`null`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
@@ -323,7 +305,6 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"local":"Az09_-"},"provider":"claude","access":"ask","plan":false}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"new":{"name":"n","base":"main","autoName":true}},"provider":"claude","access":"ask","plan":false,"prompt":"x"}}`,
 		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w","autoName":true},"provider":"claude","access":"ask","plan":false,"prompt":"x"}}`,
-		`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,"chat":true,"parent":"a1"}}`,
 	} {
 		if _, err := DecodeClient([]byte(raw)); err != nil {
 			t.Errorf("%s: %v", raw, err)
@@ -331,9 +312,30 @@ func TestDecodeClientAcceptsWhatTheSchemaAccepts(t *testing.T) {
 	}
 }
 
-func TestASpecNamesTheSessionItStartsUnder(t *testing.T) {
-	m, err := DecodeClient([]byte(`{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,"parent":"a1"}}`))
-	if err != nil || m.Spec.Parent != "a1" {
-		t.Fatalf("spec = %+v, %v", m.Spec, err)
+func TestTeamVerbsAreUnknown(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"team.list","id":"1"}`,
+		`{"type":"team.start","id":"1","lead":"a1","tasks":[]}`,
+		`{"type":"team.stop","id":"1","lead":"a1","task":"t1"}`,
+		`{"type":"team.merge","id":"1","lead":"a1"}`,
+	} {
+		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
+			t.Errorf("%s: err = %v, want ErrMalformed", raw, err)
+		}
+	}
+}
+
+func TestASpecCannotNameATeamOrParent(t *testing.T) {
+	for _, extra := range []string{`"team":true`, `"parent":"x"`} {
+		raw := `{"type":"agent.create","id":"1","requestId":"r","spec":{"project":"/p","checkout":{"worktree":"/w"},"provider":"claude","access":"ask","plan":false,` + extra + `}}`
+		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
+			t.Errorf("%s: err = %v, want ErrMalformed", extra, err)
+		}
+	}
+}
+
+func TestServerCapsLackTeam(t *testing.T) {
+	if slices.Contains(ServerCaps, "team.v1") {
+		t.Fatalf("ServerCaps = %v", ServerCaps)
 	}
 }

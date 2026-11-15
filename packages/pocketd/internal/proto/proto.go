@@ -230,8 +230,6 @@ type AgentSummary struct {
 	ChatOnly bool `json:"chatOnly,omitempty"`
 	// Goal is what the agent keeps working toward across turns, set by /goal.
 	Goal Goal `json:"goal,omitzero"`
-	// Parent is the agent this one was started under, as a team's worker under its lead; empty for none.
-	Parent string `json:"parent,omitempty"`
 	// Options are the model settings the agent runs on, by the agent's id for each.
 	Options map[string]string `json:"options,omitempty"`
 }

@@ -25,7 +25,6 @@ import (
 	"pocketd/internal/registry"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
-	"pocketd/internal/team"
 	"pocketd/internal/terminal"
 	"pocketd/internal/worktree"
 )
@@ -82,9 +81,7 @@ type Launcher struct {
 	// Names takes the display names naming gives new Worktrees; nil names none.
 	Names *names.Names
 	// Locals are the Locals a create may start in; nil has none.
-	Locals *locals.Locals
-	// Teams starts the team a create's first prompt asks for.
-	Teams    *team.Teams
+	Locals   *locals.Locals
 	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
 	receipts *receipts[Result]
 	trees    *receipts[built]
@@ -140,17 +137,9 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: fl}
 	}
 	s.Access, s.Chat = Access(s), Chats(s)
-	if s.Team && (s.Prompt == "" || !Chat(s)) {
-		return Result{Err: fail("invalid_spec", "A team starts from a chat session's first prompt")}
-	}
 	f := l.reg.Load()
 	if !slices.Contains(f.Projects, s.Project) {
 		return Result{Err: fail("unknown_project", "This project isn't on your Mac anymore")}
-	}
-	if s.Parent != "" {
-		if _, err := l.d.Agents.Get(s.Parent); err != nil {
-			return Result{Err: fail("unknown_parent", "The session to start this one under has closed")}
-		}
 	}
 	env := l.d.LoginEnv()
 	account, fl := l.account(s.Provider, l.pick(s.Provider, s.Account, f.Repos[s.Project].Accounts[s.Provider]))
@@ -205,7 +194,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	}
 	local := s.Checkout.Local
 	t, err := l.d.Terminals.Spawn(terminal.Spec{ID: id, Cmd: shell, Args: Wrap(shell, l.d.Exe, setup, argv, account), Cwd: cwd,
-		Env: worktree.ScriptEnv(l.d.Env(l.d.GhEnv(env, cwd), id, local), s.Project, cwd), Cols: 100, Rows: 30, Origin: origin, Parent: s.Parent, Local: local})
+		Env: worktree.ScriptEnv(l.d.Env(l.d.GhEnv(env, cwd), id, local), s.Project, cwd), Cols: 100, Rows: 30, Origin: origin, Local: local})
 	if err != nil {
 		return Result{Err: &Failure{Code: "spawn_failed", Message: "Couldn't start a terminal", Detail: err.Error()}}
 	}
@@ -214,11 +203,7 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 	r.Cwd = cwd
 	if r.Err == nil && s.Prompt != "" && Chat(s) {
 		if a, err := l.d.Agents.Get(r.AgentID); err == nil {
-			send := a.Driver().Prompt
-			if s.Team {
-				send = func(text string) error { return l.Teams.Prompt(a, text) }
-			}
-			if err := send(s.Prompt); err != nil {
+			if err := a.Driver().Prompt(s.Prompt); err != nil {
 				r.Err = &Failure{Code: "spawn_failed", Message: "Couldn't send the prompt", Detail: err.Error()}
 			}
 		}

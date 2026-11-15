@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"pocketd/internal/proto"
-	"pocketd/internal/teamrules"
 	"pocketd/internal/timeline"
 )
 
@@ -635,7 +634,7 @@ func userEvents(content json.RawMessage) []timeline.Event {
 	case strings.HasPrefix(text, "<command-"), strings.HasPrefix(text, "<local-command-"), Command(text), text == "":
 		return events
 	}
-	return append(events, timeline.Event{Kind: "user", Text: unwrapPastes(teamrules.Strip(text))})
+	return append(events, timeline.Event{Kind: "user", Text: unwrapPastes(text)})
 }
 
 // unwrapPastes keeps the text of each block pasted into Claude's input, which it writes between

@@ -122,7 +122,7 @@ impl Desktop {
     fn reply_to_previewed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.activity.reply.read(cx).value().trim().to_string();
         let Some(id) = self.activity.previewed.clone().filter(|_| !text.is_empty()) else { return };
-        self.outbox.prompt(&id, &text, false);
+        self.outbox.prompt(&id, &text);
         self.activity.reply.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
@@ -140,7 +140,7 @@ impl Desktop {
     /// Sends the failed turn's prompt again.
     fn retry_turn(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(prompt) = self.activity_last_prompt(id) {
-            self.outbox.prompt(id, &prompt, false);
+            self.outbox.prompt(id, &prompt);
         }
         cx.notify();
     }
