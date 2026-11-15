@@ -122,7 +122,7 @@ type FactoryEvent struct {
 	At      int64  `json:"at"` // Unix ms
 	Station string `json:"station"`
 	Actor   string `json:"actor"` // you | lead | worker:<task> | reviewer | anywhere
-	Kind    string `json:"kind"`  // moved | approved | changes | asked | allowed | denied | autoAllowed | handback | check | fix | hint | finding | skill | merged | failed
+	Kind    string `json:"kind"`  // moved | gate | approved | changes | asked | allowed | denied | autoAllowed | handback | check | fix | hint | finding | skill | merged | failed
 	Text    string `json:"text,omitempty"`
 }
 
@@ -240,4 +240,28 @@ func decodeProfile(raw json.RawMessage, dst **Profile) bool {
 	}
 	*dst = &p
 	return true
+}
+
+// Metrics is one project's numbers over the last Days days. Durations are seconds, and 0 means no data.
+type Metrics struct {
+	MergedPerDay float64 `json:"mergedPerDay"`
+	StartToReady int64   `json:"startToReady"` // median
+	WaitPlan     int64   `json:"waitPlan"`     // median
+	WaitPR       int64   `json:"waitPr"`
+	WaitAsk      int64   `json:"waitAsk"`
+	FixRate      float64 `json:"fixRate"` // share of failed Tickets repaired within the cap
+	FixMean      float64 `json:"fixMean"` // mean attempts
+	Days         int     `json:"days"`
+}
+
+// FactoryMetrics answers factory.metrics.
+type FactoryMetrics struct {
+	Type    string  `json:"type"`
+	ID      string  `json:"id"`
+	Project string  `json:"project"`
+	Metrics Metrics `json:"metrics"`
+}
+
+func NewFactoryMetrics(id, project string, m Metrics) FactoryMetrics {
+	return FactoryMetrics{"factory.metrics", id, project, m}
 }

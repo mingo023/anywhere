@@ -384,6 +384,7 @@ struct Frame {
     teams: Vec<Team>,
     profiles: Vec<ProfileInfo>,
     profile: Option<Profile>,
+    metrics: Option<factory::Metrics>,
     config: Option<Config>,
     problem: String,
     ticket: Option<factory::Detail>,
@@ -478,6 +479,8 @@ pub enum Event {
     FactoryTicket(factory::Detail),
     /// Every profile pocketd has, built-in ones first: the answer to a list, save or delete, and the news after any change.
     FactoryProfiles(Vec<ProfileInfo>),
+    /// A project's numbers, after `factory.metrics`.
+    FactoryMetrics { project: String, metrics: factory::Metrics },
     /// One whole profile, the answer to `profile_get`.
     FactoryProfile(Profile),
     /// The detail of the ticket with this id changed; ask again if it is shown.
@@ -513,6 +516,8 @@ pub struct Agents {
     pub details: HashMap<String, factory::Detail>,
     /// Every profile, from `factory.profiles`.
     pub profiles: Vec<ProfileInfo>,
+    /// Each project's numbers by its folder, from `factory.metrics`.
+    pub metrics: HashMap<String, factory::Metrics>,
 }
 
 impl Agents {
@@ -616,6 +621,9 @@ impl Agents {
                 self.factory.insert(project, config);
             }
             Event::FactoryProfiles(list) => self.profiles = list,
+            Event::FactoryMetrics { project, metrics } => {
+                self.metrics.insert(project, metrics);
+            }
             Event::FactoryTicket(detail) => {
                 self.details.insert(detail.ticket_id.clone(), detail);
             }
@@ -747,6 +755,10 @@ impl Agents {
 
     pub fn profiles(&self) -> &[ProfileInfo] {
         &self.profiles
+    }
+
+    pub fn metrics(&self, project: &str) -> Option<&factory::Metrics> {
+        self.metrics.get(project)
     }
 
     /// `ticket`'s spec and activity, once pocketd has sent them.
@@ -984,6 +996,7 @@ fn factory_event(f: &Frame) -> Option<Event> {
         "error" if f.id.starts_with(FACTORY) => Some(Event::FactoryError(readable(&f.message))),
         "factory.ticket" => f.ticket.clone().map(Event::FactoryTicket),
         "factory.profiles" => Some(Event::FactoryProfiles(f.profiles.clone())),
+        "factory.metrics" => f.metrics.clone().map(|metrics| Event::FactoryMetrics { project: f.project.clone(), metrics }),
         "factory.profile" => f.profile.clone().map(Event::FactoryProfile),
         "factory.update" if !f.ticket_id.is_empty() => Some(Event::FactoryUpdate(f.ticket_id.clone())),
         _ => None,
@@ -1287,6 +1300,11 @@ impl Outbox {
     /// Deletes a profile nothing uses; `Event::FactoryError` lists who does.
     pub fn profile_delete(&self, id: &str) {
         self.send(json!({"type": "factory.profile.delete", "id": factory_id(), "profile": id}));
+    }
+
+    /// Asks for `project`'s numbers; `Event::FactoryMetrics` answers.
+    pub fn factory_metrics(&self, project: &str) {
+        self.send(json!({"type": "factory.metrics", "id": factory_id(), "project": project}));
     }
 
     fn send(&self, m: Value) {
@@ -2578,6 +2596,23 @@ mod tests {
         assert_eq!(a.profiles(), list.as_slice());
         a.apply(Event::FactoryProfile(doc));
         assert_eq!(a.profiles().len(), 2);
+    }
+
+    #[test]
+    fn the_metrics_reply_is_kept_by_project() {
+        let reply = include_str!("../../../../pocketd/internal/proto/testdata/factory/server/factory_metrics.json");
+        let Some(Event::FactoryMetrics { project, metrics }) = factory_event(&serde_json::from_str::<Frame>(reply).unwrap()) else { panic!("no metrics") };
+        assert_eq!((project.as_str(), metrics.wait_pr, metrics.start_to_ready, metrics.days), ("/app", 3900, 11400, 14));
+        assert!((metrics.merged_per_day - 2.4).abs() < 1e-9 && (metrics.fix_rate - 0.78).abs() < 1e-9);
+        let mut a = Agents::default();
+        assert!(a.metrics("/app").is_none());
+        a.apply(Event::FactoryMetrics { project, metrics: metrics.clone() });
+        assert_eq!(a.metrics("/app"), Some(&metrics));
+    }
+
+    #[test]
+    fn asking_for_metrics_sends_the_golden_frame() {
+        assert_eq!(sent_but_id(|o| o.factory_metrics("/app")), without_id(factory_golden!("client/factory_metrics.json")));
     }
 
     #[test]

@@ -198,6 +198,11 @@
       "open": ["press Cmd+,", "click Factory under Agents", "click New profile", "choose a folder to import"],
       "capture": ["settings", "settings-factory", "profile-sheet-import"]
     },
+    "settings-factory-metrics": {
+      "files": ["packages/desktop/crates/pocket/src/factory/metrics.rs", "packages/desktop/crates/pocket/src/settings/factory.rs"],
+      "open": ["press Cmd+,", "click Factory under Agents"],
+      "capture": ["settings", "settings-factory", "factory-metrics"]
+    },
     "settings-automations-stopped": {
       "files": ["packages/desktop/crates/pocket/src/settings.rs", "packages/desktop/crates/pocket/src/settings/**"],
       "open": ["press Cmd+,", "click Automations", "pocketd is not running"],

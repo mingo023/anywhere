@@ -165,6 +165,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::FactoryTicket(_)
         | Event::FactoryUpdate(_)
         | Event::FactoryProfiles(_)
+        | Event::FactoryMetrics { .. }
         | Event::FactoryProfile(_) => return false,
     }
     true
@@ -430,6 +431,11 @@ mod tests {
     fn a_hosts_factory_news_is_dropped_as_its_board_is() {
         assert!(!tag_event("devbox", &mut Event::FactoryConfig { project: "/home/me/app".into(), config: Default::default(), problem: String::new() }));
         assert!(!tag_event("devbox", &mut Event::FactoryError("Nope".into())));
+    }
+
+    #[test]
+    fn a_hosts_metrics_are_dropped() {
+        assert!(!tag_event("devbox", &mut Event::FactoryMetrics { project: "/home/me/app".into(), metrics: Default::default() }));
     }
 
     #[test]

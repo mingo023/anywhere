@@ -808,6 +808,10 @@ impl Desktop {
                 Section::Automations => self.automations_settings(cx),
                 Section::Accounts => self.accounts_settings(cx),
                 Section::Provider(i) => self.provider_page(i, cx),
+                Section::Factory => {
+                    let metrics = self.settings.factory.project.as_ref().and_then(|p| self.agents.metrics(p));
+                    div().flex().flex_col().gap(px(22.)).child(crate::factory::metrics::metrics_strip(metrics)).children(self.setting_groups(section, cx))
+                }
                 _ => div().flex().flex_col().gap(px(22.)).children(self.setting_groups(section, cx)),
             };
             // Keyboard's Reset all sits above its list.

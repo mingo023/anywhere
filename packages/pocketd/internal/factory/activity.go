@@ -81,6 +81,9 @@ func Notes(before, after proto.Ticket, team *proto.Team, at int64) []proto.Facto
 	if fails && (before.Status != proto.TicketFailed || before.Why != after.Why) {
 		add(after.Station, "anywhere", "failed", after.Why)
 	}
+	if after.Gate != before.Gate && (after.Gate == proto.GatePlan || after.Gate == proto.GatePR) {
+		add(after.Station, "anywhere", "gate", "")
+	}
 	return out
 }
 

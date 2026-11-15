@@ -2,6 +2,7 @@ mod activity;
 pub(crate) mod bar;
 pub(crate) mod checks;
 pub(crate) mod import;
+pub(crate) mod metrics;
 pub(crate) mod page;
 mod pr;
 pub(crate) mod profile_sheet;

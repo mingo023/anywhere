@@ -641,6 +641,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.factoryVerb(m)
 	case "factory.ticket":
 		return c.factoryTicket(m)
+	case "factory.metrics":
+		return c.factoryMetrics(m)
 	case "factory.profile.list", "factory.profile.get", "factory.profile.save", "factory.profile.delete":
 		return c.profileVerb(m)
 	case "factory.advance":

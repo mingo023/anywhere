@@ -40,6 +40,20 @@ func (c *conn) factoryVerb(m proto.ClientMessage) error {
 	return nil
 }
 
+// factoryMetrics answers with a project's numbers. Reading every Ticket's log takes time, so it answers off the read loop.
+func (c *conn) factoryMetrics(m proto.ClientMessage) error {
+	if c.s.Factory == nil || !slices.Contains(c.caps, proto.CapFactory) {
+		c.send(proto.NewErrorCode(m.ID, proto.CodeFactoryOff, "The Factory is off"))
+		return nil
+	}
+	if err := c.usableFolder(m.Project); err != nil {
+		c.send(factoryError(m.ID, err))
+		return nil
+	}
+	go c.send(proto.NewFactoryMetrics(m.ID, m.Project, c.s.Factory.Metrics(m.Project)))
+	return nil
+}
+
 // factorySave keeps a project's settings, unless they turn the Factory on
 // where it can't work. While the Factory is on and stays on gh isn't asked, so
 // a gh that signed out later can't lock the settings.

@@ -260,6 +260,8 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = get("lead", &m.Lead)
 	case m.Type == "factory.config.get":
 		ok = f.text("project", &m.Project)
+	case m.Type == "factory.metrics":
+		ok = f.text("project", &m.Project) && m.Project != ""
 	case m.Type == "factory.config.save":
 		ok = f.text("project", &m.Project) && decodeFactoryConfig(f["config"], &m.Config)
 	case m.Type == "factory.ticket", m.Type == "factory.advance":

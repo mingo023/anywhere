@@ -60,7 +60,7 @@ func TestAChangeOfATicketIsNotedAsWhatHappened(t *testing.T) {
 		want          []string
 	}{
 		"spec saved":          {at(proto.StationSpec), at(proto.StationPlan), []string{"anywhere:moved@plan"}},
-		"the gate goes up":    {at(proto.StationPlan), gate, nil},
+		"the gate goes up":    {at(proto.StationPlan), gate, []string{"anywhere:gate@plan"}},
 		"you approve":         {gate, at(proto.StationImplement), []string{"you:approved@plan", "anywhere:moved@implement"}},
 		"you ask for changes": {gate, at(proto.StationPlan), []string{"you:changes@plan"}},
 		"the station fails":   {at(proto.StationSpec), failedAt(proto.StationSpec, "The lead's turn failed"), []string{"anywhere:failed@spec"}},
@@ -75,5 +75,24 @@ func TestAChangeOfATicketIsNotedAsWhatHappened(t *testing.T) {
 	approved := Notes(gate, at(proto.StationImplement), team, 7)[0]
 	if approved.Text != "3 workers" || approved.At != 7 {
 		t.Fatalf("got %+v", approved)
+	}
+}
+
+func TestATicketThatStartsToWaitAtAGateNotesTheGate(t *testing.T) {
+	planning := proto.Ticket{Station: proto.StationPlan}
+	atPlan := proto.Ticket{Station: proto.StationPlan, Gate: proto.GatePlan}
+	if got := Notes(planning, atPlan, nil, 5); len(got) != 1 || got[0] != (proto.FactoryEvent{At: 5, Station: proto.StationPlan, Actor: "anywhere", Kind: "gate"}) {
+		t.Fatalf("plan gate: got %+v", got)
+	}
+	inReview := proto.Ticket{Station: proto.StationPR}
+	atPR := proto.Ticket{Station: proto.StationPR, Gate: proto.GatePR}
+	if got := Notes(inReview, atPR, nil, 6); len(got) != 1 || got[0].Kind != "gate" || got[0].Station != proto.StationPR {
+		t.Fatalf("pr gate: got %+v", got)
+	}
+	if got := Notes(atPlan, atPlan, nil, 7); len(got) != 0 {
+		t.Fatalf("a gate that stays open is noted once: got %+v", got)
+	}
+	if got := Notes(planning, proto.Ticket{Station: proto.StationPlan, Gate: proto.GateAsk}, nil, 8); len(got) != 0 {
+		t.Fatalf("the Ask gate is noted by asked: got %+v", got)
 	}
 }

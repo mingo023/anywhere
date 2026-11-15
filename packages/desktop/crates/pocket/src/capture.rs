@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 288] = [
+const STEPS: [(&str, Step); 289] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -746,6 +746,11 @@ const STEPS: [(&str, Step); 288] = [
         d.show_section(Section::Factory, cx);
         show_profiles(d, window, cx);
         d.settings.body_scroll.scroll_to_bottom();
+    }),
+    ("factory-metrics", |d, window, cx| {
+        let Some(project) = d.settings.factory.project.clone() else { return };
+        let metrics = agents::factory::Metrics { merged_per_day: 2.4, start_to_ready: 11_400, wait_plan: 720, wait_pr: 3900, wait_ask: 240, fix_rate: 0.78, fix_mean: 1.3, days: 14 };
+        d.on_agents(agents::Event::FactoryMetrics { project, metrics }, window, cx);
     }),
     ("profile-sheet-import", |d, window, cx| {
         show_profiles(d, window, cx);
@@ -1696,6 +1701,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.pr.track.folded = false;
     d.agents.names.clear();
     d.agents.profiles.clear();
+    d.agents.metrics.clear();
     d.factory.profile = None;
     d.agents.locals.clear();
     d.sidebar.rename = None;

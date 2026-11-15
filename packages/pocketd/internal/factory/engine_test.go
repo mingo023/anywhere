@@ -198,8 +198,8 @@ func TestATicketGoesFromSpecToThePlanGateAndOnToImplementWhenItsPlanStarts(t *te
 		t.Fatalf("after the approval: %+v", g)
 	}
 	acts, _ := ReadActivity(w.home, x.ID)
-	want := []string{"anywhere:moved@spec", "anywhere:moved@plan", "you:approved@plan", "anywhere:moved@implement"}
-	if !slices.Equal(kindsOf(acts), want) || acts[2].Text != "2 workers" {
+	want := []string{"anywhere:moved@spec", "anywhere:moved@plan", "anywhere:gate@plan", "you:approved@plan", "anywhere:moved@implement"}
+	if !slices.Equal(kindsOf(acts), want) || acts[3].Text != "2 workers" {
 		t.Fatalf("activity %v", kindsOf(acts))
 	}
 }
@@ -288,7 +288,7 @@ func TestDetailHoldsTheSpecAndTheActivityAndRefusesATicketTheBoardDoesNotHold(t 
 	w := newWorld(t)
 	x := w.gated()
 	d, err := w.e.Detail(x.ID)
-	if err != nil || d.TicketID != x.ID || !strings.HasPrefix(d.Spec, "## Brief") || len(d.Activity) != 2 {
+	if err != nil || d.TicketID != x.ID || !strings.HasPrefix(d.Spec, "## Brief") || len(d.Activity) != 3 {
 		t.Fatalf("got %+v, %v", d, err)
 	}
 	if _, err := w.e.Detail("../../etc"); !errors.Is(err, board.ErrUnknown) {

@@ -259,6 +259,7 @@ impl Desktop {
         self.settings.factory.project = pick.clone();
         if let Some(p) = pick.filter(|_| self.agents.factory_offered()) {
             self.outbox.local.factory_config(&p);
+            self.outbox.local.factory_metrics(&p);
         }
         cx.notify();
     }

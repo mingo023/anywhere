@@ -1,0 +1,15 @@
+{
+  "type": "factory.metrics",
+  "id": "factory-9",
+  "project": "/app",
+  "metrics": {
+    "mergedPerDay": 2.4,
+    "startToReady": 11400,
+    "waitPlan": 720,
+    "waitPr": 3900,
+    "waitAsk": 240,
+    "fixRate": 0.78,
+    "fixMean": 1.3,
+    "days": 14
+  }
+}

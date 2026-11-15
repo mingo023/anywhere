@@ -48,7 +48,8 @@ var factoryServerGolden = map[string]any{
 			{Command: "cargo test", Exit: 101, Output: "test result: FAILED. 41 passed; 1 failed\n", Attempt: 1, At: 1762900030000},
 		},
 	}),
-	"factory_update": NewFactoryUpdate("t1"),
+	"factory_update":  NewFactoryUpdate("t1"),
+	"factory_metrics": NewFactoryMetrics("factory-9", "/app", Metrics{MergedPerDay: 2.4, StartToReady: 11400, WaitPlan: 720, WaitPR: 3900, WaitAsk: 240, FixRate: 0.78, FixMean: 1.3, Days: 14}),
 }
 
 func TestAFactoryTicketCarriesItsStationOnTheBoard(t *testing.T) {
@@ -237,5 +238,23 @@ func TestAHintWithoutATicketOrWithABlankTextIsMalformed(t *testing.T) {
 		if _, err := DecodeClient([]byte(raw)); err != ErrMalformed {
 			t.Errorf("%s: got %v, want ErrMalformed", raw, err)
 		}
+	}
+}
+
+func TestFactoryMetricsAsksForOneProject(t *testing.T) {
+	m, err := DecodeClient(factoryGolden(t, "client", "factory_metrics.json"))
+	if err != nil || m.Type != "factory.metrics" || m.ID != "factory-9" || m.Project != "/app" {
+		t.Fatalf("got %+v, %v", m, err)
+	}
+	if _, err := DecodeClient([]byte(`{"type":"factory.metrics","id":"1","project":""}`)); err == nil {
+		t.Fatal("a request without a project decoded")
+	}
+}
+
+func TestAProjectWithNoDataSendsZeroesNotNothing(t *testing.T) {
+	got, _ := json.Marshal(NewFactoryMetrics("1", "/app", Metrics{Days: 14}))
+	want := `{"type":"factory.metrics","id":"1","project":"/app","metrics":{"mergedPerDay":0,"startToReady":0,"waitPlan":0,"waitPr":0,"waitAsk":0,"fixRate":0,"fixMean":0,"days":14}}`
+	if string(got) != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
 	}
 }

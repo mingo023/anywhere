@@ -86,6 +86,20 @@ pub struct Activity {
     pub text: String,
 }
 
+/// A project's numbers over the last `days` days, from pocketd. Durations are seconds, and 0 means no data.
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Metrics {
+    pub merged_per_day: f64,
+    pub start_to_ready: i64,
+    pub wait_plan: i64,
+    pub wait_pr: i64,
+    pub wait_ask: i64,
+    pub fix_rate: f64,
+    pub fix_mean: f64,
+    pub days: u32,
+}
+
 /// A profile as a list shows it.
 #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]

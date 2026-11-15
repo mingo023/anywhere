@@ -103,7 +103,7 @@ func TestAFactoryTicketStopsAtThePlanGateAndStartsItsWorkersWhenYouApprove(t *te
 		t.Fatalf("at the gate: %+v", gate)
 	}
 	d := factoryDetail(o, "d1", gate.ID)
-	if !strings.Contains(d.Spec, "## Acceptance criteria\n- [ ] One checkable statement per line") || !slices.Equal(activityOf(d), []string{"anywhere:moved@spec", "anywhere:moved@plan"}) {
+	if !strings.Contains(d.Spec, "## Acceptance criteria\n- [ ] One checkable statement per line") || !slices.Equal(activityOf(d), []string{"anywhere:moved@spec", "anywhere:moved@plan", "anywhere:gate@plan"}) {
 		t.Fatalf("spec %q, activity %v", d.Spec, activityOf(d))
 	}
 
