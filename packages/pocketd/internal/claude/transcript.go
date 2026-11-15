@@ -490,9 +490,10 @@ func taskEnd(content json.RawMessage) []timeline.Event {
 	head, _, _ := strings.Cut(text, "<result>")
 	summary := html.UnescapeString(tag(head, "summary"))
 	id, status, event := tag(head, "tool-use-id"), tag(head, "status"), tag(head, "event")
-	// An agent that stopped with background work of its own still running resumes when it ends; what it said so far may be all it reports.
+	// An agent that stopped with background work of its own still running may resume and notify again, or never; what
+	// it said so far may be all it reports. Claude counts it completed, so no turn waits on it.
 	if strings.HasSuffix(summary, "is waiting on its own background work") || strings.Contains(tag(head, "note"), "background work of its own still running") {
-		e := timeline.Event{Kind: "tool_background", ToolUseID: id, Output: taskOutput(text, summary)}
+		e := timeline.Event{Kind: "tool_background", ToolUseID: id, Output: taskOutput(text, summary), Detached: true}
 		return each(e, head)
 	}
 	expired := strings.HasPrefix(event, "[Monitor timed out") || strings.HasPrefix(event, "[Monitor expired")
