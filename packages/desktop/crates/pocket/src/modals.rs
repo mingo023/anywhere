@@ -62,7 +62,7 @@ impl Desktop {
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
             Overlay::PairPhone => (self.pair_view(cx), 0x2e, Some((200, 8.))),
             Overlay::Team => (self.team_sheet(cx), 0x29, Some((240, 8.))),
-            Overlay::Profile => (self.profile_sheet(cx), 0x29, Some((240, 8.))),
+            Overlay::Profile => (self.profile_sheet(cx), 0x4d, Some((240, 8.))),
         };
         let backdrop = ui::backdrop("backdrop", alpha).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let layer = div().absolute().inset_0();

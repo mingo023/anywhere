@@ -1,5 +1,6 @@
+use gpui_kit::prelude::FluentBuilder as _;
 use super::station::{COLUMNS, Column, column};
-use super::tabs::{OFFERED, Tab, shown};
+use super::tabs::{OFFERED, Tab, shown, tabbed};
 use crate::board::logic::priority_name;
 use crate::board::parts::{bar_button, label_dot, priority_glyph, prop_chip, station_glyph};
 use crate::board::ticket_page::prop_row;
@@ -84,25 +85,25 @@ impl Desktop {
     }
 
     /// The ticket's title, status line, tabs and the tab's body, with the footer bar over them.
-    pub(crate) fn factory_pane(&mut self, t: &Ticket, page: &Page, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn factory_pane(&mut self, t: &Ticket, page: &Page, above: Option<Div>, cx: &mut Context<Self>) -> Div {
         let col = column(t, self.agents.team(&t.agent_id), self.prs.get(&t.worktree));
-        let tab = shown(page.tab, col);
-        let head = div().flex().flex_col().gap(px(10.)).child(div().text_size(px(24.)).line_height(px(28.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(t.title.clone())).child(self.factory_status(t, col)).child(self.factory_tabs(tab, cx));
+        let tab = if tabbed(col) { shown(page.tab, col) } else { Tab::Spec };
+        let head = div().flex().flex_col().gap(px(10.)).children(above.map(|a| a.h(px(26.)).mb(px(-4.)))).child(div().text_size(px(24.)).line_height(px(28.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(t.title.clone())).child(self.factory_status(t, col)).when(tabbed(col), |d| d.child(self.factory_tabs(tab, cx)));
         let body = match tab {
             Tab::Activity => self.factory_activity_tab(t, cx).into_any_element(),
             Tab::Checks => div().id("factory-checks").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_checks_tab(t)).into_any_element(),
             Tab::Pr => div().id("factory-pr").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_pr_tab(t)).into_any_element(),
             Tab::Workers => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_workers_tab(t)).into_any_element(),
-            _ => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_spec_tab(t, cx)).into_any_element(),
+            _ => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_spec_tab(t, cx)).children((!tabbed(col)).then(|| self.factory_activity_section(t)).flatten()).into_any_element(),
         };
-        let doc = div().w_full().max_w(px(760.)).flex_1().min_h_0().flex().flex_col().child(head).child(body);
+        let doc = div().w_full().max_w(px(712.)).flex_1().min_h_0().flex().flex_col().child(head).child(body);
         div().relative().flex_1().min_w_0().min_h_0().px(px(24.)).pt(px(18.)).flex().flex_col().items_center().child(doc).children(self.factory_bar(t, page, cx))
     }
 
     pub(crate) fn factory_page(&mut self, page: &Page, cx: &mut Context<Self>) -> Div {
         let Some(t) = self.agents.board.get(&page.ticket).cloned() else { return div() };
         let col = column(&t, self.agents.team(&t.agent_id), self.prs.get(&t.worktree));
-        let pane = self.factory_pane(&t, page, cx);
+        let pane = self.factory_pane(&t, page, None, cx);
         let main = div().flex_1().min_h_0().flex().child(pane).child(self.factory_properties(&t, col));
         div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().bg(CANVAS).child(self.factory_page_bar(&t, cx)).child(main)
     }

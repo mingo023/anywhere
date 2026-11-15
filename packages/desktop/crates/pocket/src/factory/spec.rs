@@ -156,7 +156,7 @@ impl Desktop {
         match spec {
             Some(spec) => {
                 let at = detail.and_then(|d| written(&d.activity)).map(clock).unwrap_or_default();
-                doc = doc.child(div().mt(px(-4.)).mb(px(10.)).text_size(px(12.)).text_color(TEXT_3).child(byline(&self.agent_name(&t.provider), &at))).child(div().text_size(px(13.5)).line_height(px(21.)).text_color(TEXT_BODY).child(spec.brief));
+                doc = doc.child(div().mt(px(-1.)).mb(px(11.)).text_size(px(12.)).text_color(TEXT_3).child(byline(&self.agent_name(&t.provider), &at))).child(div().text_size(px(13.5)).line_height(px(21.)).text_color(TEXT_BODY).child(spec.brief));
                 if !spec.criteria.is_empty() {
                     let boxed = |text: String| {
                         div()

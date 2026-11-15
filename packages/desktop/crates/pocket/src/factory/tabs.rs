@@ -25,6 +25,11 @@ impl Tab {
 /// The tabs that have a body.
 pub(crate) const OFFERED: [Tab; 5] = [Tab::Spec, Tab::Workers, Tab::Checks, Tab::Pr, Tab::Activity];
 
+/// Whether the page offers a choice of tabs. Before Implement there is only the spec and the plan, with the activity below them.
+pub(crate) fn tabbed(column: Column) -> bool {
+    !matches!(column, Column::Todo | Column::Spec | Column::Plan)
+}
+
 /// The tab where a station's work shows.
 pub(crate) fn default_tab(column: Column) -> Tab {
     match column {
@@ -57,6 +62,12 @@ mod tests {
         assert_eq!(shown(None, Column::Pr), Tab::Pr);
         assert_eq!(shown(None, Column::Merged), Tab::Pr);
         assert_eq!(shown(Some(Tab::Spec), Column::Pr), Tab::Spec);
+    }
+
+    #[test]
+    fn a_ticket_before_implement_has_no_tabs_to_choose_from() {
+        let tabbed = [Column::Todo, Column::Spec, Column::Plan, Column::Implement, Column::Checks, Column::Pr, Column::Merged].map(tabbed);
+        assert_eq!(tabbed, [false, false, false, true, true, true, true]);
     }
 
     #[test]

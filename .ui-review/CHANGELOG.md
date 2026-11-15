@@ -1,5 +1,14 @@
 # UI Review Changelog
 
+## 2026-11-15 · beb7991d..a990f065 · full, Factory screens, 2 rounds
+- passed (match %): factory-board 92.9, board-list-stations 91.7, factory-board-you 96.3, factory-board-merged 92.8, factory-ticket-plan 94.1, factory-ticket-ask 94.6, factory-ticket-checks 93.3, factory-ticket-pr 94.2 (merge menu 93.8), inbox-factory 90.9, settings-factory 93.4, settings-factory-metrics 93.2, settings-factory-profiles 94.6, profile-sheet-import 92.9 (whole screen, was 70.3)
+- no design: factory-ticket-idle, the Start again bar, factory-hint-typed (the prototype has no such state); board-factory-compact is not a screen in config
+- designs: all = `064d414fdef9` (light-factory), re-rendered at 1440x900 @2x, light theme, served from the repo root; compare.py --width 1440
+- profile-sheet-import: the sheet's scrim was 0x29 alpha, the design's is rgba(40,36,30,.3), so the whole Settings page behind it differed; Overlay::Profile now dims at 0x4d. The capture reads a "team-defaults.zip" of the design's four files and sizes
+- inbox-factory and the ticket page: `.doc` is 760px with 24px padding, so the column is 712 (was 760); the Inbox detail header is 44px with only the J/K hints, the id and Open ticket sit above the title; a ticket before Implement has no tab row and shows its activity under the plan, as the design does (`tabbed`); byline and header spacing match the design's rows to the pixel
+- fixture: the Factory tickets, plan, PR numbers and diffs now read the prototype's data.js (titles, ages, labels, priorities); the inbox-factory capture idles the sessions, since the design's Inbox holds Factory rows only
+- known gaps, not fixed: a plan task keeps its "Runs without asking" allowlist row (the design shows the allowlist inline); Activity stays a tab from Implement on (the design shows it under every tab); the list column starts 8px lower than the design's (shared Inbox header)
+
 ## 2026-11-15 · beb7991d..d058cdac · round 1 of at most 4, board-list-stations
 - passed: board-list-stations — 7.92% raw mismatch (92.08% match), clears the >90% target; no code change this round
 - measured: caller's capture `/tmp/lf7-after/impl-board-list-stations.png` (2880×1800 @2x); design re-rendered via headless Chrome (`--headless=new --window-size=1440,900`, no `agent-browser` in this environment) from a temp copy of the prototype with `S.layout` defaulted to `'list'` and `S.theme` forced to `'light'` (matches the capture's light theme); `compare.py --width 1440`, with `--crop` on the "To do" bar and its right edge to isolate structural noise from fixture-text noise

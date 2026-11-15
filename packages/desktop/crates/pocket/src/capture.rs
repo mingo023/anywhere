@@ -510,6 +510,15 @@ const STEPS: [(&str, Step); 290] = [
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
     ("inbox-factory", |d, window, cx| {
+        // The design's Inbox holds Factory rows only.
+        let leads: Vec<_> = d.agents.board.tickets.iter().filter(|t| t.station != agents::tickets::Station::None && !t.agent_id.is_empty()).map(|t| t.agent_id.clone()).collect();
+        for a in d.agents.list.iter_mut() {
+            if !leads.contains(&a.id) && !leads.contains(&a.parent) {
+                a.status = "idle".into();
+            } else if a.id == "ios" {
+                a.updated_at = crate::util::now_ms() - 44 * 60_000;
+            }
+        }
         show_factory_plan(d, window, cx);
         d.leave_factory_ticket(window, cx);
         d.open_inbox(window, cx);
@@ -766,8 +775,9 @@ const STEPS: [(&str, Step); 290] = [
     ("profile-sheet-import", |d, window, cx| {
         show_profiles(d, window, cx);
         d.edit_profile(None, window, cx);
-        let root = std::env::temp_dir().join(format!("pocket-capture-import-{}", std::process::id()));
-        let files = [("SOUL.md", "You are a careful backend engineer."), ("AGENTS.md", "Write a failing test first."), ("skills/review/SKILL.md", "# Review\n"), ("skills/review/checklist.md", "- Tests\n"), ("skills/deploy/SKILL.md", "# Deploy\n"), ("skills/deploy/deploy.sh", "#!/bin/sh\nmake deploy\n")];
+        let root = std::env::temp_dir().join(format!("pocket-capture-import-{}", std::process::id())).join("team-defaults.zip");
+        let sized = |text: &str, bytes: usize| format!("{text}{}", " ".repeat(bytes - text.len()));
+        let files = [("SOUL.md", sized("You are a careful backend engineer.", 1200)), ("AGENTS.md", sized("Write a failing test first.", 3400)), ("skills/sql-migrations/SKILL.md", sized("# SQL migrations\n", 2100)), ("skills/sql-migrations/check.sh", sized("#!/bin/sh\nmake check\n", 600))];
         for (path, text) in files {
             let path = root.join(path);
             _ = std::fs::create_dir_all(path.parent().unwrap());
@@ -1322,20 +1332,21 @@ fn show_profiles(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>
 
 fn show_factory_plan(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     use agents::tickets::Station;
-    let task = |id: &str, title: &str, agent: &str, files: &[&str], after: &[&str], instructions: &str| agents::TeamTask {
+    let task = |id: &str, title: &str, agent: &str, files: &[&str], after: &[&str], allow: &[&str], instructions: &str| agents::TeamTask {
         id: id.into(),
         title: title.into(),
         agent: agent.into(),
         files: files.iter().map(|f| f.to_string()).collect(),
         after: after.iter().map(|a| a.to_string()).collect(),
         instructions: instructions.into(),
+        allow: allow.iter().map(|c| c.to_string()).collect(),
         state: "planned".into(),
         ..Default::default()
     };
     let mut tasks = vec![
-        task("t1", "Split the store into one file per section", "claude", &["crates/store/src/store.rs", "crates/store/src/prefs.rs"], &[], "Move each section's prefs into its own file and keep one reader."),
-        task("t2", "Read the old file once and write the new ones", "codex", &["crates/store/src/migrate.rs"], &["t1"], "Read desktop.json when the new files are missing, then write them."),
-        task("t3", "Test that a bad section keeps the others", "claude", &["crates/store/src/store.rs"], &["t1"], "A section that fails to parse falls back to its defaults alone."),
+        task("t1", "Store and enforce a per-project limit in pocketd", "claude", &["board/store.go", "board/scheduler.go", "proto/ticket.go"], &[], &["go test ./..."], "Add a per-project limit map to the store, read it when pumping the queue, keep the global default as fallback. Test: scheduler honours per-project limits."),
+        task("t2", "Mirror the wire change in TypeScript and Swift", "codex", &["src/board.ts", "Wire/Board.swift"], &["t1"], &["pnpm -r typecheck", "swift test"], "Wire changes land in Go, TS and Swift in the same PR. Golden tests must decode the new field."),
+        task("t3", "Desktop picker and header chip", "claude", &["board/top_bar.rs", "settings/project.rs"], &["t1"], &["cargo test -p pocket"], "Add a 1\u{2013}8 picker to project settings and show used/limit for the filtered project in the Board header."),
     ];
     tasks[0].profile = "go-backend".into();
     let now = crate::util::now_ms();
@@ -1346,7 +1357,7 @@ fn show_factory_plan(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desk
     let ev = |ago: i64, station: Station| agents::factory::Activity { at: now - ago * 60_000, station, actor: "anywhere".into(), kind: "moved".into(), text: String::new() };
     let detail = agents::factory::Detail {
         ticket_id: "t15".into(),
-        spec: "## Brief\nSplit desktop.json into one file per Settings section, so a bad value in one section no longer resets every setting. The old file is read once and then left alone.\n## Acceptance criteria\n- [ ] Each Settings section saves to its own file\n- [ ] A section that fails to parse falls back to its defaults alone\n- [ ] The first start after the update keeps every setting\n## Risks\n- None".into(),
+        spec: "## Brief\nToday every project shares one Board slot limit, so a big project can starve a quiet one. The limit moves into the project record and the scheduler counts live tickets per project. The global setting stays as the default for projects that never set their own value. The wire format changes in pocketd, so the TypeScript and Swift mirrors ship in the same PR.\n## Acceptance criteria\n- [ ] A project can override the Board limit (1\u{2013}8) from its settings\n- [ ] Projects without an override keep using the global limit\n- [ ] The scheduler counts slots per project, not across all projects\n- [ ] The limit chip on the Board header shows used/limit for the filtered project\n- [ ] Existing board.db files load without migration errors\n## Risks\n- None".into(),
         activity: vec![ev(30, Station::Spec), ev(24, Station::Plan)],
         ..Default::default()
     };
@@ -1418,7 +1429,7 @@ fn show_factory_pr(d: &mut Desktop, window: &mut Window, cx: &mut Context<Deskto
 /// The Merged rail opened, its two Tickets with their PRs read.
 fn show_factory_merged(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
     let now = Instant::now();
-    for (tree, number, additions, deletions) in [("/tmp/wt/fold-output", 198, 33, 9), ("/tmp/wt/name-trees", 197, 74, 2)] {
+    for (tree, number, additions, deletions) in [("/tmp/wt/fold-output", 201, 96, 4), ("/tmp/wt/name-trees", 200, 58, 21)] {
         let pr = Pr { number, state: PrState::Merged, additions, deletions, ..Pr::default() };
         d.prs.start(tree, now);
         d.prs.apply(tree.to_string(), now, Ok(Some(pr)), now);

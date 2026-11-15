@@ -1,3 +1,4 @@
+use super::spec::heading;
 use super::station::Column;
 use crate::board::parts::station_glyph;
 use crate::desktop::Desktop;
@@ -78,6 +79,12 @@ impl Desktop {
         let ticket = t.id.clone();
         let list = uniform_list("factory-activity", count, cx.processor(move |this, range: Range<usize>, _, _| this.activity_rows(&ticket, range)));
         div().flex_1().min_h_0().pt(px(8.)).flex().flex_col().child(list.flex_1())
+    }
+
+    /// The activity under the spec and the plan of a ticket that has no tabs, or nothing while no event came.
+    pub(super) fn factory_activity_section(&self, t: &Ticket) -> Option<Div> {
+        let count = self.agents.detail(&t.id).map_or(0, |d| lines(&d.activity).len());
+        (count > 0).then(|| div().flex().flex_col().child(heading("Activity", None, None)).children(self.activity_rows(&t.id, 0..count)))
     }
 
     fn activity_rows(&self, ticket: &str, range: Range<usize>) -> Vec<Div> {

@@ -295,19 +295,19 @@ const TICKETS = [
 ];
 // Several per station, one at each gate, one failed. Plan 2's capture step gives `plan-lead` a proposed Team of three tasks.
 const FACTORY_TICKETS = [
-  ticket("t13", "Spec the offline send queue", "live", "working", 6, { station: "spec", worktree: "/tmp/wt/offline-queue" }),
-  ticket("t14", "Spec the share sheet", "live", "starting", 2, { provider: "codex", station: "spec", worktree: "/tmp/wt/share-sheet" }),
-  ticket("t15", "Split the settings store by section", "live", "needsYou", 12, { station: "plan", gate: "plan", agentId: "plan-lead", worktree: "/tmp/wt/settings-split", priority: 2 }),
-  ticket("t16", "Plan drag to reorder for tabs", "live", "working", 5, { station: "plan", worktree: "/tmp/wt/tab-reorder" }),
-  ticket("t17", "Stream the diff into the review pane", "live", "working", 9, { station: "implement", agentId: "hook", terminalId: "hook", worktree: "/tmp/wt/stream-diff", labels: ["Feature"] }),
-  ticket("t18", "Run the iOS UI tests on every push", "live", "needsYou", 14, { provider: "codex", station: "implement", gate: "ask", agentId: "ios", terminalId: "ios", worktree: "/tmp/wt/ios-ui-tests", labels: ["Infra"] }),
-  ticket("t19", "Cache the syntax themes", "live", "working", 8, { station: "checks", why: "Checks · 2/4", worktree: "/tmp/wt/syntax-cache" }),
-  ticket("t20", "Paste files into the composer", "live", "failed", 20, { station: "checks", fix: 2, why: "cargo test failed in composer.rs", worktree: "/tmp/wt/paste-files", labels: ["Bug"], priority: 1 }),
-  ticket("t21", "Batch the git status reads", "live", "working", 7, { provider: "codex", station: "checks", fix: 1, why: "Checks · 1/4", worktree: "/tmp/wt/batch-status" }),
-  ticket("t22", "Show the PR checks on the card", "live", "needsYou", 16, { station: "pr", gate: "pr", pr: 203, worktree: "/tmp/wt/pr-checks" }),
-  ticket("t23", "Keep the scroll place per tab", "live", "working", 4, { station: "pr", pr: 202, worktree: "/tmp/wt/scroll-place" }),
-  ticket("t24", "Fold long tool output", "closed", "idle", 30, { station: "merged", pr: 198, closedWhy: "merged", closedAt: now - 30 * MIN, worktree: "/tmp/wt/fold-output" }),
-  ticket("t25", "Name worktrees after the ticket", "closed", "idle", 60, { provider: "codex", station: "merged", pr: 197, closedWhy: "merged", closedAt: now - 60 * MIN, worktree: "/tmp/wt/name-trees" }),
+  ticket("t13", "Show the ticket key in the session sidebar", "live", "working", 4, { station: "spec", worktree: "/tmp/wt/offline-queue", priority: 2, labels: ["Feature"] }),
+  ticket("t14", "Warn before closing a window with running workers", "live", "starting", 9, { station: "spec", worktree: "/tmp/wt/share-sheet", priority: 2, labels: ["Feature"] }),
+  ticket("t15", "Let each project set its own Board slot limit", "live", "needsYou", 12, { station: "plan", gate: "plan", agentId: "plan-lead", worktree: "/tmp/wt/settings-split", priority: 3, labels: ["Feature"] }),
+  ticket("t16", "Show allowlist hits per worker in the Workers tab", "live", "working", 6, { station: "plan", worktree: "/tmp/wt/tab-reorder", priority: 1, labels: ["Feature"] }),
+  ticket("t17", "Phone: answer an ask from the lock screen", "live", "working", 31, { station: "implement", agentId: "hook", terminalId: "hook", worktree: "/tmp/wt/stream-diff", priority: 3, labels: ["Feature"] }),
+  ticket("t18", "Retry the pocketd link with backoff", "live", "needsYou", 44, { provider: "codex", station: "implement", gate: "ask", agentId: "ios", terminalId: "ios", worktree: "/tmp/wt/ios-ui-tests", priority: 4, labels: ["Bug"] }),
+  ticket("t19", "Group tickets by label in the list layout", "live", "working", 60, { station: "checks", why: "Checks \u00b7 2/4", worktree: "/tmp/wt/syntax-cache", priority: 2, labels: ["Feature"] }),
+  ticket("t20", "Fold unchanged hunks in the diff", "live", "failed", 120, { station: "checks", fix: 2, why: "cargo test failed in composer.rs", worktree: "/tmp/wt/paste-files", labels: ["Feature"], priority: 2 }),
+  ticket("t21", "Debounce file watcher events on large repos", "live", "working", 22, { provider: "codex", station: "checks", fix: 1, why: "Checks \u00b7 1/4", worktree: "/tmp/wt/batch-status", priority: 2, labels: ["Feature"] }),
+  ticket("t22", "Show a team\u2019s merge conflicts file by file in the capsule", "live", "needsYou", 18, { station: "pr", gate: "pr", pr: 203, worktree: "/tmp/wt/pr-checks", priority: 3, labels: ["Feature"] }),
+  ticket("t23", "Copy the branch name from the ticket header", "live", "working", 9, { station: "pr", pr: 202, worktree: "/tmp/wt/scroll-place", priority: 1, labels: ["Feature"] }),
+  ticket("t24", "Paste images from the clipboard into the composer", "closed", "idle", 180, { station: "merged", pr: 201, closedWhy: "merged", closedAt: now - 180 * MIN, worktree: "/tmp/wt/fold-output", priority: 2, labels: ["Feature"] }),
+  ticket("t25", "Phone pairing QR refreshes itself", "closed", "idle", 300, { provider: "codex", station: "merged", pr: 200, closedWhy: "merged", closedAt: now - 300 * MIN, worktree: "/tmp/wt/name-trees", priority: 2, labels: ["Bug"] }),
 ];
 const run = (id: string, automationId: string, status: string, ago: number, why: string, summary: string, took = 0, agent = "") =>
   ({ id, automationId, status, trigger: why === "Run now" ? "manual" : "schedule", why, summary, startedAt: now - ago * MIN, finishedAt: took ? now - (ago - took) * MIN : 0, agentId: agent, terminalId: agent });
