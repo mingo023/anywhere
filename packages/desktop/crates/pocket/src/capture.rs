@@ -510,7 +510,7 @@ const STEPS: [(&str, Step); 290] = [
     }),
     ("inbox", |d, window, cx| d.open_inbox(window, cx)),
     ("inbox-factory", |d, window, cx| {
-        // The design's Inbox holds Factory rows only.
+        // Quiet every session outside the Factory, so the Inbox holds Factory rows only.
         let leads: Vec<_> = d.agents.board.tickets.iter().filter(|t| t.station != agents::tickets::Station::None && !t.agent_id.is_empty()).map(|t| t.agent_id.clone()).collect();
         for a in d.agents.list.iter_mut() {
             if !leads.contains(&a.id) && !leads.contains(&a.parent) {
