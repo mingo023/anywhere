@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.45
+
+- The chat's account chip hides the account email until clicked (#266): (ef450102)
+- Team mode is removed: a chat no longer leads a team of workers (#265): (82f2ae61)
+
 ## 0.1.44
 
 - Activity cards show the agent's logo instead of a coloured dot (#264): (758f9509)
