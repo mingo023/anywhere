@@ -204,6 +204,8 @@ func (c *chatter) turn(m message) {
 		note("compacted")
 	case strings.HasPrefix(text, "<anywhere_team_assignment"), strings.HasPrefix(text, "<anywhere_factory_fix"):
 		failed = c.assignment(model, text)
+	case strings.HasPrefix(text, "<anywhere_factory_review_request>"):
+		c.review(model, text)
 	case strings.HasPrefix(text, "run "):
 		failed = c.run(model, id, strings.TrimPrefix(text, "run "))
 	case strings.HasPrefix(text, "ask "):
@@ -293,6 +295,30 @@ func (c *chatter) assignment(model, text string) (failed bool) {
 	}
 	c.reply(model, text)
 	return false
+}
+
+// review is a reviewer's turn: it asks to write a file, as a reviewer that ignores its rules would, then
+// echoes the prompt, whose example block is its findings.
+func (c *chatter) review(model, text string) {
+	c.next++
+	id := fmt.Sprintf("toolu_%d", c.next)
+	path := filepath.Join(c.s.cwd, "reviewer-wrote.txt")
+	input := map[string]any{"file_path": path, "content": "x"}
+	c.s.write(assistant(map[string]any{"type": "tool_use", "id": id, "name": "Write", "input": input}))
+	d := c.ask(map[string]any{"subtype": "can_use_tool", "tool_name": "Write", "input": input, "tool_use_id": id})
+	note("can_use_tool: %v", d["behavior"])
+	if d["behavior"] == "allow" {
+		os.WriteFile(path, []byte("x\n"), 0o644)
+		c.s.write(toolResult(id, "wrote", false))
+	} else {
+		msg, _ := d["message"].(string)
+		c.s.write(toolResult(id, msg, true))
+	}
+	for _, cmd := range []string{"gh pr merge 57 --squash", "git diff main"} {
+		c.next++
+		c.call(fmt.Sprintf("toolu_%d", c.next), cmd)
+	}
+	c.reply(model, text)
 }
 
 // slow replies text after 3s, unless interrupted first.

@@ -56,7 +56,10 @@ type Engine struct {
 	// mu guards specs and changed.
 	mu sync.Mutex
 	// specs is how far each Ticket at Spec got, and where its lead's timeline stood at the prompt.
-	specs map[string]asked
+	specs    map[string]asked
+	reviewMu sync.Mutex
+	// reviewers is each open reviewer's agent id and its Ticket: whose asks Deny answers.
+	reviewers map[string]string
 	// advance holds the Tickets the user moved on from Implement, until Next has moved them. mu guards it.
 	advance map[string]bool
 	changed chan string
@@ -253,8 +256,9 @@ func (e *Engine) handle(ev event) {
 		return
 	}
 	tickets, _ := e.Board.Snapshot()
+	reviewed, _ := e.reviewerOf(ev.agent)
 	for _, t := range tickets {
-		if t.AgentID == ev.agent && t.Station != "" && t.State == proto.TicketLive {
+		if (t.AgentID == ev.agent || reviewed == t.ID) && t.Station != "" && t.State == proto.TicketLive {
 			e.step(t.ID, ev)
 		}
 	}
@@ -307,6 +311,9 @@ func (e *Engine) facts(t proto.Ticket, ev event) Facts {
 	f := Facts{Ticket: t, Config: e.Configs.Get(t.Folder)}
 	lead, ok := e.lead(t.AgentID)
 	if !ok {
+		if t.Station == proto.StationPR {
+			e.prFacts(&f, ev)
+		}
 		return f
 	}
 	f.Lead = Session{Present: true, Turn: lead.Turn()}
@@ -323,9 +330,12 @@ func (e *Engine) facts(t proto.Ticket, ev event) Facts {
 	if f.Spec == SpecAsked || f.Spec == SpecRepaired {
 		f.Reply = e.read(lead, since, ev)
 	}
-	if t.Station == proto.StationChecks {
+	switch t.Station {
+	case proto.StationChecks:
 		f.Local = e.local(t)
 		f.PR = e.prs[t.Worktree]
+	case proto.StationPR:
+		e.prFacts(&f, ev)
 	}
 	return f
 }
@@ -382,8 +392,13 @@ func (e *Engine) read(lead *agent.Agent, since int64, ev event) Turn {
 
 // act does one action for t. False stops the actions after it.
 func (e *Engine) act(t proto.Ticket, a Action) bool {
-	if a.Kind == ActCloseLead {
+	// These need no lead: it may be gone, and the PR is still yours to merge.
+	switch a.Kind {
+	case ActCloseLead:
 		e.closeLead(a.Text)
+		return true
+	case ActCloseReviewer:
+		e.closeReviewer(t)
 		return true
 	}
 	lead, ok := e.lead(t.AgentID)
@@ -419,6 +434,14 @@ func (e *Engine) act(t proto.Ticket, a Action) bool {
 		e.sendFix(t, a.Text)
 	case ActCommitPush:
 		e.commitPush(t)
+	case ActStartReview:
+		if pr := e.prs[t.Worktree]; pr != nil {
+			e.startReview(t, e.Configs.Get(t.Folder), pr)
+		}
+	case ActRepairReview:
+		if pr := e.prs[t.Worktree]; pr != nil {
+			e.repairReview(t, pr)
+		}
 	}
 	return true
 }
@@ -535,6 +558,7 @@ func (e *Engine) Detail(ticket string) (proto.FactoryTicket, error) {
 		return out, err
 	}
 	out.Activity = append(out.Activity, acts...)
+	out.Findings = readReview(e.Home, ticket).Findings
 	if rec, ok := ReadRecord(e.Home, ticket); ok {
 		out.Checks = rec.Checks
 		out.NoChecks = rec.State == LocalPassed && rec.Total == 0 && rec.Quiet

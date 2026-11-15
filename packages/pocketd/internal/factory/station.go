@@ -38,6 +38,9 @@ type Facts struct {
 	PR *proto.PR
 	// Local is the newest check record, empty when it is not for the commit in the lead's checkout.
 	Local LocalChecks
+	// Review is how far the review of the PR's head got, and Reviewer is its session.
+	Review   ReviewState
+	Reviewer Session
 	// Advance is the user's Move to Checks anyway for a Ticket whose Team is in review.
 	Advance bool
 }
@@ -71,6 +74,9 @@ func Next(f Facts) (proto.Ticket, []Action) {
 	t := f.Ticket
 	if t.State != proto.TicketLive || t.Station == "" || t.AgentID == "" {
 		return t, nil
+	}
+	if t.Station == proto.StationPR {
+		return atPR(f)
 	}
 	if t.Station != proto.StationSpec && t.Station != proto.StationPlan && t.Station != proto.StationImplement && t.Station != proto.StationChecks {
 		return t, nil

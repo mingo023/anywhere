@@ -16,6 +16,9 @@ func (e *Engine) Recover() {
 			continue
 		}
 		e.recall(t)
+		if t.Station == proto.StationPR {
+			e.recoverReview(t)
+		}
 		// A given name doesn't survive pocketd's restart.
 		e.rename(t, t.AgentID)
 		live = append(live, t.ID)

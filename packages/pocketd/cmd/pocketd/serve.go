@@ -224,7 +224,13 @@ func serve(sock, handed string) error {
 			fac.TurnEnded(id, ok)
 		}
 		d.Broker.Allow = func(req proto.PermissionRequest) bool {
-			if fac.Never(req) || !teams.Allow(req) {
+			if fac.Never(req) {
+				return false
+			}
+			if fac.Reads(req) {
+				return true
+			}
+			if !teams.Allow(req) {
 				return false
 			}
 			fac.AutoAllowed(req)
@@ -280,6 +286,7 @@ func serve(sock, handed string) error {
 		fac.Asked(req)
 	}
 	d.Broker.OnResolve = fac.Resolved
+	d.Broker.Deny = fac.Deny
 	d.Broker.Forever = func(req proto.PermissionRequest) bool { return fac.Runs(req.AgentID) }
 	boardScheduler := &board.Scheduler{Store: tickets, Now: time.Now, Watch: board.AgentWatcher(d.Agents), Limit: factoryConfigs.Limit, Owns: fac.Owns,
 		Start: func(requestID string, t proto.Ticket, created func(string)) launch.Result {
