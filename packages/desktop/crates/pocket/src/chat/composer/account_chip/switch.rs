@@ -63,7 +63,7 @@ impl Desktop {
 
     fn chat_account_row(&self, agent: &Summary, host: &Host, a: &Account, current: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let why = if a.signed_in { accounts::back_at(a, now_ms(), &Local).map(|b| tag(b, Tone::Bad)) } else { Some(tag("Signed out".into(), Tone::Plain)) };
-        let plan = (!a.plan.is_empty()).then(|| tag(a.plan.clone(), Tone::Plain));
+        let plan = (!a.plan.is_empty() && accounts::alias(a) != Some(a.plan.as_str())).then(|| tag(a.plan.clone(), Tone::Plain));
         let name = div()
             .flex()
             .items_center()
@@ -72,11 +72,11 @@ impl Desktop {
             .text_size(px(13.))
             .font_weight(if current { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
             .text_color(TEXT)
-            .child(div().min_w_0().truncate().child(accounts::name(a).to_string()))
+            .child(div().min_w_0().truncate().child(accounts::alias(a).unwrap_or(provider_name(&agent.provider)).to_string()))
             .children(plan)
             .children(why);
-        let email = (!a.label.is_empty() || a.id == BUILT_IN).then(|| a.email.clone()).filter(|e| !e.is_empty() && e != accounts::name(a));
-        let who = div().flex_1().min_w_0().flex().flex_col().child(name).children(email.map(|e| div().truncate().text_size(px(11.5)).text_color(TEXT_3).child(e)));
+        let email = (!a.email.is_empty()).then(|| div().flex().child(self.chat_account_email(a, 11.5, TEXT_3, cx)));
+        let who = div().flex_1().min_w_0().flex().flex_col().child(name).children(email);
         let usage = a.usage.as_ref().filter(|_| a.signed_in).map(|u| {
             let pct = |w: &Option<daemon::Window>| w.as_ref().map_or("\u{2013}".into(), |w| format!("{}%", accounts::percent(w)));
             div()

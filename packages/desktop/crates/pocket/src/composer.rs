@@ -74,6 +74,7 @@ pub(crate) struct Draft {
     /// What the model menu lists.
     pub(crate) listed: model_menu::KeptList,
     pub(crate) effort: effort_menu::EffortMenu,
+    revealed: Vec<String>,
     pub(crate) images: Vec<Attachment>,
     /// The dropped files and long pastes, which the agent reads where they lie.
     pub(crate) files: Vec<PathBuf>,
@@ -117,6 +118,24 @@ impl Draft {
         (self.scroll, self.rail) = Default::default();
         self.effort = Default::default();
         self.menu.is_some()
+    }
+
+    /// Opens or closes the chat's account popover, with every email in it masked again.
+    pub(crate) fn toggle_account(&mut self) {
+        let open = matches!(self.menu, Some(Menu::Usage { .. } | Menu::Switch));
+        self.menu = (!open).then_some(Menu::Usage { back: false });
+        self.revealed.clear();
+    }
+
+    pub(crate) fn toggle_email(&mut self, id: &str) {
+        match self.revealed.iter().position(|s| s == id) {
+            Some(i) => _ = self.revealed.remove(i),
+            None => self.revealed.push(id.to_string()),
+        }
+    }
+
+    pub(crate) fn reveals(&self, id: &str) -> bool {
+        self.revealed.iter().any(|s| s == id)
     }
 
     /// Esc on the chat's account popover: its accounts go back to its usage, its usage closes. False while it isn't open.
@@ -639,6 +658,22 @@ mod tests {
         draft.toggle(Menu::Model);
         assert!(!draft.escape_account());
         assert!(draft.menu == Some(Menu::Model));
+    }
+
+    #[test]
+    fn an_email_shown_in_the_account_popover_is_masked_again_once_it_reopens() {
+        let mut draft = Draft::default();
+        draft.toggle_account();
+        assert!(draft.menu == Some(Menu::Usage { back: false }));
+        draft.toggle_email("work");
+        assert!(draft.reveals("work") && !draft.reveals("builtin"));
+        draft.toggle_email("work");
+        assert!(!draft.reveals("work"));
+        draft.toggle_email("work");
+        draft.toggle_account();
+        assert!(draft.menu.is_none());
+        draft.toggle_account();
+        assert!(!draft.reveals("work"));
     }
 
     #[test]
