@@ -61,6 +61,7 @@ func Parse(text string) ([]proto.TeamTask, error) {
 			ID           string   `json:"id"`
 			Title        string   `json:"title"`
 			Agent        string   `json:"agent"`
+			Profile      string   `json:"profile"`
 			Files        []string `json:"files"`
 			After        []string `json:"after"`
 			Allow        []string `json:"allow"`
@@ -72,7 +73,7 @@ func Parse(text string) ([]proto.TeamTask, error) {
 	}
 	tasks := make([]proto.TeamTask, len(plan.Tasks))
 	for i, p := range plan.Tasks {
-		tasks[i] = proto.TeamTask{ID: p.ID, Title: p.Title, Agent: p.Agent, Files: list(p.Files), After: list(p.After), Allow: list(p.Allow),
+		tasks[i] = proto.TeamTask{ID: p.ID, Title: p.Title, Agent: p.Agent, Profile: p.Profile, Files: list(p.Files), After: list(p.After), Allow: list(p.Allow),
 			Instructions: p.Instructions, State: "planned"}
 	}
 	return tasks, nil

@@ -82,18 +82,29 @@ func (e *Engine) Owns(t proto.Ticket) bool {
 
 // Start is the board.Starter for a Ticket the engine owns: it puts t at its first station and launches its lead.
 func (e *Engine) Start(requestID string, t proto.Ticket, created func(cwd string)) launch.Result {
-	station := cmp.Or(t.Station, First(e.Configs.Get(t.Folder)))
+	cfg := e.Configs.Get(t.Folder)
+	station := cmp.Or(t.Station, First(cfg))
 	at := e.now().UnixMilli()
+	profile, known := e.Profiles.Get(cfg.Lead)
 	e.update(t.ID, func(x *proto.Ticket) {
 		x.Station, x.Gate, x.Status, x.Why = station, "", proto.TicketStarting, ""
+		if known {
+			x.Provider = profile.Provider
+		}
 	})
 	if t.Station == "" {
 		e.note(t.ID, proto.FactoryEvent{At: at, Station: station, Actor: "anywhere", Kind: "moved"})
 	}
-	res := e.Launch("factory:"+t.ID, requestID, leadSpec(t, requestID), created)
+	res := launch.Result{Err: &launch.Failure{Code: proto.CodeUnknownProfile, Message: "The lead's profile is gone. Pick one in Settings › Factory"}}
+	if known {
+		res = e.Launch("factory:"+t.ID, requestID, leadSpec(t, requestID, profile), created)
+	}
 	if res.Err != nil {
 		e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: station, Actor: "anywhere", Kind: "failed", Text: res.Err.Message})
 		return res
+	}
+	for _, skill := range res.Skipped {
+		e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: station, Actor: "lead", Kind: "skill", Text: skippedSkill(skill)})
 	}
 	if lead, err := e.Agents.Get(res.AgentID); err == nil {
 		// Claimed before the first prompt, so the spec request doesn't become the session's title.
@@ -117,14 +128,19 @@ func (e *Engine) Start(requestID string, t proto.Ticket, created func(cwd string
 }
 
 // leadSpec is the lead's session: a chat that may edit, in the Ticket's own worktree, with no first prompt.
-func leadSpec(t proto.Ticket, requestID string) proto.LaunchSpec {
-	s := proto.LaunchSpec{Project: t.Folder, Provider: t.Provider, Access: "edits", Chat: true}
+func leadSpec(t proto.Ticket, requestID string, p proto.Profile) proto.LaunchSpec {
+	s := proto.LaunchSpec{Project: t.Folder, Provider: p.Provider, Model: p.Model, Profile: p.ID, Access: "edits", Chat: true}
 	if t.Worktree != "" {
 		s.Checkout = proto.Checkout{Worktree: t.Worktree}
 		return s
 	}
 	s.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: "ticket-" + requestID[:min(8, len(requestID))], Base: t.Base}}
 	return s
+}
+
+// skippedSkill is the activity line for a profile's skill the checkout kept its own folder for.
+func skippedSkill(name string) string {
+	return "Skill " + name + " was not copied: the checkout has its own"
 }
 
 // Status is Registry.OnStatus's. It runs under the agent's lock, so it only queues.
@@ -338,7 +354,7 @@ func (e *Engine) act(t proto.Ticket, a Action) bool {
 	}
 	switch a.Kind {
 	case ActAskSpec:
-		return e.ask(t, lead, SpecAsked, Rules+"\n\n"+SpecRequest(t))
+		return e.ask(t, lead, SpecAsked, SpecRequest(t))
 	case ActRepairSpec:
 		return e.ask(t, lead, SpecRepaired, a.Text)
 	case ActSaveSpec:
@@ -348,12 +364,7 @@ func (e *Engine) act(t proto.Ticket, a Action) bool {
 		}
 		e.tell(t.ID)
 	case ActAskPlan:
-		spec := readSpec(e.Home, t.ID)
-		text := PlanRequest(t, spec)
-		// With no spec turn, this is the lead's first prompt.
-		if spec == "" {
-			text = Rules + "\n\n" + text
-		}
+		text := PlanRequest(t, readSpec(e.Home, t.ID)) + ProfileHint(e.Profiles.List())
 		if err := e.Teams.Prompt(lead, text); err != nil {
 			e.fail(t.ID, "The lead couldn't be asked for a plan: "+err.Error())
 			return false

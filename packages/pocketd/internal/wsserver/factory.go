@@ -45,6 +45,14 @@ func (c *conn) factoryVerb(m proto.ClientMessage) error {
 // a gh that signed out later can't lock the settings.
 func (c *conn) factorySave(m proto.ClientMessage) {
 	configs, cfg := c.s.FactoryConfigs, *m.Config
+	if store := c.profiles(); store != nil {
+		for _, id := range []string{cfg.Lead, cfg.Workers, cfg.Review} {
+			if _, ok := store.Get(id); !ok {
+				c.send(proto.NewErrorCode(m.ID, proto.CodeUnknownProfile, "No profile "+id))
+				return
+			}
+		}
+	}
 	problem := ""
 	if !cfg.Enabled || !configs.Get(m.Project).Enabled {
 		problem = c.factoryProblem(m.Project)

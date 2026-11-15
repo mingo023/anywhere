@@ -73,7 +73,7 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { store.Close() })
 	w := &world{t: t, home: home, reg: agent.NewRegistry(h), chat: &chat{}}
 	w.teams = &team.Teams{Store: store, Agents: w.reg, Hub: h, Poll: time.Millisecond}
-	w.e = &Engine{Home: home, Board: board.Open(home), Configs: OpenConfigs(home), Teams: w.teams, Agents: w.reg, Now: time.Now, Poll: time.Millisecond}
+	w.e = &Engine{Home: home, Board: board.Open(home), Configs: OpenConfigs(home), Teams: w.teams, Agents: w.reg, Now: time.Now, Poll: time.Millisecond, Profiles: OpenProfiles(home)}
 	w.e.Launch = func(key, requestID string, s proto.LaunchSpec, created func(string)) launch.Result {
 		w.key, w.spec = key, s
 		created("/w/" + requestID)
@@ -162,7 +162,7 @@ func TestATicketGoesFromSpecToThePlanGateAndOnToImplementWhenItsPlanStarts(t *te
 	if x.Station != proto.StationSpec || x.Status != proto.TicketWorking || x.AgentID != leadID || x.TerminalID != "term-1" || x.Worktree != "/w/req12345678" {
 		t.Fatalf("after the start: %+v", x)
 	}
-	if sent := w.chat.sent(); len(sent) != 1 || !strings.HasPrefix(sent[0], Rules+"\n\n<anywhere_factory_spec_request>") || !strings.HasSuffix(sent[0], "Ticket: Queue sends\n\nKeep sends in a queue") {
+	if sent := w.chat.sent(); len(sent) != 1 || !strings.HasPrefix(sent[0], "<anywhere_factory_spec_request>") || !strings.HasSuffix(sent[0], "Ticket: Queue sends\n\nKeep sends in a queue") {
 		t.Fatalf("the lead was sent %q", sent)
 	}
 
@@ -223,11 +223,11 @@ func TestASecondUnusableSpecFailsTheTicketAtSpec(t *testing.T) {
 	}
 }
 
-func TestAProjectWithoutTheSpecStationSendsTheRulesWithThePlanRequest(t *testing.T) {
+func TestAProjectWithoutTheSpecStationAsksForThePlanFirstAndSendsNoRulesInIt(t *testing.T) {
 	w := newWorld(t)
 	x := w.started(false)
 	sent := w.chat.sent()
-	if x.Station != proto.StationPlan || len(sent) != 1 || !strings.Contains(sent[0], Rules+"\n\nPlan this ticket.") || strings.Contains(sent[0], "Spec:") {
+	if x.Station != proto.StationPlan || len(sent) != 1 || !strings.Contains(sent[0], "\n\nPlan this ticket.") || strings.Contains(sent[0], "anywhere_factory_rules") || strings.Contains(sent[0], "Spec:") {
 		t.Fatalf("got %+v, sent %q", x, sent)
 	}
 }
@@ -313,5 +313,87 @@ func TestANilEngineIgnoresEveryHookAndRefusesDetail(t *testing.T) {
 	}
 	if d, err := e.Detail("t1"); !errors.Is(err, ErrOff) || d.Activity == nil {
 		t.Fatalf("got %+v, %v", d, err)
+	}
+}
+
+func TestTheLeadRunsTheAgentAndModelOfTheProjectsLeadProfile(t *testing.T) {
+	w := newWorld(t)
+	x := w.ticket(false)
+	cfg := w.e.Configs.Get("/repo")
+	cfg.Lead = "codex"
+	w.e.Configs.Save("/repo", cfg)
+	if res := w.e.Start("req12345678", x, func(string) {}); res.Err != nil {
+		t.Fatal(res.Err.Message)
+	}
+	w.settle()
+	if s := w.spec; s.Provider != "codex" || s.Model != "" || s.Profile != "codex" || s.Prompt != "" {
+		t.Fatalf("launched %+v", s)
+	}
+	if g := w.got(x.ID); g.Provider != "codex" {
+		t.Fatalf("the ticket says %q", g.Provider)
+	}
+	if sent := w.chat.sent(); len(sent) != 1 || strings.Contains(sent[0], "anywhere_factory_rules") {
+		t.Fatalf("the first prompt still carries the rules: %q", sent)
+	}
+}
+
+func TestATicketWhoseLeadProfileIsGoneFailsAtItsFirstStation(t *testing.T) {
+	w := newWorld(t)
+	x := w.ticket(true)
+	cfg := w.e.Configs.Get("/repo")
+	cfg.Lead = "gone"
+	w.e.Configs.Save("/repo", cfg)
+	res := w.e.Start("req12345678", x, func(string) {})
+	if res.Err == nil || res.Err.Code != proto.CodeUnknownProfile || res.Err.Message != "The lead's profile is gone. Pick one in Settings › Factory" || w.key != "" {
+		t.Fatalf("%+v, launched %q", res.Err, w.key)
+	}
+}
+
+func TestASkillTheLeadsCheckoutAlreadyHadIsNotedInTheActivity(t *testing.T) {
+	w := newWorld(t)
+	inner := w.e.Launch
+	w.e.Launch = func(key, requestID string, s proto.LaunchSpec, created func(string)) launch.Result {
+		r := inner(key, requestID, s, created)
+		r.Skipped = []string{"review"}
+		return r
+	}
+	x := w.started(true)
+	acts, _ := ReadActivity(w.home, x.ID)
+	if i := slices.IndexFunc(acts, func(ev proto.FactoryEvent) bool { return ev.Kind == "skill" }); i < 0 || acts[i].Actor != "lead" || acts[i].Text != "Skill review was not copied: the checkout has its own" {
+		t.Fatalf("%+v", acts)
+	}
+}
+
+func TestThePlanRequestListsTheProfilesATaskMayName(t *testing.T) {
+	w := newWorld(t)
+	w.e.Profiles.Save(goBackend())
+	w.started(false)
+	sent := w.chat.sent()
+	if !strings.HasSuffix(sent[len(sent)-1], `A task may name a profile with "profile": claude-opus, claude-sonnet, codex, go-backend. Leave it out for the project's default.`) {
+		t.Fatalf("the plan request ends %q", sent[len(sent)-1])
+	}
+}
+
+func TestATaskOfAFactoryLeadTakesTheProjectsWorkersProfile(t *testing.T) {
+	w := newWorld(t)
+	w.gated()
+	if got := w.e.Workers(leadID); got != "claude-sonnet" {
+		t.Fatalf("got %q", got)
+	}
+	if got := w.e.Workers("another-lead"); got != "" {
+		t.Fatalf("a lead outside the Factory got %q", got)
+	}
+	if provider, model, ok := w.e.Profile("claude-sonnet"); !ok || provider != "claude" || model != "sonnet" {
+		t.Fatalf("%s %s %t", provider, model, ok)
+	}
+}
+
+func TestASkillAWorkersCheckoutAlreadyHadIsNotedUnderItsTask(t *testing.T) {
+	w := newWorld(t)
+	x := w.gated()
+	w.e.Skipped(leadID, "t1", []string{"review"})
+	acts, _ := ReadActivity(w.home, x.ID)
+	if last := acts[len(acts)-1]; last.Kind != "skill" || last.Actor != "worker:t1" || last.Station != x.Station || last.Text != "Skill review was not copied: the checkout has its own" {
+		t.Fatalf("%+v", last)
 	}
 }

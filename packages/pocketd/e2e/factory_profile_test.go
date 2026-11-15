@@ -4,6 +4,8 @@ package e2e
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,4 +81,83 @@ func TestAPhoneCantReadOrWriteAProfile(t *testing.T) {
 			t.Fatalf("%s: %s", verb, m.Raw)
 		}
 	}
+}
+
+func TestAConfigThatNamesAProfileThatIsGoneIsRefused(t *testing.T) {
+	h := Start(t, launchReady(""))
+	o := h.Owner(proto.CapFactory)
+	o.Send(map[string]any{"type": "factory.config.save", "id": "cfg", "project": h.Repo, "config": factoryConfig("nope")})
+	m := o.WaitFor("the reply", func(m Message) bool { return m.ID == "cfg" })
+	if m.Type != "error" || !strings.Contains(m.Raw, `"unknown_profile"`) || m.Message != "No profile nope" {
+		t.Fatalf("got %s", m.Raw)
+	}
+}
+
+func TestAWorkerWithAProfileStartsWithItsPromptAndItsSkillsAndCommitsNeither(t *testing.T) {
+	h := Start(t, launchReady(""), gitIdentity)
+	o := h.Owner("names.v1", proto.CapFactory)
+	o.Send(map[string]any{"type": "factory.profile.save", "id": "save", "profile": goBackendDoc()})
+	if m := o.WaitFor("the saved profile", func(m Message) bool { return m.ID == "save" }); m.Type != "factory.profiles" {
+		t.Fatalf("save: %s", m.Raw)
+	}
+	create(o, "lead", inRepo(h, map[string]any{"chat": true}))
+	created := reply(o, "agent.created", "error")
+	if created.Type != "agent.created" {
+		t.Fatalf("got %s", created.Raw)
+	}
+	lead := created.AgentID
+	h.WaitScreen(created.TerminalID, "fake claude ready")
+	o.Send(map[string]any{"type": "agent.prompt", "id": "plan", "agentId": lead, "text": teamPlan(t), "team": true})
+	o.WaitFor("the proposed plan", teamOf(lead, "proposed"))
+	o.Send(map[string]any{"type": "team.start", "id": "start", "lead": lead, "tasks": []map[string]any{
+		{"id": "t1", "agent": "codex", "profile": "go-backend", "allow": []string{"make test"}},
+		{"id": "t2", "agent": "claude", "allow": []string{}},
+	}})
+	if m := o.WaitFor("team.start's reply", replyTo("start")); m.Type != "ack" {
+		t.Fatalf("team.start: %s", m.Raw)
+	}
+	var t1 proto.TeamTask
+	o.WaitFor("t1's handback", func(m Message) bool {
+		if !taskIn(lead, "t1", "done")(m) {
+			return false
+		}
+		t1 = m.Team.Tasks[0]
+		return true
+	})
+	if t1.Profile != "go-backend" || t1.Agent != "claude" || t1.Model != "sonnet" {
+		t.Fatalf("t1 runs %+v", t1)
+	}
+	if text, err := os.ReadFile(filepath.Join(t1.Worktree, ".claude", "skills", "review", "SKILL.md")); err != nil || string(text) != "# Review\n" {
+		t.Fatalf("the skill in the checkout: %q %v", text, err)
+	}
+	if files := gitOut(t, t1.Worktree, "log", "-1", "--name-only", "--format="); files != "a.txt" {
+		t.Fatalf("the handback commit holds %q", files)
+	}
+	if left := gitOut(t, t1.Worktree, "status", "--porcelain"); left != "" {
+		t.Fatalf("git lists %q", left)
+	}
+	prompts, _ := filepath.Glob(filepath.Join(h.Home, "state", "factory", "prompts", "*.md"))
+	if len(prompts) != 1 {
+		t.Fatalf("prompt files %q", prompts)
+	}
+	if text, _ := os.ReadFile(prompts[0]); !strings.HasPrefix(string(text), "<anywhere_factory_rules>") || !strings.Contains(string(text), "You are careful.") {
+		t.Fatalf("the prompt file:\n%s", text)
+	}
+	o.Send(map[string]any{"type": "agent.list", "id": "al"})
+	list := o.WaitFor("the agent list", func(m Message) bool { return m.Type == "agent.list" && m.ID == "al" })
+	var v struct {
+		Agents []struct{ ID, TerminalID string } `json:"agents"`
+	}
+	json.Unmarshal([]byte(list.Raw), &v)
+	term := ""
+	for _, a := range v.Agents {
+		if a.ID == t1.Worker {
+			term = a.TerminalID
+		}
+	}
+	if term == "" {
+		t.Fatalf("t1's worker %s isn't listed: %s", t1.Worker, list.Raw)
+	}
+	// Fake claude prints the first line of the file its argv names.
+	h.WaitScreen(term, "system prompt: <anywhere_factory_rules>")
 }

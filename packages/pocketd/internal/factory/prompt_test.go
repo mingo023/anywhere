@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,5 +47,36 @@ func TestAnEditedProfileWritesANewFileAndLeavesTheOldOne(t *testing.T) {
 	old, _ := os.ReadFile(before)
 	if before == after || !strings.Contains(string(old), "You are careful.") {
 		t.Fatalf("%s %s:\n%s", before, after, old)
+	}
+}
+
+func TestPreparingAProfileWritesItsPromptAndCopiesItsSkillsIntoTheCheckout(t *testing.T) {
+	home, dir := t.TempDir(), gitRepo(t)
+	e := &Engine{Home: home, Profiles: OpenProfiles(home)}
+	e.Profiles.Save(goBackend())
+	own := filepath.Join(dir, ".claude", "skills", "test")
+	os.MkdirAll(own, 0o755)
+	system, skipped, err := e.Prepare("go-backend", "claude", dir)
+	text, _ := os.ReadFile(system)
+	if err != nil || !strings.HasPrefix(string(text), Rules) || !strings.Contains(string(text), "You are careful.") {
+		t.Fatalf("%s: %v\n%s", system, err, text)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "review", "SKILL.md")); err != nil || len(skipped) != 1 || skipped[0] != "test" {
+		t.Fatalf("skipped %q, %v", skipped, err)
+	}
+}
+
+func TestPreparingRefusesAProfileThatIsGoneOrRunsAnotherAgent(t *testing.T) {
+	home := t.TempDir()
+	e := &Engine{Home: home, Profiles: OpenProfiles(home)}
+	if _, _, err := e.Prepare("gone", "claude", t.TempDir()); !errors.Is(err, ErrUnknownProfile) {
+		t.Fatalf("gone: %v", err)
+	}
+	if _, _, err := e.Prepare("codex", "claude", t.TempDir()); err == nil {
+		t.Fatal("a codex profile prepared a claude session")
+	}
+	var off *Engine
+	if _, _, err := off.Prepare("codex", "codex", t.TempDir()); !errors.Is(err, ErrOff) {
+		t.Fatalf("no engine: %v", err)
 	}
 }

@@ -216,6 +216,7 @@ func serve(sock, handed string) error {
 			if r.Err != nil {
 				return "", "", errors.New(r.Err.Message)
 			}
+			fac.Skipped(lead, task, r.Skipped)
 			return r.AgentID, r.Cwd, nil
 		}
 		d.Agents.OnTurnEnd = func(id string, ok bool) {
@@ -259,6 +260,8 @@ func serve(sock, handed string) error {
 				return l.Create(launch.Who{Owner: true, Key: key}, requestID, s, func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
 			}}
 		teams.OnChange = fac.TeamChanged
+		l.Profiles = fac.Prepare
+		teams.Profiles, teams.Workers = fac.Profile, fac.Workers
 		go fac.Run(ctx)
 	}
 	boardScheduler := &board.Scheduler{Store: tickets, Now: time.Now, Watch: board.AgentWatcher(d.Agents), Limit: factoryConfigs.Limit, Owns: fac.Owns,

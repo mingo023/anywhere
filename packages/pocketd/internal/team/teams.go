@@ -45,6 +45,10 @@ type Teams struct {
 	Projects *registry.Registry
 	// Names takes the display name each worker's Worktree gets from its task; nil names none.
 	Names *names.Names
+	// Profiles is the agent and model a Factory profile runs; nil has no profiles.
+	Profiles func(id string) (provider, model string, ok bool)
+	// Workers is the profile a task of lead's team takes when its pick names none; "" for a lead outside the Factory.
+	Workers func(lead string) string
 	// OnChange hears every saved change of a team. It runs under mu, so it must only queue.
 	OnChange func(proto.Team)
 

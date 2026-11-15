@@ -70,9 +70,18 @@ func (t *Teams) Start(lead string, picks []proto.TaskPick) error {
 	if _, err := t.leadCwd(lead); err != nil {
 		return err
 	}
+	def := ""
+	if t.Workers != nil {
+		// Asked before change takes mu: it reads the Board.
+		def = t.Workers(lead)
+	}
 	err := errNoTeam
 	t.change(lead, func(tm proto.Team) (proto.Team, bool) {
-		tm, err = Started(tm, picks)
+		var kept []proto.TaskPick
+		if kept, err = Profiled(tm, picks, def, t.Profiles); err != nil {
+			return tm, false
+		}
+		tm, err = Started(tm, kept)
 		return tm, err == nil
 	})
 	if err != nil {

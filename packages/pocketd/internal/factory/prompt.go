@@ -3,6 +3,7 @@ package factory
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,4 +46,34 @@ func WritePrompt(home, text string) (string, error) {
 		return "", err
 	}
 	return file, atomicfile.Write(file, []byte(text), 0o600)
+}
+
+// Prepare is launch.Launcher.Profiles: it makes checkout ready for a session
+// of profile and returns the file with its system prompt and the skills the
+// checkout already had.
+func (e *Engine) Prepare(profile, provider, checkout string) (system string, skipped []string, err error) {
+	if e == nil || e.Profiles == nil {
+		return "", nil, ErrOff
+	}
+	p, ok := e.Profiles.Get(profile)
+	if !ok {
+		return "", nil, ErrUnknownProfile
+	}
+	if p.Provider != provider {
+		return "", nil, errors.New("Profile " + p.Name + " runs " + p.Provider + ", not " + provider)
+	}
+	if system, err = WritePrompt(e.Home, SystemPrompt(p)); err != nil {
+		return "", nil, err
+	}
+	_, skipped, err = CopySkills(p, provider, checkout)
+	return system, skipped, err
+}
+
+// ProfileHint ends the plan request: the profile ids a task may name.
+func ProfileHint(list []proto.ProfileInfo) string {
+	ids := make([]string, len(list))
+	for i, p := range list {
+		ids[i] = p.ID
+	}
+	return "\n\nA task may name a profile with \"profile\": " + strings.Join(ids, ", ") + ". Leave it out for the project's default."
 }

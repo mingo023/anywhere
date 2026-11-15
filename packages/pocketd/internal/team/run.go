@@ -11,6 +11,31 @@ import (
 	"pocketd/internal/worktree"
 )
 
+// Profiled gives each pick the agent and model of its profile: the pick's
+// own, else the one the plan names for its task, else def. A pick with none
+// keeps what the user chose. resolve is nil where there are no profiles.
+func Profiled(t proto.Team, picks []proto.TaskPick, def string, resolve func(id string) (provider, model string, ok bool)) ([]proto.TaskPick, error) {
+	out := slices.Clone(picks)
+	for i, p := range out {
+		id := p.Profile
+		if j := taskAt(t, p.ID); id == "" && j >= 0 {
+			id = t.Tasks[j].Profile
+		}
+		if id = cmp.Or(id, def); id == "" {
+			continue
+		}
+		if resolve == nil {
+			return nil, fmt.Errorf("Task %s names a profile, and the Factory is off", p.ID)
+		}
+		provider, model, ok := resolve(id)
+		if !ok {
+			return nil, fmt.Errorf("Task %s's profile is gone. Pick another", p.ID)
+		}
+		out[i].Profile, out[i].Agent, out[i].Model = id, provider, model
+	}
+	return out, nil
+}
+
 // Started applies the user's edits at Start to a proposed team: the picked
 // tasks stay, in plan order, with their agent, model and allowlist; the rest
 // go. A kept task's after must all be kept, and the kept tasks must still make
@@ -45,7 +70,7 @@ func Started(t proto.Team, picks []proto.TaskPick) (proto.Team, error) {
 		if !ok {
 			continue
 		}
-		x.Agent, x.Model, x.Allow, x.State = p.Agent, p.Model, p.Allow, "waiting"
+		x.Agent, x.Model, x.Allow, x.Profile, x.State = p.Agent, p.Model, p.Allow, p.Profile, "waiting"
 		if x.Allow == nil {
 			x.Allow = []string{}
 		}
@@ -103,6 +128,7 @@ func WorkerSpec(project, lead string, task proto.TeamTask, base string) proto.La
 		Checkout: proto.Checkout{New: &proto.NewWorktree{Name: task.Branch, Base: base}},
 		Provider: task.Agent,
 		Model:    task.Model,
+		Profile:  task.Profile,
 		Access:   "edits",
 		Chat:     true,
 		Parent:   lead,

@@ -2,6 +2,7 @@ package team
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"pocketd/internal/proto"
@@ -469,5 +470,60 @@ func TestAMergeGitRefusesGoesBackToReviewSayingWhy(t *testing.T) {
 	want.Error = "This checkout has uncommitted changes; commit or stash them first"
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func profiles(id string) (string, string, bool) {
+	p, ok := map[string][2]string{"go-backend": {"claude", "sonnet"}, "codex": {"codex", ""}}[id]
+	return p[0], p[1], ok
+}
+
+func TestAPickTakesTheAgentAndModelOfItsProfile(t *testing.T) {
+	plan := planOfThree()
+	plan.Tasks[1].Profile = "codex"
+	picks := []proto.TaskPick{{ID: "t1", Agent: "codex", Model: "gpt-6.1-sol", Profile: "go-backend"}, {ID: "t2", Agent: "claude"}, {ID: "t3", Agent: "codex"}}
+	got, err := Profiled(plan, picks, "go-backend", profiles)
+	want := []proto.TaskPick{{ID: "t1", Agent: "claude", Model: "sonnet", Profile: "go-backend"}, {ID: "t2", Agent: "codex", Profile: "codex"}, {ID: "t3", Agent: "claude", Model: "sonnet", Profile: "go-backend"}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if picks[0].Agent != "codex" {
+		t.Fatal("the caller's picks were changed")
+	}
+}
+
+func TestAPickWithoutAProfileOutsideTheFactoryKeepsItsAgentAndModel(t *testing.T) {
+	picks := []proto.TaskPick{{ID: "t1", Agent: "codex", Model: "gpt-6.1-sol"}}
+	got, err := Profiled(planOfThree(), picks, "", nil)
+	if err != nil || !reflect.DeepEqual(got, picks) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestAPickWithAProfileThatIsGoneIsRefused(t *testing.T) {
+	_, err := Profiled(planOfThree(), []proto.TaskPick{{ID: "t1", Agent: "claude", Profile: "gone"}}, "", profiles)
+	if err == nil || err.Error() != "Task t1's profile is gone. Pick another" {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := Profiled(planOfThree(), []proto.TaskPick{{ID: "t1", Agent: "claude", Profile: "codex"}}, "", nil); err == nil {
+		t.Fatal("a profile was taken with no Factory")
+	}
+}
+
+func TestAStartedTaskKeepsItsProfileAndItsWorkerLaunchesWithIt(t *testing.T) {
+	tm, err := Started(planOfThree(), []proto.TaskPick{{ID: "t1", Agent: "claude", Model: "sonnet", Profile: "go-backend"}})
+	if err != nil || tm.Tasks[0].Profile != "go-backend" {
+		t.Fatalf("%+v %v", tm.Tasks, err)
+	}
+	if s := WorkerSpec("/repo", testLead, tm.Tasks[0], "main"); s.Profile != "go-backend" || s.Provider != "claude" || s.Model != "sonnet" {
+		t.Fatalf("%+v", s)
+	}
+}
+
+func TestAPlanMayNameAProfilePerTask(t *testing.T) {
+	text := `<anywhere_team_plan>{"tasks":[{"id":"t1","title":"A","agent":"claude","profile":"go-backend","files":["a"],"after":[],"allow":[],"instructions":"x"},{"id":"t2","title":"B","agent":"claude","files":["b"],"after":[],"allow":[],"instructions":"y"}]}</anywhere_team_plan>`
+	tasks, err := Parse(text)
+	if err != nil || tasks[0].Profile != "go-backend" || tasks[1].Profile != "" || strings.Contains(tasks[1].Title, "profile") {
+		t.Fatalf("%+v %v", tasks, err)
 	}
 }

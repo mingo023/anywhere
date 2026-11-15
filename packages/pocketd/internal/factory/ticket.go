@@ -46,3 +46,38 @@ func (e *Engine) label(lead string) string {
 	}
 	return strings.TrimSpace(t.Title)
 }
+
+// Profile is team.Teams.Profiles: the agent and model profile id runs.
+func (e *Engine) Profile(id string) (provider, model string, ok bool) {
+	if e == nil || e.Profiles == nil {
+		return "", "", false
+	}
+	p, ok := e.Profiles.Get(id)
+	return p.Provider, p.Model, ok
+}
+
+// Workers is team.Teams.Workers: the profile a task of lead's team takes when its pick names none.
+func (e *Engine) Workers(lead string) string {
+	if e == nil {
+		return ""
+	}
+	t, ok := e.led(lead)
+	if !ok {
+		return ""
+	}
+	return e.Configs.Get(t.Folder).Workers
+}
+
+// Skipped notes each of a profile's skills that the checkout of lead's task kept its own folder for.
+func (e *Engine) Skipped(lead, task string, skills []string) {
+	if e == nil {
+		return
+	}
+	t, ok := e.led(lead)
+	if !ok {
+		return
+	}
+	for _, skill := range skills {
+		e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: t.Station, Actor: "worker:" + task, Kind: "skill", Text: skippedSkill(skill)})
+	}
+}
