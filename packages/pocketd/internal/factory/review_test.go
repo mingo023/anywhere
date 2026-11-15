@@ -1,7 +1,9 @@
 package factory
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,7 +231,7 @@ func atGate(edit func(*Facts)) Facts {
 	return f
 }
 
-func TestATicketAtPRReviewGetsAReviewerThatIsRepairedOnceAndThenClosed(t *testing.T) {
+func TestATicketAtPRReviewGetsAReviewerThatIsRepairedOnce(t *testing.T) {
 	working, ended := Session{Present: true, Turn: "working"}, Session{Present: true, Turn: "done"}
 	for name, c := range map[string]struct {
 		edit func(*Facts)
@@ -242,15 +244,232 @@ func TestATicketAtPRReviewGetsAReviewerThatIsRepairedOnceAndThenClosed(t *testin
 		"a first reply without a block":           {func(f *Facts) { f.Review, f.Reviewer = ReviewRunning, ended }, "repairReview"},
 		"a repair under way is waited for":        {func(f *Facts) { f.Review, f.Reviewer = ReviewRepaired, working }, ""},
 		"a reply to the repair is waited for":     {func(f *Facts) { f.Review, f.Reviewer = ReviewRepaired, ended }, ""},
-		"a finished review closes the reviewer":   {func(f *Facts) { f.Review, f.Reviewer = ReviewDone, ended }, "closeReviewer"},
-		"a failed review closes the reviewer":     {func(f *Facts) { f.Review, f.Reviewer = ReviewFailed, ended }, "closeReviewer"},
-		"a finished review with no reviewer":      {func(f *Facts) { f.Review = ReviewDone }, ""},
-		"a project with the reviewer off":         {func(f *Facts) { f.Config.Reviewer = false }, ""},
 		"no pull request yet":                     {func(f *Facts) { f.PR = nil }, ""},
 	} {
 		got, acts := Next(atGate(c.edit))
 		if did(acts) != c.want || got.Station != proto.StationPR || got.Status != proto.TicketWorking {
 			t.Errorf("%s: got %q, station %s, status %s", name, did(acts), got.Station, got.Status)
+		}
+	}
+}
+
+// gateOpen is atGate with the gate open: the review is done and the Ticket waits on you.
+func gateOpen(edit func(*Facts)) Facts {
+	return atGate(func(f *Facts) {
+		f.Review = ReviewDone
+		f.Ticket.Gate, f.Ticket.Status = proto.GatePR, proto.TicketNeedsYou
+		f.PR.Draft = false
+		if edit != nil {
+			edit(f)
+		}
+	})
+}
+
+func TestThePRReviewGateOpensOnceTheReviewIsOver(t *testing.T) {
+	ended := Session{Present: true, Turn: "done"}
+	for name, c := range map[string]struct {
+		facts Facts
+		want  string
+	}{
+		"a finished review":                     {atGate(func(f *Facts) { f.Review, f.Reviewer = ReviewDone, ended }), "closeReviewer,markReady,await"},
+		"a failed review does not block":        {atGate(func(f *Facts) { f.Review, f.Reviewer = ReviewFailed, ended }), "closeReviewer,markReady,await"},
+		"a project with the reviewer off":       {atGate(func(f *Facts) { f.Config.Reviewer = false }), "markReady,await"},
+		"a pull request that is ready":          {atGate(func(f *Facts) { f.Review = ReviewDone; f.PR.Draft = false }), "await"},
+		"a draft is marked ready once":          {gateOpen(func(f *Facts) { f.PR.Draft = true }), "await"},
+		"after a restart the wait is set again": {gateOpen(nil), "await"},
+		"a lead that is gone":                   {gateOpen(func(f *Facts) { f.Lead = Session{} }), "await"},
+	} {
+		got, acts := Next(c.facts)
+		if did(acts) != c.want || got.Station != proto.StationPR || got.Gate != proto.GatePR || got.Status != proto.TicketNeedsYou || got.Why != "" {
+			t.Errorf("%s: got %q, %+v", name, did(acts), got)
+		}
+	}
+}
+
+func TestAMergedPullRequestMovesTheTicketToMerged(t *testing.T) {
+	for name, c := range map[string]struct {
+		facts Facts
+		want  string
+	}{
+		"at the gate":        {gateOpen(func(f *Facts) { f.PR.State = "MERGED" }), "close"},
+		"with the lead gone": {gateOpen(func(f *Facts) { f.PR.State, f.Lead = "MERGED", Session{} }), "close"},
+		"while the reviewer reads": {atGate(func(f *Facts) {
+			f.Review, f.Reviewer, f.PR.State = ReviewRunning, Session{Present: true, Turn: "working"}, "MERGED"
+		}), "closeReviewer,close"},
+	} {
+		got, acts := Next(c.facts)
+		if did(acts) != c.want || got.Station != proto.StationMerged || got.Gate != "" || got.Status != proto.TicketDone {
+			t.Errorf("%s: got %q, %+v", name, did(acts), got)
+		}
+	}
+}
+
+func TestALeadThatStartsATurnAtPRReviewTakesTheTicketBackToImplement(t *testing.T) {
+	got, acts := Next(gateOpen(func(f *Facts) { f.Lead.Turn = "working" }))
+	if got.Station != proto.StationImplement || got.Gate != "" || got.Status != proto.TicketWorking || did(acts) != "" {
+		t.Fatalf("got %q, %+v", did(acts), got)
+	}
+	got, acts = Next(atGate(func(f *Facts) {
+		f.Review, f.Reviewer, f.Lead.Turn = ReviewRunning, Session{Present: true, Turn: "working"}, "working"
+	}))
+	if got.Station != proto.StationImplement || did(acts) != "closeReviewer" {
+		t.Fatalf("got %q, %+v", did(acts), got)
+	}
+}
+
+func TestAReworkedTicketIsCommittedPushedAndCheckedOnceTheLeadsTurnEnds(t *testing.T) {
+	at := func(turn string) Facts {
+		return atGate(func(f *Facts) { f.Ticket.Station, f.Lead.Turn = proto.StationImplement, turn })
+	}
+	if got, acts := Next(at("working")); got.Station != proto.StationImplement || got.Status != proto.TicketWorking || len(acts) != 0 {
+		t.Fatalf("working: got %q, %+v", did(acts), got)
+	}
+	if got, acts := Next(at("needsYou")); got.Station != proto.StationImplement || got.Gate != proto.GateAsk || len(acts) != 0 {
+		t.Fatalf("needsYou: got %q, %+v", did(acts), got)
+	}
+	if got, acts := Next(at("done")); got.Station != proto.StationChecks || got.Status != proto.TicketWorking || did(acts) != "commitPush" {
+		t.Fatalf("done: got %q, %+v", did(acts), got)
+	}
+}
+
+func TestAClosedOrConflictingPullRequestLeavesTheGate(t *testing.T) {
+	got, acts := Next(gateOpen(func(f *Facts) { f.PR.State = "CLOSED" }))
+	if got.Station != proto.StationPR || got.Status != proto.TicketFailed || got.Why != "The pull request was closed" || got.Gate != "" || len(acts) != 0 {
+		t.Fatalf("closed: got %q, %+v", did(acts), got)
+	}
+	got, acts = Next(gateOpen(func(f *Facts) {
+		f.PR.Mergeable = "CONFLICTING"
+		f.Local = LocalChecks{Head: "abc", Pushed: true, State: LocalPassed}
+	}))
+	if got.Station != proto.StationChecks || got.Gate != "" || got.Fix != 1 || did(acts) != "sendFix" {
+		t.Fatalf("conflicting: got %q, %+v", did(acts), got)
+	}
+	got, _ = Next(gateOpen(func(f *Facts) {
+		f.PR.Mergeable, f.Ticket.Fix = "CONFLICTING", f.Config.Fix
+		f.Local = LocalChecks{Head: "abc", Pushed: true, State: LocalPassed}
+	}))
+	if got.Station != proto.StationChecks || got.Status != proto.TicketFailed || !strings.HasPrefix(got.Why, "Conflicts with main") {
+		t.Fatalf("conflicting with no attempt left: got %+v", got)
+	}
+}
+
+func TestChangesYouAskForAtThePRGateAreNoted(t *testing.T) {
+	before := proto.Ticket{Station: proto.StationPR, Gate: proto.GatePR, Status: proto.TicketNeedsYou}
+	after := proto.Ticket{Station: proto.StationImplement, Status: proto.TicketWorking}
+	got := Notes(before, after, nil, 5)
+	want := proto.FactoryEvent{At: 5, Station: proto.StationPR, Actor: "you", Kind: "changes"}
+	if len(got) != 2 || got[0] != want || got[1].Kind != "moved" {
+		t.Fatalf("got %+v", got)
+	}
+	if got := Notes(before, proto.Ticket{Station: proto.StationMerged, Status: proto.TicketDone}, nil, 5); len(got) != 1 || got[0].Kind != "moved" {
+		t.Fatalf("a merge is no request for changes: %+v", got)
+	}
+}
+
+// atReview puts the rig's Ticket at PR review, with a finished review of the checkout's head. view is what
+// gh reports for the PR.
+func atReview(t *testing.T, r *rig, view string) {
+	t.Helper()
+	os.Remove(filepath.Join(r.fake, "nopr"))
+	r.put("view.json", view)
+	rec := reviewRecord{Head: gitIn(t, r.tree, "rev-parse", "HEAD"), State: ReviewDone, Findings: []proto.Finding{}}
+	if err := writeReview(r.home, r.ticket, rec); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Board.Update(r.ticket, func(x *proto.Ticket) { x.Station, x.PR = proto.StationPR, 57 })
+	r.e.PRChanged(r.tree)
+}
+
+func prView(state string, draft bool) string {
+	return fmt.Sprintf(`{"isDraft":%t,"number":57,"state":%q,"title":"Fix it","url":"https://github.com/acme/app/pull/57","headRefOid":"@HEAD@","baseRefName":"main","mergeable":"MERGEABLE","statusCheckRollup":[]}`, draft, state)
+}
+
+func lastEvent(t *testing.T, r *rig) proto.FactoryEvent {
+	t.Helper()
+	events, err := ReadActivity(r.home, r.ticket)
+	if err != nil || len(events) == 0 {
+		t.Fatalf("activity %+v, %v", events, err)
+	}
+	return events[len(events)-1]
+}
+
+func TestTheGateMarksThePRReadyAndSetsTheWaitOnTheLead(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Enabled: true, Reviewer: true, Fix: 2})
+	atReview(t, r, prView("OPEN", true))
+	got := r.until("the PR review gate", func(x proto.Ticket) bool { return x.Gate == proto.GatePR })
+	if got.Station != proto.StationPR || got.Status != proto.TicketNeedsYou {
+		t.Fatalf("got %+v", got)
+	}
+	lead, _ := r.e.Agents.Get(leadID)
+	r.until("gh pr ready and the wait", func(proto.Ticket) bool {
+		return r.called("pr ready 57") && lead.Summary().Status == "needsYou"
+	})
+	if r.called("pr merge") || r.called("pr review") {
+		t.Fatal("the engine merged or reviewed on GitHub")
+	}
+}
+
+func TestAPRMergedOnGitHubClosesTheTicketAsMergedOutsideAnywhere(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Enabled: true, Reviewer: true, Fix: 2})
+	atReview(t, r, prView("MERGED", false))
+	got := r.until("the closed ticket", func(x proto.Ticket) bool { return x.State == proto.TicketClosed })
+	if got.ClosedWhy != proto.ClosedMerged || got.Station != proto.StationMerged || got.Gate != "" || got.Status != proto.TicketDone {
+		t.Fatalf("got %+v", got)
+	}
+	r.until("the note", func(proto.Ticket) bool { return lastEvent(t, r).Kind == "merged" })
+	if ev := lastEvent(t, r); ev.Actor != "anywhere" || ev.Text != "Merged outside Anywhere" {
+		t.Fatalf("got %+v", ev)
+	}
+	if r.called("pr merge") {
+		t.Fatal("the engine merged")
+	}
+}
+
+func TestAMergeYouAskedForClosesTheTicketAndTakesTheWaitOffTheLead(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Enabled: true, Reviewer: true, Fix: 2})
+	atReview(t, r, prView("OPEN", false))
+	r.until("the PR review gate", func(x proto.Ticket) bool { return x.Gate == proto.GatePR })
+	// What wsserver does for gh.pr.merge.
+	if err := r.e.GitHub.Merge(context.Background(), r.tree, 57, "squash"); err != nil {
+		t.Fatal(err)
+	}
+	// Merge expired the cache entry, so the next read asks gh, which now says merged.
+	r.put("view.json", prView("MERGED", false))
+	r.e.PRChanged(r.tree)
+	got := r.until("the closed ticket", func(x proto.Ticket) bool { return x.State == proto.TicketClosed })
+	if got.ClosedWhy != proto.ClosedMerged || got.Station != proto.StationMerged {
+		t.Fatalf("got %+v", got)
+	}
+	r.until("the note", func(proto.Ticket) bool { return lastEvent(t, r).Kind == "merged" })
+	lead, _ := r.e.Agents.Get(leadID)
+	if ev := lastEvent(t, r); ev.Actor != "you" || ev.Text != "Merged" || lead.Summary().Status == "needsYou" {
+		t.Fatalf("got %+v, lead %s", ev, lead.Summary().Status)
+	}
+}
+
+// PRD §9: the pipeline never merges and never reviews on GitHub. never.go lists the commands in order to
+// refuse them, and the Factory rules name them for the agent.
+func TestNoFactoryCodeMergesOrReviewsAPullRequest(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("files %v, %v", files, err)
+	}
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") || name == "never.go" {
+			continue
+		}
+		raw, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		if from, to := strings.Index(text, "<anywhere_factory_rules>"), strings.Index(text, "</anywhere_factory_rules>"); from >= 0 && to > from {
+			text = text[:from] + text[to:]
+		}
+		for _, banned := range []string{"pr review", "pr merge", "GitHub.Merge(", "--approve"} {
+			if strings.Contains(text, banned) {
+				t.Errorf("%s holds %q", name, banned)
+			}
 		}
 	}
 }

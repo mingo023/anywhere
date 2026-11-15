@@ -422,6 +422,34 @@ func TestMergingNeverDeletesTheBranchAndShowsThePRMergedAtOnce(t *testing.T) {
 	}
 }
 
+func TestAMergeMadeHereIsRememberedForItsTreeAndItsNumber(t *testing.T) {
+	f := newFake(t)
+	f.put("view.json", `{"isDraft":false,"number":7,"state":"OPEN","title":"t","url":"u","mergeable":"MERGEABLE","statusCheckRollup":[]}`)
+	f.put("threads.json", fixture(t, "threads.json"))
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	s.PR(ctx(t), tree)
+	if s.MergedHere(tree, 7) {
+		t.Fatal("merged before the merge")
+	}
+	if err := s.Merge(ctx(t), tree, 7, "squash"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.MergedHere(tree, 7) || s.MergedHere(tree, 8) || s.MergedHere(tree+"-other", 7) || s.MergedHere(tree, 0) {
+		t.Fatal("the merge is not remembered for its tree and number only")
+	}
+}
+
+func TestAMergeThatGhRefusesIsNotRemembered(t *testing.T) {
+	f := newFake(t)
+	f.put("fail", "GraphQL: Pull Request is not mergeable")
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	if err := s.Merge(ctx(t), tree, 7, "squash"); err == nil || s.MergedHere(tree, 7) {
+		t.Fatalf("err %v, remembered %v", err, s.MergedHere(tree, 7))
+	}
+}
+
 func TestPhonesRunGhOneAtATimeAndAFullQueueIsRefused(t *testing.T) {
 	f := newFake(t)
 	f.put("sleep", "0.3")

@@ -91,6 +91,9 @@ func Next(f Facts) (proto.Ticket, []Action) {
 	case proto.StationSpec:
 		return endable(spec(f))
 	case proto.StationImplement:
+		if next, acts, ok := rework(f); ok {
+			return next, acts
+		}
 		// A Ticket that enters Checks starts Checks in the same step, as Spec does for Plan.
 		if f.Ticket = implement(f); f.Ticket.Station != proto.StationChecks {
 			return f.Ticket, nil

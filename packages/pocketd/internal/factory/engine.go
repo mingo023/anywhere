@@ -400,6 +400,12 @@ func (e *Engine) act(t proto.Ticket, a Action) bool {
 	case ActCloseReviewer:
 		e.closeReviewer(t)
 		return true
+	case ActMarkReady:
+		e.markReady(t)
+		return true
+	case ActClose:
+		e.merged(t)
+		return true
 	}
 	lead, ok := e.lead(t.AgentID)
 	if !ok {

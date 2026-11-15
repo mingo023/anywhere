@@ -529,6 +529,8 @@ From `2026-11-12-light-factory-6-review.md`.
 - **`Desktop crates`, the Events bullet.** Add: "`Event::GhMerged(String)`, the worktree of a `gh.pr.merge` that pocketd acked. A refused merge is `Event::FactoryError` (plan 6)". In the `agents::factory` bullet, add `Severity` (`Critical`, `Minor`, `Nit`, ordered worst first) beside `Finding`.
 - **`Desktop crates`.** Add: "`git::github::Pr` gains `additions`, `deletions` and `files`, read from `gh pr view --json additions,deletions,changedFiles` (plan 6)."
 
+- **Built (plan 6, pocketd).** `Next` hands every Ticket at PR review to `atPR`, before the lead-gone check: a Ticket whose lead closed keeps its gate, and a merge still closes it. `Facts` gains `Review ReviewState` and `Reviewer Session`; `e.facts` fills `Local`, `PR`, `Review` and `Reviewer` at PR review. The conflict row sets the station to Checks and hands the same facts to `checksNext`, so it counts as a failed check (`Conflicts with <base>`) and uses an attempt. `Engine.handle` steps a Ticket on its reviewer's events. The review record is `state/factory/<ticket>/review.json` (`head`, `state`, `agent`, `since`, `findings`). `ReadOnly` also refuses a command with `$`, `{`, `}` or a backslash, and a word that starts an escape option (`--out`, `--o`), because the shell or git's own option matching could build `--output` from them. A reviewer that never ends its turn holds its Ticket `working`: close the Ticket. A lead turn that starts and ends between two engine steps is never seen as `working`, so that rework is missed.
+
 ### Light Factory 7: Inbox, Profiles Editor, Metrics and Grouped List
 
 From `2026-11-12-light-factory-7-inbox-settings.md`.

@@ -45,3 +45,37 @@ func TestAReviewerThatTriesToWriteIsRefusedAndItsFindingsAreSaved(t *testing.T) 
 		t.Fatalf("the reviewer wrote a file: %v", err)
 	}
 }
+
+func TestAReviewedTicketWaitsAtThePRGateAndClosesWhenYouMerge(t *testing.T) {
+	h, o, gh, ticket := factoryAtPR(t, reviewed())
+	gate := o.WaitTicket("the PR review gate", func(x proto.Ticket) bool { return x.ID == ticket.ID && x.Gate == proto.GatePR })
+	if gate.Station != proto.StationPR || gate.Status != proto.TicketNeedsYou || gate.PR == 0 {
+		t.Fatalf("got %+v", gate)
+	}
+	if d := factoryDetail(o, "gate", ticket.ID); len(d.Findings) != 1 || d.Findings[0].Severity != "critical" {
+		t.Fatalf("findings %+v", d.Findings)
+	}
+	h.eventually("gh pr ready", func() bool { return gh.called("pr ready") })
+	if gh.called("pr review") || gh.called("pr merge") {
+		t.Fatal("the pipeline reviewed or merged on GitHub")
+	}
+
+	// What GitHub says once the merge is made.
+	gh.put("view.json", `{"isDraft":false,"number":57,"state":"MERGED","title":"Review","url":"https://github.com/acme/app/pull/57","mergeable":"MERGEABLE","headRefOid":"@HEAD@","baseRefName":"main","statusCheckRollup":[]}`)
+	o.Send(map[string]any{"type": "gh.pr.merge", "id": "m1", "tree": gate.Worktree, "number": gate.PR, "method": "squash"})
+	if m := o.WaitFor("the merge's reply", replyTo("m1")); m.Type != "ack" {
+		t.Fatalf("gh.pr.merge: %s", m.Raw)
+	}
+	closed := o.WaitTicket("the merged ticket", func(x proto.Ticket) bool { return x.ID == ticket.ID && x.State == proto.TicketClosed })
+	if closed.ClosedWhy != proto.ClosedMerged || closed.Station != proto.StationMerged || closed.Gate != "" {
+		t.Fatalf("got %+v", closed)
+	}
+	h.eventually("the merge in the activity", func() bool {
+		d := factoryDetail(o, "after", ticket.ID)
+		last := d.Activity[len(d.Activity)-1]
+		return last.Kind == "merged" && last.Actor == "you" && last.Text == "Merged"
+	})
+	if _, err := os.Stat(filepath.Join(closed.Worktree, ".git")); err != nil {
+		t.Fatalf("the merge removed the worktree: %v", err)
+	}
+}

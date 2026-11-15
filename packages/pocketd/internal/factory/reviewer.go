@@ -1,10 +1,12 @@
 package factory
 
 import (
+	"context"
 	"errors"
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"pocketd/internal/agent"
 	"pocketd/internal/proto"
@@ -200,4 +202,36 @@ func (e *Engine) recoverReview(t proto.Ticket) {
 	case running && rec.Agent == "":
 		os.Remove(reviewPath(e.Home, t.ID))
 	}
+}
+
+// markReady takes t's PR out of draft off the engine's goroutine. A failure is noted and the gate opens anyway:
+// the Changes panel's PR card can mark it ready.
+func (e *Engine) markReady(t proto.Ticket) {
+	if e.GitHub == nil {
+		return
+	}
+	run := e.ctx
+	go func() {
+		ctx, cancel := context.WithTimeout(run, time.Minute)
+		defer cancel()
+		if err := e.GitHub.Ready(ctx, t.Worktree, t.PR); err != nil {
+			e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: proto.StationPR, Actor: "anywhere", Kind: "failed", Text: "The pull request couldn't be marked ready: " + err.Error()})
+		}
+	}()
+}
+
+// merged closes t, whose PR was merged, and notes who merged it.
+func (e *Engine) merged(t proto.Ticket) {
+	actor, text := "anywhere", "Merged outside Anywhere"
+	if e.GitHub != nil && e.GitHub.MergedHere(t.Worktree, t.PR) {
+		actor, text = "you", "Merged"
+	}
+	if lead, ok := e.lead(t.AgentID); ok {
+		lead.SetAwaiting(false)
+	}
+	if err := e.Board.Close(t.ID, proto.ClosedMerged, e.now()); err != nil {
+		log.Printf("factory: closing %s: %v", t.ID, err)
+		return
+	}
+	e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: proto.StationMerged, Actor: actor, Kind: "merged", Text: text})
 }

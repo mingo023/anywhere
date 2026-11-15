@@ -72,6 +72,8 @@ func Notes(before, after proto.Ticket, team *proto.Team, at int64) []proto.Facto
 		add(proto.StationPlan, "you", "approved", workers(team))
 	case gate && after.Station == proto.StationPlan && after.Gate == "" && !fails:
 		add(proto.StationPlan, "you", "changes", "")
+	case before.Gate == proto.GatePR && after.Station == proto.StationImplement:
+		add(proto.StationPR, "you", "changes", "")
 	}
 	if after.Station != before.Station {
 		add(after.Station, "anywhere", "moved", "")

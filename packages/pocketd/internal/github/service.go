@@ -48,6 +48,8 @@ type Service struct {
 	watchers map[string]*watcher
 	cancel   context.CancelFunc
 	wake     chan struct{}
+	// merged is the PR that Merge merged in each tree. It is not saved.
+	merged map[string]int
 
 	// turn lets one gh run at a time, the poller's and every phone's, as the desktop does.
 	turn    chan struct{}
@@ -422,8 +424,23 @@ func (s *Service) Merge(ctx context.Context, tree string, number int, method str
 	if _, err := s.act(ctx, tree, mergeArgv(number, method), ""); err != nil {
 		return err
 	}
+	// Before after: its listeners ask MergedHere.
+	s.mu.Lock()
+	if s.merged == nil {
+		s.merged = map[string]int{}
+	}
+	s.merged[tree] = number
+	s.mu.Unlock()
 	s.after(tree, func(pr *PR) { pr.State = "MERGED" })
 	return nil
+}
+
+// MergedHere is whether Merge merged PR number of tree since pocketd started, which tells a merge that a
+// client asked for from one made on github.com.
+func (s *Service) MergedHere(tree string, number int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return number != 0 && s.merged[tree] == number
 }
 
 func (s *Service) Ready(ctx context.Context, tree string, number int) error {

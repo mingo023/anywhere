@@ -27,6 +27,8 @@ const (
 	ActStartReview   = "startReview"
 	ActRepairReview  = "repairReview"
 	ActCloseReviewer = "closeReviewer"
+	ActMarkReady     = "markReady"
+	ActClose         = "close"
 )
 
 var severities = []string{"critical", "minor", "nit"}
@@ -278,24 +280,69 @@ func ended(s Session) bool {
 	return s.Present && (s.Turn == "idle" || s.Turn == "done")
 }
 
+// closing closes a reviewer that is open or being launched.
+func closing(f Facts) []Action {
+	if f.Reviewer.Present || f.Review == ReviewRunning || f.Review == ReviewRepaired {
+		return []Action{{Kind: ActCloseReviewer}}
+	}
+	return nil
+}
+
 // atPR is Next for a Ticket at PR review. The table in docs/plans/2026-11-12-light-factory-6-review.md lists
-// its rows in this order.
+// its rows in this order. A Ticket whose lead is gone keeps its gate: you can still merge.
 func atPR(f Facts) (proto.Ticket, []Action) {
 	t := f.Ticket
-	if f.PR == nil || !f.Config.Reviewer {
+	if f.PR == nil {
 		return t, nil
 	}
-	switch f.Review {
-	case ReviewNone:
-		return working(t), []Action{{Kind: ActStartReview}}
-	case ReviewRunning, ReviewRepaired:
-		if f.Review == ReviewRunning && ended(f.Reviewer) {
-			return working(t), []Action{{Kind: ActRepairReview}}
+	switch {
+	case f.PR.State == "MERGED":
+		t.Station, t.Status, t.Gate, t.Why = proto.StationMerged, proto.TicketDone, "", ""
+		return t, append(closing(f), Action{Kind: ActClose})
+	case f.Lead.Turn == "working":
+		t = working(t)
+		t.Station = proto.StationImplement
+		return t, closing(f)
+	case f.PR.State == "CLOSED":
+		return failed(t, "The pull request was closed"), closing(f)
+	case f.PR.Mergeable == "CONFLICTING":
+		f.Ticket.Station = proto.StationChecks
+		next, acts := checksNext(f)
+		return next, append(closing(f), acts...)
+	}
+	if f.Config.Reviewer {
+		switch f.Review {
+		case ReviewNone:
+			return working(t), []Action{{Kind: ActStartReview}}
+		case ReviewRunning, ReviewRepaired:
+			if f.Review == ReviewRunning && ended(f.Reviewer) {
+				return working(t), []Action{{Kind: ActRepairReview}}
+			}
+			return working(t), nil
 		}
-		return working(t), nil
 	}
-	if f.Reviewer.Present {
-		return t, []Action{{Kind: ActCloseReviewer}}
+	acts := closing(f)
+	if f.PR.Draft && t.Gate != proto.GatePR {
+		acts = append(acts, Action{Kind: ActMarkReady})
 	}
-	return t, nil
+	t.Status, t.Gate, t.Why = proto.TicketNeedsYou, proto.GatePR, ""
+	return t, append(acts, Action{Kind: ActAwait})
+}
+
+// rework is Next for a Ticket that came back from PR review to Implement: it has a PR, and no Team is planned
+// again. False when t is not such a Ticket.
+func rework(f Facts) (proto.Ticket, []Action, bool) {
+	t := f.Ticket
+	if t.Station != proto.StationImplement || t.PR == 0 {
+		return t, nil, false
+	}
+	switch f.Lead.Turn {
+	case "working":
+		return working(t), nil, true
+	case "needsYou":
+		return asks(t), nil, true
+	}
+	t = working(t)
+	t.Station = proto.StationChecks
+	return t, []Action{{Kind: ActCommitPush}}, true
 }
