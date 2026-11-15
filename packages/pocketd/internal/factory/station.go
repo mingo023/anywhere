@@ -34,6 +34,10 @@ type Facts struct {
 	Team   *proto.Team
 	Spec   SpecState
 	Reply  Turn
+	// PR is the PR of the Ticket's worktree, nil until one is known.
+	PR *proto.PR
+	// Local is the newest check record, empty when it is not for the commit in the lead's checkout.
+	Local LocalChecks
 	// Advance is the user's Move to Checks anyway for a Ticket whose Team is in review.
 	Advance bool
 }
@@ -66,7 +70,7 @@ func Next(f Facts) (proto.Ticket, []Action) {
 	if t.State != proto.TicketLive || t.Station == "" || t.AgentID == "" {
 		return t, nil
 	}
-	if t.Station != proto.StationSpec && t.Station != proto.StationPlan && t.Station != proto.StationImplement {
+	if t.Station != proto.StationSpec && t.Station != proto.StationPlan && t.Station != proto.StationImplement && t.Station != proto.StationChecks {
 		return t, nil
 	}
 	if !f.Lead.Present {
@@ -79,7 +83,13 @@ func Next(f Facts) (proto.Ticket, []Action) {
 	case proto.StationSpec:
 		return spec(f)
 	case proto.StationImplement:
-		return implement(f), nil
+		// A Ticket that enters Checks starts Checks in the same step, as Spec does for Plan.
+		if f.Ticket = implement(f); f.Ticket.Station != proto.StationChecks {
+			return f.Ticket, nil
+		}
+		return checksNext(f)
+	case proto.StationChecks:
+		return checksNext(f)
 	}
 	return plan(f)
 }

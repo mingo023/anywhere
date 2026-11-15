@@ -136,8 +136,8 @@ func TestALeadThatIsGoneFailsTheTicketAndLetsItStartAgain(t *testing.T) {
 	}
 }
 
-func TestATicketWithoutAStationOrPastPlanIsLeftAlone(t *testing.T) {
-	for _, x := range []proto.Ticket{at(""), at(proto.StationChecks)} {
+func TestATicketWithoutAStationOrPastChecksIsLeftAlone(t *testing.T) {
+	for _, x := range []proto.Ticket{at(""), at(proto.StationPR), at(proto.StationMerged)} {
 		if next, acts := Next(Facts{Ticket: x, Team: &proto.Team{State: "review"}}); !same(next, x) || len(acts) != 0 {
 			t.Fatalf("%q: got %+v %v", x.Station, next, kinds(acts))
 		}
@@ -199,12 +199,8 @@ func TestWorkThatIsReadyMovesTheTicketToChecks(t *testing.T) {
 	ready := implementing("review", task("t1", "done"), task("t2", "done"))
 	ready.Ready = true
 	next, acts := Next(Facts{Ticket: at(proto.StationImplement), Lead: here, Team: ready})
-	if next.Station != proto.StationChecks || next.Status != proto.TicketWorking || next.Gate != "" || len(acts) != 0 {
+	if next.Station != proto.StationChecks || next.Status != proto.TicketWorking || next.Gate != "" || did(acts) != "integrate" {
 		t.Fatalf("got %+v %v", next, kinds(acts))
-	}
-	again, _ := Next(Facts{Ticket: next, Lead: here, Team: ready})
-	if !same(again, next) {
-		t.Fatalf("a Ticket at Checks was moved: %+v", again)
 	}
 }
 

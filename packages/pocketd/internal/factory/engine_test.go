@@ -157,7 +157,7 @@ func (w *world) gated() proto.Ticket {
 func TestATicketGoesFromSpecToThePlanGateAndOnToImplementWhenItsPlanStarts(t *testing.T) {
 	w := newWorld(t)
 	x := w.started(true)
-	if s := w.spec; w.key != "factory:"+x.ID || !s.Chat || s.Access != "edits" || s.Provider != "claude" || s.Prompt != "" || s.Checkout.New == nil || s.Checkout.New.Name != "ticket-req12345" {
+	if s := w.spec; w.key != "factory:"+x.ID || !s.Chat || s.Access != "edits" || s.Provider != "claude" || s.Prompt != "" || s.Checkout.New == nil || s.Checkout.New.Name != "queue-sends-req1" {
 		t.Fatalf("launched %q with %+v", w.key, s)
 	}
 	if x.Station != proto.StationSpec || x.Status != proto.TicketWorking || x.AgentID != leadID || x.TerminalID != "term-1" || x.Worktree != "/w/req12345678" {
@@ -432,11 +432,11 @@ func TestMoveToChecksAnywayMovesATicketWhoseLeadGaveNoVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.settle()
-	if g := w.got(x.ID); g.Station != proto.StationChecks || g.Status != proto.TicketWorking {
+	if g := w.got(x.ID); g.Station != proto.StationChecks {
 		t.Fatalf("after the move: %+v", g)
 	}
 	acts, _ := ReadActivity(w.home, x.ID)
-	if got := kindsOf(acts); !slices.Contains(got, "you:approved@implement") || got[len(got)-1] != "anywhere:moved@checks" {
+	if got := kindsOf(acts); !slices.Contains(got, "you:approved@implement") || !slices.Contains(got, "anywhere:moved@checks") {
 		t.Fatalf("activity %v", got)
 	}
 }
@@ -446,7 +446,7 @@ func TestTheLeadsVerdictMovesTheTicketToChecksByItself(t *testing.T) {
 	x := w.gated()
 	w.teamAt("running", nil)
 	w.teamAt("review", func(tm *proto.Team) { allDone(tm); tm.Ready = true })
-	if g := w.got(x.ID); g.Station != proto.StationChecks || g.Status != proto.TicketWorking {
+	if g := w.got(x.ID); g.Station != proto.StationChecks {
 		t.Fatalf("got %+v", g)
 	}
 }

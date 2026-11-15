@@ -342,6 +342,68 @@ func TestAFailedPushOpensNoPR(t *testing.T) {
 	}
 }
 
+func TestPushPushesTheBranchAndOpensNoPR(t *testing.T) {
+	f := newFake(t)
+	_, tree, reg := repo(t, true)
+	s := New(f.env(true), reg)
+	if err := s.Push(ctx(t), tree); err != nil {
+		t.Fatal(err)
+	}
+	origin := filepath.Join(filepath.Dir(tree), "origin.git")
+	if got, want := git(t, origin, "rev-parse", "fix"), git(t, tree, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("the remote has %s, the checkout has %s", got, want)
+	}
+	if f.called("pr create") {
+		t.Fatalf("Push opened a PR: %v", f.calls())
+	}
+}
+
+func TestAPushThatGitRefusesIsAGitFailure(t *testing.T) {
+	f := newFake(t)
+	_, tree, reg := repo(t, false)
+	var e *Error
+	if err := New(f.env(true), reg).Push(ctx(t), tree); !errors.As(err, &e) || e.Code != proto.CodeGitFailed {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestTheFakeGhHasNoPRUntilOneIsCreatedAndReportsTheCheckoutsHead(t *testing.T) {
+	f := newFake(t)
+	_, tree, reg := repo(t, true)
+	f.put("nopr", "")
+	f.put("created", "https://github.com/acme/app/pull/57\n")
+	f.put("threads.json", `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}`)
+	f.put("view.json", `{"isDraft":true,"number":57,"state":"OPEN","title":"Fix it","url":"https://github.com/acme/app/pull/57","headRefOid":"@HEAD@","baseRefName":"main","statusCheckRollup":[]}`)
+	s := New(f.env(true), reg)
+	if pr, problem := s.PR(ctx(t), tree); pr != nil || problem != "" {
+		t.Fatalf("before the PR exists: %+v %q", pr, problem)
+	}
+	if _, _, err := s.Create(ctx(t), tree, "Fix it", "body", "", true); err != nil {
+		t.Fatal(err)
+	}
+	s.after(tree, func(*PR) {})
+	pr, _ := s.PR(ctx(t), tree)
+	if pr == nil || pr.Head != git(t, tree, "rev-parse", "HEAD") {
+		t.Fatalf("got %+v", pr)
+	}
+}
+
+func TestAfterCreateThePRIsAskedOfGhAgainSoItsChecksShow(t *testing.T) {
+	f := newFake(t)
+	f.put("created", "https://github.com/acme/app/pull/57\n")
+	f.put("threads.json", `{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}`)
+	f.put("view.json", `{"isDraft":true,"number":57,"state":"OPEN","title":"Fix it","url":"https://github.com/acme/app/pull/57","headRefOid":"@HEAD@","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":""}]}`)
+	_, tree, reg := repo(t, true)
+	s := New(f.env(true), reg)
+	if _, _, err := s.Create(ctx(t), tree, "Fix it", "", "", true); err != nil {
+		t.Fatal(err)
+	}
+	pr, _ := s.PR(ctx(t), tree)
+	if pr == nil || pr.Checks.Pending != 1 || pr.Head == "" {
+		t.Fatalf("got %+v", pr)
+	}
+}
+
 func TestMergingNeverDeletesTheBranchAndShowsThePRMergedAtOnce(t *testing.T) {
 	f := newFake(t)
 	f.put("view.json", `{"isDraft":false,"number":7,"state":"OPEN","title":"t","url":"u","mergeable":"MERGEABLE","statusCheckRollup":[]}`)

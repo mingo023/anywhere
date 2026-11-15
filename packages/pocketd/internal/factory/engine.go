@@ -15,6 +15,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/board"
+	"pocketd/internal/github"
 	"pocketd/internal/launch"
 	"pocketd/internal/proto"
 	"pocketd/internal/team"
@@ -47,6 +48,10 @@ type Engine struct {
 	Mail func(agentID, text string) error
 	// Profiles are the profiles a session may run with.
 	Profiles *Profiles
+	// GitHub opens the draft PR and reports its checks.
+	GitHub *github.Service
+	// Env is the login environment a check command runs with: the function github.New gets.
+	Env func(dir string) []string
 
 	// mu guards specs and changed.
 	mu sync.Mutex
@@ -61,6 +66,13 @@ type Engine struct {
 	qmu   sync.Mutex
 	queue []event
 	wake  chan struct{}
+
+	// Only the goroutine that drains the queue reads and writes the fields below.
+	ctx context.Context
+	// flight holds the Tickets with a push or a check command on another goroutine.
+	flight map[string]bool
+	// prs is the newest PR of each worktree.
+	prs map[string]*proto.PR
 }
 
 type asked struct {
@@ -74,6 +86,7 @@ type event struct {
 	agent  string // the agent whose Ticket to step
 	turn   bool   // the agent's turn ended
 	ok     bool   // and ended normally
+	do     func() // or a function to run, for work that was done on another goroutine
 }
 
 // Owns is whether t is the engine's to move: it has a station, or it has no session yet and its project's
@@ -132,7 +145,9 @@ func leadSpec(t proto.Ticket, requestID string, p proto.Profile) proto.LaunchSpe
 		s.Checkout = proto.Checkout{Worktree: t.Worktree}
 		return s
 	}
-	s.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: "ticket-" + requestID[:min(8, len(requestID))], Base: t.Base}}
+	// The branch is pushed and shown on the PR, so it reads as the Ticket's title. The request id keeps it unique.
+	name := cmp.Or(launch.Slug(t.Title), "ticket") + "-" + requestID[:min(4, len(requestID))]
+	s.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: name, Base: t.Base}}
 	return s
 }
 
@@ -158,6 +173,7 @@ func (e *Engine) TurnEnded(id string, ok bool) {
 // TeamChanged is Teams.OnChange's. It runs under Teams.mu, so it only queues.
 func (e *Engine) TeamChanged(t proto.Team) {
 	if e != nil {
+		e.later(func() { e.integrated(t) })
 		e.post(event{agent: t.Lead})
 	}
 }
@@ -199,6 +215,10 @@ func (e *Engine) Run(ctx context.Context) {
 
 // drain handles the queue until it is empty. Handling an event can queue more.
 func (e *Engine) drain(ctx context.Context) {
+	e.ctx = ctx
+	if e.flight == nil {
+		e.flight, e.prs = map[string]bool{}, map[string]*proto.PR{}
+	}
 	for {
 		e.qmu.Lock()
 		queue := e.queue
@@ -218,6 +238,10 @@ func (e *Engine) drain(ctx context.Context) {
 }
 
 func (e *Engine) handle(ev event) {
+	if ev.do != nil {
+		ev.do()
+		return
+	}
 	if ev.ticket != "" {
 		e.step(ev.ticket, ev)
 		return
@@ -251,6 +275,7 @@ func (e *Engine) step(id string, ev event) {
 			}
 			x.Station, x.Gate, x.Status, x.Why = next.Station, next.Gate, next.Status, next.Why
 			x.AgentID, x.TerminalID, x.ChangedAt = next.AgentID, next.TerminalID, at
+			x.PR, x.Fix, x.Hint = next.PR, next.Fix, next.Hint
 		})
 		if !ok {
 			return
@@ -269,7 +294,7 @@ func (e *Engine) step(id string, ev event) {
 
 // same compares the fields Next may change.
 func same(a, b proto.Ticket) bool {
-	return a.Station == b.Station && a.Gate == b.Gate && a.Status == b.Status && a.Why == b.Why && a.AgentID == b.AgentID && a.TerminalID == b.TerminalID
+	return a.Station == b.Station && a.Gate == b.Gate && a.Status == b.Status && a.Why == b.Why && a.AgentID == b.AgentID && a.TerminalID == b.TerminalID && a.PR == b.PR && a.Fix == b.Fix && a.Hint == b.Hint
 }
 
 func (e *Engine) facts(t proto.Ticket, ev event) Facts {
@@ -291,6 +316,10 @@ func (e *Engine) facts(t proto.Ticket, ev event) Facts {
 	f.Spec, since = e.spec(t)
 	if f.Spec == SpecAsked || f.Spec == SpecRepaired {
 		f.Reply = e.read(lead, since, ev)
+	}
+	if t.Station == proto.StationChecks {
+		f.Local = e.local(t)
+		f.PR = e.prs[t.Worktree]
 	}
 	return f
 }
@@ -370,6 +399,10 @@ func (e *Engine) act(t proto.Ticket, a Action) bool {
 		}
 	case ActAwait:
 		lead.SetAwaiting(true)
+	case ActIntegrate:
+		e.integrate(t)
+	case ActOpenPR:
+		e.openPR(t)
 	}
 	return true
 }

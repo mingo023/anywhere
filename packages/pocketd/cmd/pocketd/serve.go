@@ -261,8 +261,10 @@ func serve(sock, handed string) error {
 		}}
 	tickets := board.Open(home)
 	factoryConfigs := factory.OpenConfigs(home)
+	ghEnv := func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }
+	gh := github.New(ghEnv, reg)
 	if teams != nil {
-		fac = &factory.Engine{Home: home, Board: tickets, Configs: factoryConfigs, Teams: teams, Agents: d.Agents, Now: time.Now, Mail: d.Mail, Profiles: factory.OpenProfiles(home),
+		fac = &factory.Engine{Home: home, Board: tickets, Configs: factoryConfigs, Teams: teams, Agents: d.Agents, Now: time.Now, Mail: d.Mail, Profiles: factory.OpenProfiles(home), GitHub: gh, Env: ghEnv,
 			Launch: func(key, requestID string, s proto.LaunchSpec, created func(string)) launch.Result {
 				return l.Create(launch.Who{Owner: true, Key: key}, requestID, s, func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
 			}}
@@ -297,7 +299,7 @@ func serve(sock, handed string) error {
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}
-	ws.GitHub = github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
+	ws.GitHub = gh
 	boardScheduler.Merged = func(ctx context.Context, tree string) bool {
 		pr, _ := ws.GitHub.PR(ctx, tree)
 		return pr != nil && pr.State == "MERGED"

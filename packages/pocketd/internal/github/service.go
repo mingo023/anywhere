@@ -367,12 +367,8 @@ func (s *Service) after(tree string, edit func(*PR)) {
 // Create pushes tree's branch, then opens a PR for it into base, or the
 // repo's default branch without one.
 func (s *Service) Create(ctx context.Context, tree, title, body, base string, draft bool) (int, string, error) {
-	if _, err := s.env.run(ctx, tree, s.pushArgv(ctx, tree), "", pushTimeout); err != nil {
-		msg, detail := failure(err)
-		if f, ok := errors.AsType[*Failure](err); ok {
-			detail = strings.TrimSpace(f.Stderr)
-		}
-		return 0, "", &Error{Code: proto.CodeGitFailed, Message: msg, Detail: detail}
+	if err := s.push(ctx, tree); err != nil {
+		return 0, "", err
 	}
 	out, err := s.act(ctx, tree, createArgv(base, title, draft), body)
 	if err != nil {
@@ -388,6 +384,27 @@ func (s *Service) Create(ctx context.Context, tree, title, body, base string, dr
 	s.changed(tree, false)
 	s.poke()
 	return number, url, nil
+}
+
+// Push pushes tree's branch as Create does, then asks for its PR again.
+func (s *Service) Push(ctx context.Context, tree string) error {
+	if err := s.push(ctx, tree); err != nil {
+		return err
+	}
+	s.after(tree, nil)
+	return nil
+}
+
+func (s *Service) push(ctx context.Context, tree string) error {
+	_, err := s.env.run(ctx, tree, s.pushArgv(ctx, tree), "", pushTimeout)
+	if err == nil {
+		return nil
+	}
+	msg, detail := failure(err)
+	if f, ok := errors.AsType[*Failure](err); ok {
+		detail = strings.TrimSpace(f.Stderr)
+	}
+	return &Error{Code: proto.CodeGitFailed, Message: msg, Detail: detail}
 }
 
 // pushArgv is git.push's: to desktop.json's git.remote when tree has a remote

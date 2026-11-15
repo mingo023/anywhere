@@ -6,6 +6,8 @@
 #   view.json        what gh pr view prints; view.err is printed to stderr with exit 1 instead
 #   threads.json     what the reviewThreads query prints
 #   created          what gh pr create prints
+#   nopr             gh pr view says "no pull requests found"; gh pr create removes it
+#   @HEAD@           in view.json, replaced by the commit of the folder gh runs in
 #   fail             printed to stderr with exit 1 by every verb that acts
 #   unauthorized     the next call fails with HTTP 401 and removes it
 #   sleep            seconds every call waits first
@@ -34,11 +36,15 @@ case "$1 $2" in
 	exit 0
 	;;
 "pr view")
+	if [ -f "$d/nopr" ]; then
+		echo "no pull requests found for branch" >&2
+		exit 1
+	fi
 	if [ -f "$d/view.err" ]; then
 		cat "$d/view.err" >&2
 		exit 1
 	fi
-	cat "$d/view.json"
+	sed "s/@HEAD@/$(git rev-parse HEAD 2>/dev/null)/" "$d/view.json"
 	;;
 "api graphql")
 	case "$*" in
@@ -51,6 +57,7 @@ case "$1 $2" in
 	;;
 "pr create")
 	act
+	rm -f "$d/nopr"
 	cat > "$d/body"
 	cat "$d/created"
 	;;
