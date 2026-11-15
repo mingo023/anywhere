@@ -9,12 +9,22 @@ import (
 	"pocketd/internal/team"
 )
 
-// NeverAllowed is whether command is one only the user may let through: it
-// merges, reviews or opens a pull request, forces a push, pushes to base, or
-// removes a tree outside the checkout. base is the Ticket's base branch; ""
-// skips the push to it. A command that might do one of these counts as doing it:
-// a false alarm costs an Ask, a miss breaks "no agent merges".
+// NeverAllowed is whether command is one only the user may let through. A command that names gh or git, however
+// it is built or hidden, passes only as one plain call of a subcommand in safeCommands. Any other command is
+// held when it merges, reviews or opens a pull request, forces a push, pushes to base, or removes a tree outside
+// the checkout. base is the Ticket's base branch; "" skips the push to it. A command that might do one of these
+// counts as doing it: a false alarm costs an Ask, a miss breaks "no agent merges".
 func NeverAllowed(command, base string) bool {
+	command = team.Unwrapped(command)
+	if mentionsGhOrGit(command) {
+		return !plainSafeCall(command, base)
+	}
+	return denied(command, base)
+}
+
+// denied is whether the words of command match a denylisted shape: the lexical check for a command that names
+// neither gh nor git, and for an allowlist prefix.
+func denied(command, base string) bool {
 	command = unquote.Replace(command)
 	parts := strings.FieldsFunc(command, func(r rune) bool { return strings.ContainsRune(";|&\n()`", r) })
 	return slices.ContainsFunc(parts, func(part string) bool { return never(strings.Fields(part), base) })
@@ -26,7 +36,7 @@ var unquote = strings.NewReplacer(`"`, "", `'`, "", `\`, "")
 // RefusedPrefix is the first prefix of an allowlist that is on the list.
 func RefusedPrefix(allow []string) (string, bool) {
 	for _, prefix := range allow {
-		if NeverAllowed(prefix, "") {
+		if denied(prefix, "") {
 			return prefix, true
 		}
 	}
