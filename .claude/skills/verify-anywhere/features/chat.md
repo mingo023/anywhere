@@ -8,6 +8,7 @@ In a session shown as a chat, the user types a prompt in the bottom composer and
 - `chat-permission` shows an agent's permission ask; approving sends `permission.resolve`.
 - `chat-stop` stops a reply mid-stream (`agent.interrupt`) and shows it interrupted.
 - `chat-slash` opens the `/` command menu from the composer, listing the agent's commands.
+- `chat-account` shows the chat's account chip under the composer (icon and usage, never an email); clicking it opens usage and Switch account, where each email is masked until clicked.
 
 ## How to get to it (user POV)
 
@@ -26,6 +27,7 @@ Preconditions:
 - **Side effect.** Run `rg '"agent.prompt"' $OUT/after/pocketd-frames.jsonl`. One frame with `"text":"Now add a test"` and the `agentId` of the new session (`new-<requestId>`).
 - **Permission ask.** Send `/fixture permission` as the follow-up, then answer the ask. The fake agent asks to run `pnpm test --filter parser`. Approving must produce a `permission.resolve` frame for request `permission-<agentId>`.
 - **Proof.** Cite both screenshots and the `agent.prompt` line.
+- **Account chip.** The fixture serves two Claude logins (unlabelled `me@example.com`, `Work`). After the chat starts, the chip sits at (479,872); click it, then the masked email at (562,633). Run `CAPTURE_KEYS="cmd-n;enter" CAPTURE_CLICKS="792,451;479,872;562,633" CAPTURE_TYPE="Start" $S/drive.sh sessions $OUT/account reveal=key,click,type,key,pause,pause,pause,pause,click,pause,click,pause`. `impl-reveal.png` shows "In use: Max · me@example.com" with an eye-off icon; without the last click it shows ten dots.
 
 ## Gotchas
 
