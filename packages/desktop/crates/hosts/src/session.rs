@@ -161,6 +161,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::BoardError(_)
         | Event::FactoryConfig { .. }
         | Event::FactoryError(_)
+        | Event::GhMerged(_)
         | Event::FactoryTicket(_)
         | Event::FactoryUpdate(_)
         | Event::FactoryProfiles(_)

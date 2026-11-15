@@ -33,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 281] = [
+const STEPS: [(&str, Step); 285] = [
     ("session", session),
     ("team-fold", |d, _, _| {
         if let Some(lead) = d.agents.list.iter().find(|a| !a.parent.is_empty()).map(|a| a.parent.clone()) {
@@ -560,6 +560,16 @@ const STEPS: [(&str, Step); 281] = [
     ("factory-ticket-ask", |d, window, cx| show_factory_implement(d, "t18", "ios", ["done", RUNNING, WAITING], window, cx)),
     ("factory-ticket-idle", |d, window, cx| show_factory_implement(d, "t17", "hook", ["done"; 3], window, cx)),
     ("factory-ticket-checks", show_factory_checks),
+    ("factory-ticket-pr", show_factory_pr),
+    ("factory-merge-menu", |d, _, cx| {
+        d.factory.merge_menu = true;
+        cx.notify();
+    }),
+    ("board-factory-merged", show_factory_merged),
+    ("board-factory-merged-in", |d, _, cx| {
+        d.factory.scroll.scroll_to_item(crate::factory::station::Column::Merged as usize);
+        cx.notify();
+    }),
     ("factory-hint-typed", |d, window, cx| d.factory.hint.update(cx, |s, cx| s.set_value("The test pastes two files, the fixture holds one", window, cx))),
     ("factory-ticket-activity", |d, _, cx| d.factory_tab(crate::factory::tabs::Tab::Activity, cx)),
     ("board-nomatch", |d, _, cx| {
@@ -1308,6 +1318,56 @@ fn show_factory_checks(d: &mut Desktop, window: &mut Window, cx: &mut Context<De
     let check = |command: &str, exit: i32, output: &str| agents::factory::Check { command: command.into(), exit, output: output.into(), attempt: 2, at };
     let detail = agents::factory::Detail { ticket_id: "t20".into(), checks: vec![check(commands[0], 101, &output)], ..Default::default() };
     d.on_agents(agents::Event::FactoryTicket(detail), window, cx);
+}
+
+/// `t22` waits at the PR review gate: PR 203 is clean with four checks passed, and the reviewer left a minor finding twice and a nit.
+fn show_factory_pr(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    use agents::factory::{Finding, Severity};
+    let tree = "/tmp/wt/pr-checks".to_string();
+    let pr = Pr {
+        number: 203,
+        title: "Show a team's merge conflicts file by file in the capsule".into(),
+        url: "https://github.com/acme/app/pull/203".into(),
+        base: "main".into(),
+        mergeable: Mergeable::Clean,
+        checks: Checks { passed: 4, failed: 0, pending: 0 },
+        additions: 214,
+        deletions: 37,
+        files: 6,
+        ..Pr::default()
+    };
+    let now = Instant::now();
+    d.prs.start(&tree, now);
+    d.prs.apply(tree, now, Ok(Some(pr)), now);
+    d.board.layout = crate::board::Layout::Factory;
+    d.board_changed();
+    d.open_factory_ticket("t22", window, cx);
+    let finding = |severity, file: &str, line, message: &str| Finding { severity, file: file.into(), line, message: message.into() };
+    let detail = agents::factory::Detail {
+        ticket_id: "t22".into(),
+        findings: vec![
+            finding(Severity::Minor, "capsule/conflicts.rs", 142, "The conflict list re-sorts on every poll; keep file order stable."),
+            finding(Severity::Minor, "capsule/view.rs", 67, "No empty state after the lead resolves the last conflict."),
+            finding(Severity::Nit, "capsule/conflicts.rs", 31, "Rename cf to conflict."),
+        ],
+        ..Default::default()
+    };
+    d.on_agents(agents::Event::FactoryTicket(detail), window, cx);
+    d.factory_tab(crate::factory::tabs::Tab::Pr, cx);
+}
+
+/// The Merged rail opened, its two Tickets with their PRs read.
+fn show_factory_merged(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
+    let now = Instant::now();
+    for (tree, number, additions, deletions) in [("/tmp/wt/fold-output", 198, 33, 9), ("/tmp/wt/name-trees", 197, 74, 2)] {
+        let pr = Pr { number, state: PrState::Merged, additions, deletions, ..Pr::default() };
+        d.prs.start(tree, now);
+        d.prs.apply(tree.to_string(), now, Ok(Some(pr)), now);
+    }
+    d.board.layout = crate::board::Layout::Factory;
+    d.factory.toggle(crate::factory::station::Column::Merged);
+    d.board_changed();
+    cx.notify();
 }
 
 /// `ticket` at Implement with a Team of three tasks. A running `t2` asks to merge. With no task running, the Ticket turns idle.

@@ -58,6 +58,9 @@ impl Desktop {
 
     fn toggle_station_rail(&mut self, column: Column, cx: &mut Context<Self>) {
         self.factory.toggle(column);
+        if self.factory.open[column as usize] {
+            self.factory.scroll.scroll_to_item(column as usize);
+        }
         self.board_changed();
         cx.notify();
     }

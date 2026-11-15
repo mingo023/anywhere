@@ -89,6 +89,7 @@ impl Desktop {
         let body = match tab {
             Tab::Activity => self.factory_activity_tab(&t, cx).into_any_element(),
             Tab::Checks => div().id("factory-checks").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_checks_tab(&t)).into_any_element(),
+            Tab::Pr => div().id("factory-pr").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_pr_tab(&t)).into_any_element(),
             Tab::Workers => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_workers_tab(&t)).into_any_element(),
             _ => div().id("factory-doc").flex_1().min_h_0().overflow_y_scroll().pb(px(72.)).child(self.factory_spec_tab(&t, cx)).into_any_element(),
         };

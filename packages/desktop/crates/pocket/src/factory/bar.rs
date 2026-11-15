@@ -29,14 +29,17 @@ pub(crate) enum Decision {
     Failed { used: u8, cap: u8 },
     /// The lead of a Spec or a Plan failed and is gone: Start again makes a new one.
     Retry { why: String },
+    /// The PR waits for your review. `gate` says what holds its merge back.
+    Pr { gate: git::github::Gate, number: u32 },
 }
 
 /// What the bar asks of `t`, if anything. Plans 5 and 6 read `pr` and `detail`.
-pub(crate) fn decision(t: &Ticket, team: Option<&Team>, _pr: Option<&Pr>, ask: Option<&Permission>, _detail: Option<&Detail>) -> Option<Decision> {
+pub(crate) fn decision(t: &Ticket, team: Option<&Team>, pr: Option<&Pr>, ask: Option<&Permission>, _detail: Option<&Detail>) -> Option<Decision> {
     match t.gate {
         Gate::Plan => team.filter(|team| team.state == PROPOSED).map(|team| Decision::Plan { kept: team.tasks.len() }),
         // A question has its own dialog, in the session.
         Gate::Ask => ask.filter(|p| p.questions().is_empty()).map(|p| Decision::Ask { command: p.parts().1, worker: asker(p, team) }),
+        Gate::Pr => Some(Decision::Pr { gate: pr.map_or(git::github::Gate::Checking, Pr::gate), number: t.pr }),
         _ if t.station == Station::Implement && t.status == Status::Idle => Some(Decision::Idle),
         // The project's cap is not known here; page_decision fills it in.
         _ if t.station == Station::Checks && t.status == Status::Failed => Some(Decision::Failed { used: t.fix, cap: t.fix }),
@@ -91,7 +94,7 @@ impl Desktop {
     /// The page's decision, with the count of the tasks you kept at the gate.
     fn page_decision(&self, t: &Ticket) -> Option<Decision> {
         let team = self.agents.team(&t.agent_id);
-        decision(t, team, None, self.page_ask(t), self.agents.detail(&t.id)).map(|d| match d {
+        decision(t, team, self.prs.get(&t.worktree), self.page_ask(t), self.agents.detail(&t.id)).map(|d| match d {
             Decision::Plan { kept } => Decision::Plan { kept: self.team.island.edits.get(&t.agent_id).map_or(kept, |e| e.tasks().len()) },
             Decision::Failed { used, .. } => Decision::Failed { used, cap: self.agents.factory_config(&t.folder).map_or(used, |c| c.fix) },
             other => other,
@@ -134,8 +137,8 @@ impl Desktop {
     pub(crate) fn factory_send_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let typed = self.factory.changes.read(cx).value().to_string();
         let Some(note) = change_note(&typed) else { return false };
-        let Some(lead) = self.factory.page.as_ref().and_then(|p| self.agents.board.get(&p.ticket)).map(|t| t.agent_id.clone()) else { return false };
-        self.outbox.prompt(&lead, note, true);
+        let Some((lead, gate)) = self.factory.page.as_ref().and_then(|p| self.agents.board.get(&p.ticket)).map(|t| (t.agent_id.clone(), t.gate)) else { return false };
+        self.outbox.prompt(&lead, note, super::pr::replans(gate));
         self.factory_changes(false, window, cx);
         true
     }
@@ -153,6 +156,8 @@ impl Desktop {
                 true
             }
             Some(Decision::Failed { .. }) => self.factory_send_hint(window, cx),
+            Some(Decision::Pr { .. }) if page.changes => self.factory_send_changes(window, cx),
+            Some(Decision::Pr { .. }) => self.factory_merge(&t, cx),
             _ => false,
         }
     }
@@ -164,6 +169,7 @@ impl Desktop {
             Decision::Idle => self.idle_bar(t, cx),
             Decision::Failed { cap, .. } => self.failed_bar(t, cap, cx),
             Decision::Retry { why } => self.retry_bar(t, &why, cx),
+            Decision::Pr { gate, number } => self.pr_bar(t, gate, number, page, cx),
         };
         Some(ui::pop(div()).absolute().left(px(12.)).right(px(12.)).bottom(px(10.)).min_h(px(42.)).pl(px(14.)).pr(px(8.)).py(px(7.)).rounded(px(11.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_2).child(content))
     }
@@ -171,15 +177,7 @@ impl Desktop {
     fn plan_bar(&self, kept: usize, page: &Page, cx: &mut Context<Self>) -> Div {
         let what = div().flex_1().min_w_0().flex().items_center().gap(px(7.)).child(div().size(px(6.)).rounded(px(3.)).bg(WAITING_DOT)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Plan approval")).child(div().text_color(TEXT_3).child(summary(kept)));
         if page.changes {
-            let field = div().flex_1().min_w_0().h(px(28.)).px(px(9.)).flex().items_center().rounded(px(7.)).bg(FILL_2).child(Input::new(&self.factory.changes).appearance(false).p_0().text_size(px(12.5)));
-            div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(field)
-                .child(bar_button("factory-changes-cancel", Variant::Ghost, None, "Cancel").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.factory_changes(false, window, cx))))
-                .child(bar_button("factory-changes-send", Variant::Primary, None, "Send to the lead").h(px(28.)).child(start_kbd()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| _ = this.factory_send_changes(window, cx))))
+            self.changes_bar(cx)
         } else {
             let can = can_start(true, kept);
             div()
@@ -197,6 +195,19 @@ impl Desktop {
                         .when(can, |b| b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| _ = this.factory_approve(cx)))),
                 )
         }
+    }
+
+    /// The change request's field with Cancel and Send to the lead.
+    pub(super) fn changes_bar(&self, cx: &mut Context<Self>) -> Div {
+        let field = div().flex_1().min_w_0().h(px(28.)).px(px(9.)).flex().items_center().rounded(px(7.)).bg(FILL_2).child(Input::new(&self.factory.changes).appearance(false).p_0().text_size(px(12.5)));
+        div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(field)
+            .child(bar_button("factory-changes-cancel", Variant::Ghost, None, "Cancel").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.factory_changes(false, window, cx))))
+            .child(bar_button("factory-changes-send", Variant::Primary, None, "Send to the lead").h(px(28.)).child(start_kbd()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| _ = this.factory_send_changes(window, cx))))
     }
 
     /// An Ask: who wants to run what, the words of a deny when the request takes them, Deny and Allow once.
@@ -329,6 +340,7 @@ mod tests {
     use super::{Decision, approve_label, ask_label, change_note, decision, hint_text, retry_title, summary, ticket_ask};
     use agents::tickets::{Gate, State, Station, Status, Ticket};
     use agents::{Detail as ToolDetail, Permission, Team, TeamTask};
+    use git::github::{Gate as PrGate, Pr};
 
     fn gated() -> Ticket {
         Ticket { state: State::Live, station: Station::Plan, gate: Gate::Plan, status: Status::NeedsYou, agent_id: "a1".into(), ..Ticket::sample() }
@@ -409,6 +421,16 @@ mod tests {
         let t = Ticket { state: State::Live, station: Station::Checks, status: Status::Failed, fix: 2, agent_id: "a1".into(), ..Ticket::sample() };
         assert_eq!(decision(&t, None, None, None, None), Some(Decision::Failed { used: 2, cap: 2 }));
         assert_eq!(decision(&Ticket { status: Status::Working, ..t.clone() }, None, None, None, None), None);
+    }
+
+    #[test]
+    fn a_ticket_at_the_pr_gate_offers_the_merge_with_what_holds_it_back() {
+        let t = Ticket { state: State::Live, station: Station::Pr, gate: Gate::Pr, status: Status::NeedsYou, pr: 203, ..Ticket::sample() };
+        let draft = Pr { number: 203, draft: true, ..Pr::default() };
+        assert_eq!(decision(&t, None, Some(&draft), None, None), Some(Decision::Pr { gate: PrGate::Draft, number: 203 }));
+        assert_eq!(decision(&t, None, None, None, None), Some(Decision::Pr { gate: PrGate::Checking, number: 203 }));
+        let working = Ticket { gate: Gate::None, status: Status::Working, ..t };
+        assert_eq!(decision(&working, None, Some(&draft), None, None), None);
     }
 
     #[test]

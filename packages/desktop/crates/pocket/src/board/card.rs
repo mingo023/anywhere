@@ -5,7 +5,7 @@ use ui::{CARD_RADIUS, agent_avatar, card_pill as pill, quick_button};
 use crate::desktop::Desktop;
 use crate::factory::station;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
-use agents::tickets::{ClosedWhy, Ticket};
+use agents::tickets::{ClosedWhy, Station, Ticket};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -99,14 +99,18 @@ impl Desktop {
     /// The pills for what the ticket has: its PR, its diff, how it closed.
     pub(super) fn ticket_pills(&self, t: &Ticket, slot: Slot) -> Vec<Div> {
         let found = self.prs.get(&t.worktree);
-        let pr = found.map(|pr| {
-            let (name, color) = pr_glyph(pr);
-            let green = pr.checks.failed == 0 && pr.checks.pending == 0 && pr.checks.passed > 0;
-            pill().child(icon(name, 12., color)).child(format!("#{}", pr.number)).when(green, |d| d.child(icon("check", 11., SUCCESS)))
-        });
         let factory = self.board.layout == Layout::Factory;
+        let merged = factory && t.station == Station::Merged && t.pr != 0;
+        let pr = match found {
+            _ if merged => Some(pill().child(icon("merge", 12., MERGED)).child(format!("#{}", t.pr))),
+            found => found.map(|pr| {
+                let (name, color) = pr_glyph(pr);
+                let green = pr.checks.failed == 0 && pr.checks.pending == 0 && pr.checks.passed > 0;
+                pill().child(icon(name, 12., color)).child(format!("#{}", pr.number)).when(green, |d| d.child(icon("check", 11., SUCCESS)))
+            }),
+        };
         let progress = factory.then(|| self.agents.team(&t.agent_id).and_then(station::progress)).flatten().map(|done| pill().font_family(MONO).child(icon("team", 12., TEXT_3)).child(done));
-        let tag = (factory && found.is_none()).then(|| station::tag(t, self.board_tree(t).map(|w| w.branch.as_str()))).flatten().map(|tag| pill().max_w(px(150.)).font_family(MONO).child(div().truncate().child(tag)));
+        let tag = (factory && found.is_none() && !merged).then(|| station::tag(t, self.board_tree(t).map(|w| w.branch.as_str()))).flatten().map(|tag| pill().max_w(px(150.)).font_family(MONO).child(div().truncate().child(tag)));
         let diff = self.repos.get(&t.worktree).filter(|r| !r.files.is_empty()).map(|r| {
             let (added, removed) = r.totals();
             pill().font_family(MONO).child(ui::meta_diff(added, removed, 11.))

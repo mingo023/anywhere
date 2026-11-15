@@ -20,6 +20,10 @@ pub struct Pr {
     pub blocked: bool,
     pub base: String,
     pub head: String,
+    /// Lines added and removed against the base, and how many files changed.
+    pub additions: usize,
+    pub deletions: usize,
+    pub files: usize,
     pub threads: Vec<Thread>,
 }
 
@@ -106,7 +110,7 @@ pub const VIEW: &[&str] = &[
     "pr",
     "view",
     "--json",
-    "number,title,url,state,isDraft,statusCheckRollup,reviewDecision,latestReviews,reviewRequests,mergeable,mergeStateStatus,headRefOid,baseRefName",
+    "number,title,url,state,isDraft,statusCheckRollup,reviewDecision,latestReviews,reviewRequests,mergeable,mergeStateStatus,headRefOid,baseRefName,additions,deletions,changedFiles",
 ];
 
 /// The branch name on the remote, without `origin/`.
@@ -400,8 +404,15 @@ fn parse(json: &str) -> Option<Pr> {
         blocked: v["mergeStateStatus"].as_str() == Some("BLOCKED"),
         base: str(&v["baseRefName"]),
         head: str(&v["headRefOid"]),
+        additions: count(&v["additions"]),
+        deletions: count(&v["deletions"]),
+        files: count(&v["changedFiles"]),
         threads: Vec::new(),
     })
+}
+
+fn count(v: &Value) -> usize {
+    v.as_u64().and_then(|n| usize::try_from(n).ok()).unwrap_or(0)
 }
 
 fn str(v: &Value) -> String {
@@ -614,6 +625,16 @@ mod tests {
         let threads = threads_result(THREADS_OUT).unwrap();
         let alone = Thread { comments: threads[0].comments[..1].to_vec(), ..threads[0].clone() };
         assert_eq!([alone.state(false), threads[0].state(false), alone.state(true), threads[1].state(true)], [ThreadState::Open, ThreadState::Replied, ThreadState::Sent, ThreadState::Resolved]);
+    }
+
+    #[test]
+    fn a_pr_reads_how_much_it_changes() {
+        let pr = |json: &str| view_result(Ok(json.into())).unwrap().unwrap();
+        let sized = pr(r#"{"isDraft":false,"number":7,"state":"OPEN","title":"t","url":"u","statusCheckRollup":[],"additions":96,"deletions":4,"changedFiles":7}"#);
+        assert_eq!((sized.additions, sized.deletions, sized.files), (96, 4, 7));
+        let bare = pr(r#"{"isDraft":false,"number":7,"state":"OPEN","title":"t","url":"u","statusCheckRollup":[]}"#);
+        assert_eq!((bare.additions, bare.deletions, bare.files), (0, 0, 0));
+        assert!(VIEW[4].ends_with(",additions,deletions,changedFiles"));
     }
 
     #[test]

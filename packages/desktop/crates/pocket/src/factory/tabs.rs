@@ -22,8 +22,8 @@ impl Tab {
     }
 }
 
-/// The tabs that have a body. Plan 6 adds PR.
-pub(crate) const OFFERED: [Tab; 4] = [Tab::Spec, Tab::Workers, Tab::Checks, Tab::Activity];
+/// The tabs that have a body.
+pub(crate) const OFFERED: [Tab; 5] = [Tab::Spec, Tab::Workers, Tab::Checks, Tab::Pr, Tab::Activity];
 
 /// The tab where a station's work shows.
 pub(crate) fn default_tab(column: Column) -> Tab {
@@ -52,9 +52,11 @@ mod tests {
     }
 
     #[test]
-    fn a_station_whose_tab_has_no_body_yet_shows_spec_and_plan() {
+    fn a_ticket_at_pr_review_or_merged_opens_on_the_pr_tab() {
         assert_eq!(shown(None, Column::Plan), Tab::Spec);
-        assert_eq!(shown(None, Column::Pr), Tab::Spec);
+        assert_eq!(shown(None, Column::Pr), Tab::Pr);
+        assert_eq!(shown(None, Column::Merged), Tab::Pr);
+        assert_eq!(shown(Some(Tab::Spec), Column::Pr), Tab::Spec);
     }
 
     #[test]

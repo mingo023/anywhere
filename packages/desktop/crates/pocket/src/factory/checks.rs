@@ -115,7 +115,7 @@ pub(crate) fn checks_note(t: &Ticket) -> Option<(String, Tone)> {
     }
 }
 
-fn list(rows: impl Iterator<Item = Div>) -> Div {
+pub(super) fn list(rows: impl Iterator<Item = Div>) -> Div {
     let rows = rows.enumerate().map(|(i, row)| row.when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR)));
     div().flex().flex_col().rounded(px(9.)).bg(SURFACE).shadow(vec![ui::ring(SEPARATOR, 0.5)]).overflow_hidden().children(rows)
 }

@@ -130,6 +130,10 @@ impl Desktop {
         }
         if let Event::FactoryError(_) = &ev {
             self.settings.factory.draft.refused();
+            self.factory.merging = false;
+        }
+        if let Event::GhMerged(tree) = &ev {
+            self.factory_merged(tree, cx);
         }
         if let Event::Team(team) = &ev {
             self.team_updated(team, window, cx);

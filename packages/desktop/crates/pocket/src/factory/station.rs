@@ -155,6 +155,7 @@ pub(crate) fn note(t: &Ticket, team: Option<&Team>, pr: Option<&Pr>, ask: Option
             0 => "Ready to merge".to_string(),
             n => format!("Ready to merge · #{n}"),
         },
+        Gate::None if t.station == Station::Merged && t.pr != 0 => return Some((super::pr::merged_line(t.pr, pr), Tone::Quiet)),
         Gate::None if t.station == Station::Checks => return super::checks::checks_note(t),
         Gate::None if failed(t) && t.why.is_empty() => return Some(("Failed".to_string(), Tone::Failed)),
         Gate::None if failed(t) => return Some((format!("Failed · {}", t.why), Tone::Failed)),
@@ -458,6 +459,16 @@ mod tests {
         assert_eq!(note(&both, None, None, None), Some(("Ask".into(), Tone::Asking)));
         assert_eq!(note(&live(Status::Working), Some(&planned(3, "running")), Some(&pr(PrState::Open)), None), None);
         assert_eq!(note(&Ticket::sample(), None, None, None), None);
+    }
+
+    #[test]
+    fn a_merged_ticket_sits_on_the_merged_rail_and_says_its_pr_and_size() {
+        let merged = Ticket { station: Station::Merged, pr: 201, ..Ticket::sample() };
+        assert_eq!(column(&merged, None, None), Column::Merged);
+        let sized = Pr { number: 201, additions: 96, deletions: 4, ..Pr::default() };
+        assert_eq!(note(&merged, None, Some(&sized), None), Some(("Merged · #201 · +96 -4".into(), Tone::Quiet)));
+        assert_eq!(note(&merged, None, None, None), Some(("Merged · #201".into(), Tone::Quiet)));
+        assert_eq!(note(&Ticket { pr: 0, ..merged }, None, None, None), None);
     }
 
     #[test]

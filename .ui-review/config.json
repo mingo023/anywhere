@@ -39,6 +39,16 @@
       "open": ["click Board in the sidebar", "pick Factory", "click the ticket that failed at Checks"],
       "capture": ["board", "factory-ticket-checks", "factory-hint-typed"]
     },
+    "factory-ticket-pr": {
+      "files": ["packages/desktop/crates/pocket/src/factory/pr.rs", "packages/desktop/crates/pocket/src/factory/page.rs", "packages/desktop/crates/pocket/src/factory/bar.rs", "packages/desktop/crates/pocket/src/factory/tabs.rs"],
+      "open": ["click Board in the sidebar", "pick Factory", "click the ticket at the PR review gate", "open its PR tab"],
+      "capture": ["board", "factory-ticket-pr", "factory-merge-menu"]
+    },
+    "factory-board-merged": {
+      "files": ["packages/desktop/crates/pocket/src/factory/station.rs", "packages/desktop/crates/pocket/src/board/card.rs"],
+      "open": ["click Board in the sidebar", "pick Factory", "open the Merged rail"],
+      "capture": ["board", "board-factory-merged", "board-factory-merged-in"]
+    },
     "factory-board-you": {
       "files": ["packages/desktop/crates/pocket/src/factory/station.rs", "packages/desktop/crates/pocket/src/board/tabs.rs"],
       "open": ["click Board in the sidebar", "pick Factory", "click the needs you chip"],

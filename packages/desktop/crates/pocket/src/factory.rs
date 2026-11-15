@@ -2,6 +2,7 @@ mod activity;
 pub(crate) mod bar;
 pub(crate) mod checks;
 pub(crate) mod page;
+mod pr;
 mod spec;
 pub(crate) mod station;
 pub(crate) mod tabs;
@@ -38,6 +39,10 @@ pub(crate) struct FactoryState {
     pub(crate) hint: Entity<InputState>,
     /// The tail of each ticket's failed command, cut when its detail arrived.
     pub(crate) outputs: HashMap<String, checks::Output>,
+    /// The merge method menu of the PR review bar is open.
+    pub(crate) merge_menu: bool,
+    /// A merge was sent and pocketd has not answered.
+    pub(crate) merging: bool,
 }
 
 impl FactoryState {
@@ -54,7 +59,7 @@ impl FactoryState {
                 cx.stop_propagation();
             }
         });
-        let state = Self { columns: Default::default(), lists: COLUMNS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), open: Default::default(), scroll: ScrollHandle::new(), counts: Counts::default(), page: None, changes, deny, hint, outputs: HashMap::new() };
+        let state = Self { columns: Default::default(), lists: COLUMNS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), open: Default::default(), scroll: ScrollHandle::new(), counts: Counts::default(), page: None, changes, deny, hint, outputs: HashMap::new(), merge_menu: false, merging: false };
         (state, vec![key, typed])
     }
 

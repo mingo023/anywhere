@@ -6,7 +6,7 @@ pub mod locals;
 pub mod providers;
 pub mod team;
 
-pub use factory::{Config, Profile, ProfileFile, ProfileInfo};
+pub use factory::{Config, Finding, Profile, ProfileFile, ProfileInfo, Severity};
 pub use team::{TaskPick, Team, TeamAction, TeamTask};
 
 use automations::{Automation, AutomationDraft, Automations, Run};
@@ -472,6 +472,8 @@ pub enum Event {
     FactoryConfig { project: String, config: Config, problem: String },
     /// pocketd refused a Factory message.
     FactoryError(String),
+    /// pocketd merged the PR of the worktree, as `Outbox::gh_merge` asked.
+    GhMerged(String),
     /// One ticket's spec and activity, asked for with `Outbox::factory_ticket`.
     FactoryTicket(factory::Detail),
     /// Every profile pocketd has, built-in ones first: the answer to a list, save or delete, and the news after any change.
@@ -617,7 +619,7 @@ impl Agents {
             Event::FactoryTicket(detail) => {
                 self.details.insert(detail.ticket_id.clone(), detail);
             }
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } | Event::FactoryError(_) | Event::FactoryUpdate(_) | Event::FactoryProfile(_) => {}
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } | Event::TeamFailed { .. } | Event::FactoryError(_) | Event::GhMerged(_) | Event::FactoryUpdate(_) | Event::FactoryProfile(_) => {}
         }
     }
 
@@ -949,6 +951,8 @@ const SETTINGS_CAP: &str = "settings.v1";
 const ACCESS_CAP: &str = "access.v1";
 const TEAM_CAP: &str = "team.v1";
 const FACTORY_CAP: &str = "factory.v1";
+/// pocketd's GitHub verbs. The desktop sends only `gh.pr.merge`, for the PR of a Factory ticket.
+const GH_CAP: &str = "gh.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
@@ -1229,6 +1233,12 @@ impl Outbox {
         self.send(json!({"type": "team.stop", "id": team_id(), "lead": lead, "task": task}));
     }
 
+    /// Merges PR `number` of the worktree `tree` through pocketd. `method` is squash, merge or rebase.
+    /// `Event::GhMerged` answers, or `Event::FactoryError` with why not.
+    pub fn gh_merge(&self, tree: &str, number: u32, method: &str) {
+        self.send(json!({"type": "gh.pr.merge", "id": factory_id(), "tree": tree, "number": number, "method": method}));
+    }
+
     /// Merges each task's branch into the lead's checkout.
     pub fn team_merge(&self, lead: &str) {
         self.send(json!({"type": "team.merge", "id": team_id(), "lead": lead}));
@@ -1309,7 +1319,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 18] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", TEAM_CAP, FACTORY_CAP];
+const CAPS: [&str; 19] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", TEAM_CAP, FACTORY_CAP, GH_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1412,7 +1422,7 @@ struct Requests(VecDeque<Value>);
 
 impl Requests {
     fn sent(&mut self, m: &Value) {
-        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt" | "team.start" | "team.stop" | "team.merge")) {
+        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt" | "team.start" | "team.stop" | "team.merge" | "gh.pr.merge")) {
             self.0.push_back(m.clone());
         }
     }
@@ -1424,7 +1434,7 @@ impl Requests {
         }
         let i = self.0.iter().position(|m| m["id"] == f.id.as_str())?;
         let m = self.0.remove(i)?;
-        if f.kind == "error" { refused(&m, &f.message) } else { None }
+        if f.kind == "error" { refused(&m, &f.message) } else { acked(&m) }
     }
 }
 
@@ -1441,6 +1451,11 @@ fn refused(m: &Value, reason: &str) -> Option<Event> {
         "team.merge" => team(field("lead"), TeamAction::Merge),
         _ => None,
     }
+}
+
+/// The event for a request `m` that pocketd acked: only a merge has one.
+fn acked(m: &Value) -> Option<Event> {
+    (m["type"] == "gh.pr.merge").then(|| Event::GhMerged(m["tree"].as_str().unwrap_or_default().to_string()))
 }
 
 /// A create sent to pocketd, one at a time, and the failure it answered with until the next send.
@@ -1751,7 +1766,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "team.v1", "factory.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "team.v1", "factory.v1", "gh.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -2666,6 +2681,35 @@ mod tests {
     #[test]
     fn team_merge_sends_the_golden_team_merge_frame_but_its_id() {
         assert_eq!(sent_but_id(|o| o.team_merge("5f0c2a9e-1b2c-4d3e-8f90-123456789abc")), without_id(golden!("client/team_merge.json")));
+    }
+
+    #[test]
+    fn gh_merge_sends_the_golden_gh_pr_merge_frame_but_its_id() {
+        assert_eq!(sent_but_id(|o| o.gh_merge("/Users/me/dev/pocket", 118, "squash")), without_id(golden!("client/gh_pr_merge.json")));
+    }
+
+    #[test]
+    fn an_acked_merge_names_its_worktree_and_a_refused_one_says_why() {
+        let mut requests = Requests::default();
+        requests.sent(&json!({"type": "gh.pr.merge", "id": "factory-1", "tree": "/w/fix", "number": 7, "method": "squash"}));
+        requests.sent(&json!({"type": "gh.pr.merge", "id": "factory-2", "tree": "/w/fix", "number": 7, "method": "squash"}));
+        let merged = requests.answer(&frame(json!({"type": "ack", "id": "factory-1"})));
+        assert!(matches!(merged, Some(Event::GhMerged(tree)) if tree == "/w/fix"));
+        let refused = requests.answer(&frame(json!({"type": "error", "id": "factory-2", "code": "gh_failed", "message": "Pull request is not mergeable"})));
+        assert!(refused.is_none());
+        assert!(matches!(factory_event(&frame(json!({"type": "error", "id": "factory-2", "code": "gh_failed", "message": "Pull request is not mergeable"}))), Some(Event::FactoryError(m)) if m == "Pull request is not mergeable"));
+    }
+
+    #[test]
+    fn an_acked_prompt_is_no_event() {
+        let mut requests = Requests::default();
+        requests.sent(&json!({"type": "agent.prompt", "id": "prompt-1", "agentId": "a1", "text": "hi"}));
+        assert!(requests.answer(&frame(json!({"type": "ack", "id": "prompt-1"}))).is_none());
+    }
+
+    #[test]
+    fn the_hello_offers_the_github_verbs() {
+        assert!(hello(None)["caps"].as_array().unwrap().iter().any(|c| c == "gh.v1"));
     }
 
     #[test]

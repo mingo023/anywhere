@@ -34,6 +34,29 @@ pub struct Detail {
     pub checks: Vec<Check>,
     /// Checks passed with no local command and no GitHub check.
     pub no_checks: bool,
+    /// What the reviewer found in the PR's current head.
+    pub findings: Vec<Finding>,
+}
+
+/// How bad the reviewer says a finding is, the worst first.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub enum Severity {
+    Critical,
+    Minor,
+    #[default]
+    #[serde(other)]
+    Nit,
+}
+
+/// One thing the reviewer found in a Ticket's PR.
+#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Finding {
+    pub severity: Severity,
+    pub file: String,
+    pub line: u32,
+    pub message: String,
 }
 
 /// One local command's run in the Checks station.
@@ -100,4 +123,32 @@ pub struct ProfileFile {
     pub text: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub binary: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_ticket_detail_reads_its_findings_and_a_severity_orders_worst_first() {
+        let raw = serde_json::json!({"ticketId": "t1", "activity": [], "findings": [
+            {"severity": "critical", "file": "src/a.rs", "line": 12, "message": "Leaks the handle"},
+            {"severity": "nit", "message": "Name it"}
+        ]});
+        let d: Detail = serde_json::from_value(raw).unwrap();
+        assert_eq!(
+            d.findings,
+            vec![
+                Finding { severity: Severity::Critical, file: "src/a.rs".into(), line: 12, message: "Leaks the handle".into() },
+                Finding { severity: Severity::Nit, file: String::new(), line: 0, message: "Name it".into() },
+            ]
+        );
+        assert!(Severity::Critical < Severity::Minor && Severity::Minor < Severity::Nit);
+    }
+
+    #[test]
+    fn a_detail_without_findings_has_none() {
+        let d: Detail = serde_json::from_value(serde_json::json!({"ticketId": "t1", "activity": []})).unwrap();
+        assert!(d.findings.is_empty());
+    }
 }
