@@ -141,8 +141,7 @@ func section(spec, heading string) string {
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
-// checksNext is Next for a Ticket at Checks. The table in docs/plans/2026-11-12-light-factory-5-checks.md
-// lists the rows in the order the stages below read them.
+// checksNext is Next for a Ticket at Checks. The first stage that decides wins, so their order is the rule.
 func checksNext(f Facts) (proto.Ticket, []Action) {
 	for _, stage := range []func(*Facts) ([]Action, bool){fixing, faulted, integration, pullRequest, commands} {
 		if acts, done := stage(&f); done {
@@ -163,7 +162,6 @@ func fail(f *Facts, why string) ([]Action, bool) {
 	return nil, true
 }
 
-// faulted is row 6.
 func faulted(f *Facts) ([]Action, bool) {
 	if f.Local.Error != "" {
 		return fail(f, f.Local.Error)
@@ -171,7 +169,6 @@ func faulted(f *Facts) ([]Action, bool) {
 	return nil, false
 }
 
-// integration is rows 7 and 8.
 func integration(f *Facts) ([]Action, bool) {
 	if f.Team == nil {
 		return nil, false
@@ -185,7 +182,6 @@ func integration(f *Facts) ([]Action, bool) {
 	return nil, false
 }
 
-// pullRequest is rows 9 and 10.
 func pullRequest(f *Facts) ([]Action, bool) {
 	if f.Ticket.PR == 0 && f.PR != nil && f.PR.State == "OPEN" {
 		f.Ticket.PR = f.PR.Number
@@ -196,7 +192,6 @@ func pullRequest(f *Facts) ([]Action, bool) {
 	return nil, false
 }
 
-// commands is rows 11 to 13.
 func commands(f *Facts) ([]Action, bool) {
 	switch f.Local.State {
 	case "":
@@ -209,7 +204,6 @@ func commands(f *Facts) ([]Action, bool) {
 	return nil, false
 }
 
-// remote is rows 14 to 21.
 func remote(f *Facts) ([]Action, bool) {
 	pr := f.PR
 	switch {
@@ -242,7 +236,7 @@ func failedRun(pr *proto.PR) string {
 	return "GitHub checks"
 }
 
-// broken is a failed check named what: the fix rows.
+// broken is a failed check named what.
 func broken(f *Facts, what string) ([]Action, bool) {
 	limit := f.Config.Fix
 	switch {
@@ -258,7 +252,6 @@ func broken(f *Facts, what string) ([]Action, bool) {
 	return work(f, fmt.Sprintf("Fixing · attempt %d", f.Ticket.Fix), Action{Kind: ActSendFix})
 }
 
-// fixing is rows 1 to 5.
 func fixing(f *Facts) ([]Action, bool) {
 	switch {
 	case f.Local.Fix == FixMailed && f.Lead.Turn == "needsYou":

@@ -568,7 +568,7 @@ func TestAMergeYouAskedForClosesTheTicketAndTakesTheWaitOffTheLead(t *testing.T)
 	}
 }
 
-// PRD §9: the pipeline never merges and never reviews on GitHub. never.go lists the commands in order to
+// The pipeline never merges and never reviews on GitHub. never.go lists the commands in order to
 // refuse them, and the Factory rules name them for the agent.
 func TestNoFactoryCodeMergesOrReviewsAPullRequest(t *testing.T) {
 	files, err := filepath.Glob("*.go")

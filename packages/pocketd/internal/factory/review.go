@@ -290,8 +290,7 @@ func closing(f Facts) []Action {
 	return nil
 }
 
-// atPR is Next for a Ticket at PR review. The table in docs/plans/2026-11-12-light-factory-6-review.md lists
-// its rows in this order. A Ticket whose lead is gone keeps its gate: you can still merge.
+// atPR is Next for a Ticket at PR review. A Ticket whose lead is gone keeps its gate: you can still merge.
 func atPR(f Facts) (proto.Ticket, []Action) {
 	t := f.Ticket
 	if f.PR == nil {
