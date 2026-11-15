@@ -55,7 +55,7 @@ pub(crate) fn who(actor: &str) -> String {
     }
 }
 
-/// What the actor did. Plans 4 to 6 add the wording of the kinds they write.
+/// What the actor did.
 pub(crate) fn what(a: &Activity) -> String {
     let with = |text: &str| if a.text.is_empty() { text.to_string() } else { format!("{text} · {}", a.text) };
     match a.kind.as_str() {

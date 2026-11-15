@@ -10,7 +10,7 @@ const COL_RADIUS: f32 = 10.;
 const LETTER_H: f32 = 13.;
 
 impl Desktop {
-    /// A column's mark, name and count, and a quiet "You" where you decide (B4).
+    /// A column's mark, name and count, and a quiet "You" where you decide.
     pub(super) fn station_heading(&self, column: Column) -> Div {
         let count = self.factory.columns[column as usize].len().to_string();
         let you = column.yours().then(|| div().ml_auto().text_size(px(12.)).font_weight(FontWeight::NORMAL).text_color(TEXT_3).child("You"));
@@ -85,7 +85,7 @@ impl Desktop {
         div().id(("board-station", column as usize)).w(px(width)).h_full().flex().flex_none().flex_col().rounded(px(COL_RADIUS)).bg(FILL_1).child(heading).child(cards)
     }
 
-    /// The Factory layout: seven columns on a page `available` wide, scrolling sideways when they don't fit (B3).
+    /// The Factory layout: seven columns on a page `available` wide, scrolling sideways when they don't fit.
     pub(super) fn station_columns(&mut self, available: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let widths = widths(available, &self.factory.open);
         let columns: Vec<AnyElement> = COLUMNS

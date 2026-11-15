@@ -6,7 +6,7 @@ mod browser;
 pub(crate) mod catalog;
 mod diff;
 pub(crate) mod dropdown;
-mod factory;
+pub(crate) mod factory;
 mod files;
 mod general;
 mod git;

@@ -33,7 +33,7 @@ pub(crate) enum Decision {
     Pr { gate: git::github::Gate, number: u32 },
 }
 
-/// What the bar asks of `t`, if anything. Plans 5 and 6 read `pr` and `detail`.
+/// What the bar asks of `t`, if anything.
 pub(crate) fn decision(t: &Ticket, team: Option<&Team>, pr: Option<&Pr>, ask: Option<&Permission>, _detail: Option<&Detail>) -> Option<Decision> {
     match t.gate {
         Gate::Plan => team.filter(|team| team.state == PROPOSED).map(|team| Decision::Plan { kept: team.tasks.len() }),
@@ -252,7 +252,7 @@ impl Desktop {
         Some(div().flex_1().flex().items_center().gap(px(10.)).child(what).children(field).child(buttons))
     }
 
-    /// Every worker handed back and the lead gave no verdict: you may move the Ticket on (I8).
+    /// Every worker handed back and the lead gave no verdict: you may move the Ticket on.
     fn idle_bar(&self, t: &Ticket, cx: &mut Context<Self>) -> Div {
         let ticket = t.id.clone();
         let what = div()

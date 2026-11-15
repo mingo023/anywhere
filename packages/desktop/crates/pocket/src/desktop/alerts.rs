@@ -128,10 +128,7 @@ impl Desktop {
             self.settings.factory.answered(project, problem);
         }
         self.profile_event(&ev, window, cx);
-        if let Event::FactoryError(_) = &ev {
-            self.settings.factory.draft.refused();
-            self.factory.merging = false;
-        }
+        self.factory.heard(&ev, &mut self.settings.factory.draft);
         if let Event::GhMerged(tree) = &ev {
             self.factory_merged(tree, cx);
         }
@@ -144,12 +141,6 @@ impl Desktop {
         if let Event::FactoryUpdate(ticket) = &ev {
             self.factory_updated(ticket);
             self.inbox_ticket_updated(ticket);
-        }
-        if let Event::FactoryTicket(d) = &ev {
-            match crate::factory::checks::failed_output(&d.checks) {
-                Some(out) => _ = self.factory.outputs.insert(d.ticket_id.clone(), out),
-                None => _ = self.factory.outputs.remove(&d.ticket_id),
-            }
         }
         let teamed = matches!(ev, Event::Team(_) | Event::Teams(_));
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {

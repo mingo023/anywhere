@@ -21,6 +21,8 @@ const LINE: f32 = 22.;
 const LINES: usize = 10;
 
 pub struct ProfileSheet {
+    /// Which opening of the sheet this is, so an answer for an earlier one is dropped.
+    pub(crate) serial: u64,
     pub(crate) draft: Draft,
     pub(crate) name: Entity<InputState>,
     pub(crate) soul: Entity<TextareaState>,
@@ -143,6 +145,17 @@ pub fn lines(p: &Preview) -> Vec<Line> {
     out
 }
 
+/// What an import's result puts on the sheet: the rows, the preview and why not.
+type Landed = (Vec<Line>, Option<Preview>, Option<String>);
+
+/// `result` of an import asked of sheet `asked`, unless sheet `open` is another by the time it lands.
+fn landed(open: u64, asked: u64, result: Result<Preview, String>) -> Option<Landed> {
+    (open == asked).then(|| match result {
+        Ok(p) => (lines(&p), Some(p), None),
+        Err(why) => (Vec::new(), None, Some(why)),
+    })
+}
+
 pub fn size(bytes: usize) -> String {
     match bytes {
         0..1024 => format!("{bytes} B"),
@@ -168,7 +181,8 @@ impl Desktop {
         }
         self.load_models_of(&draft.provider.clone(), cx);
         let subs = vec![cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify())];
-        self.factory.profile = Some(ProfileSheet { draft, name, soul, instructions, preview: None, lines: Vec::new(), refused: None, installed: None, loading, sent: false, _subs: subs });
+        self.factory.sheets += 1;
+        self.factory.profile = Some(ProfileSheet { serial: self.factory.sheets, draft, name, soul, instructions, preview: None, lines: Vec::new(), refused: None, installed: None, loading, sent: false, _subs: subs });
         self.open(Overlay::Profile, window, cx);
     }
 
@@ -226,14 +240,14 @@ impl Desktop {
 
     /// Reads off the UI thread what `read` reads, and shows it as a preview or says why not.
     fn preview_import(&mut self, read: impl FnOnce() -> Result<Preview, String> + Send + 'static, cx: &mut Context<Self>) {
+        let Some(asked) = self.factory.profile.as_ref().map(|s| s.serial) else { return };
         cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move { read() }).await;
             this.update(cx, |d, cx| {
-                if let Some(sheet) = d.factory.profile.as_mut() {
-                    (sheet.lines, sheet.preview, sheet.refused) = match result {
-                        Ok(p) => (lines(&p), Some(p), None),
-                        Err(why) => (Vec::new(), None, Some(why)),
-                    };
+                if let Some(sheet) = d.factory.profile.as_mut()
+                    && let Some(shown) = landed(sheet.serial, asked, result)
+                {
+                    (sheet.lines, sheet.preview, sheet.refused) = shown;
                 }
                 cx.notify();
             })
@@ -499,7 +513,7 @@ fn preview_line(p: &Preview, line: Line) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Line, Skill, can_save, lines, size, taken, title};
+    use super::{Draft, Line, Skill, can_save, landed, lines, size, taken, title};
     use crate::factory::import::{Entry, Preview};
     use agents::factory::{Profile, ProfileFile, ProfileInfo};
 
@@ -513,6 +527,16 @@ mod tests {
 
     fn paths(draft: &Draft) -> Vec<&str> {
         draft.files.iter().map(|f| f.path.as_str()).collect()
+    }
+
+    #[test]
+    fn an_import_lands_on_the_sheet_it_was_asked_for_and_not_on_one_opened_since() {
+        let preview = Preview { entries: vec![Entry { path: "AGENTS.md".into(), size: 1, runs: false }], ..Default::default() };
+        let (rows, shown, refused) = landed(3, 3, Ok(preview.clone())).unwrap();
+        assert_eq!((rows, shown, refused), (vec![Line::File(0)], Some(preview.clone()), None));
+        assert_eq!(landed(3, 3, Err("no".into())), Some((Vec::new(), None, Some("no".into()))));
+        assert_eq!(landed(4, 3, Ok(preview)), None);
+        assert_eq!(landed(4, 3, Err("no".into())), None);
     }
 
     #[test]

@@ -49,7 +49,7 @@ impl Desktop {
             this.board_changed();
             cx.notify();
         }));
-        // A Factory column keeps the Up next order (B13) and never holds a ticket closed without a merge.
+        // A Factory column keeps the Up next order and never holds a ticket closed without a merge.
         let factory = self.board.layout == Layout::Factory;
         let body = div()
             .p(px(7.))

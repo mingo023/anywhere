@@ -13,6 +13,10 @@ use std::time::Instant;
 use theme::*;
 use ui::Variant;
 
+const MENU_ROW: f32 = 32.;
+const MENU_PAD: f32 = 6.;
+const MENU_GAP: f32 = 4.;
+
 /// The findings, the worst first. Findings of one severity keep the reviewer's order.
 pub(crate) fn sorted(findings: &[Finding]) -> Vec<&Finding> {
     let mut out: Vec<&Finding> = findings.iter().collect();
@@ -255,8 +259,9 @@ impl Desktop {
             div().id("factory-merge-closed"),
             cx,
         );
-        // The bar sits at the window's foot, so the menu opens upward: three 32px rows, 6px padding and a 4px gap.
-        let merge = merge.when(open, |d| d.child(ui::dropdown_right(-(3. * 32. + 12. + 4.), ui::menu_in("factory-merge-pop", ui::pop(menu).w(px(232.)).p(px(6.)).flex().flex_col().occlude()))));
+        // The bar sits at the window's foot, so the menu opens upward.
+        let height = Method::ALL.len() as f32 * MENU_ROW + 2. * MENU_PAD + MENU_GAP;
+        let merge = merge.when(open, |d| d.child(ui::dropdown_right(-height, ui::menu_in("factory-merge-pop", ui::pop(menu).w(px(232.)).p(px(MENU_PAD)).flex().flex_col().occlude()))));
         div()
             .flex_1()
             .flex()
@@ -279,7 +284,6 @@ impl Desktop {
 
     /// pocketd merged the PR of `tree`: show it merged now rather than at the next read.
     pub(crate) fn factory_merged(&mut self, tree: &str, cx: &mut Context<Self>) {
-        self.factory.merging = false;
         self.prs.edit(tree, |pr| pr.state = PrState::Merged);
         self.prs.expire(tree, Instant::now());
         cx.notify();
@@ -390,7 +394,6 @@ mod tests {
     #[test]
     fn a_critical_finding_does_not_hold_the_merge() {
         let (t, ready) = at_gate();
-        // can_merge takes no findings: the decision is yours.
         assert_eq!(can_merge(&t, Some(&ready), false), Some(203));
     }
 

@@ -83,7 +83,7 @@ impl Desktop {
         let id = &t.id;
         let button = |name: &str| SharedString::from(format!("ticket-{name}-{id}"));
         let has_pr = self.prs.get(&t.worktree).is_some();
-        // A Factory card decides nothing (B8): its Ask is answered in the session it opens.
+        // A Factory card decides nothing: its Ask is answered in the session it opens.
         let ask = self.card_ask(&t.agent_id).filter(|_| self.board.layout != Layout::Factory);
         let found = quick(t, slot.col, ask.is_some(), self.ticket_reach(t), has_pr)?;
         let request = ask.map_or("", |p| p.request_id.as_str());

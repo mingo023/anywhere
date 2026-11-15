@@ -58,13 +58,13 @@ impl Desktop {
         div().h(px(42.)).flex_none().pl(px(14.)).pr(px(12.)).flex().items_center().gap(px(8.)).child(row).child(self.board_tools(cx))
     }
 
-    /// The Factory, Status and List switch, first in the row as the design has it.
+    /// The Factory, Status and List switch, first in the row.
     fn layout_switch(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let segments = layouts(self.agents.factory_offered()).into_iter().map(|l| ui::Segment { icon: None, value: l, label: l.name().into(), badge: None }).collect();
         div().id("board-layout").flex_none().child(ui::segmented(segments, self.board.layout, true, false, |this: &mut Self, l, cx| this.set_board_layout(l, cx), cx))
     }
 
-    /// `needs you`, `ask` and `failed`, each with its count. Only the active "needs you" chip is tinted (B9).
+    /// `needs you`, `ask` and `failed`, each with its count. Only the active "needs you" chip is tinted.
     fn needs_chips(&self, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
         let counts = self.factory.counts;
         Needs::ALL
