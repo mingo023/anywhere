@@ -9,6 +9,8 @@ type TaskPick struct {
 	Agent string   `json:"agent"`
 	Model string   `json:"model,omitempty"`
 	Allow []string `json:"allow,omitempty"`
+	// Profile is a Factory profile's id. With one, the task's agent and model are the profile's.
+	Profile string `json:"profile,omitempty"`
 }
 
 // decodePicks takes team.start's tasks: each an id and an agent, and maybe a
@@ -20,10 +22,10 @@ func decodePicks(raw json.RawMessage, dst *[]TaskPick) bool {
 	}
 	picks := make([]TaskPick, len(items))
 	for i, item := range items {
-		f, ok := strictObject(item, "id", "agent", "model", "allow")
+		f, ok := strictObject(item, "id", "agent", "model", "allow", "profile")
 		p := &picks[i]
 		if !ok || !fields(f).get("id", &p.ID) || !fields(f).get("agent", &p.Agent) ||
-			!fields(f).optionalString("model", &p.Model) || !fields(f).optionalList("allow", &p.Allow) {
+			!fields(f).optionalString("model", &p.Model) || !fields(f).optionalList("allow", &p.Allow) || !fields(f).optionalString("profile", &p.Profile) {
 			return false
 		}
 	}

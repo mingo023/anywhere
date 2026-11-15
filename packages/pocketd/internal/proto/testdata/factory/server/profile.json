@@ -1,0 +1,1 @@
+{"type":"factory.profile","id":"factory-2","profile":{"id":"go-backend","name":"Go backend","provider":"claude","model":"sonnet","skills":1,"soul":"You are a careful backend engineer.","instructions":"Write a failing test first.","files":[{"path":"skills/review/SKILL.md","text":"# Review\n"}]}}

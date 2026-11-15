@@ -1,0 +1,1 @@
+{"type":"factory.profiles","id":"factory-1","profiles":[{"id":"claude-opus","name":"Claude · Opus","provider":"claude","model":"opus","skills":0,"builtIn":true},{"id":"go-backend","name":"Go backend","provider":"claude","model":"sonnet","skills":1}]}

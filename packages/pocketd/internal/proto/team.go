@@ -25,6 +25,7 @@ type TeamTask struct {
 	Title        string   `json:"title"`
 	Agent        string   `json:"agent"` // a provider pocketd drives a chat of
 	Model        string   `json:"model,omitempty"`
+	Profile      string   `json:"profile,omitempty"` // a Factory profile's id
 	Files        []string `json:"files"`
 	After        []string `json:"after"`
 	Allow        []string `json:"allow"`

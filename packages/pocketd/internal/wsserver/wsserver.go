@@ -147,6 +147,7 @@ type conn struct {
 	stopAutomations func()
 	stopBoard       func()
 	stopFactory     func()
+	stopProfiles    func()
 	// boardMu keeps a verb's ack ahead of the snapshot it causes.
 	boardMu sync.Mutex
 	// automationMu keeps a verb's ack ahead of the snapshot its change triggers.
@@ -210,6 +211,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if c.stopFactory != nil {
 			c.stopFactory()
+		}
+		if c.stopProfiles != nil {
+			c.stopProfiles()
 		}
 		if c.stopLocals != nil {
 			c.stopLocals()
@@ -336,7 +340,7 @@ func (c *conn) handle(raw []byte) {
 			}
 			c.authed = true
 			c.onAuth()
-			c.ws.SetReadLimit(authedReadLimit)
+			c.ws.SetReadLimit(readLimit(c.who.Has(peer.Own), caps))
 		}
 		ok := proto.NewHelloOK(m.ID, c.s.Hostname, version, caps)
 		ok.Version = c.s.Version
@@ -351,6 +355,7 @@ func (c *conn) handle(raw []byte) {
 		c.automations(caps)
 		c.boardFeed(caps)
 		c.factoryUpdates(caps)
+		c.profileFeed(caps)
 		for _, req := range c.s.Broker.Open() {
 			c.send(proto.NewPermissionRequest(req))
 		}
@@ -636,6 +641,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return c.factoryVerb(m)
 	case "factory.ticket":
 		return c.factoryTicket(m)
+	case "factory.profile.list", "factory.profile.get", "factory.profile.save", "factory.profile.delete":
+		return c.profileVerb(m)
 	case "worktree.rename":
 		if c.s.Names == nil {
 			return errors.New("Names are off")

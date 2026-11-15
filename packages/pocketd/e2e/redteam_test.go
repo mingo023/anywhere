@@ -57,9 +57,12 @@ func TestRedTeamFromInsideATerminal(t *testing.T) {
 		"ops.fs.read":        "scope_denied",
 		"ops.fs.write":       "scope_denied",
 
-		"ws.team.start":          "scope_denied",
-		"ws.gh.pr.merge":         "scope_denied",
-		"ws.factory.config.save": "scope_denied",
+		"ws.team.start":             "scope_denied",
+		"ws.gh.pr.merge":            "scope_denied",
+		"ws.factory.config.save":    "scope_denied",
+		"ws.factory.advance":        "scope_denied",
+		"ws.factory.profile.save":   "scope_denied",
+		"ws.factory.profile.delete": "scope_denied",
 	} {
 		if got[probe] != want {
 			t.Errorf("%s: %q, want %q", probe, got[probe], want)

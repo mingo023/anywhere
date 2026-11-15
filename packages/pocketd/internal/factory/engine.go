@@ -45,6 +45,8 @@ type Engine struct {
 	Launch func(key, requestID string, s proto.LaunchSpec, created func(cwd string)) launch.Result
 	// Mail queues text for an agent's chat (daemon.Mail).
 	Mail func(agentID, text string) error
+	// Profiles are the profiles a session may run with.
+	Profiles *Profiles
 
 	// mu guards specs and changed.
 	mu sync.Mutex

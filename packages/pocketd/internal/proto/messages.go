@@ -110,6 +110,10 @@ type ClientMessage struct {
 	Tasks []TaskPick
 	// factory.config.save's.
 	Config *FactoryConfig
+	// Profile is a profile's id, for factory.profile.get and .delete.
+	Profile string
+	// ProfileDoc is the profile factory.profile.save writes.
+	ProfileDoc *Profile
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -258,8 +262,13 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = f.text("project", &m.Project)
 	case m.Type == "factory.config.save":
 		ok = f.text("project", &m.Project) && decodeFactoryConfig(f["config"], &m.Config)
-	case m.Type == "factory.ticket":
+	case m.Type == "factory.ticket", m.Type == "factory.advance":
 		ok = get("ticketId", &m.TicketID) && m.TicketID != ""
+	case m.Type == "factory.profile.list":
+	case m.Type == "factory.profile.get", m.Type == "factory.profile.delete":
+		ok = get("profile", &m.Profile) && m.Profile != ""
+	case m.Type == "factory.profile.save":
+		ok = decodeProfile(f["profile"], &m.ProfileDoc)
 	default:
 		decode := phoneVerb(m.Type)
 		ok = decode != nil && decode(f, &m)

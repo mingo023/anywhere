@@ -254,7 +254,7 @@ func serve(sock, handed string) error {
 	tickets := board.Open(home)
 	factoryConfigs := factory.OpenConfigs(home)
 	if teams != nil {
-		fac = &factory.Engine{Home: home, Board: tickets, Configs: factoryConfigs, Teams: teams, Agents: d.Agents, Now: time.Now, Mail: d.Mail,
+		fac = &factory.Engine{Home: home, Board: tickets, Configs: factoryConfigs, Teams: teams, Agents: d.Agents, Now: time.Now, Mail: d.Mail, Profiles: factory.OpenProfiles(home),
 			Launch: func(key, requestID string, s proto.LaunchSpec, created func(string)) launch.Result {
 				return l.Create(launch.Who{Owner: true, Key: key}, requestID, s, func(string, string) {}, func(c launch.Creating) { created(c.Cwd) })
 			}}
