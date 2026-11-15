@@ -7,11 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"pocketd/internal/broker"
 	"pocketd/internal/hub"
+	"pocketd/internal/launch"
 	"pocketd/internal/proto"
+	"pocketd/internal/timeline"
 )
 
 func reviewBlock(body string) string {
@@ -186,6 +190,22 @@ func TestNoReviewerAskThatEditsWritesOrChangesStateIsEverAllowed(t *testing.T) {
 	}
 }
 
+func TestAReviewerMayOnlyReadAndSearchSoEveryOtherKindOfAskIsRefused(t *testing.T) {
+	e := newWorld(t).e
+	e.setReviewer("r1", "t1")
+	for _, d := range []proto.ToolDetail{
+		{Kind: "other", Name: "mcp__github__merge_pull_request"},
+		{Kind: "other", Name: "MultiEdit"},
+		{Kind: "task", Description: "fix it"},
+		{Kind: "unheard-of"},
+	} {
+		req := proto.PermissionRequest{AgentID: "r1", Detail: d}
+		if reason, denied := e.Deny(req); !denied || reason != ReadOnlyReason || e.Reads(req) {
+			t.Errorf("%+v: denied %v, reason %q, reads %v", d, denied, reason, e.Reads(req))
+		}
+	}
+}
+
 func TestAReviewerReadsWithoutAnAskAndEveryOtherSessionIsLeftAlone(t *testing.T) {
 	e := newWorld(t).e
 	e.setReviewer("r1", "t1")
@@ -195,9 +215,11 @@ func TestAReviewerReadsWithoutAnAskAndEveryOtherSessionIsLeftAlone(t *testing.T)
 			t.Fatalf("%+v is not read without an ask", d)
 		}
 	}
-	other := proto.PermissionRequest{AgentID: "r1", Detail: proto.ToolDetail{Kind: "other"}}
-	if _, denied := e.Deny(other); denied || e.Reads(other) {
-		t.Fatal("an ask that is no edit, write or shell command is not left to the human")
+	for _, kind := range []string{"read", "search"} {
+		req := proto.PermissionRequest{AgentID: "r1", Detail: proto.ToolDetail{Kind: kind}}
+		if _, denied := e.Deny(req); denied {
+			t.Fatalf("a %s is refused", kind)
+		}
 	}
 	lead := proto.PermissionRequest{AgentID: "lead", Detail: proto.ToolDetail{Kind: "write", Path: "a.go"}}
 	if _, denied := e.Deny(lead); denied || e.Reads(lead) {
@@ -271,9 +293,9 @@ func TestThePRReviewGateOpensOnceTheReviewIsOver(t *testing.T) {
 		facts Facts
 		want  string
 	}{
-		"a finished review":                     {atGate(func(f *Facts) { f.Review, f.Reviewer = ReviewDone, ended }), "closeReviewer,markReady,await"},
-		"a failed review does not block":        {atGate(func(f *Facts) { f.Review, f.Reviewer = ReviewFailed, ended }), "closeReviewer,markReady,await"},
-		"a project with the reviewer off":       {atGate(func(f *Facts) { f.Config.Reviewer = false }), "markReady,await"},
+		"a finished review":                     {atGate(func(f *Facts) { f.Review, f.Reviewer, f.Ready = ReviewDone, ended, ReadyDone }), "closeReviewer,await"},
+		"a failed review does not block":        {atGate(func(f *Facts) { f.Review, f.Reviewer, f.Ready = ReviewFailed, ended, ReadyDone }), "closeReviewer,await"},
+		"a project with the reviewer off":       {atGate(func(f *Facts) { f.Config.Reviewer, f.Ready = false, ReadyDone }), "await"},
 		"a pull request that is ready":          {atGate(func(f *Facts) { f.Review = ReviewDone; f.PR.Draft = false }), "await"},
 		"a draft is marked ready once":          {gateOpen(func(f *Facts) { f.PR.Draft = true }), "await"},
 		"after a restart the wait is set again": {gateOpen(nil), "await"},
@@ -281,6 +303,24 @@ func TestThePRReviewGateOpensOnceTheReviewIsOver(t *testing.T) {
 	} {
 		got, acts := Next(c.facts)
 		if did(acts) != c.want || got.Station != proto.StationPR || got.Gate != proto.GatePR || got.Status != proto.TicketNeedsYou || got.Why != "" {
+			t.Errorf("%s: got %q, %+v", name, did(acts), got)
+		}
+	}
+}
+
+func TestTheGateStaysShutWhileTheDraftIsNotReadyAndAFailureFailsTheTicket(t *testing.T) {
+	for name, c := range map[string]struct {
+		ready  ReadyState
+		want   string
+		status string
+		why    string
+	}{
+		"not asked yet": {ReadyNone, "markReady", proto.TicketWorking, ""},
+		"asked":         {ReadyPending, "", proto.TicketWorking, ""},
+		"failed":        {ReadyFailed, "", proto.TicketFailed, "The pull request couldn't be marked ready: gh said no"},
+	} {
+		got, acts := Next(atGate(func(f *Facts) { f.Config.Reviewer, f.Ready, f.ReadyErr = false, c.ready, "gh said no" }))
+		if did(acts) != c.want || got.Gate != "" || got.Status != c.status || got.Why != c.why || got.Station != proto.StationPR {
 			t.Errorf("%s: got %q, %+v", name, did(acts), got)
 		}
 	}
@@ -314,6 +354,51 @@ func TestALeadThatStartsATurnAtPRReviewTakesTheTicketBackToImplement(t *testing.
 	}))
 	if got.Station != proto.StationImplement || did(acts) != "closeReviewer" {
 		t.Fatalf("got %q, %+v", did(acts), got)
+	}
+}
+
+func TestALeadThatWorkedWhileNoStepSawItTakesTheTicketBackToImplement(t *testing.T) {
+	got, acts := Next(gateOpen(func(f *Facts) { f.GateSeq, f.Gated, f.Lead.Seq = 4, true, 9 }))
+	if got.Station != proto.StationImplement || got.Gate != "" || got.Status != proto.TicketWorking || did(acts) != "" {
+		t.Fatalf("got %q, %+v", did(acts), got)
+	}
+	for name, edit := range map[string]func(*Facts){
+		"a lead that did nothing":        func(f *Facts) { f.GateSeq, f.Gated, f.Lead.Seq = 9, true, 9 },
+		"a gate that is not yet noticed": func(f *Facts) { f.GateSeq, f.Gated, f.Lead.Seq = 0, false, 9 },
+	} {
+		if got, _ := Next(gateOpen(edit)); got.Station != proto.StationPR || got.Gate != proto.GatePR {
+			t.Errorf("%s: got %+v", name, got)
+		}
+	}
+}
+
+func TestAChangeRequestThatTheLeadAnswersBetweenTwoStepsIsNotMissed(t *testing.T) {
+	w := newWorld(t)
+	tk := w.ticket(false)
+	w.reg.Add(leadID, "/w/x", "claude", w.chat)
+	w.e.Board.Update(tk.ID, func(x *proto.Ticket) {
+		x.State, x.Station, x.Gate, x.Status, x.AgentID, x.Worktree, x.PR = proto.TicketLive, proto.StationPR, proto.GatePR, proto.TicketNeedsYou, leadID, "/w/x", 7
+	})
+	if err := writeReview(w.home, tk.ID, reviewRecord{Head: "abc", State: ReviewDone, Findings: []proto.Finding{}}); err != nil {
+		t.Fatal(err)
+	}
+	w.e.recovered.Store(true)
+	w.settle()
+	w.e.prs["/w/x"] = &proto.PR{Number: 7, State: "OPEN", Base: "main", Head: "abc", Mergeable: "MERGEABLE"}
+	w.e.post(event{ticket: tk.ID})
+	w.settle()
+	if got := w.got(tk.ID); got.Station != proto.StationPR || got.Gate != proto.GatePR {
+		t.Fatalf("the gate did not hold: %+v", got)
+	}
+	// The whole turn happens where no step looks.
+	lead := w.lead()
+	lead.Record(timeline.Event{Kind: "user", Text: "Rename the helper"})
+	lead.Record(timeline.Event{Kind: "assistant_text", Text: "Renamed."})
+	lead.Record(timeline.Event{Kind: "result", OK: true})
+	w.e.post(event{ticket: tk.ID})
+	w.settle()
+	if got := w.got(tk.ID); got.Station != proto.StationImplement || got.Gate != "" {
+		t.Fatalf("the rework was missed: %+v", got)
 	}
 }
 
@@ -409,6 +494,42 @@ func TestTheGateMarksThePRReadyAndSetsTheWaitOnTheLead(t *testing.T) {
 	}
 }
 
+func TestAPRThatCannotBeMarkedReadyFailsTheTicketInsteadOfOpeningTheGate(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Enabled: true, Reviewer: true, Fix: 2})
+	r.put("fail", "GraphQL: no permission\n")
+	atReview(t, r, prView("OPEN", true))
+	got := r.until("the failed ticket", func(x proto.Ticket) bool { return x.Status == proto.TicketFailed })
+	if got.Station != proto.StationPR || got.Gate != "" || !strings.HasPrefix(got.Why, "The pull request couldn't be marked ready: ") {
+		t.Fatalf("got %+v", got)
+	}
+	if ev := lastEvent(t, r); ev.Kind != "failed" || ev.Text != got.Why {
+		t.Fatalf("got %+v", ev)
+	}
+}
+
+func TestAPRThatGhCouldNotReadIsNotedOnceInTheTicketsActivity(t *testing.T) {
+	r := newRig(t, proto.FactoryConfig{Enabled: true, Reviewer: true, Fix: 2})
+	os.Remove(filepath.Join(r.fake, "nopr"))
+	r.put("view.err", "HTTP 502: Bad Gateway\n")
+	r.e.Board.Update(r.ticket, func(x *proto.Ticket) { x.Station = proto.StationPR })
+	noted := func() (n int) {
+		events, _ := ReadActivity(r.home, r.ticket)
+		for _, ev := range events {
+			if ev.Kind == "check" && strings.HasPrefix(ev.Text, "Couldn't read the pull request") {
+				n++
+			}
+		}
+		return n
+	}
+	r.e.PRChanged(r.tree)
+	r.until("the note", func(proto.Ticket) bool { return noted() == 1 })
+	r.e.PRChanged(r.tree)
+	time.Sleep(300 * time.Millisecond)
+	if n := noted(); n != 1 {
+		t.Fatalf("the same failure was noted %d times", n)
+	}
+}
+
 func TestAPRMergedOnGitHubClosesTheTicketAsMergedOutsideAnywhere(t *testing.T) {
 	r := newRig(t, proto.FactoryConfig{Enabled: true, Reviewer: true, Fix: 2})
 	atReview(t, r, prView("MERGED", false))
@@ -471,5 +592,99 @@ func TestNoFactoryCodeMergesOrReviewsAPullRequest(t *testing.T) {
 				t.Errorf("%s holds %q", name, banned)
 			}
 		}
+	}
+}
+
+// slowLaunches makes each reviewer launch wait until the test lets it go. started has each launch's agent id,
+// and chats has each reviewer's session.
+type slowLaunches struct {
+	mu      sync.Mutex
+	started chan string
+	release []chan struct{}
+	chats   map[string]*chat
+}
+
+func slowReviewerLaunches(w *world, n int) *slowLaunches {
+	l := &slowLaunches{started: make(chan string, n), chats: map[string]*chat{}}
+	for range n {
+		l.release = append(l.release, make(chan struct{}))
+	}
+	var calls int
+	w.e.Launch = func(key, requestID string, s proto.LaunchSpec, created func(string)) launch.Result {
+		l.mu.Lock()
+		i := calls
+		calls++
+		id := fmt.Sprintf("reviewer-%d", i)
+		c := &chat{}
+		l.chats[id] = c
+		l.mu.Unlock()
+		w.reg.Add(id, "/w", s.Provider, c)
+		l.started <- id
+		<-l.release[i]
+		return launch.Result{AgentID: id}
+	}
+	return l
+}
+
+func (l *slowLaunches) closed(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.chats[id].closed.Load()
+}
+
+func reviewing(w *world) (proto.Ticket, proto.FactoryConfig, *proto.PR) {
+	w.t.Helper()
+	tk := w.ticket(false)
+	cfg := w.e.Configs.Get(tk.Folder)
+	return tk, cfg, &proto.PR{Number: 7, State: "OPEN", Base: "main", Head: "abc"}
+}
+
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func TestAReviewerThatLaunchesAfterItsReviewWasClosedDoesNotBringTheReviewBack(t *testing.T) {
+	w := newWorld(t)
+	slow := slowReviewerLaunches(w, 1)
+	tk, cfg, pr := reviewing(w)
+	w.e.startReview(tk, cfg, pr)
+	<-slow.started
+	w.e.closeReviewer(tk)
+	close(slow.release[0])
+	waitFor(t, "the late reviewer to be closed", func() bool { return slow.closed("reviewer-0") })
+	if rec := readReview(w.home, tk.ID); rec.State != ReviewNone {
+		t.Fatalf("the review is back: %+v", rec)
+	}
+	if _, ok := w.e.reviewerOf("reviewer-0"); ok {
+		t.Fatal("the late reviewer is still held")
+	}
+}
+
+func TestAReviewerOfAClosedLaunchDoesNotTakeTheRecordOfTheNextLaunchOfTheSameHead(t *testing.T) {
+	w := newWorld(t)
+	slow := slowReviewerLaunches(w, 2)
+	tk, cfg, pr := reviewing(w)
+	w.e.startReview(tk, cfg, pr)
+	<-slow.started
+	w.e.closeReviewer(tk)
+	w.e.startReview(tk, cfg, pr)
+	<-slow.started
+	close(slow.release[0])
+	waitFor(t, "the first launch to end", func() bool {
+		return slow.closed("reviewer-0") || readReview(w.home, tk.ID).Agent == "reviewer-0"
+	})
+	if rec := readReview(w.home, tk.ID); rec.Agent != "" || !slow.closed("reviewer-0") {
+		t.Fatalf("the closed launch took the record: %+v", rec)
+	}
+	close(slow.release[1])
+	waitFor(t, "the second launch to be recorded", func() bool { return readReview(w.home, tk.ID).Agent == "reviewer-1" })
+	if slow.closed("reviewer-1") {
+		t.Fatal("the live reviewer was closed")
 	}
 }

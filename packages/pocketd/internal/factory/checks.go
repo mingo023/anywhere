@@ -529,28 +529,47 @@ func (e *Engine) checked(ticket, head string, c proto.FactoryCheck) {
 var quietAfter = 3 * github.WatchedEvery
 
 // PRChanged is github.Service.Listen's callback: the PR of tree changed. It reads the PR off the engine's
-// goroutine and queues it.
+// goroutine, under the engine's context, and queues it.
 func (e *Engine) PRChanged(tree string) {
 	if e == nil || e.GitHub == nil {
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		pr, _ := e.GitHub.PR(ctx, tree)
-		if pr == nil {
+	e.later(func() {
+		run := e.ctx
+		go func() {
+			ctx, cancel := context.WithTimeout(run, time.Minute)
+			defer cancel()
+			pr, problem := e.GitHub.PR(ctx, tree)
+			e.later(func() { e.prRead(tree, pr, problem) })
+		}()
+	})
+}
+
+// prRead takes what gh said of tree's PR. A problem is noted once for each Ticket there, until gh reads again.
+func (e *Engine) prRead(tree string, pr *proto.PR, problem github.Problem) {
+	if pr == nil {
+		if problem == "" || e.problems[tree] == problem {
 			return
 		}
-		e.later(func() {
-			e.prs[tree] = pr
-			all, _ := e.Board.Snapshot()
-			for _, t := range all {
-				if t.State == proto.TicketLive && t.Station != "" && t.Worktree == tree {
-					e.post(event{ticket: t.ID})
-				}
-			}
-		})
-	}()
+		if e.problems == nil {
+			e.problems = map[string]github.Problem{}
+		}
+		e.problems[tree] = problem
+	} else {
+		delete(e.problems, tree)
+		e.prs[tree] = pr
+	}
+	all, _ := e.Board.Snapshot()
+	for _, t := range all {
+		if t.State != proto.TicketLive || t.Station == "" || t.Worktree != tree {
+			continue
+		}
+		if pr == nil {
+			e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: t.Station, Actor: "anywhere", Kind: "check", Text: "Couldn't read the pull request (" + string(problem) + ")"})
+			continue
+		}
+		e.post(event{ticket: t.ID})
+	}
 }
 
 // watch keeps the PR cache polling the worktrees of the Tickets at Checks and PR review, and arms the wait for

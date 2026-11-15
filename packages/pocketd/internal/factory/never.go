@@ -12,12 +12,16 @@ import (
 // NeverAllowed is whether command is one only the user may let through: it
 // merges, reviews or opens a pull request, forces a push, pushes to base, or
 // removes a tree outside the checkout. base is the Ticket's base branch; ""
-// skips the push to it.
+// skips the push to it. A command that might do one of these counts as doing it:
+// a false alarm costs an Ask, a miss breaks "no agent merges".
 func NeverAllowed(command, base string) bool {
-	command = team.Unwrapped(command)
-	parts := strings.FieldsFunc(command, func(r rune) bool { return strings.ContainsRune(";|&\n", r) })
-	return slices.ContainsFunc(parts, func(part string) bool { return never(words(part), base) })
+	command = unquote.Replace(command)
+	parts := strings.FieldsFunc(command, func(r rune) bool { return strings.ContainsRune(";|&\n()`", r) })
+	return slices.ContainsFunc(parts, func(part string) bool { return never(strings.Fields(part), base) })
 }
+
+// unquote drops the quotes and backslashes with which the shell builds a word out of pieces.
+var unquote = strings.NewReplacer(`"`, "", `'`, "", `\`, "")
 
 // RefusedPrefix is the first prefix of an allowlist that is on the list.
 func RefusedPrefix(allow []string) (string, bool) {
@@ -29,13 +33,11 @@ func RefusedPrefix(allow []string) (string, bool) {
 	return "", false
 }
 
-// words splits one command at spaces and drops the quotes around a word.
-func words(command string) []string {
-	out := strings.Fields(command)
-	for i, w := range out {
-		out[i] = strings.Trim(w, `"'`)
-	}
-	return out
+// runners hand the rest of their command line to a command that they start: the shells run it from -c, and
+// the shell's keywords stand before the command of their branch.
+var runners = []string{
+	"env", "sudo", "doas", "command", "exec", "builtin", "time", "nohup", "nice", "ionice", "timeout", "xargs", "watch", "stdbuf", "setsid", "eval",
+	"sh", "bash", "zsh", "dash", "ksh", "if", "then", "else", "elif", "while", "until", "do", "!", "{", "}",
 }
 
 func never(w []string, base string) bool {
@@ -47,18 +49,65 @@ func never(w []string, base string) bool {
 		return false
 	}
 	args := w[1:]
-	switch path.Base(w[0]) {
-	case "gh":
-		// gh's own flags may come first: gh -R owner/repo pr merge.
-		i := slices.Index(args, "pr")
-		return i >= 0 && i+1 < len(args) && slices.Contains([]string{"merge", "review", "create"}, args[i+1])
-	case "git":
+	name := path.Base(w[0])
+	switch {
+	case slices.Contains(runners, name):
+		// Its own options and arguments come first, so the command may start at any later word.
+		for i := range args {
+			if never(args[i:], base) {
+				return true
+			}
+		}
+		return false
+	case name == "gh", strings.ContainsAny(w[0], "${"):
+		return ghNever(args, base)
+	case name == "git":
 		command, rest := gitCommand(args)
 		return command == "push" && pushes(rest, base)
-	case "rm":
+	case name == "rm":
 		return removesOutside(args)
 	}
 	return false
+}
+
+// prVerbs are what gh does to a pull request that only you may do.
+var prVerbs = []string{"merge", "review", "create"}
+
+// ghNever is whether gh with args merges, reviews or opens a pull request, or does so through its api command.
+// gh's own flags may stand between the words: gh pr -R owner/repo merge.
+func ghNever(args []string, base string) bool {
+	args = strings.FieldsFunc(strings.Join(args, " "), func(r rune) bool { return strings.ContainsRune(" {},", r) })
+	if i := slices.Index(args, "pr"); i >= 0 && slices.ContainsFunc(args[i+1:], func(a string) bool { return slices.Contains(prVerbs, a) }) {
+		return true
+	}
+	return slices.Contains(args, "api") && apiNever(args, base)
+}
+
+// apiNever is whether a gh api call's words reach the merge, the reviews or the creation of a pull request,
+// or the base branch's ref. A GET of those counts too.
+func apiNever(args []string, base string) bool {
+	var writes, creates bool
+	for _, a := range args {
+		switch strings.ToLower(a) {
+		case "-f", "--field", "--raw-field", "--input", "post":
+			writes = true
+		}
+	}
+	for _, a := range args {
+		if lower := strings.ToLower(a); slices.ContainsFunc([]string{"mergepullrequest", "pullrequestreview", "createpullrequest", "automerge", "updateref", "createref"}, func(m string) bool { return strings.Contains(lower, m) }) {
+			return true
+		}
+		route, _, _ := strings.Cut(a, "?")
+		segments := strings.Split(strings.Trim(route, "/"), "/")
+		if slices.ContainsFunc(segments, func(s string) bool { return s == "merge" || s == "merges" || s == "reviews" }) {
+			return true
+		}
+		creates = creates || segments[len(segments)-1] == "pulls" && writes
+		if base != "" && strings.HasSuffix(strings.Join(segments, "/"), "git/refs/heads/"+base) {
+			return true
+		}
+	}
+	return creates
 }
 
 // gitCommand is git's command and what follows it, past git's own flags (git -C dir push).

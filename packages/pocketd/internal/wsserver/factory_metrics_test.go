@@ -4,6 +4,9 @@ package wsserver
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -54,3 +57,39 @@ func TestFactoryMetricsRefusesAnUnknownProjectAndIsOffWithoutAnEngineOrTheCap(t 
 }
 
 func first(p *phone, _ string) *phone { return p }
+
+// A log that can't be read yet stands for the seconds that a project's logs can take to read.
+func TestFactoryMetricsDoesNotHoldTheReadLoopWhileItReadsTheLogs(t *testing.T) {
+	f := newGhFixture(t)
+	home := t.TempDir()
+	store := board.Open(home)
+	e := &factory.Engine{Home: home, Board: store, Configs: factory.OpenConfigs(home), Now: time.Now}
+	saved, err := store.Save(proto.Ticket{Title: "Slow", Prompt: "Slow.", Provider: "claude", Folder: f.project}, false, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	logDir := filepath.Join(home, "state", "factory", saved.ID)
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(logDir, "activity.jsonl")
+	if err := syscall.Mkfifo(log, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if w, err := os.OpenFile(log, os.O_WRONLY, 0); err == nil {
+			w.Close()
+		}
+	})
+	_, _, p := local(t, peer.OwnerOf(1), f.server, func(s *Server) {
+		s.Projects = func() []proto.Project { return []proto.Project{{Path: f.project}} }
+		s.FactoryConfigs = e.Configs
+		s.Factory = e
+	})
+	helloWith(p, proto.CapFactory)
+	p.send(fmt.Sprintf(`{"type":"factory.metrics","id":"slow","project":%q}`, f.project))
+	p.send(`{"type":"factory.metrics","id":"next","project":"/nowhere"}`)
+	if m := p.recv(); m["id"] != "next" || m["type"] != "error" {
+		t.Fatalf("%v", m)
+	}
+}

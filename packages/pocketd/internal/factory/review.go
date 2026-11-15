@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -215,15 +216,16 @@ func ReadOnly(command string) bool {
 	return true
 }
 
-// refuses is whether pocketd answers a reviewer's ask for d deny by itself.
+// refuses is whether pocketd answers a reviewer's ask for d deny by itself: a reviewer reads, searches, and runs
+// commands that only read.
 func refuses(d proto.ToolDetail) bool {
 	switch d.Kind {
-	case "edit", "write":
-		return true
+	case "read", "search":
+		return false
 	case "shell":
 		return !ReadOnly(d.Command)
 	}
-	return false
+	return true
 }
 
 func (e *Engine) setReviewer(agentID, ticket string) {
@@ -248,7 +250,7 @@ func (e *Engine) reviewerOf(agentID string) (ticket string, ok bool) {
 	return ticket, ok
 }
 
-// Deny is the Broker.Deny hook: a reviewer's ask to edit, to write, or to run a command that is not
+// Deny is the Broker.Deny hook: a reviewer's ask for anything but a read, a search, or a command that is
 // read-only is refused and noted.
 func (e *Engine) Deny(req proto.PermissionRequest) (string, bool) {
 	if e == nil {
@@ -260,7 +262,7 @@ func (e *Engine) Deny(req proto.PermissionRequest) (string, bool) {
 	}
 	text := "Refused: " + req.Detail.Command
 	if req.Detail.Kind != "shell" {
-		text = "Refused to " + req.Detail.Kind + " " + req.Detail.Path
+		text = strings.TrimSpace("Refused to " + req.Detail.Kind + " " + cmp.Or(req.Detail.Path, req.Detail.Name))
 	}
 	e.note(ticket, proto.FactoryEvent{At: e.now().UnixMilli(), Station: proto.StationPR, Actor: "reviewer", Kind: "denied", Text: text})
 	return ReadOnlyReason, true
@@ -299,7 +301,7 @@ func atPR(f Facts) (proto.Ticket, []Action) {
 	case f.PR.State == "MERGED":
 		t.Station, t.Status, t.Gate, t.Why = proto.StationMerged, proto.TicketDone, "", ""
 		return t, append(closing(f), Action{Kind: ActClose})
-	case f.Lead.Turn == "working":
+	case f.Lead.Turn == "working", t.Gate == proto.GatePR && f.Gated && f.Lead.Seq > f.GateSeq:
 		t = working(t)
 		t.Station = proto.StationImplement
 		return t, closing(f)
@@ -323,7 +325,14 @@ func atPR(f Facts) (proto.Ticket, []Action) {
 	}
 	acts := closing(f)
 	if f.PR.Draft && t.Gate != proto.GatePR {
-		acts = append(acts, Action{Kind: ActMarkReady})
+		switch f.Ready {
+		case ReadyFailed:
+			return failed(t, "The pull request couldn't be marked ready: "+f.ReadyErr), acts
+		case ReadyPending:
+			return working(t), acts
+		case ReadyNone:
+			return working(t), append(acts, Action{Kind: ActMarkReady})
+		}
 	}
 	t.Status, t.Gate, t.Why = proto.TicketNeedsYou, proto.GatePR, ""
 	return t, append(acts, Action{Kind: ActAwait})

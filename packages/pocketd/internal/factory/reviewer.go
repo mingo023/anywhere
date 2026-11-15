@@ -30,6 +30,8 @@ func (e *Engine) prFacts(f *Facts, ev event) {
 	f.Local = e.local(f.Ticket)
 	f.PR = e.prs[f.Ticket.Worktree]
 	f.Review, f.Reviewer = e.reviewFacts(f.Ticket, f.PR, ev)
+	res := e.ready[f.Ticket.ID]
+	f.Ready, f.ReadyErr = res.state, res.err
 }
 
 // reviewFacts is how far the review of pr's head has got, and the reviewer's session. It settles a turn that
@@ -88,20 +90,49 @@ func (e *Engine) startReview(t proto.Ticket, cfg proto.FactoryConfig, pr *proto.
 	// A reviewer of an older head may still be open.
 	e.closeReviewer(t)
 	rec := reviewRecord{Head: pr.Head, State: ReviewRunning, Findings: []proto.Finding{}}
-	if err := writeReview(e.Home, t.ID, rec); err != nil {
+	e.launchMu.Lock()
+	gen := e.launches[t.ID] + 1
+	err := writeReview(e.Home, t.ID, rec)
+	if err == nil {
+		e.setLaunch(t.ID, gen)
+	}
+	e.launchMu.Unlock()
+	if err != nil {
 		log.Printf("factory: starting the review of %s: %v", t.ID, err)
 		return
 	}
 	if lead, ok := e.lead(t.AgentID); ok {
 		lead.SetAwaiting(false)
 	}
-	go e.launchReviewer(t, cfg, pr.Base, rec)
+	go e.launchReviewer(t, cfg, pr.Base, rec, gen)
 }
 
-func (e *Engine) launchReviewer(t proto.Ticket, cfg proto.FactoryConfig, base string, rec reviewRecord) {
+func (e *Engine) setLaunch(ticket string, gen uint64) {
+	if e.launches == nil {
+		e.launches = map[string]uint64{}
+	}
+	e.launches[ticket] = gen
+}
+
+// recordLaunch saves rec as the review of launch gen, unless the review was closed or started again since: then
+// it is false, and a closed review stays removed.
+func (e *Engine) recordLaunch(ticket string, gen uint64, rec reviewRecord) (bool, error) {
+	e.launchMu.Lock()
+	defer e.launchMu.Unlock()
+	if e.launches[ticket] != gen {
+		return false, nil
+	}
+	return true, writeReview(e.Home, ticket, rec)
+}
+
+func (e *Engine) launchReviewer(t proto.Ticket, cfg proto.FactoryConfig, base string, rec reviewRecord, gen uint64) {
 	fail := func(why string) {
 		rec.State = ReviewFailed
-		writeReview(e.Home, t.ID, rec)
+		if current, err := e.recordLaunch(t.ID, gen, rec); !current {
+			return
+		} else if err != nil {
+			log.Printf("factory: saving the review of %s: %v", t.ID, err)
+		}
 		e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: proto.StationPR, Actor: "anywhere", Kind: "failed", Text: why})
 		e.post(event{ticket: t.ID})
 	}
@@ -133,18 +164,18 @@ func (e *Engine) launchReviewer(t proto.Ticket, cfg proto.FactoryConfig, base st
 	}
 	// Before anything else, so none of its asks reaches you before Deny knows whose they are.
 	e.setReviewer(r.AgentID, t.ID)
-	if now := readReview(e.Home, t.ID); now.Head != rec.Head || now.State != ReviewRunning {
-		// The lead took the Ticket back to Implement meanwhile.
-		e.dropReviewer(r.AgentID)
-		e.closeLead(r.AgentID)
-		return
-	}
 	if claim, ok := a.ClaimNaming(); ok {
 		a.SetNamed(claim, "Review · "+t.Title)
 	}
 	rec.Agent = r.AgentID
 	_, rec.Since = a.Timeline.State()
-	if err := writeReview(e.Home, t.ID, rec); err != nil {
+	switch current, err := e.recordLaunch(t.ID, gen, rec); {
+	case !current:
+		// The lead took the Ticket back to Implement meanwhile.
+		e.dropReviewer(r.AgentID)
+		e.closeLead(r.AgentID)
+		return
+	case err != nil:
 		fail("The review couldn't be saved: " + err.Error())
 		return
 	}
@@ -184,12 +215,15 @@ func (e *Engine) repairReview(t proto.Ticket, pr *proto.PR) {
 // closeReviewer closes t's reviewer. A review that it had not finished is forgotten, so the next head, or
 // the same one, is reviewed from the start.
 func (e *Engine) closeReviewer(t proto.Ticket) {
+	e.launchMu.Lock()
 	rec := readReview(e.Home, t.ID)
-	e.closeLead(rec.Agent)
-	e.dropReviewer(rec.Agent)
+	e.setLaunch(t.ID, e.launches[t.ID]+1)
 	if rec.State == ReviewRunning || rec.State == ReviewRepaired {
 		os.Remove(reviewPath(e.Home, t.ID))
 	}
+	e.launchMu.Unlock()
+	e.closeLead(rec.Agent)
+	e.dropReviewer(rec.Agent)
 }
 
 // recoverReview gives Deny its reviewer back after a restart, and forgets a review whose launch the restart cut.
@@ -204,19 +238,32 @@ func (e *Engine) recoverReview(t proto.Ticket) {
 	}
 }
 
-// markReady takes t's PR out of draft off the engine's goroutine. A failure is noted and the gate opens anyway:
-// the Changes panel's PR card can mark it ready.
+// markReady takes t's PR out of draft off the engine's goroutine, once: the gate opens when it is done, and the
+// Ticket fails when it can't be. The Changes panel's PR card can still mark it ready.
 func (e *Engine) markReady(t proto.Ticket) {
 	if e.GitHub == nil {
 		return
 	}
+	if _, asked := e.ready[t.ID]; asked {
+		return
+	}
+	if e.ready == nil {
+		e.ready = map[string]readyResult{}
+	}
+	e.ready[t.ID] = readyResult{state: ReadyPending}
 	run := e.ctx
 	go func() {
 		ctx, cancel := context.WithTimeout(run, time.Minute)
 		defer cancel()
-		if err := e.GitHub.Ready(ctx, t.Worktree, t.PR); err != nil {
-			e.note(t.ID, proto.FactoryEvent{At: e.now().UnixMilli(), Station: proto.StationPR, Actor: "anywhere", Kind: "failed", Text: "The pull request couldn't be marked ready: " + err.Error()})
-		}
+		err := e.GitHub.Ready(ctx, t.Worktree, t.PR)
+		e.later(func() {
+			res := readyResult{state: ReadyDone}
+			if err != nil {
+				res = readyResult{state: ReadyFailed, err: err.Error()}
+			}
+			e.ready[t.ID] = res
+			e.post(event{ticket: t.ID})
+		})
 	}()
 }
 

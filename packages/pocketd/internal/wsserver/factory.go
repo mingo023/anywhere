@@ -50,7 +50,7 @@ func (c *conn) factoryMetrics(m proto.ClientMessage) error {
 		c.send(factoryError(m.ID, err))
 		return nil
 	}
-	go c.send(proto.NewFactoryMetrics(m.ID, m.Project, c.s.Factory.Metrics(m.Project)))
+	go func() { c.send(proto.NewFactoryMetrics(m.ID, m.Project, c.s.Factory.Metrics(m.Project))) }()
 	return nil
 }
 

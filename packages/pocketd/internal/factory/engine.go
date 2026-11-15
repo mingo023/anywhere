@@ -60,6 +60,10 @@ type Engine struct {
 	reviewMu sync.Mutex
 	// reviewers is each open reviewer's agent id and its Ticket: whose asks Deny answers.
 	reviewers map[string]string
+	// launchMu guards launches and makes the check and the write of a launch's review.json one step against a close.
+	launchMu sync.Mutex
+	// launches is, per Ticket, the number of the reviewer launch that may still record itself.
+	launches map[string]uint64
 	// advance holds the Tickets the user moved on from Implement, until Next has moved them. mu guards it.
 	advance map[string]bool
 	changed chan string
@@ -78,8 +82,20 @@ type Engine struct {
 	prs map[string]*proto.PR
 	// watched is the worktrees the PR cache polls for the engine.
 	watched []string
+	// problems is, per worktree, why gh last couldn't read its PR, once that was noted.
+	problems map[string]github.Problem
+	// gated is, per Ticket at the PR review gate, the lead's timeline seq when the gate was first seen open: a
+	// turn after it is rework, even when no step saw the lead work.
+	gated map[string]int64
+	// ready is, per Ticket at PR review, how marking its draft PR ready went.
+	ready map[string]readyResult
 	// armed is, per Ticket, the commit whose wait for GitHub's checks is armed.
 	armed map[string]string
+}
+
+type readyResult struct {
+	state ReadyState
+	err   string
 }
 
 type asked struct {
@@ -295,10 +311,32 @@ func (e *Engine) step(id string, ev event) {
 		}
 		e.tell(id)
 	}
+	if next.Station != proto.StationPR {
+		delete(e.ready, id)
+	}
+	e.markGate(id, next, f.Lead)
 	for _, a := range acts {
 		if !e.act(next, a) {
 			return
 		}
+	}
+}
+
+func (e *Engine) hasGate(id string) bool {
+	_, seen := e.gated[id]
+	return seen
+}
+
+func (e *Engine) markGate(id string, t proto.Ticket, lead Session) {
+	if t.Station != proto.StationPR || t.Gate != proto.GatePR {
+		delete(e.gated, id)
+		return
+	}
+	if lead.Present && !e.hasGate(id) {
+		if e.gated == nil {
+			e.gated = map[string]int64{}
+		}
+		e.gated[id] = lead.Seq
 	}
 }
 
@@ -316,7 +354,9 @@ func (e *Engine) facts(t proto.Ticket, ev event) Facts {
 		}
 		return f
 	}
-	f.Lead = Session{Present: true, Turn: lead.Turn()}
+	_, seq := lead.Timeline.State()
+	f.Lead = Session{Present: true, Turn: lead.Turn(), Seq: seq}
+	f.GateSeq, f.Gated = e.gated[t.ID], e.hasGate(t.ID)
 	f.Advance = e.advancing(t)
 	tm, found, err := e.Teams.Store.Get(t.AgentID)
 	if err != nil {

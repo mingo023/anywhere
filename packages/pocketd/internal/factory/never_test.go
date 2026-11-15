@@ -61,6 +61,91 @@ func TestTheNeverAllowListCatchesEachRuleAndNothingBesideIt(t *testing.T) {
 	}
 }
 
+// A miss breaks "no agent merges"; a false alarm only turns an auto-allow into an Ask. So each case where a
+// read could be a write is on the list.
+func TestTheNeverAllowListCatchesTheWaysAroundIt(t *testing.T) {
+	for _, c := range []struct {
+		command string
+		never   bool
+	}{
+		{"gh pr -R o/r merge 5", true},
+		{"gh pr --repo x merge 5", true},
+		{"gh pr --repo=x merge 5", true},
+		{"gh --repo x pr merge 5", true},
+		{"gh pr merge", true},
+		{"gh pr {merge,view} 5", true},
+		{`"gh" 'pr' "merge" 5`, true},
+		{`g"h" pr merge 5`, true},
+		{`\gh pr merge 5`, true},
+		{"gh pr -R o/r review 5 --approve", true},
+		{"gh pr --repo x create --fill", true},
+		{"$GH pr merge 5", true},
+		{"gh api -X PUT repos/o/r/pulls/5/merge", true},
+		{"gh api --method PUT /repos/o/r/pulls/5/merge -f merge_method=squash", true},
+		{"gh api repos/o/r/pulls/5/reviews -f event=APPROVE", true},
+		{"gh api repos/o/r/pulls/5/reviews/9/events -f event=APPROVE", true},
+		{"gh api repos/o/r/merges -f base=main -f head=x", true},
+		{"gh api repos/o/r/pulls -f title=x -f head=x -f base=main", true},
+		{"gh api -X POST repos/o/r/pulls", true},
+		{"gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc", true},
+		{`gh api graphql -f query='mutation { mergePullRequest(input:{pullRequestId:"x"}) { clientMutationId } }'`, true},
+		{`gh api graphql -f query='mutation { addPullRequestReview(input:{pullRequestId:"x",event:APPROVE}) { clientMutationId } }'`, true},
+		{`gh api graphql -f query='mutation { enablePullRequestAutoMerge(input:{pullRequestId:"x"}) { clientMutationId } }'`, true},
+		{`sh -c "gh pr merge 5"`, true},
+		{`bash -c 'gh pr merge 5'`, true},
+		{`bash -lc "cd x && gh pr merge 5"`, true},
+		{`sh -c "sh -c 'gh pr merge 5'"`, true},
+		{"env FOO=1 gh pr merge", true},
+		{"env -i FOO=1 gh pr merge", true},
+		{"sudo -u bob gh pr merge 5", true},
+		{"xargs gh pr merge", true},
+		{"echo 5 | xargs -n1 gh pr merge", true},
+		{"time gh pr merge 5", true},
+		{"nohup gh pr merge 5 &", true},
+		{"command gh pr merge 5", true},
+		{"eval gh pr merge 5", true},
+		{"cd x && gh pr merge 5", true},
+		{"cd x;gh pr merge 5", true},
+		{"true || gh pr merge 5", true},
+		{"echo $(gh pr merge 5)", true},
+		{"echo `gh pr merge 5`", true},
+		{"(gh pr merge 5)", true},
+		{"{ gh pr merge 5; }", true},
+		{"if true; then gh pr merge 5; fi", true},
+		{"git status\ngh pr merge 5", true},
+		{"env git push --force", true},
+		{`sh -c "git push origin main"`, true},
+		{"sudo rm -rf /var/x", true},
+
+		// A read of GitHub, or a word that only looks like a verb, stays allowed.
+		{"gh pr view 5", false},
+		{"gh pr view 5 --json state,mergeable", false},
+		{"gh pr checks 5", false},
+		{"gh pr -R o/r view 5", false},
+		{"gh pr diff 5", false},
+		{"gh pr list", false},
+		{"gh api repos/o/r/pulls/5", false},
+		{"gh api repos/o/r/pulls/5/comments", false},
+		{"gh api repos/o/r/pulls", false},
+		{"gh api repos/o/r/git/refs/heads/feature", false},
+		{"gh api graphql -f query='query { viewer { login } }'", false},
+		{"git log --grep merge", false},
+		{"git log --grep='gh pr merge'", false},
+		{"git status", false},
+		{"env FOO=1 make test", false},
+		{`sh -c "make test"`, false},
+		{"sudo make install", false},
+		{"xargs rm -f", false},
+
+		// Left to the Ask: a search for the word is taken for the verb.
+		{"gh pr list --search merge", true},
+	} {
+		if got := NeverAllowed(c.command, "main"); got != c.never {
+			t.Errorf("NeverAllowed(%q) = %t, want %t", c.command, got, c.never)
+		}
+	}
+}
+
 func TestAPushToTheBaseBranchIsReadFromTheTicketsBase(t *testing.T) {
 	if NeverAllowed("git push origin main", "develop") || !NeverAllowed("git push origin develop", "develop") {
 		t.Fatal("the base branch was not taken from the ticket")

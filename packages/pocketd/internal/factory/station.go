@@ -7,6 +7,8 @@ type Session struct {
 	Present bool
 	// Turn is Agent.Turn(): the status without the wait a gate puts on it.
 	Turn string
+	// Seq is the newest item of its timeline.
+	Seq int64
 }
 
 // SpecState is how far the Spec station got.
@@ -18,6 +20,16 @@ const (
 	SpecRepaired SpecState = "repaired"
 	SpecSaved    SpecState = "saved"
 	SpecFailed   SpecState = "failed"
+)
+
+// ReadyState is how taking the PR out of draft went.
+type ReadyState string
+
+const (
+	ReadyNone    ReadyState = ""
+	ReadyPending ReadyState = "pending"
+	ReadyDone    ReadyState = "done"
+	ReadyFailed  ReadyState = "failed"
 )
 
 // Turn is the lead's answer to the engine's last prompt.
@@ -41,6 +53,12 @@ type Facts struct {
 	// Review is how far the review of the PR's head got, and Reviewer is its session.
 	Review   ReviewState
 	Reviewer Session
+	// Ready is how marking the draft PR ready went, and ReadyErr is why it failed.
+	Ready    ReadyState
+	ReadyErr string
+	// GateSeq is the lead's Seq when the PR review gate was first seen open. Gated is false when it was not seen.
+	GateSeq int64
+	Gated   bool
 	// Advance is the user's Move to Checks anyway for a Ticket whose Team is in review.
 	Advance bool
 }
