@@ -63,9 +63,9 @@ impl Desktop {
         ui::repo_tile(&self.project_mark(&item.project, item.project_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()), 16., false, None).bg(rgb(0x555555)).text_color(WHITE).shadow(Vec::new())
     }
 
-    /// The agent's colour dot and id.
+    /// The agent's logo and id.
     pub(super) fn activity_agent(&self, provider: &str) -> Div {
-        div().flex().flex_none().items_center().gap(px(4.)).child(div().size(px(6.)).rounded_full().bg(provider_color(provider))).child(provider.to_string())
+        div().flex().flex_none().items_center().gap(px(4.)).child(provider_icon(provider, 11., TEXT_3)).child(provider.to_string())
     }
 
     pub(super) fn activity_card(&self, col: Col, ix: usize, cx: &mut Context<Self>) -> AnyElement {
