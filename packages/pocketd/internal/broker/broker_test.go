@@ -254,11 +254,14 @@ func TestOnAskSeesEachRequestOnceItIsOpen(t *testing.T) {
 	b := New(hub.New())
 	seen := make(chan proto.PermissionRequest, 1)
 	b.OnAsk = func(req proto.PermissionRequest) { seen <- req }
-	ask(b, context.Background(), "a1", "k")
+	ctx, cancel := context.WithCancel(context.Background())
+	got := ask(b, ctx, "a1", "k")
 	req := <-seen
 	if open := b.Open(); req.RequestID == "" || req.AgentID != "a1" || len(open) != 1 || open[0].RequestID != req.RequestID {
 		t.Fatalf("%+v %+v", req, open)
 	}
+	cancel()
+	<-got
 }
 
 func TestOnlyAnAskTheAllowHookTakesIsAnsweredByItself(t *testing.T) {
