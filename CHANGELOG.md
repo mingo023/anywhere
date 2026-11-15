@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.44
+
+- Activity cards show the agent's logo instead of a coloured dot (#264): (758f9509)
+- A sub-agent waiting on its own work no longer keeps a session Working (#263): (f7b1c5ce)
+
 ## 0.1.43
 
 - /remote-control turns on Remote Control from a Claude chat (#261): (f31eddc1)
