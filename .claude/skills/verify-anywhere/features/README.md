@@ -37,6 +37,7 @@ Each feature file has an H1 title and one paragraph of user-visible behavior, th
 | `chat` | [Chat with an agent](./chat.md) | not yet run as written |
 | `palette` | [Command palette](./palette.md) | open-session sub-feature, 2026-11-13 |
 | `changes` | [Changes panel](./changes.md) | open-panel sub-feature, 2026-11-13 |
-| `settings` | [Settings](./settings.md) | open + toggle, 2026-11-13 |
+| `settings` | [Settings](./settings.md) | open + toggle, 2026-11-15, Factory section: switch and Spec row saved |
+| `factory` | [Factory](./factory.md) | not yet run as written |
 
 Not mapped yet: Board (`click` the sidebar's Board row, 12 seeded tickets), Automations (`cmd-shift-a`, 4 seeded automations and 8 runs), Inbox (sidebar bell, 3 needs-you), Explorer, terminal splits and tabs, team mode (`team` scenario), phone pairing.

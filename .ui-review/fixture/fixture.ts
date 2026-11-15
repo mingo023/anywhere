@@ -7,8 +7,12 @@
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
+// Factory knobs: FIXTURE_FACTORY_OFF=1 starts every project with the Factory off (a save is kept and echoed back);
+// FIXTURE_FACTORY_TEAM=1 answers team.list, and opening t15, with a proposed Team of three tasks for plan-lead, the lead of t15 at the Plan gate;
+// FIXTURE_FACTORY_PR=1 puts t22 (PR review gate, PR #203) on the feat/haptics worktree and installs a `gh` that reports #203 mergeable
+// for it, found through the login shell's profile under the scratch HOME, so the desktop's own PR polling sees a PR that can merge.
 // The "agents" and "agents-chat" scenarios' pocketd says all ten agents are installed; any other names none, as one older than the eight new ones.
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 
@@ -230,6 +234,22 @@ const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: scenario.repos.map(repoPath), children: children.map((c) => [c.id, c.parent]), repos: {}, tracked }));
+if (process.env.FIXTURE_FACTORY_PR) {
+  const bin = join(dir, "bin");
+  const pr = JSON.stringify({ number: 203, title: "Show a team merge conflicts file by file in the capsule", url: "https://github.com/acme/app-android/pull/203", state: "OPEN", isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: "", baseRefName: "main", headRefOid: "abc123", additions: 96, deletions: 4, changedFiles: 7, latestReviews: [], reviewRequests: [], statusCheckRollup: [{ __typename: "CheckRun", name: "build", status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "https://github.com/acme/app-android/actions/runs/1/job/2" }] });
+  const gh = `#!/bin/sh
+case "$1" in
+  --version) echo "gh version 2.50.0 (2026-01-01)" ;;
+  auth) echo "github.com"; echo "  - Logged in to github.com account fixture (keyring)"; echo "  - Active account: true" ;;
+  pr) case "$(pwd -P)" in *feat-haptics) echo '${pr}' ;; *) exit 1 ;; esac ;;
+  *) echo '{}' ;;
+esac
+`;
+  write(join(bin, "gh"), gh);
+  chmodSync(join(bin, "gh"), 0o755);
+  write(join(home, ".config", "fish", "config.fish"), `set -gx PATH ${bin} $PATH\n`);
+  for (const f of [".zprofile", ".bash_profile"]) write(join(home, f), `export PATH=${bin}:$PATH\n`);
+}
 
 // What pocketd says of each agent after Claude Code: its efforts, whether it plans, and what its chat driver does.
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -304,11 +324,22 @@ const FACTORY_TICKETS = [
   ticket("t19", "Group tickets by label in the list layout", "live", "working", 60, { station: "checks", why: "Checks \u00b7 2/4", worktree: "/tmp/wt/syntax-cache", priority: 2, labels: ["Feature"] }),
   ticket("t20", "Fold unchanged hunks in the diff", "live", "failed", 120, { station: "checks", fix: 2, why: "cargo test failed in composer.rs", worktree: "/tmp/wt/paste-files", labels: ["Feature"], priority: 2 }),
   ticket("t21", "Debounce file watcher events on large repos", "live", "working", 22, { provider: "codex", station: "checks", fix: 1, why: "Checks \u00b7 1/4", worktree: "/tmp/wt/batch-status", priority: 2, labels: ["Feature"] }),
-  ticket("t22", "Show a team\u2019s merge conflicts file by file in the capsule", "live", "needsYou", 18, { station: "pr", gate: "pr", pr: 203, worktree: "/tmp/wt/pr-checks", priority: 3, labels: ["Feature"] }),
+  ticket("t22", "Show a team\u2019s merge conflicts file by file in the capsule", "live", "needsYou", 18, { station: "pr", gate: "pr", pr: 203, worktree: process.env.FIXTURE_FACTORY_PR ? treePath("app-android", "feat/haptics") : "/tmp/wt/pr-checks", priority: 3, labels: ["Feature"] }),
   ticket("t23", "Copy the branch name from the ticket header", "live", "working", 9, { station: "pr", pr: 202, worktree: "/tmp/wt/scroll-place", priority: 1, labels: ["Feature"] }),
   ticket("t24", "Paste images from the clipboard into the composer", "closed", "idle", 180, { station: "merged", pr: 201, closedWhy: "merged", closedAt: now - 180 * MIN, worktree: "/tmp/wt/fold-output", priority: 2, labels: ["Feature"] }),
   ticket("t25", "Phone pairing QR refreshes itself", "closed", "idle", 300, { provider: "codex", station: "merged", pr: 200, closedWhy: "merged", closedAt: now - 300 * MIN, worktree: "/tmp/wt/name-trees", priority: 2, labels: ["Bug"] }),
 ];
+const planTask = (id: string, title: string, agent: string, files: string[], after: string[], allow: string[], instructions: string) => ({ id, title, agent, files, after, allow, instructions, state: "planned" });
+const PLAN_TEAM = {
+  lead: "plan-lead",
+  state: "proposed",
+  updatedAt: now,
+  tasks: [
+    planTask("t1", "Store and enforce a per-project limit in pocketd", "claude", ["board/store.go", "board/scheduler.go"], [], ["go test ./..."], "Add a per-project limit map to the store and read it when pumping the queue."),
+    planTask("t2", "Mirror the wire change in TypeScript and Swift", "codex", ["src/board.ts", "Wire/Board.swift"], ["t1"], ["pnpm -r typecheck"], "Wire changes land in Go, TS and Swift in the same PR."),
+    planTask("t3", "Desktop picker and header chip", "claude", ["board/top_bar.rs"], ["t1"], ["cargo test -p pocket"], "Add a 1-8 picker to project settings."),
+  ],
+};
 const run = (id: string, automationId: string, status: string, ago: number, why: string, summary: string, took = 0, agent = "") =>
   ({ id, automationId, status, trigger: why === "Run now" ? "manual" : "schedule", why, summary, startedAt: now - ago * MIN, finishedAt: took ? now - (ago - took) * MIN : 0, agentId: agent, terminalId: agent });
 const RUNS = [
@@ -322,6 +353,7 @@ const RUNS = [
   run("r8", "au4", "cancelled", 52 * 60, "Weekly, Monday 10:00", "Stopped before it finished.", 1),
 ];
 
+const factoryConfigs = new Map<string, object>();
 const ops = (c: Socket, first: Buffer) => {
   let buf = "";
   const read = (raw: Buffer) => {
@@ -451,8 +483,16 @@ Bun.serve({
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }
       }
+      // Capture mode drops the teams held at connect before each screen, so the plan arrives when its ticket is opened.
+      if (f.type === "team.list" && process.env.FIXTURE_FACTORY_TEAM) ws.send(JSON.stringify({ type: "team.list", id: f.id, teams: [PLAN_TEAM] }));
+      if (f.type === "factory.ticket" && f.ticketId === "t15" && process.env.FIXTURE_FACTORY_TEAM) ws.send(JSON.stringify({ type: "team.update", team: PLAN_TEAM }));
       if (f.type === "factory.profile.list") ws.send(JSON.stringify({ type: "factory.profiles", id: f.id, profiles: PROFILES }));
-      if (f.type === "factory.config.get") ws.send(JSON.stringify({ type: "factory.config", id: f.id, project: f.project, config: { enabled: true, spec: true, reviewer: true, lead: "claude-opus", workers: "claude-sonnet", review: "codex", slots: 4, fix: 2, checks: ["cargo test", "cargo clippy --all-targets"] } }));
+      // FIXTURE_FACTORY_OFF=1 starts every project with the Factory off; a save is kept and echoed back.
+      if (f.type === "factory.config.get") ws.send(JSON.stringify({ type: "factory.config", id: f.id, project: f.project, config: factoryConfigs.get(f.project) ?? { enabled: !process.env.FIXTURE_FACTORY_OFF, spec: true, reviewer: true, lead: "claude-opus", workers: "claude-sonnet", review: "codex", slots: 4, fix: 2, checks: ["cargo test", "cargo clippy --all-targets"] } }));
+      if (f.type === "factory.config.save") {
+        factoryConfigs.set(f.project, f.config);
+        ws.send(JSON.stringify({ type: "factory.config", id: f.id, project: f.project, config: f.config }));
+      }
       if (f.type === "pair.begin") {
         const code = "abcdefghijklmnopqrstuv";
         ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));
