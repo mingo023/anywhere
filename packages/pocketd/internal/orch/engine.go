@@ -661,7 +661,8 @@ type Hit struct {
 	Seq     int64
 }
 
-func (s *Store) Search(query string, limit int) ([]Hit, error) {
+// Search finds up to limit sessions matching where by their conversation, title or branch.
+func (s *Store) Search(query string, limit int, where string, args ...any) ([]Hit, error) {
 	var terms []string
 	for _, t := range strings.Fields(query) {
 		terms = append(terms, `"`+strings.ReplaceAll(t, `"`, `""`)+`"`)
@@ -672,7 +673,8 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	}
 	var found []match
 	rows, err := s.db.Query(`SELECT f.session_id, snippet(items_fts, 2, '', '', '…', 16), COALESCE(i.seq, 0) FROM items_fts f
-		LEFT JOIN items i ON i.session_id = f.session_id AND i.item_id = f.item_id WHERE items_fts MATCH ? ORDER BY rank LIMIT ?`, strings.Join(terms, " "), limit*4)
+		LEFT JOIN items i ON i.session_id = f.session_id AND i.item_id = f.item_id WHERE items_fts MATCH ? AND f.session_id IN (SELECT id FROM sessions WHERE `+where+`)
+		ORDER BY rank LIMIT ?`, append(append([]any{strings.Join(terms, " ")}, args...), limit*4)...)
 	if err != nil {
 		return nil, err
 	}
@@ -685,7 +687,7 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 		found = append(found, m)
 	}
 	rows.Close()
-	titled, err := s.Sessions(`(title LIKE ? OR branch LIKE ?) ORDER BY updated_at DESC LIMIT ?`, "%"+query+"%", "%"+query+"%", limit)
+	titled, err := s.Sessions(`(title LIKE ? OR branch LIKE ?) AND `+where+` ORDER BY updated_at DESC LIMIT ?`, append(append([]any{"%" + query + "%", "%" + query + "%"}, args...), limit)...)
 	if err != nil {
 		return nil, err
 	}

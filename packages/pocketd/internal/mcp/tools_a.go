@@ -677,15 +677,16 @@ func threadSearch(ctx context.Context, c *Call) (any, error) {
 	if p.Limit > 0 {
 		limit = min(p.Limit, 50)
 	}
-	hits, err := c.Host.Engine().Store().Search(p.Query, limit)
+	where, args := "relationship != 'subagent'", []any{}
+	if !p.AllProjects {
+		where, args = where+" AND project = ?", append(args, c.Caller.Project)
+	}
+	hits, err := c.Host.Engine().Store().Search(p.Query, limit, where, args...)
 	if err != nil {
 		return nil, err
 	}
 	var out []map[string]any
 	for _, h := range hits {
-		if h.Session.Relationship == "subagent" || !p.AllProjects && h.Session.Project != c.Caller.Project {
-			continue
-		}
 		out = append(out, map[string]any{"thread": itemOf(h.Session), "snippet": h.Snippet, "position": h.Seq})
 	}
 	return map[string]any{"results": out}, nil

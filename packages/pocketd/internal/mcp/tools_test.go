@@ -268,6 +268,25 @@ func TestThreadSearchFindsASessionByItsConversationTitleOrBranch(t *testing.T) {
 	}
 }
 
+func TestThreadSearchLeavesOtherProjectsAndChildrenOutBeforeItsLimit(t *testing.T) {
+	f := newFixture(t)
+	f.addSession(t, proto.AgentSummary{ID: "s1", Provider: "claude", Access: "edits", Status: "idle", Project: "/repo", Title: "Mine", UpdatedAt: 1}, "", "")
+	f.addSession(t, proto.AgentSummary{ID: "s2", Provider: "claude", Access: "edits", Status: "idle", Project: "/other", Title: "needle elsewhere", UpdatedAt: 3}, "", "")
+	f.addSession(t, proto.AgentSummary{ID: "kid", Provider: "codex", Access: "edits", Status: "idle", Project: "/repo", Title: "needle child", UpdatedAt: 2}, "parent", "subagent")
+	f.say(t, "s1", proto.Item{ID: "i1", Seq: 1, Ts: 1, Kind: "user", Text: "find the needle in the haystack"})
+	for _, other := range []string{"s2", "kid"} {
+		for n := range 5 {
+			f.say(t, other, proto.Item{ID: fmt.Sprint(other, n), Seq: int64(n + 1), Ts: 1, Kind: "user", Text: "needle"})
+		}
+	}
+	for _, limit := range []int{1, 2} {
+		results, _ := f.ok(t, "anywhere_thread_search", fmt.Sprintf(`{"query":"needle","limit":%d}`, limit))["results"].([]any)
+		if len(results) != 1 || results[0].(map[string]any)["thread"].(map[string]any)["threadId"] != "s1" {
+			t.Errorf("limit %d: results = %v, want s1", limit, results)
+		}
+	}
+}
+
 func TestThreadReadPagesMessagesAndGivesAWorkflowItsTaskIDInTheActivityView(t *testing.T) {
 	f := newFixture(t)
 	f.host.items["parent"] = []proto.Item{
