@@ -71,6 +71,12 @@ pub(crate) fn place(t: &Thread) -> String {
     t.line.map_or_else(|| t.path.clone(), |l| format!("{}:{l}", t.path))
 }
 
+/// A thread's file and line, without the folders: a narrow card has no room for both a path and what was said.
+pub(crate) fn spot(t: &Thread) -> String {
+    let file = t.path.rsplit('/').next().unwrap_or(&t.path);
+    t.line.map_or(file.to_string(), |line| format!("{file}:{line}"))
+}
+
 /// The first line of what opened thread `t`.
 pub(crate) fn opening(t: &Thread) -> String {
     t.comments.first().map(|c| c.body.lines().next().unwrap_or_default().to_string()).unwrap_or_default()
@@ -240,7 +246,7 @@ pub(crate) struct Track {
     pub(crate) comments: bool,
     /// It lists resolved threads too.
     pub(crate) all: bool,
-    /// Resolved threads shown whole.
+    /// Threads shown whole: a resolved one unfolded, or a long one with every reply.
     pub(crate) expanded: HashSet<String>,
     /// The card shows only its title and verdict.
     pub(crate) folded: bool,
