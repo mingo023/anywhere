@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"pocketd/e2e/fakemcp"
 )
 
 // appServer is `codex app-server`: JSON-RPC on stdio, one thread, with notes
@@ -20,6 +22,7 @@ import (
 //	run <cmd>    ask to run cmd, then reply "echo: ran <cmd>" if allowed
 //	ask <q>      ask q by item/tool/requestUserInput, then reply "echo: answers <answers>"
 //	slow <text>  reply after 3s, unless interrupted; a prompt meanwhile joins the reply
+//	mcp <tool> <json>  call an Anywhere tool through the config thread/start gave, or "mcp tools/list", then reply its result
 //
 // Like codex, a bogus model fails each turn rather than the start.
 type appServer struct {
@@ -33,6 +36,7 @@ type appServer struct {
 	turn         *liveTurn
 	next         int
 	waits        map[string]chan map[string]any
+	mcp          []fakemcp.Server
 }
 
 type thread struct {
@@ -154,6 +158,8 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 	case "thread/start":
 		a.thread = &thread{ID: "th-" + uuid()}
 		a.save()
+		config, _ := p["config"].(map[string]any)
+		a.useMCP(config)
 		note("thread: %s", a.thread.ID)
 		a.opened(id)
 	case "thread/resume":
@@ -166,6 +172,8 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 			a.thread = &thread{}
 			json.Unmarshal(b, a.thread)
 		}
+		config, _ := p["config"].(map[string]any)
+		a.useMCP(config)
 		note("resume: %s", threadID)
 		a.opened(id)
 	case "turn/start":
@@ -297,6 +305,8 @@ func (a *appServer) run(t *liveTurn, text string) {
 		a.runCommand(t, strings.TrimPrefix(text, "run "))
 	case strings.HasPrefix(text, "ask "):
 		a.askUser(t, strings.TrimPrefix(text, "ask "))
+	case strings.HasPrefix(text, "mcp "):
+		a.say(t, a.callMCP(strings.TrimPrefix(text, "mcp ")))
 	case strings.HasPrefix(text, "slow "):
 		replies := []string{strings.TrimPrefix(text, "slow ")}
 		done := time.After(3 * time.Second)
