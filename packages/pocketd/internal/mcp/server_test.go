@@ -404,6 +404,26 @@ func (e *fakeEnvironments) Card(_ string, l proto.HostLink) error {
 	return nil
 }
 
+// shrinkingEnvironments loses its hosts after the first List, as a removal between two reads would.
+type shrinkingEnvironments struct{ fakeEnvironments }
+
+func (e *shrinkingEnvironments) List() []Environment {
+	list := e.list
+	e.list = nil
+	return list
+}
+
+func TestAHostRemovedAsATaskIsDelegatedThereRefusesTheTask(t *testing.T) {
+	f := newFixture(t)
+	f.host.envs = &shrinkingEnvironments{fakeEnvironments{list: []Environment{{ID: "devbox", Label: "Dev Box", State: "online"}}}}
+
+	sc, isErr := f.call(t, "delegate_task", `{"task":"x","target":{"environmentId":"devbox"}}`)
+
+	if !isErr || errorCode(sc) != orch.CodeInvalid {
+		t.Fatalf("got %v", sc)
+	}
+}
+
 func TestLinkingAHostAlreadyOnlineSaysItIsLinked(t *testing.T) {
 	envs := &fakeEnvironments{list: []Environment{{ID: "devbox", Label: "Dev Box", State: "online"}, {ID: "vps", Label: "vps", State: "failed"}}}
 	parent := proto.AgentSummary{ID: "parent", TerminalID: "t", Provider: "claude", Access: "full", Status: "working"}
