@@ -82,6 +82,21 @@ func TestAnArchiveOnThisMacWinsOverTheRelease(t *testing.T) {
 	}
 }
 
+func TestAnInstallRunsAsThePlatformTheProbeFound(t *testing.T) {
+	host := New(alias("pc"), nil)
+	dist := t.TempDir()
+	archive := filepath.Join(dist, "pocketd-windows-amd64.zip")
+	os.WriteFile(archive, nil, 0o644)
+	on, src, err := installPlan(host, Platform{"windows", "amd64"}, "dev", dist)
+	if err != nil || !on.Windows || src != (Source{Archive: archive}) {
+		t.Errorf("%+v %+v %v", on, src, err)
+	}
+	host.Windows = true
+	if on, _, err := installPlan(host, Platform{"linux", "arm64"}, "1.2.0", ""); err != nil || on.Windows {
+		t.Errorf("%+v %v", on, err)
+	}
+}
+
 func TestADevBuildWithoutAnArchiveSaysHowToMakeOne(t *testing.T) {
 	_, err := source(Platform{"linux", "amd64"}, "dev", "")
 	if err == nil || !strings.Contains(err.Error(), "scripts/package-pocketd.sh dev linux-amd64") || !strings.Contains(err.Error(), "in packages/pocketd/dist.") {

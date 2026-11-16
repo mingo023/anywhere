@@ -1,6 +1,7 @@
 package hosts
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -62,4 +63,17 @@ func pairCommand(homeDirName, name string) string {
 	}, name)
 	shim := psQuote(homeDirName + `\bin\pocketd.cmd`)
 	return powershell("& (Join-Path $HOME " + shim + ") pair --json --name " + psQuote(name) + "; exit $LASTEXITCODE")
+}
+
+// pair has the host's pocketd mint a token for this machine, and keeps it beside the host's other files here.
+func (m *Manager) pair(ctx context.Context, h Host) (Owner, Failure) {
+	stdout, _, _, err := m.run(ctx, h, pairCommand(m.paths.RemoteDir, m.name), nil)
+	if err != nil {
+		return Owner{}, failureOf(err)
+	}
+	o, ok := parsePair(string(stdout))
+	if !ok || saveOwner(m.paths.Token(h.ID), o) != nil {
+		return Owner{}, FailOther
+	}
+	return o, ""
 }
