@@ -233,6 +233,15 @@ func TestThreadListShowsTheProjectsSessionsWithLinksAndHidesChildrenUnlessAsked(
 	}
 }
 
+func TestThreadListRefusesANegativeCursor(t *testing.T) {
+	f := newFixture(t)
+	f.seed(t, f.host.parent)
+	sc, isErr := f.call(t, "anywhere_thread_list", `{"cursor":-1}`)
+	if !isErr || errorCode(sc) != orch.CodeInvalid {
+		t.Fatalf("a negative cursor gave %v", sc)
+	}
+}
+
 func TestThreadSearchFindsASessionByItsConversationTitleOrBranch(t *testing.T) {
 	f := newFixture(t)
 	f.addSession(t, proto.AgentSummary{ID: "s1", Provider: "claude", Access: "edits", Status: "idle", Project: "/repo", Title: "Refactor", Branch: "feat/orchestrator-edge"}, "", "")

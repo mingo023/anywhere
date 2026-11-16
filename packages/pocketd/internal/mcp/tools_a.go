@@ -620,6 +620,9 @@ func threadList(ctx context.Context, c *Call) (any, error) {
 	if err := c.args(&p); err != nil {
 		return nil, err
 	}
+	if p.Cursor < 0 {
+		return nil, fail(orch.CodeInvalid, "cursor can't be negative")
+	}
 	limit := min(max(p.Limit, 1), 100)
 	if p.Limit == 0 {
 		limit = 30
