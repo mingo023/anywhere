@@ -9,8 +9,12 @@ import (
 	"pocketd/internal/wsserver"
 )
 
-// openHosts links the hosts saved in home's state/hosts.json until ctx ends; nil serves none.
+// openHosts links the hosts saved in home's state/hosts.json, first taking the desktop's on first start, until ctx
+// ends; nil serves none.
 func openHosts(ctx context.Context, home string, env func() []string, name string) *wsserver.Hosts {
+	if err := hosts.ImportDesktop(home); err != nil {
+		log.Printf("hosts: %v; not imported", err)
+	}
 	m, err := hosts.Open(hosts.Paths{Home: home, RemoteDir: config.HomeName()}, env, versionString(), name)
 	if err != nil {
 		log.Printf("hosts: %v; serving none", err)

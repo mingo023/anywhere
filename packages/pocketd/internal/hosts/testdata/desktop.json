@@ -1,0 +1,253 @@
+{
+  "projects": [
+    "//devbox/home/dev/app"
+  ],
+  "repos": {},
+  "collapsed": [],
+  "window": null,
+  "layout": "sidebars",
+  "widths": {
+    "projects": null,
+    "sessions": null
+  },
+  "graph_share": null,
+  "sounds": {
+    "all": true,
+    "needs_you": true,
+    "done": true,
+    "failed": true,
+    "sound": "Chime",
+    "custom": [],
+    "volume": 100
+  },
+  "notifications": {
+    "banners": true,
+    "needs_you": true,
+    "failed": true,
+    "done": true,
+    "on_screen": false,
+    "badge": "inbox"
+  },
+  "appearance": {
+    "mode": "system",
+    "reduce_motion": null,
+    "diff_colors": "greenRed",
+    "syntax": "graphite",
+    "added": null,
+    "removed": null,
+    "accent": null,
+    "ui_font": null,
+    "code_font": null,
+    "code_size": null,
+    "zoom": null,
+    "glass": null
+  },
+  "worktree": {
+    "root": "",
+    "clone_root": "",
+    "delete_branch": true,
+    "trash": false,
+    "teardown_secs": 120
+  },
+  "tracked": [],
+  "scratch": [],
+  "scratch_folded": false,
+  "layouts": {},
+  "scopes": {},
+  "board_list": false,
+  "board_views": [],
+  "seen_version": null,
+  "advanced": [],
+  "general": {
+    "auto_install": true,
+    "whats_new": true,
+    "check_hours": 6,
+    "open_at_login": false,
+    "restore_layouts": true,
+    "launch_layout": null,
+    "panel_open": false,
+    "close_quits": false,
+    "confirm_quit": "always",
+    "battery_saver": false,
+    "git_secs": 2,
+    "pr_secs": 30,
+    "resume_agents": true,
+    "keep_awake": true,
+    "linger_minutes": 2,
+    "open_in": ""
+  },
+  "agents": {
+    "disabled": [],
+    "default": "claude",
+    "access": "settings",
+    "plan": false,
+    "new_worktree": false,
+    "tabs_open_agent": false,
+    "send_now": false,
+    "chat_to": "focused",
+    "close_on_exit": false,
+    "start_as_chat": true,
+    "providers": {},
+    "favorites": [],
+    "recent": []
+  },
+  "automations": {
+    "agent": "claude",
+    "time": "09:00",
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "every": 60,
+    "access": "edits",
+    "new_worktree": true,
+    "grace_hours": 12,
+    "history": 50
+  },
+  "phone": {
+    "tailnet": true,
+    "port": 0
+  },
+  "sidebar": {
+    "sort": "newest",
+    "details": {
+      "model": true,
+      "time": true,
+      "branch": true,
+      "diff": true
+    },
+    "external_worktrees": false,
+    "usage_card": true,
+    "warn_at": 75,
+    "critical_at": 90,
+    "jump_hints": true,
+    "hint_delay_ms": 280,
+    "inbox_sort": "urgent",
+    "inbox_filter": "all"
+  },
+  "terminal": {
+    "font": "Geist Mono",
+    "size": 13,
+    "line_height": 130,
+    "padding": 4,
+    "ligatures": false,
+    "scheme": "default",
+    "custom": [
+      1908513,
+      13395558,
+      11910504,
+      15779444,
+      8495806,
+      11703483,
+      9092791,
+      12961990,
+      6710886,
+      13979219,
+      12175946,
+      15189319,
+      8038106,
+      12818392,
+      7389361,
+      15395562
+    ],
+    "cursor": "block",
+    "blink": true,
+    "option_as_meta": "both",
+    "copy_on_select": false,
+    "confirm_paste": true,
+    "click_opens_links": false,
+    "system_browser": false,
+    "confirm_close": true,
+    "scrollback": 10000,
+    "bell": "off",
+    "shell": "login",
+    "shell_path": "",
+    "shell_args": "--login"
+  },
+  "files": {
+    "new_tabs": "end",
+    "preview_tabs": true,
+    "markdown_source": false,
+    "soft_wrap": false,
+    "line_numbers": true,
+    "tab_width": 2,
+    "autosave": "off",
+    "hide_dotfiles": false,
+    "hide_ignored": true,
+    "folders_first": true,
+    "case_sensitive": true,
+    "also_hide": ""
+  },
+  "browser": {
+    "engine": "google",
+    "home": "devServer",
+    "custom_home": "",
+    "custom_search": ""
+  },
+  "git": {
+    "remote": "origin",
+    "untracked": true,
+    "commit_all": true,
+    "force_with_lease": false,
+    "ai": true,
+    "agent": "claude",
+    "model": "haiku",
+    "style": "recent",
+    "prompt": "",
+    "draft": false,
+    "in_app": false
+  },
+  "diff": {
+    "split": false,
+    "tree": false,
+    "context": 3,
+    "ignore_whitespace": false,
+    "all_branches": false,
+    "page": 50
+  },
+  "keys": {},
+  "hosts": [
+    {
+      "id": "devbox",
+      "name": "devbox",
+      "target": {
+        "kind": "alias",
+        "name": "devbox"
+      }
+    },
+    {
+      "id": "10-0-4-12",
+      "name": "10.0.4.12",
+      "target": {
+        "kind": "address",
+        "addr": "10.0.4.12",
+        "port": 2222,
+        "user": "dev",
+        "key_file": "~/.ssh/id_ed25519"
+      },
+      "windows": true
+    },
+    {
+      "id": "gpu-1",
+      "name": "gpu-1",
+      "target": {
+        "kind": "address",
+        "addr": "gpu-1.lab.example.com",
+        "port": 22,
+        "user": "",
+        "key_file": null
+      }
+    }
+  ],
+  "sections": {
+    "groups": [],
+    "members": {},
+    "pinned": [],
+    "pins_folded": false,
+    "sort": "manual"
+  },
+  "chats": []
+}
