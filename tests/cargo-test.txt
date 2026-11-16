@@ -3,27 +3,27 @@ test result: ok. 153 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fi
      Running unittests src/channel.rs (target/debug/deps/channel-1d85d79db229e59d)
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
      Running unittests src/chat.rs (target/debug/deps/chat-d5140207b77f8535)
-test result: ok. 216 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 16.46s
+test result: ok. 216 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 15.35s
      Running unittests src/daemon.rs (target/debug/deps/daemon-1c778b28b4191db1)
 test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
      Running tests/restore.rs (target/debug/deps/restore-7b07fd5c1ff1ed9f)
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
      Running unittests src/git.rs (target/debug/deps/git-cf4ed04e5d706c04)
-test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s
+test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.88s
      Running unittests src/hosts.rs (target/debug/deps/hosts-9aab0b62e4e09c65)
-test result: ok. 75 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 76 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.13s
      Running tests/owner_token.rs (target/debug/deps/owner_token-034820dfa1a8456f)
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
      Running unittests src/keys.rs (target/debug/deps/keys-00cf2a36a91afc04)
 test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
      Running unittests src/main.rs (target/debug/deps/pocket_desktop-e049cdc05034463a)
-test result: ok. 1347 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 1347 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
      Running tests/avoid_list.rs (target/debug/deps/avoid_list-543c46313ca2264d)
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
      Running unittests src/project.rs (target/debug/deps/project-0580ddd978fe3f29)
 test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
      Running unittests src/store.rs (target/debug/deps/store-aade5a1c6384a99e)
-test result: ok. 118 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 118 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
      Running unittests src/main.rs (target/debug/deps/storybook-cc8b3e2687e5887c)
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
      Running unittests src/term.rs (target/debug/deps/term-136cfacbc3a6bd4e)
@@ -50,4 +50,4 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-cargo passed 2277 failed 0
+cargo passed 2278 failed 0
