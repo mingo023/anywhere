@@ -67,6 +67,18 @@ func TestAHermesTurnShowsItsCallItsReplyAndEnds(t *testing.T) {
 	}
 }
 
+func TestTheModelsASessionOpensWithAreKeptForItsAgent(t *testing.T) {
+	none := func(*agent, string) string { return "" }
+	start(t, opts{provider: "hermes", answer: script(hermesNew, none)})
+	start(t, opts{provider: "opencode", answer: script(opencodeNew, none)})
+	if got := Models("hermes"); !slices.Equal(got, []string{"moa:default"}) {
+		t.Fatalf("hermes: %q", got)
+	}
+	if got := Models("opencode"); !slices.Equal(got, []string{"opencode/big-pickle"}) {
+		t.Fatalf("opencode: %q", got)
+	}
+}
+
 func TestALoadedSessionShowsItsHistoryAndStartsNoTurn(t *testing.T) {
 	_, a, sk, _ := start(t, opts{provider: "hermes", saved: "s1", answer: func(a *agent, method string, _ json.RawMessage) string {
 		if method != "session/load" {

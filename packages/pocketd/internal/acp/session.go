@@ -71,14 +71,15 @@ type Session struct {
 	// restored from the store does: a load's replay of it is dropped.
 	Shown bool
 	// Showing is what that timeline holds, sub-agents' items too.
-	Showing func() []proto.Item
-	agentID string
-	name    string // the agent's, for what the user reads
-	f       flavor
-	sink    Sink
-	broker  *broker.Broker
-	ctx     context.Context
-	cancel  context.CancelFunc
+	Showing  func() []proto.Item
+	agentID  string
+	provider string
+	name     string // the agent's, for what the user reads
+	f        flavor
+	sink     Sink
+	broker   *broker.Broker
+	ctx      context.Context
+	cancel   context.CancelFunc
 
 	// mu is never held across a Call: the client's reader takes it for each message.
 	mu      sync.Mutex
@@ -153,6 +154,9 @@ type configOption struct {
 	Category string `json:"category"`
 	Type     string `json:"type"`
 	Current  any    `json:"currentValue"`
+	Options  []struct {
+		Value string `json:"value"`
+	} `json:"options"`
 }
 
 // setting finds the config option an agent keeps one of a launch's settings in.
@@ -205,9 +209,20 @@ type todo struct {
 // NewSession is a Session for agentID's provider, which holds prompts until Open.
 func NewSession(agentID, provider string, sink Sink, b *broker.Broker) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Session{agentID: agentID, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
+	return &Session{agentID: agentID, provider: provider, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
 		asks: map[string]context.CancelFunc{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{},
 		ended: map[string]*timeline.Event{}, kids: map[string]*kid{}, calls: map[string]string{}}
+}
+
+// agentModels holds, by agent, the models its last session to open listed.
+var agentModels sync.Map
+
+// Models is what the provider's agent listed as its session last opened, nil
+// before one has.
+func Models(provider string) []string {
+	m, _ := agentModels.Load(provider)
+	list, _ := m.([]string)
+	return list
 }
 
 // opened is what session/new and session/load answer with.
@@ -216,9 +231,28 @@ type opened struct {
 	Snake     string `json:"session_id"`
 	ID        string `json:"id"`
 	Models    struct {
-		Current string `json:"currentModelId"`
+		Current   string `json:"currentModelId"`
+		Available []struct {
+			ID string `json:"modelId"`
+		} `json:"availableModels"`
 	} `json:"models"`
 	ConfigOptions []configOption `json:"configOptions"`
+}
+
+// models is what r lists: its models, else its model option's choices.
+func (r opened) models() []string {
+	var out []string
+	for _, m := range r.Models.Available {
+		out = append(out, m.ID)
+	}
+	if o := modelSetting.of(r.ConfigOptions); o != nil {
+		for _, c := range o.Options {
+			if c.Value != "" {
+				out = append(out, c.Value)
+			}
+		}
+	}
+	return out
 }
 
 // Open opens the agent's session over w in cwd: the saved one, whose history
@@ -240,6 +274,9 @@ func (s *Session) Open(w jsonrpc.Wire, cwd, saved string, l state.Launch, left L
 		return unsent, err
 	}
 	s.takeOptions(res.ConfigOptions)
+	if list := res.models(); len(list) > 0 {
+		agentModels.Store(s.provider, list)
+	}
 	id, model := s.id, cmp.Or(s.currentModel(), res.Models.Current)
 	s.mu.Unlock()
 	s.sink.Bound(id)

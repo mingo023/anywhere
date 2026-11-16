@@ -385,6 +385,12 @@ func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *test
 	}
 }
 
+func TestOrchestratorCapabilitiesListsTheModelsAChatHermesOpenedWith(t *testing.T) {
+	_, phone, _, id := chatACP(t, "hermes", nil)
+	phone.Prompt(id, "mcp orchestrator_capabilities {}")
+	phone.WaitFor("hermes's models", saysAbout(id, `"fake/other"`))
+}
+
 // Hermes runs a delegated task in the background and tells its work only in a transcript, live and on a restart alike.
 func TestAChatHermesShowsItsSubAgentsTranscriptUnderTheDelegationAlsoAfterARestart(t *testing.T) {
 	h, phone, _, id := chatACP(t, "hermes", nil, func(h *Harness) { h.resume = true })

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"pocketd/internal/acp"
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
 	"pocketd/internal/hosts"
@@ -405,7 +406,7 @@ func (h *Host) Agents() []mcp.AgentKind {
 	for _, p := range h.Launcher.Providers() {
 		spec := providers.Get(p.ID)
 		info := AgentInfo(p.ID)
-		out = append(out, mcp.AgentKind{ID: p.ID, Name: spec.Name, Installed: p.Available, Efforts: p.Efforts, Access: info.Access, NeverAsks: p.NeverAsks, Parent: Parent(p.ID)})
+		out = append(out, mcp.AgentKind{ID: p.ID, Name: spec.Name, Installed: p.Available, Models: acp.Models(p.ID), Efforts: p.Efforts, Access: info.Access, NeverAsks: p.NeverAsks, Parent: Parent(p.ID)})
 	}
 	return out
 }
