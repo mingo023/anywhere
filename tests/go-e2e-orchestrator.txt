@@ -1,6 +1,8 @@
+=== RUN   TestEditingAnAutomationAnAgentMadeKeepsItsBindingAndWebhook
+--- PASS: TestEditingAnAutomationAnAgentMadeKeepsItsBindingAndWebhook (0.90s)
 === RUN   TestAChatDelegatesOverMCPAndIsWokenWhenTheChildSettles
---- PASS: TestAChatDelegatesOverMCPAndIsWokenWhenTheChildSettles (1.90s)
+--- PASS: TestAChatDelegatesOverMCPAndIsWokenWhenTheChildSettles (1.73s)
 === RUN   TestAToolRefusesAnUnknownTaskWithItsCode
---- PASS: TestAToolRefusesAnUnknownTaskWithItsCode (0.66s)
+--- PASS: TestAToolRefusesAnUnknownTaskWithItsCode (0.64s)
 PASS
-ok  	pocketd/e2e	9.159s
+ok  	pocketd/e2e	9.949s
