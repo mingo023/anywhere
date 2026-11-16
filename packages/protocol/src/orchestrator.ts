@@ -26,6 +26,8 @@ export const Delegation = Schema.Struct({
   question: Schema.optional(Schema.String),
   createdAt: Schema.Number,
   settledAt: Schema.optional(Schema.Number),
+  /** The host a task runs on; its `childId` then carries that host's tag, `<hostId>/<theirId>`. */
+  environmentId: Schema.optional(Schema.String),
 });
 export type Delegation = typeof Delegation.Type;
 

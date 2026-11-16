@@ -1,0 +1,19 @@
+{
+  "type": "host.update",
+  "id": "h2",
+  "host": {
+    "id": "10-0-4-12",
+    "name": "10.0.4.12",
+    "target": {
+      "kind": "address",
+      "addr": "10.0.4.12",
+      "port": 2222,
+      "user": "dev",
+      "keyFile": "~/.ssh/id_ed25519"
+    },
+    "socket": "/Users/me/.coding-pocket/hosts/10-0-4-12.sock",
+    "link": {
+      "state": "connecting"
+    }
+  }
+}

@@ -135,6 +135,7 @@ type Item struct {
 	Error      string
 	Usage      *TurnUsage
 	Delivery   *Delivery
+	HostLink   *HostLink
 	// ParentToolUseID is the tool call that spawned the sub-agent this item belongs to.
 	ParentToolUseID string
 }
@@ -196,6 +197,15 @@ func (it Item) MarshalJSON() ([]byte, error) {
 			head
 			*Delivery
 		}{h, d})
+	case "host_link":
+		l := it.HostLink
+		if l == nil {
+			l = &HostLink{}
+		}
+		return json.Marshal(struct {
+			head
+			*HostLink
+		}{h, l})
 	}
 	return nil, errors.New("proto: unknown item kind " + it.Kind)
 }

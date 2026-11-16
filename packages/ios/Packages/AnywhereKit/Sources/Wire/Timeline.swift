@@ -199,6 +199,8 @@ public enum TimelineBody: Hashable, Sendable {
     case notice(text: String?, error: String?)
     /// What pocketd told this chat about the sessions it delegated to.
     case delivery(ChildDelivery)
+    /// A card asking the user to add a host.
+    case hostLink(HostLink)
     case unknown(kind: String)
 
     public var kind: String {
@@ -213,6 +215,7 @@ public enum TimelineBody: Hashable, Sendable {
         case .result: "result"
         case .notice: "notice"
         case .delivery: "delivery"
+        case .hostLink: "host_link"
         case .unknown(let kind): kind
         }
     }
@@ -239,6 +242,7 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
     enum Keys: String, CodingKey {
         case kind, id, seq, ts, parentToolUseId, text, call, items, trigger, ok, durationMs, error, usage
         case taskIds, childIds, titles, agents, outcome, question
+        case environmentId, hint, reason
     }
 
     public init(from decoder: any Decoder) throws {
@@ -274,6 +278,12 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
                     agents: try c.decode([String].self, forKey: .agents),
                     outcome: try c.decode(ChildDelivery.Outcome.self, forKey: .outcome),
                     question: try c.decodeIfPresent(String.self, forKey: .question)))
+        case "host_link":
+            body = .hostLink(
+                HostLink(
+                    environmentId: try c.decodeIfPresent(String.self, forKey: .environmentId),
+                    hint: try c.decodeIfPresent(String.self, forKey: .hint),
+                    reason: try c.decodeIfPresent(String.self, forKey: .reason)))
         default: body = .unknown(kind: kind)
         }
     }
@@ -306,6 +316,10 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
             try c.encode(d.agents, forKey: .agents)
             try c.encode(d.outcome, forKey: .outcome)
             try c.encodeIfPresent(d.question, forKey: .question)
+        case .hostLink(let l):
+            try c.encodeIfPresent(l.environmentId, forKey: .environmentId)
+            try c.encodeIfPresent(l.hint, forKey: .hint)
+            try c.encodeIfPresent(l.reason, forKey: .reason)
         case .unknown: break
         }
     }
