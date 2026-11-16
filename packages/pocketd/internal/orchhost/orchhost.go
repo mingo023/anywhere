@@ -92,7 +92,7 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 	case orch.EffTurnStart:
 		var p orch.TurnPayload
 		json.Unmarshal(e.Payload, &p)
-		return nil, a.Driver().Prompt(p.Text)
+		return nil, prompt(ctx, a, p)
 	case orch.EffInterrupt:
 		return nil, a.Driver().Interrupt()
 	case orch.EffAnswer:
@@ -161,6 +161,23 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 		return nil, s.StopTask(p.TaskID)
 	}
 	return nil, fmt.Errorf("unknown effect %s", e.Kind)
+}
+
+// prompt starts a turn with p. A wake or notice to a session still resuming
+// from a restart waits until it has, since nobody sends it again; the user's
+// own prompt is refused at once, as before.
+func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
+	for {
+		err := a.Driver().Prompt(p.Text)
+		if !errors.Is(err, agent.ErrResuming) || p.Origin == orch.OriginUser {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, error) {

@@ -117,6 +117,7 @@ func (o *orchestrator) asked(req proto.PermissionRequest) {
 }
 
 func (o *orchestrator) run(ctx context.Context) {
+	o.engine.FailOrphans()
 	if err := o.engine.Recover(); err != nil {
 		log.Printf("orch: recover: %v", err)
 	}
