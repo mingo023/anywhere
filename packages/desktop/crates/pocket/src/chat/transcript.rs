@@ -473,6 +473,11 @@ impl Desktop {
             let items = self.agents.timelines.get(id).map_or(&[][..], Vec::as_slice);
             released.extend(view.refresh(agent, self.agents.revision(id), items).into_iter().map(|(send, text)| (id.clone(), send, text)));
         }
+        for id in self.chats.views.keys().filter(|id| self.agents.holds_queue(id)).cloned().collect::<Vec<_>>() {
+            if self.agents.queues.ask(&id) {
+                self.outbox.queue_list(&id);
+            }
+        }
         for (id, send, text) in released {
             if let (Some(request), Some(v)) = (self.outbox.prompt(&id, &text), self.chats.views.get_mut(&id)) {
                 v.session.outgoing.sent_as(send, request);

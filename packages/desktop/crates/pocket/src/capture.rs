@@ -32,7 +32,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 255] = [
+const STEPS: [(&str, Step); 257] = [
     ("session", session),
     ("chat", chat_session),
     // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
@@ -266,6 +266,19 @@ const STEPS: [(&str, Step); 255] = [
     ("chat-sent", |d, _, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_command(&agent, Command::Send("Now run the parser tests".into()), cx);
+        }
+    }),
+    // Starts a turn that runs long when the fixture streams slowly (FIXTURE_CHUNKS=400), so what follows is sent while the agent works.
+    ("chat-turn", |d, _, _| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.outbox.prompt(&agent, "Walk through the fold once more");
+        }
+    }),
+    // Two sends while the agent works, as ⌘⏎ makes them: a pocketd that keeps the queue holds both.
+    ("chat-queue-pocketd", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("Also fix the lint warnings".into()), cx);
+            d.chat_command(&agent, Command::Send("Then run the parser tests".into()), cx);
         }
     }),
     // Queues a send as the composer does while the agent works, without the fixture echoing it.

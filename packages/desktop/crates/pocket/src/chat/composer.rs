@@ -345,6 +345,10 @@ impl Desktop {
         match c {
             Command::Send(text) => {
                 let working = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
+                if working && self.agents.holds_queue(agent) {
+                    self.outbox.prompt_queued(agent, &text);
+                    return cx.notify();
+                }
                 let view = self.chats.views.get_mut(agent);
                 let held = working && view.is_some();
                 let request = if held { None } else { self.outbox.prompt(agent, &text) };
@@ -507,6 +511,10 @@ impl Desktop {
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
             return self.chat_local(&agent, local, &arg, window, cx);
+        }
+        if let Some(entry) = self.chat_editing(&agent) {
+            self.outbox.queue_edit(&agent, &entry, &text);
+            return cx.notify();
         }
         // A command's name must lead what it sends.
         let text = if slash.is_some() { text } else { self.chats.composer.suggest.with_mcp_context(&agent, &provider, &text) };

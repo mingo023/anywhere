@@ -91,6 +91,8 @@ pub(crate) struct ChatState {
     pub(crate) map: agent_map::AgentMap,
     /// Mermaid fences drawn in every chat, sharing one image budget.
     pub(crate) diagrams: Entity<Diagrams>,
+    /// The queued entry each agent's composer text was taken from, which its next send replaces.
+    pub(crate) editing: HashMap<String, String>,
 }
 
 impl ChatState {
@@ -99,7 +101,7 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams, editing: HashMap::new() }, subs)
     }
 }
 

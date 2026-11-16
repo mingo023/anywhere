@@ -4,6 +4,8 @@
 // prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
 // "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn), "stream-code" (a reply whose code block streams in over 4.5s)
 // or "delegate" (the agent hands three sessions to others: they appear under it, one asks "Which test runner?", one finishes, one fails, and pocketd tells the chat of each).
+// A prompt sent with the queue mode while the agent works waits in pocketd's queue (queue.list, queue.update, edit, cancel, reorder, send_now) and runs once the turn ends; a Stop holds it.
+// FIXTURE_NO_ORCHESTRATOR=1 leaves out the orchestrator capability, as an older pocketd does: the desktop then holds sends to a busy agent itself.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -381,6 +383,43 @@ const restart = (ws: Ws, agentId: string) => {
 const steers = new Map<string, () => void>();
 const REPLY = "The transcript jumped because a finished tool's row grew by its output before the list measured it. Rows now keep their height until the next frame measures them, so the list stays pinned to the bottom while text streams in.";
 const CODE_REPLY = "The fold in Rust:\n\n```rust\npub fn fold(items: &[Item]) -> Vec<Row> {\n    let mut rows = Vec::with_capacity(items.len());\n    for item in items {\n        match item.kind.as_str() {\n            \"tool\" => push_tool(&mut rows, item),\n            \"text\" => rows.push(Row::Text { id: item.id.clone() }),\n            _ => rows.push(Row::from(item)),\n        }\n    }\n    rows.dedup_by(|a, b| a.id() == b.id());\n    rows\n}\n```\n\nRows keep their ids, so the list keeps its place.";
+// As pocketd's queue: a prompt sent with the queue mode while the agent works waits here, and the next turn takes it once the agent is idle.
+// A user's Stop holds the user's entries until their next prompt and drops the notices pocketd sent on its own.
+type Entry = { id: string; text: string; origin: string; state: string; order: number };
+const queues = new Map<string, Entry[]>();
+let entrySeq = 0;
+const publish = (ws: Ws, agentId: string, reply?: { type: string; id: string }) => ws.send(JSON.stringify({ type: reply?.type ?? "queue.update", ...(reply && { id: reply.id }), agentId, entries: queues.get(agentId) ?? [] }));
+const enqueue = (ws: Ws, agentId: string, text: string) => {
+  const list = queues.get(agentId) ?? [];
+  list.push({ id: `e${++entrySeq}`, text, origin: "user", state: "pending", order: Math.max(0, ...list.map((e) => e.order)) + 1 });
+  queues.set(agentId, list);
+  publish(ws, agentId);
+};
+const take = (ws: Ws, agentId: string, id?: string) => {
+  const list = queues.get(agentId) ?? [];
+  const next = id ? list.find((e) => e.id === id) : list.filter((e) => e.state === "pending").sort((a, b) => a.order - b.order)[0];
+  if (!next) return undefined;
+  queues.set(agentId, list.filter((e) => e !== next));
+  publish(ws, agentId);
+  return next;
+};
+const release = (ws: Ws, agentId: string) => {
+  const list = queues.get(agentId) ?? [];
+  if (!list.some((e) => e.state === "held")) return;
+  list.forEach((e) => e.state === "held" && (e.state = "pending"));
+  publish(ws, agentId);
+};
+const hold = (ws: Ws, agentId: string) => {
+  const list = (queues.get(agentId) ?? []).filter((e) => e.origin === "user");
+  list.forEach((e) => (e.state = "held"));
+  queues.set(agentId, list);
+  publish(ws, agentId);
+};
+// What a turn does with a prompt once pocketd lets it run.
+const takeTurn = (ws: Ws, agentId: string, text: string) => {
+  item(ws, agentId, { id: `u-${Date.now()}`, kind: "user", text });
+  reply(ws, agentId);
+};
 // `chunks` chunks 30ms apart into one item, as pocketd streams a reply.
 const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.env.FIXTURE_CHUNKS) || 40) => {
   const words = text.split(" ");
@@ -401,6 +440,8 @@ const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.en
     if (steer) return steer();
     item(ws, agentId, { id: `r-${Date.now()}`, kind: "result", ok: true, durationMs: 1200, usage: { inputTokens: 12000, outputTokens: 180 } });
     update(ws, agentId, "idle");
+    const queued = take(ws, agentId);
+    if (queued) takeTurn(ws, agentId, queued.text);
   }, 30);
   streams.set(agentId, timer);
 };
@@ -500,7 +541,7 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "orchestrator.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
@@ -520,7 +561,9 @@ Bun.serve({
         if (a?.id === CHAT_AGENT && firstChat.at(-1)?.kind === "user") reply(ws, a.id);
         if (a?.id === CHAT_AGENT && process.env.FIXTURE_CHAT === "permissions") ask(ws, a.id, "permission");
       }
-      if (f.type === "agent.prompt") {
+      if (f.type === "agent.prompt" && f.queue && streams.has(f.agentId)) enqueue(ws, f.agentId, f.text);
+      else if (f.type === "agent.prompt") {
+        release(ws, f.agentId);
         const name = f.text.match(/^\/fixture (\S+)$/)?.[1];
         if (name === "permission" || name === "question") ask(ws, f.agentId, name);
         else if (name === "exit") exit(ws, f.agentId);
@@ -545,6 +588,33 @@ Bun.serve({
           };
           if (streams.has(f.agentId)) steers.set(f.agentId, answer);
           else answer();
+        }
+      }
+      if (f.type === "queue.list") publish(ws, f.agentId, { type: "queue.list", id: f.id });
+      if (f.type === "queue.edit") {
+        const e = queues.get(f.agentId)?.find((e) => e.id === f.entryId);
+        if (e) e.text = f.text;
+        publish(ws, f.agentId);
+      }
+      if (f.type === "queue.cancel") {
+        queues.set(f.agentId, (queues.get(f.agentId) ?? []).filter((e) => e.id !== f.entryId));
+        publish(ws, f.agentId);
+      }
+      if (f.type === "queue.reorder") {
+        const list = queues.get(f.agentId) ?? [];
+        const e = list.find((e) => e.id === f.entryId);
+        const rest = list.filter((x) => x !== e).sort((a, b) => a.order - b.order);
+        const at = f.before ? rest.findIndex((x) => x.id === f.before) : -1;
+        if (e) e.order = at < 0 ? Math.max(0, ...rest.map((x) => x.order)) + 1 : at === 0 ? rest[0].order - 1 : (rest[at - 1].order + rest[at].order) / 2;
+        queues.set(f.agentId, list.sort((a, b) => a.order - b.order));
+        publish(ws, f.agentId);
+      }
+      if (f.type === "queue.send_now") {
+        const e = take(ws, f.agentId, f.entryId);
+        if (e) {
+          clearInterval(streams.get(f.agentId));
+          streams.delete(f.agentId);
+          takeTurn(ws, f.agentId, e.text);
         }
       }
       if (f.type === "agent.commands") {
@@ -600,6 +670,7 @@ Bun.serve({
           streams.delete(f.agentId);
           item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
           update(ws, f.agentId, "idle");
+          hold(ws, f.agentId);
         }, Number(process.env.FIXTURE_STOP_MS) || 0);
       }
       if (f.type === "agent.providers" && (process.env.FIXTURE_SEND_NOW || name.startsWith("agents"))) {
