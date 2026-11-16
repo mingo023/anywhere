@@ -90,17 +90,21 @@ impl Desktop {
         true
     }
 
-    /// Esc on a working child stops it, as on any chat, so only an idle child goes back.
     pub(crate) fn delegated_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(agent) = self.session().filter(|_| self.screen == Screen::Sessions && self.overlay.is_none() && !self.new_form.shown) else { return false };
-        let busy = self.agents.get(agent).is_some_and(|a| self.chat_busy(a));
-        self.delegated_parent(agent).is_some() && !busy && self.delegated_back(window, cx)
+        let asking = self.agents.pending.iter().any(|p| p.agent_id == agent);
+        escape_leaves(self.delegated_parent(agent).is_some(), asking) && self.delegated_back(window, cx)
     }
+}
+
+/// Esc leaves a delegated session, working or not, as the breadcrumb's Back does; but an open permission or question keeps it to deny or step back.
+fn escape_leaves(delegated: bool, asking: bool) -> bool {
+    delegated && !asking
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{by_label, parent_of};
+    use super::{by_label, escape_leaves, parent_of};
     use agents::Summary;
     use chrono::FixedOffset;
 
@@ -120,5 +124,12 @@ mod tests {
         let utc = FixedOffset::east_opt(0).unwrap();
         assert_eq!(by_label("Claude", 1_791_450_840_000, &utc), "Delegated by Claude \u{b7} 09:14");
         assert_eq!(by_label("Claude", 0, &utc), "Delegated by Claude");
+    }
+
+    #[test]
+    fn esc_leaves_a_delegated_session_even_while_it_works_unless_an_ask_holds_the_key() {
+        assert!(escape_leaves(true, false), "a working or idle child alike");
+        assert!(!escape_leaves(true, true), "Esc denies a permission or steps back in a question");
+        assert!(!escape_leaves(false, false), "a plain chat keeps Esc for stopping");
     }
 }
