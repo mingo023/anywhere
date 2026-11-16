@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -190,9 +191,31 @@ func (o *orchestrator) restoring(path string) state.File {
 	}
 	f, fromFile := state.Restoring(file, found, stored)
 	if fromFile {
-		o.saved(f)
+		o.takeIn(f.Terminals)
 	}
 	return f
+}
+
+// takeIn makes a store session of each terminal entry that held one, with
+// the conversation, transcript, access and launch it was saved with: what an
+// upgrade from a pocketd without the store hands down or left on disk.
+func (o *orchestrator) takeIn(entries []state.Terminal) {
+	var sessions []orch.Session
+	for _, e := range entries {
+		if e.AgentID == "" {
+			continue
+		}
+		l := state.Launch{}
+		if e.Launch != nil {
+			l = *e.Launch
+		}
+		sessions = append(sessions, orch.Session{ID: e.AgentID, Agent: e.Provider, Cwd: e.LaunchDir, Terminal: e.TerminalID, Conversation: e.ConversationID,
+			Access: l.Access, Model: l.Model, Effort: l.Effort, Pinned: e.Pinned, Chat: e.Chat, Origin: e.Origin, Status: cmp.Or(e.Status, "idle"), Failed: e.Failed, CreatedAt: e.CreatedAt})
+	}
+	if err := o.store.Import(sessions); err != nil {
+		log.Printf("orch: taking in the sessions saved: %v", err)
+	}
+	o.saved(state.File{Terminals: entries})
 }
 
 // openSessions reads the store's open sessions once the sink has written

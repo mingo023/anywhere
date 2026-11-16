@@ -52,6 +52,21 @@ func (s *Store) CloseAbsent(running func(id string) bool) error {
 	})
 }
 
+// Import writes each session the store hasn't heard of, as a pocketd
+// without the store saved it; one it has stays as it is.
+func (s *Store) Import(sessions []Session) error {
+	return s.Tx(func(tx *Tx) error {
+		for _, x := range sessions {
+			if _, err := tx.Exec(`INSERT INTO sessions (id, agent, cwd, terminal, conversation, access, model, effort, pinned, chat, origin, status, failed, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+				x.ID, x.Agent, x.Cwd, x.Terminal, x.Conversation, x.Access, x.Model, x.Effort, x.Pinned, x.Chat, x.Origin, x.Status, x.Failed, x.CreatedAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Unhold drops every background task an agent declared it waits on.
 func (s *Store) Unhold() error {
 	return s.Tx(func(tx *Tx) error {

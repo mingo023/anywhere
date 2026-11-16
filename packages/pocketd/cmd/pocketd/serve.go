@@ -265,6 +265,11 @@ func serve(sock, handed string) error {
 		if err != nil {
 			return fmt.Errorf("handoff: %w", err)
 		}
+		var handed []state.Terminal
+		for _, e := range f.Terminals {
+			handed = append(handed, e.Saved)
+		}
+		o.takeIn(handed)
 		d.Adopt(f)
 		o.host.Rehold(true)
 		// The awake assertion died with the old image.
