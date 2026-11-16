@@ -50,6 +50,8 @@ pub struct Sections {
     pub pinned: Vec<Pin>,
     pub pins_folded: bool,
     pub sort: Sort,
+    /// Tree row keys in dragged order, by project path.
+    pub trees: BTreeMap<String, Vec<String>>,
 }
 
 impl Sections {
@@ -141,10 +143,38 @@ impl Sections {
         self.pinned.retain(|p| !matches!(p, Pin::Tree { tree: t, .. } if t == tree));
     }
 
-    /// Drops `project`'s group and pins, as when it leaves the sidebar.
+    /// Drops `project`'s group, pins and tree order, as when it leaves the sidebar.
     pub fn forget(&mut self, project: &str) {
         self.members.remove(project);
         self.pinned.retain(|p| p.project() != project);
+        self.trees.remove(project);
+    }
+
+    /// `project`'s `rows` in the order they were dragged to: those it names trade the places they hold, the rest keep theirs.
+    pub fn order_trees<T>(&self, project: &str, rows: Vec<T>, key: impl Fn(&T) -> &str) -> Vec<T> {
+        let Some(order) = self.trees.get(project) else { return rows };
+        let mut named = Vec::new();
+        let slots: Vec<Option<T>> = rows
+            .into_iter()
+            .map(|row| match order.iter().position(|k| k == key(&row)) {
+                Some(rank) => {
+                    named.push((rank, row));
+                    None
+                }
+                None => Some(row),
+            })
+            .collect();
+        named.sort_by_key(|(rank, _)| *rank);
+        let mut named = named.into_iter().map(|(_, row)| row);
+        slots.into_iter().filter_map(|slot| slot.or_else(|| named.next())).collect()
+    }
+
+    /// Moves `from` to `to`'s place among `keys`, the project's rows as shown, shifting those between.
+    pub fn move_tree(&mut self, project: &str, mut keys: Vec<String>, from: &str, to: &str) {
+        let (Some(i), Some(j)) = (keys.iter().position(|k| k == from), keys.iter().position(|k| k == to)) else { return };
+        let key = keys.remove(i);
+        keys.insert(j, key);
+        self.trees.insert(project.to_string(), keys);
     }
 
     /// `projects`' places as indices into it: the pinned ones' places drop out of the rest, each group in `groups` order, then the ungrouped.
@@ -340,7 +370,57 @@ mod tests {
         s.toggle_pin(Pin::Project("/a".into()));
         s.toggle_pin(Pin::Tree { project: "/a".into(), tree: "/wt".into() });
         s.toggle_pin(Pin::Project("/b".into()));
+        s.move_tree("/a", keys(&["/x", "/y"]), "/y", "/x");
         s.forget("/a");
         assert_eq!((s.group_of("/a"), s.pinned.clone()), (None, vec![Pin::Project("/b".into())]));
+        assert!(s.trees.is_empty());
+    }
+
+    fn keys(k: &[&str]) -> Vec<String> {
+        k.iter().map(|k| k.to_string()).collect()
+    }
+
+    fn ordered(s: &Sections, project: &str, rows: &[&str]) -> Vec<String> {
+        s.order_trees(project, keys(rows), |k| k.as_str())
+    }
+
+    #[test]
+    fn a_tree_dragged_down_lands_below_the_row_it_was_dropped_on_and_up_above_it() {
+        let mut s = Sections::default();
+        s.move_tree("/a", keys(&["/w1", "/w2", "/w3"]), "/w1", "/w2");
+        assert_eq!(ordered(&s, "/a", &["/w1", "/w2", "/w3"]), keys(&["/w2", "/w1", "/w3"]));
+        s.move_tree("/a", ordered(&s, "/a", &["/w1", "/w2", "/w3"]), "/w3", "/w2");
+        assert_eq!(ordered(&s, "/a", &["/w1", "/w2", "/w3"]), keys(&["/w3", "/w2", "/w1"]));
+    }
+
+    #[test]
+    fn a_project_never_dragged_keeps_its_rows_and_another_projects_order_leaves_them_alone() {
+        let mut s = Sections::default();
+        s.move_tree("/b", keys(&["/w1", "/w2"]), "/w2", "/w1");
+        assert_eq!(ordered(&s, "/a", &["/w1", "/w2"]), keys(&["/w1", "/w2"]));
+    }
+
+    #[test]
+    fn rows_the_order_never_named_keep_their_places_around_the_dragged_ones() {
+        let mut s = Sections::default();
+        s.move_tree("/a", keys(&["/w1", "/w2"]), "/w2", "/w1");
+        assert_eq!(ordered(&s, "/a", &["/own", "/w1", "/gone-and-back", "/w2", "/new"]), keys(&["/own", "/w2", "/gone-and-back", "/w1", "/new"]));
+        assert_eq!(ordered(&s, "/a", &["/w1"]), keys(&["/w1"]), "a row deleted since drops out");
+    }
+
+    #[test]
+    fn dropping_a_tree_on_itself_or_on_a_row_no_longer_shown_changes_nothing() {
+        let mut s = Sections::default();
+        s.move_tree("/a", keys(&["/w1", "/w2"]), "/w1", "/gone");
+        s.move_tree("/a", keys(&["/w1", "/w2"]), "/gone", "/w1");
+        assert!(s.trees.is_empty());
+        s.move_tree("/a", keys(&["/w1", "/w2"]), "/w1", "/w1");
+        assert_eq!(ordered(&s, "/a", &["/w1", "/w2"]), keys(&["/w1", "/w2"]));
+    }
+
+    #[test]
+    fn sections_saved_before_trees_could_be_dragged_still_read() {
+        let s: Sections = serde_json::from_str(r#"{"pins_folded": true, "sort": "name"}"#).unwrap();
+        assert_eq!((s.pins_folded, s.sort, s.trees.is_empty()), (true, Sort::Name, true));
     }
 }
