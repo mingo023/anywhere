@@ -234,15 +234,16 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 		}
 	case working(from) && !working(s.Status):
 		state := "completed"
+		stop := asked(tx, s.ID, "turn.interrupted")
+		restarted = s.Status != "closed" && !stop && asked(tx, s.ID, "turn.restarted")
 		switch {
 		case s.Status == "closed":
 			state = "cancelled"
-		case s.Failed && s.Error == "interrupted" || asked(tx, s.ID, "turn.interrupted"):
+		case restarted || s.Failed && s.Error == "interrupted" || stop:
 			state = "interrupted"
 		case s.Failed:
 			state = "failed"
 		}
-		restarted = state == "interrupted" && asked(tx, s.ID, "turn.restarted") && !asked(tx, s.ID, "turn.interrupted")
 		stopped = state == "interrupted" && !restarted
 		if _, err := tx.Exec(`UPDATE turns SET state = ?, ended_at = ?, error = ? WHERE id = (SELECT MAX(id) FROM turns WHERE session_id = ?) AND ended_at = 0`, state, now, s.Error, s.ID); err != nil {
 			return nil, err

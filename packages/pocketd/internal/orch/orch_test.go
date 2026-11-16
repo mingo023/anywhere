@@ -911,8 +911,8 @@ func TestAChildThatEndsBeforeItsTaskKnowsItStillSettlesTheTask(t *testing.T) {
 }
 
 // stoppedChildTask delegates a task to a child that works, lets stop end the child's turn
-// and gives the task once it settled.
-func stoppedChildTask(t *testing.T, stop func(e *Engine, k *Sink)) Delegation {
+// and gives the task once it settled, with the turn changes the sink told.
+func stoppedChildTask(t *testing.T, stop func(e *Engine, k *Sink)) (Delegation, []TurnChange) {
 	t.Helper()
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
@@ -926,7 +926,14 @@ func stoppedChildTask(t *testing.T, stop func(e *Engine, k *Sink)) Delegation {
 	}}
 	e := NewEngine(s, f)
 	e.Agent = agents
-	k.OnTurn = e.OnTurn
+	var mu sync.Mutex
+	var changes []TurnChange
+	k.OnTurn = func(c TurnChange) {
+		mu.Lock()
+		changes = append(changes, c)
+		mu.Unlock()
+		e.OnTurn(c)
+	}
 	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
 	k.Flush()
 	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x", Title: "Held"}))
@@ -946,11 +953,13 @@ func stoppedChildTask(t *testing.T, stop func(e *Engine, k *Sink)) Delegation {
 		task = ts[0]
 		return task.Terminal() && task.Delivery == DeliverDelivered
 	})
-	return task
+	mu.Lock()
+	defer mu.Unlock()
+	return task, changes
 }
 
 func TestAChildTheUserStopsSettlesItsTaskAsCancelledAndWakesTheParent(t *testing.T) {
-	task := stoppedChildTask(t, func(e *Engine, k *Sink) {
+	task, _ := stoppedChildTask(t, func(e *Engine, k *Sink) {
 		if _, err := e.Dispatch(NewCommand("", CmdSessionStop, "child-1", nil)); err != nil {
 			t.Fatal(err)
 		}
@@ -962,7 +971,7 @@ func TestAChildTheUserStopsSettlesItsTaskAsCancelledAndWakesTheParent(t *testing
 }
 
 func TestAChildWhoseTurnTheAgentReportsAsInterruptedSettlesItsTaskAsCancelledAndWakesTheParent(t *testing.T) {
-	task := stoppedChildTask(t, func(e *Engine, k *Sink) {
+	task, _ := stoppedChildTask(t, func(e *Engine, k *Sink) {
 		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done", Failed: true, Error: "interrupted"})
 	})
 	if task.Status != TaskCancelled || task.Summary != "Stopped by the user" || task.Error != "" {
@@ -971,18 +980,26 @@ func TestAChildWhoseTurnTheAgentReportsAsInterruptedSettlesItsTaskAsCancelledAnd
 }
 
 func TestAChildsRestartedTurnIsNoStopAndItsTaskSettlesWithTheTurnThatFollows(t *testing.T) {
-	task := stoppedChildTask(t, func(e *Engine, k *Sink) {
-		if _, err := e.Dispatch(NewCommand("m1", CmdMessageSend, "child-1", SendPayload{Text: "again", Mode: "restart"})); err != nil {
-			t.Fatal(err)
+	// The cut turn ends as the agent reports it: interrupted, or just done.
+	for _, cut := range []proto.AgentSummary{{Status: "done", Failed: true, Error: "interrupted"}, {Status: "done"}} {
+		task, changes := stoppedChildTask(t, func(e *Engine, k *Sink) {
+			if _, err := e.Dispatch(NewCommand("m1", CmdMessageSend, "child-1", SendPayload{Text: "again", Mode: "restart"})); err != nil {
+				t.Fatal(err)
+			}
+			cut.ID, cut.Provider = "child-1", "codex"
+			k.Summary(cut)
+			k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+			k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Done again"})
+			k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+			k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+		})
+		i := slices.IndexFunc(changes, func(c TurnChange) bool { return c.To == "done" })
+		if i < 0 || !changes[i].Restarted || changes[i].Stopped {
+			t.Errorf("cut as %+v: turn changes %+v", cut, changes)
 		}
-		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done", Failed: true, Error: "interrupted"})
-		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
-		k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Done again"})
-		k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
-		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
-	})
-	if task.Status != TaskCompleted || task.Summary != "Done again" {
-		t.Fatalf("task = %+v", task)
+		if task.Status != TaskCompleted || task.Summary != "Done again" {
+			t.Fatalf("cut as %+v: task = %+v", cut, task)
+		}
 	}
 }
 
