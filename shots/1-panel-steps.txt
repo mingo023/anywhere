@@ -1,0 +1,4 @@
+panel=key,click,type,key,pause,pause,pause,click,type,key,pause,pause,pause,pause,pause,pause,pause,pause,pause,pause,pause,pause
+CAPTURE_TYPE=Start|/fixture delegate
+CAPTURE_KEYS=cmd-n;enter;enter
+CAPTURE_CLICKS=792,451;528,771

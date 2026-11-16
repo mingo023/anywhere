@@ -1,0 +1,60 @@
+?   	pocketd/e2e/fakecodex	[no test files]
+?   	pocketd/e2e/fakepi	[no test files]
+?   	pocketd/e2e/redteam	[no test files]
+ok  	pocketd/internal/accounts	5.127s
+ok  	pocketd/internal/acp	5.240s
+ok  	pocketd/internal/agent	3.771s
+ok  	pocketd/internal/atomicfile	3.756s
+ok  	pocketd/internal/automation	5.327s
+ok  	pocketd/internal/awake	3.958s
+ok  	pocketd/internal/board	4.979s
+ok  	pocketd/internal/broker	4.422s
+ok  	pocketd/internal/claude	4.962s
+ok  	pocketd/internal/cliskill	0.970s
+ok  	pocketd/internal/codex	1.593s
+?   	pocketd/internal/codex/codextest	[no test files]
+ok  	pocketd/internal/config	1.216s
+ok  	pocketd/internal/daemon	29.392s
+ok  	pocketd/internal/devices	0.702s
+ok  	pocketd/internal/envdir	0.447s
+ok  	pocketd/internal/events	0.523s
+ok  	pocketd/internal/fsview	1.579s
+ok  	pocketd/internal/github	8.508s
+ok  	pocketd/internal/gitview	16.693s
+ok  	pocketd/internal/handoff	0.735s
+ok  	pocketd/internal/host	0.871s
+ok  	pocketd/internal/hostop	1.853s
+ok  	pocketd/internal/hub	1.063s
+ok  	pocketd/internal/jsonrpc	1.040s
+ok  	pocketd/internal/launch	28.222s
+ok  	pocketd/internal/launchagent	0.675s
+ok  	pocketd/internal/locals	0.713s
+ok  	pocketd/internal/lock	0.783s
+ok  	pocketd/internal/logfile	0.685s
+ok  	pocketd/internal/mcp	1.050s
+ok  	pocketd/internal/names	0.782s
+ok  	pocketd/internal/naming	0.794s
+ok  	pocketd/internal/ops	1.406s
+ok  	pocketd/internal/orch	0.804s
+ok  	pocketd/internal/orchhost	0.574s
+ok  	pocketd/internal/owners	1.788s
+ok  	pocketd/internal/pairing	0.785s
+ok  	pocketd/internal/peer	0.461s
+ok  	pocketd/internal/pi	1.123s
+?   	pocketd/internal/pipe	[no test files]
+ok  	pocketd/internal/proc	0.678s
+ok  	pocketd/internal/proto	0.565s
+ok  	pocketd/internal/providers	0.507s
+ok  	pocketd/internal/push	8.093s
+ok  	pocketd/internal/reach	0.341s
+ok  	pocketd/internal/registry	0.455s
+ok  	pocketd/internal/service	0.474s
+ok  	pocketd/internal/shellenv	3.397s
+ok  	pocketd/internal/skills	0.278s
+ok  	pocketd/internal/state	0.587s
+ok  	pocketd/internal/terminal	4.662s
+ok  	pocketd/internal/timeline	0.370s
+ok  	pocketd/internal/vt	0.479s
+ok  	pocketd/internal/workspace	1.504s
+ok  	pocketd/internal/worktree	15.887s
+ok  	pocketd/internal/wsserver	11.709s

@@ -1,0 +1,6 @@
+=== RUN   TestAChatDelegatesOverMCPAndIsWokenWhenTheChildSettles
+--- PASS: TestAChatDelegatesOverMCPAndIsWokenWhenTheChildSettles (1.90s)
+=== RUN   TestAToolRefusesAnUnknownTaskWithItsCode
+--- PASS: TestAToolRefusesAnUnknownTaskWithItsCode (0.66s)
+PASS
+ok  	pocketd/e2e	9.159s
