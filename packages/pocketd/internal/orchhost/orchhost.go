@@ -329,7 +329,8 @@ func (h *Host) ClaudeFlags(terminal, provider string) []string {
 		log.Printf("mcp: config for %s: %v", terminal, err)
 		return nil
 	}
-	return []string{"--mcp-config=" + path, "--allowedTools=mcp__anywhere"}
+	log.Printf("mcp: %s launches with MCP config", terminal)
+	return []string{"--mcp-config=" + path, "--allowedTools=mcp__anywhere__*"}
 }
 
 func writePrivate(path string, body []byte) error {

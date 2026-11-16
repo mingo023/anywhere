@@ -90,6 +90,10 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if v := r.Header.Get("MCP-Protocol-Version"); v != "" && !slices.Contains(Versions, v) {
+		http.Error(w, "unsupported MCP-Protocol-Version "+v, http.StatusBadRequest)
+		return
+	}
 	direct := r.URL.Query().Get("direct") == "1"
 	switch r.Method {
 	case http.MethodGet:

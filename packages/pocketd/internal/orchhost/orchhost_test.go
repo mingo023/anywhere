@@ -25,7 +25,7 @@ func TestClaudeGetsItsTokenFromAPrivateFileNotArgv(t *testing.T) {
 
 	flags := h.ClaudeFlags("t1", "claude")
 	path := filepath.Join(dir, "mcp", "t1.json")
-	if strings.Join(flags, " ") != "--mcp-config="+path+" --allowedTools=mcp__anywhere" {
+	if strings.Join(flags, " ") != "--mcp-config="+path+" --allowedTools=mcp__anywhere__*" {
 		t.Fatalf("flags = %v", flags)
 	}
 	info, err := os.Stat(path)
