@@ -572,16 +572,8 @@ func request(st State, cmd Command, p RequestPayload) (Decision, error) {
 		if p.Kind != "question" || st.Task == nil || st.Task.Terminal() {
 			return d, nil
 		}
-		t := *st.Task
-		t.PendingQuestion = p.RequestID
-		d.Delegations = append(d.Delegations, t)
-		if t.Mode == "wait" && t.Delivery == DeliverWaiting {
-			// The parent's wait reports hasPendingQuestion instead.
-			return d, nil
-		}
-		text := fmt.Sprintf("Delegated task %s (%q) is blocked on a question. Read it with anywhere_pending_request (taskId %q) and answer it when the answer follows from the task or the user's instructions; otherwise ask the user.", t.TaskID, t.Title, t.TaskID)
-		d.Follow = append(d.Follow, NewCommand("", CmdMessageSend, t.ParentID, SendPayload{Text: text, Origin: OriginQuestion, Refs: []string{p.RequestID}}))
-		d.Effects = append(d.Effects, effect(t.ParentID, EffDelivery, DeliveryPayload{TaskIDs: []string{t.TaskID}, ChildIDs: []string{t.ChildID}, Outcome: "asks", Question: QuestionText(p.Payload), Titles: []string{t.Title}, Agents: []string{t.Agent}}))
+		a := blocked(*st.Task, p.RequestID, p.Payload)
+		d.Delegations, d.Follow, d.Effects = a.Delegations, a.Follow, a.Effects
 		return d, nil
 	case CmdRequestClose:
 		d := Decision{Events: []Event{{cmd.Session, "request.closed", p.RequestID}}}
@@ -608,6 +600,20 @@ func request(st State, cmd Command, p RequestPayload) (Decision, error) {
 		return Decision{}, refuse(CodeForbidden, "Permission asks are answered by the user")
 	}
 	return Decision{Effects: []Effect{effect(st.Request.Session, EffAnswer, p)}}, nil
+}
+
+// blocked is a child's question reaching its task's parent.
+func blocked(t Delegation, requestID string, payload json.RawMessage) Decision {
+	t.PendingQuestion = requestID
+	d := Decision{Delegations: []Delegation{t}}
+	if t.Mode == "wait" && t.Delivery == DeliverWaiting {
+		// The parent's wait reports hasPendingQuestion instead.
+		return d
+	}
+	text := fmt.Sprintf("Delegated task %s (%q) is blocked on a question. Read it with anywhere_pending_request (taskId %q) and answer it when the answer follows from the task or the user's instructions; otherwise ask the user.", t.TaskID, t.Title, t.TaskID)
+	d.Follow = append(d.Follow, NewCommand("", CmdMessageSend, t.ParentID, SendPayload{Text: text, Origin: OriginQuestion, Refs: []string{requestID}}))
+	d.Effects = append(d.Effects, effect(t.ParentID, EffDelivery, DeliveryPayload{TaskIDs: []string{t.TaskID}, ChildIDs: []string{t.ChildID}, Outcome: "asks", Question: QuestionText(payload), Titles: []string{t.Title}, Agents: []string{t.Agent}}))
+	return d
 }
 
 // QuestionText is the first question an AskUserQuestion-shaped payload asks.
@@ -754,7 +760,13 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 			return Decision{Lineage: lineage, Effects: []Effect{effect(p.ChildID, EffClose, nil)}}, nil
 		}
 		t.ChildID, t.Status = p.ChildID, TaskWorking
-		return Decision{Delegations: []Delegation{t}, Lineage: lineage, Events: []Event{{t.ParentID, "delegation.started", t.TaskID}}}, nil
+		d := Decision{Delegations: []Delegation{t}, Lineage: lineage, Events: []Event{{t.ParentID, "delegation.started", t.TaskID}}}
+		if st.Request != nil {
+			// The launcher prompts the child before it returns, so it may have asked while no task named it.
+			a := blocked(t, st.Request.ID, st.Request.Payload)
+			d.Delegations, d.Follow, d.Effects = a.Delegations, a.Follow, a.Effects
+		}
+		return d, nil
 	case CmdDelegateFailed, CmdDelegateSettle:
 		if t.Terminal() {
 			// A published result never changes.

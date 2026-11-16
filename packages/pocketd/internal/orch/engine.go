@@ -335,6 +335,7 @@ type peek struct {
 	RequestID string `json:"requestId"`
 	TargetID  string `json:"targetId"`
 	Agent     string `json:"agent"`
+	ChildID   string `json:"childId"`
 }
 
 func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
@@ -395,14 +396,13 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 			}
 		}
 	}
-	if p.RequestID != "" {
-		var r Request
-		var payload string
-		err := tx.QueryRow(`SELECT id, session_id, kind, payload, state, created_at FROM requests WHERE id = ?`, p.RequestID).Scan(&r.ID, &r.Session, &r.Kind, &payload, &r.State, &r.CreatedAt)
-		if err == nil {
-			r.Payload = json.RawMessage(payload)
-			st.Request = &r
-		} else if !errors.Is(err, sql.ErrNoRows) {
+	switch {
+	case p.RequestID != "":
+		if st.Request, err = loadRequest(tx, `id = ?`, p.RequestID); err != nil {
+			return st, err
+		}
+	case cmd.Kind == CmdDelegateStarted && p.ChildID != "":
+		if st.Request, err = loadRequest(tx, `session_id = ? AND kind = 'question' AND state = 'open' ORDER BY created_at LIMIT 1`, p.ChildID); err != nil {
 			return st, err
 		}
 	}
@@ -434,6 +434,20 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 		st.Held = append(st.Held, id)
 	}
 	return st, rows.Err()
+}
+
+func loadRequest(tx *Tx, where string, args ...any) (*Request, error) {
+	var r Request
+	var payload string
+	err := tx.QueryRow(`SELECT id, session_id, kind, payload, state, created_at FROM requests WHERE `+where, args...).Scan(&r.ID, &r.Session, &r.Kind, &payload, &r.State, &r.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.Payload = json.RawMessage(payload)
+	return &r, nil
 }
 
 // session is id's stored row with the registry's live view laid over it.

@@ -652,6 +652,33 @@ func TestAChildsQuestionQueuesANoticeAndAnAnswerCancelsIt(t *testing.T) {
 	}
 }
 
+func TestAQuestionAChildAskedBeforeItsLaunchReturnedReachesTheParent(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	var e *Engine
+	f := &fakeEffector{result: func(x Effect) (map[string]any, error) {
+		if x.Kind == EffLaunch {
+			e.AskOpened("child-1", "r1", "question", json.RawMessage(`{"questions":[{"question":"Which branch?"}]}`))
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}}
+	e = NewEngine(s, f)
+	e.Agent = agents
+	defer e.Close()
+	r, err := e.Dispatch(NewCommand("", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix it"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0].ChildID == "child-1" && ts[0].PendingQuestion == "r1"
+	})
+	waitFor(t, func() bool { return slices.Contains(f.kinds(), EffDelivery+"@p") })
+}
+
 func TestEngineDelegatesSettlesAndWakesTheParent(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
