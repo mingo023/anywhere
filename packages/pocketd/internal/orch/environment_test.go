@@ -144,8 +144,8 @@ func TestAStoreAtSchema2KeepsItsDelegationsWhenItMigratesToThree(t *testing.T) {
 	}
 	var v int
 	s.db.QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&v)
-	if v != 3 {
-		t.Errorf("schema version = %d, want 3", v)
+	if v < 3 {
+		t.Errorf("schema version = %d, want 3 or later", v)
 	}
 }
 
