@@ -52,6 +52,10 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case fsRead(FsRead)
     case fsSearch(FsSearch)
     case attachDone(AttachDone)
+    case agentDelegations(AgentDelegations)
+    case delegationUpdate(DelegationUpdate)
+    case queueList(QueueList)
+    case queueUpdate(QueueList)
     /// A message this build doesn't know, from a newer pocketd; ignored.
     case unknown(String)
 
@@ -108,6 +112,10 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "fs.read": self = .fsRead(try FsRead(from: decoder))
         case "fs.search": self = .fsSearch(try FsSearch(from: decoder))
         case "attach.done": self = .attachDone(try AttachDone(from: decoder))
+        case "agent.delegations": self = .agentDelegations(try AgentDelegations(from: decoder))
+        case "delegation.update": self = .delegationUpdate(try DelegationUpdate(from: decoder))
+        case "queue.list": self = .queueList(try QueueList(from: decoder))
+        case "queue.update": self = .queueUpdate(try QueueList(from: decoder))
         case let type: self = .unknown(type)
         }
     }
@@ -167,6 +175,9 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .fsRead(let m): try m.encode(to: encoder)
         case .fsSearch(let m): try m.encode(to: encoder)
         case .attachDone(let m): try m.encode(to: encoder)
+        case .agentDelegations(let m): try m.encode(to: encoder)
+        case .delegationUpdate(let m): try m.encode(to: encoder)
+        case .queueList(let m), .queueUpdate(let m): try m.encode(to: encoder)
         case .unknown: break
         }
     }
@@ -224,6 +235,10 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .fsRead: "fs.read"
         case .fsSearch: "fs.search"
         case .attachDone: "attach.done"
+        case .agentDelegations: "agent.delegations"
+        case .delegationUpdate: "delegation.update"
+        case .queueList: "queue.list"
+        case .queueUpdate: "queue.update"
         case .unknown(let type): type
         }
     }

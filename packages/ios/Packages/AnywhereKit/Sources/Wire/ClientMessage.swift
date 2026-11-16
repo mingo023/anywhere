@@ -71,6 +71,12 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case pushPrefs(ClientMessage.PushPrefsUpdate)
     case pushUnregister
     case pushTest
+    case agentDelegations(ClientMessage.AgentRef)
+    case queueList(ClientMessage.AgentRef)
+    case queueCancel(ClientMessage.QueueEntryRef)
+    case queueSendNow(ClientMessage.QueueEntryRef)
+    case queueEdit(ClientMessage.QueueEdit)
+    case queueReorder(ClientMessage.QueueReorder)
 
     public init(from decoder: any Decoder) throws {
         switch try decoder.container(keyedBy: TypeKey.self).decode(String.self, forKey: .type) {
@@ -145,6 +151,12 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "push.prefs": self = .pushPrefs(try ClientMessage.PushPrefsUpdate(from: decoder))
         case "push.unregister": self = .pushUnregister
         case "push.test": self = .pushTest
+        case "agent.delegations": self = .agentDelegations(try ClientMessage.AgentRef(from: decoder))
+        case "queue.list": self = .queueList(try ClientMessage.AgentRef(from: decoder))
+        case "queue.cancel": self = .queueCancel(try ClientMessage.QueueEntryRef(from: decoder))
+        case "queue.send_now": self = .queueSendNow(try ClientMessage.QueueEntryRef(from: decoder))
+        case "queue.edit": self = .queueEdit(try ClientMessage.QueueEdit(from: decoder))
+        case "queue.reorder": self = .queueReorder(try ClientMessage.QueueReorder(from: decoder))
         case let type: throw malformed(decoder, "unknown message type \(type)")
         }
     }
@@ -224,6 +236,10 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .pushPrefs(let m): try m.encode(to: encoder)
         case .pushUnregister: break
         case .pushTest: break
+        case .agentDelegations(let m), .queueList(let m): try m.encode(to: encoder)
+        case .queueCancel(let m), .queueSendNow(let m): try m.encode(to: encoder)
+        case .queueEdit(let m): try m.encode(to: encoder)
+        case .queueReorder(let m): try m.encode(to: encoder)
         }
     }
 
@@ -300,6 +316,12 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .pushPrefs: "push.prefs"
         case .pushUnregister: "push.unregister"
         case .pushTest: "push.test"
+        case .agentDelegations: "agent.delegations"
+        case .queueList: "queue.list"
+        case .queueCancel: "queue.cancel"
+        case .queueSendNow: "queue.send_now"
+        case .queueEdit: "queue.edit"
+        case .queueReorder: "queue.reorder"
         }
     }
 }

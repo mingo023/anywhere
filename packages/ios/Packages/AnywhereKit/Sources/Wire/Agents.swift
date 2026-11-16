@@ -76,6 +76,11 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
     public var goal: Goal?
     /// The model settings the agent runs on, by the agent's id for each.
     public var options: [String: String]?
+    /// The chat that delegated to this session.
+    public var parent: String?
+    public var relationship: String?
+    public var createdBy: String?
+    public var delegation: DelegationRef?
 
     public init(
         id: String, terminalId: String, title: String, cwd: String, provider: String, model: String? = nil, effort: String? = nil,
@@ -83,7 +88,8 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         compacting: Bool? = nil, pinned: Bool? = nil, epoch: Int, maxSeq: Int, resets: Int? = nil, providerSessionId: String? = nil,
         createdAt: Int, updatedAt: Int, project: String? = nil, worktree: String? = nil, mainWorktree: Bool? = nil, branch: String? = nil,
         tokensUsed: Int? = nil, contextWindow: Int? = nil, origin: String? = nil, activity: String? = nil, account: String? = nil,
-        switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil, options: [String: String]? = nil
+        switching: String? = nil, chatOnly: Bool? = nil, goal: Goal? = nil, options: [String: String]? = nil,
+        parent: String? = nil, relationship: String? = nil, createdBy: String? = nil, delegation: DelegationRef? = nil
     ) {
         self.id = id
         self.terminalId = terminalId
@@ -119,6 +125,10 @@ public struct AgentSummary: Codable, Hashable, Sendable, Identifiable {
         self.chatOnly = chatOnly
         self.goal = goal
         self.options = options
+        self.parent = parent
+        self.relationship = relationship
+        self.createdBy = createdBy
+        self.delegation = delegation
     }
 }
 
@@ -280,9 +290,12 @@ extension ClientMessage {
     public struct AgentText: Codable, Hashable, Sendable {
         public var agentId: String
         public var text: String
-        public init(agentId: String, text: String) {
+        /// On `agent.prompt`: wait for the turn to end instead of steering it.
+        public var queue: Bool?
+        public init(agentId: String, text: String, queue: Bool? = nil) {
             self.agentId = agentId
             self.text = text
+            self.queue = queue
         }
     }
 
