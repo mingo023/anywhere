@@ -1,17 +1,22 @@
 {"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["pair.v1","scopes.v1","summary.v2","host.v1","open.v1","names.v1","automations.v1","board.v1","locals.v1","fork.v1","accounts.v1","subagents.v1","settings.v1","commands.v1","access.v1","skills.v1","orchestrator.v1","hosts.v1"]}
-{"type":"agent.timeline","id":"t-parser","agentId":"parser","limit":500}
+{"type":"agent.timeline","id":"t-fix","agentId":"fix","limit":500}
+{"type":"agent.timeline","id":"t-split","agentId":"split","limit":500}
+{"type":"agent.timeline","id":"t-migrate","agentId":"migrate","limit":500}
+{"type":"agent.timeline","id":"t-crash","agentId":"crash","limit":500}
+{"type":"agent.timeline","id":"t-rn","agentId":"rn","limit":500}
+{"type":"agent.timeline","id":"t-haptics","agentId":"haptics","limit":500}
 {"type":"agent.timeline","id":"t-ios","agentId":"ios","limit":500}
 {"type":"agent.timeline","id":"t-hook","agentId":"hook","limit":500}
 {"type":"agent.timeline","id":"t-mkt","agentId":"mkt","limit":500}
 {"type":"agent.view","id":"view","agentIds":[]}
 {"type":"agent.providers","id":"providers"}
 {"type":"agent.view","id":"view","agentIds":[]}
-{"type":"local.create","id":"local","localId":"local-18e897d9ac58b618","project":"$TMPDIR/verify-anywhere.Rp7elP/home/code/app-android","name":"Local 1"}
-{"type":"agent.create","id":"create-18e897d9ac6c7c98-0","requestId":"18e897d9ac6c7c98-0","spec":{"project":"$TMPDIR/verify-anywhere.Rp7elP/home/code/app-android","checkout":{"local":"local-18e897d9ac58b618"},"provider":"claude","plan":false,"prompt":"Start","access":"settings","chat":true}}
-{"type":"agent.timeline","id":"t-new-18e897d9ac6c7c98-0","agentId":"new-18e897d9ac6c7c98-0","limit":500}
-{"type":"queue.list","id":"queue-new-18e897d9ac6c7c98-0","agentId":"new-18e897d9ac6c7c98-0"}
-{"type":"agent.prompt","id":"prompt-1","agentId":"new-18e897d9ac6c7c98-0","text":"/fixture delegate"}
-{"type":"agent.timeline","id":"t-new-18e897d9ac6c7c98-0-c1","agentId":"new-18e897d9ac6c7c98-0-c1","limit":500}
-{"type":"agent.delegations","id":"delegations-new-18e897d9ac6c7c98-0","agentId":"new-18e897d9ac6c7c98-0"}
-{"type":"agent.timeline","id":"t-new-18e897d9ac6c7c98-0-c2","agentId":"new-18e897d9ac6c7c98-0-c2","limit":500}
-{"type":"agent.timeline","id":"t-new-18e897d9ac6c7c98-0-c3","agentId":"new-18e897d9ac6c7c98-0-c3","limit":500}
+{"type":"local.create","id":"local","localId":"local-18e8a908a1e9e720","project":"$TMPDIR/verify-anywhere.7I5LBY/home/code/app-android","name":"Local 1"}
+{"type":"agent.create","id":"create-18e8a908a1f18c28-0","requestId":"18e8a908a1f18c28-0","spec":{"project":"$TMPDIR/verify-anywhere.7I5LBY/home/code/app-android","checkout":{"local":"local-18e8a908a1e9e720"},"provider":"claude","plan":false,"prompt":"Start","access":"settings","chat":true}}
+{"type":"agent.timeline","id":"t-new-18e8a908a1f18c28-0","agentId":"new-18e8a908a1f18c28-0","limit":500}
+{"type":"agent.prompt","id":"prompt-1","agentId":"new-18e8a908a1f18c28-0","text":"/fixture delegate"}
+{"type":"queue.list","id":"queue-new-18e8a908a1f18c28-0","agentId":"new-18e8a908a1f18c28-0"}
+{"type":"agent.timeline","id":"t-new-18e8a908a1f18c28-0-c1","agentId":"new-18e8a908a1f18c28-0-c1","limit":500}
+{"type":"agent.delegations","id":"delegations-new-18e8a908a1f18c28-0","agentId":"new-18e8a908a1f18c28-0"}
+{"type":"agent.timeline","id":"t-new-18e8a908a1f18c28-0-c2","agentId":"new-18e8a908a1f18c28-0-c2","limit":500}
+{"type":"agent.timeline","id":"t-new-18e8a908a1f18c28-0-c3","agentId":"new-18e8a908a1f18c28-0-c3","limit":500}

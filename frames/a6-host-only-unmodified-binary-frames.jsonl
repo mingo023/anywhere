@@ -1,0 +1,8 @@
+{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["pair.v1","scopes.v1","summary.v2","host.v1","open.v1","names.v1","automations.v1","board.v1","locals.v1","fork.v1","accounts.v1","subagents.v1","settings.v1","commands.v1","access.v1","skills.v1","orchestrator.v1","hosts.v1"]}
+{"type":"agent.timeline","id":"t-parser","agentId":"parser","limit":500}
+{"type":"agent.timeline","id":"t-ios","agentId":"ios","limit":500}
+{"type":"agent.timeline","id":"t-hook","agentId":"hook","limit":500}
+{"type":"agent.timeline","id":"t-mkt","agentId":"mkt","limit":500}
+{"type":"agent.view","id":"view","agentIds":[]}
+{"type":"agent.providers","id":"providers"}
+{"type":"agent.view","id":"view","agentIds":[]}
