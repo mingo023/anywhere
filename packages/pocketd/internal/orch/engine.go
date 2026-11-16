@@ -627,7 +627,7 @@ type Hit struct {
 	Seq     int64
 }
 
-// Search finds sessions whose conversation or title matches query, best first.
+// Search finds sessions whose conversation, title or branch matches query, best first.
 func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	var terms []string
 	for _, t := range strings.Fields(query) {
@@ -652,7 +652,7 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 		found = append(found, m)
 	}
 	rows.Close()
-	titled, err := s.Sessions(`title LIKE ? ORDER BY updated_at DESC LIMIT ?`, "%"+query+"%", limit)
+	titled, err := s.Sessions(`(title LIKE ? OR branch LIKE ?) ORDER BY updated_at DESC LIMIT ?`, "%"+query+"%", "%"+query+"%", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -660,7 +660,11 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	seen := map[string]bool{}
 	for _, t := range titled {
 		seen[t.ID] = true
-		out = append(out, Hit{Session: t, Snippet: t.Title})
+		snippet := t.Title
+		if !strings.Contains(strings.ToLower(t.Title), strings.ToLower(query)) {
+			snippet = t.Branch
+		}
+		out = append(out, Hit{Session: t, Snippet: snippet})
 	}
 	for _, m := range found {
 		if seen[m.session] || len(out) >= limit {

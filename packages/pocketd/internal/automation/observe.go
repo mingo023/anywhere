@@ -20,6 +20,8 @@ type Seen struct {
 	// prompt. An agent the desktop is showing goes idle, not done, when a turn
 	// ends, and a turn shorter than a poll is never seen working.
 	Answered bool
+	// Before is whether the turn the run's prompt starts hasn't ended, so a Done or idle status is an earlier turn's.
+	Before bool
 }
 
 // finished is a status a run never leaves.
@@ -47,6 +49,8 @@ func Step(r proto.Run, seen Seen, present, worked bool) (proto.Run, bool) {
 		next.Status, next.Why = "running", ""
 	case seen.Status == "needsYou":
 		next.Status, next.Why = "waiting", ""
+	case seen.Before:
+		next.Status, next.Why = "running", ""
 	case seen.Status == "done" || seen.Status == "idle" && (worked || seen.Answered):
 		next.Status, next.Why, next.Summary = "succeeded", "", seen.Summary
 		if seen.Failed {

@@ -161,6 +161,9 @@ func (r *Refusal) Error() string { return r.Message }
 // scope, so a refused self-approval reads as ask_open, not a missing scope.
 func (p Principal) Check(verb, asking, text string) *Refusal {
 	_, bare, _ := strings.Cut(verb, ":")
+	if p.Kind == MCP {
+		return &Refusal{proto.CodeScopeDenied, "An MCP token calls only the MCP tools, not " + bare}
+	}
 	if p.Kind == PTY && asking != "" && guarded[verb] {
 		return &Refusal{proto.CodeAskOpen, fmt.Sprintf("Terminal %s is waiting on an ask; answer it from the desktop or phone", asking)}
 	}

@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"pocketd/internal/automation"
+	"pocketd/internal/mcp"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 )
@@ -42,7 +43,11 @@ func (c *conn) feedAutomations(ctx context.Context) {
 func (c *conn) pushAutomations() {
 	c.automationMu.Lock()
 	defer c.automationMu.Unlock()
-	c.send(proto.NewAutomations(c.s.Automations.Snapshot()))
+	autos, runs := c.s.Automations.Snapshot()
+	for i := range autos {
+		autos[i].WebhookURL = mcp.WebhookURL(autos[i])
+	}
+	c.send(proto.NewAutomations(autos, runs))
 }
 
 func (c *conn) automation(m proto.ClientMessage) error {
@@ -67,10 +72,9 @@ func (c *conn) automate(m proto.ClientMessage) error {
 			return err
 		}
 		a := *m.Automation
-		// The desktop's form doesn't carry what an agent set, so an edit keeps it.
-		if old, ok := store.Automation(a.ID); ok && a.ID != "" {
-			a.CreatedBy, a.Bound, a.Webhook, a.WebhookSecret = old.CreatedBy, old.Bound, old.Webhook, old.WebhookSecret
-		}
+		// The desktop's form doesn't carry what an agent set, so an edit keeps it and a new one has none.
+		old, _ := store.Automation(a.ID)
+		a.CreatedBy, a.Bound, a.Webhook, a.WebhookSecret = old.CreatedBy, old.Bound, old.Webhook, old.WebhookSecret
 		_, err := store.Save(a, now)
 		return err
 	case "automation.enable":

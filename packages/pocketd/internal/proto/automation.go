@@ -25,7 +25,7 @@ const (
 )
 
 type Schedule struct {
-	Kind     string `json:"kind"`               // "days" | "interval"
+	Kind     string `json:"kind"`               // "days" | "interval" | "webhook"
 	Days     []int  `json:"days,omitempty"`     // days only: 0=Sun..6=Sat, non-empty, unique
 	Time     string `json:"time,omitempty"`     // days only: "HH:MM" 24h, daemon local time
 	EveryMin int    `json:"everyMin,omitempty"` // interval only: 5..10080
@@ -49,6 +49,14 @@ func (s Schedule) Valid() bool {
 		return len(s.Days) == 0 && s.Time == "" && s.EveryMin >= MinEveryMin && s.EveryMin <= MaxEveryMin
 	}
 	return false
+}
+
+// ValidFor is Valid, or a webhook-only schedule when the automation runs on a webhook.
+func (s Schedule) ValidFor(webhook bool) bool {
+	if s.Kind == "webhook" {
+		return webhook && len(s.Days) == 0 && s.Time == "" && s.EveryMin == 0
+	}
+	return s.Valid()
 }
 
 // ParseClock reads a 24h "HH:MM".
@@ -89,15 +97,19 @@ type Automation struct {
 	Bound string `json:"bound,omitempty"`
 	// Webhook runs it on a POST to /hooks/<id> on the loopback MCP port, signed with
 	// WebhookSecret (HMAC-SHA256 of the body, hex, in X-Anywhere-Signature) when one is set.
-	Webhook       bool   `json:"webhook,omitempty"`
-	WebhookSecret string `json:"webhookSecret,omitempty"`
+	// A webhook-only automation has the schedule {"kind": "webhook"} and no next run.
+	Webhook bool `json:"webhook,omitempty"`
+	// WebhookURL is where Webhook listens; the server fills it in for clients, and it isn't stored.
+	WebhookURL string `json:"webhookUrl,omitempty"`
+	// WebhookSecret never goes to a client; the store keeps it in automations.json beside the automation.
+	WebhookSecret string `json:"-"`
 }
 
 // Valid is what a client's automation.save must satisfy.
 func (a Automation) Valid() bool {
 	name := utf8.RuneCountInString(strings.TrimSpace(a.Name))
 	return name >= 1 && name <= MaxName && a.Prompt != "" && len(a.Prompt) <= MaxPrompt &&
-		providers.Get(a.Provider) != nil && a.Folder != "" && (a.Schedule.Valid() || a.Webhook && a.Schedule.Kind == "") &&
+		providers.Get(a.Provider) != nil && a.Folder != "" && a.Schedule.ValidFor(a.Webhook) &&
 		(a.Access == "" || slices.Contains(Accesses, a.Access)) && !strings.HasPrefix(a.Base, "-")
 }
 
@@ -149,7 +161,13 @@ func decodeAutomation(raw json.RawMessage, dst **Automation) bool {
 		return false
 	}
 	var a Automation
-	if json.Unmarshal(raw, &a) != nil || !a.Valid() {
+	if json.Unmarshal(raw, &a) != nil {
+		return false
+	}
+	// The form doesn't say whether an automation runs on a webhook; the server keeps what the stored one has and checks again.
+	check := a
+	check.Webhook = a.Schedule.Kind == "webhook"
+	if !check.Valid() {
 		return false
 	}
 	*dst = &a

@@ -169,9 +169,7 @@ func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, erro
 		return nil, &orch.Failure{Code: orch.CodeInvalid, Message: "Anywhere starts sessions in a project; this one is in none"}
 	}
 	spec := proto.LaunchSpec{Provider: p.Agent, Model: p.Model, Effort: p.Effort, Access: p.Access, Plan: h.planning(p.Parent), Prompt: p.Prompt, Project: project, Chat: p.Chat && providers.Get(p.Agent) != nil}
-	if p.Context != "" {
-		spec.Prompt = p.Context + "\n\n" + cmp.Or(p.Prompt, "Continue from this context. Wait for the next instruction before changing anything.")
-	}
+	spec.Prompt = firstPrompt(p.Context, p.Prompt)
 	if p.Fork != "" {
 		src, err := h.agent(p.Fork)
 		if err != nil {
@@ -206,6 +204,14 @@ func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, erro
 		}
 	}
 	return map[string]any{"childId": r.AgentID, "targetId": r.AgentID}, nil
+}
+
+// firstPrompt is what a session started from a context block is first told: the block, then the prompt.
+func firstPrompt(context, prompt string) string {
+	if context == "" {
+		return prompt
+	}
+	return context + "\n\n" + cmp.Or(prompt, "Continue from this context. Wait for the next instruction before changing anything.")
 }
 
 // planning says whether a child of parent starts in plan mode: the parent's own.
@@ -247,6 +253,14 @@ func (h *Host) head(cwd string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func (h *Host) TaskOf(session, toolUseID string) string {
+	a, err := h.Registry.Get(session)
+	if err != nil {
+		return ""
+	}
+	return a.Timeline.TaskOf(toolUseID)
 }
 
 func (h *Host) InBackground(session, id string) bool {
@@ -329,7 +343,8 @@ func (h *Host) ClaudeFlags(terminal, provider string) []string {
 		log.Printf("mcp: config for %s: %v", terminal, err)
 		return nil
 	}
-	return []string{"--mcp-config=" + path, "--allowedTools=mcp__anywhere"}
+	log.Printf("mcp: %s launches with MCP config", terminal)
+	return []string{"--mcp-config=" + path, "--allowedTools=mcp__anywhere__*"}
 }
 
 func writePrivate(path string, body []byte) error {

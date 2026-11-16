@@ -1,0 +1,44 @@
+{
+  "type": "automations",
+  "automations": [
+    {
+      "id": "au2",
+      "name": "Nightly tests",
+      "prompt": "run the tests",
+      "provider": "claude",
+      "folder": "/Users/me/app",
+      "schedule": {
+        "kind": "webhook"
+      },
+      "enabled": true,
+      "createdBy": "a1",
+      "bound": "a1",
+      "webhook": true,
+      "webhookUrl": "http://127.0.0.1:7123/hooks/au2"
+    },
+    {
+      "id": "au3",
+      "name": "Weekday check",
+      "prompt": "check the build",
+      "provider": "codex",
+      "folder": "/Users/me/app",
+      "schedule": {
+        "kind": "days",
+        "days": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "time": "09:00"
+      },
+      "enabled": true,
+      "nextRunAt": 1791450000000,
+      "createdBy": "a1",
+      "webhook": true,
+      "webhookUrl": "http://127.0.0.1:7123/hooks/au3"
+    }
+  ],
+  "runs": []
+}

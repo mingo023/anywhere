@@ -26,10 +26,25 @@ func (l *launcher) Run(ctx context.Context, e orch.Effect) (map[string]any, erro
 	l.mu.Lock()
 	l.ran = append(l.ran, e)
 	l.mu.Unlock()
-	if e.Kind == orch.EffLaunch {
+	switch e.Kind {
+	case orch.EffLaunch:
 		return map[string]any{"childId": "child", "targetId": "t-child"}, nil
+	case orch.EffForkLaunch:
+		return map[string]any{"childId": "fork", "targetId": "t-fork"}, nil
 	}
 	return nil, nil
+}
+
+func (l *launcher) effects(kind string) []orch.Effect {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []orch.Effect
+	for _, e := range l.ran {
+		if e.Kind == kind {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func (l *launcher) launches() []orch.Effect {
@@ -48,20 +63,40 @@ type host struct {
 	engine *orch.Engine
 	parent proto.AgentSummary
 	sched  Schedules
+
+	mu         sync.Mutex
+	others     map[string]proto.AgentSummary
+	items      map[string][]proto.Item
+	tasks      map[string]string // "session/toolUseId" to task id
+	background map[string]bool
 }
 
 func (h *host) Engine() *orch.Engine { return h.engine }
 func (h *host) SessionIn(terminal string) (proto.AgentSummary, bool) {
 	return h.parent, terminal == h.parent.TerminalID
 }
-func (h *host) Summary(id string) (proto.AgentSummary, bool) { return h.parent, id == h.parent.ID }
-func (h *host) Items(string) []proto.Item                    { return nil }
-func (h *host) Agents() []AgentKind {
-	return []AgentKind{{ID: "claude", Installed: true, Parent: true, Access: proto.Accesses}, {ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
+func (h *host) Summary(id string) (proto.AgentSummary, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if id == h.parent.ID {
+		return h.parent, true
+	}
+	s, ok := h.others[id]
+	return s, ok
 }
-func (h *host) InBackground(string, string) bool { return false }
-func (h *host) Dirty(string) bool                { return false }
-func (h *host) Schedules() Schedules             { return h.sched }
+func (h *host) Items(id string) []proto.Item {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.items[id]
+}
+func (h *host) Agents() []AgentKind {
+	return []AgentKind{{ID: "claude", Installed: true, Parent: true, Access: proto.Accesses}, {ID: "codex", Installed: true, Parent: true, Access: []string{"ask", "edits", "full"}},
+		{ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
+}
+func (h *host) InBackground(_, id string) bool          { return h.background[id] }
+func (h *host) TaskOf(session, toolUseID string) string { return h.tasks[session+"/"+toolUseID] }
+func (h *host) Dirty(string) bool                       { return false }
+func (h *host) Schedules() Schedules                    { return h.sched }
 
 type fixture struct {
 	srv    *httptest.Server
@@ -69,9 +104,14 @@ type fixture struct {
 	store  *orch.Store
 	eff    *launcher
 	token  string
+	engine *orch.Engine
+	host   *host
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T) *fixture { return newFixtureAs(t, "working", "full") }
+
+// newFixtureAs is a fixture whose calling session is in status with access.
+func newFixtureAs(t *testing.T, status, access string) *fixture {
 	t.Helper()
 	store, err := orch.OpenPath(filepath.Join(t.TempDir(), "orchestrator.db"))
 	if err != nil {
@@ -80,13 +120,17 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { store.Close() })
 	eff := &launcher{}
 	e := orch.NewEngine(store, eff)
-	parent := proto.AgentSummary{ID: "parent", TerminalID: "t-parent", Provider: "claude", Access: "full", Status: "working", Project: "/repo", Cwd: "/repo"}
-	e.Agent = func(string) orch.AgentInfo { return orch.AgentInfo{Known: true, Access: []string{"ask", "full"}} }
+	parent := proto.AgentSummary{ID: "parent", TerminalID: "t-parent", Provider: "claude", Access: access, Status: status, Project: "/repo", Cwd: "/repo"}
+	h := &host{engine: e, parent: parent, others: map[string]proto.AgentSummary{}, items: map[string][]proto.Item{}, tasks: map[string]string{}, background: map[string]bool{}}
+	e.Agent = func(string) orch.AgentInfo {
+		return orch.AgentInfo{Known: true, Access: []string{"ask", "edits", "auto", "full"}}
+	}
 	e.Live = func(id string) (orch.Session, bool) {
-		if id != parent.ID {
+		s, ok := h.Summary(id)
+		if !ok {
 			return orch.Session{}, false
 		}
-		return orch.Session{ID: id, Agent: "claude", Access: "full", Status: "working", Project: "/repo", Cwd: "/repo"}, true
+		return orch.Session{ID: id, Agent: s.Provider, Access: s.Access, Status: s.Status, Project: s.Project, Cwd: s.Cwd}, true
 	}
 	t.Cleanup(e.Close)
 	tokens := NewTokens(store)
@@ -94,10 +138,10 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Tokens: tokens, Tools: NewToolkit(&host{engine: e, parent: parent}), Version: "test"}
+	s := &Server{Tokens: tokens, Tools: NewToolkit(h), Version: "test"}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
-	return &fixture{srv: srv, tokens: tokens, store: store, eff: eff, token: token}
+	return &fixture{srv: srv, tokens: tokens, store: store, eff: eff, token: token, engine: e, host: h}
 }
 
 func (f *fixture) rpc(t *testing.T, path, token, body string) (*http.Response, map[string]any) {
@@ -361,5 +405,25 @@ func TestAForkMergesBackOnlyWhatItSaidSinceTheSplit(t *testing.T) {
 	}
 	if got := ids(sinceSplit(items, nil, "p", "c", &orch.Session{ID: "c", ParentID: "p", CreatedAt: 100})); got != "own" {
 		t.Errorf("parent to its child: %s", got)
+	}
+}
+
+func TestAWebhookOnlyTaskGetsTheWebhookScheduleAndIsListedWithItsURLButNotItsSecret(t *testing.T) {
+	HookBase = "http://127.0.0.1:7123"
+	t.Cleanup(func() { HookBase = "" })
+	sched := &fakeSchedules{autos: map[string]proto.Automation{}}
+	parent := proto.AgentSummary{ID: "parent", TerminalID: "t", Provider: "claude", Access: "edits", Status: "working"}
+	k := NewToolkit(&host{parent: parent, sched: sched})
+	g := Grant{Terminal: "t"}
+	if out, _ := k.Call(context.Background(), g, "schedule_task", json.RawMessage(`{"prompt":"nightly tests","webhook":true,"webhookSecret":"mine"}`)); out["isError"] == true {
+		t.Fatalf("%v", out)
+	}
+	if a := sched.autos["new"]; a.Schedule.Kind != "webhook" || !a.Webhook || !a.Schedule.ValidFor(a.Webhook) {
+		t.Fatalf("saved: %+v", a)
+	}
+	out, _ := k.Call(context.Background(), g, "list_scheduled_tasks", json.RawMessage(`{}`))
+	raw, _ := json.Marshal(out)
+	if !strings.Contains(string(raw), `"webhookUrl":"http://127.0.0.1:7123/hooks/new"`) || strings.Contains(string(raw), "mine") {
+		t.Fatalf("listed: %s", raw)
 	}
 }

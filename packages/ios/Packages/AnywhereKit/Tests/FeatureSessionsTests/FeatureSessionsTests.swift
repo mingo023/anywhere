@@ -99,6 +99,7 @@ struct AutomationTextTests {
         #expect(days([0, 5, 1]) == "Mon, Fri, Sun at 09:00")
         #expect([30, 60, 120, 1440, 2880, 90].map { AutomationText.when(.interval(everyMin: $0)) }
             == ["Every 30 minutes", "Every hour", "Every 2 hours", "Every day", "Every 2 days", "Every 90 minutes"])
+        #expect(AutomationText.when(.webhook) == "On a webhook")
     }
 
     @Test("the next run shows only while an automation is on")

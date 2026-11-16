@@ -36,6 +36,8 @@ func hash(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// Issue gives terminal a fresh token and revokes its older ones: a session
+// restored or relaunched has no use for the token its dead process held.
 func (t *Tokens) Issue(terminal, agent string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -44,6 +46,9 @@ func (t *Tokens) Issue(terminal, agent string) (string, error) {
 	token := "anyw_" + hex.EncodeToString(b)
 	now := t.now().UnixMilli()
 	err := t.store.Tx(func(tx *orch.Tx) error {
+		if _, err := tx.Exec(`UPDATE tokens SET revoked = 1 WHERE session_id = ?`, terminal); err != nil {
+			return err
+		}
 		_, err := tx.Exec(`INSERT INTO tokens (hash, session_id, agent, issued_at, last_alive) VALUES (?, ?, ?, ?, ?)`, hash(token), terminal, agent, now, now)
 		return err
 	})

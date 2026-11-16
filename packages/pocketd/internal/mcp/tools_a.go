@@ -194,7 +194,7 @@ func groupA() []Tool {
 			Schema:      `{"type":"object","properties":{"allProjects":{"type":"boolean"},"statuses":{"type":"array","items":{"type":"string"}},"titleContains":{"type":"string"},"includeSubagents":{"type":"boolean"},"includeClosed":{"type":"boolean"},"cursor":{"type":"integer"},"limit":{"type":"integer","maximum":100}}}`,
 			Run:         threadList},
 		{Name: "anywhere_thread_search", Group: "A",
-			Description: "Search sessions' conversations and titles. Delegated children are left out.",
+			Description: "Search sessions' conversations, titles and branch names. Delegated children are left out.",
 			Schema:      `{"type":"object","required":["query"],"properties":{"query":{"type":"string"},"allProjects":{"type":"boolean"},"limit":{"type":"integer","maximum":50}}}`,
 			Run:         threadSearch},
 		{Name: "anywhere_thread_read", Group: "A",
@@ -377,13 +377,18 @@ func taskCancel(ctx context.Context, c *Call) (any, error) {
 	if !descends(c, t.ParentID) {
 		return nil, fail(orch.CodeForbidden, "That task wasn't delegated from this session or one under it")
 	}
+	out := map[string]any{"taskId": t.TaskID, "status": t.Status}
+	if t.ChildID != "" {
+		out["threadId"], out["link"] = t.ChildID, Link(t.ChildID)
+	}
 	if t.Terminal() {
-		return map[string]string{"taskId": t.TaskID, "status": t.Status}, nil
+		return out, nil
 	}
 	if _, err := c.Host.Engine().Dispatch(orch.NewCommand(commandID(c, "task_cancel", p.ClientRequestID), orch.CmdDelegateCancel, t.ParentID, orch.TaskPayload{TaskID: t.TaskID})); err != nil {
 		return nil, err
 	}
-	return map[string]string{"taskId": t.TaskID, "status": "cancel_requested"}, nil
+	out["status"] = "cancel_requested"
+	return out, nil
 }
 
 // launched waits for a session.create to start its session, within the call's budget.
@@ -681,6 +686,9 @@ func threadRead(ctx context.Context, c *Call) (any, error) {
 		switch {
 		case activity && it.Kind == "tool" && it.Call != nil:
 			m = map[string]any{"position": it.Seq, "kind": "tool", "tool": it.Call.Name, "toolUseId": it.Call.ToolUseID, "status": it.Call.Status, "detail": it.Call.Detail}
+			if id := c.Host.TaskOf(sum.ID, it.Call.ToolUseID); id != "" {
+				m["taskId"] = id
+			}
 			if it.Call.Output != nil {
 				m["output"] = clip(*it.Call.Output, per)
 			}
@@ -787,7 +795,7 @@ func threadInterrupt(ctx context.Context, c *Call) (any, error) {
 	if _, err := c.Host.Engine().DispatchWait(orch.Command{Kind: orch.CmdTurnInterrupt, Session: sum.ID}, 10*time.Second); err != nil {
 		return nil, err
 	}
-	return map[string]any{"threadId": sum.ID, "status": "interrupt_requested"}, nil
+	return map[string]any{"threadId": sum.ID, "link": Link(sum.ID), "status": "interrupt_requested"}, nil
 }
 
 func threadConfigure(ctx context.Context, c *Call) (any, error) {
@@ -805,7 +813,7 @@ func threadConfigure(ctx context.Context, c *Call) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	current := map[string]any{"threadId": sum.ID, "agent": sum.Provider, "model": sum.Model, "effort": sum.Effort, "options": sum.Options, "access": sum.Access}
+	current := map[string]any{"threadId": sum.ID, "link": Link(sum.ID), "agent": sum.Provider, "model": sum.Model, "effort": sum.Effort, "options": sum.Options, "access": sum.Access}
 	if p.Agent == "" && p.Model == "" && p.Effort == "" && len(p.Options) == 0 {
 		return current, nil
 	}
@@ -816,7 +824,7 @@ func threadConfigure(ctx context.Context, c *Call) (any, error) {
 		return nil, err
 	}
 	now, _ := c.Host.Summary(sum.ID)
-	return map[string]any{"threadId": sum.ID, "agent": now.Provider, "model": now.Model, "effort": now.Effort, "options": now.Options}, nil
+	return map[string]any{"threadId": sum.ID, "link": Link(sum.ID), "agent": now.Provider, "model": now.Model, "effort": now.Effort, "options": now.Options}, nil
 }
 
 func pendingRequest(ctx context.Context, c *Call) (any, error) {
@@ -855,7 +863,7 @@ func pendingRequest(ctx context.Context, c *Call) (any, error) {
 				qs = append(qs, map[string]any{"requestId": r.ID, "question": json.RawMessage(r.Payload), "createdAt": r.CreatedAt})
 			}
 		}
-		return map[string]any{"threadId": id, "questions": qs}, nil
+		return map[string]any{"threadId": id, "link": Link(id), "questions": qs}, nil
 	}
 	if len(p.Answers) == 0 {
 		return nil, fail(orch.CodeInvalid, "answers can't be empty")
@@ -863,7 +871,7 @@ func pendingRequest(ctx context.Context, c *Call) (any, error) {
 	if _, err := c.Host.Engine().DispatchWait(orch.NewCommand("", orch.CmdRequestAnswer, id, orch.RequestPayload{RequestID: p.RequestID, Decision: "allow", Answers: p.Answers}), 10*time.Second); err != nil {
 		return nil, err
 	}
-	return map[string]any{"threadId": id, "requestId": p.RequestID, "status": "answered"}, nil
+	return map[string]any{"threadId": id, "link": Link(id), "requestId": p.RequestID, "status": "answered"}, nil
 }
 
 func queueTool(ctx context.Context, c *Call) (any, error) {
@@ -900,5 +908,5 @@ func queueTool(ctx context.Context, c *Call) (any, error) {
 	if entries == nil {
 		entries = []orch.QueueEntry{}
 	}
-	return map[string]any{"threadId": sum.ID, "entries": entries}, nil
+	return map[string]any{"threadId": sum.ID, "link": Link(sum.ID), "entries": entries}, nil
 }

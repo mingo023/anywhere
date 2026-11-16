@@ -16,6 +16,8 @@ enum AutomationText {
             if m > 0 && m % 1440 == 0 { return every(m / 1440, "day") }
             if m > 0 && m % 60 == 0 { return every(m / 60, "hour") }
             return every(m, "minute")
+        case .webhook:
+            return "On a webhook"
         }
     }
 
