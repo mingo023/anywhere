@@ -451,6 +451,15 @@ func TestAPublishedResultNeverChanges(t *testing.T) {
 	}
 }
 
+func TestALaunchThatFailsAfterItsTaskSettledChangesNothing(t *testing.T) {
+	st := parentState("working", 0)
+	st.Task = &Delegation{TaskID: "t", ParentID: "p", Status: TaskFailed, Error: "devbox was removed", Delivery: DeliverReturned}
+	d, err := decide(st, NewCommand("", CmdDelegateFailed, "p", TaskPayload{TaskID: "t", Error: "That host isn't added"}))
+	if err != nil || len(d.Delegations) != 0 || len(d.Follow) != 0 {
+		t.Fatalf("a settled task changed: %+v %v", d, err)
+	}
+}
+
 func TestSettleWakesAnAsyncParentAndAWaitingOneReadsItThroughTheWait(t *testing.T) {
 	st := parentState("working", 0)
 	st.Parent = st.Session

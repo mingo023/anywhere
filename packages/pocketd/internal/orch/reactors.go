@@ -92,6 +92,20 @@ func (e *Engine) FailOrphans() {
 	}
 }
 
+// FailHost fails each unsettled task on host, which was removed, so nothing will settle them; name is how the
+// task's error names it.
+func (e *Engine) FailHost(host, name string) {
+	ts, err := e.store.Delegations(`status IN ('queued', 'starting', 'working') AND environment_id = ?`, host)
+	if err != nil {
+		log.Printf("orch: tasks on %s: %v", host, err)
+		return
+	}
+	for _, t := range ts {
+		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, TaskPayload{TaskID: t.TaskID, Status: TaskFailed, Error: "The host " + name + " was removed"}))
+	}
+	e.pumpOthers("")
+}
+
 // pumpOthers lets every other chat with a queued task use the room a settled
 // task left under the per-Mac limit, oldest queue first.
 func (e *Engine) pumpOthers(parent string) {

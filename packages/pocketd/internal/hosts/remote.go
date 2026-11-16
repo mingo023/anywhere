@@ -22,6 +22,8 @@ type Mirror interface {
 	Answered(session, request string)
 	// Live is host's sessions mirrored here that haven't closed, as last stored.
 	Live(host string) []proto.AgentSummary
+	// Removed is host forgotten, with name as it was shown.
+	Removed(host, name string)
 }
 
 var errInvalidID = errors.New("The host sent an id this Mac doesn't take")
