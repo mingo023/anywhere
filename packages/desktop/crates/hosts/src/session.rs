@@ -106,6 +106,16 @@ fn tag_summary(host: &str, a: &mut Summary) {
     if !a.cwd.is_empty() {
         a.cwd = crate::place(host, &a.cwd);
     }
+    if !a.parent.is_empty() {
+        a.parent = tag(host, &a.parent);
+    }
+}
+
+fn tag_delegation(host: &str, d: &mut agents::delegations::Delegation) {
+    d.parent_id = tag(host, &d.parent_id);
+    if !d.child_id.is_empty() {
+        d.child_id = tag(host, &d.child_id);
+    }
 }
 
 /// An agent event from host `host`'s pocketd in the desktop's terms, as `tag_msg`; false for news only this Mac's pocketd gives: pairing, the phone, Locals, automations.
@@ -129,6 +139,14 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(agent);
         }
         Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } | Event::RemoteControl { agent, .. } => t(agent),
+        Event::Delegations { agent, items } => {
+            t(agent);
+            items.iter_mut().for_each(|d| tag_delegation(host, d));
+        }
+        Event::Delegated { agent, delegation } => {
+            t(agent);
+            tag_delegation(host, delegation);
+        }
         Event::Skills { project, .. } => *project = crate::place(host, project),
         Event::Names(names) => *names = std::mem::take(names).into_iter().map(|(path, name)| (crate::place(host, &path), name)).collect(),
         Event::Connected { .. } | Event::SettingsFailed(_) | Event::Btw { .. } => {}
@@ -248,6 +266,10 @@ impl Outboxes {
 
     pub fn commands(&self, agent_id: &str) {
         self.by_id(agent_id, |o, id| o.commands(id));
+    }
+
+    pub fn delegations(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.delegations(id));
     }
 
     pub fn skills(&self, provider: &str, account: &str, project: &str) {
@@ -420,6 +442,17 @@ mod tests {
 
         assert!(!tag_event("devbox", &mut Event::Paired("iPhone".into())));
         assert!(!tag_event("devbox", &mut Event::Locals(Vec::new())));
+    }
+
+    #[test]
+    fn a_hosts_children_and_delegations_name_its_sessions_by_their_tagged_ids() {
+        let mut list = Event::Agent(Box::new(Summary { id: "a2".into(), parent: "a1".into(), ..Summary::default() }));
+        assert!(tag_event("devbox", &mut list));
+        assert!(matches!(list, Event::Agent(a) if a.id == "devbox/a2" && a.parent == "devbox/a1"));
+        let task = agents::delegations::Delegation { parent_id: "a1".into(), child_id: "a2".into(), ..Default::default() };
+        let mut update = Event::Delegated { agent: "a1".into(), delegation: task };
+        assert!(tag_event("devbox", &mut update));
+        assert!(matches!(update, Event::Delegated { agent, delegation } if agent == "devbox/a1" && delegation.parent_id == "devbox/a1" && delegation.child_id == "devbox/a2"));
     }
 
     fn outboxes() -> (Outboxes, std::sync::mpsc::Receiver<Value>, std::sync::mpsc::Receiver<Value>) {

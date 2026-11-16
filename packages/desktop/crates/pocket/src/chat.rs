@@ -19,7 +19,7 @@ mod reveal;
 mod selectable;
 mod shimmer;
 mod sticky;
-mod sub_agent;
+pub(crate) mod sub_agent;
 mod thinking;
 mod timeline;
 mod todos;
@@ -180,9 +180,11 @@ impl Desktop {
             Some(agent) => self.arriving(agent, crate::creating::DOCK, composer, window, cx),
             None => composer,
         };
+        let crumb = agent.as_ref().and_then(|agent| self.delegated_crumb(agent, cx));
+        let panel = agent.as_ref().and_then(|agent| self.delegated_panel(agent, window, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
         let drop = self.chat_drop_zone(terminal, cx);
-        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(transcript).child(composer).children(files).children(drop)
+        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).children(crumb).child(transcript).child(composer).children(panel).children(files).children(drop)
     }
 }
 

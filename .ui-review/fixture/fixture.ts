@@ -2,7 +2,8 @@
 // pocketd (unix socket + phone websocket) under <dir>/pocket. Usage: bun fixture.ts <scenario> <dir>
 // The chat scenario's agent starts with the items of chat/$FIXTURE_CHAT.json (default every-tool-kind);
 // prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
-// "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn) or "stream-code" (a reply whose code block streams in over 4.5s).
+// "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn), "stream-code" (a reply whose code block streams in over 4.5s)
+// or "delegate" (the agent hands three sessions to others: they appear under it, one asks "Which test runner?", one finishes, one fails, and pocketd tells the chat of each).
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -302,7 +303,11 @@ const ACCOUNTS = [
   { id: "work", provider: "claude", label: "Work", email: "work@example.com", plan: "Team", signedIn: true, usage: usage(100, 64) },
 ];
 
+// The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.
+const conns = new Set<Socket>();
 const ops = (c: Socket, first: Buffer) => {
+  conns.add(c);
+  c.on("close", () => conns.delete(c));
   let buf = "";
   const read = (raw: Buffer) => {
     const lines = (buf + raw.toString()).split("\n");
@@ -399,6 +404,74 @@ const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.en
   }, 30);
   streams.set(agentId, timer);
 };
+// As pocketd's orchestrator: the agent delegates three tasks, each a session of its own, and what they report comes back as deliveries in its timeline.
+type Task = { taskId: string; parentId: string; childId: string; title: string; agent: string; model?: string; status: string; summary?: string; error?: string; question?: string; createdAt: number; settledAt?: number };
+const tasks = new Map<string, Task[]>();
+const childTimelines = new Map<string, Item[]>();
+const childItems = new Map<string, Item[]>();
+const TASKS: [string, Provider, string, string][] = [
+  ["Write the tests", "codex", "gpt-5.5", "Write unit tests for the login redirect in src/auth/redirect.ts."],
+  ["Review the diff", "claude", "claude-sonnet-5-5", "Review the diff on this branch and list what could break."],
+  ["Update the docs", "opencode", "opencode/big-pickle", "Update docs/auth.md for the new redirect behaviour."],
+];
+const announce = () => conns.forEach((c) => c.write(JSON.stringify({ ev: "terminals", items: sessions }) + "\n"));
+const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
+  Object.assign(t, patch);
+  const child = summaries.find((s) => s.id === t.childId);
+  if (child) {
+    const phase = t.status === "completed" ? "done" : t.status === "failed" ? "done" : t.question ? "needsYou" : "working";
+    Object.assign(child, { status: phase, failed: t.status === "failed", delegation: { taskId: t.taskId, status: t.status, workState: phase }, updatedAt: Date.now() });
+    ws.send(JSON.stringify({ type: "agent.update", agent: child }));
+    const ended: Item[] =
+      t.status === "completed"
+        ? [{ id: `${t.childId}-s`, kind: "assistant", text: t.summary ?? "" }, { id: `${t.childId}-r`, kind: "result", ok: true, durationMs: 1000, usage: { inputTokens: 9000, outputTokens: 400 } }]
+        : t.status === "failed"
+          ? [{ id: `${t.childId}-r`, kind: "result", ok: false, durationMs: 1000, error: t.error }]
+          : [];
+    for (const it of ended) item(ws, t.childId, it);
+    // A child opened later reads its timeline, which holds how it ended.
+    if (ended.length) childTimelines.set(t.childId, stamp(t.childId, [...childItems.get(t.childId)!, ...ended]));
+  }
+  ws.send(JSON.stringify({ type: "delegation.update", agentId: t.parentId, delegation: t }));
+};
+const deliver = (ws: Ws, t: Task, outcome: "done" | "failed" | "asks") =>
+  item(ws, t.parentId, { id: `delivery-${t.taskId}-${outcome}`, kind: "delivery", taskIds: [t.taskId], childIds: [t.childId], titles: [t.title], agents: [t.agent], outcome, ...(outcome === "asks" && { question: t.question }) });
+const delegate = (ws: Ws, parentId: string) => {
+  const parent = summaries.find((s) => s.id === parentId);
+  if (!parent) return;
+  const list: Task[] = [];
+  tasks.set(parentId, list);
+  TASKS.forEach(([title, agent, model, brief], i) => {
+    const taskId = `${parentId}-task${i + 1}`;
+    const childId = `${parentId}-c${i + 1}`;
+    setTimeout(() => {
+      const t: Task = { taskId, parentId, childId, title, agent, model, status: "starting", createdAt: Date.now() };
+      list.push(t);
+      sessions.push({ id: childId, cmd: agent, args: [], cwd: parent.cwd });
+      childItems.set(childId, [{ id: `${childId}-brief`, kind: "user", text: brief }, { id: `${childId}-a`, kind: "assistant", text: "On it." }]);
+      childTimelines.set(childId, stamp(childId, childItems.get(childId)!));
+      summaries.push({ ...parent, id: childId, terminalId: childId, title, provider: agent, model, effort: undefined, status: "working", failed: false, pinned: false, chatOnly: true, parent: parentId, relationship: "subagent", createdBy: `agent:${parentId}`, delegation: { taskId, status: "starting", workState: "working" }, createdAt: Date.now(), updatedAt: Date.now() } as (typeof summaries)[number]);
+      announce();
+      ws.send(JSON.stringify({ type: "agent.update", agent: summaries.at(-1) }));
+      ws.send(JSON.stringify({ type: "delegation.update", agentId: parentId, delegation: t }));
+    }, 250 + i * 150);
+  });
+  const at = (ms: number, f: () => void) => setTimeout(f, ms);
+  at(900, () => list.forEach((t) => setTask(ws, t, { status: "working" })));
+  at(1300, () => {
+    setTask(ws, list[0], { question: "Which test runner?" });
+    deliver(ws, list[0], "asks");
+  });
+  at(1700, () => {
+    setTask(ws, list[1], { status: "completed", summary: "Two findings", settledAt: Date.now() });
+    deliver(ws, list[1], "done");
+  });
+  at(2100, () => {
+    setTask(ws, list[2], { status: "failed", error: "opencode exited 2: provider returned 401.", settledAt: Date.now() });
+    deliver(ws, list[2], "failed");
+  });
+};
+
 const QUESTIONS = JSON.parse(readFileSync(join(import.meta.dir, "chat", "every-tool-kind.json"), "utf8")).find((i: Item) => i.id === "t9").call.detail;
 const ask = (ws: Ws, agentId: string, kind: "permission" | "question") => {
   const detail = kind === "permission" ? { kind: "shell", command: "pnpm test --filter parser", description: "Run the parser tests" } : QUESTIONS;
@@ -415,7 +488,7 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "orchestrator.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
@@ -427,6 +500,8 @@ Bun.serve({
         const code = "abcdefghijklmnopqrstuv";
         ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));
       }
+      if (f.type === "agent.delegations") ws.send(JSON.stringify({ type: "agent.delegations", id: f.id, agentId: f.agentId, items: tasks.get(f.agentId) ?? [] }));
+      if (f.type === "agent.timeline" && childTimelines.has(f.agentId)) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: childTimelines.get(f.agentId) }));
       if (f.type === "agent.timeline") {
         const a = scenario.agents.find((a) => a.id === f.agentId);
         if (a) ws.send(JSON.stringify({ type: "agent.timeline", agentId: a.id, items: timeline(a) }));
@@ -440,6 +515,11 @@ Bun.serve({
         else if (name === "clear") clear(ws, f.agentId);
         else if (name === "restart") restart(ws, f.agentId);
         else if (name === "stream-code") reply(ws, f.agentId, CODE_REPLY, 150);
+        else if (name === "delegate") {
+          item(ws, f.agentId, { id: `u-${Date.now()}`, kind: "user", text: f.text });
+          reply(ws, f.agentId, "I'll split this three ways: tests on Codex, a review of the diff on Claude, and the docs on OpenCode. Each runs as a session of its own, and what it reports comes back here.", 6);
+          delegate(ws, f.agentId);
+        }
         else if (name) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: stamp(f.agentId, chatItems(name), `${name}-`) }));
         // What pocketd sends when the agent left the foreground before the prompt reached it.
         else if (process.env.FIXTURE_REFUSE) ws.send(JSON.stringify({ type: "error", id: f.id, message: "Agent is no longer in the foreground" }));

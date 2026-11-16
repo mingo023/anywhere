@@ -1,10 +1,12 @@
 pub mod automations;
 pub mod catalogs;
+pub mod delegations;
 pub mod tickets;
 pub mod locals;
 pub mod providers;
 
 use automations::{Automation, AutomationDraft, Automations, Run};
+use delegations::{Delegation, Delegations};
 use tickets::{Board, Ticket, TicketDraft};
 use locals::Local;
 use providers::ProviderInfo;
@@ -59,6 +61,10 @@ pub struct Summary {
     pub goal: Option<Goal>,
     /// The model settings it runs on, by the agent's id for each.
     pub options: HashMap<String, String>,
+    /// The session it was delegated or forked from; empty for one the user started.
+    pub parent: String,
+    /// `subagent` or `fork`, when `parent` is set.
+    pub relationship: String,
 }
 
 /// An agent's `/goal`.
@@ -195,6 +201,14 @@ pub struct Item {
     pub items: Vec<TaskItem>,
     /// A compact's: "manual" or "auto".
     pub trigger: String,
+    /// A delivery's: the sessions, titles and agents pocketd told the chat of, side by side.
+    pub child_ids: Vec<String>,
+    pub titles: Vec<String>,
+    pub agents: Vec<String>,
+    /// A delivery's: "done", "failed" or "asks".
+    pub outcome: String,
+    /// A delivery's: what the child asks, when `outcome` is "asks".
+    pub question: String,
     /// The tool-use id of the sub-agent call this item belongs to.
     pub parent_tool_use_id: Option<String>,
 }
@@ -392,7 +406,7 @@ fn host_event(f: &Frame) -> Option<Event> {
 
 pub enum Event {
     Agents(Vec<Summary>),
-    Agent(Summary),
+    Agent(Box<Summary>),
     Items(String, Vec<Item>),
     /// The newest of a chat's items, which pocketd sends on each connect; `max_seq` is the newest seq it had then.
     Page { agent: String, items: Vec<Item>, max_seq: i64 },
@@ -445,6 +459,10 @@ pub enum Event {
     /// finishes it at.
     /// `acted` when it answers an action rather than a plain ask, as replies can cross.
     Mcp { agent: String, servers: Result<Vec<McpServer>, String>, auth_url: String, acted: bool },
+    /// Every session `agent` delegated to, sent whole.
+    Delegations { agent: String, items: Vec<Delegation> },
+    /// One of `agent`'s delegations changed.
+    Delegated { agent: String, delegation: Delegation },
     /// pocketd couldn't act on one of the agent's MCP servers; `reason` says why.
     McpActFailed { agent: String, reason: String },
 }
@@ -470,6 +488,7 @@ pub struct Agents {
     pub version: String,
     pub automations: Automations,
     pub board: Board,
+    pub delegations: Delegations,
 }
 
 impl Agents {
@@ -499,6 +518,7 @@ impl Agents {
         self.apply_from(Some(source), Event::Agents(Vec::new()));
         self.apply_from(Some(source), Event::Connected { scopes: Vec::new(), caps: Vec::new(), version: String::new() });
         self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
+        self.delegations.forget(source);
     }
 
     /// Applies an event, already tagged, from this Mac's pocketd (`None`) or host `source`'s:
@@ -520,8 +540,8 @@ impl Agents {
             Event::Agent(a) => {
                 self.drop_if_reset(&a);
                 match self.list.iter_mut().find(|x| x.id == a.id) {
-                    Some(x) => *x = a,
-                    None => self.list.push(a),
+                    Some(x) => *x = *a,
+                    None => self.list.push(*a),
                 }
             }
             Event::Items(id, items) => self.upsert(id, items),
@@ -559,6 +579,8 @@ impl Agents {
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
             Event::Board { tickets, limit } => self.board = Board { tickets, limit },
+            Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
+            Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
             Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
         }
     }
@@ -793,6 +815,7 @@ const BTW: &str = "btw-";
 const REMOTE_CONTROL: &str = "remotecontrol-";
 const MCP: &str = "mcp-";
 const MCP_ACT: &str = "mcpact-";
+const DELEGATIONS: &str = "delegations-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
@@ -854,12 +877,34 @@ const FORK_CAP: &str = "fork.v1";
 const ACCOUNTS_CAP: &str = "accounts.v1";
 const SETTINGS_CAP: &str = "settings.v1";
 const ACCESS_CAP: &str = "access.v1";
+const ORCHESTRATOR_CAP: &str = "orchestrator.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
         "automations" => Some(Event::Automations { automations: f.automations.clone(), runs: f.runs.clone() }),
         "error" if f.id.starts_with(AUTO) => Some(Event::AutomationError(readable(&f.message))),
         _ => None,
+    }
+}
+
+/// The delegation frames, read apart from `Frame`, whose `items` are timeline items.
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct DelegationFrame {
+    agent_id: String,
+    items: Vec<Delegation>,
+    delegation: Option<Delegation>,
+}
+
+fn delegation_event(kind: &str, raw: &str) -> Option<Event> {
+    if !matches!(kind, "agent.delegations" | "delegation.update") {
+        return None;
+    }
+    let f: DelegationFrame = serde_json::from_str(raw).ok()?;
+    match f.delegation {
+        Some(delegation) => Some(Event::Delegated { agent: f.agent_id, delegation }),
+        None if kind == "agent.delegations" => Some(Event::Delegations { agent: f.agent_id, items: f.items }),
+        None => None,
     }
 }
 
@@ -946,6 +991,11 @@ impl Outbox {
     /// pocketd last found, then what it finds now if that differs.
     pub fn skills(&self, provider: &str, account: &str, project: &str) {
         self.send(json!({"type": "skills.list", "id": "skills", "provider": provider, "account": account, "project": project}));
+    }
+
+    /// Asks for every session the chat delegated to.
+    pub fn delegations(&self, agent_id: &str) {
+        self.send(json!({"type": "agent.delegations", "id": format!("{DELEGATIONS}{agent_id}"), "agentId": agent_id}));
     }
 
     /// Asks how the agent's MCP servers stand.
@@ -1122,7 +1172,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 16] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1"];
+const CAPS: [&str; 17] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", ORCHESTRATOR_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1167,7 +1217,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| delegation_event(&f.kind, &raw)) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -1186,7 +1236,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
             "agent.update" => {
                 let Some(a) = f.agent else { continue };
                 fresh.push(a.id.clone());
-                Event::Agent(a)
+                Event::Agent(Box::new(a))
             }
             "agent.stream" => Event::Items(f.agent_id, f.item.into_iter().collect()),
             "agent.timeline" => Event::Page { agent: f.agent_id, items: f.items, max_seq: f.max_seq },
@@ -1286,6 +1336,44 @@ mod tests {
         Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() }
     }
 
+    macro_rules! golden_text {
+        ($name:literal) => {
+            include_str!(concat!("../../../../pocketd/internal/proto/testdata/golden/", $name))
+        };
+    }
+
+    #[test]
+    fn a_delegations_reply_and_an_update_decode_into_their_chat() {
+        let Some(Event::Delegations { agent, items }) = delegation_event("agent.delegations", golden_text!("server/agent_delegations.json")) else { panic!("no delegations") };
+        assert_eq!((agent.as_str(), items.len(), items[0].child_id.as_str()), ("a1", 2, "a2"));
+        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else { panic!("no update") };
+        assert_eq!((agent.as_str(), delegation.question.as_str()), ("a1", "Which test runner?"));
+        assert!(delegation_event("agent.list", "{}").is_none());
+    }
+
+    #[test]
+    fn delegation_events_fill_the_model_and_a_forgotten_host_takes_its_own() {
+        let mut a = Agents::default();
+        let Some(Event::Delegations { agent, items }) = delegation_event("agent.delegations", golden_text!("server/agent_delegations.json")) else { panic!() };
+        a.apply(Event::Delegations { agent, items });
+        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else { panic!() };
+        a.apply(Event::Delegated { agent, delegation });
+        assert_eq!((a.delegations.of("a1").len(), a.delegations.counts("a1").asking), (2, 1));
+        a.apply_from(Some("h"), Event::Delegations { agent: "h/a1".into(), items: a.delegations.of("a1").to_vec() });
+        a.forget("h");
+        assert_eq!((a.delegations.of("a1").len(), a.delegations.of("h/a1").len()), (2, 0));
+    }
+
+    #[test]
+    fn a_child_summary_and_a_delivery_item_decode_and_unknown_fields_stay_harmless() {
+        let f: Frame = serde_json::from_str(golden_text!("server/agent_update_delegated.json")).unwrap();
+        let a = f.agent.unwrap();
+        assert_eq!((a.parent.as_str(), a.relationship.as_str()), ("a1", "subagent"));
+        let f: Frame = serde_json::from_str(golden_text!("server/stream_delivery.json")).unwrap();
+        let i = f.item.unwrap();
+        assert_eq!((i.kind.as_str(), i.titles, i.child_ids, i.agents, i.outcome.as_str()), ("delivery", vec!["Write the tests".to_string()], vec!["a2".to_string()], vec!["codex".to_string()], "done"));
+    }
+
     #[test]
     fn the_hello_carries_an_owner_token_only_when_there_is_one() {
         assert!(hello(None).get("ownerToken").is_none());
@@ -1351,8 +1439,8 @@ mod tests {
         let mut a = Agents::default();
         let agent = |id: &str, status: &str| Summary { id: id.into(), status: status.into(), ..Default::default() };
         a.apply(Event::Agents(vec![agent("a", "idle"), agent("b", "working")]));
-        a.apply(Event::Agent(agent("a", "closed")));
-        a.apply(Event::Agent(agent("c", "closed")));
+        a.apply(Event::Agent(Box::new(agent("a", "closed"))));
+        a.apply(Event::Agent(Box::new(agent("c", "closed"))));
         assert_eq!(a.list, vec![agent("b", "working")]);
     }
 
@@ -1407,10 +1495,10 @@ mod tests {
         a.apply(Event::Agents(vec![agent("a", 0), agent("b", 0)]));
         a.apply(Event::Items("a".into(), vec![item("1", 1, "old")]));
         a.apply(Event::Items("b".into(), vec![item("1", 1, "kept")]));
-        a.apply(Event::Agent(agent("a", 0)));
+        a.apply(Event::Agent(Box::new(agent("a", 0))));
         assert_eq!(a.timelines["a"].len(), 1, "the same conversation keeps its items");
         let before = a.revision("a");
-        a.apply(Event::Agent(agent("a", 1)));
+        a.apply(Event::Agent(Box::new(agent("a", 1))));
         assert!(!a.timelines.contains_key("a") && a.revision("a") > before, "the old conversation is gone and views refold");
         a.apply(Event::Items("a".into(), vec![item("2", 2, "new")]));
         a.apply(Event::Agents(vec![agent("a", 1), agent("b", 2)]));
@@ -1549,7 +1637,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));

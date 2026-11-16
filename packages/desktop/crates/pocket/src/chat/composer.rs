@@ -322,7 +322,7 @@ fn busy(agent: &Summary, session: Option<&Session>) -> bool {
 }
 
 impl Desktop {
-    fn chat_busy(&self, agent: &Summary) -> bool {
+    pub(crate) fn chat_busy(&self, agent: &Summary) -> bool {
         busy(agent, self.chats.views.get(&agent.id).map(|v| &v.session))
     }
 

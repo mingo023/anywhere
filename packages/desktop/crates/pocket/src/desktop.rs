@@ -123,6 +123,7 @@ pub struct Desktop {
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
     pub(crate) chips: Chips,
+    pub(crate) delegated: crate::delegated::DelegatedState,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) worktrees: HashMap<String, Vec<git::Worktree>>,
     pub(crate) worktree: Option<String>,
@@ -257,6 +258,7 @@ impl Desktop {
             accounts: Accounts::default(),
             updates,
             chips,
+            delegated: crate::delegated::DelegatedState::new(),
             overlay: None,
             worktrees: HashMap::new(),
             worktree: None,
@@ -641,7 +643,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_composer_menu() || this.close_menus() {
+                if this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.delegated_escape(window, cx) {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
@@ -670,6 +672,11 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::check_for_updates))
             .on_action(cx.listener(Self::next_needs_you))
             .on_action(cx.listener(Self::go_to_up_next))
+            .on_action(cx.listener(|this, _: &crate::actions::BackToParent, window, cx| {
+                if !this.delegated_back(window, cx) {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(Self::jump_to))
             .on_action(cx.listener(Self::next_session))
             .on_action(cx.listener(Self::prev_session))

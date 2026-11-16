@@ -79,7 +79,12 @@ impl View {
         let scrolled = Rc::new(Cell::new(None));
         list.set_scroll_handler({
             let scrolled = scrolled.clone();
-            move |e, _, _| scrolled.set(Some(!e.is_scrolled))
+            let (desktop, id) = (cx.weak_entity(), agent.to_string());
+            move |e, _, cx| {
+                scrolled.set(Some(!e.is_scrolled));
+                let (desktop, id) = (desktop.clone(), id.clone());
+                cx.defer(move |cx| _ = desktop.update(cx, |d, cx| d.delegated_scrolled(&id, cx)));
+            }
         });
         let tools = cx.new(|_| Tools::default());
         let pointer = cx.new(|_| timeline::Pointer::default());
@@ -525,6 +530,7 @@ impl Desktop {
         match markdown::target(link, cwd, &self.host_agents.home_of(cwd)) {
             markdown::Target::Web(url) if self.store.terminal.system_browser => cx.open_url(&url),
             markdown::Target::Web(url) => self.open_browser(Some(url), window, cx),
+            markdown::Target::Session(id) => self.delegated_open(&id, window, cx),
             markdown::Target::File(path) => self.chat_open_file(agent, path, cwd, window.mouse_position(), cx),
         }
     }
@@ -738,6 +744,7 @@ impl Desktop {
         let (provider, model) = self.agents.get(agent).map(|a| (a.provider.clone(), crate::status::model_or_agent(a))).unwrap_or_default();
         let ask = self.agents.pending.iter().find(|p| p.agent_id == agent).map(|p| !chat::for_provider(&provider).ask(p).questions.is_empty());
         let send_now = self.chat_caps(&provider).send_now;
+        let delegated_by = self.delegated_by(agent);
         let open: markdown::Open = {
             let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
@@ -779,7 +786,13 @@ impl Desktop {
         let mut highlight = None;
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
-                Some(p) => prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, window, cx),
+                Some(p) => {
+                    let bubble = prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, window, cx);
+                    match delegated_by.filter(|_| *turn == 0) {
+                        Some((by, label)) => div().flex().flex_col().items_end().gap(px(6.)).child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_4).child(provider_icon(&by, 11., TEXT_4)).child(label)).child(bubble),
+                        None => bubble,
+                    }
+                }
                 None => div(),
             },
             Row::Fold { turn } => {
@@ -896,6 +909,10 @@ impl Desktop {
                     let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx));
                     question_marker::marker(&id, call, width, question_marker::Open { expanded: view.expanded.contains(&id), toggled, on_click }, window)
                 }
+                _ => div(),
+            },
+            Row::Delivery { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+                Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, cx),
                 _ => div(),
             },
             Row::Compacted { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {

@@ -23,7 +23,7 @@ pub struct Note {
 }
 
 pub(crate) fn noted(a: &Summary) -> Option<Status> {
-    Status::of(a).filter(Status::alerting)
+    crate::status::alert_status(a).filter(Status::alerting)
 }
 
 /// Agents that need you, then the failed and done ones nobody has seen yet, each oldest transition first.

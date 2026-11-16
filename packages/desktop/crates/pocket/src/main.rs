@@ -12,6 +12,7 @@ mod capture;
 mod chat;
 mod composer;
 mod creating;
+mod delegated;
 mod desktop;
 mod explorer;
 mod field;

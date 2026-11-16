@@ -13,6 +13,8 @@ pub enum Row {
     Notice { turn: usize },
     /// A `Block::Notice`: why the agent went on, heading the turn it set going, or an error it went on after, in place.
     Note { turn: usize, block: usize },
+    /// A `Block::Delivered`: what pocketd told the chat of the sessions it delegated to.
+    Delivery { turn: usize, block: usize },
     /// The turn's latest todo list, as a card after its work.
     Tasks { turn: usize, block: usize },
     /// One markdown block (`range` into the message text) of a Text or Plan block.
@@ -39,7 +41,7 @@ impl Row {
             Row::Fold { turn: ix } => format!("{}#fold", turn(*ix)),
             Row::Phase { turn: ix, blocks } => format!("{}#p{}", turn(*ix), blocks.start),
             Row::Text { turn: ix, block, range } => format!("{}#{block}.{}", turn(*ix), range.start),
-            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } => {
+            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } | Row::Delivery { turn: ix, block } => {
                 format!("{}#{block}", turn(*ix))
             }
             Row::End { turn: ix } => format!("{}#end", turn(*ix)),
@@ -54,6 +56,7 @@ impl Row {
             Row::Prompt { turn }
             | Row::Notice { turn }
             | Row::Note { turn, .. }
+            | Row::Delivery { turn, .. }
             | Row::Fold { turn }
             | Row::Phase { turn, .. }
             | Row::Tasks { turn, .. }
@@ -84,8 +87,10 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
         if !reported(t, ix).is_empty() {
             rows.push(Row::Notice { turn: ix });
         }
-        let lead = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. })).count();
-        rows.extend((0..lead).map(|block| Row::Note { turn: ix, block }));
+        let lead = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. } | Block::Delivered(_))).count();
+        for (block, b) in turn.blocks[..lead].iter().enumerate() {
+            plain(rows, ix, block, b);
+        }
         // A turn stopped or failed before anything came has nothing to fold.
         if folds_at(t, ix) && !(matches!(turn.end, Some(End::Failed { .. })) && turn.blocks.is_empty()) {
             rows.push(Row::Fold { turn: ix });
@@ -130,6 +135,7 @@ fn plain(rows: &mut Vec<Row>, turn: usize, b: usize, block: &Block) {
         Block::Tool(c) if matches!(c.kind, ToolKind::Question(_)) => rows.push(Row::Question { turn, block: b }),
         Block::Compacted { .. } => rows.push(Row::Compacted { turn, block: b }),
         Block::Notice { .. } => rows.push(Row::Note { turn, block: b }),
+        Block::Delivered(_) => rows.push(Row::Delivery { turn, block: b }),
         _ => {}
     }
 }
@@ -158,8 +164,13 @@ pub fn narrates(turn: &Turn, block: usize) -> bool {
     block < work_end(turn) && matches!(turn.blocks.get(block), Some(Block::Text(_)))
 }
 
+/// A block that says something happened without the agent being at work: a compaction, or news of a delegated session.
+fn aside(b: &Block) -> bool {
+    matches!(b, Block::Compacted { .. } | Block::Delivered(_))
+}
+
 fn compaction(turn: &Turn) -> bool {
-    turn.prompt.is_none() && !turn.blocks.is_empty() && turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. }))
+    turn.prompt.is_none() && !turn.blocks.is_empty() && turn.blocks.iter().all(aside)
 }
 
 /// Whether turn `ix` heads a reply with a fold: a prompt's turn, unless it steered the one before, or a turn the agent
@@ -304,9 +315,9 @@ pub fn at_work(t: &Transcript) -> bool {
     t.turns.last().is_some_and(working)
 }
 
-/// An open turn holding only a compaction is the agent tidying up between prompts, not working.
+/// An open turn holding only a compaction or a delivery is the agent tidying up between prompts, or news waiting on it, not working.
 pub(crate) fn working(turn: &Turn) -> bool {
-    turn.end.is_none() && (turn.prompt.is_some() || !turn.blocks.iter().all(|b| matches!(b, Block::Compacted { .. })))
+    turn.end.is_none() && (turn.prompt.is_some() || !turn.blocks.iter().all(aside))
 }
 
 /// 16 over the first row and 14 at each exchange; within one, 6 between parts, 10 between markdown blocks of one
@@ -318,7 +329,8 @@ pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
         (_, Row::Phase { .. } | Row::Working) => 0.,
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
-        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. }) => 8.,
+        (Row::Delivery { .. }, Row::Delivery { .. }) => 2.,
+        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. } | Row::Delivery { .. }) => 8.,
         _ => 6.,
     }
 }
@@ -458,7 +470,7 @@ fn list_item(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{End, Message, SubAgent};
+    use crate::{Child, Delivered, End, Message, Outcome, SubAgent};
 
     fn msg(text: &str) -> Message {
         Message { id: "m".into(), at: 0, text: text.into() }
@@ -747,6 +759,32 @@ mod tests {
         let t = Transcript { turns: vec![turn("u1", vec![text("Hi.")], done()), own] };
         assert_eq!(ids_of(&t)[4..], ["n1#0", "n1#fold", "n1#p1", "n1#2", "n1#p3", "n1#4.0", "n1#end"]);
         assert_eq!(rows(&t, 0, false)[4], Row::Note { turn: 1, block: 0 });
+    }
+
+    fn delivered(id: &str) -> Block {
+        Block::Delivered(Delivered { id: id.into(), outcome: Outcome::Done, question: String::new(), children: vec![Child { id: "a2".into(), title: "Write the tests".into(), agent: "codex".into() }] })
+    }
+
+    #[test]
+    fn news_of_a_delegated_session_is_one_row_with_no_fold_and_leaves_the_agent_idle() {
+        let own = Turn { prompt: None, ..turn("d1", vec![delivered("d1"), delivered("d2")], None) };
+        let t = Transcript { turns: vec![turn("u1", vec![text("Done.")], done()), own] };
+        assert_eq!(ids_of(&t)[4..], ["d1#0", "d1#1"]);
+        assert_eq!(rows(&t, 0, false)[4], Row::Delivery { turn: 1, block: 0 });
+        assert!(!at_work(&t) && live_tail(&t).is_none());
+    }
+
+    #[test]
+    fn news_ahead_of_the_turn_it_wakes_stands_before_that_turns_fold() {
+        let own = Turn { prompt: None, ..turn("d1", vec![delivered("d1"), shell(), text("Both pass.")], done()) };
+        let t = Transcript { turns: vec![own] };
+        assert_eq!(ids_of(&t), ["d1#0", "d1#fold", "d1#p1", "d1#2.0", "d1#end"]);
+    }
+
+    #[test]
+    fn news_in_the_middle_of_a_turn_stands_between_its_steps() {
+        let t = Transcript { turns: vec![turn("u1", vec![shell(), delivered("d1"), shell(), text("Done.")], done())] };
+        assert_eq!(ids_of(&t), ["u1", "u1#fold", "u1#p0", "u1#1", "u1#p2", "u1#3.0", "u1#end"]);
     }
 
     #[test]

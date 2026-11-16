@@ -1,5 +1,5 @@
 use crate::{
-    Ask, Block, Choice, Diff, DiffLine, End, LineKind, Message, Question, SubAgent, Todo, TodoStatus, ToolCall, ToolKind, ToolStatus,
+    Ask, Block, Child, Choice, Delivered, Outcome, Diff, DiffLine, End, LineKind, Message, Question, SubAgent, Todo, TodoStatus, ToolCall, ToolKind, ToolStatus,
     Transcript, Turn, Usage,
 };
 use agents::{Call, Detail, FileDiff, Item, Permission};
@@ -10,6 +10,7 @@ use std::collections::HashMap;
 /// - `user` starts a turn, and `result` ends it.
 /// - `assistant` → `Block::Text`, `thinking` → `Block::Thinking`, `tasks` → `Block::Todos`, `plan` → `Block::Plan`.
 /// - `compact` → `Block::Compacted`.
+/// - `delivery` → `Block::Delivered`, its sessions side by side.
 /// - `notice` → `Block::Notice`: its `text`, else the `error` the agent went on after.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
 /// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
@@ -194,11 +195,25 @@ fn block(item: &Item) -> Option<Block> {
         "thinking" if !blank => Block::Thinking(message(item)),
         "plan" if !blank => Block::Plan(message(item)),
         "tasks" => Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() },
+        "delivery" => Block::Delivered(delivered(item)?),
         "compact" => Block::Compacted { id: item.id.clone(), auto: item.trigger == "auto" },
         "notice" if !item.error.is_empty() => Block::Notice { message: Message { text: item.error.clone(), ..message(item) }, error: true },
         "notice" if !blank => Block::Notice { message: message(item), error: false },
         _ => return None,
     })
+}
+
+/// None for an outcome a newer pocketd added.
+fn delivered(item: &Item) -> Option<Delivered> {
+    let outcome = match item.outcome.as_str() {
+        "done" => Outcome::Done,
+        "failed" => Outcome::Failed,
+        "asks" => Outcome::Asks,
+        _ => return None,
+    };
+    let at = |list: &[String], i: usize| list.get(i).cloned().unwrap_or_default();
+    let children = (0..item.child_ids.len()).map(|i| Child { id: item.child_ids[i].clone(), title: at(&item.titles, i), agent: at(&item.agents, i) }).collect();
+    Some(Delivered { id: item.id.clone(), outcome, question: item.question.clone(), children })
 }
 
 fn todo_status(status: &str) -> TodoStatus {
@@ -566,6 +581,16 @@ mod tests {
     fn a_compact_item_becomes_a_compacted_marker() {
         let t = fold(&items(json!([{"kind": "user", "text": "go"}, {"kind": "compact", "trigger": "manual"}])));
         assert_eq!(t.turns[0].blocks, vec![Block::Compacted { id: "i2".into(), auto: false }]);
+    }
+
+    #[test]
+    fn a_delivery_item_becomes_a_block_naming_each_session_and_an_unknown_outcome_none() {
+        let t = fold(&items(json!([
+            {"kind": "delivery", "outcome": "asks", "question": "Which test runner?", "childIds": ["a2", "a3"], "titles": ["Write the tests", "Review"], "agents": ["codex", "claude"]},
+            {"kind": "delivery", "outcome": "paused", "childIds": ["a4"]},
+        ])));
+        let child = |id: &str, title: &str, agent: &str| Child { id: id.into(), title: title.into(), agent: agent.into() };
+        assert_eq!(t.turns[0].blocks, vec![Block::Delivered(Delivered { id: "i1".into(), outcome: Outcome::Asks, question: "Which test runner?".into(), children: vec![child("a2", "Write the tests", "codex"), child("a3", "Review", "claude")] })]);
     }
 
     #[test]
