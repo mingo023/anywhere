@@ -42,6 +42,7 @@ type presence struct {
 	transcript string
 	stopTail   func()
 	tailed     atomic.Int64 // how far its tail read transcript, to the end of a whole line
+	tailing    sync.Mutex   // held while its tail takes in a line, and by a handoff to keep tailed still
 	enter      time.Time
 	prompted   bool // codex started on a prompt: its first thread is its own
 	thread     string

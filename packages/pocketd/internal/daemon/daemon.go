@@ -65,6 +65,7 @@ type Daemon struct {
 	binding  sync.Mutex                    // one claude binds a transcript it found at a time
 
 	restoring map[string]*hint // by terminal id; under mu
+	held      []*presence      // the presences whose tails Handoff holds until CancelHandoff
 }
 
 // Spawn starts m in a terminal. Without m.Env it gets the login-shell

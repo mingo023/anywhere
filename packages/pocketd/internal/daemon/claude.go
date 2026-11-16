@@ -483,6 +483,8 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool, shown 
 		used, window := int64(-1), int64(0)
 		var turns claude.Turns
 		claude.Tail(ctx, path, func(line []byte) {
+			pr.tailing.Lock()
+			defer pr.tailing.Unlock()
 			read += int64(len(line)) + 1
 			pr.tailed.Store(read)
 			events := turns.Map(line)

@@ -26,7 +26,7 @@ func (d *Daemon) Handoff() ([]handoff.Terminal, error) {
 			return nil, fmt.Errorf("pause %s: %w", t.Info().ID, err)
 		}
 	}
-	d.stopTails()
+	d.holdTails()
 	saved := map[string]state.Terminal{}
 	for _, e := range d.Snapshot().Terminals {
 		saved[e.TerminalID] = e
@@ -55,25 +55,18 @@ func (d *Daemon) CancelHandoff() {
 	for _, t := range d.Terminals.All() {
 		t.Resume()
 	}
-	for _, pr := range d.presences() {
-		pr.mu.Lock()
-		if pr.transcript != "" && pr.stopTail == nil {
-			pr.stopTail = d.tail(pr, pr.transcript, "", false, pr.tailed.Load())
-		}
-		pr.mu.Unlock()
+	for _, pr := range d.held {
+		pr.tailing.Unlock()
 	}
+	d.held = nil
 }
 
-// stopTails stops each transcript tail once it has read what was written so far, so the next pocketd reads on
-// from where this one stopped.
-func (d *Daemon) stopTails() {
+// holdTails stops each transcript tail between two lines, so the next pocketd reads on from where this one
+// stopped.
+func (d *Daemon) holdTails() {
 	for _, pr := range d.presences() {
-		pr.mu.Lock()
-		if pr.stopTail != nil {
-			pr.stopTail()
-			pr.stopTail = nil
-		}
-		pr.mu.Unlock()
+		pr.tailing.Lock()
+		d.held = append(d.held, pr)
 	}
 }
 
