@@ -99,6 +99,8 @@ pub(crate) fn decode(kind: &str, raw: &str) -> Option<(String, Vec<Entry>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Outbox;
+    use serde_json::Value;
 
     macro_rules! golden_text {
         ($name:literal) => {
@@ -182,5 +184,33 @@ mod tests {
         q.replace("a1", vec![entry("b", 1., "pending")]);
         q.forget("h");
         assert!(q.of("h/a2").is_empty() && !q.of("a1").is_empty() && q.ask("h/a2"));
+    }
+
+    #[test]
+    fn queue_verbs_read_as_pocketds_goldens() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let out = Outbox::from(tx);
+        let sent = || {
+            let mut m: Value = rx.try_recv().unwrap();
+            m["id"] = Value::Null;
+            m
+        };
+        let golden = |raw: &str| {
+            let mut m: Value = serde_json::from_str(raw).unwrap();
+            m["id"] = Value::Null;
+            m
+        };
+        out.queue_list("a1");
+        assert_eq!(sent(), golden(golden_text!("client/queue_list.json")));
+        out.queue_cancel("a1", "e1");
+        assert_eq!(sent(), golden(golden_text!("client/queue_cancel.json")));
+        out.queue_send_now("a1", "e1");
+        assert_eq!(sent(), golden(golden_text!("client/queue_send_now.json")));
+        out.queue_edit("a1", "e1", "fix lint too");
+        assert_eq!(sent(), golden(golden_text!("client/queue_edit.json")));
+        out.queue_reorder("a1", "e2", "e1");
+        assert_eq!(sent(), golden(golden_text!("client/queue_reorder.json")));
+        out.prompt_queued("a1", "after this");
+        assert_eq!(sent(), golden(golden_text!("client/agent_prompt_queue.json")));
     }
 }
