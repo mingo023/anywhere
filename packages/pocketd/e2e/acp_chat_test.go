@@ -604,9 +604,13 @@ func TestAChatGrokLeavesPlanAndSwitchesFullAccessByRestartingOnItsSession(t *tes
 		h.WaitScreen(term, c.argv)
 		h.WaitScreen(term, "load: ")
 	}
+	turn := []func(Message) bool{streamOf(id, "assistant", "echo: build it"), workedThenDone(id)}
 	for try := 0; ; try++ {
 		phone.Send(map[string]any{"type": "agent.prompt", "id": fmt.Sprint("p", try), "agentId": id, "text": "build it"})
-		got := phone.WaitFor("the prompt taken", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try) })
+		got := phone.WaitFor("the prompt taken", func(m Message) bool {
+			turn = slices.DeleteFunc(turn, func(ok func(Message) bool) bool { return ok(m) })
+			return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try)
+		})
 		if got.Type == "ack" {
 			break
 		}
@@ -615,7 +619,9 @@ func TestAChatGrokLeavesPlanAndSwitchesFullAccessByRestartingOnItsSession(t *tes
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	phone.WaitAll("the turn on its session", streamOf(id, "assistant", "echo: build it"), statusOf(id, "done"))
+	if len(turn) > 0 {
+		phone.WaitAll("the turn on its session", turn...)
+	}
 	if got := timelineOf(phone, id); !slices.Contains(got, "user plan it") {
 		t.Fatalf("the session was not the same: %q", got)
 	}

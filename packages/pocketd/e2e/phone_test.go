@@ -165,6 +165,15 @@ func statusOf(agentID, status string) func(Message) bool {
 	}
 }
 
+// workedThenDone is agentID's turn ending, counted only once it has started.
+func workedThenDone(agentID string) func(Message) bool {
+	working := false
+	return func(m Message) bool {
+		working = working || statusOf(agentID, "working")(m)
+		return working && statusOf(agentID, "done")(m)
+	}
+}
+
 func (p *Phone) WaitStream(agentID, kind, text string) Message {
 	p.t.Helper()
 	return p.WaitFor(fmt.Sprintf("%s %q", kind, text), streamOf(agentID, kind, text))

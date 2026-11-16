@@ -351,9 +351,13 @@ func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSess
 				t.Fatalf("%s restarted planning:\n%s", c.provider, screen)
 			}
 			// It refuses prompts until its new process is on the session.
+			turn := []func(Message) bool{streamOf(id, "assistant", "echo: build it"), workedThenDone(id)}
 			for try := 0; ; try++ {
 				phone.Send(map[string]any{"type": "agent.prompt", "id": fmt.Sprint("p", try), "agentId": id, "text": "build it"})
-				got := phone.WaitFor("the prompt taken", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try) })
+				got := phone.WaitFor("the prompt taken", func(m Message) bool {
+					turn = slices.DeleteFunc(turn, func(ok func(Message) bool) bool { return ok(m) })
+					return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try)
+				})
 				if got.Type == "ack" {
 					break
 				}
@@ -362,7 +366,9 @@ func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSess
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-			phone.WaitAll("the turn on its full tools", streamOf(id, "assistant", "echo: build it"), statusOf(id, "done"))
+			if len(turn) > 0 {
+				phone.WaitAll("the turn on its full tools", turn...)
+			}
 			want := []string{"user plan it", "assistant echo: plan it", "result", "user build it", "assistant echo: build it", "result"}
 			if got := history(phone, id); strings.Join(got, "|") != strings.Join(want, "|") {
 				t.Fatalf("got %q", got)

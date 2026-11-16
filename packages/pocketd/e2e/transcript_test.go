@@ -11,14 +11,13 @@ func TestPhonePromptStreamsTranscript(t *testing.T) {
 	}
 
 	phone.Send(map[string]any{"type": "agent.prompt", "id": "p1", "agentId": id, "text": "hello"})
-	phone.WaitFor("ack", func(m Message) bool { return m.Type == "ack" && m.ID == "p1" })
-	phone.WaitStatus(id, "working")
 	// Stop is a hook and the stream is a tailed file, so done can come first.
-	phone.WaitAll("the turn",
+	phone.WaitAll("ack and the turn",
+		func(m Message) bool { return m.Type == "ack" && m.ID == "p1" },
 		streamOf(id, "user", "hello"),
 		streamOf(id, "assistant", "echo: hello"),
 		func(m Message) bool { return m.Type == "agent.stream" && m.Item.Kind == "result" && m.Item.OK },
-		statusOf(id, "done"),
+		workedThenDone(id),
 	)
 	h.WaitScreen(term, "echo: hello")
 }

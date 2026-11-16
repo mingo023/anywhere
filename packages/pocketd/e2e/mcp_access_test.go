@@ -64,13 +64,18 @@ func TestAnUpgradeKeepsTheMCPPortAndAChildLaunchedBeforeItStillCallsATool(t *tes
 	}
 	again := h.Owner()
 	// The child is adopted again a moment after the upgrade; until then a prompt is refused.
+	result := saysAbout(task.ChildID, `"limits"`)
+	said := false
 	h.eventually("the child takes a prompt", func() bool {
 		again.Prompt(task.ChildID, "mcp orchestrator_capabilities")
 		return again.WaitFor("the prompt's answer", func(m Message) bool {
+			said = said || result(m)
 			return m.ID == "prompt-mcp orchestrator_capabilities" && (m.Type == "ack" || m.Type == "error")
 		}).Type == "ack"
 	})
-	again.WaitFor("the child's tool result", saysAbout(task.ChildID, `"limits"`))
+	if !said {
+		again.WaitFor("the child's tool result", result)
+	}
 }
 
 func mcpPort(t *testing.T, h *Harness) int {
