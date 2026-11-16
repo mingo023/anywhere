@@ -1,0 +1,20 @@
+{
+  "type": "host.list",
+  "id": "h1",
+  "hosts": [
+    {
+      "id": "devbox",
+      "name": "devbox",
+      "target": {
+        "kind": "alias",
+        "name": "devbox"
+      },
+      "socket": "/Users/me/.coding-pocket/hosts/devbox.sock",
+      "link": {
+        "state": "online",
+        "version": "1.4.2",
+        "uptime": 259200
+      }
+    }
+  ]
+}

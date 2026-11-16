@@ -183,7 +183,7 @@ func all(goldens ...map[string]any) map[string]any {
 
 // TestServerGolden pins the exact JSON the phone decodes.
 func TestServerGolden(t *testing.T) {
-	for name, msg := range all(serverGolden, phoneServerGolden) {
+	for name, msg := range all(serverGolden, phoneServerGolden, hostsServerGolden) {
 		got, err := json.MarshalIndent(msg, "", "  ")
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

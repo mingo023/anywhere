@@ -38,12 +38,14 @@ public struct Delegation: Codable, Hashable, Sendable, Identifiable {
     public var createdAt: Int
     /// Unix milliseconds.
     public var settledAt: Int?
+    /// The host a task runs on; `childId` then carries that host's tag, `<hostId>/<theirId>`.
+    public var environmentId: String?
 
     public var id: String { taskId }
 
     public init(
         taskId: String, parentId: String, childId: String? = nil, title: String, agent: String, model: String? = nil, status: Status,
-        summary: String? = nil, error: String? = nil, question: String? = nil, createdAt: Int, settledAt: Int? = nil
+        summary: String? = nil, error: String? = nil, question: String? = nil, createdAt: Int, settledAt: Int? = nil, environmentId: String? = nil
     ) {
         self.taskId = taskId
         self.parentId = parentId
@@ -57,6 +59,7 @@ public struct Delegation: Codable, Hashable, Sendable, Identifiable {
         self.question = question
         self.createdAt = createdAt
         self.settledAt = settledAt
+        self.environmentId = environmentId
     }
 }
 

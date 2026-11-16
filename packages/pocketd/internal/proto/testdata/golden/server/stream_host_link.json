@@ -1,0 +1,13 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "host_link",
+    "id": "i3",
+    "seq": 3,
+    "ts": 3,
+    "hint": "vps",
+    "reason": "The build needs the GPU box."
+  }
+}

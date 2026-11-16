@@ -93,10 +93,13 @@ Settled with the owner on 2026-11-16 (grilling, 28 questions).
 | `outbox` | id, session, kind, payload, state (`pending` \| `running` \| `done` \| `failed` \| `retired`), attempts, last error, causing command, created |
 | `tokens` | SHA-256, session, agent, issued, last alive, expired, revoked |
 
+Hosts (P3.4): `delegations` gains `environment_id` and `host_project` (`TEXT NOT NULL DEFAULT ''`). `sessions` holds a row per remote session under its tagged id, with its `items` and `turns`, written by the mirror through the Sink; its `terminal` is always empty.
+
 ### Engine
 
 - `orch.Engine.Dispatch(cmd) (Receipt, error)`: lock the session, return an existing receipt for `cmd.ID`, call `decide(state, cmd) ([]Event, []Effect, error)`, a pure function with no `Context`, IO or clock, and commit events, projections, the receipt and outbox rows in one transaction. Then publish to the hub.
 - Commands: `session.create`, `session.close`, `message.send` (mode `auto` \| `queue` \| `steer` \| `restart`), `turn.interrupt`, `session.stop`, `session.configure`, `session.rename`, `queue.edit` / `queue.cancel` / `queue.reorder` / `queue.release`, `request.answer`, `delegation.request`, `delegation.cancel`, `delegation.wake_policy`, `transfer.fork`, `transfer.merge_back`, `session.organize`, `background.hold`.
+- Hosts (P3.4): `agent.launch`'s payload carries `environmentId` and `hostProject`. On a tagged lane, `turn.start`, `turn.interrupt`, `request.answer` and `agent.close` go to the host; other effects there are `unsupported`. There are no new commands or effect kinds: the remote path dispatches `delegation.started`, `delegation.launch_failed`, `delegation.settle`, `request.open`, `request.close`, `request.answer`, `delegation.cancel` and `message.send`.
 - Ingest: drivers and terminal observers call `Engine.Ingest(sessionID, providerEvent)`, which normalizes into the same events (`turn.started`, `item.updated`, `turn.ended`, `request.opened`, `request.closed`, `status.changed`, …) and runs reactors (finalize delegation, deliver wake, route question, send next queued).
 - Effects (each carries an idempotency key the agent sees, such as Claude's message `uuid` or Codex's client id): `agent.launch`, `turn.start`, `turn.steer`, `turn.interrupt`, `request.answer`, `pty.input`, `agent.close`, `worktree.create`, `fork.native`, `naming.run`. The worker claims the oldest `pending` row per session, with one `running` row per session at a time; sessions run in parallel. On start it retires `running` rows whose agent process is gone before claiming new work. Before an in-place upgrade hands over, the old worker stops claiming and drains `running` rows for up to 5 s; a row still `running` after the handoff goes back to `pending` only when the new pocketd hasn't ingested its echo (the prompt item, or the turn it started).
 
@@ -106,7 +109,30 @@ Settled with the owner on 2026-11-16 (grilling, 28 questions).
 - `agent.delegations {id, agentId}` → `{type:"agent.delegations", id, items:[Delegation]}`; server event `delegation.update {agentId, delegation}`.
 - Timeline item kind `delivery` (`{taskIds, childIds, outcome: done|failed|asks, question?}`).
 - Queue verbs (scope `drive`): `queue.list`, `queue.edit`, `queue.cancel`, `queue.reorder`, `queue.send_now`; server event `queue.update {agentId, entries}`.
-- Host verbs move from the desktop's tunnel to pocketd in P3 (contract in that plan).
+- Hosts (P3.4). Go `internal/proto/hosts.go`, TS `hosts.ts`, Swift `Hosts.swift`.
+  - Cap `hosts.v1`. Owner only: a phone never gets the verbs or the events. `host.v1`, `host.changed` and `HelloOK.host` keep meaning this machine.
+  - `HostTarget`: `{kind:"alias", name}` | `{kind:"address", addr, port, user?, keyFile?}`. An empty `user` signs in as this Mac's user. Neither `name`, `addr` nor `user` may start with `-` or hold whitespace.
+  - `Host`: `{id, name, target, windows?, socket, link}`. `socket` is the tunnel's local end, `<home>/hosts/<id>.sock`, which clients dial for that host's terminals, agents and files.
+  - `Link`: `{state:"connecting"}` | `{state:"online", version, uptime}` | `{state:"retrying", failure}` | `{state:"failed", failure}`. `retrying` tries again by itself; `failed` waits for `host.retry`.
+  - `failure`: `auth`, `unknown_key`, `key_changed`, `no_such_host`, `refused`, `timed_out`, `dropped`, `throttled`, `not_running`, `unpaired`, `path_too_long`, `other`.
+  - Verbs, all scope `owner` (`peer.Needs` `ws:host.*: Own`):
+    - `host.list {id}` → `{type:"host.list", id, hosts:[Host]}`.
+    - `host.add {id, target, name?}` → `{type:"host.update", id, host}`. Refuses `host_exists` (same target) and `invalid_host`. It connects at once but installs nothing.
+    - `host.remove {id, hostId, uninstall?}` → `ack`. With `uninstall` it first removes pocketd's service over ssh; a failure is refused and the host stays. Removal stops the tunnel and deletes the host's `.known_hosts`, `.token`, `.key` and `.key.pub`. Running tasks on it settle `failed`: "The host was removed".
+    - `host.retry {id, hostId}` → `ack`. Reconnects now, skipping a backoff or a `failed` wait.
+    - `host.install {id, hostId, update?, archiveDir?}` → `ack`, then `host.progress` events. Without `update`, a pocketd already running is reused; with it, the archive is installed over it. The source is `archiveDir`'s `pocketd-<os>-<arch>.tar.gz` (or `.zip`) with its `.sha256`, else this pocketd's own release version. Refuses `host_busy` while one runs.
+    - `host.sign_in {id, hostId, password}` → `ack` once the app's key is on the host, then the link reconnects. Refuses `host_ssh` with `detail` = the failure class. The password lives only in memory and in ssh's askpass environment; it is never stored, logged, echoed or sent to a client.
+  - Server messages, to owner conns with the cap, as a per-conn feed like `automations`, not `hub.Publish`:
+    - `host.list` without `id`: the whole list, on hello and after a removal or import.
+    - `host.update {host}` without `id`: one host added or changed, link included.
+    - `host.progress {hostId, update, progress:{kind, step?, text?}}`. `kind` is `step` (`step` is `detect`, `download`, `verify`, `unpack`, `link`, `service` or `start`), `warn` (`text`), `running` (reused, ends), `done` (ends) or `error` (`text`, ends).
+  - Error codes: `unknown_host`, `host_exists`, `invalid_host` (the message says what's wrong), `host_busy`, `host_ssh` (`detail` = failure class).
+  - Host-key trust has no verb. It stays trust on first use (`accept-new` into the app's `<id>.known_hosts`); `key_changed` is resolved by removing and re-adding the host.
+  - Ids from a host are tagged `<hostId>/<theirId>`. A delegation's `childId`, a launched thread's id, and the request id of a remote child's question all carry the tag. pocketd's own ids never contain `/`. A client splits on the first `/` to route to that host's tunnel.
+  - `Delegation` gains `environmentId?`: the host id of a task that runs on a host.
+  - The `target` of `delegate_task` and `anywhere_thread_launch` (MCP inputs, not wire frames): `environmentId` is live, and `projectId?` is added. With `environmentId`, `projectId` names the host's project, by path on the host or by name; the default is the host project named like the caller's project. `delegate_task` returns `environmentId` and a tagged `childId`. `create_threads` and `anywhere_thread_transfer` with `environmentId` stay `unsupported`.
+  - Timeline item kind `host_link` (`{environmentId?, hint?, reason?}`): the card `anywhere_environment_link` posts. Its button opens Settings › Hosts' add form with `hint` filled in.
+  - `host.sign_in`, `host.remove` with `uninstall` and `host.install` run ssh, so they run off the conn's read loop and reply under their own `id` when done.
 - Cap `orchestrator.v1`.
 
 ### Tools (27)
@@ -136,9 +162,9 @@ Names are T3's with `t3_` → `anywhere_`. Inputs and results follow `orchestrat
 | `list_scheduled_tasks` | B | Automation list |
 | `delete_scheduled_task` | B | Automation delete |
 | `run_scheduled_task_now` | B | Automation run |
-| `anywhere_environment_links` | B | host links |
-| `anywhere_environment_link` | B | link card |
-| `anywhere_environment_unlink` | B | host remove |
+| `anywhere_environment_links` | B | `hosts.Manager.List`: `{links:[{environmentId, label, status: reachable\|unreachable, lastError?}], notListed}` |
+| `anywhere_environment_link` | B | a `host_link` item in the caller's timeline → `{status:"pending"}`, or `{status:"linked", environmentId, label}` when the named host is already online |
+| `anywhere_environment_unlink` | B | host remove (no uninstall) → `{environmentId, removed}`. Refuses `conflict` while a task runs there |
 | `anywhere_background_wait` | C | `background.hold` |
 | `anywhere_workflow_stop` | C | `stop_task` effect |
 | `anywhere_thread_organize` | C | `session.organize` |
@@ -168,3 +194,11 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
 
 - MCP server: hand-roll the streamable HTTP subset pocketd needs, or add `github.com/modelcontextprotocol/go-sdk`. pocketd has five direct dependencies today. **Built hand-rolled** (`internal/mcp/server.go`: POST JSON-RPC, GET stream for `tools/list_changed`, bearer auth), so no dependency was added; the owner can still swap in the SDK.
 - Codex user-input questions: pocketd doesn't handle Codex's user-input request today (only Claude's `AskUserQuestion` and ACP questions, `acp/request.go:231`, reach the broker as questions). P0.3 adds it after confirming the app-server request name against codex-cli 0.163. **Added** as `item/tool/requestUserInput` (`codex/session.go`), matching the schema codex-cli 0.163 generates (`codex app-server generate-json-schema`).
+- Hosts, `host.update` (P3.4 lists it as a verb and as an event): **An event only.** Install and Update both go through `host.install {update}`.
+- Hosts, verbs beyond the plan's list: **`host.install` and `host.sign_in` are added**, since pocketd now runs ssh for them.
+- Hosts, capability name: **`hosts.v1`**, since `host.v1` already means this machine. It is defined in P3.4's wire stage and advertised with the handler.
+- Hosts, host-key trust verb: **None.** Trust on first use stays as today.
+- Hosts, "the desktop goes through pocketd" (Decisions): **For the list, links, install and sign-in.** Terminals, agents and files still go over the tunnel socket in `Host.socket`, which the desktop dials itself.
+- Hosts, where a remote worktree starts (Delegation decisions say the parent's HEAD): **The host project's default branch**, since the parent's commit may not exist there. The result warns.
+- Hosts, `anywhere_environment_link`: **Returns `pending` and no message comes back** when the user finishes the card. T3 posts the answer back; that is left out.
+- Hosts, limits: **Remote tasks count against the Mac's 12; the host's own depth limit is not enforced.** A remote child is a depth-0 session to its host's pocketd and can delegate further.

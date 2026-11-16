@@ -10,6 +10,7 @@ import { GitClient, GitServer } from "./git.js";
 import { GhClient, GhServer } from "./gh.js";
 import { FsClient, FsServer } from "./fs.js";
 import { PushClient } from "./push.js";
+import { HostsClient, HostsServer } from "./hosts.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
 export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
@@ -175,6 +176,7 @@ export const ClientMessage = Schema.Union(
   ...GhClient,
   ...FsClient,
   ...PushClient,
+  ...HostsClient,
 );
 export type ClientMessage = typeof ClientMessage.Type;
 
@@ -301,6 +303,7 @@ export const ServerMessage = Schema.Union(
   ...GitServer,
   ...GhServer,
   ...FsServer,
+  ...HostsServer,
 );
 export type ServerMessage = typeof ServerMessage.Type;
 

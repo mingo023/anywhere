@@ -56,6 +56,27 @@ struct ServerMessageTests {
         #expect(call.detail == .unknown(kind: "warp"))
     }
 
+    @Test("a failed host names why, and an online one its version and uptime")
+    func hostLinks() throws {
+        let failed = #"{"type":"host.update","host":{"id":"h","name":"h","target":{"kind":"alias","name":"h"},"socket":"/s","link":{"state":"failed","failure":"auth"}}}"#
+        guard case .hostUpdate(let update) = try decode(failed).message else { Issue.record("not an update"); return }
+        #expect(update.host.target == .alias(name: "h"))
+        #expect(update.host.link == HostLinkState(state: .failed, failure: .auth))
+        let online = #"{"type":"host.list","id":"l1","hosts":[{"id":"h","name":"h","target":{"kind":"address","addr":"10.0.4.12","port":22},"socket":"/s","link":{"state":"online","version":"1.4.2","uptime":0}}]}"#
+        guard case .hostList(let list) = try decode(online).message else { Issue.record("not a list"); return }
+        #expect(list.hosts[0].link == HostLinkState(state: .online, version: "1.4.2", uptime: 0))
+    }
+
+    @Test("a host_link item and a remote delegation carry their host")
+    func hostLinkAndEnvironment() throws {
+        let item = #"{"type":"agent.stream","agentId":"a1","epoch":1,"item":{"kind":"host_link","id":"i","seq":1,"ts":1,"hint":"vps"}}"#
+        guard case .agentStream(let stream) = try decode(item).message else { Issue.record("not a stream"); return }
+        #expect(stream.item.body == .hostLink(HostLink(hint: "vps")))
+        let update = #"{"type":"delegation.update","agentId":"a1","delegation":{"taskId":"t","parentId":"a1","childId":"devbox/a2","title":"x","agent":"codex","status":"working","createdAt":1,"environmentId":"devbox"}}"#
+        guard case .delegationUpdate(let delegation) = try decode(update).message else { Issue.record("not an update"); return }
+        #expect(delegation.delegation.environmentId == "devbox")
+    }
+
     @Test("an other tool keeps its input as any JSON")
     func otherInput() throws {
         let json = #"{"type":"agent.stream","agentId":"a1","epoch":1,"item":{"kind":"tool","id":"i","seq":1,"ts":1,"call":{"toolUseId":"u","name":"mcp__x","detail":{"kind":"other","name":"mcp__x","input":{"q":[1,"two",null,true,{"n":2.5}]}},"status":"running"}}}"#
