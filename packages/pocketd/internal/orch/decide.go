@@ -92,6 +92,8 @@ type (
 		ClientRequestID string `json:"clientRequestId,omitempty"`
 		Environment     string `json:"environmentId,omitempty"`
 		HostProject     string `json:"hostProject,omitempty"`
+		// OutsideGit is the caller's Project not being a git repository, which the tool finds.
+		OutsideGit bool `json:"outsideGit,omitempty"`
 	}
 	TaskPayload struct {
 		TaskID         string `json:"taskId"`
@@ -675,7 +677,7 @@ func delegate(st State, cmd Command, p DelegatePayload, ids *idSeq) (Decision, e
 	if isolation != "worktree" && isolation != "shared" {
 		return Decision{}, refuse(CodeInvalid, "isolation is worktree or shared")
 	}
-	if parent.Project == "" && isolation == "worktree" {
+	if (parent.Project == "" || p.OutsideGit && p.Environment == "") && isolation == "worktree" {
 		isolation = "shared"
 	}
 	mode := p.Mode

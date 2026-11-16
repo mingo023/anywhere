@@ -418,6 +418,17 @@ func (h *Host) Dirty(cwd string) bool {
 	return err == nil && len(strings.TrimSpace(string(out))) > 0
 }
 
+func (h *Host) OutsideGit(cwd string) bool { return outsideGit(h.Projects.Load(), cwd) }
+
+func outsideGit(f registry.File, cwd string) bool {
+	p, ok := worktree.Project(f, cwd)
+	if !ok {
+		return false
+	}
+	_, repo := worktree.Locate(p)
+	return !repo
+}
+
 func (h *Host) Schedules() mcp.Schedules { return h.Sched }
 
 func (h *Host) Environments() mcp.Environments { return h.Envs }

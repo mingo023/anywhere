@@ -36,6 +36,8 @@ type Host interface {
 	Agents() []AgentKind
 	// Dirty says whether cwd has uncommitted changes.
 	Dirty(cwd string) bool
+	// OutsideGit says whether the Project holding cwd isn't a git repository.
+	OutsideGit(cwd string) bool
 	// InBackground says whether id names a call of session's still running in the background.
 	InBackground(session, id string) bool
 	TaskOf(session, toolUseID string) string

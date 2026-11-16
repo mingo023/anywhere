@@ -442,6 +442,22 @@ func TestDelegationRules(t *testing.T) {
 	}
 }
 
+func TestADelegationFromAFolderOutsideGitSharesTheFolder(t *testing.T) {
+	d, err := decide(parentState("working", 0), NewCommand("c", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix it", OutsideGit: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p LaunchPayload
+	json.Unmarshal(d.Effects[0].Payload, &p)
+	if d.Delegations[0].Isolation != "shared" || p.Checkout != "shared" {
+		t.Errorf("isolation %s, checkout %s, want shared", d.Delegations[0].Isolation, p.Checkout)
+	}
+	d, _ = decide(parentState("working", 0), NewCommand("c", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "fix it", OutsideGit: true, Environment: "devbox", HostProject: "/srv/app"}))
+	if d.Delegations[0].Isolation != "worktree" {
+		t.Errorf("on a host: isolation %s, want the host's worktree", d.Delegations[0].Isolation)
+	}
+}
+
 func TestAPublishedResultNeverChanges(t *testing.T) {
 	st := parentState("working", 0)
 	st.Task = &Delegation{TaskID: "t", ParentID: "p", Status: TaskCompleted, Summary: "first"}

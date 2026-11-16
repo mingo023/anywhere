@@ -64,6 +64,8 @@ type host struct {
 	parent proto.AgentSummary
 	sched  Schedules
 	envs   Environments
+	// outsideGit is the parent's Project not being a git repository.
+	outsideGit bool
 
 	mu         sync.Mutex
 	others     map[string]proto.AgentSummary
@@ -97,6 +99,7 @@ func (h *host) Agents() []AgentKind {
 func (h *host) InBackground(_, id string) bool          { return h.background[id] }
 func (h *host) TaskOf(session, toolUseID string) string { return h.tasks[session+"/"+toolUseID] }
 func (h *host) Dirty(string) bool                       { return false }
+func (h *host) OutsideGit(string) bool                  { return h.outsideGit }
 func (h *host) Schedules() Schedules                    { return h.sched }
 func (h *host) Environments() Environments              { return h.envs }
 
@@ -282,6 +285,14 @@ func TestDelegateTaskOverHTTPLaunchesAChildWithTheBrief(t *testing.T) {
 	_, again := f.rpc(t, "/mcp", f.token, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"delegate_task","arguments":{"task":"Write the tests","title":"Tests","clientRequestId":"r1"}}}`)
 	if again["result"].(map[string]any)["structuredContent"].(map[string]any)["taskId"] != task["taskId"] {
 		t.Fatal("a retried call with the same clientRequestId made a second task")
+	}
+}
+
+func TestADelegationFromAProjectOutsideGitSharesItsFolder(t *testing.T) {
+	f := newFixture(t)
+	f.host.outsideGit = true
+	if task := f.ok(t, "delegate_task", `{"task":"Write the tests"}`); task["isolation"] != "shared" {
+		t.Fatalf("task = %v", task)
 	}
 }
 

@@ -328,7 +328,7 @@ func delegateTask(ctx context.Context, c *Call) (any, error) {
 	e := c.Host.Engine()
 	r, err := e.Dispatch(orch.NewCommand(commandID(c, "delegate_task", p.ClientRequestID), orch.CmdDelegate, c.Caller.ID, orch.DelegatePayload{
 		Agent: agent, Model: p.Target.Model, Effort: p.Target.Effort, Title: p.Title, Brief: p.Task, Role: p.Role, Isolation: p.Isolation, Mode: p.Mode, CompletionWake: p.CompletionWake, ClientRequestID: p.ClientRequestID,
-		Environment: p.Target.Environment, HostProject: hostProject}))
+		Environment: p.Target.Environment, HostProject: hostProject, OutsideGit: c.Host.OutsideGit(c.Caller.Cwd)}))
 	if err != nil {
 		return nil, err
 	}

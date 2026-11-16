@@ -13,6 +13,7 @@ import (
 
 	"pocketd/internal/mcp"
 	"pocketd/internal/orch"
+	"pocketd/internal/registry"
 	"pocketd/internal/timeline"
 )
 
@@ -166,5 +167,22 @@ func TestAColdRestartDropsTheBackgroundTasksItsAgentsNoLongerRun(t *testing.T) {
 	}
 	if tasks, _, _ := store.Held(); len(tasks) != 0 {
 		t.Fatalf("held %v after a cold restart", tasks)
+	}
+}
+
+func TestOnlyAProjectThatIsAGitRepositoryCountsAsInsideGit(t *testing.T) {
+	folder, repo := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := registry.File{Projects: []string{folder, repo}}
+	if !outsideGit(f, filepath.Join(folder, "src")) {
+		t.Error("a folder Project counted as a git repository")
+	}
+	if outsideGit(f, repo) {
+		t.Error("a repository Project counted as outside git")
+	}
+	if outsideGit(f, "/nowhere") {
+		t.Error("a cwd in no Project counted as outside git")
 	}
 }
