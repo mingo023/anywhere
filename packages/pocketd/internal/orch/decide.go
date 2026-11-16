@@ -34,6 +34,7 @@ type State struct {
 	Self     AgentInfo // the session's own agent
 	Target   AgentInfo // the payload's agent
 	Held     []string  // task ids the session holds
+	Starting bool      // a turn start the session was sent is still out
 }
 
 // Decision is what a command does: facts, row writes, effects and the
@@ -431,7 +432,7 @@ func nextOrd(q []QueueEntry) float64 {
 
 // drain sends the next pending entry once the session is idle.
 func drain(st State, cmd Command) (Decision, error) {
-	if st.Session == nil || st.Session.Busy() || st.Session.ClosedAt > 0 {
+	if st.Session == nil || st.Session.Busy() || st.Starting || st.Session.ClosedAt > 0 {
 		return Decision{}, nil
 	}
 	if slices.ContainsFunc(st.Queue, func(e QueueEntry) bool { return e.State == EntrySending }) {

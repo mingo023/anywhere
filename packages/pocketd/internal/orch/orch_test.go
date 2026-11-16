@@ -1149,6 +1149,29 @@ func TestAQueuedMessageTheAgentRefusesStaysQueued(t *testing.T) {
 	})
 }
 
+func TestAQueuedMessageWaitsForATurnStillStartingInsteadOfGoingOutBesideIt(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "a", Agent: "claude", Status: "working"})
+	f := &fakeEffector{hold: make(chan struct{})}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	defer e.Close()
+	defer close(f.hold)
+	if _, err := e.Dispatch(NewCommand("", CmdMessageSend, "a", SendPayload{Text: "queued", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	putSession(t, s, Session{ID: "a", Agent: "claude", Status: "idle"})
+	if _, err := e.Dispatch(NewCommand("", CmdMessageSend, "a", SendPayload{Text: "now", Mode: "steer"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Dispatch(Command{Kind: CmdQueueDrain, Session: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if q, _ := s.Queue("a", true); len(q) != 1 || q[0].State != EntryPending {
+		t.Fatalf("queue while the turn starts: %+v", q)
+	}
+}
+
 func TestAQueuedTaskKeepsTheModelAndEffortItAskedFor(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})

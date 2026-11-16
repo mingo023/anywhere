@@ -435,6 +435,9 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 		(SELECT COUNT(*) FROM sessions WHERE created_by = 'agent' AND relationship IN ('', 'fork') AND closed_at = 0 AND status IN ('working', 'needsYou'))`, EffLaunch, EffForkLaunch).Scan(&st.Running); err != nil {
 		return st, err
 	}
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM outbox WHERE session_id = ? AND kind = ? AND state IN ('pending', 'running'))`, cmd.Session, EffTurnStart).Scan(&st.Starting); err != nil {
+		return st, err
+	}
 	rows, err := tx.Query(`SELECT task_id FROM held WHERE session_id = ?`, cmd.Session)
 	if err != nil {
 		return st, err
