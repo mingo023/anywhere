@@ -46,10 +46,11 @@ type Message struct {
 		Relationship      string `json:"relationship"`
 	} `json:"agent"`
 	Delegation struct {
-		TaskID  string `json:"taskId"`
-		ChildID string `json:"childId"`
-		Status  string `json:"status"`
-		Summary string `json:"summary"`
+		TaskID        string `json:"taskId"`
+		ChildID       string `json:"childId"`
+		Status        string `json:"status"`
+		Summary       string `json:"summary"`
+		EnvironmentID string `json:"environmentId"`
 	} `json:"delegation"`
 	Agents []struct {
 		ID       string `json:"id"`

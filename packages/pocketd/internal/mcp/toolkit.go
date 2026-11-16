@@ -41,6 +41,24 @@ type Host interface {
 	// TaskOf is the background task id of session's call toolUseID, "" when it has none.
 	TaskOf(session, toolUseID string) string
 	Schedules() Schedules
+	// Environments is the linked hosts; nil when there are none to link.
+	Environments() Environments
+}
+
+// Environment is a linked host as the tools describe it. State is its link's; Error says why it isn't online.
+type Environment struct {
+	ID, Label, State, Error string
+}
+
+// Environments are the linked hosts, as the tools that run work on them see them.
+type Environments interface {
+	List() []Environment
+	// Projects is a host's projects, as its pocketd lists them.
+	Projects(ctx context.Context, id string) ([]proto.Project, error)
+	// Remove unlinks a host, uninstalling nothing there.
+	Remove(id string) error
+	// Card posts in session's chat the card that asks the user to link a host.
+	Card(session string, l proto.HostLink) error
 }
 
 // Schedules are Automations, as the schedule tools see them.
