@@ -36,10 +36,10 @@ type Scheduler struct {
 	Watch      Watcher
 	// Post puts the prompt of an automation bound to a session into it; ok is false
 	// when that session is gone or runs with broader access, and the run starts a new one.
-	// after is the session's timeline seq before the prompt went in.
-	Post func(runID string, a proto.Automation) (res launch.Result, after int64, ok bool)
-	// Turn follows a posted run's own turn, the first after seq after, not the session's earlier ones.
-	Turn func(after int64) Watcher
+	// after is the session's timeline seq before the prompt went in, and prompt the prompt when it queued behind others.
+	Post func(runID string, a proto.Automation) (res launch.Result, after int64, prompt string, ok bool)
+	// Turn follows a posted run's own turn, as TurnWatcher finds it, not the session's earlier ones.
+	Turn func(after int64, prompt string) Watcher
 	// OnFinish runs once a run has finished, with it as stored.
 	OnFinish func(proto.Run)
 
@@ -97,7 +97,7 @@ func (s *Scheduler) Resume() {
 		if (r.Status == "running" || r.Status == "waiting") && r.AgentID != "" {
 			watch := s.Watch
 			if r.TurnAfter > 0 {
-				watch = s.Turn(r.TurnAfter)
+				watch = s.Turn(r.TurnAfter, r.TurnPrompt)
 			}
 			go s.observe(r.ID, watch, true, reattachWait)
 		}
@@ -108,10 +108,11 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 	watch := s.Watch
 	var res launch.Result
 	var after int64
+	var prompt string
 	posted := false
 	if a.Bound != "" && s.Post != nil {
-		if res, after, posted = s.Post(run.ID, a); posted {
-			watch = s.Turn(after)
+		if res, after, prompt, posted = s.Post(run.ID, a); posted {
+			watch = s.Turn(after, prompt)
 		}
 	}
 	if !posted {
@@ -126,7 +127,7 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 			r.Status, r.Why, r.FinishedAt = "failed", Plain(res.Err.Message, maxWhy), s.Now().UnixMilli()
 			return
 		}
-		r.Status, r.AgentID, r.TerminalID, r.TurnAfter = "running", res.AgentID, res.TerminalID, after
+		r.Status, r.AgentID, r.TerminalID, r.TurnAfter, r.TurnPrompt = "running", res.AgentID, res.TerminalID, after, prompt
 	})
 	if err != nil {
 		log.Printf("automations: run %s: %v", run.ID, err)

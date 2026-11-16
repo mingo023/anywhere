@@ -103,7 +103,7 @@ func (quietDriver) Commands() ([]proto.Command, error) { return nil, nil }
 func (quietDriver) Access(string) error                { return nil }
 func (quietDriver) Close()                             {}
 
-func boundRig(t *testing.T) (*agent.Registry, func(runID string, a proto.Automation) bool, *turnRecorder) {
+func boundRig(t *testing.T) (*agent.Registry, func(runID string, a proto.Automation) (string, bool), *turnRecorder) {
 	t.Helper()
 	reg := agent.NewRegistry(hub.New())
 	store, err := orch.Open(t.TempDir())
@@ -123,20 +123,20 @@ func boundRig(t *testing.T) (*agent.Registry, func(runID string, a proto.Automat
 		return orch.Session{ID: s.ID, Agent: s.Provider, Status: s.Status, Cwd: s.Cwd}, true
 	}
 	post := postBound(reg, e)
-	return reg, func(runID string, a proto.Automation) bool {
-		res, _, ok := post(runID, a)
+	return reg, func(runID string, a proto.Automation) (string, bool) {
+		res, _, prompt, ok := post(runID, a)
 		if ok && res.AgentID != a.Bound {
 			t.Fatalf("%+v", res)
 		}
-		return ok
+		return prompt, ok
 	}, rec
 }
 
 func TestABoundRunPutsItsPromptIntoTheOpenSessionAsATurn(t *testing.T) {
 	reg, post, rec := boundRig(t)
 	reg.Add("a1", "/w", "claude", quietDriver{})
-	if !post("run1", proto.Automation{Bound: "a1", Prompt: "check the build"}) {
-		t.Fatal("an open session was refused")
+	if prompt, ok := post("run1", proto.Automation{Bound: "a1", Prompt: "check the build"}); !ok || prompt != "" {
+		t.Fatalf("an idle session: ok %v, prompt %q, want its next turn to be the run's", ok, prompt)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for len(rec.turns()) == 0 && time.Now().Before(deadline) {
@@ -147,14 +147,22 @@ func TestABoundRunPutsItsPromptIntoTheOpenSessionAsATurn(t *testing.T) {
 	}
 }
 
+func TestABoundRunQueuedInABusySessionIsFollowedByItsPrompt(t *testing.T) {
+	reg, post, _ := boundRig(t)
+	reg.Add("a1", "/w", "claude", quietDriver{}).Working()
+	if prompt, ok := post("run1", proto.Automation{Bound: "a1", Prompt: "check the build"}); !ok || prompt != "check the build" {
+		t.Fatalf("ok %v, prompt %q", ok, prompt)
+	}
+}
+
 func TestABoundRunFallsBackWhenItsSessionIsGoneOrClosed(t *testing.T) {
 	reg, post, rec := boundRig(t)
-	if post("run1", proto.Automation{Bound: "nope", Prompt: "p"}) {
+	if _, ok := post("run1", proto.Automation{Bound: "nope", Prompt: "p"}); ok {
 		t.Fatal("a session that never existed took the run")
 	}
 	reg.Add("a2", "/w", "claude", quietDriver{})
 	reg.Remove("a2")
-	if post("run2", proto.Automation{Bound: "a2", Prompt: "p"}) {
+	if _, ok := post("run2", proto.Automation{Bound: "a2", Prompt: "p"}); ok {
 		t.Fatal("a closed session took the run")
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -166,10 +174,10 @@ func TestABoundRunFallsBackWhenItsSessionIsGoneOrClosed(t *testing.T) {
 func TestABoundRunStartsANewSessionWhenItsSessionWasRaisedAboveTheAutomationsAccess(t *testing.T) {
 	reg, post, rec := boundRig(t)
 	reg.Add("a1", "/w", "claude", quietDriver{}).SetAccess("full")
-	if post("run1", proto.Automation{Bound: "a1", Access: "ask", Prompt: "p"}) {
+	if _, ok := post("run1", proto.Automation{Bound: "a1", Access: "ask", Prompt: "p"}); ok {
 		t.Fatal("a Full session took an Ask automation's run")
 	}
-	if !post("run2", proto.Automation{Bound: "a1", Access: "full", Prompt: "p"}) {
+	if _, ok := post("run2", proto.Automation{Bound: "a1", Access: "full", Prompt: "p"}); !ok {
 		t.Fatal("a Full session refused a Full automation's run")
 	}
 	deadline := time.Now().Add(5 * time.Second)

@@ -21,8 +21,8 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/automation"
-	"pocketd/internal/board"
 	"pocketd/internal/awake"
+	"pocketd/internal/board"
 	"pocketd/internal/broker"
 	"pocketd/internal/cliskill"
 	"pocketd/internal/config"
@@ -223,7 +223,9 @@ func serve(sock, handed string) error {
 	autos.Grace, autos.History = settings.AutomationGrace, settings.AutomationHistory
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
 		Post: postBound(d.Agents, o.engine),
-		Turn: func(after int64) automation.Watcher { return automation.TurnWatcher(d.Agents, after) },
+		Turn: func(after int64, prompt string) automation.Watcher {
+			return automation.TurnWatcher(d.Agents, after, prompt)
+		},
 		Start: func(runID string, a proto.Automation) launch.Result {
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		},

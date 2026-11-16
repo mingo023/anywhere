@@ -131,6 +131,8 @@ type Run struct {
 	// TurnAfter is the bound session's timeline seq before the run's prompt went into it, zero for a run in a new
 	// session. It never goes to a client; the store keeps it in automations.json beside the run.
 	TurnAfter int64 `json:"-"`
+	// TurnPrompt is the run's prompt when it queued behind the session's other messages, kept like TurnAfter.
+	TurnPrompt string `json:"-"`
 }
 
 // Automations is the full snapshot, runs newest first. It is never a delta.

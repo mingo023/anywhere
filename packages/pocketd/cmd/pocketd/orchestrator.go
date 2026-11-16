@@ -255,17 +255,24 @@ func (o *orchestrator) handover() {
 
 // postBound is automation.Scheduler.Post: it sends an automation's prompt to the open session it is bound to,
 // unless that session now runs with broader access than the automation.
-func postBound(reg *agent.Registry, e *orch.Engine) func(string, proto.Automation) (launch.Result, int64, bool) {
-	return func(runID string, a proto.Automation) (launch.Result, int64, bool) {
+func postBound(reg *agent.Registry, e *orch.Engine) func(string, proto.Automation) (launch.Result, int64, string, bool) {
+	return func(runID string, a proto.Automation) (launch.Result, int64, string, bool) {
 		bound, err := reg.Get(a.Bound)
 		if err != nil || bound.Turn() == "closed" || orch.Broader(bound.Summary().Access, cmp.Or(a.Access, "settings")) {
-			return launch.Result{}, 0, false
+			return launch.Result{}, 0, "", false
 		}
 		_, after := bound.Timeline.State()
-		if _, err := e.Dispatch(orch.NewCommand("automation:"+runID, orch.CmdMessageSend, a.Bound, orch.SendPayload{Text: a.Prompt, Origin: orch.OriginUser})); err != nil {
-			return launch.Result{}, 0, false
+		r, err := e.Dispatch(orch.NewCommand("automation:"+runID, orch.CmdMessageSend, a.Bound, orch.SendPayload{Text: a.Prompt, Origin: orch.OriginUser}))
+		if err != nil {
+			return launch.Result{}, 0, "", false
 		}
-		return launch.Result{AgentID: a.Bound, TerminalID: bound.Summary().TerminalID}, after, true
+		var sent struct{ Queued bool }
+		json.Unmarshal(r.Result, &sent)
+		prompt := ""
+		if sent.Queued {
+			prompt = a.Prompt
+		}
+		return launch.Result{AgentID: a.Bound, TerminalID: bound.Summary().TerminalID}, after, prompt, true
 	}
 }
 

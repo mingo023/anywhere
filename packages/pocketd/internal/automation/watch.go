@@ -2,6 +2,7 @@ package automation
 
 import (
 	"slices"
+	"strings"
 
 	"pocketd/internal/agent"
 	"pocketd/internal/proto"
@@ -29,7 +30,8 @@ func AgentWatcher(reg *agent.Registry) Watcher {
 // TurnWatcher is AgentWatcher for a run that put its prompt into a session that already had turns.
 // after is the session's timeline seq before the prompt went in: nothing at or
 // before it says anything about the run. Seq keeps counting through a clear.
-func TurnWatcher(reg *agent.Registry, after int64) Watcher {
+// A prompt that queued behind other messages is given: its turn is the first with that text.
+func TurnWatcher(reg *agent.Registry, after int64, prompt string) Watcher {
 	return func(id string) (Seen, bool) {
 		a, err := reg.Get(id)
 		if err != nil {
@@ -37,7 +39,9 @@ func TurnWatcher(reg *agent.Registry, after int64) Watcher {
 		}
 		sum := a.Summary()
 		items, _ := a.Timeline.Page(after, 500)
-		if i := slices.IndexFunc(items, func(it proto.Item) bool { return it.Kind == "user" }); i >= 0 {
+		if i := slices.IndexFunc(items, func(it proto.Item) bool {
+			return it.Kind == "user" && (prompt == "" || slices.Equal(strings.Fields(it.Text), strings.Fields(prompt)))
+		}); i >= 0 {
 			items = items[i:]
 		} else {
 			items = nil

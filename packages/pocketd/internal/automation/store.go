@@ -48,7 +48,8 @@ type diskAutomation struct {
 
 type diskRun struct {
 	proto.Run
-	TurnAfter int64 `json:"turnAfter,omitempty"`
+	TurnAfter  int64  `json:"turnAfter,omitempty"`
+	TurnPrompt string `json:"turnPrompt,omitempty"`
 }
 
 type diskFile struct {
@@ -63,7 +64,7 @@ func (f File) MarshalJSON() ([]byte, error) {
 		d.Automations = append(d.Automations, diskAutomation{a, a.WebhookSecret})
 	}
 	for _, r := range f.Runs {
-		d.Runs = append(d.Runs, diskRun{r, r.TurnAfter})
+		d.Runs = append(d.Runs, diskRun{r, r.TurnAfter, r.TurnPrompt})
 	}
 	return json.Marshal(d)
 }
@@ -79,7 +80,7 @@ func (f *File) UnmarshalJSON(raw []byte) error {
 		f.Automations = append(f.Automations, a.Automation)
 	}
 	for _, r := range d.Runs {
-		r.Run.TurnAfter = r.TurnAfter
+		r.Run.TurnAfter, r.Run.TurnPrompt = r.TurnAfter, r.TurnPrompt
 		f.Runs = append(f.Runs, r.Run)
 	}
 	return nil

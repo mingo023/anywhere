@@ -32,7 +32,7 @@ func TestATurnWatcherIgnoresTheSessionsEarlierTurnsAndSeesItsOwn(t *testing.T) {
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	answer(a, "earlier", "Earlier reply.")
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after)
+	watch := TurnWatcher(reg, after, "")
 
 	if seen, ok := watch("a1"); !ok || !seen.Before || seen.Status != "done" || seen.Summary != "" || seen.Answered {
 		t.Fatalf("before the prompt went in: %+v %v", seen, ok)
@@ -53,12 +53,27 @@ func TestATurnWatcherIgnoresTheSessionsEarlierTurnsAndSeesItsOwn(t *testing.T) {
 	}
 }
 
+func TestATurnWatcherForAQueuedPromptIsNotEndedByAMessageQueuedAheadOfIt(t *testing.T) {
+	reg := agent.NewRegistry(hub.New())
+	a := reg.Add("a1", "/w", "claude", idleDriver{})
+	_, after := a.Timeline.State()
+	watch := TurnWatcher(reg, after, "the run's prompt")
+	answer(a, "a message queued first", "Its reply.")
+	if seen, _ := watch("a1"); !seen.Before || seen.Summary != "" {
+		t.Fatalf("after the message ahead: %+v", seen)
+	}
+	answer(a, " the run's\nprompt ", "Own reply.")
+	if seen, _ := watch("a1"); seen.Before || seen.Summary != "Own reply." {
+		t.Fatalf("after its own turn: %+v", seen)
+	}
+}
+
 func TestATurnWatcherStillFindsItsTurnAfterTheTimelineWasCleared(t *testing.T) {
 	reg := agent.NewRegistry(hub.New())
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	answer(a, "earlier", "Earlier reply.")
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after)
+	watch := TurnWatcher(reg, after, "")
 	a.ClearTimeline()
 	answer(a, "the run's prompt", "Own reply.")
 	if seen, _ := watch("a1"); seen.Before || seen.Summary != "Own reply." {
@@ -67,7 +82,7 @@ func TestATurnWatcherStillFindsItsTurnAfterTheTimelineWasCleared(t *testing.T) {
 }
 
 func TestATurnWatcherReportsAMissingAgentAsAbsent(t *testing.T) {
-	if _, ok := TurnWatcher(agent.NewRegistry(hub.New()), 0)("nope"); ok {
+	if _, ok := TurnWatcher(agent.NewRegistry(hub.New()), 0, "")("nope"); ok {
 		t.Fatal("found an agent that is not there")
 	}
 }
