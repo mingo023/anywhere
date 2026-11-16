@@ -9,6 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 
 	"pocketd/internal/atomicfile"
 )
@@ -80,6 +83,32 @@ func Load(path string) (File, error) {
 		return File{Version: Version}, err
 	}
 	return f, nil
+}
+
+// Restoring is what a restart brings back: the sessions stored, plus the
+// shells in file, which aren't sessions. found says file was on disk. A file
+// whose sessions differ from those stored was written by a pocketd without the
+// store, before an upgrade or after a downgrade, so it is taken whole and
+// fromFile says the store should take it in.
+func Restoring(file File, found bool, stored []Terminal) (f File, fromFile bool) {
+	var shells, sessions []Terminal
+	for _, e := range file.Terminals {
+		if e.AgentID == "" {
+			shells = append(shells, e)
+		} else {
+			sessions = append(sessions, e)
+		}
+	}
+	byTerminal := func(a, b Terminal) int { return strings.Compare(a.TerminalID, b.TerminalID) }
+	stored = slices.Clone(stored)
+	slices.SortFunc(stored, byTerminal)
+	slices.SortFunc(sessions, byTerminal)
+	if found && !reflect.DeepEqual(sessions, stored) && (len(sessions) > 0 || len(stored) > 0) {
+		return file, true
+	}
+	f = File{Version: Version, Terminals: slices.Concat(shells, stored)}
+	slices.SortFunc(f.Terminals, byTerminal)
+	return f, false
 }
 
 // Save replaces the file at path whole, so a crash leaves the old one or the new one.

@@ -1,15 +1,18 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,6 +26,7 @@ import (
 	"pocketd/internal/orch"
 	"pocketd/internal/orchhost"
 	"pocketd/internal/proto"
+	"pocketd/internal/state"
 	"pocketd/internal/wsserver"
 )
 
@@ -146,6 +150,90 @@ func (o *orchestrator) run(ctx context.Context) {
 			return
 		case <-prune.C:
 		}
+	}
+}
+
+// saved keeps in the store what a restart brings back, as terminals.json
+// was just written with it; the file stays for a downgraded pocketd to read.
+func (o *orchestrator) saved(f state.File) {
+	entries := map[string][]byte{}
+	for _, e := range f.Terminals {
+		if e.AgentID != "" {
+			entries[e.AgentID], _ = json.Marshal(e)
+		}
+	}
+	if err := o.store.SetRestorable(entries); err != nil {
+		log.Printf("orch: saving the sessions to restore: %v", err)
+	}
+}
+
+// restoring is what a cold start brings back: the store's sessions, unless
+// terminals.json at path was written by a pocketd without the store.
+func (o *orchestrator) restoring(path string) state.File {
+	_, err := os.Stat(path)
+	found := err == nil
+	file, err := state.Load(path)
+	if err != nil {
+		log.Print(err)
+		found = false
+	}
+	entries, err := o.store.Restorable()
+	if err != nil {
+		log.Printf("orch: sessions to restore: %v; restoring from %s", err, path)
+		return file
+	}
+	var stored []state.Terminal
+	for _, raw := range entries {
+		var e state.Terminal
+		if json.Unmarshal(raw, &e) == nil {
+			stored = append(stored, e)
+		}
+	}
+	f, fromFile := state.Restoring(file, found, stored)
+	if fromFile {
+		o.takeIn(f.Terminals)
+	}
+	return f
+}
+
+// takeIn makes a store session of each terminal entry that held one, with
+// the conversation, transcript, access and launch it was saved with: what an
+// upgrade from a pocketd without the store hands down or left on disk.
+func (o *orchestrator) takeIn(entries []state.Terminal) {
+	var sessions []orch.Session
+	for _, e := range entries {
+		if e.AgentID == "" {
+			continue
+		}
+		l := state.Launch{}
+		if e.Launch != nil {
+			l = *e.Launch
+		}
+		sessions = append(sessions, orch.Session{ID: e.AgentID, Agent: e.Provider, Cwd: e.LaunchDir, Terminal: e.TerminalID, Conversation: e.ConversationID,
+			Access: l.Access, Model: l.Model, Effort: l.Effort, Pinned: e.Pinned, Chat: e.Chat, Origin: e.Origin, Status: cmp.Or(e.Status, "idle"), Failed: e.Failed, CreatedAt: e.CreatedAt})
+	}
+	if err := o.store.Import(sessions); err != nil {
+		log.Printf("orch: taking in the sessions saved: %v", err)
+	}
+	o.saved(state.File{Terminals: entries})
+}
+
+// openSessions reads the store's open sessions once the sink has written
+// what it was given, so a session just closed isn't read as open.
+func (o *orchestrator) openSessions() ([]orch.Session, error) {
+	o.sink.Flush()
+	return o.store.OpenSessions()
+}
+
+// closeAbsent closes each session the store keeps open that this start
+// brought back neither restored nor handed down.
+func (o *orchestrator) closeAbsent(reg *agent.Registry) {
+	err := o.store.CloseAbsent(func(id string) bool {
+		_, err := reg.Get(id)
+		return err == nil
+	})
+	if err != nil {
+		log.Printf("orch: closing the sessions left behind: %v", err)
 	}
 }
 

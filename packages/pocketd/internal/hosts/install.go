@@ -1,6 +1,8 @@
 package hosts
 
 import (
+	"bufio"
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"unicode"
 
 	"pocketd/internal/config"
+	"pocketd/internal/ops"
 )
 
 //go:embed bootstrap.sh
@@ -22,7 +25,8 @@ var bootstrapPs1 string
 const (
 	releases = "https://github.com/mingo023/anywhere/releases/download"
 	// upload is where an uploaded archive waits, in the app's folder on the host.
-	upload = "upload.tar.gz"
+	upload    = "upload.tar.gz"
+	uploadZip = "upload.zip"
 )
 
 // Step is a line of the install checklist, in the order bootstrap.sh and bootstrap.ps1 report them.
@@ -224,4 +228,198 @@ func fill(script, version, url, dir, label string) (string, error) {
 		"@@LABEL@@", label,
 		"@@PORT@@", strconv.Itoa(config.DefaultOwnerPort()),
 	).Replace(script), nil
+}
+
+// installPlan is the host to install on once its platform is known, and where its pocketd comes from.
+func installPlan(h Host, platform Platform, version, dist string) (Host, Source, error) {
+	src, err := source(platform, version, dist)
+	if err != nil {
+		return Host{}, Source{}, err
+	}
+	h.Windows = platform.windows()
+	return h, src, nil
+}
+
+func (m *Manager) install(h Host, update bool, dist string, on func(Progress)) error {
+	ctx := context.Background()
+	platform, err := m.platform(ctx, h)
+	if err != nil {
+		return err
+	}
+	h, src, err := installPlan(h, platform, m.version, dist)
+	if err != nil {
+		return err
+	}
+	m.setWindows(h.ID, h.Windows)
+	return m.bootstrap(ctx, h, src, update, on)
+}
+
+// platform is what the host runs. Windows' shells have no uname, so a failed one asks PowerShell.
+func (m *Manager) platform(ctx context.Context, h Host) (Platform, error) {
+	stdout, stderr, code, err := m.run(ctx, h, "uname -s; uname -m", nil)
+	if err != nil {
+		return Platform{}, err
+	}
+	if code == 0 {
+		return parseUname(string(stdout))
+	}
+	ps, _, _, err := m.run(ctx, h, windowsArchCommand(), nil)
+	if err != nil {
+		return Platform{}, err
+	}
+	if p, found, err := parseWindowsArch(string(ps)); found {
+		return p, err
+	}
+	return Platform{}, fmt.Errorf("Couldn't tell what %s runs: %s", h.Name, lastLine(stderr))
+}
+
+// bootstrap installs src on h and starts it, or finds pocketd running and leaves it be. With force it installs over
+// a running pocketd, which hands off to it in place; on Windows it restarts instead.
+func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool, on func(Progress)) error {
+	dir := m.paths.RemoteDir
+	version, url, sum := src.Version, src.URL, ""
+	if src.Archive != "" {
+		var ok bool
+		if sum, ok = checksum(src.Archive); !ok {
+			return fmt.Errorf("No checksum beside %s", src.Archive)
+		}
+		version = m.version
+	}
+	script := bootstrapSh
+	if h.Windows {
+		script = bootstrapPs1
+	}
+	script, err := fill(script, version, url, dir, label(dir))
+	if err != nil {
+		return err
+	}
+	uploaded := src.Archive != ""
+	if uploaded {
+		if err := m.upload(ctx, h, src.Archive); err != nil {
+			return err
+		}
+	}
+	var env []string
+	var command string
+	if h.Windows {
+		if uploaded {
+			env = append(env, "$env:ANYWHERE_ARCHIVE = Join-Path $HOME "+psQuote(dir+`\`+uploadZip))
+		}
+		if sum != "" {
+			env = append(env, "$env:ANYWHERE_SHA256 = '"+sum+"'")
+		}
+		if force {
+			env = append(env, "$env:ANYWHERE_FORCE = '1'")
+		}
+		for i := len(env) - 1; i >= 0; i-- {
+			script = env[i] + "\r\n" + script
+		}
+		// -Command - runs stdin line by line, which breaks the script's multi-line blocks.
+		command = powershell("& ([ScriptBlock]::Create([Console]::In.ReadToEnd()))")
+	} else {
+		if uploaded {
+			env = append(env, fmt.Sprintf(`ANYWHERE_ARCHIVE="$HOME/%s/%s"`, dir, upload))
+		}
+		if sum != "" {
+			env = append(env, "ANYWHERE_SHA256="+sum)
+		}
+		if force {
+			env = append(env, "ANYWHERE_FORCE=1")
+		}
+		command = bootstrapCommand(dir, env, uploaded)
+	}
+	cmd, err := m.command(ctx, m.sshArgs(h, nil, command))
+	if err != nil {
+		return fmt.Errorf("Couldn't run ssh: %w", err)
+	}
+	cmd.Stdin = strings.NewReader(script)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("Couldn't run ssh: %w", err)
+	}
+	var last Progress
+	lines := bufio.NewScanner(stdout)
+	for lines.Scan() {
+		if p, ok := parseProgress(lines.Text()); ok {
+			if p.Kind == ProgressDone || p.Kind == ProgressRunning || p.Kind == ProgressError {
+				last = p
+			}
+			on(p)
+		}
+	}
+	cmd.Wait()
+	switch {
+	case last.Kind == ProgressDone || last.Kind == ProgressRunning:
+		return nil
+	case last.Kind == ProgressError:
+		return errors.New(last.Text)
+	case cmd.ProcessState.ExitCode() == 255:
+		return &SSHError{classify(stderr.String())}
+	}
+	return fmt.Errorf("The install stopped before it finished: %s", lastLine([]byte(stderr.String())))
+}
+
+// upload copies archive into the app's folder on the host.
+func (m *Manager) upload(ctx context.Context, h Host, archive string) error {
+	data, err := os.ReadFile(archive)
+	if err != nil {
+		return fmt.Errorf("Can't read %s: %v", archive, err)
+	}
+	dir := m.paths.RemoteDir
+	command := fmt.Sprintf(`sh -c 'umask 077; mkdir -p "$HOME/%s" && cat > "$HOME/%s/%s"'`, dir, dir, upload)
+	if h.Windows {
+		command = powershell(fmt.Sprintf("$d = Join-Path $HOME %s; New-Item -ItemType Directory -Force -Path $d | Out-Null; $f = [IO.File]::Create((Join-Path $d '%s')); try { [Console]::OpenStandardInput().CopyTo($f) } finally { $f.Close() }", psQuote(dir), uploadZip))
+	}
+	_, stderr, code, err := m.run(ctx, h, command, data)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("Couldn't upload pocketd: %s", lastLine(stderr))
+	}
+	return nil
+}
+
+// uninstall stops pocketd's service on the host and removes it; pocketd's files and the host's projects stay.
+// A Windows host's pocketd first forgets this machine's owner token, through the link that's still up.
+func (m *Manager) uninstall(ctx context.Context, h Host) error {
+	dir := m.paths.RemoteDir
+	// A host never reached since it was added may be Windows without this machine knowing yet.
+	windows := h.Windows
+	if !windows {
+		platform, err := m.platform(ctx, h)
+		if err != nil {
+			return err
+		}
+		windows = platform.windows()
+	}
+	command := fmt.Sprintf(`sh -c 'p="$HOME/%s/bin/pocketd"; [ -x "$p" ] || exit 0; POCKET_HOME="$HOME/%s" "$p" service uninstall --label %s'`, dir, dir, label(dir))
+	if windows {
+		owner, _ := loadOwner(m.paths.Token(h.ID))
+		request(m.paths.Socket(h.ID), owner.Token, ops.Msg{Op: "owner.revokeSelf"})
+		command = powershell(fmt.Sprintf("$p = Join-Path $HOME %s; if (Test-Path $p) { & $p service uninstall --label %s; exit $LASTEXITCODE }", psQuote(dir+`\bin\pocketd.cmd`), psQuote(label(dir))))
+	}
+	_, stderr, code, err := m.run(ctx, h, command, nil)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("Couldn't uninstall pocketd: %s", lastLine(stderr))
+	}
+	if windows {
+		os.Remove(m.paths.Token(h.ID))
+	}
+	return nil
+}
+
+func lastLine(text []byte) string {
+	if lines, ok := lastLines(string(text), 1); ok {
+		return lines[0]
+	}
+	return "no output"
 }

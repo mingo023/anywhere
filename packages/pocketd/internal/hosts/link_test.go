@@ -1,6 +1,7 @@
 package hosts
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -45,6 +46,24 @@ func TestHostsThatDroppedTogetherRetryAtDifferentTimes(t *testing.T) {
 		}
 	}
 	t.Fatalf("every wait was %v", waits[0])
+}
+
+func TestEventsFromAClosedTunnelAreSkipped(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	events := make(chan event, 4)
+	events <- event{evExited, 1}
+	events <- event{evReady, 2}
+	if e, ok := next(ctx, events, 2, time.Second); !ok || e != (event{evReady, 2}) {
+		t.Fatalf("%+v %v", e, ok)
+	}
+	events <- event{evExited, 2}
+	if e, ok := next(ctx, events, 0, time.Millisecond); ok {
+		t.Fatalf("a closed tunnel's exit cut a retry wait short: %+v", e)
+	}
+	cancel()
+	if e, ok := next(ctx, events, 0, -1); !ok || e.kind != evStop {
+		t.Fatalf("%+v %v", e, ok)
+	}
 }
 
 func TestAThrottledHostNeverRetriesBeforeItsPenaltyEnds(t *testing.T) {

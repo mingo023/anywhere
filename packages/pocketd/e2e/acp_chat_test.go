@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 )
@@ -353,14 +355,13 @@ func TestARestartLoadsTheChatHermesSessionAndShowsItsHistory(t *testing.T) {
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
 }
 
-// OpenCode tells a sub-agent's work in the session as it runs, and its
-// history tells it only of the sub-agent's session loaded, prompt and all.
+// OpenCode tells a sub-agent's work in the session as it runs, and a restart
+// shows it as the store kept it, without loading the sub-agent's session.
 func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *testing.T) {
 	h, phone, _, id := chatACP(t, "opencode", nil, func(h *Harness) { h.resume = true })
 	phone.Prompt(id, "delegate ls")
 	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
 	live := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> assistant did ls"}
-	loaded := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> user ls", "> assistant did ls"}
 	settled := func(phone *Phone, want []string) []string {
 		var got []string
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -379,7 +380,7 @@ func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *test
 	}
 
 	h.Restart()
-	if got := settled(h.Owner(proto.CapSubagents), loaded); strings.Join(got, "|") != strings.Join(loaded, "|") {
+	if got := settled(h.Owner(proto.CapSubagents), live); strings.Join(got, "|") != strings.Join(live, "|") {
 		t.Fatalf("after the restart got %q", got)
 	}
 }
@@ -688,6 +689,51 @@ func TestARestartWhileOpenCodeAsksLeavesNoCallRunning(t *testing.T) {
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("got %q", got)
+	}
+	again.Prompt(id, "after the restart")
+	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
+}
+
+// delivered adds a delivery row to id's stored timeline while pocketd is
+// down, as delegating would: the fake ACP agent takes no MCP server.
+func delivered(t *testing.T, home, id string) {
+	t.Helper()
+	store, err := orch.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var seq, epoch int64
+	store.DB().QueryRow(`SELECT COALESCE(MAX(seq), 0), COALESCE(MAX(epoch), 0) FROM items WHERE session_id = ?`, id).Scan(&seq, &epoch)
+	it := proto.Item{ID: "delivery-1", Seq: seq + 1, Ts: time.Now().UnixMilli(), Kind: "delivery",
+		Delivery: &proto.Delivery{TaskIDs: []string{"t1"}, ChildIDs: []string{"c1"}, Titles: []string{"Hi"}, Agents: []string{"codex"}, Outcome: "done"}}
+	body, _ := json.Marshal(it)
+	if _, err := store.DB().Exec(`INSERT INTO items (session_id, item_id, seq, epoch, kind, body, ts) VALUES (?, ?, ?, ?, ?, ?, ?)`, id, it.ID, it.Seq, epoch, it.Kind, body, it.Ts); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnACPParentsDeliveryRowSurvivesARestart(t *testing.T) {
+	h, phone, term, id := chatACP(t, "hermes", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "hello")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), statusOf(id, "done"))
+	want := append(timelineOf(phone, id), "delivery")
+	h.Stop(syscall.SIGTERM)
+	delivered(t, h.Home, id)
+
+	h.up()
+
+	again := resumedChat(h, id)
+	h.WaitScreen(term, "load: ")
+	var got []string
+	for range 30 {
+		if got = timelineOf(again, id); slices.Equal(got, want) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))

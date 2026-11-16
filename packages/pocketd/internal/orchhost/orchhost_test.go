@@ -1,6 +1,7 @@
 package orchhost
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -65,6 +66,15 @@ func TestAChildStartsInPlanModeWhenItsParentIsInIt(t *testing.T) {
 	}
 }
 
+func TestALaunchOnALinkedHostIsRefusedAsUnsupported(t *testing.T) {
+	h := &Host{}
+	payload, _ := json.Marshal(orch.LaunchPayload{Agent: "codex", Env: "devbox", HostProject: "/srv/app"})
+	_, err := h.Run(context.Background(), orch.Effect{Kind: orch.EffLaunch, Lane: "launch:t1", Payload: payload})
+	if f := orch.AsFailure(err); err == nil || f.Code != orch.CodeUnsupported {
+		t.Fatalf("err = %v, want unsupported", err)
+	}
+}
+
 func TestAnUpgradeHoldsTheBackgroundTasksAnAgentDeclaredAgain(t *testing.T) {
 	store, err := orch.OpenPath(filepath.Join(t.TempDir(), "orchestrator.db"))
 	if err != nil {
@@ -83,7 +93,7 @@ func TestAnUpgradeHoldsTheBackgroundTasksAnAgentDeclaredAgain(t *testing.T) {
 	h := &Host{Registry: reg}
 	h.SetEngine(orch.NewEngine(store, nil))
 
-	h.Rehold()
+	h.Rehold(true)
 
 	a.Working()
 	a.TurnEnded(false)
@@ -120,11 +130,41 @@ func TestAnUpgradeDoesntHoldABackgroundTaskThatEndedBeforeIt(t *testing.T) {
 	h := &Host{Registry: reg}
 	h.SetEngine(orch.NewEngine(store, nil))
 
-	h.Rehold()
+	h.Rehold(true)
 
 	a.Working()
 	a.TurnEnded(false)
 	if got := a.Turn(); got == "working" {
 		t.Fatal("the turn waits on a task that ended before the upgrade")
+	}
+}
+
+func TestAColdRestartDropsTheBackgroundTasksItsAgentsNoLongerRun(t *testing.T) {
+	store, err := orch.OpenPath(filepath.Join(t.TempDir(), "orchestrator.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	err = store.Tx(func(tx *orch.Tx) error {
+		_, err := tx.Exec(`INSERT INTO held (session_id, task_id, until_at) VALUES ('a', 'bg_1', ?)`, time.Now().Add(time.Hour).UnixMilli())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := agent.NewRegistry(hub.New())
+	a := reg.Add("a", "/r", "claude", nil)
+	h := &Host{Registry: reg}
+	h.SetEngine(orch.NewEngine(store, nil))
+
+	h.Rehold(false)
+
+	a.Working()
+	a.TurnEnded(false)
+	if got := a.Turn(); got == "working" {
+		t.Fatal("the resumed agent's turn waits on a task its old process ran")
+	}
+	if tasks, _, _ := store.Held(); len(tasks) != 0 {
+		t.Fatalf("held %v after a cold restart", tasks)
 	}
 }

@@ -84,6 +84,29 @@ func TestACorruptFileLoadsEmptyAndIsKept(t *testing.T) {
 	}
 }
 
+func TestARestartBringsBackTheStoredSessionsAndTheFilesShells(t *testing.T) {
+	file := sample()
+	stored := []Terminal{file.Terminals[1]}
+	if f, fromFile := Restoring(file, true, stored); fromFile || !reflect.DeepEqual(f, file) {
+		t.Fatalf("with the file: %+v, from the file %t", f, fromFile)
+	}
+	want := File{Version: Version, Terminals: stored}
+	if f, fromFile := Restoring(File{Version: Version}, false, stored); fromFile || !reflect.DeepEqual(f, want) {
+		t.Fatalf("without the file: %+v, from the file %t", f, fromFile)
+	}
+}
+
+func TestAFileWhoseSessionsDifferFromTheStoresIsTakenWhole(t *testing.T) {
+	file := sample()
+	stale := file.Terminals[1]
+	stale.ConversationID = "older"
+	for _, stored := range [][]Terminal{nil, {stale}} {
+		if f, fromFile := Restoring(file, true, stored); !fromFile || !reflect.DeepEqual(f, file) {
+			t.Fatalf("stored %+v: %+v, from the file %t", stored, f, fromFile)
+		}
+	}
+}
+
 func TestACorruptFileThatCantBeSetAsideSaysSo(t *testing.T) {
 	path := Path(t.TempDir())
 	os.MkdirAll(filepath.Dir(path), 0o700)

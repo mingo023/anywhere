@@ -202,6 +202,16 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
 - Hosts, where a remote worktree starts (Delegation decisions say the parent's HEAD): **The host project's default branch**, since the parent's commit may not exist there. The result warns.
 - Hosts, `anywhere_environment_link`: **Returns `pending` and no message comes back** when the user finishes the card. T3 posts the answer back; that is left out.
 - Hosts, limits: **Remote tasks count against the Mac's 12; the host's own depth limit is not enforced.** A remote child is a depth-0 session to its host's pocketd and can delegate further.
+- Restore from the store (P0.5): **`sessions.saved` (migration 004) holds the `terminals.json` entry each session was last saved with**, written with the file, rather than a column per launch field. Shells, which aren't sessions, still come back only from `terminals.json`. A `terminals.json` whose sessions differ from the store's was written by a pocketd without the store (the first start, or after a downgrade), so it wins and is taken into the store.
+- `agent.list` (P0.5): **the store's open sessions, each as the registry has it live**; a start closes the sessions the store keeps open that came back neither restored nor handed down. `agent.view` only marks sessions seen and is unchanged.
+- ACP and pi parents (P0.5): **a restore from the store drops the agent's replay**, so an OpenCode sub-agent's session isn't loaded again and its work reads as it did live. A pi turn cut by the restart is still read again from pi's history, the only place that says which calls it left open.
+- Upgrade gate (P0.8): **`e2e/upgrade_main_test.go` builds `origin/main` from a detached worktree** (with the checkout's `third_party` linked in for libghostty) and upgrades it in place to this branch by replacing the binary. Its terminal session is one Anywhere launched: a terminal the user typed `claude` into comes back a shell after a cold start, on `main` as here.
+- Writes as commands (P0.6): **`agent.close` (`session.close`), `agent.pin` (`session.organize`) and `permission.resolve` (`request.answer` with `user`) dispatch commands.** A user's answer reaches a permission ask too, and the broker alone says whether the ask is still open, as before. Three verbs stay direct:
+  - `agent.create` (with `fork`): it streams `agent.progress` and `agent.creating` to the asking connection while setup runs, and its receipt is per requester (owner, phone, PTY); an effect has no way back to that connection and a global command id would let requesters' ids collide. So `launch/receipts.go` stays.
+  - `agent.settings`: it sets access, which `session.configure` doesn't by design.
+  - `agent.send_now`: it has the agent send what it already holds; no command does that (`queue.send_now` is for pocketd's own queue).
+- Fork (P0.7): **a Codex fork is already a terminal session without tools**: `launch.Chat` is false for it, and only a chat gets `MCPFlags`.
+- Held background tasks (P4): **a cold restart drops them**; its agents ended with the pocketd before, so none runs them. Only an in-place upgrade holds them again.
 
 Desktop: prototype details GPUI can't draw
 

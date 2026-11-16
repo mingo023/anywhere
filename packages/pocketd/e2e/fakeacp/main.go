@@ -6,6 +6,8 @@
 //
 //	<text>          reply "echo: <text>" in two chunks
 //	run <cmd>       ask to run cmd, then reply "echo: ran <cmd>", or "echo: skipped <cmd>" if refused
+//	mcp <tool> <json>  call an Anywhere tool through the servers session/new gave, or "mcp tools/list", then reply its result;
+//	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
 //	                as hermes, in the background, telling its work only in a transcript
 //	[Anywhere internal background handoff] …
@@ -40,6 +42,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"pocketd/e2e/fakemcp"
 )
 
 type agent struct {
@@ -54,6 +58,7 @@ type agent struct {
 	waits   map[string]chan map[string]any
 	stop    chan struct{} // closed to cancel the turn under way
 	checks  int
+	mcp     []fakemcp.Server
 }
 
 type session struct {
@@ -217,7 +222,7 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 	switch method {
 	case "initialize":
 		note("initialize")
-		a.reply(id, map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true},
+		a.reply(id, map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true, "mcpCapabilities": map[string]any{"http": true}},
 			"agentInfo": map[string]string{"name": a.name, "version": "0"}, "authMethods": []map[string]string{{"id": "cached_token"}}})
 	case "authenticate":
 		note("authenticate: %s", str("methodId"))
@@ -232,6 +237,8 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 			mode, prefix = "build", "ses_"
 		}
 		a.session = &session{ID: prefix + hex(8), Model: models[0], Mode: mode}
+		servers, _ := p["mcpServers"].([]any)
+		a.useMCP(servers)
 		a.save()
 		note("session: %s", a.session.ID)
 		res := a.opened()
@@ -258,6 +265,8 @@ func (a *agent) handle(id json.RawMessage, method string, p map[string]any) {
 			a.session = s
 		}
 		note("load: %s", s.ID)
+		servers, _ := p["mcpServers"].([]any)
+		a.useMCP(servers)
 		a.mu.Lock()
 		history := slices.Clone(s.History)
 		a.mu.Unlock()
@@ -389,6 +398,12 @@ func (a *agent) turn(id json.RawMessage, text string, stop chan struct{}) {
 		return
 	} else if cmd, ok := arg("run "); ok {
 		reason = a.run(cmd, stop)
+	} else if strings.HasPrefix(text, "mcp ") {
+		if result, ok := a.script(text, stop); ok {
+			a.say(result)
+		} else {
+			reason = "cancelled"
+		}
 	} else if task, ok := arg("delegate "); ok {
 		a.delegate(task)
 	} else if strings.HasPrefix(text, "[Anywhere internal background handoff]") && a.name == "hermes" {
