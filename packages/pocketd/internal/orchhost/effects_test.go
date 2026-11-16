@@ -59,6 +59,32 @@ func TestRenameChangesOnlyTheTitle(t *testing.T) {
 	}
 }
 
+func TestRegeneratingATitleReachesTheSessionsNaming(t *testing.T) {
+	store, err := orch.OpenPath(filepath.Join(t.TempDir(), "orchestrator.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	reg := agent.NewRegistry(hub.New())
+	reg.Add("s1", "/r", "claude", nil)
+	h := &Host{Registry: reg}
+	e := orch.NewEngine(store, h)
+	e.Live = func(id string) (orch.Session, bool) {
+		a, err := reg.Get(id)
+		if err != nil {
+			return orch.Session{}, false
+		}
+		s := a.Summary()
+		return orch.Session{ID: s.ID, Agent: s.Provider, Status: s.Status}, true
+	}
+	t.Cleanup(e.Close)
+
+	_, err = e.DispatchWait(orch.NewCommand("", orch.CmdSessionRetitle, "s1", nil), 3*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "no prompt to name it from") {
+		t.Fatalf("retitle = %v, want naming to read s1's empty timeline", err)
+	}
+}
+
 func equalSummary(a, b proto.AgentSummary) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
