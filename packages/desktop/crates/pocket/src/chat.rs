@@ -26,7 +26,7 @@ mod todos;
 mod tool_detail;
 pub(crate) mod tool_row;
 pub(crate) mod transcript;
-mod user_bubble;
+pub(crate) mod user_bubble;
 mod working;
 
 use crate::composer::Draft;
@@ -91,6 +91,8 @@ pub(crate) struct ChatState {
     pub(crate) map: agent_map::AgentMap,
     /// Mermaid fences drawn in every chat, sharing one image budget.
     pub(crate) diagrams: Entity<Diagrams>,
+    /// The queued entry each agent's composer text was taken from, which its next send replaces.
+    pub(crate) editing: HashMap<String, String>,
 }
 
 impl ChatState {
@@ -99,7 +101,7 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams, editing: HashMap::new() }, subs)
     }
 }
 
@@ -182,9 +184,14 @@ impl Desktop {
         };
         let crumb = agent.as_ref().and_then(|agent| self.delegated_crumb(agent, cx));
         let panel = agent.as_ref().and_then(|agent| self.delegated_panel(agent, window, cx));
+        let pushed = agent.as_ref().and_then(|agent| self.delegated_pushed(agent, window, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
         let drop = self.chat_drop_zone(terminal, cx);
-        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).children(crumb).child(transcript).child(composer).children(panel).children(files).children(drop)
+        let view = div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).children(crumb).child(transcript).child(composer).children(panel).children(files).children(drop);
+        match pushed {
+            Some((across, shown)) => view.left(px(across)).opacity(shown),
+            None => view,
+        }
     }
 }
 

@@ -4,16 +4,18 @@ pub mod delegations;
 pub mod tickets;
 pub mod locals;
 pub mod providers;
+pub mod queue;
 
 use automations::{Automation, AutomationDraft, Automations, Run};
 use delegations::{Delegation, Delegations};
 use tickets::{Board, Ticket, TicketDraft};
 use locals::Local;
 use providers::ProviderInfo;
+use queue::{Entry, Queues};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -463,6 +465,8 @@ pub enum Event {
     Delegations { agent: String, items: Vec<Delegation> },
     /// One of `agent`'s delegations changed.
     Delegated { agent: String, delegation: Delegation },
+    /// `agent`'s queue, sent whole.
+    Queue { agent: String, entries: Vec<Entry> },
     /// pocketd couldn't act on one of the agent's MCP servers; `reason` says why.
     McpActFailed { agent: String, reason: String },
 }
@@ -489,6 +493,9 @@ pub struct Agents {
     pub automations: Automations,
     pub board: Board,
     pub delegations: Delegations,
+    pub queues: Queues,
+    /// The pocketds that hold sessions' queues: this Mac's as "", a host's by its id.
+    pub holders: HashSet<String>,
 }
 
 impl Agents {
@@ -519,6 +526,7 @@ impl Agents {
         self.apply_from(Some(source), Event::Connected { scopes: Vec::new(), caps: Vec::new(), version: String::new() });
         self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
         self.delegations.forget(source);
+        self.queues.forget(source);
     }
 
     /// Applies an event, already tagged, from this Mac's pocketd (`None`) or host `source`'s:
@@ -532,9 +540,10 @@ impl Agents {
                 self.list.retain(|a| !mine(&a.id));
                 self.list.extend(list);
             }
-            Event::Connected { .. } if source.is_some() => {
+            Event::Connected { caps, .. } if source.is_some() => {
                 self.pending.retain(|p| !mine(&p.request_id));
                 self.names.retain(|path, _| !my_name(path));
+                self.holds_queues(source, &caps);
             }
             Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
             Event::Agent(a) => {
@@ -563,6 +572,7 @@ impl Agents {
                 self.pending.retain(|p| !mine(&p.request_id));
                 self.host = None;
                 self.scopes = scopes;
+                self.holds_queues(source, &caps);
                 self.caps = caps;
                 self.version = version;
                 self.names.retain(|path, _| !my_name(path));
@@ -581,6 +591,7 @@ impl Agents {
             Event::Board { tickets, limit } => self.board = Board { tickets, limit },
             Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
             Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
+            Event::Queue { agent, entries } => self.queues.replace(&agent, entries),
             Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
         }
     }
@@ -670,6 +681,23 @@ impl Agents {
     /// pocketd keeps the Board and takes its messages.
     pub fn board_offered(&self) -> bool {
         self.caps.iter().any(|c| c == BOARD_CAP)
+    }
+
+    /// Notes whether the pocketd that connected as `source` (this Mac's for `None`) keeps its sessions' queues; its queues are asked for again.
+    fn holds_queues(&mut self, source: Option<&str>, caps: &[String]) {
+        let key = source.unwrap_or_default();
+        if caps.iter().any(|c| c == ORCHESTRATOR_CAP) {
+            self.holders.insert(key.to_string());
+        } else {
+            self.holders.remove(key);
+        }
+        self.queues.reconnected(source);
+    }
+
+    /// The pocketd holding `agent_id`'s session keeps its queue: a send while the agent works goes there, not held here.
+    pub fn holds_queue(&self, agent_id: &str) -> bool {
+        let host = agent_id.split_once('/').map_or("", |(h, _)| h);
+        self.holders.contains(host) && !self.observe_only()
     }
 
     /// pocketd runs automations and takes their messages.
@@ -816,6 +844,7 @@ const REMOTE_CONTROL: &str = "remotecontrol-";
 const MCP: &str = "mcp-";
 const MCP_ACT: &str = "mcpact-";
 const DELEGATIONS: &str = "delegations-";
+const QUEUE: &str = "queue-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
@@ -824,6 +853,10 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 
 fn auto_id() -> String {
     format!("{AUTO}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn queue_id() -> String {
+    format!("{QUEUE}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 fn board_id() -> String {
@@ -966,6 +999,34 @@ impl Outbox {
         let id = format!("{PROMPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
         self.send(json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text}));
         id
+    }
+
+    /// Hands `text` to pocketd to run now when the agent is idle and to hold in its queue while it works; returns the request id a refusal names.
+    pub fn prompt_queued(&self, agent_id: &str, text: &str) -> String {
+        let id = format!("{PROMPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        self.send(json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text, "queue": true}));
+        id
+    }
+
+    pub fn queue_list(&self, agent_id: &str) {
+        self.send(json!({"type": "queue.list", "id": format!("{QUEUE}{agent_id}"), "agentId": agent_id}));
+    }
+
+    pub fn queue_edit(&self, agent_id: &str, entry: &str, text: &str) {
+        self.send(json!({"type": "queue.edit", "id": queue_id(), "agentId": agent_id, "entryId": entry, "text": text}));
+    }
+
+    pub fn queue_cancel(&self, agent_id: &str, entry: &str) {
+        self.send(json!({"type": "queue.cancel", "id": queue_id(), "agentId": agent_id, "entryId": entry}));
+    }
+
+    /// Moves `entry` ahead of `before`, or to the end when that is "".
+    pub fn queue_reorder(&self, agent_id: &str, entry: &str, before: &str) {
+        self.send(json!({"type": "queue.reorder", "id": queue_id(), "agentId": agent_id, "entryId": entry, "before": before}));
+    }
+
+    pub fn queue_send_now(&self, agent_id: &str, entry: &str) {
+        self.send(json!({"type": "queue.send_now", "id": queue_id(), "agentId": agent_id, "entryId": entry}));
     }
 
     pub fn interrupt(&self, agent_id: &str) {
@@ -1217,7 +1278,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| delegation_event(&f.kind, &raw)) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| delegation_event(&f.kind, &raw)).or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries })) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -1340,6 +1401,20 @@ mod tests {
         ($name:literal) => {
             include_str!(concat!("../../../../pocketd/internal/proto/testdata/golden/", $name))
         };
+    }
+
+    #[test]
+    fn only_a_pocketd_with_the_orchestrator_holds_its_sessions_queues() {
+        let connected = |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
+        let mut a = Agents::default();
+        assert!(!a.holds_queue("a1"));
+        a.apply_from(Some("new"), connected(&[ORCHESTRATOR_CAP]));
+        a.apply_from(Some("old"), connected(&["pair.v1"]));
+        assert_eq!([a.holds_queue("a1"), a.holds_queue("new/a1"), a.holds_queue("old/a1")], [false, true, false]);
+        a.apply(connected(&[ORCHESTRATOR_CAP]));
+        assert!(a.holds_queue("a1"));
+        a.forget("new");
+        assert_eq!([a.holds_queue("a1"), a.holds_queue("new/a1")], [true, false]);
     }
 
     #[test]

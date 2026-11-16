@@ -143,6 +143,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(agent);
         }
         Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } | Event::RemoteControl { agent, .. } => t(agent),
+        Event::Queue { agent, .. } => t(agent),
         Event::Delegations { agent, items } => {
             t(agent);
             items.iter_mut().for_each(|d| tag_delegation(host, d));
@@ -274,6 +275,32 @@ impl Outboxes {
 
     pub fn delegations(&self, agent_id: &str) {
         self.by_id(agent_id, |o, id| o.delegations(id));
+    }
+
+    /// The request id a refusal names, once sent.
+    pub fn prompt_queued(&self, agent_id: &str, text: &str) -> Option<String> {
+        let (host, theirs) = untag(agent_id);
+        self.to(host).map(|out| out.prompt_queued(theirs, text))
+    }
+
+    pub fn queue_list(&self, agent_id: &str) {
+        self.by_id(agent_id, |o, id| o.queue_list(id));
+    }
+
+    pub fn queue_edit(&self, agent_id: &str, entry: &str, text: &str) {
+        self.by_id(agent_id, |o, id| o.queue_edit(id, entry, text));
+    }
+
+    pub fn queue_cancel(&self, agent_id: &str, entry: &str) {
+        self.by_id(agent_id, |o, id| o.queue_cancel(id, entry));
+    }
+
+    pub fn queue_reorder(&self, agent_id: &str, entry: &str, before: &str) {
+        self.by_id(agent_id, |o, id| o.queue_reorder(id, entry, before));
+    }
+
+    pub fn queue_send_now(&self, agent_id: &str, entry: &str) {
+        self.by_id(agent_id, |o, id| o.queue_send_now(id, entry));
     }
 
     pub fn skills(&self, provider: &str, account: &str, project: &str) {
@@ -457,6 +484,14 @@ mod tests {
         let mut update = Event::Delegated { agent: "a1".into(), delegation: task };
         assert!(tag_event("devbox", &mut update));
         assert!(matches!(update, Event::Delegated { agent, delegation } if agent == "devbox/a1" && delegation.parent_id == "devbox/a1" && delegation.child_id == "devbox/a2"));
+    }
+
+    #[test]
+    fn a_hosts_queue_names_its_session_by_the_tagged_id_and_keeps_its_entries() {
+        let entry = agents::queue::Entry { id: "e1".into(), text: "next".into(), ..Default::default() };
+        let mut queue = Event::Queue { agent: "a1".into(), entries: vec![entry.clone()] };
+        assert!(tag_event("devbox", &mut queue));
+        assert!(matches!(queue, Event::Queue { agent, entries } if agent == "devbox/a1" && entries == [entry]));
     }
 
     #[test]

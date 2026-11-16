@@ -16,7 +16,7 @@ for spec in "$@"; do
     restore-*) scenario=restored ;;
     agents-chat*) scenario=agents-chat ;;
     agents*) scenario=agents ;;
-    chat*) scenario=chat ;;
+    chat*|delegate*) scenario=chat ;;
     card|drawer) scenario=activity ;;
     *) scenario=sessions ;;
   esac

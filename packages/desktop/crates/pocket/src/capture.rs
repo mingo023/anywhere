@@ -32,13 +32,29 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 253] = [
+const STEPS: [(&str, Step); 262] = [
     ("session", session),
-    ("chat", |d, window, cx| {
-        session(d, window, cx);
-        if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
-            d.store.chats.insert(t.clone());
-            d.focus_chat_or_terminal(t, window, cx);
+    ("chat", chat_session),
+    // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
+    ("delegate", |d, window, cx| {
+        chat_session(d, window, cx);
+        fixture(d, "delegate");
+    }),
+    ("delegate-panel", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, true, cx);
+        }
+    }),
+    ("delegate-capsule", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, false, cx);
+        }
+    }),
+    // As with Reduce transparency on in System Settings.
+    ("delegate-solid", |d, _, cx| {
+        cx.set_global(crate::desktop::ReduceTransparency(true));
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, true, cx);
         }
     }),
     ("compose", |d, window, cx| d.new_session(Some("Fix the flaky parser test".into()), true, window, cx)),
@@ -262,6 +278,19 @@ const STEPS: [(&str, Step); 253] = [
     ("chat-sent", |d, _, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_command(&agent, Command::Send("Now run the parser tests".into()), cx);
+        }
+    }),
+    // Starts a turn that runs long when the fixture streams slowly (FIXTURE_CHUNKS=400), so what follows is sent while the agent works.
+    ("chat-turn", |d, _, _| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.outbox.prompt(&agent, "Walk through the fold once more");
+        }
+    }),
+    // Two sends while the agent works, as ⌘⏎ makes them: a pocketd that keeps the queue holds both.
+    ("chat-queue-pocketd", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("Also fix the lint warnings".into()), cx);
+            d.chat_command(&agent, Command::Send("Then run the parser tests".into()), cx);
         }
     }),
     // Queues a send as the composer does while the agent works, without the fixture echoing it.
@@ -518,6 +547,9 @@ const STEPS: [(&str, Step); 253] = [
         d.edit_automation(first.as_deref(), window, cx);
     }),
     ("automations-new", |d, window, cx| d.edit_automation(None, window, cx)),
+    ("automations-webhook", |d, _, _| d.automations.selected = Some("au5".into())),
+    ("automations-closed-creator", |d, _, _| d.automations.selected = Some("au6".into())),
+    ("automations-webhook-editor", |d, window, cx| d.edit_automation(Some("au5"), window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
     ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
     ("settings-notifications", |d, _, _| d.settings.section = Section::Notifications),
@@ -1137,6 +1169,14 @@ fn models_sample(d: &mut Desktop) {
 fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
         d.focus_agent(&card.id, window, cx);
+    }
+}
+
+fn chat_session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    session(d, window, cx);
+    if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
+        d.store.chats.insert(t.clone());
+        d.focus_chat_or_terminal(t, window, cx);
     }
 }
 

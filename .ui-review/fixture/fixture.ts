@@ -4,6 +4,8 @@
 // prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
 // "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn), "stream-code" (a reply whose code block streams in over 4.5s)
 // or "delegate" (the agent hands three sessions to others: they appear under it, one asks "Which test runner?", one finishes, one fails, and pocketd tells the chat of each).
+// A prompt sent with the queue mode while the agent works waits in pocketd's queue (queue.list, queue.update, edit, cancel, reorder, send_now) and runs once the turn ends; a Stop holds it.
+// FIXTURE_NO_ORCHESTRATOR=1 leaves out the orchestrator capability, as an older pocketd does: the desktop then holds sends to a busy agent itself.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -266,6 +268,9 @@ const AUTOMATIONS = [
   { id: "au2", name: "Dependency audit", prompt: "Check for outdated or vulnerable dependencies and open a summary.", provider: "codex", folder: repoPath("app-ios"), schedule: { kind: "days", days: [5], time: "17:00" }, enabled: true, nextRunAt: now + 3 * 24 * 60 * MIN },
   { id: "au3", name: "Flaky test triage", prompt: "Find tests that failed and passed on the same commit this week.", provider: "codex", folder: repoPath("app-hook"), schedule: { kind: "interval", everyMin: 120 }, enabled: true, nextRunAt: now + 97 * MIN },
   { id: "au4", name: "Weekly changelog", prompt: "Draft the changelog from merged pull requests.", provider: "claude", folder: repoPath("marketing"), schedule: { kind: "days", days: [1], time: "10:00" }, enabled: false, nextRunAt: 0 },
+  // Made by a session's agent; the session "gone" is not in any scenario, so it reads as closed.
+  { id: "au5", name: "Re-run tests on push", prompt: "Run the test suite and report what broke.", provider: "codex", folder: repoPath("app-android"), schedule: { kind: "webhook" }, enabled: true, createdBy: "fix", bound: "fix", webhook: true, webhookUrl: "http://127.0.0.1:47213/hooks/au5" },
+  { id: "au6", name: "Nightly lint sweep", prompt: "Lint the repo and fix what is safe.", provider: "claude", folder: repoPath("app-ios"), schedule: { kind: "days", days: [1, 2, 3, 4, 5], time: "23:00" }, enabled: true, nextRunAt: now + 9 * 60 * MIN, createdBy: "gone", bound: "gone" },
 ];
 const ticket = (id: string, title: string, state: string, status: string, ago: number, extra: Record<string, unknown> = {}) =>
   ({ id, number: +id.slice(1), title, prompt: `${title}.`, provider: "claude", folder: repoPath("app-android"), state, order: ago, status, createdAt: now - ago * 2 * MIN, changedAt: now - ago * MIN, ...extra });
@@ -381,6 +386,43 @@ const restart = (ws: Ws, agentId: string) => {
 const steers = new Map<string, () => void>();
 const REPLY = "The transcript jumped because a finished tool's row grew by its output before the list measured it. Rows now keep their height until the next frame measures them, so the list stays pinned to the bottom while text streams in.";
 const CODE_REPLY = "The fold in Rust:\n\n```rust\npub fn fold(items: &[Item]) -> Vec<Row> {\n    let mut rows = Vec::with_capacity(items.len());\n    for item in items {\n        match item.kind.as_str() {\n            \"tool\" => push_tool(&mut rows, item),\n            \"text\" => rows.push(Row::Text { id: item.id.clone() }),\n            _ => rows.push(Row::from(item)),\n        }\n    }\n    rows.dedup_by(|a, b| a.id() == b.id());\n    rows\n}\n```\n\nRows keep their ids, so the list keeps its place.";
+// As pocketd's queue: a prompt sent with the queue mode while the agent works waits here, and the next turn takes it once the agent is idle.
+// A user's Stop holds the user's entries until their next prompt and drops the notices pocketd sent on its own.
+type Entry = { id: string; text: string; origin: string; state: string; order: number };
+const queues = new Map<string, Entry[]>();
+let entrySeq = 0;
+const publish = (ws: Ws, agentId: string, reply?: { type: string; id: string }) => ws.send(JSON.stringify({ type: reply?.type ?? "queue.update", ...(reply && { id: reply.id }), agentId, entries: queues.get(agentId) ?? [] }));
+const enqueue = (ws: Ws, agentId: string, text: string) => {
+  const list = queues.get(agentId) ?? [];
+  list.push({ id: `e${++entrySeq}`, text, origin: "user", state: "pending", order: Math.max(0, ...list.map((e) => e.order)) + 1 });
+  queues.set(agentId, list);
+  publish(ws, agentId);
+};
+const take = (ws: Ws, agentId: string, id?: string) => {
+  const list = queues.get(agentId) ?? [];
+  const next = id ? list.find((e) => e.id === id) : list.filter((e) => e.state === "pending").sort((a, b) => a.order - b.order)[0];
+  if (!next) return undefined;
+  queues.set(agentId, list.filter((e) => e !== next));
+  publish(ws, agentId);
+  return next;
+};
+const release = (ws: Ws, agentId: string) => {
+  const list = queues.get(agentId) ?? [];
+  if (!list.some((e) => e.state === "held")) return;
+  list.forEach((e) => e.state === "held" && (e.state = "pending"));
+  publish(ws, agentId);
+};
+const hold = (ws: Ws, agentId: string) => {
+  const list = (queues.get(agentId) ?? []).filter((e) => e.origin === "user");
+  list.forEach((e) => (e.state = "held"));
+  queues.set(agentId, list);
+  publish(ws, agentId);
+};
+// What a turn does with a prompt once pocketd lets it run.
+const takeTurn = (ws: Ws, agentId: string, text: string) => {
+  item(ws, agentId, { id: `u-${Date.now()}`, kind: "user", text });
+  reply(ws, agentId);
+};
 // `chunks` chunks 30ms apart into one item, as pocketd streams a reply.
 const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.env.FIXTURE_CHUNKS) || 40) => {
   const words = text.split(" ");
@@ -401,6 +443,8 @@ const reply = (ws: Ws, agentId: string, text = REPLY, chunks = Number(process.en
     if (steer) return steer();
     item(ws, agentId, { id: `r-${Date.now()}`, kind: "result", ok: true, durationMs: 1200, usage: { inputTokens: 12000, outputTokens: 180 } });
     update(ws, agentId, "idle");
+    const queued = take(ws, agentId);
+    if (queued) takeTurn(ws, agentId, queued.text);
   }, 30);
   streams.set(agentId, timer);
 };
@@ -436,6 +480,17 @@ const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
 };
 const deliver = (ws: Ws, t: Task, outcome: "done" | "failed" | "asks") =>
   item(ws, t.parentId, { id: `delivery-${t.taskId}-${outcome}`, kind: "delivery", taskIds: [t.taskId], childIds: [t.childId], titles: [t.title], agents: [t.agent], outcome, ...(outcome === "asks" && { question: t.question }) });
+// pocketd's default isolation: a child gets a worktree of its own from the parent's checkout; FIXTURE_DELEGATE_SHARED=1 keeps it in the parent's, as isolation "shared" does.
+const childCheckout = (parentId: string, parentCwd: string, title: string) => {
+  const local = (sessions.find((s) => s.id === parentId) as { local?: string } | undefined)?.local ?? "";
+  if (process.env.FIXTURE_DELEGATE_SHARED) return { cwd: parentCwd, local };
+  const common = Bun.spawnSync(["git", "-C", parentCwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout.toString().trim();
+  const repo = dirname(common);
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const tree = join(`${repo}.worktrees`, `delegate-${slug}`);
+  git(repo, "worktree", "add", "-q", "-b", `delegate/${slug}`, tree, "HEAD");
+  return { cwd: tree, local: "" };
+};
 const delegate = (ws: Ws, parentId: string) => {
   const parent = summaries.find((s) => s.id === parentId);
   if (!parent) return;
@@ -447,10 +502,11 @@ const delegate = (ws: Ws, parentId: string) => {
     setTimeout(() => {
       const t: Task = { taskId, parentId, childId, title, agent, model, status: "starting", createdAt: Date.now() };
       list.push(t);
-      sessions.push({ id: childId, cmd: agent, args: [], cwd: parent.cwd });
+      const { cwd, local } = childCheckout(parentId, parent.cwd, title);
+      sessions.push({ id: childId, cmd: agent, args: [], cwd, local });
       childItems.set(childId, [{ id: `${childId}-brief`, kind: "user", text: brief }, { id: `${childId}-a`, kind: "assistant", text: "On it." }]);
       childTimelines.set(childId, stamp(childId, childItems.get(childId)!));
-      summaries.push({ ...parent, id: childId, terminalId: childId, title, provider: agent, model, effort: undefined, status: "working", failed: false, pinned: false, chatOnly: true, parent: parentId, relationship: "subagent", createdBy: `agent:${parentId}`, delegation: { taskId, status: "starting", workState: "working" }, createdAt: Date.now(), updatedAt: Date.now() } as (typeof summaries)[number]);
+      summaries.push({ ...parent, id: childId, terminalId: childId, cwd, title, provider: agent, model, effort: undefined, status: "working", failed: false, pinned: false, chatOnly: true, parent: parentId, relationship: "subagent", createdBy: `agent:${parentId}`, delegation: { taskId, status: "starting", workState: "working" }, createdAt: Date.now(), updatedAt: Date.now() } as (typeof summaries)[number]);
       announce();
       ws.send(JSON.stringify({ type: "agent.update", agent: summaries.at(-1) }));
       ws.send(JSON.stringify({ type: "delegation.update", agentId: parentId, delegation: t }));
@@ -488,7 +544,7 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", "orchestrator.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
@@ -508,7 +564,9 @@ Bun.serve({
         if (a?.id === CHAT_AGENT && firstChat.at(-1)?.kind === "user") reply(ws, a.id);
         if (a?.id === CHAT_AGENT && process.env.FIXTURE_CHAT === "permissions") ask(ws, a.id, "permission");
       }
-      if (f.type === "agent.prompt") {
+      if (f.type === "agent.prompt" && f.queue && streams.has(f.agentId)) enqueue(ws, f.agentId, f.text);
+      else if (f.type === "agent.prompt") {
+        release(ws, f.agentId);
         const name = f.text.match(/^\/fixture (\S+)$/)?.[1];
         if (name === "permission" || name === "question") ask(ws, f.agentId, name);
         else if (name === "exit") exit(ws, f.agentId);
@@ -533,6 +591,33 @@ Bun.serve({
           };
           if (streams.has(f.agentId)) steers.set(f.agentId, answer);
           else answer();
+        }
+      }
+      if (f.type === "queue.list") publish(ws, f.agentId, { type: "queue.list", id: f.id });
+      if (f.type === "queue.edit") {
+        const e = queues.get(f.agentId)?.find((e) => e.id === f.entryId);
+        if (e) e.text = f.text;
+        publish(ws, f.agentId);
+      }
+      if (f.type === "queue.cancel") {
+        queues.set(f.agentId, (queues.get(f.agentId) ?? []).filter((e) => e.id !== f.entryId));
+        publish(ws, f.agentId);
+      }
+      if (f.type === "queue.reorder") {
+        const list = queues.get(f.agentId) ?? [];
+        const e = list.find((e) => e.id === f.entryId);
+        const rest = list.filter((x) => x !== e).sort((a, b) => a.order - b.order);
+        const at = f.before ? rest.findIndex((x) => x.id === f.before) : -1;
+        if (e) e.order = at < 0 ? Math.max(0, ...rest.map((x) => x.order)) + 1 : at === 0 ? rest[0].order - 1 : (rest[at - 1].order + rest[at].order) / 2;
+        queues.set(f.agentId, list.sort((a, b) => a.order - b.order));
+        publish(ws, f.agentId);
+      }
+      if (f.type === "queue.send_now") {
+        const e = take(ws, f.agentId, f.entryId);
+        if (e) {
+          clearInterval(streams.get(f.agentId));
+          streams.delete(f.agentId);
+          takeTurn(ws, f.agentId, e.text);
         }
       }
       if (f.type === "agent.commands") {
@@ -588,6 +673,7 @@ Bun.serve({
           streams.delete(f.agentId);
           item(ws, f.agentId, { id: `r-${Date.now()}`, kind: "result", ok: false, durationMs: 0, error: "Interrupted" });
           update(ws, f.agentId, "idle");
+          hold(ws, f.agentId);
         }, Number(process.env.FIXTURE_STOP_MS) || 0);
       }
       if (f.type === "agent.providers" && (process.env.FIXTURE_SEND_NOW || name.startsWith("agents"))) {
