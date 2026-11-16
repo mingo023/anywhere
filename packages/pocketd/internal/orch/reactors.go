@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"log"
 	"time"
+
+	"pocketd/internal/agent"
+	"pocketd/internal/proto"
 )
 
 // OnTurn reacts to a session's turn starting or ending: a child that settles
@@ -52,6 +55,36 @@ func (e *Engine) settleChild(c TurnChange) {
 	}()
 }
 
+// catchUp settles a child whose turn ended before its task recorded it: the
+// launcher prompts the child before it returns the child's id.
+func (e *Engine) catchUp(child string) {
+	var state, msg, status string
+	err := e.store.db.QueryRow(`SELECT t.state, t.error, s.status FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.session_id = ? AND t.ended_at > 0 ORDER BY t.id DESC LIMIT 1`, child).Scan(&state, &msg, &status)
+	if err != nil || status == "working" || status == "needsYou" {
+		return
+	}
+	e.settleChild(TurnChange{Session: child, From: "working", To: status, Failed: state == "failed" || state == "interrupted", Error: msg})
+}
+
+// pumpOthers lets every other chat with a queued task use the room a settled
+// task left under the per-Mac limit, oldest queue first.
+func (e *Engine) pumpOthers(parent string) {
+	rows, err := e.store.db.Query(`SELECT parent_id FROM delegations WHERE status = 'queued' AND parent_id != ? GROUP BY parent_id ORDER BY MIN(created_at)`, parent)
+	if err != nil {
+		return
+	}
+	var parents []string
+	for rows.Next() {
+		var p string
+		rows.Scan(&p)
+		parents = append(parents, p)
+	}
+	rows.Close()
+	for _, p := range parents {
+		e.dispatch(Command{Kind: CmdDelegatePump, Session: p})
+	}
+}
+
 // awaitTurnEnd waits, up to 3 s, for the session's last turn to reach its
 // timeline: a turn ends on the agent's stream, and its reply comes through
 // the transcript after.
@@ -94,4 +127,17 @@ func (e *Engine) AskOpened(session, requestID, kind string, payload json.RawMess
 // AskClosed records an ask answered or gone, and drops the parent's notice of it.
 func (e *Engine) AskClosed(session, requestID string) {
 	e.dispatch(NewCommand("", CmdRequestClose, session, RequestPayload{RequestID: requestID}))
+}
+
+// Lineage is what the store kept of where session id came from.
+func (s *Store) Lineage(id string) agent.Lineage {
+	x, err := s.Session(id)
+	if err != nil || x == nil {
+		return agent.Lineage{}
+	}
+	l := agent.Lineage{Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy}
+	if ts, err := s.Delegations(`child_id = ? ORDER BY created_at DESC LIMIT 1`, id); err == nil && len(ts) == 1 {
+		l.Delegation = &proto.DelegationRef{TaskID: ts[0].TaskID, Status: ts[0].Status, WorkState: ts[0].WorkState}
+	}
+	return l
 }

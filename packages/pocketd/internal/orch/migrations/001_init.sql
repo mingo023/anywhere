@@ -74,6 +74,8 @@ CREATE TABLE delegations (
 	title TEXT NOT NULL DEFAULT '',
 	role TEXT NOT NULL DEFAULT '',
 	agent TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	effort TEXT NOT NULL DEFAULT '',
 	brief TEXT NOT NULL DEFAULT '',
 	isolation TEXT NOT NULL DEFAULT 'worktree',
 	mode TEXT NOT NULL DEFAULT 'async',

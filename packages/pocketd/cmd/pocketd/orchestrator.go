@@ -43,6 +43,7 @@ func openOrchestrator(home string, settings *config.Settings, reg *agent.Registr
 	}
 	o := &orchestrator{store: store, sink: orch.NewSink(store)}
 	reg.Sink = o.sink
+	reg.Lineage = store.Lineage
 	port := settings.MCPPort()
 	o.ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {

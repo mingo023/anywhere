@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"pocketd/internal/agent"
+	"pocketd/internal/hub"
 	"pocketd/internal/proto"
 )
 
@@ -568,7 +571,7 @@ func TestDrainSendsTheFirstPendingEntryInOrder(t *testing.T) {
 	st := parentState("idle", 0)
 	st.Queue = []QueueEntry{{ID: "h", Ord: 0, State: EntryHeld}, {ID: "a", Ord: 1, State: EntryPending, Text: "first"}, {ID: "b", Ord: 2, State: EntryPending}}
 	d, _ := decide(st, Command{Kind: CmdQueueDrain, Session: "p"})
-	if len(d.Queue) != 1 || d.Queue[0].ID != "a" || d.Queue[0].State != EntrySent {
+	if len(d.Queue) != 1 || d.Queue[0].ID != "a" || d.Queue[0].State != EntrySending {
 		t.Fatalf("drain: %+v", d.Queue)
 	}
 	st.Session.Status = "working"
@@ -847,5 +850,195 @@ func TestOrganizeActions(t *testing.T) {
 		if _, err := decide(st, NewCommand("", CmdSessionOrganize, "p", OrganizePayload{Action: action})); AsFailure(err).Code != CodeUnsupported {
 			t.Errorf("%s: %v", action, err)
 		}
+	}
+}
+
+func TestASessionAnAgentLaunchedRecordsWhoStartedIt(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "edits", Status: "working", Project: "proj", Cwd: "/r"})
+	f := &fakeEffector{result: func(Effect) (map[string]any, error) { return map[string]any{"childId": "k", "targetId": "k"}, nil }}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	defer e.Close()
+	if _, err := e.Dispatch(NewCommand("c1", CmdSessionCreate, "p", LaunchPayload{Agent: "claude", Prompt: "x", Access: "edits"})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		k, _ := s.Session("k")
+		return k != nil && k.CreatedBy == "agent"
+	})
+}
+
+func TestAChildThatEndsBeforeItsTaskKnowsItStillSettlesTheTask(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	k := NewSink(s)
+	defer k.Close()
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind != EffLaunch {
+			return nil, nil
+		}
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+		k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Done fast"})
+		k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+		k.Flush()
+		return map[string]any{"childId": "child-1"}, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	k.OnTurn = e.OnTurn
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x", Title: "Fast"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return len(ts) == 1 && ts[0].Status == TaskCompleted && ts[0].Summary == "Done fast"
+	})
+}
+
+func TestATaskQueuedOnTheMacLimitStartsWhenAnotherChatsChildSettles(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "a", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	putSession(t, s, Session{ID: "b", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	n := 0
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind != EffLaunch {
+			return nil, nil
+		}
+		n++
+		return map[string]any{"childId": fmt.Sprint("child-", n)}, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	e.Limits = func() Limits { return Limits{Depth: 3, PerSession: 6, PerMac: 1} }
+	defer e.Close()
+	delegate := func(parent string) Delegation {
+		r, err := e.Dispatch(NewCommand("", CmdDelegate, parent, DelegatePayload{Agent: "codex", Brief: "x"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var d Delegation
+		json.Unmarshal(r.Result, &d)
+		return d
+	}
+	status := func(id string) string {
+		ts, _ := s.Delegations(`task_id = ?`, id)
+		return ts[0].Status
+	}
+	first := delegate("a")
+	waitFor(t, func() bool { return status(first.TaskID) == TaskWorking })
+	second := delegate("b")
+	if got := status(second.TaskID); got != TaskQueued {
+		t.Fatalf("over the Mac limit: %s", got)
+	}
+	if _, err := e.Dispatch(NewCommand("", CmdDelegateSettle, "a", TaskPayload{TaskID: first.TaskID, Status: TaskCompleted})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return status(second.TaskID) == TaskWorking })
+}
+
+func TestAQueuedMessageTheAgentRefusesStaysQueued(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "a", Agent: "claude", Status: "idle"})
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind == EffTurnStart {
+			return nil, errors.New("not in the foreground")
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	defer e.Close()
+	if _, err := e.Dispatch(NewCommand("", CmdMessageSend, "a", SendPayload{Text: "hello", Mode: "queue"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Dispatch(Command{Kind: CmdQueueDrain, Session: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.ran) > 0
+	})
+	waitFor(t, func() bool {
+		q, _ := s.Queue("a", true)
+		return len(q) == 1 && q[0].State == EntryPending
+	})
+}
+
+func TestAQueuedTaskKeepsTheModelAndEffortItAskedFor(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	e := NewEngine(s, &fakeEffector{})
+	e.Agent = agents
+	e.Limits = func() Limits { return Limits{Depth: 3, PerSession: 6, PerMac: 0} }
+	defer e.Close()
+	r, err := e.Dispatch(NewCommand("", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x", Model: "gpt-5.5", Effort: "high"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d Delegation
+	json.Unmarshal(r.Result, &d)
+	ts, _ := s.Delegations(`task_id = ?`, d.TaskID)
+	if ts[0].Status != TaskQueued || ts[0].Model != "gpt-5.5" || ts[0].Effort != "high" {
+		t.Fatalf("stored: %+v", ts[0])
+	}
+}
+
+func TestARetriedLaunchFindsTheSessionTheFirstTryStarted(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "edits", Status: "working", Project: "proj", Cwd: "/r"})
+	e := NewEngine(s, &fakeEffector{result: func(Effect) (map[string]any, error) { return map[string]any{"childId": "k"}, nil }})
+	e.Agent = agents
+	defer e.Close()
+	cmd := NewCommand("req-1", CmdSessionCreate, "p", LaunchPayload{Agent: "claude", Prompt: "x", Access: "edits"})
+	first, err := e.DispatchWait(cmd, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := e.Dispatch(cmd)
+	if err != nil || !again.Replay || !slices.Equal(again.Effects, first.Effects) {
+		t.Fatalf("replay = %+v, first = %+v, %v", again, first, err)
+	}
+	if res, state, _ := e.Result(again.Effects[0]); state != "done" || res["childId"] != "k" {
+		t.Fatalf("result %v %s", res, state)
+	}
+}
+
+func TestAForkCountsAgainstTheMacLimit(t *testing.T) {
+	st := parentState("working", 0)
+	st.Session.Conversation = "c1"
+	st.Target = agents("claude")
+	st.Running = st.Limits.PerMac
+	if _, err := decide(st, NewCommand("", CmdTransferFork, "p", TransferPayload{Native: true, Prompt: "x"})); AsFailure(err).Code != CodeConflict {
+		t.Fatalf("a fork over the Mac limit: %v", err)
+	}
+}
+
+func TestARestoredChildStillShowsTheChatThatDelegatedIt(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	e := NewEngine(s, &fakeEffector{result: func(Effect) (map[string]any, error) { return map[string]any{"childId": "child-1"}, nil }})
+	e.Agent = agents
+	defer e.Close()
+	r, err := e.Dispatch(NewCommand("", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0].Status == TaskWorking
+	})
+	reg := agent.NewRegistry(hub.New())
+	reg.Lineage = s.Lineage
+	got := reg.Restore(agent.Restored{ID: "child-1", Provider: "codex"}, nil).Summary()
+	if got.Parent != "p" || got.Relationship != "subagent" || got.Delegation == nil || got.Delegation.TaskID != task.TaskID {
+		t.Fatalf("restored: parent %q, relationship %q, delegation %+v", got.Parent, got.Relationship, got.Delegation)
 	}
 }

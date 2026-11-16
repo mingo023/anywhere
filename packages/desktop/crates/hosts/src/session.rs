@@ -124,7 +124,11 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
     match ev {
         Event::Agents(list) => list.iter_mut().for_each(|a| tag_summary(host, a)),
         Event::Agent(a) => tag_summary(host, a),
-        Event::Items(id, _) | Event::Page { agent: id, .. } | Event::Resolved(id) | Event::NamingFailed(id) | Event::Progress { request: id, .. } | Event::CreateFailed { request: id, .. } => t(id),
+        Event::Items(id, items) | Event::Page { agent: id, items, .. } => {
+            t(id);
+            items.iter_mut().flat_map(|i| i.child_ids.iter_mut()).for_each(t);
+        }
+        Event::Resolved(id) | Event::NamingFailed(id) | Event::Progress { request: id, .. } | Event::CreateFailed { request: id, .. } => t(id),
         Event::Asked(p) => {
             t(&mut p.request_id);
             t(&mut p.agent_id);
@@ -453,6 +457,17 @@ mod tests {
         let mut update = Event::Delegated { agent: "a1".into(), delegation: task };
         assert!(tag_event("devbox", &mut update));
         assert!(matches!(update, Event::Delegated { agent, delegation } if agent == "devbox/a1" && delegation.parent_id == "devbox/a1" && delegation.child_id == "devbox/a2"));
+    }
+
+    #[test]
+    fn a_hosts_delivery_opens_that_hosts_child() {
+        let delivery = || agents::Item { kind: "delivery".into(), child_ids: vec!["a2".into()], ..Default::default() };
+        let mut items = Event::Items("a1".into(), vec![delivery()]);
+        assert!(tag_event("devbox", &mut items));
+        assert!(matches!(items, Event::Items(_, list) if list[0].child_ids == ["devbox/a2"]));
+        let mut page = Event::Page { agent: "a1".into(), items: vec![delivery()], max_seq: 1 };
+        assert!(tag_event("devbox", &mut page));
+        assert!(matches!(page, Event::Page { items, .. } if items[0].child_ids == ["devbox/a2"]));
     }
 
     fn outboxes() -> (Outboxes, std::sync::mpsc::Receiver<Value>, std::sync::mpsc::Receiver<Value>) {

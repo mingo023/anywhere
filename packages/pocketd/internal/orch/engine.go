@@ -108,7 +108,8 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 					return refuse(CodeInvalid, "This request id was already used with a different request")
 				}
 				r = Receipt{Result: json.RawMessage(result), Replay: true}
-				return nil
+				r.Effects, err = effectsOf(tx, cmd.ID)
+				return err
 			}
 			if !errors.Is(err, sql.ErrNoRows) {
 				return err
@@ -149,7 +150,33 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 			log.Printf("orch: %s for %s: %v", f.Kind, f.Session, err)
 		}
 	}
+	if cmd.Kind == CmdDelegateStarted && len(d.Delegations) == 1 {
+		e.catchUp(d.Delegations[0].ChildID)
+	}
+	for _, ev := range d.Events {
+		if ev.Kind == "delegation.settled" {
+			e.pumpOthers(ev.Session)
+			break
+		}
+	}
 	return r, nil
+}
+
+func effectsOf(tx *Tx, command string) ([]int64, error) {
+	rows, err := tx.Query(`SELECT id FROM outbox WHERE command_id = ? ORDER BY id`, command)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // DispatchWait is Dispatch that waits up to wait for the command's effects,
@@ -294,11 +321,11 @@ func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, error) {
 }
 
 func putDelegation(tx *Tx, t Delegation) error {
-	_, err := tx.Exec(`INSERT INTO delegations (task_id, parent_id, parent_turn, child_id, title, role, agent, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, created_at, settled_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := tx.Exec(`INSERT INTO delegations (task_id, parent_id, parent_turn, child_id, title, role, agent, model, effort, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, created_at, settled_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task_id) DO UPDATE SET child_id = excluded.child_id, title = excluded.title, status = excluded.status, work_state = excluded.work_state, summary = excluded.summary,
 			error = excluded.error, completion_wake = excluded.completion_wake, delivery = excluded.delivery, pending_question = excluded.pending_question, settled_at = excluded.settled_at`,
-		t.TaskID, t.ParentID, t.ParentTurn, t.ChildID, t.Title, t.Role, t.Agent, t.Brief, t.Isolation, t.Mode, t.Status, t.WorkState, t.Summary, t.Error, t.Access, t.SteppedDown,
+		t.TaskID, t.ParentID, t.ParentTurn, t.ChildID, t.Title, t.Role, t.Agent, t.Model, t.Effort, t.Brief, t.Isolation, t.Mode, t.Status, t.WorkState, t.Summary, t.Error, t.Access, t.SteppedDown,
 		t.CompletionWake, t.Delivery, t.PendingQuestion, t.ClientRequestID, t.CreatedAt, t.SettledAt)
 	return err
 }
@@ -393,7 +420,7 @@ func (e *Engine) load(tx *Tx, cmd Command) (State, error) {
 	if err := tx.QueryRow(`SELECT
 		(SELECT COUNT(*) FROM delegations WHERE status = 'working') +
 		(SELECT COUNT(*) FROM outbox WHERE kind IN (?, ?) AND state IN ('pending', 'running')) +
-		(SELECT COUNT(*) FROM sessions WHERE created_by = 'agent' AND relationship = '' AND closed_at = 0 AND status IN ('working', 'needsYou'))`, EffLaunch, EffForkLaunch).Scan(&st.Running); err != nil {
+		(SELECT COUNT(*) FROM sessions WHERE created_by = 'agent' AND relationship IN ('', 'fork') AND closed_at = 0 AND status IN ('working', 'needsYou'))`, EffLaunch, EffForkLaunch).Scan(&st.Running); err != nil {
 		return st, err
 	}
 	rows, err := tx.Query(`SELECT task_id FROM held WHERE session_id = ?`, cmd.Session)
@@ -485,7 +512,7 @@ func loadQueue(q querier, session string, liveOnly bool) ([]QueueEntry, error) {
 	return out, rows.Err()
 }
 
-const delegationCols = `task_id, parent_id, parent_turn, child_id, title, role, agent, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, created_at, settled_at`
+const delegationCols = `task_id, parent_id, parent_turn, child_id, title, role, agent, model, effort, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, created_at, settled_at`
 
 func loadDelegations(q querier, where string, args ...any) ([]Delegation, error) {
 	rows, err := q.Query(`SELECT `+delegationCols+` FROM delegations WHERE `+where, args...)
@@ -496,7 +523,7 @@ func loadDelegations(q querier, where string, args ...any) ([]Delegation, error)
 	var out []Delegation
 	for rows.Next() {
 		var t Delegation
-		if err := rows.Scan(&t.TaskID, &t.ParentID, &t.ParentTurn, &t.ChildID, &t.Title, &t.Role, &t.Agent, &t.Brief, &t.Isolation, &t.Mode, &t.Status, &t.WorkState, &t.Summary,
+		if err := rows.Scan(&t.TaskID, &t.ParentID, &t.ParentTurn, &t.ChildID, &t.Title, &t.Role, &t.Agent, &t.Model, &t.Effort, &t.Brief, &t.Isolation, &t.Mode, &t.Status, &t.WorkState, &t.Summary,
 			&t.Error, &t.Access, &t.SteppedDown, &t.CompletionWake, &t.Delivery, &t.PendingQuestion, &t.ClientRequestID, &t.CreatedAt, &t.SettledAt); err != nil {
 			return nil, err
 		}

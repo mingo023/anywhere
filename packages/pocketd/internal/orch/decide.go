@@ -181,6 +181,12 @@ func decide(st State, cmd Command) (Decision, error) {
 		return send(st, cmd, p, &ids)
 	case CmdQueueDrain:
 		return drain(st, cmd)
+	case CmdQueueSent, CmdQueueUnsent:
+		var p TurnPayload
+		if err := decode(cmd, &p); err != nil {
+			return Decision{}, err
+		}
+		return delivered(st, cmd, p.Key)
 	case CmdQueueEdit, CmdQueueCancel, CmdQueueReorder, CmdQueueSendNow, CmdQueueCancelRefs:
 		var p EntryPayload
 		if err := decode(cmd, &p); err != nil {
@@ -235,15 +241,15 @@ func decide(st State, cmd Command) (Decision, error) {
 			}
 			p.Access, p.SteppedDown = access, stepped
 		}
-		if st.Running >= st.Limits.PerMac {
-			return Decision{}, refuse(CodeConflict, fmt.Sprintf("Agents already run %d sessions on this Mac; start more once some settle", st.Limits.PerMac))
+		if err := macFull(st); err != nil {
+			return Decision{}, err
 		}
 		e := effect("launch:"+cmd.ID, EffLaunch, p)
 		e.Then = CmdSessionLaunched
 		return Decision{Effects: []Effect{e}, Result: map[string]string{"status": "starting", "access": p.Access, "steppedDown": p.SteppedDown}}, nil
 	case CmdSessionLaunched:
 		var p struct {
-			AgentID string `json:"agentId"`
+			AgentID string `json:"childId"`
 			LaunchPayload
 		}
 		if err := decode(cmd, &p); err != nil {
@@ -420,11 +426,32 @@ func drain(st State, cmd Command) (Decision, error) {
 		if e.State != EntryPending {
 			continue
 		}
-		e.State = EntrySent
-		eff := effect(st.Session.ID, EffTurnStart, TurnPayload{Text: e.Text, Key: e.ID, Origin: e.Origin})
-		return Decision{Queue: []QueueEntry{e}, Effects: []Effect{eff}, Events: []Event{{st.Session.ID, "queue.sent", e.ID}}}, nil
+		return sendEntry(st, e), nil
 	}
 	return Decision{}, nil
+}
+
+// sendEntry starts a turn with e; e counts as sent only once the agent takes it.
+func sendEntry(st State, e QueueEntry) Decision {
+	e.State = EntrySending
+	eff := effect(st.Session.ID, EffTurnStart, TurnPayload{Text: e.Text, Key: e.ID, Origin: e.Origin})
+	eff.Then, eff.Else = CmdQueueSent, CmdQueueUnsent
+	return Decision{Queue: []QueueEntry{e}, Effects: []Effect{eff}}
+}
+
+// delivered settles a sending entry: sent, or pending again for the next idle.
+func delivered(st State, cmd Command, id string) (Decision, error) {
+	i := slices.IndexFunc(st.Queue, func(e QueueEntry) bool { return e.ID == id && e.State == EntrySending })
+	if i < 0 {
+		return Decision{}, nil
+	}
+	e := st.Queue[i]
+	if cmd.Kind == CmdQueueUnsent {
+		e.State = EntryPending
+		return Decision{Queue: []QueueEntry{e}}, nil
+	}
+	e.State = EntrySent
+	return Decision{Queue: []QueueEntry{e}, Events: []Event{{e.Session, "queue.sent", e.ID}}}, nil
 }
 
 func queueEdit(st State, cmd Command, p EntryPayload) (Decision, error) {
@@ -457,8 +484,7 @@ func queueEdit(st State, cmd Command, p EntryPayload) (Decision, error) {
 	case CmdQueueReorder:
 		e.Ord = reorder(st.Queue, e.ID, p.Before)
 	case CmdQueueSendNow:
-		e.State = EntrySent
-		return Decision{Queue: []QueueEntry{e}, Effects: []Effect{effect(st.Session.ID, EffTurnStart, TurnPayload{Text: e.Text, Key: e.ID, Origin: e.Origin})}}, nil
+		return sendEntry(st, e), nil
 	}
 	return Decision{Queue: []QueueEntry{e}}, nil
 }
@@ -765,6 +791,14 @@ func settle(st State, t Delegation, status, summary, errText string) (Decision, 
 	return d, nil
 }
 
+// macFull refuses a session an agent starts once agents run the Mac's limit.
+func macFull(st State) error {
+	if st.Running >= st.Limits.PerMac {
+		return refuse(CodeConflict, fmt.Sprintf("Agents already run %d sessions on this Mac; start more once some settle", st.Limits.PerMac))
+	}
+	return nil
+}
+
 // pump starts the session's queued delegations as far as the limits allow.
 func pump(st State, cmd Command) (Decision, error) {
 	if st.Session == nil {
@@ -942,6 +976,9 @@ func transfer(st State, cmd Command, p TransferPayload, ids *idSeq) (Decision, e
 		}
 		access, _, err := Access(s.Access, st.Target)
 		if err != nil {
+			return Decision{}, err
+		}
+		if err := macFull(st); err != nil {
 			return Decision{}, err
 		}
 		id := ids.next("xfer")

@@ -22,6 +22,8 @@ const (
 	CmdQueueReorder    = "queue.reorder"
 	CmdQueueSendNow    = "queue.send_now"
 	CmdQueueDrain      = "queue.drain"
+	CmdQueueSent       = "queue.sent"
+	CmdQueueUnsent     = "queue.unsent"
 	CmdRequestOpen     = "request.open"
 	CmdRequestClose    = "request.close"
 	CmdRequestAnswer   = "request.answer"
