@@ -219,3 +219,16 @@ Desktop: prototype details GPUI can't draw
 - Panel blur-in (`filter: blur()` on the whole panel as it appears): no content filter in GPUI; the only blur is `Styled::backdrop_blur(radius)`, which blurs what lies behind, on Metal only. The panel fades in without it.
 - `saturate(160%)` on the backdrop: `backdrop_blur` takes a radius and nothing else, with no saturation or colour matrix.
 - Inset top highlight: drawn, as an inset `BoxShadow` 0.5 px down.
+
+### Built differently from the sub-plans' wording
+
+- Ingest: **drivers report through the registry `Sink` (`internal/orch/sink.go`); there is no `Engine.Ingest`.** Each driver's e2e test (`storedAsLive`) pins that the store holds the same items as the live timeline.
+- Tools: **`internal/mcp/tools_a.go`, `tools_b.go` and `tools_c.go` (one file per group) with exposure in `toolkit.go`**; there is no `exposure.go` or `tools/` directory.
+- Fork and worktree: **a fork runs as the `fork.launch` effect, and a delegated child's worktree is made inside the launch effect**, not by a `worktree.create` effect.
+- Restart mid-delegation: **an in-place upgrade keeps the child working and wakes the parent with its result; a cold restart that ends the child's turn fails the task with "pocketd restarted during the turn" and wakes the parent if it resumes.**
+- A timed-out wait: **`anywhere_thread_wait` returns `waitTimedOut: true` with the session still `working`**; there is no "still working" string.
+- Refusals: **a bad, expired or revoked MCP token gets HTTP 401, and a call over the caller's access ceiling gets `forbidden`.**
+- `anywhere_thread_search`: **matches conversation text (prompts and replies), titles and branch names**; the store holds no pull-request data to search.
+- The `mcp` principal: **`peer.MCP` (scope `delegate`) exists and every WebSocket verb refuses it; the MCP server authenticates a bearer token through `mcp.Tokens` and its `Grant`** rather than through a principal.
+- A stopped child: **a child whose turn the user stops, or the agent reports as interrupted, settles its task `cancelled` with the summary "Stopped by the user" and wakes the parent, which `task_cancel` and a closed session don't.**
+- The MCP listener across an in-place upgrade: **its socket is handed to the new pocketd through `handoff.json` (`mcpFd`), so a new connection is answered and not refused; a call in flight at the exec is cut, and the owner listener is still bound again, not handed down.**

@@ -36,6 +36,7 @@ type TurnChange struct {
 	From, To string
 	Failed   bool
 	Error    string
+	Stopped  bool // the turn ended because the user or an agent stopped it
 	Summary  proto.AgentSummary
 }
 
@@ -220,6 +221,7 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 	}
+	stopped := false
 	switch {
 	case working(s.Status) && !working(from):
 		if _, err := tx.Exec(`INSERT INTO turns (session_id, state, started_at, results_before) VALUES (?, 'working', ?, (`+countResults+`))`, s.ID, now, s.ID); err != nil {
@@ -233,11 +235,12 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 		switch {
 		case s.Status == "closed":
 			state = "cancelled"
-		case s.Failed && s.Error == "interrupted":
+		case s.Failed && s.Error == "interrupted" || stopAsked(tx, s.ID):
 			state = "interrupted"
 		case s.Failed:
 			state = "failed"
 		}
+		stopped = state == "interrupted"
 		if _, err := tx.Exec(`UPDATE turns SET state = ?, ended_at = ?, error = ? WHERE id = (SELECT MAX(id) FROM turns WHERE session_id = ?) AND ended_at = 0`, state, now, s.Error, s.ID); err != nil {
 			return nil, err
 		}
@@ -245,7 +248,15 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 	}
-	return &TurnChange{Session: s.ID, From: from, To: s.Status, Failed: s.Failed, Error: s.Error, Summary: s}, nil
+	return &TurnChange{Session: s.ID, From: from, To: s.Status, Failed: s.Failed, Error: s.Error, Stopped: stopped, Summary: s}, nil
+}
+
+// stopAsked says whether a stop was decided for id since its last turn ended.
+func stopAsked(tx *Tx, id string) bool {
+	var asked bool
+	tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM events WHERE session_id = ? AND kind = 'turn.interrupted'
+		AND seq > COALESCE((SELECT MAX(seq) FROM events WHERE session_id = ? AND kind = 'turn.ended'), 0))`, id, id).Scan(&asked)
+	return asked
 }
 
 // countResults counts a session's turn ends that reached its timeline.

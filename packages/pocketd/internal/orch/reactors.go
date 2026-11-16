@@ -39,6 +39,10 @@ func (e *Engine) settleChild(c TurnChange) {
 	switch {
 	case c.To == "closed":
 		p.Status, p.Error = TaskCancelled, "The session was closed"
+	case c.Stopped:
+		p.Status, p.Summary, p.Stopped = TaskCancelled, "Stopped by the user", true
+		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, p))
+		return
 	case c.Failed:
 		p.Status, p.Error = TaskFailed, c.Error
 	}
@@ -65,7 +69,7 @@ func (e *Engine) catchUp(child string) {
 	if err != nil || status == "working" || status == "needsYou" {
 		return
 	}
-	e.settleChild(TurnChange{Session: child, From: "working", To: status, Failed: state == "failed" || state == "interrupted", Error: msg})
+	e.settleChild(TurnChange{Session: child, From: "working", To: status, Failed: state == "failed", Stopped: state == "interrupted", Error: msg})
 }
 
 // FailOrphans fails each working task whose child isn't running: a cold
