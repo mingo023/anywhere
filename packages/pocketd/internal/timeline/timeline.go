@@ -130,6 +130,21 @@ func (t *Timeline) Continue(epoch, seq int64) {
 	t.epoch, t.seq = epoch+1, seq
 }
 
+// Load takes the items a restart kept, oldest first, under their ids: seq
+// goes on past them, and a new epoch has phones refetch.
+func (t *Timeline) Load(items []proto.Item) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.items = slices.Clone(items)
+	for i, it := range items {
+		t.seq = max(t.seq, it.Seq)
+		if it.Kind == "tool" && it.Call != nil && it.Call.Status == "running" {
+			t.tools[it.Call.ToolUseID] = i
+		}
+	}
+	t.epoch++
+}
+
 func (t *Timeline) State() (epoch, maxSeq int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -452,6 +467,18 @@ func (t *Timeline) LastingAgents() []string {
 	}
 	slices.SortFunc(ids, func(a, b string) int { return t.tasks[a] - t.tasks[b] })
 	return ids
+}
+
+// TaskOf is the task id of the call toolUseID, "" when it isn't a background task.
+func (t *Timeline) TaskOf(toolUseID string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for id, n := range t.tasks {
+		if t.items[n].Call.ToolUseID == toolUseID {
+			return id
+		}
+	}
+	return ""
 }
 
 // BackgroundAgents counts the sub-agents running on in the background past their turn whose end a turn waits for.

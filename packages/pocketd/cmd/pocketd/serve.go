@@ -42,7 +42,6 @@ import (
 	"pocketd/internal/logfile"
 	"pocketd/internal/names"
 	"pocketd/internal/ops"
-	"pocketd/internal/orch"
 	"pocketd/internal/owners"
 	"pocketd/internal/pairing"
 	"pocketd/internal/proc"
@@ -216,14 +215,8 @@ func serve(sock, handed string) error {
 	autos := automation.Open(home)
 	autos.Grace, autos.History = settings.AutomationGrace, settings.AutomationHistory
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
+		Post: postBound(d.Agents, o.engine),
 		Start: func(runID string, a proto.Automation) launch.Result {
-			if a.Bound != "" {
-				if bound, err := d.Agents.Get(a.Bound); err == nil && bound.Turn() != "closed" {
-					if _, err := o.engine.Dispatch(orch.NewCommand("automation:"+runID, orch.CmdMessageSend, a.Bound, orch.SendPayload{Text: a.Prompt, Origin: orch.OriginUser})); err == nil {
-						return launch.Result{AgentID: a.Bound, TerminalID: bound.Summary().TerminalID}
-					}
-				}
-			}
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		},
 		OnFinish: func(r proto.Run) {
@@ -272,6 +265,7 @@ func serve(sock, handed string) error {
 			return fmt.Errorf("handoff: %w", err)
 		}
 		d.Adopt(f)
+		o.host.Rehold()
 		// The awake assertion died with the old image.
 		select {
 		case kick <- struct{}{}:

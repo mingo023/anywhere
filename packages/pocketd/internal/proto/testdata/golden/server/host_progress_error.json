@@ -1,0 +1,9 @@
+{
+  "type": "host.progress",
+  "hostId": "devbox",
+  "update": false,
+  "progress": {
+    "kind": "error",
+    "text": "No release for linux/arm"
+  }
+}

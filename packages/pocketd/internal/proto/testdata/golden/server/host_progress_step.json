@@ -1,0 +1,9 @@
+{
+  "type": "host.progress",
+  "hostId": "devbox",
+  "update": true,
+  "progress": {
+    "kind": "step",
+    "step": "download"
+  }
+}

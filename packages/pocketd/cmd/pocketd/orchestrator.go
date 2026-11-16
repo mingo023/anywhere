@@ -18,6 +18,7 @@ import (
 	"pocketd/internal/automation"
 	"pocketd/internal/config"
 	"pocketd/internal/hub"
+	"pocketd/internal/launch"
 	"pocketd/internal/mcp"
 	"pocketd/internal/orch"
 	"pocketd/internal/orchhost"
@@ -44,6 +45,7 @@ func openOrchestrator(home string, settings *config.Settings, reg *agent.Registr
 	o := &orchestrator{store: store, sink: orch.NewSink(store)}
 	reg.Sink = o.sink
 	reg.Lineage = store.Lineage
+	reg.History = store.History
 	port := settings.MCPPort()
 	o.ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
@@ -62,6 +64,8 @@ func openOrchestrator(home string, settings *config.Settings, reg *agent.Registr
 		mcp.HookBase = fmt.Sprintf("http://127.0.0.1:%d", port)
 	}
 	e := orch.NewEngine(store, o.host)
+	// Effects wait until run, after the restore: an agent one acts on may not be listed before.
+	e.Pause()
 	o.host.SetEngine(e)
 	o.engine = e
 	e.Agent = orchhost.AgentInfo
@@ -117,9 +121,11 @@ func (o *orchestrator) asked(req proto.PermissionRequest) {
 }
 
 func (o *orchestrator) run(ctx context.Context) {
+	o.engine.FailOrphans()
 	if err := o.engine.Recover(); err != nil {
 		log.Printf("orch: recover: %v", err)
 	}
+	o.engine.Resume()
 	if o.ln != nil {
 		go func() {
 			if err := o.server.Serve(ctx, o.ln); err != nil {
@@ -146,6 +152,21 @@ func (o *orchestrator) run(ctx context.Context) {
 func (o *orchestrator) handover() {
 	o.engine.Drain(5 * time.Second)
 	o.sink.Flush()
+}
+
+// postBound is automation.Scheduler.Post: it sends an automation's prompt to the open session it is bound to.
+func postBound(reg *agent.Registry, e *orch.Engine) func(string, proto.Automation) (launch.Result, automation.Watcher, bool) {
+	return func(runID string, a proto.Automation) (launch.Result, automation.Watcher, bool) {
+		bound, err := reg.Get(a.Bound)
+		if err != nil || bound.Turn() == "closed" {
+			return launch.Result{}, nil, false
+		}
+		_, after := bound.Timeline.State()
+		if _, err := e.Dispatch(orch.NewCommand("automation:"+runID, orch.CmdMessageSend, a.Bound, orch.SendPayload{Text: a.Prompt, Origin: orch.OriginUser})); err != nil {
+			return launch.Result{}, nil, false
+		}
+		return launch.Result{AgentID: a.Bound, TerminalID: bound.Summary().TerminalID}, automation.TurnWatcher(reg, after), true
+	}
 }
 
 type schedules struct {

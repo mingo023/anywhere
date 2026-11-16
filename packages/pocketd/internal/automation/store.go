@@ -39,6 +39,40 @@ type File struct {
 	Runs        []proto.Run        `json:"runs"`
 }
 
+// diskAutomation is an automation as saved: proto.Automation keeps its webhook
+// secret off the wire, so the file holds it beside the rest.
+type diskAutomation struct {
+	proto.Automation
+	WebhookSecret string `json:"webhookSecret,omitempty"`
+}
+
+type diskFile struct {
+	Version     int              `json:"version"`
+	Automations []diskAutomation `json:"automations"`
+	Runs        []proto.Run      `json:"runs"`
+}
+
+func (f File) MarshalJSON() ([]byte, error) {
+	d := diskFile{Version: f.Version, Runs: f.Runs}
+	for _, a := range f.Automations {
+		d.Automations = append(d.Automations, diskAutomation{a, a.WebhookSecret})
+	}
+	return json.Marshal(d)
+}
+
+func (f *File) UnmarshalJSON(raw []byte) error {
+	var d diskFile
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return err
+	}
+	*f = File{Version: d.Version, Runs: d.Runs}
+	for _, a := range d.Automations {
+		a.Automation.WebhookSecret = a.WebhookSecret
+		f.Automations = append(f.Automations, a.Automation)
+	}
+	return nil
+}
+
 // Store is the automations and their runs, saved whole to Home/state/automations.json
 // on every change. Runs are kept oldest first.
 type Store struct {
@@ -159,7 +193,7 @@ func (s *Store) commit(change func(f *File) error) error {
 }
 
 func nextRunAt(a proto.Automation, now time.Time) int64 {
-	if !a.Enabled || a.Schedule.Kind == "" {
+	if !a.Enabled || a.Schedule.Kind == "webhook" {
 		return 0
 	}
 	return nextAfter(a.Schedule, now).UnixMilli()

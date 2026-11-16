@@ -15,6 +15,9 @@ const (
 	Approve Scope = "approve"
 	Spawn   Scope = "spawn"
 	Own     Scope = "owner"
+
+	// Delegate is the MCP tools' scope. No verb needs it, so no WebSocket or ops verb takes it.
+	Delegate Scope = "delegate"
 )
 
 // Kind's zero value, None, has no scope, so a conn whose principal was never
@@ -26,11 +29,13 @@ const (
 	Owner
 	Device
 	PTY
+	MCP
 )
 
 var (
 	OwnerScopes = []Scope{Observe, Drive, Approve, Spawn, Own}
 	PTYScopes   = []Scope{Observe}
+	MCPScopes   = []Scope{Delegate}
 )
 
 // Principal is who sits on the other end of a conn. Terminal is set for a
@@ -50,6 +55,11 @@ func OwnerOf(pid int) Principal { return Principal{Kind: Owner, Pid: pid, Scopes
 // OwnerByToken is the owner on a conn that sent the owner token with this id.
 func OwnerByToken(id string) Principal {
 	return Principal{Kind: Owner, TokenID: id, Scopes: OwnerScopes}
+}
+
+// Delegated is the principal of an MCP token issued to terminal.
+func Delegated(terminal string) Principal {
+	return Principal{Kind: MCP, Terminal: terminal, Scopes: MCPScopes}
 }
 
 func FromDevice(d devices.Device) Principal {

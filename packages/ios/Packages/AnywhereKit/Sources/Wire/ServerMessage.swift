@@ -56,6 +56,9 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case delegationUpdate(DelegationUpdate)
     case queueList(QueueList)
     case queueUpdate(QueueList)
+    case hostList(HostList)
+    case hostUpdate(HostUpdate)
+    case hostProgress(HostProgress)
     /// A message this build doesn't know, from a newer pocketd; ignored.
     case unknown(String)
 
@@ -116,6 +119,9 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "delegation.update": self = .delegationUpdate(try DelegationUpdate(from: decoder))
         case "queue.list": self = .queueList(try QueueList(from: decoder))
         case "queue.update": self = .queueUpdate(try QueueList(from: decoder))
+        case "host.list": self = .hostList(try HostList(from: decoder))
+        case "host.update": self = .hostUpdate(try HostUpdate(from: decoder))
+        case "host.progress": self = .hostProgress(try HostProgress(from: decoder))
         case let type: self = .unknown(type)
         }
     }
@@ -178,6 +184,9 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .agentDelegations(let m): try m.encode(to: encoder)
         case .delegationUpdate(let m): try m.encode(to: encoder)
         case .queueList(let m), .queueUpdate(let m): try m.encode(to: encoder)
+        case .hostList(let m): try m.encode(to: encoder)
+        case .hostUpdate(let m): try m.encode(to: encoder)
+        case .hostProgress(let m): try m.encode(to: encoder)
         case .unknown: break
         }
     }
@@ -239,6 +248,9 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .delegationUpdate: "delegation.update"
         case .queueList: "queue.list"
         case .queueUpdate: "queue.update"
+        case .hostList: "host.list"
+        case .hostUpdate: "host.update"
+        case .hostProgress: "host.progress"
         case .unknown(let type): type
         }
     }

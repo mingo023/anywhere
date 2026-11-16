@@ -25,6 +25,9 @@ type Delegation struct {
 	Question  string `json:"question,omitempty"`
 	CreatedAt int64  `json:"createdAt"`
 	SettledAt int64  `json:"settledAt,omitempty"`
+
+	// EnvironmentID is the host a task runs on; its ChildID then carries that host's tag.
+	EnvironmentID string `json:"environmentId,omitempty"`
 }
 
 type AgentDelegations struct {

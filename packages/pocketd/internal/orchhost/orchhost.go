@@ -92,7 +92,7 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 	case orch.EffTurnStart:
 		var p orch.TurnPayload
 		json.Unmarshal(e.Payload, &p)
-		return nil, a.Driver().Prompt(p.Text)
+		return nil, prompt(ctx, a, p)
 	case orch.EffInterrupt:
 		return nil, a.Driver().Interrupt()
 	case orch.EffAnswer:
@@ -163,15 +163,30 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 	return nil, fmt.Errorf("unknown effect %s", e.Kind)
 }
 
+// prompt starts a turn with p. A wake or notice to a session still resuming
+// from a restart waits until it has, since nobody sends it again; the user's
+// own prompt is refused at once, as before.
+func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
+	for {
+		err := a.Driver().Prompt(p.Text)
+		if !errors.Is(err, agent.ErrResuming) || p.Origin == orch.OriginUser {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
 func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, error) {
 	project, ok := projectPath(h.Projects.Load(), p.Project, p.Cwd)
 	if !ok {
 		return nil, &orch.Failure{Code: orch.CodeInvalid, Message: "Anywhere starts sessions in a project; this one is in none"}
 	}
 	spec := proto.LaunchSpec{Provider: p.Agent, Model: p.Model, Effort: p.Effort, Access: p.Access, Plan: h.planning(p.Parent), Prompt: p.Prompt, Project: project, Chat: p.Chat && providers.Get(p.Agent) != nil}
-	if p.Context != "" {
-		spec.Prompt = p.Context + "\n\n" + cmp.Or(p.Prompt, "Continue from this context. Wait for the next instruction before changing anything.")
-	}
+	spec.Prompt = firstPrompt(p.Context, p.Prompt)
 	if p.Fork != "" {
 		src, err := h.agent(p.Fork)
 		if err != nil {
@@ -206,6 +221,14 @@ func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, erro
 		}
 	}
 	return map[string]any{"childId": r.AgentID, "targetId": r.AgentID}, nil
+}
+
+// firstPrompt is what a session started from a context block is first told: the block, then the prompt.
+func firstPrompt(context, prompt string) string {
+	if context == "" {
+		return prompt
+	}
+	return context + "\n\n" + cmp.Or(prompt, "Continue from this context. Wait for the next instruction before changing anything.")
 }
 
 // planning says whether a child of parent starts in plan mode: the parent's own.
@@ -247,6 +270,30 @@ func (h *Host) head(cwd string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func (h *Host) TaskOf(session, toolUseID string) string {
+	a, err := h.Registry.Get(session)
+	if err != nil {
+		return ""
+	}
+	return a.Timeline.TaskOf(toolUseID)
+}
+
+// Rehold gives each agent an upgrade handed down the background tasks it
+// declared it waits on: the exec didn't stop the agent, so they run on.
+func (h *Host) Rehold() {
+	tasks, until, err := h.engine.Store().Held()
+	if err != nil {
+		log.Printf("orch: held: %v", err)
+		return
+	}
+	for session, ids := range tasks {
+		left := time.Until(time.UnixMilli(until[session]))
+		if a, err := h.Registry.Get(session); err == nil && left > 0 {
+			a.Hold(ids, true, left)
+		}
+	}
 }
 
 func (h *Host) InBackground(session, id string) bool {
@@ -329,7 +376,8 @@ func (h *Host) ClaudeFlags(terminal, provider string) []string {
 		log.Printf("mcp: config for %s: %v", terminal, err)
 		return nil
 	}
-	return []string{"--mcp-config=" + path, "--allowedTools=mcp__anywhere"}
+	log.Printf("mcp: %s launches with MCP config", terminal)
+	return []string{"--mcp-config=" + path, "--allowedTools=mcp__anywhere__*"}
 }
 
 func writePrivate(path string, body []byte) error {

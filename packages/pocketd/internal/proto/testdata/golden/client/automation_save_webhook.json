@@ -1,0 +1,1 @@
+{"type":"automation.save","id":"p3","automation":{"id":"au2","name":"Nightly tests","prompt":"run the tests","provider":"claude","folder":"/Users/me/app","schedule":{"kind":"webhook"},"enabled":true}}

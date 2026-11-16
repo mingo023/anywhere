@@ -574,6 +574,26 @@ func (s *Store) Sessions(where string, args ...any) ([]Session, error) {
 	return out, rows.Err()
 }
 
+// Held is each session's background tasks it declared it waits on, and when its hold lapses at the latest (Unix ms).
+func (s *Store) Held() (tasks map[string][]string, until map[string]int64, err error) {
+	rows, err := s.db.Query(`SELECT session_id, task_id, until_at FROM held ORDER BY session_id, task_id`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	tasks, until = map[string][]string{}, map[string]int64{}
+	for rows.Next() {
+		var session, task string
+		var at int64
+		if err := rows.Scan(&session, &task, &at); err != nil {
+			return nil, nil, err
+		}
+		tasks[session] = append(tasks[session], task)
+		until[session] = max(until[session], at)
+	}
+	return tasks, until, rows.Err()
+}
+
 func (s *Store) Delegations(where string, args ...any) ([]Delegation, error) {
 	return loadDelegations(s.db, where, args...)
 }
@@ -627,7 +647,7 @@ type Hit struct {
 	Seq     int64
 }
 
-// Search finds sessions whose conversation or title matches query, best first.
+// Search finds sessions whose conversation, title or branch matches query, best first.
 func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	var terms []string
 	for _, t := range strings.Fields(query) {
@@ -652,7 +672,7 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 		found = append(found, m)
 	}
 	rows.Close()
-	titled, err := s.Sessions(`title LIKE ? ORDER BY updated_at DESC LIMIT ?`, "%"+query+"%", limit)
+	titled, err := s.Sessions(`(title LIKE ? OR branch LIKE ?) ORDER BY updated_at DESC LIMIT ?`, "%"+query+"%", "%"+query+"%", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -660,7 +680,11 @@ func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	seen := map[string]bool{}
 	for _, t := range titled {
 		seen[t.ID] = true
-		out = append(out, Hit{Session: t, Snippet: t.Title})
+		snippet := t.Title
+		if !strings.Contains(strings.ToLower(t.Title), strings.ToLower(query)) {
+			snippet = t.Branch
+		}
+		out = append(out, Hit{Session: t, Snippet: snippet})
 	}
 	for _, m := range found {
 		if seen[m.session] || len(out) >= limit {

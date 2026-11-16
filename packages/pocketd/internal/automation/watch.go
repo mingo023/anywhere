@@ -1,6 +1,8 @@
 package automation
 
 import (
+	"slices"
+
 	"pocketd/internal/agent"
 	"pocketd/internal/proto"
 )
@@ -17,6 +19,32 @@ func AgentWatcher(reg *agent.Registry) Watcher {
 		seen := Seen{Status: sum.Status, Failed: sum.Failed}
 		if sum.Status == "done" || sum.Status == "idle" {
 			items, _ := a.Timeline.Page(0, 500)
+			seen.Summary = lastAssistantText(items)
+			seen.Answered = Answered(items)
+		}
+		return seen, true
+	}
+}
+
+// TurnWatcher is AgentWatcher for a run that put its prompt into a session that already had turns.
+// after is the session's timeline seq before the prompt went in: nothing at or
+// before it says anything about the run. Seq keeps counting through a clear.
+func TurnWatcher(reg *agent.Registry, after int64) Watcher {
+	return func(id string) (Seen, bool) {
+		a, err := reg.Get(id)
+		if err != nil {
+			return Seen{}, false
+		}
+		sum := a.Summary()
+		items, _ := a.Timeline.Page(after, 500)
+		if i := slices.IndexFunc(items, func(it proto.Item) bool { return it.Kind == "user" }); i >= 0 {
+			items = items[i:]
+		} else {
+			items = nil
+		}
+		seen := Seen{Status: sum.Status, Failed: sum.Failed}
+		seen.Before = !slices.ContainsFunc(items, func(it proto.Item) bool { return it.Kind == "assistant" || it.Kind == "result" })
+		if sum.Status == "done" || sum.Status == "idle" {
 			seen.Summary = lastAssistantText(items)
 			seen.Answered = Answered(items)
 		}

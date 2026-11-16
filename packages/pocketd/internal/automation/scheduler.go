@@ -34,6 +34,10 @@ type Scheduler struct {
 	Tick, Poll time.Duration
 	Start      Starter
 	Watch      Watcher
+	// Post puts the prompt of an automation bound to a session into it; ok is false
+	// when that session is gone and the run starts a new one. watch follows the run's
+	// own turn in it, not the session's earlier ones.
+	Post func(runID string, a proto.Automation) (res launch.Result, watch Watcher, ok bool)
 	// OnFinish runs once a run has finished, with it as stored.
 	OnFinish func(proto.Run)
 
@@ -89,13 +93,24 @@ func (s *Scheduler) Resume() {
 	_, runs := s.Store.Snapshot()
 	for _, r := range runs {
 		if (r.Status == "running" || r.Status == "waiting") && r.AgentID != "" {
-			go s.observe(r.ID, true, reattachWait)
+			go s.observe(r.ID, s.Watch, true, reattachWait)
 		}
 	}
 }
 
 func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
-	res := s.Start(run.ID, a)
+	watch := s.Watch
+	var res launch.Result
+	posted := false
+	if a.Bound != "" && s.Post != nil {
+		var w Watcher
+		if res, w, posted = s.Post(run.ID, a); posted {
+			watch = w
+		}
+	}
+	if !posted {
+		res = s.Start(run.ID, a)
+	}
 	err := s.Store.Update(run.ID, func(r *proto.Run) {
 		r.Access = cmp.Or(a.Access, "settings")
 		if a.NewWorktree {
@@ -111,7 +126,7 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 		log.Printf("automations: run %s: %v", run.ID, err)
 	}
 	if res.Err == nil {
-		s.observe(run.ID, false, 0)
+		s.observe(run.ID, watch, false, 0)
 	} else {
 		s.finished(run.ID)
 	}
@@ -119,7 +134,7 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 
 // observe follows a run's agent until the run finishes. A missing agent is
 // waited for during absentWait before the run counts as closed.
-func (s *Scheduler) observe(runID string, worked bool, absentWait time.Duration) {
+func (s *Scheduler) observe(runID string, watch Watcher, worked bool, absentWait time.Duration) {
 	began := s.Now()
 	summaryPolls := 0
 	tick := time.NewTicker(cmp.Or(s.Poll, defaultPoll))
@@ -129,7 +144,7 @@ func (s *Scheduler) observe(runID string, worked bool, absentWait time.Duration)
 		if !ok || finished(r.Status) || s.stopped.Load() {
 			return
 		}
-		seen, present := s.Watch(r.AgentID)
+		seen, present := watch(r.AgentID)
 		if !present && s.Now().Sub(began) < absentWait {
 			continue
 		}

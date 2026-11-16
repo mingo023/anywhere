@@ -1,8 +1,9 @@
-/// When an automation fires: chosen weekdays at a time, or every few minutes.
+/// When an automation fires: chosen weekdays at a time, every few minutes, or only on its webhook.
 public enum Schedule: Codable, Hashable, Sendable {
     /// `days` 0 = Sunday … 6 = Saturday; `time` "HH:MM".
     case days([Int], time: String)
     case interval(everyMin: Int)
+    case webhook
 
     enum Keys: String, CodingKey {
         case kind, days, time, everyMin
@@ -13,6 +14,7 @@ public enum Schedule: Codable, Hashable, Sendable {
         switch try c.decode(String.self, forKey: .kind) {
         case "days": self = .days(try c.decode([Int].self, forKey: .days), time: try c.decode(String.self, forKey: .time))
         case "interval": self = .interval(everyMin: try c.decode(Int.self, forKey: .everyMin))
+        case "webhook": self = .webhook
         case let kind: throw malformed(decoder, "unknown schedule kind \(kind)")
         }
     }
@@ -27,6 +29,8 @@ public enum Schedule: Codable, Hashable, Sendable {
         case .interval(let every):
             try c.encode("interval", forKey: .kind)
             try c.encode(every, forKey: .everyMin)
+        case .webhook:
+            try c.encode("webhook", forKey: .kind)
         }
     }
 }
@@ -43,10 +47,18 @@ public struct Automation: Codable, Hashable, Sendable, Identifiable {
     public var newWorktree: Bool?
     /// Unix milliseconds.
     public var nextRunAt: Int?
+    /// The session whose agent made it; absent when the user did.
+    public var createdBy: String?
+    /// The session each run posts into.
+    public var bound: String?
+    public var webhook: Bool?
+    /// Where the webhook listens on the Mac; present only with `webhook`.
+    public var webhookUrl: String?
 
     public init(
         id: String, name: String, prompt: String, provider: ProviderId, folder: String, schedule: Schedule, enabled: Bool,
-        access: Access? = nil, newWorktree: Bool? = nil, nextRunAt: Int? = nil
+        access: Access? = nil, newWorktree: Bool? = nil, nextRunAt: Int? = nil, createdBy: String? = nil, bound: String? = nil,
+        webhook: Bool? = nil, webhookUrl: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -58,6 +70,10 @@ public struct Automation: Codable, Hashable, Sendable, Identifiable {
         self.access = access
         self.newWorktree = newWorktree
         self.nextRunAt = nextRunAt
+        self.createdBy = createdBy
+        self.bound = bound
+        self.webhook = webhook
+        self.webhookUrl = webhookUrl
     }
 }
 

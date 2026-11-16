@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { DelegationRef, DeliveryBody } from "./orchestrator.js";
+import { HostLinkBody } from "./hosts.js";
 
 export const AgentStatus = Schema.Literal("needsYou", "done", "working", "idle", "closed");
 export type AgentStatus = typeof AgentStatus.Type;
@@ -87,6 +88,7 @@ export const TimelineBody = Schema.Union(
   /** Why the agent went on without a prompt, or an error it went on after. */
   Schema.Struct({ kind: Schema.Literal("notice"), text: Schema.optional(Schema.String), error: Schema.optional(Schema.String) }),
   DeliveryBody,
+  HostLinkBody,
 );
 export type TimelineBody = typeof TimelineBody.Type;
 

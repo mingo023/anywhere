@@ -38,6 +38,8 @@ type Host interface {
 	Dirty(cwd string) bool
 	// InBackground says whether id names a call of session's still running in the background.
 	InBackground(session, id string) bool
+	// TaskOf is the background task id of session's call toolUseID, "" when it has none.
+	TaskOf(session, toolUseID string) string
 	Schedules() Schedules
 }
 

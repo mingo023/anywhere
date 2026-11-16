@@ -106,6 +106,14 @@ type ClientMessage struct {
 	// EntryID names a queue entry; Queue on agent.prompt queues it behind the turn.
 	EntryID string
 	Queue   bool
+
+	// The host verbs' fields; host.add's optional name is Name.
+	HostID     string
+	HostTarget *HostTarget
+	Password   string
+	Update     bool
+	Uninstall  bool
+	ArchiveDir string
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -246,6 +254,10 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 		ok = f.integer("limit", &m.BoardLimit, MinBoardLimit, MaxBoardLimit)
 	default:
 		if handled, good := orchestratorVerb(f, &m); handled {
+			ok = good
+			break
+		}
+		if handled, good := hostVerb(f, &m); handled {
 			ok = good
 			break
 		}

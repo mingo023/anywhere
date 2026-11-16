@@ -4,6 +4,7 @@ import { Access, ProviderId } from "./launch.js";
 export const Schedule = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("days"), days: Schema.Array(Schema.Int), time: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("interval"), everyMin: Schema.Int }),
+  Schema.Struct({ kind: Schema.Literal("webhook") }),
 );
 export type Schedule = typeof Schedule.Type;
 
@@ -36,6 +37,10 @@ export const Automation = Schema.Struct({
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
   nextRunAt: Schema.optional(Schema.Number),
+  createdBy: Schema.optional(Schema.String),
+  bound: Schema.optional(Schema.String),
+  webhook: Schema.optional(Schema.Boolean),
+  webhookUrl: Schema.optional(Schema.String),
 });
 export type Automation = typeof Automation.Type;
 

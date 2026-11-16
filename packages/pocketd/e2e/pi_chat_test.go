@@ -711,3 +711,10 @@ func TestAChatOmpSwitchesFastForItsNextTurn(t *testing.T) {
 		t.Fatalf("got %s", refused.Raw)
 	}
 }
+
+func TestAChatPiTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := chatPi(t, "pi", nil)
+	phone.Prompt(id, "delegate ls")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
+	storedAsLive(h, id)
+}

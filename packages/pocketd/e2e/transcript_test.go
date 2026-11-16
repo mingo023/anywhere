@@ -41,3 +41,10 @@ func TestPlainCommandIsNotAnAgent(t *testing.T) {
 		t.Fatalf("sh became an agent: %s", m.Raw)
 	}
 }
+
+func TestATerminalClaudesTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := StartClaude(t)
+	phone.Prompt(id, "hello")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), statusOf(id, "done"))
+	storedAsLive(h, id)
+}

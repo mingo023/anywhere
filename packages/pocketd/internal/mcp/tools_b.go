@@ -64,7 +64,7 @@ func groupB() []Tool {
 			Run:         threadUpdate},
 		{Name: "schedule_task", Group: "B",
 			Description: "Create or update a schedule: an Automation that runs a prompt on a schedule or a local webhook. Bound to a session, it posts there. enabled false pauses it.",
-			Schema: `{"type":"object","required":["prompt"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"prompt":{"type":"string"},"agent":{"type":"string"},"schedule":{"type":"object","description":"{kind: hourly|daily|weekdays|weekly|interval, ...} as the Automations page uses"},` +
+			Schema: `{"type":"object","required":["prompt"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"prompt":{"type":"string"},"agent":{"type":"string"},"schedule":{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["days","interval"]},"days":{"type":"array","items":{"type":"integer","minimum":0,"maximum":6},"description":"days only: 0 is Sunday, 6 is Saturday."},"time":{"type":"string","description":"days only: HH:MM, 24-hour, this Mac's local time."},"everyMin":{"type":"integer","minimum":5,"maximum":10080,"description":"interval only: minutes between runs."}},"description":"days: on the listed days of the week at time. interval: every everyMin minutes. Leave it out only with webhook true."},` +
 				`"bindToThisSession":{"type":"boolean"},"webhook":{"type":"boolean"},"webhookSecret":{"type":"string"},"enabled":{"type":"boolean"}}}`,
 			Run: scheduleTask},
 		{Name: "list_scheduled_tasks", Group: "B",
@@ -110,7 +110,7 @@ func threadTransfer(ctx context.Context, c *Call) (any, error) {
 		if ts == nil {
 			ts = []orch.Transfer{}
 		}
-		return map[string]any{"threadId": src.ID, "transfers": ts}, nil
+		return map[string]any{"threadId": src.ID, "link": Link(src.ID), "transfers": ts}, nil
 	case "fork":
 		if err := ceiling(c, src); err != nil {
 			return nil, err
@@ -216,15 +216,9 @@ func schedules(c *Call) (Schedules, error) {
 	return s, nil
 }
 
-type scheduleView struct {
-	proto.Automation
-	Webhook string `json:"webhookUrl,omitempty"`
-}
-
-func viewSchedule(a proto.Automation) scheduleView {
-	v := scheduleView{Automation: a, Webhook: WebhookURL(a)}
-	v.WebhookSecret = ""
-	return v
+func viewSchedule(a proto.Automation) proto.Automation {
+	a.WebhookURL = WebhookURL(a)
+	return a
 }
 
 // schedule is the Automation id names, if the caller may change it: one
@@ -291,6 +285,9 @@ func scheduleTask(ctx context.Context, c *Call) (any, error) {
 	if p.Webhook {
 		a.Webhook = true
 		a.WebhookSecret = p.WebhookSecret
+		if a.Schedule.Kind == "" {
+			a.Schedule = proto.Schedule{Kind: "webhook"}
+		}
 	}
 	if p.Enabled != nil {
 		a.Enabled = *p.Enabled
@@ -328,7 +325,7 @@ func listSchedules(ctx context.Context, c *Call) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := []scheduleView{}
+	out := []proto.Automation{}
 	for _, a := range s.List() {
 		if p.Mine && a.CreatedBy != c.Caller.ID {
 			continue

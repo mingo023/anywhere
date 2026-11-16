@@ -121,6 +121,22 @@ func TestEveryPhoneVerbHasAScope(t *testing.T) {
 	}
 }
 
+func TestOnlyTheOwnerMaySendHostVerbs(t *testing.T) {
+	phone := FromDevice(devices.Device{ID: "d1", Scopes: devices.PhoneScopes})
+	legacy := FromDevice(devices.Device{ID: devices.LegacyID, Scopes: devices.LegacyScopes})
+	pty := Principal{Kind: PTY, Pid: 2, Terminal: "t1", Scopes: PTYScopes}
+	for _, verb := range proto.HostVerbs() {
+		if got := code(OwnerOf(1).Check("ws:"+verb, "", "")); got != "" {
+			t.Errorf("owner %s: %q", verb, got)
+		}
+		for i, p := range []Principal{phone, legacy, pty} {
+			if got := code(p.Check("ws:"+verb, "", "")); got != "scope_denied" {
+				t.Errorf("%s by principal %d: %q, want scope_denied", verb, i, got)
+			}
+		}
+	}
+}
+
 func TestAnUnknownVerbIsRefusedEvenForTheOwner(t *testing.T) {
 	if got := code(OwnerOf(1).Check("ops:bogus", "", "")); got != "scope_denied" {
 		t.Fatalf("got %q", got)

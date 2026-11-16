@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,5 +219,8 @@ func TestEditingAnAutomationAnAgentMadeKeepsItsBindingAndWebhook(t *testing.T) {
 	})
 	if a := snap.Automations[0]; a.CreatedBy != "a1" || a.Bound != "a1" || !a.Webhook {
 		t.Fatalf("after the edit: %s", snap.Raw)
+	}
+	if a := snap.Automations[0]; !strings.HasPrefix(a.WebhookURL, "http://127.0.0.1:") || !strings.HasSuffix(a.WebhookURL, "/hooks/au1") || strings.Contains(snap.Raw, "s3cret") {
+		t.Fatalf("the snapshot must carry the webhook URL and never its secret: %s", snap.Raw)
 	}
 }
