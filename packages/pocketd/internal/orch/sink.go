@@ -281,6 +281,9 @@ func putItem(tx *Tx, session string, epoch int64, it proto.Item) error {
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`INSERT INTO sessions (id, imported) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET imported = 1 WHERE imported = 0`, session); err != nil {
+		return err
+	}
 	if it.ParentToolUseID != "" || text == "" {
 		return nil
 	}
@@ -307,8 +310,7 @@ func itemText(it proto.Item) string {
 
 // History is what a restored session shows from the store, and whether that
 // is its whole conversation: it has items, or its transcript was imported
-// once already. A session with neither is marked imported, as the transcript
-// rebuild that follows writes its items.
+// once already, which the first item written marks.
 func (s *Store) History(session string) ([]proto.Item, bool) {
 	items, err := s.Items(session)
 	if err != nil {
@@ -320,15 +322,6 @@ func (s *Store) History(session string) ([]proto.Item, bool) {
 	}
 	var imported bool
 	s.db.QueryRow(`SELECT imported FROM sessions WHERE id = ?`, session).Scan(&imported)
-	if !imported {
-		err := s.Tx(func(tx *Tx) error {
-			_, err := tx.Exec(`INSERT INTO sessions (id, imported) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET imported = 1`, session)
-			return err
-		})
-		if err != nil {
-			log.Printf("orch: import of %s: %v", session, err)
-		}
-	}
 	return nil, imported
 }
 

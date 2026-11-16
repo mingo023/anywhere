@@ -1352,3 +1352,19 @@ func TestPruneDropsTheLaunchOfASessionRetentionDropped(t *testing.T) {
 		t.Fatalf("launches left: %s", left)
 	}
 }
+
+func TestASessionStaysImportableUntilItsImportWritesAnItem(t *testing.T) {
+	s := openTest(t)
+	s.History("a")
+	if _, whole := s.History("a"); whole {
+		t.Fatal("a session whose import wrote nothing counts as imported")
+	}
+	k := NewSink(s)
+	defer k.Close()
+	k.Item("a", 1, proto.Item{ID: "i1", Seq: 1, Kind: "user", Text: "hi"})
+	k.Flush()
+	execAll(t, s, `DELETE FROM items WHERE session_id = 'a'`)
+	if _, whole := s.History("a"); !whole {
+		t.Fatal("a session whose import wrote its items would be imported again")
+	}
+}
