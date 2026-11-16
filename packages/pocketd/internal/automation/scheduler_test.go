@@ -298,10 +298,11 @@ func TestABoundRunPostsIntoItsSessionAndIsNotEndedByTheSessionsEarlierDone(t *te
 	}
 	var posted []string
 	sched := scheduler(s, at(9, 8, 30), start, nil)
-	sched.Post = func(runID string, a proto.Automation) (launch.Result, Watcher, bool) {
+	sched.Post = func(runID string, a proto.Automation) (launch.Result, int64, bool) {
 		posted = append(posted, a.Bound)
-		return launch.Result{AgentID: a.Bound, TerminalID: "t1"}, ownTurn, true
+		return launch.Result{AgentID: a.Bound, TerminalID: "t1"}, 7, true
 	}
+	sched.Turn = func(int64) Watcher { return ownTurn }
 	run, _ := sched.RunNow(a.ID)
 	eventually(t, "running in the session", func() bool {
 		r := runOf(t, s, run.ID)
@@ -332,10 +333,54 @@ func TestABoundRunWhoseSessionIsGoneStartsANewSession(t *testing.T) {
 	start := func(string, proto.Automation) launch.Result { return launch.Result{AgentID: "fresh", TerminalID: "t2"} }
 	watch := func(string) (Seen, bool) { return Seen{Status: "done", Summary: "Ok."}, true }
 	sched := scheduler(s, at(9, 8, 30), start, watch)
-	sched.Post = func(string, proto.Automation) (launch.Result, Watcher, bool) { return launch.Result{}, nil, false }
+	sched.Post = func(string, proto.Automation) (launch.Result, int64, bool) { return launch.Result{}, 0, false }
 	run, _ := sched.RunNow(a.ID)
 	eventually(t, "succeeded", func() bool { return runOf(t, s, run.ID).Status == "succeeded" })
 	if got := runOf(t, s, run.ID).AgentID; got != "fresh" {
 		t.Fatalf("ran in %q", got)
+	}
+}
+
+func TestABoundRunResumedAfterARestartIsNotEndedByTheSessionsEarlierDone(t *testing.T) {
+	home := t.TempDir()
+	s := Open(home)
+	bound := morning
+	bound.Bound = "ag1"
+	a, err := s.Save(bound, at(9, 8, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued := func(string) (Seen, bool) { return Seen{Status: "idle", Summary: "Old.", Before: true}, true }
+	before := scheduler(s, at(9, 8, 30), nil, nil)
+	before.Post = func(string, proto.Automation) (launch.Result, int64, bool) {
+		return launch.Result{AgentID: "ag1"}, 7, true
+	}
+	before.Turn = func(int64) Watcher { return queued }
+	run, _ := before.RunNow(a.ID)
+	eventually(t, "running in the session", func() bool { return runOf(t, s, run.ID).Status == "running" })
+	before.stopped.Store(true)
+
+	s = Open(home)
+	var turnEnded atomic.Bool
+	var resumedAfter atomic.Int64
+	after := scheduler(s, at(9, 9, 0), nil, func(string) (Seen, bool) { return Seen{Status: "idle", Summary: "Old."}, true })
+	after.Turn = func(seq int64) Watcher {
+		resumedAfter.Store(seq)
+		return func(string) (Seen, bool) {
+			if turnEnded.Load() {
+				return Seen{Status: "done", Summary: "Mine."}, true
+			}
+			return queued("")
+		}
+	}
+	after.Resume()
+	time.Sleep(30 * time.Millisecond)
+	if got := runOf(t, s, run.ID); got.Status != "running" {
+		t.Fatalf("the earlier reply ended the run as %q with %q", got.Status, got.Summary)
+	}
+	turnEnded.Store(true)
+	eventually(t, "succeeded", func() bool { return runOf(t, s, run.ID).Status == "succeeded" })
+	if got := runOf(t, s, run.ID).Summary; got != "Mine." || resumedAfter.Load() != 7 {
+		t.Fatalf("summary %q after seq %d", got, resumedAfter.Load())
 	}
 }

@@ -128,6 +128,9 @@ type Run struct {
 	// Worktree it ran in, empty when it ran in the folder as it was.
 	Access   string `json:"access,omitempty"`
 	Worktree string `json:"worktree,omitempty"`
+	// TurnAfter is the bound session's timeline seq before the run's prompt went into it, zero for a run in a new
+	// session. It never goes to a client; the store keeps it in automations.json beside the run.
+	TurnAfter int64 `json:"-"`
 }
 
 // Automations is the full snapshot, runs newest first. It is never a delta.

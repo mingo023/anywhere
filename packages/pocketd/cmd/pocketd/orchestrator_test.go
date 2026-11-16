@@ -124,8 +124,8 @@ func boundRig(t *testing.T) (*agent.Registry, func(runID string, a proto.Automat
 	}
 	post := postBound(reg, e)
 	return reg, func(runID string, a proto.Automation) bool {
-		res, watch, ok := post(runID, a)
-		if ok && (res.AgentID != a.Bound || watch == nil) {
+		res, _, ok := post(runID, a)
+		if ok && res.AgentID != a.Bound {
 			t.Fatalf("%+v", res)
 		}
 		return ok

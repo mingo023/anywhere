@@ -223,6 +223,7 @@ func serve(sock, handed string) error {
 	autos.Grace, autos.History = settings.AutomationGrace, settings.AutomationHistory
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
 		Post: postBound(d.Agents, o.engine),
+		Turn: func(after int64) automation.Watcher { return automation.TurnWatcher(d.Agents, after) },
 		Start: func(runID string, a proto.Automation) launch.Result {
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		},
