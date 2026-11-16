@@ -274,7 +274,14 @@ func (e *Engine) Result(id int64) (map[string]any, string, string) {
 	return res, state, last
 }
 
-// Resume claims again after a Drain whose handover didn't happen.
+// Pause stops claiming until Resume.
+func (e *Engine) Pause() {
+	e.mu.Lock()
+	e.stopped = true
+	e.mu.Unlock()
+}
+
+// Resume claims again after a Pause, or a Drain whose handover didn't happen.
 func (e *Engine) Resume() {
 	e.mu.Lock()
 	e.stopped = false

@@ -195,7 +195,9 @@ func (x *codexChat) attach() {
 func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	pr := x.pr
 	x.s = codex.NewSession(pr.a.ID(), d.codexSink(pr), d.Broker)
-	x.s.Shown = saved != "" && d.moving(pr)
+	h := d.hintOf(pr)
+	stored := saved != "" && h != nil && !h.moved && h.a.Stored()
+	x.s.Shown = saved != "" && d.shows(pr)
 	ctx := pr.ctx
 	stop := context.AfterFunc(ctx, x.Close)
 	c, err := codex.Connect(ctx, x, x, map[string]any{"experimentalApi": true})
@@ -230,7 +232,7 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	}
 	json.Unmarshal(res, &r)
 	thread := r.Thread.ID
-	if pr.a.Summary().ProviderSessionID == thread {
+	if pr.a.Summary().ProviderSessionID == thread && !stored {
 		pr.a.ClearTimeline()
 	}
 	pr.a.SetConversation(thread)

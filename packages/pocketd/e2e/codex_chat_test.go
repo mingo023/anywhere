@@ -209,3 +209,17 @@ func TestAQuestionAChatCodexAsksIsStoredAsAQuestionAndItsAnswerReachesCodex(t *t
 	resolve(phone, req, map[string]any{"decision": "allow", "answers": map[string]string{"Ship it?": "Yes"}})
 	phone.WaitStream(id, "assistant", `echo: answers {"q1":{"answers":["Yes"]}}`)
 }
+
+func TestARestartWithAStoreShowsTheChatCodexsSameTimeline(t *testing.T) {
+	h, phone, _, id := chatCodex(t, nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "before")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: before"), streamOf(id, "result", ""), statusOf(id, "done"))
+	before := itemsOf(phone, id)
+
+	h.Restart()
+
+	again := resumedChat(h, id)
+	if got := itemsOf(again, id); got != before {
+		t.Fatalf("after the restart\n%s\nbefore\n%s", got, before)
+	}
+}

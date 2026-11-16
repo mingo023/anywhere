@@ -266,6 +266,22 @@ func (h *Host) head(cwd string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// Rehold gives each agent an upgrade handed down the background tasks it
+// declared it waits on: the exec didn't stop the agent, so they run on.
+func (h *Host) Rehold() {
+	tasks, until, err := h.engine.Store().Held()
+	if err != nil {
+		log.Printf("orch: held: %v", err)
+		return
+	}
+	for session, ids := range tasks {
+		left := time.Until(time.UnixMilli(until[session]))
+		if a, err := h.Registry.Get(session); err == nil && left > 0 {
+			a.Hold(ids, true, left)
+		}
+	}
+}
+
 func (h *Host) InBackground(session, id string) bool {
 	a, err := h.Registry.Get(session)
 	return err == nil && a.Timeline.InBackground(id)

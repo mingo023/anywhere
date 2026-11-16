@@ -5,6 +5,8 @@ package e2e
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -130,6 +132,9 @@ func TestAnUpgradeMidDelegationKeepsTheChildWorkingAndWakesTheParentWithItsResul
 	if task.ChildID != first.Request.AgentID || task.Summary != "echo: ran ls" {
 		t.Fatalf("task = %+v", task)
 	}
+	if got := timelineOf(again, task.ChildID); !slices.Contains(got, "tool ls ok") {
+		t.Fatalf("the call the upgrade cut across: %q", got)
+	}
 }
 
 func TestAColdRestartMidDelegationFailsTheTaskAndWakesTheResumedParent(t *testing.T) {
@@ -209,5 +214,119 @@ func TestAnAgentThatIsntAttachedRecordsOnlyItsCreationAndItsClose(t *testing.T) 
 	store.DB().QueryRow(`SELECT (SELECT COUNT(*) FROM turns WHERE session_id = ?) + (SELECT COUNT(*) FROM items WHERE session_id = ?)`, id, id).Scan(&rows)
 	if kinds != "session.created,session.closed" || rows != 0 {
 		t.Fatalf("events %s, %d turn and item rows", kinds, rows)
+	}
+}
+
+// itemsOf is id's timeline as agent.timeline gives it.
+func itemsOf(p *Phone, id string) string {
+	p.t.Helper()
+	p.Send(map[string]any{"type": "agent.timeline", "id": "i-" + id, "agentId": id})
+	var page struct {
+		Items json.RawMessage `json:"items"`
+	}
+	json.Unmarshal([]byte(p.WaitFor("the timeline", func(m Message) bool { return m.Type == "agent.timeline" && m.ID == "i-"+id }).Raw), &page)
+	return string(page.Items)
+}
+
+// resumedChat waits on a new owner connection until the chat id is back from a restart.
+func resumedChat(h *Harness, id string) *Phone {
+	h.t.Helper()
+	p := h.Owner()
+	p.WaitFor("the chat resumed", func(m Message) bool {
+		if m.Type == "agent.list" {
+			return slices.ContainsFunc(m.Agents, func(a struct {
+				ID       string `json:"id"`
+				Restore  string `json:"restore"`
+				ChatOnly bool   `json:"chatOnly"`
+			}) bool {
+				return a.ID == id && a.Restore == "resumed"
+			})
+		}
+		return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Restore == "resumed"
+	})
+	return p
+}
+
+func TestARestartWithAStoreAndNoTranscriptsShowsTheSameTimeline(t *testing.T) {
+	h, phone, _, id := chatClaude(t, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "before")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: before"), streamOf(id, "result", ""), statusOf(id, "done"))
+	before := itemsOf(phone, id)
+	h.Stop(syscall.SIGTERM)
+	os.RemoveAll(filepath.Join(h.ClaudeDir, "projects"))
+
+	h.up()
+
+	again := resumedChat(h, id)
+	if got := itemsOf(again, id); got != before {
+		t.Fatalf("after the restart\n%s\nbefore\n%s", got, before)
+	}
+	again.Prompt(id, "after")
+	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after"), statusOf(id, "done"))
+	if got := itemsOf(again, id); !strings.HasPrefix(got, strings.TrimSuffix(before, "]")+",") {
+		t.Fatalf("after the next turn\n%s\nbefore\n%s", got, before)
+	}
+}
+
+func TestATranscriptIsImportedIntoTheStoreOnlyOnce(t *testing.T) {
+	h, phone, _, id := chatClaude(t, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "before")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: before"), statusOf(id, "done"))
+	h.Stop(syscall.SIGTERM)
+	// As after an upgrade from a pocketd without a store.
+	dbs, _ := filepath.Glob(filepath.Join(h.Home, "state", "orchestrator.db*"))
+	for _, f := range dbs {
+		os.Remove(f)
+	}
+
+	h.up()
+
+	again := resumedChat(h, id)
+	h.eventually("the transcript imported", func() bool {
+		return slices.Contains(timelineOf(again, id), "assistant echo: before")
+	})
+	storedAsLive(h, id)
+	h.Stop(syscall.SIGTERM)
+	store, err := orch.Open(h.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.DB().Exec(`DELETE FROM items WHERE session_id = ?`, id)
+	store.Close()
+
+	h.up()
+
+	if got := timelineOf(resumedChat(h, id), id); len(got) != 0 {
+		t.Fatalf("imported again: %q", got)
+	}
+}
+
+func TestADeliveryRowIsStillInTheParentsTimelineAfterARestart(t *testing.T) {
+	h, phone, _, parent := chatClaude(t, func(h *Harness) { h.resume = true })
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Hi"}`)
+	task := settledAndWoken(h, phone, parent, "completed")
+	h.eventually("the delivery and the wake's turn", func() bool {
+		got := timelineOf(phone, parent)
+		return slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "delivery") }) && strings.HasPrefix(got[len(got)-1], "result")
+	})
+
+	h.Restart()
+
+	got := timelineOf(resumedChat(h, parent), parent)
+	if !slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "delivery") }) {
+		t.Fatalf("no delivery for %s after the restart: %q", task.TaskID, got)
+	}
+}
+
+func TestAClosedSessionsTimelineReadsAsTheStoreKeptIt(t *testing.T) {
+	h, phone, term, id := chatClaude(t)
+	phone.Prompt(id, "hello")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), streamOf(id, "result", ""), statusOf(id, "done"))
+	before := timelineOf(phone, id)
+	h.Ops().Send(ops.Msg{Op: "close", ID: term})
+	phone.WaitStatus(id, "closed")
+
+	if got := timelineOf(phone, id); !slices.Equal(got, before) {
+		t.Fatalf("closed, it reads %q; it showed %q", got, before)
 	}
 }

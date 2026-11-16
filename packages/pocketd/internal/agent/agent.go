@@ -123,6 +123,7 @@ type Agent struct {
 	delegation      *proto.DelegationRef
 	held            map[string]bool // background tasks the agent declared it waits on
 	heldTimer       *time.Timer
+	stored          bool // a restore gave it its whole conversation from the store
 }
 
 // draftEvery spaces the publishes of the text Claude streams: it comes a few
@@ -148,6 +149,9 @@ type Registry struct {
 	// Lineage gives a restored agent the parent and delegation the store kept,
 	// since the saved terminal doesn't carry them. Set it before restoring.
 	Lineage func(id string) Lineage
+	// History gives a restored agent the timeline the store kept, and whether
+	// that is its whole conversation, so nothing replays it. Set it before restoring.
+	History func(id string) (items []proto.Item, whole bool)
 }
 
 // Lineage is where a session came from: the chat that delegated or forked it.
@@ -160,6 +164,7 @@ type Lineage struct {
 type Sink interface {
 	Summary(proto.AgentSummary)
 	Item(agentID string, epoch int64, it proto.Item)
+	Released(agentID string, tasks []string)
 }
 
 func (r *Registry) summarize(s proto.AgentSummary) {
@@ -228,6 +233,13 @@ func (r *Registry) Restore(x Restored, d Driver) *Agent {
 	if r.Lineage != nil {
 		l := r.Lineage(x.ID)
 		a.parent, a.relationship, a.createdBy, a.delegation = l.Parent, l.Relationship, l.CreatedBy, l.Delegation
+	}
+	if r.History != nil {
+		items, whole := r.History(x.ID)
+		if len(items) > 0 {
+			a.Timeline.Load(items)
+		}
+		a.stored = whole
 	}
 	r.mu.Lock()
 	r.agents[x.ID] = a
@@ -298,6 +310,10 @@ func (r *Registry) MarkSeen(ids []string) {
 		}
 	}
 }
+
+// Stored is whether a restore gave the agent its whole conversation from the
+// store, so its transcript or its agent's resume replays none of it.
+func (a *Agent) Stored() bool { return a.stored }
 
 func (a *Agent) ID() string       { return a.id }
 func (a *Agent) Provider() string { return a.provider }
@@ -771,6 +787,9 @@ func (a *Agent) record(e timeline.Event) {
 	if e.Kind == "tool_end" && len(a.held) > 0 {
 		delete(a.held, e.ToolUseID)
 		delete(a.held, e.TaskID)
+		if a.reg.Sink != nil {
+			a.reg.Sink.Released(a.id, []string{e.ToolUseID, e.TaskID})
+		}
 	}
 	if a.holding && e.Kind == "tool_end" && a.Timeline.BackgroundAgents() == 0 && len(a.held) == 0 {
 		a.holdEnds()

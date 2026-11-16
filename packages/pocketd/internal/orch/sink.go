@@ -38,12 +38,13 @@ type TurnChange struct {
 }
 
 type sinkOp struct {
-	summary *proto.AgentSummary
-	item    *proto.Item
-	session string
-	epoch   int64
-	closed  bool
-	done    chan struct{}
+	summary  *proto.AgentSummary
+	item     *proto.Item
+	released []string
+	session  string
+	epoch    int64
+	closed   bool
+	done     chan struct{}
 }
 
 func NewSink(s *Store) *Sink {
@@ -60,6 +61,11 @@ func (k *Sink) Summary(sum proto.AgentSummary) {
 // Item queues one timeline item; drafts never reach the store.
 func (k *Sink) Item(session string, epoch int64, it proto.Item) {
 	k.push(sinkOp{item: &it, session: session, epoch: epoch})
+}
+
+// Released drops the held rows of background tasks that ended, so an upgrade doesn't hold them again.
+func (k *Sink) Released(session string, tasks []string) {
+	k.push(sinkOp{released: tasks, session: session})
 }
 
 func (k *Sink) push(op sinkOp) {
@@ -128,6 +134,12 @@ func (k *Sink) run() {
 				case op.item != nil:
 					if err := putItem(tx, op.session, op.epoch, *op.item); err != nil {
 						return err
+					}
+				case op.released != nil:
+					for _, id := range op.released {
+						if _, err := tx.Exec(`DELETE FROM held WHERE session_id = ? AND task_id = ?`, op.session, id); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -278,6 +290,33 @@ func itemText(it proto.Item) string {
 		}
 	}
 	return ""
+}
+
+// History is what a restored session shows from the store, and whether that
+// is its whole conversation: it has items, or its transcript was imported
+// once already. A session with neither is marked imported, as the transcript
+// rebuild that follows writes its items.
+func (s *Store) History(session string) ([]proto.Item, bool) {
+	items, err := s.Items(session)
+	if err != nil {
+		log.Printf("orch: history of %s: %v", session, err)
+		return nil, false
+	}
+	if len(items) > 0 {
+		return items, true
+	}
+	var imported bool
+	s.db.QueryRow(`SELECT imported FROM sessions WHERE id = ?`, session).Scan(&imported)
+	if !imported {
+		err := s.Tx(func(tx *Tx) error {
+			_, err := tx.Exec(`INSERT INTO sessions (id, imported) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET imported = 1`, session)
+			return err
+		})
+		if err != nil {
+			log.Printf("orch: import of %s: %v", session, err)
+		}
+	}
+	return nil, imported
 }
 
 // Items reads session's stored timeline, oldest first.
