@@ -15,7 +15,7 @@ func groupC() []Tool {
 			Schema:      `{"type":"object","properties":{"taskIds":{"type":"array","items":{"type":"string"}},"waiting":{"type":"boolean"}}}`,
 			Run:         backgroundWait},
 		{Name: "anywhere_workflow_stop", Group: "C",
-			Description: "Stop a Claude background workflow by its task id, as read from anywhere_thread_read's activity view. Claude only.",
+			Description: "Stop a Claude background workflow by the taskId anywhere_thread_read's activity view gives its call. Claude only.",
 			Schema:      `{"type":"object","required":["taskId"],"properties":{"threadId":{"type":"string"},"taskId":{"type":"string"}}}`,
 			Run:         workflowStop},
 		{Name: "anywhere_thread_organize", Group: "C",
@@ -76,7 +76,7 @@ func workflowStop(ctx context.Context, c *Call) (any, error) {
 	if _, err := c.Host.Engine().DispatchWait(orch.NewCommand("", orch.CmdWorkflowStop, sum.ID, orch.StopTaskPayload{TaskID: p.TaskID}), 15*time.Second); err != nil {
 		return nil, err
 	}
-	return map[string]any{"threadId": sum.ID, "taskId": p.TaskID, "status": "stop_requested"}, nil
+	return map[string]any{"threadId": sum.ID, "link": Link(sum.ID), "taskId": p.TaskID, "status": "stop_requested"}, nil
 }
 
 func threadOrganize(ctx context.Context, c *Call) (any, error) {

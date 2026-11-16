@@ -454,6 +454,18 @@ func (t *Timeline) LastingAgents() []string {
 	return ids
 }
 
+// TaskOf is the task id of the call toolUseID, "" when it isn't a background task.
+func (t *Timeline) TaskOf(toolUseID string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for id, n := range t.tasks {
+		if t.items[n].Call.ToolUseID == toolUseID {
+			return id
+		}
+	}
+	return ""
+}
+
 // BackgroundAgents counts the sub-agents running on in the background past their turn whose end a turn waits for.
 // InBackground says whether id, a tool call's or a task's, names a call still running in the background.
 func (t *Timeline) InBackground(id string) bool {
