@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"pocketd/internal/events"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 )
@@ -96,11 +97,32 @@ func failureReply(err error) error {
 	return err
 }
 
+// resolve answers the user's ask as a request.answer command.
+func (c *conn) resolve(e *orch.Engine, m proto.ClientMessage) error {
+	agentID := c.asker(m.RequestID)
+	gone := errors.New("Permission request is no longer open")
+	if agentID == "" {
+		return gone
+	}
+	p := orch.RequestPayload{RequestID: m.RequestID, Decision: m.Decision, Option: m.Option, Message: m.Message, Answers: m.Answers, User: true}
+	if _, err := e.DispatchWait(orch.NewCommand("", orch.CmdRequestAnswer, agentID, p), promptWait); err != nil {
+		if orch.AsFailure(err).Code == orch.CodeNotFound {
+			return gone
+		}
+		return failureReply(err)
+	}
+	c.s.Events.Emit(events.Event{Kind: "answer", Agent: agentID, Principal: c.principal(), Decision: m.Decision})
+	return nil
+}
+
 // orchestrated answers the verbs the orchestrator owns; false leaves m to dispatch.
 func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 	e := c.s.Orch
 	if e == nil {
 		return false, nil
+	}
+	if m.Type == "permission.resolve" {
+		return true, c.resolve(e, m)
 	}
 	if _, err := c.s.Agents.Get(m.AgentID); err != nil && m.Type != "agent.delegations" && m.Type != "queue.list" {
 		return false, nil
@@ -115,6 +137,16 @@ func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 		return true, failureReply(err)
 	case "agent.interrupt":
 		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionStop, Session: m.AgentID}, promptWait)
+		return true, failureReply(err)
+	case "agent.close":
+		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionClose, Session: m.AgentID}, promptWait)
+		return true, failureReply(err)
+	case "agent.pin":
+		action := "unpin"
+		if m.Pinned {
+			action = "pin"
+		}
+		_, err := e.DispatchWait(orch.NewCommand("", orch.CmdSessionOrganize, m.AgentID, orch.OrganizePayload{Action: action}), promptWait)
 		return true, failureReply(err)
 	case "agent.delegations":
 		c.send(proto.NewAgentDelegations(m.ID, m.AgentID, Delegations(e, m.AgentID)))

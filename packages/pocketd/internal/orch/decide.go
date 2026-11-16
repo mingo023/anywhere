@@ -74,6 +74,9 @@ type (
 		Option    string            `json:"option,omitempty"`
 		Message   string            `json:"message,omitempty"`
 		Answers   map[string]string `json:"answers,omitempty"`
+		// User is the user's own answer from a client: it answers a permission
+		// ask too, and only the broker says whether the ask is still open.
+		User bool `json:"user,omitempty"`
 	}
 	DelegatePayload struct {
 		TaskID          string `json:"taskId,omitempty"`
@@ -579,6 +582,9 @@ func request(st State, cmd Command, p RequestPayload) (Decision, error) {
 			d.Follow = append(d.Follow, NewCommand("", CmdQueueCancelRefs, t.ParentID, EntryPayload{Ref: p.RequestID}))
 		}
 		return d, nil
+	}
+	if p.User {
+		return Decision{Effects: []Effect{effect(cmd.Session, EffAnswer, p)}}, nil
 	}
 	if st.Request == nil || st.Request.State != "open" || st.Request.Session != cmd.Session {
 		return Decision{}, refuse(CodeNotFound, "That question is no longer open")
