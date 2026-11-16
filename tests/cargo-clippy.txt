@@ -1,0 +1,174 @@
+warning: called `Iterator::last` on a `DoubleEndedIterator`; this will needlessly iterate the entire iterator
+   --> crates/git/src/git.rs:197:19
+    |
+197 |             Some((parts.last()?.to_string(), if status == 'R' { 'M' } else { status }))
+    |                   ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#double_ended_iterator_last
+    = note: `#[warn(clippy::double_ended_iterator_last)]` on by default
+help: try
+    |
+197 -             Some((parts.last()?.to_string(), if status == 'R' { 'M' } else { status }))
+197 +             Some((parts.next_back()?.to_string(), if status == 'R' { 'M' } else { status }))
+    |
+
+warning: `git` (lib) generated 1 warning (run `cargo clippy --fix --lib -p git -- ` to apply 1 suggestion)
+warning: deref which would be done by auto-deref
+   --> crates/project/src/open_in.rs:129:76
+    |
+129 |                         (!apps.is_empty()).then_some(Entry::Editions { id: *id, label: *label, apps })
+    |                                                                            ^^^ help: try: `id`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
+    = note: `#[warn(clippy::explicit_auto_deref)]` on by default
+
+warning: deref which would be done by auto-deref
+   --> crates/project/src/open_in.rs:129:88
+    |
+129 |                         (!apps.is_empty()).then_some(Entry::Editions { id: *id, label: *label, apps })
+    |                                                                                        ^^^^^^ help: try: `label`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
+
+warning: `project` (lib) generated 2 warnings (run `cargo clippy --fix --lib -p project -- ` to apply 2 suggestions)
+warning: `project` (lib test) generated 2 warnings (2 duplicates)
+warning: a `Vec` of `Range` that is only one element
+    --> crates/git/src/git.rs:1211:56
+     |
+1211 |         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
+     |                                                        ^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#single_range_in_vec_init
+     = note: `#[warn(clippy::single_range_in_vec_init)]` on by default
+help: if you wanted a `Vec` that contains the entire range, try
+     |
+1211 -         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
+1211 +         assert_eq!(words("let a = 1;", "let b = 1;"), ((4..5).collect::<std::vec::Vec<usize>>(), vec![4..5]));
+     |
+help: if you wanted a `Vec` of len 5, try
+     |
+1211 -         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
+1211 +         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4; 5], vec![4..5]));
+     |
+
+warning: a `Vec` of `Range` that is only one element
+    --> crates/git/src/git.rs:1211:68
+     |
+1211 |         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
+     |                                                                    ^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#single_range_in_vec_init
+help: if you wanted a `Vec` that contains the entire range, try
+     |
+1211 -         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
+1211 +         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], (4..5).collect::<std::vec::Vec<usize>>()));
+     |
+help: if you wanted a `Vec` of len 5, try
+     |
+1211 -         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
+1211 +         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4; 5]));
+     |
+
+warning: a `Vec` of `Range` that is only one element
+    --> crates/git/src/git.rs:1212:65
+     |
+1212 |         assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], vec![7..12]));
+     |                                                                 ^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#single_range_in_vec_init
+help: if you wanted a `Vec` that contains the entire range, try
+     |
+1212 -         assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], vec![7..12]));
+1212 +         assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], (7..12).collect::<std::vec::Vec<usize>>()));
+     |
+help: if you wanted a `Vec` of len 12, try
+     |
+1212 -         assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], vec![7..12]));
+1212 +         assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], vec![7; 12]));
+     |
+
+warning: a `Vec` of `Range` that is only one element
+    --> crates/git/src/git.rs:1213:46
+     |
+1213 |         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+     |                                              ^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#single_range_in_vec_init
+help: if you wanted a `Vec` that contains the entire range, try
+     |
+1213 -         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+1213 +         assert_eq!(words("é = 1", "é = 2"), ((5..6).collect::<std::vec::Vec<usize>>(), vec![5..6]));
+     |
+help: if you wanted a `Vec` of len 6, try
+     |
+1213 -         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+1213 +         assert_eq!(words("é = 1", "é = 2"), (vec![5; 6], vec![5..6]));
+     |
+
+warning: a `Vec` of `Range` that is only one element
+    --> crates/git/src/git.rs:1213:58
+     |
+1213 |         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+     |                                                          ^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#single_range_in_vec_init
+help: if you wanted a `Vec` that contains the entire range, try
+     |
+1213 -         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+1213 +         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], (5..6).collect::<std::vec::Vec<usize>>()));
+     |
+help: if you wanted a `Vec` of len 6, try
+     |
+1213 -         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5..6]));
+1213 +         assert_eq!(words("é = 1", "é = 2"), (vec![5..6], vec![5; 6]));
+     |
+
+warning: `git` (lib test) generated 6 warnings (1 duplicate)
+warning: deref which would be done by auto-deref
+   --> crates/pocket/src/open_in.rs:240:107
+    |
+240 | ...   let nested = editions.map(|apps| flyout("open-in-editions", apps.iter().map(|app| self.opener_row(*app, flyouts, cx)).collect...
+    |                                                                                                         ^^^^ help: try: `app`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
+    = note: `#[warn(clippy::explicit_auto_deref)]` on by default
+
+warning: deref which would be done by auto-deref
+   --> crates/pocket/src/open_in.rs:266:48
+    |
+266 |             Entry::App(app) => self.opener_row(*app, to(None), cx),
+    |                                                ^^^^ help: try: `app`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/pocket/src/inbox.rs:187:9
+    |
+187 | ...   agents.list = vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), Summary { attached: false, ..agent("blind", "done", 9) }];
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `agents::Agents { list: vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), Summary { attached: false, ..agent("blind", "done", 9) }], pending: vec![Permission { agent_id: "ask".into(), tool_name: "Bash".into(), ..Default::default() }], ..Default::default() }` and removing relevant reassignments
+   --> crates/pocket/src/inbox.rs:186:9
+    |
+186 |         let mut agents = Agents::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+    = note: `#[warn(clippy::field_reassign_with_default)]` on by default
+
+warning: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/pocket/src/inbox.rs:222:9
+    |
+222 |         agents.list = vec![agent("ask", "needsYou", 0)];
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `agents::Agents { list: vec![agent("ask", "needsYou", 0)], ..Default::default() }` and removing relevant reassignments
+   --> crates/pocket/src/inbox.rs:221:9
+    |
+221 |         let mut agents = Agents::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+warning: `pocket` (bin "pocket-desktop") generated 2 warnings (run `cargo clippy --fix --bin "pocket-desktop" -p pocket -- ` to apply 2 suggestions)
+warning: `pocket` (bin "pocket-desktop" test) generated 4 warnings (2 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.80s
+exit 0

@@ -1,8 +1,0 @@
-
-      at ~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/protocol/test/golden.test.mjs:18:14
-      at fn (node:test:215:18)
-(fail) server/board.json [5.96ms]
-
- 228 pass
- 1 fail
-Ran 229 tests across 1 file. [133.00ms]

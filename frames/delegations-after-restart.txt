@@ -1,0 +1,2 @@
+task_id|parent_id|child_id|title|agent|status|delivery|summary|error|isolation
+task_4090fe03e3bd9f95_1|8ab7e899-f72b-4780-b43b-6679fb52ea92|0eadd2d3-bf80-4f7c-af48-e405c4340386|Hi|claude|completed|delivered|echo: hello||worktree
