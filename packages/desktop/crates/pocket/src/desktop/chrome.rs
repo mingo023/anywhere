@@ -209,6 +209,31 @@ pub(crate) fn apply_zoom(zoom: f32, window: &mut Window) {
     window.set_traffic_light_position(point(px(LIGHTS_AT * zoom), px(LIGHTS_AT * zoom)));
 }
 
+fn bounds(col: Column) -> (f32, f32) {
+    match col {
+        Column::Projects => (240., 420.),
+        Column::Sessions => (280., 600.),
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Edge {
+    Width(f32),
+    Collapse,
+    /// The sidebar is already collapsing, though its edge still hears the drag while it glides away.
+    Ignore,
+}
+
+/// What dragging `col`'s edge to `width` in `layout` does.
+fn dragged(col: Column, layout: Layout, width: f32) -> Edge {
+    let (min, max) = bounds(col);
+    match col {
+        Column::Projects if layout != Layout::Sidebars => Edge::Ignore,
+        Column::Projects if width < min => Edge::Collapse,
+        _ => Edge::Width(width.clamp(min, max)),
+    }
+}
+
 pub fn sidebar_toggled(layout: Layout) -> Layout {
     match layout {
         Layout::Sidebars => Layout::Compact,
@@ -295,7 +320,8 @@ impl Desktop {
 
     /// The user's width for `col`, the design's `fallback` until they drag its edge.
     pub fn width(&self, col: Column, fallback: f32) -> f32 {
-        self.widths[col as usize].unwrap_or(fallback)
+        let (min, max) = bounds(col);
+        self.widths[col as usize].map_or(fallback, |w| w.clamp(min, max))
     }
 
     /// A `SEAM`-thick handle for the caller to place across an edge between cells laid out along `axis`, its line lit on
@@ -342,11 +368,11 @@ impl Desktop {
     }
 
     fn drag_edge(&mut self, col: Column, width: f32, cx: &mut Context<Self>) {
-        let (min, max) = match col {
-            Column::Projects => (200., 420.),
-            Column::Sessions => (280., 600.),
-        };
-        self.widths[col as usize] = Some(width.clamp(min, max));
+        match dragged(col, self.layout, width) {
+            Edge::Width(width) => self.widths[col as usize] = Some(width),
+            Edge::Collapse => self.layout = Layout::Compact,
+            Edge::Ignore => return,
+        }
         self.save_soon(cx);
         cx.notify();
     }
@@ -381,12 +407,25 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{BarPress, Layout, RAIL, Screen, bar_pad, bar_press, lights, past_lights, sidebar_toggled};
+    use super::{BarPress, Column, Edge, Layout, RAIL, Screen, bar_pad, bar_press, dragged, lights, past_lights, sidebar_toggled};
 
     #[test]
     fn a_double_click_on_a_bar_zooms_the_window_but_not_on_a_control_in_it() {
         assert_eq!([bar_press(1, false), bar_press(2, false), bar_press(3, false)], [Some(BarPress::Arm), Some(BarPress::Zoom), None]);
         assert_eq!([bar_press(1, true), bar_press(2, true)], [None, None]);
+    }
+
+    #[test]
+    fn the_projects_sidebar_collapses_once_dragged_under_its_narrowest_and_the_sessions_column_holds_there() {
+        let projects = [100., 239., 240., 300., 900.].map(|w| dragged(Column::Projects, Layout::Sidebars, w));
+        assert_eq!(projects, [Edge::Collapse, Edge::Collapse, Edge::Width(240.), Edge::Width(300.), Edge::Width(420.)]);
+        assert_eq!([100., 900.].map(|w| dragged(Column::Sessions, Layout::Sidebars, w)), [Edge::Width(280.), Edge::Width(600.)]);
+    }
+
+    #[test]
+    fn a_collapsing_sidebar_ignores_the_rest_of_the_drag() {
+        assert_eq!([100., 300.].map(|w| dragged(Column::Projects, Layout::Compact, w)), [Edge::Ignore, Edge::Ignore]);
+        assert_eq!(dragged(Column::Sessions, Layout::Compact, 300.), Edge::Width(300.));
     }
 
     #[test]

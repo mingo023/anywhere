@@ -496,8 +496,8 @@ impl Desktop {
         }
         buttons.push(self.row_menu_button(p, menu.clone(), cx));
         let setup = setting_up.then(|| ui::busy(id(format!("aside-setup:{p}")), "Setting up…").into_any_element());
-        let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu));
-        let target = p.to_string();
+        let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on_project(p));
+        let (target, pointed) = (p.to_string(), p.to_string());
         let name = self.repo_name(p);
         let host = hosts::split(p).0;
         let offline = host.is_some_and(|h| !self.fleet.links.online(h));
@@ -506,6 +506,10 @@ impl Desktop {
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
             .when(self.sidebar.filter.lit(p, None), |row| row.bg(FILL_3))
+            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+                this.sidebar.hover.point_project(&pointed, *over);
+                cx.notify();
+            }))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if git {
                     this.store.toggle(&target);

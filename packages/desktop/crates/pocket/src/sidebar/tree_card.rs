@@ -20,6 +20,8 @@ pub(crate) struct Hover {
     over: Option<(String, Instant, f32)>,
     /// The row under the pointer, even after a press.
     on: Option<String>,
+    /// The project row under the pointer, which lays out by it as rows do by `on`; apart from `on`, as a project's own Local row has its path.
+    project: Option<String>,
     /// The row whose card shows, and whether it fades in rather than swapping for another's.
     shown: Option<(String, bool)>,
     hid: Option<Instant>,
@@ -86,6 +88,18 @@ impl Hover {
     /// Whether the pointer is on `row`. Rows lay out by this, since GPUI applies hover styles only when painting.
     pub(crate) fn on(&self, row: &str) -> bool {
         self.on.as_deref() == Some(row)
+    }
+
+    pub(crate) fn point_project(&mut self, p: &str, over: bool) {
+        if over {
+            self.project = Some(p.to_string());
+        } else if self.project.as_deref() == Some(p) {
+            self.project = None;
+        }
+    }
+
+    pub(crate) fn on_project(&self, p: &str) -> bool {
+        self.project.as_deref() == Some(p)
     }
 
     /// Whether `row`'s card shows, and if so whether it fades in.
@@ -163,6 +177,17 @@ pub(crate) fn hung(title: String, branch: String, pr: Option<&Pr>, when: Option<
 mod tests {
     use super::{Hover, SLIDE, WAIT, WARM};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_project_row_stays_pointed_at_until_the_pointer_leaves_it_not_the_row_it_left_before() {
+        let mut hover = Hover::default();
+        hover.point_project("/a", true);
+        hover.point_project("/b", true);
+        hover.point_project("/a", false);
+        assert_eq!([hover.on_project("/a"), hover.on_project("/b"), hover.on("/b")], [false, true, false]);
+        hover.point_project("/b", false);
+        assert!(!hover.on_project("/b"));
+    }
 
     #[test]
     fn a_rows_card_shows_once_the_pointer_rests_on_it() {
