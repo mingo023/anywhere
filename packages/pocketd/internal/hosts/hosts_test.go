@@ -37,7 +37,7 @@ func TestAHostsIDKeepsOnlyLowercaseLettersAndDigitsAtMost24OfThem(t *testing.T) 
 	if long != "a-really-long-host-alias" {
 		t.Errorf("%q", long)
 	}
-	for name, want := range map[string]string{"é": "host", "---": "host", "My Box!": "my-box", "caféx": "caf-x"} {
+	for name, want := range map[string]string{"\u00e9": "host", "---": "host", "My Box!": "my-box", "caf\u00e9x": "caf-x"} {
 		if got := New(alias(name), nil).ID; got != want {
 			t.Errorf("%q has id %q, want %q", name, got, want)
 		}

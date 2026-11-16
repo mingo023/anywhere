@@ -16,8 +16,7 @@ const (
 	idLen = 24
 )
 
-// Target is how ssh reaches a host: an alias from ~/.ssh/config, which brings its user, port, key and jump host,
-// or an address with the port, user and key it was given.
+// Target is how ssh reaches a host: an alias from ~/.ssh/config, or an address with the port, user and key it was given.
 type Target struct {
 	Kind string `json:"kind"`
 	Name string `json:"name,omitempty"`
@@ -100,7 +99,6 @@ func Add(taken []Host, t Target) (Host, error) {
 	return New(t, taken), nil
 }
 
-// shortName is devbox for devbox.example.com; an IP address stays whole.
 func shortName(addr string) string {
 	first, _, _ := strings.Cut(addr, ".")
 	if _, err := netip.ParseAddr(addr); err == nil || first == "" {

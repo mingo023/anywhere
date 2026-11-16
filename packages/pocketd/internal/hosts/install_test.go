@@ -33,14 +33,14 @@ func TestBootstrapsLinesBecomeProgressAndTheRestIsLog(t *testing.T) {
 }
 
 func TestEveryStepBootstrapReportsIsKnown(t *testing.T) {
-	for _, step := range steps {
-		if !strings.Contains(bootstrapSh, "say step "+string(step)) {
+	for _, step := range []string{"detect", "download", "verify", "unpack", "link", "service", "start"} {
+		if !strings.Contains(bootstrapSh, "say step "+step) {
 			t.Errorf("bootstrap.sh never says %s", step)
 		}
-		if !strings.Contains(bootstrapPs1, "Step '"+string(step)+"'") {
+		if !strings.Contains(bootstrapPs1, "Step '"+step+"'") {
 			t.Errorf("bootstrap.ps1 never says %s", step)
 		}
-		if _, ok := parseProgress("ANYWHERE step " + string(step)); !ok {
+		if _, ok := parseProgress("ANYWHERE step " + step); !ok {
 			t.Errorf("%s isn't known", step)
 		}
 	}
@@ -84,7 +84,7 @@ func TestAnArchiveOnThisMacWinsOverTheRelease(t *testing.T) {
 
 func TestADevBuildWithoutAnArchiveSaysHowToMakeOne(t *testing.T) {
 	_, err := source(Platform{"linux", "amd64"}, "dev", "")
-	if err == nil || !strings.Contains(err.Error(), "scripts/package-pocketd.sh dev linux-amd64") {
+	if err == nil || !strings.Contains(err.Error(), "scripts/package-pocketd.sh dev linux-amd64") || !strings.Contains(err.Error(), "in packages/pocketd/dist.") {
 		t.Errorf("%v", err)
 	}
 	_, err = source(Platform{"windows", "arm64"}, "dev", "")
@@ -151,7 +151,7 @@ func TestAValueThatCouldBreakOutOfItsQuotesIsRefused(t *testing.T) {
 		{bootstrapPs1, "1.2.0", "https://x", ".cp", "l' + (iex 'calc') + '"},
 		{bootstrapSh, "1.2.0", "https://x", "$(id)", "l"},
 		{bootstrapSh, "1.2.0", "https://x", "$HOME", "l"},
-		{bootstrapSh, "1.2.0", "https://x", ".cp", "é"},
+		{bootstrapSh, "1.2.0", "https://x", ".cp", "\u00e9"},
 	} {
 		if _, err := fill(c.script, c.version, c.url, c.dir, c.label); err == nil {
 			t.Errorf("%+v was filled in", c)
@@ -191,7 +191,7 @@ func TestTheChecksumComesFromTheFileBesideTheArchive(t *testing.T) {
 	if got, ok := checksum(archive); !ok || got != sum {
 		t.Errorf("%q %v", got, ok)
 	}
-	for _, bad := range []string{"nope\n", "", strings.Repeat("zz", 32)} {
+	for _, bad := range []string{"nope\n", "", "abcd\n", strings.Repeat("zz", 32)} {
 		os.WriteFile(sums, []byte(bad), 0o644)
 		if got, ok := checksum(archive); ok {
 			t.Errorf("%q gave %q", bad, got)

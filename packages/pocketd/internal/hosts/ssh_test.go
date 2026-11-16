@@ -73,7 +73,8 @@ func TestAnAddressPassesOnlyThePortUserAndKeyItWasGiven(t *testing.T) {
 
 func TestTheAppsOwnKeyGoesFirstAndTheUsersAgentKeysNotAtAll(t *testing.T) {
 	got := args(addressHost(22, "", "/k/id"), "/k", "/h/devbox.key", nil, "true")
-	if slices.Index(got, "/h/devbox.key") > slices.Index(got, "/k/id") {
+	appKey, hostKey := slices.Index(got, "/h/devbox.key"), slices.Index(got, "/k/id")
+	if appKey < 0 || hostKey < 0 || appKey > hostKey {
 		t.Errorf("the host's key file comes first: %v", got)
 	}
 	if noKeyFile := args(addressHost(22, "", ""), "/k", "/h/devbox.key", nil, "true"); !slices.Contains(noKeyFile, "IdentitiesOnly=yes") {
@@ -158,8 +159,10 @@ func TestTheProbeReadsHomeAndWhetherPocketdRunsPastAnyLoginNoise(t *testing.T) {
 			t.Errorf("%q: %+v %v", out, got, ok)
 		}
 	}
-	if got, ok := parseProbe("stopped\n"); ok {
-		t.Errorf("%+v", got)
+	for _, out := range []string{"stopped\n", "Welcome\nstopped\n"} {
+		if got, ok := parseProbe(out); ok {
+			t.Errorf("%q: %+v", out, got)
+		}
 	}
 }
 
@@ -188,7 +191,7 @@ func TestTheWindowsProbeWantsADriveHome(t *testing.T) {
 			t.Errorf("%q: %+v %v", out, got, ok)
 		}
 	}
-	for _, out := range []string{"/home/dev\nmissing\n", "'powershell' is not recognized\n"} {
+	for _, out := range []string{"/home/dev\nmissing\n", "C:/Users/me\nmissing\n", "'powershell' is not recognized\n"} {
 		if got, ok := parseWindowsProbe(out); ok {
 			t.Errorf("%q: %+v", out, got)
 		}
@@ -232,10 +235,11 @@ func TestStderrTellsWhatWentWrong(t *testing.T) {
 }
 
 func TestARefusedLoginWaitsForTheUserAndALostLinkBacksOff(t *testing.T) {
-	for _, f := range []Failure{FailAuth, FailKeyChanged} {
-		if _, retry := f.retryAfter(3); retry {
-			t.Errorf("%s retries", f)
-		}
+	if _, retry := FailAuth.retryAfter(0); retry {
+		t.Error("a refused login retries")
+	}
+	if _, retry := FailKeyChanged.retryAfter(3); retry {
+		t.Error("a changed key retries")
 	}
 	if wait, retry := FailThrottled.retryAfter(0); !retry || wait != 20*time.Second {
 		t.Errorf("%v %v", wait, retry)

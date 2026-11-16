@@ -39,8 +39,7 @@ func (b *Backoff) Fail(failure Failure) (Link, time.Duration, bool) {
 	return Link{State: StateFailed, Failure: failure}, 0, false
 }
 
-// jitter shortens a wait by up to half, so hosts that dropped together don't retry in step.
-// A throttled host is the exception: it lengthens, since retrying early only extends sshd's penalty.
+// jitter shortens a wait by up to half so hosts that dropped together retry apart, but lengthens a throttled one: early retries extend sshd's penalty.
 func jitter(wait time.Duration, failure Failure) time.Duration {
 	random := float64(rand.IntN(1000)) / 2000
 	if failure == FailThrottled {

@@ -58,7 +58,6 @@ type Progress struct {
 	Text string
 }
 
-// parseProgress is what an `ANYWHERE …` line from bootstrap.sh reports; false for its other output.
 func parseProgress(line string) (Progress, bool) {
 	rest, ok := strings.CutPrefix(strings.TrimRightFunc(line, unicode.IsSpace), "ANYWHERE ")
 	if !ok {
@@ -84,12 +83,10 @@ func parseProgress(line string) (Progress, bool) {
 	return Progress{}, false
 }
 
-// Platform is what a host runs, named as pocketd's archives name it.
 type Platform struct{ OS, Arch string }
 
 func (p Platform) windows() bool { return p.OS == "windows" }
 
-// parseUname is the platform `uname -s` then `uname -m` printed, past any login noise.
 func parseUname(stdout string) (Platform, error) {
 	lines, ok := lastLines(stdout, 2)
 	if !ok {
@@ -129,7 +126,6 @@ func windowsArchCommand() string {
 	return powershell(`$cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }; Write-Output "windows $cpu"`)
 }
 
-// parseWindowsArch is what windowsArchCommand printed; found is false when it wasn't Windows that ran it.
 func parseWindowsArch(stdout string) (p Platform, found bool, err error) {
 	lines := strings.Split(stdout, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -155,7 +151,6 @@ type Source struct {
 	URL     string
 }
 
-// source is the source for platform: an archive in dist, when there is one, else the release version.
 // A dev build has no release, so it needs the archive.
 func source(platform Platform, version, dist string) (Source, error) {
 	name, build := fmt.Sprintf("pocketd-%s-%s.tar.gz", platform.OS, platform.Arch), fmt.Sprintf("package-pocketd.sh dev %s-%s", platform.OS, platform.Arch)
@@ -177,7 +172,6 @@ func source(platform Platform, version, dist string) (Source, error) {
 	return Source{Version: version, URL: releases + "/v" + version}, nil
 }
 
-// checksum is the sha256 package-pocketd.sh wrote beside archive.
 func checksum(archive string) (string, bool) {
 	text, err := os.ReadFile(archive + ".sha256")
 	if err != nil {
@@ -203,8 +197,7 @@ func bootstrapCommand(dir string, env []string, uploaded bool) string {
 	return "sh -c '" + inner + "'"
 }
 
-// label is the service's name for the app's folder remoteDir. One per folder, so a test install never
-// takes over the real one.
+// label names one service per app folder, so a test install never takes over the real one.
 func label(remoteDir string) string {
 	if remoteDir == config.HomeName() {
 		return config.HostLabel()
@@ -212,8 +205,7 @@ func label(remoteDir string) string {
 	return config.HostLabel() + "." + strings.TrimLeft(remoteDir, ".")
 }
 
-// fill is script with its placeholders filled. They sit inside quoted shell and PowerShell literals, so a value
-// holding anything but these characters is refused rather than escaped.
+// fill refuses values holding anything but safe characters rather than escape them: the placeholders sit in quoted literals.
 func fill(script, version, url, dir, label string) (string, error) {
 	safe := func(v string) bool {
 		return strings.IndexFunc(v, func(c rune) bool {

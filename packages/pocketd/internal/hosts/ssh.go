@@ -14,15 +14,14 @@ import (
 const maxSocketPath = 103
 
 const (
-	// tunnelCommand holds the session open after the forward is up, so READY on stdout means the socket is ready.
+	// tunnelCommand's READY on stdout means the forward is up; cat holds the session open.
 	tunnelCommand = "echo READY; exec cat"
 
-	// installKey adds the public key on stdin to the host's authorized_keys unless it's there, on a line of its own
-	// even when the file doesn't end in a newline. Wrapped in sh -c because the host's login shell may not be POSIX.
+	// installKey runs under sh -c because the host's login shell may not be POSIX.
 	installKey = `sh -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys && exit; [ -z "$(tail -c1 ~/.ssh/authorized_keys)" ] || echo >> ~/.ssh/authorized_keys; printf "%s\n" "$key" >> ~/.ssh/authorized_keys'`
 )
 
-// Failure is why a connection failed, by what the user can do about it. Its value is its name on the wire.
+// Failure is why a connection failed; its value is its name on the wire.
 type Failure string
 
 const (
@@ -64,7 +63,6 @@ func (f Failure) retryAfter(attempt int) (time.Duration, bool) {
 	}
 }
 
-// Message is what went wrong on name, and what to do about it.
 func (f Failure) Message(name string) string {
 	switch f {
 	case FailAuth:
@@ -93,6 +91,7 @@ func (f Failure) Message(name string) string {
 	return fmt.Sprintf("Couldn't connect to %s.", name)
 }
 
+// patterns are checked in order, most specific first.
 var patterns = []struct {
 	text    string
 	failure Failure
@@ -112,7 +111,6 @@ var patterns = []struct {
 	{"Connection closed by", FailThrottled},
 }
 
-// classify is what a failed ssh's stderr says went wrong, checked most specific first.
 func classify(stderr string) Failure {
 	for _, p := range patterns {
 		if strings.Contains(stderr, p.text) {
@@ -127,13 +125,11 @@ func probeCommand(homeDirName string) string {
 	return fmt.Sprintf(`printf '%%s\n' "$HOME"; test -S "$HOME/%s/pocketd.sock" && echo running || echo stopped`, homeDirName)
 }
 
-// Probe is what the probe found: the host's home folder and whether pocketd runs there.
 type Probe struct {
 	Home    string
 	Running bool
 }
 
-// lastLines is the last n non-empty lines of out, trimmed, oldest first; false when there are fewer.
 func lastLines(out string, n int) ([]string, bool) {
 	var lines []string
 	for _, l := range strings.Split(out, "\n") {
@@ -155,10 +151,7 @@ func parseProbe(stdout string) (Probe, bool) {
 	return Probe{lines[0], lines[1] == "running"}, true
 }
 
-// args is ssh's arguments for command on host, never prompting, with extra options before the destination.
-// App options come first because ssh keeps the first value it reads for an option.
-// key is the app's own key for the host, or empty; with it, keys ssh wasn't named aren't offered,
-// so the user's agent can't spend MaxAuthTries first.
+// args puts app options first, because ssh keeps the first value it reads for an option.
 func args(host Host, knownHosts, key string, extra []string, command string) []string {
 	out := options(
 		"BatchMode=yes",
@@ -173,6 +166,7 @@ func args(host Host, knownHosts, key string, extra []string, command string) []s
 		"ControlPath=none",
 	)
 	out = append(out, knownHostsOption(knownHosts)...)
+	// With the app's key, keys ssh wasn't named aren't offered, so the user's agent can't spend MaxAuthTries first.
 	if key != "" {
 		out = append(out, "-i", key, "-o", "IdentitiesOnly=yes")
 	}
@@ -182,15 +176,13 @@ func args(host Host, knownHosts, key string, extra []string, command string) []s
 
 type passwordMethod string
 
-// One method per connection: after a wrong password, OpenSSH 9.6 on Ubuntu never answers a
-// keyboard-interactive attempt in the same connection, so ssh hangs until the server's login grace ends.
+// One method per connection: OpenSSH 9.6 on Ubuntu never answers keyboard-interactive after a wrong password on the same connection.
 const (
 	methodPassword            passwordMethod = "PreferredAuthentications=password"
 	methodKeyboardInteractive passwordMethod = "PreferredAuthentications=keyboard-interactive"
 )
 
-// passwordArgs is ssh's arguments for command on host, signing in by method with the password askpass gives it.
-// Its own list rather than args', whose BatchMode=yes would win and refuse to ask.
+// passwordArgs is its own list: args' BatchMode=yes would win and refuse to ask.
 func passwordArgs(host Host, knownHosts string, method passwordMethod, command string) []string {
 	out := options(
 		"BatchMode=no",
@@ -209,8 +201,6 @@ func passwordArgs(host Host, knownHosts string, method passwordMethod, command s
 	return append(out, destination(host, command)...)
 }
 
-// takesPasswords is whether a refused ssh's stderr says the host takes plain passwords,
-// so keyboard-interactive is only worth a try when it doesn't.
 func takesPasswords(stderr string) bool {
 	_, rest, found := strings.Cut(stderr, "Permission denied (")
 	if !found {
@@ -258,8 +248,7 @@ func destination(host Host, command string) []string {
 	return append(out, "--", dest, command)
 }
 
-// powershell runs script in Windows PowerShell whatever the account's ssh shell is: cmd.exe by default, whose
-// quoting it never meets, encoded as -EncodedCommand wants it.
+// powershell sends script as -EncodedCommand so cmd.exe, the account's default ssh shell, never meets its quoting.
 func powershell(script string) string {
 	var raw []byte
 	for _, u := range utf16.Encode([]rune(script)) {
@@ -270,7 +259,6 @@ func powershell(script string) string {
 
 func psQuote(text string) string { return "'" + strings.ReplaceAll(text, "'", "''") + "'" }
 
-// windowsProbeCommand prints the host's home, then whether the app's pocketd is installed under it, from PowerShell.
 func windowsProbeCommand(homeDirName string) string {
 	shim := psQuote(homeDirName + `\bin\pocketd.cmd`)
 	return powershell(fmt.Sprintf("Write-Output $HOME; if (Test-Path (Join-Path $HOME %s)) { 'installed' } else { 'missing' }", shim))
@@ -302,7 +290,6 @@ func tcpForward(local string, port int) ([]string, error) {
 	return forwardOptions(fmt.Sprintf("%s:127.0.0.1:%d", local, port)), nil
 }
 
-// forward is the options that forward local to pocketd's socket under the host's home.
 func forward(local, home, homeDirName string) ([]string, error) {
 	remote := strings.TrimRight(home, "/") + "/" + homeDirName + "/pocketd.sock"
 	if len(local) > maxSocketPath || len(remote) > maxSocketPath {

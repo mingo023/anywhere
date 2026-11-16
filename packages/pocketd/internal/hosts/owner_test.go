@@ -49,7 +49,7 @@ func TestPairReadsTheTokenAndPortPastAnyLoginNoise(t *testing.T) {
 }
 
 func TestThePairCommandNamesThisMacInAsciiForCmd(t *testing.T) {
-	got := decoded(t, pairCommand(".coding-pocket", "Mingo’s é \"Mac\""))
+	got := decoded(t, pairCommand(".coding-pocket", "Mingo\u2019s \u00e9 \"Mac\""))
 	want := `& (Join-Path $HOME '.coding-pocket\bin\pocketd.cmd') pair --json --name 'Mingo''s ? ?Mac?'; exit $LASTEXITCODE`
 	if got != want {
 		t.Fatalf("%s", got)
