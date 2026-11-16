@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 
+	"pocketd/internal/agent"
 	"pocketd/internal/config"
 	"pocketd/internal/hosts"
 	"pocketd/internal/mcp"
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
+	"pocketd/internal/timeline"
 )
 
 // openHosts links the hosts saved in home's state/hosts.json until ctx ends, keeping what runs on them in mirror; nil
@@ -51,7 +55,10 @@ func (x mirror) Live(host string) []proto.AgentSummary {
 }
 
 // environments is the linked hosts as the MCP tools see them.
-type environments struct{ m *hosts.Manager }
+type environments struct {
+	m   *hosts.Manager
+	reg *agent.Registry
+}
 
 func (e environments) List() []mcp.Environment {
 	var out []mcp.Environment
@@ -67,4 +74,21 @@ func (e environments) List() []mcp.Environment {
 
 func (e environments) Projects(ctx context.Context, id string) ([]proto.Project, error) {
 	return e.m.Projects(ctx, id)
+}
+
+func (e environments) Remove(id string) error {
+	err := e.m.Remove(id, false)
+	if errors.Is(err, hosts.ErrUnknown) {
+		return &orch.Failure{Code: orch.CodeNotFound, Message: "No linked host " + id}
+	}
+	return err
+}
+
+func (e environments) Card(session string, l proto.HostLink) error {
+	a, err := e.reg.Get(session)
+	if err != nil {
+		return err
+	}
+	a.Record(timeline.Event{Kind: "host_link", HostLink: &l})
+	return nil
 }

@@ -79,7 +79,93 @@ func groupB() []Tool {
 			Description: "Run a schedule now; returns once its run has started.",
 			Schema:      `{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}`,
 			Run:         runScheduleNow},
+		{Name: "anywhere_environment_links", Group: "B",
+			Description: "List the linked hosts, machines Anywhere reaches over SSH, and whether each is reachable now. delegate_task and anywhere_thread_launch run on one by its environmentId.",
+			Schema:      `{"type":"object","properties":{}}`,
+			Run:         environmentLinks},
+		{Name: "anywhere_environment_link", Group: "B",
+			Description: "Ask the user to link a host: posts a card in this chat that opens Anywhere's add-host form. Says linked at once when the host named is already reachable.",
+			Schema: `{"type":"object","properties":{"environmentId":{"type":"string","description":"The host's id or name."},"hint":{"type":"string","description":"The address or ~/.ssh/config name to fill in."},` +
+				`"reason":{"type":"string","description":"Why this session needs it, shown on the card."}}}`,
+			Run: environmentLink},
+		{Name: "anywhere_environment_unlink", Group: "B",
+			Description: "Unlink a host: Anywhere forgets it and closes its tunnel, uninstalling nothing there. Refused while a task runs there.",
+			Schema:      `{"type":"object","required":["environmentId"],"properties":{"environmentId":{"type":"string"}}}`,
+			Run:         environmentUnlink},
 	}
+}
+
+func environments(c *Call) (Environments, error) {
+	envs := c.Host.Environments()
+	if envs == nil {
+		return nil, fail(orch.CodeUnavailable, "Linked hosts are off")
+	}
+	return envs, nil
+}
+
+func environmentLinks(ctx context.Context, c *Call) (any, error) {
+	envs, err := environments(c)
+	if err != nil {
+		return nil, err
+	}
+	links := []map[string]any{}
+	for _, e := range envs.List() {
+		link := map[string]any{"environmentId": e.ID, "label": e.Label, "status": "unreachable"}
+		if e.State == "online" {
+			link["status"] = "reachable"
+		}
+		if e.Error != "" {
+			link["lastError"] = e.Error
+		}
+		links = append(links, link)
+	}
+	return map[string]any{"links": links, "notListed": "A machine not listed isn't linked; anywhere_environment_link asks the user to link it."}, nil
+}
+
+func environmentLink(ctx context.Context, c *Call) (any, error) {
+	var p proto.HostLink
+	if err := c.args(&p); err != nil {
+		return nil, err
+	}
+	envs, err := environments(c)
+	if err != nil {
+		return nil, err
+	}
+	if name := cmp.Or(p.EnvironmentID, p.Hint); name != "" {
+		for _, e := range envs.List() {
+			if e.State == "online" && (e.ID == name || e.Label == name) {
+				return map[string]any{"status": "linked", "environmentId": e.ID, "label": e.Label}, nil
+			}
+		}
+	}
+	if err := envs.Card(c.Caller.ID, p); err != nil {
+		return nil, err
+	}
+	return map[string]any{"status": "pending"}, nil
+}
+
+func environmentUnlink(ctx context.Context, c *Call) (any, error) {
+	var p struct {
+		EnvironmentID string `json:"environmentId"`
+	}
+	if err := c.args(&p); err != nil {
+		return nil, err
+	}
+	envs, err := environments(c)
+	if err != nil {
+		return nil, err
+	}
+	running, err := c.Host.Engine().Store().Delegations(`environment_id = ? AND status IN ('queued', 'starting', 'working')`, p.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	if len(running) > 0 {
+		return nil, fail(orch.CodeConflict, fmt.Sprintf("%d task(s) run on %s; cancel them before unlinking it", len(running), p.EnvironmentID))
+	}
+	if err := envs.Remove(p.EnvironmentID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"environmentId": p.EnvironmentID, "removed": true}, nil
 }
 
 func threadTransfer(ctx context.Context, c *Call) (any, error) {

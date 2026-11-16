@@ -166,9 +166,9 @@ const targetSchema = `{"type":"object","properties":{"agent":{"type":"string","d
 
 // onHost is the path of the project on t's host a session runs in: t.Project, else the one named like the caller's.
 func onHost(ctx context.Context, c *Call, t target) (string, error) {
-	envs := c.Host.Environments()
-	if envs == nil {
-		return "", fail(orch.CodeUnavailable, "Linked hosts are off")
+	envs, err := environments(c)
+	if err != nil {
+		return "", err
 	}
 	i := slices.IndexFunc(envs.List(), func(e Environment) bool { return e.ID == t.Environment })
 	if i < 0 {
