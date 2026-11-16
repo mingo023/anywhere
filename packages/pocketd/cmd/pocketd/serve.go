@@ -236,6 +236,7 @@ func serve(sock, handed string) error {
 	o.host.Sched = schedules{store: autos, scheduler: scheduler}
 	o.server.Hooks = hooks(schedules{store: autos, scheduler: scheduler})
 	ws := &wsserver.Server{Orch: o.engine, Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
+	ws.Hosts = openHosts(ctx, home, d.LoginEnv, ws.MacName)
 	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
