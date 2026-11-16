@@ -970,6 +970,22 @@ func TestAChildWhoseTurnTheAgentReportsAsInterruptedSettlesItsTaskAsCancelledAnd
 	}
 }
 
+func TestAChildsRestartedTurnIsNoStopAndItsTaskSettlesWithTheTurnThatFollows(t *testing.T) {
+	task := stoppedChildTask(t, func(e *Engine, k *Sink) {
+		if _, err := e.Dispatch(NewCommand("m1", CmdMessageSend, "child-1", SendPayload{Text: "again", Mode: "restart"})); err != nil {
+			t.Fatal(err)
+		}
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done", Failed: true, Error: "interrupted"})
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+		k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Done again"})
+		k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	})
+	if task.Status != TaskCompleted || task.Summary != "Done again" {
+		t.Fatalf("task = %+v", task)
+	}
+}
+
 func TestAChildStoppedBeforeItsTaskKnowsItSettlesTheTaskAsCancelledAndWakesTheParent(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})

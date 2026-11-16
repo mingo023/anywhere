@@ -30,6 +30,9 @@ func (e *Engine) OnTurn(c TurnChange) {
 }
 
 func (e *Engine) settleChild(c TurnChange) {
+	if c.Restarted {
+		return
+	}
 	ts, err := e.store.Delegations(`child_id = ? AND status IN ('starting', 'working') ORDER BY created_at DESC LIMIT 1`, c.Session)
 	if err != nil || len(ts) == 0 {
 		return

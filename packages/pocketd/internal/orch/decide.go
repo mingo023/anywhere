@@ -407,6 +407,7 @@ func send(st State, cmd Command, p SendPayload, ids *idSeq) (Decision, error) {
 	}
 	if mode == "restart" && st.Session.Busy() {
 		d.Effects = append(d.Effects, effect(st.Session.ID, EffInterrupt, nil))
+		d.Events = append(d.Events, Event{st.Session.ID, "turn.restarted", nil})
 	}
 	d.Effects = append(d.Effects, effect(st.Session.ID, EffTurnStart, TurnPayload{Text: p.Text, Key: cmd.ID, Origin: origin}))
 	d.Events = append(d.Events, Event{st.Session.ID, "message.sent", map[string]string{"origin": origin}})
