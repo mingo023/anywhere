@@ -223,3 +223,4 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
 - Refusals: **a bad, expired or revoked MCP token gets HTTP 401, and a call over the caller's access ceiling gets `forbidden`.**
 - `anywhere_thread_search`: **matches conversation text (prompts and replies), titles and branch names**; the store holds no pull-request data to search.
 - The `mcp` principal: **`peer.MCP` (scope `delegate`) exists and every WebSocket verb refuses it; the MCP server authenticates a bearer token through `mcp.Tokens` and its `Grant`** rather than through a principal.
+- A stopped child: **a child whose turn the user stops, or the agent reports as interrupted, settles its task `cancelled` with the summary "Stopped by the user" and wakes the parent, which `task_cancel` and a closed session don't.**

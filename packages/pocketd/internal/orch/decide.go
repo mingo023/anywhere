@@ -101,6 +101,7 @@ type (
 		Error          string `json:"error,omitempty"`
 		CompletionWake string `json:"completionWake,omitempty"`
 		WorkState      string `json:"workState,omitempty"`
+		Stopped        bool   `json:"stopped,omitempty"`
 	}
 	// LaunchPayload is an agent.launch effect: what the launcher needs.
 	LaunchPayload struct {
@@ -202,7 +203,7 @@ func decide(st State, cmd Command) (Decision, error) {
 		if err := live(st); err != nil {
 			return Decision{}, err
 		}
-		return Decision{Effects: []Effect{effect(cmd.Session, EffInterrupt, nil)}}, nil
+		return Decision{Effects: []Effect{effect(cmd.Session, EffInterrupt, nil)}, Events: stopEvents(st)}, nil
 	case CmdSessionStop:
 		return stop(st, cmd)
 	case CmdSessionClose:
@@ -522,6 +523,15 @@ func reorder(q []QueueEntry, id, before string) float64 {
 	return nextOrd(q)
 }
 
+// stopEvents notes that the session's running turn was asked to stop, so the
+// turn that ends after it reads as interrupted whatever the agent reports.
+func stopEvents(st State) []Event {
+	if !st.Session.Busy() {
+		return nil
+	}
+	return []Event{{st.Session.ID, "turn.interrupted", nil}}
+}
+
 // stop is the user's Stop: the turn stops, wake and question notices go for
 // good, the user's own queued messages wait for their next send, and wakes
 // still due from the session's delegations are disposed.
@@ -529,7 +539,7 @@ func stop(st State, cmd Command) (Decision, error) {
 	if err := live(st); err != nil {
 		return Decision{}, err
 	}
-	d := Decision{Effects: []Effect{effect(cmd.Session, EffInterrupt, nil)}}
+	d := Decision{Effects: []Effect{effect(cmd.Session, EffInterrupt, nil)}, Events: stopEvents(st)}
 	for _, e := range st.Queue {
 		switch {
 		case e.State != EntryPending:
@@ -743,13 +753,13 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 		t.ChildID, t.Status = p.ChildID, TaskWorking
 		return Decision{Delegations: []Delegation{t}, Lineage: lineage, Events: []Event{{t.ParentID, "delegation.started", t.TaskID}}}, nil
 	case CmdDelegateFailed:
-		return settle(st, t, TaskFailed, "", cmp.Or(p.Error, "The session couldn't start"))
+		return settle(st, t, TaskFailed, "", cmp.Or(p.Error, "The session couldn't start"), false)
 	case CmdDelegateSettle:
 		if t.Terminal() {
 			// A published result never changes.
 			return Decision{}, nil
 		}
-		return settle(st, t, p.Status, p.Summary, p.Error)
+		return settle(st, t, p.Status, p.Summary, p.Error, p.Stopped)
 	case CmdDelegateWake:
 		if p.CompletionWake != "settled_only" && p.CompletionWake != "always" {
 			return Decision{}, refuse(CodeInvalid, "completionWake is settled_only or always")
@@ -788,14 +798,15 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 	return Decision{}, nil
 }
 
-// settle publishes t's result once and decides how the parent hears of it.
-func settle(st State, t Delegation, status, summary, errText string) (Decision, error) {
+// settle publishes t's result once and decides how the parent hears of it. A
+// cancelled task wakes it only when the child was stopped, or for an "always" wake.
+func settle(st State, t Delegation, status, summary, errText string, stopped bool) (Decision, error) {
 	if status != TaskCompleted && status != TaskFailed && status != TaskCancelled {
 		return Decision{}, refuse(CodeInvalid, "Bad settle status "+status)
 	}
 	t.Status, t.Summary, t.Error, t.SettledAt, t.PendingQuestion = status, summary, errText, st.Now, ""
 	d := Decision{Events: []Event{{t.ParentID, "delegation.settled", map[string]string{"taskId": t.TaskID, "status": status}}}}
-	wakes := status != TaskCancelled || t.CompletionWake == "always"
+	wakes := status != TaskCancelled || t.CompletionWake == "always" || stopped
 	switch {
 	case t.Delivery == DeliverDisposed || !wakes:
 	case t.Mode == "wait" && st.Parent != nil && st.Parent.Busy():

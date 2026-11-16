@@ -901,6 +901,99 @@ func TestAChildThatEndsBeforeItsTaskKnowsItStillSettlesTheTask(t *testing.T) {
 	})
 }
 
+// stoppedChildTask delegates a task to a child that works, lets stop end the child's turn
+// and gives the task once it settled.
+func stoppedChildTask(t *testing.T, stop func(e *Engine, k *Sink)) Delegation {
+	t.Helper()
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	k := NewSink(s)
+	defer k.Close()
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind == EffLaunch {
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	k.Flush()
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x", Title: "Held"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return len(ts) == 1 && ts[0].Status == TaskWorking
+	})
+	stop(e, k)
+	k.Flush()
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		task = ts[0]
+		return task.Terminal() && task.Delivery == DeliverDelivered
+	})
+	return task
+}
+
+func TestAChildTheUserStopsSettlesItsTaskAsCancelledAndWakesTheParent(t *testing.T) {
+	task := stoppedChildTask(t, func(e *Engine, k *Sink) {
+		if _, err := e.Dispatch(NewCommand("", CmdSessionStop, "child-1", nil)); err != nil {
+			t.Fatal(err)
+		}
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done"})
+	})
+	if task.Status != TaskCancelled || task.Summary != "Stopped by the user" || task.Error != "" {
+		t.Fatalf("task = %+v", task)
+	}
+}
+
+func TestAChildWhoseTurnTheAgentReportsAsInterruptedSettlesItsTaskAsCancelledAndWakesTheParent(t *testing.T) {
+	task := stoppedChildTask(t, func(e *Engine, k *Sink) {
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done", Failed: true, Error: "interrupted"})
+	})
+	if task.Status != TaskCancelled || task.Summary != "Stopped by the user" || task.Error != "" {
+		t.Fatalf("task = %+v", task)
+	}
+}
+
+func TestAChildStoppedBeforeItsTaskKnowsItSettlesTheTaskAsCancelledAndWakesTheParent(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	k := NewSink(s)
+	defer k.Close()
+	f := &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind != EffLaunch {
+			return nil, nil
+		}
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+		k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "done", Failed: true, Error: "interrupted"})
+		k.Flush()
+		return map[string]any{"childId": "child-1"}, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	k.OnTurn = e.OnTurn
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x", Title: "Held"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		task = ts[0]
+		return task.Terminal() && task.Delivery == DeliverDelivered
+	})
+	if task.Status != TaskCancelled || task.Summary != "Stopped by the user" || task.Error != "" {
+		t.Fatalf("task = %+v", task)
+	}
+}
+
 func TestATaskQueuedOnTheMacLimitStartsWhenAnotherChatsChildSettles(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "a", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
