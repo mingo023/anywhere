@@ -57,7 +57,7 @@ func (h *host) SessionIn(terminal string) (proto.AgentSummary, bool) {
 func (h *host) Summary(id string) (proto.AgentSummary, bool) { return h.parent, id == h.parent.ID }
 func (h *host) Items(string) []proto.Item                    { return nil }
 func (h *host) Agents() []AgentKind {
-	return []AgentKind{{ID: "claude", Installed: true, Parent: true}, {ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
+	return []AgentKind{{ID: "claude", Installed: true, Parent: true, Access: proto.Accesses}, {ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
 }
 func (h *host) InBackground(string, string) bool { return false }
 func (h *host) Dirty(string) bool                { return false }
@@ -331,6 +331,11 @@ func TestAnAgentChangesOnlySchedulesWithinItsAccessAndNeverReadsASecret(t *testi
 	if out := call("schedule_task", `{"prompt":"nightly tests","agent":"pi"}`); out["isError"] != true || len(sched.autos) != 1 {
 		t.Fatalf("an Edits session scheduled an always-Full agent: %v, %+v", out, sched.autos)
 	}
+	sched.autos["own"] = proto.Automation{ID: "own", Prompt: "lint", Provider: "claude"}
+	if out := call("schedule_task", `{"id":"own","prompt":"lint and test"}`); out["isError"] == true || sched.autos["own"].Access != "" || sched.autos["own"].Prompt != "lint and test" {
+		t.Fatalf("an edit of a schedule on the agent's own settings: %v, %+v", out, sched.autos["own"])
+	}
+	delete(sched.autos, "own")
 	sched.autos["new"] = proto.Automation{ID: "new", Access: "edits", CreatedBy: "parent", Webhook: true, WebhookSecret: "mine"}
 	listed := call("list_scheduled_tasks", `{}`)
 	if strings.Contains(fmt.Sprint(created, listed), "s3cret") || strings.Contains(fmt.Sprint(created, listed), "mine") {

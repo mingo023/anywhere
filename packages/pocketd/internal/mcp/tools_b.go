@@ -274,8 +274,13 @@ func scheduleTask(ctx context.Context, c *Call) (any, error) {
 	if i < 0 {
 		return nil, fail(orch.CodeInvalid, "Unknown agent "+a.Provider)
 	}
-	if a.Access, _, err = orch.Access(a.Access, orch.AgentInfo{Known: true, Access: kinds[i].Access, NeverAsks: kinds[i].NeverAsks}); err != nil {
+	access, _, err := orch.Access(cmp.Or(a.Access, c.Caller.Access), orch.AgentInfo{Known: true, Access: kinds[i].Access, NeverAsks: kinds[i].NeverAsks})
+	if err != nil {
 		return nil, err
+	}
+	// Empty stays empty: the run goes on the agent's own settings.
+	if a.Access != "" {
+		a.Access = access
 	}
 	if p.Schedule != nil {
 		a.Schedule = *p.Schedule
