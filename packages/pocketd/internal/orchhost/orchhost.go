@@ -181,6 +181,9 @@ func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 }
 
 func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, error) {
+	if p.Env != "" {
+		return nil, &orch.Failure{Code: orch.CodeUnsupported, Message: "Launching on a linked host isn't available yet"}
+	}
 	project, ok := projectPath(h.Projects.Load(), p.Project, p.Cwd)
 	if !ok {
 		return nil, &orch.Failure{Code: orch.CodeInvalid, Message: "Anywhere starts sessions in a project; this one is in none"}

@@ -114,8 +114,8 @@ func TestMigrationsRunFromEmptyAndAgainWithoutChange(t *testing.T) {
 	defer s.Close()
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&n)
-	if n != 2 {
-		t.Fatalf("schema_version rows = %d, want 2", n)
+	if n != 3 {
+		t.Fatalf("schema_version rows = %d, want 3", n)
 	}
 	fi, err := os.Stat(filepath.Join(dir, "state", "orchestrator.db"))
 	if err != nil {

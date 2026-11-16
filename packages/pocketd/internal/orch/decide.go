@@ -88,6 +88,7 @@ type (
 		CompletionWake  string `json:"completionWake,omitempty"`
 		ClientRequestID string `json:"clientRequestId,omitempty"`
 		Environment     string `json:"environmentId,omitempty"`
+		HostProject     string `json:"hostProject,omitempty"`
 	}
 	TaskPayload struct {
 		TaskID         string `json:"taskId"`
@@ -121,6 +122,7 @@ type (
 		Rel         string `json:"relationship,omitempty"`
 		Chat        bool   `json:"chat,omitempty"`
 		Env         string `json:"environmentId,omitempty"`
+		HostProject string `json:"hostProject,omitempty"`
 		SteppedDown string `json:"steppedDown,omitempty"`
 	}
 	TurnPayload struct {
@@ -676,7 +678,7 @@ func delegate(st State, cmd Command, p DelegatePayload, ids *idSeq) (Decision, e
 	}
 	t := Delegation{TaskID: p.TaskID, ParentID: parent.ID, Title: title, Role: p.Role, Agent: p.Agent, Model: p.Model, Effort: p.Effort, Brief: p.Brief,
 		Isolation: isolation, Mode: mode, Status: TaskQueued, Access: access, SteppedDown: stepped, CompletionWake: wake, Delivery: DeliverNone,
-		ClientRequestID: p.ClientRequestID, CreatedAt: st.Now}
+		ClientRequestID: p.ClientRequestID, Environment: p.Environment, HostProject: p.HostProject, CreatedAt: st.Now}
 	if t.TaskID == "" {
 		t.TaskID = ids.next("task")
 	}
@@ -702,7 +704,8 @@ func launchEffect(t Delegation, parent Session) Effect {
 		checkout = "worktree"
 	}
 	e := effect("launch:"+t.TaskID, EffLaunch, LaunchPayload{TaskID: t.TaskID, Parent: parent.ID, Agent: t.Agent, Model: t.Model, Effort: t.Effort, Access: t.Access,
-		Prompt: t.Brief, Title: t.Title, Project: parent.Project, Cwd: parent.Cwd, Checkout: checkout, Depth: parent.Depth + 1, CreatedBy: "agent", Rel: "subagent", Chat: true})
+		Prompt: t.Brief, Title: t.Title, Project: parent.Project, Cwd: parent.Cwd, Checkout: checkout, Depth: parent.Depth + 1, CreatedBy: "agent", Rel: "subagent", Chat: true,
+		Env: t.Environment, HostProject: t.HostProject})
 	e.Then, e.Else = CmdDelegateStarted, CmdDelegateFailed
 	return e
 }
