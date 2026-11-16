@@ -69,7 +69,9 @@ type Session struct {
 	MCP func() []any
 	// Shown is whether the agent already shows the session's history, as one
 	// restored from the store does: a load's replay of it is dropped.
-	Shown   bool
+	Shown bool
+	// Showing is what that timeline holds, sub-agents' items too.
+	Showing func() []proto.Item
 	agentID string
 	name    string // the agent's, for what the user reads
 	f       flavor

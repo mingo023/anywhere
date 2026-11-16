@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"pocketd/internal/proto"
 	"pocketd/internal/timeline"
 )
 
@@ -25,27 +26,38 @@ var DelegationPoll = time.Second
 func (s *Session) watch(call, id string, transcripts []string) {
 	d := &delegation{call: call, id: id, transcripts: transcripts, read: make([]int64, len(transcripts)), open: map[string][]string{}, summaries: map[int]string{},
 		restored: s.opening, orphaned: s.opening && !s.carried}
-	// What the transcripts hold already belongs to the history a load replays, which a timeline showing it drops.
-	if s.take(d) {
+	follow := func() {
+		if s.take(d) {
+			return
+		}
+		go func() {
+			tick := time.NewTicker(DelegationPoll)
+			defer tick.Stop()
+			for {
+				select {
+				case <-s.ctx.Done():
+					return
+				case <-tick.C:
+				}
+				s.mu.Lock()
+				done := s.take(d)
+				s.mu.Unlock()
+				if done {
+					return
+				}
+			}
+		}()
+	}
+	// A timeline showing the history drops what its load replays, so the
+	// first read waits for the load and drops only what the timeline shows.
+	if s.opening && s.Shown {
+		if s.Showing != nil {
+			d.shown = s.Showing()
+		}
+		s.held = append(s.held, follow)
 		return
 	}
-	go func() {
-		tick := time.NewTicker(DelegationPoll)
-		defer tick.Stop()
-		for {
-			select {
-			case <-s.ctx.Done():
-				return
-			case <-tick.C:
-			}
-			s.mu.Lock()
-			done := s.take(d)
-			s.mu.Unlock()
-			if done {
-				return
-			}
-		}
-	}()
+	follow()
 }
 
 // take records what d's transcripts told since the last read, and ends its
@@ -53,14 +65,57 @@ func (s *Session) watch(call, id string, transcripts []string) {
 // did. s.mu is held.
 func (s *Session) take(d *delegation) bool {
 	done, ok := d.ended()
-	for _, e := range d.next() {
+	events := d.next()
+	if done {
+		events = append(events, d.end(ok))
+	}
+	for _, e := range d.unseen(events) {
 		s.record(e)
 	}
 	if done {
-		s.record(d.end(ok))
 		s.queueHandoff(d.call, d.tails())
 	}
 	return done
+}
+
+// unseen drops the events whose items the timeline shows already: the calls
+// it shows ended, and the items under d's call it shows, in order, up to the
+// first it lacks.
+func (d *delegation) unseen(events []timeline.Event) []timeline.Event {
+	shown := d.shown
+	d.shown = nil
+	ended := map[string]bool{}
+	var under []proto.Item
+	for _, it := range shown {
+		if it.Call != nil && it.Call.Status != "running" {
+			ended[it.Call.ToolUseID] = true
+		}
+		// The brief under the call is the history's, not the transcripts'.
+		if it.ParentToolUseID == d.call && it.Kind != "user" {
+			under = append(under, it)
+		}
+	}
+	var out []timeline.Event
+	var kind, rest string // the text item matched last, and what it holds past the events matched
+	for _, e := range events {
+		text := strings.TrimSuffix(e.Kind, "_text")
+		switch {
+		case e.Kind == "tool_end" && ended[e.ToolUseID]:
+			continue
+		case len(out) > 0 || e.Kind == "tool_end":
+		case e.Kind == "tool_start" && len(under) > 0 && under[0].Call != nil && under[0].Call.ToolUseID == e.ToolUseID:
+			under, rest = under[1:], ""
+			continue
+		case rest != "" && text == kind && strings.HasPrefix(rest, e.Text):
+			rest = rest[len(e.Text):]
+			continue
+		case len(under) > 0 && under[0].Kind == text && strings.HasPrefix(under[0].Text, e.Text):
+			kind, rest, under = text, under[0].Text[len(e.Text):], under[1:]
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // delegation is what one delegate_task call's transcripts told so far.
@@ -76,6 +131,8 @@ type delegation struct {
 	restored bool
 	// orphaned is one whose sub-agents ran in a process gone since, so nothing writes to its transcripts again.
 	orphaned bool
+	// shown is what the timeline restored from the store showed, until the first read.
+	shown []proto.Item
 }
 
 // ended reads the manifest beside the transcripts: whether every sub-agent

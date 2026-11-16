@@ -9,7 +9,8 @@
 //	mcp <tool> <json>  call an Anywhere tool through the servers session/new gave, or "mcp tools/list", then reply its result;
 //	                more lines go on: "mcp <tool> <json>" again, or "await <name>" until $HOME/.acp-fake/<name> exists
 //	delegate <task> run a sub-agent on task in a session of its own, as OpenCode 2 does, which reports "did <task>";
-//	                as hermes, in the background, telling its work only in a transcript
+//	                as hermes, in the background, telling its work only in a transcript;
+//	                "delegate await <name>" runs its first call until $HOME/.acp-fake/<name> exists
 //	[Anywhere internal background handoff] …
 //	                as hermes, reply "echo: took back <summary>" of each transcript tail it holds
 //	think <text>    think first, then reply
@@ -498,7 +499,13 @@ func (a *agent) background(task string) {
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		f, _ := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0)
-		fmt.Fprintf(f, "12:00:01 tool     | -> terminal(echo %[1]s)\n12:00:01 result   | terminal ok 0.1s: %[1]s\n12:00:02 assistant| did %[1]s\n"+
+		fmt.Fprintf(f, "12:00:01 tool     | -> terminal(echo %s)\n", task)
+		if gate, ok := strings.CutPrefix(task, "await "); ok {
+			for _, err := os.Stat(filepath.Join(dir(), gate)); err != nil; _, err = os.Stat(filepath.Join(dir(), gate)) {
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		fmt.Fprintf(f, "12:00:01 result   | terminal ok 0.1s: %[1]s\n12:00:02 assistant| did %[1]s\n"+
 			"12:00:02 final    | status=completed duration=2s summary: did %[1]s\n12:00:02 final    | end status=completed\n", task)
 		f.Close()
 		os.WriteFile(manifest, []byte(`{"completed":"2026-11-11 12:00:02","tasks":[{"index":0,"status":"completed"}]}`), 0o600)

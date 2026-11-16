@@ -415,6 +415,53 @@ func TestAChatHermesShowsItsSubAgentsTranscriptUnderTheDelegationAlsoAfterAResta
 	}
 }
 
+// A Hermes sub-agent that wrote more and ended while no pocketd ran shows that once, and ends its call, after a restart.
+func TestAChatHermesSubAgentThatEndedWhilePocketdWasDownShowsItsEndOnceAfterARestart(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "delegate await g1")
+	shows := func(phone *Phone, want []string) []string {
+		var got []string
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			lines := withSubAgents(phone, id)
+			got = slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return strings.HasPrefix(l, "> ") })
+			got = append(got, slices.DeleteFunc(lines, func(l string) bool { return !strings.HasPrefix(l, "> ") })...)
+			if strings.Join(got, "|") == strings.Join(want, "|") {
+				break
+			}
+		}
+		return got
+	}
+	before := []string{"user delegate await g1", "tool task running", "assistant echo: delegated await g1", "result", "> user await g1", "> tool shell running"}
+	if got := shows(h.Owner(proto.CapSubagents), before); strings.Join(got, "|") != strings.Join(before, "|") {
+		t.Fatalf("before the restart got %q", got)
+	}
+
+	if code := h.Stop(syscall.SIGTERM); code != 0 {
+		t.Fatalf("pocketd exited %d", code)
+	}
+	logs, _ := filepath.Glob(filepath.Join(h.Home, ".acp-fake", "deleg_*", "task-0.log"))
+	if len(logs) != 1 {
+		t.Fatalf("transcripts: %q", logs)
+	}
+	f, err := os.OpenFile(logs[0], os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprint(f, "12:00:01 result   | terminal ok 0.1s: await g1\n12:00:02 assistant| did await g1\n"+
+		"12:00:02 final    | status=completed duration=2s summary: did await g1\n12:00:02 final    | end status=completed\n")
+	f.Close()
+	manifest := `{"completed":"2026-11-11 12:00:02","tasks":[{"index":0,"status":"completed"}]}`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(logs[0]), "manifest.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.up()
+
+	after := []string{"user delegate await g1", "tool task ok did await g1", "assistant echo: delegated await g1", "result", "> user await g1", "> tool shell ok await g1", "> assistant did await g1"}
+	if got := shows(h.Owner(proto.CapSubagents), after); strings.Join(got, "|") != strings.Join(after, "|") {
+		t.Fatalf("after the restart got %q", got)
+	}
+}
+
 // Hermes's ACP server never takes what its background sub-agents hand back, so the turn goes on until pocketd has handed it over.
 func TestAChatHermesIsHandedWhatItsBackgroundSubAgentDidOnceItEnds(t *testing.T) {
 	h, phone, term, id := chatACP(t, "hermes", nil)
