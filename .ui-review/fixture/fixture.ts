@@ -233,7 +233,7 @@ const hostEntry = (id: string, name: string, target: HostTarget, link: Host["lin
 const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
 const hosts: Host[] = [
   hostEntry("devbox", "devbox", { kind: "alias", name: "devbox" }, ONLINE),
-  hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "mingo" }, { state: "retrying", failure: "not_running" }),
+  hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "dev" }, { state: "retrying", failure: "not_running" }),
 ];
 const pushHost = (ws: Ws, h: Host, id?: string) => ws.send(JSON.stringify({ type: "host.update", ...(id && { id }), host: h }));
 const setLink = (ws: Ws, hostId: string, link: Host["link"]) => {
