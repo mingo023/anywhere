@@ -20,6 +20,7 @@ import (
 	"pocketd/internal/agent"
 	"pocketd/internal/automation"
 	"pocketd/internal/config"
+	"pocketd/internal/hosts"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
 	"pocketd/internal/mcp"
@@ -47,6 +48,7 @@ func openOrchestrator(home string, settings *config.Settings, reg *agent.Registr
 		return nil, err
 	}
 	o := &orchestrator{store: store, sink: orch.NewSink(store)}
+	o.sink.Mirrored = hosts.Tagged
 	reg.Sink = o.sink
 	reg.Lineage = store.Lineage
 	reg.History = store.History

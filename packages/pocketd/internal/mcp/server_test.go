@@ -63,6 +63,7 @@ type host struct {
 	engine *orch.Engine
 	parent proto.AgentSummary
 	sched  Schedules
+	envs   Environments
 
 	mu         sync.Mutex
 	others     map[string]proto.AgentSummary
@@ -97,6 +98,7 @@ func (h *host) InBackground(_, id string) bool          { return h.background[id
 func (h *host) TaskOf(session, toolUseID string) string { return h.tasks[session+"/"+toolUseID] }
 func (h *host) Dirty(string) bool                       { return false }
 func (h *host) Schedules() Schedules                    { return h.sched }
+func (h *host) Environments() Environments              { return h.envs }
 
 type fixture struct {
 	srv    *httptest.Server

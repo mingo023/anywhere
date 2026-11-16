@@ -112,6 +112,7 @@ type taskView struct {
 	Access             string   `json:"access"`
 	SteppedDown        string   `json:"accessSteppedDownTo,omitempty"`
 	Isolation          string   `json:"isolation"`
+	EnvironmentID      string   `json:"environmentId,omitempty"`
 	HasPendingQuestion bool     `json:"hasPendingQuestion"`
 	WaitTimedOut       bool     `json:"waitTimedOut"`
 	Next               string   `json:"next,omitempty"`
@@ -128,7 +129,7 @@ func viewTask(t orch.Delegation) taskView {
 		work = "result_available"
 	}
 	v := taskView{TaskID: t.TaskID, ChildThreadID: t.ChildID, Title: t.Title, Agent: t.Agent, Model: t.Model, Status: status, WorkState: work, Error: t.Error,
-		Access: t.Access, SteppedDown: t.SteppedDown, Isolation: t.Isolation, HasPendingQuestion: t.PendingQuestion != ""}
+		Access: t.Access, SteppedDown: t.SteppedDown, Isolation: t.Isolation, EnvironmentID: t.Environment, HasPendingQuestion: t.PendingQuestion != ""}
 	if t.ChildID != "" {
 		v.Link = Link(t.ChildID)
 	}
@@ -157,9 +158,40 @@ type target struct {
 	Model       string `json:"model,omitempty"`
 	Effort      string `json:"effort,omitempty"`
 	Environment string `json:"environmentId,omitempty"`
+	Project     string `json:"projectId,omitempty"`
 }
 
-const targetSchema = `{"type":"object","properties":{"agent":{"type":"string","description":"Agent id from orchestrator_capabilities. Default: your own agent."},"model":{"type":"string"},"effort":{"type":"string"},"environmentId":{"type":"string","description":"A linked host's id. Not supported yet."}}}`
+const targetSchema = `{"type":"object","properties":{"agent":{"type":"string","description":"Agent id from orchestrator_capabilities. Default: your own agent."},"model":{"type":"string"},"effort":{"type":"string"},` +
+	`"environmentId":{"type":"string","description":"A linked host's id, to run there. delegate_task and anywhere_thread_launch only."},"projectId":{"type":"string","description":"With environmentId: the host's project, by path there or by name. Default: the one named like yours."}}}`
+
+// onHost is the path of the project on t's host a session runs in: t.Project, else the one named like the caller's.
+func onHost(ctx context.Context, c *Call, t target) (string, error) {
+	envs := c.Host.Environments()
+	if envs == nil {
+		return "", fail(orch.CodeUnavailable, "Linked hosts are off")
+	}
+	i := slices.IndexFunc(envs.List(), func(e Environment) bool { return e.ID == t.Environment })
+	if i < 0 {
+		return "", fail(orch.CodeNotFound, "No linked host "+t.Environment)
+	}
+	env := envs.List()[i]
+	if env.State != "online" {
+		return "", fail(orch.CodeUnavailable, fmt.Sprintf("%s isn't online (%s): %s", env.Label, env.State, cmp.Or(env.Error, "it's connecting")))
+	}
+	projects, err := envs.Projects(ctx, env.ID)
+	if err != nil {
+		return "", fail(orch.CodeUnavailable, err.Error())
+	}
+	want := cmp.Or(t.Project, c.Caller.Project)
+	var names []string
+	for _, p := range projects {
+		if p.Path == want || p.Name == want {
+			return p.Path, nil
+		}
+		names = append(names, fmt.Sprintf("%s (%s)", p.Name, p.Path))
+	}
+	return "", fail(orch.CodeInvalid, fmt.Sprintf("%s has no project %q; name one in projectId: %s", env.Label, want, strings.Join(names, ", ")))
+}
 
 func groupA() []Tool {
 	return []Tool{
@@ -285,19 +317,27 @@ func delegateTask(ctx context.Context, c *Call) (any, error) {
 	if agent == "" {
 		agent = c.Caller.Provider
 	}
+	var hostProject string
 	if p.Target.Environment != "" {
-		return nil, fail(orch.CodeUnsupported, "Delegating to a linked host isn't available yet; run it on this Mac")
+		var err error
+		if hostProject, err = onHost(ctx, c, p.Target); err != nil {
+			return nil, err
+		}
 	}
 	e := c.Host.Engine()
 	r, err := e.Dispatch(orch.NewCommand(commandID(c, "delegate_task", p.ClientRequestID), orch.CmdDelegate, c.Caller.ID, orch.DelegatePayload{
-		Agent: agent, Model: p.Target.Model, Effort: p.Target.Effort, Title: p.Title, Brief: p.Task, Role: p.Role, Isolation: p.Isolation, Mode: p.Mode, CompletionWake: p.CompletionWake, ClientRequestID: p.ClientRequestID}))
+		Agent: agent, Model: p.Target.Model, Effort: p.Target.Effort, Title: p.Title, Brief: p.Task, Role: p.Role, Isolation: p.Isolation, Mode: p.Mode, CompletionWake: p.CompletionWake, ClientRequestID: p.ClientRequestID,
+		Environment: p.Target.Environment, HostProject: hostProject}))
 	if err != nil {
 		return nil, err
 	}
 	var t orch.Delegation
 	json.Unmarshal(r.Result, &t)
 	var warnings []string
-	if t.Isolation == "worktree" && c.Host.Dirty(c.Caller.Cwd) {
+	switch {
+	case t.Isolation == "worktree" && t.Environment != "":
+		warnings = append(warnings, t.Environment+"'s worktree starts from its own default branch; your local commits aren't there.")
+	case t.Isolation == "worktree" && c.Host.Dirty(c.Caller.Cwd):
 		warnings = append(warnings, "Your checkout has uncommitted changes; the child's worktree starts from your HEAD commit without them.")
 	}
 	if t.SteppedDown != "" {
@@ -418,9 +458,6 @@ func launchPayload(c *Call, prompt, title string, t target) (orch.LaunchPayload,
 	if !known {
 		return orch.LaunchPayload{}, fail(orch.CodeInvalid, "Unknown agent "+agent)
 	}
-	if t.Environment != "" {
-		return orch.LaunchPayload{}, fail(orch.CodeUnsupported, "Launching on a linked host isn't available yet")
-	}
 	return orch.LaunchPayload{Agent: agent, Model: t.Model, Effort: t.Effort, Access: c.Caller.Access, Prompt: prompt, Title: title, Project: c.Caller.Project,
 		Cwd: c.Caller.Cwd, Checkout: "shared", CreatedBy: "agent", Chat: true}, nil
 }
@@ -443,6 +480,9 @@ func createThreads(ctx context.Context, c *Call) (any, error) {
 	deadline := time.Now().Add(MaxWait)
 	var receipts []orch.Receipt
 	for i, t := range p.Threads {
+		if t.Target.Environment != "" {
+			return nil, fail(orch.CodeUnsupported, "create_threads runs on this Mac; use anywhere_thread_launch for a linked host")
+		}
 		lp, err := launchPayload(c, t.Prompt, t.Title, t.Target)
 		if err != nil {
 			return nil, err
@@ -509,7 +549,12 @@ func threadLaunch(ctx context.Context, c *Call) (any, error) {
 	if p.Scratch {
 		return nil, fail(orch.CodeUnsupported, "A scratch session starts only from the desktop for now")
 	}
-	if lp.Project == "" {
+	if p.Target.Environment != "" {
+		if lp.HostProject, err = onHost(ctx, c, p.Target); err != nil {
+			return nil, err
+		}
+		lp.Env = p.Target.Environment
+	} else if lp.Project == "" {
 		return nil, fail(orch.CodeInvalid, "This session isn't in a project; name checkout.project")
 	}
 	r, err := c.Host.Engine().Dispatch(orch.NewCommand(commandID(c, "anywhere_thread_launch", p.ClientRequestID), orch.CmdSessionCreate, c.Caller.ID, lp))

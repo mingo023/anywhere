@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"pocketd/internal/hostop"
+	"pocketd/internal/proto"
 	"pocketd/internal/terminal"
 )
 
@@ -37,6 +38,8 @@ type Manager struct {
 	version string
 	// name is this machine's, which a Windows host's pocketd names its owner token after.
 	name string
+	// Mirror, set before Start, keeps here the sessions this Mac starts on its hosts.
+	Mirror Mirror
 
 	mu sync.Mutex
 	// ctx is nil until Start, and no link runs before.
@@ -46,6 +49,9 @@ type Manager struct {
 	sups     map[string]*supervisor
 	installs map[string]bool
 	changed  chan struct{}
+	// remotes is each online host's conn to its pocketd, and summaries the sessions mirrored from them.
+	remotes   map[string]*remote
+	summaries map[string]proto.AgentSummary
 }
 
 func Open(paths Paths, env func() []string, version, name string) (*Manager, error) {
@@ -54,7 +60,8 @@ func Open(paths Paths, env func() []string, version, name string) (*Manager, err
 		return nil, err
 	}
 	m := &Manager{paths: paths, env: env, version: version, name: name, hosts: saved,
-		links: map[string]Link{}, sups: map[string]*supervisor{}, installs: map[string]bool{}, changed: make(chan struct{})}
+		links: map[string]Link{}, sups: map[string]*supervisor{}, installs: map[string]bool{}, changed: make(chan struct{}),
+		remotes: map[string]*remote{}, summaries: map[string]proto.AgentSummary{}}
 	for _, h := range saved {
 		m.links[h.ID] = Link{State: StateConnecting}
 	}
@@ -144,6 +151,7 @@ func (m *Manager) Remove(id string, uninstall bool) error {
 	m.hosts = list
 	delete(m.sups, id)
 	delete(m.links, id)
+	m.follow(id, Link{})
 	m.notify()
 	m.mu.Unlock()
 	if s != nil {
@@ -216,7 +224,11 @@ func (m *Manager) supervise(id string) {
 func (m *Manager) report(s *supervisor, l Link) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.sups[s.id] == s && m.links[s.id] != l {
+	if m.sups[s.id] != s {
+		return
+	}
+	m.follow(s.id, l)
+	if m.links[s.id] != l {
 		m.links[s.id] = l
 		m.notify()
 	}

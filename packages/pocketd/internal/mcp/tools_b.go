@@ -96,6 +96,9 @@ func threadTransfer(ctx context.Context, c *Call) (any, error) {
 	if err := c.args(&p); err != nil {
 		return nil, err
 	}
+	if p.Target.Environment != "" {
+		return nil, fail(orch.CodeUnsupported, "A transfer runs on this Mac; it can't go to a linked host")
+	}
 	src, _, err := session(c, p.ThreadID)
 	if err != nil {
 		return nil, err
