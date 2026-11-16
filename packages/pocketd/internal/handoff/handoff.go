@@ -43,6 +43,8 @@ type Agent struct {
 	Phase string `json:"phase"`
 	Epoch int64  `json:"epoch"`
 	Seq   int64  `json:"seq"`
+	// Read is how far its Claude transcript is in its timeline: to the end of a whole line.
+	Read int64 `json:"read,omitempty"`
 }
 
 func Path(home string) string { return filepath.Join(home, "handoff.json") }
