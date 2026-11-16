@@ -60,7 +60,10 @@ type remote struct {
 	latest  map[string]proto.AgentSummary
 	tracked map[string]bool
 	asks    map[string]string
-	seq     map[string]int64
+	// early is the open questions of sessions not tracked yet, by request id: a session Launch started can ask
+	// before agent.created returns.
+	early map[string]proto.PermissionRequest
+	seq   map[string]int64
 	// started is a turn the host showed busy; ended is its result stored.
 	started map[string]bool
 	ended   map[string]bool
@@ -68,7 +71,7 @@ type remote struct {
 
 func newRemote(m *Manager, host string) *remote {
 	return &remote{m: m, host: host, ready: make(chan struct{}), wake: make(chan struct{}, 1), latest: map[string]proto.AgentSummary{},
-		tracked: map[string]bool{}, asks: map[string]string{}, seq: map[string]int64{}, started: map[string]bool{}, ended: map[string]bool{}}
+		tracked: map[string]bool{}, asks: map[string]string{}, early: map[string]proto.PermissionRequest{}, seq: map[string]int64{}, started: map[string]bool{}, ended: map[string]bool{}}
 }
 
 func (r *remote) open(ctx context.Context) {
@@ -152,13 +155,17 @@ func (r *remote) frame(kind string, raw []byte) {
 		var p proto.PermissionRequested
 		json.Unmarshal(raw, &p)
 		req := p.Request
-		if r.tracked[req.AgentID] && req.ToolName == "AskUserQuestion" && safe(req.RequestID) {
-			r.asks[req.RequestID] = req.AgentID
-			r.m.Mirror.Asked(Tag(r.host, req.AgentID), Tag(r.host, req.RequestID), req.Detail.Input)
+		switch {
+		case req.ToolName != "AskUserQuestion" || !safe(req.RequestID):
+		case r.tracked[req.AgentID]:
+			r.ask(req)
+		default:
+			r.early[req.RequestID] = req
 		}
 	case "permission.resolved":
 		var p proto.PermissionResolved
 		json.Unmarshal(raw, &p)
+		delete(r.early, p.RequestID)
 		if agent, ok := r.asks[p.RequestID]; ok {
 			delete(r.asks, p.RequestID)
 			r.m.Mirror.Answered(Tag(r.host, agent), Tag(r.host, p.RequestID))
@@ -179,6 +186,17 @@ func (r *remote) track(theirs string, start proto.AgentSummary) {
 	if heard {
 		r.sync(a)
 	}
+	for id, req := range r.early {
+		if req.AgentID == theirs {
+			delete(r.early, id)
+			r.ask(req)
+		}
+	}
+}
+
+func (r *remote) ask(req proto.PermissionRequest) {
+	r.asks[req.RequestID] = req.AgentID
+	r.m.Mirror.Asked(Tag(r.host, req.AgentID), Tag(r.host, req.RequestID), req.Detail.Input)
 }
 
 // sync copies a tracked session's state; one whose turn ended gets its items first, so its reply is stored
