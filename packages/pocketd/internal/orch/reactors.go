@@ -161,7 +161,7 @@ func (s *Store) Lineage(id string) agent.Lineage {
 	if err != nil || x == nil {
 		return agent.Lineage{}
 	}
-	l := agent.Lineage{Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy}
+	l := agent.Lineage{Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy, Title: x.Title}
 	if ts, err := s.Delegations(`child_id = ? ORDER BY created_at DESC LIMIT 1`, id); err == nil && len(ts) == 1 {
 		l.Delegation = &proto.DelegationRef{TaskID: ts[0].TaskID, Status: ts[0].Status, WorkState: ts[0].WorkState}
 	}
