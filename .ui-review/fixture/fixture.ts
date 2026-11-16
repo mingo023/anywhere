@@ -127,8 +127,8 @@ for (const r of scenario.repos) {
   const p = repoPath(r);
   mkdirSync(p, { recursive: true });
   git(p, "init", "-q", "-b", "main");
-  git(p, "config", "user.name", "Minh Ngo");
-  git(p, "config", "user.email", "minh@example.com");
+  git(p, "config", "user.name", "Dev User");
+  git(p, "config", "user.email", "dev@example.com");
   for (const a of scenario.agents.filter((a) => a.repo === r)) for (const [f, , removed] of a.diff ?? []) write(join(p, f), lines("base", removed + 10));
   write(join(p, "README.md"), `# ${r}\n`);
   git(p, "add", "-A");
