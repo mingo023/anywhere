@@ -32,7 +32,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 260] = [
+const STEPS: [(&str, Step); 262] = [
     ("session", session),
     ("chat", chat_session),
     // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
@@ -41,6 +41,18 @@ const STEPS: [(&str, Step); 260] = [
         fixture(d, "delegate");
     }),
     ("delegate-panel", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, true, cx);
+        }
+    }),
+    ("delegate-capsule", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, false, cx);
+        }
+    }),
+    // As with Reduce transparency on in System Settings.
+    ("delegate-solid", |d, _, cx| {
+        cx.set_global(crate::desktop::ReduceTransparency(true));
         if let Some(agent) = d.session().map(str::to_string) {
             d.delegated_set_open(&agent, true, cx);
         }

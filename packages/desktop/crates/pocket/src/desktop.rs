@@ -174,6 +174,7 @@ impl Desktop {
             // The setting changes in System Settings, so the window coming back is when it may have.
             cx.observe_window_activation(window, |this, window, cx| {
                 follow_reduce_motion(this.store.appearance.reduce_motion, cx);
+                follow_reduce_transparency(cx);
                 // Render tells alerts which panes are seen, but a hidden window renders no frame.
                 this.sync_view(window, cx);
                 if this.screen == Screen::Settings {
@@ -714,6 +715,18 @@ impl Render for Desktop {
             .children(self.chat_pill(cx))
             .children(self.chat_popover(cx))
     }
+}
+
+/// Whether macOS is set to reduce transparency, which floating glass answers with a solid fill.
+pub(crate) struct ReduceTransparency(pub(crate) bool);
+
+impl Global for ReduceTransparency {}
+
+pub(crate) fn follow_reduce_transparency(cx: &mut App) {
+    #[cfg(target_os = "macos")]
+    cx.set_global(ReduceTransparency(objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency()));
+    #[cfg(not(target_os = "macos"))]
+    cx.set_global(ReduceTransparency(false));
 }
 
 /// GPUI leaves `reduce_motion` to the app; this sets the user's choice, or mirrors the macOS setting when `pref` is `None`.

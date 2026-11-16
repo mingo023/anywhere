@@ -3,14 +3,16 @@
 mod child_view;
 mod delivery;
 mod panel;
+mod push;
 
-pub(crate) use delivery::delivered;
+pub(crate) use delivery::{Arrivals, delivered};
 
 use crate::desktop::Desktop;
 use agents::Summary;
 use agents::delegations::Delegation;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 pub(crate) struct DelegatedState {
     /// Each delegating chat's panel, by agent id.
@@ -19,11 +21,13 @@ pub(crate) struct DelegatedState {
     asked: HashSet<String>,
     /// Tasks the user cleared from a panel: pocketd lists them again after a reconnect, and they stay hidden.
     cleared: HashSet<String>,
+    /// The session arriving from the one the user just left, while it moves.
+    push: Option<push::Push>,
 }
 
 impl DelegatedState {
     pub(crate) fn new() -> Self {
-        Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new() }
+        Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new(), push: None }
     }
 
     /// Hides the ended tasks of `list`.
@@ -78,11 +82,25 @@ impl Desktop {
         }
     }
 
+    /// How far across and how faded in the session `agent` is while it arrives from the chat it was opened from or the session it delegated.
+    pub(crate) fn delegated_pushed(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(f32, f32)> {
+        let reduce_motion = cx.reduce_motion();
+        let push = self.delegated.push.as_mut().filter(|p| p.to == agent)?;
+        if !push.tick(Instant::now(), reduce_motion) {
+            self.delegated.push = None;
+            return None;
+        }
+        window.request_animation_frame();
+        Some(push.offset())
+    }
+
     pub(crate) fn delegated_reconnected(&mut self) {
         self.delegated.reconnected();
     }
 
     pub(crate) fn delegated_open(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let from = self.session().map(str::to_string);
+        self.delegated.push = from.and_then(|from| push::direction(&self.agents.list, &from, agent).map(|dir| push::Push::begin(self.delegated.push.as_ref(), from, agent.to_string(), dir)));
         self.focus_agent(agent, window, cx);
         cx.notify();
     }

@@ -70,6 +70,8 @@ pub(crate) struct View {
     pub(super) pointer: Entity<timeline::Pointer>,
     /// Whether the chat has shown what it opened with; text after that streams in.
     primed: bool,
+    /// Which deliveries arrived after it did.
+    arrivals: crate::delegated::Arrivals,
 }
 
 impl View {
@@ -83,7 +85,8 @@ impl View {
             move |e, _, cx| {
                 scrolled.set(Some(!e.is_scrolled));
                 let (desktop, id) = (desktop.clone(), id.clone());
-                cx.defer(move |cx| _ = desktop.update(cx, |d, cx| d.delegated_scrolled(&id, cx)));
+                let away = e.is_scrolled;
+                cx.defer(move |cx| _ = desktop.update(cx, |d, cx| d.delegated_scrolled(&id, away, cx)));
             }
         });
         let tools = cx.new(|_| Tools::default());
@@ -97,7 +100,7 @@ impl View {
                 view.remeasure_under_pin();
             }
         });
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false, arrivals: Default::default() }
     }
 
     /// How far the list sits above its end.
@@ -248,6 +251,11 @@ impl View {
             if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
                 self.settled = Some((format!("{turn}#fold"), Instant::now()));
             }
+            let delivered = self.session.transcript.turns.iter().rev().take(2).flat_map(|t| &t.blocks).filter_map(|b| match b {
+                Block::Delivered(d) => Some(d.id.as_str()),
+                _ => None,
+            });
+            self.arrivals.observe(delivered, self.primed, Instant::now());
             self.pace(&before, Instant::now());
             self.list.remeasure_items(changed.clone());
             self.list.splice(range, count);
@@ -917,7 +925,7 @@ impl Desktop {
                 _ => div(),
             },
             Row::Delivery { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, cx),
+                Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, view.arrivals.arriving(&d.id, Instant::now()), window, cx),
                 _ => div(),
             },
             Row::Compacted { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
