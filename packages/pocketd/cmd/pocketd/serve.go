@@ -141,7 +141,14 @@ func serve(sock, handed string) error {
 	}
 	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
 	settings := config.NewSettings(home)
-	o, err := openOrchestrator(home, settings, d.Agents, h)
+	var inherited handoff.File
+	if handed != "" {
+		if inherited, err = handoff.Read(handed); err != nil {
+			os.Remove(handed)
+			return fmt.Errorf("handoff: %w", err)
+		}
+	}
+	o, err := openOrchestrator(home, settings, d.Agents, h, inherited.MCPFD)
 	if err != nil {
 		return fmt.Errorf("orchestrator.db: %w", err)
 	}
@@ -204,7 +211,7 @@ func serve(sock, handed string) error {
 	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
 		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
 	}
-	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon, handover: o.handover, resume: o.engine.Resume}
+	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon, handover: o.handover, resume: o.engine.Resume, mcp: o.ln}
 	// Taken before restoring, so a binary swapped meanwhile still counts as a change.
 	var watch *selfWatch
 	if st, err := os.Stat(exe); err == nil {
@@ -261,17 +268,13 @@ func serve(sock, handed string) error {
 	}
 	statePath := state.Path(d.Home)
 	if handed != "" {
-		f, err := handoff.Read(handed)
 		os.Remove(handed)
-		if err != nil {
-			return fmt.Errorf("handoff: %w", err)
-		}
 		var handed []state.Terminal
-		for _, e := range f.Terminals {
+		for _, e := range inherited.Terminals {
 			handed = append(handed, e.Saved)
 		}
 		o.takeIn(handed)
-		d.Adopt(f)
+		d.Adopt(inherited)
 		o.host.Rehold(true)
 		// The awake assertion died with the old image.
 		select {

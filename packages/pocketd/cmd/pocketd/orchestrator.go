@@ -20,6 +20,7 @@ import (
 	"pocketd/internal/agent"
 	"pocketd/internal/automation"
 	"pocketd/internal/config"
+	"pocketd/internal/handoff"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
 	"pocketd/internal/mcp"
@@ -41,7 +42,8 @@ type orchestrator struct {
 }
 
 // openOrchestrator sets the registry's sink, so it runs before any agent is added.
-func openOrchestrator(home string, settings *config.Settings, reg *agent.Registry, h *hub.Hub) (*orchestrator, error) {
+// inherited is the MCP listener's fd an upgrading pocketd handed down, or 0.
+func openOrchestrator(home string, settings *config.Settings, reg *agent.Registry, h *hub.Hub, inherited int) (*orchestrator, error) {
 	store, err := orch.Open(home)
 	if err != nil {
 		return nil, err
@@ -51,7 +53,14 @@ func openOrchestrator(home string, settings *config.Settings, reg *agent.Registr
 	reg.Lineage = store.Lineage
 	reg.History = store.History
 	port := settings.MCPPort()
-	o.ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if inherited > 0 {
+		if o.ln, err = handoff.Inherit(inherited); err != nil {
+			log.Printf("mcp: handed-down listener: %v", err)
+		}
+	}
+	if o.ln == nil {
+		o.ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	}
 	if err != nil {
 		// Agents still running hold the saved port, so it isn't swapped for a free one; their tools stay off, the rest of pocketd goes on.
 		log.Printf("mcp: tools are off: %v", err)

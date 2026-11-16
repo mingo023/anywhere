@@ -22,6 +22,8 @@ const (
 type File struct {
 	Format    int        `json:"format"`
 	Terminals []Terminal `json:"terminals"`
+	// MCPFD is the open MCP listener the new pocketd takes over; 0 when none came.
+	MCPFD int `json:"mcpFd,omitempty"`
 }
 
 type Terminal struct {

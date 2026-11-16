@@ -224,3 +224,4 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
 - `anywhere_thread_search`: **matches conversation text (prompts and replies), titles and branch names**; the store holds no pull-request data to search.
 - The `mcp` principal: **`peer.MCP` (scope `delegate`) exists and every WebSocket verb refuses it; the MCP server authenticates a bearer token through `mcp.Tokens` and its `Grant`** rather than through a principal.
 - A stopped child: **a child whose turn the user stops, or the agent reports as interrupted, settles its task `cancelled` with the summary "Stopped by the user" and wakes the parent, which `task_cancel` and a closed session don't.**
+- The MCP listener across an in-place upgrade: **its socket is handed to the new pocketd through `handoff.json` (`mcpFd`), so a new connection is answered and not refused; a call in flight at the exec is cut, and the owner listener is still bound again, not handed down.**
