@@ -574,6 +574,26 @@ func (s *Store) Sessions(where string, args ...any) ([]Session, error) {
 	return out, rows.Err()
 }
 
+// Held is each session's background tasks it declared it waits on, and when its hold lapses at the latest (Unix ms).
+func (s *Store) Held() (tasks map[string][]string, until map[string]int64, err error) {
+	rows, err := s.db.Query(`SELECT session_id, task_id, until_at FROM held ORDER BY session_id, task_id`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	tasks, until = map[string][]string{}, map[string]int64{}
+	for rows.Next() {
+		var session, task string
+		var at int64
+		if err := rows.Scan(&session, &task, &at); err != nil {
+			return nil, nil, err
+		}
+		tasks[session] = append(tasks[session], task)
+		until[session] = max(until[session], at)
+	}
+	return tasks, until, rows.Err()
+}
+
 func (s *Store) Delegations(where string, args ...any) ([]Delegation, error) {
 	return loadDelegations(s.db, where, args...)
 }

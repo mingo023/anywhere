@@ -36,6 +36,7 @@ import (
 	"pocketd/internal/registry"
 	"pocketd/internal/skills"
 	"pocketd/internal/terminal"
+	"pocketd/internal/timeline"
 )
 
 const (
@@ -532,6 +533,30 @@ func (c *conn) asking(agentID string) string {
 	return ""
 }
 
+func (c *conn) sendTimeline(m proto.ClientMessage, t *timeline.Timeline) {
+	since, limit := int64(0), defaultPage
+	if m.SinceSeq != nil {
+		since = int64(max(0, min(*m.SinceSeq, 1<<53)))
+	}
+	if m.Limit != nil {
+		limit = int(*m.Limit)
+	}
+	subagents := slices.Contains(c.caps, proto.CapSubagents)
+	page := t.Page
+	if subagents {
+		page = t.PageWithSubagents
+	}
+	var items []proto.Item
+	var older bool
+	if m.BeforeSeq != nil {
+		items, older = t.Before(int64(max(0, min(*m.BeforeSeq, 1<<53))), limit, subagents)
+	} else {
+		items, older = page(since, limit)
+	}
+	epoch, maxSeq := t.State()
+	c.send(proto.NewAgentTimeline(m.ID, m.AgentID, epoch, items, older, maxSeq))
+}
+
 func (c *conn) dispatch(m proto.ClientMessage) error {
 	verb := "ws:" + m.Type
 	if m.Type == "agent.mcp" && m.Action != "" {
@@ -625,32 +650,21 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return nil
 	}
 	a, err := c.s.Agents.Get(m.AgentID)
+	if err != nil && m.Type == "agent.timeline" && c.s.Orch != nil {
+		// A session no longer running reads as the store kept it.
+		if items, _ := c.s.Orch.Store().Items(m.AgentID); len(items) > 0 {
+			t := timeline.New()
+			t.Load(items)
+			c.sendTimeline(m, t)
+			return nil
+		}
+	}
 	if err != nil {
 		return err
 	}
 	switch m.Type {
 	case "agent.timeline":
-		since, limit := int64(0), defaultPage
-		if m.SinceSeq != nil {
-			since = int64(max(0, min(*m.SinceSeq, 1<<53)))
-		}
-		if m.Limit != nil {
-			limit = int(*m.Limit)
-		}
-		subagents := slices.Contains(c.caps, proto.CapSubagents)
-		page := a.Timeline.Page
-		if subagents {
-			page = a.Timeline.PageWithSubagents
-		}
-		var items []proto.Item
-		var older bool
-		if m.BeforeSeq != nil {
-			items, older = a.Timeline.Before(int64(max(0, min(*m.BeforeSeq, 1<<53))), limit, subagents)
-		} else {
-			items, older = page(since, limit)
-		}
-		epoch, maxSeq := a.Timeline.State()
-		c.send(proto.NewAgentTimeline(m.ID, a.ID(), epoch, items, older, maxSeq))
+		c.sendTimeline(m, a.Timeline)
 		return nil
 	case "agent.prompt":
 		err = a.Driver().Prompt(m.Text)

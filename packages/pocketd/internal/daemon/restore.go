@@ -215,10 +215,11 @@ func (d *Daemon) hintOf(pr *presence) *hint {
 	return nil
 }
 
-// moving is whether pr is a switch's new process, whose agent kept its timeline.
-func (d *Daemon) moving(pr *presence) bool {
+// shows is whether pr's agent already shows its conversation, so it isn't read
+// again: a switch moved it, or its restore took it from the store.
+func (d *Daemon) shows(pr *presence) bool {
 	h := d.hintOf(pr)
-	return h != nil && h.moved
+	return h != nil && (h.moved || h.a.Stored())
 }
 
 // resumed settles pr's hint once pr is on the Conversation it was saved with.

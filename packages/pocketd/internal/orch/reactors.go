@@ -68,6 +68,25 @@ func (e *Engine) catchUp(child string) {
 	e.settleChild(TurnChange{Session: child, From: "working", To: status, Failed: state == "failed" || state == "interrupted", Error: msg})
 }
 
+// FailOrphans fails each working task whose child isn't running: a cold
+// restart ended its turn and no restore brought it back, so nothing else will
+// settle it. It runs once the restore has listed every agent it brings back.
+func (e *Engine) FailOrphans() {
+	if e.Live == nil {
+		return
+	}
+	ts, err := e.store.Delegations(`status = 'working' AND child_id != ''`)
+	if err != nil {
+		log.Printf("orch: orphans: %v", err)
+		return
+	}
+	for _, t := range ts {
+		if _, ok := e.Live(t.ChildID); !ok {
+			e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, TaskPayload{TaskID: t.TaskID, Status: TaskFailed, Error: "pocketd restarted during the turn"}))
+		}
+	}
+}
+
 // pumpOthers lets every other chat with a queued task use the room a settled
 // task left under the per-Mac limit, oldest queue first.
 func (e *Engine) pumpOthers(parent string) {

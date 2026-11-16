@@ -33,7 +33,7 @@ func (claudeKind) attach(d *Daemon, pr *presence) {
 	if h := d.hintOf(pr); h != nil && claude.InProjects(h.saved.TranscriptPath, pr.env) {
 		pr.mu.Lock()
 		if pr.transcript == "" {
-			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "", !h.handoff, h.moved)
+			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "", !h.handoff, h.moved || h.a.Stored())
 		}
 		pr.mu.Unlock()
 	}
@@ -236,7 +236,7 @@ func (d *Daemon) presentIn(id string) *presence {
 // cleared to. The old tail stops before SetConversation clears the timeline,
 // so none of its lines land in the new conversation.
 func (d *Daemon) sessionStart(pr *presence, in hookInput) {
-	moving := d.moving(pr)
+	moving := d.shows(pr)
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	moved := in.TranscriptPath != pr.transcript && !sameFile(in.TranscriptPath, pr.transcript)

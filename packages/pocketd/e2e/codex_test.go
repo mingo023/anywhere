@@ -96,3 +96,26 @@ func TestCodexTypedInAShellGoesWorkingThenDone(t *testing.T) {
 	srv.Broadcast("thread/status/changed", `{"threadId":"th1","status":{"type":"idle"}}`)
 	phone.WaitStatus(a.ID, "done")
 }
+
+func TestATerminalCodexsThreadIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h := Start(t)
+	codexHome := filepath.Join(h.Home, "codex")
+	h.Env = append(h.Env, "CODEX_HOME="+codexHome)
+	srv := codextest.Start(t, filepath.Join(codexHome, "app-server-control", "app-server-control.sock"), func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return json.RawMessage(codexHistory), ""
+		}
+		return map[string]any{}, ""
+	})
+	phone := h.Phone()
+	id := h.Spawn("codex")
+	h.WaitScreen(id, "fake codex ready")
+	a := phone.WaitFor("the codex's agent", func(m Message) bool { return m.Type == "agent.update" && m.Agent.TerminalID == id }).Agent
+	phone.Prompt(a.ID, "again")
+	h.WaitScreen(id, "typed: again")
+	srv.Broadcast("thread/status/changed", `{"threadId":"th9","status":{"type":"active","activeFlags":[]}}`)
+	phone.WaitAll("the thread", streamOf(a.ID, "user", "first"), streamOf(a.ID, "assistant", "hi"))
+	srv.Broadcast("thread/status/changed", `{"threadId":"th9","status":{"type":"idle"}}`)
+	phone.WaitStatus(a.ID, "done")
+	storedAsLive(h, a.ID)
+}

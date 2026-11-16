@@ -1,9 +1,9 @@
 package orch
 
 import (
-	"bytes"
-	"encoding/gob"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -38,12 +38,13 @@ type TurnChange struct {
 }
 
 type sinkOp struct {
-	summary *proto.AgentSummary
-	item    *proto.Item
-	session string
-	epoch   int64
-	closed  bool
-	done    chan struct{}
+	summary  *proto.AgentSummary
+	item     *proto.Item
+	released []string
+	session  string
+	epoch    int64
+	closed   bool
+	done     chan struct{}
 }
 
 func NewSink(s *Store) *Sink {
@@ -60,6 +61,11 @@ func (k *Sink) Summary(sum proto.AgentSummary) {
 // Item queues one timeline item; drafts never reach the store.
 func (k *Sink) Item(session string, epoch int64, it proto.Item) {
 	k.push(sinkOp{item: &it, session: session, epoch: epoch})
+}
+
+// Released drops the held rows of background tasks that ended, so an upgrade doesn't hold them again.
+func (k *Sink) Released(session string, tasks []string) {
+	k.push(sinkOp{released: tasks, session: session})
 }
 
 func (k *Sink) push(op sinkOp) {
@@ -129,6 +135,12 @@ func (k *Sink) run() {
 					if err := putItem(tx, op.session, op.epoch, *op.item); err != nil {
 						return err
 					}
+				case op.released != nil:
+					for _, id := range op.released {
+						if _, err := tx.Exec(`DELETE FROM held WHERE session_id = ? AND task_id = ?`, op.session, id); err != nil {
+							return err
+						}
+					}
 				}
 			}
 			return nil
@@ -152,8 +164,12 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 	k.last[s.ID] = s
 	working := func(st string) bool { return st == "working" || st == "needsYou" }
 	from := before.Status
+	created := false
 	if !seen {
-		tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, s.ID).Scan(&from)
+		var updated int64
+		err := tx.QueryRow(`SELECT status, updated_at FROM sessions WHERE id = ?`, s.ID).Scan(&from, &updated)
+		// Only the sink sets updated_at: a row without it is one a command or a lineage wrote ahead of the session's first summary.
+		created = errors.Is(err, sql.ErrNoRows) || err == nil && updated == 0
 	}
 	// A session stored mid-turn that comes back idle lost its turn to a cold restart.
 	if !seen && working(from) && !working(s.Status) && s.Status != "closed" && !s.Failed {
@@ -185,11 +201,22 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 	}
+	if created {
+		if err := event(tx, s.ID, "session.created", map[string]string{"agent": s.Provider, "status": s.Status}); err != nil {
+			return nil, err
+		}
+	}
 	if from == s.Status {
 		return nil, nil
 	}
-	if err := event(tx, s.ID, "status.changed", map[string]string{"from": from, "to": s.Status}); err != nil {
-		return nil, err
+	kind := "status.changed"
+	if s.Status == "closed" {
+		kind = "session.closed"
+	}
+	if from != "" {
+		if err := event(tx, s.ID, kind, map[string]string{"from": from, "to": s.Status}); err != nil {
+			return nil, err
+		}
 	}
 	switch {
 	case working(s.Status) && !working(from):
@@ -229,14 +256,15 @@ func event(tx *Tx, session, kind string, payload any) error {
 }
 
 func putItem(tx *Tx, session string, epoch int64, it proto.Item) error {
-	var body bytes.Buffer
-	if err := gob.NewEncoder(&body).Encode(it); err != nil {
+	// JSON, the wire's own form: gob drops a pointer to a zero value, such as a call's durationMs of 0.
+	body, err := json.Marshal(it)
+	if err != nil {
 		return err
 	}
 	text := itemText(it)
-	_, err := tx.Exec(`INSERT INTO items (session_id, item_id, seq, epoch, kind, parent_tool, text, body, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err = tx.Exec(`INSERT INTO items (session_id, item_id, seq, epoch, kind, parent_tool, text, body, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (session_id, item_id) DO UPDATE SET seq = excluded.seq, epoch = excluded.epoch, kind = excluded.kind, text = excluded.text, body = excluded.body, ts = excluded.ts`,
-		session, it.ID, it.Seq, epoch, it.Kind, it.ParentToolUseID, text, body.Bytes(), it.Ts)
+		session, it.ID, it.Seq, epoch, it.Kind, it.ParentToolUseID, text, body, it.Ts)
 	if err != nil {
 		return err
 	}
@@ -264,6 +292,33 @@ func itemText(it proto.Item) string {
 	return ""
 }
 
+// History is what a restored session shows from the store, and whether that
+// is its whole conversation: it has items, or its transcript was imported
+// once already. A session with neither is marked imported, as the transcript
+// rebuild that follows writes its items.
+func (s *Store) History(session string) ([]proto.Item, bool) {
+	items, err := s.Items(session)
+	if err != nil {
+		log.Printf("orch: history of %s: %v", session, err)
+		return nil, false
+	}
+	if len(items) > 0 {
+		return items, true
+	}
+	var imported bool
+	s.db.QueryRow(`SELECT imported FROM sessions WHERE id = ?`, session).Scan(&imported)
+	if !imported {
+		err := s.Tx(func(tx *Tx) error {
+			_, err := tx.Exec(`INSERT INTO sessions (id, imported) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET imported = 1`, session)
+			return err
+		})
+		if err != nil {
+			log.Printf("orch: import of %s: %v", session, err)
+		}
+	}
+	return nil, imported
+}
+
 // Items reads session's stored timeline, oldest first.
 func (s *Store) Items(session string) ([]proto.Item, error) {
 	rows, err := s.db.Query(`SELECT body FROM items WHERE session_id = ? ORDER BY seq`, session)
@@ -278,7 +333,7 @@ func (s *Store) Items(session string) ([]proto.Item, error) {
 			return nil, err
 		}
 		var it proto.Item
-		if err := gob.NewDecoder(bytes.NewReader(body)).Decode(&it); err != nil {
+		if err := json.Unmarshal(body, &it); err != nil {
 			return nil, err
 		}
 		out = append(out, it)

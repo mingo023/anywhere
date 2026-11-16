@@ -18,6 +18,7 @@ import (
 //
 //	<text>       reply "echo: <text>"
 //	run <cmd>    ask to run cmd, then reply "echo: ran <cmd>" if allowed
+//	ask <q>      ask q by item/tool/requestUserInput, then reply "echo: answers <answers>"
 //	slow <text>  reply after 3s, unless interrupted; a prompt meanwhile joins the reply
 //
 // Like codex, a bogus model fails each turn rather than the start.
@@ -294,6 +295,8 @@ func (a *appServer) run(t *liveTurn, text string) {
 		return
 	case strings.HasPrefix(text, "run "):
 		a.runCommand(t, strings.TrimPrefix(text, "run "))
+	case strings.HasPrefix(text, "ask "):
+		a.askUser(t, strings.TrimPrefix(text, "ask "))
 	case strings.HasPrefix(text, "slow "):
 		replies := []string{strings.TrimPrefix(text, "slow ")}
 		done := time.After(3 * time.Second)
@@ -315,6 +318,22 @@ func (a *appServer) run(t *liveTurn, text string) {
 		a.say(t, text)
 	}
 	a.end(t, "completed", "")
+}
+
+// askUser asks q as codex's request_user_input tool does, with the schema codex-cli 0.163 generates.
+func (a *appServer) askUser(t *liveTurn, q string) {
+	a.mu.Lock()
+	a.next++
+	n := a.next
+	w := make(chan map[string]any, 1)
+	a.waits[fmt.Sprint(n)] = w
+	a.mu.Unlock()
+	a.send(map[string]any{"id": n, "method": "item/tool/requestUserInput", "params": map[string]any{"threadId": a.thread.ID, "turnId": t.id, "itemId": "call_" + uuid(), "isBlocking": true,
+		"questions": []map[string]any{{"id": "q1", "header": "Q", "question": q, "isOther": false, "options": []map[string]any{{"label": "Yes", "description": "yes"}, {"label": "No", "description": "no"}}}}}})
+	r := <-w
+	a.notify("serverRequest/resolved", map[string]any{"threadId": a.thread.ID, "requestId": n})
+	answers, _ := json.Marshal(r["answers"])
+	a.say(t, "answers "+string(answers))
 }
 
 // runCommand asks to run cmd as codex does, and runs it if allowed.

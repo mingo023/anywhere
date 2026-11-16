@@ -265,6 +265,7 @@ func serve(sock, handed string) error {
 			return fmt.Errorf("handoff: %w", err)
 		}
 		d.Adopt(f)
+		o.host.Rehold()
 		// The awake assertion died with the old image.
 		select {
 		case kick <- struct{}{}:

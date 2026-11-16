@@ -130,6 +130,21 @@ func (t *Timeline) Continue(epoch, seq int64) {
 	t.epoch, t.seq = epoch+1, seq
 }
 
+// Load takes the items a restart kept, oldest first, under their ids: seq
+// goes on past them, and a new epoch has phones refetch.
+func (t *Timeline) Load(items []proto.Item) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.items = slices.Clone(items)
+	for i, it := range items {
+		t.seq = max(t.seq, it.Seq)
+		if it.Kind == "tool" && it.Call != nil && it.Call.Status == "running" {
+			t.tools[it.Call.ToolUseID] = i
+		}
+	}
+	t.epoch++
+}
+
 func (t *Timeline) State() (epoch, maxSeq int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

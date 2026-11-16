@@ -8,9 +8,11 @@ import (
 	"pocketd/internal/hub"
 	"strings"
 	"testing"
+	"time"
 
 	"pocketd/internal/mcp"
 	"pocketd/internal/orch"
+	"pocketd/internal/timeline"
 )
 
 func TestClaudeGetsItsTokenFromAPrivateFileNotArgv(t *testing.T) {
@@ -60,5 +62,69 @@ func TestAChildStartsInPlanModeWhenItsParentIsInIt(t *testing.T) {
 		if got := h.planning(parent); got != want {
 			t.Errorf("planning(%q) = %v", parent, got)
 		}
+	}
+}
+
+func TestAnUpgradeHoldsTheBackgroundTasksAnAgentDeclaredAgain(t *testing.T) {
+	store, err := orch.OpenPath(filepath.Join(t.TempDir(), "orchestrator.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	err = store.Tx(func(tx *orch.Tx) error {
+		_, err := tx.Exec(`INSERT INTO held (session_id, task_id, until_at) VALUES ('a', 'bg_1', ?)`, time.Now().Add(time.Hour).UnixMilli())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := agent.NewRegistry(hub.New())
+	a := reg.Add("a", "/r", "claude", nil)
+	h := &Host{Registry: reg}
+	h.SetEngine(orch.NewEngine(store, nil))
+
+	h.Rehold()
+
+	a.Working()
+	a.TurnEnded(false)
+	if got := a.Turn(); got != "working" {
+		t.Fatalf("the turn ended as %s with its background task running", got)
+	}
+}
+
+func TestAnUpgradeDoesntHoldABackgroundTaskThatEndedBeforeIt(t *testing.T) {
+	store, err := orch.OpenPath(filepath.Join(t.TempDir(), "orchestrator.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	err = store.Tx(func(tx *orch.Tx) error {
+		_, err := tx.Exec(`INSERT INTO held (session_id, task_id, until_at) VALUES ('a', 'b1', ?)`, time.Now().Add(time.Hour).UnixMilli())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := orch.NewSink(store)
+	defer sink.Close()
+	reg := agent.NewRegistry(hub.New())
+	reg.Sink = sink
+	a := reg.Add("a", "/r", "claude", nil)
+	a.Working()
+	a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"make e2e","run_in_background":true}`)})
+	a.Record(timeline.Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"})
+	a.Hold([]string{"b1"}, true, time.Hour)
+	a.Record(timeline.Event{Kind: "tool_end", TaskID: "b1", OK: true})
+	a.TurnEnded(false)
+	sink.Flush()
+	h := &Host{Registry: reg}
+	h.SetEngine(orch.NewEngine(store, nil))
+
+	h.Rehold()
+
+	a.Working()
+	a.TurnEnded(false)
+	if got := a.Turn(); got == "working" {
+		t.Fatal("the turn waits on a task that ended before the upgrade")
 	}
 }
