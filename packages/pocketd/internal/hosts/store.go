@@ -20,7 +20,6 @@ type file struct {
 
 func listPath(home string) string { return filepath.Join(home, "state", "hosts.json") }
 
-// Load reads the saved hosts from home/state/hosts.json; none when the file isn't there yet.
 func Load(home string) ([]Host, error) {
 	raw, err := os.ReadFile(listPath(home))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -39,7 +38,6 @@ func Load(home string) ([]Host, error) {
 	return f.Hosts, nil
 }
 
-// Save writes hosts to home/state/hosts.json, readable only by this user.
 func Save(home string, hosts []Host) error {
 	raw, err := json.MarshalIndent(file{Version: version, Hosts: hosts}, "", "  ")
 	if err == nil {

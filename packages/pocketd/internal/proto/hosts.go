@@ -6,7 +6,6 @@ import (
 	"slices"
 )
 
-// CapHosts: the host verbs and events, for owner conns only.
 const CapHosts = "hosts.v1"
 
 const (
@@ -25,7 +24,6 @@ const (
 	LinkFailed     = "failed"
 )
 
-// HostFailures are why a link failed or a sign-in was refused.
 var HostFailures = []string{"auth", "unknown_key", "key_changed", "no_such_host", "refused", "timed_out", "dropped", "throttled", "not_running", "unpaired", "path_too_long", "other"}
 
 // HostTarget is how ssh reaches a host: kind "alias" (Name) or "address" (Addr, Port, User, KeyFile).
@@ -145,7 +143,6 @@ var hostVerbs = map[string]verbDecoder{
 	},
 }
 
-// HostVerbs are the verbs a client may send for hosts, sorted.
 func HostVerbs() []string {
 	verbs := make([]string, 0, len(hostVerbs))
 	for verb := range hostVerbs {

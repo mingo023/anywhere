@@ -8,10 +8,8 @@ use std::fmt::Display;
 use gpui_kit::*;
 use theme::*;
 
-/// The breadcrumb's height, over the top of the session's transcript.
 const CRUMB_H: f32 = 48.;
 
-/// How far the top of a chat is covered by its breadcrumb.
 fn inset(delegated: bool) -> f32 {
     if delegated { CRUMB_H } else { 0. }
 }

@@ -23,8 +23,7 @@ var bootstrapSh string
 var bootstrapPs1 string
 
 const (
-	releases = "https://github.com/mingo023/anywhere/releases/download"
-	// upload is where an uploaded archive waits, in the app's folder on the host.
+	releases  = "https://github.com/mingo023/anywhere/releases/download"
 	upload    = "upload.tar.gz"
 	uploadZip = "upload.zip"
 )
@@ -148,7 +147,6 @@ func parseWindowsArch(stdout string) (p Platform, found bool, err error) {
 	return Platform{}, false, nil
 }
 
-// Source is where pocketd comes from: an archive on this Mac that's uploaded first, or the release's download folder.
 type Source struct {
 	Archive string
 	Version string
@@ -364,7 +362,6 @@ func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool,
 	return fmt.Errorf("The install stopped before it finished: %s", lastLine([]byte(stderr.String())))
 }
 
-// upload copies archive into the app's folder on the host.
 func (m *Manager) upload(ctx context.Context, h Host, archive string) error {
 	data, err := os.ReadFile(archive)
 	if err != nil {

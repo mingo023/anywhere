@@ -127,7 +127,6 @@ func (c *Client) Call(ctx context.Context, want string, msg map[string]any) ([]b
 	}
 }
 
-// Done closes once the conn has.
 func (c *Client) Done() <-chan struct{} { return c.done }
 
 func (c *Client) Close() { c.ws.CloseNow() }

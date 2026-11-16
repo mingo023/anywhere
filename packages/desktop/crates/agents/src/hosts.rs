@@ -39,9 +39,7 @@ pub struct Entry {
 pub enum Link {
     Connecting,
     Online { version: String, uptime: u64 },
-    /// Trying again by itself.
     Retrying(Failure),
-    /// Waits for Reconnect.
     Failed(Failure),
 }
 
@@ -115,7 +113,6 @@ impl Step {
 pub enum Progress {
     Step(Step),
     Warn(String),
-    /// A pocketd already runs there; it's reused as it is.
     Running,
     Done,
     Error(String),

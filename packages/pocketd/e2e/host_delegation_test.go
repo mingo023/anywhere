@@ -16,7 +16,6 @@ import (
 	"pocketd/internal/registry"
 )
 
-// linkedHost starts a host and a Mac that links it as devbox, then closes the owner conn that added it.
 func linkedHost(t *testing.T, hostOpts ...func(*Harness)) (mac, host *Harness) {
 	t.Helper()
 	host = Start(t, append([]func(*Harness){launchReady(""), asHost}, hostOpts...)...)
@@ -29,7 +28,6 @@ func linkedHost(t *testing.T, hostOpts ...func(*Harness)) (mac, host *Harness) {
 	return mac, host
 }
 
-// phoneChat is a Claude chat in mac's repo that a paired phone started and drives.
 func phoneChat(t *testing.T, mac *Harness) (phone *Phone, chat string) {
 	t.Helper()
 	return chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true})
@@ -47,7 +45,6 @@ func chatOn(t *testing.T, mac *Harness, phone *Phone, fields map[string]any) (*P
 	return phone, done.AgentID
 }
 
-// hostAgent is the host's session that a tagged id from the Mac names.
 func hostAgent(t *testing.T, host *Harness, tagged string) (proto.AgentSummary, bool) {
 	t.Helper()
 	_, theirs, _ := strings.Cut(tagged, "/")
@@ -90,7 +87,6 @@ func TestADelegationToALinkedHostCompletesWithTheDesktopDisconnected(t *testing.
 	}
 }
 
-// withProject adds a second Project, name, to the host's desktop.json beside its repo.
 func withProject(name string) func(*Harness) {
 	return func(h *Harness) {
 		user := filepath.Dir(h.Home)
@@ -110,7 +106,6 @@ func withProject(name string) func(*Harness) {
 	}
 }
 
-// hostTask waits until parent's n-th task, oldest first, has status and a child, and gives it.
 func hostTask(h *Harness, p *Phone, parent string, n int, status string) proto.Delegation {
 	h.t.Helper()
 	var task proto.Delegation

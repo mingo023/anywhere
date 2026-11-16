@@ -46,7 +46,7 @@ func mainPocketd(t *testing.T) string {
 			mainSkip = "origin/main isn't here and couldn't be fetched, so there is no main pocketd to upgrade from"
 			return
 		}
-		src :=filepath.Join(binDir, fmt.Sprintf("pocketd-main-%d", os.Getpid()))
+		src := filepath.Join(binDir, fmt.Sprintf("pocketd-main-%d", os.Getpid()))
 		if out, err := git("-C", repo, "worktree", "add", "-q", "--detach", src, "origin/main"); err != nil {
 			mainErr = fmt.Errorf("git worktree add: %v: %s", err, out)
 			return
@@ -75,7 +75,6 @@ func mainPocketd(t *testing.T) string {
 	return bin
 }
 
-// sessionsListed waits until agent.list on p holds every id.
 func sessionsListed(h *Harness, p *Phone, ids ...string) {
 	h.t.Helper()
 	h.eventually(fmt.Sprintf("%q listed", ids), func() bool {

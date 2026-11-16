@@ -46,7 +46,6 @@ func asHost(h *Harness) {
 	h.Env = append(h.Env, "POCKET_HOME="+h.Home, "POCKETD_SOCK="+h.Sock)
 }
 
-// reach lets mac's ssh reach host from now on.
 func reach(t *testing.T, mac, host *Harness) {
 	t.Helper()
 	if err := os.Symlink(filepath.Dir(host.Home), filepath.Join(mac.Home, "remote")); err != nil {
@@ -70,7 +69,6 @@ func hostFrameOf(m Message) hostFrame {
 	return f
 }
 
-// shown is the host id as m shows it, if m is a host.list or host.update holding it.
 func shown(m Message, id string) (proto.Host, bool) {
 	f := hostFrameOf(m)
 	if f.Type == "host.update" && f.Host.ID == id {

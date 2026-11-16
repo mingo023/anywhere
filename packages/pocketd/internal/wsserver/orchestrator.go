@@ -97,7 +97,6 @@ func failureReply(err error) error {
 	return err
 }
 
-// resolve answers the user's ask as a request.answer command.
 func (c *conn) resolve(e *orch.Engine, m proto.ClientMessage) error {
 	agentID := c.asker(m.RequestID)
 	gone := errors.New("Permission request is no longer open")

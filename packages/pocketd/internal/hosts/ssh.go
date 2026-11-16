@@ -21,7 +21,6 @@ const (
 	installKey = `sh -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh; touch ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys && exit; [ -z "$(tail -c1 ~/.ssh/authorized_keys)" ] || echo >> ~/.ssh/authorized_keys; printf "%s\n" "$key" >> ~/.ssh/authorized_keys'`
 )
 
-// Failure is why a connection failed; its value is its name on the wire.
 type Failure string
 
 const (
@@ -41,12 +40,10 @@ const (
 	FailThrottled Failure = "throttled"
 )
 
-// SSHError is ssh failing to reach or sign in to a host.
 type SSHError struct{ Failure Failure }
 
 func (e *SSHError) Error() string { return string(e.Failure) }
 
-// retryAfter is how long to wait before trying again after attempt failures in a row; false waits for the user.
 func (f Failure) retryAfter(attempt int) (time.Duration, bool) {
 	backoff := func(capSecs int) time.Duration { return time.Duration(min(1<<min(attempt, 6), capSecs)) * time.Second }
 	switch f {

@@ -69,12 +69,9 @@ impl Watch {
 }
 
 pub(super) struct Panel {
-    /// From the capsule at 0 to the list at 1.
     spread: Glide,
-    /// From gone at 0 to there at 1; a panel is born at 0.
     shown: Glide,
     open: bool,
-    /// Cleared: it fades out, and the cleared sessions are dropped once it has.
     leaving: bool,
     watch: Watch,
     collapse: Option<Task<()>>,
@@ -90,7 +87,7 @@ impl Panel {
         (f32::from(u8::from(self.open)), if self.leaving { 0. } else { 1. })
     }
 
-    /// The chat scrolled: an open panel shuts if it left the end of the chat, and stays for the chat following its own end. Whether it shut.
+    /// An open panel shuts when the chat leaves its end. Whether it shut.
     fn scrolled(&mut self, away: bool) -> bool {
         let shut = self.open && away;
         if shut {
@@ -103,7 +100,6 @@ impl Panel {
         (self.leaving, self.collapse) = (true, None);
     }
 
-    /// Cleared and out of sight.
     fn gone(&self, moving: bool) -> bool {
         self.leaving && !moving
     }
@@ -252,7 +248,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// The chat scrolled; `away` is whether it now sits above its end.
     pub(crate) fn delegated_scrolled(&mut self, parent: &str, away: bool, cx: &mut Context<Self>) {
         if self.delegated.panels.get_mut(parent).is_some_and(|p| p.scrolled(away)) {
             cx.notify();

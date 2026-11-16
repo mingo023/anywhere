@@ -12,7 +12,6 @@ import (
 	"pocketd/internal/orch"
 )
 
-// storeOf is the orchestrator store of h, open for reads.
 func storeOf(h *Harness) *orch.Store {
 	h.t.Helper()
 	store, err := orch.Open(h.Home)
@@ -42,7 +41,6 @@ func gatedParent(t *testing.T, lines ...string) (h *Harness, phone *Phone, paren
 	}
 }
 
-// allowAsks allows the next n permission asks of sessions other than parent.
 func allowAsks(phone *Phone, parent string, n int) {
 	phone.WaitFor("the children's asks", func(m Message) bool {
 		if asked(m) && m.Request.AgentID != parent {
@@ -53,7 +51,6 @@ func allowAsks(phone *Phone, parent string, n int) {
 	})
 }
 
-// wakesIn counts the delegation wakes in a timeline, whether for one task or several.
 func wakesIn(timeline []string) int {
 	n := 0
 	for _, item := range timeline {

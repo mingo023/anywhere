@@ -11,7 +11,6 @@ import (
 	"pocketd/internal/proto"
 )
 
-// Hosts serves the owner's host verbs, and feeds owner conns directly: the hub reaches phones.
 type Hosts struct {
 	*hosts.Manager
 	mu    sync.Mutex
@@ -66,7 +65,6 @@ func (c *conn) closeHosts() {
 	c.s.Hosts.mu.Unlock()
 }
 
-// pushHosts sends the whole list, or each host changed since the last push; a removal sends the list.
 func (c *conn) pushHosts(full bool) {
 	c.hosts.mu.Lock()
 	defer c.hosts.mu.Unlock()
@@ -87,7 +85,6 @@ func (c *conn) pushHosts(full bool) {
 	}
 }
 
-// host runs a host verb. Those that run ssh answer under their id once done, off the read loop.
 func (c *conn) host(m proto.ClientMessage) error {
 	hs := c.s.Hosts
 	if hs == nil || !slices.Contains(c.caps, proto.CapHosts) {
@@ -143,7 +140,6 @@ func (c *conn) reply(m proto.ClientMessage, hs *Hosts, err error) {
 	c.send(proto.NewAck(m.ID))
 }
 
-// progress sends an install's steps to every owner feed, the asking conn's included.
 func (hs *Hosts) progress(id string, update bool) func(hosts.Progress) {
 	return func(p hosts.Progress) {
 		msg := proto.NewHostProgress(id, update, proto.InstallProgress{Kind: string(p.Kind), Step: string(p.Step), Text: p.Text})

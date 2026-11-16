@@ -13,7 +13,6 @@ import (
 	"pocketd/internal/proto"
 )
 
-// Mirror keeps here the sessions this Mac started on its hosts, as it keeps its own.
 type Mirror interface {
 	Summary(proto.AgentSummary)
 	Item(session string, epoch int64, it proto.Item)
@@ -46,7 +45,6 @@ func mirrored(host string, s proto.AgentSummary) (proto.AgentSummary, bool) {
 
 func busy(status string) bool { return status == "working" || status == "needsYou" }
 
-// remote mirrors, while a host's link is up, the sessions this Mac started there.
 type remote struct {
 	m    *Manager
 	host string
@@ -95,7 +93,6 @@ func (r *remote) close() {
 	}
 }
 
-// push queues f for run, in order; the client's reader never waits on it.
 func (r *remote) push(f func()) {
 	r.mu.Lock()
 	r.queue = append(r.queue, f)
@@ -261,7 +258,6 @@ func (r *remote) page(theirs string) bool {
 	return newer
 }
 
-// drop forgets r once its conn is gone, so the link's next check opens another.
 func (m *Manager) drop(r *remote) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -284,7 +280,6 @@ func (m *Manager) follow(id string, l Link) {
 	}
 }
 
-// connected is the host's open conn, once its dial is done.
 func (m *Manager) connected(ctx context.Context, id string) (*remote, error) {
 	m.mu.Lock()
 	h, ok := m.hostLocked(id)
@@ -308,7 +303,6 @@ func (m *Manager) connected(ctx context.Context, id string) (*remote, error) {
 	return r, nil
 }
 
-// Launch starts spec on host id under key, which the host keeps it once by, and mirrors it here; the id is tagged.
 func (m *Manager) Launch(ctx context.Context, id string, spec proto.LaunchSpec, key string) (string, error) {
 	r, err := m.connected(ctx, id)
 	if err != nil {
@@ -341,7 +335,6 @@ func (m *Manager) Launch(ctx context.Context, id string, spec proto.LaunchSpec, 
 	return Tag(id, created.AgentID), nil
 }
 
-// Send sends msg to host id's pocketd and waits for its ack.
 func (m *Manager) Send(ctx context.Context, id string, msg map[string]any) error {
 	r, err := m.connected(ctx, id)
 	if err != nil {
@@ -351,7 +344,6 @@ func (m *Manager) Send(ctx context.Context, id string, msg map[string]any) error
 	return err
 }
 
-// Projects is host id's projects, as its pocketd lists them.
 func (m *Manager) Projects(ctx context.Context, id string) ([]proto.Project, error) {
 	r, err := m.connected(ctx, id)
 	if err != nil {
@@ -366,7 +358,6 @@ func (m *Manager) Projects(ctx context.Context, id string) ([]proto.Project, err
 	return l.Projects, nil
 }
 
-// Summary is a mirrored session as its host last said, by its tagged id.
 func (m *Manager) Summary(tagged string) (proto.AgentSummary, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

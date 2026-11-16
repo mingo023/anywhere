@@ -647,7 +647,6 @@ type Hit struct {
 	Seq     int64
 }
 
-// Search finds sessions whose conversation, title or branch matches query, best first.
 func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	var terms []string
 	for _, t := range strings.Fields(query) {

@@ -23,14 +23,12 @@ var (
 	ErrBusy    = errors.New("An install is already under way on that host")
 )
 
-// Entry is a saved host with its link, and the socket clients dial for its pocketd.
 type Entry struct {
 	Host
 	Socket string
 	Link   Link
 }
 
-// Manager keeps the saved hosts in home/state/hosts.json and a link to each one's pocketd.
 type Manager struct {
 	paths Paths
 	// env is what ssh runs with: the login shell's, so the user's agent, config and PATH apply.
@@ -68,7 +66,6 @@ func Open(paths Paths, env func() []string, version, name string) (*Manager, err
 	return m, nil
 }
 
-// Start links every saved host, and each one added later, until ctx ends.
 func (m *Manager) Start(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -88,7 +85,6 @@ func (m *Manager) List() []Entry {
 	return out
 }
 
-// Endpoint is where a client reaches the host's pocketd: its tunnel's socket, and the owner token a Windows host wants first.
 func (m *Manager) Endpoint(id string) (socket, token string, ok bool) {
 	if _, ok := m.host(id); !ok {
 		return "", "", false
@@ -97,14 +93,12 @@ func (m *Manager) Endpoint(id string) (socket, token string, ok bool) {
 	return m.paths.Socket(id), owner.Token, true
 }
 
-// Changed closes at the next change to a host or its link; take a new one after each.
 func (m *Manager) Changed() <-chan struct{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.changed
 }
 
-// Add saves a host for t, shown as name when one is given, and starts linking it; it installs nothing.
 func (m *Manager) Add(t Target, name string) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -166,7 +160,6 @@ func (m *Manager) Remove(id string, uninstall bool) error {
 	return nil
 }
 
-// Retry reconnects now, without waiting out a backoff or a failure.
 func (m *Manager) Retry(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -212,7 +205,7 @@ func (m *Manager) Install(id string, update bool, archiveDir string, on func(Pro
 	return nil
 }
 
-// supervise starts linking host id; m.mu is held.
+// m.mu is held.
 func (m *Manager) supervise(id string) {
 	if m.ctx == nil {
 		return
@@ -277,7 +270,6 @@ func (m *Manager) hostLocked(id string) (Host, bool) {
 	return Host{}, false
 }
 
-// command runs ssh, found on the PATH ssh's env has.
 func (m *Manager) command(ctx context.Context, args []string) (*exec.Cmd, error) {
 	env := m.env()
 	path, err := terminal.LookPath("ssh", env)
@@ -324,7 +316,6 @@ func failureOf(err error) Failure {
 	return ""
 }
 
-// message is err as the user reads it about the host named name.
 func message(err error, name string) string {
 	if e, ok := errors.AsType[*SSHError](err); ok {
 		return e.Failure.Message(name)

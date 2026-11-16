@@ -14,7 +14,6 @@ import (
 	"pocketd/internal/proto"
 )
 
-// queueOf is a queue.update of agent id whose entries satisfy ok.
 func queueOf(id string, ok func([]proto.QueueEntry) bool) func(Message) bool {
 	return func(m Message) bool {
 		if m.Type != "queue.update" || m.AgentID != id {
@@ -64,7 +63,6 @@ func entryOf(entries []proto.QueueEntry, text string) string {
 	return ""
 }
 
-// queueMessage sends text to agent id as a message that waits for the turn to end.
 func queueMessage(p *Phone, id, text string) {
 	p.Send(map[string]any{"type": "agent.prompt", "id": "q-" + text, "agentId": id, "text": text, "queue": true})
 }

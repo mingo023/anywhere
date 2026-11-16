@@ -10,9 +10,7 @@ const RESPONSE: f32 = 0.42;
 /// Which way the user went between a chat and a session it delegated.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Dir {
-    /// To the delegated session.
     Into,
-    /// Back to the chat that delegated it.
     Back,
 }
 
@@ -35,7 +33,7 @@ fn slide(dir: Dir, n: f32) -> (f32, f32) {
     (side * SLIDE * (1. - n), n)
 }
 
-/// How far across, and how faded in, the session being left is when the arriving one has come `n` of the way: it goes the way the arriving one came from, as it fades out.
+/// Offset and opacity of the session being left; it exits the way the arriving one came from.
 fn leave(dir: Dir, n: f32) -> (f32, f32) {
     let (across, _) = slide(dir, 0.);
     (-across * n, 1. - n)
@@ -57,13 +55,12 @@ pub(crate) struct Frame {
 }
 
 impl Push {
-    /// The push from `from` to `to`. Sent back before `prev` had finished, it starts as faded in as `to` still was.
+    /// Sent back before `prev` had finished, it starts as faded in as `to` still was.
     pub(super) fn begin(prev: Option<&Push>, from: String, to: String, dir: Dir) -> Self {
         let start = prev.filter(|p| p.from == to).map_or(0., |p| 1. - p.glide.at().clamp(0., 1.));
         Self { from, to, dir, glide: Glide::from(start).response(RESPONSE), reduced: false }
     }
 
-    /// Steps it; true while it still moves.
     pub(super) fn tick(&mut self, now: Instant, reduce_motion: bool) -> bool {
         self.reduced = reduce_motion;
         self.glide.tick(1., now, false)

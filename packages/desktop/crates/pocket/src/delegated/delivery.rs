@@ -65,7 +65,6 @@ fn line(key: &str, child: &Child, d: &Delivered, age: Option<Duration>, window: 
     let chevron = div().flex_none().text_color(TEXT_4).child(icon("chevron-right", 12., TEXT_4)).with_spring(SharedString::from(format!("delivery-chevron-{key}")), SpringAnimation::new(SPRING).to(hovered), |d, t| {
         d.relative().left(px(-SLIDE * (1. - t.0))).opacity(t.0.clamp(0., 1.))
     });
-    // A new line starts unseen and low; one scrolled back to starts in place.
     let rise = SpringAnimation::new(SPRING).to(true);
     let rise = if age.is_some() { rise.from(false) } else { rise };
     // A spring snaps under reduced motion, so the fade there is timed by hand.

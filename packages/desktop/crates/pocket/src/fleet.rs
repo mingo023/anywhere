@@ -81,19 +81,14 @@ pub(crate) struct Hosts {
     pub links: Links,
 }
 
-/// What a change to the list asks of this Mac.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Turn {
-    /// Its link came up: serve the host here.
     Online(String),
-    /// Its link went down.
     Offline(String),
-    /// pocketd no longer links it.
     Gone(String),
 }
 
 impl Hosts {
-    /// Takes pocketd's whole list.
     fn replace(&mut self, entries: Vec<Entry>) -> Vec<Turn> {
         let gone: Vec<String> = self.list.iter().filter(|h| !entries.iter().any(|e| e.id == h.id)).map(|h| h.id.clone()).collect();
         for id in &gone {
@@ -511,7 +506,6 @@ impl Desktop {
         });
     }
 
-    /// Asks pocketd to add the host typed; the form closes once it's added.
     pub(crate) fn add_host(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let form = &self.fleet.form;
         let [address, port, user] = [&form.address, &form.port, &form.user].map(|f| f.read(cx).value().to_string());
@@ -526,7 +520,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Asks pocketd to put pocketd on the host, or with `update` replace it; its row shows each step.
     pub(crate) fn install_host(&mut self, id: &str, update: bool, cx: &mut Context<Self>) {
         if self.fleet.installs.get(id).is_some_and(|l| l.outcome.is_none()) {
             return;
@@ -593,7 +586,6 @@ impl Desktop {
         self.sign_in(id, password, cx);
     }
 
-    /// Asks pocketd to put the app's own key on the host with `password`; it reconnects with that key.
     pub(crate) fn sign_in(&mut self, id: String, password: String, cx: &mut Context<Self>) {
         if !self.fleet.hosts.list.iter().any(|h| h.id == id) {
             return;
@@ -631,7 +623,6 @@ impl Desktop {
         }
     }
 
-    /// Lets the host go here; pocketd forgets its files.
     fn forget_host(&mut self, id: &str, cx: &mut Context<Self>) {
         self.fleet.remove(id);
         self.daemon.remove(id);

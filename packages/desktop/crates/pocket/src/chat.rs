@@ -190,7 +190,6 @@ impl Desktop {
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
         let drop = self.chat_drop_zone(terminal, cx);
         let shown = div().relative().size_full().flex().flex_col().child(transcript).children(crumb).children(panel);
-        // The composer stays where it is, as the prototype's dock does: only what's above it moves.
         let (shown, left) = match pushed {
             Some((from, frame)) => (shown.left(px(frame.arriving.0)).opacity(frame.arriving.1), self.chat_left(&from, frame.leaving, window, cx)),
             None => (shown, None),
@@ -209,7 +208,6 @@ impl Desktop {
         let transcript = region::cached(&self.chats.transcripts.get(from)?.1, StyleRefinement::default().flex_1().min_h_0());
         let crumb = self.delegated_crumb(from, cx);
         let panel = self.delegated_panel(from, window, cx);
-        // Both edges move, so it keeps its width.
         Some(div().absolute().top_0().bottom_0().left(px(across)).right(px(-across)).flex().flex_col().opacity(shown).child(transcript).children(crumb).children(panel))
     }
 }

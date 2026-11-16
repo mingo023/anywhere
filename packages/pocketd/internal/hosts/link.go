@@ -18,10 +18,8 @@ type LinkState string
 const (
 	StateConnecting LinkState = "connecting"
 	StateOnline     LinkState = "online"
-	// StateRetrying tries again by itself.
-	StateRetrying LinkState = "retrying"
-	// StateFailed waits for a retry.
-	StateFailed LinkState = "failed"
+	StateRetrying   LinkState = "retrying"
+	StateFailed     LinkState = "failed"
 )
 
 // Link is a host's connection.
@@ -57,12 +55,9 @@ func jitter(wait time.Duration, failure Failure) time.Duration {
 }
 
 const (
-	// readyWithin is how long a tunnel may take to forward once ssh signed in.
 	readyWithin = 15 * time.Second
-	// exitWithin is how long ssh may take to exit once its forward closed, before that means pocketd isn't there.
-	exitWithin = 500 * time.Millisecond
-	// checkEvery is how often an open link asks pocketd for its status, which also notices pocketd stopping.
-	checkEvery = 10 * time.Second
+	exitWithin  = 500 * time.Millisecond
+	checkEvery  = 10 * time.Second
 )
 
 type eventKind uint8
@@ -126,7 +121,6 @@ func ended(e event) end {
 	return endExited
 }
 
-// supervisor keeps one ssh tunnel to a host's pocketd up; done closes once ssh is gone and its socket removed.
 type supervisor struct {
 	m      *Manager
 	id     string

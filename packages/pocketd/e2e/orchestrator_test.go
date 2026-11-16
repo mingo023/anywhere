@@ -86,7 +86,6 @@ func storedAsLive(h *Harness, id string) *orch.Store {
 	return nil
 }
 
-// delegationsOf is parent's delegations as agent.delegations gives them.
 func delegationsOf(p *Phone, parent string) []proto.Delegation {
 	p.t.Helper()
 	p.Send(map[string]any{"type": "agent.delegations", "id": "d-" + parent, "agentId": parent})
@@ -259,7 +258,6 @@ func TestAnAgentThatIsntAttachedRecordsOnlyItsCreationAndItsClose(t *testing.T) 
 	}
 }
 
-// itemsOf is id's timeline as agent.timeline gives it.
 func itemsOf(p *Phone, id string) string {
 	p.t.Helper()
 	p.Send(map[string]any{"type": "agent.timeline", "id": "i-" + id, "agentId": id})

@@ -24,7 +24,6 @@ func (s *Store) Restorable() (map[string][]byte, error) {
 	return out, rows.Err()
 }
 
-// OpenSessions is every session on this Mac that hasn't closed, oldest first.
 func (s *Store) OpenSessions() ([]Session, error) {
 	return s.Sessions(`closed_at = 0 AND archived = 0 AND status != 'closed' AND instr(id, '/') = 0 ORDER BY created_at, id`)
 }
@@ -67,7 +66,6 @@ func (s *Store) Import(sessions []Session) error {
 	})
 }
 
-// Unhold drops every background task an agent declared it waits on.
 func (s *Store) Unhold() error {
 	return s.Tx(func(tx *Tx) error {
 		_, err := tx.Exec(`DELETE FROM held`)

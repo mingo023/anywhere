@@ -67,7 +67,6 @@ func TestResumeOffBringsTheClaudeBackAsAShell(t *testing.T) {
 	}
 }
 
-// listed is the ids agent.list gives, sorted.
 func listed(p *Phone) []string {
 	p.t.Helper()
 	p.Send(map[string]any{"type": "agent.list", "id": "listed"})

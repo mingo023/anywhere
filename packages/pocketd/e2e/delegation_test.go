@@ -30,7 +30,6 @@ func anywhereOf(t *testing.T, h *Harness, terminal string) (url, auth string) {
 	return s.URL, s.Headers["Authorization"]
 }
 
-// toolsListStatus is the HTTP status of tools/list on the MCP server at url with auth.
 func toolsListStatus(t *testing.T, url, auth string) int {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
@@ -46,7 +45,6 @@ func toolsListStatus(t *testing.T, url, auth string) int {
 	return resp.StatusCode
 }
 
-// saysAbout is a stream message of agentID's assistant whose text holds all of parts.
 func saysAbout(agentID string, parts ...string) func(Message) bool {
 	return func(m Message) bool {
 		if m.Type != "agent.stream" || m.AgentID != agentID || m.Item.Kind != "assistant" {
@@ -61,7 +59,6 @@ func saysAbout(agentID string, parts ...string) func(Message) bool {
 	}
 }
 
-// childOf waits for the session parent delegated to and gives it.
 func childOf(phone *Phone, parent string) Message {
 	return phone.WaitFor("the child", func(m Message) bool {
 		return m.Type == "agent.update" && m.Agent.Parent == parent && m.Agent.Relationship == "subagent"

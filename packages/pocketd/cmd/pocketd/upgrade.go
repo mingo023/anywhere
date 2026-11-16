@@ -69,7 +69,6 @@ func (u *upgrader) run() error {
 	file := handoff.File{Format: handoff.Format, Terminals: terms}
 	if u.mcp != nil {
 		if file.MCPFD, err = handoff.Keep(u.mcp); err != nil {
-			// The new pocketd binds the port again, and a tool call in the gap is refused.
 			log.Printf("upgrade: mcp listener stays behind: %v", err)
 		}
 		defer handoff.Release(file.MCPFD)

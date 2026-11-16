@@ -48,8 +48,7 @@ impl Queues {
         self.of(agent).iter().any(Entry::held)
     }
 
-    /// The `before` of a reorder that moves `entry` one place up or down: the entry it goes ahead of, "" for the end.
-    /// None when it is at that edge or isn't queued.
+    /// The `before` for moving `entry` one place, "" for the end; None at that edge or when not queued.
     pub fn before_move(&self, agent: &str, entry: &str, up: bool) -> Option<String> {
         let list = self.of(agent);
         let at = list.iter().position(|e| e.id == entry)?;
@@ -59,7 +58,6 @@ impl Queues {
         (at + 1 < list.len()).then(|| list.get(at + 2).map_or(String::new(), |e| e.id.clone()))
     }
 
-    /// Whether `agent`'s queue still has to be asked for on this connection; true once.
     pub fn ask(&mut self, agent: &str) -> bool {
         self.asked.insert(agent.to_string())
     }
@@ -69,7 +67,6 @@ impl Queues {
         self.asked.retain(|id| !of_source(id, source));
     }
 
-    /// Drops what host `source` held.
     pub fn forget(&mut self, source: &str) {
         self.by_agent.retain(|id, _| !of_source(id, Some(source)));
         self.reconnected(Some(source));

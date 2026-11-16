@@ -77,7 +77,6 @@ func Valid(t Target) error {
 	return nil
 }
 
-// New is a host for t whose id none of taken has.
 func New(t Target, taken []Host) Host {
 	name := t.Name
 	if t.Kind == KindAddress {
@@ -86,7 +85,6 @@ func New(t Target, taken []Host) Host {
 	return Host{ID: unique(slug(name), taken), Name: name, Target: t}
 }
 
-// Add is a new host for t, unless t is invalid or one already goes there.
 func Add(taken []Host, t Target) (Host, error) {
 	if err := Valid(t); err != nil {
 		return Host{}, err
@@ -159,22 +157,16 @@ func Tagged(id string) bool { return strings.Contains(id, "/") }
 
 // Paths is where a host's files live on this Mac and where its pocketd lives on the host.
 type Paths struct {
-	// Home is the app's folder on this Mac, holding hosts/<id>.* beside the hosts' tunnel sockets.
-	Home string
-	// RemoteDir is the app's folder name under the host's home.
+	Home      string
 	RemoteDir string
 }
 
 func (p Paths) file(id, ext string) string { return filepath.Join(p.Home, "hosts", id+ext) }
 
-// Socket is this Mac's end of the tunnel to the host's pocketd.
 func (p Paths) Socket(id string) string { return p.file(id, ".sock") }
 
-// Token is the owner token a Windows host's pocketd gave this Mac.
 func (p Paths) Token(id string) string { return p.file(id, ".token") }
 
-// KnownHosts holds the host keys this app accepted for the host.
 func (p Paths) KnownHosts(id string) string { return p.file(id, ".known_hosts") }
 
-// Key is the key this app signs in with after a password sign-in put it on the host; its public half is Key+".pub".
 func (p Paths) Key(id string) string { return p.file(id, ".key") }

@@ -470,19 +470,12 @@ pub enum Event {
     Delegations { agent: String, items: Vec<Delegation> },
     /// One of `agent`'s delegations changed.
     Delegated { agent: String, delegation: Delegation },
-    /// `agent`'s queue, sent whole.
     Queue { agent: String, entries: Vec<Entry> },
-    /// pocketd couldn't act on one of the agent's MCP servers; `reason` says why.
     McpActFailed { agent: String, reason: String },
-    /// Every host this Mac's pocketd links, sent whole.
     Hosts(Vec<hosts::Entry>),
-    /// One host added or changed; `request` is the add it answers, else empty.
     HostUpdate { request: String, host: hosts::Entry },
-    /// A step of an install or update on `host`.
     HostProgress { host: String, update: bool, progress: hosts::Progress },
-    /// pocketd refused the host message `request`; `detail` is why ssh failed, when it did.
     HostError { request: String, code: String, detail: Option<hosts::Failure>, message: String },
-    /// pocketd did what the host message `request` asked.
     HostDone(String),
 }
 
@@ -1229,14 +1222,12 @@ impl Outbox {
         self.send(json!({"type": "automation.run", "id": auto_id(), "automationId": automation_id}));
     }
 
-    /// Adds a host for `target` and starts linking it; returns the request id its answer names.
     pub fn host_add(&self, target: &hosts::Target) -> String {
         let id = host_id();
         self.send(json!({"type": "host.add", "id": id, "target": target}));
         id
     }
 
-    /// Closes the host's tunnel and forgets it; with `uninstall`, first removes pocketd's service there.
     pub fn host_remove(&self, host_id: &str, uninstall: bool) -> String {
         let id = self::host_id();
         self.send(json!({"type": "host.remove", "id": id, "hostId": host_id, "uninstall": uninstall}));
@@ -1247,7 +1238,6 @@ impl Outbox {
         self.send(json!({"type": "host.retry", "id": self::host_id(), "hostId": host_id}));
     }
 
-    /// Puts pocketd on the host, or with `update` installs over it, from the archives in `archive_dir` when given.
     pub fn host_install(&self, host_id: &str, update: bool, archive_dir: Option<&str>) -> String {
         let id = self::host_id();
         let mut m = json!({"type": "host.install", "id": id, "hostId": host_id, "update": update});
@@ -1258,7 +1248,6 @@ impl Outbox {
         id
     }
 
-    /// Signs in to the host once with `password` to put the app's own key there.
     pub fn host_sign_in(&self, host_id: &str, password: &str) -> String {
         let id = self::host_id();
         self.send(json!({"type": "host.sign_in", "id": id, "hostId": host_id, "password": password}));

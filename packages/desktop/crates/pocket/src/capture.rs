@@ -35,7 +35,6 @@ const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 const STEPS: [(&str, Step); 268] = [
     ("session", session),
     ("chat", chat_session),
-    // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
     ("delegate", |d, window, cx| {
         chat_session(d, window, cx);
         fixture(d, "delegate");
@@ -50,21 +49,17 @@ const STEPS: [(&str, Step); 268] = [
             d.delegated_set_open(&agent, false, cx);
         }
     }),
-    // Opens the first delegated session as a click on it does, with the push 120 ms in and held there, so the shot shows both sessions moving.
     ("delegate-push-mid", |d, window, cx| {
         let Some(child) = d.agents.list.iter().find(|a| crate::status::is_child(a)).map(|a| a.id.clone()) else { return };
         d.delegated_open(&child, window, cx);
         d.delegated_hold_push(120, cx.reduce_motion());
     }),
-    // Goes back from the delegated session shown, with the push held 120 ms in.
     ("delegate-back-mid", |d, window, cx| {
         if d.delegated_back(window, cx) {
             d.delegated_hold_push(120, cx.reduce_motion());
         }
     }),
-    // As with Reduce motion on in System Settings; `reset` turns it off.
     ("reduce-motion", |_, _, cx| cx.set_reduce_motion(true)),
-    // As with Reduce transparency on in System Settings.
     ("delegate-solid", |d, _, cx| {
         cx.set_global(crate::desktop::ReduceTransparency(true));
         if let Some(agent) = d.session().map(str::to_string) {
@@ -294,13 +289,11 @@ const STEPS: [(&str, Step); 268] = [
             d.chat_command(&agent, Command::Send("Now run the parser tests".into()), cx);
         }
     }),
-    // Starts a turn that runs long when the fixture streams slowly (FIXTURE_CHUNKS=400), so what follows is sent while the agent works.
     ("chat-turn", |d, _, _| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.outbox.prompt(&agent, "Walk through the fold once more");
         }
     }),
-    // Two sends while the agent works, as ⌘⏎ makes them: a pocketd that keeps the queue holds both.
     ("chat-queue-pocketd", |d, _, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_command(&agent, Command::Send("Also fix the lint warnings".into()), cx);
@@ -637,13 +630,10 @@ const STEPS: [(&str, Step); 268] = [
         (d.fleet.form.open, d.fleet.form.suggestions) = (true, vec!["devbox".into(), "gpu-box".into(), "nas".into()]);
         d.fleet.form.error = Some("Enter the host's address or name".into());
     }),
-    // The fixture's 10.0.4.12 refuses the user's keys once asked to reconnect, and every password but hunter2.
     ("hosts-retry", |d, _, _| d.retry_host("10-0-4-12")),
     ("hosts-password", |d, window, cx| d.open_password("10-0-4-12".into(), window, cx)),
     ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
-    // The fixture's install stops at Verify.
     ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
-    // The chat's host_link card's button.
     ("host-link-add", |d, window, cx| d.link_host("vps".into(), window, cx)),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
     ("hosts-remove", |d, _, _| {

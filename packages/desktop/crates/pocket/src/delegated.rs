@@ -32,7 +32,6 @@ impl DelegatedState {
         Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new(), push: None, clock: None }
     }
 
-    /// Hides the ended tasks of `list`.
     fn clear_settled(&mut self, list: &[Delegation]) {
         self.cleared.extend(list.iter().filter(|d| d.phase().settled()).map(|d| d.task_id.clone()));
     }
@@ -43,7 +42,6 @@ impl DelegatedState {
     }
 }
 
-/// The tasks of `list` that were not cleared.
 fn shown<'a>(list: &'a [Delegation], cleared: &'a HashSet<String>) -> impl Iterator<Item = &'a Delegation> + Clone {
     list.iter().filter(|d| !cleared.contains(&d.task_id))
 }
