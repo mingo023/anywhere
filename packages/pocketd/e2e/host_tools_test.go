@@ -39,7 +39,8 @@ func TestAnAgentListsLinkedHostsWithWhetherEachIsReachable(t *testing.T) {
 
 func TestUnlinkRefusesAHostWithATaskRunningThere(t *testing.T) {
 	mac, _ := linkedHost(t)
-	phone, parent := phoneChat(t, mac)
+	// Unlinking needs full access, past what a phone may start a session with by default.
+	phone, parent := chatOn(t, mac, mac.Owner(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "access": "full"})
 	phone.Prompt(parent, `mcp delegate_task {"task":"hang","target":{"environmentId":"devbox"},"isolation":"shared"}`)
 	task := hostTask(mac, phone, parent, 1, "working")
 

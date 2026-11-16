@@ -390,15 +390,19 @@ func TestAnAgentChangesOnlySchedulesWithinItsAccessAndNeverReadsASecret(t *testi
 }
 
 type fakeEnvironments struct {
-	list  []Environment
-	cards []proto.HostLink
+	list    []Environment
+	cards   []proto.HostLink
+	removed []string
 }
 
 func (e *fakeEnvironments) List() []Environment { return e.list }
 func (e *fakeEnvironments) Projects(context.Context, string) ([]proto.Project, error) {
 	return nil, nil
 }
-func (e *fakeEnvironments) Remove(string) error { return nil }
+func (e *fakeEnvironments) Remove(id string) error {
+	e.removed = append(e.removed, id)
+	return nil
+}
 func (e *fakeEnvironments) Card(_ string, l proto.HostLink) error {
 	e.cards = append(e.cards, l)
 	return nil
@@ -421,6 +425,20 @@ func TestAHostRemovedAsATaskIsDelegatedThereRefusesTheTask(t *testing.T) {
 
 	if !isErr || errorCode(sc) != orch.CodeInvalid {
 		t.Fatalf("got %v", sc)
+	}
+}
+
+func TestOnlyASessionWithFullAccessUnlinksAHost(t *testing.T) {
+	for _, access := range []string{"ask", "edits", "auto", "full"} {
+		f := newFixtureAs(t, "working", access)
+		envs := &fakeEnvironments{list: []Environment{{ID: "devbox", Label: "Dev Box", State: "online"}}}
+		f.host.envs = envs
+
+		sc, isErr := f.call(t, "anywhere_environment_unlink", `{"environmentId":"devbox"}`)
+
+		if full := access == "full"; isErr == full || full != (len(envs.removed) == 1) || !full && errorCode(sc) != orch.CodeForbidden {
+			t.Errorf("%s: %v, removed %q", access, sc, envs.removed)
+		}
 	}
 }
 

@@ -151,6 +151,10 @@ func environmentUnlink(ctx context.Context, c *Call) (any, error) {
 	if err := c.args(&p); err != nil {
 		return nil, err
 	}
+	// The user linked the host; only a session they trust as fully forgets it, keys and all.
+	if c.Caller.Access != "full" {
+		return nil, fail(orch.CodeForbidden, "Unlinking a host needs full access")
+	}
 	envs, err := environments(c)
 	if err != nil {
 		return nil, err
