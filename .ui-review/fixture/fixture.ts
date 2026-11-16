@@ -268,6 +268,9 @@ const AUTOMATIONS = [
   { id: "au2", name: "Dependency audit", prompt: "Check for outdated or vulnerable dependencies and open a summary.", provider: "codex", folder: repoPath("app-ios"), schedule: { kind: "days", days: [5], time: "17:00" }, enabled: true, nextRunAt: now + 3 * 24 * 60 * MIN },
   { id: "au3", name: "Flaky test triage", prompt: "Find tests that failed and passed on the same commit this week.", provider: "codex", folder: repoPath("app-hook"), schedule: { kind: "interval", everyMin: 120 }, enabled: true, nextRunAt: now + 97 * MIN },
   { id: "au4", name: "Weekly changelog", prompt: "Draft the changelog from merged pull requests.", provider: "claude", folder: repoPath("marketing"), schedule: { kind: "days", days: [1], time: "10:00" }, enabled: false, nextRunAt: 0 },
+  // Made by a session's agent; the session "gone" is not in any scenario, so it reads as closed.
+  { id: "au5", name: "Re-run tests on push", prompt: "Run the test suite and report what broke.", provider: "codex", folder: repoPath("app-android"), schedule: { kind: "webhook" }, enabled: true, createdBy: "fix", bound: "fix", webhook: true, webhookUrl: "http://127.0.0.1:47213/hooks/au5" },
+  { id: "au6", name: "Nightly lint sweep", prompt: "Lint the repo and fix what is safe.", provider: "claude", folder: repoPath("app-ios"), schedule: { kind: "days", days: [1, 2, 3, 4, 5], time: "23:00" }, enabled: true, nextRunAt: now + 9 * 60 * MIN, createdBy: "gone", bound: "gone" },
 ];
 const ticket = (id: string, title: string, state: string, status: string, ago: number, extra: Record<string, unknown> = {}) =>
   ({ id, number: +id.slice(1), title, prompt: `${title}.`, provider: "claude", folder: repoPath("app-android"), state, order: ago, status, createdAt: now - ago * 2 * MIN, changedAt: now - ago * MIN, ...extra });

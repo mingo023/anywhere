@@ -32,7 +32,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 257] = [
+const STEPS: [(&str, Step); 260] = [
     ("session", session),
     ("chat", chat_session),
     // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
@@ -535,6 +535,9 @@ const STEPS: [(&str, Step); 257] = [
         d.edit_automation(first.as_deref(), window, cx);
     }),
     ("automations-new", |d, window, cx| d.edit_automation(None, window, cx)),
+    ("automations-webhook", |d, _, _| d.automations.selected = Some("au5".into())),
+    ("automations-closed-creator", |d, _, _| d.automations.selected = Some("au6".into())),
+    ("automations-webhook-editor", |d, window, cx| d.edit_automation(Some("au5"), window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
     ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
     ("settings-notifications", |d, _, _| d.settings.section = Section::Notifications),

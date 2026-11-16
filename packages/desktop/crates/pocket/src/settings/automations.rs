@@ -235,6 +235,10 @@ mod tests {
             model: String::new(),
             effort: String::new(),
             next_run_at,
+            created_by: String::new(),
+            bound: String::new(),
+            webhook: false,
+            webhook_url: String::new(),
         };
         assert_eq!(missed(&[auto(true, 100), auto(true, 300), auto(false, 100), auto(true, 0)], 200), 1);
         assert_eq!(off_line(2, true), "No automation runs until it\u{2019}s on. 2 runs missed so far will catch up if they are within the grace window.");

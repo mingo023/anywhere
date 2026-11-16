@@ -1,12 +1,12 @@
 use super::glyph::glyph;
-use super::logic::{Tab, run_age_text, stamp, strip, trigger_text, when_label};
+use super::logic::{Tab, created_by_line, next_run_text, run_age_text, session_text, strip, trigger_text, when_label};
 use super::parts::{card, crumbs, details, section};
 use crate::desktop::chrome::pill;
 use super::Menu;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, drag_area};
 use crate::util::{initials, now_ms, tilde};
-use agents::automations::{Automation, Run, RunStatus};
+use agents::automations::{Automation, Run, RunStatus, Schedule};
 use chrono::Local;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -35,6 +35,25 @@ fn outcome(status: RunStatus) -> (&'static str, Token) {
         RunStatus::Cancelled => ("Stopped", TEXT_3),
         RunStatus::Unknown => ("", TEXT_3),
     }
+}
+
+/// The webhook's address in the font for addresses, with a button that copies it.
+fn webhook_url(url: &str, cx: &mut Context<Desktop>) -> Div {
+    let copied = url.to_string();
+    div().flex().items_center().gap(px(8.)).child(div().min_w_0().truncate().font_family(MONO).text_size(px(12.5)).child(url.to_string())).child(
+        div()
+            .id("automation-webhook-copy")
+            .size(px(20.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(5.))
+            .cursor_pointer()
+            .hover(|d| d.bg(FILL_3))
+            .child(icon("copy", 12., TEXT_3))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copied.clone())))),
+    )
 }
 
 impl Desktop {
@@ -106,6 +125,7 @@ impl Desktop {
         let now = now_ms();
         let a = &self.agents.automations;
         let project = self.repo_name(&auto.folder);
+        let created = created_by_line(&auto.created_by, self.agents.get(&auto.created_by).map(|s| s.title.as_str()));
         let runs: Vec<Run> = a.runs_of(&auto.id).cloned().collect();
         let (id, enabled) = (auto.id.clone(), auto.enabled);
         let toggle = div()
@@ -154,18 +174,28 @@ impl Desktop {
                             .text_color(TEXT_3)
                             .child(provider_icon(&auto.provider, 14., TEXT_2))
                             .child(format!("{} · {project}", self.agent_name(&auto.provider))),
-                    ),
+                    )
+                    .children(created.map(|line| div().truncate().text_size(px(12.5)).text_color(TEXT_3).child(line))),
             );
 
         let waiting = a.waiting().find(|r| r.automation_id == auto.id).cloned().map(|run| self.waiting_card(&run, &auto.name, cx));
-        let next = if enabled && auto.next_run_at > 0 { stamp(auto.next_run_at, now, &Local) } else { "Paused".into() };
-        let facts = details(vec![
+        let next = next_run_text(&auto, now, &Local);
+        let mut rows = vec![
             ("Trigger", when_label(&auto.schedule).into_any_element()),
             ("Folder", div().truncate().child(tilde(&auto.folder)).into_any_element()),
             ("Agent", self.agent_name(&auto.provider).into_any_element()),
             ("Next run", next.into_any_element()),
-            ("If missed", "Skipped if more than 12 hours late".into_any_element()),
-        ]);
+        ];
+        if !auto.bound.is_empty() {
+            rows.push(("Posts into", div().truncate().child(session_text(self.agents.get(&auto.bound).map(|s| s.title.as_str())).to_string()).into_any_element()));
+        }
+        if !auto.webhook_url.is_empty() {
+            rows.push(("Webhook", webhook_url(&auto.webhook_url, cx).into_any_element()));
+        }
+        if auto.schedule != Schedule::Webhook {
+            rows.push(("If missed", "Skipped if more than 12 hours late".into_any_element()));
+        }
+        let facts = details(rows);
         let recent = self.recent_runs(&auto, &runs, now, cx);
         let body = [title.into_any_element()]
             .into_iter()
@@ -232,10 +262,15 @@ impl Desktop {
                 this.set_only(Some(id.clone()), cx);
             }))));
         let body = if runs.is_empty() {
-            let label = when_label(&auto.schedule);
-            let mut chars = label.chars();
-            let lower: String = chars.next().into_iter().flat_map(char::to_lowercase).chain(chars).collect();
-            card().py(px(18.)).px(px(16.)).text_size(px(13.)).text_color(TEXT_3).child(format!("No runs yet. It runs {lower}, or press Run now."))
+            let when = match &auto.schedule {
+                Schedule::Webhook => "when its webhook is called".to_string(),
+                s => {
+                    let label = when_label(s);
+                    let mut chars = label.chars();
+                    chars.next().into_iter().flat_map(char::to_lowercase).chain(chars).collect()
+                }
+            };
+            card().py(px(18.)).px(px(16.)).text_size(px(13.)).text_color(TEXT_3).child(format!("No runs yet. It runs {when}, or press Run now."))
         } else {
             card().overflow_hidden().children(runs.iter().take(5).enumerate().map(|(i, r)| self.recent_row(i, r, now, cx)))
         };
