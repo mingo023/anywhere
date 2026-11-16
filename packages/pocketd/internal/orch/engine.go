@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -98,7 +97,7 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 	unlock := e.lock(cmd.Session)
 	var r Receipt
 	var d Decision
-	var effects []Effect
+	var effects, follows []Effect
 	err := e.store.Tx(func(tx *Tx) error {
 		if keep {
 			var hash, result string
@@ -123,7 +122,7 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 		if err != nil {
 			return err
 		}
-		effects, err = e.apply(tx, cmd, d)
+		effects, follows, err = e.apply(tx, cmd, d)
 		if err != nil {
 			return err
 		}
@@ -145,10 +144,8 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 	for _, x := range effects {
 		e.kick(x.Lane)
 	}
-	for _, f := range d.Follow {
-		if _, err := e.Dispatch(f); err != nil {
-			log.Printf("orch: %s for %s: %v", f.Kind, f.Session, err)
-		}
+	for _, f := range follows {
+		e.follow(f, nil, "")
 	}
 	if cmd.Kind == CmdDelegateStarted && len(d.Delegations) == 1 {
 		e.catchUp(d.Delegations[0].ChildID)
@@ -163,7 +160,7 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 }
 
 func effectsOf(tx *Tx, command string) ([]int64, error) {
-	rows, err := tx.Query(`SELECT id FROM outbox WHERE command_id = ? ORDER BY id`, command)
+	rows, err := tx.Query(`SELECT id FROM outbox WHERE command_id = ? AND kind != ? ORDER BY id`, command, EffFollow)
 	if err != nil {
 		return nil, err
 	}
@@ -246,16 +243,17 @@ func (e *Engine) changed(d Decision) {
 	}
 }
 
-func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, error) {
+// apply writes d, and returns the effects it queued and the follow-up commands it kept.
+func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, []Effect, error) {
 	now := e.Now().UnixMilli()
 	for _, ev := range d.Events {
 		if err := event(tx, ev.Session, ev.Kind, ev.Payload); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, t := range d.Delegations {
 		if err := putDelegation(tx, t); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, q := range d.Queue {
@@ -263,41 +261,41 @@ func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, error) {
 		if _, err := tx.Exec(`INSERT INTO queue (id, session_id, text, origin, ord, state, refs, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET text = excluded.text, ord = excluded.ord, state = excluded.state, refs = excluded.refs`,
 			q.ID, q.Session, q.Text, q.Origin, q.Ord, q.State, string(refs), q.CreatedAt); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, r := range d.Requests {
 		if _, err := tx.Exec(`INSERT INTO requests (id, session_id, kind, payload, state, created_at) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET state = excluded.state`, r.ID, r.Session, r.Kind, string(r.Payload), r.State, r.CreatedAt); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, s := range d.Lineage {
 		if _, err := tx.Exec(`INSERT INTO sessions (id, parent_id, relationship, depth, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET parent_id = excluded.parent_id, relationship = excluded.relationship, depth = excluded.depth, created_by = excluded.created_by`,
 			s.ID, s.ParentID, s.Relationship, s.Depth, s.CreatedBy, now); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, t := range d.Transfers {
 		if _, err := tx.Exec(`INSERT INTO transfers (id, source_id, target_id, kind, source_point, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET target_id = excluded.target_id, state = excluded.state`, t.ID, t.Source, t.Target, t.Kind, t.SourcePoint, t.State, t.CreatedAt); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, id := range d.Hold {
 		if _, err := tx.Exec(`INSERT INTO held (session_id, task_id, until_at) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET until_at = excluded.until_at`, cmd.Session, id, now+HoldCap); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, id := range d.Unhold {
 		if _, err := tx.Exec(`DELETE FROM held WHERE session_id = ? AND task_id = ?`, cmd.Session, id); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, id := range d.Archive {
 		if _, err := tx.Exec(`UPDATE sessions SET archived = 1 WHERE id = ?`, id); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	out := make([]Effect, 0, len(d.Effects))
@@ -309,7 +307,7 @@ func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, error) {
 		res, err := tx.Exec(`INSERT INTO outbox (session_id, kind, payload, state, command_id, then_cmd, else_cmd, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)`,
 			x.Lane, x.Kind, string(x.Payload), cmd.ID, x.Then, x.Else, now)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		x.ID, _ = res.LastInsertId()
 		e.mu.Lock()
@@ -317,7 +315,21 @@ func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, error) {
 		e.mu.Unlock()
 		out = append(out, x)
 	}
-	return out, nil
+	var follows []Effect
+	for _, f := range d.Follow {
+		x := Effect{Lane: f.Session, Kind: EffFollow, Payload: f.Payload, Command: cmd.ID, Then: f.Kind}
+		if x.Payload == nil {
+			x.Payload = json.RawMessage("null")
+		}
+		res, err := tx.Exec(`INSERT INTO outbox (session_id, kind, payload, state, command_id, then_cmd, created_at) VALUES (?, ?, ?, 'done', ?, ?, ?)`,
+			x.Lane, x.Kind, string(x.Payload), cmd.ID, x.Then, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		x.ID, _ = res.LastInsertId()
+		follows = append(follows, x)
+	}
+	return out, follows, nil
 }
 
 func putDelegation(tx *Tx, t Delegation) error {

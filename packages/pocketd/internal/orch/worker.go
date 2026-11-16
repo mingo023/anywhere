@@ -145,7 +145,7 @@ func (e *Engine) follow(x Effect, res map[string]any, failure string) {
 
 // refollow dispatches what a crash kept from following its finished effect.
 func (e *Engine) refollow() error {
-	rows, err := e.store.db.Query(`SELECT id, session_id, kind, payload, then_cmd, else_cmd, state, last_error, result FROM outbox WHERE state IN ('done', 'failed', 'retired') AND continued = 0`)
+	rows, err := e.store.db.Query(`SELECT id, session_id, kind, payload, then_cmd, else_cmd, state, last_error, result FROM outbox WHERE state IN ('done', 'failed', 'retired') AND continued = 0 ORDER BY id`)
 	if err != nil {
 		return err
 	}

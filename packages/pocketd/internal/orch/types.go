@@ -59,6 +59,9 @@ const (
 	EffHold       = "background.hold"
 	EffStopTask   = "stop_task"
 	EffForkLaunch = "fork.launch"
+	// EffFollow is a command a decision set off, kept with it so Recover runs it if pocketd died first; it is
+	// never claimed.
+	EffFollow = "command.follow"
 )
 
 const (

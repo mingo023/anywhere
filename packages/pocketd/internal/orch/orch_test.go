@@ -1348,6 +1348,54 @@ func TestALaunchThatFinishedBeforeACrashStillStartsItsTask(t *testing.T) {
 	}
 }
 
+func TestAWakeASettleCommittedBeforeACrashIsDeliveredAfterIt(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	e := NewEngine(s, &fakeEffector{result: func(x Effect) (map[string]any, error) {
+		if x.Kind == EffLaunch {
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}})
+	e.Agent = agents
+	// pocketd dies once the settle commits, before anything it set off runs.
+	e.OnChange = func(c Change) {
+		if len(c.Delegations) == 1 && c.Delegations[0].Status == TaskCompleted {
+			s.Close()
+		}
+	}
+	r, err := e.Dispatch(NewCommand("", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	delegation := func() Delegation {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0]
+	}
+	waitFor(t, func() bool { return delegation().Status == TaskWorking })
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "idle", Project: "proj", Cwd: "/r"})
+	if _, err := e.Dispatch(NewCommand("", CmdDelegateSettle, "p", TaskPayload{TaskID: task.TaskID, Status: TaskCompleted})); err != nil {
+		t.Fatal(err)
+	}
+	e.Close()
+	s, _ = Open(dir)
+	defer s.Close()
+	f := &fakeEffector{}
+	e = NewEngine(s, f)
+	e.Agent = agents
+	defer e.Close()
+	if err := e.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return slices.Contains(f.kinds(), EffTurnStart+"@p") })
+	if got := delegation().Delivery; got != DeliverDelivered {
+		t.Fatalf("delivery = %s", got)
+	}
+}
+
 func TestAQueuedMessageSentBeforeACrashCountsAsSentAfterIt(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir)
