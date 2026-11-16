@@ -109,6 +109,9 @@ type Server struct {
 	Skills *skills.Store
 	// Orch runs prompts, stops and the queue as commands; nil drives agents directly.
 	Orch *orch.Engine
+	// OpenSessions is what the store keeps of every open session, up to the
+	// last summary the registry gave; nil lists the registry alone.
+	OpenSessions func() ([]orch.Session, error)
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -328,7 +331,7 @@ func (c *conn) handle(raw []byte) {
 		nameMsgs := c.withNames(caps)
 		localMsgs := c.withLocals(caps)
 		c.send(ok)
-		c.send(proto.NewAgentList("", c.s.Agents.List()))
+		c.send(proto.NewAgentList("", c.s.agents()))
 		c.automations(caps)
 		c.boardFeed(caps)
 		for _, req := range c.s.Broker.Open() {
@@ -588,7 +591,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		c.send(proto.NewAck(m.ID))
 		return nil
 	case "agent.list":
-		c.send(proto.NewAgentList(m.ID, c.s.Agents.List()))
+		c.send(proto.NewAgentList(m.ID, c.s.agents()))
 		return nil
 	case "project.list":
 		c.projectList(m)

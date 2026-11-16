@@ -1,7 +1,10 @@
 package wsserver
 
 import (
+	"cmp"
 	"errors"
+	"log"
+	"slices"
 	"time"
 
 	"pocketd/internal/orch"
@@ -43,6 +46,46 @@ func WireDelegation(e *orch.Engine, t orch.Delegation) proto.Delegation {
 		}
 	}
 	return d
+}
+
+// agents is agent.list: each open session the store keeps, as the registry
+// has it live where it runs, and those running the store hasn't written yet.
+func (s *Server) agents() []proto.AgentSummary {
+	live := s.Agents.List()
+	if s.OpenSessions == nil {
+		return live
+	}
+	stored, err := s.OpenSessions()
+	if err != nil {
+		log.Printf("agent.list: %v", err)
+		return live
+	}
+	return listed(stored, live)
+}
+
+func listed(stored []orch.Session, live []proto.AgentSummary) []proto.AgentSummary {
+	byID := map[string]proto.AgentSummary{}
+	for _, a := range live {
+		byID[a.ID] = a
+	}
+	out := make([]proto.AgentSummary, 0, max(len(stored), len(live)))
+	for _, x := range stored {
+		if a, ok := byID[x.ID]; ok {
+			out = append(out, a)
+			delete(byID, x.ID)
+			continue
+		}
+		out = append(out, proto.AgentSummary{ID: x.ID, TerminalID: x.Terminal, Title: x.Title, Cwd: x.Cwd, Provider: x.Agent, Model: x.Model, Effort: x.Effort, Access: x.Access,
+			Status: x.Status, Failed: x.Failed, Pinned: x.Pinned, ProviderSessionID: x.Conversation, CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt, Project: x.Project,
+			Worktree: x.Worktree, Branch: x.Branch, Origin: x.Origin, ChatOnly: x.Chat, Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy})
+	}
+	for _, a := range live {
+		if _, ok := byID[a.ID]; ok {
+			out = append(out, a)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b proto.AgentSummary) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
+	return out
 }
 
 func failureReply(err error) error {

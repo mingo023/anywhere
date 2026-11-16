@@ -1,0 +1,81 @@
+package orch
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// Restorable is each session a restart brings back, by id, with the terminal
+// entry it was last saved with, as terminals.json holds it.
+func (s *Store) Restorable() (map[string][]byte, error) {
+	rows, err := s.db.Query(`SELECT id, saved FROM sessions WHERE saved != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]byte{}
+	for rows.Next() {
+		var id, saved string
+		if err := rows.Scan(&id, &saved); err != nil {
+			return nil, err
+		}
+		out[id] = []byte(saved)
+	}
+	return out, rows.Err()
+}
+
+// OpenSessions is every session on this Mac that hasn't closed, oldest first.
+func (s *Store) OpenSessions() ([]Session, error) {
+	return s.Sessions(`closed_at = 0 AND archived = 0 AND status != 'closed' AND instr(id, '/') = 0 ORDER BY created_at, id`)
+}
+
+// CloseAbsent closes each open session that isn't running: after a start,
+// those the pocketd before left that came back neither restored nor handed down.
+func (s *Store) CloseAbsent(running func(id string) bool) error {
+	open, err := s.OpenSessions()
+	if err != nil {
+		return err
+	}
+	return s.Tx(func(tx *Tx) error {
+		for _, x := range open {
+			if running(x.ID) {
+				continue
+			}
+			if _, err := tx.Exec(`UPDATE sessions SET status = 'closed', closed_at = ? WHERE id = ?`, time.Now().UnixMilli(), x.ID); err != nil {
+				return err
+			}
+			if err := event(tx, x.ID, "session.closed", map[string]string{"from": x.Status, "to": "closed"}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// Unhold drops every background task an agent declared it waits on.
+func (s *Store) Unhold() error {
+	return s.Tx(func(tx *Tx) error {
+		_, err := tx.Exec(`DELETE FROM held`)
+		return err
+	})
+}
+
+// SetRestorable makes entries, by session id, all that a restart brings back.
+func (s *Store) SetRestorable(entries map[string][]byte) error {
+	return s.Tx(func(tx *Tx) error {
+		if _, err := tx.Exec(`UPDATE sessions SET saved = '' WHERE saved != ''`); err != nil {
+			return err
+		}
+		for id, saved := range entries {
+			var e struct {
+				CreatedAt int64 `json:"createdAt"`
+			}
+			json.Unmarshal(saved, &e)
+			if _, err := tx.Exec(`INSERT INTO sessions (id, saved, created_at) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET saved = excluded.saved`,
+				id, string(saved), e.CreatedAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

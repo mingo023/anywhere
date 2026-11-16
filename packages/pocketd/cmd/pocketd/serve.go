@@ -236,6 +236,7 @@ func serve(sock, handed string) error {
 	o.host.Sched = schedules{store: autos, scheduler: scheduler}
 	o.server.Hooks = hooks(schedules{store: autos, scheduler: scheduler})
 	ws := &wsserver.Server{Orch: o.engine, Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
+	ws.OpenSessions = o.openSessions
 	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
@@ -265,19 +266,17 @@ func serve(sock, handed string) error {
 			return fmt.Errorf("handoff: %w", err)
 		}
 		d.Adopt(f)
-		o.host.Rehold()
+		o.host.Rehold(true)
 		// The awake assertion died with the old image.
 		select {
 		case kick <- struct{}{}:
 		default:
 		}
 	} else {
-		saved, err := state.Load(statePath)
-		if err != nil {
-			log.Print(err)
-		}
-		d.Restore(saved, cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
+		d.Restore(o.restoring(statePath), cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
+		o.host.Rehold(false)
 	}
+	o.closeAbsent(d.Agents)
 	go d.Watch(context.Background())
 	go func() {
 		if d.WaitRestored(ctx) == nil {
@@ -324,6 +323,7 @@ func serve(sock, handed string) error {
 		}
 	}()
 	writer := state.NewWriter(statePath, d.Snapshot)
+	writer.Saved = o.saved
 	go writer.Run(ctx)
 	fmt.Println("pocketd listening on", sock)
 	if ownerLn != nil {

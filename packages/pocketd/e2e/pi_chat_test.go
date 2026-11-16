@@ -374,8 +374,8 @@ func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSess
 			// It has left plan for good: the pocketd after this one resumes it on its full tools too.
 			h.Restart()
 
-			h.WaitScreen(term, "get_messages")
-			if screen := h.Screen(term); !strings.Contains(screen, resumed) || strings.Contains(screen, "--tools") {
+			h.WaitScreen(term, resumed)
+			if screen := h.Screen(term); strings.Contains(screen, "--tools") {
 				t.Fatalf("%s came back planning:\n%s", c.provider, screen)
 			}
 		})
@@ -507,7 +507,6 @@ func TestARestartResumesTheChatPiSessionAndShowsItsHistory(t *testing.T) {
 		return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Restore == "resumed" && m.Agent.ChatOnly
 	})
 	h.WaitScreen(term, "fake pi ready --session-id "+session+" --mode rpc")
-	h.WaitScreen(term, "get_messages")
 	// The history may be whole before this phone connects, so its stream is not waited on.
 	want := []string{"user run ls", "tool ls ok", "assistant echo: ran ls", "result", "user fail No credits left", "result No credits left"}
 	var got []string
@@ -519,6 +518,9 @@ func TestARestartResumesTheChatPiSessionAndShowsItsHistory(t *testing.T) {
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("got %q", got)
+	}
+	if strings.Contains(h.Screen(term), "get_messages") {
+		t.Fatal("pi's history was read again into the timeline the store kept")
 	}
 
 	again.Prompt(id, "after the restart")
@@ -676,7 +678,6 @@ func TestAChatOmpIsDrivenAsPiIsWithItsOwnFlagsAndEvents(t *testing.T) {
 
 	again := h.Owner()
 	h.WaitScreen(term, "fake omp ready --resume "+session+" --mode rpc")
-	h.WaitScreen(term, "get_messages")
 	replied := func(item string) bool { return strings.Contains(item, "echo: hello") }
 	var items []string
 	for range 50 {

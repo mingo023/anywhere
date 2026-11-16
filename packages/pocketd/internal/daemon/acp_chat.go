@@ -41,6 +41,7 @@ func (x *acpChat) attach() {
 	saved, left := "", acp.Ended
 	if h := x.d.hintOf(pr); h != nil {
 		saved = h.saved.ConversationID
+		x.s.Shown = !h.moved && h.a.Stored()
 		if h.handoff {
 			x.s.Carried()
 		}
