@@ -37,7 +37,7 @@ func Delegations(e *orch.Engine, parent string) []proto.Delegation {
 
 func WireDelegation(e *orch.Engine, t orch.Delegation) proto.Delegation {
 	d := proto.Delegation{TaskID: t.TaskID, ParentID: t.ParentID, ChildID: t.ChildID, Title: t.Title, Agent: t.Agent, Model: t.Model, Status: t.Status,
-		Summary: t.Summary, Error: t.Error, CreatedAt: t.CreatedAt, SettledAt: t.SettledAt}
+		Summary: t.Summary, Error: t.Error, EnvironmentID: t.Environment, CreatedAt: t.CreatedAt, SettledAt: t.SettledAt}
 	if t.PendingQuestion != "" && t.ChildID != "" {
 		open, _ := e.Store().Requests(t.ChildID, "open")
 		for _, r := range open {

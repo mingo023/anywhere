@@ -63,6 +63,7 @@ type host struct {
 	engine *orch.Engine
 	parent proto.AgentSummary
 	sched  Schedules
+	envs   Environments
 
 	mu         sync.Mutex
 	others     map[string]proto.AgentSummary
@@ -97,6 +98,7 @@ func (h *host) InBackground(_, id string) bool          { return h.background[id
 func (h *host) TaskOf(session, toolUseID string) string { return h.tasks[session+"/"+toolUseID] }
 func (h *host) Dirty(string) bool                       { return false }
 func (h *host) Schedules() Schedules                    { return h.sched }
+func (h *host) Environments() Environments              { return h.envs }
 
 type fixture struct {
 	srv    *httptest.Server
@@ -384,6 +386,38 @@ func TestAnAgentChangesOnlySchedulesWithinItsAccessAndNeverReadsASecret(t *testi
 	listed := call("list_scheduled_tasks", `{}`)
 	if strings.Contains(fmt.Sprint(created, listed), "s3cret") || strings.Contains(fmt.Sprint(created, listed), "mine") {
 		t.Fatalf("a secret reached the agent: %v %v", created, listed)
+	}
+}
+
+type fakeEnvironments struct {
+	list  []Environment
+	cards []proto.HostLink
+}
+
+func (e *fakeEnvironments) List() []Environment { return e.list }
+func (e *fakeEnvironments) Projects(context.Context, string) ([]proto.Project, error) {
+	return nil, nil
+}
+func (e *fakeEnvironments) Remove(string) error { return nil }
+func (e *fakeEnvironments) Card(_ string, l proto.HostLink) error {
+	e.cards = append(e.cards, l)
+	return nil
+}
+
+func TestLinkingAHostAlreadyOnlineSaysItIsLinked(t *testing.T) {
+	envs := &fakeEnvironments{list: []Environment{{ID: "devbox", Label: "Dev Box", State: "online"}, {ID: "vps", Label: "vps", State: "failed"}}}
+	parent := proto.AgentSummary{ID: "parent", TerminalID: "t", Provider: "claude", Access: "full", Status: "working"}
+	k := NewToolkit(&host{parent: parent, envs: envs})
+	link := func(args string) map[string]any {
+		out, _ := k.Call(context.Background(), Grant{Terminal: "t"}, "anywhere_environment_link", json.RawMessage(args))
+		got, _ := out["structuredContent"].(map[string]any)
+		return got
+	}
+	if got := link(`{"hint":"Dev Box"}`); got["status"] != "linked" || got["environmentId"] != "devbox" || got["label"] != "Dev Box" || len(envs.cards) != 0 {
+		t.Fatalf("linking devbox: %v, cards %v", got, envs.cards)
+	}
+	if got := link(`{"environmentId":"vps","reason":"The build needs the GPU box."}`); got["status"] != "pending" || len(envs.cards) != 1 || envs.cards[0].Reason != "The build needs the GPU box." {
+		t.Fatalf("linking vps, which isn't online: %v, cards %v", got, envs.cards)
 	}
 }
 

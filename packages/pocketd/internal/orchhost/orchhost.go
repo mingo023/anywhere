@@ -18,6 +18,7 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
+	"pocketd/internal/hosts"
 	"pocketd/internal/launch"
 	"pocketd/internal/mcp"
 	"pocketd/internal/orch"
@@ -45,6 +46,9 @@ type Host struct {
 	// LoginEnv is the user's shell environment, for git.
 	LoginEnv func() []string
 	Sched    mcp.Schedules
+	// Hosts runs the sessions on linked hosts; nil links none.
+	Hosts *hosts.Manager
+	Envs  mcp.Environments
 
 	engine *orch.Engine
 }
@@ -82,7 +86,13 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 	case orch.EffLaunch, orch.EffForkLaunch:
 		var p orch.LaunchPayload
 		json.Unmarshal(e.Payload, &p)
+		if p.Env != "" {
+			return h.launchOn(ctx, e, p)
+		}
 		return h.launch(e, p)
+	}
+	if hosts.Tagged(e.Lane) {
+		return nil, h.forward(ctx, e)
 	}
 	a, err := h.agent(e.Lane)
 	if err != nil && e.Kind != orch.EffAnswer {
@@ -180,10 +190,56 @@ func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 	}
 }
 
-func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, error) {
-	if p.Env != "" {
-		return nil, &orch.Failure{Code: orch.CodeUnsupported, Message: "Launching on a linked host isn't available yet"}
+// forward runs an effect on a host's session there: the four a parent's tools raise; the rest are refused.
+func (h *Host) forward(ctx context.Context, e orch.Effect) error {
+	host, theirs := hosts.Untag(e.Lane)
+	var msg map[string]any
+	switch e.Kind {
+	case orch.EffTurnStart:
+		var p orch.TurnPayload
+		json.Unmarshal(e.Payload, &p)
+		msg = map[string]any{"type": "agent.prompt", "agentId": theirs, "text": p.Text}
+	case orch.EffInterrupt:
+		msg = map[string]any{"type": "agent.interrupt", "agentId": theirs}
+	case orch.EffAnswer:
+		var p orch.RequestPayload
+		json.Unmarshal(e.Payload, &p)
+		_, request := hosts.Untag(p.RequestID)
+		msg = map[string]any{"type": "permission.resolve", "requestId": request, "decision": cmp.Or(p.Decision, "allow"), "answers": p.Answers}
+	case orch.EffClose:
+		msg = map[string]any{"type": "agent.close", "agentId": theirs}
+	default:
+		return &orch.Failure{Code: orch.CodeUnsupported, Message: fmt.Sprintf("That session runs on %s; open it there", host)}
 	}
+	if h.Hosts == nil {
+		return &orch.Failure{Code: orch.CodeUnavailable, Message: "Linked hosts are off"}
+	}
+	return h.Hosts.Send(ctx, host, msg)
+}
+
+// launchOn starts a session on the linked host p.Env, in its project p.HostProject.
+func (h *Host) launchOn(ctx context.Context, e orch.Effect, p orch.LaunchPayload) (map[string]any, error) {
+	if h.Hosts == nil {
+		return nil, &orch.Failure{Code: orch.CodeUnavailable, Message: "Linked hosts are off"}
+	}
+	spec := proto.LaunchSpec{Provider: p.Agent, Model: p.Model, Effort: p.Effort, Access: p.Access, Plan: h.planning(p.Parent), Prompt: firstPrompt(p.Context, p.Prompt), Project: p.HostProject, Chat: p.Chat}
+	switch p.Checkout {
+	case "worktree":
+		// The host's default branch: the parent's HEAD may not exist there.
+		spec.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: cmp.Or(launch.Slug(cmp.Or(p.Title, p.Prompt)), "task"), AutoName: true}}
+	case "existing_worktree":
+		spec.Checkout = proto.Checkout{Worktree: p.Worktree}
+	default:
+		spec.Checkout = proto.Checkout{Worktree: p.HostProject}
+	}
+	child, err := h.Hosts.Launch(ctx, p.Env, spec, cmp.Or(p.TaskID, p.TransferID, fmt.Sprint(e.ID)))
+	if err != nil {
+		return nil, &orch.Failure{Code: orch.CodeUnavailable, Message: err.Error()}
+	}
+	return map[string]any{"childId": child, "targetId": child}, nil
+}
+
+func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, error) {
 	project, ok := projectPath(h.Projects.Load(), p.Project, p.Cwd)
 	if !ok {
 		return nil, &orch.Failure{Code: orch.CodeInvalid, Message: "Anywhere starts sessions in a project; this one is in none"}
@@ -323,6 +379,9 @@ func (h *Host) SessionIn(terminal string) (proto.AgentSummary, bool) {
 }
 
 func (h *Host) Summary(id string) (proto.AgentSummary, bool) {
+	if hosts.Tagged(id) && h.Hosts != nil {
+		return h.Hosts.Summary(id)
+	}
 	a, err := h.Registry.Get(id)
 	if err != nil {
 		return proto.AgentSummary{}, false
@@ -358,6 +417,8 @@ func (h *Host) Dirty(cwd string) bool {
 }
 
 func (h *Host) Schedules() mcp.Schedules { return h.Sched }
+
+func (h *Host) Environments() mcp.Environments { return h.Envs }
 
 func (h *Host) token(terminal, provider string) (string, error) {
 	return h.Tokens.Issue(terminal, provider)

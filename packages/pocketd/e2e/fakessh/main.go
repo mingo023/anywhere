@@ -1,6 +1,7 @@
 // Fakessh stands in for ssh in e2e. It runs the command under sh with HOME=$FAKESSH_HOME, as if that folder were
 // the host's home, and with -L forwards a unix socket here to one there. Without that folder the connection is
-// refused, and a password sign-in must give the password in $FAKESSH_HOME/.fakessh-password.
+// refused, a key sign-in is refused while $FAKESSH_HOME/.fakessh-no-keys exists, and a password sign-in must give
+// the password in $FAKESSH_HOME/.fakessh-password.
 package main
 
 import (
@@ -35,6 +36,10 @@ func main() {
 	home := os.Getenv("FAKESSH_HOME")
 	if st, err := os.Stat(home); home == "" || err != nil || !st.IsDir() {
 		fmt.Fprintf(os.Stderr, "ssh: connect to host %s port 22: Connection refused\n", dest)
+		os.Exit(255)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".fakessh-no-keys")); err == nil && !password {
+		fmt.Fprintf(os.Stderr, "dev@%s: Permission denied (publickey).\n", dest)
 		os.Exit(255)
 	}
 	if password {

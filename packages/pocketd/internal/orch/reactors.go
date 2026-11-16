@@ -79,7 +79,8 @@ func (e *Engine) FailOrphans() {
 	if e.Live == nil {
 		return
 	}
-	ts, err := e.store.Delegations(`status = 'working' AND child_id != ''`)
+	// A host's child runs on there; its mirror settles it once the link is back.
+	ts, err := e.store.Delegations(`status = 'working' AND child_id != '' AND environment_id = ''`)
 	if err != nil {
 		log.Printf("orch: orphans: %v", err)
 		return

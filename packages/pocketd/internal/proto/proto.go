@@ -210,6 +210,38 @@ func (it Item) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("proto: unknown item kind " + it.Kind)
 }
 
+func (it *Item) UnmarshalJSON(b []byte) error {
+	var w struct {
+		Kind            string     `json:"kind"`
+		ID              string     `json:"id"`
+		Seq             int64      `json:"seq"`
+		Ts              int64      `json:"ts"`
+		ParentToolUseID string     `json:"parentToolUseId"`
+		Text            string     `json:"text"`
+		Call            *ToolCall  `json:"call"`
+		Items           []TaskItem `json:"items"`
+		Trigger         string     `json:"trigger"`
+		OK              bool       `json:"ok"`
+		DurationMs      int64      `json:"durationMs"`
+		Error           string     `json:"error"`
+		Usage           *TurnUsage `json:"usage"`
+	}
+	if err := json.Unmarshal(b, &w); err != nil {
+		return err
+	}
+	*it = Item{ID: w.ID, Seq: w.Seq, Ts: w.Ts, Kind: w.Kind, Text: w.Text, Call: w.Call, Tasks: w.Items, Trigger: w.Trigger,
+		OK: w.OK, DurationMs: w.DurationMs, Error: w.Error, Usage: w.Usage, ParentToolUseID: w.ParentToolUseID}
+	switch w.Kind {
+	case "delivery":
+		it.Delivery = &Delivery{}
+		return json.Unmarshal(b, it.Delivery)
+	case "host_link":
+		it.HostLink = &HostLink{}
+		return json.Unmarshal(b, it.HostLink)
+	}
+	return nil
+}
+
 type AgentSummary struct {
 	ID         string `json:"id"`
 	TerminalID string `json:"terminalId"`

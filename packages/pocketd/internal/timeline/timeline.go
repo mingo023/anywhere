@@ -35,6 +35,8 @@ type Event struct {
 	Draft string
 	// Delivery is a delivery's: what pocketd told the session about its delegated children.
 	Delivery *proto.Delivery
+	// HostLink is a host_link's: the card asking the user to link a host.
+	HostLink *proto.HostLink
 	// Limit marks a result that the account's usage limit ended.
 	Limit bool
 	// Detached marks a tool_background no turn waits for: its end takes no turn of the agent's, or may never come.
@@ -404,6 +406,9 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 
 	case "delivery":
 		return t.append(proto.Item{Kind: "delivery", Delivery: e.Delivery}, "", ts), true
+
+	case "host_link":
+		return t.append(proto.Item{Kind: "host_link", HostLink: e.HostLink}, "", ts), true
 
 	case "compacted":
 		return t.append(proto.Item{Kind: "compact", Trigger: e.Trigger}, e.ParentToolUseID, ts), true

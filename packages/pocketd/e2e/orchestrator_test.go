@@ -312,9 +312,11 @@ func TestADeliveryRowIsStillInTheParentsTimelineAfterARestart(t *testing.T) {
 
 	h.Restart()
 
-	got := timelineOf(resumedChat(h, parent), parent)
-	if !slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "delivery") }) {
-		t.Fatalf("no delivery for %s after the restart: %q", task.TaskID, got)
+	resumed := resumedChat(h, parent)
+	resumed.Send(map[string]any{"type": "agent.timeline", "id": "t-after", "agentId": parent})
+	page := resumed.WaitFor("the timeline", func(m Message) bool { return m.Type == "agent.timeline" && m.ID == "t-after" }).Raw
+	if !strings.Contains(page, `"kind":"delivery"`) || !strings.Contains(page, `"taskIds":["`+task.TaskID+`"]`) {
+		t.Fatalf("no delivery for %s after the restart: %s", task.TaskID, page)
 	}
 }
 
