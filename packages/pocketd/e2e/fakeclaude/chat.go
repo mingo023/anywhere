@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 //	run <cmd>    ask can_use_tool, then run a Bash tool with its answer
 //	ask <q>      ask AskUserQuestion through can_use_tool, then reply the answers
 //	slow <text>  reply after 3s, unless interrupted
+//	await <name>  stay in the turn until $HOME/<name> exists, then reply "echo: released"
 //	hang         stay in the turn until interrupted
 //	bg <cmd>     run a Bash tool in the background, then go on as slow
 //	agent <d>    start a sub-agent in the background, then go on as slow
@@ -167,6 +169,8 @@ func (c *chatter) turn(text string) {
 		c.reply(model, callMCP(strings.TrimPrefix(text, "mcp ")))
 	case strings.HasPrefix(text, "slow "):
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
+	case strings.HasPrefix(text, "await "):
+		failed = c.await(model, strings.TrimPrefix(text, "await "))
 	case text == "hang":
 		<-c.stop
 		c.s.write(user("[Request interrupted by user]"))
@@ -215,6 +219,22 @@ func (c *chatter) slow(model, text string) (failed bool) {
 	case <-time.After(3 * time.Second):
 		c.reply(model, text)
 		return false
+	}
+}
+
+// await replies "released" once $HOME/<name> exists, unless interrupted first.
+func (c *chatter) await(model, name string) (failed bool) {
+	for {
+		if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), name)); err == nil {
+			c.reply(model, "released")
+			return false
+		}
+		select {
+		case <-c.stop:
+			c.s.write(user("[Request interrupted by user]"))
+			return true
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 
