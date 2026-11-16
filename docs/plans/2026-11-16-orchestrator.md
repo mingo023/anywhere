@@ -212,3 +212,14 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
   - `agent.send_now`: it has the agent send what it already holds; no command does that (`queue.send_now` is for pocketd's own queue).
 - Fork (P0.7): **a Codex fork is already a terminal session without tools**: `launch.Chat` is false for it, and only a chat gets `MCPFlags`.
 - Held background tasks (P4): **a cold restart drops them**; its agents ended with the pocketd before, so none runs them. Only an in-place upgrade holds them again.
+
+### Built differently from the sub-plans' wording
+
+- Ingest: **drivers report through the registry `Sink` (`internal/orch/sink.go`); there is no `Engine.Ingest`.** Each driver's e2e test (`storedAsLive`) pins that the store holds the same items as the live timeline.
+- Tools: **`internal/mcp/tools_a.go`, `tools_b.go` and `tools_c.go` (one file per group) with exposure in `toolkit.go`**; there is no `exposure.go` or `tools/` directory.
+- Fork and worktree: **a fork runs as the `fork.launch` effect, and a delegated child's worktree is made inside the launch effect**, not by a `worktree.create` effect.
+- Restart mid-delegation: **an in-place upgrade keeps the child working and wakes the parent with its result; a cold restart that ends the child's turn fails the task with "pocketd restarted during the turn" and wakes the parent if it resumes.**
+- A timed-out wait: **`anywhere_thread_wait` returns `waitTimedOut: true` with the session still `working`**; there is no "still working" string.
+- Refusals: **a bad, expired or revoked MCP token gets HTTP 401, and a call over the caller's access ceiling gets `forbidden`.**
+- `anywhere_thread_search`: **matches conversation text (prompts and replies), titles and branch names**; the store holds no pull-request data to search.
+- The `mcp` principal: **`peer.MCP` (scope `delegate`) exists and every WebSocket verb refuses it; the MCP server authenticates a bearer token through `mcp.Tokens` and its `Grant`** rather than through a principal.
