@@ -177,7 +177,7 @@ fn full_height<'a>(list: impl Iterator<Item = &'a Delegation>, lines: impl Fn(&D
 
 /// What a session asks, while it waits for the answer.
 fn question(d: &Delegation) -> Option<&str> {
-    Some(d.question.as_str()).filter(|q| d.phase() == Phase::Asking && !q.is_empty())
+    (d.phase() == Phase::Asking).then_some(d.question.as_str())
 }
 
 fn capsule_width(logos: usize, text: &str) -> f32 {
@@ -471,9 +471,10 @@ mod tests {
     }
 
     #[test]
-    fn a_session_asking_without_words_has_no_question_row() {
-        let silent = Delegation { status: "working".into(), question: String::new(), ..Default::default() };
-        assert_eq!(full_height([silent].iter(), |_| 1), HEAD_H + ROW_H + 6.);
+    fn only_a_session_waiting_on_an_answer_shows_its_question() {
+        let with = |status: &str| Delegation { status: status.into(), question: "Which runner?".into(), ..Default::default() };
+        assert_eq!(full_height([with("completed")].iter(), |_| 1), HEAD_H + ROW_H + 6., "a question left over from before it ended");
+        assert_eq!(full_height([with("working")].iter(), |_| 1), HEAD_H + ROW_H + 6. + QUESTION_LINE + 6.);
     }
 
     #[test]
