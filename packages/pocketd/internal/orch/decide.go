@@ -407,6 +407,7 @@ func send(st State, cmd Command, p SendPayload, ids *idSeq) (Decision, error) {
 	}
 	if mode == "restart" && st.Session.Busy() {
 		d.Effects = append(d.Effects, effect(st.Session.ID, EffInterrupt, nil))
+		d.Events = append(d.Events, Event{st.Session.ID, "turn.restarted", nil})
 	}
 	d.Effects = append(d.Effects, effect(st.Session.ID, EffTurnStart, TurnPayload{Text: p.Text, Key: cmd.ID, Origin: origin}))
 	d.Events = append(d.Events, Event{st.Session.ID, "message.sent", map[string]string{"origin": origin}})
@@ -752,12 +753,13 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 		}
 		t.ChildID, t.Status = p.ChildID, TaskWorking
 		return Decision{Delegations: []Delegation{t}, Lineage: lineage, Events: []Event{{t.ParentID, "delegation.started", t.TaskID}}}, nil
-	case CmdDelegateFailed:
-		return settle(st, t, TaskFailed, "", cmp.Or(p.Error, "The session couldn't start"), false)
-	case CmdDelegateSettle:
+	case CmdDelegateFailed, CmdDelegateSettle:
 		if t.Terminal() {
 			// A published result never changes.
 			return Decision{}, nil
+		}
+		if cmd.Kind == CmdDelegateFailed {
+			return settle(st, t, TaskFailed, "", cmp.Or(p.Error, "The session couldn't start"), false)
 		}
 		return settle(st, t, p.Status, p.Summary, p.Error, p.Stopped)
 	case CmdDelegateWake:

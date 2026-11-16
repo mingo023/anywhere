@@ -19,6 +19,7 @@ import (
 var (
 	mainOnce sync.Once
 	mainErr  error
+	mainSkip string
 )
 
 // mainPocketd builds the pocketd at origin/main once a run, from a detached
@@ -34,9 +35,18 @@ func mainPocketd(t *testing.T) string {
 			return
 		}
 		repo := strings.TrimSpace(string(top))
-		// Offline, the origin/main fetched last stands in.
-		git("-C", repo, "fetch", "-q", "origin", "main")
-		src := filepath.Join(binDir, fmt.Sprintf("pocketd-main-%d", os.Getpid()))
+		// A single-branch checkout, as CI's, gets origin/main only by its full refspec. Offline, the one fetched
+		// last stands in.
+		fetch := []string{"-C", repo, "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"}
+		if shallow, _ := git("-C", repo, "rev-parse", "--is-shallow-repository"); strings.TrimSpace(string(shallow)) == "true" {
+			fetch = append(fetch, "--depth=1")
+		}
+		git(fetch...)
+		if _, err := git("-C", repo, "rev-parse", "--verify", "-q", "origin/main^{commit}"); err != nil {
+			mainSkip = "origin/main isn't here and couldn't be fetched, so there is no main pocketd to upgrade from"
+			return
+		}
+		src :=filepath.Join(binDir, fmt.Sprintf("pocketd-main-%d", os.Getpid()))
 		if out, err := git("-C", repo, "worktree", "add", "-q", "--detach", src, "origin/main"); err != nil {
 			mainErr = fmt.Errorf("git worktree add: %v: %s", err, out)
 			return
@@ -56,6 +66,9 @@ func mainPocketd(t *testing.T) string {
 			mainErr = fmt.Errorf("build main: %v: %s", err, out)
 		}
 	})
+	if mainSkip != "" {
+		t.Skip(mainSkip)
+	}
 	if mainErr != nil {
 		t.Fatal(mainErr)
 	}

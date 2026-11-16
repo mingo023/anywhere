@@ -43,6 +43,8 @@ func (x mirror) Asked(session, request string, input json.RawMessage) {
 
 func (x mirror) Answered(session, request string) { x.o.engine.AskClosed(session, request) }
 
+func (x mirror) Removed(host, name string) { x.o.engine.FailHost(host, name) }
+
 func (x mirror) Live(host string) []proto.AgentSummary {
 	rows, err := x.o.store.Sessions(`id LIKE ? AND closed_at = 0`, host+"/%")
 	if err != nil {

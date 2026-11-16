@@ -3,8 +3,11 @@ package orch
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,6 +149,80 @@ func TestAStoreAtSchema2KeepsItsDelegationsWhenItMigratesToThree(t *testing.T) {
 	s.db.QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&v)
 	if v < 3 {
 		t.Errorf("schema version = %d, want 3 or later", v)
+	}
+}
+
+// storeAt is a home whose store an older pocketd left at version, holding the rows put in by inserts.
+func storeAt(t *testing.T, version int, inserts ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state", "orchestrator.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	names, _ := fs.Glob(migrations, "migrations/*.sql")
+	slices.Sort(names)
+	stmts := []string{`CREATE TABLE schema_version (version INTEGER NOT NULL)`}
+	for n, name := range names[:version] {
+		body, err := migrations.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stmts = append(stmts, string(body), fmt.Sprintf(`INSERT INTO schema_version (version) VALUES (%d)`, n+1))
+	}
+	for _, q := range append(stmts, inserts...) {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// migrated opens dir's store and fails t unless it reached the latest schema.
+func migrated(t *testing.T, dir string) *Store {
+	t.Helper()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	names, _ := fs.Glob(migrations, "migrations/*.sql")
+	var v int
+	s.db.QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&v)
+	if v != len(names) {
+		t.Fatalf("schema version = %d, want %d", v, len(names))
+	}
+	return s
+}
+
+func TestAStoreAtSchema1KeepsItsSessionsAndDelegationsWhenItMigratesToTheLatest(t *testing.T) {
+	s := migrated(t, storeAt(t, 1,
+		`INSERT INTO sessions (id, title, status) VALUES ('s-1', 'Old', 'idle')`,
+		`INSERT INTO delegations (task_id, parent_id, title, status, created_at) VALUES ('task-1', 's-1', 'Old', 'working', 5)`))
+
+	var title, saved string
+	var imported bool
+	if err := s.db.QueryRow(`SELECT title, imported, saved FROM sessions WHERE id = 's-1'`).Scan(&title, &imported, &saved); err != nil || title != "Old" || imported || saved != "" {
+		t.Fatalf("session = %q imported %v saved %q, %v", title, imported, saved, err)
+	}
+	ts, err := s.Delegations(`task_id = 'task-1'`)
+	if err != nil || len(ts) != 1 || ts[0].Title != "Old" || ts[0].Status != TaskWorking || ts[0].Environment != "" {
+		t.Fatalf("delegations = %+v, %v", ts, err)
+	}
+}
+
+func TestAStoreAtSchema3KeepsItsSessionsWhenItMigratesToTheLatest(t *testing.T) {
+	s := migrated(t, storeAt(t, 3, `INSERT INTO sessions (id, title, imported) VALUES ('s-1', 'Old', 1)`))
+
+	var title, saved string
+	var imported bool
+	if err := s.db.QueryRow(`SELECT title, imported, saved FROM sessions WHERE id = 's-1'`).Scan(&title, &imported, &saved); err != nil || title != "Old" || !imported || saved != "" {
+		t.Fatalf("session = %q imported %v saved %q, %v", title, imported, saved, err)
 	}
 }
 

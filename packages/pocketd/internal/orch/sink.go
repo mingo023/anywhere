@@ -37,7 +37,9 @@ type TurnChange struct {
 	Failed   bool
 	Error    string
 	Stopped  bool // the turn ended because the user or an agent stopped it
-	Summary  proto.AgentSummary
+	// Restarted is the turn cut for a message sent in restart mode, whose turn follows.
+	Restarted bool
+	Summary   proto.AgentSummary
 }
 
 type sinkOp struct {
@@ -221,7 +223,7 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 	}
-	stopped := false
+	stopped, restarted := false, false
 	switch {
 	case working(s.Status) && !working(from):
 		if _, err := tx.Exec(`INSERT INTO turns (session_id, state, started_at, results_before) VALUES (?, 'working', ?, (`+countResults+`))`, s.ID, now, s.ID); err != nil {
@@ -232,15 +234,17 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 		}
 	case working(from) && !working(s.Status):
 		state := "completed"
+		stop := asked(tx, s.ID, "turn.interrupted")
+		restarted = s.Status != "closed" && !stop && asked(tx, s.ID, "turn.restarted")
 		switch {
 		case s.Status == "closed":
 			state = "cancelled"
-		case s.Failed && s.Error == "interrupted" || stopAsked(tx, s.ID):
+		case restarted || s.Failed && s.Error == "interrupted" || stop:
 			state = "interrupted"
 		case s.Failed:
 			state = "failed"
 		}
-		stopped = state == "interrupted"
+		stopped = state == "interrupted" && !restarted
 		if _, err := tx.Exec(`UPDATE turns SET state = ?, ended_at = ?, error = ? WHERE id = (SELECT MAX(id) FROM turns WHERE session_id = ?) AND ended_at = 0`, state, now, s.Error, s.ID); err != nil {
 			return nil, err
 		}
@@ -248,15 +252,15 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 	}
-	return &TurnChange{Session: s.ID, From: from, To: s.Status, Failed: s.Failed, Error: s.Error, Stopped: stopped, Summary: s}, nil
+	return &TurnChange{Session: s.ID, From: from, To: s.Status, Failed: s.Failed, Error: s.Error, Stopped: stopped, Restarted: restarted, Summary: s}, nil
 }
 
-// stopAsked says whether a stop was decided for id since its last turn ended.
-func stopAsked(tx *Tx, id string) bool {
-	var asked bool
-	tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM events WHERE session_id = ? AND kind = 'turn.interrupted'
-		AND seq > COALESCE((SELECT MAX(seq) FROM events WHERE session_id = ? AND kind = 'turn.ended'), 0))`, id, id).Scan(&asked)
-	return asked
+// asked says whether an event of kind, a stop or a restart, was decided for id since its last turn ended.
+func asked(tx *Tx, id, kind string) bool {
+	var yes bool
+	tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM events WHERE session_id = ? AND kind = ?
+		AND seq > COALESCE((SELECT MAX(seq) FROM events WHERE session_id = ? AND kind = 'turn.ended'), 0))`, id, kind, id).Scan(&yes)
+	return yes
 }
 
 // countResults counts a session's turn ends that reached its timeline.
@@ -279,6 +283,9 @@ func putItem(tx *Tx, session string, epoch int64, it proto.Item) error {
 		ON CONFLICT (session_id, item_id) DO UPDATE SET seq = excluded.seq, epoch = excluded.epoch, kind = excluded.kind, text = excluded.text, body = excluded.body, ts = excluded.ts`,
 		session, it.ID, it.Seq, epoch, it.Kind, it.ParentToolUseID, text, body, it.Ts)
 	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO sessions (id, imported) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET imported = 1 WHERE imported = 0`, session); err != nil {
 		return err
 	}
 	if it.ParentToolUseID != "" || text == "" {
@@ -307,8 +314,7 @@ func itemText(it proto.Item) string {
 
 // History is what a restored session shows from the store, and whether that
 // is its whole conversation: it has items, or its transcript was imported
-// once already. A session with neither is marked imported, as the transcript
-// rebuild that follows writes its items.
+// once already, which the first item written marks.
 func (s *Store) History(session string) ([]proto.Item, bool) {
 	items, err := s.Items(session)
 	if err != nil {
@@ -320,15 +326,6 @@ func (s *Store) History(session string) ([]proto.Item, bool) {
 	}
 	var imported bool
 	s.db.QueryRow(`SELECT imported FROM sessions WHERE id = ?`, session).Scan(&imported)
-	if !imported {
-		err := s.Tx(func(tx *Tx) error {
-			_, err := tx.Exec(`INSERT INTO sessions (id, imported) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET imported = 1`, session)
-			return err
-		})
-		if err != nil {
-			log.Printf("orch: import of %s: %v", session, err)
-		}
-	}
 	return nil, imported
 }
 

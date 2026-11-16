@@ -30,6 +30,9 @@ func (e *Engine) OnTurn(c TurnChange) {
 }
 
 func (e *Engine) settleChild(c TurnChange) {
+	if c.Restarted {
+		return
+	}
 	ts, err := e.store.Delegations(`child_id = ? AND status IN ('starting', 'working') ORDER BY created_at DESC LIMIT 1`, c.Session)
 	if err != nil || len(ts) == 0 {
 		return
@@ -90,6 +93,20 @@ func (e *Engine) FailOrphans() {
 			e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, TaskPayload{TaskID: t.TaskID, Status: TaskFailed, Error: "pocketd restarted during the turn"}))
 		}
 	}
+}
+
+// FailHost fails each unsettled task on host, which was removed, so nothing will settle them; name is how the
+// task's error names it.
+func (e *Engine) FailHost(host, name string) {
+	ts, err := e.store.Delegations(`status IN ('queued', 'starting', 'working') AND environment_id = ?`, host)
+	if err != nil {
+		log.Printf("orch: tasks on %s: %v", host, err)
+		return
+	}
+	for _, t := range ts {
+		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, TaskPayload{TaskID: t.TaskID, Status: TaskFailed, Error: "The host " + name + " was removed"}))
+	}
+	e.pumpOthers("")
 }
 
 // pumpOthers lets every other chat with a queued task use the room a settled

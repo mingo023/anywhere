@@ -280,3 +280,20 @@ func TestASignInPasswordIsNeverLoggedStoredOrSentToAClient(t *testing.T) {
 		return nil
 	})
 }
+
+func TestRemovingAHostFailsTheTasksRunningThereAndWakesTheirParent(t *testing.T) {
+	mac, _ := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"hang","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	hostTask(mac, phone, parent, 1, "working")
+
+	owner := mac.Owner(proto.CapHosts)
+	owner.Send(map[string]any{"type": "host.remove", "id": "remove", "hostId": "devbox"})
+	if f := answer(owner, "remove", nil); f.Type != "ack" {
+		t.Fatalf("%+v", f)
+	}
+
+	if task := settledAndWoken(mac, phone, parent, "failed"); !strings.Contains(task.Error, "devbox") {
+		t.Fatalf("task = %+v", task)
+	}
+}

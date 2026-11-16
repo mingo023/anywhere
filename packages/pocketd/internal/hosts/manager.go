@@ -160,6 +160,9 @@ func (m *Manager) Remove(id string, uninstall bool) error {
 	for _, f := range []string{m.paths.KnownHosts(id), m.paths.Token(id), m.paths.Key(id), m.paths.Key(id) + ".pub"} {
 		os.Remove(f)
 	}
+	if m.Mirror != nil {
+		m.Mirror.Removed(id, h.Name)
+	}
 	return nil
 }
 

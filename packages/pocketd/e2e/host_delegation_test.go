@@ -32,8 +32,13 @@ func linkedHost(t *testing.T, hostOpts ...func(*Harness)) (mac, host *Harness) {
 // phoneChat is a Claude chat in mac's repo that a paired phone started and drives.
 func phoneChat(t *testing.T, mac *Harness) (phone *Phone, chat string) {
 	t.Helper()
-	phone = mac.Paired(proto.CapLaunch, proto.CapOrchestrator)
-	create(phone, "r1", inRepo(mac, map[string]any{"chat": true}))
+	return chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true})
+}
+
+// chatOn is a Claude chat in mac's repo that phone started with fields and drives.
+func chatOn(t *testing.T, mac *Harness, phone *Phone, fields map[string]any) (*Phone, string) {
+	t.Helper()
+	create(phone, "r1", inRepo(mac, fields))
 	done := reply(phone, "agent.created", "error")
 	if done.Type != "agent.created" {
 		t.Fatalf("got %s", done.Raw)

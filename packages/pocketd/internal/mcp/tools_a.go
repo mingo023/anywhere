@@ -170,11 +170,12 @@ func onHost(ctx context.Context, c *Call, t target) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	i := slices.IndexFunc(envs.List(), func(e Environment) bool { return e.ID == t.Environment })
+	list := envs.List()
+	i := slices.IndexFunc(list, func(e Environment) bool { return e.ID == t.Environment })
 	if i < 0 {
 		return "", fail(orch.CodeNotFound, "No linked host "+t.Environment)
 	}
-	env := envs.List()[i]
+	env := list[i]
 	if env.State != "online" {
 		return "", fail(orch.CodeUnavailable, fmt.Sprintf("%s isn't online (%s): %s", env.Label, env.State, cmp.Or(env.Error, "it's connecting")))
 	}

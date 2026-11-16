@@ -99,6 +99,18 @@ func (d ToolDetail) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("proto: unknown tool detail kind " + d.Kind)
 }
 
+// UnmarshalJSON reads back the null that MarshalJSON writes for an other call's missing input as none.
+func (d *ToolDetail) UnmarshalJSON(b []byte) error {
+	type plain ToolDetail
+	if err := json.Unmarshal(b, (*plain)(d)); err != nil {
+		return err
+	}
+	if string(d.Input) == "null" {
+		d.Input = nil
+	}
+	return nil
+}
+
 type ToolCall struct {
 	ToolUseID  string     `json:"toolUseId"`
 	Name       string     `json:"name"`

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -40,6 +41,8 @@ type presence struct {
 	exit       string // how the agent behind its pipe exited, as its wrapper told
 	transcript string
 	stopTail   func()
+	tailed     atomic.Int64 // how far its tail read transcript, to the end of a whole line
+	tailing    sync.Mutex   // held while its tail takes in a line, and by a handoff to keep tailed still
 	enter      time.Time
 	prompted   bool // codex started on a prompt: its first thread is its own
 	thread     string

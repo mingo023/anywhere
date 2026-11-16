@@ -272,11 +272,11 @@ func serve(sock, handed string) error {
 	statePath := state.Path(d.Home)
 	if handed != "" {
 		os.Remove(handed)
-		var handed []state.Terminal
+		var saved []state.Terminal
 		for _, e := range inherited.Terminals {
-			handed = append(handed, e.Saved)
+			saved = append(saved, e.Saved)
 		}
-		o.takeIn(handed)
+		o.takeIn(saved)
 		d.Adopt(inherited)
 		o.host.Rehold(true)
 		// The awake assertion died with the old image.

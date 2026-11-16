@@ -33,6 +33,7 @@ type chatter struct {
 	s     *session
 	mu    sync.Mutex
 	model string
+	mode  string // the permission mode it was started in, as its init reports it
 	out   *json.Encoder
 	next  int
 	waits map[string]chan map[string]any
@@ -42,9 +43,12 @@ type chatter struct {
 func chat() {
 	s := start()
 	s.entrypoint = "sdk-cli"
-	c := &chatter{s: s, model: "fake-model", out: json.NewEncoder(os.Stdout), waits: map[string]chan map[string]any{}, stop: make(chan struct{}, 1)}
+	c := &chatter{s: s, model: "fake-model", mode: "default", out: json.NewEncoder(os.Stdout), waits: map[string]chan map[string]any{}, stop: make(chan struct{}, 1)}
 	if i := slices.Index(os.Args, "--model"); i > 0 && i+1 < len(os.Args) {
 		c.model = os.Args[i+1]
+	}
+	if i := slices.Index(os.Args, "--permission-mode"); i > 0 && i+1 < len(os.Args) {
+		c.mode = os.Args[i+1]
 	}
 	c.s.hook("SessionStart", map[string]any{"source": "startup", "model": c.model})()
 	note("fake claude ready")
@@ -136,7 +140,7 @@ func (c *chatter) turn(text string) {
 	case <-c.stop:
 	default:
 	}
-	c.send(map[string]any{"type": "system", "subtype": "init", "session_id": c.s.id, "cwd": c.s.cwd, "model": model, "permissionMode": "default"})
+	c.send(map[string]any{"type": "system", "subtype": "init", "session_id": c.s.id, "cwd": c.s.cwd, "model": model, "permissionMode": c.mode})
 	note("prompt: %s", text)
 	c.s.hook("UserPromptSubmit", map[string]any{"prompt": text})()
 	c.s.write(user(text))
