@@ -150,6 +150,15 @@ func (k *Sink) run() {
 func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 	before, seen := k.last[s.ID]
 	k.last[s.ID] = s
+	working := func(st string) bool { return st == "working" || st == "needsYou" }
+	from := before.Status
+	if !seen {
+		tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, s.ID).Scan(&from)
+	}
+	// A session stored mid-turn that comes back idle lost its turn to a cold restart.
+	if !seen && working(from) && !working(s.Status) && s.Status != "closed" && !s.Failed {
+		s.Failed, s.Error = true, "pocketd restarted during the turn"
+	}
 	now := time.Now().UnixMilli()
 	closedAt := int64(0)
 	if s.Status == "closed" {
@@ -176,19 +185,12 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 			return nil, err
 		}
 	}
-	from := before.Status
-	if !seen {
-		var stored string
-		tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, s.ID).Scan(&stored)
-		from = ""
-	}
 	if from == s.Status {
 		return nil, nil
 	}
 	if err := event(tx, s.ID, "status.changed", map[string]string{"from": from, "to": s.Status}); err != nil {
 		return nil, err
 	}
-	working := func(st string) bool { return st == "working" || st == "needsYou" }
 	switch {
 	case working(s.Status) && !working(from):
 		if _, err := tx.Exec(`INSERT INTO turns (session_id, state, started_at, results_before) VALUES (?, 'working', ?, (`+countResults+`))`, s.ID, now, s.ID); err != nil {

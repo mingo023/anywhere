@@ -42,7 +42,7 @@ func (e *Engine) settleChild(c TurnChange) {
 	case c.Failed:
 		p.Status, p.Error = TaskFailed, c.Error
 	}
-	if c.To == "closed" {
+	if c.To == "closed" || c.Failed {
 		p.Summary = e.store.LatestReply(c.Session)
 		e.dispatch(NewCommand("", CmdDelegateSettle, t.ParentID, p))
 		return

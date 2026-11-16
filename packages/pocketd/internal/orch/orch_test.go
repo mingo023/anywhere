@@ -1195,3 +1195,57 @@ func TestAQueuedMessageSentBeforeACrashCountsAsSentAfterIt(t *testing.T) {
 		t.Fatalf("queue after recovery: %+v", q)
 	}
 }
+
+func TestAChildCutOffByAColdRestartFailsItsTask(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	e := NewEngine(s, &fakeEffector{result: func(Effect) (map[string]any, error) { return map[string]any{"childId": "child-1"}, nil }})
+	e.Agent = agents
+	defer e.Close()
+	r, err := e.Dispatch(NewCommand("", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	before := NewSink(s)
+	before.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+	before.Close()
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0].Status == TaskWorking
+	})
+	after := NewSink(s)
+	defer after.Close()
+	after.OnTurn = e.OnTurn
+	after.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "idle"})
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return ts[0].Status == TaskFailed && strings.Contains(ts[0].Error, "restarted")
+	})
+}
+
+func TestPruneDropsTheLaunchOfASessionRetentionDropped(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	old := itoa(now.Add(-16 * 24 * time.Hour).UnixMilli())
+	for _, q := range []string{
+		`INSERT INTO sessions (id, closed_at) VALUES ('gone', ` + old + `)`,
+		`INSERT INTO sessions (id, closed_at) VALUES ('open', 0)`,
+		`INSERT INTO outbox (session_id, kind, payload, state, result, created_at) VALUES ('launch:t1', '` + EffLaunch + `', '{"parent":"open","prompt":"the brief"}', 'done', '{"childId":"gone"}', 1)`,
+		`INSERT INTO outbox (session_id, kind, payload, state, result, created_at) VALUES ('launch:t2', '` + EffLaunch + `', '{"parent":"open","prompt":"kept"}', 'done', '{"childId":"open"}', 1)`,
+		`INSERT INTO outbox (session_id, kind, payload, state, created_at) VALUES ('launch:t3', '` + EffLaunch + `', '{"parent":"open","prompt":"queued"}', 'pending', 1)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Prune(now); err != nil {
+		t.Fatal(err)
+	}
+	var left string
+	s.db.QueryRow(`SELECT group_concat(session_id) FROM outbox`).Scan(&left)
+	if left != "launch:t2,launch:t3" {
+		t.Fatalf("launches left: %s", left)
+	}
+}

@@ -143,11 +143,8 @@ func threadTransfer(ctx context.Context, c *Call) (any, error) {
 		if err := ceiling(c, dst); err != nil {
 			return nil, err
 		}
-		items := c.Host.Items(src.ID)
-		if row != nil && row.ParentID == src.ID {
-			// The source is the parent: only what it said after the target split off.
-			items = slices.DeleteFunc(slices.Clone(items), func(it proto.Item) bool { return it.Ts < row.CreatedAt })
-		}
+		forks, _ := e.Store().Transfers(src.ID)
+		items := sinceSplit(c.Host.Items(src.ID), forks, src.ID, dst.ID, row)
 		block := ContextBlock(src.Title, items, 0)
 		text := "Context merged back from session " + src.ID + " (" + src.Title + "), since it split from this one:\n\n" + block
 		r, err := e.Dispatch(orch.NewCommand("", orch.CmdTransferMerge, src.ID, orch.TransferPayload{TargetID: dst.ID, Context: text}))
@@ -157,6 +154,22 @@ func threadTransfer(ctx context.Context, c *Call) (any, error) {
 		return map[string]any{"result": r.Result, "targetThreadId": dst.ID, "link": Link(dst.ID)}, nil
 	}
 	return nil, fail(orch.CodeInvalid, "action is fork, merge_back or status")
+}
+
+// sinceSplit is what src said after it and dst split: from the fork between
+// them, which leaves out the history a fork inherits, else from when dst was
+// made under src.
+func sinceSplit(items []proto.Item, forks []orch.Transfer, src, dst string, dstRow *orch.Session) []proto.Item {
+	var cut int64
+	if dstRow != nil && dstRow.ParentID == src {
+		cut = dstRow.CreatedAt
+	}
+	for _, t := range forks {
+		if t.Kind == "fork" && (t.Source == src && t.Target == dst || t.Source == dst && t.Target == src) {
+			cut = t.CreatedAt
+		}
+	}
+	return slices.DeleteFunc(slices.Clone(items), func(it proto.Item) bool { return it.Ts < cut })
 }
 
 func threadUpdate(ctx context.Context, c *Call) (any, error) {

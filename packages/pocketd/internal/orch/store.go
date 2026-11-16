@@ -142,6 +142,9 @@ func (s *Store) Prune(now time.Time) error {
 			`DELETE FROM transfers WHERE source_id IN (` + gone + `) OR target_id IN (` + gone + `)`,
 			`DELETE FROM events WHERE session_id IN (` + gone + `)`,
 			`DELETE FROM outbox WHERE session_id IN (` + gone + `)`,
+			// A launch runs on its own lane, so it goes with the session it made or the one that asked.
+			`DELETE FROM outbox WHERE kind IN ('` + EffLaunch + `', '` + EffForkLaunch + `') AND state NOT IN ('pending', 'running') AND (json_extract(payload, '$.parent') IN (` + gone + `)
+				OR CASE WHEN json_valid(result) THEN json_extract(result, '$.childId') END IN (` + gone + `))`,
 			`DELETE FROM tokens WHERE session_id IN (` + gone + `)`,
 			`DELETE FROM held WHERE session_id IN (` + gone + `)`,
 			`DELETE FROM sessions WHERE closed_at > 0 AND closed_at < ?`,

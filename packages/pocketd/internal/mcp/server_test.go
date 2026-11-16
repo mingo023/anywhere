@@ -337,3 +337,24 @@ func TestAnAgentChangesOnlySchedulesWithinItsAccessAndNeverReadsASecret(t *testi
 		t.Fatalf("a secret reached the agent: %v %v", created, listed)
 	}
 }
+
+func TestAForkMergesBackOnlyWhatItSaidSinceTheSplit(t *testing.T) {
+	items := []proto.Item{{ID: "inherited", Ts: 50}, {ID: "own", Ts: 150}}
+	forks := []orch.Transfer{{Source: "p", Target: "f", Kind: "fork", CreatedAt: 100}}
+	ids := func(items []proto.Item) string {
+		var out []string
+		for _, it := range items {
+			out = append(out, it.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := ids(sinceSplit(items, forks, "f", "p", &orch.Session{ID: "p"})); got != "own" {
+		t.Errorf("fork to its source: %s", got)
+	}
+	if got := ids(sinceSplit(items, forks, "p", "f", &orch.Session{ID: "f", ParentID: "p", CreatedAt: 120})); got != "own" {
+		t.Errorf("source to its fork: %s", got)
+	}
+	if got := ids(sinceSplit(items, nil, "p", "c", &orch.Session{ID: "c", ParentID: "p", CreatedAt: 100})); got != "own" {
+		t.Errorf("parent to its child: %s", got)
+	}
+}
