@@ -491,6 +491,11 @@ const childCheckout = (parentId: string, parentCwd: string, title: string) => {
   git(repo, "worktree", "add", "-q", "-b", `delegate/${slug}`, tree, "HEAD");
   return { cwd: tree, local: "" };
 };
+// A child with two turns of several paragraphs each, for screens of a delegated chat scrolled under its breadcrumb.
+const longChild = (id: string): Item[] => {
+  const say = (turn: string, n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: `${id}-${turn}${i}`, kind: "assistant", text: `Paragraph ${i + 1}: read the redirect helper, traced where next is parsed, and checked each caller for an unvalidated target.` }) as Item);
+  return [...say("p", 6), { id: `${id}-r1`, kind: "result", ok: true, durationMs: 1000 }, { id: `${id}-u2`, kind: "user", text: "Now check the cookie options too" }, ...say("q", 6)];
+};
 const delegate = (ws: Ws, parentId: string) => {
   const parent = summaries.find((s) => s.id === parentId);
   if (!parent) return;
@@ -504,7 +509,7 @@ const delegate = (ws: Ws, parentId: string) => {
       list.push(t);
       const { cwd, local } = childCheckout(parentId, parent.cwd, title);
       sessions.push({ id: childId, cmd: agent, args: [], cwd, local });
-      childItems.set(childId, [{ id: `${childId}-brief`, kind: "user", text: brief }, { id: `${childId}-a`, kind: "assistant", text: "On it." }]);
+      childItems.set(childId, [{ id: `${childId}-brief`, kind: "user", text: brief }, { id: `${childId}-a`, kind: "assistant", text: "On it." }, ...(process.env.FIXTURE_CHILD_LONG ? longChild(childId) : [])]);
       childTimelines.set(childId, stamp(childId, childItems.get(childId)!));
       summaries.push({ ...parent, id: childId, terminalId: childId, cwd, title, provider: agent, model, effort: undefined, status: "working", failed: false, pinned: false, chatOnly: true, parent: parentId, relationship: "subagent", createdBy: `agent:${parentId}`, delegation: { taskId, status: "starting", workState: "working" }, createdAt: Date.now(), updatedAt: Date.now() } as (typeof summaries)[number]);
       announce();

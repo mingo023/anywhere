@@ -8,6 +8,14 @@ use std::fmt::Display;
 use gpui_kit::*;
 use theme::*;
 
+/// The breadcrumb's height, over the top of the session's transcript.
+const CRUMB_H: f32 = 48.;
+
+/// How far the top of a chat is covered by its breadcrumb.
+fn inset(delegated: bool) -> f32 {
+    if delegated { CRUMB_H } else { 0. }
+}
+
 /// The chat that delegated `id`, while it's listed.
 pub(super) fn parent_of<'a>(list: &'a [Summary], id: &str) -> Option<&'a Summary> {
     let child = list.iter().find(|a| a.id == id).filter(|a| status::is_child(a))?;
@@ -27,17 +35,22 @@ impl Desktop {
         parent_of(&self.agents.list, agent)
     }
 
+    pub(crate) fn delegated_inset(&self, agent: &str) -> f32 {
+        inset(self.delegated_parent(agent).is_some())
+    }
+
     pub(crate) fn delegated_by(&self, agent: &str) -> Option<(String, String)> {
         let parent = self.delegated_parent(agent)?;
         let at = self.agents.delegations.of(&parent.id).iter().find(|d| d.child_id == agent).map_or_else(|| self.agents.get(agent).map_or(0, |a| a.created_at), |d| d.created_at);
         Some((parent.provider.clone(), by_label(provider_name(&parent.provider), at, &Local)))
     }
 
-    /// `‹ <chat> / <session>` over a delegated session's chat; Back is the chat that delegated it.
+    /// `‹ <chat> / <session>` over the top of a delegated session's chat, which fades out beneath it; Back is the chat that delegated it.
     pub(crate) fn delegated_crumb(&self, agent: &str, cx: &mut Context<Self>) -> Option<Div> {
         let parent = self.delegated_parent(agent)?;
         let child = self.agents.get(agent)?;
         let to = parent.id.clone();
+        let solid: Hsla = if is_dark() { window_fill() } else { SURFACE_SUNKEN.into() };
         let back = div()
             .id("delegated-back")
             .h(px(28.))
@@ -58,9 +71,14 @@ impl Desktop {
             .child(div().min_w_0().truncate().child(status::title(parent)));
         Some(
             div()
-                .flex_none()
-                .h(px(48.))
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .h(px(CRUMB_H))
                 .px(px(14.))
+                .bg(linear_gradient(180., linear_color_stop(solid, 0.55), linear_color_stop(solid.opacity(0.), 1.)))
+                .block_mouse_except_scroll()
                 .flex()
                 .items_center()
                 .gap(px(4.))
@@ -104,7 +122,7 @@ fn escape_leaves(delegated: bool, asking: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{by_label, escape_leaves, parent_of};
+    use super::{CRUMB_H, by_label, escape_leaves, inset, parent_of};
     use agents::Summary;
     use chrono::FixedOffset;
 
@@ -131,5 +149,10 @@ mod tests {
         assert!(escape_leaves(true, false), "a working or idle child alike");
         assert!(!escape_leaves(true, true), "Esc denies a permission or steps back in a question");
         assert!(!escape_leaves(false, false), "a plain chat keeps Esc for stopping");
+    }
+
+    #[test]
+    fn a_delegated_chat_starts_under_its_breadcrumb_and_a_plain_one_at_its_top() {
+        assert_eq!([inset(true), inset(false)], [CRUMB_H, 0.]);
     }
 }
