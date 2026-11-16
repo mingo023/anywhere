@@ -32,7 +32,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 262] = [
+const STEPS: [(&str, Step); 263] = [
     ("session", session),
     ("chat", chat_session),
     // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
@@ -50,6 +50,8 @@ const STEPS: [(&str, Step); 262] = [
             d.delegated_set_open(&agent, false, cx);
         }
     }),
+    // As with Reduce motion on in System Settings; `reset` turns it off.
+    ("reduce-motion", |_, _, cx| cx.set_reduce_motion(true)),
     // As with Reduce transparency on in System Settings.
     ("delegate-solid", |d, _, cx| {
         cx.set_global(crate::desktop::ReduceTransparency(true));
@@ -1367,6 +1369,7 @@ fn holding() -> bool {
 }
 
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    cx.set_reduce_motion(false);
     d.cancel_chat(window, cx);
     d.store.chats.clear();
     d.set_chat_text("", window, cx);

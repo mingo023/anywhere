@@ -925,7 +925,7 @@ impl Desktop {
                 _ => div(),
             },
             Row::Delivery { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, view.arrivals.arriving(&d.id, Instant::now()), window, cx),
+                Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, view.arrivals.age(&d.id, Instant::now()), window, cx),
                 _ => div(),
             },
             Row::Compacted { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
