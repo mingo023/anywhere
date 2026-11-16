@@ -34,6 +34,8 @@ const ENTER_SCALE: f32 = 0.9;
 /// The panel's glass: the prototype's 72% tint over a 24 px blur.
 const GLASS: Token = Token::new(0xffffffb8, 0x2a2a2ab8);
 const GLASS_BLUR: f32 = 24.;
+/// The half-pixel light along the glass's top edge.
+const GLASS_HIGHLIGHT: Token = Token::new(0xffffffe6, 0xffffff0f);
 
 /// What the panel saw of its chat's delegations last, to tell what's new.
 #[derive(Default)]
@@ -119,7 +121,7 @@ fn material(reduce_transparency: bool, macos: bool) -> Material {
 }
 
 fn shell(material: Material) -> Div {
-    let shell = div().rounded(px(R_POPOVER)).shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(SHADOW, 18., 50.), ui::shadow(rgba(0x0000000f), 2., 6.)]);
+    let shell = div().rounded(px(R_POPOVER)).shadow(vec![BoxShadow { inset: true, ..ui::shadow(GLASS_HIGHLIGHT, 0.5, 0.) }, ui::ring(SEPARATOR, 0.5), ui::shadow(SHADOW, 18., 50.), ui::shadow(rgba(0x0000000f), 2., 6.)]);
     match material {
         Material::Glass => shell.bg(GLASS).backdrop_blur(px(GLASS_BLUR)),
         Material::Solid => shell.bg(POPOVER),

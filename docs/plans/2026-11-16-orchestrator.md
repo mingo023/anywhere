@@ -202,3 +202,10 @@ Toolset, as `scripts/check.sh`: from `packages/pocketd`, `env -u POCKETD_SOCK go
 - Hosts, where a remote worktree starts (Delegation decisions say the parent's HEAD): **The host project's default branch**, since the parent's commit may not exist there. The result warns.
 - Hosts, `anywhere_environment_link`: **Returns `pending` and no message comes back** when the user finishes the card. T3 posts the answer back; that is left out.
 - Hosts, limits: **Remote tasks count against the Mac's 12; the host's own depth limit is not enforced.** A remote child is a depth-0 session to its host's pocketd and can delegate further.
+
+Desktop: prototype details GPUI can't draw
+
+- Panel `scale(.9 → 1)` from its top right: no element transform in GPUI (`Transformation` only reaches `svg()`), so the panel eases its width, height and radius by the scale and its content stays full size.
+- Panel blur-in (`filter: blur()` on the whole panel as it appears): no content filter in GPUI; the only blur is `Styled::backdrop_blur(radius)`, which blurs what lies behind, on Metal only. The panel fades in without it.
+- `saturate(160%)` on the backdrop: `backdrop_blur` takes a radius and nothing else, with no saturation or colour matrix.
+- Inset top highlight: drawn, as an inset `BoxShadow` 0.5 px down.
