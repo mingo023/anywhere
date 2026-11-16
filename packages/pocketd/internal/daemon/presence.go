@@ -389,6 +389,17 @@ func (pr *presence) setMode(permissionMode string) {
 	pr.a.SetAccess(access)
 }
 
+// Planning says whether the agent in terminal is in plan mode.
+func (d *Daemon) Planning(terminal string) bool {
+	pr := d.presentIn(terminal)
+	if pr == nil {
+		return false
+	}
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	return pr.launch.Plan
+}
+
 // accessSwitched leaves plan mode, as claude does on a switch.
 func (pr *presence) accessSwitched(access string) {
 	pr.mu.Lock()

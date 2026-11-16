@@ -480,11 +480,62 @@ func (s *Session) Request(id json.RawMessage, method string, params json.RawMess
 			name, detail = "shell", proto.ToolDetail{Kind: "shell", Command: p.Command}
 		case "item/fileChange/requestApproval":
 			name, detail = "apply_patch", s.details[p.ItemID]
+		case "item/tool/requestUserInput":
+			go s.question(id, params)
+			return
 		default:
 			return
 		}
 		go s.ask(id, name, detail)
 	})
+}
+
+// userInput is codex's item/tool/requestUserInput.
+type userInput struct {
+	Questions []struct {
+		ID       string `json:"id"`
+		Header   string `json:"header"`
+		Question string `json:"question"`
+		Options  []struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		} `json:"options"`
+	} `json:"questions"`
+}
+
+// question asks codex's questions as Claude's AskUserQuestion, which the chat
+// has a card for, and answers in codex's terms: answers by question id.
+func (s *Session) question(id json.RawMessage, params json.RawMessage) {
+	var in userInput
+	json.Unmarshal(params, &in)
+	type option struct {
+		Label       string `json:"label"`
+		Description string `json:"description,omitempty"`
+	}
+	type asked struct {
+		Question    string   `json:"question"`
+		Header      string   `json:"header,omitempty"`
+		Options     []option `json:"options"`
+		MultiSelect bool     `json:"multiSelect"`
+	}
+	qs := make([]asked, len(in.Questions))
+	for i, q := range in.Questions {
+		qs[i] = asked{Question: q.Question, Header: q.Header, Options: []option{}}
+		for _, o := range q.Options {
+			qs[i].Options = append(qs[i].Options, option{o.Label, o.Description})
+		}
+	}
+	input, _ := json.Marshal(map[string]any{"questions": qs})
+	a := s.broker.Ask(s.ctx, proto.PermissionRequest{AgentID: s.agentID, ToolName: "AskUserQuestion", Detail: timeline.Detail("AskUserQuestion", input)}, s.key(id))
+	answers := map[string]any{}
+	if a.Decision == "allow" {
+		for _, q := range in.Questions {
+			if v, ok := a.Answers[q.Question]; ok && v != "" {
+				answers[q.ID] = map[string][]string{"answers": {v}}
+			}
+		}
+	}
+	s.c.Reply(id, map[string]any{"answers": answers})
 }
 
 func (s *Session) ask(id json.RawMessage, name string, detail proto.ToolDetail) {

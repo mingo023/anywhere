@@ -81,7 +81,10 @@ type Launcher struct {
 	// Names takes the display names naming gives new Worktrees; nil names none.
 	Names *names.Names
 	// Locals are the Locals a create may start in; nil has none.
-	Locals   *locals.Locals
+	Locals *locals.Locals
+	// MCPFlags gives the flags that hand a chat agent in a terminal Anywhere's
+	// MCP server; nil gives none.
+	MCPFlags func(terminalID, provider string) []string
 	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
 	receipts *receipts[Result]
 	trees    *receipts[built]
@@ -161,7 +164,11 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: fl}
 	}
 	argv[0] = exe
+	id := terminal.NewID()
 	if Chat(s) {
+		if l.MCPFlags != nil {
+			argv = append(argv, l.MCPFlags(id, s.Provider)...)
+		}
 		argv = Piped(l.d.Exe, argv)
 	}
 	cwd, setup, fl := l.checkout(w, f, s, env, progress)
@@ -172,7 +179,6 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		// A deleted Worktree's name would otherwise stick to the new one at its path.
 		l.Names.Forget(cwd)
 	}
-	id := terminal.NewID()
 	exits := make(chan exit, 2)
 	l.mu.Lock()
 	l.pending[id] = exits
@@ -486,7 +492,11 @@ func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 			return "", nil, fl.Code
 		}
 	}
-	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, func(p string) (string, bool) { return l.find(p, env) })
+	var mcp []string
+	if saved.Chat && l.MCPFlags != nil {
+		mcp = l.MCPFlags(saved.TerminalID, saved.Provider)
+	}
+	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, mcp, func(p string) (string, bool) { return l.find(p, env) })
 }
 
 // AgentTab is Daemon.AgentTab: argv wrapped as a launch wraps its agent,

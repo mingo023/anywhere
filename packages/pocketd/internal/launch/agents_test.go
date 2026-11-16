@@ -254,7 +254,7 @@ func TestAChatResumeRunsTheAgentBehindAPipe(t *testing.T) {
 	s.Chat = true
 	var asked string
 	found := func(p string) (string, bool) { asked = p; return "/opt/agy", true }
-	_, args, reason := resumeCmd(s, config.DefaultArgs("antigravity"), "/bin/zsh", "/pd", nil, found)
+	_, args, reason := resumeCmd(s, config.DefaultArgs("antigravity"), "/bin/zsh", "/pd", nil, nil, found)
 	if reason != "" || asked != "antigravity" || !strings.Contains(strings.Join(args, " "), "/pd pipe /opt/agy acp") {
 		t.Fatalf("resumeCmd = %q %q", args, reason)
 	}

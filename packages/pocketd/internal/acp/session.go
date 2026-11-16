@@ -65,6 +65,8 @@ const (
 // Session is one agent's ACP session: it sends the prompts, maps what the
 // agent says to timeline events, and answers what it asks.
 type Session struct {
+	// MCP gives Anywhere's MCP server entries for the agent; nil gives none.
+	MCP     func() []any
 	agentID string
 	name    string // the agent's, for what the user reads
 	f       flavor
@@ -256,6 +258,26 @@ func (s *Session) Open(w jsonrpc.Wire, cwd, saved string, l state.Launch, left L
 	return nil, nil
 }
 
+// servers is Anywhere's MCP server for session/new and session/load, when the
+// agent's initialize says it takes MCP over HTTP; none otherwise.
+func (s *Session) servers(init json.RawMessage) []any {
+	if s.MCP == nil {
+		return []any{}
+	}
+	var r struct {
+		AgentCapabilities struct {
+			McpCapabilities struct {
+				HTTP bool `json:"http"`
+			} `json:"mcpCapabilities"`
+		} `json:"agentCapabilities"`
+	}
+	json.Unmarshal(init, &r)
+	if !r.AgentCapabilities.McpCapabilities.HTTP {
+		return []any{}
+	}
+	return s.MCP()
+}
+
 func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) (opened, error) {
 	caps := map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}
 	for k, v := range s.f.caps {
@@ -266,6 +288,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 	if err != nil {
 		return opened{}, err
 	}
+	servers := s.servers(init)
 	if s.f.auth != nil {
 		if params := s.f.auth(init); params != nil {
 			// An agent already signed in may refuse; its session tells.
@@ -286,7 +309,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 		s.mu.Unlock()
 	}()
 	if saved != "" {
-		params := map[string]any{"sessionId": saved, "cwd": cwd, "mcpServers": []any{}}
+		params := map[string]any{"sessionId": saved, "cwd": cwd, "mcpServers": servers}
 		res, err := s.call(c, OpenWait, "session/load", params)
 		// Hermes answers null for a session it doesn't have, and would resume it as a new one without a word.
 		gone := err == nil && string(res) == "null"
@@ -310,7 +333,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 		s.saved = ""
 		s.mu.Unlock()
 	}
-	params := map[string]any{"cwd": cwd, "mcpServers": []any{}}
+	params := map[string]any{"cwd": cwd, "mcpServers": servers}
 	startedOn := ""
 	if meta := s.f.newMeta[l.Access]; meta != nil && !l.Plan {
 		params["_meta"], startedOn = meta, l.Access

@@ -770,3 +770,41 @@ func TestAStopRightAfterAPromptStopsTheTurnItStarts(t *testing.T) {
 		t.Fatal("the stopped prompt still counts")
 	}
 }
+
+func TestABackgroundTaskTheAgentWaitsOnKeepsItWorkingUntilItEndsOrTheCap(t *testing.T) {
+	holdGrace = 20 * time.Millisecond
+	defer func() { holdGrace = 15 * time.Second }()
+	start := func(id string, cap time.Duration) *Agent {
+		a := NewRegistry(hub.New()).Add(id, "/w", "claude", fakeDriver{})
+		a.Working()
+		a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"make e2e","run_in_background":true}`)})
+		a.Record(timeline.Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"})
+		a.Hold([]string{"b1"}, true, cap)
+		a.TurnEnded(false)
+		return a
+	}
+	done := func(a *Agent) bool {
+		deadline := time.Now().Add(time.Second)
+		for state(a.Summary()) != "done" {
+			if time.Now().After(deadline) {
+				return false
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return true
+	}
+
+	a := start("a1", time.Hour)
+	if got := state(a.Summary()); got != "working" {
+		t.Fatalf("waiting on b1: %q", got)
+	}
+	a.Record(timeline.Event{Kind: "tool_end", TaskID: "b1", OK: true})
+	if !done(a) {
+		t.Fatal("b1 ended and the turn stayed")
+	}
+
+	b := start("b1", 30*time.Millisecond)
+	if !done(b) {
+		t.Fatal("the cap passed and the turn stayed")
+	}
+}

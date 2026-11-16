@@ -1,0 +1,28 @@
+{
+  "type": "agent.delegations",
+  "id": "d1",
+  "agentId": "a1",
+  "items": [
+    {
+      "taskId": "task1",
+      "parentId": "a1",
+      "childId": "a2",
+      "title": "Write the tests",
+      "agent": "codex",
+      "model": "gpt-5.5",
+      "status": "working",
+      "createdAt": 1
+    },
+    {
+      "taskId": "task2",
+      "parentId": "a1",
+      "childId": "a3",
+      "title": "Review",
+      "agent": "claude",
+      "status": "completed",
+      "summary": "Two findings",
+      "createdAt": 1,
+      "settledAt": 2
+    }
+  ]
+}

@@ -134,6 +134,7 @@ type Item struct {
 	DurationMs int64
 	Error      string
 	Usage      *TurnUsage
+	Delivery   *Delivery
 	// ParentToolUseID is the tool call that spawned the sub-agent this item belongs to.
 	ParentToolUseID string
 }
@@ -186,6 +187,15 @@ func (it Item) MarshalJSON() ([]byte, error) {
 			Text  string `json:"text,omitempty"`
 			Error string `json:"error,omitempty"`
 		}{h, it.Text, it.Error})
+	case "delivery":
+		d := it.Delivery
+		if d == nil {
+			d = &Delivery{}
+		}
+		return json.Marshal(struct {
+			head
+			*Delivery
+		}{h, d})
 	}
 	return nil, errors.New("proto: unknown item kind " + it.Kind)
 }
@@ -232,6 +242,12 @@ type AgentSummary struct {
 	Goal Goal `json:"goal,omitzero"`
 	// Options are the model settings the agent runs on, by the agent's id for each.
 	Options map[string]string `json:"options,omitempty"`
+	// Parent is the session this one was delegated or forked from, as Relationship says.
+	Parent       string `json:"parent,omitempty"`
+	Relationship string `json:"relationship,omitempty"` // subagent or fork
+	// CreatedBy is user, agent, automation or board; empty is user.
+	CreatedBy  string         `json:"createdBy,omitempty"`
+	Delegation *DelegationRef `json:"delegation,omitempty"`
 }
 
 // GoalFailed is Claude's judge giving a goal up; Codex has no such status.

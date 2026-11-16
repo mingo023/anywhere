@@ -42,6 +42,7 @@ import (
 	"pocketd/internal/logfile"
 	"pocketd/internal/names"
 	"pocketd/internal/ops"
+	"pocketd/internal/orch"
 	"pocketd/internal/owners"
 	"pocketd/internal/pairing"
 	"pocketd/internal/proc"
@@ -140,7 +141,16 @@ func serve(sock, handed string) error {
 		log.Printf("push.json: %v; no phone is registered for pushes", err)
 	}
 	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
-	d.Broker.OnAsk = notifier.Ask
+	settings := config.NewSettings(home)
+	o, err := openOrchestrator(home, settings, d.Agents, h)
+	if err != nil {
+		return fmt.Errorf("orchestrator.db: %w", err)
+	}
+	d.Broker.OnAsk = func(req proto.PermissionRequest) {
+		notifier.Ask(req)
+		o.ask(req)
+	}
+	d.Broker.OnClose = o.asked
 	d.Agents.OnStatus = func(id, provider, from, to string) {
 		evs.Emit(events.Event{Kind: "status", Agent: id, Provider: provider, From: from, To: to})
 		notifier.Kick(id, from, to)
@@ -149,7 +159,6 @@ func serve(sock, handed string) error {
 		default:
 		}
 	}
-	settings := config.NewSettings(home)
 	host.FollowTerminals(mon, settings)
 	notifier.Relay = &push.Client{URL: settings.PushRelay, HTTP: push.NewHTTP()}
 	keeper := &awake.Keeper{S: awake.System(), Enabled: settings.KeepAwake, Linger: settings.AwakeLinger, After: time.After,
@@ -182,6 +191,10 @@ func serve(sock, handed string) error {
 	worktreeNames := names.Open(home)
 	l := launch.New(d, reg, settings, evs)
 	l.Names = worktreeNames
+	o.host.Broker, o.host.Launcher, o.host.LoginEnv, o.host.Projects, o.host.Planning = d.Broker, l, d.LoginEnv, reg, d.Planning
+	l.MCPFlags = o.host.ClaudeFlags
+	d.MCPCodex = o.host.CodexConfig
+	d.MCPServers = o.host.ACPServers
 	localStore := locals.Open(home)
 	l.Locals = localStore
 	d.OnPrompt = l.Prompted
@@ -192,7 +205,7 @@ func serve(sock, handed string) error {
 	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
 		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
 	}
-	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon}
+	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon, handover: o.handover, resume: o.engine.Resume}
 	// Taken before restoring, so a binary swapped meanwhile still counts as a change.
 	var watch *selfWatch
 	if st, err := os.Stat(exe); err == nil {
@@ -204,6 +217,13 @@ func serve(sock, handed string) error {
 	autos.Grace, autos.History = settings.AutomationGrace, settings.AutomationHistory
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
 		Start: func(runID string, a proto.Automation) launch.Result {
+			if a.Bound != "" {
+				if bound, err := d.Agents.Get(a.Bound); err == nil && bound.Turn() != "closed" {
+					if _, err := o.engine.Dispatch(orch.NewCommand("automation:"+runID, orch.CmdMessageSend, a.Bound, orch.SendPayload{Text: a.Prompt, Origin: orch.OriginUser})); err == nil {
+						return launch.Result{AgentID: a.Bound, TerminalID: bound.Summary().TerminalID}
+					}
+				}
+			}
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		},
 		OnFinish: func(r proto.Run) {
@@ -220,7 +240,9 @@ func serve(sock, handed string) error {
 	if err != nil {
 		log.Printf("skills: %v", err)
 	}
-	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
+	o.host.Sched = schedules{store: autos, scheduler: scheduler}
+	o.server.Hooks = hooks(schedules{store: autos, scheduler: scheduler})
+	ws := &wsserver.Server{Orch: o.engine, Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
 	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
@@ -273,6 +295,7 @@ func serve(sock, handed string) error {
 	}
 	scheduler.Resume()
 	go scheduler.Run(ctx)
+	go o.run(ctx)
 	go boardScheduler.Run(ctx)
 	phones, err := reach.Listen(cfg.Port, cfg.Listen, ws)
 	if err != nil {

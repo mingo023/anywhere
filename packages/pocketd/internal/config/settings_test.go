@@ -262,3 +262,11 @@ func TestPushRelayIsTheDefaultUntilSetToAnHttpsURL(t *testing.T) {
 		t.Fatalf("a hand-edited plain http relay reads as %q", s.PushRelay())
 	}
 }
+
+func TestAMissingSectionDoesNotReadTheTopLevelKey(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"port":4242}`), 0o600)
+	if got := NewSettings(home).MCPPort(); got != 0 {
+		t.Fatalf("MCPPort = %d, want 0", got)
+	}
+}

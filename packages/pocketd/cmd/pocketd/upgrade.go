@@ -37,7 +37,10 @@ type upgrader struct {
 	starting  func() bool
 	evs       *events.Log
 	mon       *host.Monitor
-	mu        sync.Mutex
+	// handover runs just before the exec: the orchestrator drains its effects and flushes the store.
+	// resume runs when the exec failed and this pocketd goes on.
+	handover, resume func()
+	mu               sync.Mutex
 }
 
 // run returns only when the upgrade didn't happen; the old pocketd goes on.
@@ -68,7 +71,13 @@ func (u *upgrader) run() error {
 	}
 	ok := true
 	u.evs.Emit(events.Event{Kind: "upgrade", Version: to, OK: &ok})
+	if u.handover != nil {
+		u.handover()
+	}
 	err = syscall.Exec(u.exe, []string{u.exe, "serve", "--handoff", path}, os.Environ())
+	if u.resume != nil {
+		u.resume()
+	}
 	return u.abort(path, to, "exec", err)
 }
 

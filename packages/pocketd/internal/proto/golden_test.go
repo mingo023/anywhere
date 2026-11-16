@@ -110,6 +110,22 @@ var serverGolden = map[string]any{
 	}, false, 2),
 	"permission_request": NewPermissionRequest(PermissionRequest{RequestID: "r1", AgentID: "a1", ToolName: "Bash", Detail: ToolDetail{Kind: "shell", Command: "rm x", Description: "remove"},
 		Options: []PermissionOption{{ID: "always", Label: "Yes, and always allow access to /w"}}, Feedback: true}),
+	"agent_update_delegated": NewAgentUpdate(with(func(s *AgentSummary) {
+		s.ID, s.Parent, s.Relationship, s.CreatedBy = "a2", "a1", "subagent", "agent:a1"
+		s.Delegation = &DelegationRef{TaskID: "task1", Status: "working", WorkState: "working"}
+	})),
+	"agent_delegations": NewAgentDelegations("d1", "a1", []Delegation{
+		{TaskID: "task1", ParentID: "a1", ChildID: "a2", Title: "Write the tests", Agent: "codex", Model: "gpt-5.5", Status: "working", CreatedAt: 1},
+		{TaskID: "task2", ParentID: "a1", ChildID: "a3", Title: "Review", Agent: "claude", Status: "completed", Summary: "Two findings", CreatedAt: 1, SettledAt: 2},
+	}),
+	"delegation_update": NewDelegationUpdate("a1", Delegation{TaskID: "task1", ParentID: "a1", ChildID: "a2", Title: "Write the tests", Agent: "codex", Status: "working", Question: "Which test runner?", CreatedAt: 1}),
+	"queue_list": NewQueueList("q1", "a1", []QueueEntry{
+		{ID: "e1", Text: "also fix the lint", Origin: "user", State: "pending", Order: 1},
+		{ID: "e2", Text: "Write the tests finished.", Origin: "wake", State: "pending", Order: 2},
+	}),
+	"queue_update": NewQueueUpdate("a1", nil),
+	"stream_delivery": NewAgentStream("a1", 1, Item{ID: "i9", Seq: 9, Ts: 18, Kind: "delivery", Delivery: &Delivery{
+		TaskIDs: []string{"task1"}, ChildIDs: []string{"a2"}, Titles: []string{"Write the tests"}, Agents: []string{"codex"}, Outcome: "done"}}),
 	"permission_resolved": NewPermissionResolved("r1", "allow"),
 	"ack":                 NewAck("p1"),
 	"error":               NewError("p1", "Unknown agent: zz"),

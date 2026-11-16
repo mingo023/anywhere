@@ -207,6 +207,11 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	if saved != "" {
 		method, params = "thread/resume", map[string]any{"threadId": saved}
 	}
+	if d.MCPCodex != nil {
+		if config := d.MCPCodex(pr.t.Info().ID); config != nil {
+			params["config"] = config
+		}
+	}
 	res, err := c.Call(ctx, method, params)
 	if err != nil {
 		c.Close()

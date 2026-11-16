@@ -1,0 +1,21 @@
+{
+  "type": "queue.list",
+  "id": "q1",
+  "agentId": "a1",
+  "entries": [
+    {
+      "id": "e1",
+      "text": "also fix the lint",
+      "origin": "user",
+      "state": "pending",
+      "order": 1
+    },
+    {
+      "id": "e2",
+      "text": "Write the tests finished.",
+      "origin": "wake",
+      "state": "pending",
+      "order": 2
+    }
+  ]
+}

@@ -28,6 +28,7 @@ import (
 	"pocketd/internal/launch"
 	"pocketd/internal/locals"
 	"pocketd/internal/names"
+	"pocketd/internal/orch"
 	"pocketd/internal/owners"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
@@ -105,6 +106,8 @@ type Server struct {
 
 	// Skills keeps what skills.list last found; nil serves none.
 	Skills *skills.Store
+	// Orch runs prompts, stops and the queue as commands; nil drives agents directly.
+	Orch *orch.Engine
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -538,6 +541,15 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	verb = c.workspaceScope(verb)
 	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
+	}
+	if done, err := c.orchestrated(m); done {
+		if err != nil {
+			return err
+		}
+		if m.Type != "agent.delegations" && m.Type != "queue.list" {
+			c.send(proto.NewAck(m.ID))
+		}
+		return nil
 	}
 	switch m.Type {
 	case "pair.begin":

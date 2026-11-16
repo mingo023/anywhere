@@ -42,7 +42,15 @@ type Message struct {
 		Failed            bool   `json:"failed"`
 		ChatOnly          bool   `json:"chatOnly"`
 		Restore           string `json:"restore"`
+		Parent            string `json:"parent"`
+		Relationship      string `json:"relationship"`
 	} `json:"agent"`
+	Delegation struct {
+		TaskID  string `json:"taskId"`
+		ChildID string `json:"childId"`
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+	} `json:"delegation"`
 	Agents []struct {
 		ID       string `json:"id"`
 		Restore  string `json:"restore"`

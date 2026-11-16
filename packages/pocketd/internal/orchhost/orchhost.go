@@ -1,0 +1,395 @@
+// Package orchhost joins the orchestrator to the rest of pocketd: it runs the
+// engine's effects on agents, the launcher and the broker, answers the MCP
+// tools' questions, and hands chat agents Anywhere's MCP server.
+package orchhost
+
+import (
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"pocketd/internal/agent"
+	"pocketd/internal/broker"
+	"pocketd/internal/launch"
+	"pocketd/internal/mcp"
+	"pocketd/internal/orch"
+	"pocketd/internal/proto"
+	"pocketd/internal/providers"
+	"pocketd/internal/registry"
+	"pocketd/internal/timeline"
+	"pocketd/internal/worktree"
+)
+
+// Host is the orchestrator's view of pocketd.
+type Host struct {
+	Registry *agent.Registry
+	Broker   *broker.Broker
+	Launcher *launch.Launcher
+	// Projects is desktop.json, where a session's cwd finds its Project's path.
+	Projects *registry.Registry
+	Tokens   *mcp.Tokens
+	// StateDir holds state/mcp, the Claude MCP config files.
+	StateDir string
+	// URL is the MCP endpoint, http://127.0.0.1:<port>/mcp.
+	URL string
+	// Planning says whether the agent in a terminal is in plan mode.
+	Planning func(terminal string) bool
+	// LoginEnv is the user's shell environment, for git.
+	LoginEnv func() []string
+	Sched    mcp.Schedules
+
+	engine *orch.Engine
+}
+
+func (h *Host) SetEngine(e *orch.Engine) { h.engine = e }
+
+func (h *Host) Engine() *orch.Engine { return h.engine }
+
+func AgentInfo(kind string) orch.AgentInfo {
+	p := providers.Get(kind)
+	if p == nil {
+		return orch.AgentInfo{}
+	}
+	steer := p.Chat.SendWhileWorking && (kind == "claude" || kind == "codex")
+	if p.NeverAsks {
+		return orch.AgentInfo{Known: true, NeverAsks: true, Access: []string{"full"}, CanSteer: steer}
+	}
+	return orch.AgentInfo{Known: true, Access: proto.Accesses, CanSteer: steer}
+}
+
+// Parent says whether kind's chats get the tools: Claude, Codex and HTTP-MCP ACP agents.
+func Parent(kind string) bool { return kind != "pi" && kind != "omp" }
+
+func (h *Host) agent(id string) (*agent.Agent, error) {
+	a, err := h.Registry.Get(id)
+	if err != nil {
+		return nil, &orch.Failure{Code: orch.CodeNotFound, Message: "That session isn't running"}
+	}
+	return a, nil
+}
+
+// Run is orch.Effector.
+func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
+	switch e.Kind {
+	case orch.EffLaunch, orch.EffForkLaunch:
+		var p orch.LaunchPayload
+		json.Unmarshal(e.Payload, &p)
+		return h.launch(e, p)
+	}
+	a, err := h.agent(e.Lane)
+	if err != nil && e.Kind != orch.EffAnswer {
+		return nil, err
+	}
+	switch e.Kind {
+	case orch.EffTurnStart:
+		var p orch.TurnPayload
+		json.Unmarshal(e.Payload, &p)
+		return nil, a.Driver().Prompt(p.Text)
+	case orch.EffInterrupt:
+		return nil, a.Driver().Interrupt()
+	case orch.EffAnswer:
+		var p orch.RequestPayload
+		json.Unmarshal(e.Payload, &p)
+		if !h.Broker.Resolve(p.RequestID, broker.Answer{Decision: p.Decision, Option: p.Option, Message: p.Message, Answers: p.Answers}) {
+			return nil, &orch.Failure{Code: orch.CodeNotFound, Message: "That question is no longer open"}
+		}
+		return nil, nil
+	case orch.EffClose:
+		a.Driver().Close()
+		return nil, nil
+	case orch.EffRename:
+		var p orch.TitlePayload
+		json.Unmarshal(e.Payload, &p)
+		a.Rename(p.Title)
+		return nil, nil
+	case orch.EffNaming:
+		return nil, h.Launcher.Retitle(a)
+	case orch.EffConfigure:
+		var p orch.ConfigPayload
+		json.Unmarshal(e.Payload, &p)
+		if p.Model != "" || p.Effort != "" {
+			if err := launch.ValidSwitch(a.Provider(), p.Model, p.Effort); err != nil {
+				return nil, &orch.Failure{Code: orch.CodeInvalid, Message: err.Error()}
+			}
+			if err := a.Driver().Settings(p.Model, p.Effort); err != nil {
+				return nil, err
+			}
+		}
+		if len(p.Options) > 0 {
+			o, ok := a.Driver().(agent.Optioner)
+			if !ok {
+				return nil, &orch.Failure{Code: orch.CodeUnsupported, Message: "This agent takes no model options"}
+			}
+			return nil, o.SetOptions(p.Options)
+		}
+		return nil, nil
+	case orch.EffPin:
+		var p struct {
+			Pinned bool `json:"pinned"`
+		}
+		json.Unmarshal(e.Payload, &p)
+		a.SetPinned(p.Pinned)
+		return nil, nil
+	case orch.EffMarkUnread:
+		a.MarkUnread()
+		return nil, nil
+	case orch.EffDelivery:
+		var p orch.DeliveryPayload
+		json.Unmarshal(e.Payload, &p)
+		a.Record(timeline.Event{Kind: "delivery", Delivery: &proto.Delivery{TaskIDs: p.TaskIDs, ChildIDs: p.ChildIDs, Titles: p.Titles, Agents: p.Agents, Outcome: p.Outcome, Question: p.Question}})
+		return nil, nil
+	case orch.EffHold:
+		var p orch.HoldPayload
+		json.Unmarshal(e.Payload, &p)
+		a.Hold(p.TaskIDs, p.Waiting, orch.HoldCap*time.Millisecond)
+		return nil, nil
+	case orch.EffStopTask:
+		var p orch.StopTaskPayload
+		json.Unmarshal(e.Payload, &p)
+		s, ok := a.Driver().(agent.TaskStopper)
+		if !ok {
+			return nil, &orch.Failure{Code: orch.CodeUnsupported, Message: "Only a Claude chat stops a workflow"}
+		}
+		return nil, s.StopTask(p.TaskID)
+	}
+	return nil, fmt.Errorf("unknown effect %s", e.Kind)
+}
+
+func (h *Host) launch(e orch.Effect, p orch.LaunchPayload) (map[string]any, error) {
+	project, ok := projectPath(h.Projects.Load(), p.Project, p.Cwd)
+	if !ok {
+		return nil, &orch.Failure{Code: orch.CodeInvalid, Message: "Anywhere starts sessions in a project; this one is in none"}
+	}
+	spec := proto.LaunchSpec{Provider: p.Agent, Model: p.Model, Effort: p.Effort, Access: p.Access, Plan: h.planning(p.Parent), Prompt: p.Prompt, Project: project, Chat: p.Chat && providers.Get(p.Agent) != nil}
+	if p.Context != "" {
+		spec.Prompt = p.Context + "\n\n" + cmp.Or(p.Prompt, "Continue from this context. Wait for the next instruction before changing anything.")
+	}
+	if p.Fork != "" {
+		src, err := h.agent(p.Fork)
+		if err != nil {
+			return nil, err
+		}
+		spec.Fork = src.Summary().ProviderSessionID
+	}
+	switch p.Checkout {
+	case "worktree":
+		name := launch.Slug(cmp.Or(p.Title, p.Prompt))
+		if name == "" {
+			name = "task"
+		}
+		base := h.head(p.Cwd)
+		spec.Checkout = proto.Checkout{New: &proto.NewWorktree{Name: name, Base: base, AutoName: true}}
+	case "existing_worktree":
+		spec.Checkout = proto.Checkout{Worktree: p.Worktree}
+	case "root":
+		spec.Checkout = proto.Checkout{Worktree: project}
+	default:
+		spec.Checkout = proto.Checkout{Worktree: cmp.Or(h.treeOf(p.Cwd), project)}
+	}
+	key := cmp.Or(p.TaskID, p.TransferID, fmt.Sprint(e.ID))
+	r := h.Launcher.Create(launch.Who{Owner: true, Key: "orch"}, key, spec, func(string, string) {}, func(launch.Creating) {})
+	if r.Err != nil {
+		return nil, &orch.Failure{Code: orch.CodeUnavailable, Message: cmp.Or(r.Err.Message, r.Err.Code)}
+	}
+	if a, err := h.Registry.Get(r.AgentID); err == nil {
+		a.SetLineage(p.Parent, p.Rel, p.CreatedBy)
+		if p.TaskID != "" {
+			a.SetDelegation(&proto.DelegationRef{TaskID: p.TaskID, Status: orch.TaskWorking})
+		}
+	}
+	return map[string]any{"childId": r.AgentID, "targetId": r.AgentID}, nil
+}
+
+// planning says whether a child of parent starts in plan mode: the parent's own.
+func (h *Host) planning(parent string) bool {
+	if parent == "" || h.Planning == nil {
+		return false
+	}
+	a, err := h.Registry.Get(parent)
+	return err == nil && h.Planning(a.Summary().TerminalID)
+}
+
+// projectPath is the registered Project a launch goes to: the one holding
+// cwd, else the one named, as sessions name theirs.
+func projectPath(f registry.File, name, cwd string) (string, bool) {
+	if cwd != "" {
+		return worktree.Project(f, cwd)
+	}
+	for _, p := range f.Projects {
+		if p == name || f.Name(p) == name {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// treeOf is the checkout holding cwd; "" when none does.
+func (h *Host) treeOf(cwd string) string {
+	l, _ := worktree.Locate(cwd)
+	return l.Root
+}
+
+// head is cwd's HEAD commit, which a child's worktree starts from.
+func (h *Host) head(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", cwd, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func (h *Host) InBackground(session, id string) bool {
+	a, err := h.Registry.Get(session)
+	return err == nil && a.Timeline.InBackground(id)
+}
+
+// SessionIn is mcp.Host: the live session in terminal.
+func (h *Host) SessionIn(terminal string) (proto.AgentSummary, bool) {
+	for _, s := range h.Registry.List() {
+		if s.TerminalID == terminal && s.Status != "closed" {
+			return s, true
+		}
+	}
+	return proto.AgentSummary{}, false
+}
+
+func (h *Host) Summary(id string) (proto.AgentSummary, bool) {
+	a, err := h.Registry.Get(id)
+	if err != nil {
+		return proto.AgentSummary{}, false
+	}
+	return a.Summary(), true
+}
+
+func (h *Host) Items(id string) []proto.Item {
+	if a, err := h.Registry.Get(id); err == nil {
+		items, _ := a.Timeline.Page(0, 1<<20)
+		return items
+	}
+	items, _ := h.engine.Store().Items(id)
+	return items
+}
+
+func (h *Host) Agents() []mcp.AgentKind {
+	var out []mcp.AgentKind
+	for _, p := range h.Launcher.Providers() {
+		spec := providers.Get(p.ID)
+		info := AgentInfo(p.ID)
+		out = append(out, mcp.AgentKind{ID: p.ID, Name: spec.Name, Installed: p.Available, Efforts: p.Efforts, Access: info.Access, NeverAsks: p.NeverAsks, Parent: Parent(p.ID)})
+	}
+	return out
+}
+
+func (h *Host) Dirty(cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	out, err := exec.Command("git", "-C", cwd, "status", "--porcelain", "--untracked-files=no").Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
+func (h *Host) Schedules() mcp.Schedules { return h.Sched }
+
+func (h *Host) token(terminal, provider string) (string, error) {
+	return h.Tokens.Issue(terminal, provider)
+}
+
+// ClaudeFlags writes state/mcp/<terminal>.json (0600) with a fresh token and
+// gives the flags that load it. The token stays out of argv, which ps shows
+// and handoff.json keeps.
+func (h *Host) ClaudeFlags(terminal, provider string) []string {
+	if provider != "claude" || h.URL == "" {
+		return nil
+	}
+	token, err := h.token(terminal, provider)
+	if err != nil {
+		log.Printf("mcp: token for %s: %v", terminal, err)
+		return nil
+	}
+	dir := filepath.Join(h.StateDir, "mcp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Printf("mcp: %v", err)
+		return nil
+	}
+	path := filepath.Join(dir, terminal+".json")
+	body, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"anywhere": map[string]any{
+		"type": "http", "url": h.URL, "headers": map[string]string{"Authorization": "Bearer " + token}}}})
+	if err := writePrivate(path, body); err != nil {
+		log.Printf("mcp: config for %s: %v", terminal, err)
+		return nil
+	}
+	return []string{"--mcp-config=" + path, "--allowedTools=mcp__anywhere"}
+}
+
+func writePrivate(path string, body []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// CodexConfig is the thread config that gives a Codex chat both servers:
+// anywhere without the blocking tools, and anywhere-direct with only them.
+func (h *Host) CodexConfig(terminal string) map[string]any {
+	if h.URL == "" {
+		return nil
+	}
+	token, err := h.token(terminal, "codex")
+	if err != nil {
+		log.Printf("mcp: token for %s: %v", terminal, err)
+		return nil
+	}
+	server := func(url string) map[string]any {
+		return map[string]any{"url": url, "tool_timeout_sec": 60, "http_headers": map[string]string{"Authorization": "Bearer " + token}}
+	}
+	main := server(h.URL)
+	main["disabled_tools"] = mcp.DirectOnly
+	direct := server(h.URL + "?direct=1")
+	direct["enabled_tools"] = mcp.DirectOnly
+	direct["omit_tools_from"] = []string{"code_mode", "deferred"}
+	return map[string]any{"mcp_servers.anywhere": main, "mcp_servers.anywhere-direct": direct}
+}
+
+// ACPServers is the mcpServers entry of an ACP agent that takes HTTP MCP.
+func (h *Host) ACPServers(terminal string) []any {
+	if h.URL == "" {
+		return []any{}
+	}
+	token, err := h.token(terminal, "acp")
+	if err != nil {
+		return []any{}
+	}
+	return []any{map[string]any{"type": "http", "name": "anywhere", "url": h.URL, "headers": []map[string]string{{"name": "Authorization", "value": "Bearer " + token}}}}
+}
+
+// Closed revokes the tokens of a session that closed and removes its Claude config.
+func (h *Host) Closed(session string) {
+	a, err := h.Registry.Get(session)
+	terminal := ""
+	if err == nil {
+		terminal = a.Summary().TerminalID
+	} else if row, _ := h.engine.Store().Session(session); row != nil {
+		terminal = row.Terminal
+	}
+	if terminal == "" {
+		return
+	}
+	if err := h.Tokens.Revoke(terminal); err != nil {
+		log.Printf("mcp: revoke %s: %v", terminal, err)
+	}
+	if err := os.Remove(filepath.Join(h.StateDir, "mcp", terminal+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("mcp: %v", err)
+	}
+}

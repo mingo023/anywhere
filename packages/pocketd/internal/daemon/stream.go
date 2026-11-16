@@ -430,6 +430,12 @@ func (c streamDriver) Prompt(text string) error {
 // in its queue, as a terminal claude hands them back on Esc.
 func (c streamDriver) Interrupt() error { return c.interrupt(true) }
 
+// StopTask stops one background task or workflow claude runs.
+func (c streamDriver) StopTask(id string) error {
+	_, err := c.pr.stream.control(c.pr.ctx, map[string]any{"subtype": "stop_task", "task_id": id})
+	return err
+}
+
 // Claude may write no notification for a task it stops, so the call ends here.
 // Tasks stop at once, so a silent claude costs one ControlWait, not one per task.
 func (c streamDriver) interrupt(cancelQueued bool) error {

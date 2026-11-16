@@ -498,3 +498,16 @@ func TestASubAgentsApprovalClosesItsCardWhenItsThreadResolvesIt(t *testing.T) {
 	}
 	t.Fatal("the card stayed open")
 }
+
+func TestCodexUserInputAsksAsAQuestionAndAnswersByID(t *testing.T) {
+	srv, _, _, b := open(t, emptyThread)
+	srv.Push("item/tool/requestUserInput", 0, `{"threadId":"th1","turnId":"t2","itemId":"call_1","questions":[{"id":"schema_preference","header":"Fixture","question":"Strict schemas or UI flexibility?","isOther":true,"options":[{"label":"Strict schemas","description":"Validated"},{"label":"UI flexibility"}]}],"isBlocking":true}`)
+	open := waitOpen(t, b)
+	if open.ToolName != "AskUserQuestion" || !strings.Contains(string(open.Detail.Input), "Strict schemas or UI flexibility?") {
+		t.Fatalf("%+v", open)
+	}
+	b.Resolve(open.RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Strict schemas or UI flexibility?": "Strict schemas"}})
+	if got := srv.Reply("0"); got != `{"answers":{"schema_preference":{"answers":["Strict schemas"]}}}` {
+		t.Fatal(got)
+	}
+}

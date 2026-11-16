@@ -50,6 +50,10 @@ type Daemon struct {
 	AgentTab func(provider, cwd, shell string, argv []string) []string
 	// Accounts are the sign-ins an agent may run on; nil runs each on its built-in login.
 	Accounts *accounts.Store
+	// MCPCodex gives the thread config that hands a Codex chat in a terminal
+	// Anywhere's MCP servers; MCPServers the ACP mcpServers entries. Nil gives none.
+	MCPCodex   func(terminalID string) map[string]any
+	MCPServers func(terminalID string) []any
 
 	mu       sync.Mutex
 	env      *shellenv.Result

@@ -103,6 +103,9 @@ type ClientMessage struct {
 	Frequent         bool
 	ActivityID       string
 	Ended            bool
+	// EntryID names a queue entry; Queue on agent.prompt queues it behind the turn.
+	EntryID string
+	Queue   bool
 }
 
 // McpActions are what agent.mcp may do to a server before it lists them.
@@ -187,7 +190,7 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 			(m.Platform == "ios" || m.Platform == "android") && optionalRange("protocol", &m.Protocol)
 	case m.Type == "agent.list", m.Type == "pair.begin", m.Type == "project.list", m.Type == "agent.providers":
 	case m.Type == "agent.prompt":
-		ok = get("agentId", &m.AgentID) && get("text", &m.Text)
+		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && f.optionalBool("queue", &m.Queue)
 	case m.Type == "agent.btw":
 		ok = get("agentId", &m.AgentID) && get("text", &m.Text) && strings.TrimSpace(m.Text) != ""
 	case m.Type == "agent.interrupt", m.Type == "agent.send_now", m.Type == "agent.compact", m.Type == "agent.close", m.Type == "agent.commands":
@@ -242,6 +245,10 @@ func DecodeClient(raw []byte) (ClientMessage, error) {
 	case m.Type == "board.limit":
 		ok = f.integer("limit", &m.BoardLimit, MinBoardLimit, MaxBoardLimit)
 	default:
+		if handled, good := orchestratorVerb(f, &m); handled {
+			ok = good
+			break
+		}
 		decode := phoneVerb(m.Type)
 		ok = decode != nil && decode(f, &m)
 	}

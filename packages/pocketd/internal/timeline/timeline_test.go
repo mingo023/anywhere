@@ -535,3 +535,19 @@ func TestLastingAgentsNamesTheTasksOfBackgroundSubagentsOnly(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestOnlyACallStillRunningInTheBackgroundIsInBackground(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 2)
+	for id, want := range map[string]bool{"b1": true, "t1": true, "t2": false, "bogus": false} {
+		if got := tl.InBackground(id); got != want {
+			t.Errorf("InBackground(%s) = %v", id, got)
+		}
+	}
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "t1", OK: true}, 9)
+	if tl.InBackground("b1") {
+		t.Fatal("an ended call is still in the background")
+	}
+}

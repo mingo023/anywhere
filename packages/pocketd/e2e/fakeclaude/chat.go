@@ -24,6 +24,7 @@ import (
 //	bg <cmd>     run a Bash tool in the background, then go on as slow
 //	agent <d>    start a sub-agent in the background, then go on as slow
 //	/compact     compact
+//	mcp <tool> <json>  call an Anywhere tool through --mcp-config, then reply its result
 //
 // Like claude, a bogus model fails each turn rather than the start.
 type chatter struct {
@@ -162,6 +163,8 @@ func (c *chatter) turn(text string) {
 	case strings.HasPrefix(text, "agent "):
 		c.backgroundAgent(model, id, strings.TrimPrefix(text, "agent "))
 		failed = c.slow(model, "done")
+	case strings.HasPrefix(text, "mcp "):
+		c.reply(model, callMCP(strings.TrimPrefix(text, "mcp ")))
 	case strings.HasPrefix(text, "slow "):
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
 	case text == "hang":

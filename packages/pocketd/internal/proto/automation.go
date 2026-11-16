@@ -83,6 +83,14 @@ type Automation struct {
 	// Model and Effort start each run, as a session's; empty leaves them to the agent.
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
+	// CreatedBy is the session whose agent made it; empty is the user.
+	CreatedBy string `json:"createdBy,omitempty"`
+	// Bound is the session a run posts into; one that closed gets a new session.
+	Bound string `json:"bound,omitempty"`
+	// Webhook runs it on a POST to /hooks/<id> on the loopback MCP port, signed with
+	// WebhookSecret (HMAC-SHA256 of the body, hex, in X-Anywhere-Signature) when one is set.
+	Webhook       bool   `json:"webhook,omitempty"`
+	WebhookSecret string `json:"webhookSecret,omitempty"`
 }
 
 // Valid is what a client's automation.save must satisfy.

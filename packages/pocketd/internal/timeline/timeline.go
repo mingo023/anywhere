@@ -12,7 +12,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_tokens, tool_background, tool_resumed, tool_end, result, retried, notice, compacted, error
+	Kind       string // delivery, user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_tokens, tool_background, tool_resumed, tool_end, result, retried, notice, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -33,6 +33,8 @@ type Event struct {
 	TaskID string
 	// Draft names the streamed block a draft's text belongs to.
 	Draft string
+	// Delivery is a delivery's: what pocketd told the session about its delegated children.
+	Delivery *proto.Delivery
 	// Limit marks a result that the account's usage limit ended.
 	Limit bool
 	// Detached marks a tool_background no turn waits for: its end takes no turn of the agent's, or may never come.
@@ -385,6 +387,9 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	case "notice":
 		return t.append(proto.Item{Kind: "notice", Text: e.Text}, e.ParentToolUseID, ts), true
 
+	case "delivery":
+		return t.append(proto.Item{Kind: "delivery", Delivery: e.Delivery}, "", ts), true
+
 	case "compacted":
 		return t.append(proto.Item{Kind: "compact", Trigger: e.Trigger}, e.ParentToolUseID, ts), true
 
@@ -450,6 +455,17 @@ func (t *Timeline) LastingAgents() []string {
 }
 
 // BackgroundAgents counts the sub-agents running on in the background past their turn whose end a turn waits for.
+// InBackground says whether id, a tool call's or a task's, names a call still running in the background.
+func (t *Timeline) InBackground(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n, ok := t.tasks[id]
+	if !ok {
+		n, ok = t.tools[id]
+	}
+	return ok && t.lasting[t.items[n].Call.ToolUseID] && t.items[n].Call.Status == "running"
+}
+
 func (t *Timeline) BackgroundAgents() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()

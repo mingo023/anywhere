@@ -65,7 +65,7 @@ func invalidResume(detail string) *Failure {
 // or the reason it can't. find is where the provider's command is, which
 // config.json may point away from the bare name the argv starts with.
 // account is the env of the managed account saved ran on.
-func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, account []string, find func(provider string) (string, bool)) (string, []string, string) {
+func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, account, mcp []string, find func(provider string) (string, bool)) (string, []string, string) {
 	argv, f := Resume(saved, args)
 	if f != nil {
 		return "", nil, f.Code
@@ -76,7 +76,7 @@ func resumeCmd(saved state.Terminal, args config.AgentArgs, shell, exe string, a
 	}
 	argv[0] = path
 	if saved.Chat {
-		argv = Piped(exe, argv)
+		argv = Piped(exe, append(argv, mcp...))
 	}
 	return shell, Wrap(shell, exe, "", argv, account), ""
 }
