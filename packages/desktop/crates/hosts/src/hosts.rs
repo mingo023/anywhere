@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn the_address_leaves_out_the_default_port_and_an_empty_user() {
         let host = |target| Host { id: "h".into(), name: "h".into(), target, windows: false };
-        assert_eq!(host(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None }).address(), "mingo@10.0.4.12:2222");
+        assert_eq!(host(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None }).address(), "dev@10.0.4.12:2222");
         assert_eq!(host(address("devbox")).address(), "devbox");
     }
 

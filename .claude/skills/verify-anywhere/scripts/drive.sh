@@ -32,7 +32,8 @@ done
 fx=$(cd "$fx" && pwd -P)
 printf '%s\n' "$@" > "$out/steps.txt"
 env | grep -E '^(CAPTURE|FIXTURE)_' >> "$out/steps.txt" || true
-HOME="$fx/home" POCKET_HOME="$fx/pocket" "$bin" --capture "$out" "$@" > "$out/desktop.log" 2>&1 &
+# The Add host form's username placeholder is $USER.
+HOME="$fx/home" POCKET_HOME="$fx/pocket" USER=dev "$bin" --capture "$out" "$@" > "$out/desktop.log" 2>&1 &
 app=$!
 echo "$pid $fx $app" > "$out/run.pid"
 wait "$app" || { cat "$out/desktop.log" >&2; exit 1; }

@@ -127,8 +127,8 @@ for (const r of scenario.repos) {
   const p = repoPath(r);
   mkdirSync(p, { recursive: true });
   git(p, "init", "-q", "-b", "main");
-  git(p, "config", "user.name", "Minh Ngo");
-  git(p, "config", "user.email", "minh@example.com");
+  git(p, "config", "user.name", "Dev User");
+  git(p, "config", "user.email", "dev@example.com");
   for (const a of scenario.agents.filter((a) => a.repo === r)) for (const [f, , removed] of a.diff ?? []) write(join(p, f), lines("base", removed + 10));
   write(join(p, "README.md"), `# ${r}\n`);
   git(p, "add", "-A");
@@ -233,7 +233,7 @@ const hostEntry = (id: string, name: string, target: HostTarget, link: Host["lin
 const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
 const hosts: Host[] = [
   hostEntry("devbox", "devbox", { kind: "alias", name: "devbox" }, ONLINE),
-  hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "mingo" }, { state: "retrying", failure: "not_running" }),
+  hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "dev" }, { state: "retrying", failure: "not_running" }),
 ];
 const pushHost = (ws: Ws, h: Host, id?: string) => ws.send(JSON.stringify({ type: "host.update", ...(id && { id }), host: h }));
 const setLink = (ws: Ws, hostId: string, link: Host["link"]) => {
@@ -266,8 +266,10 @@ const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target:
     for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
   }
   if (f.type === "host.remove") {
+    const at = hosts.findIndex((h) => h.id === f.hostId);
+    if (at < 0) return ws.send(JSON.stringify({ type: "error", id: f.id, code: "unknown_host", message: "That host isn't added" }));
     ack();
-    hosts.splice(hosts.findIndex((h) => h.id === f.hostId), 1);
+    hosts.splice(at, 1);
     ws.send(JSON.stringify({ type: "host.list", hosts }));
   }
 };

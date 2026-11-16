@@ -274,7 +274,7 @@ mod tests {
         let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false };
         let alias = host("devbox", Target::Alias { name: "devbox".into() });
         assert_eq!(host_line(&alias, None), "Not connected");
-        let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None });
-        assert_eq!(host_line(&ip, None), "mingo@10.0.4.12:2222 \u{b7} Not connected");
+        let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None });
+        assert_eq!(host_line(&ip, None), "dev@10.0.4.12:2222 \u{b7} Not connected");
     }
 }

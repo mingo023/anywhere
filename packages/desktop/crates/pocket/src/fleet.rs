@@ -140,14 +140,25 @@ enum Asked {
 pub(crate) enum Removing {
     Uninstall,
     Host,
+    Forget,
     Project(String),
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Leave {
+    Keep,
+    Uninstall,
+    Uninstalled,
+}
+
 /// What removing host `id` does, in order. The host is let go before its projects leave the list, so their
-/// terminals keep running there; uninstalling comes first and the rest waits for it.
-pub(crate) fn removal(id: &str, uninstall: bool, projects: &[String]) -> Vec<Removing> {
+/// terminals keep running there; uninstalling comes first and the rest waits for it. pocketd lets the host
+/// go as it uninstalls, so nothing more is sent for it then.
+pub(crate) fn removal(id: &str, leave: Leave, projects: &[String]) -> Vec<Removing> {
     let on_host = projects.iter().filter(|p| hosts::split(p).0 == Some(id)).map(|p| Removing::Project(p.clone()));
-    uninstall.then_some(Removing::Uninstall).into_iter().chain([Removing::Host]).chain(on_host).collect()
+    let uninstall = matches!(leave, Leave::Uninstall).then_some(Removing::Uninstall);
+    let host = if matches!(leave, Leave::Keep) { Removing::Host } else { Removing::Forget };
+    uninstall.into_iter().chain([host]).chain(on_host).collect()
 }
 
 /// The add form's fields; open while it shows.
@@ -367,7 +378,7 @@ impl Desktop {
             }
             Event::HostDone(request) => {
                 match self.fleet.asked.remove(&request) {
-                    Some(Asked::Uninstall(id)) => self.remove_host(&id, false, cx),
+                    Some(Asked::Uninstall(id)) => self.leave_host(&id, Leave::Uninstalled, cx),
                     Some(Asked::SignIn(id)) => self.signed_in(&id, None),
                     _ => {}
                 }
@@ -532,14 +543,18 @@ impl Desktop {
     }
 
     pub(crate) fn remove_host(&mut self, id: &str, uninstall: bool, cx: &mut Context<Self>) {
-        for step in removal(id, uninstall, &self.projects()) {
+        self.leave_host(id, if uninstall { Leave::Uninstall } else { Leave::Keep }, cx);
+    }
+
+    fn leave_host(&mut self, id: &str, leave: Leave, cx: &mut Context<Self>) {
+        for step in removal(id, leave, &self.projects()) {
             match step {
                 Removing::Uninstall => return self.uninstall_host(id, cx),
                 Removing::Host => {
-                    // After an uninstall pocketd has let it go already, and refuses this as unknown.
                     self.outbox.local.host_remove(id, false);
                     self.forget_host(id, cx);
                 }
+                Removing::Forget => self.forget_host(id, cx),
                 Removing::Project(p) => self.remove_project(&p, cx),
             }
         }
@@ -631,7 +646,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Hosts, Link, Links, Pending, Removing, Status, Tries, Turn, needs_update, on_status, removal, sign_in_error};
+    use super::{Failure, Hosts, Leave, Link, Links, Pending, Removing, Status, Tries, Turn, needs_update, on_status, removal, sign_in_error};
     use agents::hosts::{Entry, Target};
     use hosts::remote::HostInfo;
     use std::time::{Duration, Instant};
@@ -751,13 +766,19 @@ mod tests {
     #[test]
     fn removing_from_this_mac_lets_the_host_go_then_its_projects() {
         let projects = ["//devbox/home/me/app".to_string(), "/Users/me/site".into(), "//gpu/home/me/ml".into()];
-        assert_eq!(removal("devbox", false, &projects), [Removing::Host, Removing::Project("//devbox/home/me/app".into())]);
-        assert_eq!(removal("nas", false, &projects), [Removing::Host]);
+        assert_eq!(removal("devbox", Leave::Keep, &projects), [Removing::Host, Removing::Project("//devbox/home/me/app".into())]);
+        assert_eq!(removal("nas", Leave::Keep, &projects), [Removing::Host]);
     }
 
     #[test]
     fn uninstalling_removes_the_service_before_anything_else() {
         let projects = ["//devbox/home/me/app".to_string()];
-        assert_eq!(removal("devbox", true, &projects), [Removing::Uninstall, Removing::Host, Removing::Project("//devbox/home/me/app".into())]);
+        assert_eq!(removal("devbox", Leave::Uninstall, &projects), [Removing::Uninstall, Removing::Forget, Removing::Project("//devbox/home/me/app".into())]);
+    }
+
+    #[test]
+    fn a_finished_uninstall_does_not_ask_pocketd_to_remove_the_host_again() {
+        let projects = ["//devbox/home/me/app".to_string()];
+        assert_eq!(removal("devbox", Leave::Uninstalled, &projects), [Removing::Forget, Removing::Project("//devbox/home/me/app".into())]);
     }
 }
