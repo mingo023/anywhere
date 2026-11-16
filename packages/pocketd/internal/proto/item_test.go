@@ -18,6 +18,20 @@ func TestAnItemReadsBackAsItWasWrittenWhateverItsKind(t *testing.T) {
 		{ID: "n", Seq: 6, Kind: "notice", Text: "note", Error: "bad"},
 		{ID: "d", Seq: 7, Kind: "delivery", Delivery: &Delivery{TaskIDs: []string{"a"}, ChildIDs: []string{"c1"}, Titles: []string{"Tests"}, Agents: []string{"codex"}, Outcome: "asks", Question: "Which?"}},
 		{ID: "h", Seq: 8, Kind: "host_link", HostLink: &HostLink{EnvironmentID: "devbox", Hint: "dev", Reason: "run there"}},
+		{ID: "a", Seq: 9, Kind: "assistant", Text: "hello"},
+		{ID: "th", Seq: 10, Kind: "thinking", Text: "hmm"},
+		{ID: "pl", Seq: 11, Kind: "plan", Text: "1. do it"},
+		{ID: "c2", Seq: 12, Kind: "tool", Call: &ToolCall{ToolUseID: "t2", Name: "Bash", Detail: ToolDetail{Kind: "shell", Command: "make", Description: "Build"}, Status: "running"}},
+		{ID: "c3", Seq: 13, Kind: "tool", Call: &ToolCall{ToolUseID: "t3", Name: "Read", Detail: ToolDetail{Kind: "read", Path: "a.go"}, Status: "done", Output: &out, DurationMs: &ms}},
+		{ID: "c4", Seq: 14, Kind: "tool", Call: &ToolCall{ToolUseID: "t4", Name: "Edit", Detail: ToolDetail{Kind: "edit", Path: "a.go",
+			Diff: &FileDiff{Lines: []DiffLine{{Number: 3, Kind: "del", Text: "x"}, {Number: 3, Kind: "add", Text: "y"}, {Kind: "context", Text: "z"}}, Additions: 1, Deletions: 1}}, Status: "done"}},
+		{ID: "c5", Seq: 15, Kind: "tool", Call: &ToolCall{ToolUseID: "t5", Name: "Write", Detail: ToolDetail{Kind: "write", Path: "b.go",
+			Diff: &FileDiff{Lines: []DiffLine{{Number: 1, Kind: "add", Text: "package b"}}, Additions: 1, ContentOnly: true}}, Status: "done"}},
+		{ID: "c6", Seq: 16, Kind: "tool", Call: &ToolCall{ToolUseID: "t6", Name: "Write", Detail: ToolDetail{Kind: "write", Path: "c.go"}, Status: "failed"}},
+		{ID: "c7", Seq: 17, Kind: "tool", Call: &ToolCall{ToolUseID: "t7", Name: "Grep", Detail: ToolDetail{Kind: "search", Query: "TODO", Path: "internal"}, Status: "done"}},
+		{ID: "c8", Seq: 18, Kind: "tool", Call: &ToolCall{ToolUseID: "t8", Name: "Task", Detail: ToolDetail{Kind: "task", Description: "Find it", Model: "haiku", Tokens: 1200}, Status: "running"}},
+		{ID: "c9", Seq: 19, Kind: "tool", Call: &ToolCall{ToolUseID: "t9", Name: "mcp__x__y", Detail: ToolDetail{Kind: "other", Name: "mcp__x__y", Input: json.RawMessage(`{"a":[1,"b"]}`), Description: "Ask x"}, Status: "done"}},
+		{ID: "c10", Seq: 20, Kind: "tool", Call: &ToolCall{ToolUseID: "t10", Name: "ExitWorktree", Detail: ToolDetail{Kind: "other", Name: "ExitWorktree"}, Status: "done"}},
 	} {
 		b, err := json.Marshal(it)
 		if err != nil {
