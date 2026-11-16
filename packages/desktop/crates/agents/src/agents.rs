@@ -1,6 +1,7 @@
 pub mod automations;
 pub mod catalogs;
 pub mod delegations;
+pub mod hosts;
 pub mod tickets;
 pub mod locals;
 pub mod providers;
@@ -211,6 +212,10 @@ pub struct Item {
     pub outcome: String,
     /// A delivery's: what the child asks, when `outcome` is "asks".
     pub question: String,
+    /// A host_link's: what to fill the add-host form with.
+    pub hint: String,
+    /// A host_link's: why the agent wants the host.
+    pub reason: String,
     /// The tool-use id of the sub-agent call this item belongs to.
     pub parent_tool_use_id: Option<String>,
 }
@@ -469,6 +474,16 @@ pub enum Event {
     Queue { agent: String, entries: Vec<Entry> },
     /// pocketd couldn't act on one of the agent's MCP servers; `reason` says why.
     McpActFailed { agent: String, reason: String },
+    /// Every host this Mac's pocketd links, sent whole.
+    Hosts(Vec<hosts::Entry>),
+    /// One host added or changed; `request` is the add it answers, else empty.
+    HostUpdate { request: String, host: hosts::Entry },
+    /// A step of an install or update on `host`.
+    HostProgress { host: String, update: bool, progress: hosts::Progress },
+    /// pocketd refused the host message `request`; `detail` is why ssh failed, when it did.
+    HostError { request: String, code: String, detail: Option<hosts::Failure>, message: String },
+    /// pocketd did what the host message `request` asked.
+    HostDone(String),
 }
 
 #[derive(Default)]
@@ -593,6 +608,7 @@ impl Agents {
             Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
             Event::Queue { agent, entries } => self.queues.replace(&agent, entries),
             Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
+            Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) => {}
         }
     }
 
@@ -698,6 +714,11 @@ impl Agents {
     pub fn holds_queue(&self, agent_id: &str) -> bool {
         let host = agent_id.split_once('/').map_or("", |(h, _)| h);
         self.holders.contains(host) && !self.observe_only()
+    }
+
+    /// pocketd links the SSH hosts and takes their messages.
+    pub fn hosts_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == HOSTS_CAP)
     }
 
     /// pocketd runs automations and takes their messages.
@@ -855,6 +876,10 @@ fn auto_id() -> String {
     format!("{AUTO}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
+fn host_id() -> String {
+    format!("{}{}", hosts::HOST, NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
 fn queue_id() -> String {
     format!("{QUEUE}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
@@ -911,6 +936,7 @@ const ACCOUNTS_CAP: &str = "accounts.v1";
 const SETTINGS_CAP: &str = "settings.v1";
 const ACCESS_CAP: &str = "access.v1";
 const ORCHESTRATOR_CAP: &str = "orchestrator.v1";
+const HOSTS_CAP: &str = "hosts.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
@@ -1203,6 +1229,42 @@ impl Outbox {
         self.send(json!({"type": "automation.run", "id": auto_id(), "automationId": automation_id}));
     }
 
+    /// Adds a host for `target` and starts linking it; returns the request id its answer names.
+    pub fn host_add(&self, target: &hosts::Target) -> String {
+        let id = host_id();
+        self.send(json!({"type": "host.add", "id": id, "target": target}));
+        id
+    }
+
+    /// Closes the host's tunnel and forgets it; with `uninstall`, first removes pocketd's service there.
+    pub fn host_remove(&self, host_id: &str, uninstall: bool) -> String {
+        let id = self::host_id();
+        self.send(json!({"type": "host.remove", "id": id, "hostId": host_id, "uninstall": uninstall}));
+        id
+    }
+
+    pub fn host_retry(&self, host_id: &str) {
+        self.send(json!({"type": "host.retry", "id": self::host_id(), "hostId": host_id}));
+    }
+
+    /// Puts pocketd on the host, or with `update` installs over it, from the archives in `archive_dir` when given.
+    pub fn host_install(&self, host_id: &str, update: bool, archive_dir: Option<&str>) -> String {
+        let id = self::host_id();
+        let mut m = json!({"type": "host.install", "id": id, "hostId": host_id, "update": update});
+        if let Some(dir) = archive_dir {
+            m["archiveDir"] = dir.into();
+        }
+        self.send(m);
+        id
+    }
+
+    /// Signs in to the host once with `password` to put the app's own key there.
+    pub fn host_sign_in(&self, host_id: &str, password: &str) -> String {
+        let id = self::host_id();
+        self.send(json!({"type": "host.sign_in", "id": id, "hostId": host_id, "password": password}));
+        id
+    }
+
     fn send(&self, m: Value) {
         let _ = self.0.send(m);
     }
@@ -1233,7 +1295,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 17] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", ORCHESTRATOR_CAP];
+const CAPS: [&str; 18] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", ORCHESTRATOR_CAP, HOSTS_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1278,7 +1340,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| delegation_event(&f.kind, &raw)).or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries })) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| hosts::decode(&f.kind, &raw)).or_else(|| delegation_event(&f.kind, &raw)).or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries })) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -1712,7 +1774,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1", "hosts.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));

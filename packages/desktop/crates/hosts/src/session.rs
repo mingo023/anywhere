@@ -118,7 +118,7 @@ fn tag_delegation(host: &str, d: &mut agents::delegations::Delegation) {
     }
 }
 
-/// An agent event from host `host`'s pocketd in the desktop's terms, as `tag_msg`; false for news only this Mac's pocketd gives: pairing, the phone, Locals, automations.
+/// An agent event from host `host`'s pocketd in the desktop's terms, as `tag_msg`; false for news only this Mac's pocketd gives: pairing, the phone, Locals, automations, hosts.
 pub fn tag_event(host: &str, ev: &mut Event) -> bool {
     let t = |id: &mut String| *id = tag(host, id);
     match ev {
@@ -164,7 +164,12 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
         | Event::Automations { .. }
         | Event::AutomationError(_)
         | Event::Board { .. }
-        | Event::BoardError(_) => return false,
+        | Event::BoardError(_)
+        | Event::Hosts(_)
+        | Event::HostUpdate { .. }
+        | Event::HostProgress { .. }
+        | Event::HostError { .. }
+        | Event::HostDone(_) => return false,
     }
     true
 }
