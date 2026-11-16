@@ -2175,9 +2175,6 @@ mod tests {
             base: String::new(),
             model: String::new(),
             effort: String::new(),
-            created_by: String::new(),
-            bound: String::new(),
-            webhook: false,
         };
         out.automation_save(draft);
         out.automation_enable("au1", false);

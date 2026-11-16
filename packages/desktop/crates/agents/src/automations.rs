@@ -135,12 +135,6 @@ pub struct AutomationDraft {
     pub model: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub effort: String,
-    #[serde(rename = "createdBy", skip_serializing_if = "String::is_empty")]
-    pub created_by: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub bound: String,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub webhook: bool,
 }
 
 impl AutomationDraft {
@@ -240,9 +234,6 @@ mod tests {
             base: String::new(),
             model: String::new(),
             effort: String::new(),
-            created_by: String::new(),
-            bound: String::new(),
-            webhook: false,
         }
     }
 
@@ -338,16 +329,16 @@ mod tests {
         assert_eq!((au.created_by.as_str(), au.bound.as_str(), au.webhook, au.webhook_url.as_str()), ("a7", "a7", true, "http://127.0.0.1:4321/hooks/au9"));
         let by_user: Automation = serde_json::from_str(r#"{"id":"au1","name":"n","prompt":"p","provider":"codex","folder":"/f","schedule":{"kind":"interval","everyMin":60},"enabled":true}"#).unwrap();
         assert_eq!((by_user.created_by.as_str(), by_user.bound.as_str(), by_user.webhook, by_user.webhook_url.as_str()), ("", "", false, ""));
+        let f: crate::Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/automations_agent_made.json")).unwrap();
+        assert_eq!(f.automations.iter().map(|a| (a.id.as_str(), a.schedule == Schedule::Webhook, a.webhook)).collect::<Vec<_>>(), [("au2", true, true), ("au3", false, true)]);
     }
 
     #[test]
-    fn a_draft_sends_its_creator_binding_and_webhook_back_and_omits_them_when_unset() {
-        let kept = AutomationDraft { schedule: Schedule::Webhook, created_by: "a7".into(), bound: "a7".into(), webhook: true, ..draft() };
-        let sent = serde_json::to_value(&kept).unwrap();
-        assert_eq!((&sent["schedule"], &sent["createdBy"], &sent["bound"], &sent["webhook"]), (&serde_json::json!({"kind":"webhook"}), &serde_json::json!("a7"), &serde_json::json!("a7"), &serde_json::json!(true)));
-        assert_eq!(kept.problem(), None);
-        let plain = serde_json::to_value(draft()).unwrap();
-        assert!(["createdBy", "bound", "webhook"].iter().all(|k| plain.get(k).is_none()));
+    fn a_webhook_draft_serializes_as_pocketd_reads_it() {
+        let d = AutomationDraft { id: Some("au2".into()), name: "Nightly tests".into(), prompt: "run the tests".into(), schedule: Schedule::Webhook, ..draft() };
+        let want: serde_json::Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/client/automation_save_webhook.json")).unwrap();
+        assert_eq!(serde_json::to_value(&d).unwrap(), want["automation"]);
+        assert_eq!(d.problem(), None);
     }
 
     #[test]

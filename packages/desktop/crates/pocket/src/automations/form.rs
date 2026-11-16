@@ -34,10 +34,6 @@ pub struct Values {
     /// Empty is Settings' for the agent, as a session's "Default"; `settled` fills it in.
     pub model: String,
     pub effort: String,
-    /// Which session made it, which one its runs post into, and whether a webhook starts it: kept as pocketd has them.
-    pub created_by: String,
-    pub bound: String,
-    pub webhook: bool,
     /// The trigger is the webhook alone, which has nothing to edit.
     pub webhook_only: bool,
 }
@@ -52,7 +48,7 @@ impl Values {
         let mut days = [false; 7];
         d.days.iter().filter(|&&d| d < 7).for_each(|&d| days[d as usize] = true);
         let provider = PROVIDERS.into_iter().find(|p| *p == d.agent).unwrap_or(PROVIDERS[0]);
-        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree, base: String::new(), model: String::new(), effort: String::new(), created_by: String::new(), bound: String::new(), webhook: false, webhook_only: false }
+        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree, base: String::new(), model: String::new(), effort: String::new(), webhook_only: false }
     }
 
     pub fn add_schedule(&mut self, d: &Defaults) {
@@ -62,7 +58,7 @@ impl Values {
 
     pub fn of(a: &Automation) -> Self {
         let provider = PROVIDERS.into_iter().find(|p| *p == a.provider).unwrap_or(PROVIDERS[0]);
-        let base = Self { id: Some(a.id.clone()), title: a.name.clone(), prompt: a.prompt.clone(), provider, folder: a.folder.clone(), scheduled: true, enabled: a.enabled, access: a.access.clone(), new_worktree: a.new_worktree, base: a.base.clone(), model: a.model.clone(), effort: a.effort.clone(), created_by: a.created_by.clone(), bound: a.bound.clone(), webhook: a.webhook, ..Self::new(String::new()) };
+        let base = Self { id: Some(a.id.clone()), title: a.name.clone(), prompt: a.prompt.clone(), provider, folder: a.folder.clone(), scheduled: true, enabled: a.enabled, access: a.access.clone(), new_worktree: a.new_worktree, base: a.base.clone(), model: a.model.clone(), effort: a.effort.clone(), ..Self::new(String::new()) };
         match &a.schedule {
             Schedule::Days { days, time } => {
                 let mut on = [false; 7];
@@ -112,7 +108,7 @@ impl Values {
         let schedule = self.schedule().ok_or("Add a trigger")?;
         let title = self.title.trim();
         let name = if title.is_empty() { fallback_name(prompt) } else { title.to_string() };
-        let draft = AutomationDraft { id: self.id.clone(), name, prompt: prompt.into(), provider: self.provider.into(), folder: self.folder.clone(), schedule, enabled: self.enabled, access: self.access.clone(), new_worktree: self.new_worktree, base: if self.new_worktree { self.base.clone() } else { String::new() }, model: self.model.clone(), effort: self.effort.clone(), created_by: self.created_by.clone(), bound: self.bound.clone(), webhook: self.webhook };
+        let draft = AutomationDraft { id: self.id.clone(), name, prompt: prompt.into(), provider: self.provider.into(), folder: self.folder.clone(), schedule, enabled: self.enabled, access: self.access.clone(), new_worktree: self.new_worktree, base: if self.new_worktree { self.base.clone() } else { String::new() }, model: self.model.clone(), effort: self.effort.clone() };
         draft.problem().map_or(Ok(draft), Err)
     }
 
@@ -253,9 +249,6 @@ mod tests {
                 base: String::new(),
                 model: String::new(),
                 effort: String::new(),
-                created_by: String::new(),
-                bound: String::new(),
-                webhook: false,
             }
         );
         assert_eq!(Values { title: " Mine ".into(), ..ready() }.draft().unwrap().name, "Mine");
@@ -303,16 +296,12 @@ mod tests {
     }
 
     #[test]
-    fn a_webhook_automation_opens_as_webhook_and_saves_its_creator_binding_and_webhook_unchanged() {
+    fn a_webhook_automation_opens_as_webhook_and_saves_as_one() {
         let made = Automation { created_by: "a7".into(), bound: "a7".into(), webhook: true, webhook_url: "http://127.0.0.1:4321/hooks/a1".into(), ..automation(Schedule::Webhook) };
         let v = Values::of(&made);
         assert_eq!((v.webhook_only, v.label().as_deref()), (true, Some("Webhook")));
-        let d = v.draft().unwrap();
-        assert_eq!((d.schedule, d.created_by.as_str(), d.bound.as_str(), d.webhook), (Schedule::Webhook, "a7", "a7", true));
-        let by_user = Values::of(&automation(Schedule::Interval { every_min: 60 }));
-        assert!(!by_user.webhook_only);
-        let d = by_user.draft().unwrap();
-        assert_eq!((d.created_by.as_str(), d.bound.as_str(), d.webhook), ("", "", false));
+        assert_eq!(v.draft().unwrap().schedule, Schedule::Webhook);
+        assert!(!Values::of(&automation(Schedule::Interval { every_min: 60 })).webhook_only);
     }
 
     #[test]
