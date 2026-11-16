@@ -1,6 +1,7 @@
 package orchhost
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -62,6 +63,15 @@ func TestAChildStartsInPlanModeWhenItsParentIsInIt(t *testing.T) {
 		if got := h.planning(parent); got != want {
 			t.Errorf("planning(%q) = %v", parent, got)
 		}
+	}
+}
+
+func TestALaunchOnALinkedHostIsRefusedAsUnsupported(t *testing.T) {
+	h := &Host{}
+	payload, _ := json.Marshal(orch.LaunchPayload{Agent: "codex", Env: "devbox", HostProject: "/srv/app"})
+	_, err := h.Run(context.Background(), orch.Effect{Kind: orch.EffLaunch, Lane: "launch:t1", Payload: payload})
+	if f := orch.AsFailure(err); err == nil || f.Code != orch.CodeUnsupported {
+		t.Fatalf("err = %v, want unsupported", err)
 	}
 }
 

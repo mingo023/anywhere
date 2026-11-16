@@ -321,12 +321,12 @@ func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, error) {
 }
 
 func putDelegation(tx *Tx, t Delegation) error {
-	_, err := tx.Exec(`INSERT INTO delegations (task_id, parent_id, parent_turn, child_id, title, role, agent, model, effort, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, created_at, settled_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := tx.Exec(`INSERT INTO delegations (task_id, parent_id, parent_turn, child_id, title, role, agent, model, effort, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, environment_id, host_project, created_at, settled_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (task_id) DO UPDATE SET child_id = excluded.child_id, title = excluded.title, status = excluded.status, work_state = excluded.work_state, summary = excluded.summary,
 			error = excluded.error, completion_wake = excluded.completion_wake, delivery = excluded.delivery, pending_question = excluded.pending_question, settled_at = excluded.settled_at`,
 		t.TaskID, t.ParentID, t.ParentTurn, t.ChildID, t.Title, t.Role, t.Agent, t.Model, t.Effort, t.Brief, t.Isolation, t.Mode, t.Status, t.WorkState, t.Summary, t.Error, t.Access, t.SteppedDown,
-		t.CompletionWake, t.Delivery, t.PendingQuestion, t.ClientRequestID, t.CreatedAt, t.SettledAt)
+		t.CompletionWake, t.Delivery, t.PendingQuestion, t.ClientRequestID, t.Environment, t.HostProject, t.CreatedAt, t.SettledAt)
 	return err
 }
 
@@ -512,7 +512,7 @@ func loadQueue(q querier, session string, liveOnly bool) ([]QueueEntry, error) {
 	return out, rows.Err()
 }
 
-const delegationCols = `task_id, parent_id, parent_turn, child_id, title, role, agent, model, effort, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, created_at, settled_at`
+const delegationCols = `task_id, parent_id, parent_turn, child_id, title, role, agent, model, effort, brief, isolation, mode, status, work_state, summary, error, access, stepped_down, completion_wake, delivery, pending_question, client_request_id, environment_id, host_project, created_at, settled_at`
 
 func loadDelegations(q querier, where string, args ...any) ([]Delegation, error) {
 	rows, err := q.Query(`SELECT `+delegationCols+` FROM delegations WHERE `+where, args...)
@@ -524,7 +524,7 @@ func loadDelegations(q querier, where string, args ...any) ([]Delegation, error)
 	for rows.Next() {
 		var t Delegation
 		if err := rows.Scan(&t.TaskID, &t.ParentID, &t.ParentTurn, &t.ChildID, &t.Title, &t.Role, &t.Agent, &t.Model, &t.Effort, &t.Brief, &t.Isolation, &t.Mode, &t.Status, &t.WorkState, &t.Summary,
-			&t.Error, &t.Access, &t.SteppedDown, &t.CompletionWake, &t.Delivery, &t.PendingQuestion, &t.ClientRequestID, &t.CreatedAt, &t.SettledAt); err != nil {
+			&t.Error, &t.Access, &t.SteppedDown, &t.CompletionWake, &t.Delivery, &t.PendingQuestion, &t.ClientRequestID, &t.Environment, &t.HostProject, &t.CreatedAt, &t.SettledAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

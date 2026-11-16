@@ -178,6 +178,8 @@ type Delegation struct {
 	Delivery        string `json:"delivery"`
 	PendingQuestion string `json:"pendingQuestion,omitempty"`
 	ClientRequestID string `json:"clientRequestId,omitempty"`
+	Environment     string `json:"environmentId,omitempty"`
+	HostProject     string `json:"hostProject,omitempty"`
 	CreatedAt       int64  `json:"createdAt"`
 	SettledAt       int64  `json:"settledAt,omitempty"`
 }

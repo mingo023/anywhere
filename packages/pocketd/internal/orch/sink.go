@@ -19,6 +19,8 @@ type Sink struct {
 	store *Store
 	// OnTurn hears each turn that started or ended, after its rows commit.
 	OnTurn func(TurnChange)
+	// Mirrored says a session id belongs to a host's pocketd; such a session may have finished while pocketd was down.
+	Mirrored func(id string) bool
 
 	mu      sync.Mutex
 	wake    *sync.Cond
@@ -171,8 +173,8 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 		// Only the sink sets updated_at: a row without it is one a command or a lineage wrote ahead of the session's first summary.
 		created = errors.Is(err, sql.ErrNoRows) || err == nil && updated == 0
 	}
-	// A session stored mid-turn that comes back idle lost its turn to a cold restart.
-	if !seen && working(from) && !working(s.Status) && s.Status != "closed" && !s.Failed {
+	// A session stored mid-turn that comes back idle lost its turn to a cold restart, unless its host's agent kept running.
+	if !seen && working(from) && !working(s.Status) && s.Status != "closed" && !s.Failed && (k.Mirrored == nil || !k.Mirrored(s.ID)) {
 		s.Failed, s.Error = true, "pocketd restarted during the turn"
 	}
 	now := time.Now().UnixMilli()
