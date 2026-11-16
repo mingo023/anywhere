@@ -407,3 +407,23 @@ func TestAForkMergesBackOnlyWhatItSaidSinceTheSplit(t *testing.T) {
 		t.Errorf("parent to its child: %s", got)
 	}
 }
+
+func TestAWebhookOnlyTaskGetsTheWebhookScheduleAndIsListedWithItsURLButNotItsSecret(t *testing.T) {
+	HookBase = "http://127.0.0.1:7123"
+	t.Cleanup(func() { HookBase = "" })
+	sched := &fakeSchedules{autos: map[string]proto.Automation{}}
+	parent := proto.AgentSummary{ID: "parent", TerminalID: "t", Provider: "claude", Access: "edits", Status: "working"}
+	k := NewToolkit(&host{parent: parent, sched: sched})
+	g := Grant{Terminal: "t"}
+	if out, _ := k.Call(context.Background(), g, "schedule_task", json.RawMessage(`{"prompt":"nightly tests","webhook":true,"webhookSecret":"mine"}`)); out["isError"] == true {
+		t.Fatalf("%v", out)
+	}
+	if a := sched.autos["new"]; a.Schedule.Kind != "webhook" || !a.Webhook || !a.Schedule.ValidFor(a.Webhook) {
+		t.Fatalf("saved: %+v", a)
+	}
+	out, _ := k.Call(context.Background(), g, "list_scheduled_tasks", json.RawMessage(`{}`))
+	raw, _ := json.Marshal(out)
+	if !strings.Contains(string(raw), `"webhookUrl":"http://127.0.0.1:7123/hooks/new"`) || strings.Contains(string(raw), "mine") {
+		t.Fatalf("listed: %s", raw)
+	}
+}

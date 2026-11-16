@@ -119,6 +119,12 @@ var serverGolden = map[string]any{
 		{TaskID: "task2", ParentID: "a1", ChildID: "a3", Title: "Review", Agent: "claude", Status: "completed", Summary: "Two findings", CreatedAt: 1, SettledAt: 2},
 	}),
 	"delegation_update": NewDelegationUpdate("a1", Delegation{TaskID: "task1", ParentID: "a1", ChildID: "a2", Title: "Write the tests", Agent: "codex", Status: "working", Question: "Which test runner?", CreatedAt: 1}),
+	"automations_agent_made": NewAutomations([]Automation{
+		{ID: "au2", Name: "Nightly tests", Prompt: "run the tests", Provider: "claude", Folder: "/Users/me/app", Schedule: Schedule{Kind: "webhook"}, Enabled: true,
+			CreatedBy: "a1", Bound: "a1", Webhook: true, WebhookURL: "http://127.0.0.1:7123/hooks/au2", WebhookSecret: "s3cret"},
+		{ID: "au3", Name: "Weekday check", Prompt: "check the build", Provider: "codex", Folder: "/Users/me/app", Schedule: Schedule{Kind: "days", Days: []int{1, 2, 3, 4, 5}, Time: "09:00"}, Enabled: true,
+			NextRunAt: 1791450000000, CreatedBy: "a1", Webhook: true, WebhookURL: "http://127.0.0.1:7123/hooks/au3"},
+	}, nil),
 	"queue_list": NewQueueList("q1", "a1", []QueueEntry{
 		{ID: "e1", Text: "also fix the lint", Origin: "user", State: "pending", Order: 1},
 		{ID: "e2", Text: "Write the tests finished.", Origin: "wake", State: "pending", Order: 2},

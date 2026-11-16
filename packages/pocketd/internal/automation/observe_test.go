@@ -82,3 +82,16 @@ func TestAnswerIsAReplyAfterThePrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestStepKeepsARunGoingWhileTheSessionsEarlierTurnLooksDone(t *testing.T) {
+	for _, status := range []string{"done", "idle"} {
+		got, _ := Step(proto.Run{Status: "running"}, Seen{Status: status, Summary: "Old.", Answered: true, Before: true}, true, true)
+		if got.Status != "running" || got.Summary != "" {
+			t.Errorf("%s before its own turn ended: %+v", status, got)
+		}
+	}
+	got, _ := Step(proto.Run{Status: "running"}, Seen{Status: "done", Summary: "New."}, true, true)
+	if got.Status != "succeeded" || got.Summary != "New." {
+		t.Fatalf("%+v", got)
+	}
+}

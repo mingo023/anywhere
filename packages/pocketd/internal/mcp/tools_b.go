@@ -216,15 +216,9 @@ func schedules(c *Call) (Schedules, error) {
 	return s, nil
 }
 
-type scheduleView struct {
-	proto.Automation
-	Webhook string `json:"webhookUrl,omitempty"`
-}
-
-func viewSchedule(a proto.Automation) scheduleView {
-	v := scheduleView{Automation: a, Webhook: WebhookURL(a)}
-	v.WebhookSecret = ""
-	return v
+func viewSchedule(a proto.Automation) proto.Automation {
+	a.WebhookURL = WebhookURL(a)
+	return a
 }
 
 // schedule is the Automation id names, if the caller may change it: one
@@ -291,6 +285,9 @@ func scheduleTask(ctx context.Context, c *Call) (any, error) {
 	if p.Webhook {
 		a.Webhook = true
 		a.WebhookSecret = p.WebhookSecret
+		if a.Schedule.Kind == "" {
+			a.Schedule = proto.Schedule{Kind: "webhook"}
+		}
 	}
 	if p.Enabled != nil {
 		a.Enabled = *p.Enabled
@@ -328,7 +325,7 @@ func listSchedules(ctx context.Context, c *Call) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := []scheduleView{}
+	out := []proto.Automation{}
 	for _, a := range s.List() {
 		if p.Mine && a.CreatedBy != c.Caller.ID {
 			continue

@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"pocketd/internal/agent"
+	"pocketd/internal/hub"
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 )
 
@@ -64,5 +70,95 @@ func TestAWebhookWithABadSignatureIsSkipped(t *testing.T) {
 	}
 	if strings.Join(s.ran, ",") != "signed,open" {
 		t.Fatalf("ran %v", s.ran)
+	}
+}
+
+type turnRecorder struct {
+	mu    sync.Mutex
+	lanes []string
+}
+
+func (r *turnRecorder) Run(_ context.Context, e orch.Effect) (map[string]any, error) {
+	if e.Kind == orch.EffTurnStart {
+		r.mu.Lock()
+		r.lanes = append(r.lanes, e.Lane)
+		r.mu.Unlock()
+	}
+	return nil, nil
+}
+
+func (r *turnRecorder) turns() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.lanes...)
+}
+
+type quietDriver struct{}
+
+func (quietDriver) Prompt(string) error                { return nil }
+func (quietDriver) Interrupt() error                   { return nil }
+func (quietDriver) Compact() error                     { return nil }
+func (quietDriver) Settings(string, string) error      { return nil }
+func (quietDriver) Commands() ([]proto.Command, error) { return nil, nil }
+func (quietDriver) Access(string) error                { return nil }
+func (quietDriver) Close()                             {}
+
+func boundRig(t *testing.T) (*agent.Registry, func(runID string, a proto.Automation) bool, *turnRecorder) {
+	t.Helper()
+	reg := agent.NewRegistry(hub.New())
+	store, err := orch.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	rec := &turnRecorder{}
+	e := orch.NewEngine(store, rec)
+	t.Cleanup(e.Close)
+	e.Live = func(id string) (orch.Session, bool) {
+		a, err := reg.Get(id)
+		if err != nil {
+			return orch.Session{}, false
+		}
+		s := a.Summary()
+		return orch.Session{ID: s.ID, Agent: s.Provider, Status: s.Status, Cwd: s.Cwd}, true
+	}
+	post := postBound(reg, e)
+	return reg, func(runID string, a proto.Automation) bool {
+		res, watch, ok := post(runID, a)
+		if ok && (res.AgentID != a.Bound || watch == nil) {
+			t.Fatalf("%+v", res)
+		}
+		return ok
+	}, rec
+}
+
+func TestABoundRunPutsItsPromptIntoTheOpenSessionAsATurn(t *testing.T) {
+	reg, post, rec := boundRig(t)
+	reg.Add("a1", "/w", "claude", quietDriver{})
+	if !post("run1", proto.Automation{Bound: "a1", Prompt: "check the build"}) {
+		t.Fatal("an open session was refused")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(rec.turns()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := rec.turns(); len(got) != 1 || got[0] != "a1" {
+		t.Fatalf("turns started in %v", got)
+	}
+}
+
+func TestABoundRunFallsBackWhenItsSessionIsGoneOrClosed(t *testing.T) {
+	reg, post, rec := boundRig(t)
+	if post("run1", proto.Automation{Bound: "nope", Prompt: "p"}) {
+		t.Fatal("a session that never existed took the run")
+	}
+	reg.Add("a2", "/w", "claude", quietDriver{})
+	reg.Remove("a2")
+	if post("run2", proto.Automation{Bound: "a2", Prompt: "p"}) {
+		t.Fatal("a closed session took the run")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := rec.turns(); len(got) != 0 {
+		t.Fatalf("turns started in %v", got)
 	}
 }
