@@ -1,9 +1,9 @@
 use super::Peek;
 use crate::chat::markdown::Open;
 use crate::desktop::Desktop;
-use crate::git_ui::pull_request::{check_rows, glyph_slot, opening, plural, review_icon, review_lines, row, small};
+use crate::git_ui::pull_request::{check_rows, glyph_slot, opening, plural, review_icon, review_lines, row, small, spot};
 use crate::git_ui::pull_requests::glyph;
-use git::github::{Outcome, Pr, PrState, Thread};
+use git::github::{Outcome, Pr, PrState};
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
@@ -28,12 +28,6 @@ fn checks_line(pr: &Pr) -> Option<(Outcome, String)> {
     } else {
         (Outcome::Skipped, "No checks".into())
     })
-}
-
-/// A thread's file and line, without the folders: the card is too narrow for both a path and what was said.
-fn spot(t: &Thread) -> String {
-    let file = t.path.rsplit('/').next().unwrap_or(&t.path);
-    t.line.map_or(file.to_string(), |line| format!("{file}:{line}"))
 }
 
 fn line(lead: impl IntoElement, text: String) -> Div {
