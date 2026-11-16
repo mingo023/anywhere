@@ -1,0 +1,318 @@
+package hosts
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"sync"
+	"time"
+
+	"pocketd/internal/hostop"
+	"pocketd/internal/terminal"
+)
+
+var (
+	ErrUnknown = errors.New("That host isn't added")
+	ErrBusy    = errors.New("An install is already under way on that host")
+)
+
+// Entry is a saved host with its link, and the socket clients dial for its pocketd.
+type Entry struct {
+	Host
+	Socket string
+	Link   Link
+}
+
+// Manager keeps the saved hosts in home/state/hosts.json and a link to each one's pocketd.
+type Manager struct {
+	paths Paths
+	// env is what ssh runs with: the login shell's, so the user's agent, config and PATH apply.
+	env     func() []string
+	version string
+	// name is this machine's, which a Windows host's pocketd names its owner token after.
+	name string
+
+	mu sync.Mutex
+	// ctx is nil until Start, and no link runs before.
+	ctx      context.Context
+	hosts    []Host
+	links    map[string]Link
+	sups     map[string]*supervisor
+	installs map[string]bool
+	changed  chan struct{}
+}
+
+func Open(paths Paths, env func() []string, version, name string) (*Manager, error) {
+	saved, err := Load(paths.Home)
+	if err != nil {
+		return nil, err
+	}
+	m := &Manager{paths: paths, env: env, version: version, name: name, hosts: saved,
+		links: map[string]Link{}, sups: map[string]*supervisor{}, installs: map[string]bool{}, changed: make(chan struct{})}
+	for _, h := range saved {
+		m.links[h.ID] = Link{State: StateConnecting}
+	}
+	return m, nil
+}
+
+// Start links every saved host, and each one added later, until ctx ends.
+func (m *Manager) Start(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ctx = ctx
+	for _, h := range m.hosts {
+		m.supervise(h.ID)
+	}
+}
+
+func (m *Manager) List() []Entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Entry, len(m.hosts))
+	for i, h := range m.hosts {
+		out[i] = m.entry(h)
+	}
+	return out
+}
+
+// Endpoint is where a client reaches the host's pocketd: its tunnel's socket, and the owner token a Windows host wants first.
+func (m *Manager) Endpoint(id string) (socket, token string, ok bool) {
+	if _, ok := m.host(id); !ok {
+		return "", "", false
+	}
+	owner, _ := loadOwner(m.paths.Token(id))
+	return m.paths.Socket(id), owner.Token, true
+}
+
+// Changed closes at the next change to a host or its link; take a new one after each.
+func (m *Manager) Changed() <-chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.changed
+}
+
+// Add saves a host for t, shown as name when one is given, and starts linking it; it installs nothing.
+func (m *Manager) Add(t Target, name string) (Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	h, err := Add(m.hosts, t)
+	if err != nil {
+		return Entry{}, err
+	}
+	h.Name = cmp.Or(name, h.Name)
+	list := append(slices.Clone(m.hosts), h)
+	if err := Save(m.paths.Home, list); err != nil {
+		return Entry{}, err
+	}
+	m.hosts = list
+	m.links[h.ID] = Link{State: StateConnecting}
+	m.supervise(h.ID)
+	m.notify()
+	return m.entry(h), nil
+}
+
+// Remove closes the host's tunnel and forgets it with its files here. With uninstall it first removes pocketd's
+// service there; if that fails the host stays.
+func (m *Manager) Remove(id string, uninstall bool) error {
+	h, ok := m.host(id)
+	if !ok {
+		return ErrUnknown
+	}
+	if uninstall {
+		if err := m.uninstall(context.Background(), h); err != nil {
+			return err
+		}
+	}
+	m.mu.Lock()
+	i := m.index(id)
+	if i < 0 {
+		m.mu.Unlock()
+		return ErrUnknown
+	}
+	list := slices.Delete(slices.Clone(m.hosts), i, i+1)
+	if err := Save(m.paths.Home, list); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	s := m.sups[id]
+	m.hosts = list
+	delete(m.sups, id)
+	delete(m.links, id)
+	m.notify()
+	m.mu.Unlock()
+	if s != nil {
+		s.stop()
+	}
+	for _, f := range []string{m.paths.KnownHosts(id), m.paths.Token(id), m.paths.Key(id), m.paths.Key(id) + ".pub"} {
+		os.Remove(f)
+	}
+	return nil
+}
+
+// Retry reconnects now, without waiting out a backoff or a failure.
+func (m *Manager) Retry(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.index(id) < 0 {
+		return ErrUnknown
+	}
+	if s := m.sups[id]; s != nil {
+		s.retry()
+	}
+	return nil
+}
+
+// Install puts pocketd on the host, or with update installs over the one there, in its own goroutine; on gets
+// each step. Once pocketd runs there the link reconnects rather than wait out its backoff.
+func (m *Manager) Install(id string, update bool, archiveDir string, on func(Progress)) error {
+	m.mu.Lock()
+	h, ok := m.hostLocked(id)
+	busy := m.installs[id]
+	if ok && !busy {
+		m.installs[id] = true
+	}
+	m.mu.Unlock()
+	switch {
+	case !ok:
+		return ErrUnknown
+	case busy:
+		return ErrBusy
+	}
+	go func() {
+		defer func() {
+			m.mu.Lock()
+			delete(m.installs, id)
+			m.mu.Unlock()
+		}()
+		// Finding the platform and uploading the archive come before bootstrap says it checks the host.
+		on(Progress{Kind: ProgressStep, Step: StepDetect})
+		if err := m.install(h, update, archiveDir, on); err != nil {
+			on(Progress{Kind: ProgressError, Text: message(err, h.Name)})
+			return
+		}
+		m.Retry(id)
+	}()
+	return nil
+}
+
+// supervise starts linking host id; m.mu is held.
+func (m *Manager) supervise(id string) {
+	if m.ctx == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	s := &supervisor{m: m, id: id, events: make(chan event, 16), cancel: cancel, done: make(chan struct{})}
+	m.sups[id] = s
+	go s.run(ctx)
+}
+
+// report records s's link, unless s no longer supervises its host.
+func (m *Manager) report(s *supervisor, l Link) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sups[s.id] == s && m.links[s.id] != l {
+		m.links[s.id] = l
+		m.notify()
+	}
+}
+
+// setWindows saves what the host runs, once an install's probe or its pocketd said.
+func (m *Manager) setWindows(id string, windows bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i := m.index(id)
+	if i < 0 || m.hosts[i].Windows == windows {
+		return
+	}
+	m.hosts = slices.Clone(m.hosts)
+	m.hosts[i].Windows = windows
+	if err := Save(m.paths.Home, m.hosts); err != nil {
+		log.Printf("hosts: %v", err)
+	}
+	m.notify()
+}
+
+func (m *Manager) notify() {
+	close(m.changed)
+	m.changed = make(chan struct{})
+}
+
+func (m *Manager) entry(h Host) Entry { return Entry{h, m.paths.Socket(h.ID), m.links[h.ID]} }
+
+func (m *Manager) index(id string) int {
+	return slices.IndexFunc(m.hosts, func(h Host) bool { return h.ID == id })
+}
+
+func (m *Manager) host(id string) (Host, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hostLocked(id)
+}
+
+func (m *Manager) hostLocked(id string) (Host, bool) {
+	if i := m.index(id); i >= 0 {
+		return m.hosts[i], true
+	}
+	return Host{}, false
+}
+
+// command runs ssh, found on the PATH ssh's env has.
+func (m *Manager) command(ctx context.Context, args []string) (*exec.Cmd, error) {
+	env := m.env()
+	path, err := terminal.LookPath("ssh", env)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = env
+	// ssh's children on the host side of a fake, or a ProxyCommand, can hold its pipes past the kill.
+	cmd.WaitDelay = time.Second
+	return cmd, nil
+}
+
+func (m *Manager) sshArgs(h Host, extra []string, command string) []string {
+	known := m.paths.KnownHosts(h.ID)
+	// Before ssh runs, or it can't record a host key it accepts, and a password sign-in then won't trust it.
+	os.MkdirAll(filepath.Dir(known), 0o700)
+	key := m.paths.Key(h.ID)
+	if _, err := os.Stat(key); err != nil {
+		key = ""
+	}
+	return args(h, known, key, extra, command)
+}
+
+// run is command's output on the host; an *SSHError only when ssh itself failed, which it says by exiting 255.
+func (m *Manager) run(ctx context.Context, h Host, command string, stdin []byte) (stdout, stderr []byte, code int, err error) {
+	code, stdout, stderr, err = hostop.Run(ctx, m.env(), "", append([]string{"ssh"}, m.sshArgs(h, nil, command)...), stdin, 0)
+	switch {
+	case err != nil:
+		err = fmt.Errorf("Couldn't run ssh: %w", err)
+	case code == 255:
+		err = &SSHError{classify(string(stderr))}
+	}
+	return stdout, stderr, code, err
+}
+
+func failureOf(err error) Failure {
+	if e, ok := errors.AsType[*SSHError](err); ok {
+		return e.Failure
+	}
+	if err != nil {
+		return FailOther
+	}
+	return ""
+}
+
+// message is err as the user reads it about the host named name.
+func message(err error, name string) string {
+	if e, ok := errors.AsType[*SSHError](err); ok {
+		return e.Failure.Message(name)
+	}
+	return err.Error()
+}

@@ -109,6 +109,8 @@ type Server struct {
 	Skills *skills.Store
 	// Orch runs prompts, stops and the queue as commands; nil drives agents directly.
 	Orch *orch.Engine
+	// Hosts serves the owner's host verbs and feed; nil serves none.
+	Hosts *Hosts
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -152,6 +154,7 @@ type conn struct {
 	gh        ghConn
 	files     filesConn
 	push      pushConn
+	hosts     hostsConn
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -331,6 +334,7 @@ func (c *conn) handle(raw []byte) {
 		c.send(proto.NewAgentList("", c.s.Agents.List()))
 		c.automations(caps)
 		c.boardFeed(caps)
+		c.hostsFeed(caps)
 		for _, req := range c.s.Broker.Open() {
 			c.send(proto.NewPermissionRequest(req))
 		}
@@ -411,6 +415,7 @@ func (c *conn) closeAreas() {
 	c.closeGitHub()
 	c.closeFiles()
 	c.closePush()
+	c.closeHosts()
 }
 
 // notImplemented answers a phone verb whose handler hasn't landed.
@@ -615,6 +620,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "config.set":
 		c.configSet(m)
 		return nil
+	case "host.list", "host.add", "host.remove", "host.retry", "host.install", "host.sign_in":
+		return c.host(m)
 	case "automation.save", "automation.enable", "automation.delete", "automation.run":
 		return c.automation(m)
 	case "board.save", "board.delete", "board.start", "board.move", "board.close", "board.reopen", "board.limit":

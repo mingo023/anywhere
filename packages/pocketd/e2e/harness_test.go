@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	for _, b := range [][2]string{{"pocketd", "../cmd/pocketd"}, {"fake/claude", "./fakeclaude"}, {"fake/codex", "./fakecodex"}, {"redteam", "./redteam"}} {
+	for _, b := range [][2]string{{"pocketd", "../cmd/pocketd"}, {"fake/claude", "./fakeclaude"}, {"fake/codex", "./fakecodex"}, {"fake/ssh", "./fakessh"}, {"redteam", "./redteam"}} {
 		out, err := exec.Command("go", "build", "-o", filepath.Join(dir, b[0]), b[1]).CombinedOutput()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build %s: %v\n%s", b[1], err, out)
