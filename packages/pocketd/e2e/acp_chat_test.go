@@ -692,3 +692,10 @@ func TestARestartWhileOpenCodeAsksLeavesNoCallRunning(t *testing.T) {
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
 }
+
+func TestAChatACPTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil)
+	phone.Prompt(id, "think hello")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), statusOf(id, "done"))
+	storedAsLive(h, id)
+}

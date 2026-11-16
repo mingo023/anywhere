@@ -269,3 +269,11 @@ func TestARestartResumesTheChatAgentForTheChat(t *testing.T) {
 	again.WaitStream(id, "assistant", "echo: after the restart")
 	h.WaitScreen(term, "prompt: after the restart")
 }
+
+func TestAChatClaudesTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := chatClaude(t)
+	phone.Prompt(id, "run ls")
+	resolve(phone, phone.WaitFor("permission.request", asked), map[string]any{"decision": "allow"})
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: ran ls"), statusOf(id, "done"))
+	storedAsLive(h, id)
+}

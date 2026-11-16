@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"pocketd/internal/orch"
 )
 
 // chatCodex creates a codex through Pocket, which runs its app-server for
@@ -178,4 +180,32 @@ func TestARestartResumesTheChatCodexThread(t *testing.T) {
 	again.Prompt(id, "after the restart")
 	again.WaitStream(id, "assistant", "echo: after the restart")
 	h.WaitScreen(term, "resume: ")
+}
+
+func TestAChatCodexsTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := chatCodex(t, nil)
+	phone.Prompt(id, "run ls")
+	resolve(phone, phone.WaitFor("permission.request", asked), map[string]any{"decision": "allow"})
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: ran ls"), statusOf(id, "done"))
+	storedAsLive(h, id)
+}
+
+func TestAQuestionAChatCodexAsksIsStoredAsAQuestionAndItsAnswerReachesCodex(t *testing.T) {
+	h, phone, _, id := chatCodex(t, nil)
+	phone.Prompt(id, "ask Ship it?")
+	req := phone.WaitFor("the question", asked)
+	if req.Request.AgentID != id || req.Request.ToolName != "AskUserQuestion" || !strings.Contains(req.Raw, "Ship it?") {
+		t.Fatalf("got %s", req.Raw)
+	}
+	store, err := orch.Open(h.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	h.eventually("the stored question", func() bool {
+		open, _ := store.Requests(id, "open")
+		return len(open) == 1 && open[0].ID == req.Request.RequestID && open[0].Kind == "question"
+	})
+	resolve(phone, req, map[string]any{"decision": "allow", "answers": map[string]string{"Ship it?": "Yes"}})
+	phone.WaitStream(id, "assistant", `echo: answers {"q1":{"answers":["Yes"]}}`)
 }

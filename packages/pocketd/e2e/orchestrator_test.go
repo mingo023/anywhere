@@ -3,12 +3,15 @@
 package e2e
 
 import (
+	"bytes"
 	"encoding/json"
 	"slices"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
+	"pocketd/internal/ops"
 	"pocketd/internal/orch"
 	"pocketd/internal/orchhost"
 	"pocketd/internal/proto"
@@ -44,6 +47,41 @@ func TestAToolRefusesAnUnknownTaskWithItsCode(t *testing.T) {
 	phone.WaitFor("the refusal", func(m Message) bool {
 		return m.Type == "agent.stream" && m.AgentID == parent && m.Item.Kind == "assistant" && strings.Contains(m.Item.Text, "not_found")
 	})
+}
+
+// storedAsLive waits until the store holds id's live timeline as the wire
+// shows it, sub-agents' items included, each row at the timeline's epoch, then
+// returns the store, open.
+func storedAsLive(h *Harness, id string) *orch.Store {
+	h.t.Helper()
+	p := h.Owner(proto.CapSubagents)
+	store, err := orch.Open(h.Home)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.t.Cleanup(func() { store.Close() })
+	var live, stored []byte
+	var stale int
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		p.Send(map[string]any{"type": "agent.timeline", "id": "s-" + id, "agentId": id})
+		var page struct {
+			Epoch int64        `json:"epoch"`
+			Items []proto.Item `json:"items"`
+		}
+		json.Unmarshal([]byte(p.WaitFor("the timeline", func(m Message) bool { return m.Type == "agent.timeline" && m.ID == "s-"+id }).Raw), &page)
+		items, err := store.Items(id)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		live, _ = json.Marshal(page.Items)
+		stored, _ = json.Marshal(items)
+		store.DB().QueryRow(`SELECT COUNT(*) FROM items WHERE session_id = ? AND epoch != ?`, id, page.Epoch).Scan(&stale)
+		if len(page.Items) > 0 && bytes.Equal(live, stored) && stale == 0 {
+			return store
+		}
+	}
+	h.t.Fatalf("the store holds\n%s\n(%d rows off the epoch), the live timeline\n%s", stored, stale, live)
+	return nil
 }
 
 // delegationsOf is parent's delegations as agent.delegations gives them.
@@ -145,5 +183,31 @@ func TestALaunchCommittedBeforeARestartStartsAfterIt(t *testing.T) {
 	task := settledAndWoken(h, h.Owner(), parent, "completed")
 	if task.ChildID == "" || task.Summary != "echo: after the restart" {
 		t.Fatalf("task = %+v", task)
+	}
+}
+
+func TestAnAgentThatIsntAttachedRecordsOnlyItsCreationAndItsClose(t *testing.T) {
+	h := Start(t)
+	phone := h.Phone()
+	term := h.SpawnReady("grok")
+	id := phone.WaitFor("the grok's agent", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.TerminalID == term && !m.Agent.Attached
+	}).Agent.ID
+	h.Ops().Send(ops.Msg{Op: "close", ID: term})
+	phone.WaitStatus(id, "closed")
+	store, err := orch.Open(h.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var kinds string
+	var rows int
+	h.eventually("its close", func() bool {
+		store.DB().QueryRow(`SELECT group_concat(kind) FROM (SELECT kind FROM events WHERE session_id = ? ORDER BY seq)`, id).Scan(&kinds)
+		return strings.HasSuffix(kinds, "session.closed")
+	})
+	store.DB().QueryRow(`SELECT (SELECT COUNT(*) FROM turns WHERE session_id = ?) + (SELECT COUNT(*) FROM items WHERE session_id = ?)`, id, id).Scan(&rows)
+	if kinds != "session.created,session.closed" || rows != 0 {
+		t.Fatalf("events %s, %d turn and item rows", kinds, rows)
 	}
 }
