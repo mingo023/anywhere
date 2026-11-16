@@ -247,18 +247,27 @@ func (r *remote) catchUp(theirs string, wait bool) {
 	}
 }
 
+const pageSize = 500
+
 // page stores one page of theirs' items past the stored ones, and says whether it held any.
 func (r *remote) page(theirs string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	raw, err := r.client.Call(ctx, "agent.timeline", map[string]any{"type": "agent.timeline", "agentId": theirs, "sinceSeq": r.seq[theirs], "limit": 500})
+	since := r.seq[theirs]
+	t, err := r.timeline(theirs, "sinceSeq", since)
 	if err != nil {
 		return false
 	}
-	var t proto.AgentTimeline
-	json.Unmarshal(raw, &t)
+	items := t.Items
+	// A full page is the newest past since, so what lies between is read backwards.
+	for older := items; len(older) == pageSize; {
+		o, err := r.timeline(theirs, "beforeSeq", older[0].Seq)
+		if err != nil {
+			return false
+		}
+		older = slices.DeleteFunc(o.Items, func(it proto.Item) bool { return it.Seq <= since })
+		items = append(older, items...)
+	}
 	newer := false
-	for _, it := range t.Items {
+	for _, it := range items {
 		if it.Seq <= r.seq[theirs] {
 			continue
 		}
@@ -274,6 +283,17 @@ func (r *remote) page(theirs string) bool {
 		}
 	}
 	return newer
+}
+
+func (r *remote) timeline(theirs, from string, seq int64) (proto.AgentTimeline, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var t proto.AgentTimeline
+	raw, err := r.client.Call(ctx, "agent.timeline", map[string]any{"type": "agent.timeline", "agentId": theirs, from: seq, "limit": pageSize})
+	if err == nil {
+		json.Unmarshal(raw, &t)
+	}
+	return t, err
 }
 
 func (m *Manager) drop(r *remote) {

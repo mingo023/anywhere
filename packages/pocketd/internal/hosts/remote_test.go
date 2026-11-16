@@ -1,9 +1,12 @@
 package hosts
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"pocketd/internal/proto"
 )
@@ -66,5 +69,49 @@ func TestAQuestionAskedBeforeTheLaunchReturnedReachesTheMirrorOnceTracked(t *tes
 	r.frame("permission.resolved", raw)
 	if !slices.Equal(m.answered, []string{"devbox/a2 devbox/q1"}) {
 		t.Errorf("answered = %v", m.answered)
+	}
+}
+
+type seqs struct {
+	Mirror
+	got []int64
+}
+
+func (m *seqs) Item(_ string, _ int64, it proto.Item) { m.got = append(m.got, it.Seq) }
+
+func TestASessionMoreThanAPageAheadIsMirroredFromItsFirstUnseenItem(t *testing.T) {
+	var all []proto.Item
+	for seq := int64(1); seq <= 1234; seq++ {
+		all = append(all, proto.Item{ID: fmt.Sprint("i", seq), Seq: seq, Kind: "assistant", Text: "x"})
+	}
+	// Answers as a host's Timeline does: the newest limit items past sinceSeq, or before beforeSeq.
+	socket := fakePocketd(t, func(read func() map[string]any, send func(any)) {
+		for m := read(); m != nil; m = read() {
+			since, _ := m["sinceSeq"].(float64)
+			before, backwards := m["beforeSeq"].(float64)
+			var match []proto.Item
+			for _, it := range all {
+				if backwards && float64(it.Seq) < before || !backwards && float64(it.Seq) > since {
+					match = append(match, it)
+				}
+			}
+			page := match[len(match)-min(len(match), int(m["limit"].(float64))):]
+			send(proto.NewAgentTimeline(m["id"].(string), "a1", 1, page, len(page) < len(match) || !backwards && since > 0, 1234))
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := Dial(ctx, socket, "", func(string, []byte) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	m := &seqs{}
+	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox")
+	r.client = c
+	r.seq["a1"] = 100
+	r.catchUp("a1", false)
+	if len(m.got) != 1134 || m.got[0] != 101 || !slices.IsSorted(m.got) || m.got[len(m.got)-1] != 1234 {
+		t.Fatalf("mirrored %d items, from %v", len(m.got), m.got[:min(len(m.got), 3)])
 	}
 }
