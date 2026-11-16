@@ -266,8 +266,10 @@ const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target:
     for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
   }
   if (f.type === "host.remove") {
+    const at = hosts.findIndex((h) => h.id === f.hostId);
+    if (at < 0) return ws.send(JSON.stringify({ type: "error", id: f.id, code: "unknown_host", message: "That host isn't added" }));
     ack();
-    hosts.splice(hosts.findIndex((h) => h.id === f.hostId), 1);
+    hosts.splice(at, 1);
     ws.send(JSON.stringify({ type: "host.list", hosts }));
   }
 };
