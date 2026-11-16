@@ -4,6 +4,7 @@ mod diff;
 mod drafts;
 mod end_row;
 mod fold;
+mod host_link;
 mod jump;
 mod locate;
 pub(crate) mod markdown;

@@ -6,6 +6,9 @@
 // or "delegate" (the agent hands three sessions to others: they appear under it, one asks "Which test runner?", one finishes, one fails, and pocketd tells the chat of each).
 // A prompt sent with the queue mode while the agent works waits in pocketd's queue (queue.list, queue.update, edit, cancel, reorder, send_now) and runs once the turn ends; a Stop holds it.
 // FIXTURE_NO_ORCHESTRATOR=1 leaves out the orchestrator capability, as an older pocketd does: the desktop then holds sends to a busy agent itself.
+// pocketd links two SSH hosts: devbox (online, 1.4.2) and 10.0.4.12 (pocketd stopped there). Reconnecting 10.0.4.12 finds it refusing the
+// user's keys; it takes the password hunter2; an install there stops at Verify. An added host comes online after 400ms.
+// FIXTURE_NO_HOSTS=1 leaves out hosts.v1, as a pocketd older than the hosts move, with devbox saved in desktop.json.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -221,7 +224,53 @@ const SCOPES = process.env.FIXTURE_OBSERVE ? ["observe"] : ["observe", "drive", 
 const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
-write(join(pocket, "desktop.json"), JSON.stringify({ projects: scenario.repos.map(repoPath), children: children.map((c) => [c.id, c.parent]), repos: {}, tracked }));
+const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbox", target: { kind: "alias", name: "devbox" } }] : [];
+write(join(pocket, "desktop.json"), JSON.stringify({ projects: scenario.repos.map(repoPath), children: children.map((c) => [c.id, c.parent]), repos: {}, tracked, hosts: legacyHosts }));
+
+type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
+type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };
+const hostEntry = (id: string, name: string, target: HostTarget, link: Host["link"]): Host => ({ id, name, target, socket: join(pocket, "hosts", `${id}.sock`), link });
+const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
+const hosts: Host[] = [
+  hostEntry("devbox", "devbox", { kind: "alias", name: "devbox" }, ONLINE),
+  hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "mingo" }, { state: "retrying", failure: "not_running" }),
+];
+const pushHost = (ws: Ws, h: Host, id?: string) => ws.send(JSON.stringify({ type: "host.update", ...(id && { id }), host: h }));
+const setLink = (ws: Ws, hostId: string, link: Host["link"]) => {
+  const h = hosts.find((h) => h.id === hostId);
+  if (h) pushHost(ws, Object.assign(h, { link }));
+};
+const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target: HostTarget; password: string; update: boolean }) => {
+  const ack = () => ws.send(JSON.stringify({ type: "ack", id: f.id }));
+  if (f.type === "host.list") ws.send(JSON.stringify({ type: "host.list", id: f.id, hosts }));
+  if (f.type === "host.add") {
+    const t = f.target;
+    const taken = hosts.find((h) => JSON.stringify(h.target) === JSON.stringify(t));
+    if (taken) return ws.send(JSON.stringify({ type: "error", id: f.id, code: "host_exists", message: `${taken.name} is already added` }));
+    const name = t.kind === "alias" ? t.name : /^[\d.]+$/.test(t.addr) ? t.addr : t.addr.split(".")[0];
+    const h = hostEntry(name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, t, { state: "connecting" });
+    hosts.push(h);
+    pushHost(ws, h, f.id);
+    setTimeout(() => setLink(ws, h.id, ONLINE), 400);
+  }
+  if (f.type === "host.retry") {
+    ack();
+    if (f.hostId === "10-0-4-12") setLink(ws, f.hostId, { state: "failed", failure: "auth" });
+  }
+  if (f.type === "host.sign_in" && f.password === "hunter2") {
+    ack();
+    setLink(ws, f.hostId, ONLINE);
+  } else if (f.type === "host.sign_in") ws.send(JSON.stringify({ type: "error", id: f.id, code: "host_ssh", detail: "auth", message: "Wrong password." }));
+  if (f.type === "host.install") {
+    ack();
+    for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
+  }
+  if (f.type === "host.remove") {
+    ack();
+    hosts.splice(hosts.findIndex((h) => h.id === f.hostId), 1);
+    ws.send(JSON.stringify({ type: "host.list", hosts }));
+  }
+};
 
 // What pocketd says of each agent after Claude Code: its efforts, whether it plans, and what its chat driver does.
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -549,14 +598,16 @@ Bun.serve({
       // What the desktop sent, for checks that a click or key reached pocketd.
       if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG, raw + "\n");
       if (f.type === "hello") {
-        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+        ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "fixture", hostname: "fixture", protocolVersion: 3, caps: ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "automations.v1", "board.v1", "locals.v1", "settings.v1", "access.v1", ...(process.env.FIXTURE_NO_ORCHESTRATOR ? [] : ["orchestrator.v1"]), ...(process.env.FIXTURE_NO_HOSTS ? [] : ["hosts.v1"])], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
         ws.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
+        if (!process.env.FIXTURE_NO_HOSTS) ws.send(JSON.stringify({ type: "host.list", hosts }));
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }
       }
+      if (f.type.startsWith("host.")) hostVerb(ws, f);
       if (f.type === "pair.begin") {
         const code = "abcdefghijklmnopqrstuv";
         ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));

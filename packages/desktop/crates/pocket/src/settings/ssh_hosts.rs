@@ -7,16 +7,18 @@ use crate::fleet::needs_update;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use hosts::Host;
-use hosts::checklist::{Checklist, Mark, Outcome};
-use hosts::link::Link;
-use hosts::ssh::Failure;
+use agents::hosts::{Failure, Link};
+use hosts::checklist::{self, Checklist, Mark, Outcome};
+use hosts::{Host, failure_message};
 use theme::*;
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("hosts", "Hosts", "Hosts", |d, _, cx| d.host_rows(cx)),
     Setting::custom("add-host", "Hosts", "Add a host", |d, s, cx| d.add_host_row(s, cx)).hint("A Mac, Linux or Windows machine you can reach over SSH"),
 ];
+
+/// What a host's row says while an older pocketd, which doesn't link hosts, runs here.
+const UPDATE_SERVICE: &str = "Update Anywhere\u{2019}s background service to manage hosts";
 
 /// What a host's row says about its link.
 fn link_line(link: Option<&Link>, name: &str) -> String {
@@ -27,9 +29,9 @@ fn link_line(link: Option<&Link>, name: &str) -> String {
         Some(Link::Online { version, .. }) if version.is_empty() => "Connected".into(),
         Some(Link::Online { version, uptime: up }) => format!("Connected \u{b7} version {version} \u{b7} up {}", uptime(*up)),
         // Its message already says it tries again.
-        Some(Link::Retrying(Failure::Throttled)) => Failure::Throttled.message(name),
-        Some(Link::Retrying(f)) => format!("{} Trying again\u{2026}", f.message(name)),
-        Some(Link::Failed(f)) => f.message(name),
+        Some(Link::Retrying(Failure::Throttled)) => failure_message(Failure::Throttled, name),
+        Some(Link::Retrying(f)) => format!("{} Trying again\u{2026}", failure_message(*f, name)),
+        Some(Link::Failed(f)) => failure_message(*f, name),
     }
 }
 
@@ -65,8 +67,13 @@ impl Desktop {
         let connected = !self.terminals.link.is_down();
         let here = host_row(0, "laptop", "This Mac".into(), service_line(connected, self.settings.host.status.as_ref()), if connected { SUCCESS } else { TEXT_4 })
             .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
-        let remotes = self.store.hosts.clone().into_iter().enumerate().map(|(i, h)| {
-            let link = self.fleet.links.get(&h.id);
+        if self.hosts_read_only() {
+            // The hosts the desktop linked itself before pocketd did, named as it saved them.
+            let saved = self.store.hosts.iter().enumerate().map(|(i, h)| host_row(i + 1, "server", h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4));
+            return div().flex().flex_col().child(here).children(saved.collect::<Vec<_>>());
+        }
+        let remotes = self.fleet.hosts.list.clone().into_iter().enumerate().map(|(i, h)| {
+            let link = self.fleet.hosts.links.get(&h.id);
             let list = self.fleet.installs.get(&h.id);
             let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, link));
             let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
@@ -85,7 +92,7 @@ impl Desktop {
             // A reconnect while a password sign-in runs would spend sshd's penalty budget twice.
             let reconnect = link.filter(|l| !matches!(l, Link::Connecting) && !(typing && self.fleet.password.signing_in)).map(|_| {
                 let id = h.id.clone();
-                super::action(("host-reconnect", i), "Reconnect").on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.fleet.retry(&id)))
+                super::action(("host-reconnect", i), "Reconnect").on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.retry_host(&id)))
             });
             let password = (link == Some(&Link::Failed(Failure::Auth)) && !typing).then(|| {
                 let id = h.id.clone();
@@ -126,7 +133,7 @@ impl Desktop {
                 .gap(px(8.))
                 .h(px(22.))
                 .child(div().size(px(14.)).flex().flex_none().items_center().justify_center().child(lead))
-                .child(div().text_size(px(12.5)).text_color(if mark == Mark::Pending { TEXT_4 } else { TEXT }).child(step.label()))
+                .child(div().text_size(px(12.5)).text_color(if mark == Mark::Pending { TEXT_4 } else { TEXT }).child(checklist::label(step)))
         });
         let warnings = list.warnings.iter().map(|w| div().text_size(px(12.)).text_color(TEXT_3).child(w.clone()));
         let error = match &list.outcome {
@@ -172,8 +179,11 @@ impl Desktop {
 
     fn add_host_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
         let form = &self.fleet.form;
+        if self.hosts_read_only() {
+            return row(setting.label, Some(UPDATE_SERVICE), div());
+        }
         if !form.open {
-            let add = ui::button("host-add", ui::Variant::Primary, Some("plus"), "Add host").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_add_host(window, cx)));
+            let add = ui::button("host-add", ui::Variant::Primary, Some("plus"), "Add host").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_add_host(None, window, cx)));
             return row(setting.label, setting.hint, add);
         }
         let chips = form.suggestions.iter().enumerate().map(|(i, alias)| {
@@ -248,22 +258,23 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Host, Link, host_line, link_line};
+    use super::{Failure, Host, Link, failure_message, host_line, link_line};
     use hosts::Target;
 
     #[test]
     fn a_host_row_says_how_its_link_is_doing() {
         assert_eq!(link_line(Some(&Link::Online { version: "1.4.2".into(), uptime: 3 * 86_400 }), "devbox"), "Connected \u{b7} version 1.4.2 \u{b7} up 3d");
         assert_eq!(link_line(Some(&Link::Retrying(Failure::Dropped)), "devbox"), "Lost the connection to devbox. Trying again\u{2026}");
-        assert_eq!(link_line(Some(&Link::Failed(Failure::Auth)), "devbox"), Failure::Auth.message("devbox"));
+        assert_eq!(link_line(Some(&Link::Failed(Failure::Auth)), "devbox"), failure_message(Failure::Auth, "devbox"));
         assert_eq!(link_line(None, "devbox"), "Not connected");
     }
 
     #[test]
     fn a_host_row_names_the_address_only_when_its_name_doesnt() {
-        let alias = Host::new(Target::Alias { name: "devbox".into() }, &[]);
+        let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false };
+        let alias = host("devbox", Target::Alias { name: "devbox".into() });
         assert_eq!(host_line(&alias, None), "Not connected");
-        let ip = Host::new(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None }, &[]);
+        let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None });
         assert_eq!(host_line(&ip, None), "mingo@10.0.4.12:2222 \u{b7} Not connected");
     }
 }

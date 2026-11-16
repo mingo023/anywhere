@@ -932,6 +932,10 @@ impl Desktop {
                 Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, view.arrivals.age(&d.id, Instant::now()), window, cx),
                 _ => div(),
             },
+            Row::HostLink { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+                Some(Block::HostLink { hint, reason, .. }) => super::host_link::card(&id, hint, reason, cx),
+                _ => div(),
+            },
             Row::Compacted { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
                 Some(Block::Compacted { auto, .. }) => end_row::compacted(*auto),
                 _ => div(),

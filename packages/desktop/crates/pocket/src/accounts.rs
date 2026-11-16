@@ -346,7 +346,7 @@ impl Desktop {
     /// The machine's host and the app's home, to reach its pocketd; `None` for a host since removed.
     fn machine(&self, host: &Host) -> Option<Option<(hosts::Host, PathBuf)>> {
         let Some(id) = host else { return Some(None) };
-        let host = self.store.hosts.iter().find(|h| &h.id == id)?.clone();
+        let host = self.fleet.hosts.list.iter().find(|h| &h.id == id)?.clone();
         Some(Some((host, self.store.home().to_path_buf())))
     }
 
@@ -401,7 +401,7 @@ impl Desktop {
 
     /// Reads this Mac's accounts and every connected host's, with their usage.
     pub(crate) fn refresh_accounts(&mut self, cx: &mut Context<Self>) {
-        let online: Vec<Host> = self.store.hosts.iter().filter(|h| self.fleet.links.online(&h.id)).map(|h| Some(h.id.clone())).collect();
+        let online: Vec<Host> = self.fleet.hosts.list.iter().filter(|h| self.fleet.hosts.links.online(&h.id)).map(|h| Some(h.id.clone())).collect();
         for host in std::iter::once(None).chain(online) {
             self.check_accounts(host, true, cx);
         }

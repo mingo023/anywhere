@@ -127,6 +127,9 @@ impl Desktop {
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
             return self.on_pair(ev, cx);
         }
+        if let Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) = ev {
+            return self.on_hosts(ev, window, cx);
+        }
         if let Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } = ev {
             return self.on_launch(ev, window, cx);
         }

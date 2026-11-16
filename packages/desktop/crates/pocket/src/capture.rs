@@ -32,7 +32,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 265] = [
+const STEPS: [(&str, Step); 268] = [
     ("session", session),
     ("chat", chat_session),
     // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
@@ -573,46 +573,38 @@ const STEPS: [(&str, Step); 265] = [
     ("settings-automations", |d, _, _| d.settings.section = Section::Automations),
     ("settings-phone", |d, _, _| d.settings.section = Section::Phone),
     ("settings-hosts", |d, _, _| d.settings.section = Section::Hosts),
-    ("hosts-sample", |d, _, _| {
-        let devbox = hosts::Host::new(hosts::Target::Alias { name: "devbox".into() }, &[]);
-        let gpu = hosts::Host::new(hosts::Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None }, &[]);
-        d.fleet.links.0.insert(devbox.id.clone(), hosts::link::Link::Online { version: "1.4.2".into(), uptime: 3 * 86_400 });
-        d.fleet.links.0.insert(gpu.id.clone(), hosts::link::Link::Retrying(hosts::ssh::Failure::NotRunning));
-        d.store.hosts = vec![devbox, gpu];
-    }),
     // The real host the remote hosts e2e runs against; see `.ui-review/remote-hosts/`.
-    ("vm", |d, window, cx| {
+    ("vm", |d, _, _| {
         let target = hosts::Target::Address { addr: "127.0.0.1".into(), port: 2222, user: "mingo".into(), key_file: Some("/tmp/anywhere-e2e/id_ed25519".into()) };
-        if !d.store.hosts.iter().any(|h| h.target == target) {
-            d.store.hosts.push(hosts::Host::new(target, &[]));
-            d.connect_hosts(window, cx);
+        if !d.fleet.hosts.list.iter().any(|h| h.target == target) {
+            d.outbox.local.host_add(&target);
         }
     }),
     ("wait", |_, _, _| {}),
     ("vm-install", |d, _, cx| {
-        if let Some(id) = d.store.hosts.first().map(|h| h.id.clone()) {
+        if let Some(id) = d.fleet.hosts.list.first().map(|h| h.id.clone()) {
             d.install_host(&id, false, cx);
         }
     }),
     ("vm-update", |d, _, _| {
-        if let Some(h) = d.store.hosts.first() {
+        if let Some(h) = d.fleet.hosts.list.first() {
             (d.confirm, d.overlay) = (Some(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false }), Some(Overlay::Confirm));
         }
     }),
     ("vm-remove", |d, _, _| {
-        if let Some(h) = d.store.hosts.first() {
+        if let Some(h) = d.fleet.hosts.list.first() {
             (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: h.id.clone(), name: h.name.clone() }), Some(Overlay::Confirm));
         }
     }),
     ("vm-uninstall", |d, _, cx| {
-        if let Some(id) = d.store.hosts.first().map(|h| h.id.clone()) {
+        if let Some(id) = d.fleet.hosts.list.first().map(|h| h.id.clone()) {
             d.remove_host(&id, true, cx);
         }
     }),
     ("vm-add", |d, window, cx| {
         d.open(Overlay::AddRepo, window, cx);
         d.set_repo_source(crate::modals::add_project::Source::Host);
-        if let Some(h) = d.store.hosts.first() {
+        if let Some(h) = d.fleet.hosts.list.first() {
             d.browse_host(h.id.clone(), window, cx);
         }
     }),
@@ -645,11 +637,14 @@ const STEPS: [(&str, Step); 265] = [
         (d.fleet.form.open, d.fleet.form.suggestions) = (true, vec!["devbox".into(), "gpu-box".into(), "nas".into()]);
         d.fleet.form.error = Some("Enter the host's address or name".into());
     }),
-    ("hosts-password", |d, window, cx| {
-        d.fleet.links.0.insert("10-0-4-12".into(), hosts::link::Link::Failed(hosts::ssh::Failure::Auth));
-        d.open_password("10-0-4-12".into(), window, cx);
-        d.fleet.password.error = Some(crate::fleet::sign_in_error(hosts::ssh::Failure::Auth, "10.0.4.12", false));
-    }),
+    // The fixture's 10.0.4.12 refuses the user's keys once asked to reconnect, and every password but hunter2.
+    ("hosts-retry", |d, _, _| d.retry_host("10-0-4-12")),
+    ("hosts-password", |d, window, cx| d.open_password("10-0-4-12".into(), window, cx)),
+    ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
+    // The fixture's install stops at Verify.
+    ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
+    // The chat's host_link card's button.
+    ("host-link-add", |d, window, cx| d.link_host("vps".into(), window, cx)),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
     ("hosts-remove", |d, _, _| {
         let name = "devbox".to_string();

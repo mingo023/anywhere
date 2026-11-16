@@ -173,7 +173,6 @@ fn main() {
                 let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, window, cx);
                 desktop.list_worktrees(cx);
                 if !capturing {
-                    desktop.connect_hosts(window, cx);
                     desktop.load_models(cx);
                 }
                 desktop

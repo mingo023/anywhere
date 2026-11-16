@@ -15,6 +15,8 @@ pub enum Row {
     Note { turn: usize, block: usize },
     /// A `Block::Delivered`: what pocketd told the chat of the sessions it delegated to.
     Delivery { turn: usize, block: usize },
+    /// A `Block::HostLink`: a card asking the user to add a host.
+    HostLink { turn: usize, block: usize },
     /// The turn's latest todo list, as a card after its work.
     Tasks { turn: usize, block: usize },
     /// One markdown block (`range` into the message text) of a Text or Plan block.
@@ -41,7 +43,7 @@ impl Row {
             Row::Fold { turn: ix } => format!("{}#fold", turn(*ix)),
             Row::Phase { turn: ix, blocks } => format!("{}#p{}", turn(*ix), blocks.start),
             Row::Text { turn: ix, block, range } => format!("{}#{block}.{}", turn(*ix), range.start),
-            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } | Row::Delivery { turn: ix, block } => {
+            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } | Row::Delivery { turn: ix, block } | Row::HostLink { turn: ix, block } => {
                 format!("{}#{block}", turn(*ix))
             }
             Row::End { turn: ix } => format!("{}#end", turn(*ix)),
@@ -57,6 +59,7 @@ impl Row {
             | Row::Notice { turn }
             | Row::Note { turn, .. }
             | Row::Delivery { turn, .. }
+            | Row::HostLink { turn, .. }
             | Row::Fold { turn }
             | Row::Phase { turn, .. }
             | Row::Tasks { turn, .. }
@@ -136,6 +139,7 @@ fn plain(rows: &mut Vec<Row>, turn: usize, b: usize, block: &Block) {
         Block::Compacted { .. } => rows.push(Row::Compacted { turn, block: b }),
         Block::Notice { .. } => rows.push(Row::Note { turn, block: b }),
         Block::Delivered(_) => rows.push(Row::Delivery { turn, block: b }),
+        Block::HostLink { .. } => rows.push(Row::HostLink { turn, block: b }),
         _ => {}
     }
 }
@@ -330,7 +334,7 @@ pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
         (Row::Delivery { .. }, Row::Delivery { .. }) => 2.,
-        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. } | Row::Delivery { .. }) => 8.,
+        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. } | Row::Delivery { .. } | Row::HostLink { .. }) => 8.,
         _ => 6.,
     }
 }
@@ -772,6 +776,13 @@ mod tests {
         assert_eq!(ids_of(&t)[4..], ["d1#0", "d1#1"]);
         assert_eq!(rows(&t, 0, false)[4], Row::Delivery { turn: 1, block: 0 });
         assert!(!at_work(&t) && live_tail(&t).is_none());
+    }
+
+    #[test]
+    fn a_host_link_card_is_a_row_of_its_own() {
+        let card = Block::HostLink { id: "h1".into(), hint: "vps".into(), reason: String::new() };
+        let t = Transcript { turns: vec![turn("u1", vec![text("I need the GPU box."), card], done())] };
+        assert_eq!(rows(&t, 0, false).into_iter().filter(|r| matches!(r, Row::HostLink { .. })).collect::<Vec<_>>(), [Row::HostLink { turn: 0, block: 1 }]);
     }
 
     #[test]

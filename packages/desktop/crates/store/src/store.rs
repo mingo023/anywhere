@@ -418,9 +418,10 @@ pub struct Store {
     /// Shortcuts changed on the Keyboard page: the new keys by binding id, empty for none.
     #[serde(deserialize_with = "lenient")]
     pub keys: BTreeMap<String, String>,
-    /// Machines reached over SSH, in the order they were added.
+    /// The SSH hosts an older desktop saved, kept as written for one release: pocketd imports them once and links
+    /// them since.
     #[serde(deserialize_with = "lenient")]
-    pub hosts: Vec<hosts::Host>,
+    pub hosts: Vec<serde_json::Value>,
     /// The sidebar's pins and project groups.
     #[serde(deserialize_with = "lenient")]
     pub sections: sections::Sections,
@@ -716,7 +717,7 @@ mod tests {
         s.widths = ColumnWidths { projects: Some(260.), sessions: None };
         s.graph_share = Some(0.3);
         s.track("/t/fix");
-        s.hosts.push(hosts::Host::new(hosts::Target::Alias { name: "devbox".into() }, &[]));
+        s.hosts.push(serde_json::json!({"id": "devbox", "name": "devbox", "target": {"kind": "alias", "name": "devbox"}}));
         let work = s.sections.add_group("Work");
         s.sections.set_group("/w", Some(work));
         s.sections.toggle_pin(sections::Pin::Tree { project: "/w".into(), tree: "/t/fix".into() });
@@ -1078,5 +1079,21 @@ mod tests {
     fn a_desktop_json_from_before_updates_has_seen_no_version() {
         let s: Store = serde_json::from_str(r#"{"projects":["/w"]}"#).unwrap();
         assert_eq!(s.seen_version, None);
+    }
+
+    #[test]
+    fn the_legacy_hosts_in_desktop_json_survive_a_save() {
+        let dir = std::env::temp_dir().join(format!("pocket-store-legacy-hosts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // pocketd imports these once from the file as an older desktop wrote it.
+        let mut sample: serde_json::Value = serde_json::from_str(include_str!("../../../../pocketd/internal/hosts/testdata/desktop.json")).unwrap();
+        sample["hosts"][0]["note"] = "kept as written".into();
+        std::fs::write(dir.join("desktop.json"), sample.to_string()).unwrap();
+        let mut s = Store::load(&dir);
+        s.projects.push("/w".into());
+        s.save();
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("desktop.json")).unwrap()).unwrap();
+        assert_eq!(saved["hosts"], sample["hosts"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

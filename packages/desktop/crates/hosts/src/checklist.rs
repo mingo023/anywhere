@@ -1,6 +1,19 @@
 //! The checklist a host's row shows while pocketd is installed or updated there.
 
-use crate::install::{Progress, Step};
+use agents::hosts::{Progress, Step};
+
+/// What the checklist calls `step`.
+pub fn label(step: Step) -> &'static str {
+    match step {
+        Step::Detect => "Check the host",
+        Step::Download => "Download pocketd",
+        Step::Verify => "Verify the download",
+        Step::Unpack => "Unpack pocketd",
+        Step::Link => "Install pocketd",
+        Step::Service => "Set up the service",
+        Step::Start => "Start pocketd",
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mark {

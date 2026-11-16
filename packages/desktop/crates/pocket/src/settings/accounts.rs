@@ -67,7 +67,7 @@ impl Desktop {
             ui::icon_button_sized("accounts-reload", "reload", 26., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_accounts(cx))).into_any_element()
         };
         let toolbar = div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_3).child(accounts::checked(checking, self.accounts.checked_at, now)).child(reload);
-        let machines: Vec<Host> = std::iter::once(None).chain(self.store.hosts.iter().map(|h| Some(h.id.clone()))).filter(|h| self.accounts.lists.contains_key(h)).collect();
+        let machines: Vec<Host> = std::iter::once(None).chain(self.fleet.hosts.list.iter().map(|h| Some(h.id.clone()))).filter(|h| self.accounts.lists.contains_key(h)).collect();
         let groups = machines.into_iter().map(|host| {
             let title = host.as_deref().map_or_else(|| "This Mac".into(), |id| self.host_name(id));
             let auto = self.accounts.auto_switch.contains_key(&host).then(|| self.auto_switch_row(&host, cx));

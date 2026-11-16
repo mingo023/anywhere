@@ -1,0 +1,6 @@
+[
+  { "id": "hl-u", "kind": "user", "text": "Run the training job on the GPU box" },
+  { "id": "hl-a", "kind": "assistant", "text": "That needs the GPU box, which isn't linked to this Mac yet. I've asked you to add it." },
+  { "id": "hl-card", "kind": "host_link", "hint": "vps", "reason": "The build needs the GPU box." },
+  { "id": "hl-r", "kind": "result", "ok": true, "durationMs": 4000 }
+]

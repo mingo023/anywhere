@@ -62,6 +62,8 @@ pub enum Block {
     Notice { message: Message, error: bool },
     /// What pocketd told the chat of the sessions it delegated to.
     Delivered(Delivered),
+    /// An agent asks the user to add a host, `hint` naming it.
+    HostLink { id: String, hint: String, reason: String },
 }
 
 /// One delivery: how the sessions in it ended, or what one asks.

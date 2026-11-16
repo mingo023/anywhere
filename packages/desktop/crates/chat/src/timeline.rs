@@ -11,6 +11,7 @@ use std::collections::HashMap;
 /// - `assistant` → `Block::Text`, `thinking` → `Block::Thinking`, `tasks` → `Block::Todos`, `plan` → `Block::Plan`.
 /// - `compact` → `Block::Compacted`.
 /// - `delivery` → `Block::Delivered`, its sessions side by side.
+/// - `host_link` → `Block::HostLink`, a card asking the user to add a host.
 /// - `notice` → `Block::Notice`: its `text`, else the `error` the agent went on after.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
 /// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
@@ -196,6 +197,7 @@ fn block(item: &Item) -> Option<Block> {
         "plan" if !blank => Block::Plan(message(item)),
         "tasks" => Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() },
         "delivery" => Block::Delivered(delivered(item)?),
+        "host_link" => Block::HostLink { id: item.id.clone(), hint: item.hint.clone(), reason: item.reason.clone() },
         "compact" => Block::Compacted { id: item.id.clone(), auto: item.trigger == "auto" },
         "notice" if !item.error.is_empty() => Block::Notice { message: Message { text: item.error.clone(), ..message(item) }, error: true },
         "notice" if !blank => Block::Notice { message: message(item), error: false },
@@ -591,6 +593,12 @@ mod tests {
         ])));
         let child = |id: &str, title: &str, agent: &str| Child { id: id.into(), title: title.into(), agent: agent.into() };
         assert_eq!(t.turns[0].blocks, vec![Block::Delivered(Delivered { id: "i1".into(), outcome: Outcome::Asks, question: "Which test runner?".into(), children: vec![child("a2", "Write the tests", "codex"), child("a3", "Review", "claude")] })]);
+    }
+
+    #[test]
+    fn a_host_link_item_becomes_a_card_with_its_hint_and_reason() {
+        let t = fold(&items(json!([{"kind": "user", "text": "go"}, {"kind": "host_link", "hint": "vps", "reason": "The build needs the GPU box."}])));
+        assert_eq!(t.turns[0].blocks, vec![Block::HostLink { id: "i2".into(), hint: "vps".into(), reason: "The build needs the GPU box.".into() }]);
     }
 
     #[test]
