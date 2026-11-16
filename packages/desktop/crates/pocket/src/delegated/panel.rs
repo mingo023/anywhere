@@ -4,6 +4,7 @@ use crate::desktop::Desktop;
 use crate::glide::Glide;
 use crate::util::now_ms;
 use agents::delegations::{Counts, Delegation, Headline, Phase};
+use super::shown;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::{Duration, Instant};
@@ -92,9 +93,8 @@ fn label(p: Phase) -> &'static str {
     }
 }
 
-fn full_height(list: &[Delegation]) -> f32 {
+fn full_height<'a>(list: impl Iterator<Item = &'a Delegation>) -> f32 {
     let rows: f32 = list
-        .iter()
         .map(|d| match d.phase() {
             Phase::Asking => ROW_H + 6. + QUESTION_LINE * d.question.chars().count().div_ceil(QUESTION_CHARS).clamp(1, 2) as f32,
             _ => ROW_H,
@@ -112,7 +112,7 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-fn logos(list: &[Delegation]) -> Vec<&str> {
+fn logos<'a>(list: impl Iterator<Item = &'a Delegation>) -> Vec<&'a str> {
     let mut seen: Vec<&str> = Vec::new();
     for d in list {
         if !seen.contains(&d.agent.as_str()) {
@@ -152,7 +152,7 @@ impl DelegatedState {
 
 impl Desktop {
     pub(crate) fn delegated_changed(&mut self, parent: &str, cx: &mut Context<Self>) {
-        let counts = self.agents.delegations.counts(parent);
+        let counts = Counts::of(shown(self.agents.delegations.of(parent), &self.delegated.cleared));
         if !self.delegated.changed(parent, counts) {
             return cx.notify();
         }
@@ -180,7 +180,7 @@ impl Desktop {
         }
     }
 
-    fn delegated_set_open(&mut self, parent: &str, open: bool, cx: &mut Context<Self>) {
+    pub(crate) fn delegated_set_open(&mut self, parent: &str, open: bool, cx: &mut Context<Self>) {
         if let Some(p) = self.delegated.panels.get_mut(parent) {
             (p.open, p.collapse) = (open, None);
         }
@@ -188,18 +188,18 @@ impl Desktop {
     }
 
     fn delegated_clear(&mut self, parent: &str, cx: &mut Context<Self>) {
-        self.agents.delegations.clear_settled(parent);
+        self.delegated.clear_settled(self.agents.delegations.of(parent));
         self.delegated.panels.remove(parent);
         cx.notify();
     }
 
     pub(crate) fn delegated_panel(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
-        let list = self.agents.delegations.of(agent);
-        if list.is_empty() {
+        let list = shown(self.agents.delegations.of(agent), &self.delegated.cleared);
+        let counts = Counts::of(list.clone());
+        if counts.total == 0 {
             return None;
         }
-        let counts = self.agents.delegations.counts(agent);
-        let settled = self.agents.delegations.all_settled(agent);
+        let settled = counts.settled();
         let panel = self.delegated.panels.entry(agent.to_string()).or_insert_with(Panel::new);
         let moving = panel.glide.tick(if panel.open { 1. } else { 0. }, Instant::now(), cx.reduce_motion());
         if moving {
@@ -207,10 +207,10 @@ impl Desktop {
         }
         let p = panel.glide.at().clamp(0., 1.);
         let summary = headline(&counts);
-        let (full_h, cap_w) = (full_height(list), capsule_width(logos(list).len(), &summary));
+        let (full_h, cap_w) = (full_height(list.clone()), capsule_width(logos(list.clone()).len(), &summary));
         let parent = agent.to_string();
-        let capsule = (p < 1.).then(|| capsule(&parent, list, &counts, summary, p < 0.5, cx));
-        let full = (p > 0.).then(|| full(&parent, list, settled, p >= 0.5, cx));
+        let capsule = (p < 1.).then(|| capsule(&parent, list.clone(), &counts, summary, p < 0.5, cx));
+        let full = (p > 0.).then(|| full(&parent, list, counts.total, settled, p >= 0.5, cx));
         Some(
             div().absolute().top(px(8.)).right(px(16.)).child(
                 ui::pop(div())
@@ -226,9 +226,9 @@ impl Desktop {
     }
 }
 
-fn capsule(parent: &str, list: &[Delegation], counts: &Counts, summary: String, live: bool, cx: &mut Context<Desktop>) -> Stateful<Div> {
-    let logos = logos(list);
-    let shown = list.iter().find(|d| d.phase() == Phase::Asking).or_else(|| list.iter().find(|d| !d.phase().settled())).or(list.last()).map_or(Phase::Working, Delegation::phase);
+fn capsule<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation> + Clone, counts: &Counts, summary: String, live: bool, cx: &mut Context<Desktop>) -> Stateful<Div> {
+    let logos = logos(list.clone());
+    let shown = list.clone().find(|d| d.phase() == Phase::Asking).or_else(|| list.clone().find(|d| !d.phase().settled())).or(list.last()).map_or(Phase::Working, Delegation::phase);
     let colour = if counts.asking > 0 { WAITING_TEXT } else { TEXT_2 };
     let to = parent.to_string();
     let capsule = div()
@@ -263,7 +263,7 @@ fn capsule(parent: &str, list: &[Delegation], counts: &Counts, summary: String, 
     if live { capsule.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&to, true, cx))) } else { capsule }
 }
 
-fn full(parent: &str, list: &[Delegation], settled: bool, live: bool, cx: &mut Context<Desktop>) -> Div {
+fn full<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation>, total: usize, settled: bool, live: bool, cx: &mut Context<Desktop>) -> Div {
     let now = now_ms();
     let (clear, shut) = (parent.to_string(), parent.to_string());
     let button = |id: &'static str| div().id(id).h(px(24.)).px(px(8.)).rounded(px(7.)).flex().items_center().text_size(px(12.)).text_color(TEXT_3).hover(|s| s.bg(FILL_3).text_color(TEXT));
@@ -275,11 +275,11 @@ fn full(parent: &str, list: &[Delegation], settled: bool, live: bool, cx: &mut C
         .items_center()
         .gap(px(6.))
         .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child("Delegated"))
-        .child(div().text_size(px(12.)).text_color(TEXT_4).child(list.len().to_string()))
+        .child(div().text_size(px(12.)).text_color(TEXT_4).child(total.to_string()))
         .child(div().flex_1())
         .when(settled && live, |d| d.child(button("delegated-clear").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_clear(&clear, cx))).child("Clear")))
         .child(button("delegated-collapse").w(px(24.)).px_0().justify_center().when(live, |d| d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&shut, false, cx)))).child(icon("chevron-up", 12., TEXT_3)));
-    let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(list.iter().map(|d| row(d, now, live, cx)));
+    let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(list.map(|d| row(d, now, live, cx)));
     div().absolute().top_0().right_0().w(px(FULL_W)).flex().flex_col().child(head).child(rows)
 }
 
@@ -376,8 +376,8 @@ mod tests {
     #[test]
     fn the_open_panel_grows_by_a_row_for_each_session_and_the_lines_of_a_question() {
         let task = |q: &str| Delegation { status: "working".into(), question: q.into(), ..Default::default() };
-        assert_eq!(full_height(&[task("")]), HEAD_H + ROW_H + 6.);
-        assert_eq!(full_height(&[task("Which runner?")]), HEAD_H + ROW_H + 6. + QUESTION_LINE + 6.);
-        assert_eq!(full_height(&[task(&"x".repeat(200))]), HEAD_H + ROW_H + 6. + 2. * QUESTION_LINE + 6.);
+        assert_eq!(full_height([task("")].iter()), HEAD_H + ROW_H + 6.);
+        assert_eq!(full_height([task("Which runner?")].iter()), HEAD_H + ROW_H + 6. + QUESTION_LINE + 6.);
+        assert_eq!(full_height([task(&"x".repeat(200))].iter()), HEAD_H + ROW_H + 6. + 2. * QUESTION_LINE + 6.);
     }
 }

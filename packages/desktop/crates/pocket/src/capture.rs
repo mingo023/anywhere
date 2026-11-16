@@ -32,13 +32,17 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 253] = [
+const STEPS: [(&str, Step); 255] = [
     ("session", session),
-    ("chat", |d, window, cx| {
-        session(d, window, cx);
-        if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
-            d.store.chats.insert(t.clone());
-            d.focus_chat_or_terminal(t, window, cx);
+    ("chat", chat_session),
+    // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
+    ("delegate", |d, window, cx| {
+        chat_session(d, window, cx);
+        fixture(d, "delegate");
+    }),
+    ("delegate-panel", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, true, cx);
         }
     }),
     ("compose", |d, window, cx| d.new_session(Some("Fix the flaky parser test".into()), true, window, cx)),
@@ -1137,6 +1141,14 @@ fn models_sample(d: &mut Desktop) {
 fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     if let Some(card) = d.project.clone().and_then(|p| d.cards(&p).into_iter().min_by_key(|c| c.status != Status::NeedsYou)) {
         d.focus_agent(&card.id, window, cx);
+    }
+}
+
+fn chat_session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    session(d, window, cx);
+    if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
+        d.store.chats.insert(t.clone());
+        d.focus_chat_or_terminal(t, window, cx);
     }
 }
 

@@ -436,6 +436,17 @@ const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
 };
 const deliver = (ws: Ws, t: Task, outcome: "done" | "failed" | "asks") =>
   item(ws, t.parentId, { id: `delivery-${t.taskId}-${outcome}`, kind: "delivery", taskIds: [t.taskId], childIds: [t.childId], titles: [t.title], agents: [t.agent], outcome, ...(outcome === "asks" && { question: t.question }) });
+// pocketd's default isolation: a child gets a worktree of its own from the parent's checkout; FIXTURE_DELEGATE_SHARED=1 keeps it in the parent's, as isolation "shared" does.
+const childCheckout = (parentId: string, parentCwd: string, title: string) => {
+  const local = (sessions.find((s) => s.id === parentId) as { local?: string } | undefined)?.local ?? "";
+  if (process.env.FIXTURE_DELEGATE_SHARED) return { cwd: parentCwd, local };
+  const common = Bun.spawnSync(["git", "-C", parentCwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout.toString().trim();
+  const repo = dirname(common);
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const tree = join(`${repo}.worktrees`, `delegate-${slug}`);
+  git(repo, "worktree", "add", "-q", "-b", `delegate/${slug}`, tree, "HEAD");
+  return { cwd: tree, local: "" };
+};
 const delegate = (ws: Ws, parentId: string) => {
   const parent = summaries.find((s) => s.id === parentId);
   if (!parent) return;
@@ -447,10 +458,11 @@ const delegate = (ws: Ws, parentId: string) => {
     setTimeout(() => {
       const t: Task = { taskId, parentId, childId, title, agent, model, status: "starting", createdAt: Date.now() };
       list.push(t);
-      sessions.push({ id: childId, cmd: agent, args: [], cwd: parent.cwd });
+      const { cwd, local } = childCheckout(parentId, parent.cwd, title);
+      sessions.push({ id: childId, cmd: agent, args: [], cwd, local });
       childItems.set(childId, [{ id: `${childId}-brief`, kind: "user", text: brief }, { id: `${childId}-a`, kind: "assistant", text: "On it." }]);
       childTimelines.set(childId, stamp(childId, childItems.get(childId)!));
-      summaries.push({ ...parent, id: childId, terminalId: childId, title, provider: agent, model, effort: undefined, status: "working", failed: false, pinned: false, chatOnly: true, parent: parentId, relationship: "subagent", createdBy: `agent:${parentId}`, delegation: { taskId, status: "starting", workState: "working" }, createdAt: Date.now(), updatedAt: Date.now() } as (typeof summaries)[number]);
+      summaries.push({ ...parent, id: childId, terminalId: childId, cwd, title, provider: agent, model, effort: undefined, status: "working", failed: false, pinned: false, chatOnly: true, parent: parentId, relationship: "subagent", createdBy: `agent:${parentId}`, delegation: { taskId, status: "starting", workState: "working" }, createdAt: Date.now(), updatedAt: Date.now() } as (typeof summaries)[number]);
       announce();
       ws.send(JSON.stringify({ type: "agent.update", agent: summaries.at(-1) }));
       ws.send(JSON.stringify({ type: "delegation.update", agentId: parentId, delegation: t }));

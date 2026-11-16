@@ -80,6 +80,27 @@ pub enum Headline {
 }
 
 impl Counts {
+    pub fn of<'a>(items: impl Iterator<Item = &'a Delegation>) -> Self {
+        let mut c = Counts::default();
+        for d in items {
+            c.total += 1;
+            match d.phase() {
+                Phase::Starting => c.starting += 1,
+                Phase::Working => c.working += 1,
+                Phase::Asking => c.asking += 1,
+                Phase::Done => c.done += 1,
+                Phase::Failed => c.failed += 1,
+                Phase::Stopped => c.stopped += 1,
+            }
+        }
+        c
+    }
+
+    /// There are tasks and every one has ended.
+    pub fn settled(&self) -> bool {
+        self.total > 0 && self.starting + self.working + self.asking == 0
+    }
+
     pub fn headline(&self) -> Headline {
         if self.asking > 0 {
             Headline::Asking(self.asking)
@@ -124,36 +145,8 @@ impl Delegations {
         }
     }
 
-    /// Whether `parent` delegated and every task has ended.
-    pub fn all_settled(&self, parent: &str) -> bool {
-        let list = self.of(parent);
-        !list.is_empty() && list.iter().all(|d| d.phase().settled())
-    }
-
     pub fn counts(&self, parent: &str) -> Counts {
-        let mut c = Counts::default();
-        for d in self.of(parent) {
-            c.total += 1;
-            match d.phase() {
-                Phase::Starting => c.starting += 1,
-                Phase::Working => c.working += 1,
-                Phase::Asking => c.asking += 1,
-                Phase::Done => c.done += 1,
-                Phase::Failed => c.failed += 1,
-                Phase::Stopped => c.stopped += 1,
-            }
-        }
-        c
-    }
-
-    /// Drops the ended tasks from `parent`'s list.
-    pub fn clear_settled(&mut self, parent: &str) {
-        if let Some(list) = self.by_parent.get_mut(parent) {
-            list.retain(|d| !d.phase().settled());
-            if list.is_empty() {
-                self.by_parent.remove(parent);
-            }
-        }
+        Counts::of(self.of(parent).iter())
     }
 
     /// Drops what host `source` held, whose chat ids start with `source/`.
@@ -193,14 +186,14 @@ mod tests {
     }
 
     #[test]
-    fn all_settled_needs_a_task_and_every_one_ended() {
+    fn settled_needs_a_task_and_every_one_ended() {
         let mut d = Delegations::default();
-        assert!(!d.all_settled("p"));
+        assert!(!d.counts("p").settled());
         d.update("p", task("a", "completed", 1));
         d.update("p", task("b", "failed", 2));
-        assert!(d.all_settled("p"));
+        assert!(d.counts("p").settled());
         d.update("p", task("c", "working", 3));
-        assert!(!d.all_settled("p"));
+        assert!(!d.counts("p").settled());
     }
 
     #[test]
@@ -214,18 +207,6 @@ mod tests {
         assert_eq!(d.counts("p").headline(), Headline::Working(1));
         d.update("p", task("a", "completed", 1));
         assert_eq!(d.counts("p").headline(), Headline::Settled { done: 2, failed: 1 });
-    }
-
-    #[test]
-    fn clearing_keeps_the_tasks_still_at_work() {
-        let mut d = Delegations::default();
-        d.update("p", task("a", "completed", 1));
-        d.update("p", task("b", "working", 2));
-        d.clear_settled("p");
-        assert_eq!(d.of("p").len(), 1);
-        d.update("p", task("b", "failed", 2));
-        d.clear_settled("p");
-        assert!(d.of("p").is_empty());
     }
 
     #[test]
