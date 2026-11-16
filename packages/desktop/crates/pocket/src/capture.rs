@@ -32,7 +32,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 263] = [
+const STEPS: [(&str, Step); 265] = [
     ("session", session),
     ("chat", chat_session),
     // The chat hands three sessions to others, as pocketd's orchestrator does; the fixture plays it out over about two seconds.
@@ -48,6 +48,18 @@ const STEPS: [(&str, Step); 263] = [
     ("delegate-capsule", |d, _, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.delegated_set_open(&agent, false, cx);
+        }
+    }),
+    // Opens the first delegated session as a click on it does, with the push 120 ms in and held there, so the shot shows both sessions moving.
+    ("delegate-push-mid", |d, window, cx| {
+        let Some(child) = d.agents.list.iter().find(|a| crate::status::is_child(a)).map(|a| a.id.clone()) else { return };
+        d.delegated_open(&child, window, cx);
+        d.delegated_hold_push(120, cx.reduce_motion());
+    }),
+    // Goes back from the delegated session shown, with the push held 120 ms in.
+    ("delegate-back-mid", |d, window, cx| {
+        if d.delegated_back(window, cx) {
+            d.delegated_hold_push(120, cx.reduce_motion());
         }
     }),
     // As with Reduce motion on in System Settings; `reset` turns it off.
@@ -1370,6 +1382,7 @@ fn holding() -> bool {
 
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     cx.set_reduce_motion(false);
+    d.delegated.clock = None;
     d.cancel_chat(window, cx);
     d.store.chats.clear();
     d.set_chat_text("", window, cx);

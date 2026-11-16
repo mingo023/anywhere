@@ -12,7 +12,7 @@ use agents::Summary;
 use agents::delegations::Delegation;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub(crate) struct DelegatedState {
     /// Each delegating chat's panel, by agent id.
@@ -23,11 +23,13 @@ pub(crate) struct DelegatedState {
     cleared: HashSet<String>,
     /// The session arriving from the one the user just left, while it moves.
     push: Option<push::Push>,
+    /// A time to draw the push at instead of now, so a capture can hold it midway.
+    pub(crate) clock: Option<Instant>,
 }
 
 impl DelegatedState {
     pub(crate) fn new() -> Self {
-        Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new(), push: None }
+        Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new(), push: None, clock: None }
     }
 
     /// Hides the ended tasks of `list`.
@@ -82,16 +84,25 @@ impl Desktop {
         }
     }
 
-    /// How far across and how faded in the session `agent` is while it arrives from the chat it was opened from or the session it delegated.
-    pub(crate) fn delegated_pushed(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(f32, f32)> {
+    /// The session `agent` is arriving from while it arrives, and how far across and how faded in each of the two is.
+    pub(crate) fn delegated_pushed(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<(String, push::Frame)> {
         let reduce_motion = cx.reduce_motion();
+        let now = self.delegated.clock.unwrap_or_else(Instant::now);
         let push = self.delegated.push.as_mut().filter(|p| p.to == agent)?;
-        if !push.tick(Instant::now(), reduce_motion) {
+        if !push.tick(now, reduce_motion) {
             self.delegated.push = None;
             return None;
         }
         window.request_animation_frame();
-        Some(push.offset())
+        Some((push.from.clone(), push.frame()))
+    }
+
+    /// Runs the push on `ms` ms, and holds it there.
+    pub(crate) fn delegated_hold_push(&mut self, ms: u64, reduce_motion: bool) {
+        let start = Instant::now();
+        let Some(push) = self.delegated.push.as_mut() else { return };
+        (0..=ms / 16).for_each(|i| _ = push.tick(start + Duration::from_millis(16 * i), reduce_motion));
+        self.delegated.clock = Some(start + Duration::from_millis(ms));
     }
 
     pub(crate) fn delegated_reconnected(&mut self) {

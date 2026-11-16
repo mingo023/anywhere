@@ -38,6 +38,7 @@ use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
 use std::collections::HashMap;
 use theme::*;
+use workspace::Tab;
 
 /// Whether an agent's terminal shows its chat: one started from the New session page does, and one without its TUI has nothing else to show.
 pub(crate) fn can_chat(started_for_chat: bool, summary: Option<&Summary>) -> bool {
@@ -187,11 +188,28 @@ impl Desktop {
         let pushed = agent.as_ref().and_then(|agent| self.delegated_pushed(agent, window, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
         let drop = self.chat_drop_zone(terminal, cx);
-        let view = div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(transcript).child(composer).children(crumb).children(panel).children(files).children(drop);
-        match pushed {
-            Some((across, shown)) => view.left(px(across)).opacity(shown),
-            None => view,
+        let shown = div().relative().size_full().flex().flex_col().child(transcript).children(crumb).children(panel);
+        // The composer stays where it is, as the prototype's dock does: only what's above it moves.
+        let (shown, left) = match pushed {
+            Some((from, frame)) => (shown.left(px(frame.arriving.0)).opacity(frame.arriving.1), self.chat_left(&from, frame.leaving, window, cx)),
+            None => (shown, None),
+        };
+        let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
+        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(stage).child(composer).children(files).children(drop)
+    }
+
+    /// The chat `from` as it was, sliding and fading out under the one arriving: the transcript as last drawn, with its breadcrumb and panel. None where it also shows in a pane, which draws it once.
+    fn chat_left(&mut self, from: &str, (across, shown): (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
+        let terminal = self.agents.get(from)?.terminal_id.clone();
+        let on_screen = self.session_tree().and_then(|t| self.workspaces.get(&t)).is_some_and(|w| w.shown().iter().any(|(_, tab)| matches!(tab, Tab::Term(id) if *id == terminal)));
+        if on_screen {
+            return None;
         }
+        let transcript = region::cached(&self.chats.transcripts.get(from)?.1, StyleRefinement::default().flex_1().min_h_0());
+        let crumb = self.delegated_crumb(from, cx);
+        let panel = self.delegated_panel(from, window, cx);
+        // Both edges move, so it keeps its width.
+        Some(div().absolute().top_0().bottom_0().left(px(across)).right(px(-across)).flex().flex_col().opacity(shown).child(transcript).children(crumb).children(panel))
     }
 }
 
