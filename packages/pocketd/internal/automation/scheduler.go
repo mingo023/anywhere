@@ -35,7 +35,7 @@ type Scheduler struct {
 	Start      Starter
 	Watch      Watcher
 	// Post puts the prompt of an automation bound to a session into it; ok is false
-	// when that session is gone and the run starts a new one. watch follows the run's
+	// when that session is gone or runs with broader access, and the run starts a new one. watch follows the run's
 	// own turn in it, not the session's earlier ones.
 	Post func(runID string, a proto.Automation) (res launch.Result, watch Watcher, ok bool)
 	// OnFinish runs once a run has finished, with it as stored.

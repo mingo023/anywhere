@@ -162,3 +162,22 @@ func TestABoundRunFallsBackWhenItsSessionIsGoneOrClosed(t *testing.T) {
 		t.Fatalf("turns started in %v", got)
 	}
 }
+
+func TestABoundRunStartsANewSessionWhenItsSessionWasRaisedAboveTheAutomationsAccess(t *testing.T) {
+	reg, post, rec := boundRig(t)
+	reg.Add("a1", "/w", "claude", quietDriver{}).SetAccess("full")
+	if post("run1", proto.Automation{Bound: "a1", Access: "ask", Prompt: "p"}) {
+		t.Fatal("a Full session took an Ask automation's run")
+	}
+	if !post("run2", proto.Automation{Bound: "a1", Access: "full", Prompt: "p"}) {
+		t.Fatal("a Full session refused a Full automation's run")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(rec.turns()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := rec.turns(); len(got) != 1 {
+		t.Fatalf("turns started in %v", got)
+	}
+}

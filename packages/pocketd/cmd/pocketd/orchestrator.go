@@ -253,11 +253,12 @@ func (o *orchestrator) handover() {
 	o.sink.Flush()
 }
 
-// postBound is automation.Scheduler.Post: it sends an automation's prompt to the open session it is bound to.
+// postBound is automation.Scheduler.Post: it sends an automation's prompt to the open session it is bound to,
+// unless that session now runs with broader access than the automation.
 func postBound(reg *agent.Registry, e *orch.Engine) func(string, proto.Automation) (launch.Result, automation.Watcher, bool) {
 	return func(runID string, a proto.Automation) (launch.Result, automation.Watcher, bool) {
 		bound, err := reg.Get(a.Bound)
-		if err != nil || bound.Turn() == "closed" {
+		if err != nil || bound.Turn() == "closed" || orch.Broader(bound.Summary().Access, cmp.Or(a.Access, "settings")) {
 			return launch.Result{}, nil, false
 		}
 		_, after := bound.Timeline.State()
