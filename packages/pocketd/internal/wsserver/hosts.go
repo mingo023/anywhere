@@ -122,19 +122,19 @@ func (c *conn) host(m proto.ClientMessage) error {
 	case "host.install":
 		err = hs.Install(m.HostID, m.Update, m.ArchiveDir, hs.progress(m.HostID, m.Update))
 	}
-	c.reply(m, hs, err)
+	c.reply(m, err)
 	return nil
 }
 
 func (c *conn) hostReply(m proto.ClientMessage, err error) {
 	c.hosts.mu.Lock()
 	defer c.hosts.mu.Unlock()
-	c.reply(m, c.s.Hosts, err)
+	c.reply(m, err)
 }
 
-func (c *conn) reply(m proto.ClientMessage, hs *Hosts, err error) {
+func (c *conn) reply(m proto.ClientMessage, err error) {
 	if err != nil {
-		c.send(hostError(m, hs, err))
+		c.send(hostError(m, c.s.Hosts, err))
 		return
 	}
 	c.send(proto.NewAck(m.ID))

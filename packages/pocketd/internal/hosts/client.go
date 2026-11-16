@@ -85,12 +85,13 @@ func (c *Client) read(on func(kind string, raw []byte)) {
 		}
 		c.mu.Lock()
 		w, waited := c.waits[head.ID]
-		if waited && (head.Type == w.want || head.Type == "error") {
+		replied := waited && (head.Type == w.want || head.Type == "error")
+		if replied {
 			delete(c.waits, head.ID)
 		}
 		c.mu.Unlock()
 		switch {
-		case waited && (head.Type == w.want || head.Type == "error"):
+		case replied:
 			w.reply <- raw
 		case head.ID == "":
 			on(head.Type, raw)

@@ -1,11 +1,11 @@
 use super::DelegatedState;
+use super::shown;
 use crate::chat::sub_agent::{self, Mark};
 use crate::chat::user_bubble::text_lines;
 use crate::desktop::{Desktop, ReduceTransparency};
 use crate::glide::Glide;
 use crate::util::now_ms;
 use agents::delegations::{Counts, Delegation, Headline, Phase};
-use super::shown;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::{Duration, Instant};

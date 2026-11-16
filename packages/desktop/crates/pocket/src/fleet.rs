@@ -287,8 +287,8 @@ impl Fleet {
         let mut subs: Vec<_> = [&address, &port, &user, &add_password]
             .into_iter()
             .map(|field| {
-                cx.subscribe_in(field, window, |this, _, ev: &InputEvent, window, cx| match ev {
-                    InputEvent::PressEnter { .. } => this.add_host(window, cx),
+                cx.subscribe_in(field, window, |this, _, ev: &InputEvent, _, cx| match ev {
+                    InputEvent::PressEnter { .. } => this.add_host(cx),
                     InputEvent::Change if this.fleet.form.error.take().is_some() => cx.notify(),
                     _ => {}
                 })
@@ -506,7 +506,7 @@ impl Desktop {
         });
     }
 
-    pub(crate) fn add_host(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn add_host(&mut self, cx: &mut Context<Self>) {
         let form = &self.fleet.form;
         let [address, port, user] = [&form.address, &form.port, &form.user].map(|f| f.read(cx).value().to_string());
         let password = form.password.read(cx).value().to_string();

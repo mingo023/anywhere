@@ -4,8 +4,8 @@ use crate::desktop::chrome::Screen;
 use crate::status;
 use agents::Summary;
 use chrono::{Local, TimeZone};
-use std::fmt::Display;
 use gpui_kit::*;
+use std::fmt::Display;
 use theme::*;
 
 const CRUMB_H: f32 = 48.;

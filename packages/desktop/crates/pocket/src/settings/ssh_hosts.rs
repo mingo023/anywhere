@@ -4,10 +4,10 @@ use super::{field_box, row};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use crate::fleet::needs_update;
+use agents::hosts::{Failure, Link};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use agents::hosts::{Failure, Link};
 use hosts::checklist::{self, Checklist, Mark, Outcome};
 use hosts::{Host, failure_message};
 use theme::*;
@@ -232,7 +232,7 @@ impl Desktop {
         };
         let error = form.error.clone().map(|e| div().text_size(px(12.)).text_color(FAILED_TEXT).child(e));
         let cancel = ui::button("host-cancel", ui::Variant::Secondary, None, "Cancel").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_add_host(window, cx)));
-        let connect = ui::button("host-connect", ui::Variant::Primary, None, "Connect").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_host(window, cx)));
+        let connect = ui::button("host-connect", ui::Variant::Primary, None, "Connect").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.add_host(cx)));
         let foot = div().pt(px(2.)).flex().items_center().gap(px(8.)).child(div().flex_1().text_size(px(12.)).text_color(TEXT_3).child("Nothing is changed in your ~/.ssh")).child(cancel).child(connect);
         div()
             .px(px(14.))
