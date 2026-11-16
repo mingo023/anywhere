@@ -56,7 +56,7 @@ type Decision struct {
 type (
 	SendPayload struct {
 		Text   string   `json:"text"`
-		Mode   string   `json:"mode,omitempty"` // auto, queue, steer
+		Mode   string   `json:"mode,omitempty"` // auto, queue, steer, restart
 		Origin string   `json:"origin,omitempty"`
 		Refs   []string `json:"refs,omitempty"`
 	}
@@ -382,6 +382,9 @@ func send(st State, cmd Command, p SendPayload, ids *idSeq) (Decision, error) {
 	if mode == "" {
 		mode = "auto"
 	}
+	if !slices.Contains([]string{"auto", "queue", "steer", "restart"}, mode) {
+		return Decision{}, refuse(CodeInvalid, "mode is auto, queue, steer or restart")
+	}
 	queueIt := mode == "queue" || mode == "auto" && (st.Session.Busy() || pendingAhead(st.Queue)) && !(origin == OriginWake && st.Self.CanSteer)
 	if origin == OriginQuestion {
 		queueIt = st.Session.Busy() || pendingAhead(st.Queue)
@@ -395,6 +398,9 @@ func send(st State, cmd Command, p SendPayload, ids *idSeq) (Decision, error) {
 		}
 		d.Result = map[string]any{"queued": true, "entryId": e.ID}
 		return d, nil
+	}
+	if mode == "restart" && st.Session.Busy() {
+		d.Effects = append(d.Effects, effect(st.Session.ID, EffInterrupt, nil))
 	}
 	d.Effects = append(d.Effects, effect(st.Session.ID, EffTurnStart, TurnPayload{Text: p.Text, Key: cmd.ID, Origin: origin}))
 	d.Events = append(d.Events, Event{st.Session.ID, "message.sent", map[string]string{"origin": origin}})
