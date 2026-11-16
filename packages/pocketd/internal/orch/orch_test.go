@@ -1042,3 +1042,156 @@ func TestARestoredChildStillShowsTheChatThatDelegatedIt(t *testing.T) {
 		t.Fatalf("restored: parent %q, relationship %q, delegation %+v", got.Parent, got.Relationship, got.Delegation)
 	}
 }
+
+func TestAnAnswerReachesOnlyTheSessionThatAsked(t *testing.T) {
+	st := parentState("working", 0)
+	st.Request = &Request{ID: "q1", Session: "other", Kind: "question", State: "open"}
+	if _, err := decide(st, NewCommand("", CmdRequestAnswer, "p", RequestPayload{RequestID: "q1", Decision: "allow"})); err == nil || AsFailure(err).Code != CodeNotFound {
+		t.Fatalf("an answer to another session's question: %v", err)
+	}
+	st.Request.Session = "p"
+	if d, err := decide(st, NewCommand("", CmdRequestAnswer, "p", RequestPayload{RequestID: "q1", Decision: "allow"})); err != nil || len(d.Effects) != 1 {
+		t.Fatalf("its own question: %+v, %v", d, err)
+	}
+}
+
+func TestEveryWaiterOnOneEffectHearsItFinish(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "edits", Status: "working", Project: "proj", Cwd: "/r"})
+	hold := make(chan struct{})
+	e := NewEngine(s, &fakeEffector{hold: hold, result: func(Effect) (map[string]any, error) { return nil, errors.New("no room") }})
+	e.Agent = agents
+	defer e.Close()
+	r, err := e.Dispatch(NewCommand("req-1", CmdSessionCreate, "p", LaunchPayload{Agent: "claude", Prompt: "x", Access: "edits"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan error, 2)
+	for range 2 {
+		go func() { got <- e.Wait(r.Effects, 2*time.Second) }()
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(hold)
+	for range 2 {
+		if err := <-got; err == nil || err.Error() != "no room" {
+			t.Fatalf("a waiter heard %v", err)
+		}
+	}
+}
+
+func TestATaskQueuedOnTheMacLimitStartsWhenAnotherChatsTaskIsCancelled(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "a", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	putSession(t, s, Session{ID: "b", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	n := 0
+	e := NewEngine(s, &fakeEffector{result: func(e Effect) (map[string]any, error) {
+		if e.Kind != EffLaunch {
+			return nil, nil
+		}
+		n++
+		return map[string]any{"childId": fmt.Sprint("child-", n)}, nil
+	}})
+	e.Agent = agents
+	e.Limits = func() Limits { return Limits{Depth: 3, PerSession: 6, PerMac: 1} }
+	defer e.Close()
+	delegate := func(parent string) string {
+		r, err := e.Dispatch(NewCommand("", CmdDelegate, parent, DelegatePayload{Agent: "codex", Brief: "x"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var d Delegation
+		json.Unmarshal(r.Result, &d)
+		return d.TaskID
+	}
+	status := func(id string) string {
+		ts, _ := s.Delegations(`task_id = ?`, id)
+		return ts[0].Status
+	}
+	first := delegate("a")
+	waitFor(t, func() bool { return status(first) == TaskWorking })
+	second := delegate("b")
+	if _, err := e.Dispatch(NewCommand("", CmdDelegateCancel, "a", TaskPayload{TaskID: first})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return status(second) == TaskWorking })
+}
+
+func TestCancellingATaskDropsItsQuestionNoticeFromTheParentsQueue(t *testing.T) {
+	st := parentState("working", 0)
+	task := Delegation{TaskID: "t1", ParentID: "p", ChildID: "c", Status: TaskWorking, PendingQuestion: "q1"}
+	st.Task, st.Subtree = &task, []Delegation{task}
+	d, err := decide(st, NewCommand("", CmdDelegateCancel, "p", TaskPayload{TaskID: "t1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropped := slices.ContainsFunc(d.Follow, func(c Command) bool {
+		return c.Kind == CmdQueueCancelRefs && c.Session == "p" && strings.Contains(string(c.Payload), "q1")
+	})
+	if !dropped {
+		t.Fatalf("follow-ups: %+v", d.Follow)
+	}
+}
+
+func TestALaunchThatFinishedBeforeACrashStillStartsItsTask(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	e := NewEngine(s, nil)
+	e.Agent = agents
+	r, err := e.Dispatch(NewCommand("d1", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	// The launch ran and was recorded, and pocketd died before the task heard of it.
+	s.db.Exec(`UPDATE outbox SET state = 'done', result = '{"childId":"child-1"}' WHERE id = ?`, r.Effects[0])
+	s.Close()
+	s, _ = Open(dir)
+	defer s.Close()
+	e = NewEngine(s, &fakeEffector{})
+	e.Agent = agents
+	defer e.Close()
+	if err := e.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+	if ts[0].Status != TaskWorking || ts[0].ChildID != "child-1" {
+		t.Fatalf("after recovery: %+v", ts[0])
+	}
+	if err := e.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE kind = 'delegation.started'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("started %d times", n)
+	}
+}
+
+func TestAQueuedMessageSentBeforeACrashCountsAsSentAfterIt(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	putSession(t, s, Session{ID: "a", Agent: "claude", Status: "idle"})
+	e := NewEngine(s, nil)
+	e.Dispatch(NewCommand("", CmdMessageSend, "a", SendPayload{Text: "hi", Mode: "queue"}))
+	if _, err := e.Dispatch(Command{Kind: CmdQueueDrain, Session: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Exec(`UPDATE outbox SET state = 'running'`)
+	k := NewSink(s)
+	k.Item("a", 1, proto.Item{ID: "i1", Seq: 1, Kind: "user", Text: "hi", Ts: time.Now().UnixMilli() + 1})
+	k.Close()
+	s.Close()
+	s, _ = Open(dir)
+	defer s.Close()
+	e = NewEngine(s, &fakeEffector{})
+	defer e.Close()
+	if err := e.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := s.Queue("a", false)
+	if len(q) != 1 || q[0].State != EntrySent {
+		t.Fatalf("queue after recovery: %+v", q)
+	}
+}

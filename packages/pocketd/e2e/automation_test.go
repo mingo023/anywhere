@@ -200,3 +200,23 @@ func TestAPhoneCannotSeeOrSaveAutomations(t *testing.T) {
 		t.Fatal("a phone was sent automations")
 	}
 }
+
+func TestEditingAnAutomationAnAgentMadeKeepsItsBindingAndWebhook(t *testing.T) {
+	made := automation.File{Automations: []proto.Automation{{
+		ID: "au1", Name: "Nightly", Prompt: "run the tests", Provider: "claude", Enabled: true,
+		CreatedBy: "a1", Bound: "a1", Webhook: true, WebhookSecret: "s3cret",
+	}}}
+	h := Start(t, launchReady(""), withState(made))
+	o := h.Owner(proto.CapAutomations)
+	edit := draft(h, "run the tests")
+	edit["id"], edit["name"] = "au1", "Nightly tests"
+	if a := o.Automation("save", "s1", map[string]any{"automation": edit}); a.Type != "ack" {
+		t.Fatalf("got %s", a.Raw)
+	}
+	snap := o.WaitFor("the renamed automation", func(m Message) bool {
+		return m.Type == "automations" && len(m.Automations) == 1 && m.Automations[0].Name == "Nightly tests"
+	})
+	if a := snap.Automations[0]; a.CreatedBy != "a1" || a.Bound != "a1" || !a.Webhook {
+		t.Fatalf("after the edit: %s", snap.Raw)
+	}
+}

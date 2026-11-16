@@ -574,7 +574,7 @@ func request(st State, cmd Command, p RequestPayload) (Decision, error) {
 		}
 		return d, nil
 	}
-	if st.Request == nil || st.Request.State != "open" {
+	if st.Request == nil || st.Request.State != "open" || st.Request.Session != cmd.Session {
 		return Decision{}, refuse(CodeNotFound, "That question is no longer open")
 	}
 	if st.Request.Kind != "question" {
@@ -756,6 +756,9 @@ func task(st State, cmd Command, p TaskPayload) (Decision, error) {
 			wasRunning := x.ChildID != "" && x.Running()
 			x.Status, x.SettledAt = TaskCancelled, st.Now
 			x.Delivery = DeliverDisposed
+			if x.PendingQuestion != "" {
+				d.Follow = append(d.Follow, NewCommand("", CmdQueueCancelRefs, x.ParentID, EntryPayload{Ref: x.PendingQuestion}))
+			}
 			x.PendingQuestion = ""
 			d.Delegations = append(d.Delegations, x)
 			if wasRunning {

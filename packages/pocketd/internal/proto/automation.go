@@ -97,7 +97,7 @@ type Automation struct {
 func (a Automation) Valid() bool {
 	name := utf8.RuneCountInString(strings.TrimSpace(a.Name))
 	return name >= 1 && name <= MaxName && a.Prompt != "" && len(a.Prompt) <= MaxPrompt &&
-		providers.Get(a.Provider) != nil && a.Folder != "" && a.Schedule.Valid() &&
+		providers.Get(a.Provider) != nil && a.Folder != "" && (a.Schedule.Valid() || a.Webhook && a.Schedule.Kind == "") &&
 		(a.Access == "" || slices.Contains(Accesses, a.Access)) && !strings.HasPrefix(a.Base, "-")
 }
 

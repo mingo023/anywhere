@@ -18,6 +18,8 @@ func (e *Engine) OnTurn(c TurnChange) {
 	}
 	if c.To == "closed" || busy(c.From) {
 		e.settleChild(c)
+		// A session an agent started on its own counts against the Mac's limit while busy.
+		e.pumpOthers("")
 	}
 	if busy(c.From) && c.To != "closed" {
 		e.dispatch(Command{Kind: CmdParentIdle, Session: c.Session})

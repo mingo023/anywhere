@@ -256,6 +256,14 @@ func scheduleTask(ctx context.Context, c *Call) (any, error) {
 	a.Prompt = cmp.Or(p.Prompt, a.Prompt)
 	a.Provider = cmp.Or(p.Agent, cmp.Or(a.Provider, c.Caller.Provider))
 	a.Folder = cmp.Or(a.Folder, cmp.Or(c.Caller.Worktree, c.Caller.Cwd))
+	kinds := c.Host.Agents()
+	i := slices.IndexFunc(kinds, func(k AgentKind) bool { return k.ID == a.Provider })
+	if i < 0 {
+		return nil, fail(orch.CodeInvalid, "Unknown agent "+a.Provider)
+	}
+	if a.Access, _, err = orch.Access(a.Access, orch.AgentInfo{Known: true, Access: kinds[i].Access, NeverAsks: kinds[i].NeverAsks}); err != nil {
+		return nil, err
+	}
 	if p.Schedule != nil {
 		a.Schedule = *p.Schedule
 	}

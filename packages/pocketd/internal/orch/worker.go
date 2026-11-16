@@ -1,9 +1,11 @@
 package orch
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 )
@@ -94,7 +96,7 @@ func (e *Engine) pending(name string) (Effect, bool, error) {
 func (e *Engine) finish(x Effect, res map[string]any, err error) {
 	state, last := "done", ""
 	if err != nil {
-		state, last = "failed", err.Error()
+		state, last = "failed", cmp.Or(err.Error(), "failed")
 		log.Printf("orch: %s on %s: %v", x.Kind, x.Lane, err)
 	}
 	out, _ := json.Marshal(res)
@@ -102,34 +104,77 @@ func (e *Engine) finish(x Effect, res map[string]any, err error) {
 		log.Printf("orch: finish %d: %v", x.ID, dberr)
 	}
 	e.mu.Lock()
-	ch := e.waits[x.ID]
+	w := e.waits[x.ID]
 	delete(e.waits, x.ID)
 	e.mu.Unlock()
-	if ch != nil {
-		ch <- err
+	if w != nil {
+		w.err = err
+		close(w.done)
 	}
+	e.follow(x, res, last)
+}
+
+// follow dispatches the command that comes after a finished effect, once: its
+// id is the effect's, so a crash between the two is made up by Recover.
+func (e *Engine) follow(x Effect, res map[string]any, failure string) {
 	next := x.Then
-	if err != nil {
+	if failure != "" {
 		next = x.Else
 	}
-	if next == "" {
-		return
+	if next != "" {
+		payload := map[string]any{}
+		json.Unmarshal(x.Payload, &payload)
+		for k, v := range res {
+			payload[k] = v
+		}
+		if failure != "" {
+			payload["error"] = failure
+		}
+		session := x.Lane
+		if p, ok := payload["parent"].(string); ok && p != "" {
+			session = p
+		}
+		if _, err := e.Dispatch(NewCommand(fmt.Sprint("after:", x.ID), next, session, payload)); err != nil {
+			log.Printf("orch: %s after %s: %v", next, x.Kind, err)
+		}
 	}
-	payload := map[string]any{}
-	json.Unmarshal(x.Payload, &payload)
-	for k, v := range res {
-		payload[k] = v
+	if _, err := e.store.db.Exec(`UPDATE outbox SET continued = 1 WHERE id = ?`, x.ID); err != nil {
+		log.Printf("orch: follow %d: %v", x.ID, err)
 	}
+}
+
+// refollow dispatches what a crash kept from following its finished effect.
+func (e *Engine) refollow() error {
+	rows, err := e.store.db.Query(`SELECT id, session_id, kind, payload, then_cmd, else_cmd, state, last_error, result FROM outbox WHERE state IN ('done', 'failed', 'retired') AND continued = 0`)
 	if err != nil {
-		payload["error"] = err.Error()
+		return err
 	}
-	session := x.Lane
-	if p, ok := payload["parent"].(string); ok && p != "" {
-		session = p
+	type left struct {
+		x                   Effect
+		state, last, result string
 	}
-	if _, err := e.Dispatch(NewCommand("", next, session, payload)); err != nil {
-		log.Printf("orch: %s after %s: %v", next, x.Kind, err)
+	var all []left
+	for rows.Next() {
+		var l left
+		var payload string
+		if err := rows.Scan(&l.x.ID, &l.x.Lane, &l.x.Kind, &payload, &l.x.Then, &l.x.Else, &l.state, &l.last, &l.result); err != nil {
+			rows.Close()
+			return err
+		}
+		l.x.Payload = json.RawMessage(payload)
+		all = append(all, l)
 	}
+	rows.Close()
+	for _, l := range all {
+		var res map[string]any
+		json.Unmarshal([]byte(l.result), &res)
+		failure := ""
+		if l.state != "done" {
+			failure = cmp.Or(l.last, "failed")
+		}
+		e.follow(l.x, res, failure)
+	}
+	return nil
 }
 
 // Recover makes the outbox safe to run after a crash or an upgrade: a row
@@ -137,7 +182,7 @@ func (e *Engine) finish(x Effect, res map[string]any, err error) {
 // except a launch, whose half-made session can't be judged, which is retired
 // and fails its task. Then every lane with work starts.
 func (e *Engine) Recover() error {
-	rows, err := e.store.db.Query(`SELECT id, session_id, kind, payload, created_at, else_cmd FROM outbox WHERE state = 'running'`)
+	rows, err := e.store.db.Query(`SELECT id, session_id, kind, payload, created_at FROM outbox WHERE state = 'running'`)
 	if err != nil {
 		return err
 	}
@@ -145,12 +190,11 @@ func (e *Engine) Recover() error {
 		id                  int64
 		lane, kind, payload string
 		created             int64
-		elseCmd             string
 	}
 	var all []left
 	for rows.Next() {
 		var l left
-		if err := rows.Scan(&l.id, &l.lane, &l.kind, &l.payload, &l.created, &l.elseCmd); err != nil {
+		if err := rows.Scan(&l.id, &l.lane, &l.kind, &l.payload, &l.created); err != nil {
 			rows.Close()
 			return err
 		}
@@ -171,21 +215,12 @@ func (e *Engine) Recover() error {
 		case EffLaunch, EffForkLaunch:
 			state = "retired"
 		}
-		if _, err := e.store.db.Exec(`UPDATE outbox SET state = ?, last_error = CASE WHEN ? = 'retired' THEN 'pocketd restarted while it ran' ELSE last_error END WHERE id = ?`, state, state, l.id); err != nil {
+		if _, err := e.store.db.Exec(`UPDATE outbox SET state = ?, last_error = CASE WHEN ? = 'retired' THEN 'pocketd restarted while the session was starting' ELSE last_error END WHERE id = ?`, state, state, l.id); err != nil {
 			return err
 		}
-		if state == "retired" && l.elseCmd != "" {
-			payload := map[string]any{}
-			json.Unmarshal([]byte(l.payload), &payload)
-			payload["error"] = "pocketd restarted while the session was starting"
-			session, _ := payload["parent"].(string)
-			if session == "" {
-				session = l.lane
-			}
-			if _, err := e.Dispatch(NewCommand("", l.elseCmd, session, payload)); err != nil {
-				log.Printf("orch: recover %d: %v", l.id, err)
-			}
-		}
+	}
+	if err := e.refollow(); err != nil {
+		return err
 	}
 	return e.KickAll()
 }

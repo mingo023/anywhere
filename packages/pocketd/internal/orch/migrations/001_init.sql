@@ -146,6 +146,7 @@ CREATE TABLE outbox (
 	then_cmd TEXT NOT NULL DEFAULT '',
 	else_cmd TEXT NOT NULL DEFAULT '',
 	result TEXT NOT NULL DEFAULT '',
+	continued INTEGER NOT NULL DEFAULT 0,
 	created_at INTEGER NOT NULL
 );
 CREATE INDEX outbox_claim ON outbox (state, session_id, id);

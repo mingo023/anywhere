@@ -159,7 +159,7 @@ func (s *Store) commit(change func(f *File) error) error {
 }
 
 func nextRunAt(a proto.Automation, now time.Time) int64 {
-	if !a.Enabled {
+	if !a.Enabled || a.Schedule.Kind == "" {
 		return 0
 	}
 	return nextAfter(a.Schedule, now).UnixMilli()

@@ -380,3 +380,17 @@ func TestAFailedSaveLeavesTheStoreAsItWas(t *testing.T) {
 		t.Fatalf("%+v", autos)
 	}
 }
+
+func TestAWebhookAutomationNeedsNoScheduleAndNeverRunsOnATimer(t *testing.T) {
+	s := Open(t.TempDir())
+	hook := morning
+	hook.Schedule, hook.Webhook = proto.Schedule{}, true
+	a, err := s.Save(hook, at(9, 8, 0))
+	if err != nil || a.NextRunAt != 0 {
+		t.Fatalf("webhook only: next run %d, %v", a.NextRunAt, err)
+	}
+	hook.Webhook = false
+	if _, err := s.Save(hook, at(9, 8, 0)); err != ErrInvalid {
+		t.Fatalf("neither a schedule nor a webhook: %v", err)
+	}
+}

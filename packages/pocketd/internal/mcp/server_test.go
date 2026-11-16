@@ -57,7 +57,7 @@ func (h *host) SessionIn(terminal string) (proto.AgentSummary, bool) {
 func (h *host) Summary(id string) (proto.AgentSummary, bool) { return h.parent, id == h.parent.ID }
 func (h *host) Items(string) []proto.Item                    { return nil }
 func (h *host) Agents() []AgentKind {
-	return []AgentKind{{ID: "claude", Installed: true, Parent: true}}
+	return []AgentKind{{ID: "claude", Installed: true, Parent: true}, {ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
 }
 func (h *host) InBackground(string, string) bool { return false }
 func (h *host) Dirty(string) bool                { return false }
@@ -327,6 +327,11 @@ func TestAnAgentChangesOnlySchedulesWithinItsAccessAndNeverReadsASecret(t *testi
 	if a := sched.autos["new"]; a.Access != "edits" || a.CreatedBy != "parent" {
 		t.Fatalf("created: %+v", a)
 	}
+	delete(sched.autos, "new")
+	if out := call("schedule_task", `{"prompt":"nightly tests","agent":"pi"}`); out["isError"] != true || len(sched.autos) != 1 {
+		t.Fatalf("an Edits session scheduled an always-Full agent: %v, %+v", out, sched.autos)
+	}
+	sched.autos["new"] = proto.Automation{ID: "new", Access: "edits", CreatedBy: "parent", Webhook: true, WebhookSecret: "mine"}
 	listed := call("list_scheduled_tasks", `{}`)
 	if strings.Contains(fmt.Sprint(created, listed), "s3cret") || strings.Contains(fmt.Sprint(created, listed), "mine") {
 		t.Fatalf("a secret reached the agent: %v %v", created, listed)

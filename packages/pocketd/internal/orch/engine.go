@@ -45,7 +45,7 @@ type Engine struct {
 	mu      sync.Mutex
 	locks   map[string]*sync.Mutex
 	lanes   map[string]*lane
-	waits   map[int64]chan error
+	waits   map[int64]*wait
 	stopped bool
 	running sync.WaitGroup
 	ctx     context.Context
@@ -54,7 +54,7 @@ type Engine struct {
 
 func NewEngine(s *Store, eff Effector) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Engine{store: s, effector: eff, locks: map[string]*sync.Mutex{}, lanes: map[string]*lane{}, waits: map[int64]chan error{}, ctx: ctx, cancel: cancel, Now: time.Now}
+	return &Engine{store: s, effector: eff, locks: map[string]*sync.Mutex{}, lanes: map[string]*lane{}, waits: map[int64]*wait{}, ctx: ctx, cancel: cancel, Now: time.Now}
 }
 
 func (e *Engine) Store() *Store { return e.store }
@@ -154,7 +154,7 @@ func (e *Engine) Dispatch(cmd Command) (Receipt, error) {
 		e.catchUp(d.Delegations[0].ChildID)
 	}
 	for _, ev := range d.Events {
-		if ev.Kind == "delegation.settled" {
+		if ev.Kind == "delegation.settled" || ev.Kind == "delegation.cancelled" {
 			e.pumpOthers(ev.Session)
 			break
 		}
@@ -194,14 +194,11 @@ func (e *Engine) DispatchWait(cmd Command, wait time.Duration) (Receipt, error) 
 func (e *Engine) Wait(ids []int64, wait time.Duration) error {
 	deadline := time.After(wait)
 	for _, id := range ids {
-		ch := e.waiter(id)
-		if ch == nil {
-			continue
-		}
+		w := e.waiter(id)
 		select {
-		case err := <-ch:
-			if err != nil {
-				return err
+		case <-w.done:
+			if w.err != nil {
+				return w.err
 			}
 		case <-deadline:
 			return refuse(CodeUnavailable, "The agent didn't take it in time")
@@ -210,23 +207,26 @@ func (e *Engine) Wait(ids []int64, wait time.Duration) error {
 	return nil
 }
 
-func (e *Engine) waiter(id int64) chan error {
+// wait is one effect's end, for every caller waiting on it: err is set before done closes.
+type wait struct {
+	done chan struct{}
+	err  error
+}
+
+func (e *Engine) waiter(id int64) *wait {
 	e.mu.Lock()
-	ch, ok := e.waits[id]
+	w, ok := e.waits[id]
 	e.mu.Unlock()
 	if ok {
-		return ch
+		return w
 	}
+	w = &wait{done: make(chan struct{})}
+	close(w.done)
 	var state, last string
-	if err := e.store.db.QueryRow(`SELECT state, last_error FROM outbox WHERE id = ?`, id).Scan(&state, &last); err != nil {
-		return nil
+	if err := e.store.db.QueryRow(`SELECT state, last_error FROM outbox WHERE id = ?`, id).Scan(&state, &last); err == nil && state == "failed" {
+		w.err = errors.New(last)
 	}
-	if state == "failed" {
-		ch := make(chan error, 1)
-		ch <- errors.New(last)
-		return ch
-	}
-	return nil
+	return w
 }
 
 func (e *Engine) changed(d Decision) {
@@ -313,7 +313,7 @@ func (e *Engine) apply(tx *Tx, cmd Command, d Decision) ([]Effect, error) {
 		}
 		x.ID, _ = res.LastInsertId()
 		e.mu.Lock()
-		e.waits[x.ID] = make(chan error, 1)
+		e.waits[x.ID] = &wait{done: make(chan struct{})}
 		e.mu.Unlock()
 		out = append(out, x)
 	}

@@ -66,7 +66,12 @@ func (c *conn) automate(m proto.ClientMessage) error {
 		if err := c.usableFolder(m.Automation.Folder); err != nil {
 			return err
 		}
-		_, err := store.Save(*m.Automation, now)
+		a := *m.Automation
+		// The desktop's form doesn't carry what an agent set, so an edit keeps it.
+		if old, ok := store.Automation(a.ID); ok && a.ID != "" {
+			a.CreatedBy, a.Bound, a.Webhook, a.WebhookSecret = old.CreatedBy, old.Bound, old.Webhook, old.WebhookSecret
+		}
+		_, err := store.Save(a, now)
 		return err
 	case "automation.enable":
 		return store.Enable(m.AutomationID, m.Enabled, now)
