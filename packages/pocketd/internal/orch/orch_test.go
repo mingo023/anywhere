@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -114,8 +115,8 @@ func TestMigrationsRunFromEmptyAndAgainWithoutChange(t *testing.T) {
 	defer s.Close()
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&n)
-	if n != 3 {
-		t.Fatalf("schema_version rows = %d, want 3", n)
+	if all, _ := fs.Glob(migrations, "migrations/*.sql"); n != len(all) {
+		t.Fatalf("schema_version rows = %d, want %d", n, len(all))
 	}
 	fi, err := os.Stat(filepath.Join(dir, "state", "orchestrator.db"))
 	if err != nil {

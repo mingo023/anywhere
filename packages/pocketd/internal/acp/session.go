@@ -66,7 +66,10 @@ const (
 // agent says to timeline events, and answers what it asks.
 type Session struct {
 	// MCP gives Anywhere's MCP server entries for the agent; nil gives none.
-	MCP     func() []any
+	MCP func() []any
+	// Shown is whether the agent already shows the session's history, as one
+	// restored from the store does: a load's replay of it is dropped.
+	Shown   bool
 	agentID string
 	name    string // the agent's, for what the user reads
 	f       flavor
@@ -358,12 +361,13 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 // before this one cut short ends interrupted, as do the calls it left open.
 func (s *Session) loaded(ok bool, left Left) {
 	s.flush()
+	replayed := len(s.replay)
 	if ok && left != Running {
 		cut := s.interrupt() || left == Cut && len(s.replay) > 0
 		switch {
 		case cut:
 			s.record(timeline.Event{Kind: "result", Error: "interrupted"})
-		case s.answered:
+		case s.answered && !s.Shown:
 			s.record(timeline.Event{Kind: "result", OK: true})
 		}
 	}
@@ -373,7 +377,11 @@ func (s *Session) loaded(ok bool, left Left) {
 		clear(s.tools)
 		return
 	}
-	s.sink.Loaded()
+	if s.Shown {
+		history = history[replayed:]
+	} else {
+		s.sink.Loaded()
+	}
 	for _, e := range history {
 		s.sink.Apply(e)
 	}
@@ -1170,9 +1178,13 @@ func (s *Session) adopt(sid, call string) {
 			s.mu.Unlock()
 		}()
 	}
-	// A history's sub-agents load once it has.
+	// A history's sub-agents load once it has; one the timeline shows already needs no loading unless its turn runs on.
 	if s.opening {
-		s.held = append(s.held, load)
+		s.held = append(s.held, func() {
+			if !s.Shown || s.running {
+				load()
+			}
+		})
 		return
 	}
 	load()

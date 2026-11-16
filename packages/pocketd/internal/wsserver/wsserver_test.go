@@ -37,6 +37,7 @@ type fakeDriver struct {
 	settings             [][2]string
 	accesses             []string
 	mcpActs              []string
+	closes               int
 }
 
 func (d *fakeDriver) Prompt(text string) error { d.prompts = append(d.prompts, text); return nil }
@@ -60,7 +61,7 @@ func (d *fakeDriver) McpAct(action, server string) (string, error) {
 	d.mcpActs = append(d.mcpActs, action+" "+server)
 	return "https://auth.example/" + server, nil
 }
-func (d *fakeDriver) Close() {}
+func (d *fakeDriver) Close() { d.closes++ }
 
 type phone struct {
 	t   *testing.T

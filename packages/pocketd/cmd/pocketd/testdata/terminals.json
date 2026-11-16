@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "terminals": [
+    {
+      "terminalId": "t-1",
+      "launchDir": "/w",
+      "cols": 100,
+      "rows": 30
+    },
+    {
+      "terminalId": "t-2",
+      "launchDir": "/w/repo",
+      "cols": 120,
+      "rows": 40,
+      "provider": "claude",
+      "conversationId": "c2",
+      "transcriptPath": "/h/.claude/projects/-w-repo/c2.jsonl",
+      "launch": {
+        "access": "edits",
+        "plan": true,
+        "model": "opus",
+        "effort": "high"
+      },
+      "agentId": "a-2",
+      "createdAt": 1700000000000,
+      "status": "done",
+      "pinned": true,
+      "origin": "desktop",
+      "chat": true
+    }
+  ]
+}

@@ -284,8 +284,16 @@ func (h *Host) TaskOf(session, toolUseID string) string {
 }
 
 // Rehold gives each agent an upgrade handed down the background tasks it
-// declared it waits on: the exec didn't stop the agent, so they run on.
-func (h *Host) Rehold() {
+// declared it waits on: the exec didn't stop the agent, so they run on. A
+// cold start, whose agents ended with the pocketd before and run none of
+// them, drops them instead.
+func (h *Host) Rehold(handedDown bool) {
+	if !handedDown {
+		if err := h.engine.Store().Unhold(); err != nil {
+			log.Printf("orch: held: %v", err)
+		}
+		return
+	}
 	tasks, until, err := h.engine.Store().Held()
 	if err != nil {
 		log.Printf("orch: held: %v", err)

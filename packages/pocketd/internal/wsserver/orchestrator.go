@@ -1,9 +1,13 @@
 package wsserver
 
 import (
+	"cmp"
 	"errors"
+	"log"
+	"slices"
 	"time"
 
+	"pocketd/internal/events"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 )
@@ -45,6 +49,46 @@ func WireDelegation(e *orch.Engine, t orch.Delegation) proto.Delegation {
 	return d
 }
 
+// agents is agent.list: each open session the store keeps, as the registry
+// has it live where it runs, and those running the store hasn't written yet.
+func (s *Server) agents() []proto.AgentSummary {
+	live := s.Agents.List()
+	if s.OpenSessions == nil {
+		return live
+	}
+	stored, err := s.OpenSessions()
+	if err != nil {
+		log.Printf("agent.list: %v", err)
+		return live
+	}
+	return listed(stored, live)
+}
+
+func listed(stored []orch.Session, live []proto.AgentSummary) []proto.AgentSummary {
+	byID := map[string]proto.AgentSummary{}
+	for _, a := range live {
+		byID[a.ID] = a
+	}
+	out := make([]proto.AgentSummary, 0, max(len(stored), len(live)))
+	for _, x := range stored {
+		if a, ok := byID[x.ID]; ok {
+			out = append(out, a)
+			delete(byID, x.ID)
+			continue
+		}
+		out = append(out, proto.AgentSummary{ID: x.ID, TerminalID: x.Terminal, Title: x.Title, Cwd: x.Cwd, Provider: x.Agent, Model: x.Model, Effort: x.Effort, Access: x.Access,
+			Status: x.Status, Failed: x.Failed, Pinned: x.Pinned, ProviderSessionID: x.Conversation, CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt, Project: x.Project,
+			Worktree: x.Worktree, Branch: x.Branch, Origin: x.Origin, ChatOnly: x.Chat, Parent: x.ParentID, Relationship: x.Relationship, CreatedBy: x.CreatedBy})
+	}
+	for _, a := range live {
+		if _, ok := byID[a.ID]; ok {
+			out = append(out, a)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b proto.AgentSummary) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
+	return out
+}
+
 func failureReply(err error) error {
 	var f *orch.Failure
 	if errors.As(err, &f) {
@@ -53,11 +97,32 @@ func failureReply(err error) error {
 	return err
 }
 
+// resolve answers the user's ask as a request.answer command.
+func (c *conn) resolve(e *orch.Engine, m proto.ClientMessage) error {
+	agentID := c.asker(m.RequestID)
+	gone := errors.New("Permission request is no longer open")
+	if agentID == "" {
+		return gone
+	}
+	p := orch.RequestPayload{RequestID: m.RequestID, Decision: m.Decision, Option: m.Option, Message: m.Message, Answers: m.Answers, User: true}
+	if _, err := e.DispatchWait(orch.NewCommand("", orch.CmdRequestAnswer, agentID, p), promptWait); err != nil {
+		if orch.AsFailure(err).Code == orch.CodeNotFound {
+			return gone
+		}
+		return failureReply(err)
+	}
+	c.s.Events.Emit(events.Event{Kind: "answer", Agent: agentID, Principal: c.principal(), Decision: m.Decision})
+	return nil
+}
+
 // orchestrated answers the verbs the orchestrator owns; false leaves m to dispatch.
 func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 	e := c.s.Orch
 	if e == nil {
 		return false, nil
+	}
+	if m.Type == "permission.resolve" {
+		return true, c.resolve(e, m)
 	}
 	if _, err := c.s.Agents.Get(m.AgentID); err != nil && m.Type != "agent.delegations" && m.Type != "queue.list" {
 		return false, nil
@@ -72,6 +137,16 @@ func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 		return true, failureReply(err)
 	case "agent.interrupt":
 		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionStop, Session: m.AgentID}, promptWait)
+		return true, failureReply(err)
+	case "agent.close":
+		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionClose, Session: m.AgentID}, promptWait)
+		return true, failureReply(err)
+	case "agent.pin":
+		action := "unpin"
+		if m.Pinned {
+			action = "pin"
+		}
+		_, err := e.DispatchWait(orch.NewCommand("", orch.CmdSessionOrganize, m.AgentID, orch.OrganizePayload{Action: action}), promptWait)
 		return true, failureReply(err)
 	case "agent.delegations":
 		c.send(proto.NewAgentDelegations(m.ID, m.AgentID, Delegations(e, m.AgentID)))
