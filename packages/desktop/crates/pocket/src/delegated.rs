@@ -40,6 +40,11 @@ impl DelegatedState {
     fn reconnected(&mut self) {
         self.asked.clear();
     }
+
+    /// The chats of `chats` not asked about on this connection, now taken as asked.
+    fn ask(&mut self, chats: impl IntoIterator<Item = String>) -> Vec<String> {
+        chats.into_iter().filter(|c| self.asked.insert(c.clone())).collect()
+    }
 }
 
 fn shown<'a>(list: &'a [Delegation], cleared: &'a HashSet<String>) -> impl Iterator<Item = &'a Delegation> + Clone {
@@ -51,9 +56,11 @@ pub(crate) fn session_link(link: &str) -> Option<&str> {
     link.strip_prefix("anywhere://session/").map(|id| id.trim_end_matches('/')).filter(|id| !id.is_empty())
 }
 
-/// The chats in `list` that have a delegated session and weren't asked about yet.
-fn unasked(list: &[Summary], asked: &HashSet<String>) -> Vec<String> {
-    let mut parents: Vec<String> = list.iter().filter(|a| crate::status::is_child(a) && !asked.contains(&a.parent)).map(|a| a.parent.clone()).collect();
+/// The chats in `list` that have a delegated session, and those `viewing`, that weren't asked about yet. A chat whose delegated
+/// sessions all run on linked hosts has none in `list`.
+fn unasked(list: &[Summary], viewing: &[String], asked: &HashSet<String>) -> Vec<String> {
+    let listed = list.iter().filter(|a| crate::status::is_child(a)).map(|a| &a.parent);
+    let mut parents: Vec<String> = listed.chain(viewing).filter(|p| !asked.contains(*p)).cloned().collect();
     parents.sort();
     parents.dedup();
     parents
@@ -68,12 +75,10 @@ fn child_trees(list: &[Summary], projects: &[String], tracked: impl Fn(&str) -> 
 }
 
 impl Desktop {
-    /// Asks pocketd for the delegations of each chat that just showed a delegated session; it pushes the rest.
+    /// Asks pocketd for the delegations of each chat that just showed a delegated session or is on screen; it pushes the rest.
     pub(crate) fn delegated_listed(&mut self, cx: &mut Context<Self>) {
-        for parent in unasked(&self.agents.list, &self.delegated.asked) {
-            self.outbox.delegations(&parent);
-            self.delegated.asked.insert(parent);
-        }
+        let chats = unasked(&self.agents.list, self.alerts.viewing.as_deref().unwrap_or_default(), &self.delegated.asked);
+        self.delegated_ask(chats);
         let trees = child_trees(&self.agents.list, &self.store.projects, |t| self.store.is_tracked(t));
         if !trees.is_empty() {
             trees.iter().for_each(|t| self.store.track(t));
@@ -101,6 +106,13 @@ impl Desktop {
         let Some(push) = self.delegated.push.as_mut() else { return };
         (0..=ms / 16).for_each(|i| _ = push.tick(start + Duration::from_millis(16 * i), reduce_motion));
         self.delegated.clock = Some(start + Duration::from_millis(ms));
+    }
+
+    /// Asks for the delegations of the chats in `chats` not asked about yet.
+    pub(crate) fn delegated_ask(&mut self, chats: impl IntoIterator<Item = String>) {
+        for chat in self.delegated.ask(chats) {
+            self.outbox.delegations(&chat);
+        }
     }
 
     pub(crate) fn delegated_reconnected(&mut self) {
@@ -134,10 +146,27 @@ mod tests {
     }
 
     #[test]
+    fn a_chat_on_screen_is_asked_for_its_delegations_once_a_connection() {
+        let mut state = DelegatedState::new();
+        assert_eq!(state.ask(["p".to_string(), "q".to_string()]), ["p", "q"]);
+        assert!(state.ask(["p".to_string()]).is_empty());
+        state.reconnected();
+        assert_eq!(state.ask(["p".to_string()]), ["p"]);
+    }
+
+    #[test]
     fn a_chat_is_asked_for_its_delegations_once_a_delegated_session_shows() {
         let list = [child("a", "", ""), child("b", "p", "subagent"), child("c", "p", "subagent"), child("d", "q", "fork"), child("e", "r", "subagent")];
-        assert_eq!(unasked(&list, &HashSet::new()), ["p", "r"]);
-        assert_eq!(unasked(&list, &HashSet::from(["p".to_string()])), ["r"]);
+        assert_eq!(unasked(&list, &[], &HashSet::new()), ["p", "r"]);
+        assert_eq!(unasked(&list, &[], &HashSet::from(["p".to_string()])), ["r"]);
+    }
+
+    #[test]
+    fn a_chat_on_screen_is_asked_for_its_delegations_with_none_of_them_listed() {
+        let list = [child("b", "p", "subagent")];
+        let viewing = ["s".to_string(), "p".to_string()];
+        assert_eq!(unasked(&list, &viewing, &HashSet::new()), ["p", "s"]);
+        assert_eq!(unasked(&list, &viewing, &HashSet::from(["s".to_string()])), ["p"]);
     }
 
     fn task(id: &str, status: &str) -> Delegation {

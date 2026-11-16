@@ -351,6 +351,7 @@ impl Desktop {
         let panes = if window.is_window_active() { self.visible_panes() } else { Vec::new() };
         if let Some(ids) = self.alerts.view(&panes, &self.agents.list) {
             self.outbox.view(&ids);
+            self.delegated_ask(ids);
             self.sync_alerts(cx);
         }
     }
