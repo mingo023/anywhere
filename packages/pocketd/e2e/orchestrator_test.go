@@ -164,6 +164,48 @@ func TestAColdRestartWithoutResumeFailsTheTaskOfTheChildItEnded(t *testing.T) {
 	})
 }
 
+// agentsListed is agent.list as id, title, status and lineage.
+func agentsListed(p *Phone) []string {
+	p.t.Helper()
+	p.Send(map[string]any{"type": "agent.list", "id": "sessions"})
+	var page struct {
+		Agents []proto.AgentSummary `json:"agents"`
+	}
+	json.Unmarshal([]byte(p.WaitFor("agent.list", func(m Message) bool { return m.Type == "agent.list" && m.ID == "sessions" }).Raw), &page)
+	var out []string
+	for _, a := range page.Agents {
+		out = append(out, strings.Join([]string{a.ID, a.Title, a.Status, a.Parent, a.Relationship}, " "))
+	}
+	slices.Sort(out)
+	return out
+}
+
+func TestAColdRestartListsADelegatingChatAndItsChildWithTheTitlesTheyHad(t *testing.T) {
+	h := Start(t, launchReady(""), func(h *Harness) { h.resume = true })
+	phone := h.Owner()
+	create(phone, "r1", inRepo(h, map[string]any{"chat": true, "checkout": map[string]any{"worktree": h.Repo, "autoName": true}, "prompt": "Start"}))
+	parent := reply(phone, "agent.created", "error").AgentID
+	phone.WaitAll("the chat named and done",
+		func(m Message) bool {
+			return m.Type == "agent.update" && m.Agent.ID == parent && m.Agent.Title == "Say hello"
+		},
+		statusOf(parent, "done"))
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Hi"}`)
+	child := settledAndWoken(h, phone, parent, "completed").ChildID
+	var before []string
+	h.eventually("both sessions done", func() bool {
+		before = agentsListed(phone)
+		return len(before) == 2 && strings.Count(strings.Join(before, "\n"), " done") == 2
+	})
+
+	h.Restart()
+
+	resumedChat(h, child)
+	if got := agentsListed(resumedChat(h, parent)); !slices.Equal(got, before) {
+		t.Fatalf("listed\n%s\nafter the restart,\n%s\nbefore", strings.Join(got, "\n"), strings.Join(before, "\n"))
+	}
+}
+
 func TestALaunchCommittedBeforeARestartStartsAfterIt(t *testing.T) {
 	h, phone, _, parent := chatClaude(t, func(h *Harness) { h.resume = true })
 	phone.Prompt(parent, "first")

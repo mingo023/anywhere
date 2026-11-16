@@ -146,8 +146,8 @@ type Registry struct {
 	// Sink hears every summary and settled timeline item, under the agent's
 	// lock and in order, so it only queues. Set it before adding agents.
 	Sink Sink
-	// Lineage gives a restored agent the parent and delegation the store kept,
-	// since the saved terminal doesn't carry them. Set it before restoring.
+	// Lineage gives a restored agent the parent, delegation and title the store
+	// kept, since the saved terminal doesn't carry them. Set it before restoring.
 	Lineage func(id string) Lineage
 	// History gives a restored agent the timeline the store kept, and whether
 	// that is its whole conversation, so nothing replays it. Set it before restoring.
@@ -157,6 +157,7 @@ type Registry struct {
 // Lineage is where a session came from: the chat that delegated or forked it.
 type Lineage struct {
 	Parent, Relationship, CreatedBy string
+	Title                           string
 	Delegation                      *proto.DelegationRef
 }
 
@@ -233,6 +234,10 @@ func (r *Registry) Restore(x Restored, d Driver) *Agent {
 	if r.Lineage != nil {
 		l := r.Lineage(x.ID)
 		a.parent, a.relationship, a.createdBy, a.delegation = l.Parent, l.Relationship, l.CreatedBy, l.Delegation
+		// A timeline restored from the store isn't replayed, so no first prompt titles it again.
+		if l.Title != x.Fallback {
+			a.title = l.Title
+		}
 	}
 	if r.History != nil {
 		items, whole := r.History(x.ID)
