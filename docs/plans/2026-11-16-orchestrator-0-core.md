@@ -30,7 +30,7 @@
 - `internal/orch/decide.go`: `decide(state, cmd)` for `session.create`, `session.close`, `message.send` (all four modes), `turn.interrupt`, `session.stop`, `session.configure`, `session.rename`, `request.answer`. Pure: plain values in, `[]Event` and `[]Effect` out.
 - `engine.go`: `Dispatch` takes the per-session lock, checks receipts (the same id with a different spec hash fails with `invalid_request`), runs decide, commits events, projections, the receipt and outbox rows in one transaction, then publishes.
 - `worker.go`: claims the oldest `pending` outbox row per session, with at most one `running` row per session. Runs the effect through an `Effector` interface that the daemon implements. Records `done` or `failed` and feeds the result back as a command. On start, it retires `running` rows whose agent process is gone before claiming anything new.
-- `launch/receipts.go` (in memory, 10 minutes) is deleted. `agent.create`'s `requestId` becomes the command id.
+- `agent.create`'s `requestId`, scoped by its requester, becomes the command id. `launch/receipts.go` (in memory, 10 minutes) keeps only `worktree.create`.
 - Tests: table tests on `decide`; a duplicate command id commits nothing; kill after commit, before the effect, and the effect runs after reopen; at most one running effect per session.
 
 ## PR 0.3: Chat ingest
@@ -68,7 +68,7 @@
 ## PR 0.7: Fork through the engine
 
 - `transfer.fork` command with a `fork.native` effect: the agent's fork args as today (`launch/argv.go:116`). It records `relationship = fork` and `parent_id`. A Claude fork runs as a chat. A Codex fork runs in the TUI (`launch/codex.go:51-52`), so it's a terminal session: its events come from P0.4 and it gets no MCP tools.
-- `agent.create` with `fork` dispatches it. The sidebar Fork menu (`sidebar/row_menu.rs`) is unchanged.
+- `agent.create` with `fork` stays a `session.start`, as its fork is a conversation id, not a session. The sidebar Fork menu (`sidebar/row_menu.rs`) is unchanged.
 - Tests: a fork records lineage; the existing fork e2e tests still pass.
 
 ## PR 0.8: Upgrade from today
