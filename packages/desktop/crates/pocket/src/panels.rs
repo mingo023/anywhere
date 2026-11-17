@@ -150,7 +150,7 @@ impl Desktop {
         };
         let live: Vec<PaneId> = w.tree.panes().iter().map(|p| p.id).collect();
         let drawn: Vec<PaneId> = w.tree.drawn().iter().map(|p| p.id).collect();
-        self.terminal.focused = focused;
+        self.terminal.focused = focused.map(|id| self.delegated_term(&id));
         if let Some(pane) = born(&self.panels.panes, &live) {
             self.panels.born = Some((pane, Glide::from(0.)));
         }
@@ -393,8 +393,10 @@ impl Desktop {
 
     fn pane_body(&mut self, p: PaneId, focused: bool, tab: Option<Tab>, window: &mut Window, cx: &mut Context<Self>) -> Div {
         match tab {
-            Some(Tab::Term(id)) if self.chat_shown(&id) => self.chat_view(&id, window, cx),
-            Some(Tab::Term(id)) => self.term_body(&id, focused, cx),
+            Some(Tab::Term(id)) => {
+                let id = self.delegated_term(&id);
+                if self.chat_shown(&id) { self.chat_view(&id, window, cx) } else { self.term_body(&id, focused, cx) }
+            }
             Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
             Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => self.diff_view(p, cx),
             Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc) => self.commit_view(p, cx),

@@ -1,6 +1,6 @@
 use agents::Summary;
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use store::prefs::sidebar::SessionSort;
 
 /// Variants run from most to least urgent; cards and roll-ups sort on that order.
@@ -94,6 +94,28 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
 /// A session another delegated to: its parent consumes what it reports, so only a question or a failure is for the user.
 pub fn is_child(a: &Summary) -> bool {
     a.relationship == "subagent" && !a.parent.is_empty()
+}
+
+/// The ids of the delegated sessions shown only inside the chat that delegated them. A child whose parent isn't listed stays out of it, so it can always be reached.
+pub fn hidden_children(list: &[Summary]) -> HashSet<&str> {
+    let children: Vec<&Summary> = list.iter().filter(|a| is_child(a)).collect();
+    if children.is_empty() {
+        return HashSet::new();
+    }
+    let listed: HashSet<&str> = list.iter().map(|a| a.id.as_str()).collect();
+    children.into_iter().filter(|a| listed.contains(a.parent.as_str())).map(|a| a.id.as_str()).collect()
+}
+
+/// The terminals of the hidden children.
+pub fn hidden_terminals(list: &[Summary]) -> HashSet<&str> {
+    let hidden = hidden_children(list);
+    list.iter().filter(|a| hidden.contains(a.id.as_str())).map(|a| a.terminal_id.as_str()).collect()
+}
+
+/// `list` without the hidden children: the sessions the sidebar, the palette and Activity offer.
+pub fn listed(list: &[Summary]) -> Vec<&Summary> {
+    let hidden = hidden_children(list);
+    list.iter().filter(|a| !hidden.contains(a.id.as_str())).collect()
 }
 
 /// Whether a session in `status` is news for the user: a child's Done isn't, as its parent reads it.
@@ -240,6 +262,21 @@ mod tests {
 
     fn agent(terminal: &str, status: &str) -> Summary {
         Summary { id: format!("agent-{terminal}"), terminal_id: terminal.into(), status: status.into(), attached: true, ..Default::default() }
+    }
+
+    fn lineage(id: &str, parent: &str, relationship: &str) -> Summary {
+        Summary { id: id.into(), terminal_id: format!("t-{id}"), parent: parent.into(), relationship: relationship.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn a_delegated_session_is_hidden_while_the_chat_that_delegated_it_is_listed() {
+        let list = [lineage("p", "", ""), lineage("c", "p", "subagent"), lineage("g", "c", "subagent"), lineage("f", "p", "fork"), lineage("o", "gone", "subagent")];
+        let mut hidden: Vec<&str> = hidden_children(&list).into_iter().collect();
+        hidden.sort();
+        assert_eq!(hidden, ["c", "g"], "a fork, a plain chat and a child of a chat no longer listed stay in view");
+        assert_eq!(listed(&list).iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["p", "f", "o"]);
+        assert_eq!(hidden_terminals(&list).len(), 2);
+        assert!(hidden_terminals(&list).contains("t-g"));
     }
 
     #[test]

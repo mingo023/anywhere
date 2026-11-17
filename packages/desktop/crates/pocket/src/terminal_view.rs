@@ -118,7 +118,7 @@ pub fn pasted(item: &ClipboardItem) -> Option<Pasted> {
 
 impl Desktop {
     pub fn focus_pane(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.terminal.focused = Some(id);
+        self.terminal.focused = Some(self.delegated_term(&id));
         window.focus(&self.terminal.focus, cx);
         cx.notify();
     }

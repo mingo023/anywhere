@@ -24,6 +24,8 @@ pub(crate) struct DelegatedState {
     asked: HashSet<String>,
     /// Tasks the user cleared from a panel: pocketd lists them again after a reconnect, and they stay hidden.
     cleared: HashSet<String>,
+    /// The delegated session each chat's tab shows in place of the chat itself, by the chat's agent id.
+    viewing: HashMap<String, String>,
     /// The session arriving from the one the user just left, while it moves.
     push: Option<push::Push>,
     /// A time to draw the push at instead of now, so a capture can hold it midway.
@@ -32,7 +34,7 @@ pub(crate) struct DelegatedState {
 
 impl DelegatedState {
     pub(crate) fn new() -> Self {
-        Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new(), push: None, clock: None }
+        Self { panels: HashMap::new(), asked: HashSet::new(), cleared: HashSet::new(), viewing: HashMap::new(), push: None, clock: None }
     }
 
     fn clear_settled(&mut self, list: &[Delegation]) {
@@ -42,6 +44,31 @@ impl DelegatedState {
     /// A new pocketd connection has told nothing yet.
     fn reconnected(&mut self) {
         self.asked.clear();
+    }
+
+    /// Shows `agent` in its owner's tab, or the owner's own chat when it has a tab of its own.
+    fn show(&mut self, list: &[Summary], agent: &str) -> String {
+        match owner(list, agent) {
+            Some(owner) => {
+                self.viewing.insert(owner.to_string(), agent.to_string());
+                owner.to_string()
+            }
+            None => {
+                self.viewing.remove(agent);
+                agent.to_string()
+            }
+        }
+    }
+
+    /// The terminal the tab holding `terminal` shows: that of the delegated session in its place, else its own.
+    pub(crate) fn shown_term(&self, list: &[Summary], terminal: &str) -> String {
+        let shown = list.iter().find(|a| a.terminal_id == terminal).and_then(|a| self.viewing.get(&a.id)).filter(|id| owner(list, id).is_some());
+        shown.and_then(|id| list.iter().find(|a| a.id == *id)).map_or_else(|| terminal.to_string(), |a| a.terminal_id.clone())
+    }
+
+    /// The chat of `agent` shows again in its tab.
+    pub(crate) fn leave(&mut self, agent: &str) {
+        self.viewing.remove(agent);
     }
 
     /// The chats of `chats` not asked about on this connection, now taken as asked.
@@ -59,6 +86,19 @@ pub(crate) fn session_link(link: &str) -> Option<&str> {
     link.strip_prefix("anywhere://session/").map(|id| id.trim_end_matches('/')).filter(|id| !id.is_empty())
 }
 
+/// The chat whose tab shows `agent`, when `agent` has no tab of its own: the nearest chat above it that is listed and isn't hidden itself.
+fn owner<'a>(list: &'a [Summary], agent: &str) -> Option<&'a str> {
+    let hidden = crate::status::hidden_children(list);
+    let mut at = list.iter().find(|a| a.id == agent).filter(|a| hidden.contains(a.id.as_str()))?;
+    for _ in 0..list.len() {
+        at = list.iter().find(|a| a.id == at.parent)?;
+        if !hidden.contains(at.id.as_str()) {
+            return Some(at.id.as_str());
+        }
+    }
+    None
+}
+
 /// The chats in `list` that have a delegated session, and those `viewing`, that weren't asked about yet. A chat whose delegated
 /// sessions all run on linked hosts has none in `list`.
 fn unasked(list: &[Summary], viewing: &[String], asked: &HashSet<String>) -> Vec<String> {
@@ -67,14 +107,6 @@ fn unasked(list: &[Summary], viewing: &[String], asked: &HashSet<String>) -> Vec
     parents.sort();
     parents.dedup();
     parents
-}
-
-/// The folders delegated sessions run in that are not a project's own: pocketd made each as a worktree for its session, and the sidebar lists it as one made here.
-fn child_trees(list: &[Summary], projects: &[String], tracked: impl Fn(&str) -> bool) -> Vec<String> {
-    let mut trees: Vec<String> = list.iter().filter(|a| crate::status::is_child(a) && !a.cwd.is_empty() && !projects.contains(&a.cwd) && !tracked(&a.cwd)).map(|a| a.cwd.clone()).collect();
-    trees.sort();
-    trees.dedup();
-    trees
 }
 
 /// The host holding `agent` when the session isn't listed here because that host isn't connected.
@@ -96,15 +128,19 @@ fn unreachable_label(host: &str) -> String {
 
 impl Desktop {
     /// Asks pocketd for the delegations of each chat that just showed a delegated session or is on screen; it pushes the rest.
-    pub(crate) fn delegated_listed(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn delegated_listed(&mut self) {
         let chats = unasked(&self.agents.list, self.alerts.viewing.as_deref().unwrap_or_default(), &self.delegated.asked);
         self.delegated_ask(chats);
-        let trees = child_trees(&self.agents.list, &self.store.projects, |t| self.store.is_tracked(t));
-        if !trees.is_empty() {
-            trees.iter().for_each(|t| self.store.track(t));
-            self.save_soon(cx);
-            self.refresh_git(cx);
-        }
+    }
+
+    /// Where `agent` is shown: its own tab, or for a delegated session the tab of the chat that delegated it, which then shows it. Returns that chat or `agent`.
+    pub(crate) fn delegated_show(&mut self, agent: &str) -> String {
+        self.delegated.show(&self.agents.list, agent)
+    }
+
+    /// The terminal the tab holding `terminal` shows.
+    pub(crate) fn delegated_term(&self, terminal: &str) -> String {
+        self.delegated.shown_term(&self.agents.list, terminal)
     }
 
     /// The session `agent` is arriving from while it arrives, and how far across and how faded in each of the two is.
@@ -153,7 +189,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{DelegatedState, child_trees, session_link, shown, unasked, unlisted_host, unreachable_host};
+    use super::{DelegatedState, session_link, shown, unasked, unlisted_host, unreachable_host};
     use crate::fleet::Links;
     use agents::Summary;
     use agents::delegations::Delegation;
@@ -262,19 +298,36 @@ mod tests {
         assert_eq!(ids(&state, &later), ["b", "c"], "only what was cleared stays cleared");
     }
 
+    fn chat(id: &str, parent: &str, relationship: &str) -> Summary {
+        Summary { terminal_id: format!("t-{id}"), ..child(id, parent, relationship) }
+    }
+
     #[test]
-    fn a_delegated_session_in_a_folder_of_its_own_makes_that_folder_a_listed_worktree() {
-        let with_cwd = |id: &str, parent: &str, relationship: &str, cwd: &str| Summary { cwd: cwd.into(), ..child(id, parent, relationship) };
-        let list = [
-            with_cwd("p", "", "", "/code/app"),
-            with_cwd("a", "p", "subagent", "/code/app.worktrees/tests"),
-            with_cwd("b", "p", "subagent", "/code/app.worktrees/tests"),
-            with_cwd("c", "p", "subagent", "/code/app"),
-            with_cwd("d", "p", "subagent", "/code/app.worktrees/docs"),
-            with_cwd("f", "p", "fork", "/code/app.worktrees/fork"),
-        ];
-        let projects = ["/code/app".to_string()];
-        assert_eq!(child_trees(&list, &projects, |_| false), ["/code/app.worktrees/docs", "/code/app.worktrees/tests"]);
-        assert_eq!(child_trees(&list, &projects, |t| t.ends_with("docs")), ["/code/app.worktrees/tests"]);
+    fn a_delegated_session_is_shown_in_the_tab_of_the_chat_that_delegated_it() {
+        let list = [chat("p", "", ""), chat("c", "p", "subagent"), chat("g", "c", "subagent"), chat("o", "gone", "subagent")];
+        let mut state = DelegatedState::new();
+        assert_eq!(state.show(&list, "c"), "p");
+        assert_eq!(state.shown_term(&list, "t-p"), "t-c");
+        assert_eq!(state.show(&list, "g"), "p", "a grandchild shows in the same tab");
+        assert_eq!(state.shown_term(&list, "t-p"), "t-g");
+        assert_eq!(state.show(&list, "o"), "o", "a child whose chat is gone has a tab of its own");
+        assert_eq!(state.shown_term(&list, "t-o"), "t-o");
+        assert_eq!(state.show(&list, "p"), "p");
+        assert_eq!(state.shown_term(&list, "t-p"), "t-p", "the chat itself shows again");
+    }
+
+    #[test]
+    fn a_tab_shows_its_own_chat_once_the_session_in_its_place_is_no_longer_delegated() {
+        let mut list = vec![chat("p", "", ""), chat("c", "p", "subagent")];
+        let mut state = DelegatedState::new();
+        state.show(&list, "c");
+        list.remove(0);
+        assert_eq!(state.shown_term(&list, "t-p"), "t-p");
+        list.insert(0, chat("p", "", ""));
+        assert_eq!(state.shown_term(&list, "t-p"), "t-c");
+        list.pop();
+        assert_eq!(state.shown_term(&list, "t-p"), "t-p");
+        state.leave("p");
+        assert!(state.viewing.is_empty());
     }
 }

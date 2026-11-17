@@ -276,8 +276,9 @@ impl Desktop {
         }
     }
 
-    /// Shows an agent's session: its worktree, the tab holding its terminal, and that pane focused.
+    /// Shows an agent's session: its worktree, the tab holding its terminal, and that pane focused. A delegated session has no tab, so it shows in its chat's.
     pub fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let id = &self.delegated_show(id);
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
         let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
         self.show_tree(&tree);
@@ -349,7 +350,12 @@ impl Desktop {
         let Some(tree) = self.place() else { return };
         self.workspace(&tree).tree.select(pane, i);
         match self.pane_tab(pane) {
-            Some(Tab::Term(id)) => self.focus_pane(id, window, cx),
+            Some(Tab::Term(id)) => {
+                if let Some(agent) = self.summary(&id).map(|a| a.id.clone()) {
+                    self.delegated.leave(&agent);
+                }
+                self.focus_pane(id, window, cx)
+            }
             Some(Tab::Doc(doc)) => self.show_doc(pane, doc, cx),
             Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
             None => {}

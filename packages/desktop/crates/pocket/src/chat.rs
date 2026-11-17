@@ -120,6 +120,7 @@ impl Desktop {
 
     /// Focuses the terminal pane, and its chat's input when the chat shows: keys then go to the input.
     pub(crate) fn focus_chat_or_terminal(&mut self, terminal: String, window: &mut Window, cx: &mut Context<Self>) {
+        let terminal = self.delegated_term(&terminal);
         let chat = self.chat_shown(&terminal).then(|| self.summary(&terminal).map(|a| a.id.clone())).flatten();
         self.focus_pane(terminal, window, cx);
         if let Some(agent) = chat {
@@ -201,7 +202,7 @@ impl Desktop {
     /// The chat `from` as it was, sliding and fading out under the one arriving: the transcript as last drawn, with its breadcrumb and panel. None where it also shows in a pane, which draws it once.
     fn chat_left(&mut self, from: &str, (across, shown): (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
         let terminal = self.agents.get(from)?.terminal_id.clone();
-        let on_screen = self.session_tree().and_then(|t| self.workspaces.get(&t)).is_some_and(|w| w.shown().iter().any(|(_, tab)| matches!(tab, Tab::Term(id) if *id == terminal)));
+        let on_screen = self.session_tree().and_then(|t| self.workspaces.get(&t)).is_some_and(|w| w.shown().iter().any(|(_, tab)| matches!(tab, Tab::Term(id) if self.delegated_term(id) == terminal)));
         if on_screen {
             return None;
         }

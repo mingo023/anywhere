@@ -9,18 +9,48 @@ use agents::Summary;
 use agents::locals::is_local;
 use git::Repo;
 use gpui_kit::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use theme::*;
 use ui::State;
 use workspace::Workspace;
 
+/// A terminal, the tree it is placed in if any, and whether it is a delegated session, which only its chat shows.
+type Placed = (String, Option<String>, bool);
+
+/// The terminals `tree` holds, and those it doesn't: a delegated session is held by no tree, so it never gets a tab there.
+fn held(tree: &str, terminals: &[Placed]) -> (Vec<String>, Vec<String>) {
+    let mut split = (Vec::new(), Vec::new());
+    for (id, place, hidden) in terminals {
+        match place {
+            Some(t) if t == tree && !hidden => split.0.push(id.clone()),
+            Some(_) => split.1.push(id.clone()),
+            None if *hidden => split.1.push(id.clone()),
+            None => {}
+        }
+    }
+    split
+}
+
+/// The trees that hold delegated sessions and nothing else; they exist for the sake of those.
+fn child_only(terminals: &[Placed]) -> HashSet<&str> {
+    let held_by = |hidden: bool| terminals.iter().filter(move |t| t.2 == hidden).filter_map(|t| t.1.as_deref());
+    let others: HashSet<&str> = held_by(false).collect();
+    held_by(true).filter(|t| !others.contains(t)).collect()
+}
+
 impl Desktop {
     pub fn projects(&self) -> Vec<String> {
         let placeable = self.git_done > 0 || project::all_listed(&self.store.projects, &self.worktrees, readable);
+        let hidden = status::hidden_terminals(&self.agents.list);
         let sessions = if placeable { self.terminals.sessions.items.as_slice() } else { &[] };
-        project::projects(&self.store.projects, sessions.iter().map(|s| s.info.cwd.as_str()), &self.worktrees)
+        project::projects(&self.store.projects, sessions.iter().filter(|s| !hidden.contains(s.info.id.as_str())).map(|s| s.info.cwd.as_str()), &self.worktrees)
+    }
+
+    fn placed_terminals(&self) -> Vec<Placed> {
+        let hidden = status::hidden_terminals(&self.agents.list);
+        self.terminals.sessions.items.iter().map(|s| (s.info.id.clone(), self.place_of(&s.info), hidden.contains(s.info.id.as_str()))).collect()
     }
 
     /// Lists each saved project's worktrees on its own, so the sidebar fills in as each lands instead of after the first `refresh_git`.
@@ -55,7 +85,13 @@ impl Desktop {
 
     /// The worktrees `p` lists; `None` until git has listed them.
     pub fn listed_trees(&self, p: &str) -> Option<Vec<git::Worktree>> {
-        self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.lists(t)))
+        let trees = self.worktrees.get(p).map(|w| project::listed(w, |t| self.store.lists(t)))?;
+        if status::hidden_children(&self.agents.list).is_empty() {
+            return Some(trees);
+        }
+        let terminals = self.placed_terminals();
+        let only = child_only(&terminals);
+        Some(trees.into_iter().filter(|w| !only.contains(w.path.as_str())).collect())
     }
 
     pub(crate) fn untracked_trees(&self, p: &str) -> Vec<git::Worktree> {
@@ -77,10 +113,8 @@ impl Desktop {
 
     pub fn cards(&self, project: &str) -> Vec<Card> {
         let projects = self.projects();
-        let mut out: Vec<Card> = self
-            .agents
-            .list
-            .iter()
+        let mut out: Vec<Card> = status::listed(&self.agents.list)
+            .into_iter()
             .filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?)))
             .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
             .map(|(a, s)| status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })
@@ -136,14 +170,7 @@ impl Desktop {
     }
 
     pub(crate) fn workspace(&mut self, tree: &str) -> &mut Workspace {
-        let (mut mine, mut theirs) = (Vec::new(), Vec::new());
-        for s in &self.terminals.sessions.items {
-            match self.place_of(&s.info) {
-                Some(t) if t == tree => mine.push(s.info.id.clone()),
-                Some(_) => theirs.push(s.info.id.clone()),
-                None => {}
-            }
-        }
+        let (mine, theirs) = held(tree, &self.placed_terminals());
         let w = self.workspaces.entry(tree.to_string()).or_default();
         w.sync(&mine, &theirs);
         w
@@ -156,7 +183,7 @@ impl Desktop {
 
     /// Whether `tree` has a terminal or a tab open.
     pub(crate) fn in_use(&self, tree: &str) -> bool {
-        self.workspaces.get(tree).is_some_and(|w| !w.is_empty()) || self.terminals.sessions.items.iter().any(|s| self.place_of(&s.info).as_deref() == Some(tree))
+        self.workspaces.get(tree).is_some_and(|w| !w.is_empty()) || !held(tree, &self.placed_terminals()).0.is_empty()
     }
 
     pub(crate) fn tree_terminals(&self, tree: &str) -> Vec<String> {
@@ -358,7 +385,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
 
 #[cfg(test)]
 mod tests {
-    use super::{HashMap, Repo, merge_repos};
+    use super::{HashMap, Placed, Repo, child_only, held, merge_repos};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -382,5 +409,21 @@ mod tests {
     fn reading_the_same_state_changes_nothing() {
         let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
         assert!(!merge_repos(&mut repos, vec![("/a".into(), Some(repo("main"))), ("/b".into(), None)]));
+    }
+
+    fn at(id: &str, tree: Option<&str>, hidden: bool) -> Placed {
+        (id.into(), tree.map(String::from), hidden)
+    }
+
+    #[test]
+    fn a_delegated_session_is_held_by_no_tree_so_it_gets_no_tab() {
+        let terminals = [at("mine", Some("/w"), false), at("other", Some("/v"), false), at("child", Some("/w"), true), at("lost-child", None, true), at("unplaced", None, false)];
+        assert_eq!(held("/w", &terminals), (vec!["mine".to_string()], vec!["other".to_string(), "child".to_string(), "lost-child".to_string()]));
+    }
+
+    #[test]
+    fn a_tree_holding_only_delegated_sessions_exists_for_their_sake() {
+        let terminals = [at("a", Some("/w/tests"), true), at("b", Some("/w/docs"), true), at("c", Some("/w/docs"), false), at("d", Some("/w"), false), at("e", None, true)];
+        assert_eq!(child_only(&terminals).into_iter().collect::<Vec<_>>(), ["/w/tests"]);
     }
 }

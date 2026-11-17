@@ -235,7 +235,7 @@ impl Desktop {
         }
         self.agents.apply_from(host, ev);
         if listed.is_some() {
-            self.delegated_listed(cx);
+            self.delegated_listed();
         }
         if let Some(parent) = delegating {
             self.delegated_changed(&parent, cx);
@@ -353,7 +353,8 @@ impl Desktop {
     /// The terminals on screen: those of the tabs the drawn panes show.
     fn visible_panes(&mut self) -> Vec<String> {
         let Some(tree) = self.place().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
-        self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect()
+        let shown: Vec<String> = self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect();
+        shown.iter().map(|id| self.delegated_term(id)).collect()
     }
 
     pub(crate) fn sync_view(&mut self, window: &Window, cx: &mut App) {
