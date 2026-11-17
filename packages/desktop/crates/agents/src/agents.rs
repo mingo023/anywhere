@@ -544,6 +544,7 @@ impl Agents {
     pub fn apply_from(&mut self, source: Option<&str>, ev: Event) {
         let mine = |id: &str| id.split_once('/').map(|(h, _)| h) == source;
         let my_name = |path: &str| path.strip_prefix("//").and_then(|p| p.split_once('/')).map(|(h, _)| h) == source;
+        let lineage = matches!(ev, Event::Agents(_) | Event::Agent(_) | Event::Delegations { .. } | Event::Delegated { .. });
         match ev {
             Event::Agents(list) => {
                 list.iter().for_each(|a| self.drop_if_reset(a));
@@ -604,6 +605,19 @@ impl Agents {
             Event::Queue { agent, entries } => self.queues.replace(&agent, entries),
             Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::QueueFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
             Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) => {}
+        }
+        if lineage {
+            self.adopt_children();
+        }
+    }
+
+    /// A host launches a delegated session with no lineage, so only the delegation, by the child's tagged id, says whose child it is.
+    fn adopt_children(&mut self) {
+        for d in self.delegations.all().filter(|d| d.child_id.contains('/')) {
+            if let Some(child) = self.list.iter_mut().find(|a| a.id == d.child_id && a.parent.is_empty()) {
+                child.parent = d.parent_id.clone();
+                child.relationship = "subagent".into();
+            }
         }
     }
 
@@ -1494,6 +1508,27 @@ mod tests {
         a.apply_from(Some("h"), Event::Delegations { agent: "h/a1".into(), items: a.delegations.of("a1").to_vec() });
         a.forget("h");
         assert_eq!((a.delegations.of("a1").len(), a.delegations.of("h/a1").len()), (2, 0));
+    }
+
+    #[test]
+    fn a_child_on_a_linked_host_is_its_parents_whichever_of_its_listing_and_its_delegation_comes_first() {
+        let delegation = Delegation { task_id: "t".into(), parent_id: "p".into(), child_id: "devbox/c".into(), ..Default::default() };
+        let listed = || Event::Agents(vec![Summary { id: "devbox/c".into(), ..Default::default() }]);
+        let lineage = |a: &Agents| a.get("devbox/c").map(|c| (c.parent.clone(), c.relationship.clone()));
+        let child = Some(("p".to_string(), "subagent".to_string()));
+
+        let mut listing_first = Agents::default();
+        listing_first.apply_from(Some("devbox"), listed());
+        assert_eq!(lineage(&listing_first), Some((String::new(), String::new())));
+        listing_first.apply(Event::Delegated { agent: "p".into(), delegation: delegation.clone() });
+        assert_eq!(lineage(&listing_first), child);
+
+        let mut delegation_first = Agents::default();
+        delegation_first.apply(Event::Delegations { agent: "p".into(), items: vec![delegation] });
+        delegation_first.apply_from(Some("devbox"), listed());
+        assert_eq!(lineage(&delegation_first), child);
+        delegation_first.apply_from(Some("devbox"), Event::Agent(Box::new(Summary { id: "devbox/c".into(), status: "working".into(), ..Default::default() })));
+        assert_eq!(lineage(&delegation_first), child, "the host's next update of it doesn't undo that");
     }
 
     #[test]

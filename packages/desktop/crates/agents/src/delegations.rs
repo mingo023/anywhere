@@ -145,6 +145,10 @@ impl Delegations {
         }
     }
 
+    pub fn all(&self) -> impl Iterator<Item = &Delegation> {
+        self.by_parent.values().flatten()
+    }
+
     pub fn counts(&self, parent: &str) -> Counts {
         Counts::of(self.of(parent).iter())
     }
