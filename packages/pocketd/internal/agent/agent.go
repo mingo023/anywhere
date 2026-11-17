@@ -524,9 +524,16 @@ func (a *Agent) Stop() bool {
 
 // EndLasting ends the background calls an earlier claude left running: they
 // ended with it, and Claude may never note it.
-func (a *Agent) EndLasting() {
+func (a *Agent) EndLasting() { a.endCalls(a.Timeline.Lasting()) }
+
+// EndRunning ends every call its timeline shows running, for a claude that
+// ended with the pocketd before: a cold restart carries no background index,
+// so a call's end notice would find nothing to end.
+func (a *Agent) EndRunning() { a.endCalls(a.Timeline.Running()) }
+
+func (a *Agent) endCalls(ids []string) {
 	out := "Stopped when its session ended"
-	for _, id := range a.Timeline.Lasting() {
+	for _, id := range ids {
 		a.Record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: &out})
 	}
 }

@@ -514,6 +514,20 @@ func (t *Timeline) Lasting() []string {
 	return ids
 }
 
+// Running returns the tool use ids of the calls still running, oldest first.
+func (t *Timeline) Running() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var ids []string
+	for id, n := range t.tools {
+		if t.items[n].Call.Status == "running" {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
+	return ids
+}
+
 // LastingAgents returns the task ids of the sub-agents running on in the background, oldest first.
 func (t *Timeline) LastingAgents() []string {
 	t.mu.Lock()
