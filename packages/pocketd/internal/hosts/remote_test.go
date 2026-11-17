@@ -115,3 +115,58 @@ func TestASessionMoreThanAPageAheadIsMirroredFromItsFirstUnseenItem(t *testing.T
 		t.Fatalf("mirrored %d items, from %v", len(m.got), m.got[:min(len(m.got), 3)])
 	}
 }
+
+type statuses struct {
+	Mirror
+	live []proto.AgentSummary
+	got  []string
+}
+
+func (m *statuses) Summary(s proto.AgentSummary)     { m.got = append(m.got, s.Status) }
+func (m *statuses) Item(string, int64, proto.Item)   {}
+func (m *statuses) Live(string) []proto.AgentSummary { return m.live }
+
+// replying is a host whose session a1 replied and ended its turn without a result item.
+func replying(t *testing.T, m Mirror) *remote {
+	t.Helper()
+	items := []proto.Item{{ID: "u", Seq: 1, Kind: "user", Text: "go"}, {ID: "a", Seq: 2, Kind: "assistant", Text: "done it"}}
+	socket := fakePocketd(t, func(read func() map[string]any, send func(any)) {
+		for msg := read(); msg != nil; msg = read() {
+			var page []proto.Item
+			if since, _ := msg["sinceSeq"].(float64); since < 2 {
+				page = items[int(since):]
+			}
+			send(proto.NewAgentTimeline(msg["id"].(string), "a1", 1, page, false, 2))
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := Dial(ctx, socket, "", func(string, []byte) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox")
+	r.client = c
+	return r
+}
+
+func TestASessionWhoseTurnEndedWithoutAResultBeforeItWasTrackedSettles(t *testing.T) {
+	m := &statuses{}
+	r := replying(t, m)
+	r.latest["a1"] = proto.AgentSummary{ID: "a1", Status: "done"}
+	r.track("a1", proto.AgentSummary{ID: "a1"})
+	if !slices.Equal(m.got, []string{"working", "done"}) {
+		t.Fatalf("mirrored %v", m.got)
+	}
+}
+
+func TestASessionMirroredMidTurnThatIsIdleOnReconnectWithoutAResultSettles(t *testing.T) {
+	m := &statuses{live: []proto.AgentSummary{{ID: "devbox/a1", Status: "working"}}}
+	r := replying(t, m)
+	raw, _ := json.Marshal(proto.AgentList{Type: "agent.list", Agents: []proto.AgentSummary{{ID: "a1", Status: "idle"}}})
+	r.frame("agent.list", raw)
+	if !slices.Equal(m.got, []string{"idle"}) {
+		t.Fatalf("mirrored %v", m.got)
+	}
+}

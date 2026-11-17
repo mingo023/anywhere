@@ -146,6 +146,8 @@ func (r *remote) frame(kind string, raw []byte) {
 				continue
 			}
 			r.tracked[theirs] = true
+			// Stored mid-turn, so whatever the host shows now is past that turn.
+			r.started[theirs] = busy(s.Status)
 			r.sync(a)
 		}
 	case "agent.update":
@@ -214,9 +216,10 @@ func (r *remote) sync(a proto.AgentSummary) {
 	case r.started[a.ID]:
 		r.catchUp(a.ID, true)
 	default:
-		// A session is idle before its first turn shows, unless that turn came and went before this Mac heard.
+		// A session is idle before its first turn shows, unless that turn came and went before this Mac heard:
+		// it left a result, or nobody saw it end.
 		r.catchUp(a.ID, false)
-		if !r.ended[a.ID] {
+		if !r.ended[a.ID] && a.Status != "done" {
 			return
 		}
 	}
