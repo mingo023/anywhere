@@ -23,6 +23,8 @@ type Mirror interface {
 	Live(host string) []proto.AgentSummary
 	// Removed is host forgotten, with name as it was shown.
 	Removed(host, name string)
+	// Gone is a mirrored session its host no longer has: its pocketd came back without it. name is the host's.
+	Gone(session, name string)
 }
 
 var errInvalidID = errors.New("The host sent an id this Mac doesn't take")
@@ -137,6 +139,8 @@ func (r *remote) frame(kind string, raw []byte) {
 			_, theirs := Untag(s.ID)
 			a, ok := r.latest[theirs]
 			if !ok {
+				h, _ := r.m.host(r.host)
+				r.m.Mirror.Gone(s.ID, h.Name)
 				s.Status = "closed"
 				r.m.Mirror.Summary(s)
 				continue

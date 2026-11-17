@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"pocketd/internal/proto"
@@ -209,5 +210,19 @@ func TestAHostChildsQuestionReachesTheParentAndItsAnswerGoesBack(t *testing.T) {
 	done := settledAndWoken(mac, phone, parent, "completed")
 	if done.Summary != `echo: answers {"Ship it?":"Yes"}` {
 		t.Fatalf("task = %+v", done)
+	}
+}
+
+func TestAHostPocketdKilledMidTaskCancelsItSayingTheHostWentAway(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"hang","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	hostTask(mac, phone, parent, 1, "working")
+
+	host.Stop(syscall.SIGKILL)
+	host.up()
+
+	if task := settledAndWoken(mac, phone, parent, "cancelled"); !strings.Contains(task.Error, "devbox") {
+		t.Fatalf("task = %+v", task)
 	}
 }

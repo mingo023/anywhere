@@ -45,6 +45,21 @@ func (x mirror) Answered(session, request string) { x.o.engine.AskClosed(session
 
 func (x mirror) Removed(host, name string) { x.o.engine.FailHost(host, name) }
 
+// Gone settles the task of a session its host lost before its closing does, so the parent hears why.
+func (x mirror) Gone(session, name string) {
+	ts, err := x.o.store.Delegations(`child_id = ? AND status IN ('starting', 'working')`, session)
+	if err != nil {
+		log.Printf("hosts: tasks of %s: %v", session, err)
+	}
+	for _, t := range ts {
+		// Stopped is what wakes the parent for a cancelled task.
+		p := orch.TaskPayload{TaskID: t.TaskID, Status: orch.TaskCancelled, Error: "Anywhere on " + name + " stopped during the task, and the session ended with it", Stopped: true}
+		if _, err := x.o.engine.Dispatch(orch.NewCommand("", orch.CmdDelegateSettle, t.ParentID, p)); err != nil {
+			log.Printf("hosts: settle %s: %v", t.TaskID, err)
+		}
+	}
+}
+
 func (x mirror) Live(host string) []proto.AgentSummary {
 	rows, err := x.o.store.Sessions(`id LIKE ? AND closed_at = 0`, host+"/%")
 	if err != nil {
