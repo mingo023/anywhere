@@ -68,13 +68,13 @@ func TestClaudesTaskToolsBecomeTasks(t *testing.T) {
 	create("c1", "read", "Task #1 created successfully: read")
 	create("c2", "fix", "Task #2 created successfully: fix")
 	it, _ := create("c3", "ship", "Task #3 created successfully: ship")
-	if want := []proto.TaskItem{{Text: "read", Status: "pending"}, {Text: "fix", Status: "pending"}, {Text: "ship", Status: "pending"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "pending"}, {ID: "2", Text: "fix", Status: "pending"}, {ID: "3", Text: "ship", Status: "pending"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
 		t.Fatalf("after creates: %+v", it)
 	}
 	update("u1", `{"taskId":"1","status":"completed"}`)
 	update("u2", `{"taskId":"2","status":"in_progress","subject":"fix it"}`)
 	it, _ = update("u3", `{"taskId":"3","status":"deleted"}`)
-	if want := []proto.TaskItem{{Text: "read", Status: "completed"}, {Text: "fix it", Status: "in_progress"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "completed"}, {ID: "2", Text: "fix it", Status: "in_progress"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
 		t.Fatalf("after updates: %+v", it)
 	}
 }
@@ -101,29 +101,28 @@ func TestAFailedTaskUpdateLeavesTheTaskAsItWas(t *testing.T) {
 	}
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "u2", Name: "TaskUpdate", Input: json.RawMessage(`{"taskId":"1","status":"completed"}`)}, 5)
 	it, _ := tl.Apply(Event{Kind: "tool_end", ToolUseID: "u2", OK: true}, 6)
-	if want := []proto.TaskItem{{Text: "read", Status: "completed"}}; !reflect.DeepEqual(it.Tasks, want) {
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "completed"}}; !reflect.DeepEqual(it.Tasks, want) {
 		t.Fatalf("%+v", it.Tasks)
 	}
 }
 
-func TestAnUpgradeCarriesClaudesTasks(t *testing.T) {
+func TestARestoredTimelineKeepsClaudesTasks(t *testing.T) {
 	old := New()
 	for n, subject := range []string{"read", "fix"} {
 		id := strconv.Itoa(n + 1)
 		old.Apply(Event{Kind: "tool_start", ToolUseID: "c" + id, Name: "TaskCreate", Input: json.RawMessage(`{"subject":"` + subject + `"}`)}, 1)
 		old.Apply(Event{Kind: "tool_end", ToolUseID: "c" + id, OK: true, Output: str("Task #" + id + " created successfully: " + subject)}, 2)
 	}
-	raw, _ := json.Marshal(old.Background())
-	var carried Background
-	_ = json.Unmarshal(raw, &carried)
-	items, _ := old.Page(0, 100)
+	page, _ := old.Page(0, 100)
+	raw, _ := json.Marshal(page)
+	var stored []proto.Item
+	_ = json.Unmarshal(raw, &stored)
 
 	tl := New()
-	tl.Load(items)
-	tl.Adopt(carried)
+	tl.Load(stored)
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "u1", Name: "TaskUpdate", Input: json.RawMessage(`{"taskId":"1","status":"completed"}`)}, 3)
 	it, _ := tl.Apply(Event{Kind: "tool_end", ToolUseID: "u1", OK: true}, 4)
-	if want := []proto.TaskItem{{Text: "read", Status: "completed"}, {Text: "fix", Status: "pending"}}; !reflect.DeepEqual(it.Tasks, want) {
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "completed"}, {ID: "2", Text: "fix", Status: "pending"}}; !reflect.DeepEqual(it.Tasks, want) {
 		t.Fatalf("%+v", it.Tasks)
 	}
 }
@@ -147,7 +146,7 @@ func TestClearForgetsClaudesTasks(t *testing.T) {
 	tl.Clear()
 	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c2", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"new"}`)}, 3)
 	it, _ := tl.Apply(Event{Kind: "tool_end", ToolUseID: "c2", OK: true, Output: str("Task #1 created successfully: new")}, 4)
-	if want := []proto.TaskItem{{Text: "new", Status: "pending"}}; !reflect.DeepEqual(it.Tasks, want) {
+	if want := []proto.TaskItem{{ID: "1", Text: "new", Status: "pending"}}; !reflect.DeepEqual(it.Tasks, want) {
 		t.Fatalf("%+v", it.Tasks)
 	}
 }

@@ -65,14 +65,9 @@ type Timeline struct {
 	// draft names the streamed block each open draft item grows from.
 	draft map[int]string
 	// claudeTasks is the list Claude's TaskCreate and TaskUpdate keep, oldest first.
-	claudeTasks []ClaudeTask
+	claudeTasks []proto.TaskItem
 	// taskCalls holds the TaskCreate and TaskUpdate calls waiting on their result, which names a new task's id.
 	taskCalls map[string]Event
-}
-
-type ClaudeTask struct {
-	ID string `json:"id"`
-	proto.TaskItem
 }
 
 func New() *Timeline {
@@ -156,6 +151,12 @@ func (t *Timeline) Load(items []proto.Item) {
 		if it.Kind == "tool" && it.Call != nil && it.Call.Status == "running" {
 			t.tools[it.Call.ToolUseID] = i
 		}
+		if it.Kind == "tasks" {
+			t.claudeTasks = nil
+			if len(it.Tasks) > 0 && it.Tasks[0].ID != "" {
+				t.claudeTasks = slices.Clone(it.Tasks)
+			}
+		}
 	}
 	t.epoch++
 }
@@ -215,10 +216,9 @@ func holds(stored, it proto.Item) bool {
 // Background is what a timeline knows of its background calls beyond its items, by tool use id, for an upgrade to
 // carry: the store keeps neither a call's task nor whether it runs on.
 type Background struct {
-	Tasks       map[string]string `json:"tasks,omitempty"`
-	Lasting     []string          `json:"lasting,omitempty"`
-	Detached    []string          `json:"detached,omitempty"`
-	ClaudeTasks []ClaudeTask      `json:"claudeTasks,omitempty"`
+	Tasks    map[string]string `json:"tasks,omitempty"`
+	Lasting  []string          `json:"lasting,omitempty"`
+	Detached []string          `json:"detached,omitempty"`
 }
 
 func (t *Timeline) Background() Background {
@@ -237,11 +237,10 @@ func (t *Timeline) Background() Background {
 			b.Detached = append(b.Detached, id)
 		}
 	}
-	b.ClaudeTasks = slices.Clone(t.claudeTasks)
 	return b
 }
 
-// Adopt takes the background calls and Claude's task list an upgrade carried over the items Load took.
+// Adopt takes the background calls an upgrade carried over the items Load took.
 func (t *Timeline) Adopt(b Background) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -266,7 +265,6 @@ func (t *Timeline) Adopt(b Background) {
 			t.detached[id] = true
 		}
 	}
-	t.claudeTasks = slices.Clone(b.ClaudeTasks)
 }
 
 func (t *Timeline) State() (epoch, maxSeq int64) {
@@ -763,7 +761,7 @@ func createdTaskID(out *string) string {
 func (t *Timeline) claudeTask(raw json.RawMessage) int {
 	var in toolInput
 	_ = json.Unmarshal(raw, &in)
-	return slices.IndexFunc(t.claudeTasks, func(c ClaudeTask) bool { return c.ID == in.get("taskId") })
+	return slices.IndexFunc(t.claudeTasks, func(c proto.TaskItem) bool { return c.ID == in.get("taskId") })
 }
 
 // applyTaskCall applies a TaskCreate or TaskUpdate that succeeded, reporting whether the list changed.
@@ -775,14 +773,14 @@ func (t *Timeline) applyTaskCall(call Event, out *string) bool {
 		if id == "" {
 			return false
 		}
-		t.claudeTasks = append(t.claudeTasks, ClaudeTask{id, proto.TaskItem{Text: in.get("subject"), Status: "pending"}})
+		t.claudeTasks = append(t.claudeTasks, proto.TaskItem{ID: id, Text: in.get("subject"), Status: "pending"})
 		return true
 	}
 	i := t.claudeTask(call.Input)
 	if i < 0 {
 		return false
 	}
-	was := t.claudeTasks[i].TaskItem
+	was := t.claudeTasks[i]
 	switch status := in.get("status"); status {
 	case "deleted":
 		t.claudeTasks = slices.Delete(t.claudeTasks, i, i+1)
@@ -793,15 +791,11 @@ func (t *Timeline) applyTaskCall(call Event, out *string) bool {
 	if subject := in.get("subject"); subject != "" {
 		t.claudeTasks[i].Text = subject
 	}
-	return t.claudeTasks[i].TaskItem != was
+	return t.claudeTasks[i] != was
 }
 
 func (t *Timeline) appendClaudeTasks(parent string, ts int64) proto.Item {
-	tasks := make([]proto.TaskItem, len(t.claudeTasks))
-	for i, c := range t.claudeTasks {
-		tasks[i] = c.TaskItem
-	}
-	return t.append(proto.Item{Kind: "tasks", Tasks: tasks}, parent, ts)
+	return t.append(proto.Item{Kind: "tasks", Tasks: slices.Clone(t.claudeTasks)}, parent, ts)
 }
 
 func planText(raw json.RawMessage) (string, bool) {
