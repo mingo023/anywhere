@@ -782,6 +782,9 @@ fn sync_kit(cx: &mut App) {
     t.highlight_theme = highlight_theme(dark);
     if Look::now().accent != 0 {
         (t.primary, t.primary_foreground, t.ring, t.selection) = (PRIMARY.into(), ON_PRIMARY.into(), PRIMARY.into(), SELECTION.into());
+    } else if SELECTION.rgba() != SELECTION.pick(dark) {
+        // Graphite leaves gpui-kit its own selection; a theme that sets one with no accent still gets it.
+        t.selection = SELECTION.into();
     }
 }
 

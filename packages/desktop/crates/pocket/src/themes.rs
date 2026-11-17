@@ -26,7 +26,7 @@ impl Custom {
 pub(crate) struct Themes {
     /// The imported themes, in slug order.
     pub custom: Vec<Custom>,
-    /// Why the last import was refused.
+    /// Why the last import or removal failed.
     pub error: Option<SharedString>,
     /// Counts changes to `custom`, so a reload that read the folder before one doesn't undo it.
     pub edits: usize,
@@ -203,8 +203,13 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             // The file goes first: a reload that reads the folder after the theme left the list must not find it there.
             let file = slug.clone();
-            cx.background_spawn(async move { store::themes::remove(&home, &file) }).await.ok();
+            let deleted = cx.background_spawn(async move { store::themes::remove(&home, &file) }).await;
             this.update(cx, |d, cx| {
+                if let Some(why) = deleted.err().filter(|e| e.kind() != std::io::ErrorKind::NotFound) {
+                    d.themes.error = Some(format!("Couldn't remove the theme: {why}").into());
+                    return cx.notify();
+                }
+                d.themes.error = None;
                 d.themes.remove(&slug);
                 forget(&mut d.store.appearance, &id, dark);
                 d.save_soon(cx);
