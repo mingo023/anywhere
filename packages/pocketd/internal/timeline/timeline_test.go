@@ -52,6 +52,67 @@ func TestTodoWriteBecomesTasksAndSwallowsItsResult(t *testing.T) {
 	}
 }
 
+func TestClaudesTaskToolsBecomeTasks(t *testing.T) {
+	tl := New()
+	create := func(id, subject, out string) (proto.Item, bool) {
+		tl.Apply(Event{Kind: "tool_start", ToolUseID: id, Name: "TaskCreate", Input: json.RawMessage(`{"subject":"` + subject + `","description":"d","activeForm":"a"}`)}, 1)
+		return tl.Apply(Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: str(out)}, 2)
+	}
+	update := func(id, input string) (proto.Item, bool) {
+		return tl.Apply(Event{Kind: "tool_start", ToolUseID: id, Name: "TaskUpdate", Input: json.RawMessage(input)}, 3)
+	}
+	create("c1", "read", "Task #1 created successfully: read")
+	create("c2", "fix", "Task #2 created successfully: fix")
+	it, _ := create("c3", "ship", "Task #3 created successfully: ship")
+	if want := []proto.TaskItem{{Text: "read", Status: "pending"}, {Text: "fix", Status: "pending"}, {Text: "ship", Status: "pending"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("after creates: %+v", it)
+	}
+	update("u1", `{"taskId":"1","status":"completed"}`)
+	update("u2", `{"taskId":"2","status":"in_progress","subject":"fix it"}`)
+	it, _ = update("u3", `{"taskId":"3","status":"deleted"}`)
+	if want := []proto.TaskItem{{Text: "read", Status: "completed"}, {Text: "fix it", Status: "in_progress"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("after updates: %+v", it)
+	}
+	if _, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "u1", OK: true, Output: str("Updated task #1 status")}, 4); ok {
+		t.Fatal("folded TaskUpdate result produced an item")
+	}
+}
+
+func TestATaskUpdateThatChangesNothingShownAddsNoTasks(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c1", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"read"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "c1", OK: true, Output: str("Task #1 created successfully: read")}, 2)
+	for _, input := range []string{`{"taskId":"1","owner":"bob"}`, `{"taskId":"1","status":"pending"}`, `{"taskId":"1","status":"bogus"}`} {
+		if it, ok := tl.Apply(Event{Kind: "tool_start", ToolUseID: "u1", Name: "TaskUpdate", Input: json.RawMessage(input)}, 3); ok {
+			t.Fatalf("%s produced %+v", input, it)
+		}
+	}
+}
+
+func TestAFailedTaskCreateOrAnUpdateOfAnUnknownTaskAddsNoTask(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c1", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"read"}`)}, 1)
+	if _, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "c1", OK: false, Output: str("Error: no task list")}, 2); ok {
+		t.Fatal("failed TaskCreate produced an item")
+	}
+	it, _ := tl.Apply(Event{Kind: "tool_start", ToolUseID: "u1", Name: "TaskUpdate", Input: json.RawMessage(`{"taskId":"7","status":"completed"}`)}, 3)
+	if it.Kind != "tool" {
+		t.Fatalf("update of an unknown task: %+v", it)
+	}
+}
+
+func TestClearForgetsClaudesTasks(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c1", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"old"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "c1", OK: true, Output: str("Task #1 created successfully: old")}, 2)
+	tl.Clear()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c2", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"new"}`)}, 3)
+	it, _ := tl.Apply(Event{Kind: "tool_end", ToolUseID: "c2", OK: true, Output: str("Task #1 created successfully: new")}, 4)
+	if want := []proto.TaskItem{{Text: "new", Status: "pending"}}; !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("%+v", it.Tasks)
+	}
+}
+
 func TestPrebuiltDetailWins(t *testing.T) {
 	tl := New()
 	d := proto.ToolDetail{Kind: "shell", Command: "go test"}
