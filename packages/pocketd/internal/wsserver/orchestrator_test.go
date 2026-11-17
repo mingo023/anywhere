@@ -75,6 +75,19 @@ func eachWay(t *testing.T, f func(t *testing.T, opts ...func(*Server))) {
 	t.Run("engine", func(t *testing.T) { f(t, withEngine(t)) })
 }
 
+// ranAsCommand fails t unless a server with an engine ran an effect of kind.
+func ranAsCommand(t *testing.T, s *Server, kind string) {
+	t.Helper()
+	if s.Orch == nil {
+		return
+	}
+	var n int
+	s.Orch.Store().DB().QueryRow(`SELECT COUNT(*) FROM outbox WHERE kind = ?`, kind).Scan(&n)
+	if n == 0 {
+		t.Fatalf("no %s effect: the verb didn't go through the engine", kind)
+	}
+}
+
 func TestAgentCloseClosesTheAgentEachTimeAndRefusesAnUnknownOne(t *testing.T) {
 	eachWay(t, func(t *testing.T, opts ...func(*Server)) {
 		_, d, p := setup(t, opts...)
@@ -183,7 +196,8 @@ func (d *nowDriver) SendNow() error { d.sends++; return nil }
 
 func TestAgentSendNowHasTheAgentSendWhatItHoldsOrSaysItCant(t *testing.T) {
 	eachWay(t, func(t *testing.T, opts ...func(*Server)) {
-		reg, _, p := setup(t, opts...)
+		var s *Server
+		reg, _, p := setup(t, append(opts, func(srv *Server) { s = srv })...)
 		p.hello()
 		d := &nowDriver{}
 		reg.Add("a2", "/w", "claude", d)
@@ -198,6 +212,7 @@ func TestAgentSendNowHasTheAgentSendWhatItHoldsOrSaysItCant(t *testing.T) {
 		if d.sends != 1 {
 			t.Fatalf("sent now %d times", d.sends)
 		}
+		ranAsCommand(t, s, orch.EffSendNow)
 		p.send(`{"type":"agent.send_now","id":"x","agentId":"a1"}`)
 		if m := p.recv(); m["message"] != "This agent takes a message only after its current step" || m["id"] != "x" {
 			t.Fatalf("%v", m)
@@ -207,7 +222,8 @@ func TestAgentSendNowHasTheAgentSendWhatItHoldsOrSaysItCant(t *testing.T) {
 
 func TestAgentSettingsSwitchesTheModelAndAccessAndRefusesWhatTheAgentCant(t *testing.T) {
 	eachWay(t, func(t *testing.T, opts ...func(*Server)) {
-		_, d, p := setup(t, opts...)
+		var s *Server
+		_, d, p := setup(t, append(opts, func(srv *Server) { s = srv })...)
 		p.hello()
 		p.send(`{"type":"agent.settings","id":"s","agentId":"a1","model":"opus","effort":"high","access":"full"}`)
 		if m := p.recv(); m["type"] != "ack" || m["id"] != "s" {
@@ -216,6 +232,7 @@ func TestAgentSettingsSwitchesTheModelAndAccessAndRefusesWhatTheAgentCant(t *tes
 		if !reflect.DeepEqual(d.settings, [][2]string{{"opus", "high"}}) || !reflect.DeepEqual(d.accesses, []string{"full"}) {
 			t.Fatalf("settings %v, accesses %v", d.settings, d.accesses)
 		}
+		ranAsCommand(t, s, orch.EffSettings)
 		p.send(`{"type":"agent.settings","id":"o","agentId":"a1","options":{"fast":"true"},"access":"ask"}`)
 		if m := p.recv(); m["message"] != "This agent takes its model's settings only as it starts" || m["id"] != "o" {
 			t.Fatalf("%v", m)
