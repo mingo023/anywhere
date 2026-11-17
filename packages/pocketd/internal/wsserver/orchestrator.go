@@ -95,17 +95,27 @@ func listed(stored []orch.Session, live []proto.AgentSummary) []proto.AgentSumma
 const createWait = 11 * time.Minute
 
 // started runs agent.create as a session.start command named by the
-// requester and its request id, so a retry gets the first create's outcome.
-func (s *Server) started(w launch.Who, requestID string, spec proto.LaunchSpec, progress func(step, note string), creating func(launch.Creating)) launch.Result {
+// requester and its request id, so a retry gets the first create's outcome,
+// and calls reply with the outcome at least once. The asker hears it from the
+// launcher, before the effect is recorded, as a chat's first turn may end
+// within milliseconds of it.
+func (s *Server) started(w launch.Who, requestID string, spec proto.LaunchSpec, progress func(step, note string), creating func(launch.Creating), reply func(launch.Result)) {
 	id := "create:" + w.Key + ":" + requestID
-	defer s.Launch.Watch(id, progress, creating)()
+	defer s.Launch.Watch(id, progress, creating, reply)()
 	r, err := s.Orch.Dispatch(orch.NewCommand(id, orch.CmdSessionStart, "", orch.StartPayload{Owner: w.Owner, Key: w.Key, Spec: spec}))
 	if err != nil {
 		if f := (*orch.Failure)(nil); errors.As(err, &f) && f.Code == orch.CodeInvalid {
-			return launch.Result{Err: &launch.Failure{Code: "duplicate", Message: "This request was already sent with a different spec"}}
+			reply(launch.Result{Err: &launch.Failure{Code: "duplicate", Message: "This request was already sent with a different spec"}})
+			return
 		}
-		return launch.Result{Err: &launch.Failure{Code: "spawn_failed", Message: err.Error()}}
+		reply(launch.Result{Err: &launch.Failure{Code: "spawn_failed", Message: err.Error()}})
+		return
 	}
+	reply(s.outcome(r))
+}
+
+// outcome is the create r's effect recorded, once it ends.
+func (s *Server) outcome(r orch.Receipt) launch.Result {
 	waited := s.Orch.Wait(r.Effects, createWait)
 	res, _, last := s.Orch.Result(r.Effects[0])
 	var out launch.Result

@@ -66,6 +66,7 @@ type Result struct {
 type watcher struct {
 	progress func(step, note string)
 	creating func(Creating)
+	done     func(Result)
 }
 
 type exit struct {
@@ -108,15 +109,15 @@ func New(d *daemon.Daemon, reg *registry.Registry, set *config.Settings, ev *eve
 // Starting reports whether a create is running; an upgrade waits for it.
 func (l *Launcher) Starting() bool { return l.running.Load() > 0 }
 
-// Watch hands the progress of the create run under key to the first caller
-// to watch it, until stop; a later caller hears nothing.
-func (l *Launcher) Watch(key string, progress func(step, note string), creating func(Creating)) (stop func()) {
+// Watch hands the progress and outcome of the create run under key to the
+// first caller to watch it, until stop; a later caller hears nothing.
+func (l *Launcher) Watch(key string, progress func(step, note string), creating func(Creating), done func(Result)) (stop func()) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.watchers[key] != nil {
 		return func() {}
 	}
-	w := &watcher{progress, creating}
+	w := &watcher{progress, creating, done}
 	l.watchers[key] = w
 	return func() {
 		l.mu.Lock()
@@ -135,7 +136,8 @@ func (l *Launcher) watcher(key string) *watcher {
 
 // Create runs one agent.create. progress is called as each step starts, and
 // again with a note on how a step went. creating is called once the Terminal
-// exists, before setup runs. Whoever watches key hears both too.
+// exists, before setup runs. Whoever watches key hears both too, and the
+// outcome as soon as there is one.
 func (l *Launcher) Create(w Who, key string, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
 	l.running.Add(1)
 	defer l.running.Add(-1)
@@ -153,6 +155,9 @@ func (l *Launcher) Create(w Who, key string, s proto.LaunchSpec, progress func(s
 		}
 	})
 	r.Creating = opened
+	if x := l.watcher(key); x != nil {
+		x.done(r)
+	}
 	ok, code, origin := r.Err == nil, "", "desktop"
 	if !ok {
 		code = r.Err.Code

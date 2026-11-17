@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"sync"
 	"sync/atomic"
 
 	"pocketd/internal/config"
@@ -43,21 +44,25 @@ func (c *conn) create(m proto.ClientMessage) {
 			opened.Store(true)
 			c.send(proto.NewAgentCreating(m.ID, m.RequestID, cr.Terminal, cr.Cwd, cr.Setup))
 		}
-		var r launch.Result
+		var once sync.Once
+		reply := func(r launch.Result) {
+			once.Do(func() {
+				if cr := r.Creating; cr.Terminal != "" && !opened.Load() {
+					// A retry hears the first create's terminal, not its progress.
+					creating(cr)
+				}
+				if r.Err != nil {
+					c.send(proto.NewCodedError(m.ID, r.Err.Code, r.Err.Message, r.Err.Detail))
+					return
+				}
+				c.send(proto.NewAgentCreated(m.ID, m.RequestID, r.AgentID, r.TerminalID))
+			})
+		}
 		if c.s.Orch != nil {
-			r = c.s.started(w, m.RequestID, *m.Spec, progress, creating)
+			c.s.started(w, m.RequestID, *m.Spec, progress, creating, reply)
 		} else {
-			r = c.s.Launch.Create(w, m.RequestID, *m.Spec, progress, creating)
+			reply(c.s.Launch.Create(w, m.RequestID, *m.Spec, progress, creating))
 		}
-		if cr := r.Creating; cr.Terminal != "" && !opened.Load() {
-			// A retry hears the first create's terminal, not its progress.
-			creating(cr)
-		}
-		if r.Err != nil {
-			c.send(proto.NewCodedError(m.ID, r.Err.Code, r.Err.Message, r.Err.Detail))
-			return
-		}
-		c.send(proto.NewAgentCreated(m.ID, m.RequestID, r.AgentID, r.TerminalID))
 	}()
 }
 
