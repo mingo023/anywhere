@@ -385,10 +385,51 @@ func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *test
 	}
 }
 
+// listsModels says whether m is agentID's answer from orchestrator_capabilities listing each kind's models as want has them.
+func listsModels(agentID string, want map[string][]string) func(Message) bool {
+	return func(m Message) bool {
+		at := strings.Index(m.Item.Text, "{")
+		if m.Type != "agent.stream" || m.AgentID != agentID || m.Item.Kind != "assistant" || at < 0 {
+			return false
+		}
+		var caps struct {
+			Agents []struct {
+				ID     string   `json:"id"`
+				Models []string `json:"models"`
+			} `json:"agents"`
+		}
+		if json.Unmarshal([]byte(m.Item.Text[at:]), &caps) != nil {
+			return false
+		}
+		got := map[string][]string{}
+		for _, a := range caps.Agents {
+			got[a.ID] = a.Models
+		}
+		for kind, models := range want {
+			if !slices.Equal(got[kind], models) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 func TestOrchestratorCapabilitiesListsTheModelsAChatHermesOpenedWith(t *testing.T) {
 	_, phone, _, id := chatACP(t, "hermes", nil)
 	phone.Prompt(id, "mcp orchestrator_capabilities {}")
-	phone.WaitFor("hermes's models", saysAbout(id, `"fake/other"`))
+	phone.WaitFor("hermes's models", listsModels(id, map[string][]string{"hermes": {"fake-model", "fake/other"}}))
+}
+
+// Claude, Codex and Pi list their models with no session of theirs open, and no client to push a list.
+func TestOrchestratorCapabilitiesListsWhatClaudeCodexAndPiListWithNoSessionOfTheirs(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil)
+	phone.Prompt(id, "mcp orchestrator_capabilities {}")
+	phone.WaitFor("each CLI's models", listsModels(id, map[string][]string{
+		"claude": {"fake-claude-opus"}, "codex": {"fake-codex-sol", "fake-codex-luna"}, "pi": {"fake/model", "fake/other"},
+	}))
+	if written, _ := filepath.Glob(filepath.Join(h.ClaudeDir, "projects", "*", "*.jsonl")); len(written) > 0 {
+		t.Fatalf("asking claude wrote a session: %q", written)
+	}
 }
 
 // Hermes runs a delegated task in the background and tells its work only in a transcript, live and on a restart alike.
