@@ -561,3 +561,16 @@ func TestATreeNoClientWatchesIsAskedOnceForItsPRAndThenServedAsGhLastTold(t *tes
 		t.Fatalf("gh asked again: %+v %v", pr, f.calls())
 	}
 }
+
+func TestATreeThatIsNoFolderHereIsNotAskedOfGh(t *testing.T) {
+	f := newFake(t)
+	f.put("view.json", fixture(t, "open.json"))
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	if pr := s.Cached(ctx(t), filepath.Join(tree, "gone")); pr != nil || f.called("pr view") {
+		t.Fatalf("%+v %v", pr, f.calls())
+	}
+	if pr := s.Cached(ctx(t), tree); pr == nil {
+		t.Fatalf("a tree here after one that is not: %v", f.calls())
+	}
+}
