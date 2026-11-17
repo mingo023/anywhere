@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -202,6 +203,41 @@ func TestAColdRestartListsADelegatingChatAndItsChildWithTheTitlesTheyHad(t *test
 	resumedChat(h, child)
 	if got := agentsListed(resumedChat(h, parent)); !slices.Equal(got, before) {
 		t.Fatalf("listed\n%s\nafter the restart,\n%s\nbefore", strings.Join(got, "\n"), strings.Join(before, "\n"))
+	}
+}
+
+func TestAColdRestartKeepsTheTitleOfACodexACPPiAndTerminalSession(t *testing.T) {
+	for _, spec := range []map[string]any{
+		{"provider": "codex", "chat": true},
+		{"provider": "hermes", "chat": true},
+		{"provider": "pi", "chat": true},
+		{"provider": "claude"},
+	} {
+		t.Run(fmt.Sprint(spec), func(t *testing.T) {
+			h := Start(t, launchReady(""), func(h *Harness) { h.resume = true })
+			phone := h.Owner()
+			create(phone, "r1", inRepo(h, spec))
+			created := reply(phone, "agent.created", "error")
+			id := created.AgentID
+			h.WaitScreen(created.TerminalID, " ready")
+			phone.Prompt(id, "Title me")
+			phone.WaitAll("the titled turn",
+				func(m Message) bool {
+					return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Title == "Title me"
+				},
+				statusOf(id, "done"))
+			var before []string
+			h.eventually("the session done", func() bool {
+				before = agentsListed(phone)
+				return len(before) == 1 && strings.Contains(before[0], " done")
+			})
+
+			h.Restart()
+
+			if got := agentsListed(resumedChat(h, id)); !slices.Equal(got, before) {
+				t.Fatalf("listed\n%s\nafter the restart,\n%s\nbefore", strings.Join(got, "\n"), strings.Join(before, "\n"))
+			}
+		})
 	}
 }
 
