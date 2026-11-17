@@ -1172,6 +1172,49 @@ func TestAQueuedMessageWaitsForATurnStillStartingInsteadOfGoingOutBesideIt(t *te
 	}
 }
 
+func TestAMessageSentWhileATurnIsStillStartingQueuesBehindIt(t *testing.T) {
+	for _, origin := range []string{OriginUser, OriginQuestion} {
+		st := parentState("idle", 0)
+		st.Starting = true
+		d, err := decide(st, NewCommand("c1", CmdMessageSend, "p", SendPayload{Text: "second", Origin: origin}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Queue) != 1 || len(d.Effects) != 0 {
+			t.Fatalf("%s: queue %+v, effects %+v", origin, d.Queue, d.Effects)
+		}
+	}
+}
+
+func TestAMessageQueuedBehindATurnStartGoesOutOnceThatStartFails(t *testing.T) {
+	s := openTest(t)
+	putSession(t, s, Session{ID: "a", Agent: "claude", Status: "idle"})
+	f := &fakeEffector{hold: make(chan struct{}), result: func(e Effect) (map[string]any, error) {
+		var p TurnPayload
+		json.Unmarshal(e.Payload, &p)
+		if p.Text == "first" {
+			return nil, errors.New("refused")
+		}
+		return nil, nil
+	}}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	defer e.Close()
+	if _, err := e.Dispatch(NewCommand("", CmdMessageSend, "a", SendPayload{Text: "first"})); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.Dispatch(NewCommand("", CmdMessageSend, "a", SendPayload{Text: "second"}))
+	if err != nil || !strings.Contains(string(r.Result), `"queued":true`) {
+		t.Fatalf("the second while the first starts: %s, %v", r.Result, err)
+	}
+	close(f.hold)
+	waitFor(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.ran) == 2
+	})
+}
+
 func TestAQueuedTaskKeepsTheModelAndEffortItAskedFor(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})

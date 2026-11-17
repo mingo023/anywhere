@@ -421,9 +421,10 @@ func send(st State, cmd Command, p SendPayload, ids *idSeq) (Decision, error) {
 	if !slices.Contains([]string{"auto", "queue", "steer", "restart"}, mode) {
 		return Decision{}, refuse(CodeInvalid, "mode is auto, queue, steer or restart")
 	}
-	queueIt := mode == "queue" || mode == "auto" && (st.Session.Busy() || pendingAhead(st.Queue)) && !(origin == OriginWake && st.Self.CanSteer)
+	busy := st.Session.Busy() || st.Starting || pendingAhead(st.Queue)
+	queueIt := mode == "queue" || mode == "auto" && busy && !(origin == OriginWake && st.Self.CanSteer)
 	if origin == OriginQuestion {
-		queueIt = st.Session.Busy() || pendingAhead(st.Queue)
+		queueIt = busy
 	}
 	if queueIt {
 		e := QueueEntry{ID: ids.next("q"), Session: st.Session.ID, Text: p.Text, Origin: origin, Ord: nextOrd(st.Queue), State: EntryPending, Refs: p.Refs, CreatedAt: st.Now}
@@ -439,7 +440,10 @@ func send(st State, cmd Command, p SendPayload, ids *idSeq) (Decision, error) {
 		d.Effects = append(d.Effects, effect(st.Session.ID, EffInterrupt, nil))
 		d.Events = append(d.Events, Event{st.Session.ID, "turn.restarted", nil})
 	}
-	d.Effects = append(d.Effects, effect(st.Session.ID, EffTurnStart, TurnPayload{Text: p.Text, Key: cmd.ID, Origin: origin}))
+	eff := effect(st.Session.ID, EffTurnStart, TurnPayload{Text: p.Text, Key: cmd.ID, Origin: origin})
+	// What queued behind this start goes out if it fails, as no turn's end will send it.
+	eff.Else = CmdQueueDrain
+	d.Effects = append(d.Effects, eff)
 	d.Events = append(d.Events, Event{st.Session.ID, "message.sent", map[string]string{"origin": origin}})
 	d.Result = map[string]any{"queued": false}
 	return d, nil
