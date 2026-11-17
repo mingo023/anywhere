@@ -13,6 +13,12 @@ pub fn release_url(version: &str) -> String {
     format!("https://github.com/mingo023/anywhere/releases/tag/v{version}")
 }
 
+/// The folder of theme files to start a theme from: this release's, or main's in a dev build.
+pub fn themes_url(version: &str) -> String {
+    let at = if version == "dev" { "main".to_string() } else { format!("v{version}") };
+    format!("https://github.com/mingo023/anywhere/tree/{at}/packages/desktop/themes")
+}
+
 /// What the sidebar says about updates.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Update {
@@ -152,7 +158,13 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Update, launch};
+    use super::{Update, launch, themes_url};
+
+    #[test]
+    fn the_starter_themes_are_the_installed_release_s_or_main_s_in_a_dev_build() {
+        assert_eq!(themes_url("0.1.46"), "https://github.com/mingo023/anywhere/tree/v0.1.46/packages/desktop/themes");
+        assert_eq!(themes_url("dev"), "https://github.com/mingo023/anywhere/tree/main/packages/desktop/themes");
+    }
 
     fn whats_new(v: &str) -> Update {
         Update::WhatsNew { version: v.into() }

@@ -13,6 +13,9 @@ pub const MENU_IN: std::time::Duration = std::time::Duration::from_millis(150);
 pub const SPRING: SpringConfig = SpringConfig::new(900., 60., 1.);
 
 pub mod contrast;
+mod themes;
+
+pub use themes::{GRAPHITE_DARK, GRAPHITE_LIGHT, Preset, Theme, presets};
 
 static DARK: AtomicBool = AtomicBool::new(false);
 static BLUE_ORANGE: AtomicBool = AtomicBool::new(false);
@@ -20,8 +23,10 @@ static SYNTAX: AtomicUsize = AtomicUsize::new(0);
 /// The user's added and removed colours as `0xRRGGBBff`; 0 keeps the theme's.
 static ADDED: AtomicU32 = AtomicU32::new(0);
 static REMOVED: AtomicU32 = AtomicU32::new(0);
-/// The user's accent as `0xRRGGBBff`; 0 is Graphite.
+/// The user's accent as `0xRRGGBBff`; 0 leaves the theme's.
 static ACCENT_RGB: AtomicU32 = AtomicU32::new(0);
+/// The active theme's accent as `0xRRGGBBff`; 0 for none.
+static THEME_ACCENT: AtomicU32 = AtomicU32::new(0);
 /// The active theme's colour for each of `KEYS`, as `1 << 32 | rgba`; 0 leaves the token its own.
 static THEMED: [AtomicU64; KEYS.len()] = [const { AtomicU64::new(0) }; KEYS.len()];
 /// The dark window's alpha, out of 0xff.
@@ -55,10 +60,15 @@ pub fn set_diff_colors(added: Option<u32>, removed: Option<u32>) {
     REMOVED.store(opaque(removed), Ordering::Relaxed);
 }
 
-/// Paints selection, focus rings and primary buttons in this `0xRRGGBB` colour; `None`, or anything past `0xffffff`, is Graphite.
+/// Paints selection, focus rings and primary buttons in this `0xRRGGBB` colour; `None`, or anything past `0xffffff`, leaves them to the theme.
 pub fn set_accent(rgb: Option<u32>, cx: &mut App) {
     ACCENT_RGB.store(accent_rgba(rgb), Ordering::Relaxed);
-    set_appearance(if is_dark() { WindowAppearance::Dark } else { WindowAppearance::Light }, cx);
+    sync_kit(cx);
+}
+
+/// The active theme's accent as `0xRRGGBB`.
+pub fn theme_accent() -> Option<u32> {
+    Some(THEME_ACCENT.load(Ordering::Relaxed)).filter(|accent| *accent != 0).map(|accent| accent >> 8)
 }
 
 fn accent_rgba(rgb: Option<u32>) -> u32 {
@@ -97,7 +107,7 @@ struct Look {
     blue_orange: bool,
     /// The user's added and removed colours as `0xRRGGBBff`; 0 for none.
     diff: (u32, u32),
-    /// The accent as `0xRRGGBBff`; 0 for none.
+    /// The user's accent, else the theme's, as `0xRRGGBBff`; 0 for none.
     accent: u32,
 }
 
@@ -107,7 +117,10 @@ impl Look {
             dark: is_dark(),
             blue_orange: BLUE_ORANGE.load(Ordering::Relaxed),
             diff: (ADDED.load(Ordering::Relaxed), REMOVED.load(Ordering::Relaxed)),
-            accent: ACCENT_RGB.load(Ordering::Relaxed),
+            accent: match ACCENT_RGB.load(Ordering::Relaxed) {
+                0 => THEME_ACCENT.load(Ordering::Relaxed),
+                accent => accent,
+            },
         }
     }
 }
@@ -704,7 +717,7 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "activity", "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "antigravity", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "cursor", "diff-multiple", "diff-split",
+    "activity", "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "antigravity", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "corner-down-right", "cursor", "diff-multiple", "diff-split",
     "discard", "explorer", "external", "eye", "eye-off", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "fx", "github", "globe", "grip", "grok", "hermes", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "omp", "openai", "opencode", "pencil", "phone", "pi", "pin", "play", "plus", "pointer", "priority-high", "priority-low", "priority-medium", "priority-none", "priority-urgent", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "spinner-ring", "split-down", "split-right", "stacked-tickets", "star", "star-fill", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
@@ -724,16 +737,30 @@ impl AssetSource for Assets {
     }
 }
 
-/// Loads the bundled fonts and applies `appearance`. Call after `gpui_kit::init`.
-pub fn init(appearance: WindowAppearance, cx: &mut App) {
+/// Loads the bundled fonts and paints `theme`. Call after `gpui_kit::init`.
+pub fn init(theme: &Theme, cx: &mut App) {
     cx.text_system().add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()).expect("bundled fonts load");
-    set_appearance(appearance, cx);
+    set_theme(theme, cx);
 }
 
-/// Switches every token to `appearance` and points gpui-kit's theme at them.
-pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
-    let dark = matches!(appearance, WindowAppearance::Dark | WindowAppearance::VibrantDark);
-    DARK.store(dark, Ordering::Relaxed);
+pub fn dark(appearance: WindowAppearance) -> bool {
+    matches!(appearance, WindowAppearance::Dark | WindowAppearance::VibrantDark)
+}
+
+/// Paints every token in `theme`'s colours from the next frame and points gpui-kit's theme at them.
+pub fn set_theme(theme: &Theme, cx: &mut App) {
+    DARK.store(theme.dark, Ordering::Relaxed);
+    THEME_ACCENT.store(theme.accent, Ordering::Relaxed);
+    for (themed, color) in THEMED.iter().zip(theme.colors) {
+        themed.store(color.map_or(0, |c| (1 << 32) | c as u64), Ordering::Relaxed);
+    }
+    sync_kit(cx);
+}
+
+/// Points gpui-kit's theme at the tokens as they paint now.
+fn sync_kit(cx: &mut App) {
+    let dark = is_dark();
+    let appearance = if dark { WindowAppearance::Dark } else { WindowAppearance::Light };
     /* `change` keeps fonts its config leaves unset and builds markdown's defaults from them, so
     start each switch from gpui-kit's fonts, as at launch, rather than ours. */
     let kit = gpui_kit::component::Theme::default();
@@ -753,8 +780,7 @@ pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
     t.mono_font_size = px(13.);
     t.link = ACCENT_LINK.into();
     t.highlight_theme = highlight_theme(dark);
-    // Graphite keeps gpui-kit's own focus ring and text selection.
-    if ACCENT_RGB.load(Ordering::Relaxed) != 0 {
+    if Look::now().accent != 0 {
         (t.primary, t.primary_foreground, t.ring, t.selection) = (PRIMARY.into(), ON_PRIMARY.into(), PRIMARY.into(), SELECTION.into());
     }
 }
@@ -783,7 +809,7 @@ fn nav_rgba(dark: bool, glass: u32) -> u32 {
 }
 
 /// Glass in dark; pale desktops make translucent light chrome illegible.
-/// Reads the last `set_appearance`, so a window opened before `init` stays opaque.
+/// Reads the last `set_theme`, so a window opened before `init` stays opaque.
 pub fn window_background() -> WindowBackgroundAppearance {
     if is_dark() { WindowBackgroundAppearance::Blurred } else { WindowBackgroundAppearance::Opaque }
 }

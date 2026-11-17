@@ -37,6 +37,7 @@ mod status;
 mod syntax;
 mod terminal_view;
 mod terminals;
+mod themes;
 mod updates;
 mod util;
 
@@ -62,6 +63,7 @@ fn main() {
     let home = path.parent().unwrap_or(path).to_path_buf();
     let (outbox, mut agent_rx) = agents::connect_with(path, own.token.clone());
     let store = Store::load(&home);
+    let custom = themes::load(&home);
     if channel::is_release() && store.general.open_at_login {
         std::thread::spawn(|| daemon::service::open_at_login(true));
     }
@@ -71,13 +73,13 @@ fn main() {
         gpui_kit::init(cx);
         gpui_kit::gpui::hitch::enable(hitch_log, format!("version={} arch={}", channel::version(), std::env::consts::ARCH));
         let capturing = capture.is_some();
-        // Captures stay light (capture.rs forces it per screen).
-        let forced = settings::forced(store.appearance.mode).filter(|_| !capturing);
-        if forced.is_some() {
-            cx.set_window_appearance(forced);
+        // Captures stay light and Graphite (capture.rs forces it per screen).
+        let forced = themes::forced(&store.appearance, &custom).filter(|_| !capturing);
+        if let Some(dark) = forced {
+            cx.set_window_appearance(Some(if dark { WindowAppearance::Dark } else { WindowAppearance::Light }));
         }
-        let appearance = forced.unwrap_or_else(|| cx.window_appearance());
-        theme::init(appearance, cx);
+        let dark = forced.unwrap_or_else(|| theme::dark(cx.window_appearance()));
+        theme::init(&if capturing { theme::Theme::graphite(dark) } else { themes::active(&store.appearance, &custom, dark) }, cx);
         theme::set_blue_orange(store.appearance.diff_colors == store::DiffColors::BlueOrange);
         theme::set_diff_colors(store.appearance.added, store.appearance.removed);
         theme::set_glass(store.appearance.glass());
@@ -168,7 +170,7 @@ fn main() {
                         let _ = handle.update(cx, |_, window, cx| this.update(cx, |d, cx| d.focus_agent(&r.tag, window, cx)));
                     }
                 });
-                let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, window, cx);
+                let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, themes::Themes::new(custom), window, cx);
                 desktop.list_worktrees(cx);
                 if !capturing {
                     desktop.connect_hosts(window, cx);

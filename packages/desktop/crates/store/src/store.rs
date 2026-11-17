@@ -6,6 +6,7 @@ use workspace::Workspace;
 pub mod prefs;
 pub mod scope;
 pub mod sections;
+pub mod themes;
 
 /// Under the home of the machine holding the project; pocketd makes the same folder.
 const DEFAULT_WORKTREES: &str = ".anywhere/worktrees";
@@ -206,8 +207,17 @@ pub enum Mode {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default)]
 pub struct Appearance {
+    /// What settings saved before there were themes chose; `theme` wins once set.
     #[serde(deserialize_with = "lenient")]
     pub mode: Mode,
+    /// The chosen theme's id, or "system" to follow macOS with `day` and `night`.
+    #[serde(deserialize_with = "lenient")]
+    pub theme: Option<String>,
+    /// The themes "system" paints while macOS is light and dark; `None` is Graphite.
+    #[serde(deserialize_with = "lenient")]
+    pub day: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub night: Option<String>,
     /// `None` follows the macOS setting.
     pub reduce_motion: Option<bool>,
     #[serde(deserialize_with = "lenient")]
@@ -217,7 +227,7 @@ pub struct Appearance {
     /// Custom diff colors as `0xRRGGBB`; `None` keeps the theme's.
     pub added: Option<u32>,
     pub removed: Option<u32>,
-    /// `0xRRGGBB`; `None` is Graphite.
+    /// `0xRRGGBB`; `None` is the theme's.
     #[serde(deserialize_with = "lenient")]
     pub accent: Option<u32>,
     /// Font families; `None` is the app's own.
@@ -930,6 +940,14 @@ mod tests {
     }
 
     #[test]
+    fn settings_saved_before_themes_load_with_no_theme_and_a_theme_of_the_wrong_kind_is_dropped() {
+        let s: Store = serde_json::from_str(r#"{"appearance":{"mode":"dark"}}"#).unwrap();
+        assert_eq!((s.appearance.mode, s.appearance.theme, s.appearance.day, s.appearance.night), (Mode::Dark, None, None, None));
+        let s: Store = serde_json::from_str(r#"{"appearance":{"theme":7,"day":"github-light","glass":60}}"#).unwrap();
+        assert_eq!((s.appearance.theme.as_deref(), s.appearance.day.as_deref(), s.appearance.glass()), (None, Some("github-light"), 60));
+    }
+
+    #[test]
     fn settings_round_trip_through_desktop_json() {
         let dir = std::env::temp_dir().join(format!("pocket-store-settings-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -938,6 +956,9 @@ mod tests {
         s.notifications.banners = false;
         s.appearance = Appearance {
             mode: Mode::Dark,
+            theme: Some("system".into()),
+            day: Some("custom/mine".into()),
+            night: None,
             reduce_motion: Some(true),
             diff_colors: DiffColors::BlueOrange,
             syntax: SyntaxTheme::Solarized,

@@ -52,6 +52,7 @@ use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
+use crate::themes::Themes;
 use crate::terminals::link::Hint;
 use crate::updates::Updates;
 use agents::Agents;
@@ -83,6 +84,7 @@ pub struct Desktop {
     pub(crate) agents: Agents,
     pub(crate) models: Models,
     pub(crate) store: Store,
+    pub(crate) themes: Themes,
     pub(crate) project: Option<String>,
     pub(crate) screen: Screen,
     pub(crate) side: Side,
@@ -139,7 +141,7 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, themes: Themes, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
@@ -178,6 +180,9 @@ impl Desktop {
                 if this.screen == Screen::Settings {
                     this.load_banner_permission(cx);
                 }
+                if window.is_window_active() {
+                    this.reload_themes(cx);
+                }
             }),
             cx.observe_window_appearance(window, |this, window, cx| this.set_appearance(window.appearance(), window, cx)),
             // Unfocused, GPUI dispatches keys from the window's root node, above this view's action handlers.
@@ -212,6 +217,7 @@ impl Desktop {
             chime: Chime::new(),
             badge: Badge::default(),
             terminals,
+            themes,
             creates: Creates::default(),
             removals: Removals::default(),
             renames: Renames::default(),
@@ -292,11 +298,8 @@ impl Desktop {
     }
 
     pub(crate) fn set_appearance(&mut self, appearance: WindowAppearance, window: &mut Window, cx: &mut Context<Self>) {
-        theme::set_appearance(appearance, cx);
+        self.paint_theme(theme::dark(appearance), cx);
         window.set_background_appearance(theme::window_background());
-        self.recolor_diff(cx);
-        self.recolor_commit(cx);
-        cx.notify();
     }
 
     pub(crate) fn show_tree(&mut self, tree: &str) {

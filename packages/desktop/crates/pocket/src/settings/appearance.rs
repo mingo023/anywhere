@@ -1,5 +1,5 @@
-use super::catalog::{Control, Look, Setting};
-use super::{action, row};
+use super::catalog::{Look, Setting};
+use super::{action, row, themes};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{code, code_text};
 use git::{Kind, Line};
@@ -8,55 +8,28 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
 use std::rc::Rc;
-use store::{Appearance, DiffColors, Mode, Store, SyntaxTheme};
+use store::{Appearance, DiffColors, Store, SyntaxTheme};
 use theme::*;
-
-/// The appearance to force on the app; `None` follows macOS.
-pub(crate) fn forced(mode: Mode) -> Option<WindowAppearance> {
-    match mode {
-        Mode::System => None,
-        Mode::Light => Some(WindowAppearance::Light),
-        Mode::Dark => Some(WindowAppearance::Dark),
-    }
-}
 
 /// Whether motion is reduced: the user's choice, else macOS's.
 pub(crate) fn reduce_motion(pref: Option<bool>, system: impl FnOnce() -> bool) -> bool {
     pref.unwrap_or_else(system)
 }
 
-/// A window drawn small in the mode's colors; System is half light, half dark.
-fn thumbnail(mode: Mode) -> Div {
-    let window = |bg: u32, edge: u32, card: u32| {
-        div()
-            .size_full()
-            .flex()
-            .bg(rgb(bg))
-            .child(div().w(px(22.)).h_full().border_r(px(0.5)).border_color(rgb(edge)))
-            .child(div().flex_1().p(px(6.)).flex().flex_col().gap(px(4.)).child(div().h(px(5.)).w(relative(0.6)).rounded(px(2.)).bg(rgb(edge))).child(div().flex_1().rounded(px(3.)).bg(rgb(card))))
-    };
-    let inner = match mode {
-        Mode::System => div().size_full().flex().child(div().flex_1().bg(rgb(0xf4f4f5))).child(div().flex_1().bg(rgb(0x161618))),
-        Mode::Light => window(0xf4f4f5, 0xd4d4d8, 0xffffff),
-        Mode::Dark => window(0x161618, 0x3b3b41, 0x232326),
-    };
-    div().w(px(76.)).h(px(48.)).rounded(px(8.)).overflow_hidden().child(inner)
-}
-
-const MODES: [Mode; 3] = [Mode::System, Mode::Light, Mode::Dark];
 const MOTION: [Option<bool>; 3] = [None, Some(true), Some(false)];
 const DIFF_COLORS: [DiffColors; 2] = [DiffColors::GreenRed, DiffColors::BlueOrange];
 const SYNTAXES: [SyntaxTheme; 4] = [SyntaxTheme::Graphite, SyntaxTheme::Github, SyntaxTheme::One, SyntaxTheme::Solarized];
 
 const GLASS: Setting = Setting::custom("glass", "Theme", "Window opacity", glass_row)
-    .hint("Dark mode only: lower lets more of the desktop show through the glass")
+    .hint("Dark themes only: lower lets more of the desktop show through the glass")
     .resets(|s| format!("{}%", s.appearance.glass()), |s, d| s.appearance.glass = d.appearance.glass)
     .effect(apply_glass);
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::choice("mode", "Theme", "Appearance", &["System", "Light", "Dark"], Look::Thumbnails, |s| s.appearance.mode as usize, |s, i| s.appearance.mode = MODES[i])
-        .hint("System follows macOS light and dark")
-        .effect(apply_mode),
+    themes::THEME,
+    themes::DAY,
+    themes::NIGHT,
+    themes::CUSTOM,
     Setting::custom("accent", "Theme", "Accent color", accent_row)
         .hint("Selection, focus rings and primary buttons")
         .resets(accent_name, |s, d| s.appearance.accent = d.appearance.accent)
@@ -79,11 +52,11 @@ pub(super) const ROWS: &[Setting] = &[
     })
     .effect(apply_fonts),
     Setting::custom("font-preview", "Fonts", "Preview", |d, s, _| preview(d, s)),
-    Setting::choice("syntax-theme", "Code colors", "Syntax theme", &["Graphite (matches app)", "GitHub", "One", "Solarized"], Look::Dropdown, |s| s.appearance.syntax as usize, |s, i| {
+    Setting::choice("syntax-theme", "Code colors", "Syntax theme", &["From theme", "GitHub", "One", "Solarized"], Look::Dropdown, |s| s.appearance.syntax as usize, |s, i| {
         s.appearance.syntax = SYNTAXES[i]
     })
     .effect(apply_syntax),
-    Setting::choice("diff-colors", "Code colors", "Diff colors", &["Green & red", "Blue & orange"], Look::Segmented, |s| s.appearance.diff_colors as usize, |s, i| s.appearance.diff_colors = DIFF_COLORS[i])
+    Setting::choice("diff-colors", "Code colors", "Diff colors", &["From theme", "Blue & orange"], Look::Segmented, |s| s.appearance.diff_colors as usize, |s, i| s.appearance.diff_colors = DIFF_COLORS[i])
         .hint("Blue and orange are easier to tell apart with red\u{2013}green color blindness")
         .effect(apply_diff_colors),
     Setting::custom("custom-diff-colors", "Code colors", "Custom diff colors", custom_diff_colors)
@@ -184,7 +157,7 @@ fn glass_row(d: &mut Desktop, setting: &'static Setting, _: &mut Context<Desktop
 }
 
 fn accent_name(s: &Store) -> String {
-    s.appearance.accent.map_or("Graphite".into(), |c| format!("#{c:06X}"))
+    s.appearance.accent.map_or("From theme".into(), |c| format!("#{c:06X}"))
 }
 
 /// A colour to pick, ringed when it's the one chosen.
@@ -201,11 +174,11 @@ fn swatch(id: impl Into<ElementId>, fill: u32, chosen: bool) -> Stateful<Div> {
         .child(ui::swatch(fill, 16., 8.))
 }
 
-/// Graphite, then `ACCENT_SWATCHES`.
+/// The theme's accent, or Graphite's ink where it has none, then `ACCENT_SWATCHES`.
 fn accent_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
     let chosen = d.store.appearance.accent;
     let dots = std::iter::once(None).chain(ACCENT_SWATCHES.map(Some)).enumerate().map(|(i, c)| {
-        swatch(("accent", i), c.map_or(0x71717aff, |c| (c << 8) | 0xff), c == chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        swatch(("accent", i), c.or(theme_accent()).map_or(0x71717aff, |c| (c << 8) | 0xff), c == chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.store.appearance.accent = c;
             this.changed(setting, cx);
         }))
@@ -297,11 +270,6 @@ fn preview(d: &Desktop, setting: &'static Setting) -> Div {
         )
 }
 
-// The window appearance observer repaints the theme once AppKit applies this.
-fn apply_mode(d: &mut Desktop, cx: &mut Context<Desktop>) {
-    cx.set_window_appearance(forced(d.store.appearance.mode));
-}
-
 fn apply_motion(d: &mut Desktop, cx: &mut Context<Desktop>) {
     crate::desktop::follow_reduce_motion(d.store.appearance.reduce_motion, cx);
 }
@@ -350,62 +318,22 @@ fn custom_diff_colors(d: &mut Desktop, setting: &'static Setting, cx: &mut Conte
     row(setting.label, setting.hint, div().flex().flex_col().gap(px(4.)).child(added).child(removed))
 }
 
-/// The three modes as small windows; `setting` is the row choosing between them.
-pub(super) fn thumbnails(setting: &'static Setting, chosen: usize, cx: &mut Context<Desktop>) -> Div {
-    let Control::Choice { options, .. } = setting.control else { return div() };
-    let tiles = MODES.into_iter().zip(options).enumerate().map(|(i, (m, label))| {
-        let selected = chosen == i;
-        // The selection ring sits 2px off the tile, so a border on a padded frame draws it; a translucent surface can't mask a box-shadow ring.
-        let frame = div()
-            .p(px(2.))
-            .rounded(px(12.))
-            .border_2()
-            .border_color(transparent_black())
-            .when(selected, |d| d.border_color(TEXT_2))
-            .child(thumbnail(m).when(!selected, |t| t.shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])));
-        div()
-            .id(("settings-mode", i))
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(2.))
-            .cursor_pointer()
-            .text_size(px(12.))
-            .when(selected, |d| d.text_color(TEXT).font_weight(FontWeight::SEMIBOLD))
-            .when(!selected, |d| d.text_color(TEXT_2).font_weight(FontWeight(450.)))
-            .child(frame)
-            .child(*label)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.choose(setting, i, cx)))
-    });
-    div().flex().gap(px(6.)).children(tiles)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{CODE_FONT, Control, UI_FONT, forced, installed, monospaced, reduce_motion};
-    use gpui_kit::WindowAppearance;
-    use store::{DiffColors, Mode, SyntaxTheme};
-
-    #[test]
-    fn system_mode_forces_nothing() {
-        assert_eq!(forced(Mode::System), None);
-    }
-
-    #[test]
-    fn light_and_dark_force_the_window() {
-        assert_eq!([Mode::Light, Mode::Dark].map(forced), [Some(WindowAppearance::Light), Some(WindowAppearance::Dark)]);
-    }
+    use super::super::catalog::Control;
+    use super::{CODE_FONT, UI_FONT, installed, monospaced, reduce_motion};
+    use store::{DiffColors, SyntaxTheme};
 
     #[test]
     fn the_rows_read_back_what_they_write() {
         let mut store = store::Store::default();
         let id = |id: &str| super::ROWS.iter().find(|r| r.id == id).unwrap();
-        for (row, i) in [(id("mode"), 2), (id("reduce-motion"), 1), (id("diff-colors"), 1), (id("syntax-theme"), 3)] {
+        for (row, i) in [(id("reduce-motion"), 1), (id("diff-colors"), 1), (id("syntax-theme"), 3)] {
             let Control::Choice { get, set, .. } = row.control else { panic!() };
             set(&mut store, i);
             assert_eq!(get(&store), i);
         }
-        assert_eq!((store.appearance.mode, store.appearance.reduce_motion, store.appearance.diff_colors), (Mode::Dark, Some(true), DiffColors::BlueOrange));
+        assert_eq!((store.appearance.reduce_motion, store.appearance.diff_colors), (Some(true), DiffColors::BlueOrange));
         assert_eq!(store.appearance.syntax, SyntaxTheme::Solarized);
     }
 
@@ -443,7 +371,7 @@ mod tests {
     fn accent_and_fonts_name_their_choice_and_reset_to_the_defaults() {
         let row = |id| super::ROWS.iter().find(|r| r.id == id).unwrap();
         let mut store = store::Store::default();
-        assert_eq!(["accent", "ui-font", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()), ["Graphite", "System (SF Pro)", "Geist Mono", "12 pt"]);
+        assert_eq!(["accent", "ui-font", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()), ["From theme", "System (SF Pro)", "Geist Mono", "12 pt"]);
         (store.appearance.accent, store.appearance.code_font, store.appearance.code_size) = (Some(0x3e8ef7), Some("Menlo".into()), Some(14));
         assert_eq!(["accent", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()), ["#3E8EF7", "Menlo", "14 pt"]);
         super::super::catalog::reset(super::ROWS, &mut store);

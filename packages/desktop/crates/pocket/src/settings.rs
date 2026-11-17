@@ -21,8 +21,9 @@ mod search;
 mod sidebar;
 pub(crate) mod ssh_hosts;
 mod terminal;
+mod themes;
 
-pub(crate) use appearance::{forced, reduce_motion};
+pub(crate) use appearance::reduce_motion;
 
 use ::agents::providers;
 use crate::actions::OpenSettings;
@@ -344,6 +345,11 @@ fn row(title: impl IntoElement, hint: Option<&str>, control: impl IntoElement) -
         .child(div().flex_none().max_w(relative(0.6)).flex().justify_end().child(control))
 }
 
+/// The title of a row that belongs to the one above it.
+fn sub_title(label: &'static str) -> Div {
+    div().flex().items_center().gap(px(10.)).child(div().w(px(16.)).flex().child(icon("corner-down-right", 14., TEXT_4))).child(label)
+}
+
 fn group(title: &str, rows: Vec<Div>) -> Div {
     div()
         .flex()
@@ -605,7 +611,6 @@ impl Desktop {
                     }));
                 div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, &self.agents, cx)))).into_any_element()
             }
-            Control::Choice { look: Look::Thumbnails, get, .. } => appearance::thumbnails(setting, get(&self.store), cx).into_any_element(),
             Control::Stepper { min, max, step, unit, get, .. } => {
                 let n = get(&self.store);
                 let button = |id: &'static str, glyph: &'static str, by: i32, enabled: bool| {
@@ -667,7 +672,7 @@ impl Desktop {
             _ => {
                 let control = self.control(setting, cx);
                 let title: AnyElement = match setting.parent {
-                    Some(_) => div().flex().items_center().gap(px(10.)).child(div().w(px(16.)).text_color(TEXT_4).child("↳")).child(setting.label).into_any_element(),
+                    Some(_) => sub_title(setting.label).into_any_element(),
                     None => setting.label.into_any_element(),
                 };
                 let note = setting.note.and_then(|note| note(&self.store));
