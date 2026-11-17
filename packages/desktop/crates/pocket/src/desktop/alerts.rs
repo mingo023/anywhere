@@ -348,7 +348,7 @@ impl Desktop {
     }
 
     pub(crate) fn sync_view(&mut self, window: &Window, cx: &mut App) {
-        let panes = if window.is_window_active() { self.visible_panes() } else { Vec::new() };
+        let panes = if window.is_window_active() || self.capturing { self.visible_panes() } else { Vec::new() };
         if let Some(ids) = self.alerts.view(&panes, &self.agents.list) {
             self.outbox.view(&ids);
             self.delegated_ask(ids);

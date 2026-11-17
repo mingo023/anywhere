@@ -192,7 +192,7 @@ const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.re
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left: Record<Provider, number> = { claude: 62, codex: 41, cursor: 77, grok: 58, opencode: 49, pi: 83, omp: 91, fx: 66, hermes: 35, antigravity: 72 };
 const summaries = scenario.agents.map((a) => ({
-  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, status: status(a), restore: a.restore, activity: a.activity ?? "",
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, chatOnly: !!process.env.FIXTURE_HOST_ONLY, status: status(a), restore: a.restore, activity: a.activity ?? "",
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
   tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000, resets: 0,
 }));
@@ -614,7 +614,9 @@ Bun.serve({
         const code = "abcdefghijklmnopqrstuv";
         ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));
       }
-      if (f.type === "agent.delegations") ws.send(JSON.stringify({ type: "agent.delegations", id: f.id, agentId: f.agentId, items: tasks.get(f.agentId) ?? [] }));
+      // FIXTURE_HOST_ONLY: every chat has three tasks whose sessions run on linked hosts, so none is in agent.list.
+      const hostOnly = (id: string): Task[] => process.env.FIXTURE_HOST_ONLY ? TASKS.map(([title, agent, model], i) => ({ taskId: `${id}-host${i + 1}`, parentId: id, childId: `${id}-host-c${i + 1}`, title, agent, model, status: "working", ...(i === 0 && { question: "Which test runner?" }), createdAt: Date.now() + i })) : [];
+      if (f.type === "agent.delegations") ws.send(JSON.stringify({ type: "agent.delegations", id: f.id, agentId: f.agentId, items: tasks.get(f.agentId) ?? hostOnly(f.agentId) }));
       if (f.type === "agent.timeline" && childTimelines.has(f.agentId)) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: childTimelines.get(f.agentId) }));
       if (f.type === "agent.timeline") {
         const a = scenario.agents.find((a) => a.id === f.agentId);
