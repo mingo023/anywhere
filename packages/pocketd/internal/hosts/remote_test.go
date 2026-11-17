@@ -77,6 +77,41 @@ func TestAQuestionAskedBeforeTheLaunchReturnedReachesTheMirrorOnceTracked(t *tes
 	}
 }
 
+type kept struct {
+	asks
+	open []string
+}
+
+func (k *kept) Live(string) []proto.AgentSummary {
+	return []proto.AgentSummary{{ID: "devbox/a1", Status: "needsYou"}}
+}
+func (k *kept) Open(string) []string { return k.open }
+
+// reconnected is a remote to a host whose hello listed a1 asking, as it was mirrored before, then sent asks again.
+func reconnected(t *testing.T, m Mirror, asks ...string) *remote {
+	t.Helper()
+	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox", nil)
+	raw, _ := json.Marshal(proto.AgentList{Type: "agent.list", Agents: []proto.AgentSummary{{ID: "a1", Status: "needsYou"}}})
+	r.frame("agent.list", raw)
+	for _, id := range asks {
+		detail := proto.ToolDetail{Kind: "other", Name: "AskUserQuestion", Input: json.RawMessage(`{}`)}
+		raw, err := json.Marshal(proto.NewPermissionRequest(proto.PermissionRequest{RequestID: id, AgentID: "a1", ToolName: "AskUserQuestion", Detail: detail}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.frame("permission.request", raw)
+	}
+	return r
+}
+
+func TestAnAskStillOpenHereIsNotAskedAgainWhenTheLinkComesBack(t *testing.T) {
+	m := &kept{open: []string{"devbox/q1"}}
+	reconnected(t, m, "q1", "q2")
+	if !slices.Equal(m.asked, []string{"devbox/a1 devbox/q2"}) {
+		t.Fatalf("asked = %v", m.asked)
+	}
+}
+
 type seqs struct {
 	Mirror
 	got []int64
@@ -130,6 +165,7 @@ type statuses struct {
 func (m *statuses) Summary(s proto.AgentSummary)     { m.got = append(m.got, s.Status) }
 func (m *statuses) Item(string, int64, proto.Item)   {}
 func (m *statuses) Live(string) []proto.AgentSummary { return m.live }
+func (m *statuses) Open(string) []string             { return nil }
 
 // replying is a host whose session a1 replied and ended its turn without a result item.
 func replying(t *testing.T, m Mirror) *remote {
@@ -202,6 +238,8 @@ func (m *stored) Live(string) []proto.AgentSummary {
 	defer m.mu.Unlock()
 	return slices.Collect(maps.Values(m.sessions))
 }
+
+func (m *stored) Open(string) []string { return nil }
 
 func TestAReconnectedLinkReadsOnlyTheItemsPastThoseMirroredBefore(t *testing.T) {
 	var all []proto.Item

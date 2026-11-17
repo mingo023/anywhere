@@ -271,3 +271,52 @@ func TestAHostChildIdleWithoutAResultSettlesCompletedWithItsLastReply(t *testing
 		t.Fatalf("the host's timeline %q", items)
 	}
 }
+
+// dropLink takes devbox's link down, as a host that stops taking this Mac's key, until back brings it up again.
+func dropLink(t *testing.T, mac, host *Harness) (back func()) {
+	t.Helper()
+	owner := mac.Owner(proto.CapHosts)
+	keys := filepath.Join(filepath.Dir(host.Home), ".fakessh-no-keys")
+	if err := os.WriteFile(keys, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner.Send(map[string]any{"type": "host.retry", "id": "drop", "hostId": "devbox"})
+	waitLink(owner, "devbox", proto.LinkFailed, "auth")
+	return func() {
+		t.Helper()
+		os.Remove(keys)
+		owner.Send(map[string]any{"type": "host.retry", "id": "back", "hostId": "devbox"})
+		waitLink(owner, "devbox", proto.LinkOnline, "")
+	}
+}
+
+func TestAHostChildsQuestionStillOpenAfterAReconnectReachesTheParentOnce(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"ask Ship it?","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	var open []orch.Request
+	mac.eventually("the question mirrored", func() bool {
+		open, _ = storeOf(mac).Requests(task.ChildID, "open")
+		return len(open) == 1
+	})
+
+	dropLink(t, mac, host)()
+	// A task started past the reconnect is mirrored after all the host sent on reconnecting.
+	phone.Prompt(parent, `mcp delegate_task {"task":"quiet after","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	hostTask(mac, phone, parent, 2, "completed")
+	phone.Prompt(parent, `mcp anywhere_pending_request {"taskId":"`+task.TaskID+`","requestId":"`+open[0].ID+`","answers":{"Ship it?":"Yes"}}`)
+
+	hostTask(mac, phone, parent, 1, "completed")
+	mac.eventually("the parent's wake", func() bool {
+		return slices.ContainsFunc(timelineOf(phone, parent), func(s string) bool {
+			return strings.HasPrefix(s, "user ") && strings.Contains(s, task.TaskID) && strings.Contains(s, "reached a terminal state")
+		})
+	})
+	notices := slices.DeleteFunc(timelineOf(phone, parent), func(s string) bool {
+		return !strings.HasPrefix(s, "user Delegated task "+task.TaskID) || !strings.Contains(s, "is blocked on a question")
+	})
+	if len(notices) != 1 {
+		t.Fatalf("the parent was told %d times: %q", len(notices), notices)
+	}
+}

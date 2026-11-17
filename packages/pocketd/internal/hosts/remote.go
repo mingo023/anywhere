@@ -19,8 +19,10 @@ type Mirror interface {
 	// Asked is a mirrored session's question or permission ask, under tagged ids; Answered is it closing.
 	Asked(req proto.PermissionRequest)
 	Answered(session, request string)
-	// Live is host's sessions mirrored here that haven't closed, as last stored.
+	// Live is host's sessions mirrored here that haven't closed, as last stored; Open is a session's asks still
+	// open here, by tagged id.
 	Live(host string) []proto.AgentSummary
+	Open(session string) []string
 	// Removed is host forgotten, with name as it was shown.
 	Removed(host, name string)
 	// Gone is a mirrored session its host no longer has: its pocketd came back without it. name is the host's.
@@ -66,8 +68,9 @@ type remote struct {
 	tracked map[string]bool
 	asks    map[string]string
 	// early is the open asks of sessions not tracked yet, by request id: a session Launch started can ask
-	// before agent.created returns.
+	// before agent.created returns. kept is the asks still open here from before this link.
 	early map[string]proto.PermissionRequest
+	kept  map[string]bool
 	seq   map[string]int64
 	// started is a turn the host showed busy; ended is its result stored.
 	started map[string]bool
@@ -76,7 +79,7 @@ type remote struct {
 
 func newRemote(m *Manager, host string, prev *remote) *remote {
 	return &remote{m: m, host: host, ready: make(chan struct{}), prev: prev, finished: make(chan struct{}), wake: make(chan struct{}, 1), latest: map[string]proto.AgentSummary{},
-		tracked: map[string]bool{}, asks: map[string]string{}, early: map[string]proto.PermissionRequest{}, seq: map[string]int64{}, started: map[string]bool{}, ended: map[string]bool{}}
+		tracked: map[string]bool{}, asks: map[string]string{}, early: map[string]proto.PermissionRequest{}, kept: map[string]bool{}, seq: map[string]int64{}, started: map[string]bool{}, ended: map[string]bool{}}
 }
 
 func (r *remote) open(ctx context.Context) {
@@ -163,6 +166,10 @@ func (r *remote) frame(kind string, raw []byte) {
 				continue
 			}
 			r.tracked[theirs] = true
+			for _, tagged := range r.m.Mirror.Open(s.ID) {
+				_, req := Untag(tagged)
+				r.asks[req], r.kept[req] = theirs, true
+			}
 			if busy(s.Status) {
 				// Stored mid-turn, so whatever the host shows now is past that turn.
 				r.started[theirs] = true
@@ -191,6 +198,7 @@ func (r *remote) frame(kind string, raw []byte) {
 		var p proto.PermissionResolved
 		json.Unmarshal(raw, &p)
 		delete(r.early, p.RequestID)
+		delete(r.kept, p.RequestID)
 		if agent, ok := r.asks[p.RequestID]; ok {
 			delete(r.asks, p.RequestID)
 			r.m.Mirror.Answered(Tag(r.host, agent), Tag(r.host, p.RequestID))
@@ -220,6 +228,11 @@ func (r *remote) track(theirs string, start proto.AgentSummary) {
 }
 
 func (r *remote) ask(req proto.PermissionRequest) {
+	if r.kept[req.RequestID] {
+		// Its parent heard of it before this link.
+		delete(r.kept, req.RequestID)
+		return
+	}
 	r.asks[req.RequestID] = req.AgentID
 	req.AgentID, req.RequestID = Tag(r.host, req.AgentID), Tag(r.host, req.RequestID)
 	r.m.Mirror.Asked(req)

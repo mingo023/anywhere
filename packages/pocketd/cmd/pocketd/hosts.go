@@ -71,6 +71,18 @@ func (x mirror) Live(host string) []proto.AgentSummary {
 	return out
 }
 
+func (x mirror) Open(session string) []string {
+	rs, err := x.o.store.Requests(session, "open")
+	if err != nil {
+		log.Printf("hosts: asks of %s: %v", session, err)
+	}
+	var ids []string
+	for _, r := range rs {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
 // environments is the linked hosts as the MCP tools see them.
 type environments struct {
 	m   *hosts.Manager
