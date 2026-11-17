@@ -606,3 +606,16 @@ func TestATimelineLoadedAfterAnUpgradeEndsTheBackgroundAgentItCarriedWhenItsTask
 		t.Fatalf("ended: %+v, %d agents", it.Call, after.BackgroundAgents())
 	}
 }
+
+func TestUnseenDropsTextAStoredTimelineSplitAroundAnotherSubAgentsItem(t *testing.T) {
+	shown := []proto.Item{{Kind: "assistant", Text: "one", ParentToolUseID: "t1"}, {Kind: "assistant", Text: "two", ParentToolUseID: "t1"}}
+	unseen := Unseen(shown)
+	for _, text := range []string{"one", "two"} {
+		if got := unseen([]Event{{Kind: "assistant_text", Text: text, ParentToolUseID: "t1"}}); len(got) != 0 {
+			t.Fatalf("%q came again: %+v", text, got)
+		}
+	}
+	if got := unseen([]Event{{Kind: "assistant_text", Text: "three", ParentToolUseID: "t1"}}); len(got) != 1 || got[0].Text != "three" {
+		t.Fatalf("what came after: %+v", got)
+	}
+}

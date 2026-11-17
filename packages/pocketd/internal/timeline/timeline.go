@@ -153,6 +153,7 @@ func (t *Timeline) Load(items []proto.Item) {
 // shown, and keeps everything from there. An event that changes no item waits
 // to go out with the next one that does.
 func Unseen(shown []proto.Item) func([]Event) []Event {
+	shown = joined(shown)
 	scratch, past := New(), false
 	var held []Event
 	return func(events []Event) []Event {
@@ -174,6 +175,20 @@ func Unseen(shown []proto.Item) func([]Event) []Event {
 		}
 		return nil
 	}
+}
+
+// joined is items with each run of texts of one kind as one item, as a replay of them alone merges them: the
+// timeline they were shown in kept them apart around another call's items.
+func joined(items []proto.Item) []proto.Item {
+	var out []proto.Item
+	for _, it := range items {
+		if n := len(out) - 1; n >= 0 && out[n].Kind == it.Kind && (it.Kind == "assistant" || it.Kind == "thinking") {
+			out[n].Text += it.Text
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // holds is whether stored, an item a timeline shows, already holds it, the same item as a replay has it so far.

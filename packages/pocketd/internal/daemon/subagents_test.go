@@ -220,3 +220,66 @@ func TestAColdRestartShowsOnceWhatASubAgentWroteBeforeItAndEndsItsCall(t *testin
 		t.Fatalf("under the call: %q, the call %s", rows, status)
 	}
 }
+
+// shape is the items a timeline shows, sub-agents' included, without their ids and times.
+func shape(a interface {
+	PageWithSubagents(int64, int) ([]proto.Item, bool)
+}) []string {
+	items, _ := a.PageWithSubagents(0, 1000)
+	var out []string
+	for _, it := range items {
+		row := it.ParentToolUseID + " " + it.Kind + " " + it.Text
+		if c := it.Call; c != nil {
+			row += c.ToolUseID + " " + c.Status
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func TestARestoreAddsNothingToAFinishedConversationWithSubAgents(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	dir := filepath.Join(cfg, "projects", "-w")
+	src := filepath.Join("testdata", "subagents")
+	os.MkdirAll(filepath.Join(dir, "s1", "subagents"), 0o700)
+	for _, name := range []string{"s1.jsonl", "s1/subagents/agent-a1157000000000001.meta.json", "s1/subagents/agent-a1157000000000001.jsonl", "s1/subagents/agent-ac0c0000000000002.meta.json", "s1/subagents/agent-ac0c0000000000002.jsonl"} {
+		b, _ := os.ReadFile(filepath.Join(src, name))
+		os.WriteFile(filepath.Join(dir, name), b, 0o600)
+	}
+	path := filepath.Join(dir, "s1.jsonl")
+	live := newDaemon(t)
+	_, pr := claudeIn(t, live)
+	hookFrom(live, pr, sessionStart("s1", path))
+	eventually(t, "the live timeline", func() bool { return len(shape(pr.a.Timeline)) == 10 })
+	stored, _ := pr.a.Timeline.PageWithSubagents(0, 1000)
+	want := shape(pr.a.Timeline)
+
+	for _, handed := range []bool{false, true} {
+		d := newDaemon(t)
+		d.Agents.History = func(string) ([]proto.Item, bool) { return stored, true }
+		var term *terminal.Terminal
+		if handed {
+			var err error
+			term, err = d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin", "CLAUDE_CONFIG_DIR=" + cfg}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(term.Close)
+			saved := state.Terminal{TerminalID: term.Info().ID, LaunchDir: t.TempDir(), Cols: 80, Rows: 24, Provider: "claude", ConversationID: "s1",
+				TranscriptPath: path, Launch: &state.Launch{Access: "ask"}, AgentID: "a-1", CreatedAt: 7, Status: "idle"}
+			d.expect(saved, term, "", &handoff.Agent{Phase: "idle", Seq: stored[len(stored)-1].Seq, Read: written(path)})
+		} else {
+			resuming(d, fakeAgent(t, "claude"), "--resume", "s1")
+			saved := savedAgent(t.TempDir(), "claude")
+			saved.Terminals[0].TranscriptPath = path
+			d.Restore(saved, "/bin/sh")
+			term, _ = restoredIn(t, d)
+		}
+		again := waitPresent(t, d, term)
+		time.Sleep(700 * time.Millisecond)
+		if got := shape(again.a.Timeline); !slices.Equal(got, want) {
+			t.Fatalf("handed %v:\n%q\nwant\n%q", handed, got, want)
+		}
+	}
+}
