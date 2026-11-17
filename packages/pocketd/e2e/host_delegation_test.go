@@ -345,3 +345,19 @@ func TestAHostChildsQuestionAnsweredThereWhileTheLinkWasDownClosesHereOnReconnec
 		return len(open) == 0
 	})
 }
+
+func TestATaskOnAHostLeftDownKeepsWaitingAndCancellingItSettlesItHereAtOnce(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"hang","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+
+	dropLink(t, mac, host)
+	phone.Prompt(parent, `mcp task_status {"taskId":"`+task.TaskID+`"}`)
+	phone.WaitFor("the task still running", func(m Message) bool {
+		return m.Type == "agent.stream" && m.AgentID == parent && m.Item.Kind == "assistant" && strings.Contains(m.Item.Text, `"status":"running"`)
+	})
+	phone.Prompt(parent, `mcp task_cancel {"taskId":"`+task.TaskID+`"}`)
+
+	hostTask(mac, phone, parent, 1, "cancelled")
+}
