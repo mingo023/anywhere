@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"pocketd/internal/proto"
 	"pocketd/internal/timeline"
 )
 
@@ -83,6 +84,32 @@ func (s *Subagents) Spawned(toolUseID string, fn func([]timeline.Event)) {
 	defer s.mu.Unlock()
 	maps.Copy(s.read, read)
 	s.spawned[toolUseID] = true
+}
+
+// Restored is Spawned for a timeline that already shows what sub-agents
+// wrote up to some point, as one a restart took from the store: for each call
+// in shown with a sub-agent transcript, and each task call still running,
+// whose sub-agent may write one yet. fn gets only what they wrote past the
+// items shown holds under their call.
+func (s *Subagents) Restored(shown []proto.Item, fn func([]timeline.Event)) {
+	written := map[string]bool{}
+	for _, name := range s.transcripts() {
+		written[s.callOf(name)] = true
+	}
+	under := map[string][]proto.Item{}
+	var calls []string
+	for _, it := range shown {
+		if it.ParentToolUseID != "" {
+			under[it.ParentToolUseID] = append(under[it.ParentToolUseID], it)
+		}
+		if c := it.Call; c != nil && (written[c.ToolUseID] || c.Detail.Kind == "task" && c.Status == "running") {
+			calls = append(calls, c.ToolUseID)
+		}
+	}
+	for _, call := range calls {
+		unseen := timeline.Unseen(under[call])
+		s.Spawned(call, func(events []timeline.Event) { fn(unseen(events)) })
+	}
 }
 
 // Tail tails each sub-agent transcript of a call Spawned read, from where it

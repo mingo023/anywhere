@@ -147,6 +147,43 @@ func (t *Timeline) Load(items []proto.Item) {
 	t.epoch++
 }
 
+// Unseen returns a filter for a replay of what one call's sub-agents wrote,
+// given shown, the items a restored timeline holds under that call: it drops
+// the replay's events up to the first that adds or changes an item past
+// shown, and keeps everything from there. An event that changes no item waits
+// to go out with the next one that does.
+func Unseen(shown []proto.Item) func([]Event) []Event {
+	scratch, past := New(), false
+	var held []Event
+	return func(events []Event) []Event {
+		if past {
+			return events
+		}
+		for i, e := range events {
+			it, changed := scratch.Apply(e, 0)
+			if !changed {
+				held = append(held, e)
+				continue
+			}
+			if n := int(it.Seq) - 1; n < len(shown) && holds(shown[n], it) {
+				held = nil
+				continue
+			}
+			past = true
+			return append(held, events[i:]...)
+		}
+		return nil
+	}
+}
+
+// holds is whether stored, an item a timeline shows, already holds it, the same item as a replay has it so far.
+func holds(stored, it proto.Item) bool {
+	if stored.Kind != it.Kind || !strings.HasPrefix(stored.Text, it.Text) || (stored.Call == nil) != (it.Call == nil) {
+		return false
+	}
+	return it.Call == nil || stored.Call.ToolUseID == it.Call.ToolUseID && (it.Call.Status == "running" || it.Call.Status == stored.Call.Status)
+}
+
 // Background is what a timeline knows of its background calls beyond its items, by tool use id, for an upgrade to
 // carry: the store keeps neither a call's task nor whether it runs on.
 type Background struct {
