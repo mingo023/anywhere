@@ -232,9 +232,11 @@ func TestACreateIsStartingUntilItEndsAndOnlyItsFirstWatcherHearsIt(t *testing.T)
 	s.Project, s.Checkout.Worktree = project, project
 	var steps []string
 	watched := make(chan Creating, 1)
-	stop := l.Watch("k1", func(step, _ string) { steps = append(steps, step) }, func(c Creating) { watched <- c })
+	heard := make(chan Result, 1)
+	stop := l.Watch("k1", func(step, _ string) { steps = append(steps, step) }, func(c Creating) { watched <- c }, func(r Result) { heard <- r })
 	defer stop()
-	defer l.Watch("k1", func(string, string) { t.Error("a second watcher got progress") }, func(Creating) { t.Error("a second watcher got the terminal") })()
+	defer l.Watch("k1", func(string, string) { t.Error("a second watcher got progress") }, func(Creating) { t.Error("a second watcher got the terminal") },
+		func(Result) { t.Error("a second watcher got the outcome") })()
 	if l.Starting() {
 		t.Fatal("starting before any create")
 	}
@@ -253,7 +255,7 @@ func TestACreateIsStartingUntilItEndsAndOnlyItsFirstWatcherHearsIt(t *testing.T)
 	if l.Starting() {
 		t.Fatal("a finished create is still starting")
 	}
-	if r.Creating != c || len(steps) == 0 || steps[0] != proto.StepPrepare {
+	if r.Creating != c || len(steps) == 0 || steps[0] != proto.StepPrepare || <-heard != r {
 		t.Fatalf("result %+v, watched %+v, steps %v", r, c, steps)
 	}
 }
