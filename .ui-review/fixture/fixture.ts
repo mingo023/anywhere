@@ -8,10 +8,12 @@
 // FIXTURE_NO_ORCHESTRATOR=1 leaves out the orchestrator capability, as an older pocketd does: the desktop then holds sends to a busy agent itself.
 // pocketd links two SSH hosts: devbox (online, 1.4.2) and 10.0.4.12 (pocketd stopped there). Reconnecting 10.0.4.12 finds it refusing the
 // user's keys; it takes the password hunter2; an install there stops at Verify. An added host comes online after 400ms.
+// FIXTURE_HOST_ADD=connecting|failed leaves an added host linking for good, or refuses its keys, instead of coming online.
 // FIXTURE_NO_HOSTS=1 leaves out hosts.v1, as a pocketd older than the hosts move, with devbox saved in desktop.json.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
+// FIXTURE_REFUSE_QUEUE=1 refuses every queue edit, cancel, reorder and send-now as pocketd does once the entry went out.
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
 // The "agents" and "agents-chat" scenarios' pocketd says all ten agents are installed; any other names none, as one older than the eight new ones.
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -251,7 +253,8 @@ const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target:
     const h = hostEntry(name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, t, { state: "connecting" });
     hosts.push(h);
     pushHost(ws, h, f.id);
-    setTimeout(() => setLink(ws, h.id, ONLINE), 400);
+    const settle = process.env.FIXTURE_HOST_ADD;
+    if (settle !== "connecting") setTimeout(() => setLink(ws, h.id, settle === "failed" ? { state: "failed", failure: "auth" } : ONLINE), 400);
   }
   if (f.type === "host.retry") {
     ack();
@@ -664,6 +667,7 @@ Bun.serve({
         }
       }
       if (f.type === "queue.list") publish(ws, f.agentId, { type: "queue.list", id: f.id });
+      if (process.env.FIXTURE_REFUSE_QUEUE && /^queue\.(edit|cancel|reorder|send_now)$/.test(f.type)) return ws.send(JSON.stringify({ type: "error", id: f.id, message: "That queued message was sent or removed" }));
       if (f.type === "queue.edit") {
         const e = queues.get(f.agentId)?.find((e) => e.id === f.entryId);
         if (e) e.text = f.text;
