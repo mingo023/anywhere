@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -149,7 +150,7 @@ func TestRemovingAHostMidInstallOrSignInLeavesNoneOfItsFiles(t *testing.T) {
 	}
 }
 
-func TestAHostAddedAgainWhileItsRemovalFinishesKeepsItsFiles(t *testing.T) {
+func TestAHostAddedAgainBeforeItsRemovalFinishesKeepsItsFiles(t *testing.T) {
 	env, started, release := standIn(t)
 	defer release()
 	home := t.TempDir()
@@ -161,13 +162,29 @@ func TestAHostAddedAgainWhileItsRemovalFinishesKeepsItsFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Install(devbox.ID, false, "", func(Progress) {})
+	ended := make(chan struct{})
+	// The desktop's conn holds a lock while it removes that its pushes of the install's progress take.
+	var conn sync.Mutex
+	m.Install(devbox.ID, false, "", func(p Progress) {
+		conn.Lock()
+		defer conn.Unlock()
+		if p.Kind == ProgressError {
+			close(ended)
+		}
+	})
 	<-started
 	removed := make(chan error, 1)
+	conn.Lock()
 	go func() { removed <- m.Remove(devbox.ID, false) }()
-	for len(m.List()) != 0 {
-		time.Sleep(time.Millisecond)
+	select {
+	case err := <-removed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the removal waited on the install's progress")
 	}
+	conn.Unlock()
 
 	again, err := m.Add(alias("devbox"), "")
 	if err != nil {
@@ -177,10 +194,15 @@ func TestAHostAddedAgainWhileItsRemovalFinishesKeepsItsFiles(t *testing.T) {
 	if err := os.WriteFile(known, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-removed; err != nil {
-		t.Fatal(err)
+	select {
+	case <-ended:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the install never ended")
 	}
 
+	if found := filesOf(t, home, devbox.ID); again.ID != devbox.ID && len(found) != 0 {
+		t.Errorf("the removed host left %v", found)
+	}
 	if _, err := os.Stat(known); err != nil {
 		t.Errorf("the host added again lost its known_hosts: %v", err)
 	}
