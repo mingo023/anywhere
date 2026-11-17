@@ -1,8 +1,11 @@
 package hosts
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -214,5 +217,70 @@ func TestTheChecksumComesFromTheFileBesideTheArchive(t *testing.T) {
 	}
 	if _, ok := checksum(filepath.Join(dir, "none.tar.gz")); ok {
 		t.Error("a missing file has a checksum")
+	}
+}
+
+// Installs for real on the Linux host ANYWHERE_TEST_HOST names, an ssh alias that signs in with keys, from the archive
+// `scripts/package-pocketd.sh` puts in dist for it, under a home and service of its own that it removes after.
+func TestPocketdInstallsOnARealLinuxHostThenIsFoundRunning(t *testing.T) {
+	name := os.Getenv("ANYWHERE_TEST_HOST")
+	if name == "" {
+		t.Skip("ANYWHERE_TEST_HOST names no host")
+	}
+	const dir = ".coding-pocket-e2e2"
+	m, err := Open(Paths{Home: t.TempDir(), RemoteDir: dir}, os.Environ, "dev", "Mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := m.Add(alias(name), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, ctx := e.Host, context.Background()
+	sh := func(command string) (string, int) {
+		out, _, code, err := m.run(ctx, h, command, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out), code
+	}
+	pocketd := fmt.Sprintf(`POCKET_HOME="$HOME/%s" "$HOME/%s/bin/pocketd"`, dir, dir)
+	cleanup := func() {
+		sh(fmt.Sprintf(`%s service uninstall --label %s; rm -rf "$HOME/%s"`, pocketd, label(dir), dir))
+	}
+	cleanup()
+	install := func(update bool) []Progress {
+		var seen []Progress
+		if err := m.install(ctx, h, update, filepath.Join("..", "..", "dist"), func(p Progress) { seen = append(seen, p) }); err != nil {
+			t.Fatalf("%v, after %+v", err, seen)
+		}
+		return seen
+	}
+
+	if p, err := m.platform(ctx, h); err != nil || p.OS != "linux" {
+		t.Fatalf("%+v %v", p, err)
+	}
+	seen := install(false)
+	if seen[len(seen)-1].Kind != ProgressDone || !slices.Contains(seen, Progress{Kind: ProgressStep, Step: StepVerify}) || slices.Contains(seen, Progress{Kind: ProgressStep, Step: StepDownload}) {
+		t.Fatalf("%+v", seen)
+	}
+	if out, _ := sh(pocketd + " status --json"); !strings.Contains(out, `"os": "linux"`) {
+		t.Errorf("status: %s", out)
+	}
+	if _, code := sh(fmt.Sprintf(`test -e "$HOME/%s/%s"`, dir, upload)); code == 0 {
+		t.Error("the upload is still there")
+	}
+	if again := install(false); !slices.Equal(again, []Progress{{Kind: ProgressStep, Step: StepDetect}, {Kind: ProgressRunning}}) {
+		t.Errorf("installing again: %+v", again)
+	}
+	if updated := install(true); updated[len(updated)-1].Kind != ProgressDone {
+		t.Errorf("updating: %+v", updated)
+	}
+	if _, code := sh(pocketd + " status"); code != 0 {
+		t.Error("pocketd doesn't answer after the update")
+	}
+	cleanup()
+	if _, code := sh("systemctl --user is-active " + label(dir)); code == 0 {
+		t.Error("its service still runs")
 	}
 }
