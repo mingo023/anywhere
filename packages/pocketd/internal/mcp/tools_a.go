@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -269,6 +270,11 @@ func capabilities(ctx context.Context, c *Call) (any, error) {
 		return nil, err
 	}
 	agents := c.Host.Agents()
+	var wg sync.WaitGroup
+	for i := range agents {
+		wg.Go(func() { agents[i].Models = c.Host.Models(agents[i].ID) })
+	}
+	wg.Wait()
 	for i, a := range agents {
 		if p.Search != "" {
 			a.Models = slices.DeleteFunc(slices.Clone(a.Models), func(m string) bool { return !strings.Contains(strings.ToLower(m), strings.ToLower(p.Search)) })

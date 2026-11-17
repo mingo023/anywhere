@@ -34,6 +34,8 @@ type Host interface {
 	// Items is a session's timeline: live while it runs, the store's once closed.
 	Items(id string) []proto.Item
 	Agents() []AgentKind
+	// Models is the models an agent kind offers; asking may run its CLI.
+	Models(kind string) []string
 	// Dirty says whether cwd has uncommitted changes.
 	Dirty(cwd string) bool
 	// OutsideGit says whether the Project holding cwd isn't a git repository.

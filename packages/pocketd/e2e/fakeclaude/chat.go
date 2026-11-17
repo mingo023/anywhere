@@ -115,6 +115,9 @@ func (c *chatter) read(prompts chan<- string) {
 				}
 			}
 			response := map[string]any{}
+			if l.Request.Subtype == "initialize" {
+				response["models"] = []map[string]any{{"value": "default", "displayName": "Default"}, {"value": "fake-claude-opus", "displayName": "Fake Opus"}}
+			}
 			if l.Request.Subtype == "remote_control" {
 				note("remote_control: %v", l.Request.Enabled)
 				if l.Request.Enabled {

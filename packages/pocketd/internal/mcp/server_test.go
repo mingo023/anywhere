@@ -96,6 +96,7 @@ func (h *host) Agents() []AgentKind {
 	return []AgentKind{{ID: "claude", Installed: true, Parent: true, Access: proto.Accesses}, {ID: "codex", Installed: true, Parent: true, Access: []string{"ask", "edits", "full"}},
 		{ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
 }
+func (h *host) Models(string) []string                  { return nil }
 func (h *host) InBackground(_, id string) bool          { return h.background[id] }
 func (h *host) TaskOf(session, toolUseID string) string { return h.tasks[session+"/"+toolUseID] }
 func (h *host) Dirty(string) bool                       { return false }

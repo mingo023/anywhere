@@ -24,6 +24,7 @@ import (
 //	slow <text>  reply after 3s, unless interrupted; a prompt meanwhile joins the reply
 //	mcp <tool> <json>  call an Anywhere tool through the config thread/start gave, or "mcp tools/list", then reply its result
 //
+// model/list lists two models, a page each.
 // Like codex, a bogus model fails each turn rather than the start.
 type appServer struct {
 	mu           sync.Mutex
@@ -155,6 +156,12 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 		a.experimental = caps["experimentalApi"] == true
 		a.reply(id, map[string]any{})
 	case "initialized":
+	case "model/list":
+		if p["cursor"] == "2" {
+			a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-luna", "model": "fake-codex-luna"}}, "nextCursor": nil})
+			return
+		}
+		a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-sol", "model": "fake-codex-sol", "isDefault": true}}, "nextCursor": "2"})
 	case "thread/start":
 		a.thread = &thread{ID: "th-" + uuid()}
 		a.save()

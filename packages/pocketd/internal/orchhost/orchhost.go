@@ -14,11 +14,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"pocketd/internal/acp"
 	"pocketd/internal/agent"
 	"pocketd/internal/broker"
+	"pocketd/internal/catalog"
 	"pocketd/internal/hosts"
 	"pocketd/internal/launch"
 	"pocketd/internal/mcp"
@@ -26,6 +28,7 @@ import (
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 	"pocketd/internal/registry"
+	"pocketd/internal/shellenv"
 	"pocketd/internal/timeline"
 	"pocketd/internal/worktree"
 )
@@ -52,6 +55,7 @@ type Host struct {
 	Envs  mcp.Environments
 
 	engine *orch.Engine
+	models sync.Map // kind -> func() []string
 }
 
 func (h *Host) SetEngine(e *orch.Engine) { h.engine = e }
@@ -414,9 +418,36 @@ func (h *Host) Agents() []mcp.AgentKind {
 	for _, p := range h.Launcher.Providers() {
 		spec := providers.Get(p.ID)
 		info := AgentInfo(p.ID)
-		out = append(out, mcp.AgentKind{ID: p.ID, Name: spec.Name, Installed: p.Available, Models: acp.Models(p.ID), Efforts: p.Efforts, Access: info.Access, NeverAsks: p.NeverAsks, Parent: Parent(p.ID)})
+		out = append(out, mcp.AgentKind{ID: p.ID, Name: spec.Name, Installed: p.Available, Efforts: p.Efforts, Access: info.Access, NeverAsks: p.NeverAsks, Parent: Parent(p.ID)})
 	}
 	return out
+}
+
+// Models is mcp.Host: what an ACP agent's last session opened with, else what
+// kind's CLI lists, asked once per run.
+func (h *Host) Models(kind string) []string {
+	if m := acp.Models(kind); m != nil {
+		return m
+	}
+	list, _ := h.models.LoadOrStore(kind, sync.OnceValue(func() []string { return h.listModels(kind) }))
+	return list.(func() []string)()
+}
+
+func (h *Host) listModels(kind string) []string {
+	exe := h.Launcher.Paths()[kind]
+	argv := catalog.Command(kind, exe)
+	if exe == "" || argv == nil {
+		return catalog.Backup(kind)
+	}
+	if !filepath.IsAbs(exe) {
+		argv = launch.InShell(shellenv.LoginShell(), argv)
+	}
+	models, err := catalog.List(context.Background(), kind, argv, h.LoginEnv())
+	if len(models) == 0 {
+		log.Printf("models: %s listed none: %v", kind, err)
+		return catalog.Backup(kind)
+	}
+	return models
 }
 
 func (h *Host) Dirty(cwd string) bool {
