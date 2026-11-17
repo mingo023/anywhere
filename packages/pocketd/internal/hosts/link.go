@@ -58,6 +58,10 @@ const (
 	readyWithin = 15 * time.Second
 	exitWithin  = 500 * time.Millisecond
 	checkEvery  = 10 * time.Second
+	replyWithin = 5 * time.Second
+	// answerTries bounds only a tunnel's first status: a pocketd that takes connections but never answers isn't
+	// online, while one that answered may just be slow under load.
+	answerTries = 3
 )
 
 type eventKind uint8
@@ -127,6 +131,8 @@ type supervisor struct {
 	events chan event
 	cancel context.CancelFunc
 	done   chan struct{}
+	// every is how often pocketd is checked, and within how long each check waits for its answer.
+	every, within time.Duration
 }
 
 func (s *supervisor) retry() {
@@ -291,10 +297,12 @@ func (s *supervisor) watch(ctx context.Context, socket, token string, tunnel int
 	case e.kind != evReady:
 		return ended(e), ""
 	}
+	answered, misses := false, 0
 	for {
-		st, err := status(socket, token)
+		st, err := status(socket, token, s.within)
 		switch {
 		case err == nil:
+			answered = true
 			backoff.Reset()
 			if st.OS == "windows" {
 				s.m.setWindows(s.id, true)
@@ -309,9 +317,13 @@ func (s *supervisor) watch(ctx context.Context, socket, token string, tunnel int
 			return ended(e), ""
 		case errors.Is(err, errNotOwner):
 			return endUnpaired, ""
+		case !answered:
+			if misses++; misses == answerTries {
+				return endFailed, FailTimedOut
+			}
 		}
 		// A quiet link times out instead; ServerAlive ends ssh if it's gone, which ends this wait.
-		if e, ok := next(ctx, s.events, tunnel, checkEvery); ok && e.kind != evReady {
+		if e, ok := next(ctx, s.events, tunnel, s.every); ok && e.kind != evReady {
 			return ended(e), ""
 		}
 	}
@@ -323,8 +335,8 @@ var (
 	errNotOwner = errors.New("not an owner token")
 )
 
-func status(socket, token string) (ops.Status, error) {
-	reply, err := request(socket, token, ops.Msg{Op: "status"})
+func status(socket, token string, within time.Duration) (ops.Status, error) {
+	reply, err := request(socket, token, ops.Msg{Op: "status"}, within)
 	if err == nil && reply.Status == nil {
 		err = errors.New("no status")
 	}
@@ -334,15 +346,15 @@ func status(socket, token string) (ops.Status, error) {
 	return *reply.Status, nil
 }
 
-// request sends msg to the pocketd at socket, after token when its owner port wants one, and waits up to 5s for the reply.
-func request(socket, token string, msg ops.Msg) (ops.Msg, error) {
+// request sends msg to the pocketd at socket, after token when its owner port wants one, and waits up to within for the reply.
+func request(socket, token string, msg ops.Msg, within time.Duration) (ops.Msg, error) {
 	c, err := ops.Dial(socket)
 	if err != nil {
 		return ops.Msg{}, err
 	}
 	defer c.Close()
 	// ops.Conn has no deadline; closing it ends a Recv still waiting.
-	timer := time.AfterFunc(5*time.Second, func() { c.Close() })
+	timer := time.AfterFunc(within, func() { c.Close() })
 	defer timer.Stop()
 	if token != "" {
 		c.Send(ops.Msg{Op: "auth", Token: token})

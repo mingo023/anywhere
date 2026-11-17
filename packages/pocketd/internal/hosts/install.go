@@ -397,7 +397,7 @@ func (m *Manager) uninstall(ctx context.Context, h Host) error {
 	command := fmt.Sprintf(`sh -c 'p="$HOME/%s/bin/pocketd"; [ -x "$p" ] || exit 0; POCKET_HOME="$HOME/%s" "$p" service uninstall --label %s'`, dir, dir, label(dir))
 	if windows {
 		owner, _ := loadOwner(m.paths.Token(h.ID))
-		request(m.paths.Socket(h.ID), owner.Token, ops.Msg{Op: "owner.revokeSelf"})
+		request(m.paths.Socket(h.ID), owner.Token, ops.Msg{Op: "owner.revokeSelf"}, replyWithin)
 		command = powershell(fmt.Sprintf("$p = Join-Path $HOME %s; if (Test-Path $p) { & $p service uninstall --label %s; exit $LASTEXITCODE }", psQuote(dir+`\bin\pocketd.cmd`), psQuote(label(dir))))
 	}
 	_, stderr, code, err := m.run(ctx, h, command, nil)

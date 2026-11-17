@@ -2,8 +2,16 @@ package hosts
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"pocketd/internal/ops"
 )
 
 func TestALinkThatReachedPocketdRetriesQuicklyAfterItDrops(t *testing.T) {
@@ -72,4 +80,117 @@ func TestAThrottledHostNeverRetriesBeforeItsPenaltyEnds(t *testing.T) {
 			t.Fatalf("%v", w)
 		}
 	}
+}
+
+// watching is a supervisor whose tunnel is up to a pocketd that answers its nth status only when answers says;
+// asked counts them. The rest it holds open unanswered.
+func watching(t *testing.T, answers func(n int32) bool) (s *supervisor, socket string, asked *atomic.Int32) {
+	t.Helper()
+	// t.TempDir is past a unix socket path's limit on macOS.
+	dir, err := os.MkdirTemp("/tmp", "hl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	socket = filepath.Join(dir, "p.sock")
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	asked = &atomic.Int32{}
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			var m ops.Msg
+			json.NewDecoder(c).Decode(&m)
+			if answers(asked.Add(1)) {
+				json.NewEncoder(c).Encode(ops.Msg{Status: &ops.Status{Version: "1.2.0"}})
+			}
+			go func() {
+				io.Copy(io.Discard, c)
+				c.Close()
+			}()
+		}
+	}()
+	m := &Manager{links: map[string]Link{}, sups: map[string]*supervisor{}, changed: make(chan struct{}), remotes: map[string]*remote{}}
+	s = &supervisor{m: m, id: "devbox", events: make(chan event, 16), done: make(chan struct{}), every: 10 * time.Millisecond, within: 50 * time.Millisecond}
+	m.sups[s.id] = s
+	s.events <- event{evReady, 1}
+	return s, socket, asked
+}
+
+type watched struct {
+	e       end
+	failure Failure
+}
+
+func watch(s *supervisor, ctx context.Context, socket string) <-chan watched {
+	out := make(chan watched, 1)
+	go func() {
+		e, failure := s.watch(ctx, socket, "", 1, &Backoff{})
+		out <- watched{e, failure}
+	}()
+	return out
+}
+
+func (s *supervisor) link() Link {
+	s.m.mu.Lock()
+	defer s.m.mu.Unlock()
+	return s.m.links[s.id]
+}
+
+func TestAHostWhosePocketdTakesConnectionsButNeverAnswersStopsConnectingAndRetries(t *testing.T) {
+	s, socket, _ := watching(t, func(int32) bool { return false })
+	select {
+	case got := <-watch(s, context.Background(), socket):
+		if got != (watched{endFailed, FailTimedOut}) {
+			t.Fatalf("%+v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("still %+v", s.link())
+	}
+	if link, _, retry := new(Backoff).Fail(FailTimedOut); link.State != StateRetrying || !retry {
+		t.Fatalf("%+v %v", link, retry)
+	}
+}
+
+func eventually(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); !ok(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal(what)
+		}
+	}
+}
+
+func TestAHostThatAnswersItsSecondStatusComesOnline(t *testing.T) {
+	s, socket, _ := watching(t, func(n int32) bool { return n >= 2 })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := watch(s, ctx, socket)
+	eventually(t, "never online", func() bool { return s.link().State == StateOnline })
+	cancel()
+	if got := <-done; got.e != endStop {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestAnOnlineHostThatStopsAnsweringForAWhileStaysOnline(t *testing.T) {
+	s, socket, asked := watching(t, func(n int32) bool { return n == 1 || n >= 8 })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := watch(s, ctx, socket)
+	eventually(t, "never asked past its misses", func() bool { return asked.Load() >= 9 })
+	select {
+	case got := <-done:
+		t.Fatalf("a slow host's link ended: %+v", got)
+	default:
+	}
+	if l := s.link(); l.State != StateOnline {
+		t.Fatalf("%+v", l)
+	}
+	cancel()
+	<-done
 }

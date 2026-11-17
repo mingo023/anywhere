@@ -261,7 +261,7 @@ func (m *Manager) supervise(id string) {
 		return
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
-	s := &supervisor{m: m, id: id, events: make(chan event, 16), cancel: cancel, done: make(chan struct{})}
+	s := &supervisor{m: m, id: id, events: make(chan event, 16), cancel: cancel, done: make(chan struct{}), every: checkEvery, within: replyWithin}
 	m.sups[id] = s
 	go s.run(ctx)
 }
