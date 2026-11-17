@@ -40,6 +40,12 @@ fn child_only(terminals: &[Placed]) -> HashSet<&str> {
     held_by(true).filter(|t| !others.contains(t)).collect()
 }
 
+/// `trees` without those made for delegated sessions; a project's main tree always stays.
+fn without_child_only(trees: Vec<git::Worktree>, terminals: &[Placed]) -> Vec<git::Worktree> {
+    let only = child_only(terminals);
+    trees.into_iter().filter(|w| w.main || !only.contains(w.path.as_str())).collect()
+}
+
 impl Desktop {
     pub fn projects(&self) -> Vec<String> {
         let placeable = self.git_done > 0 || project::all_listed(&self.store.projects, &self.worktrees, readable);
@@ -89,9 +95,7 @@ impl Desktop {
         if status::hidden_children(&self.agents.list).is_empty() {
             return Some(trees);
         }
-        let terminals = self.placed_terminals();
-        let only = child_only(&terminals);
-        Some(trees.into_iter().filter(|w| !only.contains(w.path.as_str())).collect())
+        Some(without_child_only(trees, &self.placed_terminals()))
     }
 
     pub(crate) fn untracked_trees(&self, p: &str) -> Vec<git::Worktree> {
@@ -385,7 +389,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
 
 #[cfg(test)]
 mod tests {
-    use super::{HashMap, Placed, Repo, child_only, held, merge_repos};
+    use super::{HashMap, Placed, Repo, child_only, held, merge_repos, without_child_only};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -419,6 +423,14 @@ mod tests {
     fn a_delegated_session_is_held_by_no_tree_so_it_gets_no_tab() {
         let terminals = [at("mine", Some("/w"), false), at("other", Some("/v"), false), at("child", Some("/w"), true), at("lost-child", None, true), at("unplaced", None, false)];
         assert_eq!(held("/w", &terminals), (vec!["mine".to_string()], vec!["other".to_string(), "child".to_string(), "lost-child".to_string()]));
+    }
+
+    #[test]
+    fn a_projects_main_tree_stays_listed_when_only_delegated_sessions_run_in_it() {
+        let tree = |path: &str, main: bool| git::Worktree { path: path.into(), branch: String::new(), main, made: false };
+        let terminals = [at("a", Some("/w"), true), at("b", Some("/w/tests"), true), at("c", Some("/w/docs"), false)];
+        let left = without_child_only(vec![tree("/w", true), tree("/w/tests", false), tree("/w/docs", false)], &terminals);
+        assert_eq!(left.iter().map(|w| w.path.as_str()).collect::<Vec<_>>(), ["/w", "/w/docs"]);
     }
 
     #[test]
