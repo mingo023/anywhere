@@ -67,3 +67,11 @@ func TestCodexMcpStatusReadsInTheWiresTermsWithItsNextPage(t *testing.T) {
 		t.Fatalf("%+v %q", got, next)
 	}
 }
+
+func TestOnlyACodexGoalThatReadsPausesOrClearsStartsNoTurn(t *testing.T) {
+	for text, want := range map[string]bool{"/goal": true, " /goal pause": true, "/goal clear": true, "/goal resume": false, "/goal ship it": false, "/review": false, "goal pause": false} {
+		if got := (codexChatDriver{}).Turnless(text); got != want {
+			t.Errorf("%q: %v", text, got)
+		}
+	}
+}

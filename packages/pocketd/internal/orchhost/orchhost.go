@@ -196,8 +196,9 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 	for {
 		idle, starts := a.Turn() == "idle" || a.Turn() == "done", a.Starts()
-		err := a.Driver().Prompt(p.Text)
-		if err == nil && idle {
+		d := a.Driver()
+		err := d.Prompt(p.Text)
+		if t, ok := d.(agent.Turnless); err == nil && idle && !(ok && t.Turnless(p.Text)) {
 			began(ctx, a, starts)
 		}
 		if !errors.Is(err, agent.ErrResuming) || p.Origin == orch.OriginUser {

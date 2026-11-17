@@ -57,6 +57,11 @@ type TaskStopper interface {
 	StopTask(id string) error
 }
 
+// Turnless is a driver that knows some prompts start no turn, as Codex's /goal pause.
+type Turnless interface {
+	Turnless(text string) bool
+}
+
 // McpLister is a driver that tells how its session's MCP servers stand, and acts on one.
 type McpLister interface {
 	Mcp() ([]proto.McpServer, error)
