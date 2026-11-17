@@ -386,3 +386,42 @@ func TestAHostChildsQuestionAnsweredThereWhileThisMacWasDownClosesHereOnceItIsBa
 		return len(open) == 0
 	})
 }
+
+func TestAHostChildsQuestionStillOpenAcrossARestartReachesTheParentOnce(t *testing.T) {
+	mac, _ := linkedHost(t)
+	mac.resume = true
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"ask Ship it?","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	phone.WaitFor("the parent told of the question", func(m Message) bool {
+		return m.Type == "agent.stream" && m.AgentID == parent && m.Item.Kind == "user" && strings.Contains(m.Item.Text, "is blocked on a question")
+	})
+	mac.eventually("the notice's turn ended", func() bool {
+		tl := timelineOf(phone, parent)
+		return len(tl) > 1 && tl[len(tl)-1] == "result" && strings.Contains(tl[len(tl)-2], "is blocked on a question")
+	})
+
+	mac.Restart()
+
+	again := resumedChat(mac, parent)
+	// A task started past the restart is mirrored after all the host sent on reconnecting.
+	again.Prompt(parent, `mcp delegate_task {"task":"quiet after","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	hostTask(mac, again, parent, 2, "completed")
+	open, err := storeOf(mac).Requests(task.ChildID, "open")
+	if err != nil || len(open) != 1 {
+		t.Fatalf("open requests %+v %v", open, err)
+	}
+	again.Prompt(parent, `mcp anywhere_pending_request {"taskId":"`+task.TaskID+`","requestId":"`+open[0].ID+`","answers":{"Ship it?":"Yes"}}`)
+	hostTask(mac, again, parent, 1, "completed")
+	mac.eventually("the parent's wake", func() bool {
+		return slices.ContainsFunc(timelineOf(again, parent), func(s string) bool {
+			return strings.HasPrefix(s, "user ") && strings.Contains(s, task.TaskID) && strings.Contains(s, "reached a terminal state")
+		})
+	})
+	notices := slices.DeleteFunc(timelineOf(again, parent), func(s string) bool {
+		return !strings.HasPrefix(s, "user Delegated task "+task.TaskID) || !strings.Contains(s, "is blocked on a question")
+	})
+	if len(notices) != 1 {
+		t.Fatalf("the parent was told %d times: %q", len(notices), notices)
+	}
+}
