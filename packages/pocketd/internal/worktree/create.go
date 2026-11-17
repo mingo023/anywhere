@@ -57,6 +57,15 @@ func Validate(name string, taken []string) error {
 	return nil
 }
 
+// Free is name, or name-2, name-3… the first that no name in taken has.
+func Free(name string, taken []string) string {
+	try := name
+	for i := 2; errors.Is(Validate(try, taken), ErrExists) && i < 100; i++ {
+		try = fmt.Sprintf("%s-%d", name, i)
+	}
+	return try
+}
+
 // Taken is every name a new Worktree of project can't have: its branches,
 // its remotes' branches and the folders already in dir. Closing a Worktree
 // deletes its folder and branch, but its pushed branch and pull request live on.
