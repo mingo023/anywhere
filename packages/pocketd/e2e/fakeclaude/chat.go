@@ -149,7 +149,7 @@ func (c *chatter) turn(text string) {
 	c.s.write(user(text))
 	c.next++
 	id := fmt.Sprintf("toolu_%d", c.next)
-	failed := false
+	failed, quiet := false, false
 	switch {
 	case model == "bogus":
 		a := assistant(map[string]any{"type": "text", "text": "There's an issue with the selected model (bogus)."})
@@ -178,6 +178,10 @@ func (c *chatter) turn(text string) {
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
 	case strings.HasPrefix(text, "await "):
 		failed = c.await(model, strings.TrimPrefix(text, "await "))
+	case strings.HasPrefix(text, "quiet "):
+		// A reply whose turn writes no stop_hook_summary, so its timeline holds no result.
+		c.reply(model, strings.TrimPrefix(text, "quiet "))
+		quiet = true
 	case text == "hang":
 		<-c.stop
 		c.s.write(user("[Request interrupted by user]"))
@@ -186,7 +190,7 @@ func (c *chatter) turn(text string) {
 		c.reply(model, text)
 	}
 	c.s.hook("Stop", nil)()
-	if !failed {
+	if !failed && !quiet {
 		c.s.write(map[string]any{"type": "system", "subtype": "stop_hook_summary", "hookCount": 1})
 	}
 	c.send(map[string]any{"type": "result", "subtype": "success", "is_error": failed, "session_id": c.s.id})

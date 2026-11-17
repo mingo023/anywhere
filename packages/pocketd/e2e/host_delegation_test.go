@@ -254,3 +254,20 @@ func TestAHostChildsPermissionAskIsMirroredUntilTheUserAnswersItThere(t *testing
 		t.Fatalf("still open %+v %v", open, err)
 	}
 }
+
+func TestAHostChildIdleWithoutAResultSettlesCompletedWithItsLastReply(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+
+	phone.Prompt(parent, `mcp delegate_task {"task":"quiet left no result","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+
+	task := settledAndWoken(mac, phone, parent, "completed")
+	if task.Summary != "echo: left no result" {
+		t.Fatalf("task = %+v", task)
+	}
+	_, theirs, _ := strings.Cut(task.ChildID, "/")
+	items := timelineOf(host.Owner(), theirs)
+	if !slices.Contains(items, "assistant echo: left no result") || slices.ContainsFunc(items, func(s string) bool { return strings.HasPrefix(s, "result") }) {
+		t.Fatalf("the host's timeline %q", items)
+	}
+}
