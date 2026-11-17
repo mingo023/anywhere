@@ -1,6 +1,6 @@
-commit e9795cca
-ok  	pocketd/cmd/pocketd	8.035s
-ok  	pocketd/e2e	515.404s
+commit 1f886619
+ok  	pocketd/cmd/pocketd	5.560s
+ok  	pocketd/e2e	368.669s
 ?   	pocketd/e2e/fakeacp	[no test files]
 ?   	pocketd/e2e/fakeclaude	[no test files]
 ?   	pocketd/e2e/fakecodex	[no test files]
@@ -8,63 +8,63 @@ ok  	pocketd/e2e	515.404s
 ?   	pocketd/e2e/fakepi	[no test files]
 ?   	pocketd/e2e/fakessh	[no test files]
 ?   	pocketd/e2e/redteam	[no test files]
-ok  	pocketd/internal/accounts	2.802s
-ok  	pocketd/internal/acp	3.458s
-ok  	pocketd/internal/agent	2.371s
-ok  	pocketd/internal/atomicfile	1.394s
-ok  	pocketd/internal/automation	5.208s
-ok  	pocketd/internal/awake	2.648s
-ok  	pocketd/internal/board	3.845s
-ok  	pocketd/internal/broker	4.229s
-ok  	pocketd/internal/catalog	3.545s
-ok  	pocketd/internal/claude	4.221s
-ok  	pocketd/internal/cliskill	3.274s
-ok  	pocketd/internal/codex	4.397s
+ok  	pocketd/internal/accounts	3.257s
+ok  	pocketd/internal/acp	4.545s
+ok  	pocketd/internal/agent	1.448s
+ok  	pocketd/internal/atomicfile	2.126s
+ok  	pocketd/internal/automation	4.094s
+ok  	pocketd/internal/awake	3.342s
+ok  	pocketd/internal/board	4.496s
+ok  	pocketd/internal/broker	4.446s
+ok  	pocketd/internal/catalog	4.282s
+ok  	pocketd/internal/claude	4.318s
+ok  	pocketd/internal/cliskill	3.425s
+ok  	pocketd/internal/codex	3.276s
 ?   	pocketd/internal/codex/codextest	[no test files]
-ok  	pocketd/internal/config	4.014s
-ok  	pocketd/internal/daemon	40.115s
-ok  	pocketd/internal/devices	3.720s
-ok  	pocketd/internal/envdir	3.664s
-ok  	pocketd/internal/events	4.166s
-ok  	pocketd/internal/fsview	4.738s
-ok  	pocketd/internal/github	16.808s
-ok  	pocketd/internal/gitview	33.983s
-ok  	pocketd/internal/handoff	3.452s
-ok  	pocketd/internal/host	3.663s
-ok  	pocketd/internal/hostop	7.206s
-ok  	pocketd/internal/hosts	26.533s
-ok  	pocketd/internal/hub	4.267s
-ok  	pocketd/internal/jsonrpc	4.082s
-ok  	pocketd/internal/launch	50.203s
-ok  	pocketd/internal/launchagent	3.374s
-ok  	pocketd/internal/locals	3.455s
-ok  	pocketd/internal/lock	2.834s
-ok  	pocketd/internal/logfile	3.252s
-ok  	pocketd/internal/mcp	4.441s
-ok  	pocketd/internal/names	3.201s
-ok  	pocketd/internal/naming	3.281s
-ok  	pocketd/internal/ops	4.714s
-ok  	pocketd/internal/orch	5.522s
-ok  	pocketd/internal/orchhost	3.251s
-ok  	pocketd/internal/owners	3.836s
-ok  	pocketd/internal/pairing	2.926s
-ok  	pocketd/internal/peer	1.947s
-ok  	pocketd/internal/pi	3.474s
+ok  	pocketd/internal/config	3.128s
+ok  	pocketd/internal/daemon	36.970s
+ok  	pocketd/internal/devices	2.892s
+ok  	pocketd/internal/envdir	3.113s
+ok  	pocketd/internal/events	3.540s
+ok  	pocketd/internal/fsview	5.139s
+ok  	pocketd/internal/github	11.649s
+ok  	pocketd/internal/gitview	24.856s
+ok  	pocketd/internal/handoff	4.041s
+ok  	pocketd/internal/host	3.794s
+ok  	pocketd/internal/hostop	7.164s
+ok  	pocketd/internal/hosts	25.707s
+ok  	pocketd/internal/hub	3.892s
+ok  	pocketd/internal/jsonrpc	3.824s
+ok  	pocketd/internal/launch	44.002s
+ok  	pocketd/internal/launchagent	2.964s
+ok  	pocketd/internal/locals	3.058s
+ok  	pocketd/internal/lock	3.181s
+ok  	pocketd/internal/logfile	3.418s
+ok  	pocketd/internal/mcp	4.174s
+ok  	pocketd/internal/names	3.390s
+ok  	pocketd/internal/naming	3.496s
+ok  	pocketd/internal/ops	4.882s
+ok  	pocketd/internal/orch	6.183s
+ok  	pocketd/internal/orchhost	3.935s
+ok  	pocketd/internal/owners	4.668s
+ok  	pocketd/internal/pairing	3.871s
+ok  	pocketd/internal/peer	4.291s
+ok  	pocketd/internal/pi	3.538s
 ?   	pocketd/internal/pipe	[no test files]
-ok  	pocketd/internal/proc	3.021s
-ok  	pocketd/internal/proto	3.114s
-ok  	pocketd/internal/providers	3.189s
-ok  	pocketd/internal/push	11.610s
-ok  	pocketd/internal/reach	3.777s
-ok  	pocketd/internal/registry	3.475s
-ok  	pocketd/internal/service	3.835s
-ok  	pocketd/internal/shellenv	7.281s
-ok  	pocketd/internal/skills	4.069s
-ok  	pocketd/internal/state	3.436s
-ok  	pocketd/internal/terminal	7.665s
-ok  	pocketd/internal/timeline	2.750s
-ok  	pocketd/internal/vt	2.266s
-ok  	pocketd/internal/workspace	4.699s
-ok  	pocketd/internal/worktree	35.004s
-ok  	pocketd/internal/wsserver	30.054s
+ok  	pocketd/internal/proc	2.340s
+ok  	pocketd/internal/proto	2.330s
+ok  	pocketd/internal/providers	2.190s
+ok  	pocketd/internal/push	10.426s
+ok  	pocketd/internal/reach	2.936s
+ok  	pocketd/internal/registry	2.574s
+ok  	pocketd/internal/service	2.855s
+ok  	pocketd/internal/shellenv	6.533s
+ok  	pocketd/internal/skills	3.556s
+ok  	pocketd/internal/state	3.307s
+ok  	pocketd/internal/terminal	6.885s
+ok  	pocketd/internal/timeline	2.542s
+ok  	pocketd/internal/vt	2.057s
+ok  	pocketd/internal/workspace	2.843s
+ok  	pocketd/internal/worktree	20.981s
+ok  	pocketd/internal/wsserver	16.292s
 exit 0
