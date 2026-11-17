@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"pocketd/internal/proto"
 )
 
 // fakePocketd serves one conn at a unix socket: it answers hello, sends an agent.list, then runs script.
-func fakePocketd(t *testing.T, script func(read func() map[string]any, send func(any))) string {
+// fakePocketd lists agents on each hello, then runs script for the conn.
+func fakePocketd(t *testing.T, script func(read func() map[string]any, send func(any)), agents ...proto.AgentSummary) string {
 	t.Helper()
 	// t.TempDir is past a unix socket path's limit on macOS.
 	dir, err := os.MkdirTemp("/tmp", "hc")
@@ -49,7 +52,7 @@ func fakePocketd(t *testing.T, script func(read func() map[string]any, send func
 		}
 		hello := read()
 		send(map[string]any{"type": "hello.ok", "id": hello["id"], "caps": []string{"launch.v1"}})
-		send(map[string]any{"type": "agent.list", "agents": []any{}})
+		send(map[string]any{"type": "agent.list", "agents": append([]proto.AgentSummary{}, agents...)})
 		script(read, send)
 		ws.Read(ctx)
 	})}

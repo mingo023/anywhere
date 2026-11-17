@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 )
@@ -209,5 +211,46 @@ func TestAHostChildsQuestionReachesTheParentAndItsAnswerGoesBack(t *testing.T) {
 	done := settledAndWoken(mac, phone, parent, "completed")
 	if done.Summary != `echo: answers {"Ship it?":"Yes"}` {
 		t.Fatalf("task = %+v", done)
+	}
+}
+
+func TestAHostPocketdKilledMidTaskCancelsItSayingTheHostWentAway(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"hang","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	hostTask(mac, phone, parent, 1, "working")
+
+	host.Stop(syscall.SIGKILL)
+	host.up()
+
+	if task := settledAndWoken(mac, phone, parent, "cancelled"); !strings.Contains(task.Error, "devbox") {
+		t.Fatalf("task = %+v", task)
+	}
+}
+
+func TestAHostChildsPermissionAskIsMirroredUntilTheUserAnswersItThere(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"run ls","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	store := storeOf(mac)
+	var open []orch.Request
+	mac.eventually("the child's ask mirrored", func() bool {
+		open, _ = store.Requests(task.ChildID, "open")
+		s, _ := store.Session(task.ChildID)
+		return len(open) == 1 && s != nil && s.Status == "needsYou"
+	})
+	if open[0].Kind != "permission" || !strings.HasPrefix(open[0].ID, "devbox/") {
+		t.Fatalf("open requests %+v", open)
+	}
+
+	owner := host.Owner()
+	resolve(owner, owner.WaitFor("the ask on the host", asked), map[string]any{"decision": "allow"})
+
+	if done := hostTask(mac, phone, parent, 1, "completed"); done.Summary != "echo: ran ls" {
+		t.Fatalf("task = %+v", done)
+	}
+	if open, err := store.Requests(task.ChildID, "open"); err != nil || len(open) != 0 {
+		t.Fatalf("still open %+v %v", open, err)
 	}
 }

@@ -16,13 +16,15 @@ import (
 type Mirror interface {
 	Summary(proto.AgentSummary)
 	Item(session string, epoch int64, it proto.Item)
-	// Asked is a mirrored session's question, under tagged ids; Answered is it closing.
-	Asked(session, request string, input json.RawMessage)
+	// Asked is a mirrored session's question or permission ask, under tagged ids; Answered is it closing.
+	Asked(req proto.PermissionRequest)
 	Answered(session, request string)
 	// Live is host's sessions mirrored here that haven't closed, as last stored.
 	Live(host string) []proto.AgentSummary
 	// Removed is host forgotten, with name as it was shown.
 	Removed(host, name string)
+	// Gone is a mirrored session its host no longer has: its pocketd came back without it. name is the host's.
+	Gone(session, name string)
 }
 
 var errInvalidID = errors.New("The host sent an id this Mac doesn't take")
@@ -51,6 +53,9 @@ type remote struct {
 	// ready closes once client is set, or the dial failed and it stays nil.
 	ready  chan struct{}
 	client *Client
+	// prev is the host's remote before this one, whose cursors this one takes up once finished closes.
+	prev     *remote
+	finished chan struct{}
 
 	mu    sync.Mutex
 	queue []func()
@@ -60,7 +65,7 @@ type remote struct {
 	latest  map[string]proto.AgentSummary
 	tracked map[string]bool
 	asks    map[string]string
-	// early is the open questions of sessions not tracked yet, by request id: a session Launch started can ask
+	// early is the open asks of sessions not tracked yet, by request id: a session Launch started can ask
 	// before agent.created returns.
 	early map[string]proto.PermissionRequest
 	seq   map[string]int64
@@ -69,8 +74,8 @@ type remote struct {
 	ended   map[string]bool
 }
 
-func newRemote(m *Manager, host string) *remote {
-	return &remote{m: m, host: host, ready: make(chan struct{}), wake: make(chan struct{}, 1), latest: map[string]proto.AgentSummary{},
+func newRemote(m *Manager, host string, prev *remote) *remote {
+	return &remote{m: m, host: host, ready: make(chan struct{}), prev: prev, finished: make(chan struct{}), wake: make(chan struct{}, 1), latest: map[string]proto.AgentSummary{},
 		tracked: map[string]bool{}, asks: map[string]string{}, early: map[string]proto.PermissionRequest{}, seq: map[string]int64{}, started: map[string]bool{}, ended: map[string]bool{}}
 }
 
@@ -80,13 +85,25 @@ func (r *remote) open(ctx context.Context) {
 	defer cancel()
 	c, err := Dial(dial, socket, token, func(kind string, raw []byte) { r.push(func() { r.frame(kind, raw) }) })
 	if err != nil {
+		r.inherit()
 		r.m.drop(r)
 		close(r.ready)
+		close(r.finished)
 		return
 	}
 	r.client = c
 	close(r.ready)
 	go r.run()
+}
+
+// inherit takes up where the last remote left off, so a reconnect pages only what's new.
+func (r *remote) inherit() {
+	if r.prev == nil {
+		return
+	}
+	<-r.prev.finished
+	r.seq, r.started, r.ended = r.prev.seq, r.prev.started, r.prev.ended
+	r.prev = nil
 }
 
 func (r *remote) close() {
@@ -107,7 +124,9 @@ func (r *remote) push(f func()) {
 }
 
 func (r *remote) run() {
+	defer close(r.finished)
 	defer r.m.drop(r)
+	r.inherit()
 	for {
 		r.mu.Lock()
 		queue := r.queue
@@ -137,11 +156,17 @@ func (r *remote) frame(kind string, raw []byte) {
 			_, theirs := Untag(s.ID)
 			a, ok := r.latest[theirs]
 			if !ok {
+				h, _ := r.m.host(r.host)
+				r.m.Mirror.Gone(s.ID, h.Name)
 				s.Status = "closed"
 				r.m.Mirror.Summary(s)
 				continue
 			}
 			r.tracked[theirs] = true
+			if busy(s.Status) {
+				// Stored mid-turn, so whatever the host shows now is past that turn.
+				r.started[theirs] = true
+			}
 			r.sync(a)
 		}
 	case "agent.update":
@@ -156,7 +181,7 @@ func (r *remote) frame(kind string, raw []byte) {
 		json.Unmarshal(raw, &p)
 		req := p.Request
 		switch {
-		case req.ToolName != "AskUserQuestion" || !safe(req.RequestID):
+		case !safe(req.RequestID):
 		case r.tracked[req.AgentID]:
 			r.ask(req)
 		default:
@@ -196,7 +221,8 @@ func (r *remote) track(theirs string, start proto.AgentSummary) {
 
 func (r *remote) ask(req proto.PermissionRequest) {
 	r.asks[req.RequestID] = req.AgentID
-	r.m.Mirror.Asked(Tag(r.host, req.AgentID), Tag(r.host, req.RequestID), req.Detail.Input)
+	req.AgentID, req.RequestID = Tag(r.host, req.AgentID), Tag(r.host, req.RequestID)
+	r.m.Mirror.Asked(req)
 }
 
 // sync copies a tracked session's state; one whose turn ended gets its items first, so its reply is stored
@@ -210,9 +236,10 @@ func (r *remote) sync(a proto.AgentSummary) {
 	case r.started[a.ID]:
 		r.catchUp(a.ID, true)
 	default:
-		// A session is idle before its first turn shows, unless that turn came and went before this Mac heard.
+		// A session is idle before its first turn shows, unless that turn came and went before this Mac heard:
+		// it left a result, or nobody saw it end.
 		r.catchUp(a.ID, false)
-		if !r.ended[a.ID] {
+		if !r.ended[a.ID] && a.Status != "done" {
 			return
 		}
 	}
@@ -309,8 +336,8 @@ func (m *Manager) follow(id string, l Link) {
 	r := m.remotes[id]
 	switch {
 	case l.State == StateOnline && r == nil && m.Mirror != nil:
-		r = newRemote(m, id)
-		m.remotes[id] = r
+		r = newRemote(m, id, m.last[id])
+		m.remotes[id], m.last[id] = r, r
 		go r.open(m.ctx)
 	case l.State != StateOnline && r != nil:
 		delete(m.remotes, id)

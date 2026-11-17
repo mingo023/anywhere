@@ -238,8 +238,7 @@ func installPlan(h Host, platform Platform, version, dist string) (Host, Source,
 	return h, src, nil
 }
 
-func (m *Manager) install(h Host, update bool, dist string, on func(Progress)) error {
-	ctx := context.Background()
+func (m *Manager) install(ctx context.Context, h Host, update bool, dist string, on func(Progress)) error {
 	platform, err := m.platform(ctx, h)
 	if err != nil {
 		return err
