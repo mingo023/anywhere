@@ -212,7 +212,7 @@ func (e *Engine) Recover() error {
 			if n > 0 {
 				state = "done"
 			}
-		case EffLaunch, EffForkLaunch:
+		case EffLaunch, EffForkLaunch, EffCreate:
 			state = "retired"
 		}
 		if _, err := e.store.db.Exec(`UPDATE outbox SET state = ?, last_error = CASE WHEN ? = 'retired' THEN 'pocketd restarted while the session was starting' ELSE last_error END WHERE id = ?`, state, state, l.id); err != nil {
@@ -222,7 +222,32 @@ func (e *Engine) Recover() error {
 	if err := e.refollow(); err != nil {
 		return err
 	}
+	if err := e.awaitPending(); err != nil {
+		return err
+	}
 	return e.KickAll()
+}
+
+// awaitPending lets a retry of a command wait for the effects an earlier
+// pocketd committed and never ran.
+func (e *Engine) awaitPending() error {
+	rows, err := e.store.db.Query(`SELECT id FROM outbox WHERE state = 'pending'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if e.waits[id] == nil {
+			e.waits[id] = &wait{done: make(chan struct{})}
+		}
+	}
+	return rows.Err()
 }
 
 func (e *Engine) KickAll() error {

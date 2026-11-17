@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"pocketd/internal/config"
@@ -36,8 +37,7 @@ const (
 	probeWait  = 5 * time.Second
 )
 
-// createWait bounds setup plus the agent's start, so a create that hangs
-// still ends and its receipt can expire.
+// createWait bounds setup plus the agent's start, so a create that hangs still ends.
 var createWait = 10 * time.Minute
 
 // Who asked. Key separates one principal's request ids from another's.
@@ -58,8 +58,14 @@ type Creating struct {
 type Result struct {
 	AgentID, TerminalID string
 	// Cwd is where the agent runs: a new Worktree's path once it exists.
-	Cwd string
-	Err *Failure
+	Cwd      string
+	Creating Creating
+	Err      *Failure
+}
+
+type watcher struct {
+	progress func(step, note string)
+	creating func(Creating)
 }
 
 type exit struct {
@@ -86,43 +92,67 @@ type Launcher struct {
 	// MCP server; nil gives none.
 	MCPFlags func(terminalID, provider string) []string
 	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
-	receipts *receipts[Result]
 	trees    *receipts[built]
+	running  atomic.Int32
 
-	mu      sync.Mutex
-	pending map[string]chan exit
-	found   map[string]found
+	mu       sync.Mutex
+	pending  map[string]chan exit
+	found    map[string]found
+	watchers map[string]*watcher
 }
 
 func New(d *daemon.Daemon, reg *registry.Registry, set *config.Settings, ev *events.Log) *Launcher {
-	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, receipts: newReceipts[Result](time.Now), trees: newReceipts[built](time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
+	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, trees: newReceipts[built](time.Now), pending: map[string]chan exit{}, found: map[string]found{}, watchers: map[string]*watcher{}}
 }
 
 // Starting reports whether a create is running; an upgrade waits for it.
-func (l *Launcher) Starting() bool { return l.receipts.inFlight() }
+func (l *Launcher) Starting() bool { return l.running.Load() > 0 }
+
+// Watch hands the progress of the create run under key to the first caller
+// to watch it, until stop; a later caller hears nothing.
+func (l *Launcher) Watch(key string, progress func(step, note string), creating func(Creating)) (stop func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.watchers[key] != nil {
+		return func() {}
+	}
+	w := &watcher{progress, creating}
+	l.watchers[key] = w
+	return func() {
+		l.mu.Lock()
+		if l.watchers[key] == w {
+			delete(l.watchers, key)
+		}
+		l.mu.Unlock()
+	}
+}
+
+func (l *Launcher) watcher(key string) *watcher {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.watchers[key]
+}
 
 // Create runs one agent.create. progress is called as each step starts, and
 // again with a note on how a step went. creating is called once the Terminal
-// exists, before setup runs. A retry of the same request joins the first and
-// gets its replies, but not its progress.
-func (l *Launcher) Create(w Who, requestID string, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
-	x, fresh := l.receipts.take(w.Key+"\x00"+requestID, s)
-	if x == nil {
-		return Result{Err: fail("duplicate", "This request was already sent with a different spec")}
-	}
-	if !fresh {
-		<-x.done
-		c, r := l.receipts.outcome(x)
-		if c.Terminal != "" {
-			creating(c)
+// exists, before setup runs. Whoever watches key hears both too.
+func (l *Launcher) Create(w Who, key string, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
+	l.running.Add(1)
+	defer l.running.Add(-1)
+	var opened Creating
+	r := l.create(w, s, func(step, note string) {
+		progress(step, note)
+		if x := l.watcher(key); x != nil {
+			x.progress(step, note)
 		}
-		return r
-	}
-	r := l.create(w, s, progress, func(c Creating) {
-		l.receipts.creating(x, c)
+	}, func(c Creating) {
+		opened = c
 		creating(c)
+		if x := l.watcher(key); x != nil {
+			x.creating(c)
+		}
 	})
-	l.receipts.finish(x, r)
+	r.Creating = opened
 	ok, code, origin := r.Err == nil, "", "desktop"
 	if !ok {
 		code = r.Err.Code

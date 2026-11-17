@@ -2,12 +2,14 @@ package wsserver
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"log"
 	"slices"
 	"time"
 
 	"pocketd/internal/events"
+	"pocketd/internal/launch"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 )
@@ -86,6 +88,32 @@ func listed(stored []orch.Session, live []proto.AgentSummary) []proto.AgentSumma
 		}
 	}
 	slices.SortStableFunc(out, func(a, b proto.AgentSummary) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
+	return out
+}
+
+// createWait outlasts the launcher's own bound on a create.
+const createWait = 11 * time.Minute
+
+// started runs agent.create as a session.start command named by the
+// requester and its request id, so a retry gets the first create's outcome.
+func (s *Server) started(w launch.Who, requestID string, spec proto.LaunchSpec, progress func(step, note string), creating func(launch.Creating)) launch.Result {
+	id := "create:" + w.Key + ":" + requestID
+	defer s.Launch.Watch(id, progress, creating)()
+	r, err := s.Orch.Dispatch(orch.NewCommand(id, orch.CmdSessionStart, "", orch.StartPayload{Owner: w.Owner, Key: w.Key, Spec: spec}))
+	if err != nil {
+		if f := (*orch.Failure)(nil); errors.As(err, &f) && f.Code == orch.CodeInvalid {
+			return launch.Result{Err: &launch.Failure{Code: "duplicate", Message: "This request was already sent with a different spec"}}
+		}
+		return launch.Result{Err: &launch.Failure{Code: "spawn_failed", Message: err.Error()}}
+	}
+	waited := s.Orch.Wait(r.Effects, createWait)
+	res, _, last := s.Orch.Result(r.Effects[0])
+	var out launch.Result
+	b, _ := json.Marshal(res)
+	json.Unmarshal(b, &out)
+	if waited != nil && out.Err == nil {
+		out.Err = &launch.Failure{Code: "spawn_failed", Message: cmp.Or(last, waited.Error())}
+	}
 	return out
 }
 

@@ -12,6 +12,7 @@ const (
 	CmdSessionStop     = "session.stop"
 	CmdSessionClose    = "session.close"
 	CmdSessionCreate   = "session.create"
+	CmdSessionStart    = "session.start"
 	CmdSessionLaunched = "session.launched"
 	CmdSessionRename   = "session.rename"
 	CmdSessionRetitle  = "session.retitle"
@@ -48,6 +49,7 @@ const (
 
 const (
 	EffLaunch     = "agent.launch"
+	EffCreate     = "agent.create"
 	EffTurnStart  = "turn.start"
 	EffInterrupt  = "turn.interrupt"
 	EffSendNow    = "turn.send_now"

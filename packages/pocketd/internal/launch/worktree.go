@@ -46,7 +46,7 @@ func (l *Launcher) Worktree(w Who, requestID string, n NewWorktree, progress fun
 	}
 	if !fresh {
 		<-x.done
-		_, b := l.trees.outcome(x)
+		b := l.trees.outcome(x)
 		return b.made, b.fail
 	}
 	m, fl := l.worktree(w, n, progress)

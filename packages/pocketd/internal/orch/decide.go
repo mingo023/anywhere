@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"pocketd/internal/proto"
 )
 
 // AgentInfo is what the rules need to know about an agent kind.
@@ -105,6 +107,12 @@ type (
 		CompletionWake string `json:"completionWake,omitempty"`
 		WorkState      string `json:"workState,omitempty"`
 		Stopped        bool   `json:"stopped,omitempty"`
+	}
+	// StartPayload is the user's agent.create from a client, and who asked: Key is the requester.
+	StartPayload struct {
+		Owner bool             `json:"owner,omitempty"`
+		Key   string           `json:"key"`
+		Spec  proto.LaunchSpec `json:"spec"`
 	}
 	// LaunchPayload is an agent.launch effect: what the launcher needs.
 	LaunchPayload struct {
@@ -268,6 +276,8 @@ func decide(st State, cmd Command) (Decision, error) {
 		e := effect("launch:"+cmd.ID, EffLaunch, p)
 		e.Then = CmdSessionLaunched
 		return Decision{Effects: []Effect{e}, Result: map[string]string{"status": "starting", "access": p.Access, "steppedDown": p.SteppedDown}}, nil
+	case CmdSessionStart:
+		return Decision{Effects: []Effect{{Lane: cmd.ID, Kind: EffCreate, Payload: cmd.Payload}}}, nil
 	case CmdSessionLaunched:
 		var p struct {
 			AgentID string `json:"childId"`

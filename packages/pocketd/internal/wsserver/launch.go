@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"sync/atomic"
 
 	"pocketd/internal/config"
 	"pocketd/internal/launch"
@@ -36,11 +37,22 @@ func (c *conn) create(m proto.ClientMessage) {
 		return
 	}
 	go func() {
-		r := c.s.Launch.Create(w, m.RequestID, *m.Spec, func(step, note string) {
-			c.send(proto.NewAgentProgress(m.ID, m.RequestID, step, note))
-		}, func(cr launch.Creating) {
+		progress := func(step, note string) { c.send(proto.NewAgentProgress(m.ID, m.RequestID, step, note)) }
+		var opened atomic.Bool
+		creating := func(cr launch.Creating) {
+			opened.Store(true)
 			c.send(proto.NewAgentCreating(m.ID, m.RequestID, cr.Terminal, cr.Cwd, cr.Setup))
-		})
+		}
+		var r launch.Result
+		if c.s.Orch != nil {
+			r = c.s.started(w, m.RequestID, *m.Spec, progress, creating)
+		} else {
+			r = c.s.Launch.Create(w, m.RequestID, *m.Spec, progress, creating)
+		}
+		if cr := r.Creating; cr.Terminal != "" && !opened.Load() {
+			// A retry hears the first create's terminal, not its progress.
+			creating(cr)
+		}
 		if r.Err != nil {
 			c.send(proto.NewCodedError(m.ID, r.Err.Code, r.Err.Message, r.Err.Detail))
 			return

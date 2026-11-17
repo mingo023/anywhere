@@ -220,7 +220,7 @@ func (e *Engine) waiter(id int64) *wait {
 	w = &wait{done: make(chan struct{})}
 	close(w.done)
 	var state, last string
-	if err := e.store.db.QueryRow(`SELECT state, last_error FROM outbox WHERE id = ?`, id).Scan(&state, &last); err == nil && state == "failed" {
+	if err := e.store.db.QueryRow(`SELECT state, last_error FROM outbox WHERE id = ?`, id).Scan(&state, &last); err == nil && (state == "failed" || state == "retired") {
 		w.err = errors.New(last)
 	}
 	return w

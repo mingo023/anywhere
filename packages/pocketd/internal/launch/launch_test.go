@@ -142,10 +142,6 @@ func TestCreateRefusesAnUnknownProjectOrAMissingProvider(t *testing.T) {
 	if r := l.Create(owner, "r2", s, quiet, nil); r.Err == nil || r.Err.Code != "provider_unavailable" {
 		t.Fatalf("got %+v", r.Err)
 	}
-	s.Provider = "codex"
-	if r := l.Create(owner, "r2", s, quiet, nil); r.Err == nil || r.Err.Code != "duplicate" {
-		t.Fatalf("got %+v", r.Err)
-	}
 }
 
 func TestAnUntrustedClaudeFolderIsRefusedForThePhone(t *testing.T) {
@@ -219,12 +215,9 @@ func TestACreateWhoseAgentNeverShowsUpFailsAtItsDeadline(t *testing.T) {
 	if r.Err == nil || r.Err.Code != "spawn_failed" {
 		t.Fatalf("got %+v", r)
 	}
-	if again := l.Create(owner, "r1", s, quiet, func(Creating) {}); again.Err == nil || again.Err.Code != "spawn_failed" {
-		t.Fatalf("retry got %+v", again)
-	}
 }
 
-func TestARetryOfARunningCreateJoinsItInsteadOfStartingASecondAgent(t *testing.T) {
+func TestACreateIsStartingUntilItEndsAndOnlyItsFirstWatcherHearsIt(t *testing.T) {
 	defer func(w time.Duration) { createWait = w }(createWait)
 	createWait = time.Second
 	onPath(t, "claude")
@@ -235,24 +228,33 @@ func TestARetryOfARunningCreateJoinsItInsteadOfStartingASecondAgent(t *testing.T
 	l := launcher(t, `["`+project+`"]`)
 	l.d = &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New()), Exe: "/bin/true"}
 	t.Cleanup(func() { l.d.Terminals.CloseAll(0) })
-	owner := Who{Owner: true, Key: "owner"}
 	s := spec("claude", "ask", false)
 	s.Project, s.Checkout.Worktree = project, project
-	opened, first := make(chan Creating, 1), make(chan Result, 1)
-	go func() { first <- l.Create(owner, "r1", s, quiet, func(c Creating) { opened <- c }) }()
+	var steps []string
+	watched := make(chan Creating, 1)
+	stop := l.Watch("k1", func(step, _ string) { steps = append(steps, step) }, func(c Creating) { watched <- c })
+	defer stop()
+	defer l.Watch("k1", func(string, string) { t.Error("a second watcher got progress") }, func(Creating) { t.Error("a second watcher got the terminal") })()
+	if l.Starting() {
+		t.Fatal("starting before any create")
+	}
+	first := make(chan Result, 1)
+	go func() { first <- l.Create(Who{Owner: true, Key: "owner"}, "k1", s, quiet, func(Creating) {}) }()
 	var c Creating
 	select {
-	case c = <-opened:
+	case c = <-watched:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the first create opened no terminal")
+		t.Fatal("the watcher heard of no terminal")
 	}
-	var joined Creating
-	again := l.Create(owner, "r1", s, func(string, string) { t.Error("a retry got progress") }, func(c Creating) { joined = c })
-	if r := <-first; again != r || joined != c {
-		t.Fatalf("retry got %+v %+v, first %+v %+v", again, joined, r, c)
+	if !l.Starting() {
+		t.Fatal("a running create isn't starting")
 	}
-	if n := len(l.d.Terminals.All()); n != 1 {
-		t.Fatalf("%d terminals", n)
+	r := <-first
+	if l.Starting() {
+		t.Fatal("a finished create is still starting")
+	}
+	if r.Creating != c || len(steps) == 0 || steps[0] != proto.StepPrepare {
+		t.Fatalf("result %+v, watched %+v, steps %v", r, c, steps)
 	}
 }
 

@@ -91,6 +91,8 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 			return h.launchOn(ctx, e, p)
 		}
 		return h.launch(e, p)
+	case orch.EffCreate:
+		return h.create(e)
 	}
 	// Naming has a lane of its own so it doesn't wait behind the session's turns.
 	e.Lane = strings.TrimPrefix(e.Lane, "naming:")

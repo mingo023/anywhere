@@ -130,6 +130,10 @@ func (s *Store) Prune(now time.Time) error {
 		if _, err := tx.Exec(`DELETE FROM receipts WHERE at < ?`, ms-ReceiptsKept.Milliseconds()); err != nil {
 			return err
 		}
+		// A client's create runs on a lane of its own, so its row goes with its receipt.
+		if _, err := tx.Exec(`DELETE FROM outbox WHERE kind = ? AND state NOT IN ('pending', 'running') AND created_at < ?`, EffCreate, ms-ReceiptsKept.Milliseconds()); err != nil {
+			return err
+		}
 		cut := ms - ClosedKept.Milliseconds()
 		gone := `SELECT id FROM sessions WHERE closed_at > 0 AND closed_at < ?`
 		for _, q := range []string{
