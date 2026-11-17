@@ -16,8 +16,8 @@ import (
 type Mirror interface {
 	Summary(proto.AgentSummary)
 	Item(session string, epoch int64, it proto.Item)
-	// Asked is a mirrored session's question, under tagged ids; Answered is it closing.
-	Asked(session, request string, input json.RawMessage)
+	// Asked is a mirrored session's question or permission ask, under tagged ids; Answered is it closing.
+	Asked(req proto.PermissionRequest)
 	Answered(session, request string)
 	// Live is host's sessions mirrored here that haven't closed, as last stored.
 	Live(host string) []proto.AgentSummary
@@ -62,7 +62,7 @@ type remote struct {
 	latest  map[string]proto.AgentSummary
 	tracked map[string]bool
 	asks    map[string]string
-	// early is the open questions of sessions not tracked yet, by request id: a session Launch started can ask
+	// early is the open asks of sessions not tracked yet, by request id: a session Launch started can ask
 	// before agent.created returns.
 	early map[string]proto.PermissionRequest
 	seq   map[string]int64
@@ -162,7 +162,7 @@ func (r *remote) frame(kind string, raw []byte) {
 		json.Unmarshal(raw, &p)
 		req := p.Request
 		switch {
-		case req.ToolName != "AskUserQuestion" || !safe(req.RequestID):
+		case !safe(req.RequestID):
 		case r.tracked[req.AgentID]:
 			r.ask(req)
 		default:
@@ -202,7 +202,8 @@ func (r *remote) track(theirs string, start proto.AgentSummary) {
 
 func (r *remote) ask(req proto.PermissionRequest) {
 	r.asks[req.RequestID] = req.AgentID
-	r.m.Mirror.Asked(Tag(r.host, req.AgentID), Tag(r.host, req.RequestID), req.Detail.Input)
+	req.AgentID, req.RequestID = Tag(r.host, req.AgentID), Tag(r.host, req.RequestID)
+	r.m.Mirror.Asked(req)
 }
 
 // sync copies a tracked session's state; one whose turn ended gets its items first, so its reply is stored

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 
@@ -37,9 +36,7 @@ type mirror struct{ o *orchestrator }
 func (x mirror) Summary(s proto.AgentSummary)                    { x.o.sink.Summary(s) }
 func (x mirror) Item(session string, epoch int64, it proto.Item) { x.o.sink.Item(session, epoch, it) }
 
-func (x mirror) Asked(session, request string, input json.RawMessage) {
-	x.o.engine.AskOpened(session, request, "question", input)
-}
+func (x mirror) Asked(req proto.PermissionRequest) { x.o.ask(req) }
 
 func (x mirror) Answered(session, request string) { x.o.engine.AskClosed(session, request) }
 

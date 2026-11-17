@@ -35,8 +35,8 @@ type asks struct {
 }
 
 func (a *asks) Summary(proto.AgentSummary) {}
-func (a *asks) Asked(session, request string, _ json.RawMessage) {
-	a.asked = append(a.asked, session+" "+request)
+func (a *asks) Asked(req proto.PermissionRequest) {
+	a.asked = append(a.asked, req.AgentID+" "+req.RequestID)
 }
 func (a *asks) Answered(session, request string) {
 	a.answered = append(a.answered, session+" "+request)
