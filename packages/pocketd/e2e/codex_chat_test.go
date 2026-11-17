@@ -210,6 +210,23 @@ func TestAQuestionAChatCodexAsksIsStoredAsAQuestionAndItsAnswerReachesCodex(t *t
 	phone.WaitStream(id, "assistant", `echo: answers {"q1":{"answers":["Yes"]}}`)
 }
 
+func TestAnotherMCPServersToolCallAChatCodexAsksAboutIsAPermissionRequestAndItsAnswerReachesCodex(t *testing.T) {
+	_, phone, _, id := chatCodex(t, nil)
+	phone.Prompt(id, "elicit github create_issue")
+	req := phone.WaitFor("the ask", asked)
+	if req.Request.AgentID != id || req.Request.ToolName != "github.create_issue" {
+		t.Fatalf("got %s", req.Raw)
+	}
+	resolve(phone, req, map[string]any{"decision": "allow"})
+	phone.WaitStream(id, "assistant", "echo: elicitation accept")
+}
+
+func TestAServerRequestAChatCodexDoesNotKnowIsRefusedRatherThanLeftHanging(t *testing.T) {
+	_, phone, _, id := chatCodex(t, nil)
+	phone.Prompt(id, "call lookup")
+	phone.WaitStream(id, "assistant", "echo: error item/tool/call is not supported")
+}
+
 func TestARestartWithAStoreShowsTheChatCodexsSameTimeline(t *testing.T) {
 	h, phone, _, id := chatCodex(t, nil, func(h *Harness) { h.resume = true })
 	phone.Prompt(id, "before")

@@ -23,6 +23,8 @@ import (
 //	ask <q>      ask q by item/tool/requestUserInput, then reply "echo: answers <answers>"
 //	slow <text>  reply after 3s, unless interrupted; a prompt meanwhile joins the reply
 //	mcp <tool> <json>  call an Anywhere tool through the config thread/start gave, or "mcp tools/list", then reply its result
+//	elicit <server> <tool>  ask before calling another server's tool, then reply "echo: elicitation <action>"
+//	call <tool>  call a client-side tool by item/tool/call, then reply "echo: result <json>" or "echo: error <message>"
 //
 // model/list lists two models, a page each.
 // Like codex, a bogus model fails each turn rather than the start.
@@ -37,7 +39,10 @@ type appServer struct {
 	turn         *liveTurn
 	next         int
 	waits        map[string]chan map[string]any
+	approval     string
 	mcp          []fakemcp.Server
+	mcpNames     []string
+	mcpApproved  []bool
 }
 
 type thread struct {
@@ -64,6 +69,8 @@ func appServerMain() {
 			a.model = v
 		case "model_reasoning_effort":
 			a.effort = v
+		case "approval_policy":
+			a.approval = v
 		}
 	}
 	note("fake codex ready %s", strings.Join(os.Args[1:], " "))
@@ -75,9 +82,13 @@ func appServerMain() {
 			Method string          `json:"method"`
 			Params map[string]any  `json:"params"`
 			Result map[string]any  `json:"result"`
+			Error  map[string]any  `json:"error"`
 		}
 		if json.Unmarshal(sc.Bytes(), &m) != nil {
 			continue
+		}
+		if m.Error != nil {
+			m.Result = map[string]any{"error": m.Error}
 		}
 		if m.Method == "" {
 			a.mu.Lock()
@@ -313,7 +324,18 @@ func (a *appServer) run(t *liveTurn, text string) {
 	case strings.HasPrefix(text, "ask "):
 		a.askUser(t, strings.TrimPrefix(text, "ask "))
 	case strings.HasPrefix(text, "mcp "):
-		a.say(t, a.callMCP(strings.TrimPrefix(text, "mcp ")))
+		a.say(t, a.callMCP(t, strings.TrimPrefix(text, "mcp ")))
+	case strings.HasPrefix(text, "elicit "):
+		server, tool, _ := strings.Cut(strings.TrimPrefix(text, "elicit "), " ")
+		a.say(t, "elicitation "+a.elicit(t, server, tool, `{"title":"x"}`))
+	case strings.HasPrefix(text, "call "):
+		r := a.request("item/tool/call", map[string]any{"threadId": a.thread.ID, "turnId": t.id, "callId": "call_" + uuid(), "tool": strings.TrimPrefix(text, "call "), "arguments": map[string]any{}})
+		if e, ok := r["error"].(map[string]any); ok {
+			a.say(t, fmt.Sprint("error ", e["message"]))
+		} else {
+			out, _ := json.Marshal(r)
+			a.say(t, "result "+string(out))
+		}
 	case strings.HasPrefix(text, "slow "):
 		replies := []string{strings.TrimPrefix(text, "slow ")}
 		done := time.After(3 * time.Second)
@@ -335,6 +357,21 @@ func (a *appServer) run(t *liveTurn, text string) {
 		a.say(t, text)
 	}
 	a.end(t, "completed", "")
+}
+
+// request sends codex's server request method and returns its reply: its
+// result, or {"error": ...}.
+func (a *appServer) request(method string, params map[string]any) map[string]any {
+	a.mu.Lock()
+	a.next++
+	n := a.next
+	w := make(chan map[string]any, 1)
+	a.waits[fmt.Sprint(n)] = w
+	a.mu.Unlock()
+	a.send(map[string]any{"id": n, "method": method, "params": params})
+	r := <-w
+	a.notify("serverRequest/resolved", map[string]any{"threadId": a.thread.ID, "requestId": n})
+	return r
 }
 
 // askUser asks q as codex's request_user_input tool does, with the schema codex-cli 0.163 generates.
