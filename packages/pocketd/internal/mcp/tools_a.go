@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -228,7 +229,7 @@ func groupA() []Tool {
 			Schema:      `{"type":"object","properties":{"allProjects":{"type":"boolean"},"statuses":{"type":"array","items":{"type":"string"}},"titleContains":{"type":"string"},"includeSubagents":{"type":"boolean"},"includeClosed":{"type":"boolean"},"cursor":{"type":"integer"},"limit":{"type":"integer","maximum":100}}}`,
 			Run:         threadList},
 		{Name: "anywhere_thread_search", Group: "A",
-			Description: "Search sessions' conversations, titles and branch names. Delegated children are left out.",
+			Description: "Search sessions' conversations, titles, branch names and pull requests. Delegated children are left out.",
 			Schema:      `{"type":"object","required":["query"],"properties":{"query":{"type":"string"},"allProjects":{"type":"boolean"},"limit":{"type":"integer","maximum":50}}}`,
 			Run:         threadSearch},
 		{Name: "anywhere_thread_read", Group: "A",
@@ -691,11 +692,29 @@ func threadSearch(ctx context.Context, c *Call) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(hits) < limit {
+		trees, err := c.Host.Engine().Store().Sessions(where+" AND worktree != '' ORDER BY updated_at DESC", args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range trees {
+			pr := c.Host.PR(s.Worktree)
+			if len(hits) < limit && pr != nil && prMatches(pr, p.Query) && !slices.ContainsFunc(hits, func(h orch.Hit) bool { return h.Session.ID == s.ID }) {
+				hits = append(hits, orch.Hit{Session: s, Snippet: fmt.Sprintf("PR #%d %s", pr.Number, pr.Title)})
+			}
+		}
+	}
 	var out []map[string]any
 	for _, h := range hits {
 		out = append(out, map[string]any{"thread": itemOf(h.Session), "snippet": h.Snippet, "position": h.Seq})
 	}
 	return map[string]any{"results": out}, nil
+}
+
+// prMatches says whether query names pr: its number, with or without #, its URL, or words of its title.
+func prMatches(pr *proto.PR, query string) bool {
+	q := strings.TrimSpace(query)
+	return strings.TrimPrefix(q, "#") == strconv.Itoa(pr.Number) || q == pr.URL || strings.Contains(strings.ToLower(pr.Title), strings.ToLower(q))
 }
 
 const readBudget = 30_000

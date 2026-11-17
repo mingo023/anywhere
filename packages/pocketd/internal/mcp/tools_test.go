@@ -268,6 +268,19 @@ func TestThreadSearchFindsASessionByItsConversationTitleOrBranch(t *testing.T) {
 	}
 }
 
+func TestThreadSearchFindsASessionByItsBranchsPullRequest(t *testing.T) {
+	f := newFixture(t)
+	f.addSession(t, proto.AgentSummary{ID: "s1", Provider: "claude", Access: "edits", Status: "idle", Project: "/repo", Worktree: "/repo/wt", Title: "Edge", Branch: "feat/edge"}, "", "")
+	f.host.prs = map[string]*proto.PR{"/repo/wt": {Number: 268, Title: "Orchestrator in pocketd", URL: "https://github.com/o/r/pull/268"}}
+	for _, query := range []string{"#268", "268", "orchestrator in", "https://github.com/o/r/pull/268"} {
+		results, _ := f.ok(t, "anywhere_thread_search", fmt.Sprintf(`{"query":%q}`, query))["results"].([]any)
+		if len(results) != 1 || results[0].(map[string]any)["thread"].(map[string]any)["threadId"] != "s1" ||
+			results[0].(map[string]any)["snippet"] != "PR #268 Orchestrator in pocketd" {
+			t.Errorf("%q: results = %v", query, results)
+		}
+	}
+}
+
 func TestThreadSearchLeavesOtherProjectsAndChildrenOutBeforeItsLimit(t *testing.T) {
 	f := newFixture(t)
 	f.addSession(t, proto.AgentSummary{ID: "s1", Provider: "claude", Access: "edits", Status: "idle", Project: "/repo", Title: "Mine", UpdatedAt: 1}, "", "")

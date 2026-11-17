@@ -53,6 +53,8 @@ type Host struct {
 	// Hosts runs the sessions on linked hosts; nil links none.
 	Hosts *hosts.Manager
 	Envs  mcp.Environments
+	// PRs is the pull request of each tree's branch, as gh last told; nil tells none.
+	PRs func(tree string) *proto.PR
 
 	engine *orch.Engine
 	models sync.Map // kind -> func() []string
@@ -494,6 +496,13 @@ func outsideGit(f registry.File, cwd string) bool {
 func (h *Host) Schedules() mcp.Schedules { return h.Sched }
 
 func (h *Host) Environments() mcp.Environments { return h.Envs }
+
+func (h *Host) PR(tree string) *proto.PR {
+	if h.PRs == nil {
+		return nil
+	}
+	return h.PRs(tree)
+}
 
 func (h *Host) token(terminal, provider string) (string, error) {
 	return h.Tokens.Issue(terminal, provider)

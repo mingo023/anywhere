@@ -64,6 +64,7 @@ type host struct {
 	parent proto.AgentSummary
 	sched  Schedules
 	envs   Environments
+	prs    map[string]*proto.PR // by tree
 	// outsideGit is the parent's Project not being a git repository.
 	outsideGit bool
 
@@ -103,6 +104,7 @@ func (h *host) Dirty(string) bool                       { return false }
 func (h *host) OutsideGit(string) bool                  { return h.outsideGit }
 func (h *host) Schedules() Schedules                    { return h.sched }
 func (h *host) Environments() Environments              { return h.envs }
+func (h *host) PR(tree string) *proto.PR                { return h.prs[tree] }
 
 type fixture struct {
 	srv    *httptest.Server
