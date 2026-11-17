@@ -57,7 +57,7 @@ type Host struct {
 	PRs func(ctx context.Context, tree string) *proto.PR
 
 	engine *orch.Engine
-	models sync.Map // kind -> func() []string
+	models sync.Map // kind -> func() listing
 }
 
 func (h *Host) SetEngine(e *orch.Engine) { h.engine = e }
@@ -454,25 +454,35 @@ func (h *Host) Models(kind string) []string {
 	if m := acp.Models(kind); m != nil {
 		return m
 	}
-	list, _ := h.models.LoadOrStore(kind, sync.OnceValue(func() []string { return h.listModels(kind) }))
-	return list.(func() []string)()
+	return h.listing(kind).models
 }
 
-func (h *Host) listModels(kind string) []string {
+// Efforts is mcp.Host: the efforts kind's CLI lists with its models, from the
+// same ask.
+func (h *Host) Efforts(kind string) []string { return h.listing(kind).efforts }
+
+type listing struct{ models, efforts []string }
+
+func (h *Host) listing(kind string) listing {
+	list, _ := h.models.LoadOrStore(kind, sync.OnceValue(func() listing { return h.listModels(kind) }))
+	return list.(func() listing)()
+}
+
+func (h *Host) listModels(kind string) listing {
 	exe := h.Launcher.Paths()[kind]
 	argv := catalog.Command(kind, exe)
 	if exe == "" || argv == nil {
-		return catalog.Backup(kind)
+		return listing{models: catalog.Backup(kind)}
 	}
 	if !filepath.IsAbs(exe) {
 		argv = launch.InShell(shellenv.LoginShell(), argv)
 	}
-	models, err := catalog.List(context.Background(), kind, argv, h.LoginEnv())
+	models, efforts, err := catalog.List(context.Background(), kind, argv, h.LoginEnv())
 	if len(models) == 0 {
 		log.Printf("models: %s listed none: %v", kind, err)
-		return catalog.Backup(kind)
+		return listing{models: catalog.Backup(kind)}
 	}
-	return models
+	return listing{models, efforts}
 }
 
 func (h *Host) Dirty(cwd string) bool {

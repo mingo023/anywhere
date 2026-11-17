@@ -36,6 +36,8 @@ type Host interface {
 	Agents() []AgentKind
 	// Models is the models an agent kind offers; asking may run its CLI.
 	Models(kind string) []string
+	// Efforts is the reasoning efforts an agent kind's CLI lists with its models.
+	Efforts(kind string) []string
 	// Dirty says whether cwd has uncommitted changes.
 	Dirty(cwd string) bool
 	// OutsideGit says whether the Project holding cwd isn't a git repository.

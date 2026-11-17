@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"time"
 
 	"pocketd/internal/providers"
@@ -21,12 +22,12 @@ import (
 var Wait = 45 * time.Second
 
 // An ask runs a CLI with args and writes input. Its read takes each line the CLI
-// prints and, once that is the answer, gives the models it lists and the line
-// that asks for more, if any.
+// prints and, once that is the answer, gives the models it lists, the reasoning
+// efforts they support and the line that asks for more, if any.
 type ask struct {
 	args  []string
 	input string
-	read  func(line []byte) (models []string, more string, answered bool)
+	read  func(line []byte) (models, efforts []string, more string, answered bool)
 }
 
 const piInput = `{"type":"get_available_models"}`
@@ -65,8 +66,9 @@ func Command(provider, exe string) []string {
 func Backup(provider string) []string { return backup[provider] }
 
 // List runs argv, provider's Command, in the home folder and gives the models
-// it answers with. The CLI is killed, with what it started, once it has.
-func List(ctx context.Context, provider string, argv, env []string) ([]string, error) {
+// it answers with, and the efforts they support: each once, as first listed.
+// The CLI is killed, with what it started, once it has.
+func List(ctx context.Context, provider string, argv, env []string) (models, efforts []string, err error) {
 	a := asks[provider]
 	ctx, cancel := context.WithTimeout(ctx, Wait)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -77,16 +79,16 @@ func List(ctx context.Context, provider string, argv, env []string) ([]string, e
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, nil, err
 	}
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, nil, err
 	}
 	if err := cmd.Start(); err != nil {
 		cancel()
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() {
 		cancel()
@@ -94,25 +96,29 @@ func List(ctx context.Context, provider string, argv, env []string) ([]string, e
 	}()
 	// Stdin stays open: a server may quit unanswered once it closes.
 	io.WriteString(in, a.input+"\n")
-	var models []string
 	sc := bufio.NewScanner(out)
 	sc.Buffer(nil, 64<<20)
 	for sc.Scan() {
-		listed, more, answered := a.read(sc.Bytes())
+		listed, supported, more, answered := a.read(sc.Bytes())
 		if !answered {
 			continue
 		}
 		models = append(models, listed...)
+		for _, e := range supported {
+			if !slices.Contains(efforts, e) {
+				efforts = append(efforts, e)
+			}
+		}
 		if more == "" {
-			return models, nil
+			return models, efforts, nil
 		}
 		io.WriteString(in, more+"\n")
 	}
-	return nil, cmp.Or(ctx.Err(), errors.New("exited without an answer"))
+	return nil, nil, cmp.Or(ctx.Err(), errors.New("exited without an answer"))
 }
 
 // claude reads Claude Code's answer to initialize, but "default", which only stands for one of the others.
-func claude(line []byte) ([]string, string, bool) {
+func claude(line []byte) ([]string, []string, string, bool) {
 	var l struct {
 		Type     string `json:"type"`
 		Response struct {
@@ -124,7 +130,7 @@ func claude(line []byte) ([]string, string, bool) {
 		} `json:"response"`
 	}
 	if json.Unmarshal(line, &l) != nil || l.Type != "control_response" {
-		return nil, "", false
+		return nil, nil, "", false
 	}
 	var models []string
 	for _, m := range l.Response.Response.Models {
@@ -132,7 +138,7 @@ func claude(line []byte) ([]string, string, bool) {
 			models = append(models, m.Value)
 		}
 	}
-	return models, "", true
+	return models, nil, "", true
 }
 
 func codexList(cursor string) string {
@@ -145,35 +151,43 @@ func codexList(cursor string) string {
 }
 
 // codex reads a page of the app-server's model/list, which leaves out hidden models.
-func codex(line []byte) ([]string, string, bool) {
+func codex(line []byte) ([]string, []string, string, bool) {
 	var l struct {
 		ID     json.RawMessage `json:"id"`
 		Result struct {
 			Data []struct {
-				ID    string `json:"id"`
-				Model string `json:"model"`
+				ID                        string `json:"id"`
+				Model                     string `json:"model"`
+				SupportedReasoningEfforts []struct {
+					ReasoningEffort string `json:"reasoningEffort"`
+				} `json:"supportedReasoningEfforts"`
 			} `json:"data"`
 			NextCursor string `json:"nextCursor"`
 		} `json:"result"`
 	}
 	if json.Unmarshal(line, &l) != nil || string(l.ID) != "2" {
-		return nil, "", false
+		return nil, nil, "", false
 	}
-	var models []string
+	var models, efforts []string
 	for _, m := range l.Result.Data {
 		if id := cmp.Or(m.Model, m.ID); id != "" {
 			models = append(models, id)
+		}
+		for _, e := range m.SupportedReasoningEfforts {
+			if e.ReasoningEffort != "" {
+				efforts = append(efforts, e.ReasoningEffort)
+			}
 		}
 	}
 	more := ""
 	if l.Result.NextCursor != "" {
 		more = codexList(l.Result.NextCursor)
 	}
-	return models, more, true
+	return models, efforts, more, true
 }
 
 // pi reads Pi's and omp's answer to get_available_models, as the "provider/id" --model takes.
-func pi(line []byte) ([]string, string, bool) {
+func pi(line []byte) ([]string, []string, string, bool) {
 	var l struct {
 		Command string `json:"command"`
 		Data    struct {
@@ -184,7 +198,7 @@ func pi(line []byte) ([]string, string, bool) {
 		} `json:"data"`
 	}
 	if json.Unmarshal(line, &l) != nil || l.Command != "get_available_models" {
-		return nil, "", false
+		return nil, nil, "", false
 	}
 	var models []string
 	for _, m := range l.Data.Models {
@@ -192,5 +206,5 @@ func pi(line []byte) ([]string, string, bool) {
 			models = append(models, m.Provider+"/"+m.ID)
 		}
 	}
-	return models, "", true
+	return models, nil, "", true
 }

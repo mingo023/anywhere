@@ -385,33 +385,52 @@ func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *test
 	}
 }
 
+// capabilitiesOf reads m, agentID's answer from orchestrator_capabilities, as each kind's models and efforts.
+func capabilitiesOf(agentID string, m Message) (models, efforts map[string][]string, ok bool) {
+	at := strings.Index(m.Item.Text, "{")
+	if m.Type != "agent.stream" || m.AgentID != agentID || m.Item.Kind != "assistant" || at < 0 {
+		return nil, nil, false
+	}
+	var caps struct {
+		Agents []struct {
+			ID      string   `json:"id"`
+			Models  []string `json:"models"`
+			Efforts []string `json:"efforts"`
+		} `json:"agents"`
+	}
+	if json.Unmarshal([]byte(m.Item.Text[at:]), &caps) != nil {
+		return nil, nil, false
+	}
+	models, efforts = map[string][]string{}, map[string][]string{}
+	for _, a := range caps.Agents {
+		models[a.ID], efforts[a.ID] = a.Models, a.Efforts
+	}
+	return models, efforts, true
+}
+
 // listsModels says whether m is agentID's answer from orchestrator_capabilities listing each kind's models as want has them.
 func listsModels(agentID string, want map[string][]string) func(Message) bool {
 	return func(m Message) bool {
-		at := strings.Index(m.Item.Text, "{")
-		if m.Type != "agent.stream" || m.AgentID != agentID || m.Item.Kind != "assistant" || at < 0 {
-			return false
-		}
-		var caps struct {
-			Agents []struct {
-				ID     string   `json:"id"`
-				Models []string `json:"models"`
-			} `json:"agents"`
-		}
-		if json.Unmarshal([]byte(m.Item.Text[at:]), &caps) != nil {
-			return false
-		}
-		got := map[string][]string{}
-		for _, a := range caps.Agents {
-			got[a.ID] = a.Models
-		}
-		for kind, models := range want {
-			if !slices.Equal(got[kind], models) {
-				return false
-			}
-		}
-		return true
+		got, _, ok := capabilitiesOf(agentID, m)
+		return ok && listsAll(got, want)
 	}
+}
+
+// listsEfforts is listsModels for efforts.
+func listsEfforts(agentID string, want map[string][]string) func(Message) bool {
+	return func(m Message) bool {
+		_, got, ok := capabilitiesOf(agentID, m)
+		return ok && listsAll(got, want)
+	}
+}
+
+func listsAll(got, want map[string][]string) bool {
+	for kind, list := range want {
+		if !slices.Equal(got[kind], list) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestOrchestratorCapabilitiesListsTheModelsAChatHermesOpenedWith(t *testing.T) {
@@ -420,13 +439,15 @@ func TestOrchestratorCapabilitiesListsTheModelsAChatHermesOpenedWith(t *testing.
 	phone.WaitFor("hermes's models", listsModels(id, map[string][]string{"hermes": {"fake-model", "fake/other"}}))
 }
 
-// Claude, Codex and Pi list their models with no session of theirs open, and no client to push a list.
+// Claude, Codex and Pi list their models, and Codex its efforts, with no session of theirs open, and no client to push a list.
 func TestOrchestratorCapabilitiesListsWhatClaudeCodexAndPiListWithNoSessionOfTheirs(t *testing.T) {
 	h, phone, _, id := chatACP(t, "hermes", nil)
 	phone.Prompt(id, "mcp orchestrator_capabilities {}")
 	phone.WaitFor("each CLI's models", listsModels(id, map[string][]string{
 		"claude": {"fake-claude-opus"}, "codex": {"fake-codex-sol", "fake-codex-luna"}, "pi": {"fake/model", "fake/other"},
 	}))
+	phone.Prompt(id, "mcp orchestrator_capabilities {}")
+	phone.WaitFor("codex's efforts", listsEfforts(id, map[string][]string{"codex": {"low", "medium", "high", "ultra"}, "claude": {"low", "medium", "high", "xhigh", "max"}}))
 	if written, _ := filepath.Glob(filepath.Join(h.ClaudeDir, "projects", "*", "*.jsonl")); len(written) > 0 {
 		t.Fatalf("asking claude wrote a session: %q", written)
 	}

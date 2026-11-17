@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-func lists(t *testing.T, read func([]byte) ([]string, string, bool), out string) ([]string, string) {
+func lists(t *testing.T, read func([]byte) ([]string, []string, string, bool), out string) ([]string, string) {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
-		if models, more, answered := read([]byte(line)); answered {
+		if models, _, more, answered := read([]byte(line)); answered {
 			return models, more
 		}
 	}
@@ -25,7 +25,7 @@ func TestClaudeListsWhatInitializeAnswersButItsDefault(t *testing.T) {
 	if got, more := lists(t, claude, out); !slices.Equal(got, []string{"fable", "claude-haiku-4-5-20251001"}) || more != "" {
 		t.Fatalf("got %q, more %q", got, more)
 	}
-	if _, _, answered := claude([]byte("Error: not logged in")); answered {
+	if _, _, _, answered := claude([]byte("Error: not logged in")); answered {
 		t.Fatal("an error answered")
 	}
 }
@@ -42,6 +42,19 @@ func TestCodexListsAPageOfModelListAndAsksForTheNext(t *testing.T) {
 	}
 	if got, more := lists(t, codex, `{"id":2,"error":{"code":-32600,"message":"Not initialized"}}`); got != nil || more != "" {
 		t.Fatalf("a refusal: got %q, more %q", got, more)
+	}
+}
+
+func TestListGivesTheEffortsCodexModelsSupportOnceEachAsFirstListed(t *testing.T) {
+	server := `while read -r line; do
+case $line in
+*'"cursor":"c2"'*) echo '{"id":2,"result":{"data":[{"model":"b","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"m"},{"reasoningEffort":"ultra","description":"u"}],"defaultReasoningEffort":"medium"},{"model":"c"}],"nextCursor":null}}' ;;
+*model/list*) echo '{"id":2,"result":{"data":[{"model":"a","hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"low","description":"l"},{"reasoningEffort":"medium","description":"m"}],"defaultReasoningEffort":"low"}],"nextCursor":"c2"}}' ;;
+esac
+done`
+	models, efforts, err := List(context.Background(), "codex", []string{"sh", "-c", server}, nil)
+	if err != nil || !slices.Equal(models, []string{"a", "b", "c"}) || !slices.Equal(efforts, []string{"low", "medium", "ultra"}) {
+		t.Fatalf("got %q, %q, %v", models, efforts, err)
 	}
 }
 
@@ -64,7 +77,7 @@ case $line in
 esac
 done`
 	start := time.Now()
-	got, err := List(context.Background(), "codex", []string{"sh", "-c", server}, nil)
+	got, _, err := List(context.Background(), "codex", []string{"sh", "-c", server}, nil)
 	if err != nil || !slices.Equal(got, []string{"a", "b"}) {
 		t.Fatalf("got %q, %v", got, err)
 	}
@@ -74,7 +87,7 @@ done`
 }
 
 func TestListSaysSoWhenTheCLIExitsUnanswered(t *testing.T) {
-	if got, err := List(context.Background(), "pi", []string{"sh", "-c", "echo not logged in"}, nil); got != nil || err == nil {
+	if got, _, err := List(context.Background(), "pi", []string{"sh", "-c", "echo not logged in"}, nil); got != nil || err == nil {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }

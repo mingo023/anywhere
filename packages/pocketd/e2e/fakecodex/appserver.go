@@ -26,7 +26,7 @@ import (
 //	elicit <server> <tool>  ask before calling another server's tool, then reply "echo: elicitation <action>"
 //	call <tool>  call a client-side tool by item/tool/call, then reply "echo: result <json>" or "echo: error <message>"
 //
-// model/list lists two models, a page each.
+// model/list lists two models, a page each, with the efforts each supports.
 // Like codex, a bogus model fails each turn rather than the start.
 type appServer struct {
 	mu           sync.Mutex
@@ -169,10 +169,10 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 	case "initialized":
 	case "model/list":
 		if p["cursor"] == "2" {
-			a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-luna", "model": "fake-codex-luna"}}, "nextCursor": nil})
+			a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-luna", "model": "fake-codex-luna", "hidden": false, "supportedReasoningEfforts": efforts("low", "medium", "ultra"), "defaultReasoningEffort": "low"}}, "nextCursor": nil})
 			return
 		}
-		a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-sol", "model": "fake-codex-sol", "isDefault": true}}, "nextCursor": "2"})
+		a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-sol", "model": "fake-codex-sol", "hidden": false, "supportedReasoningEfforts": efforts("low", "medium", "high"), "defaultReasoningEffort": "medium", "isDefault": true}}, "nextCursor": "2"})
 	case "thread/start":
 		a.thread = &thread{ID: "th-" + uuid()}
 		a.save()
@@ -425,4 +425,12 @@ func (a *appServer) compact(t *liveTurn) {
 	a.item(t, map[string]any{"type": "contextCompaction", "id": "k-" + uuid()}, true)
 	note("compacted")
 	a.end(t, "completed", "")
+}
+
+func efforts(names ...string) []map[string]any {
+	var out []map[string]any
+	for _, n := range names {
+		out = append(out, map[string]any{"reasoningEffort": n, "description": n})
+	}
+	return out
 }

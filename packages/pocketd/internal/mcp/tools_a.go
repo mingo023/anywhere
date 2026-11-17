@@ -273,7 +273,12 @@ func capabilities(ctx context.Context, c *Call) (any, error) {
 	agents := c.Host.Agents()
 	var wg sync.WaitGroup
 	for i := range agents {
-		wg.Go(func() { agents[i].Models = c.Host.Models(agents[i].ID) })
+		wg.Go(func() {
+			agents[i].Models = c.Host.Models(agents[i].ID)
+			if len(agents[i].Efforts) == 0 {
+				agents[i].Efforts = c.Host.Efforts(agents[i].ID)
+			}
+		})
 	}
 	wg.Wait()
 	for i, a := range agents {

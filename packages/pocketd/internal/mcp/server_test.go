@@ -98,6 +98,7 @@ func (h *host) Agents() []AgentKind {
 		{ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
 }
 func (h *host) Models(string) []string                      { return nil }
+func (h *host) Efforts(string) []string                     { return nil }
 func (h *host) InBackground(_, id string) bool              { return h.background[id] }
 func (h *host) TaskOf(session, toolUseID string) string     { return h.tasks[session+"/"+toolUseID] }
 func (h *host) Dirty(string) bool                           { return false }
