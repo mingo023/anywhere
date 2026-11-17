@@ -21,7 +21,8 @@ type Server struct {
 	Disabled []string
 }
 
-func (s Server) offers(tool string) bool {
+// Offers is whether the agent may use tool on s.
+func (s Server) Offers(tool string) bool {
 	if slices.Contains(s.Disabled, tool) {
 		return false
 	}
@@ -84,7 +85,7 @@ func (s Server) List() ([]string, error) {
 	json.NewDecoder(resp.Body).Decode(&out)
 	var names []string
 	for _, t := range out.Result.Tools {
-		if s.offers(t.Name) {
+		if s.Offers(t.Name) {
 			names = append(names, t.Name)
 		}
 	}
@@ -111,7 +112,7 @@ func Run(servers []Server, line string) string {
 		return strings.Join(slices.Compact(all), " ")
 	}
 	for _, s := range servers {
-		if s.offers(tool) {
+		if s.Offers(tool) {
 			return s.Call(tool, args)
 		}
 	}

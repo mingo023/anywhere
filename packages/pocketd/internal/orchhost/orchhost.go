@@ -555,8 +555,9 @@ func (h *Host) CodexConfig(terminal string) map[string]any {
 		log.Printf("mcp: token for %s: %v", terminal, err)
 		return nil
 	}
+	// "approve" runs the tools unasked at any access, as Claude's --allowedTools does.
 	server := func(url string) map[string]any {
-		return map[string]any{"url": url, "tool_timeout_sec": 60, "http_headers": map[string]string{"Authorization": "Bearer " + token}}
+		return map[string]any{"url": url, "tool_timeout_sec": 60, "default_tools_approval_mode": "approve", "http_headers": map[string]string{"Authorization": "Bearer " + token}}
 	}
 	main := server(h.URL)
 	main["disabled_tools"] = mcp.DirectOnly

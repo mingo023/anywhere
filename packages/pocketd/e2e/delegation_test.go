@@ -78,9 +78,18 @@ func TestAClaudeParentDelegatesToACodexChildAndIsWokenWithItsResult(t *testing.T
 }
 
 func TestACodexParentSeesTheAnywhereToolsAndDelegates(t *testing.T) {
-	h, phone, _, parent := chatCodex(t, nil)
+	h, phone, _, parent := chatCodex(t, map[string]any{"access": "ask"})
 	phone.Prompt(parent, "mcp tools/list")
 	phone.WaitFor("the tools", streamOf(parent, "assistant", "echo: anywhere_thread_wait delegate_task orchestrator_capabilities task_status tool_search"))
+
+	phone.Prompt(parent, "mcp orchestrator_capabilities")
+	capabilities := saysAbout(parent, "echo: ", "agents")
+	phone.WaitFor("the capabilities, unasked", func(m Message) bool {
+		if asked(m) {
+			t.Fatalf("asked before an anywhere tool: %s", m.Raw)
+		}
+		return capabilities(m)
+	})
 
 	phone.Prompt(parent, `mcp delegate_task {"task":"write the tests","title":"Tests"}`)
 	task := settledAndWoken(h, phone, parent, "completed")
