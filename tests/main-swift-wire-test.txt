@@ -1,0 +1,817 @@
+commit 1145d586 (origin/main)
+Fetching https://github.com/swiftlang/swift-cmark from cache
+Fetched https://github.com/swiftlang/swift-cmark from cache (4.20s)
+Fetching https://github.com/apple/swift-argument-parser from cache
+Fetching https://github.com/migueldeicaza/SwiftTerm from cache
+Fetched https://github.com/migueldeicaza/SwiftTerm from cache (4.49s)
+Computing version for https://github.com/migueldeicaza/SwiftTerm
+Fetched https://github.com/apple/swift-argument-parser from cache (4.52s)
+Computed https://github.com/migueldeicaza/SwiftTerm at 1.20.0 (5.72s)
+Computing version for https://github.com/apple/swift-argument-parser
+Computed https://github.com/apple/swift-argument-parser at 1.8.2 (0.55s)
+Creating working copy for https://github.com/migueldeicaza/SwiftTerm
+Working copy of https://github.com/migueldeicaza/SwiftTerm resolved at 1.20.0
+Creating working copy for https://github.com/apple/swift-argument-parser
+Working copy of https://github.com/apple/swift-argument-parser resolved at 1.8.2
+Creating working copy for https://github.com/swiftlang/swift-cmark
+Working copy of https://github.com/swiftlang/swift-cmark resolved at gfm (a7ecfef)
+Building for debugging...
+[Computing dependencies]
+[Provisioning 2 / 92]
+[Pre-planning 1 / 2564]
+[Planning 1527 / 2564]
+[Planning deferred tasks]
+[Constructing 106 / 5561]
+[Constructing 4926 / 5561]
+[1 / 1217]
+warning: missing creator for mutated node: ('$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/.build/out/Products/Debug/SwiftTerm_SwiftTerm.bundle/Contents/MacOS')
+[149 / 1217] HighlightTests-product
+[255 / 1217] FeaturePairingTests-product
+[431 / 1217] ChatModel
+[478 / 1217] AnywhereKit_FileIcons
+[479 / 1217] AnywhereKit_FileIcons
+[481 / 1217]
+[493 / 1224] Wire
+[505 / 1236]
+[513 / 1236] cmark-gfm
+[518 / 1236] cmark-gfm
+[522 / 1236] cmark-gfm
+[523 / 1236] cmark-gfm
+[524 / 1236] cmark-gfm
+[528 / 1236] cmark-gfm
+[531 / 1238] cmark-gfm
+[537 / 1238] cmark-gfm
+[537 / 1238]
+[544 / 1239] cmark-gfm
+[554 / 1312]
+[555 / 1329] Highlight
+[555 / 1344] Domain
+[562 / 1354]
+[570 / 1354] cmark-gfm
+[581 / 1358]
+[592 / 1389]
+[594 / 1389] cmark-gfm
+[603 / 1389]
+[606 / 1389]
+[610 / 1389]
+[614 / 1389]
+[617 / 1389] cmark-gfm-extensions
+[617 / 1389]
+[624 / 1389]
+[626 / 1389]
+[630 / 1389]
+[631 / 1389]
+[633 / 1389]
+[637 / 1389]
+[638 / 1389]
+[646 / 1389]
+[648 / 1389]
+[651 / 1389]
+[653 / 1389]
+[655 / 1389]
+[666 / 1389] MarkdownModel
+[668 / 1389]
+[672 / 1389]
+[674 / 1389]
+[677 / 1389] SwiftTermBuildInfoGenerator-product
+[684 / 1389] Highlight
+[687 / 1389] MarkdownModel
+[699 / 1389]
+[701 / 1389] Wire
+[701 / 1389]
+[704 / 1389] Domain
+[710 / 1389]
+[711 / 1389]
+[713 / 1389]
+[714 / 1389]
+[715 / 1389] SwiftTermBuildInfoGenerator-product
+[717 / 1389] Wire
+[719 / 1389] MarkdownModel
+[725 / 1389] Wire
+[726 / 1389] Wire-product
+[727 / 1389] MarkdownModel
+[728 / 1389]
+[730 / 1389] MarkdownModel
+[732 / 1389] MarkdownModel
+[740 / 1389] Highlight
+[744 / 1389] Highlight
+[744 / 1389] MarkdownModel
+[746 / 1389] SwiftTermBuildInfoGenerator-product
+[748 / 1389] SwiftTermBuildInfoGenerator-product
+[751 / 1389] Domain
+[753 / 1389] Domain
+[755 / 1389] Domain-product
+[758 / 1389] Domain
+[762 / 1389] ActivityModel-product
+[766 / 1389] MarkdownModel
+[769 / 1390]
+[770 / 1391] Highlight
+[775 / 1391] ActivityModel
+[779 / 1402]
+[783 / 1406] Wire
+[786 / 1406] Client
+[790 / 1418] SwiftTerm_SwiftTerm
+[791 / 1423] Domain
+[794 / 1423] PushSupport
+[795 / 1423] Loopback
+[798 / 1434] PushSupport
+[809 / 1434] PushSupport
+[811 / 1458] PushSupport-product
+[812 / 1458] Domain
+[820 / 1458] Fixtures
+[821 / 1458] Fixtures
+[822 / 1458] Fixtures
+[829 / 1458] Fixtures
+[831 / 1458] Client
+[839 / 1458] Fixtures
+[848 / 1458] ChatModel
+[853 / 1458] DiffModelTests-product
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Sources/DesignSystem/Grouped.swift:184:37: [1;33mwarning: [1;39mStoring a closure in '@Entry var showInDetail' may invalidate dependents on every update because closures may not be comparable. (from macro 'Entry ')[0;0m
+[0;36m182 |[0;0m extension EnvironmentValues {
+[0;36m183 |[0;0m     /// Set on a split view column whose rows open in another column: a `NavigationLink` only finds destinations in its own.
+[0;36m184 |[0;0m     @Entry public var showInDetail: [4;39m(@MainActor (Route) -> Void)?[0;0m
+    [0;36m|[0;0m                                     `- [1;33mwarning: [1;39mStoring a closure in '@Entry var showInDetail' may invalidate dependents on every update because closures may not be comparable. (from macro 'Entry ')[0;0m
+[0;36m185 |[0;0m }
+[0;36m186 |[0;0m 
+[861 / 1458] DesignSystem
+[866 / 1458] DesignSystem
+[867 / 1458] MarkdownView
+[871 / 1458] DesignSystem
+[874 / 1458] CodeView
+[877 / 1458] FileIcons
+[882 / 1458] Client
+[885 / 1458] Client
+[887 / 1458] Client
+[889 / 1458] Stores
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Sources/DesignSystem/Grouped.swift:184:37: [1;33mwarning: [1;39mStoring a closure in '@Entry var showInDetail' may invalidate dependents on every update because closures may not be comparable. (from macro 'Entry ')[0;0m
+[0;36m182 |[0;0m extension EnvironmentValues {
+[0;36m183 |[0;0m     /// Set on a split view column whose rows open in another column: a `NavigationLink` only finds destinations in its own.
+[0;36m184 |[0;0m     @Entry public var showInDetail: [4;39m(@MainActor (Route) -> Void)?[0;0m
+    [0;36m|[0;0m                                     `- [1;33mwarning: [1;39mStoring a closure in '@Entry var showInDetail' may invalidate dependents on every update because closures may not be comparable. (from macro 'Entry ')[0;0m
+[0;36m185 |[0;0m }
+[0;36m186 |[0;0m 
+[892 / 1458] DesignSystem
+[893 / 1458] Client
+[894 / 1458] ChatModel
+[896 / 1458] ChatModel
+[922 / 1458]
+[924 / 1460]
+[929 / 1460] PushSupport
+[931 / 1462] LiveActivityUI
+[931 / 1462] ChatModel
+[934 / 1462] SwiftTerm_SwiftTerm
+[937 / 1485] Stores
+[938 / 1485] SwiftTerm
+[939 / 1485] Stores
+[940 / 1490] LiveActivityUI
+[940 / 1502] DesignSystem
+[943 / 1503] SwiftTerm
+[943 / 1503] ChatModel
+[959 / 1503] Stores
+[960 / 1503] Stores
+[962 / 1503] Stores
+[963 / 1506] SwiftTerm
+[963 / 1551] ChatModel
+[966 / 1551]
+[979 / 1551]
+[982 / 1551]
+[984 / 1551]
+[987 / 1551]
+[991 / 1551] Stores
+[995 / 1551] MarkdownViewTests-product
+[999 / 1551]
+[1003 / 1551] MarkdownView
+[1005 / 1551] MarkdownView
+[1006 / 1551]
+[1009 / 1551] MarkdownView
+[1010 / 1551]
+[1010 / 1551] MarkdownView
+[1012 / 1551]
+[1018 / 1551] MarkdownView
+[1019 / 1551]
+[1021 / 1551] LiveActivityUITests-product
+[1022 / 1551] LiveActivityUI
+[1023 / 1551]
+[1024 / 1551]
+[1027 / 1551] SwiftTerm
+[1027 / 1551] MarkdownView
+[1029 / 1551] SwiftTerm
+[1031 / 1551] Stores
+[1033 / 1551] SwiftTerm
+[1035 / 1551] SwiftTerm
+[1036 / 1551] SwiftTerm
+[1037 / 1551] SwiftTerm
+[1037 / 1551] Stores
+[1040 / 1551] MarkdownView
+[1043 / 1551] CodeView
+[1043 / 1551] SwiftTerm
+[1044 / 1551] SwiftTerm
+[1045 / 1551] CodeView
+[1046 / 1551] CodeView
+[1051 / 1551] SwiftTerm
+[1057 / 1551] CodeView
+[1058 / 1551] CodeView
+[1060 / 1551] CodeView
+[1075 / 1553] PushSupport-product
+[1077 / 1558] FeatureSettings
+[1078 / 1566] anywhere-probe-product
+[1080 / 1566] anywhere-probe-product
+[1081 / 1566] FeatureSettings
+[1082 / 1566] anywhere-probe-product
+[1084 / 1566] SwiftTerm
+[1090 / 1566] FeatureSettings
+[1091 / 1566] anywhere-probe-product
+[1093 / 1566] FeatureSettingsTests-product
+[1095 / 1566] DiffModel
+[1098 / 1569] FeatureSessions
+[1099 / 1584] FeatureSessions
+[1102 / 1608] FeaturePairing
+[1103 / 1608]
+[1104 / 1608] CodeView
+[1110 / 1608] FeatureSessions
+[1111 / 1608] FeatureSessions
+[1112 / 1608] FeatureSessions
+[1126 / 1608] FeatureTerminal
+[1128 / 1608] anywhere-probe-product
+[1129 / 1608] FeatureTerminal
+[1130 / 1608] FeatureTerminal
+[1138 / 1608] FeatureSessions
+[1139 / 1608] FeatureTerminalTests-product
+[1140 / 1608] FeatureTerminalTests-product
+[1142 / 1608] FeatureSessions
+[1144 / 1608] FeatureSessions
+[1145 / 1608] FeatureTerminal
+[1146 / 1608] FeatureSessions
+[1148 / 1608] FeatureSessions
+[1151 / 1608] FeaturePairing
+[1152 / 1608] FeaturePairing
+[1153 / 1608] FeatureSessions
+[1156 / 1608] SwiftTerm
+[1158 / 1608] FeaturePairing
+[1158 / 1608] FeatureSessions
+[1161 / 1608] FeaturePairing
+[1161 / 1608] DiffModel
+[1175 / 1609] FeatureSessionsTests-product
+[1179 / 1618] HighlightTests-product
+[1181 / 1618] FileIconsTests-product
+[1182 / 1626] FeatureGitHub
+[1183 / 1626] FeatureGit
+[1184 / 1626] FeatureFiles
+[1186 / 1632]
+[1189 / 1638] FixturesTests-product
+[1194 / 1638] Domain-product
+[1197 / 1638] Client
+[1199 / 1653] FeaturePairing
+[1203 / 1654] FeatureGit
+[1205 / 1666] FeatureGit
+[1207 / 1691] FeatureChat
+[1207 / 1702]
+[1209 / 1702] MarkdownModelTests-product
+[1209 / 1702] FeatureGitHub
+[1210 / 1702] FeatureFiles
+[1211 / 1702] FileIconsTests-product
+[1224 / 1702]
+[1228 / 1702] FixturesTests-product
+[1239 / 1702] FeatureGitHub
+[1245 / 1702] PushSupportTests-product
+[1253 / 1702] WireTests-product
+[1256 / 1702] HighlightTests-product
+[1265 / 1702] WireTests-product
+[1268 / 1702] MarkdownModelTests-product
+[1269 / 1702] FeatureChat
+[1282 / 1702] HighlightTests-product
+[1284 / 1702] DomainTests-product
+[1292 / 1702] FeatureGitHubTests-product
+[1293 / 1702] WireTests-product
+[1295 / 1702] FeatureGitHub
+[1298 / 1702] FileIconsTests-product
+[1300 / 1702] WireTests-product
+[1301 / 1702] FixturesTests-product
+[1302 / 1702] WireTests-product
+[1305 / 1702] FeatureGit
+[1307 / 1702] FeatureGitHub
+[1308 / 1702] FeatureGitHub
+[1310 / 1702] FeatureGitTests-product
+[1311 / 1702] PushSupportTests-product
+[1313 / 1702] PushSupportTests-product
+[1314 / 1702] FeatureGit
+[1318 / 1702] FeatureFiles
+[1319 / 1702] FeatureGit
+[1321 / 1702] FeatureFiles
+[1322 / 1702] FeatureFilesTests-product
+[1324 / 1702] FeatureFiles
+[1326 / 1702] FeatureFiles
+[1327 / 1702] FeatureGitHub
+[1328 / 1702] FeatureFiles
+[1331 / 1702] FeatureSessions
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Sources/FeatureSessions/NewSessionView.swift:130:76: [1;33mwarning: [1;39mmain actor-isolated static property 'fieldSpace' can not be referenced from a Sendable closure[0;0m
+[0;36m114 |[0;0m     }
+[0;36m115 |[0;0m 
+[0;36m116 |[0;0m     private static let fieldSpace = "field"
+    [0;36m|[0;0m                        `- [1;39mnote: [1;39mstatic property declared here[0;0m
+[0;36m117 |[0;0m 
+[0;36m118 |[0;0m     private var headline: some View {
+    [0;36m:[0;0m
+[0;36m128 |[0;0m         .padding(.horizontal, Space.xl)
+[0;36m129 |[0;0m         .allowsHitTesting(false)
+[0;36m130 |[0;0m         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.fieldSpace)) }) { headlineFrame = $0 }
+    [0;36m|[0;0m                                                                            `- [1;33mwarning: [1;39mmain actor-isolated static property 'fieldSpace' can not be referenced from a Sendable closure[0;0m
+[0;36m131 |[0;0m     }
+[0;36m132 |[0;0m 
+[1332 / 1702] FeatureFiles
+[1336 / 1702] FeatureFiles
+[1337 / 1702] FeatureGit
+[1339 / 1702] FeatureFiles
+[1343 / 1702] FeatureChat
+[1345 / 1702] DomainTests-product
+[1345 / 1702] FeatureChat
+[1347 / 1702] FeatureChat
+[1348 / 1702] FeatureChat
+[1350 / 1702] DomainTests-product
+[1351 / 1702] DomainTests-product
+[1352 / 1702] DomainTests-product
+[1353 / 1702] DomainTests-product
+[1355 / 1702] DomainTests-product
+[1361 / 1702] FileIconsTests-product
+[1372 / 1702]
+[1382 / 1702] FixturesTests-product
+[1388 / 1703]
+[1394 / 1705] MarkdownView
+[1400 / 1705] DesignSystem-product
+[1404 / 1708] DiffModelTests-product
+[1407 / 1711] AppShell
+[1408 / 1721] FeatureChat
+[1409 / 1721] DesignSystemTests-product
+[1410 / 1724] BenchScenes
+[1412 / 1727] ActivityModelTests-product
+[1421 / 1727] FeatureChat
+[1424 / 1727] AppShell
+[1432 / 1737] DesignSystem-product
+[1433 / 1737] DesignSystemTests-product
+[1445 / 1737] MarkdownModelTests-product
+[1447 / 1737] DesignSystemTests-product
+[1449 / 1737] ClientTests-product
+[1450 / 1737] Client-product
+[1451 / 1737] DomainTests-product
+[1456 / 1737] AppShell
+[1467 / 1737] BenchScenes
+[1468 / 1737] AppShell
+[1469 / 1737] anywhere-gallery-product
+[1470 / 1737] anywhere-gallery-product
+[1474 / 1737] AppShell
+[1476 / 1737]
+[1486 / 1739] LiveActivityUITests-product
+[1487 / 1739] MarkdownViewTests-product
+[1494 / 1742] ChatModelTests-product
+[1496 / 1748] MarkdownViewTests-product
+[1498 / 1755] ChatModelTests-product
+[1501 / 1767] LiveActivityUITests-product
+[1507 / 1767] anywhere-gallery-product
+[1509 / 1767] anywhere-bench-product
+[1509 / 1767] MarkdownViewTests-product
+[1512 / 1767] anywhere-gallery-product
+[1517 / 1767] MarkdownViewTests-product
+[1518 / 1767] MarkdownView-product
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Tests/DesignSystemTests/DesignSystemTests.swift:159:73: [1;33mwarning: [1;39mcall to main actor-isolated static method 'phase(at:)' in a synchronous nonisolated context[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/actor-isolated-call\ActorIsolatedCall]8;;\]
+[0;36m157 |[0;0m     @Test("the shimmer band sweeps from before the leading edge to past the trailing one")
+[0;36m158 |[0;0m     func shimmer() {
+[0;36m159 |[0;0m         let phases = stride(from: 0.0, to: 1.6, by: 0.05).map { Shimmer.phase(at: Date(timeIntervalSinceReferenceDate: $0)) }
+    [0;36m|[0;0m                                                                         `- [1;33mwarning: [1;39mcall to main actor-isolated static method 'phase(at:)' in a synchronous nonisolated context[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/actor-isolated-call\ActorIsolatedCall]8;;\]
+[0;36m160 |[0;0m         #expect(phases.min()! >= -0.2)
+[0;36m161 |[0;0m         #expect(phases.max()! <= 1.2)
+
+DesignSystem.Shimmer.phase:2:33: [1;39mnote: [1;39mcalls to static method 'phase(at:)' from outside of its actor context are implicitly asynchronous[0;0m
+[0;36m1 |[0;0m struct Shimmer {
+[0;36m2 |[0;0m @MainActor internal static func phase(at date: Date) -> Double}
+  [0;36m|[0;0m                                 `- [1;39mnote: [1;39mcalls to static method 'phase(at:)' from outside of its actor context are implicitly asynchronous[0;0m
+[0;36m3 |[0;0m 
+
+[#ActorIsolatedCall]: <https://docs.swift.org/compiler/documentation/diagnostics/actor-isolated-call>
+[1522 / 1767] DesignSystemTests-product
+[1522 / 1767] MarkdownViewTests-product
+[1526 / 1767] ChatModelTests-product
+[1527 / 1767] ChatModelTests-product
+[1529 / 1767] ChatModelTests-product
+[1530 / 1767] ChatModelTests-product
+[1535 / 1767] ClientTests-product
+[1536 / 1767] LiveActivityUITests-product
+[1540 / 1767] DiffModelTests-product
+[1541 / 1767] ChatModelTests-product
+[1542 / 1767] ChatModelTests-product
+[1554 / 1767] DiffModelTests-product
+[1557 / 1767] MarkdownModelTests-product
+[1563 / 1767] FeatureSettings
+[1568 / 1767] FeatureGitHub
+[1570 / 1768] StoresTests-product
+[1574 / 1768] LiveActivityUITests-product
+[1581 / 1769] FeatureTerminalTests-product
+[1589 / 1769] FeatureFiles
+[1602 / 1782] StoresTests-product
+[1602 / 1786] FeatureSettingsTests-product
+[1605 / 1790] FeatureTerminalTests-product
+[1606 / 1790] FeatureSettingsTests-product
+[1616 / 1790] ChatModelTests-product
+[1617 / 1790] ChatModelTests-product
+[1619 / 1790] StoresTests-product
+[1620 / 1790] StoresTests-product
+[1621 / 1790] StoresTests-product
+[1623 / 1790] StoresTests-product
+[1629 / 1790] FeatureTerminalTests-product
+[1630 / 1790] ChatModelTests-product
+[1631 / 1790] FeatureSettingsTests-product
+[1633 / 1790] FeatureSettingsTests-product
+[1633 / 1790] ChatModelTests-product
+[1639 / 1791] FeatureSessions-product
+[1645 / 1792] FeaturePairingTests-product
+[1648 / 1793] FeatureSessions-product
+[1653 / 1794] FeaturePairing-product
+[1659 / 1795] FeatureGitTests-product
+[1659 / 1795] CodeViewTests-product
+[1663 / 1802] FeatureSessionsTests-product
+[1664 / 1808]
+[1666 / 1808] CodeViewTests-product
+[1667 / 1811] FeatureGitTests-product
+[1669 / 1811] FeatureSessionsTests-product
+[1681 / 1811] FeatureGitHubTests-product
+[1685 / 1811] FeatureSessionsTests-product
+[1689 / 1811] FeatureSessionsTests-product
+[1699 / 1811] CodeViewTests-product
+[1709 / 1811]
+[1711 / 1812] FeatureFilesTests-product
+[1711 / 1812] FeatureSettingsTests-product
+[1714 / 1815] FeatureFilesTests-product
+[1717 / 1815] FeatureTerminalTests-product
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Tests/StoresTests/FilesStoreTests.swift:125:15: [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m123 |[0;0m         let store = FilesStore()
+[0;36m124 |[0;0m         let model = store.tree(Sample.fileTree)
+[0;36m125 |[0;0m         store.apply(.fsList(FsList(tree: Sample.fileTree, dir: "", entries: Sample.listings[""]!)))
+    [0;36m|[0;0m               `- [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m126 |[0;0m         let shown = model.rows.count
+[0;36m127 |[0;0m         store.filter.hideIgnored = false
+
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Tests/StoresTests/FilesStoreTests.swift:196:15: [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m194 |[0;0m         let code = store.preview(tree: Sample.fileTree, path: "src/explorer.rs")
+[0;36m195 |[0;0m         let image = store.preview(tree: Sample.fileTree, path: "docs/logo.png")
+[0;36m196 |[0;0m         store.apply(.fsRead(Sample.fileRead("src/explorer.rs")))
+    [0;36m|[0;0m               `- [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m197 |[0;0m         store.apply(.fsRead(Sample.fileRead("docs/logo.png")))
+[0;36m198 |[0;0m         store.apply(.gitChanged(GitChanged(tree: Sample.fileTree, rev: "r2")))
+
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Tests/StoresTests/FilesStoreTests.swift:197:15: [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m195 |[0;0m         let image = store.preview(tree: Sample.fileTree, path: "docs/logo.png")
+[0;36m196 |[0;0m         store.apply(.fsRead(Sample.fileRead("src/explorer.rs")))
+[0;36m197 |[0;0m         store.apply(.fsRead(Sample.fileRead("docs/logo.png")))
+    [0;36m|[0;0m               `- [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m198 |[0;0m         store.apply(.gitChanged(GitChanged(tree: Sample.fileTree, rev: "r2")))
+[0;36m199 |[0;0m         // With no connection the read fails, which shows it was asked for.
+
+$TMPDIR/main-check/packages/ios/Packages/AnywhereKit/Tests/StoresTests/FilesStoreTests.swift:198:15: [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m196 |[0;0m         store.apply(.fsRead(Sample.fileRead("src/explorer.rs")))
+[0;36m197 |[0;0m         store.apply(.fsRead(Sample.fileRead("docs/logo.png")))
+[0;36m198 |[0;0m         store.apply(.gitChanged(GitChanged(tree: Sample.fileTree, rev: "r2")))
+    [0;36m|[0;0m               `- [1;33mwarning: [1;39mresult of call to 'apply' is unused[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m199 |[0;0m         // With no connection the read fails, which shows it was asked for.
+[0;36m200 |[0;0m         try await waitFor { code.notice != nil }
+
+[#NoUsage]: <https://docs.swift.org/compiler/documentation/diagnostics/no-usage>
+[1718 / 1815] FeatureFilesTests-product
+[1725 / 1815] FeatureChat-product
+[1728 / 1815]
+[1732 / 1816] FeatureChatTests-product
+[1734 / 1816] FeatureChat-product
+[1737 / 1816] BenchScenes-product
+[1738 / 1816] FeatureTerminalTests-product
+[1740 / 1816]
+[1745 / 1816] FeatureChatTests-product
+[1747 / 1819] FeatureChatTests-product
+[1747 / 1819] StoresTests-product
+[1749 / 1819] FeatureChatTests-product
+[1758 / 1820] anywhere-bench-product
+[1760 / 1820]
+[1765 / 1820] anywhere-gallery-product
+[1766 / 1820] FeatureGitTests-product
+[1768 / 1820] AppShellTests-product
+[1771 / 1823] AppShellTests-product
+[1778 / 1823] AppShellTests-product
+[1781 / 1823] FeatureFilesTests-product
+[1785 / 1823] StoresTests-product
+[1787 / 1823] FeatureFilesTests-product
+[1789 / 1823] FeatureChatTests-product
+[1791 / 1823] FeatureChatTests-product
+[1795 / 1823] StoresTests-product
+[1797 / 1823] FeatureFilesTests-product
+[1799 / 1823] FeatureSessionsTests-product
+[1801 / 1823] FeatureGitHubTests-product
+[1803 / 1823] FeatureSessionsTests-product
+[1807 / 1823] FeatureSessionsTests-product
+[1809 / 1823] FeatureGitHubTests-product
+[1810 / 1823]
+[1811 / 1823] FeatureGitHubTests-product
+[1813 / 1823] AppShellTests-product
+[1815 / 1823] CodeViewTests-product
+[1817 / 1823] CodeViewTests-product
+[1819 / 1823] AppShellTests-product
+[1821 / 1823] AppShellTests-product
+Build complete! (129,41 secs)
+◇ Test run started.
+↳ Testing Library Version: 2403
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite "Server messages" started.
+◇ Suite "Terminal frames" started.
+◇ Suite "Client messages" started.
+◇ Suite "Golden frames" started.
+◇ Test "a reply carries the id of the request it answers, a push carries none" started.
+◇ Test "a message type from a newer pocketd decodes as unknown instead of failing" started.
+◇ Test "a frame without a type, or that isn't an object, is rejected" started.
+◇ Test "launch progress isn't the end of a request, its created reply is" started.
+◇ Test "a known message missing a required field is rejected" started.
+◇ Test "a timeline item or tool of a kind this build doesn't know keeps the rest of the timeline" started.
+◇ Test "an agent that never asks before a tool says so, and one that asks says nothing" started.
+◇ Test "a hello.ok from a Mac whose newest protocol is older than the phone's is too old" started.
+◇ Test "a diff names what it compares" started.
+◇ Test "a snapshot can be empty and still names its terminal" started.
+◇ Test "a frame gives its kind, terminal id and payload" started.
+◇ Test "an id may hold any printable ASCII, space included, as pocketd allows" started.
+◇ Test "a slice of a larger buffer parses the same" started.
+◇ Test "short frames, unknown kinds and bad ids are rejected" started.
+◇ Test "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test "every client golden decodes and encodes back to the same JSON" started.
+◇ Test "a frame encodes to the bytes it parses from" started.
+◇ Test "an agent status a newer pocketd adds still decodes" started.
+◇ Test "an other tool keeps its input as any JSON" started.
+◇ Test "optional fields are left out, never sent as null" started.
+◇ Test "the phone's hello asks for every cap it speaks and the protocol range" started.
+◇ Test "the golden folders are there to read" started.
+◇ Test "a local id is 1 to 64 letters, digits, underscores and dashes" started.
+◇ Test "a client frame without an id or with an unknown type is rejected" started.
+◇ Test "a verb without fields encodes as just its type and id" started.
+◇ Test "terminal input and attachments travel as base64" started.
+◇ Test case passing 1 argument name → "account_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "ack.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_btw.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_commands.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_created.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "account_list.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "account_list_all.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_creating.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_access.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_list_push.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_list_restored.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_account.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_mcp.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_mcp_auth.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_btw.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_close.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_commands.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_progress.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_compact.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_account.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_auto_name.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_providers.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_branch.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_remote_control.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_chat.json" to "every client golden decodes and encodes back to the same JSON" started.
+✘ Test "every server golden decodes to a known message and encodes back to the same JSON" recorded an issue with 1 argument name → "agent_remote_control.json" at GoldenTests.swift:40:25: Issue recorded
+↳ agent_remote_control.json: unknown type agent.remote_control
+✘ Test "every server golden decodes to a known message and encodes back to the same JSON" recorded an issue with 1 argument name → "agent_remote_control.json" at GoldenTests.swift:42:9: Expectation failed: try Golden.json(frame.encoded()) == Golden.json(data)
+↳ agent_remote_control.json
+↳ try Golden.json(frame.encoded()) == Golden.json(data) → <not evaluated>
+◇ Test case passing 1 argument name → "agent_remote_control_off.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_fork.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_local.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_new.json" to "every client golden decodes and encodes back to the same JSON" started.
+✘ Test "every server golden decodes to a known message and encodes back to the same JSON" recorded an issue with 1 argument name → "agent_remote_control_off.json" at GoldenTests.swift:40:25: Issue recorded
+↳ agent_remote_control_off.json: unknown type agent.remote_control
+✘ Test "every server golden decodes to a known message and encodes back to the same JSON" recorded an issue with 1 argument name → "agent_remote_control_off.json" at GoldenTests.swift:42:9: Expectation failed: try Golden.json(frame.encoded()) == Golden.json(data)
+↳ agent_remote_control_off.json
+↳ try Golden.json(frame.encoded()) == Golden.json(data) → <not evaluated>
+◇ Test case passing 1 argument name → "agent_create_options.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_account.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_pr.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_activity.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_settings.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_worktree.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_create_worktree_auto_name.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_chat_only.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_interrupt.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_list.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_compacting.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_mcp.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_mcp_auth.json" to "every client golden decodes and encodes back to the same JSON" started.
+✘ Test "every client golden decodes and encodes back to the same JSON" recorded an issue with 1 argument name → "agent_create_worktree_auto_name.json" at GoldenTests.swift:49:9: Expectation failed: try Golden.json(frame.encoded()) == Golden.json(data)
+↳ agent_create_worktree_auto_name.json
+↳ try Golden.json(frame.encoded()) == Golden.json(data) → <not evaluated>
+◇ Test case passing 1 argument name → "agent_update_goal.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_failed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_pin.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_model.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_options.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_prompt.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_pinned.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_resets.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_providers.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_restore_cleared.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_remote_control.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_seen.json" to "every client golden decodes and encodes back to the same JSON" started.
+✘ Test "every client golden decodes and encodes back to the same JSON" recorded an issue with 1 argument name → "agent_remote_control.json" at GoldenTests.swift:45:6: Caught error: DecodingError.dataCorrupted: Data was corrupted. Debug description: unknown message type agent.remote_control
+◇ Test case passing 1 argument name → "agent_send_now.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_update_switching.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_settings.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_settings_options.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "attach_done.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_timeline.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "automations.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_timeline_before.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_view.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "agent_view_front.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "attach_put.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "board.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "automation_delete.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "branch_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+✘ Test "every server golden decodes to a known message and encodes back to the same JSON" recorded an issue with 1 argument name → "board.json" at GoldenTests.swift:40:25: Issue recorded
+↳ board.json: unknown type board
+◇ Test case passing 1 argument name → "branch_list_detached.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "automation_enable.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "automation_run.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_agent_resuming.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "automation_save.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_coded.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "automation_save_interval.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_detail.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "branch_list.json" to "every client golden decodes and encodes back to the same JSON" started.
+✘ Test "every server golden decodes to a known message and encodes back to the same JSON" recorded an issue with 1 argument name → "board.json" at GoldenTests.swift:42:9: Expectation failed: try Golden.json(frame.encoded()) == Golden.json(data)
+↳ board.json
+↳ try Golden.json(frame.encoded()) == Golden.json(data) → <not evaluated>
+◇ Test case passing 1 argument name → "config_set.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_gh_missing.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "config_set_relay.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_git_failed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_not_a_tree.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_not_implemented.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "config_set_terminals.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_scope_denied.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_terminal_ended.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_list.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_terminals_off.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_unknown_ref.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "error_unpushed_commits.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_read.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_read_image.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_read_text.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_search.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_changed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_create.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_read_too_large.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_merge.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "fs_search.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_ready.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_created.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_failed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_no_remote.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_prs.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_none.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_status.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_problem.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_thread_reply.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_pr_stale.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_thread_resolve.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_prs.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_commit.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_prs_problem.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_commit_create.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_status.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_compare.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "gh_status_missing.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_diff.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_changed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_diff_base.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_commit.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+✔ Test "a hello.ok from a Mac whose newest protocol is older than the phone's is too old" passed after 0.016 seconds.
+◇ Test case passing 1 argument name → "git_diff_commit.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_committed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_compare.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_discard.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_diff.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_diff_binary.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_log.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_log.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_pull.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_status.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_push.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_status_detached.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "hello_ok.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_stage.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "hello_ok_host.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "hello_ok_scopes.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "hello_ok_version.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "host_changed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_status.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "local_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "local_list_empty.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_watch.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "naming_failed.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "git_watch_stop.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "pair_done.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "pair_offer.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "hello.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "pair_ok.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "hello_caps.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "hello_no_token.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "permission_request.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "local_create.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "permission_resolved.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "local_delete.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "project_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "local_rename.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "project_list_push.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "pair.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "skills_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "pair_begin.json" to "every client golden decodes and encodes back to the same JSON" started.
+✔ Test "a snapshot can be empty and still names its terminal" passed after 0.019 seconds.
+◇ Test case passing 1 argument name → "permission_resolve.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_compact.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_notice.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_notice_error.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_result.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_subagent.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_tasks.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+✔ Test "a frame gives its kind, terminal id and payload" passed after 0.020 seconds.
+◇ Test case passing 1 argument name → "stream_tool_described.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_tool_done.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "permission_resolve_answers.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_tool_other.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "permission_resolve_feedback.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_tool_running.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "permission_resolve_option.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "stream_user.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+✔ Test "a slice of a larger buffer parses the same" passed after 0.021 seconds.
+◇ Test case passing 1 argument name → "project_list.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_attached.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "push_activity.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_created.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "push_activity_ended.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_exited.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "push_prefs.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_list.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "push_register.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_list_push.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "push_test.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_resized.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "timeline.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "push_unregister.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "timeline_subagents.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "skills_list.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_created.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_names.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "skills_list_account.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_progress.json" to "every server golden decodes to a known message and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_attach.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_close.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_create.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_create_local.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_detach.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_input.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_list.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "terminal_resize.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_create.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_create_branch.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_create_pr.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_delete.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_delete_force.json" to "every client golden decodes and encodes back to the same JSON" started.
+◇ Test case passing 1 argument name → "worktree_rename.json" to "every client golden decodes and encodes back to the same JSON" started.
+✔ Test "an id may hold any printable ASCII, space included, as pocketd allows" passed after 0.023 seconds.
+✔ Test "short frames, unknown kinds and bad ids are rejected" passed after 0.023 seconds.
+✔ Test "a message type from a newer pocketd decodes as unknown instead of failing" passed after 0.023 seconds.
+✔ Test "a reply carries the id of the request it answers, a push carries none" passed after 0.023 seconds.
+✔ Test "a frame encodes to the bytes it parses from" passed after 0.023 seconds.
+✔ Test "launch progress isn't the end of a request, its created reply is" passed after 0.023 seconds.
+✔ Test "an agent status a newer pocketd adds still decodes" passed after 0.023 seconds.
+✔ Test "optional fields are left out, never sent as null" passed after 0.023 seconds.
+✔ Test "a timeline item or tool of a kind this build doesn't know keeps the rest of the timeline" passed after 0.023 seconds.
+✔ Test "an agent that never asks before a tool says so, and one that asks says nothing" passed after 0.023 seconds.
+✔ Test "an other tool keeps its input as any JSON" passed after 0.023 seconds.
+✔ Test "a local id is 1 to 64 letters, digits, underscores and dashes" passed after 0.023 seconds.
+✔ Test "a verb without fields encodes as just its type and id" passed after 0.023 seconds.
+✔ Test "a diff names what it compares" passed after 0.024 seconds.
+✔ Test "a client frame without an id or with an unknown type is rejected" passed after 0.023 seconds.
+✔ Test "the phone's hello asks for every cap it speaks and the protocol range" passed after 0.023 seconds.
+✔ Test "terminal input and attachments travel as base64" passed after 0.023 seconds.
+✔ Test "the golden folders are there to read" passed after 0.023 seconds.
+✔ Test "a known message missing a required field is rejected" passed after 0.024 seconds.
+✔ Test "a frame without a type, or that isn't an object, is rejected" passed after 0.024 seconds.
+✔ Suite "Terminal frames" passed after 0.024 seconds.
+✔ Suite "Client messages" passed after 0.024 seconds.
+✔ Suite "Server messages" passed after 0.024 seconds.
+✘ Test "every client golden decodes and encodes back to the same JSON" with 106 test cases failed after 0.024 seconds with 2 issues.
+✘ Test "every server golden decodes to a known message and encodes back to the same JSON" with 110 test cases failed after 0.024 seconds with 6 issues.
+✘ Suite "Golden frames" failed after 0.025 seconds with 8 issues.
+✘ Test run with 26 tests in 4 suites failed after 0.025 seconds with 8 issues.
+Note: Some test targets reported failures:
+  - WireTests (Swift Testing)
+exit 1
