@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.46
+
+- Settings picks a theme from eight presets or an imported file (#271): (528f97a6)
+- The sidebar keeps room for a project's + and ⋯, and collapses when dragged too narrow (#269): (bb6a1abe)
+- The PR card groups its checks, review and merge, and long threads fold (#270): (3e0c248a)
+- Sessions under a project drag to a new order in the sidebar (#267): (b58d9c06)
+
 ## 0.1.45
 
 - The chat's account chip hides the account email until clicked (#266): (ef450102)
