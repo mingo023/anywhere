@@ -365,7 +365,7 @@ func delegateTask(ctx context.Context, c *Call) (any, error) {
 		return latest.Terminal() || latest.PendingQuestion != ""
 	})
 	v := viewTask(latest)
-	v.Warnings = warnings
+	v.Warnings = append(warnings, unreachable(c, latest)...)
 	v.WaitTimedOut = !done
 	if latest.Terminal() {
 		e.Dispatch(orch.NewCommand("", orch.CmdDelegateWaited, c.Caller.ID, orch.TaskPayload{TaskID: t.TaskID}))
@@ -373,6 +373,20 @@ func delegateTask(ctx context.Context, c *Call) (any, error) {
 		v.Next = RunningNext
 	}
 	return v, nil
+}
+
+// unreachable warns that a running task's host isn't online, which a task there waits through.
+func unreachable(c *Call, t orch.Delegation) []string {
+	envs := c.Host.Environments()
+	if t.Environment == "" || t.Terminal() || envs == nil {
+		return nil
+	}
+	for _, e := range envs.List() {
+		if e.ID == t.Environment && e.State != "online" {
+			return []string{"Host " + cmp.Or(e.Label, e.ID) + " is unreachable; the task keeps waiting."}
+		}
+	}
+	return nil
 }
 
 func taskStatus(ctx context.Context, c *Call) (any, error) {
@@ -405,7 +419,9 @@ func taskStatus(ctx context.Context, c *Call) (any, error) {
 		if !descends(c, t.ParentID) {
 			return nil, fail(orch.CodeForbidden, "Task "+id+" wasn't delegated from this session or one under it")
 		}
-		out = append(out, viewTask(t))
+		v := viewTask(t)
+		v.Warnings = unreachable(c, t)
+		out = append(out, v)
 	}
 	return map[string]any{"tasks": out}, nil
 }

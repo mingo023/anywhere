@@ -513,3 +513,28 @@ func TestAWebhookOnlyTaskGetsTheWebhookScheduleAndIsListedWithItsURLButNotItsSec
 		t.Fatalf("listed: %s", raw)
 	}
 }
+
+// projectEnvironments has the caller's project on every host.
+type projectEnvironments struct{ fakeEnvironments }
+
+func (*projectEnvironments) Projects(context.Context, string) ([]proto.Project, error) {
+	return []proto.Project{{Name: "repo", Path: "/repo"}}, nil
+}
+
+func TestTaskStatusSaysARunningTasksHostIsUnreachable(t *testing.T) {
+	f := newFixture(t)
+	envs := &projectEnvironments{fakeEnvironments{list: []Environment{{ID: "devbox", Label: "Dev Box", State: "online"}}}}
+	f.host.envs = envs
+	task := f.ok(t, "delegate_task", `{"task":"x","target":{"environmentId":"devbox"}}`)["taskId"].(string)
+	warnings := func() []any {
+		w, _ := f.ok(t, "task_status", fmt.Sprintf(`{"taskId":%q}`, task))["tasks"].([]any)[0].(map[string]any)["warnings"].([]any)
+		return w
+	}
+	if w := warnings(); len(w) != 0 {
+		t.Fatalf("online: %v", w)
+	}
+	envs.list[0].State = "retrying"
+	if w := warnings(); len(w) != 1 || w[0] != "Host Dev Box is unreachable; the task keeps waiting." {
+		t.Fatalf("retrying: %v", w)
+	}
+}
