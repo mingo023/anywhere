@@ -2,6 +2,8 @@ package wsserver
 
 import (
 	"context"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,6 +201,31 @@ func TestAgentSendNowHasTheAgentSendWhatItHoldsOrSaysItCant(t *testing.T) {
 		p.send(`{"type":"agent.send_now","id":"x","agentId":"a1"}`)
 		if m := p.recv(); m["message"] != "This agent takes a message only after its current step" || m["id"] != "x" {
 			t.Fatalf("%v", m)
+		}
+	})
+}
+
+func TestAgentSettingsSwitchesTheModelAndAccessAndRefusesWhatTheAgentCant(t *testing.T) {
+	eachWay(t, func(t *testing.T, opts ...func(*Server)) {
+		_, d, p := setup(t, opts...)
+		p.hello()
+		p.send(`{"type":"agent.settings","id":"s","agentId":"a1","model":"opus","effort":"high","access":"full"}`)
+		if m := p.recv(); m["type"] != "ack" || m["id"] != "s" {
+			t.Fatalf("%v", m)
+		}
+		if !reflect.DeepEqual(d.settings, [][2]string{{"opus", "high"}}) || !reflect.DeepEqual(d.accesses, []string{"full"}) {
+			t.Fatalf("settings %v, accesses %v", d.settings, d.accesses)
+		}
+		p.send(`{"type":"agent.settings","id":"o","agentId":"a1","options":{"fast":"true"},"access":"ask"}`)
+		if m := p.recv(); m["message"] != "This agent takes its model's settings only as it starts" || m["id"] != "o" {
+			t.Fatalf("%v", m)
+		}
+		p.send(`{"type":"agent.settings","id":"b","agentId":"a1","model":"-bad"}`)
+		if m := p.recv(); m["id"] != "b" || !strings.HasPrefix(m["message"].(string), "Model names use") {
+			t.Fatalf("%v", m)
+		}
+		if len(d.accesses) != 1 || len(d.settings) != 1 {
+			t.Fatalf("a refused switch reached the driver: settings %v, accesses %v", d.settings, d.accesses)
 		}
 	})
 }

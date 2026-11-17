@@ -3,6 +3,7 @@ package orchhost
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,5 +172,52 @@ func TestAContextBlockComesBeforeThePromptASessionStartsWith(t *testing.T) {
 	}
 	if got := firstPrompt("", "just this"); got != "just this" {
 		t.Errorf("no context = %q", got)
+	}
+}
+
+type switching struct {
+	agent.Driver
+	calls  []string
+	refuse string
+}
+
+func (d *switching) Settings(model, effort string) error {
+	d.calls = append(d.calls, "settings "+model+" "+effort)
+	return nil
+}
+
+func (d *switching) SetOptions(o map[string]string) error {
+	d.calls = append(d.calls, "options "+o["fast"])
+	if d.refuse == "options" {
+		return errors.New("no options now")
+	}
+	return nil
+}
+
+func (d *switching) Access(access string) error {
+	d.calls = append(d.calls, "access "+access)
+	return nil
+}
+
+func TestSettingsSwitchTheModelThenItsOptionsThenTheAccessAndStopAtTheFirstRefusal(t *testing.T) {
+	reg := agent.NewRegistry(hub.New())
+	d := &switching{}
+	reg.Add("s1", "/r", "claude", d)
+	h := &Host{Registry: reg}
+	run(t, h, "s1", orch.EffSettings, orch.SettingsPayload{Model: "opus", Effort: "high", Options: map[string]string{"fast": "true"}, Access: "full"})
+	if want := []string{"settings opus high", "options true", "access full"}; strings.Join(d.calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("calls = %q, want %q", d.calls, want)
+	}
+	d.calls, d.refuse = nil, "options"
+	b, _ := json.Marshal(orch.SettingsPayload{Options: map[string]string{"fast": "true"}, Access: "ask"})
+	if _, err := h.Run(context.Background(), orch.Effect{Lane: "s1", Kind: orch.EffSettings, Payload: b}); err == nil || err.Error() != "no options now" {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Join(d.calls, ",") != "options true" {
+		t.Fatalf("calls after a refusal = %q", d.calls)
+	}
+	b, _ = json.Marshal(orch.SettingsPayload{Model: "-bad"})
+	if _, err := h.Run(context.Background(), orch.Effect{Lane: "s1", Kind: orch.EffSettings, Payload: b}); err == nil || !strings.HasPrefix(err.Error(), "Model names use") {
+		t.Fatalf("a bad model: %v", err)
 	}
 }

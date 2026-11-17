@@ -427,18 +427,6 @@ func (c *conn) notImplemented(m proto.ClientMessage) error {
 	return nil
 }
 
-// setOptions switches the model settings of an agent whose driver takes them.
-func setOptions(d agent.Driver, options map[string]string) error {
-	if err := launch.ValidOptions(options); err != nil {
-		return err
-	}
-	o, ok := d.(agent.Optioner)
-	if !ok {
-		return errors.New("This agent takes its model's settings only as it starts")
-	}
-	return o.SetOptions(options)
-}
-
 func errorReply(id string, err error) proto.Error {
 	if errors.Is(err, agent.ErrResuming) {
 		return proto.NewErrorCode(id, proto.CodeAgentResuming, err.Error())
@@ -689,18 +677,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.compact":
 		err = a.Driver().Compact()
 	case "agent.settings":
-		if m.Model != "" || m.Effort != "" {
-			err = launch.ValidSwitch(a.Provider(), m.Model, m.Effort)
-			if err == nil {
-				err = a.Driver().Settings(m.Model, m.Effort)
-			}
-		}
-		if err == nil && len(m.Options) > 0 {
-			err = setOptions(a.Driver(), m.Options)
-		}
-		if err == nil && m.Access != "" {
-			err = a.Driver().Access(m.Access)
-		}
+		err = launch.Switch(a, m.Model, m.Effort, m.Options, m.Access)
 	case "agent.commands":
 		// Claude takes a while to list them; the conn's other messages don't wait.
 		go func() {

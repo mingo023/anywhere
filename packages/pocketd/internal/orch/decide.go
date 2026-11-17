@@ -151,6 +151,13 @@ type (
 		Effort  string            `json:"effort,omitempty"`
 		Options map[string]string `json:"options,omitempty"`
 	}
+	// SettingsPayload is the user's own switch from a client; unlike session.configure, it sets the access too.
+	SettingsPayload struct {
+		Model   string            `json:"model,omitempty"`
+		Effort  string            `json:"effort,omitempty"`
+		Options map[string]string `json:"options,omitempty"`
+		Access  string            `json:"access,omitempty"`
+	}
 	TitlePayload struct {
 		Title string `json:"title,omitempty"`
 	}
@@ -306,6 +313,11 @@ func decide(st State, cmd Command) (Decision, error) {
 			return Decision{}, refuse(CodeUnsupported, "A session stays one agent. Fork it with anywhere_thread_transfer to continue on "+p.Agent)
 		}
 		return Decision{Effects: []Effect{effect(cmd.Session, EffConfigure, p)}}, nil
+	case CmdSessionSettings:
+		if err := live(st); err != nil {
+			return Decision{}, err
+		}
+		return Decision{Effects: []Effect{{Lane: cmd.Session, Kind: EffSettings, Payload: cmd.Payload}}}, nil
 	case CmdSessionOrganize:
 		var p OrganizePayload
 		if err := decode(cmd, &p); err != nil {

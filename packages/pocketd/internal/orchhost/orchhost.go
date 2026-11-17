@@ -146,6 +146,10 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 			return nil, o.SetOptions(p.Options)
 		}
 		return nil, nil
+	case orch.EffSettings:
+		var p orch.SettingsPayload
+		json.Unmarshal(e.Payload, &p)
+		return nil, launch.Switch(a, p.Model, p.Effort, p.Options, p.Access)
 	case orch.EffPin:
 		var p struct {
 			Pinned bool `json:"pinned"`

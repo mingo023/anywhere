@@ -99,6 +99,24 @@ func TestSessionConfigureTakesModelAndEffortButNotAnotherAgent(t *testing.T) {
 	}
 }
 
+func TestSessionSettingsTakesTheAccessTooOnALiveSessionOnly(t *testing.T) {
+	d, err := decide(parentState("idle", 0), NewCommand("c", CmdSessionSettings, "p", SettingsPayload{Model: "opus", Access: "full"}))
+	if err != nil || len(d.Effects) != 1 || d.Effects[0].Kind != EffSettings || d.Effects[0].Lane != "p" {
+		t.Fatalf("settings = %+v, %v", d, err)
+	}
+	var p SettingsPayload
+	json.Unmarshal(d.Effects[0].Payload, &p)
+	if p.Model != "opus" || p.Access != "full" {
+		t.Errorf("payload = %+v", p)
+	}
+	if _, err := decide(State{}, NewCommand("c", CmdSessionSettings, "nope", SettingsPayload{Access: "full"})); err == nil || AsFailure(err).Code != CodeNotFound {
+		t.Errorf("unknown session: %v, want not_found", err)
+	}
+	if _, err := decide(closedState(), NewCommand("c", CmdSessionSettings, "p", SettingsPayload{Access: "full"})); err == nil || AsFailure(err).Code != CodeConflict {
+		t.Errorf("closed session: %v, want conflict", err)
+	}
+}
+
 func TestTurnInterruptRunsTheInterruptEffectOnALiveSessionOnly(t *testing.T) {
 	d, err := decide(parentState("working", 0), NewCommand("c", CmdTurnInterrupt, "p", nil))
 	if err != nil || len(d.Effects) != 1 || d.Effects[0].Kind != EffInterrupt || d.Effects[0].Lane != "p" {

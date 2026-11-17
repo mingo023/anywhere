@@ -140,6 +140,10 @@ func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 	case "agent.send_now":
 		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdTurnSendNow, Session: m.AgentID}, promptWait)
 		return true, failureReply(err)
+	case "agent.settings":
+		p := orch.SettingsPayload{Model: m.Model, Effort: m.Effort, Options: m.Options, Access: m.Access}
+		_, err := e.DispatchWait(orch.NewCommand("", orch.CmdSessionSettings, m.AgentID, p), promptWait)
+		return true, failureReply(err)
 	case "agent.close":
 		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionClose, Session: m.AgentID}, promptWait)
 		return true, failureReply(err)
