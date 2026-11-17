@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.47
+
+- A chat delegates work to other sessions through a pocketd orchestrator over MCP (#268): (5f85116e)
+
 ## 0.1.46
 
 - Settings picks a theme from eight presets or an imported file (#271): (528f97a6)
