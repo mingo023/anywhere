@@ -1,7 +1,7 @@
 use gpui_kit::component::highlighter::HighlightTheme;
 use gpui_kit::*;
 use std::borrow::Cow;
-use std::sync::{Arc, OnceLock, RwLock, atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering}};
+use std::sync::{Arc, OnceLock, RwLock, atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}};
 
 pub const SANS: &str = ".SystemUIFont";
 pub const MONO: &str = "Geist Mono";
@@ -13,6 +13,9 @@ pub const MENU_IN: std::time::Duration = std::time::Duration::from_millis(150);
 pub const SPRING: SpringConfig = SpringConfig::new(900., 60., 1.);
 
 pub mod contrast;
+mod themes;
+
+pub use themes::{GRAPHITE_DARK, GRAPHITE_LIGHT, Preset, Theme, presets};
 
 static DARK: AtomicBool = AtomicBool::new(false);
 static BLUE_ORANGE: AtomicBool = AtomicBool::new(false);
@@ -20,8 +23,12 @@ static SYNTAX: AtomicUsize = AtomicUsize::new(0);
 /// The user's added and removed colours as `0xRRGGBBff`; 0 keeps the theme's.
 static ADDED: AtomicU32 = AtomicU32::new(0);
 static REMOVED: AtomicU32 = AtomicU32::new(0);
-/// The user's accent as `0xRRGGBBff`; 0 is Graphite.
+/// The user's accent as `0xRRGGBBff`; 0 leaves the theme's.
 static ACCENT_RGB: AtomicU32 = AtomicU32::new(0);
+/// The active theme's accent as `0xRRGGBBff`; 0 for none.
+static THEME_ACCENT: AtomicU32 = AtomicU32::new(0);
+/// The active theme's colour for each of `KEYS`, as `1 << 32 | rgba`; 0 leaves the token its own.
+static THEMED: [AtomicU64; KEYS.len()] = [const { AtomicU64::new(0) }; KEYS.len()];
 /// The dark window's alpha, out of 0xff.
 static GLASS_ALPHA: AtomicU32 = AtomicU32::new(WINDOW.pick(true) & 0xff);
 /// The interface and code fonts the user picked; `None` is `SANS` and `MONO`.
@@ -53,10 +60,15 @@ pub fn set_diff_colors(added: Option<u32>, removed: Option<u32>) {
     REMOVED.store(opaque(removed), Ordering::Relaxed);
 }
 
-/// Paints selection, focus rings and primary buttons in this `0xRRGGBB` colour; `None`, or anything past `0xffffff`, is Graphite.
+/// Paints selection, focus rings and primary buttons in this `0xRRGGBB` colour; `None`, or anything past `0xffffff`, leaves them to the theme.
 pub fn set_accent(rgb: Option<u32>, cx: &mut App) {
     ACCENT_RGB.store(accent_rgba(rgb), Ordering::Relaxed);
-    set_appearance(if is_dark() { WindowAppearance::Dark } else { WindowAppearance::Light }, cx);
+    sync_kit(cx);
+}
+
+/// The active theme's accent as `0xRRGGBB`.
+pub fn theme_accent() -> Option<u32> {
+    Some(THEME_ACCENT.load(Ordering::Relaxed)).filter(|accent| *accent != 0).map(|accent| accent >> 8)
 }
 
 fn accent_rgba(rgb: Option<u32>) -> u32 {
@@ -88,11 +100,38 @@ enum Accent {
     On,
 }
 
+/// What decides a token's colour besides the token: the appearance and the user's settings.
+#[derive(Clone, Copy, Default)]
+struct Look {
+    dark: bool,
+    blue_orange: bool,
+    /// The user's added and removed colours as `0xRRGGBBff`; 0 for none.
+    diff: (u32, u32),
+    /// The user's accent, else the theme's, as `0xRRGGBBff`; 0 for none.
+    accent: u32,
+}
+
+impl Look {
+    fn now() -> Self {
+        Self {
+            dark: is_dark(),
+            blue_orange: BLUE_ORANGE.load(Ordering::Relaxed),
+            diff: (ADDED.load(Ordering::Relaxed), REMOVED.load(Ordering::Relaxed)),
+            accent: match ACCENT_RGB.load(Ordering::Relaxed) {
+                0 => THEME_ACCENT.load(Ordering::Relaxed),
+                accent => accent,
+            },
+        }
+    }
+}
+
 /// A colour with a value per appearance, resolved when painted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Token {
     light: u32,
     dark: u32,
+    /// Its place in `KEYS`, if a theme can set it.
+    slot: Option<u8>,
     /// A diff colour's light and dark values when diffs are blue and orange.
     blue_orange: Option<(u32, u32)>,
     /// Whether it's an added (`true`) or removed line's colour, and its alpha when the user picked that colour.
@@ -102,7 +141,12 @@ pub struct Token {
 
 impl Token {
     pub const fn new(light: u32, dark: u32) -> Self {
-        Self { light, dark, blue_orange: None, diff: None, accent: None }
+        Self { light, dark, slot: None, blue_orange: None, diff: None, accent: None }
+    }
+
+    const fn slot(mut self, slot: u8) -> Self {
+        self.slot = Some(slot);
+        self
     }
 
     const fn or_blue_orange(mut self, light: u32, dark: u32) -> Self {
@@ -129,25 +173,46 @@ impl Token {
         }
     }
 
-    /// The colour painted, given the user's added and removed colours (`0xRRGGBBff`, 0 for none).
-    fn paint(self, dark: bool, blue_orange: bool, (added, removed): (u32, u32)) -> u32 {
-        match self.diff.map(|(a, alpha)| (if a { added } else { removed }, alpha)) {
+    /// The colour painted: the accent's, else the user's diff colour, else blue and orange's, else the theme's (`themed`), else its own.
+    fn paint(self, look: Look, themed: Option<u32>) -> u32 {
+        if let Some(accented) = self.accented(look.accent) {
+            return accented;
+        }
+        match self.diff.map(|(added, alpha)| (if added { look.diff.0 } else { look.diff.1 }, alpha)) {
             Some((custom, alpha)) if custom != 0 => (custom & 0xffffff00) | alpha as u32,
-            _ => self.pick_with(dark, blue_orange),
+            _ => match self.blue_orange {
+                Some((light, night)) if look.blue_orange => {
+                    if look.dark {
+                        night
+                    } else {
+                        light
+                    }
+                }
+                _ => themed.unwrap_or(self.pick(look.dark)),
+            },
         }
     }
 
+    /// The active theme's colour for this token, when the theme is of this appearance and sets it.
+    fn themed(self, dark: bool) -> Option<u32> {
+        let themed = THEMED[self.slot? as usize].load(Ordering::Relaxed);
+        (themed != 0 && dark == is_dark()).then_some(themed as u32)
+    }
+
+    /// The colour painted now, as `0xRRGGBBAA`.
+    pub fn rgba(self) -> u32 {
+        let look = Look::now();
+        self.paint(look, self.themed(look.dark))
+    }
+
+    /// The theme's colour in this appearance, ignoring the user's accent and diff colours.
+    pub fn resolve(self, dark: bool) -> u32 {
+        self.pick_with(dark, false)
+    }
+
+    /// `resolve`, or blue and orange's colour for a diff token when `blue_orange`.
     pub fn pick_with(self, dark: bool, blue_orange: bool) -> u32 {
-        match self.blue_orange {
-            Some((light, night)) if blue_orange => {
-                if dark {
-                    night
-                } else {
-                    light
-                }
-            }
-            _ => self.pick(dark),
-        }
+        self.paint(Look { dark, blue_orange, ..Look::default() }, self.themed(dark))
     }
 
     pub const fn fixed(c: u32) -> Self {
@@ -161,8 +226,7 @@ impl Token {
 
 impl From<Token> for Hsla {
     fn from(t: Token) -> Self {
-        let painted = t.accented(ACCENT_RGB.load(Ordering::Relaxed)).unwrap_or_else(|| t.paint(is_dark(), BLUE_ORANGE.load(Ordering::Relaxed), (ADDED.load(Ordering::Relaxed), REMOVED.load(Ordering::Relaxed))));
-        rgba(painted).into()
+        rgba(t.rgba()).into()
     }
 }
 
@@ -172,21 +236,151 @@ impl From<Token> for Fill {
     }
 }
 
-pub const TEXT: Token = Token::new(0x111113ff, 0xebebebff);
-pub const TEXT_BODY: Token = Token::new(0x3f3f46ff, 0xbcbcbcff);
-pub const TEXT_2: Token = Token::new(0x6f6f78ff, 0xa1a1a1ff);
-pub const TEXT_3: Token = Token::new(0x8b8b94ff, 0x818181ff);
-pub const TEXT_4: Token = Token::new(0xa1a1aaff, 0x6c6c6cff);
-pub const TEXT_5: Token = Token::new(0xb4b4bcff, 0x616161ff);
-pub const TEXT_6: Token = Token::new(0xd4d4d8ff, 0x414141ff);
-/// The band of light crossing a working label.
-pub const SHIMMER: Token = Token::new(0xd4d4d8ff, 0xffffffff);
+/// Declares the colours a theme can set: each a `Token` that paints the active theme's colour where the theme has one,
+/// with `KEYS` naming them as a theme file does.
+macro_rules! themed {
+    ($($(#[$doc:meta])* $vis:vis $name:ident $key:literal = $init:expr;)*) => {
+        #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+        enum Slot { $($name),* }
+        $($(#[$doc])* $vis const $name: Token = $init.slot(Slot::$name as u8);)*
+        /// Every colour a theme can set, by its name in a theme file. The names are a file format: renaming one breaks users' themes.
+        pub const KEYS: &[(&str, Token)] = &[$(($key, $name)),*];
+    };
+}
+
+themed! {
+    pub TEXT "text" = Token::new(0x111113ff, 0xebebebff);
+    pub TEXT_BODY "text.body" = Token::new(0x3f3f46ff, 0xbcbcbcff);
+    pub TEXT_2 "text.2" = Token::new(0x6f6f78ff, 0xa1a1a1ff);
+    pub TEXT_3 "text.3" = Token::new(0x8b8b94ff, 0x818181ff);
+    pub TEXT_4 "text.4" = Token::new(0xa1a1aaff, 0x6c6c6cff);
+    pub TEXT_5 "text.5" = Token::new(0xb4b4bcff, 0x616161ff);
+    pub TEXT_6 "text.6" = Token::new(0xd4d4d8ff, 0x414141ff);
+    /// The band of light crossing a working label.
+    pub SHIMMER "shimmer" = Token::new(0xd4d4d8ff, 0xffffffff);
+    /// Text and glyphs on a `TEXT` fill.
+    pub ON_TEXT "text.on" = Token::new(0xffffffff, 0x171717ff);
+
+    pub WINDOW "window" = Token::new(0xf4f4f5ff, 0x121212d9);
+    /// The window colour where nothing shows through: floated panels and images.
+    pub WINDOW_SOLID "window.solid" = Token::new(0xf4f4f5ff, 0x121212ff);
+    pub SURFACE "surface" = Token::new(0xffffffff, 0xebebeb1a);
+    /// `SURFACE` with nothing showing through: Activity's cards.
+    pub SURFACE_SOLID "surface.solid" = Token::new(0xffffffff, 0x2a2a2aff);
+    pub SURFACE_SUNKEN "surface.sunken" = Token::new(0xfafafaff, 0x00000000);
+    pub PAGE "page" = Token::new(0xf7f7f7ff, 0x00000000);
+    pub CANVAS "canvas" = Token::new(0xffffffff, 0x00000000);
+    /// A recessed block inside a page: tables, code blocks.
+    pub WELL "well" = Token::new(0xf4f4f5ff, 0xebebeb0d);
+    pub SIDE "side" = Token::new(0xfafafbb3, 0x00000000);
+    /// The left sidebar, and the rail it folds to; read it through `nav_fill`.
+    NAV "sidebar" = Token::new(0xfafafbb3, 0x0e0e0eff);
+    /// Opaque, for floating surfaces with no blur behind them.
+    pub POPOVER "popover" = Token::new(0xffffffff, 0x232323ff);
+    /// Dark menus and popovers where the renderer blurs: a faint tint over the blur.
+    pub POPOVER_GLASS "popover.glass" = Token::fixed(0xebebeb05);
+    pub GLASS "glass" = Token::new(0xffffff9e, 0x2a2a2acc);
+    pub HIGHLIGHT "highlight" = Token::new(0xfffffff2, 0xffffff0f);
+    /// Near-clear in dark: a wide black blur on a dark window reads as a smudge, so the ring alone lifts the surface.
+    pub SHADOW "shadow" = Token::new(0x00000024, 0x0000000a);
+    /// The ring that cuts a badge out of whatever it overlaps.
+    pub CUTOUT "cutout" = Token::new(0xffffffff, 0x121212ff);
+    /// The window colour around a mark on a sidebar icon, so it reads as cut out of the icon.
+    /// Clear in dark: the window is blurred glass, so no solid colour matches what shows through.
+    pub RAIL_CUTOUT "sidebar.cutout" = Token::new(0xfafafaff, 0x00000000);
+    /// The sidebar's "What's new" card.
+    pub SIDE_NOTICE "sidebar.notice" = Token::new(0xffffff8c, 0xebebeb0d);
+
+    pub FILL_1 "fill.1" = Token::new(0x11111308, 0xebebeb0d);
+    pub FILL_2 "fill.2" = Token::new(0x1111130b, 0xebebeb14);
+    pub FILL_3 "fill.3" = Token::new(0x1111130e, 0xebebeb1a);
+    pub FILL_4 "fill.4" = Token::new(0x11111311, 0xebebeb1f);
+    pub HAIRLINE "hairline" = Token::new(0x11111312, 0xebebeb12);
+    pub SEPARATOR "separator" = Token::new(0x11111317, 0xebebeb14);
+    pub SEPARATOR_STRONG "separator.strong" = Token::new(0x1111131f, 0xebebeb24);
+    pub SELECTION "selection" = Token::new(0x11111324, 0xebebeb33).accent(Accent::Fill(0x40));
+    /// Translucent so the character under a block cursor stays readable.
+    pub TERM_CURSOR "terminal.cursor" = Token::new(0x3030358c, 0xebebeb66);
+
+    /// No hue: the accent is ink, so links and focus read as text weight rather than colour.
+    pub ACCENT "accent.text" = Token::new(0x3f3f46ff, 0xd4d4d4ff);
+    pub ACCENT_BG "accent.bg" = Token::new(0x1111131c, 0xebebeb33).accent(Accent::Fill(0x33));
+    pub ACCENT_RING "accent.ring" = Token::new(0x11111333, 0xebebeb66).accent(Accent::Fill(0x80));
+    pub ACCENT_TINT "accent.tint" = Token::new(0x11111317, 0xebebeb29).accent(Accent::Fill(0x24));
+    pub ACCENT_GLOW "accent.glow" = Token::new(0x11111399, 0xebebeb99).accent(Accent::Fill(0x99));
+    /// Underlined wherever it is used: colour alone doesn't mark a link.
+    pub ACCENT_LINK "link" = Token::new(0x111113ff, 0xebebebff);
+
+    /// The amber of dots and badges, which stays bright in light mode where `WAITING` darkens for text.
+    pub WAITING_DOT "waiting.dot" = Token::fixed(0xffb224ff);
+    pub ON_WAITING "waiting.on" = Token::fixed(0x1a1306ff);
+    pub WAITING "waiting" = Token::new(0xad5700ff, 0xffb224ff);
+    pub WAITING_TEXT "waiting.text" = Token::new(0xad5700ff, 0xffca16ff);
+    pub WAITING_BG "waiting.bg" = Token::fixed(0xffb2242e);
+    pub FAILED "failed" = Token::new(0xcd2b31ff, 0xe5484dff);
+    pub FAILED_BG "failed.bg" = Token::fixed(0xe5484d1c);
+    pub FAILED_TEXT "failed.text" = Token::new(0xcd2b31ff, 0xff9592ff);
+    pub SUCCESS "success" = Token::new(0x2b9a66ff, 0x30a46cff);
+    pub SUCCESS_TEXT "success.text" = Token::new(0x18794eff, 0x3dd68cff);
+    pub SUCCESS_BG "success.bg" = Token::fixed(0x30a46c21);
+    /// An active goal's blue, whatever the accent.
+    pub GOAL_TEXT "goal.text" = Token::new(0x0b5fb5ff, 0x70b8ffff);
+    pub GOAL_BG "goal.bg" = Token::fixed(0x3e8ef724);
+    pub GOAL_BG_STRONG "goal.bg.strong" = Token::fixed(0x3e8ef73d);
+    pub WORKING "working" = Token::new(0xcc4e00ff, 0xf76b15ff);
+    pub MERGED "merged" = Token::new(0x8250dfff, 0xa371f7ff);
+    /// The Board's action colour, until the user picks an accent.
+    pub INDIGO "action" = Token::new(0x5e6ad2ff, 0x7c85e3ff).accent(Accent::Fill(0xff));
+    pub ON_INDIGO "action.on" = WHITE.accent(Accent::On);
+
+    /// A chat's work rail: the line a reply's phases and steps hang from.
+    pub RAIL "chat.rail" = Token::new(0xdcdcdeff, 0x323237ff);
+    pub BUBBLE "chat.bubble" = Token::new(0xf1f1f2ff, 0x2c2c30ff);
+    pub MENTION "chat.mention" = Token::new(0x0284c7ff, 0x5bb8f0ff);
+    /// A prompt's opening `/command`.
+    pub COMMAND "chat.command" = Token::new(0x5b5bd6ff, 0xb1a9ffff);
+    /// A node of the chat's agent map: `SURFACE` laid on `POPOVER`, opaque, as a translucent card shows its rings, painted beneath it, through.
+    pub AGENT_CARD "agent-map.card" = Token::new(0xffffffff, 0x373737ff);
+    pub AGENT_CARD_HOVER "agent-map.card.hover" = Token::new(0xfafafaff, 0x3d3d3dff);
+    /// The pill of buttons floating over a diagram, opaque enough to read over it.
+    pub DIAGRAM_HUD "diagram.hud" = Token::new(0xf5f5f5e6, 0x1c1c1ce6);
+
+    pub DIFF_ADD_BG "diff.added.bg" = Token::fixed(0x30a46c1c).or_blue_orange(0x0090ff1c, 0x0090ff1c).diff(true, 0x1c);
+    pub DIFF_ADD_TEXT "diff.added.text" = Token::new(0x18794eff, 0x3dd68cff).or_blue_orange(0x0b5fb5ff, 0x70b8ffff).diff(true, 0xff);
+    pub DIFF_DEL_BG "diff.removed.bg" = Token::fixed(0xe5484d17).or_blue_orange(0xf76b1517, 0xf76b1517).diff(false, 0x17);
+    pub DIFF_DEL_TEXT "diff.removed.text" = Token::new(0xcd2b31ff, 0xff9592ff).or_blue_orange(0xc24400ff, 0xff9e57ff).diff(false, 0xff);
+    pub DIFF_ADD_WORD "diff.added.word" = Token::fixed(0x30a46c40).or_blue_orange(0x0090ff40, 0x0090ff40).diff(true, 0x40);
+    pub DIFF_DEL_WORD "diff.removed.word" = Token::fixed(0xe5484d38).or_blue_orange(0xf76b1538, 0xf76b1538).diff(false, 0x38);
+    pub MODIFIED "modified" = Token::new(0xad5700ff, 0xffca16ff);
+
+    pub SYN_KEYWORD "syntax.keyword" = Token::new(0x8e4ec6ff, 0xd19dffff);
+    pub SYN_FN "syntax.function" = Token::new(0x3e63ddff, 0x9eb1ffff);
+    pub SYN_STRING "syntax.string" = Token::new(0x18794eff, 0x3dd68cff);
+    pub SYN_COMMENT "syntax.comment" = Token::new(0xa1a1aaff, 0x818181ff);
+
+    // Graphite's markdown preview copies pluk-inc/markdown-preview's Apple colours verbatim.
+    pub MD_TEXT "markdown.text" = Token::new(0x000000d9, 0xffffffd9);
+    pub MD_TEXT_2 "markdown.text.2" = Token::new(0x00000080, 0xffffff8c);
+    pub MD_GRID "markdown.grid" = Token::new(0x0000001a, 0xffffff1a);
+    pub MD_LINK "markdown.link" = Token::new(0x0068daff, 0x419cffff);
+    pub MD_ASIDE "markdown.aside" = Token::new(0xf5f5f7ff, 0x323232ff);
+    pub MD_CODE_BG "markdown.code.bg" = Token::new(0xf9f9f9ff, 0x262626ff);
+    pub MD_CODE_BORDER "markdown.code.border" = Token::new(0xf0f0f0ff, 0x323232ff);
+    /// Clear in dark, unlike the reference, so the window's glass shows through as it does behind every other pane.
+    pub MD_PAGE "markdown.page" = Token::new(0xffffffff, 0x00000000);
+}
+
+pub const TEAL: Token = Token::new(0x0e7c86ff, 0x0bd8b6ff);
+pub const TEAL_BG: Token = Token::fixed(0x0f9d8a14);
+/// How far `POPOVER_GLASS` blurs what's behind it.
+pub const POPOVER_BLUR: f32 = 24.;
+
 pub const WHITE: Token = Token::fixed(0xffffffff);
-/// Text and glyphs on a `TEXT` fill.
-pub const ON_TEXT: Token = Token::new(0xffffffff, 0x171717ff);
 /// Primary buttons: ink in Graphite, else the accent.
 pub const PRIMARY: Token = TEXT.accent(Accent::Fill(0xff));
 pub const ON_PRIMARY: Token = ON_TEXT.accent(Accent::On);
+/// Accent buttons: `ACCENT` in Graphite, else the accent.
+pub const ACCENT_FILL: Token = ACCENT.accent(Accent::Fill(0xff));
 
 /// White or near-black, whichever reads better on `fill`.
 fn on(fill: u32) -> u32 {
@@ -194,113 +388,22 @@ fn on(fill: u32) -> u32 {
     if contrast::ratio(white, fill) >= contrast::ratio(ink, fill) { white } else { ink }
 }
 
-pub const WINDOW: Token = Token::new(0xf4f4f5ff, 0x121212d9);
-/// The window colour where nothing shows through: floated panels and images.
-pub const WINDOW_SOLID: Token = Token::new(0xf4f4f5ff, 0x121212ff);
-pub const SURFACE: Token = Token::new(0xffffffff, 0xebebeb1a);
-/// `SURFACE` with nothing showing through: Activity's cards.
-pub const SURFACE_SOLID: Token = Token::new(0xffffffff, 0x2a2a2aff);
-pub const SURFACE_SUNKEN: Token = Token::new(0xfafafaff, 0x00000000);
-pub const PAGE: Token = Token::new(0xf7f7f7ff, 0x00000000);
-pub const CANVAS: Token = Token::new(0xffffffff, 0x00000000);
-/// A recessed block inside a page: tables, code blocks.
-pub const WELL: Token = Token::new(0xf4f4f5ff, 0xebebeb0d);
-pub const SIDE: Token = Token::new(0xfafafbb3, 0x00000000);
-/// The left sidebar, and the rail it folds to; read it through `nav_fill`.
-const NAV: Token = Token::new(0xfafafbb3, 0x0e0e0eff);
-/// Opaque, for floating surfaces with no blur behind them.
-pub const POPOVER: Token = Token::new(0xffffffff, 0x232323ff);
-/// Dark menus and popovers where the renderer blurs: a faint tint over the blur.
-pub const POPOVER_GLASS: Token = Token::fixed(0xebebeb05);
-/// How far `POPOVER_GLASS` blurs what's behind it.
-pub const POPOVER_BLUR: f32 = 24.;
-pub const GLASS: Token = Token::new(0xffffff9e, 0x2a2a2acc);
-pub const HIGHLIGHT: Token = Token::new(0xfffffff2, 0xffffff0f);
-/// Near-clear in dark: a wide black blur on a dark window reads as a smudge, so the ring alone lifts the surface.
-pub const SHADOW: Token = Token::new(0x00000024, 0x0000000a);
-/// The ring that cuts a badge out of whatever it overlaps.
-pub const CUTOUT: Token = Token::new(0xffffffff, 0x121212ff);
-
-pub const FILL_1: Token = Token::new(0x11111308, 0xebebeb0d);
-pub const FILL_2: Token = Token::new(0x1111130b, 0xebebeb14);
-pub const FILL_3: Token = Token::new(0x1111130e, 0xebebeb1a);
-pub const FILL_4: Token = Token::new(0x11111311, 0xebebeb1f);
-pub const HAIRLINE: Token = Token::new(0x11111312, 0xebebeb12);
-pub const SEPARATOR: Token = Token::new(0x11111317, 0xebebeb14);
-pub const SEPARATOR_STRONG: Token = Token::new(0x1111131f, 0xebebeb24);
-pub const SELECTION: Token = Token::new(0x11111324, 0xebebeb33).accent(Accent::Fill(0x40));
-/// Translucent so the character under a block cursor stays readable.
-pub const TERM_CURSOR: Token = Token::new(0x3030358c, 0xebebeb66);
-
-/// No hue: the accent is ink, so links and focus read as text weight rather than colour.
-pub const ACCENT: Token = Token::new(0x3f3f46ff, 0xd4d4d4ff);
-pub const ACCENT_BG: Token = Token::new(0x1111131c, 0xebebeb33).accent(Accent::Fill(0x33));
-pub const ACCENT_RING: Token = Token::new(0x11111333, 0xebebeb66).accent(Accent::Fill(0x80));
-pub const ACCENT_TINT: Token = Token::new(0x11111317, 0xebebeb29).accent(Accent::Fill(0x24));
-pub const ACCENT_GLOW: Token = Token::new(0x11111399, 0xebebeb99).accent(Accent::Fill(0x99));
-/// Accent buttons: `ACCENT` in Graphite, else the accent.
-pub const ACCENT_FILL: Token = ACCENT.accent(Accent::Fill(0xff));
 /// What Accent color offers after Graphite: blue, purple, pink, red, orange, yellow and green.
 pub const ACCENT_SWATCHES: [u32; 7] = [0x3e8ef7, 0x8e4ec6, 0xc2298a, 0xe5484d, 0xf76b15, 0xffb224, 0x30a46c];
 
-/// The amber of dots and badges, which stays bright in light mode where `WAITING` darkens for text.
-pub const WAITING_DOT: Token = Token::fixed(0xffb224ff);
-pub const ON_WAITING: Token = Token::fixed(0x1a1306ff);
-/// Underlined wherever it is used: colour alone doesn't mark a link.
-pub const ACCENT_LINK: Token = Token::new(0x111113ff, 0xebebebff);
-pub const WAITING: Token = Token::new(0xad5700ff, 0xffb224ff);
-pub const WAITING_TEXT: Token = Token::new(0xad5700ff, 0xffca16ff);
-pub const WAITING_BG: Token = Token::fixed(0xffb2242e);
-pub const FAILED: Token = Token::new(0xcd2b31ff, 0xe5484dff);
-pub const FAILED_BG: Token = Token::fixed(0xe5484d1c);
-pub const FAILED_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff);
-pub const SUCCESS: Token = Token::new(0x2b9a66ff, 0x30a46cff);
-pub const SUCCESS_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff);
-pub const SUCCESS_BG: Token = Token::fixed(0x30a46c21);
-/// An active goal's blue, whatever the accent.
-pub const GOAL_TEXT: Token = Token::new(0x0b5fb5ff, 0x70b8ffff);
-pub const GOAL_BG: Token = Token::fixed(0x3e8ef724);
-pub const GOAL_BG_STRONG: Token = Token::fixed(0x3e8ef73d);
-pub const WORKING: Token = Token::new(0xcc4e00ff, 0xf76b15ff);
-pub const MERGED: Token = Token::new(0x8250dfff, 0xa371f7ff);
-/// The Board's action colour, until the user picks an accent.
-pub const INDIGO: Token = Token::new(0x5e6ad2ff, 0x7c85e3ff).accent(Accent::Fill(0xff));
-pub const ON_INDIGO: Token = WHITE.accent(Accent::On);
-
-/// A chat's work rail: the line a reply's phases and steps hang from.
-pub const RAIL: Token = Token::new(0xdcdcdeff, 0x323237ff);
-pub const BUBBLE: Token = Token::new(0xf1f1f2ff, 0x2c2c30ff);
-pub const MENTION: Token = Token::new(0x0284c7ff, 0x5bb8f0ff);
-/// A prompt's opening `/command`.
-pub const COMMAND: Token = Token::new(0x5b5bd6ff, 0xb1a9ffff);
 pub const AGENT_CLAUDE: Token = Token::fixed(0xd97757ff);
 pub const AGENT_CODEX: Token = Token::fixed(0x0f9d8aff);
 /// The middle of omp's gradient.
 pub const AGENT_OMP: Token = Token::fixed(0x9362f4ff);
 pub const AGENT_ANTIGRAVITY: Token = Token::fixed(0x3186ffff);
 
-pub const DIFF_ADD_BG: Token = Token::fixed(0x30a46c1c).or_blue_orange(0x0090ff1c, 0x0090ff1c).diff(true, 0x1c);
-pub const DIFF_ADD_TEXT: Token = Token::new(0x18794eff, 0x3dd68cff).or_blue_orange(0x0b5fb5ff, 0x70b8ffff).diff(true, 0xff);
-pub const DIFF_DEL_BG: Token = Token::fixed(0xe5484d17).or_blue_orange(0xf76b1517, 0xf76b1517).diff(false, 0x17);
-pub const DIFF_DEL_TEXT: Token = Token::new(0xcd2b31ff, 0xff9592ff).or_blue_orange(0xc24400ff, 0xff9e57ff).diff(false, 0xff);
-pub const DIFF_ADD_WORD: Token = Token::fixed(0x30a46c40).or_blue_orange(0x0090ff40, 0x0090ff40).diff(true, 0x40);
-pub const DIFF_DEL_WORD: Token = Token::fixed(0xe5484d38).or_blue_orange(0xf76b1538, 0xf76b1538).diff(false, 0x38);
 /// What Custom diff colors offers for added and removed lines.
 pub const DIFF_SWATCHES: [u32; 8] = [0x30a46c, 0x0090ff, 0x12a594, 0x8e4ec6, 0xe5484d, 0xf76b15, 0xd6409f, 0xffb224];
-
-pub const MODIFIED: Token = Token::new(0xad5700ff, 0xffca16ff);
-pub const TEAL: Token = Token::new(0x0e7c86ff, 0x0bd8b6ff);
-pub const TEAL_BG: Token = Token::fixed(0x0f9d8a14);
 
 pub const GRAPH_HEAD: Token = Token::new(0x1a5cffff, 0x57a3f8ff);
 pub const GRAPH_UPSTREAM: Token = Token::new(0x652d90ff, 0xad80d7ff);
 pub const GRAPH_BASE: Token = Token::fixed(0xea5c00ff);
 pub const GRAPH_LANES: [Token; 5] = [Token::fixed(0xffb000ff), Token::fixed(0xdc267fff), Token::fixed(0x994f00ff), Token::fixed(0x40b0a6ff), Token::fixed(0xb66dffff)];
-
-pub const SYN_KEYWORD: Token = Token::new(0x8e4ec6ff, 0xd19dffff);
-pub const SYN_FN: Token = Token::new(0x3e63ddff, 0x9eb1ffff);
-pub const SYN_STRING: Token = Token::new(0x18794eff, 0x3dd68cff);
-pub const SYN_COMMENT: Token = Token::new(0xa1a1aaff, 0x818181ff);
 
 /// A syntax theme: the colours of keywords, functions and types, strings and numbers, and comments.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -346,7 +449,7 @@ pub fn highlight_theme(dark: bool) -> Arc<HighlightTheme> {
 }
 
 fn highlight_theme_with(dark: bool, palette: &Syntax) -> Arc<HighlightTheme> {
-    let hsla = |c: Token| serde_json::to_value(Hsla::from(rgba(c.pick(dark)))).expect("colour serializes");
+    let hsla = |c: Token| serde_json::to_value(Hsla::from(rgba(c.resolve(dark)))).expect("colour serializes");
     let base = if dark { HighlightTheme::default_dark() } else { HighlightTheme::default_light() };
     let mut v = serde_json::to_value(&*base).expect("theme serializes");
     if let Some(syntax) = v["style"]["syntax"].as_object_mut() {
@@ -367,16 +470,6 @@ fn highlight_theme_with(dark: bool, palette: &Syntax) -> Arc<HighlightTheme> {
     Arc::new(serde_json::from_value(v).expect("theme deserializes"))
 }
 
-// The markdown preview copies pluk-inc/markdown-preview's Apple colours verbatim.
-pub const MD_TEXT: Token = Token::new(0x000000d9, 0xffffffd9);
-pub const MD_TEXT_2: Token = Token::new(0x00000080, 0xffffff8c);
-pub const MD_GRID: Token = Token::new(0x0000001a, 0xffffff1a);
-pub const MD_LINK: Token = Token::new(0x0068daff, 0x419cffff);
-pub const MD_ASIDE: Token = Token::new(0xf5f5f7ff, 0x323232ff);
-pub const MD_CODE_BG: Token = Token::new(0xf9f9f9ff, 0x262626ff);
-pub const MD_CODE_BORDER: Token = Token::new(0xf0f0f0ff, 0x323232ff);
-/// Clear in dark, unlike the reference, so the window's glass shows through as it does behind every other pane.
-pub const MD_PAGE: Token = Token::new(0xffffffff, 0x00000000);
 
 /// Xcode's default syntax colours, which the markdown preview's code blocks use whatever the chosen syntax theme.
 pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {
@@ -391,7 +484,7 @@ pub fn markdown_highlight_theme(dark: bool) -> Arc<HighlightTheme> {
     let preprocessor = Token::new(0x643820ff, 0xfd8f3fff);
     let attribute = Token::new(0x815f03ff, 0xbf8555ff);
     let url = Token::new(0x0e0effff, 0x5482ffff);
-    let hsla = |c: Token| serde_json::to_value(Hsla::from(rgba(c.pick(dark)))).expect("colour serializes");
+    let hsla = |c: Token| serde_json::to_value(Hsla::from(rgba(c.resolve(dark)))).expect("colour serializes");
     let base = if dark { HighlightTheme::default_dark() } else { HighlightTheme::default_light() };
     let mut v = serde_json::to_value(&*base).expect("theme serializes");
     let syntax = v["style"]["syntax"].as_object_mut().expect("theme has syntax colours");
@@ -624,7 +717,7 @@ macro_rules! embed {
 }
 
 const ICONS: &[(&str, &[u8])] = embed!(
-    "activity", "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "antigravity", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "cursor", "diff-multiple", "diff-split",
+    "activity", "agent-arc", "agent-done", "agent-failed", "agent-map", "agent-ring", "agent-starting", "antigravity", "appearance", "arrow-down-wide-narrow", "arrow-right", "arrow-up", "back", "bell", "blocks", "bolt", "bot", "branch", "bulb", "check", "chevron-down", "chevron-right", "chevron-up", "circle-x", "claude", "clock", "cloud", "code", "comment", "compose", "copy", "corner-down-right", "cursor", "diff-multiple", "diff-split",
     "discard", "explorer", "external", "eye", "eye-off", "file", "file-plus", "filter", "fit", "flow", "folder", "folder-plus", "forward", "fullscreen", "fx", "github", "globe", "grip", "grok", "hermes", "inbox", "keyboard", "laptop", "list", "list-checks", "list-flat", "list-tree", "merge", "mic", "minus", "more", "omp", "openai", "opencode", "pencil", "phone", "pi", "pin", "play", "plus", "pointer", "priority-high", "priority-low", "priority-medium", "priority-none", "priority-urgent", "prompt", "pull-request", "pull-request-closed", "pull-request-draft", "redo", "reload", "run-cancelled", "run-skipped", "search", "send", "send-ring", "server", "sessions", "settings", "shield",
     "sidebar", "sidebar-collapse", "sidebar-expand", "sliders", "sparkle", "spinner", "spinner-ring", "split-down", "split-right", "stacked-tickets", "star", "star-fill", "status-closed", "status-full", "status-half", "status-merged", "status-needs", "status-queued", "status-stopped", "status-three-quarters", "status-todo", "stop", "terminal", "text-wrap", "tool", "trash", "unfold", "warning", "worktree", "x", "x-bold",
 );
@@ -644,16 +737,30 @@ impl AssetSource for Assets {
     }
 }
 
-/// Loads the bundled fonts and applies `appearance`. Call after `gpui_kit::init`.
-pub fn init(appearance: WindowAppearance, cx: &mut App) {
+/// Loads the bundled fonts and paints `theme`. Call after `gpui_kit::init`.
+pub fn init(theme: &Theme, cx: &mut App) {
     cx.text_system().add_fonts(FONTS.iter().map(|f| Cow::Borrowed(*f)).collect()).expect("bundled fonts load");
-    set_appearance(appearance, cx);
+    set_theme(theme, cx);
 }
 
-/// Switches every token to `appearance` and points gpui-kit's theme at them.
-pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
-    let dark = matches!(appearance, WindowAppearance::Dark | WindowAppearance::VibrantDark);
-    DARK.store(dark, Ordering::Relaxed);
+pub fn dark(appearance: WindowAppearance) -> bool {
+    matches!(appearance, WindowAppearance::Dark | WindowAppearance::VibrantDark)
+}
+
+/// Paints every token in `theme`'s colours from the next frame and points gpui-kit's theme at them.
+pub fn set_theme(theme: &Theme, cx: &mut App) {
+    DARK.store(theme.dark, Ordering::Relaxed);
+    THEME_ACCENT.store(theme.accent, Ordering::Relaxed);
+    for (themed, color) in THEMED.iter().zip(theme.colors) {
+        themed.store(color.map_or(0, |c| (1 << 32) | c as u64), Ordering::Relaxed);
+    }
+    sync_kit(cx);
+}
+
+/// Points gpui-kit's theme at the tokens as they paint now.
+fn sync_kit(cx: &mut App) {
+    let dark = is_dark();
+    let appearance = if dark { WindowAppearance::Dark } else { WindowAppearance::Light };
     /* `change` keeps fonts its config leaves unset and builds markdown's defaults from them, so
     start each switch from gpui-kit's fonts, as at launch, rather than ours. */
     let kit = gpui_kit::component::Theme::default();
@@ -673,9 +780,11 @@ pub fn set_appearance(appearance: WindowAppearance, cx: &mut App) {
     t.mono_font_size = px(13.);
     t.link = ACCENT_LINK.into();
     t.highlight_theme = highlight_theme(dark);
-    // Graphite keeps gpui-kit's own focus ring and text selection.
-    if ACCENT_RGB.load(Ordering::Relaxed) != 0 {
+    if Look::now().accent != 0 {
         (t.primary, t.primary_foreground, t.ring, t.selection) = (PRIMARY.into(), ON_PRIMARY.into(), PRIMARY.into(), SELECTION.into());
+    } else if SELECTION.rgba() != SELECTION.pick(dark) {
+        // Graphite leaves gpui-kit its own selection; a theme that sets one with no accent still gets it.
+        t.selection = SELECTION.into();
     }
 }
 
@@ -690,7 +799,7 @@ fn glass_alpha(percent: u32) -> u32 {
 
 /// `WINDOW` with the dark alpha `set_glass` picked.
 pub fn window_fill() -> Hsla {
-    if is_dark() { rgba((WINDOW.pick(true) & !0xff) | GLASS_ALPHA.load(Ordering::Relaxed)).into() } else { WINDOW.into() }
+    if is_dark() { rgba((WINDOW.resolve(true) & !0xff) | GLASS_ALPHA.load(Ordering::Relaxed)).into() } else { WINDOW.into() }
 }
 
 /// `NAV`, or clear while dark glass shows through so the sidebar matches the chat.
@@ -699,11 +808,11 @@ pub fn nav_fill() -> Hsla {
 }
 
 fn nav_rgba(dark: bool, glass: u32) -> u32 {
-    if dark && glass < 0xff { 0 } else { NAV.pick(dark) }
+    if dark && glass < 0xff { 0 } else { NAV.resolve(dark) }
 }
 
 /// Glass in dark; pale desktops make translucent light chrome illegible.
-/// Reads the last `set_appearance`, so a window opened before `init` stays opaque.
+/// Reads the last `set_theme`, so a window opened before `init` stays opaque.
 pub fn window_background() -> WindowBackgroundAppearance {
     if is_dark() { WindowBackgroundAppearance::Blurred } else { WindowBackgroundAppearance::Opaque }
 }
@@ -713,7 +822,7 @@ mod tests {
     use super::contrast::{over, ratio};
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
-        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, NAV, glass_alpha, highlight_theme_with, material, material_icon, nav_rgba,
+        ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Look, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, NAV, glass_alpha, highlight_theme_with, material, material_icon, nav_rgba,
         ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_delay, gradient_opacity,
         BRANDS, PROVIDER_NAMES, provider_glyph, provider_name, provider_svg,
     };
@@ -841,11 +950,11 @@ mod tests {
     #[test]
     fn a_picked_diff_colour_keeps_each_tokens_alpha_and_leaves_other_colours_alone() {
         let green = (0x30a46cff, 0);
-        assert_eq!(DIFF_ADD_BG.paint(true, false, (0x8e4ec6ff, 0)), 0x8e4ec61c);
-        assert_eq!(DIFF_ADD_TEXT.paint(false, true, (0x8e4ec6ff, 0)), 0x8e4ec6ff);
-        assert_eq!(DIFF_DEL_WORD.paint(true, false, green), DIFF_DEL_WORD.pick(true));
-        assert_eq!(DIFF_DEL_TEXT.paint(true, true, (0, 0xffb224ff)), 0xffb224ff);
-        assert_eq!(TEXT.paint(true, false, (0x8e4ec6ff, 0x8e4ec6ff)), TEXT.pick(true));
+        assert_eq!(DIFF_ADD_BG.paint(Look { dark: true, diff: (0x8e4ec6ff, 0), ..Look::default() }, None), 0x8e4ec61c);
+        assert_eq!(DIFF_ADD_TEXT.paint(Look { blue_orange: true, diff: (0x8e4ec6ff, 0), ..Look::default() }, None), 0x8e4ec6ff);
+        assert_eq!(DIFF_DEL_WORD.paint(Look { dark: true, diff: green, ..Look::default() }, None), DIFF_DEL_WORD.pick(true));
+        assert_eq!(DIFF_DEL_TEXT.paint(Look { dark: true, blue_orange: true, diff: (0, 0xffb224ff), ..Look::default() }, None), 0xffb224ff);
+        assert_eq!(TEXT.paint(Look { dark: true, diff: (0x8e4ec6ff, 0x8e4ec6ff), ..Look::default() }, None), TEXT.pick(true));
     }
 
     #[test]

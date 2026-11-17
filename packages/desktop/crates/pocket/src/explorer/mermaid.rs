@@ -43,7 +43,7 @@ static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
 
 /// Mermaid source as SVG that resvg can draw, on `canvas`.
 fn svg(source: &str, canvas: Token, dark: bool) -> Result<String, String> {
-    pele::render(source).map(|svg| pele::resolve(&svg, canvas.pick(dark), dark))
+    pele::render(source).map(|svg| pele::resolve(&svg, canvas.resolve(dark), dark))
 }
 
 fn tree(source: &str, canvas: Token, dark: bool) -> Result<Arc<Tree>, String> {
@@ -188,12 +188,18 @@ impl Diagrams {
         cx.emit(Resized);
     }
 
+    /// `key` for the canvas colour the theme paints now, which a diagram's own colours are mixed from.
+    fn on_canvas(&self, key: u64, dark: bool) -> u64 {
+        key ^ self.canvas.resolve(dark) as u64
+    }
+
     fn get(&mut self, key: u64, source: &SharedString, dark: bool, cx: &mut Context<Self>) -> Diagram {
         if let Some(d) = self.items.get(&key) {
             return d.clone();
         }
         self.items.insert(key, Diagram::Pending);
-        let (source, canvas) = (source.clone(), self.canvas);
+        // Resolved now: the theme can change before the off-thread layout runs, and `key` is for this colour.
+        let (source, canvas) = (source.clone(), Token::fixed(self.canvas.resolve(dark)));
         cx.spawn(async move |this, cx| {
             let diagram = cx.background_spawn(async move { tree(&source, canvas, dark) }).await;
             this.update(cx, |this, cx| {
@@ -283,6 +289,7 @@ pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source:
         return div().id(SharedString::from(format!("mermaid-{place}"))).child(source::block(diagrams, place, source, cx));
     }
     let dark = theme::is_dark();
+    let key = diagrams.read(cx).on_canvas(key, dark);
     let frame = div().id(SharedString::from(format!("mermaid-{place}"))).rounded(px(15.)).border(px(0.5)).border_color(SEPARATOR).bg(diagrams.read(cx).canvas);
     match diagrams.update(cx, |d, cx| d.get(key, source, dark, cx)) {
         Diagram::Ready(tree) => {

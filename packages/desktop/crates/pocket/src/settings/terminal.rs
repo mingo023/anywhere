@@ -223,7 +223,7 @@ fn shell_path(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Deskt
             .detach();
         });
     }));
-    let title = div().flex().items_center().gap(px(10.)).child(div().w(px(16.)).text_color(TEXT_4).child("\u{21b3}")).child(setting.label);
+    let title = super::sub_title(setting.label);
     row(title, None, div().flex().items_center().gap(px(6.)).child(field).child(choose))
 }
 

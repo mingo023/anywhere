@@ -942,8 +942,9 @@ const STEPS: [(&str, Step); 254] = [
 /// Steps that drive real input through the window, each taking its next argument from the environment:
 /// `key` from `CAPTURE_KEYS` ("enter;cmd-shift-l"), `type` from `CAPTURE_TYPE` ("text|text"), `click` from
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
-/// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…").
-const INPUT_STEPS: [(&str, Step); 11] = [
+/// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
+/// `import-theme` from `CAPTURE_THEMES` ("file;file").
+const INPUT_STEPS: [(&str, Step); 13] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1028,6 +1029,13 @@ const INPUT_STEPS: [(&str, Step); 11] = [
             window.dispatch_event(PlatformInput::Pinch(PinchEvent { position: at, delta, modifiers, phase: TouchPhase::Moved }), cx);
         });
     }),
+    // What Import does once its file picker, which no step can drive, hands back a file.
+    ("import-theme", |d, _, cx| {
+        let Some(file) = next_arg("CAPTURE_THEMES", ';') else { return };
+        d.import_theme(PathBuf::from(file), cx);
+    }),
+    // What the window coming to the front does, which a capture window never does.
+    ("reload-themes", |d, _, cx| d.reload_themes(cx)),
     ("pause", |_, _, _| {}),
     // The fixture's clock override: the shown chat's sends age past their two minutes.
     ("chat-age-sends", |d, _, cx| {
@@ -1377,6 +1385,9 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.updates.update = Update::Idle;
     d.terminals.link.up();
     d.terminals.link.service = None;
+    let a = &mut d.store.appearance;
+    (a.mode, a.theme, a.day, a.night) = (store::Mode::System, None, None, None);
+    d.themes = Default::default();
     d.set_appearance(WindowAppearance::Light, window, cx);
     syntax(d, store::SyntaxTheme::Graphite, cx);
     (d.store.appearance.added, d.store.appearance.removed) = (None, None);

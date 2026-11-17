@@ -48,7 +48,7 @@ impl Desktop {
                         .items_center()
                         .gap(px(8.))
                         .rounded(px(12.))
-                        .bg(Token::new(0xffffff8c, 0xebebeb0d))
+                        .bg(SIDE_NOTICE)
                         .shadow(vec![ui::ring(FILL_3, 0.5)])
                         .text_size(px(12.))
                         .text_color(TEXT)

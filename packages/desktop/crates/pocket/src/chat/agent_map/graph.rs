@@ -1,4 +1,4 @@
-use super::{CARD, calls, main_line, mark, meta, name, thousands};
+use super::{calls, main_line, mark, meta, name, thousands};
 use crate::chat::sub_agent::{self, Mark};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
@@ -19,7 +19,6 @@ const PAD: f32 = 16.;
 const ENTER: f32 = 10.;
 const DASH: f32 = 3.;
 const DASH_GAP: f32 = 5.;
-const CARD_HOVER: Token = Token::new(0xfafafaff, 0x3d3d3dff);
 
 type Pt = (f32, f32);
 
@@ -160,7 +159,7 @@ fn card(key: String, (x, y): Pt, selected: bool, failed: bool) -> Stateful<Div> 
         .justify_center()
         .gap(px(2.))
         .rounded(px(12.))
-        .bg(CARD)
+        .bg(AGENT_CARD)
         .shadow(if selected {
             vec![ui::ring(ACCENT, 1.5), ui::ring(ACCENT_RING, 3.), ui::shadow(rgba(0x11111314), 6., 18.)]
         } else {
@@ -220,7 +219,7 @@ impl Desktop {
                 .child(title(sub_agent::glyph(&s.call.id, m), name(s), if failed { FAILED } else { TEXT }))
                 .child(sub(meta(s.call, s.agent.tokens, now)))
                 .child(third)
-                .when(live, |d| d.cursor_pointer().hover(|s| s.bg(CARD_HOVER)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_map_show(node, &call, cx))))
+                .when(live, |d| d.cursor_pointer().hover(|s| s.bg(AGENT_CARD_HOVER)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_map_show(node, &call, cx))))
                 // A node new to the map slides in from its parent's side as it fades in.
                 .with_spring(id(format!("chat-map-in:{}", s.call.id)), SpringAnimation::new(SPRING).to(true).from(false), move |d, t| {
                     d.opacity(t.0.clamp(0., 1.)).left(px(x - ENTER * (1. - t.0)))

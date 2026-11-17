@@ -13,8 +13,6 @@ use gpui_kit::*;
 use std::time::{Duration, Instant};
 use theme::*;
 
-/// `SURFACE` laid on `POPOVER`, opaque: a translucent card shows its rings, painted beneath it, through.
-const CARD: Token = Token::new(0xffffffff, 0x373737ff);
 /// Long enough for `SPRING` to settle, so the map stays drawn while it fades out.
 const SHUTTING: Duration = Duration::from_millis(500);
 const HEADER: f32 = 48.;

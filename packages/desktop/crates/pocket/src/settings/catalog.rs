@@ -36,7 +36,6 @@ pub(crate) enum Control {
 pub(crate) enum Look {
     Segmented,
     Dropdown,
-    Thumbnails,
 }
 
 /// One setting, defined once for its page, search, Advanced and Reset.
@@ -48,7 +47,7 @@ pub(crate) struct Setting {
     /// A hint that depends on the store; it replaces `hint` when there is one.
     pub note: Option<fn(&Store) -> Option<String>>,
     pub advanced: bool,
-    /// Shown only while this holds; drawn as a ↳ row.
+    /// Shown only while this holds; drawn as a row under the one above.
     pub parent: Option<fn(&Store) -> bool>,
     /// Which of a dropdown's options its menu lists, given what pocketd says is installed; all of them when unset.
     pub offers: Option<Offers>,
@@ -270,7 +269,7 @@ mod tests {
         Setting::switch("banners", "Banners", "Banners", |s| s.notifications.banners, |s, on| s.notifications.banners = on).hint("A macOS banner"),
         Setting::switch("sounds", "Sounds", "Play sounds", |s| s.sounds.all, |s, on| s.sounds.all = on),
         Setting::switch("done", "Sounds", "Done", |s| s.sounds.done, |s, on| s.sounds.done = on).under(|s| s.sounds.all),
-        Setting::choice("mode", "Theme", "Appearance", &["System", "Light", "Dark"], Look::Thumbnails, |s| s.appearance.mode as usize, |s, i| s.appearance.mode = [store::Mode::System, store::Mode::Light, store::Mode::Dark][i]).effect(noop).advanced(),
+        Setting::choice("mode", "Theme", "Appearance", &["System", "Light", "Dark"], Look::Segmented, |s| s.appearance.mode as usize, |s, i| s.appearance.mode = [store::Mode::System, store::Mode::Light, store::Mode::Dark][i]).effect(noop).advanced(),
         Setting::stepper("lines", "Scrollback", "Lines", (100, 900, 100), " lines", |s| s.sounds.done as i32 * 500 + 400, |s, n| s.sounds.done = n > 400),
         Setting::custom("update", "Software update", "Software update", |_, _, _| div()),
     ];

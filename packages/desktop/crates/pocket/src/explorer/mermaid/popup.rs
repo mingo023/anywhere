@@ -77,7 +77,7 @@ impl Popup {
 impl Render for Popup {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dark = is_dark();
-        let key = key(&self.source, dark);
+        let key = self.diagrams.read(cx).on_canvas(key(&self.source, dark), dark);
         let message = |text: SharedString, color: Token| div().size_full().flex().items_center().justify_center().p(px(PAD)).text_size(px(13.)).text_color(color).child(text).into_any_element();
         let body = match self.diagrams.update(cx, |d, cx| d.get(key, &self.source, dark, cx)) {
             Diagram::Ready(tree) => surface(&self.diagrams, key, PLACE, tree, PAD, None, cx).into_any_element(),
