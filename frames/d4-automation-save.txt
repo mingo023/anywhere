@@ -1,1 +1,14 @@
-{"type":"automation.save","id":"auto-0","automation":{"id":"au5","name":"Re-run tests on push","prompt":"Run the test suite and report what broke.","provider":"codex","folder":"$TMPDIR/verify-anywhere.gbEs2N/home/code/app-android","schedule":{"kind":"webhook"},"enabled":true,"access":"settings"}}
+{"type":"hello","id":"h","clientId":"desktop","protocolVersion":3,"caps":["pair.v1","scopes.v1","summary.v2","host.v1","open.v1","names.v1","automations.v1","board.v1","locals.v1","fork.v1","accounts.v1","subagents.v1","settings.v1","commands.v1","access.v1","skills.v1","orchestrator.v1","hosts.v1"]}
+{"type":"agent.timeline","id":"t-fix","agentId":"fix","limit":500}
+{"type":"agent.timeline","id":"t-split","agentId":"split","limit":500}
+{"type":"agent.timeline","id":"t-migrate","agentId":"migrate","limit":500}
+{"type":"agent.timeline","id":"t-crash","agentId":"crash","limit":500}
+{"type":"agent.timeline","id":"t-rn","agentId":"rn","limit":500}
+{"type":"agent.timeline","id":"t-haptics","agentId":"haptics","limit":500}
+{"type":"agent.timeline","id":"t-ios","agentId":"ios","limit":500}
+{"type":"agent.timeline","id":"t-hook","agentId":"hook","limit":500}
+{"type":"agent.timeline","id":"t-mkt","agentId":"mkt","limit":500}
+{"type":"agent.view","id":"view","agentIds":[]}
+{"type":"agent.providers","id":"providers"}
+{"type":"agent.view","id":"view","agentIds":[]}
+{"type":"automation.save","id":"auto-0","automation":{"id":"au5","name":"Re-run tests on push","prompt":"Run the test suite and report what broke.","provider":"codex","folder":"$TMPDIR/verify-anywhere.b9auzf/home/code/app-android","schedule":{"kind":"webhook"},"enabled":true,"access":"settings"}}

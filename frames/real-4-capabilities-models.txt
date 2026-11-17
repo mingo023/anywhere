@@ -1,0 +1,201 @@
+# Step 4: orchestrator_capabilities as real Claude received it (tool output of mcp__anywhere__orchestrator_capabilities, step 2a, 10:25:57)
+# (Codex never got to run it: see real-3.)
+{
+ "agents": [
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "id": "claude",
+   "installed": true,
+   "models": [
+    "opus",
+    "fable",
+    "sonnet",
+    "haiku",
+    "claude-fable-5-1",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-5",
+    "claude-opus-5"
+   ],
+   "name": "Claude Code"
+  },
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "id": "codex",
+   "installed": true,
+   "models": [
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6.1-terra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna"
+   ],
+   "name": "Codex"
+  },
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "id": "cursor",
+   "installed": false,
+   "name": "Cursor"
+  },
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "id": "grok",
+   "installed": false,
+   "name": "Grok Build"
+  },
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "id": "opencode",
+   "installed": false,
+   "name": "OpenCode"
+  },
+  {
+   "access": [
+    "full"
+   ],
+   "alwaysFull": true,
+   "canDelegate": false,
+   "efforts": [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "id": "pi",
+   "installed": false,
+   "name": "Pi"
+  },
+  {
+   "access": [
+    "full"
+   ],
+   "alwaysFull": true,
+   "canDelegate": false,
+   "efforts": [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "id": "omp",
+   "installed": false,
+   "name": "omp"
+  },
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "id": "fx",
+   "installed": false,
+   "name": "fx"
+  },
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "id": "hermes",
+   "installed": false,
+   "name": "Hermes Agent"
+  },
+  {
+   "access": [
+    "settings",
+    "ask",
+    "edits",
+    "auto",
+    "full"
+   ],
+   "canDelegate": true,
+   "id": "antigravity",
+   "installed": false,
+   "name": "Antigravity"
+  }
+ ],
+ "limits": {
+  "depth": 3,
+  "perMac": 12,
+  "perSession": 6
+ },
+ "notes": [
+  "A child runs with your access; an agent without it steps down to a narrower one.",
+  "Waits return within 45 s.",
+  "tool_search loads the other tools."
+ ],
+ "self": {
+  "access": "ask",
+  "agent": "claude",
+  "depth": 0,
+  "link": "anywhere://session/f57023c6-e4b0-4334-bda9-714ca9116acb",
+  "threadId": "f57023c6-e4b0-4334-bda9-714ca9116acb"
+ }
+}
+
+INSTALLED claude models: opus, fable, sonnet, haiku, claude-fable-5-1, claude-haiku-4-5-20251001, claude-sonnet-5, claude-opus-5 | efforts: ['low', 'medium', 'high', 'xhigh', 'max']
+INSTALLED codex models: gpt-6.1-sol, gpt-6-astra, gpt-6.1-terra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna | efforts: None

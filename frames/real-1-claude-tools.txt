@@ -1,0 +1,32 @@
+# Step 1: real Claude (claude 2.1.326, --model sonnet, access ask) lists the anywhere MCP tools
+# raw frames between the owner client (>>) and scratch pocketd (<<); partial-text deltas dropped
+10:23:48.124 >> {"caps":["launch.v1","orchestrator.v1","subagents.v1","scopes.v1","restore.v1"],"clientId":"real-desktop","id":"h","protocolVersion":3,"type":"hello"}
+10:23:48.124 << {"type":"hello.ok","id":"h","serverId":"<host>","hostname":"<host>","protocolVersion":3,"caps":["launch.v1","orchestrator.v1","restore.v1","scopes.v1","subagents.v1"],"protocol":{"min":3,"max":3},"scopes":["observe","drive","approve","spawn","owner"],"version":"23a0581b1583"}
+10:23:55.779 >> {"id":"c-r1","requestId":"r1","spec":{"access":"ask","chat":true,"checkout":{"worktree":"$TMPDIR/real-run/repo"},"model":"sonnet","plan":false,"project":"$TMPDIR/real-run/repo","provider":"claude"},"type":"agent.create"}
+10:23:55.781 << {"type":"agent.progress","id":"c-r1","requestId":"r1","step":"prepare"}
+10:23:55.861 << {"type":"agent.progress","id":"c-r1","requestId":"r1","step":"agent"}
+10:23:55.865 << {"type":"agent.creating","id":"c-r1","requestId":"r1","terminalId":"4cf38e86-8aa2-4b75-be51-1d838698734e","cwd":"$TMPDIR/real-run/repo","setup":false}
+10:23:56.122 << {"type":"agent.created","id":"c-r1","requestId":"r1","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","terminalId":"4cf38e86-8aa2-4b75-be51-1d838698734e"}
+10:24:14.491 >> {"agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","id":"p1","text":"List the names of the MCP tools you have from the server named anywhere. Do nothing else.","type":"agent.prompt"}
+10:24:14.705 << {"type":"ack","id":"p1"}
+10:25:40.093 >> {"agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","id":"m1","type":"agent.mcp"}
+10:25:40.112 << {"type":"agent.mcp","id":"m1","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","servers":[{"name":"anywhere","status":"connected","scope":"dynamic"}]}   # the account's other MCP servers omitted
+10:29:42.923 >> {"id":"c-r3","requestId":"r3","spec":{"access":"ask","chat":true,"checkout":{"worktree":"$TMPDIR/real-run/repo"},"effort":"low","plan":false,"project":"$TMPDIR/real-run/repo","provider":"codex"},"type":"agent.create"}
+10:29:43.248 << {"type":"agent.created","id":"c-r3","requestId":"r3","agentId":"9a4ad39c-3468-40ef-a0cf-3839ca718122","terminalId":"6a42ffcb-3c5e-490f-94f9-4c46db15bfc2"}
+10:24:14.831 << {"type":"agent.stream","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","epoch":1,"item":{"kind":"user","id":"i1","seq":1,"ts":1794885854831,"text":"List the names of the MCP tools you have from the server named anywhere. Do nothing else."}}
+10:24:16.398 << {"type":"agent.stream","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","epoch":1,"item":{"kind":"assistant","id":"i2","seq":2,"ts":1794885856360,"text":"-"}}
+10:24:16.606 << {"type":"agent.stream","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","epoch":1,"item":{"kind":"assistant","id":"i2","seq":2,"ts":1794885856360,"text":"- `mcp__anywhere__delegate_task`\n- `mcp__anywhere__orchestrator_capabilities`\n- `mcp__anywhere__task_status`"}}
+10:24:16.664 << {"type":"agent.stream","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","epoch":1,"item":{"kind":"assistant","id":"i2","seq":2,"ts":1794885856360,"text":"- `mcp__anywhere__delegate_task`\n- `mcp__anywhere__orchestrator_capabilities`\n- `mcp__anywhere__task_status`\n- `mcp__anyw"}}
+10:24:16.700 << {"type":"agent.stream","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","epoch":1,"item":{"kind":"assistant","id":"i2","seq":2,"ts":1794885856360,"text":"- `mcp__anywhere__delegate_task`\n- `mcp__anywhere__orchestrator_capabilities`\n- `mcp__anywhere__task_status`\n- `mcp__anywhere__tool_search`"}}
+10:24:16.773 << {"type":"agent.stream","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","epoch":1,"item":{"kind":"assistant","id":"i2","seq":2,"ts":1794885856360,"text":"- `mcp__anywhere__delegate_task`\n- `mcp__anywhere__orchestrator_capabilities`\n- `mcp__anywhere__task_status`\n- `mcp__anywhere__tool_search`"}}
+10:24:16.774 << {"type":"agent.stream","agentId":"f57023c6-e4b0-4334-bda9-714ca9116acb","epoch":1,"item":{"kind":"result","id":"i3","seq":3,"ts":1794885856773,"ok":true,"durationMs":2167}}
+
+# MCP token liveness (orchestrator.db tokens; claude terminal 4cf38e86 = this session). last_alive moves on each authenticated MCP request
+session_id|agent|issued_at|last_alive
+4cf38e86-8aa2-4b75-be51-1d838698734e|claude|1794885835841|1794886100420
+# pocketd log
+2026/11/17 10:23:55 mcp: 4cf38e86-8aa2-4b75-be51-1d838698734e launches with MCP config
+2026/11/17 10:37:01 mcp: e707e89c-3174-47db-ae5b-e5df7f8aeca5 launches with MCP config
+2026/11/17 10:38:47 mcp: e707e89c-3174-47db-ae5b-e5df7f8aeca5 launches with MCP config
+# claude argv as pocketd launched it (resumed after the last restart; ps)
+/opt/homebrew/bin/fish -l -c $argv; set s $status; '$TMPDIR/real-run/bin-pocketd/pocketd' hook exit agent $s; exec '/opt/homebrew/bin/fish' -l $TMPDIR/real-run/bin-pocketd/pocketd pipe $TMPDIR/real-run/bin/claude --resume 4af8cb9d-369f-4935-823a-ec429ada18e0 --permission-mode default --model sonnet -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions --mcp-config=<scratch>/state/mcp/<id>.json --allowedTools=mcp__anywhere__*

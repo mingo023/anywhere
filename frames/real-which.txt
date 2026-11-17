@@ -1,0 +1,44 @@
+# 1) pocketd's login-env capture: fish -l -i over Base (env -i HOME=<scratch>/home USER LOGNAME TMPDIR PATH=/usr/bin:/bin:/usr/sbin:/sbin)
+HOME=~
+PATH=$SCRATCH/bin:/usr/bin:/bin:/usr/sbin:/sbin
+POCKETD_SOCK=$SCRATCH/pk/pocketd.sock
+$ which claude codex opencode pi hermes cursor-agent cursor grok fx agy omp gemini ssh
+$SCRATCH/bin/claude
+$SCRATCH/bin/codex
+/usr/bin/ssh
+(exit 1)
+~/.local/bin/claude
+~/.local/bin/codex
+
+# 2) an agent spawn from that env: fish -l -c with HOME=<real>, XDG_CONFIG_HOME=<scratch>/home/.config
+HOME=~
+PATH=$SCRATCH/bin:/usr/bin:/bin:/usr/sbin:/sbin
+$SCRATCH/bin/claude
+$SCRATCH/bin/codex
+/usr/bin/ssh
+(exit 1)
+
+# 3) the running scratch pocketd's own view (pocketd status --json, over the scratch socket)
+{
+ "home": "$TMPDIR/real-run/pk",
+ "sock": "$TMPDIR/real-run/pk/pocketd.sock",
+ "userHome": "$TMPDIR/real-run/home",
+ "shell": "/opt/homebrew/bin/fish",
+ "shellEnv": "interactive 50ms",
+ "providers": {
+  "antigravity": "",
+  "claude": "$TMPDIR/real-run/bin/claude",
+  "codex": "$TMPDIR/real-run/bin/codex",
+  "cursor": "",
+  "fx": "",
+  "grok": "",
+  "hermes": "",
+  "omp": "",
+  "opencode": "",
+  "pi": ""
+ },
+ "listen": [
+  "127.0.0.1:59559"
+ ],
+ "service": "none"
+}
