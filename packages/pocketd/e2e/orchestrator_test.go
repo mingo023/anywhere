@@ -165,6 +165,30 @@ func TestAColdRestartEndsTheBackgroundCallItsClaudeLeftRunning(t *testing.T) {
 	storedAsLive(h, id)
 }
 
+func TestAColdRestartEndsTheCallItsChatCodexLeftRunning(t *testing.T) {
+	h, phone, _, id := chatCodex(t, nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "run ls")
+	phone.WaitFor("the ask", asked)
+	if got := timelineOf(phone, id); !slices.Contains(got, "tool ls running") {
+		t.Fatalf("before the restart: %q", got)
+	}
+
+	h.Restart()
+
+	endedAndPromptable(h, id, "ok")
+}
+
+// endedAndPromptable waits until id's call ls, cut short by a restart, shows
+// ended with status as the store keeps it, and id then takes a prompt.
+func endedAndPromptable(h *Harness, id, status string) {
+	h.t.Helper()
+	again := restoredChat(h, id, "interrupted")
+	h.eventually("the call ended", func() bool { return slices.Contains(timelineOf(again, id), "tool ls "+status) })
+	storedAsLive(h, id)
+	again.Prompt(id, "after the restart")
+	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
+}
+
 func TestAColdRestartWithoutResumeFailsTheTaskOfTheChildItEnded(t *testing.T) {
 	h, phone, _, parent := chatClaude(t)
 	phone.Prompt(parent, `mcp delegate_task {"task":"run ls","title":"List"}`)
@@ -322,18 +346,24 @@ func itemsOf(p *Phone, id string) string {
 // resumedChat waits on a new owner connection until the chat id is back from a restart.
 func resumedChat(h *Harness, id string) *Phone {
 	h.t.Helper()
+	return restoredChat(h, id, "resumed")
+}
+
+// restoredChat is a phone that has heard id's restore settle as outcome.
+func restoredChat(h *Harness, id, outcome string) *Phone {
+	h.t.Helper()
 	p := h.Owner()
-	p.WaitFor("the chat resumed", func(m Message) bool {
+	p.WaitFor("the chat "+outcome, func(m Message) bool {
 		if m.Type == "agent.list" {
 			return slices.ContainsFunc(m.Agents, func(a struct {
 				ID       string `json:"id"`
 				Restore  string `json:"restore"`
 				ChatOnly bool   `json:"chatOnly"`
 			}) bool {
-				return a.ID == id && a.Restore == "resumed"
+				return a.ID == id && a.Restore == outcome
 			})
 		}
-		return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Restore == "resumed"
+		return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Restore == outcome
 	})
 	return p
 }

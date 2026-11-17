@@ -161,7 +161,7 @@ func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, c
 		x.Terminal = t.Info().ID
 	}
 	h.a = d.Agents.Restore(x, d.waiting(h))
-	if carried == nil && e.Provider == providers.Claude.ID && h.a.Stored() {
+	if carried == nil && (e.Provider == providers.Claude.ID || e.Provider == providers.Codex.ID) && h.a.Stored() {
 		h.a.EndRunning()
 	}
 	d.mu.Lock()
