@@ -97,6 +97,20 @@ func (r *remote) open(ctx context.Context) {
 	r.client = c
 	close(r.ready)
 	go r.run()
+	// hello sends the host's open asks with nothing to mark the last; the reply to a call comes after them all.
+	if _, err := c.Call(dial, "agent.list", map[string]any{"type": "agent.list"}); err == nil {
+		r.push(r.answeredMeanwhile)
+	}
+}
+
+// answeredMeanwhile closes the asks kept open here that the host didn't send again: answered there while the link
+// was down.
+func (r *remote) answeredMeanwhile() {
+	for req := range r.kept {
+		r.m.Mirror.Answered(Tag(r.host, r.asks[req]), Tag(r.host, req))
+		delete(r.asks, req)
+	}
+	clear(r.kept)
 }
 
 // inherit takes up where the last remote left off, so a reconnect pages only what's new.

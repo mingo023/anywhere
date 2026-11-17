@@ -38,11 +38,18 @@ func fakePocketd(t *testing.T, script func(read func() map[string]any, send func
 		}
 		defer ws.CloseNow()
 		ctx := r.Context()
-		read := func() map[string]any {
+		var read func() map[string]any
+		read = func() map[string]any {
 			_, raw, err := ws.Read(ctx)
 			var m map[string]any
 			if err == nil {
 				json.Unmarshal(raw, &m)
+			}
+			// What a remote calls once hello is through, answered here so scripts see only their own.
+			if m["type"] == "agent.list" {
+				raw, _ := json.Marshal(proto.NewAgentList(m["id"].(string), agents))
+				ws.Write(ctx, websocket.MessageText, raw)
+				return read()
 			}
 			return m
 		}

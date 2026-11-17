@@ -112,6 +112,20 @@ func TestAnAskStillOpenHereIsNotAskedAgainWhenTheLinkComesBack(t *testing.T) {
 	}
 }
 
+func TestAnAskAnsweredOnTheHostWhileTheLinkWasDownIsClosedHereOnceItsHelloIsThrough(t *testing.T) {
+	m := &kept{open: []string{"devbox/q1", "devbox/q2"}}
+	r := reconnected(t, m, "q1")
+	r.answeredMeanwhile()
+	if !slices.Equal(m.answered, []string{"devbox/a1 devbox/q2"}) || len(m.asked) != 0 {
+		t.Fatalf("answered %v, asked %v", m.answered, m.asked)
+	}
+	raw, _ := json.Marshal(proto.NewPermissionResolved("q1", "allow"))
+	r.frame("permission.resolved", raw)
+	if !slices.Equal(m.answered, []string{"devbox/a1 devbox/q2", "devbox/a1 devbox/q1"}) {
+		t.Fatalf("answered %v", m.answered)
+	}
+}
+
 type seqs struct {
 	Mirror
 	got []int64

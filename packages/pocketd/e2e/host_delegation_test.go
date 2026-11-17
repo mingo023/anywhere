@@ -320,3 +320,28 @@ func TestAHostChildsQuestionStillOpenAfterAReconnectReachesTheParentOnce(t *test
 		t.Fatalf("the parent was told %d times: %q", len(notices), notices)
 	}
 }
+
+func TestAHostChildsQuestionAnsweredThereWhileTheLinkWasDownClosesHereOnReconnect(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"ask Ship it?","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	store := storeOf(mac)
+	mac.eventually("the question mirrored", func() bool {
+		open, _ := store.Requests(task.ChildID, "open")
+		return len(open) == 1
+	})
+	owner := host.Owner()
+	question := owner.WaitFor("the question on the host", asked)
+
+	back := dropLink(t, mac, host)
+	resolve(owner, question, map[string]any{"decision": "allow", "answers": map[string]string{"Ship it?": "No"}})
+	owner.WaitFor("the answer there", func(m Message) bool { return m.Type == "permission.resolved" })
+	back()
+
+	hostTask(mac, phone, parent, 1, "completed")
+	mac.eventually("the question closed here", func() bool {
+		open, _ := store.Requests(task.ChildID, "open")
+		return len(open) == 0
+	})
+}
