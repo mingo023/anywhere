@@ -27,8 +27,8 @@ func AgentWatcher(reg *agent.Registry) Watcher {
 	}
 }
 
-// Entry looks up a queued run's message: its text now and whether it was cancelled; ok is false once it is gone.
-type Entry func(agentID, entryID string) (text string, cancelled, ok bool)
+// Entry looks up a queued run's message: its text now and its queue state, "" once it is gone.
+type Entry func(agentID, entryID string) (text, state string)
 
 // TurnWatcher is AgentWatcher for a run that put its prompt into a session that already had turns.
 // after is the session's timeline seq before the prompt went in: nothing at or
@@ -41,16 +41,19 @@ func TurnWatcher(reg *agent.Registry, after int64, prompt, entry string, queued 
 		if err != nil {
 			return Seen{}, false
 		}
-		if since < 0 {
+		first := since < 0
+		if first {
 			// A crash can lose the timeline's last items, and seq goes on from the last one kept.
 			_, top := a.Timeline.State()
 			since = min(after, top)
 		}
 		lost := since < after
+		state := ""
 		if entry != "" {
-			if text, cancelled, ok := queued(id, entry); cancelled {
+			var text string
+			if text, state = queued(id, entry); state == "cancelled" {
 				return Seen{Cancel: "Its queued message was removed"}, true
-			} else if ok {
+			} else if state != "" {
 				prompt = text
 			}
 		}
@@ -60,8 +63,11 @@ func TurnWatcher(reg *agent.Registry, after int64, prompt, entry string, queued 
 		sum := a.Summary()
 		items, _ := a.Timeline.Page(since, 500)
 		i := slices.IndexFunc(items, own)
-		if i < 0 && lost && entry == "" && slices.ContainsFunc(items, func(it proto.Item) bool { return it.Kind == "user" }) {
-			return Seen{Cancel: "Its turn was lost in a crash"}, true
+		// An entry already sent, or gone, when the watch begins on an idle session will start no turn, so a turn
+		// with its text not shown by then was lost.
+		sent := entry != "" && first && (state == "sent" || state == "") && sum.Status != "working" && sum.Status != "needsYou"
+		if i < 0 && (sent || lost && entry == "" && slices.ContainsFunc(items, func(it proto.Item) bool { return it.Kind == "user" })) {
+			return Seen{Fail: "Its turn was lost in a crash"}, true
 		}
 		if i >= 0 {
 			items = items[i:]

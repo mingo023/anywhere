@@ -345,6 +345,12 @@ func (g codexGoal) proto() proto.Goal {
 	return proto.Goal{Objective: g.Objective, Status: g.Status, TokensUsed: g.TokensUsed, TokenBudget: g.TokenBudget}
 }
 
+// Turnless says whether text is a /goal that only reads, pauses or clears the goal, which starts no turn.
+func (codexChatDriver) Turnless(text string) bool {
+	name, arg, ok := slashCommand(text)
+	return ok && name == "goal" && (arg == "" || arg == "pause" || arg == "clear")
+}
+
 // goal runs /goal arg: pause, resume and clear act on the goal, no arg
 // reads it, and anything else is a new objective, which starts a turn.
 func (x *codexChat) goal(arg string) error {

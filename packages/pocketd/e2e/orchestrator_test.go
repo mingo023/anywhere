@@ -150,6 +150,21 @@ func TestAColdRestartMidDelegationFailsTheTaskAndWakesTheResumedParent(t *testin
 	}
 }
 
+func TestAColdRestartEndsTheBackgroundCallItsClaudeLeftRunning(t *testing.T) {
+	h, phone, _, id := chatClaude(t, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "bg npm run dev")
+	phone.WaitFor("the turn", workedThenDone(id))
+	if got := timelineOf(phone, id); !slices.Contains(got, "tool npm run dev running") {
+		t.Fatalf("before the restart: %q", got)
+	}
+
+	h.Restart()
+
+	again := resumedChat(h, id)
+	h.eventually("the call ended", func() bool { return slices.Contains(timelineOf(again, id), "tool npm run dev ok") })
+	storedAsLive(h, id)
+}
+
 func TestAColdRestartWithoutResumeFailsTheTaskOfTheChildItEnded(t *testing.T) {
 	h, phone, _, parent := chatClaude(t)
 	phone.Prompt(parent, `mcp delegate_task {"task":"run ls","title":"List"}`)

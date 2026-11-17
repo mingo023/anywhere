@@ -248,17 +248,18 @@ func (*promptRecorder) Commands() ([]proto.Command, error) { return nil, nil }
 func (*promptRecorder) Access(string) error                { return nil }
 func (*promptRecorder) Close()                             {}
 
-func TestAMessageSentBeforeTheAgentSaysItsTurnBeganQueuesBehindThatTurn(t *testing.T) {
+// promptRig is an engine whose effects run on session s1, driven by d.
+func promptRig(t *testing.T, d agent.Driver) (*agent.Agent, *orch.Engine) {
+	t.Helper()
 	reg := agent.NewRegistry(hub.New())
-	d := &promptRecorder{}
 	a := reg.Add("s1", "/r", "claude", d)
 	store, err := orch.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	t.Cleanup(func() { store.Close() })
 	e := orch.NewEngine(store, &Host{Registry: reg})
-	defer e.Close()
+	t.Cleanup(e.Close)
 	e.Live = func(id string) (orch.Session, bool) {
 		a, err := reg.Get(id)
 		if err != nil {
@@ -267,6 +268,12 @@ func TestAMessageSentBeforeTheAgentSaysItsTurnBeganQueuesBehindThatTurn(t *testi
 		s := a.Summary()
 		return orch.Session{ID: s.ID, Agent: s.Provider, Status: s.Status, Cwd: s.Cwd}, true
 	}
+	return a, e
+}
+
+func TestAMessageSentBeforeTheAgentSaysItsTurnBeganQueuesBehindThatTurn(t *testing.T) {
+	d := &promptRecorder{}
+	a, e := promptRig(t, d)
 	if _, err := e.Dispatch(orch.NewCommand("", orch.CmdMessageSend, "s1", orch.SendPayload{Text: "first"})); err != nil {
 		t.Fatal(err)
 	}
@@ -283,5 +290,26 @@ func TestAMessageSentBeforeTheAgentSaysItsTurnBeganQueuesBehindThatTurn(t *testi
 	time.Sleep(50 * time.Millisecond)
 	if got := d.prompts(); !slices.Equal(got, []string{"first"}) {
 		t.Fatalf("the agent got %q", got)
+	}
+}
+
+// turnlessRecorder is a promptRecorder whose agent says /goal pause starts no turn.
+type turnlessRecorder struct{ promptRecorder }
+
+func (*turnlessRecorder) Turnless(text string) bool { return text == "/goal pause" }
+
+func TestAMessageSentAfterAPromptThatStartsNoTurnGoesOutWithoutWaiting(t *testing.T) {
+	d := &turnlessRecorder{}
+	_, e := promptRig(t, d)
+	if _, err := e.Dispatch(orch.NewCommand("", orch.CmdMessageSend, "s1", orch.SendPayload{Text: "/goal pause"})); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(3 * time.Second); len(d.prompts()) == 0 && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	r, err := e.Dispatch(orch.NewCommand("", orch.CmdMessageSend, "s1", orch.SendPayload{Text: "second"}))
+	if err != nil || !strings.Contains(string(r.Result), `"queued":false`) {
+		t.Fatalf("the second after a prompt that starts no turn: %s, %v", r.Result, err)
 	}
 }

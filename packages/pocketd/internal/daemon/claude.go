@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -450,9 +451,9 @@ func tidy(text string) string {
 
 // tail feeds pr's timeline from a transcript; hooks set the status. stop
 // returns once the lines written so far are in. A resumed transcript, one a
-// new claude took over, ends the background calls it replays still running.
-// The timeline already shows the lines in the first shown bytes, as a moved
-// agent's does, so only later ones go in.
+// new claude took over, ends the calls left running. The timeline already
+// shows the lines in the first shown bytes, as a moved agent's does, so only
+// later ones go in, and its sub-agents' lines past what it shows.
 func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool, shown int64) (stop func()) {
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})
@@ -470,6 +471,10 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool, shown 
 					subs.Spawned(e.ToolUseID, record)
 				}
 			}
+		}
+		if shown > 0 {
+			items, _ := pr.a.Timeline.PageWithSubagents(0, math.MaxInt)
+			subs.Restored(items, record)
 		}
 		subagents := make(chan struct{})
 		kick := make(chan struct{}, 1)
@@ -528,7 +533,7 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool, shown 
 			}
 			if resumed && read >= replay {
 				resumed = false
-				pr.a.EndLasting()
+				pr.a.EndRunning()
 			}
 		})
 	}()

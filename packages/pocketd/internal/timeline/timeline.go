@@ -147,6 +147,58 @@ func (t *Timeline) Load(items []proto.Item) {
 	t.epoch++
 }
 
+// Unseen returns a filter for a replay of what one call's sub-agents wrote,
+// given shown, the items a restored timeline holds under that call: it drops
+// the replay's events up to the first that adds or changes an item past
+// shown, and keeps everything from there. An event that changes no item waits
+// to go out with the next one that does.
+func Unseen(shown []proto.Item) func([]Event) []Event {
+	shown = joined(shown)
+	scratch, past := New(), false
+	var held []Event
+	return func(events []Event) []Event {
+		if past {
+			return events
+		}
+		for i, e := range events {
+			it, changed := scratch.Apply(e, 0)
+			if !changed {
+				held = append(held, e)
+				continue
+			}
+			if n := int(it.Seq) - 1; n < len(shown) && holds(shown[n], it) {
+				held = nil
+				continue
+			}
+			past = true
+			return append(held, events[i:]...)
+		}
+		return nil
+	}
+}
+
+// joined is items with each run of texts of one kind as one item, as a replay of them alone merges them: the
+// timeline they were shown in kept them apart around another call's items.
+func joined(items []proto.Item) []proto.Item {
+	var out []proto.Item
+	for _, it := range items {
+		if n := len(out) - 1; n >= 0 && out[n].Kind == it.Kind && (it.Kind == "assistant" || it.Kind == "thinking") {
+			out[n].Text += it.Text
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// holds is whether stored, an item a timeline shows, already holds it, the same item as a replay has it so far.
+func holds(stored, it proto.Item) bool {
+	if stored.Kind != it.Kind || !strings.HasPrefix(stored.Text, it.Text) || (stored.Call == nil) != (it.Call == nil) {
+		return false
+	}
+	return it.Call == nil || stored.Call.ToolUseID == it.Call.ToolUseID && (it.Call.Status == "running" || it.Call.Status == stored.Call.Status)
+}
+
 // Background is what a timeline knows of its background calls beyond its items, by tool use id, for an upgrade to
 // carry: the store keeps neither a call's task nor whether it runs on.
 type Background struct {
@@ -509,6 +561,20 @@ func (t *Timeline) Lasting() []string {
 	var ids []string
 	for id := range t.lasting {
 		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
+	return ids
+}
+
+// Running returns the tool use ids of the calls still running, oldest first.
+func (t *Timeline) Running() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var ids []string
+	for id, n := range t.tools {
+		if t.items[n].Call.Status == "running" {
+			ids = append(ids, id)
+		}
 	}
 	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
 	return ids

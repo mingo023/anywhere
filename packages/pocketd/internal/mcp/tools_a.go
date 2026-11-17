@@ -365,7 +365,7 @@ func delegateTask(ctx context.Context, c *Call) (any, error) {
 		return latest.Terminal() || latest.PendingQuestion != ""
 	})
 	v := viewTask(latest)
-	v.Warnings = warnings
+	v.Warnings = append(warnings, unreachable(c, latest)...)
 	v.WaitTimedOut = !done
 	if latest.Terminal() {
 		e.Dispatch(orch.NewCommand("", orch.CmdDelegateWaited, c.Caller.ID, orch.TaskPayload{TaskID: t.TaskID}))
@@ -373,6 +373,20 @@ func delegateTask(ctx context.Context, c *Call) (any, error) {
 		v.Next = RunningNext
 	}
 	return v, nil
+}
+
+// unreachable warns that a running task's host isn't online, which a task there waits through.
+func unreachable(c *Call, t orch.Delegation) []string {
+	envs := c.Host.Environments()
+	if t.Environment == "" || t.Terminal() || envs == nil {
+		return nil
+	}
+	for _, e := range envs.List() {
+		if e.ID == t.Environment && e.State != "online" {
+			return []string{"Host " + cmp.Or(e.Label, e.ID) + " is unreachable; the task keeps waiting."}
+		}
+	}
+	return nil
 }
 
 func taskStatus(ctx context.Context, c *Call) (any, error) {
@@ -405,7 +419,9 @@ func taskStatus(ctx context.Context, c *Call) (any, error) {
 		if !descends(c, t.ParentID) {
 			return nil, fail(orch.CodeForbidden, "Task "+id+" wasn't delegated from this session or one under it")
 		}
-		out = append(out, viewTask(t))
+		v := viewTask(t)
+		v.Warnings = unreachable(c, t)
+		out = append(out, v)
 	}
 	return map[string]any{"tasks": out}, nil
 }
@@ -505,6 +521,9 @@ func createThreads(ctx context.Context, c *Call) (any, error) {
 			id = fmt.Sprintf("%s:%d", id, i)
 		}
 		receipts[i], refused[i] = c.Host.Engine().Dispatch(orch.NewCommand(id, orch.CmdSessionCreate, c.Caller.ID, lp))
+	}
+	if !slices.Contains(refused, nil) {
+		return nil, refused[0]
 	}
 	var out []map[string]any
 	for i, r := range receipts {
@@ -704,9 +723,15 @@ func threadSearch(ctx context.Context, c *Call) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		// gh is asked for the trees it never told of, as no client watches them, within prWait for the whole search.
+		prCtx, cancel := context.WithTimeout(ctx, prWait)
+		defer cancel()
 		for _, s := range trees {
-			pr := c.Host.PR(s.Worktree)
-			if len(hits) < limit && pr != nil && prMatches(pr, p.Query) && !slices.ContainsFunc(hits, func(h orch.Hit) bool { return h.Session.ID == s.ID }) {
+			if len(hits) >= limit {
+				break
+			}
+			pr := c.Host.PR(prCtx, s.Worktree)
+			if pr != nil && prMatches(pr, p.Query) && !slices.ContainsFunc(hits, func(h orch.Hit) bool { return h.Session.ID == s.ID }) {
 				hits = append(hits, orch.Hit{Session: s, Snippet: fmt.Sprintf("PR #%d %s", pr.Number, pr.Title)})
 			}
 		}
@@ -717,6 +742,9 @@ func threadSearch(ctx context.Context, c *Call) (any, error) {
 	}
 	return map[string]any{"results": out}, nil
 }
+
+// prWait bounds how long one search waits on gh for pull requests it never told of.
+const prWait = 5 * time.Second
 
 // prMatches says whether query names pr: its number, with or without #, its URL, or words of its title.
 func prMatches(pr *proto.PR, query string) bool {

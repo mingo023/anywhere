@@ -54,7 +54,7 @@ type Host struct {
 	Hosts *hosts.Manager
 	Envs  mcp.Environments
 	// PRs is the pull request of each tree's branch, as gh last told; nil tells none.
-	PRs func(tree string) *proto.PR
+	PRs func(ctx context.Context, tree string) *proto.PR
 
 	engine *orch.Engine
 	models sync.Map // kind -> func() []string
@@ -196,8 +196,9 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 	for {
 		idle, starts := a.Turn() == "idle" || a.Turn() == "done", a.Starts()
-		err := a.Driver().Prompt(p.Text)
-		if err == nil && idle {
+		d := a.Driver()
+		err := d.Prompt(p.Text)
+		if t, ok := d.(agent.Turnless); err == nil && idle && !(ok && t.Turnless(p.Text)) {
 			began(ctx, a, starts)
 		}
 		if !errors.Is(err, agent.ErrResuming) || p.Origin == orch.OriginUser {
@@ -497,11 +498,11 @@ func (h *Host) Schedules() mcp.Schedules { return h.Sched }
 
 func (h *Host) Environments() mcp.Environments { return h.Envs }
 
-func (h *Host) PR(tree string) *proto.PR {
+func (h *Host) PR(ctx context.Context, tree string) *proto.PR {
 	if h.PRs == nil {
 		return nil
 	}
-	return h.PRs(tree)
+	return h.PRs(ctx, tree)
 }
 
 func (h *Host) token(terminal, provider string) (string, error) {

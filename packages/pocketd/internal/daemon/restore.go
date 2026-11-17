@@ -14,6 +14,7 @@ import (
 	"pocketd/internal/agent"
 	"pocketd/internal/handoff"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
@@ -160,6 +161,9 @@ func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, c
 		x.Terminal = t.Info().ID
 	}
 	h.a = d.Agents.Restore(x, d.waiting(h))
+	if carried == nil && e.Provider == providers.Claude.ID && h.a.Stored() {
+		h.a.EndRunning()
+	}
 	d.mu.Lock()
 	if d.restoring == nil {
 		d.restoring = map[string]*hint{}

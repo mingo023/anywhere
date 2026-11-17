@@ -46,8 +46,9 @@ type Host interface {
 	Schedules() Schedules
 	// Environments is the linked hosts; nil when there are none to link.
 	Environments() Environments
-	// PR is the pull request of the branch checked out at tree, as gh last told; nil when it told none.
-	PR(tree string) *proto.PR
+	// PR is the pull request of the branch checked out at tree, as gh last told, asking gh within ctx for a
+	// tree it never told of; nil when it told none.
+	PR(ctx context.Context, tree string) *proto.PR
 }
 
 type Environment struct {

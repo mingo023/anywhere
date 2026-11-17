@@ -57,6 +57,11 @@ type TaskStopper interface {
 	StopTask(id string) error
 }
 
+// Turnless is a driver that knows some prompts start no turn, as Codex's /goal pause.
+type Turnless interface {
+	Turnless(text string) bool
+}
+
 // McpLister is a driver that tells how its session's MCP servers stand, and acts on one.
 type McpLister interface {
 	Mcp() ([]proto.McpServer, error)
@@ -522,11 +527,13 @@ func (a *Agent) Stop() bool {
 	return true
 }
 
-// EndLasting ends the background calls an earlier claude left running: they
-// ended with it, and Claude may never note it.
-func (a *Agent) EndLasting() {
+// EndRunning ends every call its timeline shows running, for a claude that
+// ended before another took over its conversation: the calls ended with it,
+// and Claude may never note it. A cold restart carries no background index, so
+// an end notice would find nothing to end either.
+func (a *Agent) EndRunning() {
 	out := "Stopped when its session ended"
-	for _, id := range a.Timeline.Lasting() {
+	for _, id := range a.Timeline.Running() {
 		a.Record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: &out})
 	}
 }

@@ -275,13 +275,13 @@ func postBound(reg *agent.Registry, e *orch.Engine) func(string, proto.Automatio
 
 // queuedEntry is automation.Entry over the store's queue.
 func queuedEntry(store *orch.Store) automation.Entry {
-	return func(session, id string) (string, bool, bool) {
+	return func(session, id string) (string, string) {
 		q, _ := store.Queue(session, false)
 		i := slices.IndexFunc(q, func(e orch.QueueEntry) bool { return e.ID == id })
 		if i < 0 {
-			return "", false, false
+			return "", ""
 		}
-		return q[i].Text, q[i].State == orch.EntryCancelled, true
+		return q[i].Text, q[i].State
 	}
 }
 

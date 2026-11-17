@@ -97,14 +97,14 @@ func (h *host) Agents() []AgentKind {
 	return []AgentKind{{ID: "claude", Installed: true, Parent: true, Access: proto.Accesses}, {ID: "codex", Installed: true, Parent: true, Access: []string{"ask", "edits", "full"}},
 		{ID: "pi", Installed: true, Access: []string{"full"}, NeverAsks: true}}
 }
-func (h *host) Models(string) []string                  { return nil }
-func (h *host) InBackground(_, id string) bool          { return h.background[id] }
-func (h *host) TaskOf(session, toolUseID string) string { return h.tasks[session+"/"+toolUseID] }
-func (h *host) Dirty(string) bool                       { return false }
-func (h *host) OutsideGit(string) bool                  { return h.outsideGit }
-func (h *host) Schedules() Schedules                    { return h.sched }
-func (h *host) Environments() Environments              { return h.envs }
-func (h *host) PR(tree string) *proto.PR                { return h.prs[tree] }
+func (h *host) Models(string) []string                      { return nil }
+func (h *host) InBackground(_, id string) bool              { return h.background[id] }
+func (h *host) TaskOf(session, toolUseID string) string     { return h.tasks[session+"/"+toolUseID] }
+func (h *host) Dirty(string) bool                           { return false }
+func (h *host) OutsideGit(string) bool                      { return h.outsideGit }
+func (h *host) Schedules() Schedules                        { return h.sched }
+func (h *host) Environments() Environments                  { return h.envs }
+func (h *host) PR(_ context.Context, tree string) *proto.PR { return h.prs[tree] }
 
 type fixture struct {
 	srv    *httptest.Server
@@ -511,5 +511,30 @@ func TestAWebhookOnlyTaskGetsTheWebhookScheduleAndIsListedWithItsURLButNotItsSec
 	raw, _ := json.Marshal(out)
 	if !strings.Contains(string(raw), `"webhookUrl":"http://127.0.0.1:7123/hooks/new"`) || strings.Contains(string(raw), "mine") {
 		t.Fatalf("listed: %s", raw)
+	}
+}
+
+// projectEnvironments has the caller's project on every host.
+type projectEnvironments struct{ fakeEnvironments }
+
+func (*projectEnvironments) Projects(context.Context, string) ([]proto.Project, error) {
+	return []proto.Project{{Name: "repo", Path: "/repo"}}, nil
+}
+
+func TestTaskStatusSaysARunningTasksHostIsUnreachable(t *testing.T) {
+	f := newFixture(t)
+	envs := &projectEnvironments{fakeEnvironments{list: []Environment{{ID: "devbox", Label: "Dev Box", State: "online"}}}}
+	f.host.envs = envs
+	task := f.ok(t, "delegate_task", `{"task":"x","target":{"environmentId":"devbox"}}`)["taskId"].(string)
+	warnings := func() []any {
+		w, _ := f.ok(t, "task_status", fmt.Sprintf(`{"taskId":%q}`, task))["tasks"].([]any)[0].(map[string]any)["warnings"].([]any)
+		return w
+	}
+	if w := warnings(); len(w) != 0 {
+		t.Fatalf("online: %v", w)
+	}
+	envs.list[0].State = "retrying"
+	if w := warnings(); len(w) != 1 || w[0] != "Host Dev Box is unreachable; the task keeps waiting." {
+		t.Fatalf("retrying: %v", w)
 	}
 }
