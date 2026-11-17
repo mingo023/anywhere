@@ -1361,6 +1361,109 @@ func TestATaskQueuedOnTheMacLimitStartsWhenAnotherChatsTaskIsCancelled(t *testin
 	waitFor(t, func() bool { return status(second) == TaskWorking })
 }
 
+func TestRoomACancelLeftBeforeACrashGoesToAnotherChatsQueuedTaskAfterIt(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	putSession(t, s, Session{ID: "a", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	putSession(t, s, Session{ID: "b", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	launcher := func() *fakeEffector {
+		return &fakeEffector{result: func(x Effect) (map[string]any, error) {
+			if x.Kind != EffLaunch {
+				return nil, nil
+			}
+			var p LaunchPayload
+			json.Unmarshal(x.Payload, &p)
+			return map[string]any{"childId": "child-of-" + p.Parent}, nil
+		}}
+	}
+	engine := func() *Engine {
+		e := NewEngine(s, launcher())
+		e.Agent = agents
+		e.Limits = func() Limits { return Limits{Depth: 3, PerSession: 6, PerMac: 1} }
+		return e
+	}
+	e := engine()
+	delegate := func(parent string) string {
+		r, err := e.Dispatch(NewCommand("", CmdDelegate, parent, DelegatePayload{Agent: "codex", Brief: "x"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var d Delegation
+		json.Unmarshal(r.Result, &d)
+		return d.TaskID
+	}
+	status := func(id string) string {
+		ts, _ := s.Delegations(`task_id = ?`, id)
+		return ts[0].Status
+	}
+	first := delegate("a")
+	waitFor(t, func() bool { return status(first) == TaskWorking })
+	second := delegate("b")
+	// pocketd dies once the cancel commits, before anything it set off runs.
+	e.OnChange = func(c Change) {
+		if slices.ContainsFunc(c.Delegations, func(d Delegation) bool { return d.TaskID == first && d.Status == TaskCancelled }) {
+			s.Close()
+		}
+	}
+	e.Dispatch(NewCommand("", CmdDelegateCancel, "a", TaskPayload{TaskID: first}))
+	e.Close()
+	s, _ = Open(dir)
+	defer s.Close()
+	e = engine()
+	defer e.Close()
+	if err := e.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return status(second) == TaskWorking })
+}
+
+func TestAChildWhoseTurnEndedBeforeItsTaskBeganIsSettledAfterACrashBetweenThem(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	e := NewEngine(s, &fakeEffector{result: func(x Effect) (map[string]any, error) {
+		if x.Kind == EffLaunch {
+			k := NewSink(s)
+			k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "working"})
+			k.Item("child-1", 1, proto.Item{ID: "i1", Seq: 1, Kind: "assistant", Text: "Did it."})
+			k.Item("child-1", 1, proto.Item{ID: "i2", Seq: 2, Kind: "result", OK: true})
+			k.Summary(proto.AgentSummary{ID: "child-1", Provider: "codex", Status: "idle"})
+			k.Close()
+			return map[string]any{"childId": "child-1"}, nil
+		}
+		return nil, nil
+	}})
+	e.Agent = agents
+	died := make(chan struct{})
+	// pocketd dies once the task's start commits, before it looks at the child's turn.
+	e.OnChange = func(c Change) {
+		if len(c.Delegations) == 1 && c.Delegations[0].Status == TaskWorking {
+			s.Close()
+			close(died)
+		}
+	}
+	r, err := e.Dispatch(NewCommand("", CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task Delegation
+	json.Unmarshal(r.Result, &task)
+	<-died
+	e.Close()
+	s, _ = Open(dir)
+	defer s.Close()
+	e = NewEngine(s, &fakeEffector{})
+	e.Agent = agents
+	defer e.Close()
+	if err := e.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		return len(ts) == 1 && ts[0].Status == TaskCompleted && ts[0].Summary == "Did it."
+	})
+}
+
 func TestCancellingATaskDropsItsQuestionNoticeFromTheParentsQueue(t *testing.T) {
 	st := parentState("working", 0)
 	task := Delegation{TaskID: "t1", ParentID: "p", ChildID: "c", Status: TaskWorking, PendingQuestion: "q1"}
