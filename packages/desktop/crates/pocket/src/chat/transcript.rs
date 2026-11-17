@@ -933,7 +933,10 @@ impl Desktop {
                 _ => div(),
             },
             Row::HostLink { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
-                Some(Block::HostLink { hint, reason, .. }) => super::host_link::card(&id, hint, reason, cx),
+                Some(Block::HostLink { hint, reason, .. }) => {
+                    let linked = super::host_link::linked(hint, &self.fleet.hosts.list, &self.fleet.hosts.links);
+                    super::host_link::card(&id, hint, reason, linked, cx)
+                }
                 _ => div(),
             },
             Row::Compacted { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {

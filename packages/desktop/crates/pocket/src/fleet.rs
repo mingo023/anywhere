@@ -451,9 +451,13 @@ impl Desktop {
 
     /// Opens Settings › Hosts with the add form filled with `hint`, as an agent's card asks.
     pub(crate) fn link_host(&mut self, hint: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_hosts(window, cx);
+        self.open_add_host(Some(hint), window, cx);
+    }
+
+    pub(crate) fn show_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_settings(&crate::actions::OpenSettings, window, cx);
         self.show_section(crate::settings::Section::Hosts, cx);
-        self.open_add_host(Some(hint), window, cx);
     }
 
     /// An older pocketd, without hosts.v1, answered: it links no hosts, so the saved ones only show.
