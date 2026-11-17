@@ -192,6 +192,38 @@ func TestCreateThreadsStartsEachSessionInTheCallersCheckoutAndLinksIt(t *testing
 	}
 }
 
+func TestCreateThreadsReturnsTheSessionsItStartedBesideTheOnesRefused(t *testing.T) {
+	f := newFixtureAs(t, "working", "auto")
+	f.engine.Agent = func(kind string) orch.AgentInfo {
+		return orch.AgentInfo{Known: true, Access: []string{"ask", "edits", "auto", "full"}, NeverAsks: kind == "pi"}
+	}
+	sc := f.ok(t, "create_threads", `{"threads":[{"prompt":"one","title":"One"},{"prompt":"two","title":"Two","target":{"agent":"pi"}}]}`)
+	threads := sc["threads"].([]any)
+	if len(threads) != 2 {
+		t.Fatalf("threads = %v", threads)
+	}
+	if one := threads[0].(map[string]any); one["title"] != "One" || one["status"] != "started" || one["threadId"] != "child" {
+		t.Errorf("started = %v", one)
+	}
+	if two := threads[1].(map[string]any); two["title"] != "Two" || !strings.HasPrefix(two["status"].(string), "failed: ") || two["threadId"] != nil {
+		t.Errorf("refused = %v", two)
+	}
+}
+
+func TestCreateThreadsStartsNothingWhenAnEntryNamesAnUnknownAgent(t *testing.T) {
+	f := newFixture(t)
+	sc, isErr := f.call(t, "create_threads", `{"threads":[{"prompt":"one"},{"prompt":"two","target":{"agent":"nope"}}]}`)
+	if !isErr || errorCode(sc) != orch.CodeInvalid {
+		t.Fatalf("an unknown agent was accepted: %v", sc)
+	}
+	var n int
+	if err := f.store.Tx(func(tx *orch.Tx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM outbox WHERE kind = ?`, orch.EffLaunch).Scan(&n)
+	}); err != nil || n != 0 {
+		t.Fatalf("launches = %d, %v", n, err)
+	}
+}
+
 func TestThreadLaunchStartsASessionInTheProjectRoot(t *testing.T) {
 	f := newFixture(t)
 	sc := f.ok(t, "anywhere_thread_launch", `{"prompt":"look around","checkout":{"strategy":"root"}}`)

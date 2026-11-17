@@ -484,8 +484,7 @@ func createThreads(ctx context.Context, c *Call) (any, error) {
 	if len(p.Threads) < 1 || len(p.Threads) > 20 {
 		return nil, fail(orch.CodeInvalid, "threads takes 1 to 20 sessions")
 	}
-	deadline := time.Now().Add(MaxWait)
-	var receipts []orch.Receipt
+	payloads := make([]orch.LaunchPayload, len(p.Threads))
 	for i, t := range p.Threads {
 		if t.Target.Environment != "" {
 			return nil, fail(orch.CodeUnsupported, "create_threads runs on this Mac; use anywhere_thread_launch for a linked host")
@@ -494,20 +493,28 @@ func createThreads(ctx context.Context, c *Call) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		payloads[i] = lp
+	}
+	deadline := time.Now().Add(MaxWait)
+	receipts := make([]orch.Receipt, len(payloads))
+	refused := make([]error, len(payloads))
+	for i, lp := range payloads {
 		id := commandID(c, "create_threads", p.ClientRequestID)
 		if id != "" {
 			id = fmt.Sprintf("%s:%d", id, i)
 		}
-		r, err := c.Host.Engine().Dispatch(orch.NewCommand(id, orch.CmdSessionCreate, c.Caller.ID, lp))
-		if err != nil {
-			return nil, err
-		}
-		receipts = append(receipts, r)
+		receipts[i], refused[i] = c.Host.Engine().Dispatch(orch.NewCommand(id, orch.CmdSessionCreate, c.Caller.ID, lp))
 	}
 	var out []map[string]any
 	for i, r := range receipts {
+		item := map[string]any{"title": p.Threads[i].Title}
+		if refused[i] != nil {
+			item["status"] = "failed: " + refused[i].Error()
+			out = append(out, item)
+			continue
+		}
 		id, status := launched(c, r, deadline)
-		item := map[string]any{"title": p.Threads[i].Title, "status": status}
+		item["status"] = status
 		if id != "" {
 			item["threadId"], item["link"] = id, Link(id)
 		}
