@@ -143,7 +143,7 @@ pub fn tag_event(host: &str, ev: &mut Event) -> bool {
             t(agent);
         }
         Event::PromptFailed { agent, .. } | Event::InterruptFailed { agent, .. } | Event::Commands { agent, .. } | Event::Mcp { agent, .. } | Event::McpActFailed { agent, .. } | Event::RemoteControl { agent, .. } => t(agent),
-        Event::Queue { agent, .. } => t(agent),
+        Event::Queue { agent, .. } | Event::QueueFailed { agent, .. } => t(agent),
         Event::Delegations { agent, items } => {
             t(agent);
             items.iter_mut().for_each(|d| tag_delegation(host, d));
@@ -497,6 +497,13 @@ mod tests {
         let mut queue = Event::Queue { agent: "a1".into(), entries: vec![entry.clone()] };
         assert!(tag_event("devbox", &mut queue));
         assert!(matches!(queue, Event::Queue { agent, entries } if agent == "devbox/a1" && entries == [entry]));
+    }
+
+    #[test]
+    fn a_hosts_refused_queue_change_names_its_session_by_the_tagged_id() {
+        let mut failed = Event::QueueFailed { agent: "a1".into(), reason: "No such entry".into(), text: None };
+        assert!(tag_event("devbox", &mut failed));
+        assert!(matches!(failed, Event::QueueFailed { agent, .. } if agent == "devbox/a1"));
     }
 
     #[test]

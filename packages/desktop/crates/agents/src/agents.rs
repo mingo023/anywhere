@@ -471,6 +471,8 @@ pub enum Event {
     /// One of `agent`'s delegations changed.
     Delegated { agent: String, delegation: Delegation },
     Queue { agent: String, entries: Vec<Entry> },
+    /// pocketd refused a queue change or a queued send, or the socket never took it; `text` is what the user had typed for it, if anything.
+    QueueFailed { agent: String, reason: String, text: Option<String> },
     McpActFailed { agent: String, reason: String },
     Hosts(Vec<hosts::Entry>),
     HostUpdate { request: String, host: hosts::Entry },
@@ -600,7 +602,7 @@ impl Agents {
             Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
             Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
             Event::Queue { agent, entries } => self.queues.replace(&agent, entries),
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::QueueFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
             Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) => {}
         }
     }
@@ -1377,13 +1379,13 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
     }
 }
 
-/// Prompts and stops written to pocketd and not yet answered, so a refusal names the one it refused.
+/// Prompts, stops and queue changes written to pocketd and not yet answered, so a refusal names the one it refused.
 #[derive(Default)]
 struct Requests(VecDeque<Value>);
 
 impl Requests {
     fn sent(&mut self, m: &Value) {
-        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt")) {
+        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt" | "queue.edit" | "queue.cancel" | "queue.reorder" | "queue.send_now")) {
             self.0.push_back(m.clone());
         }
     }
@@ -1399,10 +1401,14 @@ impl Requests {
     }
 }
 
-/// The event for a prompt or stop `m` that failed for `reason`; none for other messages.
+/// The event for a prompt, stop or queue change `m` that failed for `reason`; none for other messages.
 fn refused(m: &Value, reason: &str) -> Option<Event> {
     let field = |key: &str| m[key].as_str().unwrap_or_default().to_string();
+    let queue_failed = |text: Option<String>| Some(Event::QueueFailed { agent: field("agentId"), reason: reason.into(), text });
     match m["type"].as_str()? {
+        "agent.prompt" if m["queue"] == true => queue_failed(Some(field("text"))),
+        "queue.edit" => queue_failed(Some(field("text"))),
+        "queue.cancel" | "queue.reorder" | "queue.send_now" => queue_failed(None),
         "agent.prompt" => Some(Event::PromptFailed { agent: field("agentId"), request: field("id") }),
         "agent.interrupt" => Some(Event::InterruptFailed { agent: field("agentId"), reason: reason.into() }),
         _ => None,
@@ -2081,6 +2087,39 @@ mod tests {
         assert!(requests.answer(&frame(json!({"type": "ack", "id": "interrupt-1"}))).is_none());
         let refused = requests.answer(&frame(json!({"type": "error", "id": "interrupt-2", "code": "agent_resuming", "message": "This session is still resuming"})));
         assert!(matches!(refused, Some(Event::InterruptFailed { agent, reason }) if agent == "a2" && reason == "This session is still resuming"));
+    }
+
+    #[test]
+    fn a_refused_queue_change_or_queued_send_names_its_session_and_gives_back_the_text() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let out = Outbox::from(tx);
+        out.queue_edit("a1", "e1", "fix lint too");
+        out.queue_cancel("a1", "e2");
+        out.queue_reorder("a1", "e3", "e1");
+        out.queue_send_now("a1", "e4");
+        let queued = out.prompt_queued("a2", "after this");
+        let mut requests = Requests::default();
+        let sent: Vec<Value> = rx.try_iter().collect();
+        sent.iter().for_each(|m| requests.sent(m));
+        let refuse = |requests: &mut Requests, m: &Value| requests.answer(&frame(json!({"type": "error", "id": m["id"], "message": "No such entry"})));
+        let got: Vec<_> = sent.iter().map(|m| refuse(&mut requests, m)).collect();
+        assert!(matches!(&got[0], Some(Event::QueueFailed { agent, reason, text }) if agent == "a1" && reason == "No such entry" && text.as_deref() == Some("fix lint too")));
+        assert!(matches!(&got[1], Some(Event::QueueFailed { agent, text: None, .. }) if agent == "a1"));
+        assert!(matches!(&got[2], Some(Event::QueueFailed { text: None, .. })));
+        assert!(matches!(&got[3], Some(Event::QueueFailed { text: None, .. })));
+        assert!(matches!(&got[4], Some(Event::QueueFailed { agent, text, .. }) if agent == "a2" && text.as_deref() == Some("after this")), "{queued} is a queued send, not a prompt of the transcript");
+    }
+
+    #[test]
+    fn an_acked_queue_change_reports_nothing_and_one_the_socket_never_took_fails() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let out = Outbox::from(tx);
+        out.queue_cancel("a1", "e1");
+        let cancel: Value = rx.try_recv().unwrap();
+        let mut requests = Requests::default();
+        requests.sent(&cancel);
+        assert!(requests.answer(&frame(json!({"type": "ack", "id": cancel["id"]}))).is_none());
+        assert!(matches!(refused(&cancel, UNSENT), Some(Event::QueueFailed { agent, reason, .. }) if agent == "a1" && reason == UNSENT));
     }
 
     #[test]
