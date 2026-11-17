@@ -1,0 +1,40 @@
+# Step 4 on f3581f6a: restart with restore.resumeAgents=false revokes the closed sessions' MCP tokens and removes their config
+## before the restart (resume on, sessions live), state/mcp held: 83bc2ad3-….json e3b2eb7b-….json ec1afa63-….json (the 3 Claude chats).
+## Each file's token was copied to a 0600 scratch file (never printed) and probed: POST /mcp initialize -> HTTP 200 for all 3 (12:06).
+## pocketd stopped with SIGTERM (no agent process left), config set to restore = {'resumeAgents': False}, started again.
+## files in state/mcp after restart: []
+config 83bc2ad3-0007-424f-b91b-8e82be6958f0.json: POST /mcp initialize with its token -> HTTP 401
+config e3b2eb7b-e453-4aa0-afe2-e67e13be3bed.json: POST /mcp initialize with its token -> HTTP 401
+config ec1afa63-148d-48e9-bb46-50d35291c8fa.json: POST /mcp initialize with its token -> HTTP 401
+## tokens table after restart
+session_id|agent|revoked
+528a122c-2e6c-491a-8c14-5d543f28ddb7|codex|1
+e3b2eb7b-e453-4aa0-afe2-e67e13be3bed|claude|1
+5deb2643-3f70-4d94-b725-2113e9df41b8|codex|1
+83bc2ad3-0007-424f-b91b-8e82be6958f0|claude|1
+ec1afa63-148d-48e9-bb46-50d35291c8fa|claude|1
+21736957-204a-4e43-aea2-3f7712b4ee54|codex|1
+## sessions after restart
+id|agent|title|status|closed
+876783b2-1b25-468c-a7ca-4aeeef03bdb4|codex|Call the anywhere orchestrator_capabilities tool and print, for each agent it li|closed|1
+bf9be6b7-f63d-4d9b-8301-35390182aefc|claude|Reply with the word ping|closed|1
+397674f8-b147-4532-9096-11738a33367d|codex|Call the anywhere orchestrator_capabilities tool and print, for each agent it li|closed|1
+da1e0c01-20c7-49a1-bb3f-a3bec5f20f89|claude|Reply with the word ping|closed|1
+1a1a2a59-c097-4e90-845d-79da3359f370|claude|Delegate async codex task to reply pong|closed|1
+f1cef263-e55e-4f87-83ea-257b4a677f1d|codex|Reply with pong|closed|1
+## agent.list after restart
+12:07:57.578 << {"type":"agent.list","agents":[]}
+## restore events
+{"ts":"2026-11-17T05:07:49.643Z","kind":"restore","reason":"resume_off","agent":"f1cef263-e55e-4f87-83ea-257b4a677f1d","ok":false}
+{"ts":"2026-11-17T05:07:49.648Z","kind":"restore","reason":"resume_off","agent":"876783b2-1b25-468c-a7ca-4aeeef03bdb4","ok":false}
+{"ts":"2026-11-17T05:07:49.651Z","kind":"restore","reason":"resume_off","agent":"397674f8-b147-4532-9096-11738a33367d","ok":false}
+{"ts":"2026-11-17T05:07:49.657Z","kind":"restore","reason":"resume_off","agent":"da1e0c01-20c7-49a1-bb3f-a3bec5f20f89","ok":false}
+{"ts":"2026-11-17T05:07:49.661Z","kind":"restore","reason":"resume_off","agent":"bf9be6b7-f63d-4d9b-8301-35390182aefc","ok":false}
+{"ts":"2026-11-17T05:07:49.665Z","kind":"restore","reason":"resume_off","agent":"1a1a2a59-c097-4e90-845d-79da3359f370","ok":false}
+## pocketd log tail
+2026/11/17 12:07:49 restore f1cef263-e55e-4f87-83ea-257b4a677f1d: resume_off
+2026/11/17 12:07:49 restore 876783b2-1b25-468c-a7ca-4aeeef03bdb4: resume_off
+2026/11/17 12:07:49 restore 397674f8-b147-4532-9096-11738a33367d: resume_off
+2026/11/17 12:07:49 restore da1e0c01-20c7-49a1-bb3f-a3bec5f20f89: resume_off
+2026/11/17 12:07:49 restore bf9be6b7-f63d-4d9b-8301-35390182aefc: resume_off
+2026/11/17 12:07:49 restore 1a1a2a59-c097-4e90-845d-79da3359f370: resume_off

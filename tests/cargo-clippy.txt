@@ -1,3 +1,4 @@
+commit 241bed8f
 warning: called `Iterator::last` on a `DoubleEndedIterator`; this will needlessly iterate the entire iterator
    --> crates/git/src/git.rs:197:19
     |
@@ -171,5 +172,5 @@ note: consider initializing the variable with `agents::Agents { list: vec![agent
 
 warning: `pocket` (bin "pocket-desktop") generated 2 warnings (run `cargo clippy --fix --bin "pocket-desktop" -p pocket -- ` to apply 2 suggestions)
 warning: `pocket` (bin "pocket-desktop" test) generated 4 warnings (2 duplicates)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.45s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.08s
 exit 0
