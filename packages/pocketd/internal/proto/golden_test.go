@@ -83,6 +83,7 @@ var serverGolden = map[string]any{
 	}),
 	"error_agent_resuming": NewErrorCode("p1", CodeAgentResuming, "This session is still resuming"),
 	"stream_user":          NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "hi"}),
+	"stream_user_wake":     NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "Delegated task t1 reached a terminal state.", Origin: "wake"}),
 	"stream_tool_running": NewAgentStream("a1", 1, Item{ID: "i2", Seq: 2, Ts: 11, Kind: "tool", Call: &ToolCall{
 		ToolUseID: "t1", Name: "Bash", Status: "running", Detail: ToolDetail{Kind: "shell", Command: "ls"},
 	}}),
@@ -110,6 +111,28 @@ var serverGolden = map[string]any{
 	}, false, 2),
 	"permission_request": NewPermissionRequest(PermissionRequest{RequestID: "r1", AgentID: "a1", ToolName: "Bash", Detail: ToolDetail{Kind: "shell", Command: "rm x", Description: "remove"},
 		Options: []PermissionOption{{ID: "always", Label: "Yes, and always allow access to /w"}}, Feedback: true}),
+	"agent_update_delegated": NewAgentUpdate(with(func(s *AgentSummary) {
+		s.ID, s.Parent, s.Relationship, s.CreatedBy = "a2", "a1", "subagent", "agent:a1"
+		s.Delegation = &DelegationRef{TaskID: "task1", Status: "working", WorkState: "working"}
+	})),
+	"agent_delegations": NewAgentDelegations("d1", "a1", []Delegation{
+		{TaskID: "task1", ParentID: "a1", ChildID: "a2", Title: "Write the tests", Agent: "codex", Model: "gpt-5.5", Status: "working", CreatedAt: 1},
+		{TaskID: "task2", ParentID: "a1", ChildID: "a3", Title: "Review", Agent: "claude", Status: "completed", Summary: "Two findings", CreatedAt: 1, SettledAt: 2},
+	}),
+	"delegation_update": NewDelegationUpdate("a1", Delegation{TaskID: "task1", ParentID: "a1", ChildID: "a2", Title: "Write the tests", Agent: "codex", Status: "working", Question: "Which test runner?", CreatedAt: 1}),
+	"automations_agent_made": NewAutomations([]Automation{
+		{ID: "au2", Name: "Nightly tests", Prompt: "run the tests", Provider: "claude", Folder: "/Users/me/app", Schedule: Schedule{Kind: "webhook"}, Enabled: true,
+			CreatedBy: "a1", Bound: "a1", Webhook: true, WebhookURL: "http://127.0.0.1:7123/hooks/au2", WebhookSecret: "s3cret"},
+		{ID: "au3", Name: "Weekday check", Prompt: "check the build", Provider: "codex", Folder: "/Users/me/app", Schedule: Schedule{Kind: "days", Days: []int{1, 2, 3, 4, 5}, Time: "09:00"}, Enabled: true,
+			NextRunAt: 1791450000000, CreatedBy: "a1", Webhook: true, WebhookURL: "http://127.0.0.1:7123/hooks/au3"},
+	}, nil),
+	"queue_list": NewQueueList("q1", "a1", []QueueEntry{
+		{ID: "e1", Text: "also fix the lint", Origin: "user", State: "pending", Order: 1},
+		{ID: "e2", Text: "Write the tests finished.", Origin: "wake", State: "pending", Order: 2},
+	}),
+	"queue_update": NewQueueUpdate("a1", nil),
+	"stream_delivery": NewAgentStream("a1", 1, Item{ID: "i9", Seq: 9, Ts: 18, Kind: "delivery", Delivery: &Delivery{
+		TaskIDs: []string{"task1"}, ChildIDs: []string{"a2"}, Titles: []string{"Write the tests"}, Agents: []string{"codex"}, Outcome: "done"}}),
 	"permission_resolved": NewPermissionResolved("r1", "allow"),
 	"ack":                 NewAck("p1"),
 	"error":               NewError("p1", "Unknown agent: zz"),
@@ -161,7 +184,7 @@ func all(goldens ...map[string]any) map[string]any {
 
 // TestServerGolden pins the exact JSON the phone decodes.
 func TestServerGolden(t *testing.T) {
-	for name, msg := range all(serverGolden, phoneServerGolden) {
+	for name, msg := range all(serverGolden, phoneServerGolden, hostsServerGolden) {
 		got, err := json.MarshalIndent(msg, "", "  ")
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

@@ -530,3 +530,20 @@ func TestATestPushGoesToThatPhoneAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestADelegatedSessionsDoneGetsNoAlertButItsNeedsYouDoes(t *testing.T) {
+	r := newRig(t, fast)
+	r.register("d1", false)
+	a := r.add("a1")
+	a.SetLineage("parent", "subagent", "agent")
+	a.Working()
+	a.TurnEnded(false)
+	r.relay.await("alert-", 0, 3*quiet)
+	a.Working()
+	a.NeedsYou()
+	r.ask("a1")
+	sent := r.relay.await("alert-", 1, 2*quiet)
+	if n, _ := r.notice(sent[0]); n.Kind != NeedsYou {
+		t.Fatalf("%+v", n)
+	}
+}

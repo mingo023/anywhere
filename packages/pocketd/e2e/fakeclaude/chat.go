@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -20,16 +21,19 @@ import (
 //	run <cmd>    ask can_use_tool, then run a Bash tool with its answer
 //	ask <q>      ask AskUserQuestion through can_use_tool, then reply the answers
 //	slow <text>  reply after 3s, unless interrupted
+//	await <name>  stay in the turn until $HOME/<name> exists, then reply "echo: released"
 //	hang         stay in the turn until interrupted
 //	bg <cmd>     run a Bash tool in the background, then go on as slow
 //	agent <d>    start a sub-agent in the background, then go on as slow
 //	/compact     compact
+//	mcp <tool> <json>  call an Anywhere tool through --mcp-config, then reply its result
 //
 // Like claude, a bogus model fails each turn rather than the start.
 type chatter struct {
 	s     *session
 	mu    sync.Mutex
 	model string
+	mode  string // the permission mode it was started in, as its init reports it
 	out   *json.Encoder
 	next  int
 	waits map[string]chan map[string]any
@@ -39,9 +43,12 @@ type chatter struct {
 func chat() {
 	s := start()
 	s.entrypoint = "sdk-cli"
-	c := &chatter{s: s, model: "fake-model", out: json.NewEncoder(os.Stdout), waits: map[string]chan map[string]any{}, stop: make(chan struct{}, 1)}
+	c := &chatter{s: s, model: "fake-model", mode: "default", out: json.NewEncoder(os.Stdout), waits: map[string]chan map[string]any{}, stop: make(chan struct{}, 1)}
 	if i := slices.Index(os.Args, "--model"); i > 0 && i+1 < len(os.Args) {
 		c.model = os.Args[i+1]
+	}
+	if i := slices.Index(os.Args, "--permission-mode"); i > 0 && i+1 < len(os.Args) {
+		c.mode = os.Args[i+1]
 	}
 	c.s.hook("SessionStart", map[string]any{"source": "startup", "model": c.model})()
 	note("fake claude ready")
@@ -108,6 +115,9 @@ func (c *chatter) read(prompts chan<- string) {
 				}
 			}
 			response := map[string]any{}
+			if l.Request.Subtype == "initialize" {
+				response["models"] = []map[string]any{{"value": "default", "displayName": "Default"}, {"value": "fake-claude-opus", "displayName": "Fake Opus"}}
+			}
 			if l.Request.Subtype == "remote_control" {
 				note("remote_control: %v", l.Request.Enabled)
 				if l.Request.Enabled {
@@ -133,13 +143,13 @@ func (c *chatter) turn(text string) {
 	case <-c.stop:
 	default:
 	}
-	c.send(map[string]any{"type": "system", "subtype": "init", "session_id": c.s.id, "cwd": c.s.cwd, "model": model, "permissionMode": "default"})
+	c.send(map[string]any{"type": "system", "subtype": "init", "session_id": c.s.id, "cwd": c.s.cwd, "model": model, "permissionMode": c.mode})
 	note("prompt: %s", text)
 	c.s.hook("UserPromptSubmit", map[string]any{"prompt": text})()
 	c.s.write(user(text))
 	c.next++
 	id := fmt.Sprintf("toolu_%d", c.next)
-	failed := false
+	failed, quiet := false, false
 	switch {
 	case model == "bogus":
 		a := assistant(map[string]any{"type": "text", "text": "There's an issue with the selected model (bogus)."})
@@ -162,8 +172,16 @@ func (c *chatter) turn(text string) {
 	case strings.HasPrefix(text, "agent "):
 		c.backgroundAgent(model, id, strings.TrimPrefix(text, "agent "))
 		failed = c.slow(model, "done")
+	case strings.HasPrefix(text, "mcp "):
+		c.reply(model, callMCP(strings.TrimPrefix(text, "mcp ")))
 	case strings.HasPrefix(text, "slow "):
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
+	case strings.HasPrefix(text, "await "):
+		failed = c.await(model, strings.TrimPrefix(text, "await "))
+	case strings.HasPrefix(text, "quiet "):
+		// A reply whose turn writes no stop_hook_summary, so its timeline holds no result.
+		c.reply(model, strings.TrimPrefix(text, "quiet "))
+		quiet = true
 	case text == "hang":
 		<-c.stop
 		c.s.write(user("[Request interrupted by user]"))
@@ -172,7 +190,7 @@ func (c *chatter) turn(text string) {
 		c.reply(model, text)
 	}
 	c.s.hook("Stop", nil)()
-	if !failed {
+	if !failed && !quiet {
 		c.s.write(map[string]any{"type": "system", "subtype": "stop_hook_summary", "hookCount": 1})
 	}
 	c.send(map[string]any{"type": "result", "subtype": "success", "is_error": failed, "session_id": c.s.id})
@@ -212,6 +230,22 @@ func (c *chatter) slow(model, text string) (failed bool) {
 	case <-time.After(3 * time.Second):
 		c.reply(model, text)
 		return false
+	}
+}
+
+// await replies "released" once $HOME/<name> exists, unless interrupted first.
+func (c *chatter) await(model, name string) (failed bool) {
+	for {
+		if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), name)); err == nil {
+			c.reply(model, "released")
+			return false
+		}
+		select {
+		case <-c.stop:
+			c.s.write(user("[Request interrupted by user]"))
+			return true
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 

@@ -120,3 +120,17 @@ _Avoid_: task, issue
 **Queued**:
 Started and waiting for a slot. pocketd starts the first in line while fewer Tickets than the limit are Starting, Working or Needs you.
 _Avoid_: pending, backlog
+
+### Orchestrator
+
+**Delegated session**:
+A session another session started through Anywhere's tools to do part of its work: its child. It runs with its parent's access, in a new worktree unless asked to share the parent's checkout, and is an ordinary session in the sidebar. When it settles, its last reply is its result, and pocketd wakes the parent to read it. Its Done neither alerts nor enters Up next.
+_Avoid_: sub-agent (Claude's in-process helpers), worker, team member
+
+**Queue**:
+The messages waiting for a session's turn to end, kept by pocketd: what the user sent mid-turn, wakes from delegated sessions, and notices of their questions. pocketd sends the first when the turn ends. A user Stop holds the user's messages until the next send and drops the rest.
+_Avoid_: outbox, held sends
+
+**Fork**:
+A new session that starts from another's conversation, the agent's own fork when it has one, else with the conversation handed over as context. It remembers its source, so it can later hand what it did back to it.
+_Avoid_: branch, copy

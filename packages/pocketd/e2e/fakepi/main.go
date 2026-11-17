@@ -242,6 +242,13 @@ func (a *agent) handle(m msg) {
 		}
 		note("set_fast_mode: %v", m["enabled"])
 		a.respond(m, nil)
+	case "get_available_models":
+		var list []msg
+		for _, m := range models {
+			provider, id, _ := strings.Cut(m, "/")
+			list = append(list, msg{"id": id, "name": id, "provider": provider, "reasoning": true})
+		}
+		a.respond(m, msg{"models": list})
 	case "get_session_stats":
 		a.respond(m, msg{"sessionId": a.session.ID, "contextUsage": msg{"tokens": 1200, "contextWindow": 200000, "percent": 0.6}})
 	case "get_commands":
@@ -423,6 +430,14 @@ func (a *agent) turn(text string, stop chan struct{}) bool {
 		a.send(msg{"type": "turn_end", "message": reply, "toolResults": []msg{}})
 		a.send(msg{"type": "turn_start"})
 		return a.say("ran "+cmd, stop)
+	} else if cmd, ok := arg("hang "); ok {
+		call := "call_" + uuid()[:8]
+		args := msg{"command": cmd}
+		reply := a.assistant([]msg{{"type": "toolCall", "id": call, "name": "bash", "arguments": args}}, "toolUse", "")
+		a.add(reply)
+		a.send(msg{"type": "tool_execution_start", "toolCallId": call, "toolName": "bash", "args": args})
+		<-stop
+		return false
 	} else if task, ok := arg("delegate "); ok {
 		call := "call_" + uuid()[:8]
 		args := msg{"agent": "worker", "task": task}

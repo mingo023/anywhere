@@ -50,6 +50,10 @@ type Daemon struct {
 	AgentTab func(provider, cwd, shell string, argv []string) []string
 	// Accounts are the sign-ins an agent may run on; nil runs each on its built-in login.
 	Accounts *accounts.Store
+	// MCPCodex gives the thread config that hands a Codex chat in a terminal
+	// Anywhere's MCP servers; MCPServers the ACP mcpServers entries. Nil gives none.
+	MCPCodex   func(terminalID string) map[string]any
+	MCPServers func(terminalID string) []any
 
 	mu       sync.Mutex
 	env      *shellenv.Result
@@ -61,6 +65,7 @@ type Daemon struct {
 	binding  sync.Mutex                    // one claude binds a transcript it found at a time
 
 	restoring map[string]*hint // by terminal id; under mu
+	held      []*presence      // the presences whose tails Handoff holds until CancelHandoff
 }
 
 // Spawn starts m in a terminal. Without m.Env it gets the login-shell

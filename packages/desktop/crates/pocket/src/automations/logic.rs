@@ -227,6 +227,7 @@ pub fn when_label(s: &Schedule) -> String {
             m if m % 60 == 0 => every(m / 60, "hour"),
             m => every(*m, "minute"),
         },
+        Schedule::Webhook => "Webhook".into(),
     }
 }
 
@@ -234,6 +235,7 @@ pub fn when_label(s: &Schedule) -> String {
 pub fn next_fire<Tz: TimeZone>(s: &Schedule, now: i64, tz: &Tz) -> Option<i64> {
     match s {
         Schedule::Interval { every_min } => Some(now + i64::from(*every_min) * 60_000),
+        Schedule::Webhook => None,
         Schedule::Days { days, time } => {
             let (h, m) = time.split_once(':')?;
             let (h, m) = (h.parse().ok()?, m.parse().ok()?);
@@ -245,6 +247,32 @@ pub fn next_fire<Tz: TimeZone>(s: &Schedule, now: i64, tz: &Tz) -> Option<i64> {
                 (on && at > now).then_some(at)
             })
         }
+    }
+}
+
+/// A session by its title, as the page names one: a session that is gone has no title to give.
+pub fn session_text(title: Option<&str>) -> &str {
+    match title {
+        Some("") => "an untitled session",
+        Some(title) => title,
+        None => "a closed session",
+    }
+}
+
+/// "Created by Fix flaky tests"; nothing for an automation the user made.
+pub fn created_by_line(created_by: &str, title: Option<&str>) -> Option<String> {
+    (!created_by.is_empty()).then(|| format!("Created by {}", session_text(title)))
+}
+
+/// The detail page's "Next run": its time, "Paused" while off, or what a webhook one waits for.
+pub fn next_run_text<Tz: TimeZone>(a: &Automation, now: i64, tz: &Tz) -> String
+where
+    Tz::Offset: Display,
+{
+    match (a.enabled, a.next_run_at, &a.schedule) {
+        (true, at, _) if at > 0 => stamp(at, now, tz),
+        (true, _, Schedule::Webhook) => "When its webhook is called".into(),
+        _ => "Paused".into(),
     }
 }
 
@@ -401,6 +429,10 @@ mod tests {
             model: String::new(),
             effort: String::new(),
             next_run_at: next,
+            created_by: String::new(),
+            bound: String::new(),
+            webhook: false,
+            webhook_url: String::new(),
         }
     }
 
@@ -534,6 +566,32 @@ mod tests {
         assert_eq!(days(&[0, 5, 1]), "Mon, Fri, Sun at 09:00");
         let every = |m| when_label(&Schedule::Interval { every_min: m });
         assert_eq!([every(30), every(60), every(120), every(1440), every(2880), every(90)], ["Every 30 minutes", "Every hour", "Every 2 hours", "Every day", "Every 2 days", "Every 90 minutes"]);
+    }
+
+    #[test]
+    fn a_webhook_trigger_reads_as_webhook_and_never_has_a_next_time() {
+        assert_eq!(when_label(&Schedule::Webhook), "Webhook");
+        assert_eq!(next_fire(&Schedule::Webhook, NOW, &utc()), None);
+        let hook = Automation { schedule: Schedule::Webhook, ..auto("a", true, 0) };
+        assert_eq!(trigger_line(&hook, NOW, &utc()), "Webhook");
+    }
+
+    #[test]
+    fn a_webhook_automation_waits_for_its_call_while_on_and_is_paused_while_off() {
+        let hook = |enabled| Automation { schedule: Schedule::Webhook, ..auto("a", enabled, 0) };
+        assert_eq!(next_run_text(&hook(true), NOW, &utc()), "When its webhook is called");
+        assert_eq!(next_run_text(&hook(false), NOW, &utc()), "Paused");
+        assert_eq!(next_run_text(&auto("a", true, 0), NOW, &utc()), "Paused");
+        assert_eq!(next_run_text(&auto("a", true, NOW + 21 * HOUR), NOW, &utc()), "Tomorrow 09:00");
+    }
+
+    #[test]
+    fn who_made_an_automation_reads_as_its_session_a_closed_one_or_nobody() {
+        assert_eq!(created_by_line("", None), None);
+        assert_eq!(created_by_line("a7", Some("Fix flaky tests")).as_deref(), Some("Created by Fix flaky tests"));
+        assert_eq!(created_by_line("a7", None).as_deref(), Some("Created by a closed session"));
+        assert_eq!(created_by_line("a7", Some("")).as_deref(), Some("Created by an untitled session"));
+        assert_eq!(session_text(Some("Nightly")), "Nightly");
     }
 
     #[test]

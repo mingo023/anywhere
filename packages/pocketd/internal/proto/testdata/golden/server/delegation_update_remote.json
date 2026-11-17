@@ -1,0 +1,14 @@
+{
+  "type": "delegation.update",
+  "agentId": "a1",
+  "delegation": {
+    "taskId": "task1",
+    "parentId": "a1",
+    "childId": "devbox/a2",
+    "title": "Write the tests",
+    "agent": "codex",
+    "status": "working",
+    "createdAt": 1,
+    "environmentId": "devbox"
+  }
+}

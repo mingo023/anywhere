@@ -105,7 +105,7 @@ impl Chime {
 
     /// Takes a snapshot; returns true when it opened a window, which the caller closes with `flush` after `COALESCE_MS`.
     pub fn heard(&mut self, agents: &[Summary], seen: &[String], on: &Sounds, now_ms: i64) -> bool {
-        let now: HashMap<String, Status> = agents.iter().filter_map(|a| Some((a.id.clone(), Status::of(a)?))).collect();
+        let now: HashMap<String, Status> = agents.iter().filter_map(|a| Some((a.id.clone(), crate::status::alert_status(a)?))).collect();
         let before = &self.statuses;
         let cue = agents
             .iter()

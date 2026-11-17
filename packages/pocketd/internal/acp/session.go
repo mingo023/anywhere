@@ -65,13 +65,21 @@ const (
 // Session is one agent's ACP session: it sends the prompts, maps what the
 // agent says to timeline events, and answers what it asks.
 type Session struct {
-	agentID string
-	name    string // the agent's, for what the user reads
-	f       flavor
-	sink    Sink
-	broker  *broker.Broker
-	ctx     context.Context
-	cancel  context.CancelFunc
+	// MCP gives Anywhere's MCP server entries for the agent; nil gives none.
+	MCP func() []any
+	// Shown is whether the agent already shows the session's history, as one
+	// restored from the store does: a load's replay of it is dropped.
+	Shown bool
+	// Showing is what that timeline holds, sub-agents' items too.
+	Showing  func() []proto.Item
+	agentID  string
+	provider string
+	name     string // the agent's, for what the user reads
+	f        flavor
+	sink     Sink
+	broker   *broker.Broker
+	ctx      context.Context
+	cancel   context.CancelFunc
 
 	// mu is never held across a Call: the client's reader takes it for each message.
 	mu      sync.Mutex
@@ -146,6 +154,9 @@ type configOption struct {
 	Category string `json:"category"`
 	Type     string `json:"type"`
 	Current  any    `json:"currentValue"`
+	Options  []struct {
+		Value string `json:"value"`
+	} `json:"options"`
 }
 
 // setting finds the config option an agent keeps one of a launch's settings in.
@@ -198,9 +209,20 @@ type todo struct {
 // NewSession is a Session for agentID's provider, which holds prompts until Open.
 func NewSession(agentID, provider string, sink Sink, b *broker.Broker) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Session{agentID: agentID, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
+	return &Session{agentID: agentID, provider: provider, name: providers.Get(provider).Name, f: flavors[provider], sink: sink, broker: b, ctx: ctx, cancel: cancel,
 		asks: map[string]context.CancelFunc{}, tools: map[string]*tool{}, children: map[string]string{}, models: map[string]string{},
 		ended: map[string]*timeline.Event{}, kids: map[string]*kid{}, calls: map[string]string{}}
+}
+
+// agentModels holds, by agent, the models its last session to open listed.
+var agentModels sync.Map
+
+// Models is what the provider's agent listed as its session last opened, nil
+// before one has.
+func Models(provider string) []string {
+	m, _ := agentModels.Load(provider)
+	list, _ := m.([]string)
+	return list
 }
 
 // opened is what session/new and session/load answer with.
@@ -209,9 +231,28 @@ type opened struct {
 	Snake     string `json:"session_id"`
 	ID        string `json:"id"`
 	Models    struct {
-		Current string `json:"currentModelId"`
+		Current   string `json:"currentModelId"`
+		Available []struct {
+			ID string `json:"modelId"`
+		} `json:"availableModels"`
 	} `json:"models"`
 	ConfigOptions []configOption `json:"configOptions"`
+}
+
+// models is what r lists: its models, else its model option's choices.
+func (r opened) models() []string {
+	var out []string
+	for _, m := range r.Models.Available {
+		out = append(out, m.ID)
+	}
+	if o := modelSetting.of(r.ConfigOptions); o != nil {
+		for _, c := range o.Options {
+			if c.Value != "" {
+				out = append(out, c.Value)
+			}
+		}
+	}
+	return out
 }
 
 // Open opens the agent's session over w in cwd: the saved one, whose history
@@ -233,6 +274,9 @@ func (s *Session) Open(w jsonrpc.Wire, cwd, saved string, l state.Launch, left L
 		return unsent, err
 	}
 	s.takeOptions(res.ConfigOptions)
+	if list := res.models(); len(list) > 0 {
+		agentModels.Store(s.provider, list)
+	}
 	id, model := s.id, cmp.Or(s.currentModel(), res.Models.Current)
 	s.mu.Unlock()
 	s.sink.Bound(id)
@@ -256,6 +300,26 @@ func (s *Session) Open(w jsonrpc.Wire, cwd, saved string, l state.Launch, left L
 	return nil, nil
 }
 
+// servers is Anywhere's MCP server for session/new and session/load, when the
+// agent's initialize says it takes MCP over HTTP; none otherwise.
+func (s *Session) servers(init json.RawMessage) []any {
+	if s.MCP == nil {
+		return []any{}
+	}
+	var r struct {
+		AgentCapabilities struct {
+			McpCapabilities struct {
+				HTTP bool `json:"http"`
+			} `json:"mcpCapabilities"`
+		} `json:"agentCapabilities"`
+	}
+	json.Unmarshal(init, &r)
+	if !r.AgentCapabilities.McpCapabilities.HTTP {
+		return []any{}
+	}
+	return s.MCP()
+}
+
 func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) (opened, error) {
 	caps := map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false}
 	for k, v := range s.f.caps {
@@ -266,6 +330,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 	if err != nil {
 		return opened{}, err
 	}
+	servers := s.servers(init)
 	if s.f.auth != nil {
 		if params := s.f.auth(init); params != nil {
 			// An agent already signed in may refuse; its session tells.
@@ -286,7 +351,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 		s.mu.Unlock()
 	}()
 	if saved != "" {
-		params := map[string]any{"sessionId": saved, "cwd": cwd, "mcpServers": []any{}}
+		params := map[string]any{"sessionId": saved, "cwd": cwd, "mcpServers": servers}
 		res, err := s.call(c, OpenWait, "session/load", params)
 		// Hermes answers null for a session it doesn't have, and would resume it as a new one without a word.
 		gone := err == nil && string(res) == "null"
@@ -310,7 +375,7 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 		s.saved = ""
 		s.mu.Unlock()
 	}
-	params := map[string]any{"cwd": cwd, "mcpServers": []any{}}
+	params := map[string]any{"cwd": cwd, "mcpServers": servers}
 	startedOn := ""
 	if meta := s.f.newMeta[l.Access]; meta != nil && !l.Plan {
 		params["_meta"], startedOn = meta, l.Access
@@ -335,12 +400,13 @@ func (s *Session) open(c *Client, cwd, saved string, l state.Launch, left Left) 
 // before this one cut short ends interrupted, as do the calls it left open.
 func (s *Session) loaded(ok bool, left Left) {
 	s.flush()
+	replayed := len(s.replay)
 	if ok && left != Running {
 		cut := s.interrupt() || left == Cut && len(s.replay) > 0
 		switch {
 		case cut:
 			s.record(timeline.Event{Kind: "result", Error: "interrupted"})
-		case s.answered:
+		case s.answered && !s.Shown:
 			s.record(timeline.Event{Kind: "result", OK: true})
 		}
 	}
@@ -350,7 +416,11 @@ func (s *Session) loaded(ok bool, left Left) {
 		clear(s.tools)
 		return
 	}
-	s.sink.Loaded()
+	if s.Shown {
+		history = history[replayed:]
+	} else {
+		s.sink.Loaded()
+	}
 	for _, e := range history {
 		s.sink.Apply(e)
 	}
@@ -1147,9 +1217,13 @@ func (s *Session) adopt(sid, call string) {
 			s.mu.Unlock()
 		}()
 	}
-	// A history's sub-agents load once it has.
+	// A history's sub-agents load once it has; one the timeline shows already needs no loading unless its turn runs on.
 	if s.opening {
-		s.held = append(s.held, load)
+		s.held = append(s.held, func() {
+			if !s.Shown || s.running {
+				load()
+			}
+		})
 		return
 	}
 	load()

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"pocketd/e2e/fakemcp"
 )
 
 // appServer is `codex app-server`: JSON-RPC on stdio, one thread, with notes
@@ -18,8 +20,13 @@ import (
 //
 //	<text>       reply "echo: <text>"
 //	run <cmd>    ask to run cmd, then reply "echo: ran <cmd>" if allowed
+//	ask <q>      ask q by item/tool/requestUserInput, then reply "echo: answers <answers>"
 //	slow <text>  reply after 3s, unless interrupted; a prompt meanwhile joins the reply
+//	mcp <tool> <json>  call an Anywhere tool through the config thread/start gave, or "mcp tools/list", then reply its result
+//	elicit <server> <tool>  ask before calling another server's tool, then reply "echo: elicitation <action>"
+//	call <tool>  call a client-side tool by item/tool/call, then reply "echo: result <json>" or "echo: error <message>"
 //
+// model/list lists two models, a page each, with the efforts each supports.
 // Like codex, a bogus model fails each turn rather than the start.
 type appServer struct {
 	mu           sync.Mutex
@@ -32,6 +39,10 @@ type appServer struct {
 	turn         *liveTurn
 	next         int
 	waits        map[string]chan map[string]any
+	approval     string
+	mcp          []fakemcp.Server
+	mcpNames     []string
+	mcpApproved  []bool
 }
 
 type thread struct {
@@ -58,6 +69,8 @@ func appServerMain() {
 			a.model = v
 		case "model_reasoning_effort":
 			a.effort = v
+		case "approval_policy":
+			a.approval = v
 		}
 	}
 	note("fake codex ready %s", strings.Join(os.Args[1:], " "))
@@ -69,9 +82,13 @@ func appServerMain() {
 			Method string          `json:"method"`
 			Params map[string]any  `json:"params"`
 			Result map[string]any  `json:"result"`
+			Error  map[string]any  `json:"error"`
 		}
 		if json.Unmarshal(sc.Bytes(), &m) != nil {
 			continue
+		}
+		if m.Error != nil {
+			m.Result = map[string]any{"error": m.Error}
 		}
 		if m.Method == "" {
 			a.mu.Lock()
@@ -150,9 +167,17 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 		a.experimental = caps["experimentalApi"] == true
 		a.reply(id, map[string]any{})
 	case "initialized":
+	case "model/list":
+		if p["cursor"] == "2" {
+			a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-luna", "model": "fake-codex-luna", "hidden": false, "supportedReasoningEfforts": efforts("low", "medium", "ultra"), "defaultReasoningEffort": "low"}}, "nextCursor": nil})
+			return
+		}
+		a.reply(id, map[string]any{"data": []map[string]any{{"id": "fake-codex-sol", "model": "fake-codex-sol", "hidden": false, "supportedReasoningEfforts": efforts("low", "medium", "high"), "defaultReasoningEffort": "medium", "isDefault": true}}, "nextCursor": "2"})
 	case "thread/start":
 		a.thread = &thread{ID: "th-" + uuid()}
 		a.save()
+		config, _ := p["config"].(map[string]any)
+		a.useMCP(config)
 		note("thread: %s", a.thread.ID)
 		a.opened(id)
 	case "thread/resume":
@@ -165,6 +190,8 @@ func (a *appServer) handle(id json.RawMessage, method string, p map[string]any) 
 			a.thread = &thread{}
 			json.Unmarshal(b, a.thread)
 		}
+		config, _ := p["config"].(map[string]any)
+		a.useMCP(config)
 		note("resume: %s", threadID)
 		a.opened(id)
 	case "turn/start":
@@ -294,6 +321,21 @@ func (a *appServer) run(t *liveTurn, text string) {
 		return
 	case strings.HasPrefix(text, "run "):
 		a.runCommand(t, strings.TrimPrefix(text, "run "))
+	case strings.HasPrefix(text, "ask "):
+		a.askUser(t, strings.TrimPrefix(text, "ask "))
+	case strings.HasPrefix(text, "mcp "):
+		a.say(t, a.callMCP(t, strings.TrimPrefix(text, "mcp ")))
+	case strings.HasPrefix(text, "elicit "):
+		server, tool, _ := strings.Cut(strings.TrimPrefix(text, "elicit "), " ")
+		a.say(t, "elicitation "+a.elicit(t, server, tool, `{"title":"x"}`))
+	case strings.HasPrefix(text, "call "):
+		r := a.request("item/tool/call", map[string]any{"threadId": a.thread.ID, "turnId": t.id, "callId": "call_" + uuid(), "tool": strings.TrimPrefix(text, "call "), "arguments": map[string]any{}})
+		if e, ok := r["error"].(map[string]any); ok {
+			a.say(t, fmt.Sprint("error ", e["message"]))
+		} else {
+			out, _ := json.Marshal(r)
+			a.say(t, "result "+string(out))
+		}
 	case strings.HasPrefix(text, "slow "):
 		replies := []string{strings.TrimPrefix(text, "slow ")}
 		done := time.After(3 * time.Second)
@@ -315,6 +357,37 @@ func (a *appServer) run(t *liveTurn, text string) {
 		a.say(t, text)
 	}
 	a.end(t, "completed", "")
+}
+
+// request sends codex's server request method and returns its reply: its
+// result, or {"error": ...}.
+func (a *appServer) request(method string, params map[string]any) map[string]any {
+	a.mu.Lock()
+	a.next++
+	n := a.next
+	w := make(chan map[string]any, 1)
+	a.waits[fmt.Sprint(n)] = w
+	a.mu.Unlock()
+	a.send(map[string]any{"id": n, "method": method, "params": params})
+	r := <-w
+	a.notify("serverRequest/resolved", map[string]any{"threadId": a.thread.ID, "requestId": n})
+	return r
+}
+
+// askUser asks q as codex's request_user_input tool does, with the schema codex-cli 0.163 generates.
+func (a *appServer) askUser(t *liveTurn, q string) {
+	a.mu.Lock()
+	a.next++
+	n := a.next
+	w := make(chan map[string]any, 1)
+	a.waits[fmt.Sprint(n)] = w
+	a.mu.Unlock()
+	a.send(map[string]any{"id": n, "method": "item/tool/requestUserInput", "params": map[string]any{"threadId": a.thread.ID, "turnId": t.id, "itemId": "call_" + uuid(), "isBlocking": true,
+		"questions": []map[string]any{{"id": "q1", "header": "Q", "question": q, "isOther": false, "options": []map[string]any{{"label": "Yes", "description": "yes"}, {"label": "No", "description": "no"}}}}}})
+	r := <-w
+	a.notify("serverRequest/resolved", map[string]any{"threadId": a.thread.ID, "requestId": n})
+	answers, _ := json.Marshal(r["answers"])
+	a.say(t, "answers "+string(answers))
 }
 
 // runCommand asks to run cmd as codex does, and runs it if allowed.
@@ -352,4 +425,12 @@ func (a *appServer) compact(t *liveTurn) {
 	a.item(t, map[string]any{"type": "contextCompaction", "id": "k-" + uuid()}, true)
 	note("compacted")
 	a.end(t, "completed", "")
+}
+
+func efforts(names ...string) []map[string]any {
+	var out []map[string]any
+	for _, n := range names {
+		out = append(out, map[string]any{"reasoningEffort": n, "description": n})
+	}
+	return out
 }

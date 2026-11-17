@@ -1,10 +1,12 @@
 package automation
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -378,5 +380,42 @@ func TestAFailedSaveLeavesTheStoreAsItWas(t *testing.T) {
 	}
 	if autos, _ := s.Snapshot(); len(autos) != 1 || !reflect.DeepEqual(autos[0], a) {
 		t.Fatalf("%+v", autos)
+	}
+}
+
+func TestAWebhookOnlyAutomationNeverRunsOnATimer(t *testing.T) {
+	s := Open(t.TempDir())
+	hook := morning
+	hook.Schedule, hook.Webhook = proto.Schedule{Kind: "webhook"}, true
+	a, err := s.Save(hook, at(9, 8, 0))
+	if err != nil || a.NextRunAt != 0 {
+		t.Fatalf("webhook only: next run %d, %v", a.NextRunAt, err)
+	}
+	hook.Schedule = proto.Schedule{}
+	if _, err := s.Save(hook, at(9, 8, 0)); err != ErrInvalid {
+		t.Fatalf("a webhook with no schedule kind: %v", err)
+	}
+	hook.Schedule, hook.Webhook = proto.Schedule{Kind: "webhook"}, false
+	if _, err := s.Save(hook, at(9, 8, 0)); err != ErrInvalid {
+		t.Fatalf("the webhook schedule without a webhook: %v", err)
+	}
+}
+
+func TestAWebhookSecretSurvivesARestartInTheFileButNotOnTheWire(t *testing.T) {
+	home := t.TempDir()
+	s := Open(home)
+	hook := morning
+	hook.Schedule, hook.Webhook, hook.WebhookSecret = proto.Schedule{Kind: "webhook"}, true, "s3cret"
+	a, err := s.Save(hook, at(9, 8, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, ok := Open(home).Automation(a.ID)
+	if !ok || reopened.WebhookSecret != "s3cret" {
+		t.Fatalf("the secret did not survive: %+v", reopened)
+	}
+	raw, _ := json.Marshal(proto.NewAutomations([]proto.Automation{reopened}, nil))
+	if strings.Contains(string(raw), "s3cret") {
+		t.Fatalf("the secret is on the wire: %s", raw)
 	}
 }

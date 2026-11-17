@@ -94,7 +94,7 @@ impl ProjectRow {
 }
 
 /// A host's project shows a globe, with its link's dot.
-fn host_mark(link: Option<&hosts::link::Link>) -> Div {
+fn host_mark(link: Option<&agents::hosts::Link>) -> Div {
     div().flex().flex_none().items_center().gap(px(3.)).child(icon("globe", 12., TEXT_3)).child(ui::dot(6., crate::settings::ssh_hosts::link_color(link)))
 }
 
@@ -500,9 +500,9 @@ impl Desktop {
         let (target, pointed) = (p.to_string(), p.to_string());
         let name = self.repo_name(p);
         let host = hosts::split(p).0;
-        let offline = host.is_some_and(|h| !self.fleet.links.online(h));
+        let offline = host.is_some_and(|h| !self.fleet.hosts.links.online(h));
         let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, kept, state)
-            .children(host.map(|h| host_mark(self.fleet.links.get(h))))
+            .children(host.map(|h| host_mark(self.fleet.hosts.links.get(h))))
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
             .when(self.sidebar.filter.lit(p, None), |row| row.bg(FILL_3))

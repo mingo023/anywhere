@@ -20,6 +20,7 @@ type Frame struct {
 	Method string          `json:"method,omitempty"`
 	Params json.RawMessage `json:"params,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
+	Error  json.RawMessage `json:"error,omitempty"`
 }
 
 // Answer returns a call's result, or an error message.
@@ -173,4 +174,10 @@ func (s *Server) Next(method string) Frame {
 func (s *Server) Reply(id string) string {
 	s.t.Helper()
 	return string(s.wait("reply "+id, func(f Frame) bool { return f.Method == "" && string(f.ID) == id }).Result)
+}
+
+// NextReply returns the next reply the client sent to a server request.
+func (s *Server) NextReply() Frame {
+	s.t.Helper()
+	return s.wait("a reply", func(f Frame) bool { return f.Method == "" && f.ID != nil })
 }

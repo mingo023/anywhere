@@ -20,6 +20,14 @@ type Seen struct {
 	// prompt. An agent the desktop is showing goes idle, not done, when a turn
 	// ends, and a turn shorter than a poll is never seen working.
 	Answered bool
+	// Before is whether the turn the run's prompt starts hasn't ended, so a Done or idle status is an earlier turn's.
+	Before bool
+	// Cancel is why the run's turn will never come: its queued message was removed.
+	Cancel string
+	// Fail is why the run's turn is gone: a crash lost it.
+	Fail string
+	// Cut is whether the run's turn was shown and got no reply, and a restart says the session's running turn ended.
+	Cut bool
 }
 
 // finished is a status a run never leaves.
@@ -43,10 +51,19 @@ func Step(r proto.Run, seen Seen, present, worked bool) (proto.Run, bool) {
 	switch {
 	case !present || seen.Status == "closed":
 		next.Status, next.Why = "cancelled", "Session closed"
+	case seen.Cancel != "":
+		next.Status, next.Why = "cancelled", seen.Cancel
+	case seen.Fail != "":
+		next.Status, next.Why = "failed", seen.Fail
+	// Only a run the restart left going: one posted since isn't seen working before its turn clears the mark.
+	case seen.Cut && worked:
+		next.Status, next.Why = "failed", "pocketd restarted during its turn"
 	case seen.Status == "working":
 		next.Status, next.Why = "running", ""
 	case seen.Status == "needsYou":
 		next.Status, next.Why = "waiting", ""
+	case seen.Before:
+		next.Status, next.Why = "running", ""
 	case seen.Status == "done" || seen.Status == "idle" && (worked || seen.Answered):
 		next.Status, next.Why, next.Summary = "succeeded", "", seen.Summary
 		if seen.Failed {

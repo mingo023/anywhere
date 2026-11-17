@@ -1,5 +1,5 @@
 use crate::{
-    Ask, Block, Choice, Diff, DiffLine, End, LineKind, Message, Question, SubAgent, Todo, TodoStatus, ToolCall, ToolKind, ToolStatus,
+    Ask, Block, Child, Choice, Delivered, Outcome, Diff, DiffLine, End, LineKind, Message, Question, SubAgent, Todo, TodoStatus, ToolCall, ToolKind, ToolStatus,
     Transcript, Turn, Usage,
 };
 use agents::{Call, Detail, FileDiff, Item, Permission};
@@ -10,6 +10,8 @@ use std::collections::HashMap;
 /// - `user` starts a turn, and `result` ends it.
 /// - `assistant` → `Block::Text`, `thinking` → `Block::Thinking`, `tasks` → `Block::Todos`, `plan` → `Block::Plan`.
 /// - `compact` → `Block::Compacted`.
+/// - `delivery` → `Block::Delivered`, its sessions side by side.
+/// - `host_link` → `Block::HostLink`, a card asking the user to add a host.
 /// - `notice` → `Block::Notice`: its `text`, else the `error` the agent went on after.
 /// - `tool` → `Block::Tool`, refreshed in place by `toolUseId`.
 /// - `task` detail → `ToolKind::Agent`. `other` named WebFetch/WebSearch → Fetch/Search.
@@ -120,7 +122,8 @@ fn fold_level<'a>(items: &[&'a Item], children: &mut HashMap<&'a str, Vec<&'a It
 /// Folds one item into `t`; `tools` finds each call (turn, block) by use id, so a later item refreshes it in place.
 fn step(t: &mut Transcript, tools: &mut HashMap<String, (usize, usize)>, item: &Item) {
     match item.kind.as_str() {
-        "user" => t.turns.push(Turn { id: item.id.clone(), prompt: Some(message(item)), ..Turn::default() }),
+        "user" if item.is_prompt() => t.turns.push(Turn { id: item.id.clone(), prompt: Some(message(item)), ..Turn::default() }),
+        "user" => {}
         "result" => open(t, item).end = Some(end(item)),
         "tool" => {
             let Some(call) = &item.call else { return };
@@ -194,11 +197,26 @@ fn block(item: &Item) -> Option<Block> {
         "thinking" if !blank => Block::Thinking(message(item)),
         "plan" if !blank => Block::Plan(message(item)),
         "tasks" => Block::Todos { id: item.id.clone(), todos: item.items.iter().map(|t| Todo { text: t.text.clone(), status: todo_status(&t.status) }).collect() },
+        "delivery" => Block::Delivered(delivered(item)?),
+        "host_link" => Block::HostLink { id: item.id.clone(), hint: item.hint.clone(), reason: item.reason.clone() },
         "compact" => Block::Compacted { id: item.id.clone(), auto: item.trigger == "auto" },
         "notice" if !item.error.is_empty() => Block::Notice { message: Message { text: item.error.clone(), ..message(item) }, error: true },
         "notice" if !blank => Block::Notice { message: message(item), error: false },
         _ => return None,
     })
+}
+
+/// None for an outcome a newer pocketd added.
+fn delivered(item: &Item) -> Option<Delivered> {
+    let outcome = match item.outcome.as_str() {
+        "done" => Outcome::Done,
+        "failed" => Outcome::Failed,
+        "asks" => Outcome::Asks,
+        _ => return None,
+    };
+    let at = |list: &[String], i: usize| list.get(i).cloned().unwrap_or_default();
+    let children = (0..item.child_ids.len()).map(|i| Child { id: item.child_ids[i].clone(), title: at(&item.titles, i), agent: at(&item.agents, i) }).collect();
+    Some(Delivered { id: item.id.clone(), outcome, question: item.question.clone(), children })
 }
 
 fn todo_status(status: &str) -> TodoStatus {
@@ -566,6 +584,40 @@ mod tests {
     fn a_compact_item_becomes_a_compacted_marker() {
         let t = fold(&items(json!([{"kind": "user", "text": "go"}, {"kind": "compact", "trigger": "manual"}])));
         assert_eq!(t.turns[0].blocks, vec![Block::Compacted { id: "i2".into(), auto: false }]);
+    }
+
+    #[test]
+    fn a_delivery_item_becomes_a_block_naming_each_session_and_an_unknown_outcome_none() {
+        let t = fold(&items(json!([
+            {"kind": "delivery", "outcome": "asks", "question": "Which test runner?", "childIds": ["a2", "a3"], "titles": ["Write the tests", "Review"], "agents": ["codex", "claude"]},
+            {"kind": "delivery", "outcome": "paused", "childIds": ["a4"]},
+        ])));
+        let child = |id: &str, title: &str, agent: &str| Child { id: id.into(), title: title.into(), agent: agent.into() };
+        assert_eq!(t.turns[0].blocks, vec![Block::Delivered(Delivered { id: "i1".into(), outcome: Outcome::Asks, question: "Which test runner?".into(), children: vec![child("a2", "Write the tests", "codex"), child("a3", "Review", "claude")] })]);
+    }
+
+    #[test]
+    fn a_wake_shows_no_prompt_and_what_the_agent_does_for_it_follows_the_delivery() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/stream_user_wake.json")).unwrap();
+        let mut wake: Item = serde_json::from_value(golden["item"].clone()).unwrap();
+        (wake.id, wake.seq) = ("i4".into(), 4);
+        let mut all = items(json!([
+            {"kind": "user", "text": "go"},
+            {"kind": "result", "ok": true, "durationMs": 5},
+            {"kind": "delivery", "outcome": "done", "childIds": ["a2"], "titles": ["Tests"], "agents": ["codex"]},
+        ]));
+        all.push(wake);
+        all.extend(items(json!([{"kind": "assistant", "text": "The tests pass.", "seq": 5, "id": "i5"}])));
+        let t = fold(&all);
+        assert_eq!(t.turns.len(), 2);
+        assert_eq!(t.turns[1].prompt, None);
+        assert!(matches!(&t.turns[1].blocks[..], [Block::Delivered(_), Block::Text(said)] if said.text == "The tests pass."));
+    }
+
+    #[test]
+    fn a_host_link_item_becomes_a_card_with_its_hint_and_reason() {
+        let t = fold(&items(json!([{"kind": "user", "text": "go"}, {"kind": "host_link", "hint": "vps", "reason": "The build needs the GPU box."}])));
+        assert_eq!(t.turns[0].blocks, vec![Block::HostLink { id: "i2".into(), hint: "vps".into(), reason: "The build needs the GPU box.".into() }]);
     }
 
     #[test]

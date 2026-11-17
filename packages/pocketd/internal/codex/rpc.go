@@ -126,6 +126,11 @@ func (c *Client) Reply(id json.RawMessage, result any) error {
 	return c.conn.Reply(id, result)
 }
 
+// Refuse answers server request id with an error.
+func (c *Client) Refuse(id json.RawMessage, message string) error {
+	return c.conn.Send(jsonrpc.Message{ID: id, Error: &jsonrpc.Error{Code: -32601, Message: message}})
+}
+
 func (c *Client) Done() <-chan struct{} { return c.conn.Done() }
 
 // Close returns once the handler has taken its last message, so the handler

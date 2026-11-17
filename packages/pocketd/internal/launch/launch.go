@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"pocketd/internal/config"
@@ -36,8 +37,7 @@ const (
 	probeWait  = 5 * time.Second
 )
 
-// createWait bounds setup plus the agent's start, so a create that hangs
-// still ends and its receipt can expire.
+// createWait bounds setup plus the agent's start, so a create that hangs still ends.
 var createWait = 10 * time.Minute
 
 // Who asked. Key separates one principal's request ids from another's.
@@ -58,8 +58,15 @@ type Creating struct {
 type Result struct {
 	AgentID, TerminalID string
 	// Cwd is where the agent runs: a new Worktree's path once it exists.
-	Cwd string
-	Err *Failure
+	Cwd      string
+	Creating Creating
+	Err      *Failure
+}
+
+type watcher struct {
+	progress func(step, note string)
+	creating func(Creating)
+	done     func(Result)
 }
 
 type exit struct {
@@ -81,45 +88,80 @@ type Launcher struct {
 	// Names takes the display names naming gives new Worktrees; nil names none.
 	Names *names.Names
 	// Locals are the Locals a create may start in; nil has none.
-	Locals   *locals.Locals
+	Locals *locals.Locals
+	// MCPFlags gives the flags that hand a chat agent in a terminal Anywhere's
+	// MCP server; nil gives none.
+	MCPFlags func(terminalID, provider string) []string
 	generate func(provider, exe, prompt string, env []string) (naming.Result, error)
-	receipts *receipts[Result]
 	trees    *receipts[built]
+	running  atomic.Int32
 
-	mu      sync.Mutex
-	pending map[string]chan exit
-	found   map[string]found
+	// held are the names of the placeholder Worktrees being made, which git doesn't list yet.
+	heldMu sync.Mutex
+	held   []string
+
+	mu       sync.Mutex
+	pending  map[string]chan exit
+	found    map[string]found
+	watchers map[string]*watcher
 }
 
 func New(d *daemon.Daemon, reg *registry.Registry, set *config.Settings, ev *events.Log) *Launcher {
-	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, receipts: newReceipts[Result](time.Now), trees: newReceipts[built](time.Now), pending: map[string]chan exit{}, found: map[string]found{}}
+	return &Launcher{d: d, reg: reg, set: set, ev: ev, generate: generate, trees: newReceipts[built](time.Now), pending: map[string]chan exit{}, found: map[string]found{}, watchers: map[string]*watcher{}}
 }
 
 // Starting reports whether a create is running; an upgrade waits for it.
-func (l *Launcher) Starting() bool { return l.receipts.inFlight() }
+func (l *Launcher) Starting() bool { return l.running.Load() > 0 }
+
+// Watch hands the progress and outcome of the create run under key to the
+// first caller to watch it, until stop; a later caller hears nothing.
+func (l *Launcher) Watch(key string, progress func(step, note string), creating func(Creating), done func(Result)) (stop func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.watchers[key] != nil {
+		return func() {}
+	}
+	w := &watcher{progress, creating, done}
+	l.watchers[key] = w
+	return func() {
+		l.mu.Lock()
+		if l.watchers[key] == w {
+			delete(l.watchers, key)
+		}
+		l.mu.Unlock()
+	}
+}
+
+func (l *Launcher) watcher(key string) *watcher {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.watchers[key]
+}
 
 // Create runs one agent.create. progress is called as each step starts, and
 // again with a note on how a step went. creating is called once the Terminal
-// exists, before setup runs. A retry of the same request joins the first and
-// gets its replies, but not its progress.
-func (l *Launcher) Create(w Who, requestID string, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
-	x, fresh := l.receipts.take(w.Key+"\x00"+requestID, s)
-	if x == nil {
-		return Result{Err: fail("duplicate", "This request was already sent with a different spec")}
-	}
-	if !fresh {
-		<-x.done
-		c, r := l.receipts.outcome(x)
-		if c.Terminal != "" {
-			creating(c)
+// exists, before setup runs. Whoever watches key hears both too, and the
+// outcome as soon as there is one.
+func (l *Launcher) Create(w Who, key string, s proto.LaunchSpec, progress func(step, note string), creating func(Creating)) Result {
+	l.running.Add(1)
+	defer l.running.Add(-1)
+	var opened Creating
+	r := l.create(w, s, func(step, note string) {
+		progress(step, note)
+		if x := l.watcher(key); x != nil {
+			x.progress(step, note)
 		}
-		return r
-	}
-	r := l.create(w, s, progress, func(c Creating) {
-		l.receipts.creating(x, c)
+	}, func(c Creating) {
+		opened = c
 		creating(c)
+		if x := l.watcher(key); x != nil {
+			x.creating(c)
+		}
 	})
-	l.receipts.finish(x, r)
+	r.Creating = opened
+	if x := l.watcher(key); x != nil {
+		x.done(r)
+	}
 	ok, code, origin := r.Err == nil, "", "desktop"
 	if !ok {
 		code = r.Err.Code
@@ -161,7 +203,11 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		return Result{Err: fl}
 	}
 	argv[0] = exe
+	id := terminal.NewID()
 	if Chat(s) {
+		if l.MCPFlags != nil {
+			argv = append(argv, l.MCPFlags(id, s.Provider)...)
+		}
 		argv = Piped(l.d.Exe, argv)
 	}
 	cwd, setup, fl := l.checkout(w, f, s, env, progress)
@@ -172,7 +218,6 @@ func (l *Launcher) create(w Who, s proto.LaunchSpec, progress func(step, note st
 		// A deleted Worktree's name would otherwise stick to the new one at its path.
 		l.Names.Forget(cwd)
 	}
-	id := terminal.NewID()
 	exits := make(chan exit, 2)
 	l.mu.Lock()
 	l.pending[id] = exits
@@ -265,6 +310,13 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 		o, err := openPR(f, s, env)
 		return opened(w, f, s, o, err, progress)
 	}
+	if n.AutoName {
+		release, err := l.hold(f, s.Project, n)
+		if err != nil {
+			return "", "", gitFailure(err)
+		}
+		defer release()
+	}
 	plan, err := worktree.Prepare(f, s.Project, n.Name, n.Base)
 	if err != nil {
 		return "", "", gitFailure(err)
@@ -279,6 +331,25 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 		return "", "", gitFailure(err)
 	}
 	return filled(w, f, s, c.Path, progress)
+}
+
+// hold renames n's placeholder to the first free one, so two creates with the
+// same placeholder each get a Worktree, and keeps it from others until release.
+func (l *Launcher) hold(f registry.File, project string, n *proto.NewWorktree) (release func(), err error) {
+	l.heldMu.Lock()
+	defer l.heldMu.Unlock()
+	taken, err := worktree.Taken(project, worktree.Dir(f, project))
+	if err != nil {
+		return nil, err
+	}
+	name := worktree.Free(n.Name, append(taken, l.held...))
+	n.Name = name
+	l.held = append(l.held, name)
+	return func() {
+		l.heldMu.Lock()
+		defer l.heldMu.Unlock()
+		l.held = slices.DeleteFunc(l.held, func(h string) bool { return h == name })
+	}, nil
 }
 
 func openPR(f registry.File, s proto.LaunchSpec, env []string) (*worktree.Open, error) {
@@ -486,7 +557,11 @@ func (l *Launcher) ResumeCmd(saved state.Terminal) (string, []string, string) {
 			return "", nil, fl.Code
 		}
 	}
-	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, func(p string) (string, bool) { return l.find(p, env) })
+	var mcp []string
+	if saved.Chat && l.MCPFlags != nil {
+		mcp = l.MCPFlags(saved.TerminalID, saved.Provider)
+	}
+	return resumeCmd(saved, l.set.AgentArgs(saved.Provider), shellenv.LoginShell(), l.d.Exe, account, mcp, func(p string) (string, bool) { return l.find(p, env) })
 }
 
 // AgentTab is Daemon.AgentTab: argv wrapped as a launch wraps its agent,

@@ -56,9 +56,7 @@ func TestClaudeTypedInAShellIsAnAgent(t *testing.T) {
 		t.Fatalf("flashed not attached: %v, agent: %+v", flashed, a)
 	}
 	phone.Send(map[string]any{"type": "agent.prompt", "id": "p1", "agentId": a.ID, "text": "hello"})
-	phone.WaitFor("ack", func(m Message) bool { return m.Type == "ack" && m.ID == "p1" })
-	phone.WaitStatus(a.ID, "working")
-	phone.WaitStatus(a.ID, "done")
+	phone.WaitAll("ack and the turn", func(m Message) bool { return m.Type == "ack" && m.ID == "p1" }, workedThenDone(a.ID))
 	h.WaitScreen(id, "echo: hello")
 	c.Send(ops.Msg{Op: "input", ID: id, Data: []byte{0x03}})
 	phone.WaitStatus(a.ID, "closed")

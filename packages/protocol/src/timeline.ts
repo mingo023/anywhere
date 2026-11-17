@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { DelegationRef, DeliveryBody } from "./orchestrator.js";
+import { HostLinkBody } from "./hosts.js";
 
 export const AgentStatus = Schema.Literal("needsYou", "done", "working", "idle", "closed");
 export type AgentStatus = typeof AgentStatus.Type;
@@ -85,6 +87,8 @@ export const TimelineBody = Schema.Union(
   }),
   /** Why the agent went on without a prompt, or an error it went on after. */
   Schema.Struct({ kind: Schema.Literal("notice"), text: Schema.optional(Schema.String), error: Schema.optional(Schema.String) }),
+  DeliveryBody,
+  HostLinkBody,
 );
 export type TimelineBody = typeof TimelineBody.Type;
 
@@ -96,6 +100,8 @@ export const TimelineItem = Schema.extend(
     ts: Schema.Number,
     /** The tool call that spawned the sub-agent this item belongs to. */
     parentToolUseId: Schema.optional(Schema.String),
+    /** Who wrote a user item pocketd sent itself. Absent on the user's own. */
+    origin: Schema.optional(Schema.Literal("wake", "question", "context")),
   }),
 );
 export type TimelineItem = typeof TimelineItem.Type;
@@ -143,6 +149,11 @@ export const AgentSummary = Schema.Struct({
   chatOnly: Schema.optional(Schema.Boolean),
   goal: Schema.optional(Goal),
   options: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  /** The session that delegated to this one. */
+  parent: Schema.optional(Schema.String),
+  relationship: Schema.optional(Schema.Literal("subagent", "fork")),
+  createdBy: Schema.optional(Schema.String),
+  delegation: Schema.optional(DelegationRef),
 });
 export type AgentSummary = typeof AgentSummary.Type;
 export const RESTORE = ["resumed", "interrupted", "access_lowered", "failed"] as const;

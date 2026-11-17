@@ -42,7 +42,16 @@ type Message struct {
 		Failed            bool   `json:"failed"`
 		ChatOnly          bool   `json:"chatOnly"`
 		Restore           string `json:"restore"`
+		Parent            string `json:"parent"`
+		Relationship      string `json:"relationship"`
 	} `json:"agent"`
+	Delegation struct {
+		TaskID        string `json:"taskId"`
+		ChildID       string `json:"childId"`
+		Status        string `json:"status"`
+		Summary       string `json:"summary"`
+		EnvironmentID string `json:"environmentId"`
+	} `json:"delegation"`
 	Agents []struct {
 		ID       string `json:"id"`
 		Restore  string `json:"restore"`
@@ -52,10 +61,11 @@ type Message struct {
 		UpgradeFailed string `json:"upgradeFailed"`
 	} `json:"host"`
 	Item struct {
-		Kind string `json:"kind"`
-		Text string `json:"text"`
-		OK   bool   `json:"ok"`
-		Call struct {
+		Kind   string `json:"kind"`
+		Text   string `json:"text"`
+		Origin string `json:"origin"`
+		OK     bool   `json:"ok"`
+		Call   struct {
 			Status string `json:"status"`
 			Output string `json:"output"`
 		} `json:"call"`
@@ -153,6 +163,15 @@ func streamOf(agentID, kind, text string) func(Message) bool {
 func statusOf(agentID, status string) func(Message) bool {
 	return func(m Message) bool {
 		return m.Type == "agent.update" && m.Agent.ID == agentID && m.Agent.Status == status
+	}
+}
+
+// workedThenDone is agentID's turn ending, counted only once it has started.
+func workedThenDone(agentID string) func(Message) bool {
+	working := false
+	return func(m Message) bool {
+		working = working || statusOf(agentID, "working")(m)
+		return working && statusOf(agentID, "done")(m)
 	}
 }
 

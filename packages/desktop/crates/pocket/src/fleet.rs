@@ -1,19 +1,15 @@
-//! SSH hosts: a link to each one's pocketd, and the Settings form that adds one.
+//! SSH hosts: the ones this Mac's pocketd links, shown and served here, and the Settings form that adds one.
 
 use crate::desktop::Desktop;
+use agents::hosts::{Entry, Failure, Link, Progress};
 use futures::StreamExt;
-use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use daemon::{Daemon, Endpoint};
 use hosts::Host;
 use hosts::checklist::{Checklist, Outcome};
-use hosts::install::{self, Platform, Progress, Step};
-use hosts::link::{self, Link, Paths, Supervisor};
 use hosts::remote::{Client, HostInfo};
-use hosts::ssh::Failure;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -78,42 +74,86 @@ pub(crate) fn on_status(info: &HostInfo, online: bool, opened_with: Option<&Opti
     Status { serve, reopen: serve && opened_with.is_some_and(|was| was != token) }
 }
 
-/// What an install off the UI thread reports.
-enum Report {
-    Windows(bool),
-    Progress(Progress),
+/// The hosts pocketd links and how each link is doing, as its events last said.
+#[derive(Default)]
+pub(crate) struct Hosts {
+    pub list: Vec<Host>,
+    pub links: Links,
 }
 
-/// The host to install on once `platform` is known, and where its pocketd comes from.
-fn install_plan(host: &Host, platform: Platform, version: &str, dist: Option<&Path>) -> Result<(Host, install::Source), String> {
-    let source = install::source(platform, version, dist)?;
-    Ok((Host { windows: matches!(platform, Platform::Windows { .. }), ..host.clone() }, source))
+#[derive(Debug, PartialEq)]
+pub(crate) enum Turn {
+    Online(String),
+    Offline(String),
+    Gone(String),
+}
+
+impl Hosts {
+    fn replace(&mut self, entries: Vec<Entry>) -> Vec<Turn> {
+        let gone: Vec<String> = self.list.iter().filter(|h| !entries.iter().any(|e| e.id == h.id)).map(|h| h.id.clone()).collect();
+        for id in &gone {
+            self.forget(id);
+        }
+        gone.into_iter().map(Turn::Gone).chain(entries.into_iter().filter_map(|e| self.update(e))).collect()
+    }
+
+    /// Takes one host added or changed.
+    fn update(&mut self, entry: Entry) -> Option<Turn> {
+        let host = Host::from(&entry);
+        match self.list.iter_mut().find(|h| h.id == host.id) {
+            Some(shown) => *shown = host,
+            None => {
+                self.links.start(&host.id);
+                self.list.push(host);
+            }
+        }
+        let was = self.links.online(&entry.id);
+        self.links.apply(&entry.id, entry.link);
+        match (was, self.links.online(&entry.id)) {
+            (false, true) => Some(Turn::Online(entry.id)),
+            (true, false) => Some(Turn::Offline(entry.id)),
+            _ => None,
+        }
+    }
+
+    fn forget(&mut self, id: &str) {
+        self.list.retain(|h| h.id != id);
+        self.links.remove(id);
+    }
+}
+
+/// What a host message sent to pocketd was for, until it answers.
+enum Asked {
+    /// With the password to sign in with if the host refuses the user's keys.
+    Add { password: String },
+    Install(String),
+    Uninstall(String),
+    SignIn(String),
 }
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Removing {
     Uninstall,
     Host,
+    Forget,
     Project(String),
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Leave {
+    Keep,
+    Uninstall,
+    Uninstalled,
+}
+
 /// What removing host `id` does, in order. The host is let go before its projects leave the list, so their
-/// terminals keep running there; uninstalling comes first and the rest waits for it.
-pub(crate) fn removal(id: &str, uninstall: bool, projects: &[String]) -> Vec<Removing> {
+/// terminals keep running there; uninstalling comes first and the rest waits for it. pocketd lets the host
+/// go as it uninstalls, so nothing more is sent for it then.
+pub(crate) fn removal(id: &str, leave: Leave, projects: &[String]) -> Vec<Removing> {
     let on_host = projects.iter().filter(|p| hosts::split(p).0 == Some(id)).map(|p| Removing::Project(p.clone()));
-    uninstall.then_some(Removing::Uninstall).into_iter().chain([Removing::Host]).chain(on_host).collect()
-}
-
-fn paths(home: &Path) -> Paths {
-    Paths { home: home.into(), remote_dir: channel::home_dir_name().into() }
-}
-
-/// `target` as a new host, unless one already goes there.
-pub(crate) fn new_host(hosts: &[Host], target: hosts::Target) -> Result<Host, String> {
-    match hosts.iter().find(|h| h.target == target) {
-        Some(h) => Err(format!("{} is already added", h.name)),
-        None => Ok(Host::new(target, hosts)),
-    }
+    let uninstall = matches!(leave, Leave::Uninstall).then_some(Removing::Uninstall);
+    let host = if matches!(leave, Leave::Keep) { Removing::Host } else { Removing::Forget };
+    uninstall.into_iter().chain([host]).chain(on_host).collect()
 }
 
 /// The add form's fields; open while it shows.
@@ -206,7 +246,7 @@ pub(crate) fn sign_in_error(failure: Failure, name: &str, locked: bool) -> Strin
         Failure::Auth => "Wrong password.".into(),
         // Its usual message promises a retry, which a sign-in never makes.
         Failure::Throttled => format!("{name} is limiting sign-ins after failed attempts. Wait {} seconds, then try again.", Tries::WAIT.as_secs()),
-        f => f.message(name),
+        f => hosts::failure_message(f, name),
     }
 }
 
@@ -221,10 +261,7 @@ pub(crate) struct PasswordForm {
 }
 
 pub(crate) struct Fleet {
-    pub links: Links,
-    supervisors: HashMap<String, Supervisor>,
-    /// Set once links start; captures never start them.
-    events: Option<UnboundedSender<(String, Link)>>,
+    pub hosts: Hosts,
     /// Each host's pocketd messages flowing into the window; dropping one lets its connection go.
     sessions: HashMap<String, Task<()>>,
     pub form: AddForm,
@@ -236,6 +273,8 @@ pub(crate) struct Fleet {
     pub notices: HashMap<String, String>,
     pub password: PasswordForm,
     pending: Pending,
+    /// Host messages sent and not yet answered, by request id.
+    asked: HashMap<String, Asked>,
 }
 
 impl Fleet {
@@ -248,8 +287,8 @@ impl Fleet {
         let mut subs: Vec<_> = [&address, &port, &user, &add_password]
             .into_iter()
             .map(|field| {
-                cx.subscribe_in(field, window, |this, _, ev: &InputEvent, window, cx| match ev {
-                    InputEvent::PressEnter { .. } => this.add_host(window, cx),
+                cx.subscribe_in(field, window, |this, _, ev: &InputEvent, _, cx| match ev {
+                    InputEvent::PressEnter { .. } => this.add_host(cx),
                     InputEvent::Change if this.fleet.form.error.take().is_some() => cx.notify(),
                     _ => {}
                 })
@@ -263,9 +302,7 @@ impl Fleet {
         let form = AddForm { open: false, address, port, user, password: add_password, key_file: None, error: None, suggestions: Vec::new(), picked: None };
         let password = PasswordForm { host: None, input: password, error: None, signing_in: false, tries: Tries::default() };
         let fleet = Self {
-            links: Links::default(),
-            supervisors: HashMap::new(),
-            events: None,
+            hosts: Hosts::default(),
             sessions: HashMap::new(),
             form,
             installs: HashMap::new(),
@@ -273,42 +310,24 @@ impl Fleet {
             notices: HashMap::new(),
             password,
             pending: Pending::default(),
+            asked: HashMap::new(),
         };
         (fleet, subs)
     }
 
-    fn connect(&mut self, host: Host, home: &Path) {
-        let Some(events) = &self.events else { return };
-        self.links.start(&host.id);
-        self.supervisors.insert(host.id.clone(), link::supervise(host, paths(home), events.clone()));
-    }
-
-    pub fn retry(&self, id: &str) {
-        if let Some(s) = self.supervisors.get(id) {
-            s.retry();
-        }
-    }
-
-    /// Records how the install on `id` goes. Once pocketd runs, the link reconnects rather than wait out its
-    /// backoff; a pocketd that was already running needs no checklist.
-    fn install_progress(&mut self, id: &str, progress: Progress) {
-        let Some(list) = self.installs.get_mut(id) else { return };
-        let ended = list.outcome.is_some();
+    /// Records how the install on `id` goes, as one started elsewhere too; a pocketd that was already running
+    /// needs no checklist.
+    fn install_progress(&mut self, id: &str, update: bool, progress: Progress) {
+        let list = self.installs.entry(id.into()).or_insert_with(|| Checklist::new(update));
         list.apply(progress);
-        if ended || !list.succeeded() {
-            return;
-        }
         if list.outcome == Some(Outcome::Reused) {
             self.installs.remove(id);
         }
-        self.retry(id);
     }
 
-    /// Dropping the supervisor closes the tunnel off the UI thread.
     fn remove(&mut self, id: &str) {
-        self.supervisors.remove(id);
+        self.hosts.forget(id);
         self.sessions.remove(id);
-        self.links.remove(id);
         self.installs.remove(id);
         self.tokens.remove(id);
         self.notices.remove(id);
@@ -320,48 +339,71 @@ impl Fleet {
 }
 
 impl Desktop {
-    /// Connects to every saved host, and keeps their links up to date on screen.
-    pub(crate) fn connect_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (tx, mut rx) = mpsc::unbounded();
-        self.fleet.events = Some(tx);
-        for host in self.store.hosts.clone() {
-            self.fleet.connect(host, self.store.home());
-        }
-        cx.spawn_in(window, async move |this, cx| {
-            while let Some((id, link)) = rx.next().await {
-                let shown = |d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>| {
-                    let was = d.fleet.links.online(&id);
-                    let password = d.fleet.pending.take_for(&id, &link);
-                    if d.fleet.links.apply(&id, link) {
-                        match (was, d.fleet.links.online(&id)) {
-                            (false, true) => d.host_online(&id, window, cx),
-                            (true, false) => hosts::remote::forget(&id),
-                            _ => {}
-                        }
-                        cx.notify();
+    /// Takes what this Mac's pocketd says of its hosts and of the host messages sent it.
+    pub(crate) fn on_hosts(&mut self, ev: agents::Event, window: &mut Window, cx: &mut Context<Self>) {
+        use agents::Event;
+        let turns = match ev {
+            Event::Hosts(entries) => self.fleet.hosts.replace(entries),
+            Event::HostUpdate { request, host } => {
+                let id = host.id.clone();
+                let turns = self.fleet.hosts.update(host).into_iter().collect();
+                if let Some(Asked::Add { password }) = self.fleet.asked.remove(&request) {
+                    self.close_add_host(window, cx);
+                    // A password signs in first; until then ssh can't reach the host to install.
+                    match password.is_empty() {
+                        true => self.install_host(&id, false, cx),
+                        false => self.fleet.pending.hold(id, password),
                     }
-                    if let Some(password) = password {
-                        d.sign_in(id, password, cx);
-                    }
-                };
-                if this.update_in(cx, shown).is_err() {
-                    break;
                 }
+                turns
             }
-        })
-        .detach();
+            Event::HostProgress { host, update, progress } => {
+                self.fleet.install_progress(&host, update, progress);
+                Vec::new()
+            }
+            Event::HostError { request, detail, message, .. } => {
+                match self.fleet.asked.remove(&request) {
+                    Some(Asked::Add { .. }) => self.fleet.form.error = Some(message),
+                    Some(Asked::Install(id)) => self.fleet.installs.get_mut(&id).into_iter().for_each(|l| l.fail(message.clone())),
+                    Some(Asked::Uninstall(id)) => _ = self.fleet.notices.insert(id, message),
+                    Some(Asked::SignIn(id)) => self.signed_in(&id, Some((detail, message))),
+                    None => {}
+                }
+                Vec::new()
+            }
+            Event::HostDone(request) => {
+                match self.fleet.asked.remove(&request) {
+                    Some(Asked::Uninstall(id)) => self.leave_host(&id, Leave::Uninstalled, cx),
+                    Some(Asked::SignIn(id)) => self.signed_in(&id, None),
+                    _ => {}
+                }
+                Vec::new()
+            }
+            _ => return,
+        };
+        for turn in turns {
+            match turn {
+                Turn::Online(id) => self.host_online(&id, window, cx),
+                Turn::Offline(id) => hosts::remote::forget(&id),
+                Turn::Gone(id) => self.forget_host(&id, cx),
+            }
+        }
+        let refused: Vec<(String, String)> = self.fleet.hosts.list.iter().filter_map(|h| Some((h.id.clone(), self.fleet.pending.take_for(&h.id, self.fleet.hosts.links.get(&h.id)?)?))).collect();
+        for (id, password) in refused {
+            self.sign_in(id, password, cx);
+        }
+        cx.notify();
     }
 
     /// Serves the host's folders and terminals here, once its pocketd says it can.
     fn host_online(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(host) = self.store.hosts.iter().find(|h| h.id == id).cloned() else { return };
-        let home = self.store.home().to_path_buf();
+        let Some(host) = self.fleet.hosts.list.iter().find(|h| h.id == id).cloned() else { return };
         let id = id.to_string();
         cx.spawn_in(window, async move |this, cx| {
             let (client, endpoint, info) = cx
                 .background_executor()
                 .spawn(async move {
-                    let endpoint = host.endpoint(&home);
+                    let endpoint = host.endpoint();
                     let client = Arc::new(Client::to(&host.id, endpoint.clone()));
                     let info = client.status();
                     (client, endpoint, info)
@@ -369,10 +411,7 @@ impl Desktop {
                 .await;
             this.update_in(cx, |d, window, cx| {
                 let Ok(info) = info else { return };
-                if info.os == "windows" {
-                    d.host_is_windows(&id, true, cx);
-                }
-                let status = on_status(&info, d.fleet.links.online(&id), d.fleet.tokens.get(&id), &endpoint.token);
+                let status = on_status(&info, d.fleet.hosts.links.online(&id), d.fleet.tokens.get(&id), &endpoint.token);
                 if !status.serve {
                     return;
                 }
@@ -409,21 +448,35 @@ impl Desktop {
         self.fleet.sessions.insert(id, task);
     }
 
-    /// Saves what the host runs, once known from its pocketd or an install's probe.
-    fn host_is_windows(&mut self, id: &str, windows: bool, cx: &mut Context<Self>) {
-        if let Some(host) = self.store.hosts.iter_mut().find(|h| h.id == id && h.windows != windows) {
-            host.windows = windows;
-            self.save_soon(cx);
-        }
+    /// Opens Settings › Hosts with the add form filled with `hint`, as an agent's card asks.
+    pub(crate) fn link_host(&mut self, hint: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_hosts(window, cx);
+        self.open_add_host(Some(hint), window, cx);
+    }
+
+    pub(crate) fn show_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings(&crate::actions::OpenSettings, window, cx);
+        self.show_section(crate::settings::Section::Hosts, cx);
+    }
+
+    /// An older pocketd, without hosts.v1, answered: it links no hosts, so the saved ones only show.
+    pub(crate) fn hosts_read_only(&self) -> bool {
+        !self.agents.caps.is_empty() && !self.agents.hosts_offered()
     }
 
     pub(crate) fn host_name(&self, id: &str) -> String {
-        self.store.hosts.iter().find(|h| h.id == id).map_or_else(|| id.to_string(), |h| h.name.clone())
+        self.fleet.hosts.list.iter().find(|h| h.id == id).map_or_else(|| id.to_string(), |h| h.name.clone())
     }
 
-    pub(crate) fn open_add_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Opens the add form, its address filled with `hint` when an agent named the host.
+    pub(crate) fn open_add_host(&mut self, hint: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         self.fleet.form.open = true;
-        self.fleet.form.address.update(cx, |f, cx| f.focus(window, cx));
+        self.fleet.form.address.update(cx, |f, cx| {
+            if let Some(hint) = hint {
+                f.set_value(hint, window, cx);
+            }
+            f.focus(window, cx);
+        });
         cx.spawn(async |this, cx| {
             let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
             let found = cx.background_executor().spawn(async move { hosts::ssh_config::aliases(&home) }).await;
@@ -456,103 +509,58 @@ impl Desktop {
         });
     }
 
-    pub(crate) fn add_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn add_host(&mut self, cx: &mut Context<Self>) {
         let form = &self.fleet.form;
         let [address, port, user] = [&form.address, &form.port, &form.user].map(|f| f.read(cx).value().to_string());
         let password = form.password.read(cx).value().to_string();
-        let added = hosts::target(&address, &port, &user, form.key_file.as_deref(), &form.suggestions)
-            .map_err(String::from)
-            .and_then(|target| new_host(&self.store.hosts, target));
-        match added {
-            Ok(host) => {
-                self.store.hosts.push(host.clone());
-                self.fleet.connect(host.clone(), self.store.home());
-                // A password signs in first; until then ssh can't reach the host to install.
-                match password.is_empty() {
-                    true => self.install_host(&host.id, false, cx),
-                    false => self.fleet.pending.hold(host.id.clone(), password),
-                }
-                self.save_soon(cx);
-                self.close_add_host(window, cx);
+        match hosts::target(&address, &port, &user, form.key_file.as_deref(), &form.suggestions) {
+            Ok(target) => {
+                let request = self.outbox.local.host_add(&target);
+                self.fleet.asked.insert(request, Asked::Add { password });
             }
-            Err(e) => {
-                self.fleet.form.error = Some(e);
-                cx.notify();
-            }
+            Err(e) => self.fleet.form.error = Some(e.into()),
         }
-    }
-
-    /// Puts pocketd on the host, or with `update` replaces it, off the UI thread; its row shows each step.
-    pub(crate) fn install_host(&mut self, id: &str, update: bool, cx: &mut Context<Self>) {
-        let Some(host) = self.store.hosts.iter().find(|h| h.id == id).cloned() else { return };
-        if self.fleet.installs.get(id).is_some_and(|l| l.outcome.is_none()) {
-            return;
-        }
-        self.fleet.installs.insert(host.id.clone(), Checklist::new(update));
-        let paths = paths(self.store.home());
-        let (tx, mut rx) = mpsc::unbounded();
-        // Not the background executor: an install can take minutes.
-        std::thread::spawn(move || {
-            let send = |p| {
-                let _ = tx.unbounded_send(Report::Progress(p));
-            };
-            // Finding the platform and uploading the archive come before bootstrap.sh says it checks the host.
-            send(Progress::Step(Step::Detect));
-            let ran = install::probe(&host, &paths).and_then(|platform| {
-                let (host, source) = install_plan(&host, platform, channel::version(), install::dist_dir().as_deref()).map_err(install::Error::Failed)?;
-                let _ = tx.unbounded_send(Report::Windows(host.windows));
-                if update { install::update(&host, &paths, &source, send) } else { install::install(&host, &paths, &source, send) }
-            });
-            if let Err(e) = ran {
-                send(Progress::Error(e.message(&host.name)));
-            }
-        });
-        let id = id.to_string();
-        cx.spawn(async move |this, cx| {
-            while let Some(report) = rx.next().await {
-                let shown = this.update(cx, |d, cx| {
-                    match report {
-                        Report::Windows(windows) => d.host_is_windows(&id, windows, cx),
-                        Report::Progress(progress) => d.fleet.install_progress(&id, progress),
-                    }
-                    cx.notify();
-                });
-                if shown.is_err() {
-                    break;
-                }
-            }
-        })
-        .detach();
         cx.notify();
     }
 
+    pub(crate) fn install_host(&mut self, id: &str, update: bool, cx: &mut Context<Self>) {
+        if self.fleet.installs.get(id).is_some_and(|l| l.outcome.is_none()) {
+            return;
+        }
+        self.fleet.installs.insert(id.into(), Checklist::new(update));
+        let archives = hosts::dist_dir().map(|d| d.display().to_string());
+        let request = self.outbox.local.host_install(id, update, archives.as_deref());
+        self.fleet.asked.insert(request, Asked::Install(id.into()));
+        cx.notify();
+    }
+
+    pub(crate) fn retry_host(&mut self, id: &str) {
+        self.outbox.local.host_retry(id);
+    }
+
     pub(crate) fn remove_host(&mut self, id: &str, uninstall: bool, cx: &mut Context<Self>) {
-        for step in removal(id, uninstall, &self.projects()) {
+        self.leave_host(id, if uninstall { Leave::Uninstall } else { Leave::Keep }, cx);
+    }
+
+    fn leave_host(&mut self, id: &str, leave: Leave, cx: &mut Context<Self>) {
+        for step in removal(id, leave, &self.projects()) {
             match step {
                 Removing::Uninstall => return self.uninstall_host(id, cx),
-                Removing::Host => self.forget_host(id, cx),
+                Removing::Host => {
+                    self.outbox.local.host_remove(id, false);
+                    self.forget_host(id, cx);
+                }
+                Removing::Forget => self.forget_host(id, cx),
                 Removing::Project(p) => self.remove_project(&p, cx),
             }
         }
     }
 
-    /// Removes pocketd's service from the host, then the host; a host that can't be reached stays, saying why.
+    /// Asks pocketd to remove its service from the host, then the host; a host that can't be reached stays, saying why.
     fn uninstall_host(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some(host) = self.store.hosts.iter().find(|h| h.id == id).cloned() else { return };
-        let paths = paths(self.store.home());
-        self.fleet.notices.insert(host.id.clone(), "Uninstalling pocketd\u{2026}".into());
-        cx.spawn(async move |this, cx| {
-            let (id, name) = (host.id.clone(), host.name.clone());
-            let done = cx.background_executor().spawn(async move { install::uninstall(&host, &paths) }).await;
-            let _ = this.update(cx, |d, cx| match done {
-                Ok(()) => d.remove_host(&id, false, cx),
-                Err(e) => {
-                    d.fleet.notices.insert(id, e.message(&name));
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        let request = self.outbox.local.host_remove(id, true);
+        self.fleet.asked.insert(request, Asked::Uninstall(id.into()));
+        self.fleet.notices.insert(id.into(), "Uninstalling pocketd\u{2026}".into());
         cx.notify();
     }
 
@@ -581,9 +589,10 @@ impl Desktop {
         self.sign_in(id, password, cx);
     }
 
-    /// Puts the app's own key on the host with `password`, then reconnects with that key.
-    fn sign_in(&mut self, id: String, password: String, cx: &mut Context<Self>) {
-        let Some(host) = self.store.hosts.iter().find(|h| h.id == id).cloned() else { return };
+    pub(crate) fn sign_in(&mut self, id: String, password: String, cx: &mut Context<Self>) {
+        if !self.fleet.hosts.list.iter().any(|h| h.id == id) {
+            return;
+        }
         let form = &mut self.fleet.password;
         if form.host.as_ref() != Some(&id) {
             form.tries = Tries::default();
@@ -592,31 +601,29 @@ impl Desktop {
         if form.signing_in || !form.tries.allowed(Instant::now()) {
             return;
         }
-        (form.host, form.signing_in, form.error) = (Some(id), true, None);
-        let (id, name, home) = (host.id.clone(), host.name.clone(), self.store.home().to_path_buf());
-        cx.spawn(async move |this, cx| {
-            let signed_in = cx.background_executor().spawn(async move { hosts::sign_in::with_password(&host, &home, &password) }).await;
-            let _ = this.update(cx, |d, cx| {
-                if signed_in.is_ok() {
-                    d.fleet.retry(&id);
-                }
-                let form = &mut d.fleet.password;
-                form.signing_in = false;
-                // The form may have moved to another host meanwhile.
-                if form.host.as_ref() == Some(&id) {
-                    match signed_in {
-                        Ok(()) => form.host = None,
-                        Err(f) => {
-                            let locked = f == Failure::Auth && form.tries.wrong(Instant::now());
-                            form.error = Some(sign_in_error(f, &name, locked));
-                        }
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        (form.host, form.signing_in, form.error) = (Some(id.clone()), true, None);
+        let request = self.outbox.local.host_sign_in(&id, &password);
+        self.fleet.asked.insert(request, Asked::SignIn(id));
         cx.notify();
+    }
+
+    /// How the sign-in on `id` ended: `refused` with why ssh failed, if it did, and pocketd's words.
+    fn signed_in(&mut self, id: &str, refused: Option<(Option<Failure>, String)>) {
+        let name = self.host_name(id);
+        let form = &mut self.fleet.password;
+        form.signing_in = false;
+        // The form may have moved to another host meanwhile.
+        if form.host.as_deref() != Some(id) {
+            return;
+        }
+        match refused {
+            None => form.host = None,
+            Some((Some(f), _)) => {
+                let locked = f == Failure::Auth && form.tries.wrong(Instant::now());
+                form.error = Some(sign_in_error(f, &name, locked));
+            }
+            Some((None, message)) => form.error = Some(message),
+        }
     }
 
     fn forget_host(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -627,29 +634,55 @@ impl Desktop {
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);
         self.activity_changed();
-        if let Some(at) = self.store.hosts.iter().position(|h| h.id == id) {
-            let host = self.store.hosts.remove(at);
-            let home = self.store.home().to_path_buf();
-            cx.background_executor()
-                .spawn(async move {
-                    let _ = std::fs::remove_file(host.known_hosts(&home));
-                    let _ = std::fs::remove_file(host.owner_file(&home));
-                    hosts::sign_in::remove_key(&host, &home);
-                })
-                .detach();
-        }
-        self.save_soon(cx);
         cx.notify();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Link, Links, Pending, Platform, Removing, Status, Tries, install_plan, needs_update, new_host, on_status, removal, sign_in_error};
+    use super::{Failure, Hosts, Leave, Link, Links, Pending, Removing, Status, Tries, Turn, needs_update, on_status, removal, sign_in_error};
+    use agents::hosts::{Entry, Target};
     use hosts::remote::HostInfo;
     use std::time::{Duration, Instant};
-    use hosts::ssh::Failure;
-    use hosts::{Host, Target};
+
+    fn entry(id: &str, link: Link) -> Entry {
+        Entry { id: id.into(), name: id.into(), target: Target::Alias { name: id.into() }, windows: false, socket: format!("/h/{id}.sock"), link }
+    }
+
+    fn online() -> Link {
+        Link::Online { version: "1.4.2".into(), uptime: 0 }
+    }
+
+    #[test]
+    fn a_host_list_from_pocketd_replaces_the_hosts_shown() {
+        let mut hosts = Hosts::default();
+        hosts.replace(vec![entry("devbox", online()), entry("gpu", Link::Connecting)]);
+        let turns = hosts.replace(vec![entry("gpu", Link::Retrying(Failure::NotRunning)), entry("nas", Link::Connecting)]);
+        assert_eq!(turns, [Turn::Gone("devbox".into())]);
+        assert_eq!(hosts.list.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["gpu", "nas"]);
+        assert_eq!((hosts.links.get("devbox"), hosts.links.get("gpu")), (None, Some(&Link::Retrying(Failure::NotRunning))));
+    }
+
+    #[test]
+    fn a_host_update_changes_only_that_host() {
+        let mut hosts = Hosts::default();
+        hosts.replace(vec![entry("devbox", online()), entry("gpu", Link::Connecting)]);
+        let renamed = Entry { name: "GPU box".into(), ..entry("gpu", Link::Failed(Failure::Auth)) };
+        assert_eq!(hosts.update(renamed), None);
+        assert_eq!(hosts.list.iter().map(|h| h.name.as_str()).collect::<Vec<_>>(), ["devbox", "GPU box"]);
+        assert_eq!((hosts.links.get("devbox"), hosts.links.get("gpu")), (Some(&online()), Some(&Link::Failed(Failure::Auth))));
+        hosts.update(entry("nas", Link::Connecting));
+        assert_eq!(hosts.list.len(), 3, "an added host joins the list");
+    }
+
+    #[test]
+    fn a_host_turning_online_is_served_once() {
+        let mut hosts = Hosts::default();
+        assert_eq!(hosts.replace(vec![entry("devbox", online())]), [Turn::Online("devbox".into())], "already online when first listed");
+        assert_eq!(hosts.update(entry("devbox", Link::Online { version: "1.4.2".into(), uptime: 10 })), None);
+        assert_eq!(hosts.update(entry("devbox", Link::Retrying(Failure::Dropped))), Some(Turn::Offline("devbox".into())));
+        assert_eq!(hosts.update(entry("devbox", online())), Some(Turn::Online("devbox".into())));
+    }
 
     #[test]
     fn a_link_shows_only_what_changed_for_a_host_still_listed() {
@@ -695,13 +728,6 @@ mod tests {
     }
 
     #[test]
-    fn a_host_already_added_isnt_added_twice() {
-        let devbox = Target::Alias { name: "devbox".into() };
-        let first = new_host(&[], devbox.clone()).unwrap();
-        assert_eq!(new_host(&[first], devbox), Err("devbox is already added".into()));
-    }
-
-    #[test]
     fn an_update_is_offered_only_when_the_hosts_pocketd_is_older() {
         let online = |version: &str| Link::Online { version: version.into(), uptime: 0 };
         assert!(needs_update(Some(&online("1.4.2")), "1.5.0"));
@@ -732,28 +758,21 @@ mod tests {
     }
 
     #[test]
-    fn an_install_runs_as_the_platform_the_probe_found() {
-        let host = Host::new(Target::Alias { name: "pc".into() }, &[]);
-        let dist = std::env::temp_dir().join(format!("fleet-plan-{}", std::process::id()));
-        std::fs::create_dir_all(&dist).unwrap();
-        std::fs::write(dist.join("pocketd-windows-amd64.zip"), b"").unwrap();
-        let (on, source) = install_plan(&host, Platform::Windows { arch: "amd64" }, "dev", Some(&dist)).unwrap();
-        assert!(on.windows && source == hosts::install::Source::Archive(dist.join("pocketd-windows-amd64.zip")));
-        let (on, _) = install_plan(&Host { windows: true, ..host }, Platform::Unix { os: "linux", arch: "arm64" }, "1.2.0", None).unwrap();
-        assert!(!on.windows);
-        std::fs::remove_dir_all(dist).unwrap();
-    }
-
-    #[test]
     fn removing_from_this_mac_lets_the_host_go_then_its_projects() {
         let projects = ["//devbox/home/me/app".to_string(), "/Users/me/site".into(), "//gpu/home/me/ml".into()];
-        assert_eq!(removal("devbox", false, &projects), [Removing::Host, Removing::Project("//devbox/home/me/app".into())]);
-        assert_eq!(removal("nas", false, &projects), [Removing::Host]);
+        assert_eq!(removal("devbox", Leave::Keep, &projects), [Removing::Host, Removing::Project("//devbox/home/me/app".into())]);
+        assert_eq!(removal("nas", Leave::Keep, &projects), [Removing::Host]);
     }
 
     #[test]
     fn uninstalling_removes_the_service_before_anything_else() {
         let projects = ["//devbox/home/me/app".to_string()];
-        assert_eq!(removal("devbox", true, &projects), [Removing::Uninstall, Removing::Host, Removing::Project("//devbox/home/me/app".into())]);
+        assert_eq!(removal("devbox", Leave::Uninstall, &projects), [Removing::Uninstall, Removing::Forget, Removing::Project("//devbox/home/me/app".into())]);
+    }
+
+    #[test]
+    fn a_finished_uninstall_does_not_ask_pocketd_to_remove_the_host_again() {
+        let projects = ["//devbox/home/me/app".to_string()];
+        assert_eq!(removal("devbox", Leave::Uninstalled, &projects), [Removing::Forget, Removing::Project("//devbox/home/me/app".into())]);
     }
 }

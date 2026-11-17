@@ -120,7 +120,7 @@ impl Desktop {
     pub(super) fn host_browser(&self, cx: &mut Context<Self>) -> Div {
         let browse = self.repo_form.draft.browse.clone();
         let picked = browse.as_ref().map(|b| b.host.clone());
-        let online: Vec<_> = self.store.hosts.iter().filter(|h| remote::connected(&h.id).is_some()).collect();
+        let online: Vec<_> = self.fleet.hosts.list.iter().filter(|h| remote::connected(&h.id).is_some()).collect();
         if online.is_empty() {
             return div().text_size(px(12.5)).text_color(TEXT_3).child("No host is connected. Add one in Settings › Hosts.");
         }

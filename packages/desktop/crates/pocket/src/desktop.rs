@@ -125,6 +125,7 @@ pub struct Desktop {
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
     pub(crate) chips: Chips,
+    pub(crate) delegated: crate::delegated::DelegatedState,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) worktrees: HashMap<String, Vec<git::Worktree>>,
     pub(crate) worktree: Option<String>,
@@ -175,6 +176,7 @@ impl Desktop {
             // The setting changes in System Settings, so the window coming back is when it may have.
             cx.observe_window_activation(window, |this, window, cx| {
                 follow_reduce_motion(this.store.appearance.reduce_motion, cx);
+                follow_reduce_transparency(cx);
                 // Render tells alerts which panes are seen, but a hidden window renders no frame.
                 this.sync_view(window, cx);
                 if this.screen == Screen::Settings {
@@ -263,6 +265,7 @@ impl Desktop {
             accounts: Accounts::default(),
             updates,
             chips,
+            delegated: crate::delegated::DelegatedState::new(),
             overlay: None,
             worktrees: HashMap::new(),
             worktree: None,
@@ -279,8 +282,9 @@ impl Desktop {
         }
     }
 
-    /// Shows an agent's session: its worktree, the tab holding its terminal, and that pane focused.
+    /// Shows an agent's session: its worktree, the tab holding its terminal, and that pane focused. A delegated session has no tab, so it shows in its chat's.
     pub fn focus_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let id = &self.delegated_show(id);
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
         let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
         self.show_tree(&tree);
@@ -349,7 +353,12 @@ impl Desktop {
         let Some(tree) = self.place() else { return };
         self.workspace(&tree).tree.select(pane, i);
         match self.pane_tab(pane) {
-            Some(Tab::Term(id)) => self.focus_pane(id, window, cx),
+            Some(Tab::Term(id)) => {
+                if let Some(agent) = self.summary(&id).map(|a| a.id.clone()) {
+                    self.delegated.leave(&agent);
+                }
+                self.focus_pane(id, window, cx)
+            }
             Some(Tab::Doc(doc)) => self.show_doc(pane, doc, cx),
             Some(Tab::Web(_)) => window.focus(&self.browsers.focus, cx),
             None => {}
@@ -644,7 +653,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_composer_menu() || this.close_menus() {
+                if this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.delegated_escape(window, cx) {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
@@ -673,6 +682,11 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::check_for_updates))
             .on_action(cx.listener(Self::next_needs_you))
             .on_action(cx.listener(Self::go_to_up_next))
+            .on_action(cx.listener(|this, _: &crate::actions::BackToParent, window, cx| {
+                if !this.delegated_back(window, cx) {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(Self::jump_to))
             .on_action(cx.listener(Self::next_session))
             .on_action(cx.listener(Self::prev_session))
@@ -710,6 +724,18 @@ impl Render for Desktop {
             .children(self.chat_pill(cx))
             .children(self.chat_popover(cx))
     }
+}
+
+/// Whether macOS is set to reduce transparency, which floating glass answers with a solid fill.
+pub(crate) struct ReduceTransparency(pub(crate) bool);
+
+impl Global for ReduceTransparency {}
+
+pub(crate) fn follow_reduce_transparency(cx: &mut App) {
+    #[cfg(target_os = "macos")]
+    cx.set_global(ReduceTransparency(objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency()));
+    #[cfg(not(target_os = "macos"))]
+    cx.set_global(ReduceTransparency(false));
 }
 
 /// GPUI leaves `reduce_motion` to the app; this sets the user's choice, or mirrors the macOS setting when `pref` is `None`.

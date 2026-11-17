@@ -123,11 +123,11 @@ func TestAMissingBinaryIsNotAccepted(t *testing.T) {
 		path, err := resolve(p, []string{"PATH=" + dir, "SHELL=/bin/sh"})
 		return path, err == nil
 	}
-	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, onPath); reason != "resume_not_accepted" {
+	if _, _, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, nil, onPath); reason != "resume_not_accepted" {
 		t.Fatalf("reason = %q", reason)
 	}
 	os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755)
-	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, onPath)
+	cmd, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, nil, onPath)
 	if reason != "" || cmd != "/bin/zsh" || !slices.Contains(args, "--resume") {
 		t.Fatalf("resumeCmd = %q %q %q", cmd, args, reason)
 	}
@@ -135,7 +135,7 @@ func TestAMissingBinaryIsNotAccepted(t *testing.T) {
 
 func TestAResumeRunsTheProvidersConfiguredCommand(t *testing.T) {
 	custom := func(string) (string, bool) { return "/opt/tools/my-claude", true }
-	_, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, custom)
+	_, args, reason := resumeCmd(saved("claude", state.Launch{Access: "ask"}), config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, nil, custom)
 	if reason != "" || !slices.Contains(args, "/opt/tools/my-claude") || slices.Contains(args, "claude") {
 		t.Fatalf("resumeCmd = %q %q", args, reason)
 	}
@@ -145,7 +145,7 @@ func TestAChatClaudeResumesForTheChatBehindAPipe(t *testing.T) {
 	s := saved("claude", state.Launch{Access: "ask", Model: "opus"})
 	s.Chat = true
 	found := func(string) (string, bool) { return "/bin/claude", true }
-	_, args, reason := resumeCmd(s, config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, found)
+	_, args, reason := resumeCmd(s, config.DefaultArgs("claude"), "/bin/zsh", "/pd", nil, nil, found)
 	want := "/pd pipe /bin/claude --resume c-1 --permission-mode default --model opus -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --allow-dangerously-skip-permissions"
 	if reason != "" || !strings.Contains(strings.Join(args, " "), want) {
 		t.Fatalf("resumeCmd = %q %q", args, reason)

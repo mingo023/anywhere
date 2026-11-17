@@ -162,9 +162,9 @@ impl Desktop {
         let s = &view.session;
         let prompts = prompt_rows(&s.rows);
         let viewport = view.list.viewport_bounds();
-        let height = f32::from(viewport.size.height);
+        let height = f32::from(viewport.size.height) - view.inset;
         let rail = Rail::new(prompts.len(), height)?;
-        let top = (height - rail.height()) / 2.;
+        let top = view.inset + (height - rail.height()) / 2.;
         let origin = f32::from(viewport.top()) + top;
         let active = rail.tick_of(current(&prompts, view.top_row().0, view.distance() <= 2.));
         let pointer = view.pointer.read(cx);

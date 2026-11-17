@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,5 +199,53 @@ func TestAPhoneCannotSeeOrSaveAutomations(t *testing.T) {
 	})
 	if seen {
 		t.Fatal("a phone was sent automations")
+	}
+}
+
+func TestEditingAnAutomationAnAgentMadeKeepsItsBindingAndWebhook(t *testing.T) {
+	made := automation.File{Automations: []proto.Automation{{
+		ID: "au1", Name: "Nightly", Prompt: "run the tests", Provider: "claude", Enabled: true,
+		CreatedBy: "a1", Bound: "a1", Webhook: true, WebhookSecret: "s3cret",
+	}}}
+	h := Start(t, launchReady(""), withState(made))
+	o := h.Owner(proto.CapAutomations)
+	edit := draft(h, "run the tests")
+	edit["id"], edit["name"] = "au1", "Nightly tests"
+	if a := o.Automation("save", "s1", map[string]any{"automation": edit}); a.Type != "ack" {
+		t.Fatalf("got %s", a.Raw)
+	}
+	snap := o.WaitFor("the renamed automation", func(m Message) bool {
+		return m.Type == "automations" && len(m.Automations) == 1 && m.Automations[0].Name == "Nightly tests"
+	})
+	if a := snap.Automations[0]; a.CreatedBy != "a1" || a.Bound != "a1" || !a.Webhook {
+		t.Fatalf("after the edit: %s", snap.Raw)
+	}
+	if a := snap.Automations[0]; !strings.HasPrefix(a.WebhookURL, "http://127.0.0.1:") || !strings.HasSuffix(a.WebhookURL, "/hooks/au1") || strings.Contains(snap.Raw, "s3cret") {
+		t.Fatalf("the snapshot must carry the webhook URL and never its secret: %s", snap.Raw)
+	}
+}
+
+func TestABoundRunWhoseTurnARestartCutBeforeAnyReplyFails(t *testing.T) {
+	h, phone, _, id := chatClaude(t, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, `mcp schedule_task {"prompt":"hang","bindToThisSession":true,"schedule":{"kind":"interval","everyMin":60}}`)
+	h.eventually("the schedule made", func() bool {
+		tl := timelineOf(phone, id)
+		return len(tl) == 3 && tl[2] == "result"
+	})
+	o := h.Owner(proto.CapAutomations)
+	snap := o.WaitFor("the bound automation", func(m Message) bool {
+		return m.Type == "automations" && len(m.Automations) == 1 && m.Automations[0].Bound == id
+	})
+	if a := o.Automation("run", "r1", map[string]any{"automationId": snap.Automations[0].ID}); a.Type != "ack" {
+		t.Fatalf("got %s", a.Raw)
+	}
+	run := o.WaitRun("the run in its session", func(r proto.Run) bool { return r.Status == "running" && r.AgentID == id })
+	phone.WaitFor("its prompt shown", streamOf(id, "user", "hang"))
+
+	h.Restart()
+
+	restoredChat(h, id, "interrupted")
+	if r := h.Owner(proto.CapAutomations).WaitRun("the run ended", func(r proto.Run) bool { return r.ID == run.ID && r.Status != "running" }); r.Status != "failed" {
+		t.Fatalf("run = %+v", r)
 	}
 }

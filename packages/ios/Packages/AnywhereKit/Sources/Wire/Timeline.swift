@@ -197,6 +197,10 @@ public enum TimelineBody: Hashable, Sendable {
     case result(ok: Bool, durationMs: Int, error: String?, usage: TurnUsage?)
     /// Why the agent went on without a prompt, or an error it went on after.
     case notice(text: String?, error: String?)
+    /// What pocketd told this chat about the sessions it delegated to.
+    case delivery(ChildDelivery)
+    /// A card asking the user to add a host.
+    case hostLink(HostLink)
     case unknown(kind: String)
 
     public var kind: String {
@@ -210,6 +214,8 @@ public enum TimelineBody: Hashable, Sendable {
         case .compact: "compact"
         case .result: "result"
         case .notice: "notice"
+        case .delivery: "delivery"
+        case .hostLink: "host_link"
         case .unknown(let kind): kind
         }
     }
@@ -223,18 +229,23 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
     public var ts: Int
     /// The tool call that spawned the sub-agent this item belongs to.
     public var parentToolUseId: String?
+    /// Who wrote a user item pocketd sent itself: wake, question or context. Nil on the user's own.
+    public var origin: String?
     public var body: TimelineBody
 
-    public init(id: String, seq: Int, ts: Int, parentToolUseId: String? = nil, body: TimelineBody) {
+    public init(id: String, seq: Int, ts: Int, parentToolUseId: String? = nil, origin: String? = nil, body: TimelineBody) {
         self.id = id
         self.seq = seq
         self.ts = ts
         self.parentToolUseId = parentToolUseId
+        self.origin = origin
         self.body = body
     }
 
     enum Keys: String, CodingKey {
-        case kind, id, seq, ts, parentToolUseId, text, call, items, trigger, ok, durationMs, error, usage
+        case kind, id, seq, ts, parentToolUseId, origin, text, call, items, trigger, ok, durationMs, error, usage
+        case taskIds, childIds, titles, agents, outcome, question
+        case environmentId, hint, reason
     }
 
     public init(from decoder: any Decoder) throws {
@@ -243,6 +254,7 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
         seq = try c.decode(Int.self, forKey: .seq)
         ts = try c.decode(Int.self, forKey: .ts)
         parentToolUseId = try c.decodeIfPresent(String.self, forKey: .parentToolUseId)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
         let kind = try c.decode(String.self, forKey: .kind)
         let text = { try c.decode(String.self, forKey: .text) }
         switch kind {
@@ -261,6 +273,21 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
                 usage: try c.decodeIfPresent(TurnUsage.self, forKey: .usage))
         case "notice":
             body = .notice(text: try c.decodeIfPresent(String.self, forKey: .text), error: try c.decodeIfPresent(String.self, forKey: .error))
+        case "delivery":
+            body = .delivery(
+                ChildDelivery(
+                    taskIds: try c.decode([String].self, forKey: .taskIds),
+                    childIds: try c.decode([String].self, forKey: .childIds),
+                    titles: try c.decode([String].self, forKey: .titles),
+                    agents: try c.decode([String].self, forKey: .agents),
+                    outcome: try c.decode(ChildDelivery.Outcome.self, forKey: .outcome),
+                    question: try c.decodeIfPresent(String.self, forKey: .question)))
+        case "host_link":
+            body = .hostLink(
+                HostLink(
+                    environmentId: try c.decodeIfPresent(String.self, forKey: .environmentId),
+                    hint: try c.decodeIfPresent(String.self, forKey: .hint),
+                    reason: try c.decodeIfPresent(String.self, forKey: .reason)))
         default: body = .unknown(kind: kind)
         }
     }
@@ -272,6 +299,7 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
         try c.encode(seq, forKey: .seq)
         try c.encode(ts, forKey: .ts)
         try c.encodeIfPresent(parentToolUseId, forKey: .parentToolUseId)
+        try c.encodeIfPresent(origin, forKey: .origin)
         switch body {
         case .user(let text), .assistant(let text), .thinking(let text), .plan(let text):
             try c.encode(text, forKey: .text)
@@ -286,6 +314,17 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
         case .notice(let text, let error):
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(error, forKey: .error)
+        case .delivery(let d):
+            try c.encode(d.taskIds, forKey: .taskIds)
+            try c.encode(d.childIds, forKey: .childIds)
+            try c.encode(d.titles, forKey: .titles)
+            try c.encode(d.agents, forKey: .agents)
+            try c.encode(d.outcome, forKey: .outcome)
+            try c.encodeIfPresent(d.question, forKey: .question)
+        case .hostLink(let l):
+            try c.encodeIfPresent(l.environmentId, forKey: .environmentId)
+            try c.encodeIfPresent(l.hint, forKey: .hint)
+            try c.encodeIfPresent(l.reason, forKey: .reason)
         case .unknown: break
         }
     }

@@ -134,9 +134,8 @@ func TestAStopEndsTheTurnAndTheNextPromptIsAnswered(t *testing.T) {
 	phone.Prompt(id, "slow never")
 	phone.WaitStatus(id, "working")
 	phone.Send(map[string]any{"type": "agent.interrupt", "id": "i1", "agentId": id})
-	phone.WaitFor("the stop", func(m Message) bool { return m.Type == "ack" && m.ID == "i1" })
+	phone.WaitAll("the stop", func(m Message) bool { return m.Type == "ack" && m.ID == "i1" }, statusOf(id, "idle"))
 	h.WaitScreen(term, "interrupt")
-	phone.WaitStatus(id, "idle")
 
 	phone.Prompt(id, "after the stop")
 	phone.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the stop"), statusOf(id, "done"))
@@ -268,4 +267,12 @@ func TestARestartResumesTheChatAgentForTheChat(t *testing.T) {
 	again.Prompt(id, "after the restart")
 	again.WaitStream(id, "assistant", "echo: after the restart")
 	h.WaitScreen(term, "prompt: after the restart")
+}
+
+func TestAChatClaudesTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := chatClaude(t)
+	phone.Prompt(id, "run ls")
+	resolve(phone, phone.WaitFor("permission.request", asked), map[string]any{"decision": "allow"})
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: ran ls"), statusOf(id, "done"))
+	storedAsLive(h, id)
 }

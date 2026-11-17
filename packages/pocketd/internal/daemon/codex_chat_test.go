@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"pocketd/internal/agent"
 	"pocketd/internal/proto"
 )
 
@@ -65,5 +66,14 @@ func TestCodexMcpStatusReadsInTheWiresTermsWithItsNextPage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) || next != "c2" {
 		t.Fatalf("%+v %q", got, next)
+	}
+}
+
+func TestOnlyACodexGoalThatReadsPausesOrClearsStartsNoTurn(t *testing.T) {
+	for text, want := range map[string]bool{"/goal": true, " /goal pause": true, "/goal clear": true, "/goal resume": false, "/goal ship it": false, "/review": false, "goal pause": false} {
+		var d agent.Driver = codexChatDriver{}
+		if got := d.(agent.Turnless).Turnless(text); got != want {
+			t.Errorf("%q: %v", text, got)
+		}
 	}
 }

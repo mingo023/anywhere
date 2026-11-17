@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { AgentSummary, Decision, PermissionRequest, TimelineItem } from "./timeline.js";
+import { Delegation, QueueEntry } from "./orchestrator.js";
 import { Automation, AutomationDraft, Run } from "./automation.js";
 import { LaunchSpec, PhoneAccess, ProviderInfo } from "./launch.js";
 import { Local, LocalId } from "./locals.js";
@@ -9,6 +10,7 @@ import { GitClient, GitServer } from "./git.js";
 import { GhClient, GhServer } from "./gh.js";
 import { FsClient, FsServer } from "./fs.js";
 import { PushClient } from "./push.js";
+import { HostsClient, HostsServer } from "./hosts.js";
 
 export const ProjectListRequest = Schema.Struct({ type: Schema.Literal("project.list"), id: Schema.String });
 export const Worktree = Schema.Struct({ name: Schema.String, path: Schema.String, branch: Schema.String, isMain: Schema.Boolean });
@@ -58,7 +60,26 @@ export const ClientMessage = Schema.Union(
   }),
   Schema.Struct({ type: Schema.Literal("agent.list"), id: Schema.String }),
   Schema.Struct({ type: Schema.Literal("pair.begin"), id: Schema.String }),
-  Schema.Struct({ type: Schema.Literal("agent.prompt"), id: Schema.String, agentId: Schema.String, text: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("agent.prompt"),
+    id: Schema.String,
+    agentId: Schema.String,
+    text: Schema.String,
+    /** Wait for the turn to end instead of steering into it. */
+    queue: Schema.optional(Schema.Boolean),
+  }),
+  Schema.Struct({ type: Schema.Literal("agent.delegations"), id: Schema.String, agentId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("queue.list"), id: Schema.String, agentId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("queue.cancel"), id: Schema.String, agentId: Schema.String, entryId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("queue.send_now"), id: Schema.String, agentId: Schema.String, entryId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("queue.edit"), id: Schema.String, agentId: Schema.String, entryId: Schema.String, text: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("queue.reorder"),
+    id: Schema.String,
+    agentId: Schema.String,
+    entryId: Schema.String,
+    before: Schema.optional(Schema.String),
+  }),
   Schema.Struct({ type: Schema.Literal("agent.interrupt"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.send_now"), id: Schema.String, agentId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.compact"), id: Schema.String, agentId: Schema.String }),
@@ -155,6 +176,7 @@ export const ClientMessage = Schema.Union(
   ...GhClient,
   ...FsClient,
   ...PushClient,
+  ...HostsClient,
 );
 export type ClientMessage = typeof ClientMessage.Type;
 
@@ -187,6 +209,14 @@ export const ServerMessage = Schema.Union(
   Schema.Struct({ type: Schema.Literal("pair.done"), deviceId: Schema.String, name: Schema.String }),
   Schema.Struct({ type: Schema.Literal("agent.list"), id: Schema.optional(Schema.String), agents: Schema.Array(AgentSummary) }),
   Schema.Struct({ type: Schema.Literal("agent.update"), agent: AgentSummary }),
+  Schema.Struct({ type: Schema.Literal("agent.delegations"), id: Schema.String, agentId: Schema.String, items: Schema.Array(Delegation) }),
+  Schema.Struct({ type: Schema.Literal("delegation.update"), agentId: Schema.String, delegation: Delegation }),
+  Schema.Struct({
+    type: Schema.Literal("queue.list", "queue.update"),
+    id: Schema.optional(Schema.String),
+    agentId: Schema.String,
+    entries: Schema.Array(QueueEntry),
+  }),
   Schema.Struct({
     type: Schema.Literal("agent.commands"),
     id: Schema.String,
@@ -273,6 +303,7 @@ export const ServerMessage = Schema.Union(
   ...GitServer,
   ...GhServer,
   ...FsServer,
+  ...HostsServer,
 );
 export type ServerMessage = typeof ServerMessage.Type;
 

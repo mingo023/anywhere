@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
+	"slices"
 	"time"
 
 	"pocketd/internal/handoff"
@@ -24,6 +26,7 @@ func (d *Daemon) Handoff() ([]handoff.Terminal, error) {
 			return nil, fmt.Errorf("pause %s: %w", t.Info().ID, err)
 		}
 	}
+	d.holdTails()
 	saved := map[string]state.Terminal{}
 	for _, e := range d.Snapshot().Terminals {
 		saved[e.TerminalID] = e
@@ -43,7 +46,7 @@ func (d *Daemon) Handoff() ([]handoff.Terminal, error) {
 			e = state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows, Local: info.Local}
 		}
 		out = append(out, handoff.Terminal{Saved: e, Cmd: info.Cmd, Args: info.Args, Cwd: info.Cwd,
-			FD: h.FD, Pid: h.Pid, Screen: h.Screen, Agent: d.carried(e.AgentID)})
+			FD: h.FD, Pid: h.Pid, Screen: h.Screen, Agent: d.carried(e.AgentID, d.presentIn(info.ID))})
 	}
 	return out, nil
 }
@@ -52,10 +55,29 @@ func (d *Daemon) CancelHandoff() {
 	for _, t := range d.Terminals.All() {
 		t.Resume()
 	}
+	for _, pr := range d.held {
+		pr.tailing.Unlock()
+	}
+	d.held = nil
 }
 
-// carried is what agentID's Agent keeps across the exec beyond its saved entry.
-func (d *Daemon) carried(agentID string) *handoff.Agent {
+// holdTails stops each transcript tail between two lines, so the next pocketd reads on from where this one
+// stopped.
+func (d *Daemon) holdTails() {
+	for _, pr := range d.presences() {
+		pr.tailing.Lock()
+		d.held = append(d.held, pr)
+	}
+}
+
+func (d *Daemon) presences() []*presence {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Collect(maps.Values(d.present))
+}
+
+// carried is what agentID's Agent, present as pr, keeps across the exec beyond its saved entry.
+func (d *Daemon) carried(agentID string, pr *presence) *handoff.Agent {
 	if agentID == "" {
 		return nil
 	}
@@ -68,7 +90,11 @@ func (d *Daemon) carried(agentID string) *handoff.Agent {
 	if turn := a.Turn(); turn == "working" || turn == "needsYou" {
 		phase = turn
 	}
-	return &handoff.Agent{Named: a.Named(), Phase: phase, Epoch: s.Epoch, Seq: s.MaxSeq}
+	c := &handoff.Agent{Named: a.Named(), Phase: phase, Epoch: s.Epoch, Seq: s.MaxSeq, Background: a.Timeline.Background()}
+	if pr != nil {
+		c.Read = pr.tailed.Load()
+	}
+	return c
 }
 
 // Adopt takes over what the pocketd before exec handed down. Unlike Restore,

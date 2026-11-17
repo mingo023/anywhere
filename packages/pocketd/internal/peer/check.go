@@ -27,6 +27,12 @@ var Needs = map[string]Scope{
 	"ws:agent.pin":            Drive,
 	"ws:agent.btw":            Drive,
 	"ws:agent.remote_control": Drive,
+	"ws:agent.delegations":    Observe,
+	"ws:queue.list":           Observe,
+	"ws:queue.edit":           Drive,
+	"ws:queue.cancel":         Drive,
+	"ws:queue.reorder":        Drive,
+	"ws:queue.send_now":       Drive,
 	"ws:permission.resolve":   Approve,
 	"ws:pair.begin":           Own,
 	"ws:agent.create":         Spawn,
@@ -44,6 +50,12 @@ var Needs = map[string]Scope{
 	"ws:automation.enable":    Own,
 	"ws:automation.delete":    Own,
 	"ws:automation.run":       Own,
+	"ws:host.list":            Own,
+	"ws:host.add":             Own,
+	"ws:host.remove":          Own,
+	"ws:host.retry":           Own,
+	"ws:host.install":         Own,
+	"ws:host.sign_in":         Own,
 	"ws:board.save":           Own,
 	"ws:board.delete":         Own,
 	"ws:board.start":          Own,
@@ -155,6 +167,9 @@ func (r *Refusal) Error() string { return r.Message }
 // scope, so a refused self-approval reads as ask_open, not a missing scope.
 func (p Principal) Check(verb, asking, text string) *Refusal {
 	_, bare, _ := strings.Cut(verb, ":")
+	if p.Kind == MCP {
+		return &Refusal{proto.CodeScopeDenied, "An MCP token calls only the MCP tools, not " + bare}
+	}
 	if p.Kind == PTY && asking != "" && guarded[verb] {
 		return &Refusal{proto.CodeAskOpen, fmt.Sprintf("Terminal %s is waiting on an ask; answer it from the desktop or phone", asking)}
 	}

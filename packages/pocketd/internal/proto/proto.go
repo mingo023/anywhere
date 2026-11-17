@@ -99,6 +99,18 @@ func (d ToolDetail) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("proto: unknown tool detail kind " + d.Kind)
 }
 
+// UnmarshalJSON reads back the null that MarshalJSON writes for an other call's missing input as none.
+func (d *ToolDetail) UnmarshalJSON(b []byte) error {
+	type plain ToolDetail
+	if err := json.Unmarshal(b, (*plain)(d)); err != nil {
+		return err
+	}
+	if string(d.Input) == "null" {
+		d.Input = nil
+	}
+	return nil
+}
+
 type ToolCall struct {
 	ToolUseID  string     `json:"toolUseId"`
 	Name       string     `json:"name"`
@@ -134,8 +146,12 @@ type Item struct {
 	DurationMs int64
 	Error      string
 	Usage      *TurnUsage
+	Delivery   *Delivery
+	HostLink   *HostLink
 	// ParentToolUseID is the tool call that spawned the sub-agent this item belongs to.
 	ParentToolUseID string
+	// Origin is who wrote a user item pocketd sent itself: wake, question or context. Empty for the user's own.
+	Origin string
 }
 
 func (it Item) MarshalJSON() ([]byte, error) {
@@ -145,8 +161,9 @@ func (it Item) MarshalJSON() ([]byte, error) {
 		Seq             int64  `json:"seq"`
 		Ts              int64  `json:"ts"`
 		ParentToolUseID string `json:"parentToolUseId,omitempty"`
+		Origin          string `json:"origin,omitempty"`
 	}
-	h := head{it.Kind, it.ID, it.Seq, it.Ts, it.ParentToolUseID}
+	h := head{it.Kind, it.ID, it.Seq, it.Ts, it.ParentToolUseID, it.Origin}
 	switch it.Kind {
 	case "user", "assistant", "thinking", "plan":
 		return json.Marshal(struct {
@@ -186,8 +203,59 @@ func (it Item) MarshalJSON() ([]byte, error) {
 			Text  string `json:"text,omitempty"`
 			Error string `json:"error,omitempty"`
 		}{h, it.Text, it.Error})
+	case "delivery":
+		d := it.Delivery
+		if d == nil {
+			d = &Delivery{}
+		}
+		return json.Marshal(struct {
+			head
+			*Delivery
+		}{h, d})
+	case "host_link":
+		l := it.HostLink
+		if l == nil {
+			l = &HostLink{}
+		}
+		return json.Marshal(struct {
+			head
+			*HostLink
+		}{h, l})
 	}
 	return nil, errors.New("proto: unknown item kind " + it.Kind)
+}
+
+func (it *Item) UnmarshalJSON(b []byte) error {
+	var w struct {
+		Kind            string     `json:"kind"`
+		ID              string     `json:"id"`
+		Seq             int64      `json:"seq"`
+		Ts              int64      `json:"ts"`
+		ParentToolUseID string     `json:"parentToolUseId"`
+		Origin          string     `json:"origin"`
+		Text            string     `json:"text"`
+		Call            *ToolCall  `json:"call"`
+		Items           []TaskItem `json:"items"`
+		Trigger         string     `json:"trigger"`
+		OK              bool       `json:"ok"`
+		DurationMs      int64      `json:"durationMs"`
+		Error           string     `json:"error"`
+		Usage           *TurnUsage `json:"usage"`
+	}
+	if err := json.Unmarshal(b, &w); err != nil {
+		return err
+	}
+	*it = Item{ID: w.ID, Seq: w.Seq, Ts: w.Ts, Kind: w.Kind, Text: w.Text, Call: w.Call, Tasks: w.Items, Trigger: w.Trigger,
+		OK: w.OK, DurationMs: w.DurationMs, Error: w.Error, Usage: w.Usage, ParentToolUseID: w.ParentToolUseID, Origin: w.Origin}
+	switch w.Kind {
+	case "delivery":
+		it.Delivery = &Delivery{}
+		return json.Unmarshal(b, it.Delivery)
+	case "host_link":
+		it.HostLink = &HostLink{}
+		return json.Unmarshal(b, it.HostLink)
+	}
+	return nil
 }
 
 type AgentSummary struct {
@@ -232,6 +300,12 @@ type AgentSummary struct {
 	Goal Goal `json:"goal,omitzero"`
 	// Options are the model settings the agent runs on, by the agent's id for each.
 	Options map[string]string `json:"options,omitempty"`
+	// Parent is the session this one was delegated or forked from, as Relationship says.
+	Parent       string `json:"parent,omitempty"`
+	Relationship string `json:"relationship,omitempty"` // subagent or fork
+	// CreatedBy is user, agent, automation or board; empty is user.
+	CreatedBy  string         `json:"createdBy,omitempty"`
+	Delegation *DelegationRef `json:"delegation,omitempty"`
 }
 
 // GoalFailed is Claude's judge giving a goal up; Codex has no such status.

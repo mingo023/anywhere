@@ -4,6 +4,7 @@ mod diff;
 mod drafts;
 mod end_row;
 mod fold;
+mod host_link;
 mod jump;
 mod locate;
 pub(crate) mod markdown;
@@ -19,14 +20,14 @@ mod reveal;
 mod selectable;
 mod shimmer;
 mod sticky;
-mod sub_agent;
+pub(crate) mod sub_agent;
 mod thinking;
 mod timeline;
 mod todos;
 mod tool_detail;
 pub(crate) mod tool_row;
 pub(crate) mod transcript;
-mod user_bubble;
+pub(crate) mod user_bubble;
 mod working;
 
 use crate::composer::Draft;
@@ -38,6 +39,7 @@ use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
 use std::collections::HashMap;
 use theme::*;
+use workspace::Tab;
 
 /// Whether an agent's terminal shows its chat: one started from the New session page does, and one without its TUI has nothing else to show.
 pub(crate) fn can_chat(started_for_chat: bool, summary: Option<&Summary>) -> bool {
@@ -91,6 +93,8 @@ pub(crate) struct ChatState {
     pub(crate) map: agent_map::AgentMap,
     /// Mermaid fences drawn in every chat, sharing one image budget.
     pub(crate) diagrams: Entity<Diagrams>,
+    /// The queued entry each agent's composer text was taken from, which its next send replaces.
+    pub(crate) editing: HashMap<String, String>,
 }
 
 impl ChatState {
@@ -99,7 +103,7 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams, editing: HashMap::new() }, subs)
     }
 }
 
@@ -116,6 +120,7 @@ impl Desktop {
 
     /// Focuses the terminal pane, and its chat's input when the chat shows: keys then go to the input.
     pub(crate) fn focus_chat_or_terminal(&mut self, terminal: String, window: &mut Window, cx: &mut Context<Self>) {
+        let terminal = self.delegated_term(&terminal);
         let chat = self.chat_shown(&terminal).then(|| self.summary(&terminal).map(|a| a.id.clone())).flatten();
         self.focus_pane(terminal, window, cx);
         if let Some(agent) = chat {
@@ -180,9 +185,31 @@ impl Desktop {
             Some(agent) => self.arriving(agent, crate::creating::DOCK, composer, window, cx),
             None => composer,
         };
+        let crumb = agent.as_ref().and_then(|agent| self.delegated_crumb(agent, cx));
+        let panel = agent.as_ref().and_then(|agent| self.delegated_panel(agent, window, cx));
+        let pushed = agent.as_ref().and_then(|agent| self.delegated_pushed(agent, window, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
         let drop = self.chat_drop_zone(terminal, cx);
-        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(transcript).child(composer).children(files).children(drop)
+        let shown = div().relative().size_full().flex().flex_col().child(transcript).children(crumb).children(panel);
+        let (shown, left) = match pushed {
+            Some((from, frame)) => (shown.left(px(frame.arriving.0)).opacity(frame.arriving.1), self.chat_left(&from, frame.leaving, window, cx)),
+            None => (shown, None),
+        };
+        let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
+        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(stage).child(composer).children(files).children(drop)
+    }
+
+    /// The chat `from` as it was, sliding and fading out under the one arriving: the transcript as last drawn, with its breadcrumb and panel. None where it also shows in a pane, which draws it once.
+    fn chat_left(&mut self, from: &str, (across, shown): (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
+        let terminal = self.agents.get(from)?.terminal_id.clone();
+        let on_screen = self.session_tree().and_then(|t| self.workspaces.get(&t)).is_some_and(|w| w.shown().iter().any(|(_, tab)| matches!(tab, Tab::Term(id) if self.delegated_term(id) == terminal)));
+        if on_screen {
+            return None;
+        }
+        let transcript = region::cached(&self.chats.transcripts.get(from)?.1, StyleRefinement::default().flex_1().min_h_0());
+        let crumb = self.delegated_crumb(from, cx);
+        let panel = self.delegated_panel(from, window, cx);
+        Some(div().absolute().top_0().bottom_0().left(px(across)).right(px(-across)).flex().flex_col().opacity(shown).child(transcript).children(crumb).children(panel))
     }
 }
 

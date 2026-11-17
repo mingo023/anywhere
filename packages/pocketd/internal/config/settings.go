@@ -170,16 +170,19 @@ func (s *Settings) Values() map[string]any {
 		terminals = "on"
 	}
 	v := map[string]any{
-		"phone.maxAccess":        s.PhoneMaxAccess(),
-		"phone.terminals":        terminals,
-		"push.relay":             s.PushRelay(),
-		"restore.resumeAgents":   s.ResumeAgents(),
-		"awake.enabled":          s.KeepAwake(),
-		"awake.lingerMinutes":    s.number("awake", "lingerMinutes", 2, 0, 60),
-		"automations.graceHours": s.number("automations", "graceHours", 12, 0, 24),
-		"automations.history":    s.AutomationHistory(),
-		"listen":                 s.Listen(),
-		"port":                   s.Port(),
+		"phone.maxAccess":         s.PhoneMaxAccess(),
+		"phone.terminals":         terminals,
+		"push.relay":              s.PushRelay(),
+		"restore.resumeAgents":    s.ResumeAgents(),
+		"awake.enabled":           s.KeepAwake(),
+		"awake.lingerMinutes":     s.number("awake", "lingerMinutes", 2, 0, 60),
+		"automations.graceHours":  s.number("automations", "graceHours", 12, 0, 24),
+		"automations.history":     s.AutomationHistory(),
+		"orchestrator.depth":      s.number("orchestrator", "depth", 3, 1, 5),
+		"orchestrator.perSession": s.number("orchestrator", "perSession", 6, 1, 20),
+		"orchestrator.perMac":     s.number("orchestrator", "perMac", 12, 1, 50),
+		"listen":                  s.Listen(),
+		"port":                    s.Port(),
 	}
 	for _, p := range providers.All {
 		v[p.ID+".command"] = s.command(p.ID)
@@ -198,6 +201,17 @@ func (s *Settings) Listen() string {
 	}
 	return mode
 }
+
+// Limits are how deep delegation goes below a session the user opened, and how
+// many delegated sessions run at once per session and on the Mac.
+func (s *Settings) Limits() (depth, perSession, perMac int) {
+	return s.number("orchestrator", "depth", 3, 1, 5), s.number("orchestrator", "perSession", 6, 1, 20), s.number("orchestrator", "perMac", 12, 1, 50)
+}
+
+// MCPPort is the loopback port of Anywhere's MCP server; 0 until the first start picks one.
+func (s *Settings) MCPPort() int { return s.number("mcp", "port", 0, 1024, 65535) }
+
+func (s *Settings) SetMCPPort(n int) error { return s.set("mcp", "port", n) }
 
 // Port is the phone port in config.json, DefaultPort when unset.
 func (s *Settings) Port() int { return s.number("", "port", DefaultPort(), 1024, 65535) }
@@ -261,6 +275,12 @@ func (s *Settings) parseAndSet(key, value string) error {
 		return s.setNumber(key, value, 0, 24)
 	case "automations.history":
 		return s.setNumber(key, value, 10, 500)
+	case "orchestrator.depth":
+		return s.setNumber(key, value, 1, 5)
+	case "orchestrator.perSession":
+		return s.setNumber(key, value, 1, 20)
+	case "orchestrator.perMac":
+		return s.setNumber(key, value, 1, 50)
 	}
 	if id, name, _ := strings.Cut(key, "."); providers.Get(id) != nil {
 		if name == "command" {
@@ -305,6 +325,7 @@ func (s *Settings) get(section, key string, v any) bool {
 	raw, _ := os.ReadFile(s.path)
 	json.Unmarshal(raw, &top)
 	if inner = top; section != "" {
+		inner = nil
 		json.Unmarshal(top[section], &inner)
 	}
 	p, ok := inner[key]

@@ -68,6 +68,12 @@ public struct ErrorCode: OpenString {
     public static let invalidAutomation: Self = "invalid_automation"
     public static let unknownAutomation: Self = "unknown_automation"
     public static let automationBusy: Self = "automation_busy"
+    public static let unknownHost: Self = "unknown_host"
+    public static let hostExists: Self = "host_exists"
+    public static let invalidHost: Self = "invalid_host"
+    public static let hostBusy: Self = "host_busy"
+    /// `detail` is the `HostFailure`.
+    public static let hostSsh: Self = "host_ssh"
 }
 
 /// The text an old pocketd answers any message it can't read with.

@@ -66,7 +66,7 @@ impl Alerts {
     /// Shown ones stay until the user clears them or the agent's next one replaces them, as in Superset.
     pub fn sync(&mut self, agents: &Agents, place: impl Fn(&Summary) -> String, wanted: impl Fn(Status) -> bool, on_screen: bool) -> Vec<Notice> {
         let ask = |id: &str| agents.pending.iter().find(|p| p.agent_id == id).map(|p| p.request_id.clone());
-        let now: HashMap<String, Alert> = agents.list.iter().filter_map(|a| Some((a.id.clone(), Alert { status: Status::of(a)?, ask: ask(&a.id) }))).collect();
+        let now: HashMap<String, Alert> = agents.list.iter().filter_map(|a| Some((a.id.clone(), Alert { status: status::alert_status(a)?, ask: ask(&a.id) }))).collect();
         let viewing = if on_screen { &[] } else { self.viewing.as_deref().unwrap_or_default() };
         let show = status::alerts(&self.statuses, &now, viewing);
         let mut notices = Vec::new();
@@ -127,6 +127,9 @@ impl Desktop {
         if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
             return self.on_pair(ev, cx);
         }
+        if let Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) = ev {
+            return self.on_hosts(ev, window, cx);
+        }
         if let Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } = ev {
             return self.on_launch(ev, window, cx);
         }
@@ -150,6 +153,15 @@ impl Desktop {
                 v.session.outgoing.stop_refused();
             }
             self.error = Some(stop_failed(self.agents.get(agent), reason));
+            return cx.notify();
+        }
+        if let Event::QueueFailed { agent, reason, text } = ev {
+            // Only pocketd's list says what the queue holds now.
+            self.outbox.queue_list(&agent);
+            if let Some(text) = text {
+                self.chat_add_text(&agent, &text, window, cx);
+            }
+            self.error = Some(format!("Couldn't change the queue: {reason}"));
             return cx.notify();
         }
         if let Event::Commands { agent, commands } = ev {
@@ -213,10 +225,21 @@ impl Desktop {
         let exited = exited_terminal(&self.agents.list, &ev).filter(|t| self.store.agents.close_on_exit && !self.capturing && !self.terminals.killed(t));
         let listed = matches!(ev, Event::Agents(_) | Event::Agent(_)).then(|| self.agents.list.clone());
         let named = Feed::of(&ev).map(|feed| (feed, feed.read(&self.agents)));
+        let delegating = match &ev {
+            Event::Delegations { agent, .. } | Event::Delegated { agent, .. } => Some(agent.clone()),
+            _ => None,
+        };
         if connected {
             self.renames.connected(host);
+            self.delegated_reconnected();
         }
         self.agents.apply_from(host, ev);
+        if listed.is_some() {
+            self.delegated_listed();
+        }
+        if let Some(parent) = delegating {
+            self.delegated_changed(&parent, cx);
+        }
         if let Some((feed, before)) = named {
             let trees = &self.worktrees;
             let unnamed = |path: &str| trees.values().flatten().find(|w| w.path == path).map(crate::sidebar::tree_place);
@@ -330,13 +353,15 @@ impl Desktop {
     /// The terminals on screen: those of the tabs the drawn panes show.
     fn visible_panes(&mut self) -> Vec<String> {
         let Some(tree) = self.place().filter(|_| self.screen == Screen::Sessions) else { return Vec::new() };
-        self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect()
+        let shown: Vec<String> = self.workspace(&tree).shown().into_iter().filter_map(|(_, t)| if let Tab::Term(id) = t { Some(id.clone()) } else { None }).collect();
+        shown.iter().map(|id| self.delegated_term(id)).collect()
     }
 
     pub(crate) fn sync_view(&mut self, window: &Window, cx: &mut App) {
-        let panes = if window.is_window_active() { self.visible_panes() } else { Vec::new() };
+        let panes = if window.is_window_active() || self.capturing { self.visible_panes() } else { Vec::new() };
         if let Some(ids) = self.alerts.view(&panes, &self.agents.list) {
             self.outbox.view(&ids);
+            self.delegated_ask(ids);
             self.sync_alerts(cx);
         }
     }
@@ -384,7 +409,7 @@ mod tests {
         let mut after = Agents { list: before.to_vec(), ..Default::default() };
         after.apply_from(None, Event::Agents(vec![agent("b", "idle")]));
         assert_eq!(gone(&before, &after.list), [("a".to_string(), "A".to_string()), ("c".to_string(), "Codex".to_string())]);
-        after.apply_from(None, Event::Agent(agent("b", "closed")));
+        after.apply_from(None, Event::Agent(Box::new(agent("b", "closed"))));
         assert_eq!(gone(&before[1..2], &after.list), [("b".to_string(), "B".to_string())]);
     }
 
@@ -392,10 +417,10 @@ mod tests {
     fn an_agent_that_exits_names_its_terminal_unless_its_restore_failed() {
         let failed = Summary { restore: "failed".into(), ..agent("b", "idle") };
         let list = [agent("a", "working"), failed];
-        assert_eq!(exited_terminal(&list, &Event::Agent(agent("a", "closed"))).as_deref(), Some("t-a"));
-        assert_eq!(exited_terminal(&list, &Event::Agent(agent("b", "closed"))), None);
-        assert_eq!(exited_terminal(&list, &Event::Agent(agent("c", "closed"))), None);
-        assert_eq!(exited_terminal(&list, &Event::Agent(agent("a", "done"))), None);
+        assert_eq!(exited_terminal(&list, &Event::Agent(Box::new(agent("a", "closed")))).as_deref(), Some("t-a"));
+        assert_eq!(exited_terminal(&list, &Event::Agent(Box::new(agent("b", "closed")))), None);
+        assert_eq!(exited_terminal(&list, &Event::Agent(Box::new(agent("c", "closed")))), None);
+        assert_eq!(exited_terminal(&list, &Event::Agent(Box::new(agent("a", "done")))), None);
     }
 
     fn sync(alerts: &mut Alerts, list: &[Summary], quiet: bool) -> Vec<Notice> {

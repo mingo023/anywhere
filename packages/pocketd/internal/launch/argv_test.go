@@ -207,6 +207,18 @@ func TestAForkPutsTheSessionIdInItsArgsBeforeTheFlags(t *testing.T) {
 	}
 }
 
+// Only a chat gets Anywhere's tools (MCPFlags), so a Codex fork, which runs
+// in the TUI, gets none.
+func TestACodexForkIsATerminalSessionAndAClaudeForkAChat(t *testing.T) {
+	for provider, chat := range map[string]bool{"claude": true, "codex": false} {
+		s := spec(provider, "ask", false)
+		s.Fork, s.Chat = "c-1", true
+		if Chat(s) != chat {
+			t.Errorf("%s fork runs as a chat: %t, want %t", provider, Chat(s), chat)
+		}
+	}
+}
+
 func TestAForkNeedsForkArgsAndAPlainId(t *testing.T) {
 	s := spec("claude", "ask", false)
 	s.Fork = "c-1"

@@ -1,0 +1,24 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "delivery",
+    "id": "i9",
+    "seq": 9,
+    "ts": 18,
+    "taskIds": [
+      "task1"
+    ],
+    "childIds": [
+      "a2"
+    ],
+    "titles": [
+      "Write the tests"
+    ],
+    "agents": [
+      "codex"
+    ],
+    "outcome": "done"
+  }
+}

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use workspace::tree::Edge;
 
-actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath, FormatBold, FormatItalic, FormatCode, FormatLink]);
+actions!(desktop, [OpenPalette, GoToFile, OpenSession, StartSession, NextNeedsYou, GoToUpNext, NextSession, PrevSession, ToggleRail, ToggleSidebar, ToggleFocus, NewWorktree, ProjectSettings, OpenSettings, FocusSearch, CheckForUpdates, NewTab, CopySelection, SelectAll, Paste, CloseTab, Save, Quit, NewBrowser, FocusAddress, Reload, Back, Forward, SplitRight, SplitDown, PrevTab, NextTab, ZoomPane, EqualizePanes, AddToChat, PrevPrompt, NextPrompt, ZoomIn, ZoomOut, ResetZoom, CopyWorktreePath, FormatBold, FormatItalic, FormatCode, FormatLink, BackToParent]);
 
 /// The nth session in the visible list, 1-based.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -114,6 +114,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         bind("cmd-ctrl-=", EqualizePanes, None),
         bind("cmd-l", FocusAddress, Some(browser::CONTEXT)),
         bind("cmd-r", Reload, Some(browser::CONTEXT)),
+        bind("cmd-[", BackToParent, None),
         bind("cmd-[", Back, Some(browser::CONTEXT)),
         bind("cmd-]", Forward, Some(browser::CONTEXT)),
         bind("cmd-c", PageEdit(web::Edit::Copy), Some(browser::CONTEXT)),

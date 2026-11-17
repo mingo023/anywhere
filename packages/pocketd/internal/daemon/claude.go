@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,7 +34,14 @@ func (claudeKind) attach(d *Daemon, pr *presence) {
 	if h := d.hintOf(pr); h != nil && claude.InProjects(h.saved.TranscriptPath, pr.env) {
 		pr.mu.Lock()
 		if pr.transcript == "" {
-			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "", !h.handoff, h.moved)
+			var shown int64
+			switch {
+			case h.handoff && h.a.Stored() && h.read > 0:
+				shown = h.read
+			case h.moved || h.a.Stored():
+				shown = written(h.saved.TranscriptPath)
+			}
+			pr.transcript, pr.stopTail = h.saved.TranscriptPath, d.tail(pr, h.saved.TranscriptPath, "", !h.handoff, shown)
 		}
 		pr.mu.Unlock()
 	}
@@ -226,6 +234,15 @@ func sameFile(a, b string) bool {
 	return err == nil && os.SameFile(fa, fb)
 }
 
+// written is how long the file at path is now.
+func written(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
 func (d *Daemon) presentIn(id string) *presence {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -236,7 +253,7 @@ func (d *Daemon) presentIn(id string) *presence {
 // cleared to. The old tail stops before SetConversation clears the timeline,
 // so none of its lines land in the new conversation.
 func (d *Daemon) sessionStart(pr *presence, in hookInput) {
-	moving := d.moving(pr)
+	moving := d.shows(pr)
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	moved := in.TranscriptPath != pr.transcript && !sameFile(in.TranscriptPath, pr.transcript)
@@ -261,7 +278,11 @@ func (d *Daemon) sessionStart(pr *presence, in hookInput) {
 		pr.a.Compacted()
 	}
 	if moved {
-		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model, in.Source == "resume", same && moving)
+		var shown int64
+		if same && moving {
+			shown = written(in.TranscriptPath)
+		}
+		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model, in.Source == "resume", shown)
 	}
 }
 
@@ -328,7 +349,7 @@ func (d *Daemon) discovered(pr *presence, known map[string]bool, opened map[stri
 	}
 	known[path] = true
 	pr.a.SetConversation(strings.TrimSuffix(filepath.Base(path), ".jsonl"))
-	pr.transcript, pr.stopTail = path, d.tail(pr, path, "", false, false)
+	pr.transcript, pr.stopTail = path, d.tail(pr, path, "", false, 0)
 	return true
 }
 
@@ -430,16 +451,13 @@ func tidy(text string) string {
 
 // tail feeds pr's timeline from a transcript; hooks set the status. stop
 // returns once the lines written so far are in. A resumed transcript, one a
-// new claude took over, ends the background calls it replays still running.
-// With known, the timeline already shows the lines written so far, as a
-// moved agent's does, so only later ones go in.
-func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool) (stop func()) {
+// new claude took over, ends the calls left running. The timeline already
+// shows the lines in the first shown bytes, as a moved agent's does, so only
+// later ones go in, and its sub-agents' lines past what it shows.
+func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool, shown int64) (stop func()) {
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})
-	var replay int64
-	if fi, err := os.Stat(path); err == nil {
-		replay = fi.Size()
-	}
+	replay := written(path)
 	resumed = resumed && replay > 0
 	go func() {
 		defer close(done)
@@ -454,6 +472,10 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool)
 				}
 			}
 		}
+		if shown > 0 {
+			items, _ := pr.a.Timeline.PageWithSubagents(0, math.MaxInt)
+			subs.Restored(items, record)
+		}
 		subagents := make(chan struct{})
 		kick := make(chan struct{}, 1)
 		go func() {
@@ -466,7 +488,10 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool)
 		used, window := int64(-1), int64(0)
 		var turns claude.Turns
 		claude.Tail(ctx, path, func(line []byte) {
+			pr.tailing.Lock()
+			defer pr.tailing.Unlock()
 			read += int64(len(line)) + 1
+			pr.tailed.Store(read)
 			events := turns.Map(line)
 			if g, ok := claude.Goal(line); ok {
 				pr.a.SetGoal(g)
@@ -482,7 +507,7 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool)
 				pr.a.SetTokens(used, window)
 				used = -1
 			}
-			if known && read <= replay {
+			if read <= shown {
 				events = nil
 			}
 			for _, e := range events {
@@ -508,7 +533,7 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed, known bool)
 			}
 			if resumed && read >= replay {
 				resumed = false
-				pr.a.EndLasting()
+				pr.a.EndRunning()
 			}
 		})
 	}()

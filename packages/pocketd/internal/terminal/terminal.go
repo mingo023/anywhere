@@ -139,8 +139,11 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The process may ask pocketd who it is before it is listed, so Roots waits until it is.
+	m.mu.Lock()
 	f, p, err := start(bin, spec)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	s := &Terminal{
@@ -151,24 +154,25 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 		done:   make(chan struct{}),
 		input:  m.OnInput,
 		report: m.OnReport,
+		change: m.changed,
 		origin: spec.Origin,
 	}
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
 	if err != nil {
+		m.mu.Unlock()
 		p.Kill()
 		f.Close()
 		return nil, err
 	}
+	m.terminals[s.info.ID] = s
+	m.mu.Unlock()
 	m.start(s)
 	return s, nil
 }
 
+// start runs a listed Terminal. Its change is set before it is listed: a
+// listed one may hear SetForeground at once.
 func (m *Manager) start(s *Terminal) {
-	// Set before the Terminal is listed: a listed one may hear SetForeground at once.
-	s.change = m.changed
-	m.mu.Lock()
-	m.terminals[s.info.ID] = s
-	m.mu.Unlock()
 	s.exit = func() {
 		m.mu.Lock()
 		delete(m.terminals, s.info.ID)
@@ -203,12 +207,16 @@ func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
 		done:   make(chan struct{}),
 		input:  m.OnInput,
 		report: m.OnReport,
+		change: m.changed,
 	}
 	if s.vt, err = vt.New(a.Cols, a.Rows, s.replyToQuery); err != nil {
 		f.Close()
 		return nil, err
 	}
 	s.vt.Write(a.Screen)
+	m.mu.Lock()
+	m.terminals[s.info.ID] = s
+	m.mu.Unlock()
 	m.start(s)
 	return s, nil
 }

@@ -34,6 +34,8 @@ type Answer struct {
 type Broker struct {
 	// OnAsk runs after each new request is shown, outside the lock. Set it before the first Ask.
 	OnAsk func(proto.PermissionRequest)
+	// OnClose runs after a request closes, answered or not, outside the lock. Set it before the first Ask.
+	OnClose func(proto.PermissionRequest)
 
 	mu   sync.Mutex
 	hub  *hub.Hub
@@ -96,6 +98,9 @@ func (b *Broker) finish(requestID, decision string) (*pending, bool) {
 	b.mu.Unlock()
 	if ok {
 		b.hub.Publish(proto.NewPermissionResolved(requestID, decision))
+		if b.OnClose != nil {
+			b.OnClose(p.req)
+		}
 	}
 	return p, ok
 }

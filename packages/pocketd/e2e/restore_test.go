@@ -5,6 +5,7 @@ package e2e
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -64,4 +65,45 @@ func TestResumeOffBringsTheClaudeBackAsAShell(t *testing.T) {
 	if m, err := c.Recv(); err != nil || len(m.Items) != 1 || m.Items[0].ID != term {
 		t.Fatalf("list = %+v, %v", m, err)
 	}
+}
+
+func listed(p *Phone) []string {
+	p.t.Helper()
+	p.Send(map[string]any{"type": "agent.list", "id": "listed"})
+	var ids []string
+	for _, a := range p.WaitFor("agent.list", func(m Message) bool { return m.Type == "agent.list" && m.ID == "listed" }).Agents {
+		ids = append(ids, a.ID)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+func TestAgentListAfterARestartWithoutTerminalsJsonListsTheSameSessions(t *testing.T) {
+	h, phone, _, first := chatClaude(t, func(h *Harness) { h.resume = true })
+	create(phone, "r2", inRepo(h, map[string]any{"chat": true}))
+	second := reply(phone, "agent.created", "error")
+	if second.Type != "agent.created" {
+		t.Fatalf("got %s", second.Raw)
+	}
+	h.WaitScreen(second.TerminalID, "fake claude ready")
+	phone.Prompt(first, "before")
+	phone.WaitStatus(first, "done")
+	before := listed(phone)
+	if len(before) != 2 {
+		t.Fatalf("listed %q", before)
+	}
+	h.Stop(syscall.SIGTERM)
+	if err := os.Remove(state.Path(h.Home)); err != nil {
+		t.Fatal(err)
+	}
+
+	h.up()
+
+	again := resumedChat(h, first)
+	resumedChat(h, second.AgentID)
+	if got := listed(again); !slices.Equal(got, before) {
+		t.Fatalf("listed %q after the restart, %q before", got, before)
+	}
+	again.Prompt(first, "after")
+	again.WaitStream(first, "assistant", "echo: after")
 }

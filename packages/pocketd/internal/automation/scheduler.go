@@ -34,6 +34,12 @@ type Scheduler struct {
 	Tick, Poll time.Duration
 	Start      Starter
 	Watch      Watcher
+	// Post puts the prompt of an automation bound to a session into it; ok is false
+	// when that session is gone or runs with broader access, and the run starts a new one.
+	// after is the session's timeline seq before the prompt went in, and entry its queue entry when it queued behind others.
+	Post func(runID string, a proto.Automation) (res launch.Result, after int64, entry string, ok bool)
+	// Turn follows a posted run's own turn, as TurnWatcher finds it, not the session's earlier ones.
+	Turn func(after int64, prompt, entry string) Watcher
 	// OnFinish runs once a run has finished, with it as stored.
 	OnFinish func(proto.Run)
 
@@ -89,13 +95,30 @@ func (s *Scheduler) Resume() {
 	_, runs := s.Store.Snapshot()
 	for _, r := range runs {
 		if (r.Status == "running" || r.Status == "waiting") && r.AgentID != "" {
-			go s.observe(r.ID, true, reattachWait)
+			watch := s.Watch
+			if r.TurnAfter > 0 {
+				watch = s.Turn(r.TurnAfter, r.TurnPrompt, r.TurnEntry)
+			}
+			go s.observe(r.ID, watch, true, reattachWait)
 		}
 	}
 }
 
 func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
-	res := s.Start(run.ID, a)
+	watch := s.Watch
+	var res launch.Result
+	var after int64
+	var prompt, entry string
+	posted := false
+	if a.Bound != "" && s.Post != nil {
+		if res, after, entry, posted = s.Post(run.ID, a); posted {
+			prompt = a.Prompt
+			watch = s.Turn(after, prompt, entry)
+		}
+	}
+	if !posted {
+		res = s.Start(run.ID, a)
+	}
 	err := s.Store.Update(run.ID, func(r *proto.Run) {
 		r.Access = cmp.Or(a.Access, "settings")
 		if a.NewWorktree {
@@ -105,13 +128,13 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 			r.Status, r.Why, r.FinishedAt = "failed", Plain(res.Err.Message, maxWhy), s.Now().UnixMilli()
 			return
 		}
-		r.Status, r.AgentID, r.TerminalID = "running", res.AgentID, res.TerminalID
+		r.Status, r.AgentID, r.TerminalID, r.TurnAfter, r.TurnPrompt, r.TurnEntry = "running", res.AgentID, res.TerminalID, after, prompt, entry
 	})
 	if err != nil {
 		log.Printf("automations: run %s: %v", run.ID, err)
 	}
 	if res.Err == nil {
-		s.observe(run.ID, false, 0)
+		s.observe(run.ID, watch, false, 0)
 	} else {
 		s.finished(run.ID)
 	}
@@ -119,7 +142,7 @@ func (s *Scheduler) launch(run proto.Run, a proto.Automation) {
 
 // observe follows a run's agent until the run finishes. A missing agent is
 // waited for during absentWait before the run counts as closed.
-func (s *Scheduler) observe(runID string, worked bool, absentWait time.Duration) {
+func (s *Scheduler) observe(runID string, watch Watcher, worked bool, absentWait time.Duration) {
 	began := s.Now()
 	summaryPolls := 0
 	tick := time.NewTicker(cmp.Or(s.Poll, defaultPoll))
@@ -129,7 +152,7 @@ func (s *Scheduler) observe(runID string, worked bool, absentWait time.Duration)
 		if !ok || finished(r.Status) || s.stopped.Load() {
 			return
 		}
-		seen, present := s.Watch(r.AgentID)
+		seen, present := watch(r.AgentID)
 		if !present && s.Now().Sub(began) < absentWait {
 			continue
 		}

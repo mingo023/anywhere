@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -37,7 +38,12 @@ type upgrader struct {
 	starting  func() bool
 	evs       *events.Log
 	mon       *host.Monitor
-	mu        sync.Mutex
+	// handover runs just before the exec: the orchestrator drains its effects and flushes the store.
+	// resume runs when the exec failed and this pocketd goes on.
+	handover, resume func()
+	// mcp is the MCP listener, handed down to the new pocketd so it never stops listening; nil when tools are off.
+	mcp net.Listener
+	mu  sync.Mutex
 }
 
 // run returns only when the upgrade didn't happen; the old pocketd goes on.
@@ -60,7 +66,14 @@ func (u *upgrader) run() error {
 		return u.failed(to, "pause", err)
 	}
 	path := handoff.Path(u.home)
-	if err := handoff.Write(path, handoff.File{Format: handoff.Format, Terminals: terms}); err != nil {
+	file := handoff.File{Format: handoff.Format, Terminals: terms}
+	if u.mcp != nil {
+		if file.MCPFD, err = handoff.Keep(u.mcp); err != nil {
+			log.Printf("upgrade: mcp listener stays behind: %v", err)
+		}
+		defer handoff.Release(file.MCPFD)
+	}
+	if err := handoff.Write(path, file); err != nil {
 		return u.abort(path, to, "write", err)
 	}
 	if err := dryRun(u.exe, path); err != nil {
@@ -68,7 +81,13 @@ func (u *upgrader) run() error {
 	}
 	ok := true
 	u.evs.Emit(events.Event{Kind: "upgrade", Version: to, OK: &ok})
+	if u.handover != nil {
+		u.handover()
+	}
 	err = syscall.Exec(u.exe, []string{u.exe, "serve", "--handoff", path}, os.Environ())
+	if u.resume != nil {
+		u.resume()
+	}
 	return u.abort(path, to, "exec", err)
 }
 

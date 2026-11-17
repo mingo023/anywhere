@@ -156,3 +156,38 @@ func firstReply(a *agent.Agent) string {
 	}
 	return ""
 }
+
+// Retitle names a's session again from its first prompt and latest reply.
+// Only the session's title changes: its Worktree and branch keep their names.
+func (l *Launcher) Retitle(a *agent.Agent) error {
+	items, _ := a.Timeline.Page(0, 1<<20)
+	prompt, reply := "", ""
+	for _, it := range items {
+		if it.ParentToolUseID != "" {
+			continue
+		}
+		if it.Kind == "user" && prompt == "" {
+			prompt = it.Text
+		}
+		if it.Kind == "assistant" && it.Text != "" {
+			reply = it.Text
+		}
+	}
+	if prompt == "" {
+		return errors.New("This session has no prompt to name it from")
+	}
+	env := l.d.LoginEnv()
+	exe, ok := l.find(a.Provider(), env)
+	if !ok {
+		return errors.New(command(a.Provider()) + " isn't installed on your Mac")
+	}
+	n, err := l.generate(a.Provider(), exe, naming.Prompt(prompt, reply), env)
+	if err != nil {
+		return err
+	}
+	if n.Title == "" {
+		return errors.New("Naming gave no title")
+	}
+	a.Rename(n.Title)
+	return nil
+}

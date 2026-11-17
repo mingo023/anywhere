@@ -53,7 +53,7 @@
 6. **Additive protocol behind `hello.caps`.** Old clients keep working [R02 idea 02-9; C §3].
 7. **Nothing fails silently.** Every failable action returns a coded error [C §3 invariant 4].
 8. **Stable order; urgency only on attention surfaces** (D2) [UXD §1].
-9. **Local only.** No telemetry; no conversation text, env or raw argv on disk [C §3 invariant 3].
+9. **Local only.** No telemetry; no env or raw argv on disk. Conversation text is on disk only in `state/orchestrator.db` (0600), deleted 15 days after its session closes [C §3 invariant 3].
 10. **The human approves.** Agents never hold `approve` [R18 R6; C §3 invariant 1].
 11. **One look, two clients.** Desktop and phone share status words, tones and Up next ranking (D1, D39) [UXD §2.2; UXP §2.1].
 
@@ -198,9 +198,9 @@ Each FR is testable; the test named is the acceptance check. Idea IDs are in bra
 | FR | Requirement | Test |
 |---|---|---|
 | 09-1 | Each Terminal runs in its own process group. Kill = SIGTERM → 2 s → SIGKILL to the group (P pd/internal/terminal/terminal.go:311); a `POCKETD_PARENT` marker; orphans reaped on start [10-5] | child of child dies on kill |
-| 09-2 | `state/terminals.json` (0600, atomic) stores terminalId, launchDir, provider?, conversationId?, transcriptPath? and launch {access, plan, model?, effort?}. It never stores title, env, raw argv or conversation text. On restore the title is re-derived from the provider session files, falling back to the Worktree name. Terminals return with the same id [15-1] | round-trip; forbidden fields absent |
+| 09-2 | `state/terminals.json` (0600, atomic) stores terminalId, launchDir, provider?, conversationId?, transcriptPath? and launch {access, plan, model?, effort?}. It never stores title, env, raw argv or conversation text; that text is in `state/orchestrator.db` (09-4). On restore the title is re-derived from the provider session files, falling back to the Worktree name. Terminals return with the same id [15-1] | round-trip; forbidden fields absent |
 | 09-3 | Agents with a Conversation resume through the E06 builder [15-1, 10-7 marker; R17 §F14]:<br>• Full resumes as Ask (D28); argv validated by herdr rules; `resume_agents_on_restore` (default on);<br>• a Working Agent at shutdown gets an "Interrupted by restart" marker and goes Idle;<br>• each Agent reports `restore: resumed \| interrupted \| access_lowered \| failed` (cap `restore.v1`);<br>• codex `resume -s/-a` is probed first, with app-server `thread/resume` as the fallback. | restore fixture per provider and outcome |
-| 09-4 | Timelines rebuild from provider files: claude `transcriptPath`, codex `thread/resume` [14-4 re-derived] | rebuilt timeline equals the live one on a fixture |
+| 09-4 | Timelines rebuild from provider files: claude `transcriptPath`, codex `thread/resume` [14-4 re-derived]. `state/orchestrator.db` keeps a copy of each item, with its text, for the orchestrator's tools, until 15 days after the session closes | rebuilt timeline equals the live one on a fixture |
 | 09-5 | The desktop re-adopts restored Terminals without user action | e2e: restart pocketd with 2 Agents → both Attached on the same Conversation ≤30 s |
 | 09-6 | Desktop and phone show the restore outcome as a row notice, except a plain resume: "Interrupted by restart" · "Full access resumed as Ask" · "Couldn't resume" [UXD §3.14; UXP §5.4] | one render test per outcome, both clients |
 
@@ -307,7 +307,7 @@ Each FR is testable; the test named is the acceptance check. Idea IDs are in bra
 | S-2 | `approve` is held only by the owner and off-Mac device tokens; no PTY descendant resolves | [R18 R6] |
 | S-3 | No plaintext token on the Mac's disk after E03 PR1 | [R18 R1] |
 | S-4 | State files 0600, atomic; `desktop.json` written 0600 via temp + rename (FR 05-1) | [R18 R11; C §3] |
-| S-5 | No env, raw argv, title or conversation text persisted by pocketd | [C §3 invariant 3] |
+| S-5 | No env or raw argv persisted by pocketd; titles and conversation text only in `state/orchestrator.db` (0600), deleted 15 days after their session closes | [C §3 invariant 3] |
 | S-6 | Prompt sanitation and a 64 KiB cap on every source | [R18 R8] |
 | S-7 | Push carries fixed copy and ids only | [R18 R12] |
 | S-8 | Phone token in SecureStore `WHEN_UNLOCKED_THIS_DEVICE_ONLY` | [R18 R13] |

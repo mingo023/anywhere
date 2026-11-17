@@ -16,6 +16,8 @@ pub enum Schedule {
         #[serde(rename = "everyMin")]
         every_min: u32,
     },
+    /// Runs only on a POST to the automation's webhook.
+    Webhook,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -45,6 +47,16 @@ pub struct Automation {
     /// Unix ms; 0 while disabled.
     #[serde(default)]
     pub next_run_at: i64,
+    /// The session whose agent made it; empty is the user.
+    #[serde(default)]
+    pub created_by: String,
+    /// The session each run posts into; a closed one gets a new session.
+    #[serde(default)]
+    pub bound: String,
+    #[serde(default)]
+    pub webhook: bool,
+    #[serde(default)]
+    pub webhook_url: String,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -159,6 +171,7 @@ impl AutomationDraft {
                 (!valid_time(time)).then_some("Set a time as HH:MM")
             }
             Schedule::Interval { every_min } => (!valid_every(*every_min)).then_some("Repeat every 5 minutes to 7 days"),
+            Schedule::Webhook => None,
         }
     }
 }
@@ -306,6 +319,26 @@ mod tests {
         );
         let f: crate::Frame = serde_json::from_str(&raw).unwrap();
         assert_eq!(f.automations.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
+    }
+
+    #[test]
+    fn an_agent_made_webhook_automation_decodes() {
+        let raw = r#"{"id":"au9","name":"Nightly tests","prompt":"Run the tests","provider":"claude","folder":"/f","schedule":{"kind":"webhook"},"enabled":true,"createdBy":"a7","bound":"a7","webhook":true,"webhookUrl":"http://127.0.0.1:4321/hooks/au9"}"#;
+        let au: Automation = serde_json::from_str(raw).unwrap();
+        assert_eq!(au.schedule, Schedule::Webhook);
+        assert_eq!((au.created_by.as_str(), au.bound.as_str(), au.webhook, au.webhook_url.as_str()), ("a7", "a7", true, "http://127.0.0.1:4321/hooks/au9"));
+        let by_user: Automation = serde_json::from_str(r#"{"id":"au1","name":"n","prompt":"p","provider":"codex","folder":"/f","schedule":{"kind":"interval","everyMin":60},"enabled":true}"#).unwrap();
+        assert_eq!((by_user.created_by.as_str(), by_user.bound.as_str(), by_user.webhook, by_user.webhook_url.as_str()), ("", "", false, ""));
+        let f: crate::Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/automations_agent_made.json")).unwrap();
+        assert_eq!(f.automations.iter().map(|a| (a.id.as_str(), a.schedule == Schedule::Webhook, a.webhook)).collect::<Vec<_>>(), [("au2", true, true), ("au3", false, true)]);
+    }
+
+    #[test]
+    fn a_webhook_draft_serializes_as_pocketd_reads_it() {
+        let d = AutomationDraft { id: Some("au2".into()), name: "Nightly tests".into(), prompt: "run the tests".into(), schedule: Schedule::Webhook, ..draft() };
+        let want: serde_json::Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/client/automation_save_webhook.json")).unwrap();
+        assert_eq!(serde_json::to_value(&d).unwrap(), want["automation"]);
+        assert_eq!(d.problem(), None);
     }
 
     #[test]

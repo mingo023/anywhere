@@ -498,3 +498,151 @@ func TestASubAgentsApprovalClosesItsCardWhenItsThreadResolvesIt(t *testing.T) {
 	}
 	t.Fatal("the card stayed open")
 }
+
+func TestCodexUserInputAsksAsAQuestionAndAnswersByID(t *testing.T) {
+	srv, _, _, b := open(t, emptyThread)
+	srv.Push("item/tool/requestUserInput", 0, `{"threadId":"th1","turnId":"t2","itemId":"call_1","questions":[{"id":"schema_preference","header":"Fixture","question":"Strict schemas or UI flexibility?","isOther":true,"options":[{"label":"Strict schemas","description":"Validated"},{"label":"UI flexibility"}]}],"isBlocking":true}`)
+	open := waitOpen(t, b)
+	if open.ToolName != "AskUserQuestion" || !strings.Contains(string(open.Detail.Input), "Strict schemas or UI flexibility?") {
+		t.Fatalf("%+v", open)
+	}
+	b.Resolve(open.RequestID, broker.Answer{Decision: "allow", Answers: map[string]string{"Strict schemas or UI flexibility?": "Strict schemas"}})
+	if got := srv.Reply("0"); got != `{"answers":{"schema_preference":{"answers":["Strict schemas"]}}}` {
+		t.Fatal(got)
+	}
+}
+
+// toolCallApproval is the mcpServer/elicitation/request codex-cli 0.163 sends before an MCP tool call.
+func toolCallApproval(server string) string {
+	return `{"threadId":"th1","turnId":"t2","serverName":"` + server + `","mode":"form","message":"Allow the ` + server + ` MCP server to run tool \"create_issue\"?",` +
+		`"requestedSchema":{"type":"object","properties":{}},"_meta":{"codex_approval_kind":"mcp_tool_call","persist":["session","always"],"tool_name":"create_issue","tool_params":{"title":"x"}}}`
+}
+
+func TestAToolCallOfPocketdsOwnServersRunsUnaskedInAChat(t *testing.T) {
+	for _, server := range []string{"anywhere", "anywhere-direct"} {
+		t.Run(server, func(t *testing.T) {
+			srv, b := chat(t)
+			srv.Push("mcpServer/elicitation/request", 3, toolCallApproval(server))
+			if got := srv.Reply("3"); got != `{"action":"accept","content":{}}` {
+				t.Fatal(got)
+			}
+			if open := b.Open(); len(open) != 0 {
+				t.Fatalf("asked: %+v", open)
+			}
+		})
+	}
+}
+
+func TestAnotherServersToolCallIsAskedAndAnsweredAsAnElicitationAction(t *testing.T) {
+	for _, c := range []struct{ decision, reply string }{{"allow", `{"action":"accept","content":{}}`}, {"deny", `{"action":"decline"}`}} {
+		t.Run(c.decision, func(t *testing.T) {
+			srv, _, _, b := open(t, emptyThread)
+			srv.Push("mcpServer/elicitation/request", 4, toolCallApproval("github"))
+			open := waitOpen(t, b)
+			if open.ToolName != "github.create_issue" || open.Detail.Kind != "other" || string(open.Detail.Input) != `{"title":"x"}` {
+				t.Fatalf("%+v", open)
+			}
+			b.Resolve(open.RequestID, broker.Answer{Decision: c.decision})
+			if got := srv.Reply("4"); got != c.reply {
+				t.Fatal(got)
+			}
+		})
+	}
+}
+
+func TestAYesOrNoElicitationWithoutAToolIsAskedByItsServerAndMessage(t *testing.T) {
+	srv, _, _, b := open(t, emptyThread)
+	srv.Push("mcpServer/elicitation/request", 7, `{"threadId":"th1","serverName":"github","mode":"form","message":"Go on?","requestedSchema":{"type":"object","properties":{}}}`)
+	open := waitOpen(t, b)
+	if open.ToolName != "github" || string(open.Detail.Input) != `{"message":"Go on?"}` {
+		t.Fatalf("%+v", open)
+	}
+}
+
+func TestAChatDeclinesAnElicitationThatWantsAFormFilled(t *testing.T) {
+	srv, b := chat(t)
+	srv.Push("mcpServer/elicitation/request", 5, `{"threadId":"th1","turnId":null,"serverName":"github","mode":"form","message":"Which repo?",`+
+		`"requestedSchema":{"type":"object","properties":{"repo":{"type":"string"}},"required":["repo"]}}`)
+	if got := srv.Reply("5"); got != `{"action":"decline"}` {
+		t.Fatal(got)
+	}
+	if open := b.Open(); len(open) != 0 {
+		t.Fatalf("asked: %+v", open)
+	}
+}
+
+func TestAPermissionsRequestGrantsWhatCodexAskedForOrNothing(t *testing.T) {
+	asked := `{"network":{"enabled":true},"fileSystem":{"write":["/w/out"]}}`
+	for _, c := range []struct{ decision, reply string }{{"allow", `{"permissions":` + asked + `}`}, {"deny", `{"permissions":{}}`}} {
+		t.Run(c.decision, func(t *testing.T) {
+			srv, _, _, b := open(t, emptyThread)
+			srv.Push("item/permissions/requestApproval", 6, `{"threadId":"th1","turnId":"t2","itemId":"c2","cwd":"/w","startedAtMs":1,"reason":"fetch deps","permissions":`+asked+`}`)
+			open := waitOpen(t, b)
+			if open.ToolName != "permissions" || string(open.Detail.Input) != asked {
+				t.Fatalf("%+v", open)
+			}
+			b.Resolve(open.RequestID, broker.Answer{Decision: c.decision})
+			if got := srv.Reply("6"); got != c.reply {
+				t.Fatal(got)
+			}
+		})
+	}
+}
+
+// chat is a Session that drives its thread, as a chat does, on a fresh app-server.
+func chat(t *testing.T) (*codextest.Server, *broker.Broker) {
+	t.Helper()
+	srv := codextest.Start(t, sock(t), func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/start" {
+			return json.RawMessage(`{"thread":{"id":"th1","turns":[]}}`), ""
+		}
+		return map[string]any{}, ""
+	})
+	b := broker.New(hub.New())
+	s := NewSession("agent1", &sink{}, b)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := Dial(ctx, srv.Sock, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	res, err := c.Call(ctx, "thread/start", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Replay(ctx, c, res)
+	return srv, b
+}
+
+func TestAChatRefusesAServerRequestItDoesNotKnow(t *testing.T) {
+	srv, _ := chat(t)
+	srv.Push("item/tool/call", 8, `{"threadId":"th1","turnId":"t2","callId":"call_1","tool":"lookup","arguments":{}}`)
+	if f := srv.NextReply(); string(f.ID) != "8" || string(f.Error) != `{"code":-32601,"message":"item/tool/call is not supported"}` {
+		t.Fatalf("reply %s: result %s, error %s", f.ID, f.Result, f.Error)
+	}
+}
+
+func TestBesideTheTUIAServerRequestPocketdDoesNotKnowIsLeftToTheTUI(t *testing.T) {
+	srv, _, _, b := open(t, emptyThread)
+	srv.Push("item/tool/call", 8, `{"threadId":"th1","turnId":"t2","callId":"call_1","tool":"lookup","arguments":{}}`)
+	srv.Push("item/commandExecution/requestApproval", 9, `{"threadId":"th1","turnId":"t2","itemId":"c2","startedAtMs":1,"command":"ls"}`)
+	b.Resolve(waitOpen(t, b).RequestID, broker.Answer{Decision: "allow"})
+	if f := srv.NextReply(); string(f.ID) != "9" {
+		t.Fatalf("first reply was to %s: %s%s", f.ID, f.Result, f.Error)
+	}
+}
+
+func TestOpeningAThreadWithNoFirstTurnFailsWhenItsContextEnds(t *testing.T) {
+	srv := codextest.Start(t, sock(t), func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return nil, "no rollout found"
+		}
+		return map[string]any{}, ""
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := Open(ctx, srv.Sock, "th1", "agent1", &sink{}, broker.New(hub.New()), false); err == nil {
+		t.Fatal("opened")
+	}
+}

@@ -21,8 +21,8 @@ import (
 
 	"pocketd/internal/agent"
 	"pocketd/internal/automation"
-	"pocketd/internal/board"
 	"pocketd/internal/awake"
+	"pocketd/internal/board"
 	"pocketd/internal/broker"
 	"pocketd/internal/cliskill"
 	"pocketd/internal/config"
@@ -140,7 +140,23 @@ func serve(sock, handed string) error {
 		log.Printf("push.json: %v; no phone is registered for pushes", err)
 	}
 	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
-	d.Broker.OnAsk = notifier.Ask
+	settings := config.NewSettings(home)
+	var inherited handoff.File
+	if handed != "" {
+		if inherited, err = handoff.Read(handed); err != nil {
+			os.Remove(handed)
+			return fmt.Errorf("handoff: %w", err)
+		}
+	}
+	o, err := openOrchestrator(home, settings, d.Agents, h, inherited.MCPFD)
+	if err != nil {
+		return fmt.Errorf("orchestrator.db: %w", err)
+	}
+	d.Broker.OnAsk = func(req proto.PermissionRequest) {
+		notifier.Ask(req)
+		o.ask(req)
+	}
+	d.Broker.OnClose = o.asked
 	d.Agents.OnStatus = func(id, provider, from, to string) {
 		evs.Emit(events.Event{Kind: "status", Agent: id, Provider: provider, From: from, To: to})
 		notifier.Kick(id, from, to)
@@ -149,7 +165,6 @@ func serve(sock, handed string) error {
 		default:
 		}
 	}
-	settings := config.NewSettings(home)
 	host.FollowTerminals(mon, settings)
 	notifier.Relay = &push.Client{URL: settings.PushRelay, HTTP: push.NewHTTP()}
 	keeper := &awake.Keeper{S: awake.System(), Enabled: settings.KeepAwake, Linger: settings.AwakeLinger, After: time.After,
@@ -182,6 +197,10 @@ func serve(sock, handed string) error {
 	worktreeNames := names.Open(home)
 	l := launch.New(d, reg, settings, evs)
 	l.Names = worktreeNames
+	o.host.Broker, o.host.Launcher, o.host.LoginEnv, o.host.Projects, o.host.Planning = d.Broker, l, d.LoginEnv, reg, d.Planning
+	l.MCPFlags = o.host.ClaudeFlags
+	d.MCPCodex = o.host.CodexConfig
+	d.MCPServers = o.host.ACPServers
 	localStore := locals.Open(home)
 	l.Locals = localStore
 	d.OnPrompt = l.Prompted
@@ -192,7 +211,7 @@ func serve(sock, handed string) error {
 	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
 		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
 	}
-	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon}
+	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon, handover: o.handover, resume: o.engine.Resume, mcp: o.ln}
 	// Taken before restoring, so a binary swapped meanwhile still counts as a change.
 	var watch *selfWatch
 	if st, err := os.Stat(exe); err == nil {
@@ -203,6 +222,10 @@ func serve(sock, handed string) error {
 	autos := automation.Open(home)
 	autos.Grace, autos.History = settings.AutomationGrace, settings.AutomationHistory
 	scheduler := &automation.Scheduler{Store: autos, Now: time.Now, Watch: automation.AgentWatcher(d.Agents),
+		Post: postBound(d.Agents, o.engine),
+		Turn: func(after int64, prompt, entry string) automation.Watcher {
+			return automation.TurnWatcher(d.Agents, after, prompt, entry, queuedEntry(o.store))
+		},
 		Start: func(runID string, a proto.Automation) launch.Result {
 			return l.Create(launch.Who{Owner: true, Key: "automation:" + a.ID}, runID, automation.Spec(a, runID), func(string, string) {}, func(launch.Creating) {})
 		},
@@ -220,13 +243,21 @@ func serve(sock, handed string) error {
 	if err != nil {
 		log.Printf("skills: %v", err)
 	}
-	ws := &wsserver.Server{Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
+	o.host.Sched = schedules{store: autos, scheduler: scheduler}
+	o.server.Hooks = hooks(schedules{store: autos, scheduler: scheduler})
+	ws := &wsserver.Server{Orch: o.engine, Owners: ownerTokens, Devices: devs, Pairing: pairs, Host: pairHost, MacName: computerName(hostname), Hostname: hostname, Agents: d.Agents, Broker: d.Broker, Hub: h, Monitor: mon, Events: evs, AskOpen: d.AskOpen, Projects: func() []proto.Project { return worktree.Projects(reg.Load()) }, Launch: l, Names: worktreeNames, Version: versionString(), Automations: autos, Scheduler: scheduler, Board: tickets, Locals: localStore, Registry: reg, Terminals: d.Terminals, Retitle: d.Retitle, Settings: settings, TerminalHost: d, Git: gitview.New(d.LoginEnv), Skills: skillStore}
+	if hm := openHosts(ctx, home, d.LoginEnv, ws.MacName, mirror{o}); hm != nil {
+		ws.Hosts = &wsserver.Hosts{Manager: hm}
+		o.host.Hosts, o.host.Envs = hm, environments{hm, o.host.Registry}
+	}
+	ws.OpenSessions = o.openSessions
 	// Off Recapture's caller, which may be a spawn: listing providers runs a shell per agent.
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
 	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}
-	ws.GitHub = github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
+	gh := github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
+	ws.GitHub, o.host.PRs = gh, gh.Cached
 	boardScheduler.Merged = func(ctx context.Context, tree string) bool {
 		pr, _ := ws.GitHub.PR(ctx, tree)
 		return pr != nil && pr.State == "MERGED"
@@ -244,24 +275,24 @@ func serve(sock, handed string) error {
 	}
 	statePath := state.Path(d.Home)
 	if handed != "" {
-		f, err := handoff.Read(handed)
 		os.Remove(handed)
-		if err != nil {
-			return fmt.Errorf("handoff: %w", err)
+		var saved []state.Terminal
+		for _, e := range inherited.Terminals {
+			saved = append(saved, e.Saved)
 		}
-		d.Adopt(f)
+		o.takeIn(saved)
+		d.Adopt(inherited)
+		o.host.Rehold(true)
 		// The awake assertion died with the old image.
 		select {
 		case kick <- struct{}{}:
 		default:
 		}
 	} else {
-		saved, err := state.Load(statePath)
-		if err != nil {
-			log.Print(err)
-		}
-		d.Restore(saved, cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
+		d.Restore(o.restoring(statePath), cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
+		o.host.Rehold(false)
 	}
+	o.closeAbsent(d.Agents)
 	go d.Watch(context.Background())
 	go func() {
 		if d.WaitRestored(ctx) == nil {
@@ -273,6 +304,7 @@ func serve(sock, handed string) error {
 	}
 	scheduler.Resume()
 	go scheduler.Run(ctx)
+	go o.run(ctx)
 	go boardScheduler.Run(ctx)
 	phones, err := reach.Listen(cfg.Port, cfg.Listen, ws)
 	if err != nil {
@@ -307,6 +339,7 @@ func serve(sock, handed string) error {
 		}
 	}()
 	writer := state.NewWriter(statePath, d.Snapshot)
+	writer.Saved = o.saved
 	go writer.Run(ctx)
 	fmt.Println("pocketd listening on", sock)
 	if ownerLn != nil {

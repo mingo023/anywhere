@@ -10,6 +10,7 @@ import (
 
 	"pocketd/internal/atomicfile"
 	"pocketd/internal/state"
+	"pocketd/internal/timeline"
 )
 
 // Format is the format this release writes; MinFormat is the oldest it
@@ -22,6 +23,8 @@ const (
 type File struct {
 	Format    int        `json:"format"`
 	Terminals []Terminal `json:"terminals"`
+	// MCPFD is the open MCP listener the new pocketd takes over; 0 when none came.
+	MCPFD int `json:"mcpFd,omitempty"`
 }
 
 type Terminal struct {
@@ -41,6 +44,9 @@ type Agent struct {
 	Phase string `json:"phase"`
 	Epoch int64  `json:"epoch"`
 	Seq   int64  `json:"seq"`
+	// Read is how far its Claude transcript is in its timeline: to the end of a whole line.
+	Read       int64               `json:"read,omitempty"`
+	Background timeline.Background `json:"background,omitzero"`
 }
 
 func Path(home string) string { return filepath.Join(home, "handoff.json") }

@@ -657,6 +657,35 @@ func TestARestoredAgentContinuesItsNamePhaseAndSeq(t *testing.T) {
 	}
 }
 
+func TestOnlyAnUpgradeKeepsARestoredAgentWorkingForTheBackgroundAgentItCarried(t *testing.T) {
+	stored := []proto.Item{
+		{ID: "i1", Seq: 1, Kind: "user", Text: "look around"},
+		{ID: "i2", Seq: 2, Kind: "tool", Call: &proto.ToolCall{ToolUseID: "t1", Name: "Agent", Detail: proto.ToolDetail{Kind: "task", Description: "Look"}, Status: "running"}},
+	}
+	restore := func(x Restored) *Agent {
+		r := NewRegistry(hub.New())
+		r.History = func(string) ([]proto.Item, bool) { return stored, true }
+		a := r.Restore(x, fakeDriver{})
+		a.Working()
+		a.TurnEnded(false)
+		return a
+	}
+
+	upgraded := restore(Restored{ID: "a1", Provider: "claude", Phase: "working", Epoch: 3, Seq: 2,
+		Background: timeline.Background{Tasks: map[string]string{"a1": "t1"}, Lasting: []string{"t1"}}})
+	if got := state(upgraded.Summary()); got != "working" {
+		t.Fatalf("after an upgrade, with its sub-agent running: %q", got)
+	}
+	upgraded.Record(timeline.Event{Kind: "tool_end", TaskID: "a1", OK: true})
+	if items, _ := upgraded.Timeline.Page(0, 10); items[1].Call.Status != "ok" {
+		t.Fatalf("the sub-agent's end left it %s", items[1].Call.Status)
+	}
+
+	if got := state(restore(Restored{ID: "a1", Provider: "claude"}).Summary()); got != "done" {
+		t.Fatalf("after a cold restart: %q", got)
+	}
+}
+
 func TestARestoredAgentWithoutAPhaseIsIdle(t *testing.T) {
 	a := NewRegistry(hub.New()).Restore(Restored{ID: "a-1", Provider: "claude"}, fakeDriver{})
 	if s := a.Summary(); s.Status != "idle" || s.MaxSeq != 0 {
@@ -768,5 +797,43 @@ func TestAStopRightAfterAPromptStopsTheTurnItStarts(t *testing.T) {
 	a.Clear()
 	if a.Stop() {
 		t.Fatal("the stopped prompt still counts")
+	}
+}
+
+func TestABackgroundTaskTheAgentWaitsOnKeepsItWorkingUntilItEndsOrTheCap(t *testing.T) {
+	holdGrace = 20 * time.Millisecond
+	defer func() { holdGrace = 15 * time.Second }()
+	start := func(id string, cap time.Duration) *Agent {
+		a := NewRegistry(hub.New()).Add(id, "/w", "claude", fakeDriver{})
+		a.Working()
+		a.Record(timeline.Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"make e2e","run_in_background":true}`)})
+		a.Record(timeline.Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"})
+		a.Hold([]string{"b1"}, true, cap)
+		a.TurnEnded(false)
+		return a
+	}
+	done := func(a *Agent) bool {
+		deadline := time.Now().Add(time.Second)
+		for state(a.Summary()) != "done" {
+			if time.Now().After(deadline) {
+				return false
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return true
+	}
+
+	a := start("a1", time.Hour)
+	if got := state(a.Summary()); got != "working" {
+		t.Fatalf("waiting on b1: %q", got)
+	}
+	a.Record(timeline.Event{Kind: "tool_end", TaskID: "b1", OK: true})
+	if !done(a) {
+		t.Fatal("b1 ended and the turn stayed")
+	}
+
+	b := start("b1", 30*time.Millisecond)
+	if !done(b) {
+		t.Fatal("the cap passed and the turn stayed")
 	}
 }

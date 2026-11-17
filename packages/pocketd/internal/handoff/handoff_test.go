@@ -3,6 +3,7 @@
 package handoff
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -70,5 +71,86 @@ func TestCheckRefusesAnFDThatClosesOnExec(t *testing.T) {
 	unix.FcntlInt(devnull.Fd(), unix.F_SETFD, 0)
 	if err := Check(f); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAListenerKeptForTheNextBinaryAcceptsOnTheSamePortAfterTheOriginalCloses(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, err := Keep(ln)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(File{Format: Format, MCPFD: fd}); err != nil {
+		t.Fatalf("a kept fd must survive exec: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("the port refused a connection with only the kept fd open: %v", err)
+	}
+	defer conn.Close()
+	next, err := Inherit(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	if next.Addr().String() != addr {
+		t.Fatalf("inherited %s, want %s", next.Addr(), addr)
+	}
+	accepted, err := next.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted.Close()
+}
+
+func TestAListenerThatCantBeCopiedHandsDownNoFDAndItsPortBindsAfreshOnceItCloses(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lim unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &lim); err != nil {
+		t.Fatal(err)
+	}
+	// No fd may open, so the copy fails as it does when pocketd runs out of them.
+	none := lim
+	none.Cur = 0
+	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &none); err != nil {
+		t.Fatal(err)
+	}
+	fd, kept := Keep(ln)
+	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &lim); err != nil {
+		t.Fatal(err)
+	}
+	if kept == nil || fd != 0 {
+		t.Fatalf("fd %d, err %v: want no fd and the copy's error", fd, kept)
+	}
+	if err := Check(File{Format: Format, MCPFD: fd}); err != nil {
+		t.Fatalf("the dry run refused the upgrade: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	again, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("the next pocketd can't listen on %s: %v", addr, err)
+	}
+	again.Close()
+}
+
+func TestCheckRefusesAListenerFDThatClosesOnExec(t *testing.T) {
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devnull.Close()
+	err = Check(File{Format: Format, MCPFD: int(devnull.Fd())})
+	if err == nil || !strings.Contains(err.Error(), "mcp listener") {
+		t.Fatalf("err = %v", err)
 	}
 }

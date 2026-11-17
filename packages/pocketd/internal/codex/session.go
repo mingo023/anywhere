@@ -28,7 +28,9 @@ type Sink interface {
 type Session struct {
 	// Shown is whether the agent already shows the thread's history, as a
 	// moved agent does: a resume replays none of it.
-	Shown   bool
+	Shown bool
+	// beside is a thread the TUI drives, which pocketd follows.
+	beside  bool
 	c       *Client
 	agentID string
 	sink    Sink
@@ -114,7 +116,7 @@ type resumed struct {
 // thread has its first turn, so it retries until ctx ends.
 func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *broker.Broker, shown bool) (*Session, error) {
 	s := NewSession(agentID, sink, b)
-	s.Shown = shown
+	s.Shown, s.beside = shown, true
 	c, err := Dial(ctx, sock, s)
 	if err != nil {
 		s.cancel()
@@ -130,7 +132,8 @@ func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *bro
 		}
 		select {
 		case <-ctx.Done():
-			s.Close()
+			s.cancel()
+			c.Close()
 			return nil, err
 		case <-time.After(ResumeRetry):
 		}
@@ -464,8 +467,8 @@ func (s *Session) key(requestID json.RawMessage) string {
 	return s.agentID + "\x00" + string(requestID)
 }
 
-// Request answers approvals. It asks on its own goroutine because the broker
-// blocks until someone decides.
+// Request answers what codex asks. It asks on its own goroutine because the
+// broker blocks until someone decides.
 func (s *Session) Request(id json.RawMessage, method string, params json.RawMessage) {
 	var p struct {
 		ItemID  string `json:"itemId"`
@@ -473,26 +476,136 @@ func (s *Session) Request(id json.RawMessage, method string, params json.RawMess
 	}
 	json.Unmarshal(params, &p)
 	s.run(func() {
-		var name string
-		var detail proto.ToolDetail
 		switch method {
 		case "item/commandExecution/requestApproval":
-			name, detail = "shell", proto.ToolDetail{Kind: "shell", Command: p.Command}
+			go s.ask(id, "shell", proto.ToolDetail{Kind: "shell", Command: p.Command}, decision("accept"), decision("decline"))
 		case "item/fileChange/requestApproval":
-			name, detail = "apply_patch", s.details[p.ItemID]
+			go s.ask(id, "apply_patch", s.details[p.ItemID], decision("accept"), decision("decline"))
+		case "item/tool/requestUserInput":
+			go s.question(id, params)
+		case "mcpServer/elicitation/request":
+			go s.elicit(id, params)
+		case "item/permissions/requestApproval":
+			go s.permissions(id, params)
 		default:
-			return
+			// Beside the TUI, the TUI answers what pocketd doesn't know.
+			if !s.beside {
+				log.Printf("codex %s: refused %s", s.thread, method)
+				s.c.Refuse(id, method+" is not supported")
+			}
 		}
-		go s.ask(id, name, detail)
 	})
 }
 
-func (s *Session) ask(id json.RawMessage, name string, detail proto.ToolDetail) {
+func decision(d string) map[string]string { return map[string]string{"decision": d} }
+
+// ownServers are the MCP servers orchhost's CodexConfig gives a chat:
+// pocketd's own, whose tools run unasked, as Claude's --allowedTools lets them.
+var ownServers = []string{"anywhere", "anywhere-direct"}
+
+// elicitation is codex's mcpServer/elicitation/request. Codex asks before
+// an MCP tool call with a form of no fields, whose _meta names the tool.
+type elicitation struct {
+	ServerName      string `json:"serverName"`
+	Mode            string `json:"mode"`
+	Message         string `json:"message"`
+	RequestedSchema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	} `json:"requestedSchema"`
+	Meta struct {
+		Tool   string          `json:"tool_name"`
+		Params json.RawMessage `json:"tool_params"`
+	} `json:"_meta"`
+}
+
+// elicit asks a yes or no as before a tool call in the timeline. A form
+// that wants answers, or a link, has no card, so a chat declines it.
+func (s *Session) elicit(id json.RawMessage, params json.RawMessage) {
+	var e elicitation
+	json.Unmarshal(params, &e)
+	accept, decline := map[string]any{"action": "accept", "content": map[string]any{}}, map[string]any{"action": "decline"}
+	switch {
+	case !s.beside && slices.Contains(ownServers, e.ServerName):
+		s.c.Reply(id, accept)
+	case e.Mode == "form" && len(e.RequestedSchema.Properties) == 0:
+		name, input := e.ServerName, e.Meta.Params
+		if e.Meta.Tool != "" {
+			name += "." + e.Meta.Tool
+		}
+		if input == nil {
+			input = mustJSON(map[string]string{"message": e.Message})
+		}
+		s.ask(id, name, proto.ToolDetail{Kind: "other", Name: name, Input: input}, accept, decline)
+	case !s.beside:
+		log.Printf("codex %s: declined a %s elicitation from %s", s.thread, e.Mode, e.ServerName)
+		s.c.Reply(id, decline)
+	}
+}
+
+// permissions asks for the sandbox permissions codex wants; granting none declines.
+func (s *Session) permissions(id json.RawMessage, params json.RawMessage) {
+	var p struct {
+		Permissions json.RawMessage `json:"permissions"`
+	}
+	json.Unmarshal(params, &p)
+	s.ask(id, "permissions", proto.ToolDetail{Kind: "other", Name: "permissions", Input: p.Permissions},
+		map[string]any{"permissions": p.Permissions}, map[string]any{"permissions": map[string]any{}})
+}
+
+// userInput is codex's item/tool/requestUserInput.
+type userInput struct {
+	Questions []struct {
+		ID       string `json:"id"`
+		Header   string `json:"header"`
+		Question string `json:"question"`
+		Options  []struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		} `json:"options"`
+	} `json:"questions"`
+}
+
+// question asks codex's questions as Claude's AskUserQuestion, which the chat
+// has a card for, and answers in codex's terms: answers by question id.
+func (s *Session) question(id json.RawMessage, params json.RawMessage) {
+	var in userInput
+	json.Unmarshal(params, &in)
+	type option struct {
+		Label       string `json:"label"`
+		Description string `json:"description,omitempty"`
+	}
+	type asked struct {
+		Question    string   `json:"question"`
+		Header      string   `json:"header,omitempty"`
+		Options     []option `json:"options"`
+		MultiSelect bool     `json:"multiSelect"`
+	}
+	qs := make([]asked, len(in.Questions))
+	for i, q := range in.Questions {
+		qs[i] = asked{Question: q.Question, Header: q.Header, Options: []option{}}
+		for _, o := range q.Options {
+			qs[i].Options = append(qs[i].Options, option{o.Label, o.Description})
+		}
+	}
+	input, _ := json.Marshal(map[string]any{"questions": qs})
+	a := s.broker.Ask(s.ctx, proto.PermissionRequest{AgentID: s.agentID, ToolName: "AskUserQuestion", Detail: timeline.Detail("AskUserQuestion", input)}, s.key(id))
+	answers := map[string]any{}
+	if a.Decision == "allow" {
+		for _, q := range in.Questions {
+			if v, ok := a.Answers[q.Question]; ok && v != "" {
+				answers[q.ID] = map[string][]string{"answers": {v}}
+			}
+		}
+	}
+	s.c.Reply(id, map[string]any{"answers": answers})
+}
+
+func (s *Session) ask(id json.RawMessage, name string, detail proto.ToolDetail, allow, deny any) {
 	switch s.broker.Ask(s.ctx, proto.PermissionRequest{AgentID: s.agentID, ToolName: name, Detail: detail}, s.key(id)).Decision {
 	case "allow":
-		s.c.Reply(id, map[string]string{"decision": "accept"})
+		s.c.Reply(id, allow)
 	case "deny":
-		s.c.Reply(id, map[string]string{"decision": "decline"})
+		s.c.Reply(id, deny)
 	}
 }
 

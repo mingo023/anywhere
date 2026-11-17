@@ -52,6 +52,16 @@ type RemoteController interface {
 	RemoteControl(enabled bool) (string, error)
 }
 
+// TaskStopper is a driver that stops one of its agent's background tasks by id.
+type TaskStopper interface {
+	StopTask(id string) error
+}
+
+// Turnless is a driver that knows some prompts start no turn, as Codex's /goal pause.
+type Turnless interface {
+	Turnless(text string) bool
+}
+
 // McpLister is a driver that tells how its session's MCP servers stand, and acts on one.
 type McpLister interface {
 	Mcp() ([]proto.McpServer, error)
@@ -109,9 +119,17 @@ type Agent struct {
 	prompted        bool   // a prompt went to claude and its turn hasn't begun
 	goal            proto.Goal
 	holding         bool // the turn ended with sub-agents running on in the background, so it ends with them
+	starts          int  // the turns it began
 	holdGen         int  // holds so far, so a grace timer from an older one is dropped
 	drafts          map[string]proto.Item
 	draftTimer      *time.Timer
+	parent          string
+	relationship    string
+	createdBy       string
+	delegation      *proto.DelegationRef
+	held            map[string]bool // background tasks the agent declared it waits on
+	heldTimer       *time.Timer
+	stored          bool // a restore gave it its whole conversation from the store
 }
 
 // draftEvery spaces the publishes of the text Claude streams: it comes a few
@@ -131,6 +149,36 @@ type Registry struct {
 	// OnStatus runs under the agent's lock on each status change, so it must
 	// stay short and not call back into the registry. Set it before adding agents.
 	OnStatus func(id, provider, from, to string)
+	// Sink hears every summary and settled timeline item, under the agent's
+	// lock and in order, so it only queues. Set it before adding agents.
+	Sink Sink
+	// Lineage gives a restored agent the parent, delegation and title the store
+	// kept, since the saved terminal doesn't carry them. Set it before restoring.
+	Lineage func(id string) Lineage
+	// History gives a restored agent the timeline the store kept, and whether
+	// that is its whole conversation, so nothing replays it. Set it before restoring.
+	History func(id string) (items []proto.Item, whole bool)
+}
+
+// Lineage is where a session came from: the chat that delegated or forked it.
+type Lineage struct {
+	Parent, Relationship, CreatedBy string
+	Title                           string
+	Delegation                      *proto.DelegationRef
+}
+
+// Sink takes what the registry publishes, for the store.
+type Sink interface {
+	Summary(proto.AgentSummary)
+	Item(agentID string, epoch int64, it proto.Item)
+	Released(agentID string, tasks []string)
+}
+
+func (r *Registry) summarize(s proto.AgentSummary) {
+	r.hub.Publish(proto.NewAgentUpdate(s))
+	if r.Sink != nil {
+		r.Sink.Summary(s)
+	}
 }
 
 func NewRegistry(h *hub.Hub) *Registry {
@@ -151,7 +199,7 @@ func (r *Registry) AddFunc(id, cwd, provider string, newDriver func(*Agent) Driv
 	r.mu.Lock()
 	r.agents[id] = a
 	r.mu.Unlock()
-	r.hub.Publish(proto.NewAgentUpdate(a.Summary()))
+	r.summarize(a.Summary())
 	return a
 }
 
@@ -180,6 +228,7 @@ type Restored struct {
 	// Named, Phase, Epoch and Seq carry an Agent across an upgrade's exec.
 	Named, Phase string
 	Epoch, Seq   int64
+	Background   timeline.Background
 }
 
 func (r *Registry) Restore(x Restored, d Driver) *Agent {
@@ -189,10 +238,26 @@ func (r *Registry) Restore(x Restored, d Driver) *Agent {
 	if x.Seq > 0 {
 		a.Timeline.Continue(x.Epoch, x.Seq)
 	}
+	if r.Lineage != nil {
+		l := r.Lineage(x.ID)
+		a.parent, a.relationship, a.createdBy, a.delegation = l.Parent, l.Relationship, l.CreatedBy, l.Delegation
+		// A timeline restored from the store isn't replayed, so no first prompt titles it again.
+		if l.Title != x.Fallback {
+			a.title = l.Title
+		}
+	}
+	if r.History != nil {
+		items, whole := r.History(x.ID)
+		if len(items) > 0 {
+			a.Timeline.Load(items)
+			a.Timeline.Adopt(x.Background)
+		}
+		a.stored = whole
+	}
 	r.mu.Lock()
 	r.agents[x.ID] = a
 	r.mu.Unlock()
-	r.hub.Publish(proto.NewAgentUpdate(a.Summary()))
+	r.summarize(a.Summary())
 	return a
 }
 
@@ -259,6 +324,10 @@ func (r *Registry) MarkSeen(ids []string) {
 	}
 }
 
+// Stored is whether a restore gave the agent its whole conversation from the
+// store, so its transcript or its agent's resume replays none of it.
+func (a *Agent) Stored() bool { return a.stored }
+
 func (a *Agent) ID() string       { return a.id }
 func (a *Agent) Provider() string { return a.provider }
 
@@ -307,7 +376,7 @@ func (a *Agent) summary() proto.AgentSummary {
 		Epoch: epoch, MaxSeq: maxSeq, Resets: a.Timeline.Resets(), ProviderSessionID: a.conversation, CreatedAt: a.createdAt, UpdatedAt: a.updatedAt,
 		Project: a.project, Worktree: a.worktree, MainWorktree: a.mainWorktree, Branch: a.branch,
 		TokensUsed: a.tokensUsed, ContextWindow: a.contextWindow, Origin: a.origin, Activity: a.activity, ChatOnly: a.chatOnly, Goal: a.goal,
-		Options: maps.Clone(a.options),
+		Options: maps.Clone(a.options), Parent: a.parent, Relationship: a.relationship, CreatedBy: a.createdBy, Delegation: a.delegation,
 	}
 }
 
@@ -348,7 +417,7 @@ func (a *Agent) update(touch bool, f func()) {
 		a.updatedAt = now()
 		after.UpdatedAt = a.updatedAt
 	}
-	a.hub.Publish(proto.NewAgentUpdate(after))
+	a.reg.summarize(after)
 	if after.Status != before.Status && a.reg.OnStatus != nil {
 		a.reg.OnStatus(a.id, a.provider, before.Status, after.Status)
 	}
@@ -367,11 +436,21 @@ func (r *Registry) Busy() bool {
 
 func (a *Agent) Working() {
 	a.update(true, func() {
+		if a.phase == "idle" {
+			a.starts++
+		}
 		a.enter("working")
 		a.unseenEnd, a.failed, a.lastError, a.restore = false, false, "", ""
 		a.stopped, a.prompted = false, false
 		a.unhold()
 	})
+}
+
+// Starts counts the turns the agent began, so a caller can tell one began since.
+func (a *Agent) Starts() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.starts
 }
 
 // enter moves to phase. The activity belonged to the phase left, so it goes too.
@@ -393,7 +472,7 @@ func (a *Agent) TurnEnded(failed bool) {
 func (a *Agent) turnEnded(failed bool) {
 	a.unhold()
 	// Claude reports on background sub-agents in a turn of its own once they end, so the work isn't Done yet.
-	if a.phase != "idle" && !failed && a.Timeline.BackgroundAgents() > 0 {
+	if a.phase != "idle" && !failed && (a.Timeline.BackgroundAgents() > 0 || len(a.held) > 0) {
 		a.holding = true
 		return
 	}
@@ -448,11 +527,13 @@ func (a *Agent) Stop() bool {
 	return true
 }
 
-// EndLasting ends the background calls an earlier claude left running: they
-// ended with it, and Claude may never note it.
-func (a *Agent) EndLasting() {
+// EndRunning ends every call its timeline shows running, for a claude that
+// ended before another took over its conversation: the calls ended with it,
+// and Claude may never note it. A cold restart carries no background index, so
+// an end notice would find nothing to end either.
+func (a *Agent) EndRunning() {
 	out := "Stopped when its session ended"
-	for _, id := range a.Timeline.Lasting() {
+	for _, id := range a.Timeline.Running() {
 		a.Record(timeline.Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: &out})
 	}
 }
@@ -722,10 +803,20 @@ func (a *Agent) record(e timeline.Event) {
 	} else {
 		a.hub.Publish(proto.NewAgentStream(a.id, epoch, item))
 	}
+	if a.reg.Sink != nil {
+		a.reg.Sink.Item(a.id, epoch, item)
+	}
 	if !sub && item.Kind == "result" {
 		a.ended(item.Error)
 	}
-	if a.holding && e.Kind == "tool_end" && a.Timeline.BackgroundAgents() == 0 {
+	if e.Kind == "tool_end" && len(a.held) > 0 {
+		delete(a.held, e.ToolUseID)
+		delete(a.held, e.TaskID)
+		if a.reg.Sink != nil {
+			a.reg.Sink.Released(a.id, []string{e.ToolUseID, e.TaskID})
+		}
+	}
+	if a.holding && e.Kind == "tool_end" && a.Timeline.BackgroundAgents() == 0 && len(a.held) == 0 {
 		a.holdEnds()
 	}
 }
@@ -736,7 +827,7 @@ func (a *Agent) ended(err string) {
 	before := a.summary()
 	a.lastError = firstLine(err)
 	if after := a.summary(); !reflect.DeepEqual(after, before) {
-		a.hub.Publish(proto.NewAgentUpdate(after))
+		a.reg.summarize(after)
 	}
 }
 
@@ -772,4 +863,53 @@ func (a *Agent) flushDrafts() {
 	for _, it := range items {
 		a.hub.Publish(proto.NewAgentStream(a.id, epoch, it))
 	}
+}
+
+// SetLineage names the session this one came from: subagent or fork, and who made it.
+func (a *Agent) SetLineage(parent, relationship, createdBy string) {
+	a.update(false, func() { a.parent, a.relationship, a.createdBy = parent, relationship, createdBy })
+}
+
+// SetDelegation shows a child's delegation; nil for none.
+func (a *Agent) SetDelegation(d *proto.DelegationRef) {
+	a.update(false, func() { a.delegation = d })
+}
+
+// Hold keeps the agent Working past its turn's end while the background tasks
+// it declared run, until each ends or cap passes; waiting false lets them go.
+func (a *Agent) Hold(ids []string, waiting bool, cap time.Duration) {
+	a.update(true, func() {
+		if a.heldTimer != nil {
+			a.heldTimer.Stop()
+			a.heldTimer = nil
+		}
+		if !waiting {
+			a.held = nil
+		} else {
+			if a.held == nil {
+				a.held = map[string]bool{}
+			}
+			for _, id := range ids {
+				a.held[id] = true
+			}
+			a.heldTimer = time.AfterFunc(cap, func() { a.Hold(nil, false, 0) })
+		}
+		if len(a.held) == 0 && a.holding && a.Timeline.BackgroundAgents() == 0 {
+			a.turnEnded(false)
+		}
+	})
+}
+
+// Rename gives the session a title that outranks the provider's, as naming's does.
+func (a *Agent) Rename(title string) {
+	a.update(false, func() { a.named = title })
+}
+
+// MarkUnread puts a session back to Done, as if its last turn ended unseen.
+func (a *Agent) MarkUnread() {
+	a.update(true, func() {
+		if a.phase == "idle" {
+			a.unseenEnd = true
+		}
+	})
 }

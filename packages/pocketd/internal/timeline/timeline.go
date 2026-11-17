@@ -12,7 +12,7 @@ import (
 )
 
 type Event struct {
-	Kind       string // user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_tokens, tool_background, tool_resumed, tool_end, result, retried, notice, compacted, error
+	Kind       string // delivery, user, user_images, assistant_text, thinking, assistant_draft, thinking_draft, tool_start, tool_model, tool_tokens, tool_background, tool_resumed, tool_end, result, retried, notice, compacted, error
 	Text       string
 	ToolUseID  string
 	Name       string
@@ -33,6 +33,10 @@ type Event struct {
 	TaskID string
 	// Draft names the streamed block a draft's text belongs to.
 	Draft string
+	// Delivery is a delivery's: what pocketd told the session about its delegated children.
+	Delivery *proto.Delivery
+	// HostLink is a host_link's: the card asking the user to link a host.
+	HostLink *proto.HostLink
 	// Limit marks a result that the account's usage limit ended.
 	Limit bool
 	// Detached marks a tool_background no turn waits for: its end takes no turn of the agent's, or may never come.
@@ -54,6 +58,8 @@ type Timeline struct {
 	detached map[string]bool
 	// tasks maps a background call's task id to its index in items.
 	tasks map[string]int
+	// expected maps a message pocketd is sending the agent to its origin, until its user item shows.
+	expected map[string]string
 	// drafts holds, per kind, the items Claude's stream opened that its transcript hasn't written yet, oldest first.
 	drafts map[string][]int
 	// draft names the streamed block each open draft item grows from.
@@ -128,6 +134,127 @@ func (t *Timeline) Continue(epoch, seq int64) {
 	t.epoch, t.seq = epoch+1, seq
 }
 
+// Load takes the items a restart kept, oldest first, under their ids: seq
+// goes on past them, and a new epoch has phones refetch.
+func (t *Timeline) Load(items []proto.Item) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.items = slices.Clone(items)
+	for i, it := range items {
+		t.seq = max(t.seq, it.Seq)
+		if it.Kind == "tool" && it.Call != nil && it.Call.Status == "running" {
+			t.tools[it.Call.ToolUseID] = i
+		}
+	}
+	t.epoch++
+}
+
+// Unseen returns a filter for a replay of what one call's sub-agents wrote,
+// given shown, the items a restored timeline holds under that call: it drops
+// the replay's events up to the first that adds or changes an item past
+// shown, and keeps everything from there. An event that changes no item waits
+// to go out with the next one that does.
+func Unseen(shown []proto.Item) func([]Event) []Event {
+	shown = joined(shown)
+	scratch, past := New(), false
+	var held []Event
+	return func(events []Event) []Event {
+		if past {
+			return events
+		}
+		for i, e := range events {
+			it, changed := scratch.Apply(e, 0)
+			if !changed {
+				held = append(held, e)
+				continue
+			}
+			if n := int(it.Seq) - 1; n < len(shown) && holds(shown[n], it) {
+				held = nil
+				continue
+			}
+			past = true
+			return append(held, events[i:]...)
+		}
+		return nil
+	}
+}
+
+// joined is items with each run of texts of one kind as one item, as a replay of them alone merges them: the
+// timeline they were shown in kept them apart around another call's items.
+func joined(items []proto.Item) []proto.Item {
+	var out []proto.Item
+	for _, it := range items {
+		if n := len(out) - 1; n >= 0 && out[n].Kind == it.Kind && (it.Kind == "assistant" || it.Kind == "thinking") {
+			out[n].Text += it.Text
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// holds is whether stored, an item a timeline shows, already holds it, the same item as a replay has it so far.
+func holds(stored, it proto.Item) bool {
+	if stored.Kind != it.Kind || !strings.HasPrefix(stored.Text, it.Text) || (stored.Call == nil) != (it.Call == nil) {
+		return false
+	}
+	return it.Call == nil || stored.Call.ToolUseID == it.Call.ToolUseID && (it.Call.Status == "running" || it.Call.Status == stored.Call.Status)
+}
+
+// Background is what a timeline knows of its background calls beyond its items, by tool use id, for an upgrade to
+// carry: the store keeps neither a call's task nor whether it runs on.
+type Background struct {
+	Tasks    map[string]string `json:"tasks,omitempty"`
+	Lasting  []string          `json:"lasting,omitempty"`
+	Detached []string          `json:"detached,omitempty"`
+}
+
+func (t *Timeline) Background() Background {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var b Background
+	for task, n := range t.tasks {
+		if b.Tasks == nil {
+			b.Tasks = map[string]string{}
+		}
+		b.Tasks[task] = t.items[n].Call.ToolUseID
+	}
+	for id := range t.lasting {
+		b.Lasting = append(b.Lasting, id)
+		if t.detached[id] {
+			b.Detached = append(b.Detached, id)
+		}
+	}
+	return b
+}
+
+// Adopt takes the background calls an upgrade carried over the items Load took.
+func (t *Timeline) Adopt(b Background) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	at := map[string]int{}
+	for n, it := range t.items {
+		if it.Call != nil {
+			at[it.Call.ToolUseID] = n
+		}
+	}
+	for task, id := range b.Tasks {
+		if n, ok := at[id]; ok {
+			t.tasks[task] = n
+		}
+	}
+	for _, id := range b.Lasting {
+		if _, ok := t.tools[id]; ok {
+			t.lasting[id] = true
+		}
+	}
+	for _, id := range b.Detached {
+		if t.lasting[id] {
+			t.detached[id] = true
+		}
+	}
+}
+
 func (t *Timeline) State() (epoch, maxSeq int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -170,13 +297,31 @@ func (t *Timeline) Unanswered() bool {
 	return t.last().Kind == "user"
 }
 
+// Expect marks the user item that will say text as pocketd's own, of origin. An empty origin takes the mark back.
+func (t *Timeline) Expect(text, origin string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	text = strings.TrimSpace(text)
+	if origin == "" {
+		delete(t.expected, text)
+		return
+	}
+	if t.expected == nil {
+		t.expected = map[string]string{}
+	}
+	t.expected[text] = origin
+}
+
 // Apply returns the new or changed item, or false when nothing visible changed.
 func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	switch e.Kind {
 	case "user":
-		return t.append(proto.Item{Kind: "user", Text: e.Text}, e.ParentToolUseID, ts), true
+		said := strings.TrimSpace(e.Text)
+		origin := t.expected[said]
+		delete(t.expected, said)
+		return t.append(proto.Item{Kind: "user", Text: e.Text, Origin: origin}, e.ParentToolUseID, ts), true
 
 	case "user_images":
 		// Claude writes the images right after their prompt, so any other item before them means that prompt showed nothing.
@@ -385,6 +530,12 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	case "notice":
 		return t.append(proto.Item{Kind: "notice", Text: e.Text}, e.ParentToolUseID, ts), true
 
+	case "delivery":
+		return t.append(proto.Item{Kind: "delivery", Delivery: e.Delivery}, "", ts), true
+
+	case "host_link":
+		return t.append(proto.Item{Kind: "host_link", HostLink: e.HostLink}, "", ts), true
+
 	case "compacted":
 		return t.append(proto.Item{Kind: "compact", Trigger: e.Trigger}, e.ParentToolUseID, ts), true
 
@@ -435,6 +586,20 @@ func (t *Timeline) Lasting() []string {
 	return ids
 }
 
+// Running returns the tool use ids of the calls still running, oldest first.
+func (t *Timeline) Running() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var ids []string
+	for id, n := range t.tools {
+		if t.items[n].Call.Status == "running" {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b string) int { return t.tools[a] - t.tools[b] })
+	return ids
+}
+
 // LastingAgents returns the task ids of the sub-agents running on in the background, oldest first.
 func (t *Timeline) LastingAgents() []string {
 	t.mu.Lock()
@@ -449,7 +614,30 @@ func (t *Timeline) LastingAgents() []string {
 	return ids
 }
 
+// TaskOf is the task id of the call toolUseID, "" when it isn't a background task.
+func (t *Timeline) TaskOf(toolUseID string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for id, n := range t.tasks {
+		if t.items[n].Call.ToolUseID == toolUseID {
+			return id
+		}
+	}
+	return ""
+}
+
 // BackgroundAgents counts the sub-agents running on in the background past their turn whose end a turn waits for.
+// InBackground says whether id, a tool call's or a task's, names a call still running in the background.
+func (t *Timeline) InBackground(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n, ok := t.tasks[id]
+	if !ok {
+		n, ok = t.tools[id]
+	}
+	return ok && t.lasting[t.items[n].Call.ToolUseID] && t.items[n].Call.Status == "running"
+}
+
 func (t *Timeline) BackgroundAgents() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()

@@ -1,0 +1,13 @@
+{
+  "type": "agent.stream",
+  "agentId": "a1",
+  "epoch": 1,
+  "item": {
+    "kind": "user",
+    "id": "i1",
+    "seq": 1,
+    "ts": 10,
+    "origin": "wake",
+    "text": "Delegated task t1 reached a terminal state."
+  }
+}

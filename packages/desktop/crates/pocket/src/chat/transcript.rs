@@ -43,6 +43,8 @@ pub(crate) struct View {
     jump: bool,
     glide: Option<(Instant, Glide)>,
     seek: Option<(Instant, Seek)>,
+    /// How far a delegated session's breadcrumb covers the top of the list, which pads its rows to start below it.
+    pub(super) inset: f32,
     /// The prompt just sent, held at the top while its reply grows.
     pin: Option<Pin>,
     /// When the user last sent a prompt: its row rises into the chat.
@@ -70,6 +72,8 @@ pub(crate) struct View {
     pub(super) pointer: Entity<timeline::Pointer>,
     /// Whether the chat has shown what it opened with; text after that streams in.
     primed: bool,
+    /// Which deliveries arrived after it did.
+    arrivals: crate::delegated::Arrivals,
 }
 
 impl View {
@@ -79,7 +83,13 @@ impl View {
         let scrolled = Rc::new(Cell::new(None));
         list.set_scroll_handler({
             let scrolled = scrolled.clone();
-            move |e, _, _| scrolled.set(Some(!e.is_scrolled))
+            let (desktop, id) = (cx.weak_entity(), agent.to_string());
+            move |e, _, cx| {
+                scrolled.set(Some(!e.is_scrolled));
+                let (desktop, id) = (desktop.clone(), id.clone());
+                let away = e.is_scrolled;
+                cx.defer(move |cx| _ = desktop.update(cx, |d, cx| d.delegated_scrolled(&id, away, cx)));
+            }
         });
         let tools = cx.new(|_| Tools::default());
         let pointer = cx.new(|_| timeline::Pointer::default());
@@ -92,7 +102,7 @@ impl View {
                 view.remeasure_under_pin();
             }
         });
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, inset: 0., pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false, arrivals: Default::default() }
     }
 
     /// How far the list sits above its end.
@@ -142,7 +152,7 @@ impl View {
 
     /// The height the rows show in at the list's end, over the room padded under them.
     fn shown_at_end(&self) -> f32 {
-        f32::from(self.list.viewport_bounds().size.height) - pin::BOTTOM - self.pin.as_ref().map_or(0., |p| p.spacer)
+        f32::from(self.list.viewport_bounds().size.height) - self.inset - pin::BOTTOM - self.pin.as_ref().map_or(0., |p| p.spacer)
     }
 
     /// Keeps a row the user opened or shut where it shows while it eases to its height. Following its end, the list
@@ -177,7 +187,7 @@ impl View {
             self.pin = None;
             return;
         };
-        let viewport = f32::from(self.list.viewport_bounds().size.height);
+        let viewport = f32::from(self.list.viewport_bounds().size.height) - self.inset;
         let laid_out = self.list.laid_out(ix).then(|| f32::from(self.list.laid_out_height_from(ix)));
         let above = f32::from(self.list.laid_out_height_from(0) - self.list.laid_out_height_from(ix));
         let now = Instant::now();
@@ -243,6 +253,11 @@ impl View {
             if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
                 self.settled = Some((format!("{turn}#fold"), Instant::now()));
             }
+            let delivered = self.session.transcript.turns.iter().rev().take(2).flat_map(|t| &t.blocks).filter_map(|b| match b {
+                Block::Delivered(d) => Some(d.id.as_str()),
+                _ => None,
+            });
+            self.arrivals.observe(delivered, self.primed, Instant::now());
             self.pace(&before, Instant::now());
             self.list.remeasure_items(changed.clone());
             self.list.splice(range, count);
@@ -468,6 +483,11 @@ impl Desktop {
             let items = self.agents.timelines.get(id).map_or(&[][..], Vec::as_slice);
             released.extend(view.refresh(agent, self.agents.revision(id), items).into_iter().map(|(send, text)| (id.clone(), send, text)));
         }
+        for id in self.chats.views.keys().filter(|id| self.agents.holds_queue(id)).cloned().collect::<Vec<_>>() {
+            if self.agents.queues.ask(&id) {
+                self.outbox.queue_list(&id);
+            }
+        }
         for (id, send, text) in released {
             if let (Some(request), Some(v)) = (self.outbox.prompt(&id, &text), self.chats.views.get_mut(&id)) {
                 v.session.outgoing.sent_as(send, request);
@@ -479,6 +499,7 @@ impl Desktop {
     pub(super) fn transcript(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Some(agent) = self.summary(terminal) else { return div().flex_1() };
         let (id, agent) = (agent.id.clone(), agent.clone());
+        let inset = self.delegated_inset(&id);
         let items = self.agents.timelines.get(&id).map_or(&[][..], Vec::as_slice);
         let creates = &self.creates;
         let view = self.chats.views.entry(id.clone()).or_insert_with(|| {
@@ -489,6 +510,7 @@ impl Desktop {
             }
             v
         });
+        view.inset = inset;
         for (send, text) in view.refresh(&agent, self.agents.revision(&id), items) {
             if let Some(request) = self.outbox.prompt(&id, &text) {
                 view.session.outgoing.sent_as(send, request);
@@ -508,7 +530,7 @@ impl Desktop {
         let spacer = view.pin.as_ref().map_or(0., |p| p.spacer);
         let rows = {
             let id = id.clone();
-            list(view.list.clone(), cx.processor(move |this, ix, window, cx| this.chat_row(&id, ix, window, cx))).size_full().pt(px(pin::TOP)).pb(px(pin::BOTTOM + spacer))
+            list(view.list.clone(), cx.processor(move |this, ix, window, cx| this.chat_row(&id, ix, window, cx))).size_full().pt(px(pin::TOP + inset)).pb(px(pin::BOTTOM + spacer))
         };
         let pill = view.jump.then(|| {
             let id = id.clone();
@@ -525,6 +547,7 @@ impl Desktop {
         match markdown::target(link, cwd, &self.host_agents.home_of(cwd)) {
             markdown::Target::Web(url) if self.store.terminal.system_browser => cx.open_url(&url),
             markdown::Target::Web(url) => self.open_browser(Some(url), window, cx),
+            markdown::Target::Session(id) => self.delegated_open(&id, window, cx),
             markdown::Target::File(path) => self.chat_open_file(agent, path, cwd, window.mouse_position(), cx),
         }
     }
@@ -738,6 +761,7 @@ impl Desktop {
         let (provider, model) = self.agents.get(agent).map(|a| (a.provider.clone(), crate::status::model_or_agent(a))).unwrap_or_default();
         let ask = self.agents.pending.iter().find(|p| p.agent_id == agent).map(|p| !chat::for_provider(&provider).ask(p).questions.is_empty());
         let send_now = self.chat_caps(&provider).send_now;
+        let delegated_by = self.delegated_by(agent);
         let open: markdown::Open = {
             let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
             Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
@@ -779,7 +803,13 @@ impl Desktop {
         let mut highlight = None;
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
-                Some(p) => prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, window, cx),
+                Some(p) => {
+                    let bubble = prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, window, cx);
+                    match delegated_by.filter(|_| *turn == 0) {
+                        Some((by, label)) => div().flex().flex_col().items_end().gap(px(6.)).child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_4).child(provider_icon(&by, 11., TEXT_4)).child(label)).child(bubble),
+                        None => bubble,
+                    }
+                }
                 None => div(),
             },
             Row::Fold { turn } => {
@@ -895,6 +925,17 @@ impl Desktop {
                     let (agent, row) = (agent.to_string(), id.clone());
                     let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx));
                     question_marker::marker(&id, call, width, question_marker::Open { expanded: view.expanded.contains(&id), toggled, on_click }, window)
+                }
+                _ => div(),
+            },
+            Row::Delivery { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+                Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, view.arrivals.age(&d.id, Instant::now()), window, cx),
+                _ => div(),
+            },
+            Row::HostLink { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
+                Some(Block::HostLink { hint, reason, .. }) => {
+                    let linked = super::host_link::linked(hint, &self.fleet.hosts.list, &self.fleet.hosts.links);
+                    super::host_link::card(&id, hint, reason, linked, cx)
                 }
                 _ => div(),
             },

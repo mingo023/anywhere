@@ -15,12 +15,11 @@ func TestPhoneApprovesTool(t *testing.T) {
 				t.Fatalf("request: %s", req.Raw)
 			}
 			phone.Send(map[string]any{"type": "permission.resolve", "id": "r1", "requestId": req.Request.RequestID, "decision": decision})
-			phone.WaitFor("ack", func(m Message) bool { return m.Type == "ack" && m.ID == "r1" })
-			h.WaitScreen(term, "hook: "+decision)
 			status := map[string]string{"allow": "ok", "deny": "error"}[decision]
-			phone.WaitFor("tool "+status, func(m Message) bool {
+			phone.WaitAll("ack and tool "+status, func(m Message) bool { return m.Type == "ack" && m.ID == "r1" }, func(m Message) bool {
 				return m.Type == "agent.stream" && m.Item.Kind == "tool" && m.Item.Call.Status == status
 			})
+			h.WaitScreen(term, "hook: "+decision)
 		})
 	}
 }

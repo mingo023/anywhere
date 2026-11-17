@@ -195,7 +195,9 @@ func (x *codexChat) attach() {
 func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	pr := x.pr
 	x.s = codex.NewSession(pr.a.ID(), d.codexSink(pr), d.Broker)
-	x.s.Shown = saved != "" && d.moving(pr)
+	h := d.hintOf(pr)
+	stored := saved != "" && h != nil && !h.moved && h.a.Stored()
+	x.s.Shown = saved != "" && d.shows(pr)
 	ctx := pr.ctx
 	stop := context.AfterFunc(ctx, x.Close)
 	c, err := codex.Connect(ctx, x, x, map[string]any{"experimentalApi": true})
@@ -206,6 +208,11 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	method, params := "thread/start", map[string]any{"cwd": pr.t.Info().Cwd}
 	if saved != "" {
 		method, params = "thread/resume", map[string]any{"threadId": saved}
+	}
+	if d.MCPCodex != nil {
+		if config := d.MCPCodex(pr.t.Info().ID); config != nil {
+			params["config"] = config
+		}
 	}
 	res, err := c.Call(ctx, method, params)
 	if err != nil {
@@ -225,7 +232,7 @@ func (d *Daemon) chatCodex(x *codexChat, saved string) {
 	}
 	json.Unmarshal(res, &r)
 	thread := r.Thread.ID
-	if pr.a.Summary().ProviderSessionID == thread {
+	if pr.a.Summary().ProviderSessionID == thread && !stored {
 		pr.a.ClearTimeline()
 	}
 	pr.a.SetConversation(thread)
@@ -336,6 +343,12 @@ type codexGoal struct {
 
 func (g codexGoal) proto() proto.Goal {
 	return proto.Goal{Objective: g.Objective, Status: g.Status, TokensUsed: g.TokensUsed, TokenBudget: g.TokenBudget}
+}
+
+// Turnless says whether text is a /goal that only reads, pauses or clears the goal, which starts no turn.
+func (codexChatDriver) Turnless(text string) bool {
+	name, arg, ok := slashCommand(text)
+	return ok && name == "goal" && (arg == "" || arg == "pause" || arg == "clear")
 }
 
 // goal runs /goal arg: pause, resume and clear act on the goal, no arg

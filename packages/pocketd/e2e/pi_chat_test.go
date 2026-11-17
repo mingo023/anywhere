@@ -351,9 +351,13 @@ func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSess
 				t.Fatalf("%s restarted planning:\n%s", c.provider, screen)
 			}
 			// It refuses prompts until its new process is on the session.
+			turn := []func(Message) bool{streamOf(id, "assistant", "echo: build it"), workedThenDone(id)}
 			for try := 0; ; try++ {
 				phone.Send(map[string]any{"type": "agent.prompt", "id": fmt.Sprint("p", try), "agentId": id, "text": "build it"})
-				got := phone.WaitFor("the prompt taken", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try) })
+				got := phone.WaitFor("the prompt taken", func(m Message) bool {
+					turn = slices.DeleteFunc(turn, func(ok func(Message) bool) bool { return ok(m) })
+					return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try)
+				})
 				if got.Type == "ack" {
 					break
 				}
@@ -362,7 +366,9 @@ func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSess
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-			phone.WaitAll("the turn on its full tools", streamOf(id, "assistant", "echo: build it"), statusOf(id, "done"))
+			if len(turn) > 0 {
+				phone.WaitAll("the turn on its full tools", turn...)
+			}
 			want := []string{"user plan it", "assistant echo: plan it", "result", "user build it", "assistant echo: build it", "result"}
 			if got := history(phone, id); strings.Join(got, "|") != strings.Join(want, "|") {
 				t.Fatalf("got %q", got)
@@ -374,8 +380,8 @@ func TestAChatPiStartedPlanningLeavesPlanByRestartingOnItsFullToolsInTheSameSess
 			// It has left plan for good: the pocketd after this one resumes it on its full tools too.
 			h.Restart()
 
-			h.WaitScreen(term, "get_messages")
-			if screen := h.Screen(term); !strings.Contains(screen, resumed) || strings.Contains(screen, "--tools") {
+			h.WaitScreen(term, resumed)
+			if screen := h.Screen(term); strings.Contains(screen, "--tools") {
 				t.Fatalf("%s came back planning:\n%s", c.provider, screen)
 			}
 		})
@@ -507,7 +513,6 @@ func TestARestartResumesTheChatPiSessionAndShowsItsHistory(t *testing.T) {
 		return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Restore == "resumed" && m.Agent.ChatOnly
 	})
 	h.WaitScreen(term, "fake pi ready --session-id "+session+" --mode rpc")
-	h.WaitScreen(term, "get_messages")
 	// The history may be whole before this phone connects, so its stream is not waited on.
 	want := []string{"user run ls", "tool ls ok", "assistant echo: ran ls", "result", "user fail No credits left", "result No credits left"}
 	var got []string
@@ -519,6 +524,9 @@ func TestARestartResumesTheChatPiSessionAndShowsItsHistory(t *testing.T) {
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("got %q", got)
+	}
+	if strings.Contains(h.Screen(term), "get_messages") {
+		t.Fatal("pi's history was read again into the timeline the store kept")
 	}
 
 	again.Prompt(id, "after the restart")
@@ -534,7 +542,7 @@ func TestARestartBeforeTheFirstPromptBringsTheChatPiBackOnTheSameSession(t *test
 
 	h.Restart()
 
-	again := h.Owner()
+	again := resumedChat(h, id)
 	h.WaitScreen(term, "fake pi ready --session-id "+session+" --mode rpc")
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the first turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
@@ -676,7 +684,6 @@ func TestAChatOmpIsDrivenAsPiIsWithItsOwnFlagsAndEvents(t *testing.T) {
 
 	again := h.Owner()
 	h.WaitScreen(term, "fake omp ready --resume "+session+" --mode rpc")
-	h.WaitScreen(term, "get_messages")
 	replied := func(item string) bool { return strings.Contains(item, "echo: hello") }
 	var items []string
 	for range 50 {
@@ -710,4 +717,11 @@ func TestAChatOmpSwitchesFastForItsNextTurn(t *testing.T) {
 	if !strings.Contains(refused.Raw, "omp has no setting context") {
 		t.Fatalf("got %s", refused.Raw)
 	}
+}
+
+func TestAChatPiTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := chatPi(t, "pi", nil)
+	phone.Prompt(id, "delegate ls")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
+	storedAsLive(h, id)
 }

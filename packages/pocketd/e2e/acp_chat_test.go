@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 )
@@ -353,14 +355,13 @@ func TestARestartLoadsTheChatHermesSessionAndShowsItsHistory(t *testing.T) {
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
 }
 
-// OpenCode tells a sub-agent's work in the session as it runs, and its
-// history tells it only of the sub-agent's session loaded, prompt and all.
+// OpenCode tells a sub-agent's work in the session as it runs, and a restart
+// shows it as the store kept it, without loading the sub-agent's session.
 func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *testing.T) {
 	h, phone, _, id := chatACP(t, "opencode", nil, func(h *Harness) { h.resume = true })
 	phone.Prompt(id, "delegate ls")
 	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: delegated ls"), statusOf(id, "done"))
 	live := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> assistant did ls"}
-	loaded := []string{"user delegate ls", "tool task ok did ls", "assistant echo: delegated ls", "result", "> user ls", "> assistant did ls"}
 	settled := func(phone *Phone, want []string) []string {
 		var got []string
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -379,8 +380,76 @@ func TestAChatOpenCodeShowsItsSubAgentsWorkUnderTheTaskAlsoAfterARestart(t *test
 	}
 
 	h.Restart()
-	if got := settled(h.Owner(proto.CapSubagents), loaded); strings.Join(got, "|") != strings.Join(loaded, "|") {
+	if got := settled(h.Owner(proto.CapSubagents), live); strings.Join(got, "|") != strings.Join(live, "|") {
 		t.Fatalf("after the restart got %q", got)
+	}
+}
+
+// capabilitiesOf reads m, agentID's answer from orchestrator_capabilities, as each kind's models and efforts.
+func capabilitiesOf(agentID string, m Message) (models, efforts map[string][]string, ok bool) {
+	at := strings.Index(m.Item.Text, "{")
+	if m.Type != "agent.stream" || m.AgentID != agentID || m.Item.Kind != "assistant" || at < 0 {
+		return nil, nil, false
+	}
+	var caps struct {
+		Agents []struct {
+			ID      string   `json:"id"`
+			Models  []string `json:"models"`
+			Efforts []string `json:"efforts"`
+		} `json:"agents"`
+	}
+	if json.Unmarshal([]byte(m.Item.Text[at:]), &caps) != nil {
+		return nil, nil, false
+	}
+	models, efforts = map[string][]string{}, map[string][]string{}
+	for _, a := range caps.Agents {
+		models[a.ID], efforts[a.ID] = a.Models, a.Efforts
+	}
+	return models, efforts, true
+}
+
+// listsModels says whether m is agentID's answer from orchestrator_capabilities listing each kind's models as want has them.
+func listsModels(agentID string, want map[string][]string) func(Message) bool {
+	return func(m Message) bool {
+		got, _, ok := capabilitiesOf(agentID, m)
+		return ok && listsAll(got, want)
+	}
+}
+
+// listsEfforts is listsModels for efforts.
+func listsEfforts(agentID string, want map[string][]string) func(Message) bool {
+	return func(m Message) bool {
+		_, got, ok := capabilitiesOf(agentID, m)
+		return ok && listsAll(got, want)
+	}
+}
+
+func listsAll(got, want map[string][]string) bool {
+	for kind, list := range want {
+		if !slices.Equal(got[kind], list) {
+			return false
+		}
+	}
+	return true
+}
+
+func TestOrchestratorCapabilitiesListsTheModelsAChatHermesOpenedWith(t *testing.T) {
+	_, phone, _, id := chatACP(t, "hermes", nil)
+	phone.Prompt(id, "mcp orchestrator_capabilities {}")
+	phone.WaitFor("hermes's models", listsModels(id, map[string][]string{"hermes": {"fake-model", "fake/other"}}))
+}
+
+// Claude, Codex and Pi list their models, and Codex its efforts, with no session of theirs open, and no client to push a list.
+func TestOrchestratorCapabilitiesListsWhatClaudeCodexAndPiListWithNoSessionOfTheirs(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil)
+	phone.Prompt(id, "mcp orchestrator_capabilities {}")
+	phone.WaitFor("each CLI's models", listsModels(id, map[string][]string{
+		"claude": {"fake-claude-opus"}, "codex": {"fake-codex-sol", "fake-codex-luna"}, "pi": {"fake/model", "fake/other"},
+	}))
+	phone.Prompt(id, "mcp orchestrator_capabilities {}")
+	phone.WaitFor("codex's efforts", listsEfforts(id, map[string][]string{"codex": {"low", "medium", "high", "ultra"}, "claude": {"low", "medium", "high", "xhigh", "max"}}))
+	if written, _ := filepath.Glob(filepath.Join(h.ClaudeDir, "projects", "*", "*.jsonl")); len(written) > 0 {
+		t.Fatalf("asking claude wrote a session: %q", written)
 	}
 }
 
@@ -410,6 +479,53 @@ func TestAChatHermesShowsItsSubAgentsTranscriptUnderTheDelegationAlsoAfterAResta
 
 	h.Restart()
 	if got := settled(h.Owner(proto.CapSubagents)); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("after the restart got %q", got)
+	}
+}
+
+// A Hermes sub-agent that wrote more and ended while no pocketd ran shows that once, and ends its call, after a restart.
+func TestAChatHermesSubAgentThatEndedWhilePocketdWasDownShowsItsEndOnceAfterARestart(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "delegate await g1")
+	shows := func(phone *Phone, want []string) []string {
+		var got []string
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			lines := withSubAgents(phone, id)
+			got = slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return strings.HasPrefix(l, "> ") })
+			got = append(got, slices.DeleteFunc(lines, func(l string) bool { return !strings.HasPrefix(l, "> ") })...)
+			if strings.Join(got, "|") == strings.Join(want, "|") {
+				break
+			}
+		}
+		return got
+	}
+	before := []string{"user delegate await g1", "tool task running", "assistant echo: delegated await g1", "result", "> user await g1", "> tool shell running"}
+	if got := shows(h.Owner(proto.CapSubagents), before); strings.Join(got, "|") != strings.Join(before, "|") {
+		t.Fatalf("before the restart got %q", got)
+	}
+
+	if code := h.Stop(syscall.SIGTERM); code != 0 {
+		t.Fatalf("pocketd exited %d", code)
+	}
+	logs, _ := filepath.Glob(filepath.Join(h.Home, ".acp-fake", "deleg_*", "task-0.log"))
+	if len(logs) != 1 {
+		t.Fatalf("transcripts: %q", logs)
+	}
+	f, err := os.OpenFile(logs[0], os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprint(f, "12:00:01 result   | terminal ok 0.1s: await g1\n12:00:02 assistant| did await g1\n"+
+		"12:00:02 final    | status=completed duration=2s summary: did await g1\n12:00:02 final    | end status=completed\n")
+	f.Close()
+	manifest := `{"completed":"2026-11-11 12:00:02","tasks":[{"index":0,"status":"completed"}]}`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(logs[0]), "manifest.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.up()
+
+	after := []string{"user delegate await g1", "tool task ok did await g1", "assistant echo: delegated await g1", "result", "> user await g1", "> tool shell ok await g1", "> assistant did await g1"}
+	if got := shows(h.Owner(proto.CapSubagents), after); strings.Join(got, "|") != strings.Join(after, "|") {
 		t.Fatalf("after the restart got %q", got)
 	}
 }
@@ -550,9 +666,13 @@ func TestAChatGrokLeavesPlanAndSwitchesFullAccessByRestartingOnItsSession(t *tes
 		h.WaitScreen(term, c.argv)
 		h.WaitScreen(term, "load: ")
 	}
+	turn := []func(Message) bool{streamOf(id, "assistant", "echo: build it"), workedThenDone(id)}
 	for try := 0; ; try++ {
 		phone.Send(map[string]any{"type": "agent.prompt", "id": fmt.Sprint("p", try), "agentId": id, "text": "build it"})
-		got := phone.WaitFor("the prompt taken", func(m Message) bool { return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try) })
+		got := phone.WaitFor("the prompt taken", func(m Message) bool {
+			turn = slices.DeleteFunc(turn, func(ok func(Message) bool) bool { return ok(m) })
+			return (m.Type == "error" || m.Type == "ack") && m.ID == fmt.Sprint("p", try)
+		})
 		if got.Type == "ack" {
 			break
 		}
@@ -561,7 +681,9 @@ func TestAChatGrokLeavesPlanAndSwitchesFullAccessByRestartingOnItsSession(t *tes
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	phone.WaitAll("the turn on its session", streamOf(id, "assistant", "echo: build it"), statusOf(id, "done"))
+	if len(turn) > 0 {
+		phone.WaitAll("the turn on its session", turn...)
+	}
 	if got := timelineOf(phone, id); !slices.Contains(got, "user plan it") {
 		t.Fatalf("the session was not the same: %q", got)
 	}
@@ -691,4 +813,56 @@ func TestARestartWhileOpenCodeAsksLeavesNoCallRunning(t *testing.T) {
 	}
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
+}
+
+// delivered adds a delivery row to id's stored timeline while pocketd is
+// down, as delegating would: the fake ACP agent takes no MCP server.
+func delivered(t *testing.T, home, id string) {
+	t.Helper()
+	store, err := orch.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var seq, epoch int64
+	store.DB().QueryRow(`SELECT COALESCE(MAX(seq), 0), COALESCE(MAX(epoch), 0) FROM items WHERE session_id = ?`, id).Scan(&seq, &epoch)
+	it := proto.Item{ID: "delivery-1", Seq: seq + 1, Ts: time.Now().UnixMilli(), Kind: "delivery",
+		Delivery: &proto.Delivery{TaskIDs: []string{"t1"}, ChildIDs: []string{"c1"}, Titles: []string{"Hi"}, Agents: []string{"codex"}, Outcome: "done"}}
+	body, _ := json.Marshal(it)
+	if _, err := store.DB().Exec(`INSERT INTO items (session_id, item_id, seq, epoch, kind, body, ts) VALUES (?, ?, ?, ?, ?, ?, ?)`, id, it.ID, it.Seq, epoch, it.Kind, body, it.Ts); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnACPParentsDeliveryRowSurvivesARestart(t *testing.T) {
+	h, phone, term, id := chatACP(t, "hermes", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "hello")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), statusOf(id, "done"))
+	want := append(timelineOf(phone, id), "delivery")
+	h.Stop(syscall.SIGTERM)
+	delivered(t, h.Home, id)
+
+	h.up()
+
+	again := resumedChat(h, id)
+	h.WaitScreen(term, "load: ")
+	var got []string
+	for range 30 {
+		if got = timelineOf(again, id); slices.Equal(got, want) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	again.Prompt(id, "after the restart")
+	again.WaitAll("the next turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
+}
+
+func TestAChatACPTurnIsStoredAsItsTimelineShowsIt(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil)
+	phone.Prompt(id, "think hello")
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), statusOf(id, "done"))
+	storedAsLive(h, id)
 }

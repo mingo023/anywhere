@@ -10,14 +10,13 @@ import (
 const receiptTTL = 10 * time.Minute
 
 type receipt[T any] struct {
-	hash     [32]byte
-	done     chan struct{}
-	creating Creating
-	result   T
-	at       time.Time
+	hash   [32]byte
+	done   chan struct{}
+	result T
+	at     time.Time
 }
 
-// receipts holds each create's outcome, T, under its requester's request id.
+// receipts holds each worktree.create's outcome, T, under its requester's request id.
 type receipts[T any] struct {
 	mu  sync.Mutex
 	now func() time.Time
@@ -52,12 +51,6 @@ func (r *receipts[T]) take(key string, spec any) (*receipt[T], bool) {
 	return x, true
 }
 
-func (r *receipts[T]) creating(x *receipt[T], c Creating) {
-	r.mu.Lock()
-	x.creating = c
-	r.mu.Unlock()
-}
-
 func (r *receipts[T]) finish(x *receipt[T], res T) {
 	r.mu.Lock()
 	x.result, x.at = res, r.now()
@@ -65,20 +58,8 @@ func (r *receipts[T]) finish(x *receipt[T], res T) {
 	close(x.done)
 }
 
-func (r *receipts[T]) outcome(x *receipt[T]) (Creating, T) {
+func (r *receipts[T]) outcome(x *receipt[T]) T {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return x.creating, x.result
-}
-
-// inFlight reports whether a create hasn't finished.
-func (r *receipts[T]) inFlight() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, x := range r.m {
-		if x.at.IsZero() {
-			return true
-		}
-	}
-	return false
+	return x.result
 }

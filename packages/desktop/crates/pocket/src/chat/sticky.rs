@@ -95,6 +95,17 @@ fn pushed(bottom: f32, next: Option<f32>) -> f32 {
     next.map_or(0., |next| (next - bottom).min(0.))
 }
 
+/// Where a card starts, `shift` px pushed up: under the breadcrumb of a delegated session, which a card slides out
+/// beneath, rather than behind it.
+fn card_top(inset: f32, shift: f32) -> f32 {
+    inset + MARGIN_TOP + shift
+}
+
+/// How far down the transcript isn't painted: down to the card's bottom, which is `bottom` + `shift` under the list's top.
+fn covered(inset: f32, bottom: f32, shift: f32) -> f32 {
+    inset + bottom + shift
+}
+
 /// How much of its shadow a card keeps when pushed `shift` px up: it settles onto the next bubble over the first
 /// `SETTLE` px, so the shadow doesn't darken that bubble.
 fn lift(shift: f32) -> f32 {
@@ -166,6 +177,7 @@ fn card(
     long: bool,
     open: bool,
     max: f32,
+    inset: f32,
     top: f32,
     cover: f32,
     enter: bool,
@@ -243,7 +255,7 @@ fn card(
     } else {
         card.into_any_element()
     };
-    let card = div().absolute().top(px(MARGIN_TOP + top)).left_0().right_0().px(px(SIDE)).flex().justify_center().child(card);
+    let card = div().absolute().top(px(card_top(inset, top))).left_0().right_0().px(px(SIDE)).flex().justify_center().child(card);
     // The transcript isn't painted under `cover`, so its rows there take no clicks or hover either; the wheel still
     // scrolls them.
     let cover = div().absolute().top_0().left_0().right_0().h(px(cover)).block_mouse_except_scroll();
@@ -300,8 +312,8 @@ impl Desktop {
             let (agent, row) = (agent.to_string(), id.clone());
             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_sticky(&agent, &row, cx))
         };
-        let cover = bottom + shift;
-        Some((card(&id, text, &images, files.len(), elements.len(), time, long, open, max, shift, cover, !cx.reduce_motion(), on_jump, on_more), cover))
+        let cover = covered(view.inset, bottom, shift);
+        Some((card(&id, text, &images, files.len(), elements.len(), time, long, open, max, view.inset, shift, cover, !cx.reduce_motion(), on_jump, on_more), cover))
     }
 
     fn chat_toggle_sticky(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
@@ -313,7 +325,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{HEIGHT, KNOB, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, attached_count, height, lift, next_prompt, one_line, pushed, stuck, top_at_end};
+    use super::{HEIGHT, KNOB, MARGIN_TOP, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, attached_count, height, lift, next_prompt, one_line, pushed, stuck, top_at_end, card_top, covered};
     use chat::Row;
 
     fn rows() -> Vec<Row> {
@@ -393,5 +405,13 @@ mod tests {
         assert_eq!(attached_count(0, 1, 0), "1 file");
         assert_eq!(attached_count(2, 3, 0), "2 images, 3 files");
         assert_eq!(attached_count(0, 0, 2), "2 elements");
+    }
+
+    #[test]
+    fn a_pinned_prompt_under_a_breadcrumb_starts_below_it_and_slides_out_beneath_it() {
+        assert_eq!([card_top(0., 0.), card_top(48., 0.)], [MARGIN_TOP, 48. + MARGIN_TOP]);
+        let bottom = MARGIN_TOP + HEIGHT;
+        assert!(card_top(48., -bottom) + HEIGHT <= 48., "pushed out, it ends under the breadcrumb");
+        assert_eq!([covered(0., bottom, 0.), covered(48., bottom, 0.), covered(48., bottom, -10.)], [bottom, 48. + bottom, 48. + bottom - 10.]);
     }
 }

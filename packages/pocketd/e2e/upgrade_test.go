@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -167,4 +168,54 @@ func TestReplacingTheBinaryUpgradesPocketd(t *testing.T) {
 		t.Fatal("the shell died")
 	}
 	h.countsPast(id, last[len(last)-1]+5)
+}
+
+func TestAnUpgradeKeepsTheTranscriptLinesWrittenWhilePocketdWasNotTailing(t *testing.T) {
+	h := Start(t, ownBinary)
+	phone := h.Phone()
+	term := h.SpawnReady("claude")
+	id := phone.WaitFor("the claude's agent", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.TerminalID == term && m.Agent.ProviderSessionID != ""
+	}).Agent.ID
+	phone.Prompt(id, "hang")
+	phone.WaitFor("the turn under way", streamOf(id, "user", "hang"))
+	transcripts, _ := filepath.Glob(filepath.Join(h.ClaudeDir, "projects", "*", "*.jsonl"))
+	if len(transcripts) != 1 {
+		t.Fatalf("transcripts %q", transcripts)
+	}
+	line := filepath.Join(h.Home, "line.jsonl")
+	os.WriteFile(line, []byte(`{"type":"assistant","uuid":"u-gap","message":{"id":"msg_gap","role":"assistant","model":"fake-model","content":[{"type":"text","text":"written between the two"}]}}`+"\n"), 0o600)
+	// The next pocketd's exec is the one moment no pocketd tails the transcript.
+	wrapper := filepath.Join(h.Home, "wrapper")
+	os.WriteFile(wrapper, []byte(fmt.Sprintf("#!/bin/sh\n[ \"$1\" = serve ] && cat '%s' >> '%s'\nexec '%s' \"$@\"\n", line, transcripts[0], filepath.Join(binDir, "pocketd-next"))), 0o755)
+
+	h.replaceBinary(wrapper)
+
+	h.eventually("pocketd e2e-next", func() bool { return h.Status().Version == "e2e-next" })
+	again := h.Phone()
+	h.eventually("the line in the timeline", func() bool {
+		return slices.Contains(timelineOf(again, id), "assistant written between the two")
+	})
+	if got := timelineOf(again, id); !slices.Equal(got, []string{"user hang", "assistant written between the two"}) {
+		t.Fatalf("timeline %q", got)
+	}
+}
+
+func TestAFailedUpgradeGoesOnFollowingTheClaudeTranscript(t *testing.T) {
+	h := Start(t, ownBinary)
+	phone := h.Phone()
+	term := h.SpawnReady("claude")
+	id := phone.WaitFor("the claude's agent", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.TerminalID == term && m.Agent.ProviderSessionID != ""
+	}).Agent.ID
+	bad := filepath.Join(t.TempDir(), "pocketd")
+	os.WriteFile(bad, []byte("#!/bin/sh\n[ \"$1\" = --version ] && echo 'pocketd v-bad' && exit 0\nexit 1\n"), 0o755)
+	h.replaceBinary(bad)
+	if out, code := h.Pocketd("upgrade"); code == 0 {
+		t.Fatalf("upgrade exited 0: %s", out)
+	}
+
+	phone.Prompt(id, "hello")
+
+	phone.WaitFor("the reply", streamOf(id, "assistant", "echo: hello"))
 }

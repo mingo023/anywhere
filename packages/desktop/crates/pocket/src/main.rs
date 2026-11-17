@@ -12,6 +12,7 @@ mod capture;
 mod chat;
 mod composer;
 mod creating;
+mod delegated;
 mod desktop;
 mod explorer;
 mod field;
@@ -42,7 +43,7 @@ mod updates;
 mod util;
 
 use crate::desktop::geometry::{self, MIN_WINDOW};
-use crate::desktop::{Desktop, follow_reduce_motion};
+use crate::desktop::{Desktop, follow_reduce_motion, follow_reduce_transparency};
 use daemon::Daemon;
 use futures::StreamExt;
 use gpui_kit::component::Root;
@@ -88,6 +89,7 @@ fn main() {
         theme::set_accent(store.appearance.accent, cx);
         syntax::init();
         follow_reduce_motion(store.appearance.reduce_motion, cx);
+        follow_reduce_transparency(cx);
         cx.bind_keys(actions::keymap(&store.keys));
         cx.bind_keys(keys::bindings());
         cx.on_action(|_: &actions::Quit, cx| cx.quit());
@@ -173,7 +175,6 @@ fn main() {
                 let mut desktop = Desktop::new(daemon, hosts::session::Outboxes::new(outbox), store, themes::Themes::new(custom), window, cx);
                 desktop.list_worktrees(cx);
                 if !capturing {
-                    desktop.connect_hosts(window, cx);
                     desktop.load_models(cx);
                 }
                 desktop

@@ -32,13 +32,38 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 254] = [
+const STEPS: [(&str, Step); 269] = [
     ("session", session),
-    ("chat", |d, window, cx| {
-        session(d, window, cx);
-        if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
-            d.store.chats.insert(t.clone());
-            d.focus_chat_or_terminal(t, window, cx);
+    ("chat", chat_session),
+    ("delegate", |d, window, cx| {
+        chat_session(d, window, cx);
+        fixture(d, "delegate");
+    }),
+    ("delegate-panel", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, true, cx);
+        }
+    }),
+    ("delegate-capsule", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, false, cx);
+        }
+    }),
+    ("delegate-push-mid", |d, window, cx| {
+        let Some(child) = d.agents.list.iter().find(|a| crate::status::is_child(a)).map(|a| a.id.clone()) else { return };
+        d.delegated_open(&child, window, cx);
+        d.delegated_hold_push(120, cx.reduce_motion());
+    }),
+    ("delegate-back-mid", |d, window, cx| {
+        if d.delegated_back(window, cx) {
+            d.delegated_hold_push(120, cx.reduce_motion());
+        }
+    }),
+    ("reduce-motion", |_, _, cx| cx.set_reduce_motion(true)),
+    ("delegate-solid", |d, _, cx| {
+        cx.set_global(crate::desktop::ReduceTransparency(true));
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.delegated_set_open(&agent, true, cx);
         }
     }),
     ("compose", |d, window, cx| d.new_session(Some("Fix the flaky parser test".into()), true, window, cx)),
@@ -262,6 +287,17 @@ const STEPS: [(&str, Step); 254] = [
     ("chat-sent", |d, _, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
             d.chat_command(&agent, Command::Send("Now run the parser tests".into()), cx);
+        }
+    }),
+    ("chat-turn", |d, _, _| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.outbox.prompt(&agent, "Walk through the fold once more");
+        }
+    }),
+    ("chat-queue-pocketd", |d, _, cx| {
+        if let Some(agent) = d.session().map(str::to_string) {
+            d.chat_command(&agent, Command::Send("Also fix the lint warnings".into()), cx);
+            d.chat_command(&agent, Command::Send("Then run the parser tests".into()), cx);
         }
     }),
     // Queues a send as the composer does while the agent works, without the fixture echoing it.
@@ -518,6 +554,9 @@ const STEPS: [(&str, Step); 254] = [
         d.edit_automation(first.as_deref(), window, cx);
     }),
     ("automations-new", |d, window, cx| d.edit_automation(None, window, cx)),
+    ("automations-webhook", |d, _, _| d.automations.selected = Some("au5".into())),
+    ("automations-closed-creator", |d, _, _| d.automations.selected = Some("au6".into())),
+    ("automations-webhook-editor", |d, window, cx| d.edit_automation(Some("au5"), window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
     ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
     ("settings-notifications", |d, _, _| d.settings.section = Section::Notifications),
@@ -527,46 +566,38 @@ const STEPS: [(&str, Step); 254] = [
     ("settings-automations", |d, _, _| d.settings.section = Section::Automations),
     ("settings-phone", |d, _, _| d.settings.section = Section::Phone),
     ("settings-hosts", |d, _, _| d.settings.section = Section::Hosts),
-    ("hosts-sample", |d, _, _| {
-        let devbox = hosts::Host::new(hosts::Target::Alias { name: "devbox".into() }, &[]);
-        let gpu = hosts::Host::new(hosts::Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None }, &[]);
-        d.fleet.links.0.insert(devbox.id.clone(), hosts::link::Link::Online { version: "1.4.2".into(), uptime: 3 * 86_400 });
-        d.fleet.links.0.insert(gpu.id.clone(), hosts::link::Link::Retrying(hosts::ssh::Failure::NotRunning));
-        d.store.hosts = vec![devbox, gpu];
-    }),
     // The real host the remote hosts e2e runs against; see `.ui-review/remote-hosts/`.
-    ("vm", |d, window, cx| {
+    ("vm", |d, _, _| {
         let target = hosts::Target::Address { addr: "127.0.0.1".into(), port: 2222, user: "mingo".into(), key_file: Some("/tmp/anywhere-e2e/id_ed25519".into()) };
-        if !d.store.hosts.iter().any(|h| h.target == target) {
-            d.store.hosts.push(hosts::Host::new(target, &[]));
-            d.connect_hosts(window, cx);
+        if !d.fleet.hosts.list.iter().any(|h| h.target == target) {
+            d.outbox.local.host_add(&target);
         }
     }),
     ("wait", |_, _, _| {}),
     ("vm-install", |d, _, cx| {
-        if let Some(id) = d.store.hosts.first().map(|h| h.id.clone()) {
+        if let Some(id) = d.fleet.hosts.list.first().map(|h| h.id.clone()) {
             d.install_host(&id, false, cx);
         }
     }),
     ("vm-update", |d, _, _| {
-        if let Some(h) = d.store.hosts.first() {
+        if let Some(h) = d.fleet.hosts.list.first() {
             (d.confirm, d.overlay) = (Some(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false }), Some(Overlay::Confirm));
         }
     }),
     ("vm-remove", |d, _, _| {
-        if let Some(h) = d.store.hosts.first() {
+        if let Some(h) = d.fleet.hosts.list.first() {
             (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: h.id.clone(), name: h.name.clone() }), Some(Overlay::Confirm));
         }
     }),
     ("vm-uninstall", |d, _, cx| {
-        if let Some(id) = d.store.hosts.first().map(|h| h.id.clone()) {
+        if let Some(id) = d.fleet.hosts.list.first().map(|h| h.id.clone()) {
             d.remove_host(&id, true, cx);
         }
     }),
     ("vm-add", |d, window, cx| {
         d.open(Overlay::AddRepo, window, cx);
         d.set_repo_source(crate::modals::add_project::Source::Host);
-        if let Some(h) = d.store.hosts.first() {
+        if let Some(h) = d.fleet.hosts.list.first() {
             d.browse_host(h.id.clone(), window, cx);
         }
     }),
@@ -599,11 +630,11 @@ const STEPS: [(&str, Step); 254] = [
         (d.fleet.form.open, d.fleet.form.suggestions) = (true, vec!["devbox".into(), "gpu-box".into(), "nas".into()]);
         d.fleet.form.error = Some("Enter the host's address or name".into());
     }),
-    ("hosts-password", |d, window, cx| {
-        d.fleet.links.0.insert("10-0-4-12".into(), hosts::link::Link::Failed(hosts::ssh::Failure::Auth));
-        d.open_password("10-0-4-12".into(), window, cx);
-        d.fleet.password.error = Some(crate::fleet::sign_in_error(hosts::ssh::Failure::Auth, "10.0.4.12", false));
-    }),
+    ("hosts-retry", |d, _, _| d.retry_host("10-0-4-12")),
+    ("hosts-password", |d, window, cx| d.open_password("10-0-4-12".into(), window, cx)),
+    ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
+    ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
+    ("host-link-add", |d, window, cx| d.link_host("vps".into(), window, cx)),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
     ("hosts-remove", |d, _, _| {
         let name = "devbox".to_string();
@@ -1168,6 +1199,14 @@ fn session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     }
 }
 
+fn chat_session(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    session(d, window, cx);
+    if let Some(Tab::Term(t)) = d.pane_tab(d.focused_pane()) {
+        d.store.chats.insert(t.clone());
+        d.focus_chat_or_terminal(t, window, cx);
+    }
+}
+
 fn is_call(b: &Block) -> bool {
     matches!(b, Block::Tool(c) if !matches!(c.kind, ToolKind::Agent(_)))
 }
@@ -1355,6 +1394,8 @@ fn holding() -> bool {
 }
 
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
+    cx.set_reduce_motion(false);
+    d.delegated.clock = None;
     d.cancel_chat(window, cx);
     d.store.chats.clear();
     d.set_chat_text("", window, cx);

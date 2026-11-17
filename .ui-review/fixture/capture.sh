@@ -16,7 +16,7 @@ for spec in "$@"; do
     restore-*) scenario=restored ;;
     agents-chat*) scenario=agents-chat ;;
     agents*) scenario=agents ;;
-    chat*) scenario=chat ;;
+    chat*|delegate*) scenario=chat ;;
     card|drawer) scenario=activity ;;
     *) scenario=sessions ;;
   esac
@@ -29,6 +29,7 @@ for spec in "$@"; do
   # Local 14:00, so the design's "Earlier today" group holds whatever hour the capture runs.
   h=$(date -u +%H)
   tz="FXT$(( 12 - (50 - 10#$h) % 24 ))"
-  TZ=$tz HOME="$fx/home" POCKET_HOME="$fx/pocket" "$root/packages/desktop/target/release/pocket-desktop" --capture "$out" "$spec"
+  # The Add host form's username placeholder is $USER.
+  TZ=$tz HOME="$fx/home" POCKET_HOME="$fx/pocket" USER=dev "$root/packages/desktop/target/release/pocket-desktop" --capture "$out" "$spec"
   kill $pid
 done

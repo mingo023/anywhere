@@ -36,8 +36,9 @@ func (x *piChat) driver(c termDriver) agent.Driver {
 func (x *piChat) attach() {
 	pr := x.pr
 	h := x.d.hintOf(pr)
-	x.s.Shown = h != nil && h.moved
-	if h != nil && !h.moved {
+	// Only pi's history tells which calls a turn cut short left open, so that one is read again.
+	x.s.Shown = x.d.shows(pr) && !midTurn(h.saved.Status)
+	if h != nil && !x.s.Shown {
 		// The session reads pi's history, so the timeline starts over.
 		pr.a.ClearTimeline()
 	}

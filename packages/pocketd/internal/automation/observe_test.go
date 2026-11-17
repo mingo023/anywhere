@@ -30,6 +30,7 @@ func TestStepMapsWhatTheAgentDoesToTheRunsStatus(t *testing.T) {
 		{"absent agent", "running", Seen{}, false, true, "cancelled", "Session closed"},
 		{"absent while waiting", "waiting", Seen{}, false, true, "cancelled", "Session closed"},
 		{"closed agent", "running", Seen{Status: "closed"}, true, true, "cancelled", "Session closed"},
+		{"queued message removed", "running", Seen{Cancel: "Its queued message was removed"}, true, true, "cancelled", "Its queued message was removed"},
 		{"absent agent of a finished run", "succeeded", Seen{}, false, true, "succeeded", ""},
 	} {
 		got, _ := Step(proto.Run{Status: c.from}, c.seen, c.present, c.worked)
@@ -80,5 +81,18 @@ func TestAnswerIsAReplyAfterThePrompt(t *testing.T) {
 		if got := Answered(items); got != want {
 			t.Errorf("%s: %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestStepKeepsARunGoingWhileTheSessionsEarlierTurnLooksDone(t *testing.T) {
+	for _, status := range []string{"done", "idle"} {
+		got, _ := Step(proto.Run{Status: "running"}, Seen{Status: status, Summary: "Old.", Answered: true, Before: true}, true, true)
+		if got.Status != "running" || got.Summary != "" {
+			t.Errorf("%s before its own turn ended: %+v", status, got)
+		}
+	}
+	got, _ := Step(proto.Run{Status: "running"}, Seen{Status: "done", Summary: "New."}, true, true)
+	if got.Status != "succeeded" || got.Summary != "New." {
+		t.Fatalf("%+v", got)
 	}
 }

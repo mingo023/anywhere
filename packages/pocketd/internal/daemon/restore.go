@@ -14,6 +14,7 @@ import (
 	"pocketd/internal/agent"
 	"pocketd/internal/handoff"
 	"pocketd/internal/proto"
+	"pocketd/internal/providers"
 	"pocketd/internal/shellenv"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
@@ -41,6 +42,7 @@ type hint struct {
 	settled bool // finish has returned: the agent shows how its restore went
 	timer   *time.Timer
 	handoff bool   // handed down by the pocketd before exec; its agent never stopped
+	read    int64  // how far a handed-down agent's transcript is in its timeline
 	moved   bool   // a switch restarted the agent on another account; it stayed listed throughout
 	resend  string // the prompt a moved agent sends once it settles
 }
@@ -152,12 +154,16 @@ func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, c
 	x := agent.Restored{ID: e.AgentID, Cwd: e.LaunchDir, Provider: e.Provider, Conversation: e.ConversationID,
 		Origin: e.Origin, Fallback: filepath.Base(e.LaunchDir), CreatedAt: e.CreatedAt, Done: e.Status == "done", Failed: e.Failed, Pinned: e.Pinned, Account: e.Account, ChatOnly: e.Chat}
 	if carried != nil {
-		x.Named, x.Phase, x.Epoch, x.Seq = carried.Named, carried.Phase, carried.Epoch, carried.Seq
+		x.Named, x.Phase, x.Epoch, x.Seq, x.Background = carried.Named, carried.Phase, carried.Epoch, carried.Seq, carried.Background
+		h.read = carried.Read
 	}
 	if t != nil {
 		x.Terminal = t.Info().ID
 	}
 	h.a = d.Agents.Restore(x, d.waiting(h))
+	if carried == nil && (e.Provider == providers.Claude.ID || e.Provider == providers.Codex.ID) && h.a.Stored() {
+		h.a.EndRunning()
+	}
 	d.mu.Lock()
 	if d.restoring == nil {
 		d.restoring = map[string]*hint{}
@@ -215,10 +221,11 @@ func (d *Daemon) hintOf(pr *presence) *hint {
 	return nil
 }
 
-// moving is whether pr is a switch's new process, whose agent kept its timeline.
-func (d *Daemon) moving(pr *presence) bool {
+// shows is whether pr's agent already shows its conversation, so it isn't read
+// again: a switch moved it, or its restore took it from the store.
+func (d *Daemon) shows(pr *presence) bool {
 	h := d.hintOf(pr)
-	return h != nil && h.moved
+	return h != nil && (h.moved || h.a.Stored())
 }
 
 // resumed settles pr's hint once pr is on the Conversation it was saved with.

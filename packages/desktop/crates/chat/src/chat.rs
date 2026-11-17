@@ -60,6 +60,37 @@ pub enum Block {
     Compacted { id: String, auto: bool },
     /// Why the agent went on without a prompt, as "Stop hook: tests fail", or an `error` it went on after.
     Notice { message: Message, error: bool },
+    /// What pocketd told the chat of the sessions it delegated to.
+    Delivered(Delivered),
+    /// An agent asks the user to add a host, `hint` naming it.
+    HostLink { id: String, hint: String, reason: String },
+}
+
+/// One delivery: how the sessions in it ended, or what one asks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Delivered {
+    pub id: String,
+    pub outcome: Outcome,
+    /// What a session asks, for `Outcome::Asks`.
+    pub question: String,
+    pub children: Vec<Child>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Done,
+    Failed,
+    Asks,
+}
+
+/// A delegated session a delivery speaks of.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Child {
+    /// Its agent id, which opens it.
+    pub id: String,
+    pub title: String,
+    /// Its provider.
+    pub agent: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]

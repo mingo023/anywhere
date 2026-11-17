@@ -157,10 +157,14 @@ pub(super) type Open = Arc<dyn Fn(&str, &mut Window, &mut App) + Send + Sync>;
 pub(super) enum Target {
     Web(String),
     File(String),
+    Session(String),
 }
 
 /// A URL opens on the web; anything else is a file on the machine holding `cwd`, under `cwd` unless absolute or under `home` as `~`, without its `:line:col` or `#L` suffix.
 pub(super) fn target(link: &str, cwd: &str, home: &str) -> Target {
+    if let Some(id) = crate::delegated::session_link(link) {
+        return Target::Session(id.to_string());
+    }
     if link.contains("://") && !link.starts_with("file://") {
         return Target::Web(link.to_string());
     }
@@ -358,6 +362,12 @@ mod tests {
         assert_eq!(target("src/a.rs:42:7", "/r", "/h"), Target::File("/r/src/a.rs".into()));
         assert_eq!(target("a.rs#L42", "/r", "/h"), Target::File("/r/a.rs".into()));
         assert_eq!(target("file:///etc/hosts", "/r", "/h"), Target::File("/etc/hosts".into()));
+    }
+
+    #[test]
+    fn an_anywhere_session_link_opens_that_session() {
+        assert_eq!(target("anywhere://session/a2", "/r", "/h"), Target::Session("a2".into()));
+        assert_eq!(target("anywhere://pair?v=1", "/r", "/h"), Target::Web("anywhere://pair?v=1".into()));
     }
 
     #[test]

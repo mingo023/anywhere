@@ -6,6 +6,7 @@ import (
 
 	"pocketd/internal/acp"
 	"pocketd/internal/agent"
+	"pocketd/internal/proto"
 	"pocketd/internal/providers"
 	"pocketd/internal/state"
 )
@@ -28,6 +29,14 @@ func newACPChat(d *Daemon, pr *presence) pipeChat {
 // driver makes the session too: it is the first to know the agent.
 func (x *acpChat) driver(c termDriver) agent.Driver {
 	x.s = acp.NewSession(c.a.ID(), x.pr.provider, chatSink{x.d, x.pr, c.a}, x.d.Broker)
+	x.s.Showing = func() []proto.Item {
+		items, _ := c.a.Timeline.PageWithSubagents(0, 1<<20)
+		return items
+	}
+	if x.d.MCPServers != nil {
+		term := x.pr.t.Info().ID
+		x.s.MCP = func() []any { return x.d.MCPServers(term) }
+	}
 	return acpDriver{pipeDriver{c, x.d, x.s}, x}
 }
 
@@ -37,6 +46,7 @@ func (x *acpChat) attach() {
 	saved, left := "", acp.Ended
 	if h := x.d.hintOf(pr); h != nil {
 		saved = h.saved.ConversationID
+		x.s.Shown = !h.moved && h.a.Stored()
 		if h.handoff {
 			x.s.Carried()
 		}

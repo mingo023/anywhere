@@ -199,9 +199,8 @@ impl Desktop {
     /// Every session with a terminal, as the page shows it.
     fn activity_items(&self) -> Vec<Item> {
         let projects = self.projects();
-        self.agents
-            .list
-            .iter()
+        crate::status::listed(&self.agents.list)
+            .into_iter()
             .filter_map(|a| {
                 let cwd = &self.terminals.sessions.get(&a.terminal_id)?.info.cwd;
                 let project = self.project_of(cwd, &projects).cloned().unwrap_or_else(|| cwd.clone());

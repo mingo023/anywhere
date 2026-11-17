@@ -15,6 +15,8 @@ var WriteEvery = time.Second
 type Writer struct {
 	path string
 	snap func() File
+	// Saved hears each snapshot once it is on disk.
+	Saved func(File)
 
 	mu     sync.Mutex
 	last   []byte
@@ -55,7 +57,8 @@ func (w *Writer) Freeze() error {
 
 // save logs only the first of a run of failures; the next change retries.
 func (w *Writer) save() error {
-	raw, err := json.MarshalIndent(w.snap(), "", "  ")
+	f := w.snap()
+	raw, err := json.MarshalIndent(f, "", "  ")
 	if err != nil || bytes.Equal(raw, w.last) {
 		return err
 	}
@@ -67,5 +70,8 @@ func (w *Writer) save() error {
 		return err
 	}
 	w.last, w.failed = raw, false
+	if w.Saved != nil {
+		w.Saved(f)
+	}
 	return nil
 }

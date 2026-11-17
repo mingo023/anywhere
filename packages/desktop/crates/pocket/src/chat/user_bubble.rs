@@ -121,7 +121,7 @@ pub(super) fn wrapped_lines(text: &str, size: f32, width: f32, window: &Window) 
 }
 
 /// The lines plain `text` wraps to at `size` px in `width` px.
-pub(super) fn text_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
+pub(crate) fn text_lines(text: &str, size: f32, width: f32, window: &Window) -> usize {
     let text = text.to_string();
     let run = window.text_style().to_run(text.len());
     window

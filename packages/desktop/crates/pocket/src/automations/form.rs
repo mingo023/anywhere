@@ -34,6 +34,8 @@ pub struct Values {
     /// Empty is Settings' for the agent, as a session's "Default"; `settled` fills it in.
     pub model: String,
     pub effort: String,
+    /// The trigger is the webhook alone, which has nothing to edit.
+    pub webhook_only: bool,
 }
 
 impl Values {
@@ -46,7 +48,7 @@ impl Values {
         let mut days = [false; 7];
         d.days.iter().filter(|&&d| d < 7).for_each(|&d| days[d as usize] = true);
         let provider = PROVIDERS.into_iter().find(|p| *p == d.agent).unwrap_or(PROVIDERS[0]);
-        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree, base: String::new(), model: String::new(), effort: String::new() }
+        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree, base: String::new(), model: String::new(), effort: String::new(), webhook_only: false }
     }
 
     pub fn add_schedule(&mut self, d: &Defaults) {
@@ -64,6 +66,7 @@ impl Values {
                 Self { days: on, time: time.clone(), ..base }
             }
             Schedule::Interval { every_min } => Self { repeat: true, every: every_min.to_string(), ..base },
+            Schedule::Webhook => Self { webhook_only: true, ..base },
         }
     }
 
@@ -71,6 +74,9 @@ impl Values {
     fn schedule(&self) -> Option<Schedule> {
         if !self.scheduled {
             return None;
+        }
+        if self.webhook_only {
+            return Some(Schedule::Webhook);
         }
         Some(if self.repeat {
             Schedule::Interval { every_min: self.every.trim().parse().unwrap_or(0) }
@@ -84,6 +90,7 @@ impl Values {
         self.schedule().filter(|s| match s {
             Schedule::Days { days, time } => !days.is_empty() && valid_time(time),
             Schedule::Interval { every_min } => valid_every(*every_min),
+            Schedule::Webhook => true,
         })
     }
 
@@ -213,7 +220,7 @@ mod tests {
     }
 
     fn automation(schedule: Schedule) -> Automation {
-        Automation { id: "a1".into(), name: "Review".into(), prompt: "Look".into(), provider: "codex".into(), folder: "/code/app".into(), schedule, enabled: false, access: String::new(), new_worktree: false, base: String::new(), model: String::new(), effort: String::new(), next_run_at: 0 }
+        Automation { id: "a1".into(), name: "Review".into(), prompt: "Look".into(), provider: "codex".into(), folder: "/code/app".into(), schedule, enabled: false, access: String::new(), new_worktree: false, base: String::new(), model: String::new(), effort: String::new(), next_run_at: 0, created_by: String::new(), bound: String::new(), webhook: false, webhook_url: String::new() }
     }
 
     #[test]
@@ -286,6 +293,15 @@ mod tests {
         assert_eq!((v.repeat, v.every.as_str(), v.draft().unwrap().schedule), (true, "90", Schedule::Interval { every_min: 90 }));
         let v = Values::of(&automation(Schedule::Days { days: vec![0, 6], time: "08:15".into() }));
         assert_eq!((v.repeat, v.has_days(&WEEKENDS), v.time.as_str(), v.every.as_str()), (false, true, "08:15", "60"));
+    }
+
+    #[test]
+    fn a_webhook_automation_opens_as_webhook_and_saves_as_one() {
+        let made = Automation { created_by: "a7".into(), bound: "a7".into(), webhook: true, webhook_url: "http://127.0.0.1:4321/hooks/a1".into(), ..automation(Schedule::Webhook) };
+        let v = Values::of(&made);
+        assert_eq!((v.webhook_only, v.label().as_deref()), (true, Some("Webhook")));
+        assert_eq!(v.draft().unwrap().schedule, Schedule::Webhook);
+        assert!(!Values::of(&automation(Schedule::Interval { every_min: 60 })).webhook_only);
     }
 
     #[test]

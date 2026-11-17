@@ -197,7 +197,7 @@ func (w *codexSock) typedIn() *presence {
 // shows. The old follower stops first, so none of its events land in the
 // new timeline.
 func (d *Daemon) bind(pr *presence, thread string) {
-	shown := d.moving(pr)
+	shown := d.shows(pr)
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	if pr.unfollow != nil {

@@ -296,6 +296,10 @@ func (l *loop) fire(id string, gen int) {
 	if s.Status != p.status || !s.Attached || a.Seen() {
 		return
 	}
+	// A delegated session's parent takes its result; only its Needs you is the user's.
+	if s.Relationship == "subagent" && s.Status == Done {
+		return
+	}
 	kind := s.Status
 	if kind == Done && s.Failed {
 		kind = Failed

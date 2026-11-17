@@ -3,6 +3,7 @@ package timeline
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -533,5 +534,103 @@ func TestLastingAgentsNamesTheTasksOfBackgroundSubagentsOnly(t *testing.T) {
 	tl.Apply(Event{Kind: "tool_end", TaskID: "a2", OK: true}, 3)
 	if got := tl.LastingAgents(); len(got) != 0 {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestOnlyACallStillRunningInTheBackgroundIsInBackground(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Bash", Input: json.RawMessage(`{"command":"bun run dev","run_in_background":true}`)}, 1)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "b1"}, 2)
+	for id, want := range map[string]bool{"b1": true, "t1": true, "t2": false, "bogus": false} {
+		if got := tl.InBackground(id); got != want {
+			t.Errorf("InBackground(%s) = %v", id, got)
+		}
+	}
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "t1", OK: true}, 9)
+	if tl.InBackground("b1") {
+		t.Fatal("an ended call is still in the background")
+	}
+}
+
+func TestATimelineLoadedAfterAnUpgradeEndsTheBackgroundAgentItCarriedWhenItsTaskEnds(t *testing.T) {
+	before := New()
+	var order []string
+	stored := map[string]proto.Item{}
+	apply := func(e Event, ts int64) {
+		it, ok := before.Apply(e, ts)
+		if !ok || strings.HasSuffix(e.Kind, "_draft") {
+			return
+		}
+		if _, seen := stored[it.ID]; !seen {
+			order = append(order, it.ID)
+		}
+		stored[it.ID] = it
+	}
+	agent := json.RawMessage(`{"description":"Look","run_in_background":true}`)
+	apply(Event{Kind: "user", Text: "look around"}, 1)
+	apply(Event{Kind: "thinking_draft", Text: "Where first", Draft: "1:0"}, 1)
+	apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: agent}, 2)
+	apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "a1"}, 2)
+	apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: agent}, 3)
+	apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2", Detached: true}, 3)
+	apply(Event{Kind: "result", OK: true}, 4)
+
+	var items []proto.Item
+	for _, id := range order {
+		raw, _ := json.Marshal(stored[id])
+		var it proto.Item
+		if err := json.Unmarshal(raw, &it); err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, it)
+	}
+	raw, _ := json.Marshal(before.Background())
+	var carried Background
+	if err := json.Unmarshal(raw, &carried); err != nil {
+		t.Fatal(err)
+	}
+	if carried.Tasks == nil {
+		carried.Tasks = map[string]string{}
+	}
+	carried.Tasks["gone"], carried.Lasting = "t9", append(carried.Lasting, "t9")
+
+	after := New()
+	after.Load(items)
+	after.Adopt(carried)
+	after.StartEpoch()
+	if got := after.LastingAgents(); !reflect.DeepEqual(got, []string{"a1", "a2"}) || after.BackgroundAgents() != 1 {
+		t.Fatalf("%v, %d agents", got, after.BackgroundAgents())
+	}
+	it, ok := after.Apply(Event{Kind: "tool_end", TaskID: "a1", OK: true, Output: str("Found it.")}, 9)
+	if !ok || it.Call.ToolUseID != "t1" || it.Call.Status != "ok" || after.BackgroundAgents() != 0 {
+		t.Fatalf("ended: %+v, %d agents", it.Call, after.BackgroundAgents())
+	}
+}
+
+func TestUnseenDropsTextAStoredTimelineSplitAroundAnotherSubAgentsItem(t *testing.T) {
+	shown := []proto.Item{{Kind: "assistant", Text: "one", ParentToolUseID: "t1"}, {Kind: "assistant", Text: "two", ParentToolUseID: "t1"}}
+	unseen := Unseen(shown)
+	for _, text := range []string{"one", "two"} {
+		if got := unseen([]Event{{Kind: "assistant_text", Text: text, ParentToolUseID: "t1"}}); len(got) != 0 {
+			t.Fatalf("%q came again: %+v", text, got)
+		}
+	}
+	if got := unseen([]Event{{Kind: "assistant_text", Text: "three", ParentToolUseID: "t1"}}); len(got) != 1 || got[0].Text != "three" {
+		t.Fatalf("what came after: %+v", got)
+	}
+}
+
+func TestAMessagePocketdSendsShowsWithItsOriginAndTheUsersOwnWithNone(t *testing.T) {
+	tl := New()
+	tl.Expect("Delegated task t1 reached a terminal state.\n", "wake")
+	own, _ := tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	wake, _ := tl.Apply(Event{Kind: "user", Text: "Delegated task t1 reached a terminal state."}, 2)
+	again, _ := tl.Apply(Event{Kind: "user", Text: "Delegated task t1 reached a terminal state."}, 3)
+	tl.Expect("never sent", "wake")
+	tl.Expect("never sent", "")
+	unsent, _ := tl.Apply(Event{Kind: "user", Text: "never sent"}, 4)
+	if got := []string{own.Origin, wake.Origin, again.Origin, unsent.Origin}; !slices.Equal(got, []string{"", "wake", "", ""}) {
+		t.Fatalf("origins = %q", got)
 	}
 }

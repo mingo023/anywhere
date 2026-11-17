@@ -1,6 +1,6 @@
 use agents::Summary;
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use store::prefs::sidebar::SessionSort;
 
 /// Variants run from most to least urgent; cards and roll-ups sort on that order.
@@ -66,6 +66,8 @@ pub struct Card {
     pub pinned: bool,
     /// The account it runs on; empty is the built-in login.
     pub account: String,
+    /// A session delegated to by another, whose parent takes what it reports.
+    pub child: bool,
 }
 
 /// An agent's card, placed by the folder its terminal started in.
@@ -85,7 +87,45 @@ pub fn card(a: &Summary, cwd: &str) -> Card {
         notice: notice(a),
         pinned: a.pinned,
         account: a.shown_account().to_string(),
+        child: is_child(a),
     }
+}
+
+/// A session another delegated to: its parent consumes what it reports, so only a question or a failure is for the user.
+pub fn is_child(a: &Summary) -> bool {
+    a.relationship == "subagent" && !a.parent.is_empty()
+}
+
+/// The ids of the delegated sessions shown only inside the chat that delegated them. A child whose parent isn't listed stays out of it, so it can always be reached.
+pub fn hidden_children(list: &[Summary]) -> HashSet<&str> {
+    let children: Vec<&Summary> = list.iter().filter(|a| is_child(a)).collect();
+    if children.is_empty() {
+        return HashSet::new();
+    }
+    let listed: HashSet<&str> = list.iter().map(|a| a.id.as_str()).collect();
+    children.into_iter().filter(|a| listed.contains(a.parent.as_str())).map(|a| a.id.as_str()).collect()
+}
+
+/// The terminals of the hidden children.
+pub fn hidden_terminals(list: &[Summary]) -> HashSet<&str> {
+    let hidden = hidden_children(list);
+    list.iter().filter(|a| hidden.contains(a.id.as_str())).map(|a| a.terminal_id.as_str()).collect()
+}
+
+/// `list` without the hidden children: the sessions the sidebar, the palette and Activity offer.
+pub fn listed(list: &[Summary]) -> Vec<&Summary> {
+    let hidden = hidden_children(list);
+    list.iter().filter(|a| !hidden.contains(a.id.as_str())).collect()
+}
+
+/// Whether a session in `status` is news for the user: a child's Done isn't, as its parent reads it.
+pub fn wants_a_look(status: Status, child: bool) -> bool {
+    status.alerting() && !(child && status == Status::Done)
+}
+
+/// What `a`'s status says to the user: a child done reads as idle.
+pub fn alert_status(a: &Summary) -> Option<Status> {
+    Status::of(a).map(|s| if s == Status::Done && is_child(a) { Status::Idle } else { s })
 }
 
 /// The title a session shows: its own, else "New session".
@@ -188,7 +228,7 @@ pub fn alerts(before: &HashMap<String, Alert>, now: &HashMap<String, Alert>, vie
 
 /// The sessions that want a look: Needs you, then Failed, then Done, each oldest transition first.
 pub fn up_next(cards: &[Card]) -> Vec<&Card> {
-    let mut out: Vec<&Card> = cards.iter().filter(|c| c.status.alerting()).collect();
+    let mut out: Vec<&Card> = cards.iter().filter(|c| wants_a_look(c.status, c.child)).collect();
     out.sort_by(|a, b| (a.status, a.at, &a.id).cmp(&(b.status, b.at, &b.id)));
     out
 }
@@ -222,6 +262,21 @@ mod tests {
 
     fn agent(terminal: &str, status: &str) -> Summary {
         Summary { id: format!("agent-{terminal}"), terminal_id: terminal.into(), status: status.into(), attached: true, ..Default::default() }
+    }
+
+    fn lineage(id: &str, parent: &str, relationship: &str) -> Summary {
+        Summary { id: id.into(), terminal_id: format!("t-{id}"), parent: parent.into(), relationship: relationship.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn a_delegated_session_is_hidden_while_the_chat_that_delegated_it_is_listed() {
+        let list = [lineage("p", "", ""), lineage("c", "p", "subagent"), lineage("g", "c", "subagent"), lineage("f", "p", "fork"), lineage("o", "gone", "subagent")];
+        let mut hidden: Vec<&str> = hidden_children(&list).into_iter().collect();
+        hidden.sort();
+        assert_eq!(hidden, ["c", "g"], "a fork, a plain chat and a child of a chat no longer listed stay in view");
+        assert_eq!(listed(&list).iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["p", "f", "o"]);
+        assert_eq!(hidden_terminals(&list).len(), 2);
+        assert!(hidden_terminals(&list).contains("t-g"));
     }
 
     #[test]
@@ -389,6 +444,21 @@ mod tests {
         let cards = [at("done-new", "done", 8), at("ask-new", "needsYou", 7), failed, at("busy", "working", 1), at("done-old", "done", 2), at("ask-old", "needsYou", 3), at("idle", "idle", 0)];
         let ids: Vec<&str> = up_next(&cards).into_iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["ask-old", "ask-new", "failed", "done-old", "done-new"]);
+    }
+
+    #[test]
+    fn a_delegated_sessions_done_stays_out_of_up_next_but_its_question_and_failure_stay_in() {
+        let child = |id: &str, status: &str, failed: bool| card(&Summary { id: id.into(), parent: "p".into(), relationship: "subagent".into(), failed, ..agent(id, status) }, "/w");
+        let cards = [child("done", "done", false), child("ask", "needsYou", false), child("fail", "done", true), at("plain-done", "done", 5)];
+        let ids: Vec<&str> = up_next(&cards).into_iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["ask", "fail", "plain-done"]);
+    }
+
+    #[test]
+    fn a_fork_is_no_delegated_session_and_a_delegated_done_does_not_alert() {
+        let fork = Summary { parent: "p".into(), relationship: "fork".into(), ..agent("f", "done") };
+        let child = Summary { parent: "p".into(), relationship: "subagent".into(), ..agent("c", "done") };
+        assert_eq!((alert_status(&fork), alert_status(&child), alert_status(&Summary { status: "needsYou".into(), ..child })), (Some(Status::Done), Some(Status::Idle), Some(Status::NeedsYou)));
     }
 
     #[test]

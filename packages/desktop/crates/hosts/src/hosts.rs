@@ -1,96 +1,42 @@
-use serde::{Deserialize, Serialize};
+use agents::hosts::{Entry, Failure};
 use std::path::{Path, PathBuf};
 
+pub use agents::hosts::Target;
+
 pub mod checklist;
-pub mod install;
-pub mod link;
 pub mod owner;
 pub mod remote;
 pub mod session;
-pub mod sign_in;
-pub mod ssh;
 pub mod ssh_config;
 
-/// Creates `dir` and its parents, readable only by this user; on Windows the user's profile already is.
-fn private_dir(dir: &Path) -> std::io::Result<()> {
-    let mut builder = std::fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(dir)
-}
-
-/// `ssh`, with no console window on Windows.
-fn ssh_command() -> std::process::Command {
-    daemon::command("ssh")
-}
-
-/// How ssh reaches a host.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum Target {
-    /// A `Host` in `~/.ssh/config`; ssh brings its user, port, key and jump host.
-    Alias { name: String },
-    Address {
-        addr: String,
-        port: u16,
-        /// Empty signs in as the user on this Mac.
-        user: String,
-        key_file: Option<String>,
-    },
-}
-
-/// A machine running Anywhere that this Mac reaches over SSH.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// A machine running Anywhere that this Mac's pocketd links over SSH.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Host {
-    /// Names its files on this Mac; short so its socket path fits a unix socket's limit.
+    /// Names its files on this Mac.
     pub id: String,
     pub name: String,
     pub target: Target,
     /// Its pocketd is reached on its owner TCP port with a token, not on its socket.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub windows: bool,
+    /// Where this Mac's end of the tunnel to the host's pocketd listens, as pocketd says.
+    pub socket: PathBuf,
+}
+
+impl From<&Entry> for Host {
+    fn from(e: &Entry) -> Self {
+        Self { id: e.id.clone(), name: e.name.clone(), target: e.target.clone(), windows: e.windows, socket: e.socket.clone().into() }
+    }
 }
 
 impl Host {
-    /// A host for `target` whose id none of `taken` has.
-    pub fn new(target: Target, taken: &[Host]) -> Self {
-        let name = match &target {
-            Target::Alias { name } => name.clone(),
-            Target::Address { addr, .. } => short_name(addr),
-        };
-        let id = unique(&slug(&name), taken);
-        Self { id, name, target, windows: false }
-    }
-
-    /// Where this Mac's end of the tunnel to the host's pocketd listens.
-    pub fn socket(&self, home: &Path) -> PathBuf {
-        home.join("hosts").join(format!("{}.sock", self.id))
-    }
-
-    /// The owner token a Windows host's pocketd gave this Mac; removing the host forgets it.
-    pub fn owner_file(&self, home: &Path) -> PathBuf {
-        home.join("hosts").join(format!("{}.token", self.id))
+    /// The owner token a Windows host's pocketd gave this Mac, which it keeps beside the socket.
+    pub fn owner_file(&self) -> PathBuf {
+        self.socket.with_extension("token")
     }
 
     /// The tunnel's socket, with the owner token when there is one. Reads a file.
-    pub fn endpoint(&self, home: &Path) -> daemon::Endpoint {
-        daemon::Endpoint { path: self.socket(home), token: owner::load(&self.owner_file(home)).map(|o| o.token) }
-    }
-
-    /// The host keys this app accepted for the host; removing the host forgets them.
-    pub fn known_hosts(&self, home: &Path) -> PathBuf {
-        home.join("hosts").join(format!("{}.known_hosts", self.id))
-    }
-
-    /// The key this app signs in with after a password sign-in put it on the host; its public half is `<key>.pub`.
-    pub fn app_key(&self, home: &Path) -> PathBuf {
-        home.join("hosts").join(format!("{}.key", self.id))
-    }
-
-    /// [`Host::app_key`] once a password sign-in has made it.
-    pub fn signed_in_key(&self, home: &Path) -> Option<PathBuf> {
-        Some(self.app_key(home)).filter(|k| k.exists())
+    pub fn endpoint(&self) -> daemon::Endpoint {
+        daemon::Endpoint { path: self.socket.clone(), token: owner::load(&self.owner_file()).map(|o| o.token) }
     }
 
     /// `user@addr:port` as typed, or the alias.
@@ -104,6 +50,32 @@ impl Host {
             }
         }
     }
+}
+
+/// What went wrong on `name`, and what to do about it.
+pub fn failure_message(failure: Failure, name: &str) -> String {
+    match failure {
+        Failure::Auth => format!("{name} didn't accept your SSH keys. Check you can run ssh {name} in Terminal."),
+        Failure::UnknownKey => format!("{name}'s SSH key isn't trusted yet. Connect once with ssh {name} in Terminal."),
+        Failure::KeyChanged => format!("{name}'s SSH key changed. Check with whoever runs it before continuing."),
+        Failure::NoSuchHost => format!("Can't find {name}. Check the address, or your connection."),
+        Failure::Refused => format!("{name} refused the connection. Check that SSH is on there."),
+        Failure::TimedOut => format!("Can't reach {name}. Check it's on and on your network."),
+        Failure::Dropped => format!("Lost the connection to {name}."),
+        Failure::Throttled => format!("{name} is limiting sign-ins after failed attempts. Trying again shortly."),
+        Failure::NotRunning => format!("Anywhere is stopped on {name}."),
+        Failure::Unpaired => format!("Anywhere on {name} didn't accept this Mac. Reconnect to pair again."),
+        Failure::PathTooLong => format!("The path to Anywhere on {name} is too long to forward."),
+        Failure::Other => format!("Couldn't connect to {name}."),
+    }
+}
+
+/// The folder of pocketd archives this Mac can upload: `ANYWHERE_HOST_ARCHIVE_DIR`, or in a dev build the one
+/// scripts/package-pocketd.sh fills. pocketd, a LaunchAgent, has neither, so the desktop names it in an install.
+pub fn dist_dir() -> Option<PathBuf> {
+    std::env::var_os("ANYWHERE_HOST_ARCHIVE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| (!channel::is_release()).then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../pocketd/dist")))
 }
 
 /// What the add form typed, as a target: a bare name `~/.ssh/config` has is that alias.
@@ -126,28 +98,6 @@ pub fn target(addr: &str, port: &str, user: &str, key_file: Option<&str>, aliase
         return Ok(Target::Alias { name: addr.into() });
     }
     Ok(Target::Address { addr: addr.into(), port, user: user.into(), key_file: key_file.map(Into::into) })
-}
-
-/// `devbox` for `devbox.example.com`; an IP address stays whole.
-fn short_name(addr: &str) -> String {
-    let first = addr.split('.').next().unwrap_or(addr);
-    if addr.parse::<std::net::IpAddr>().is_ok() || first.is_empty() { addr.to_string() } else { first.to_string() }
-}
-
-const ID_LEN: usize = 24;
-
-fn slug(name: &str) -> String {
-    let s: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).take(ID_LEN).collect();
-    let s = s.trim_matches('-');
-    if s.is_empty() { "host".into() } else { s.into() }
-}
-
-fn unique(base: &str, taken: &[Host]) -> String {
-    let free = |id: &str| !taken.iter().any(|h| h.id == id);
-    if free(base) {
-        return base.into();
-    }
-    (2..).map(|n| format!("{base}-{n}")).find(|id| free(id)).unwrap()
 }
 
 /// The desktop's key for `path` on host `id`: `//<id>/<path>`, with a Windows path's `\` as `/`.
@@ -199,32 +149,10 @@ mod tests {
     }
 
     #[test]
-    fn a_host_is_named_for_its_alias_or_the_first_part_of_its_address() {
-        assert_eq!(Host::new(Target::Alias { name: "devbox".into() }, &[]).name, "devbox");
-        assert_eq!(Host::new(address("gpu-1.lab.example.com"), &[]).name, "gpu-1");
-        assert_eq!(Host::new(address("10.0.4.12"), &[]).name, "10.0.4.12");
-    }
-
-    #[test]
-    fn a_second_host_with_the_same_name_gets_its_own_id() {
-        let first = Host::new(address("devbox.a.com"), &[]);
-        let second = Host::new(address("devbox.b.com"), std::slice::from_ref(&first));
-        assert_eq!((first.id.as_str(), second.id.as_str()), ("devbox", "devbox-2"));
-    }
-
-    #[test]
-    fn a_long_name_still_fits_a_unix_socket_path() {
-        let long = "a-really-long-host-alias-somebody-typed-into-their-ssh-config.internal.example.com";
-        let host = Host::new(Target::Alias { name: long.into() }, &[]);
-        let home = Path::new("/Users/someone-with-a-long-username/.coding-pocket-dev");
-        assert!(host.socket(home).as_os_str().len() < 104, "{}", host.socket(home).display());
-    }
-
-    #[test]
     fn the_address_leaves_out_the_default_port_and_an_empty_user() {
-        let host = Host::new(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "mingo".into(), key_file: None }, &[]);
-        assert_eq!(host.address(), "mingo@10.0.4.12:2222");
-        assert_eq!(Host::new(address("devbox"), &[]).address(), "devbox");
+        let host = |target| Host { id: "h".into(), name: "h".into(), target, windows: false, socket: PathBuf::new() };
+        assert_eq!(host(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None }).address(), "dev@10.0.4.12:2222");
+        assert_eq!(host(address("devbox")).address(), "devbox");
     }
 
     #[test]
@@ -244,13 +172,23 @@ mod tests {
     }
 
     #[test]
-    fn hosts_round_trip_through_json() {
-        let hosts = vec![
-            Host::new(Target::Alias { name: "devbox".into() }, &[]),
-            Host::new(Target::Address { addr: "10.0.4.12".into(), port: 22, user: "u".into(), key_file: Some("~/.ssh/k".into()) }, &[]),
-        ];
-        let raw = serde_json::to_string(&hosts).unwrap();
-        assert_eq!(serde_json::from_str::<Vec<Host>>(&raw).unwrap(), hosts);
+    fn a_host_entry_from_the_wire_keeps_its_target() {
+        let target = Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: Some("~/.ssh/id_ed25519".into()) };
+        let entry = Entry { id: "10-0-4-12".into(), name: "build box".into(), target: target.clone(), windows: true, socket: "/h/10-0-4-12.sock".into(), link: agents::hosts::Link::Connecting };
+        assert_eq!(Host::from(&entry), Host { id: "10-0-4-12".into(), name: "build box".into(), target, windows: true, socket: "/h/10-0-4-12.sock".into() });
+    }
+
+    #[test]
+    fn a_hosts_endpoint_is_the_socket_pocketd_reports_and_the_token_it_keeps_beside_it() {
+        let dir = std::env::temp_dir().join(format!("host-endpoint-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("win.token"), r#"{"token":"t0k","port":7}"#).unwrap();
+        let entry = |id: &str| Entry { id: id.into(), name: id.into(), target: address("10.0.4.12"), windows: true, socket: dir.join(format!("{id}.sock")).to_string_lossy().into_owned(), link: agents::hosts::Link::Connecting };
+        let with_token = Host::from(&entry("win")).endpoint();
+        assert_eq!((with_token.path, with_token.token), (dir.join("win.sock"), Some("t0k".to_string())));
+        let without = Host::from(&entry("mac")).endpoint();
+        assert_eq!((without.path, without.token), (dir.join("mac.sock"), None));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

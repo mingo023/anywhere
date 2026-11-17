@@ -1,17 +1,22 @@
 pub mod automations;
 pub mod catalogs;
+pub mod delegations;
+pub mod hosts;
 pub mod tickets;
 pub mod locals;
 pub mod providers;
+pub mod queue;
 
 use automations::{Automation, AutomationDraft, Automations, Run};
+use delegations::{Delegation, Delegations};
 use tickets::{Board, Ticket, TicketDraft};
 use locals::Local;
 use providers::ProviderInfo;
+use queue::{Entry, Queues};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -59,6 +64,10 @@ pub struct Summary {
     pub goal: Option<Goal>,
     /// The model settings it runs on, by the agent's id for each.
     pub options: HashMap<String, String>,
+    /// The session it was delegated or forked from; empty for one the user started.
+    pub parent: String,
+    /// `subagent` or `fork`, when `parent` is set.
+    pub relationship: String,
 }
 
 /// An agent's `/goal`.
@@ -195,8 +204,29 @@ pub struct Item {
     pub items: Vec<TaskItem>,
     /// A compact's: "manual" or "auto".
     pub trigger: String,
+    /// A delivery's: the sessions, titles and agents pocketd told the chat of, side by side.
+    pub child_ids: Vec<String>,
+    pub titles: Vec<String>,
+    pub agents: Vec<String>,
+    /// A delivery's: "done", "failed" or "asks".
+    pub outcome: String,
+    /// A delivery's: what the child asks, when `outcome` is "asks".
+    pub question: String,
+    /// A host_link's: what to fill the add-host form with.
+    pub hint: String,
+    /// A host_link's: why the agent wants the host.
+    pub reason: String,
     /// The tool-use id of the sub-agent call this item belongs to.
     pub parent_tool_use_id: Option<String>,
+    /// Who wrote a user item pocketd sent itself: "wake", "question" or "context". Empty on the user's own.
+    pub origin: String,
+}
+
+impl Item {
+    /// Whether this is a prompt to show: a wake is told by the delivery before it instead.
+    pub fn is_prompt(&self) -> bool {
+        self.kind == "user" && self.origin != "wake"
+    }
 }
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
@@ -392,7 +422,7 @@ fn host_event(f: &Frame) -> Option<Event> {
 
 pub enum Event {
     Agents(Vec<Summary>),
-    Agent(Summary),
+    Agent(Box<Summary>),
     Items(String, Vec<Item>),
     /// The newest of a chat's items, which pocketd sends on each connect; `max_seq` is the newest seq it had then.
     Page { agent: String, items: Vec<Item>, max_seq: i64 },
@@ -445,8 +475,19 @@ pub enum Event {
     /// finishes it at.
     /// `acted` when it answers an action rather than a plain ask, as replies can cross.
     Mcp { agent: String, servers: Result<Vec<McpServer>, String>, auth_url: String, acted: bool },
-    /// pocketd couldn't act on one of the agent's MCP servers; `reason` says why.
+    /// Every session `agent` delegated to, sent whole.
+    Delegations { agent: String, items: Vec<Delegation> },
+    /// One of `agent`'s delegations changed.
+    Delegated { agent: String, delegation: Delegation },
+    Queue { agent: String, entries: Vec<Entry> },
+    /// pocketd refused a queue change or a queued send, or the socket never took it; `text` is what the user had typed for it, if anything.
+    QueueFailed { agent: String, reason: String, text: Option<String> },
     McpActFailed { agent: String, reason: String },
+    Hosts(Vec<hosts::Entry>),
+    HostUpdate { request: String, host: hosts::Entry },
+    HostProgress { host: String, update: bool, progress: hosts::Progress },
+    HostError { request: String, code: String, detail: Option<hosts::Failure>, message: String },
+    HostDone(String),
 }
 
 #[derive(Default)]
@@ -470,6 +511,10 @@ pub struct Agents {
     pub version: String,
     pub automations: Automations,
     pub board: Board,
+    pub delegations: Delegations,
+    pub queues: Queues,
+    /// The pocketds that hold sessions' queues: this Mac's as "", a host's by its id.
+    pub holders: HashSet<String>,
 }
 
 impl Agents {
@@ -499,6 +544,8 @@ impl Agents {
         self.apply_from(Some(source), Event::Agents(Vec::new()));
         self.apply_from(Some(source), Event::Connected { scopes: Vec::new(), caps: Vec::new(), version: String::new() });
         self.timelines.retain(|id, _| id.split_once('/').map(|(h, _)| h) != Some(source));
+        self.delegations.forget(source);
+        self.queues.forget(source);
     }
 
     /// Applies an event, already tagged, from this Mac's pocketd (`None`) or host `source`'s:
@@ -506,22 +553,24 @@ impl Agents {
     pub fn apply_from(&mut self, source: Option<&str>, ev: Event) {
         let mine = |id: &str| id.split_once('/').map(|(h, _)| h) == source;
         let my_name = |path: &str| path.strip_prefix("//").and_then(|p| p.split_once('/')).map(|(h, _)| h) == source;
+        let lineage = matches!(ev, Event::Agents(_) | Event::Agent(_) | Event::Delegations { .. } | Event::Delegated { .. });
         match ev {
             Event::Agents(list) => {
                 list.iter().for_each(|a| self.drop_if_reset(a));
                 self.list.retain(|a| !mine(&a.id));
                 self.list.extend(list);
             }
-            Event::Connected { .. } if source.is_some() => {
+            Event::Connected { caps, .. } if source.is_some() => {
                 self.pending.retain(|p| !mine(&p.request_id));
                 self.names.retain(|path, _| !my_name(path));
+                self.holds_queues(source, &caps);
             }
             Event::Agent(a) if a.status == "closed" => self.list.retain(|x| x.id != a.id),
             Event::Agent(a) => {
                 self.drop_if_reset(&a);
                 match self.list.iter_mut().find(|x| x.id == a.id) {
-                    Some(x) => *x = a,
-                    None => self.list.push(a),
+                    Some(x) => *x = *a,
+                    None => self.list.push(*a),
                 }
             }
             Event::Items(id, items) => self.upsert(id, items),
@@ -543,6 +592,7 @@ impl Agents {
                 self.pending.retain(|p| !mine(&p.request_id));
                 self.host = None;
                 self.scopes = scopes;
+                self.holds_queues(source, &caps);
                 self.caps = caps;
                 self.version = version;
                 self.names.retain(|path, _| !my_name(path));
@@ -559,7 +609,24 @@ impl Agents {
             Event::Locals(locals) => self.locals = locals,
             Event::Automations { automations, runs } => self.automations.apply(automations, runs),
             Event::Board { tickets, limit } => self.board = Board { tickets, limit },
-            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
+            Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
+            Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),
+            Event::Queue { agent, entries } => self.queues.replace(&agent, entries),
+            Event::AutomationError(_) | Event::BoardError(_) | Event::PromptFailed { .. } | Event::InterruptFailed { .. } | Event::QueueFailed { .. } | Event::Commands { .. } | Event::Skills { .. } | Event::Btw { .. } | Event::RemoteControl { .. } | Event::Mcp { .. } | Event::McpActFailed { .. } => {}
+            Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) => {}
+        }
+        if lineage {
+            self.adopt_children();
+        }
+    }
+
+    /// A host launches a delegated session with no lineage, so only the delegation, by the child's tagged id, says whose child it is.
+    fn adopt_children(&mut self) {
+        for d in self.delegations.all().filter(|d| d.child_id.contains('/')) {
+            if let Some(child) = self.list.iter_mut().find(|a| a.id == d.child_id && a.parent.is_empty()) {
+                child.parent = d.parent_id.clone();
+                child.relationship = "subagent".into();
+            }
         }
     }
 
@@ -648,6 +715,28 @@ impl Agents {
     /// pocketd keeps the Board and takes its messages.
     pub fn board_offered(&self) -> bool {
         self.caps.iter().any(|c| c == BOARD_CAP)
+    }
+
+    /// Notes whether the pocketd that connected as `source` (this Mac's for `None`) keeps its sessions' queues; its queues are asked for again.
+    fn holds_queues(&mut self, source: Option<&str>, caps: &[String]) {
+        let key = source.unwrap_or_default();
+        if caps.iter().any(|c| c == ORCHESTRATOR_CAP) {
+            self.holders.insert(key.to_string());
+        } else {
+            self.holders.remove(key);
+        }
+        self.queues.reconnected(source);
+    }
+
+    /// The pocketd holding `agent_id`'s session keeps its queue: a send while the agent works goes there, not held here.
+    pub fn holds_queue(&self, agent_id: &str) -> bool {
+        let host = agent_id.split_once('/').map_or("", |(h, _)| h);
+        self.holders.contains(host) && !self.observe_only()
+    }
+
+    /// pocketd links the SSH hosts and takes their messages.
+    pub fn hosts_offered(&self) -> bool {
+        self.caps.iter().any(|c| c == HOSTS_CAP)
     }
 
     /// pocketd runs automations and takes their messages.
@@ -793,6 +882,8 @@ const BTW: &str = "btw-";
 const REMOTE_CONTROL: &str = "remotecontrol-";
 const MCP: &str = "mcp-";
 const MCP_ACT: &str = "mcpact-";
+const DELEGATIONS: &str = "delegations-";
+const QUEUE: &str = "queue-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
@@ -801,6 +892,14 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 
 fn auto_id() -> String {
     format!("{AUTO}{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn host_id() -> String {
+    format!("{}{}", hosts::HOST, NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn queue_id() -> String {
+    format!("{QUEUE}{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 fn board_id() -> String {
@@ -854,12 +953,35 @@ const FORK_CAP: &str = "fork.v1";
 const ACCOUNTS_CAP: &str = "accounts.v1";
 const SETTINGS_CAP: &str = "settings.v1";
 const ACCESS_CAP: &str = "access.v1";
+const ORCHESTRATOR_CAP: &str = "orchestrator.v1";
+const HOSTS_CAP: &str = "hosts.v1";
 
 fn automation_event(f: &Frame) -> Option<Event> {
     match f.kind.as_str() {
         "automations" => Some(Event::Automations { automations: f.automations.clone(), runs: f.runs.clone() }),
         "error" if f.id.starts_with(AUTO) => Some(Event::AutomationError(readable(&f.message))),
         _ => None,
+    }
+}
+
+/// The delegation frames, read apart from `Frame`, whose `items` are timeline items.
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct DelegationFrame {
+    agent_id: String,
+    items: Vec<Delegation>,
+    delegation: Option<Delegation>,
+}
+
+fn delegation_event(kind: &str, raw: &str) -> Option<Event> {
+    if !matches!(kind, "agent.delegations" | "delegation.update") {
+        return None;
+    }
+    let f: DelegationFrame = serde_json::from_str(raw).ok()?;
+    match f.delegation {
+        Some(delegation) => Some(Event::Delegated { agent: f.agent_id, delegation }),
+        None if kind == "agent.delegations" => Some(Event::Delegations { agent: f.agent_id, items: f.items }),
+        None => None,
     }
 }
 
@@ -923,6 +1045,34 @@ impl Outbox {
         id
     }
 
+    /// Hands `text` to pocketd to run now when the agent is idle and to hold in its queue while it works; returns the request id a refusal names.
+    pub fn prompt_queued(&self, agent_id: &str, text: &str) -> String {
+        let id = format!("{PROMPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        self.send(json!({"type": "agent.prompt", "id": id, "agentId": agent_id, "text": text, "queue": true}));
+        id
+    }
+
+    pub fn queue_list(&self, agent_id: &str) {
+        self.send(json!({"type": "queue.list", "id": format!("{QUEUE}{agent_id}"), "agentId": agent_id}));
+    }
+
+    pub fn queue_edit(&self, agent_id: &str, entry: &str, text: &str) {
+        self.send(json!({"type": "queue.edit", "id": queue_id(), "agentId": agent_id, "entryId": entry, "text": text}));
+    }
+
+    pub fn queue_cancel(&self, agent_id: &str, entry: &str) {
+        self.send(json!({"type": "queue.cancel", "id": queue_id(), "agentId": agent_id, "entryId": entry}));
+    }
+
+    /// Moves `entry` ahead of `before`, or to the end when that is "".
+    pub fn queue_reorder(&self, agent_id: &str, entry: &str, before: &str) {
+        self.send(json!({"type": "queue.reorder", "id": queue_id(), "agentId": agent_id, "entryId": entry, "before": before}));
+    }
+
+    pub fn queue_send_now(&self, agent_id: &str, entry: &str) {
+        self.send(json!({"type": "queue.send_now", "id": queue_id(), "agentId": agent_id, "entryId": entry}));
+    }
+
     pub fn interrupt(&self, agent_id: &str) {
         let id = format!("{INTERRUPT}{}", NEXT.fetch_add(1, Ordering::Relaxed));
         self.send(json!({"type": "agent.interrupt", "id": id, "agentId": agent_id}));
@@ -946,6 +1096,11 @@ impl Outbox {
     /// pocketd last found, then what it finds now if that differs.
     pub fn skills(&self, provider: &str, account: &str, project: &str) {
         self.send(json!({"type": "skills.list", "id": "skills", "provider": provider, "account": account, "project": project}));
+    }
+
+    /// Asks for every session the chat delegated to.
+    pub fn delegations(&self, agent_id: &str) {
+        self.send(json!({"type": "agent.delegations", "id": format!("{DELEGATIONS}{agent_id}"), "agentId": agent_id}));
     }
 
     /// Asks how the agent's MCP servers stand.
@@ -1092,6 +1247,38 @@ impl Outbox {
         self.send(json!({"type": "automation.run", "id": auto_id(), "automationId": automation_id}));
     }
 
+    pub fn host_add(&self, target: &hosts::Target) -> String {
+        let id = host_id();
+        self.send(json!({"type": "host.add", "id": id, "target": target}));
+        id
+    }
+
+    pub fn host_remove(&self, host_id: &str, uninstall: bool) -> String {
+        let id = self::host_id();
+        self.send(json!({"type": "host.remove", "id": id, "hostId": host_id, "uninstall": uninstall}));
+        id
+    }
+
+    pub fn host_retry(&self, host_id: &str) {
+        self.send(json!({"type": "host.retry", "id": self::host_id(), "hostId": host_id}));
+    }
+
+    pub fn host_install(&self, host_id: &str, update: bool, archive_dir: Option<&str>) -> String {
+        let id = self::host_id();
+        let mut m = json!({"type": "host.install", "id": id, "hostId": host_id, "update": update});
+        if let Some(dir) = archive_dir {
+            m["archiveDir"] = dir.into();
+        }
+        self.send(m);
+        id
+    }
+
+    pub fn host_sign_in(&self, host_id: &str, password: &str) -> String {
+        let id = self::host_id();
+        self.send(json!({"type": "host.sign_in", "id": id, "hostId": host_id, "password": password}));
+        id
+    }
+
     fn send(&self, m: Value) {
         let _ = self.0.send(m);
     }
@@ -1122,7 +1309,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
 }
 
 /// What this client understands beyond protocol 3.
-const CAPS: [&str; 16] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1"];
+const CAPS: [&str; 18] = [PAIR_CAP, "scopes.v1", "summary.v2", "host.v1", OPEN_CAP, NAMES_CAP, AUTOMATIONS_CAP, BOARD_CAP, LOCALS_CAP, FORK_CAP, ACCOUNTS_CAP, "subagents.v1", SETTINGS_CAP, "commands.v1", ACCESS_CAP, "skills.v1", ORCHESTRATOR_CAP, HOSTS_CAP];
 
 fn hello(token: Option<&str>) -> Value {
     let mut hello = json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": CAPS});
@@ -1167,7 +1354,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)) {
+        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| hosts::decode(&f.kind, &raw)).or_else(|| delegation_event(&f.kind, &raw)).or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries })) {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -1186,7 +1373,7 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
             "agent.update" => {
                 let Some(a) = f.agent else { continue };
                 fresh.push(a.id.clone());
-                Event::Agent(a)
+                Event::Agent(Box::new(a))
             }
             "agent.stream" => Event::Items(f.agent_id, f.item.into_iter().collect()),
             "agent.timeline" => Event::Page { agent: f.agent_id, items: f.items, max_seq: f.max_seq },
@@ -1215,13 +1402,13 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
     }
 }
 
-/// Prompts and stops written to pocketd and not yet answered, so a refusal names the one it refused.
+/// Prompts, stops and queue changes written to pocketd and not yet answered, so a refusal names the one it refused.
 #[derive(Default)]
 struct Requests(VecDeque<Value>);
 
 impl Requests {
     fn sent(&mut self, m: &Value) {
-        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt")) {
+        if matches!(m["type"].as_str(), Some("agent.prompt" | "agent.interrupt" | "queue.edit" | "queue.cancel" | "queue.reorder" | "queue.send_now")) {
             self.0.push_back(m.clone());
         }
     }
@@ -1237,10 +1424,14 @@ impl Requests {
     }
 }
 
-/// The event for a prompt or stop `m` that failed for `reason`; none for other messages.
+/// The event for a prompt, stop or queue change `m` that failed for `reason`; none for other messages.
 fn refused(m: &Value, reason: &str) -> Option<Event> {
     let field = |key: &str| m[key].as_str().unwrap_or_default().to_string();
+    let queue_failed = |text: Option<String>| Some(Event::QueueFailed { agent: field("agentId"), reason: reason.into(), text });
     match m["type"].as_str()? {
+        "agent.prompt" if m["queue"] == true => queue_failed(Some(field("text"))),
+        "queue.edit" => queue_failed(Some(field("text"))),
+        "queue.cancel" | "queue.reorder" | "queue.send_now" => queue_failed(None),
         "agent.prompt" => Some(Event::PromptFailed { agent: field("agentId"), request: field("id") }),
         "agent.interrupt" => Some(Event::InterruptFailed { agent: field("agentId"), reason: reason.into() }),
         _ => None,
@@ -1284,6 +1475,79 @@ mod tests {
 
     fn summary(provider: &str, model: Option<&str>) -> Summary {
         Summary { provider: provider.into(), model: model.map(Into::into), ..Default::default() }
+    }
+
+    macro_rules! golden_text {
+        ($name:literal) => {
+            include_str!(concat!("../../../../pocketd/internal/proto/testdata/golden/", $name))
+        };
+    }
+
+    #[test]
+    fn only_a_pocketd_with_the_orchestrator_holds_its_sessions_queues() {
+        let connected = |caps: &[&str]| Event::Connected { scopes: vec!["owner".into()], caps: caps.iter().map(|c| c.to_string()).collect(), version: String::new() };
+        let mut a = Agents::default();
+        assert!(!a.holds_queue("a1"));
+        a.apply_from(Some("new"), connected(&[ORCHESTRATOR_CAP]));
+        a.apply_from(Some("old"), connected(&["pair.v1"]));
+        assert_eq!([a.holds_queue("a1"), a.holds_queue("new/a1"), a.holds_queue("old/a1")], [false, true, false]);
+        a.apply(connected(&[ORCHESTRATOR_CAP]));
+        assert!(a.holds_queue("a1"));
+        a.forget("new");
+        assert_eq!([a.holds_queue("a1"), a.holds_queue("new/a1")], [true, false]);
+    }
+
+    #[test]
+    fn a_delegations_reply_and_an_update_decode_into_their_chat() {
+        let Some(Event::Delegations { agent, items }) = delegation_event("agent.delegations", golden_text!("server/agent_delegations.json")) else { panic!("no delegations") };
+        assert_eq!((agent.as_str(), items.len(), items[0].child_id.as_str()), ("a1", 2, "a2"));
+        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else { panic!("no update") };
+        assert_eq!((agent.as_str(), delegation.question.as_str()), ("a1", "Which test runner?"));
+        assert!(delegation_event("agent.list", "{}").is_none());
+    }
+
+    #[test]
+    fn delegation_events_fill_the_model_and_a_forgotten_host_takes_its_own() {
+        let mut a = Agents::default();
+        let Some(Event::Delegations { agent, items }) = delegation_event("agent.delegations", golden_text!("server/agent_delegations.json")) else { panic!() };
+        a.apply(Event::Delegations { agent, items });
+        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else { panic!() };
+        a.apply(Event::Delegated { agent, delegation });
+        assert_eq!((a.delegations.of("a1").len(), a.delegations.counts("a1").asking), (2, 1));
+        a.apply_from(Some("h"), Event::Delegations { agent: "h/a1".into(), items: a.delegations.of("a1").to_vec() });
+        a.forget("h");
+        assert_eq!((a.delegations.of("a1").len(), a.delegations.of("h/a1").len()), (2, 0));
+    }
+
+    #[test]
+    fn a_child_on_a_linked_host_is_its_parents_whichever_of_its_listing_and_its_delegation_comes_first() {
+        let delegation = Delegation { task_id: "t".into(), parent_id: "p".into(), child_id: "devbox/c".into(), ..Default::default() };
+        let listed = || Event::Agents(vec![Summary { id: "devbox/c".into(), ..Default::default() }]);
+        let lineage = |a: &Agents| a.get("devbox/c").map(|c| (c.parent.clone(), c.relationship.clone()));
+        let child = Some(("p".to_string(), "subagent".to_string()));
+
+        let mut listing_first = Agents::default();
+        listing_first.apply_from(Some("devbox"), listed());
+        assert_eq!(lineage(&listing_first), Some((String::new(), String::new())));
+        listing_first.apply(Event::Delegated { agent: "p".into(), delegation: delegation.clone() });
+        assert_eq!(lineage(&listing_first), child);
+
+        let mut delegation_first = Agents::default();
+        delegation_first.apply(Event::Delegations { agent: "p".into(), items: vec![delegation] });
+        delegation_first.apply_from(Some("devbox"), listed());
+        assert_eq!(lineage(&delegation_first), child);
+        delegation_first.apply_from(Some("devbox"), Event::Agent(Box::new(Summary { id: "devbox/c".into(), status: "working".into(), ..Default::default() })));
+        assert_eq!(lineage(&delegation_first), child, "the host's next update of it doesn't undo that");
+    }
+
+    #[test]
+    fn a_child_summary_and_a_delivery_item_decode_and_unknown_fields_stay_harmless() {
+        let f: Frame = serde_json::from_str(golden_text!("server/agent_update_delegated.json")).unwrap();
+        let a = f.agent.unwrap();
+        assert_eq!((a.parent.as_str(), a.relationship.as_str()), ("a1", "subagent"));
+        let f: Frame = serde_json::from_str(golden_text!("server/stream_delivery.json")).unwrap();
+        let i = f.item.unwrap();
+        assert_eq!((i.kind.as_str(), i.titles, i.child_ids, i.agents, i.outcome.as_str()), ("delivery", vec!["Write the tests".to_string()], vec!["a2".to_string()], vec!["codex".to_string()], "done"));
     }
 
     #[test]
@@ -1351,8 +1615,8 @@ mod tests {
         let mut a = Agents::default();
         let agent = |id: &str, status: &str| Summary { id: id.into(), status: status.into(), ..Default::default() };
         a.apply(Event::Agents(vec![agent("a", "idle"), agent("b", "working")]));
-        a.apply(Event::Agent(agent("a", "closed")));
-        a.apply(Event::Agent(agent("c", "closed")));
+        a.apply(Event::Agent(Box::new(agent("a", "closed"))));
+        a.apply(Event::Agent(Box::new(agent("c", "closed"))));
         assert_eq!(a.list, vec![agent("b", "working")]);
     }
 
@@ -1407,10 +1671,10 @@ mod tests {
         a.apply(Event::Agents(vec![agent("a", 0), agent("b", 0)]));
         a.apply(Event::Items("a".into(), vec![item("1", 1, "old")]));
         a.apply(Event::Items("b".into(), vec![item("1", 1, "kept")]));
-        a.apply(Event::Agent(agent("a", 0)));
+        a.apply(Event::Agent(Box::new(agent("a", 0))));
         assert_eq!(a.timelines["a"].len(), 1, "the same conversation keeps its items");
         let before = a.revision("a");
-        a.apply(Event::Agent(agent("a", 1)));
+        a.apply(Event::Agent(Box::new(agent("a", 1))));
         assert!(!a.timelines.contains_key("a") && a.revision("a") > before, "the old conversation is gone and views refold");
         a.apply(Event::Items("a".into(), vec![item("2", 2, "new")]));
         a.apply(Event::Agents(vec![agent("a", 1), agent("b", 2)]));
@@ -1549,7 +1813,7 @@ mod tests {
 
         assert_eq!(
             read(&mut ws),
-            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1"]})
+            json!({"type": "hello", "id": "h", "clientId": "desktop", "protocolVersion": 3, "caps": ["pair.v1", "scopes.v1", "summary.v2", "host.v1", "open.v1", "names.v1", "automations.v1", "board.v1", "locals.v1", "fork.v1", "accounts.v1", "subagents.v1", "settings.v1", "commands.v1", "access.v1", "skills.v1", "orchestrator.v1", "hosts.v1"]})
         );
         out.view(&["a1".into()]);
         assert_eq!(read(&mut ws), json!({"type": "agent.view", "id": "view", "agentIds": ["a1"]}));
@@ -1867,6 +2131,39 @@ mod tests {
         assert!(requests.answer(&frame(json!({"type": "ack", "id": "interrupt-1"}))).is_none());
         let refused = requests.answer(&frame(json!({"type": "error", "id": "interrupt-2", "code": "agent_resuming", "message": "This session is still resuming"})));
         assert!(matches!(refused, Some(Event::InterruptFailed { agent, reason }) if agent == "a2" && reason == "This session is still resuming"));
+    }
+
+    #[test]
+    fn a_refused_queue_change_or_queued_send_names_its_session_and_gives_back_the_text() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let out = Outbox::from(tx);
+        out.queue_edit("a1", "e1", "fix lint too");
+        out.queue_cancel("a1", "e2");
+        out.queue_reorder("a1", "e3", "e1");
+        out.queue_send_now("a1", "e4");
+        let queued = out.prompt_queued("a2", "after this");
+        let mut requests = Requests::default();
+        let sent: Vec<Value> = rx.try_iter().collect();
+        sent.iter().for_each(|m| requests.sent(m));
+        let refuse = |requests: &mut Requests, m: &Value| requests.answer(&frame(json!({"type": "error", "id": m["id"], "message": "No such entry"})));
+        let got: Vec<_> = sent.iter().map(|m| refuse(&mut requests, m)).collect();
+        assert!(matches!(&got[0], Some(Event::QueueFailed { agent, reason, text }) if agent == "a1" && reason == "No such entry" && text.as_deref() == Some("fix lint too")));
+        assert!(matches!(&got[1], Some(Event::QueueFailed { agent, text: None, .. }) if agent == "a1"));
+        assert!(matches!(&got[2], Some(Event::QueueFailed { text: None, .. })));
+        assert!(matches!(&got[3], Some(Event::QueueFailed { text: None, .. })));
+        assert!(matches!(&got[4], Some(Event::QueueFailed { agent, text, .. }) if agent == "a2" && text.as_deref() == Some("after this")), "{queued} is a queued send, not a prompt of the transcript");
+    }
+
+    #[test]
+    fn an_acked_queue_change_reports_nothing_and_one_the_socket_never_took_fails() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let out = Outbox::from(tx);
+        out.queue_cancel("a1", "e1");
+        let cancel: Value = rx.try_recv().unwrap();
+        let mut requests = Requests::default();
+        requests.sent(&cancel);
+        assert!(requests.answer(&frame(json!({"type": "ack", "id": cancel["id"]}))).is_none());
+        assert!(matches!(refused(&cancel, UNSENT), Some(Event::QueueFailed { agent, reason, .. }) if agent == "a1" && reason == UNSENT));
     }
 
     #[test]

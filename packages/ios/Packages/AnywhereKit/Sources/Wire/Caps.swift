@@ -33,6 +33,10 @@ public enum Caps {
     public static let ghState = "ghstate.v1"
     /// `agent.view`'s `front`.
     public static let front = "front.v1"
+    /// `agent.delegations`, the queue verbs and `delivery` timeline items.
+    public static let orchestrator = "orchestrator.v1"
+    /// The host verbs and events, for an owner only; the phone never asks for it.
+    public static let hosts = "hosts.v1"
 
     /// Everything the phone speaks, sent in every hello.
     public static let phone: [String] = [

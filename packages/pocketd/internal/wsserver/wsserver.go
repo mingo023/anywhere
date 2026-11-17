@@ -28,6 +28,7 @@ import (
 	"pocketd/internal/launch"
 	"pocketd/internal/locals"
 	"pocketd/internal/names"
+	"pocketd/internal/orch"
 	"pocketd/internal/owners"
 	"pocketd/internal/pairing"
 	"pocketd/internal/peer"
@@ -35,6 +36,7 @@ import (
 	"pocketd/internal/registry"
 	"pocketd/internal/skills"
 	"pocketd/internal/terminal"
+	"pocketd/internal/timeline"
 )
 
 const (
@@ -105,6 +107,13 @@ type Server struct {
 
 	// Skills keeps what skills.list last found; nil serves none.
 	Skills *skills.Store
+	// Orch runs prompts, stops and the queue as commands; nil drives agents directly.
+	Orch *orch.Engine
+	// Hosts serves the owner's host verbs and feed; nil serves none.
+	Hosts *Hosts
+	// OpenSessions is what the store keeps of every open session, up to the
+	// last summary the registry gave; nil lists the registry alone.
+	OpenSessions func() ([]orch.Session, error)
 
 	pingInterval, pingTimeout time.Duration
 	conns                     atomic.Int64
@@ -148,6 +157,7 @@ type conn struct {
 	gh        ghConn
 	files     filesConn
 	push      pushConn
+	hosts     hostsConn
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -324,9 +334,10 @@ func (c *conn) handle(raw []byte) {
 		nameMsgs := c.withNames(caps)
 		localMsgs := c.withLocals(caps)
 		c.send(ok)
-		c.send(proto.NewAgentList("", c.s.Agents.List()))
+		c.send(proto.NewAgentList("", c.s.agents()))
 		c.automations(caps)
 		c.boardFeed(caps)
+		c.hostsFeed(caps)
 		for _, req := range c.s.Broker.Open() {
 			c.send(proto.NewPermissionRequest(req))
 		}
@@ -407,24 +418,13 @@ func (c *conn) closeAreas() {
 	c.closeGitHub()
 	c.closeFiles()
 	c.closePush()
+	c.closeHosts()
 }
 
 // notImplemented answers a phone verb whose handler hasn't landed.
 func (c *conn) notImplemented(m proto.ClientMessage) error {
 	c.send(proto.NewErrorCode(m.ID, proto.CodeNotImplemented, m.Type+" isn't served by this pocketd yet"))
 	return nil
-}
-
-// setOptions switches the model settings of an agent whose driver takes them.
-func setOptions(d agent.Driver, options map[string]string) error {
-	if err := launch.ValidOptions(options); err != nil {
-		return err
-	}
-	o, ok := d.(agent.Optioner)
-	if !ok {
-		return errors.New("This agent takes its model's settings only as it starts")
-	}
-	return o.SetOptions(options)
 }
 
 func errorReply(id string, err error) proto.Error {
@@ -529,6 +529,30 @@ func (c *conn) asking(agentID string) string {
 	return ""
 }
 
+func (c *conn) sendTimeline(m proto.ClientMessage, t *timeline.Timeline) {
+	since, limit := int64(0), defaultPage
+	if m.SinceSeq != nil {
+		since = int64(max(0, min(*m.SinceSeq, 1<<53)))
+	}
+	if m.Limit != nil {
+		limit = int(*m.Limit)
+	}
+	subagents := slices.Contains(c.caps, proto.CapSubagents)
+	page := t.Page
+	if subagents {
+		page = t.PageWithSubagents
+	}
+	var items []proto.Item
+	var older bool
+	if m.BeforeSeq != nil {
+		items, older = t.Before(int64(max(0, min(*m.BeforeSeq, 1<<53))), limit, subagents)
+	} else {
+		items, older = page(since, limit)
+	}
+	epoch, maxSeq := t.State()
+	c.send(proto.NewAgentTimeline(m.ID, m.AgentID, epoch, items, older, maxSeq))
+}
+
 func (c *conn) dispatch(m proto.ClientMessage) error {
 	verb := "ws:" + m.Type
 	if m.Type == "agent.mcp" && m.Action != "" {
@@ -538,6 +562,15 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	verb = c.workspaceScope(verb)
 	if r := c.who.Check(verb, c.asking(m.AgentID), m.Text); r != nil {
 		return r
+	}
+	if done, err := c.orchestrated(m); done {
+		if err != nil {
+			return err
+		}
+		if m.Type != "agent.delegations" && m.Type != "queue.list" {
+			c.send(proto.NewAck(m.ID))
+		}
+		return nil
 	}
 	switch m.Type {
 	case "pair.begin":
@@ -551,7 +584,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		c.send(proto.NewAck(m.ID))
 		return nil
 	case "agent.list":
-		c.send(proto.NewAgentList(m.ID, c.s.Agents.List()))
+		c.send(proto.NewAgentList(m.ID, c.s.agents()))
 		return nil
 	case "project.list":
 		c.projectList(m)
@@ -578,6 +611,8 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "config.set":
 		c.configSet(m)
 		return nil
+	case "host.list", "host.add", "host.remove", "host.retry", "host.install", "host.sign_in":
+		return c.host(m)
 	case "automation.save", "automation.enable", "automation.delete", "automation.run":
 		return c.automation(m)
 	case "board.save", "board.delete", "board.start", "board.move", "board.close", "board.reopen", "board.limit":
@@ -613,32 +648,21 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 		return nil
 	}
 	a, err := c.s.Agents.Get(m.AgentID)
+	if err != nil && m.Type == "agent.timeline" && c.s.Orch != nil {
+		// A session no longer running reads as the store kept it.
+		if items, _ := c.s.Orch.Store().Items(m.AgentID); len(items) > 0 {
+			t := timeline.New()
+			t.Load(items)
+			c.sendTimeline(m, t)
+			return nil
+		}
+	}
 	if err != nil {
 		return err
 	}
 	switch m.Type {
 	case "agent.timeline":
-		since, limit := int64(0), defaultPage
-		if m.SinceSeq != nil {
-			since = int64(max(0, min(*m.SinceSeq, 1<<53)))
-		}
-		if m.Limit != nil {
-			limit = int(*m.Limit)
-		}
-		subagents := slices.Contains(c.caps, proto.CapSubagents)
-		page := a.Timeline.Page
-		if subagents {
-			page = a.Timeline.PageWithSubagents
-		}
-		var items []proto.Item
-		var older bool
-		if m.BeforeSeq != nil {
-			items, older = a.Timeline.Before(int64(max(0, min(*m.BeforeSeq, 1<<53))), limit, subagents)
-		} else {
-			items, older = page(since, limit)
-		}
-		epoch, maxSeq := a.Timeline.State()
-		c.send(proto.NewAgentTimeline(m.ID, a.ID(), epoch, items, older, maxSeq))
+		c.sendTimeline(m, a.Timeline)
 		return nil
 	case "agent.prompt":
 		err = a.Driver().Prompt(m.Text)
@@ -653,18 +677,7 @@ func (c *conn) dispatch(m proto.ClientMessage) error {
 	case "agent.compact":
 		err = a.Driver().Compact()
 	case "agent.settings":
-		if m.Model != "" || m.Effort != "" {
-			err = launch.ValidSwitch(a.Provider(), m.Model, m.Effort)
-			if err == nil {
-				err = a.Driver().Settings(m.Model, m.Effort)
-			}
-		}
-		if err == nil && len(m.Options) > 0 {
-			err = setOptions(a.Driver(), m.Options)
-		}
-		if err == nil && m.Access != "" {
-			err = a.Driver().Access(m.Access)
-		}
+		err = launch.Switch(a, m.Model, m.Effort, m.Options, m.Access)
 	case "agent.commands":
 		// Claude takes a while to list them; the conn's other messages don't wait.
 		go func() {

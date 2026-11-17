@@ -38,11 +38,20 @@ fn label(text: &str) -> Div {
     div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(text.to_string())
 }
 
+/// The trigger an agent set up on a webhook: shown, with nothing to edit.
+fn webhook_trigger() -> Div {
+    let head = div().flex().items_center().gap(px(8.)).child(icon("bolt", 16., TEXT_2)).child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child("Webhook"));
+    card().pt(px(12.)).px(px(16.)).pb(px(14.)).flex().flex_col().gap(px(6.)).child(head).child(div().text_size(px(12.5)).text_color(TEXT_3).child("Runs when its webhook is called. Its address is on the automation's page."))
+}
+
 impl Desktop {
     /// The editor's trigger card: the way to add one, or the one added.
     pub(super) fn trigger_card(&self, v: &Values, cx: &mut Context<Self>) -> Div {
         if !v.scheduled {
             return self.add_trigger(cx);
+        }
+        if v.webhook_only {
+            return webhook_trigger();
         }
         let now = now_ms();
         let next = v.valid_schedule().and_then(|s| next_fire(&s, now, &Local)).map(|at| format!("· next {}", stamp(at, now, &Local)));
