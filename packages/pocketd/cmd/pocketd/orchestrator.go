@@ -238,14 +238,18 @@ func (o *orchestrator) openSessions() ([]orch.Session, error) {
 }
 
 // closeAbsent closes each session the store keeps open that this start
-// brought back neither restored nor handed down.
+// brought back neither restored nor handed down, as a close does: through
+// the engine's close hook, which revokes its MCP token.
 func (o *orchestrator) closeAbsent(reg *agent.Registry) {
-	err := o.store.CloseAbsent(func(id string) bool {
+	closed, err := o.store.CloseAbsent(func(id string) bool {
 		_, err := reg.Get(id)
 		return err == nil
 	})
 	if err != nil {
 		log.Printf("orch: closing the sessions left behind: %v", err)
+	}
+	for _, id := range closed {
+		o.engine.OnClosed(id)
 	}
 }
 

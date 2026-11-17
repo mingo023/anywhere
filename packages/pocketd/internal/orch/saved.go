@@ -29,13 +29,15 @@ func (s *Store) OpenSessions() ([]Session, error) {
 }
 
 // CloseAbsent closes each open session that isn't running: after a start,
-// those the pocketd before left that came back neither restored nor handed down.
-func (s *Store) CloseAbsent(running func(id string) bool) error {
+// those the pocketd before left that came back neither restored nor handed
+// down. It returns the ids it closed.
+func (s *Store) CloseAbsent(running func(id string) bool) ([]string, error) {
 	open, err := s.OpenSessions()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return s.Tx(func(tx *Tx) error {
+	var closed []string
+	err = s.Tx(func(tx *Tx) error {
 		for _, x := range open {
 			if running(x.ID) {
 				continue
@@ -46,9 +48,14 @@ func (s *Store) CloseAbsent(running func(id string) bool) error {
 			if err := event(tx, x.ID, "session.closed", map[string]string{"from": x.Status, "to": "closed"}); err != nil {
 				return err
 			}
+			closed = append(closed, x.ID)
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return closed, nil
 }
 
 // Import writes each session the store hasn't heard of, as a pocketd

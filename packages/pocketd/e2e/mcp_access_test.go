@@ -4,7 +4,9 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,6 +36,20 @@ func TestAnMCPTokenOfASessionThatClosedIsRefusedWith401(t *testing.T) {
 	h.Ops().Send(ops.Msg{Op: "close", ID: term})
 	phone.WaitStatus(agent, "closed")
 	h.eventually("its token revoked", func() bool { return toolsListStatus(t, url, auth) == http.StatusUnauthorized })
+}
+
+func TestAStartThatResumesNoAgentsRevokesTheTokensOfTheSessionsItClosesAndRemovesTheirConfig(t *testing.T) {
+	h, _, term, _ := chatClaude(t)
+	before, auth := anywhereOf(t, h, term)
+
+	h.Restart()
+
+	u, _ := url.Parse(before)
+	u.Host = fmt.Sprintf("127.0.0.1:%d", mcpPort(t, h))
+	h.eventually("its token revoked", func() bool { return toolsListStatus(t, u.String(), auth) == http.StatusUnauthorized })
+	if _, err := os.Stat(filepath.Join(h.Home, "state", "mcp", term+".json")); !os.IsNotExist(err) {
+		t.Fatalf("its MCP config: %v", err)
+	}
 }
 
 func TestAToolCallOverTheCallersAccessIsRefusedAsForbidden(t *testing.T) {

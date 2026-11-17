@@ -29,8 +29,9 @@ func TestAStartClosesTheSessionsItBroughtBackNeitherRestoredNorHandedDown(t *tes
 		`INSERT INTO sessions (id, status) VALUES ('back', 'idle'), ('gone', 'working'), ('host/x', 'idle')`,
 		`INSERT INTO sessions (id, status, closed_at) VALUES ('closed', 'closed', 5)`,
 	)
-	if err := s.CloseAbsent(func(id string) bool { return id == "back" }); err != nil {
-		t.Fatal(err)
+	closed, err := s.CloseAbsent(func(id string) bool { return id == "back" })
+	if err != nil || len(closed) != 1 || closed[0] != "gone" {
+		t.Fatalf("closed %q, %v", closed, err)
 	}
 	open, err := s.OpenSessions()
 	if err != nil || len(open) != 1 || open[0].ID != "back" {
