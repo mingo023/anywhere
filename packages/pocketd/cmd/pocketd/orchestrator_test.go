@@ -44,8 +44,8 @@ func post(h http.Handler, path, body, sig string) int {
 
 func TestAWebhookWithABadSignatureIsSkipped(t *testing.T) {
 	s := &fakeSchedules{autos: map[string]proto.Automation{
-		"signed": {ID: "signed", Webhook: true, WebhookSecret: "s3cret"},
-		"open":   {ID: "open", Webhook: true},
+		"signed": {ID: "signed", Webhook: true, WebhookSecret: "s3cret", Enabled: true},
+		"open":   {ID: "open", Webhook: true, Enabled: true},
 		"timed":  {ID: "timed"},
 	}}
 	h := hooks(s)
@@ -69,6 +69,16 @@ func TestAWebhookWithABadSignatureIsSkipped(t *testing.T) {
 		}
 	}
 	if strings.Join(s.ran, ",") != "signed,open" {
+		t.Fatalf("ran %v", s.ran)
+	}
+}
+
+func TestAPausedAutomationsWebhookRunsNothing(t *testing.T) {
+	s := &fakeSchedules{autos: map[string]proto.Automation{"paused": {ID: "paused", Webhook: true}}}
+	if got := post(hooks(s), "/hooks/paused", `{}`, ""); got != http.StatusNotFound {
+		t.Errorf("status %d, want %d", got, http.StatusNotFound)
+	}
+	if len(s.ran) > 0 {
 		t.Fatalf("ran %v", s.ran)
 	}
 }

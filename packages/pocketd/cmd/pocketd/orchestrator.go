@@ -302,7 +302,7 @@ func hooks(s mcp.Schedules) http.Handler {
 		}
 		id := strings.TrimPrefix(r.URL.Path, "/hooks/")
 		a, ok := s.Get(id)
-		if !ok || !a.Webhook {
+		if !ok || !a.Webhook || !a.Enabled {
 			http.NotFound(w, r)
 			return
 		}
