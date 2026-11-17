@@ -6,7 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -219,5 +221,67 @@ func TestSettingsSwitchTheModelThenItsOptionsThenTheAccessAndStopAtTheFirstRefus
 	b, _ = json.Marshal(orch.SettingsPayload{Model: "-bad"})
 	if _, err := h.Run(context.Background(), orch.Effect{Lane: "s1", Kind: orch.EffSettings, Payload: b}); err == nil || !strings.HasPrefix(err.Error(), "Model names use") {
 		t.Fatalf("a bad model: %v", err)
+	}
+}
+
+// promptRecorder takes prompts and reports no turn: its agent says when one began.
+type promptRecorder struct {
+	mu    sync.Mutex
+	texts []string
+}
+
+func (d *promptRecorder) Prompt(text string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.texts = append(d.texts, text)
+	return nil
+}
+func (d *promptRecorder) prompts() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.texts)
+}
+func (*promptRecorder) Interrupt() error                   { return nil }
+func (*promptRecorder) Compact() error                     { return nil }
+func (*promptRecorder) Settings(string, string) error      { return nil }
+func (*promptRecorder) Commands() ([]proto.Command, error) { return nil, nil }
+func (*promptRecorder) Access(string) error                { return nil }
+func (*promptRecorder) Close()                             {}
+
+func TestAMessageSentBeforeTheAgentSaysItsTurnBeganQueuesBehindThatTurn(t *testing.T) {
+	reg := agent.NewRegistry(hub.New())
+	d := &promptRecorder{}
+	a := reg.Add("s1", "/r", "claude", d)
+	store, err := orch.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	e := orch.NewEngine(store, &Host{Registry: reg})
+	defer e.Close()
+	e.Live = func(id string) (orch.Session, bool) {
+		a, err := reg.Get(id)
+		if err != nil {
+			return orch.Session{}, false
+		}
+		s := a.Summary()
+		return orch.Session{ID: s.ID, Agent: s.Provider, Status: s.Status, Cwd: s.Cwd}, true
+	}
+	if _, err := e.Dispatch(orch.NewCommand("", orch.CmdMessageSend, "s1", orch.SendPayload{Text: "first"})); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(3 * time.Second); len(d.prompts()) == 0 && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	// The agent has the prompt, and its turn shows only later.
+	time.Sleep(100 * time.Millisecond)
+	r, err := e.Dispatch(orch.NewCommand("", orch.CmdMessageSend, "s1", orch.SendPayload{Text: "second"}))
+	if err != nil || !strings.Contains(string(r.Result), `"queued":true`) {
+		t.Fatalf("the second before the first turn showed: %s, %v", r.Result, err)
+	}
+	a.Working()
+	time.Sleep(50 * time.Millisecond)
+	if got := d.prompts(); !slices.Equal(got, []string{"first"}) {
+		t.Fatalf("the agent got %q", got)
 	}
 }

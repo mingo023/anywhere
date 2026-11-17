@@ -193,7 +193,11 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 // own prompt is refused at once, as before.
 func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 	for {
+		idle, starts := a.Turn() == "idle" || a.Turn() == "done", a.Starts()
 		err := a.Driver().Prompt(p.Text)
+		if err == nil && idle {
+			began(ctx, a, starts)
+		}
 		if !errors.Is(err, agent.ErrResuming) || p.Origin == orch.OriginUser {
 			return err
 		}
@@ -201,6 +205,24 @@ func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 		case <-ctx.Done():
 			return err
 		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// turnShows is how long a prompt's turn start waits for the agent to say its turn began.
+const turnShows = 2 * time.Second
+
+// began waits, turnShows at most, for a turn after the agent's starts-th or the agent
+// to ask: until then the session reads idle, and a message sent to it would go out beside that turn.
+func began(ctx context.Context, a *agent.Agent, starts int) {
+	deadline := time.After(turnShows)
+	for a.Starts() == starts && a.Turn() != "needsYou" {
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline:
+			return
+		case <-time.After(10 * time.Millisecond):
 		}
 	}
 }

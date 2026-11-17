@@ -441,8 +441,8 @@ func send(st State, cmd Command, p SendPayload, ids *idSeq) (Decision, error) {
 		d.Events = append(d.Events, Event{st.Session.ID, "turn.restarted", nil})
 	}
 	eff := effect(st.Session.ID, EffTurnStart, TurnPayload{Text: p.Text, Key: cmd.ID, Origin: origin})
-	// What queued behind this start goes out if it fails, as no turn's end will send it.
-	eff.Else = CmdQueueDrain
+	// What queued behind this start goes out if no turn came of it, as no turn's end will send it.
+	eff.Then, eff.Else = CmdQueueDrain, CmdQueueDrain
 	d.Effects = append(d.Effects, eff)
 	d.Events = append(d.Events, Event{st.Session.ID, "message.sent", map[string]string{"origin": origin}})
 	d.Result = map[string]any{"queued": false}
