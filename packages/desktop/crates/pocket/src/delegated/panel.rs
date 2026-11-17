@@ -97,6 +97,11 @@ impl Panel {
         shut
     }
 
+    /// A press outside an open panel shuts it to its capsule, which stays. Whether it shut.
+    fn pressed_outside(&mut self) -> bool {
+        self.scrolled(true)
+    }
+
     /// Steps the list and the panel toward their targets; true while either still moves.
     fn step(&mut self, now: Instant, still: bool) -> bool {
         let (spread_to, shown_to) = self.targets();
@@ -266,6 +271,12 @@ impl Desktop {
         }
     }
 
+    fn delegated_pressed_outside(&mut self, parent: &str, cx: &mut Context<Self>) {
+        if self.delegated.panels.get_mut(parent).is_some_and(Panel::pressed_outside) {
+            cx.notify();
+        }
+    }
+
     pub(crate) fn delegated_set_open(&mut self, parent: &str, open: bool, cx: &mut Context<Self>) {
         if let Some(p) = self.delegated.panels.get_mut(parent) {
             (p.open, p.collapse) = (open, None);
@@ -308,6 +319,7 @@ impl Desktop {
         let capsule = (capsule_opacity(spread) > 0.).then(|| capsule(&parent, list.clone(), &counts, logos, summary, spread < 0.5, cx).opacity(capsule_opacity(spread)));
         let full = (list_opacity(spread) > 0.).then(|| full(&parent, list, counts.total, settled, spread >= 0.5, &self.fleet.hosts, cx).opacity(list_opacity(spread)));
         let material = material(reduce_transparency, cfg!(target_os = "macos"));
+        let open = self.delegated.panels[agent].open;
         Some(
             div().absolute().top(px(TOP)).right(px(16.)).child(
                 shell(material)
@@ -317,6 +329,7 @@ impl Desktop {
                     .w(px(lerp(cap_w, FULL_W, spread) * scale))
                     .h(px(lerp(CAPSULE_H, full_h, spread) * scale))
                     .rounded(px(lerp(CAPSULE_H / 2., 15., spread) * scale))
+                    .when(open, |d| d.on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| this.delegated_pressed_outside(&parent, cx))))
                     .children(capsule)
                     .children(full),
             ),
@@ -497,6 +510,16 @@ mod tests {
         assert!(panel.scrolled(true));
         assert!(!panel.open);
         assert!(!panel.scrolled(true), "a shut panel has nothing to shut");
+    }
+
+    #[test]
+    fn a_press_outside_an_open_panel_shuts_it_to_its_capsule_and_clears_nothing() {
+        let mut panel = Panel::new();
+        panel.open = true;
+        assert!(panel.pressed_outside());
+        assert!(!panel.open);
+        assert!(!panel.leaving, "the capsule stays");
+        assert!(!panel.pressed_outside(), "a press outside the capsule has nothing to shut");
     }
 
     #[test]
