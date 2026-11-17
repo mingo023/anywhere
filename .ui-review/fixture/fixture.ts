@@ -615,7 +615,8 @@ Bun.serve({
         ws.send(JSON.stringify({ type: "pair.offer", id: f.id, url: `anywhere://pair?v=1&h=100.64.0.1:4517&c=${code}`, code, expiresAt: Date.now() + 300_000 }));
       }
       // FIXTURE_HOST_ONLY: every chat has three tasks whose sessions run on linked hosts, so none is in agent.list.
-      const hostOnly = (id: string): Task[] => process.env.FIXTURE_HOST_ONLY ? TASKS.map(([title, agent, model], i) => ({ taskId: `${id}-host${i + 1}`, parentId: id, childId: `${id}-host-c${i + 1}`, title, agent, model, status: "working", ...(i === 0 && { question: "Which test runner?" }), createdAt: Date.now() + i })) : [];
+      // FIXTURE_HOST_DOWN=1 tags them: the second runs on devbox (online), the third on 10.0.4.12 (retrying).
+      const hostOnly = (id: string): Task[] => process.env.FIXTURE_HOST_ONLY ? TASKS.map(([title, agent, model], i) => ({ taskId: `${id}-host${i + 1}`, parentId: id, childId: `${process.env.FIXTURE_HOST_DOWN ? (i === 2 ? "10-0-4-12/" : "devbox/") : ""}${id}-host-c${i + 1}`, title, agent, model, status: "working", ...(i === 0 && { question: "Which test runner?" }), createdAt: Date.now() + i })) : [];
       if (f.type === "agent.delegations") ws.send(JSON.stringify({ type: "agent.delegations", id: f.id, agentId: f.agentId, items: tasks.get(f.agentId) ?? hostOnly(f.agentId) }));
       if (f.type === "agent.timeline" && childTimelines.has(f.agentId)) ws.send(JSON.stringify({ type: "agent.timeline", agentId: f.agentId, items: childTimelines.get(f.agentId) }));
       if (f.type === "agent.timeline") {
