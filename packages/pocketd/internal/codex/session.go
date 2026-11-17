@@ -132,7 +132,8 @@ func Open(ctx context.Context, sock, threadID, agentID string, sink Sink, b *bro
 		}
 		select {
 		case <-ctx.Done():
-			s.Close()
+			s.cancel()
+			c.Close()
 			return nil, err
 		case <-time.After(ResumeRetry):
 		}

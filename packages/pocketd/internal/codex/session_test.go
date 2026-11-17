@@ -632,3 +632,17 @@ func TestBesideTheTUIAServerRequestPocketdDoesNotKnowIsLeftToTheTUI(t *testing.T
 		t.Fatalf("first reply was to %s: %s%s", f.ID, f.Result, f.Error)
 	}
 }
+
+func TestOpeningAThreadWithNoFirstTurnFailsWhenItsContextEnds(t *testing.T) {
+	srv := codextest.Start(t, sock(t), func(method string, _ json.RawMessage) (any, string) {
+		if method == "thread/resume" {
+			return nil, "no rollout found"
+		}
+		return map[string]any{}, ""
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := Open(ctx, srv.Sock, "th1", "agent1", &sink{}, broker.New(hub.New()), false); err == nil {
+		t.Fatal("opened")
+	}
+}
