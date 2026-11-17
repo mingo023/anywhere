@@ -151,11 +151,9 @@ func (t *Timeline) Load(items []proto.Item) {
 		if it.Kind == "tool" && it.Call != nil && it.Call.Status == "running" {
 			t.tools[it.Call.ToolUseID] = i
 		}
-		if it.Kind == "tasks" {
-			t.claudeTasks = nil
-			if len(it.Tasks) > 0 && it.Tasks[0].ID != "" {
-				t.claudeTasks = slices.Clone(it.Tasks)
-			}
+		// A TodoWrite card has no ids and leaves Claude's list alone, as it does live.
+		if it.Kind == "tasks" && (len(it.Tasks) == 0 || it.Tasks[0].ID != "") {
+			t.claudeTasks = slices.Clone(it.Tasks)
 		}
 	}
 	t.epoch++

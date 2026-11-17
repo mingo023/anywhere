@@ -113,6 +113,7 @@ func TestARestoredTimelineKeepsClaudesTasks(t *testing.T) {
 		old.Apply(Event{Kind: "tool_start", ToolUseID: "c" + id, Name: "TaskCreate", Input: json.RawMessage(`{"subject":"` + subject + `"}`)}, 1)
 		old.Apply(Event{Kind: "tool_end", ToolUseID: "c" + id, OK: true, Output: str("Task #" + id + " created successfully: " + subject)}, 2)
 	}
+	old.Apply(Event{Kind: "tool_start", ToolUseID: "w1", Name: "TodoWrite", Input: json.RawMessage(`{"todos":[{"content":"other","status":"pending"}]}`)}, 2)
 	page, _ := old.Page(0, 100)
 	raw, _ := json.Marshal(page)
 	var stored []proto.Item
