@@ -207,6 +207,11 @@ func decide(st State, cmd Command) (Decision, error) {
 			return Decision{}, err
 		}
 		return Decision{Effects: []Effect{effect(cmd.Session, EffInterrupt, nil)}, Events: stopEvents(st)}, nil
+	case CmdTurnSendNow:
+		if err := live(st); err != nil {
+			return Decision{}, err
+		}
+		return Decision{Effects: []Effect{effect(cmd.Session, EffSendNow, nil)}}, nil
 	case CmdSessionStop:
 		return stop(st, cmd)
 	case CmdSessionClose:

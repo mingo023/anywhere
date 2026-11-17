@@ -108,6 +108,8 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 		return nil, prompt(ctx, a, p)
 	case orch.EffInterrupt:
 		return nil, a.Driver().Interrupt()
+	case orch.EffSendNow:
+		return nil, sendNow(a)
 	case orch.EffAnswer:
 		var p orch.RequestPayload
 		json.Unmarshal(e.Payload, &p)

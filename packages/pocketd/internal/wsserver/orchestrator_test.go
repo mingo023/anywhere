@@ -171,3 +171,34 @@ func TestPermissionResolveAnswersTheAskOnceAndRefusesItAfter(t *testing.T) {
 		}
 	})
 }
+
+type nowDriver struct {
+	fakeDriver
+	sends int
+}
+
+func (d *nowDriver) SendNow() error { d.sends++; return nil }
+
+func TestAgentSendNowHasTheAgentSendWhatItHoldsOrSaysItCant(t *testing.T) {
+	eachWay(t, func(t *testing.T, opts ...func(*Server)) {
+		reg, _, p := setup(t, opts...)
+		p.hello()
+		d := &nowDriver{}
+		reg.Add("a2", "/w", "claude", d)
+		p.send(`{"type":"agent.send_now","id":"n","agentId":"a2"}`)
+		m := p.recv()
+		for m["type"] == "agent.update" {
+			m = p.recv()
+		}
+		if m["type"] != "ack" || m["id"] != "n" {
+			t.Fatalf("%v", m)
+		}
+		if d.sends != 1 {
+			t.Fatalf("sent now %d times", d.sends)
+		}
+		p.send(`{"type":"agent.send_now","id":"x","agentId":"a1"}`)
+		if m := p.recv(); m["message"] != "This agent takes a message only after its current step" || m["id"] != "x" {
+			t.Fatalf("%v", m)
+		}
+	})
+}

@@ -8,6 +8,7 @@ import (
 const (
 	CmdMessageSend     = "message.send"
 	CmdTurnInterrupt   = "turn.interrupt"
+	CmdTurnSendNow     = "turn.send_now"
 	CmdSessionStop     = "session.stop"
 	CmdSessionClose    = "session.close"
 	CmdSessionCreate   = "session.create"
@@ -48,6 +49,7 @@ const (
 	EffLaunch     = "agent.launch"
 	EffTurnStart  = "turn.start"
 	EffInterrupt  = "turn.interrupt"
+	EffSendNow    = "turn.send_now"
 	EffAnswer     = "request.answer"
 	EffClose      = "agent.close"
 	EffRename     = "session.rename"

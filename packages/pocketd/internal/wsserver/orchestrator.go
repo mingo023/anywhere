@@ -137,6 +137,9 @@ func (c *conn) orchestrated(m proto.ClientMessage) (bool, error) {
 	case "agent.interrupt":
 		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionStop, Session: m.AgentID}, promptWait)
 		return true, failureReply(err)
+	case "agent.send_now":
+		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdTurnSendNow, Session: m.AgentID}, promptWait)
+		return true, failureReply(err)
 	case "agent.close":
 		_, err := e.DispatchWait(orch.Command{Kind: orch.CmdSessionClose, Session: m.AgentID}, promptWait)
 		return true, failureReply(err)

@@ -112,6 +112,19 @@ func TestTurnInterruptRunsTheInterruptEffectOnALiveSessionOnly(t *testing.T) {
 	}
 }
 
+func TestTurnSendNowRunsTheSendNowEffectOnALiveSessionOnly(t *testing.T) {
+	d, err := decide(parentState("working", 0), NewCommand("c", CmdTurnSendNow, "p", nil))
+	if err != nil || len(d.Effects) != 1 || d.Effects[0].Kind != EffSendNow || d.Effects[0].Lane != "p" {
+		t.Fatalf("send_now = %+v, %v", d, err)
+	}
+	if _, err := decide(State{}, NewCommand("c", CmdTurnSendNow, "nope", nil)); err == nil || AsFailure(err).Code != CodeNotFound {
+		t.Errorf("unknown session: %v, want not_found", err)
+	}
+	if _, err := decide(closedState(), NewCommand("c", CmdTurnSendNow, "p", nil)); err == nil || AsFailure(err).Code != CodeConflict {
+		t.Errorf("closed session: %v, want conflict", err)
+	}
+}
+
 func TestMessageSendRestartCutsTheRunningTurnThenStartsTheMessage(t *testing.T) {
 	d, err := decide(parentState("working", 0), NewCommand("c", CmdMessageSend, "p", SendPayload{Text: "new plan", Mode: "restart"}))
 	if err != nil {
