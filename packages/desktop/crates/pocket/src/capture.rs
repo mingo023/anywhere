@@ -32,7 +32,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 268] = [
+const STEPS: [(&str, Step); 269] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -891,6 +891,26 @@ const STEPS: [(&str, Step); 268] = [
             ],
             ..Pr::default()
         };
+        let now = Instant::now();
+        d.prs.start(&tree, now);
+        d.prs.apply(tree, now, Ok(Some(pr)), now);
+    }),
+    ("pr-long", |d, _, _| {
+        let Some((tree, pr)) = d.shown_pr() else { return };
+        let mut pr = pr.clone();
+        let at = crate::util::now_ms() as u64;
+        let replies = [
+            ("Minh Ngo", "It guards against tmux never redrawing.", 32),
+            ("hoang", "Then can we key it off the settled event instead of a fixed 800ms?", 28),
+            ("linh", "+1, the fixed delay is why the reveal feels slow.", 24),
+            ("Minh Ngo", "useTerminalSettled() fires on the first full redraw, switching to that.", 20),
+            ("hoang", "And keep a fallback for sessions that never settle?", 16),
+            ("Minh Ngo", "Yes, a 3s fallback, logged.", 13),
+        ];
+        if let Some(t) = pr.threads.iter_mut().find(|t| t.id == "t2") {
+            let said = replies.iter().map(|(author, body, mins)| Comment { author: author.to_string(), body: body.to_string(), at: at - mins * 60_000, hunk: String::new() });
+            t.comments.splice(1..1, said);
+        }
         let now = Instant::now();
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);

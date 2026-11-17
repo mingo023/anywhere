@@ -722,6 +722,7 @@ mod tests {
         s.sections.set_group("/w", Some(work));
         s.sections.toggle_pin(sections::Pin::Tree { project: "/w".into(), tree: "/t/fix".into() });
         s.sections.sort = sections::Sort::Recent;
+        s.sections.move_tree("/w", vec!["/t/fix".into(), "/t/feat".into()], "/t/feat", "/t/fix");
         s.chats.insert("t1".into());
         s.save();
         let back = Store::load(&dir);

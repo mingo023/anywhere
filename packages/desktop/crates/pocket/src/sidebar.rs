@@ -157,6 +157,13 @@ struct DragProject {
     ix: usize,
 }
 
+#[derive(Clone)]
+struct DragTree {
+    project: String,
+    key: String,
+    ix: usize,
+}
+
 pub struct SidebarState {
     pub(crate) search: Entity<InputState>,
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
@@ -330,7 +337,7 @@ impl Desktop {
 
     /// A Local's row. The project's own, pinned, reads as the project with its Local's name `sub`.
     fn local_row(&self, p: &str, row: &TreeRow, current: Option<&str>, sub: Option<String>, cx: &mut Context<Self>) -> AnyElement {
-        let (key, tip) = (row.key.as_str(), &row.tip);
+        let (key, tip, ix, pinned) = (row.key.as_str(), &row.tip, row.ix, sub.is_some());
         let selects = (row.kind == Kind::Local).then(|| row.key.clone());
         let menu = RowMenu::Local { project: p.to_string(), local: key.to_string() };
         let renames = self.agents.renames_offered(key);
@@ -365,6 +372,7 @@ impl Desktop {
             .when(sub.is_some(), |row| row.pl(px(6.)))
             .when(lit, |row| row.bg(FILL_3))
             .when(pins || renames, |row| row.on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx)));
+        let row = if pinned { row } else { self.reorders(row, p, key, ix, cx) };
         let card = self.card_for(p, key, &name, tip, own, cx.reduce_motion());
         Self::with_card(row, key, card, cx).into_any_element()
     }
@@ -414,6 +422,25 @@ impl Desktop {
                 }
             }))
             .children(card)
+    }
+
+    /// Makes `row` draggable among `p`'s rows, except while renamed so its field's text stays selectable.
+    fn reorders(&self, row: Stateful<Div>, p: &str, key: &str, ix: usize, cx: &mut Context<Self>) -> Stateful<Div> {
+        if self.sidebar.renaming(key) {
+            return row;
+        }
+        let (project, over, to) = (p.to_string(), p.to_string(), key.to_string());
+        row.on_drag(DragTree { project: p.to_string(), key: key.to_string(), ix }, |_, _, _, cx| cx.new(|_| EmptyView))
+            .drag_over::<DragTree>(move |s, d, _, _| if d.project != over || d.ix == ix { s } else { s.shadow(ui::drop_line(d.ix < ix)) })
+            .on_drop(cx.listener(move |this, d: &DragTree, _, cx| {
+                if d.project != project {
+                    return;
+                }
+                let keys = this.tree_rows(&project, &this.trees_shown(&project).unwrap_or_default()).into_iter().map(|r| r.key).collect();
+                this.store.sections.move_tree(&project, keys, &d.key, &to);
+                this.store.save();
+                cx.notify();
+            }))
     }
 
     fn hover_tree(&mut self, tree: &str, over: bool, y: f32, cx: &mut Context<Self>) {
@@ -469,8 +496,8 @@ impl Desktop {
         }
         buttons.push(self.row_menu_button(p, menu.clone(), cx));
         let setup = setting_up.then(|| ui::busy(id(format!("aside-setup:{p}")), "Setting up…").into_any_element());
-        let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu));
-        let target = p.to_string();
+        let trail = ui::row_trail(setup, buttons, self.row_menu.as_ref() == Some(&menu) || self.sidebar.hover.on_project(p));
+        let (target, pointed) = (p.to_string(), p.to_string());
         let name = self.repo_name(p);
         let host = hosts::split(p).0;
         let offline = host.is_some_and(|h| !self.fleet.hosts.links.online(h));
@@ -479,6 +506,10 @@ impl Desktop {
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
             .when(self.sidebar.filter.lit(p, None), |row| row.bg(FILL_3))
+            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+                this.sidebar.hover.point_project(&pointed, *over);
+                cx.notify();
+            }))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if git {
                     this.store.toggle(&target);
@@ -547,7 +578,7 @@ impl Desktop {
             Some(r) => Input::new(&r.input).appearance(false).p_0().text_size(px(13.)).into_any_element(),
             None => done_name(self.scrolling(tree, title.clone(), row_name(&self.renames, tree, title.clone(), state, selected, cx.reduce_motion()), cx), state),
         };
-        let pinned = sub.is_some();
+        let (pinned, ix) = (sub.is_some(), row.ix);
         let row = ui::worktree_row(id(format!("aside-tree:{tree}")), WORKTREE_ICON, with_sub(label, sub, self.sidebar.renaming(tree)), selected, mark)
             .child(trail)
             .when(pinned, |row| row.pl(px(6.)))
@@ -564,6 +595,7 @@ impl Desktop {
                 this.select_tree(target.clone(), Some(path.clone()), cx);
             }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
+        let row = if pinned { row } else { self.reorders(row, p, tree, ix, cx) };
         let card = self.card_for(p, tree, title, tip, true, cx.reduce_motion());
         Self::with_card(row, tree, card, cx).into_any_element()
     }

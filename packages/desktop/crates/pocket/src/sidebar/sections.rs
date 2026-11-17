@@ -73,6 +73,8 @@ pub(crate) struct TreeRow {
     pub(crate) label: String,
     pub(crate) tip: String,
     pub(crate) kind: Kind,
+    /// Its place among its project's rows.
+    pub(crate) ix: usize,
 }
 
 pub(super) fn matches(text: &str, query: &str) -> bool {
@@ -112,7 +114,7 @@ impl Desktop {
         self.listed_trees(p).map(|w| self.removals.hide(self.creates.trees(p, &w)))
     }
 
-    /// The rows under `p`: its own Local while in use, the Locals added to it, then its worktrees.
+    /// The rows under `p`: its own Local while in use, the Locals added to it, then its worktrees, in the order they were dragged to.
     pub(super) fn tree_rows(&self, p: &str, trees: &[git::Worktree]) -> Vec<TreeRow> {
         if trees.is_empty() {
             return vec![];
@@ -121,14 +123,15 @@ impl Desktop {
         let tip = trees.iter().find(|w| w.main).map(tree_place).unwrap_or_default();
         let mut rows = Vec::new();
         if self.in_use(&main) {
-            rows.push(TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own });
+            rows.push(TreeRow { label: self.local_name(&main), key: main, tip: tip.clone(), kind: Kind::Own, ix: 0 });
         }
-        rows.extend(self.agents.locals_in(p).map(|l| TreeRow { key: l.id.clone(), label: self.local_name(&l.id), tip: tip.clone(), kind: Kind::Local }));
+        rows.extend(self.agents.locals_in(p).map(|l| TreeRow { key: l.id.clone(), label: self.local_name(&l.id), tip: tip.clone(), kind: Kind::Local, ix: 0 }));
         rows.extend(trees.iter().filter(|w| !w.main).map(|w| {
             let (label, tip) = tree_label(w, &self.agents);
-            TreeRow { key: w.path.clone(), label, tip, kind: Kind::Worktree }
+            TreeRow { key: w.path.clone(), label, tip, kind: Kind::Worktree, ix: 0 }
         }));
-        rows
+        let rows = self.store.sections.order_trees(p, rows, |r| r.key.as_str());
+        rows.into_iter().enumerate().map(|(ix, r)| TreeRow { ix, ..r }).collect()
     }
 
     pub(super) fn tree_pinned(&self, p: &str, key: &str) -> bool {

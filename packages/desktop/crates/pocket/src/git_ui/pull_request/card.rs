@@ -1,7 +1,8 @@
-use super::{CheckRows, card_busy, check_rows, fix_summary, gate_text, opening, place, resolving_text, review_lines, tally, to_fix};
+use super::{CheckRows, card_busy, check_rows, fix_summary, fixing_text, gate_text, opening, plural, resolving_text, review_lines, spot, tally, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
 use git::github::{Check, Gate, Method, Outcome, Pr, PrState, Review, ThreadState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -50,31 +51,65 @@ pub(crate) fn row() -> Div {
     div().min_h(px(26.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_2)
 }
 
-/// A labelled line of the card: the label in a narrow column, so it costs no row of its own.
-fn fact(label: &'static str, value: Div) -> Div {
-    let label = div().w(px(52.)).h(px(26.)).flex_none().flex().items_center().text_size(px(12.)).text_color(TEXT_4).child(label);
-    div().flex().items_start().gap(px(8.)).child(label).child(value.flex_1().min_w_0())
-}
-
 pub(crate) fn glyph_slot(glyph: impl IntoElement) -> Div {
     div().size(px(13.)).flex_none().flex().items_center().justify_center().child(glyph)
 }
 
-fn callout(lead: impl IntoElement, bg: Token, title: String, sub: String, action: Option<Stateful<Div>>) -> Div {
+/// What to fix, or who is fixing it, under the card's title; the text wraps so the action keeps its place.
+fn banner(lead: impl IntoElement, bg: Token, title: String, sub: String, action: Option<Stateful<Div>>) -> Div {
     let text = div()
         .flex_1()
-        .min_w(px(120.))
+        .min_w_0()
         .flex()
         .flex_col()
-        .gap(px(1.))
+        .text_size(px(12.))
+        .line_height(px(16.))
+        .text_color(TEXT_2)
         .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
-        .child(div().text_size(px(12.)).text_color(TEXT_3).child(sub));
-    // The text's floor makes a narrow panel wrap the action to its own line instead of squeezing the text to a letter a line.
-    div().p(px(10.)).flex().flex_wrap().items_center().gap(px(10.)).rounded(px(10.)).bg(bg).child(lead).child(text).children(action)
+        .child(sub);
+    div().mx(px(10.)).mb(px(10.)).pl(px(10.)).pr(px(8.)).py(px(8.)).flex().items_center().gap(px(9.)).rounded(px(9.)).bg(bg).child(lead).child(text).children(action)
+}
+
+pub(super) fn section(title: &'static str, status: Option<(Token, String)>) -> Div {
+    let status = status.map(|(color, text)| div().flex_1().min_w_0().flex().justify_end().child(div().min_w_0().truncate().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(color).child(text)));
+    div().pt(px(16.)).pb(px(6.)).px(px(12.)).flex().items_center().gap(px(8.)).child(div().flex_none().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).children(status)
+}
+
+pub(super) fn group(rows: impl IntoIterator<Item = AnyElement>) -> Div {
+    let rows = rows.into_iter().enumerate().map(|(i, r)| div().when(i > 0, |d| d.border_t_1().border_color(HAIRLINE)).child(r));
+    div().px(px(12.)).flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(ui::row_shadow()).children(rows)
+}
+
+pub(super) fn group_row() -> Div {
+    row().min_h(px(36.))
+}
+
+fn checks_status(pr: &Pr) -> Option<(Token, String)> {
+    let CheckRows { named, passed, .. } = check_rows(pr);
+    let failed = named.iter().filter(|c| c.outcome == Outcome::Failed).count();
+    let pending = named.len() - failed;
+    if pr.runs.is_empty() {
+        None
+    } else if failed > 0 {
+        Some((FAILED_TEXT, tally([(failed, "failed"), (passed, "passed")])))
+    } else if pending > 0 {
+        Some((WAITING_TEXT, format!("{} in progress", plural(pending, "check"))))
+    } else {
+        Some((SUCCESS_TEXT, "All passed".into()))
+    }
+}
+
+pub(super) fn review_status(pr: &Pr) -> Option<(Token, String)> {
+    match pr.review {
+        Review::ChangesRequested => Some((FAILED_TEXT, "Changes requested".into())),
+        Review::Approved => Some((SUCCESS_TEXT, "Approved".into())),
+        Review::Required => Some((TEXT_3, "Review required".into())),
+        Review::None => None,
+    }
 }
 
 impl Desktop {
-    /// The PR of the worktree on screen: where it stands in one line, and, unfolded, its checks, review and merge, and what can be handed to its agent.
+    /// The PR of the worktree on screen: where it stands in one line, and, unfolded, what to fix, then its checks, review and merge, each in its own group.
     pub(crate) fn pr_card(&self, cx: &mut Context<Self>) -> Option<Div> {
         let (tree, pr) = self.shown_pr()?;
         let agent = self.fix_agent();
@@ -134,49 +169,57 @@ impl Desktop {
                 }))
             });
         let card = div().flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(ui::row_shadow()).child(head);
-        // The body's slot stays when folded, so its spring knows an unfold from the card first showing.
-        let wrap = |card: Div, body: Option<Div>| {
-            let body = div().children(body).with_spring("pr-body", SpringAnimation::new(SPRING).to(!folded), |d, t| d.opacity(t.0).mt(px(-4. * (1. - t.0))));
-            Some(div().flex_none().px(px(10.)).pb(px(8.)).child(card.child(body)))
-        };
+        // The slots stay when folded, so their springs know an unfold from the card first showing.
+        let spring = |id: &'static str, body: Option<Div>| div().children(body).with_spring(id, SpringAnimation::new(SPRING).to(!folded), |d, t| d.opacity(t.0).mt(px(-4. * (1. - t.0))));
+        let wrap = |card: Div, inner: Option<Div>, groups: Option<Div>| Some(div().flex_none().px(px(10.)).pb(px(8.)).child(card.child(spring("pr-body", inner))).child(spring("pr-groups", groups)));
         if folded {
-            return wrap(card, None);
+            return wrap(card, None, None);
+        }
+        if !open {
+            return wrap(card, Some(div().px(px(12.)).pt(px(6.)).pb(px(12.)).child(self.pr_merged(&tree, cx))), None);
         }
         let (checks, threads) = to_fix(pr, fixing);
         let resolving = fixing.is_some_and(|s| s.conflict);
         let items = fixing.map_or(0, |s| s.items());
-        // While the agent works, the header says so; the callout only asks for what's still unsent.
-        let callout = (open && items == 0 && (!checks.is_empty() || !threads.is_empty())).then(|| {
+        // While the agent works, the banner says so; otherwise it asks only for what's still unsent.
+        let fix = if items > 0 {
+            Some(banner(spinner("pr-banner", 13., WAITING), WAITING_BG, fixing_text(agent, items), "The checks run again once it pushes".into(), None))
+        } else if !checks.is_empty() || !threads.is_empty() {
             let (title, sub) = fix_summary(checks.len(), threads.len());
             let names: Vec<String> = checks.iter().map(|c| c.name.clone()).collect();
             let ids: Vec<String> = threads.iter().map(|t| t.id.clone()).collect();
+            let tip = format!("Send all to {agent}");
             let send = can_send.then(|| {
-                small("pr-send-all", Variant::Primary, format!("Send all to {agent}")).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&names, &ids, cx)))
+                small("pr-send-all", Variant::Primary, "Send all")
+                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&names, &ids, cx)))
             });
-            callout(icon("warning", 16., FAILED), FAILED_BG, title, sub, send)
-        });
-        let facts = open.then(|| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(fact("Checks", self.pr_checks(pr, can_send, &checks, cx)))
-                .child(fact("Review", self.pr_review(&tree, pr, can_send && fixing.is_none(), cx)))
-                .child(fact("Merge", self.pr_gate(pr, resolving, agent)))
-        });
-        let action = if open { self.pr_merge(&tree, pr, resolving, busy, agent, cx).mt(px(6.)) } else { self.pr_merged(&tree, cx) };
-        wrap(card, Some(div().px(px(12.)).pt(px(6.)).pb(px(12.)).flex().flex_col().gap(px(10.)).children(callout).children(facts).child(action)))
+            Some(banner(icon("warning", 15., FAILED), FAILED_BG, title, sub, send))
+        } else {
+            None
+        };
+        let merge = div().py(px(10.)).flex().flex_col().gap(px(10.)).child(self.pr_gate(pr, resolving, agent)).child(self.pr_merge(&tree, pr, resolving, busy, agent, cx));
+        let groups = div()
+            .flex()
+            .flex_col()
+            .child(section("CHECKS", checks_status(pr)))
+            .child(group(self.pr_checks(pr, can_send, &checks, cx)))
+            .child(section("REVIEW", review_status(pr)))
+            .child(group(self.pr_review(&tree, pr, can_send && fixing.is_none(), cx)))
+            .child(section("MERGE", None))
+            .child(group([merge.into_any_element()]));
+        wrap(card, fix, Some(groups))
     }
 
-    fn pr_checks(&self, pr: &Pr, can_send: bool, unsent: &[&Check], cx: &mut Context<Self>) -> Div {
+    fn pr_checks(&self, pr: &Pr, can_send: bool, unsent: &[&Check], cx: &mut Context<Self>) -> Vec<AnyElement> {
         if pr.runs.is_empty() {
-            return row().text_color(TEXT_3).child(glyph_slot(ui::dot(6., TEXT_4))).child("No checks on this branch");
+            return vec![group_row().text_color(TEXT_3).child(glyph_slot(ui::dot(6., TEXT_4))).child("No checks on this branch").into_any_element()];
         }
         let CheckRows { named, passed, skipped } = check_rows(pr);
         let hidden = named.len().saturating_sub(CHECKS_SHOWN);
         let rows = named.into_iter().take(CHECKS_SHOWN).enumerate().map(|(i, check)| {
             if check.outcome == Outcome::Pending {
-                return row()
+                return group_row()
                     .child(glyph_slot(spinner(("pr-run", i), 11., WAITING)))
                     .child(div().flex_1().min_w_0().truncate().child(check.name.clone()))
                     .child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_4).child("in progress"));
@@ -191,37 +234,29 @@ impl Desktop {
                 .flex_none()
                 .gap(px(4.))
                 .when(sent, |d| d.child(fixing_mark()))
-                .when(!sent && !log.is_empty(), |d| d.child(small(("pr-check-log", i), Variant::Secondary, "Log").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(log.clone(), window, cx)))))
+                .when(!sent && !log.is_empty(), |d| d.child(small(("pr-check-log", i), Variant::Ghost, "Log").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(log.clone(), window, cx)))))
                 .children(send);
-            row()
+            group_row()
                 .child(glyph_slot(icon("x", 13., FAILED)))
                 .child(div().flex_1().min_w_0().truncate().text_color(FAILED_TEXT).font_weight(FontWeight::MEDIUM).child(check.name.clone()))
                 .child(trail)
         });
-        let more = (hidden > 0).then(|| row().text_color(TEXT_4).child(glyph_slot(div())).child(format!("{hidden} more")));
+        let more = (hidden > 0).then(|| group_row().text_color(TEXT_4).child(glyph_slot(div())).child(format!("{hidden} more")));
         let quiet = (passed + skipped > 0).then(|| {
-            row().child(glyph_slot(icon("check", 13., SUCCESS))).child(div().flex_1().min_w_0().truncate().child(tally([(passed, "passed"), (skipped, "skipped")])))
+            group_row().child(glyph_slot(icon("check", 13., SUCCESS))).child(div().flex_1().min_w_0().truncate().child(tally([(passed, "passed"), (skipped, "skipped")])))
         });
-        div().flex().flex_col().children(rows).children(more).children(quiet)
+        rows.chain(more).chain(quiet).map(IntoElement::into_any_element).collect()
     }
 
-    fn pr_review(&self, tree: &str, pr: &Pr, can_send: bool, cx: &mut Context<Self>) -> Div {
+    fn pr_review(&self, tree: &str, pr: &Pr, can_send: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let unresolved = pr.unresolved().count();
-        let all = (!pr.threads.is_empty()).then(|| {
-            let label = if unresolved > 0 { format!("{unresolved} unresolved · All comments") } else { "All comments".into() };
-            row().child(ui::link("pr-all-comments", label).text_size(px(12.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.pr.track.comments = true;
-                cx.notify();
-            })))
-        });
         let draft = pr.draft && pr.state == PrState::Open;
         let lines = review_lines(pr).into_iter().enumerate().map(|(i, (r, text))| {
-            row().child(review_icon(r)).child(div().flex_1().min_w_0().truncate().child(text)).when(i == 0 && draft, |d| d.child(pill("Draft", FILL_3, TEXT_3)))
+            group_row().child(review_icon(r)).child(div().flex_1().min_w_0().truncate().child(text)).when(i == 0 && draft, |d| d.child(pill("Draft", FILL_3, TEXT_3))).into_any_element()
         });
         let comments = pr.unresolved().take(COMMENTS_SHOWN).enumerate().map(|(i, t)| {
             let state = t.state(self.pr.track.thread_sent(tree, pr, &t.id));
             let first = t.comments.first();
-            let body = opening(t);
             let (id, open) = (t.id.clone(), t.id.clone());
             let send = (can_send && state == ThreadState::Open).then(|| {
                 small(("pr-comment-send", i), Variant::Secondary, "Send").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -229,24 +264,35 @@ impl Desktop {
                     this.send_fix(&[], std::slice::from_ref(&id), cx);
                 }))
             });
-            let at = div().flex().items_center().gap(px(6.)).font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(div().min_w_0().truncate().child(place(t))).children(thread_chip(state));
+            let at = div().flex().items_center().gap(px(6.)).font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(div().min_w_0().truncate().child(spot(t))).children(thread_chip(state));
             div()
                 .id(("pr-comment", i))
-                .px(px(6.))
-                .py(px(6.))
-                .mx(px(-6.))
+                .py(px(8.))
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .rounded(px(8.))
                 .cursor_pointer()
-                .hover(|s| s.bg(FILL_2))
-                .child(ui::avatar(&who(first.map_or("", |c| c.author.as_str())), 22.))
-                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(at).child(div().truncate().text_size(px(12.5)).text_color(TEXT_2).child(body)))
+                .child(ui::avatar(&who(first.map_or("", |c| c.author.as_str())), 20.).text_size(px(9.)))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(at).child(div().truncate().text_size(px(12.5)).text_color(TEXT_2).child(opening(t))))
                 .children(send)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.view_thread(&open, cx)))
+                .into_any_element()
         });
-        div().flex().flex_col().children(lines).children(comments).children(all)
+        let all = (!pr.threads.is_empty()).then(|| {
+            group_row()
+                .id("pr-all-comments")
+                .cursor_pointer()
+                .child(glyph_slot(icon("comment", 13., TEXT_3)))
+                .child(div().flex_1().min_w_0().truncate().text_color(TEXT).child("All comments"))
+                .when(unresolved > 0, |d| d.child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_4).child(format!("{unresolved} unresolved"))))
+                .child(icon("chevron-right", 12., TEXT_4))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.pr.track.comments = true;
+                    cx.notify();
+                }))
+                .into_any_element()
+        });
+        lines.chain(comments).chain(all).collect()
     }
 
     /// What holds the merge back, or that nothing does.
@@ -312,13 +358,14 @@ impl Desktop {
             div()
                 .id("pr-delete-after")
                 .flex()
-                .items_center()
+                .items_start()
                 .gap(px(8.))
                 .cursor_pointer()
                 .text_size(px(12.))
-                .text_color(TEXT_3)
-                .child(ui::checkbox(after))
-                .child(div().min_w_0().truncate().child("Delete the worktree after merging · keeps the branch"))
+                .line_height(px(16.))
+                .text_color(TEXT_2)
+                .child(ui::checkbox(after).mt(px(1.)))
+                .child(div().flex_1().min_w_0().flex().flex_col().child("Delete the worktree after merging").child(div().text_size(px(11.5)).text_color(TEXT_4).child("Keeps the branch")))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.pr.track.delete_after = !this.pr.track.delete_after;
                     cx.notify();
@@ -349,5 +396,26 @@ impl Desktop {
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.delete_merged(&delete_tree, cx)));
         let text = div().text_size(px(12.5)).text_color(TEXT_2).child(format!("Delete the worktree {branch}? Its terminals close; the branch stays."));
         div().flex().flex_col().gap(px(8.)).child(text).child(div().flex().gap(px(8.)).child(keep).child(delete))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::checks_status;
+    use git::github::{Check, Outcome, Pr};
+    use theme::{FAILED_TEXT, SUCCESS_TEXT, WAITING_TEXT};
+
+    fn pr(runs: &[Outcome]) -> Pr {
+        Pr { runs: runs.iter().enumerate().map(|(i, o)| Check { name: format!("c{i}"), outcome: *o, url: String::new() }).collect(), ..Default::default() }
+    }
+
+    #[test]
+    fn the_checks_title_counts_failures_first_then_what_still_runs_then_says_all_passed() {
+        use Outcome::*;
+        assert_eq!(checks_status(&pr(&[Failed, Passed, Passed, Pending])), Some((FAILED_TEXT, "1 failed · 2 passed".into())));
+        assert_eq!(checks_status(&pr(&[Failed])), Some((FAILED_TEXT, "1 failed".into())));
+        assert_eq!(checks_status(&pr(&[Passed, Pending, Pending])), Some((WAITING_TEXT, "2 checks in progress".into())));
+        assert_eq!(checks_status(&pr(&[Passed, Skipped])), Some((SUCCESS_TEXT, "All passed".into())));
+        assert_eq!(checks_status(&pr(&[])), None);
     }
 }
