@@ -551,3 +551,58 @@ func TestOnlyACallStillRunningInTheBackgroundIsInBackground(t *testing.T) {
 		t.Fatal("an ended call is still in the background")
 	}
 }
+
+func TestATimelineLoadedAfterAnUpgradeEndsTheBackgroundAgentItCarriedWhenItsTaskEnds(t *testing.T) {
+	before := New()
+	var order []string
+	stored := map[string]proto.Item{}
+	apply := func(e Event, ts int64) {
+		it, ok := before.Apply(e, ts)
+		if !ok || strings.HasSuffix(e.Kind, "_draft") {
+			return
+		}
+		if _, seen := stored[it.ID]; !seen {
+			order = append(order, it.ID)
+		}
+		stored[it.ID] = it
+	}
+	agent := json.RawMessage(`{"description":"Look","run_in_background":true}`)
+	apply(Event{Kind: "user", Text: "look around"}, 1)
+	apply(Event{Kind: "thinking_draft", Text: "Where first", Draft: "1:0"}, 1)
+	apply(Event{Kind: "tool_start", ToolUseID: "t1", Name: "Agent", Input: agent}, 2)
+	apply(Event{Kind: "tool_background", ToolUseID: "t1", TaskID: "a1"}, 2)
+	apply(Event{Kind: "tool_start", ToolUseID: "t2", Name: "Agent", Input: agent}, 3)
+	apply(Event{Kind: "tool_background", ToolUseID: "t2", TaskID: "a2", Detached: true}, 3)
+	apply(Event{Kind: "result", OK: true}, 4)
+
+	var items []proto.Item
+	for _, id := range order {
+		raw, _ := json.Marshal(stored[id])
+		var it proto.Item
+		if err := json.Unmarshal(raw, &it); err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, it)
+	}
+	raw, _ := json.Marshal(before.Background())
+	var carried Background
+	if err := json.Unmarshal(raw, &carried); err != nil {
+		t.Fatal(err)
+	}
+	if carried.Tasks == nil {
+		carried.Tasks = map[string]string{}
+	}
+	carried.Tasks["gone"], carried.Lasting = "t9", append(carried.Lasting, "t9")
+
+	after := New()
+	after.Load(items)
+	after.Adopt(carried)
+	after.StartEpoch()
+	if got := after.LastingAgents(); !reflect.DeepEqual(got, []string{"a1", "a2"}) || after.BackgroundAgents() != 1 {
+		t.Fatalf("%v, %d agents", got, after.BackgroundAgents())
+	}
+	it, ok := after.Apply(Event{Kind: "tool_end", TaskID: "a1", OK: true, Output: str("Found it.")}, 9)
+	if !ok || it.Call.ToolUseID != "t1" || it.Call.Status != "ok" || after.BackgroundAgents() != 0 {
+		t.Fatalf("ended: %+v, %d agents", it.Call, after.BackgroundAgents())
+	}
+}

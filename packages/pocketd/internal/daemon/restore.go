@@ -153,7 +153,7 @@ func (d *Daemon) expect(e state.Terminal, t *terminal.Terminal, reason string, c
 	x := agent.Restored{ID: e.AgentID, Cwd: e.LaunchDir, Provider: e.Provider, Conversation: e.ConversationID,
 		Origin: e.Origin, Fallback: filepath.Base(e.LaunchDir), CreatedAt: e.CreatedAt, Done: e.Status == "done", Failed: e.Failed, Pinned: e.Pinned, Account: e.Account, ChatOnly: e.Chat}
 	if carried != nil {
-		x.Named, x.Phase, x.Epoch, x.Seq = carried.Named, carried.Phase, carried.Epoch, carried.Seq
+		x.Named, x.Phase, x.Epoch, x.Seq, x.Background = carried.Named, carried.Phase, carried.Epoch, carried.Seq, carried.Background
 		h.read = carried.Read
 	}
 	if t != nil {

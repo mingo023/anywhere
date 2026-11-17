@@ -8,15 +8,19 @@ import (
 	"time"
 
 	"pocketd/internal/handoff"
+	"pocketd/internal/proto"
 	"pocketd/internal/state"
 	"pocketd/internal/terminal"
+	"pocketd/internal/timeline"
 )
 
 func TestHandoffDescribesEachTerminalAndItsAgent(t *testing.T) {
 	d := newDaemon(t)
 	term, pr := claudeIn(t, d)
-	hookFrom(d, pr, sessionStart("c1", transcript(t, "hi")))
-	eventually(t, "the transcript", func() bool { return pr.a.Summary().MaxSeq > 0 })
+	path := transcript(t, "hi")
+	background(t, path, "t1")
+	hookFrom(d, pr, sessionStart("c1", path))
+	eventually(t, "the server", func() bool { return callOf(pr, "t1").Status == "running" })
 	claim, _ := pr.a.ClaimNaming()
 	pr.a.SetNamed(claim, "Fix login")
 
@@ -33,6 +37,9 @@ func TestHandoffDescribesEachTerminalAndItsAgent(t *testing.T) {
 	if got.Saved.TerminalID != term.Info().ID || got.Saved.AgentID != s.ID || got.Saved.ConversationID != "c1" || got.Pid != term.Pid() ||
 		got.Agent == nil || got.Agent.Named != "Fix login" || got.Agent.Epoch != s.Epoch || got.Agent.Seq != s.MaxSeq {
 		t.Fatalf("handed = %+v", got)
+	}
+	if bg := got.Agent.Background; bg.Tasks["bt1"] != "t1" || len(bg.Lasting) != 1 || bg.Lasting[0] != "t1" {
+		t.Fatalf("handed background = %+v", bg)
 	}
 	f := handoff.File{Format: handoff.Format, Terminals: terms}
 	if err := handoff.Check(f); err != nil {
@@ -111,6 +118,27 @@ func TestAHandedOverAgentKeepsItsBackgroundCallsRunning(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if s := callOf(pr, "t1").Status; s != "running" {
 		t.Fatalf("the server is %s", s)
+	}
+}
+
+func TestAHandedOverAgentTakesTheBackgroundAgentItCarriedOverItsStoredTimeline(t *testing.T) {
+	d := newDaemon(t)
+	d.Agents.History = func(string) ([]proto.Item, bool) {
+		return []proto.Item{{ID: "i1", Seq: 1, Kind: "tool", Call: &proto.ToolCall{ToolUseID: "t1", Name: "Agent", Detail: proto.ToolDetail{Kind: "task"}, Status: "running"}}}, true
+	}
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	saved := state.Terminal{TerminalID: term.Info().ID, LaunchDir: t.TempDir(), Cols: 80, Rows: 24, Provider: "claude", ConversationID: "c1",
+		TranscriptPath: transcript(t, "hi"), Launch: &state.Launch{Access: "ask"}, AgentID: "a-1", CreatedAt: 7, Status: "working"}
+
+	d.expect(saved, term, "", &handoff.Agent{Phase: "working", Seq: 1, Background: timeline.Background{Tasks: map[string]string{"a1": "t1"}, Lasting: []string{"t1"}}})
+
+	a, err := d.Agents.Get("a-1")
+	if err != nil || a.Timeline.BackgroundAgents() != 1 || !a.Timeline.InBackground("a1") {
+		t.Fatalf("the carried sub-agent isn't running in the background: %v", err)
 	}
 }
 

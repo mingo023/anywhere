@@ -657,6 +657,35 @@ func TestARestoredAgentContinuesItsNamePhaseAndSeq(t *testing.T) {
 	}
 }
 
+func TestOnlyAnUpgradeKeepsARestoredAgentWorkingForTheBackgroundAgentItCarried(t *testing.T) {
+	stored := []proto.Item{
+		{ID: "i1", Seq: 1, Kind: "user", Text: "look around"},
+		{ID: "i2", Seq: 2, Kind: "tool", Call: &proto.ToolCall{ToolUseID: "t1", Name: "Agent", Detail: proto.ToolDetail{Kind: "task", Description: "Look"}, Status: "running"}},
+	}
+	restore := func(x Restored) *Agent {
+		r := NewRegistry(hub.New())
+		r.History = func(string) ([]proto.Item, bool) { return stored, true }
+		a := r.Restore(x, fakeDriver{})
+		a.Working()
+		a.TurnEnded(false)
+		return a
+	}
+
+	upgraded := restore(Restored{ID: "a1", Provider: "claude", Phase: "working", Epoch: 3, Seq: 2,
+		Background: timeline.Background{Tasks: map[string]string{"a1": "t1"}, Lasting: []string{"t1"}}})
+	if got := state(upgraded.Summary()); got != "working" {
+		t.Fatalf("after an upgrade, with its sub-agent running: %q", got)
+	}
+	upgraded.Record(timeline.Event{Kind: "tool_end", TaskID: "a1", OK: true})
+	if items, _ := upgraded.Timeline.Page(0, 10); items[1].Call.Status != "ok" {
+		t.Fatalf("the sub-agent's end left it %s", items[1].Call.Status)
+	}
+
+	if got := state(restore(Restored{ID: "a1", Provider: "claude"}).Summary()); got != "done" {
+		t.Fatalf("after a cold restart: %q", got)
+	}
+}
+
 func TestARestoredAgentWithoutAPhaseIsIdle(t *testing.T) {
 	a := NewRegistry(hub.New()).Restore(Restored{ID: "a-1", Provider: "claude"}, fakeDriver{})
 	if s := a.Summary(); s.Status != "idle" || s.MaxSeq != 0 {

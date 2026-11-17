@@ -147,6 +147,60 @@ func (t *Timeline) Load(items []proto.Item) {
 	t.epoch++
 }
 
+// Background is what a timeline knows of its background calls beyond its items, by tool use id, for an upgrade to
+// carry: the store keeps neither a call's task nor whether it runs on.
+type Background struct {
+	Tasks    map[string]string `json:"tasks,omitempty"`
+	Lasting  []string          `json:"lasting,omitempty"`
+	Detached []string          `json:"detached,omitempty"`
+}
+
+func (t *Timeline) Background() Background {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var b Background
+	for task, n := range t.tasks {
+		if b.Tasks == nil {
+			b.Tasks = map[string]string{}
+		}
+		b.Tasks[task] = t.items[n].Call.ToolUseID
+	}
+	for id := range t.lasting {
+		b.Lasting = append(b.Lasting, id)
+		if t.detached[id] {
+			b.Detached = append(b.Detached, id)
+		}
+	}
+	return b
+}
+
+// Adopt takes the background calls an upgrade carried over the items Load took.
+func (t *Timeline) Adopt(b Background) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	at := map[string]int{}
+	for n, it := range t.items {
+		if it.Call != nil {
+			at[it.Call.ToolUseID] = n
+		}
+	}
+	for task, id := range b.Tasks {
+		if n, ok := at[id]; ok {
+			t.tasks[task] = n
+		}
+	}
+	for _, id := range b.Lasting {
+		if _, ok := t.tools[id]; ok {
+			t.lasting[id] = true
+		}
+	}
+	for _, id := range b.Detached {
+		if t.lasting[id] {
+			t.detached[id] = true
+		}
+	}
+}
+
 func (t *Timeline) State() (epoch, maxSeq int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

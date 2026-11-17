@@ -222,6 +222,7 @@ type Restored struct {
 	// Named, Phase, Epoch and Seq carry an Agent across an upgrade's exec.
 	Named, Phase string
 	Epoch, Seq   int64
+	Background   timeline.Background
 }
 
 func (r *Registry) Restore(x Restored, d Driver) *Agent {
@@ -243,6 +244,7 @@ func (r *Registry) Restore(x Restored, d Driver) *Agent {
 		items, whole := r.History(x.ID)
 		if len(items) > 0 {
 			a.Timeline.Load(items)
+			a.Timeline.Adopt(x.Background)
 		}
 		a.stored = whole
 	}

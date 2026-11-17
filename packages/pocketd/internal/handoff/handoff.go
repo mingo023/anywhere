@@ -10,6 +10,7 @@ import (
 
 	"pocketd/internal/atomicfile"
 	"pocketd/internal/state"
+	"pocketd/internal/timeline"
 )
 
 // Format is the format this release writes; MinFormat is the oldest it
@@ -44,7 +45,8 @@ type Agent struct {
 	Epoch int64  `json:"epoch"`
 	Seq   int64  `json:"seq"`
 	// Read is how far its Claude transcript is in its timeline: to the end of a whole line.
-	Read int64 `json:"read,omitempty"`
+	Read       int64               `json:"read,omitempty"`
+	Background timeline.Background `json:"background,omitzero"`
 }
 
 func Path(home string) string { return filepath.Join(home, "handoff.json") }

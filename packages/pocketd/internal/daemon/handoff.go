@@ -90,7 +90,7 @@ func (d *Daemon) carried(agentID string, pr *presence) *handoff.Agent {
 	if turn := a.Turn(); turn == "working" || turn == "needsYou" {
 		phase = turn
 	}
-	c := &handoff.Agent{Named: a.Named(), Phase: phase, Epoch: s.Epoch, Seq: s.MaxSeq}
+	c := &handoff.Agent{Named: a.Named(), Phase: phase, Epoch: s.Epoch, Seq: s.MaxSeq, Background: a.Timeline.Background()}
 	if pr != nil {
 		c.Read = pr.tailed.Load()
 	}
