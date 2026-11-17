@@ -1,4 +1,4 @@
-use super::{CARD, calls, close_button, mark, name, ran_ms, thousands};
+use super::{calls, close_button, mark, name, ran_ms, thousands};
 use crate::chat::meta::format_timestamp;
 use crate::chat::sub_agent::{self, Mark};
 use crate::chat::tool_row::{self, Arg};
@@ -199,7 +199,7 @@ impl Desktop {
         let report = (!running).then(|| sub_agent::report(call, sub)).flatten().map(|r| {
             let failed = m == Mark::Failed;
             let body = div().px(px(12.)).py(px(10.)).rounded(px(10.)).whitespace_normal().text_size(px(13.)).line_height(px(20.)).child(r);
-            let body = if failed { body.bg(FAILED_BG).text_color(FAILED).font_family(code_font()).text_size(px(12.)) } else { body.bg(CARD).text_color(TEXT_BODY).shadow(vec![ui::ring(SEPARATOR, 0.5)]) };
+            let body = if failed { body.bg(FAILED_BG).text_color(FAILED).font_family(code_font()).text_size(px(12.)) } else { body.bg(AGENT_CARD).text_color(TEXT_BODY).shadow(vec![ui::ring(SEPARATOR, 0.5)]) };
             div().child(section(if failed { "Error" } else { "Report" }, None)).child(body)
         });
 

@@ -43,7 +43,7 @@ static USVG: LazyLock<Options<'static>> = LazyLock::new(|| {
 
 /// Mermaid source as SVG that resvg can draw, on `canvas`.
 fn svg(source: &str, canvas: Token, dark: bool) -> Result<String, String> {
-    pele::render(source).map(|svg| pele::resolve(&svg, canvas.pick(dark), dark))
+    pele::render(source).map(|svg| pele::resolve(&svg, canvas.resolve(dark), dark))
 }
 
 fn tree(source: &str, canvas: Token, dark: bool) -> Result<Arc<Tree>, String> {
