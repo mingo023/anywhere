@@ -48,6 +48,12 @@ func TestAChatAgentAnswersInItsTranscriptAndEndsItsTurn(t *testing.T) {
 	)
 }
 
+func TestAChatAgentHoldsItsFirstTurnForMCPServersAtMostASecond(t *testing.T) {
+	_, phone, _, id := chatClaude(t)
+	phone.Prompt(id, "env CLAUDE_CODE_MCP_STARTUP_WAIT_MS")
+	phone.WaitFor("the reply", streamOf(id, "assistant", "echo: 1000"))
+}
+
 func TestAChatAgentsFailedTurnEndsWithItsError(t *testing.T) {
 	_, phone, _, id := chatClaude(t)
 	phone.Send(map[string]any{"type": "agent.settings", "id": "s1", "agentId": id, "model": "bogus"})

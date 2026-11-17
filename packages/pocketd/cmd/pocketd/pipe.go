@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -30,6 +31,7 @@ func pipeCmd(sock string, argv []string) (int, error) {
 		argv = launch.InShell(shellenv.LoginShell(), argv)
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Env = agentEnv(os.Environ())
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -61,4 +63,18 @@ func pipeCmd(sock string, argv []string) (int, error) {
 		return exit.ExitCode(), nil
 	}
 	return 0, err
+}
+
+// startupWait caps, in ms, how long claude -p given --mcp-config holds its
+// first turn for MCP servers still connecting. Left alone it waits out each
+// one: 13s for a server awaiting a login. Anywhere's own server is local and
+// connects well inside the cap.
+const startupWait = "CLAUDE_CODE_MCP_STARTUP_WAIT_MS"
+
+// agentEnv is env with startupWait set, unless env sets it already.
+func agentEnv(env []string) []string {
+	if slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, startupWait+"=") }) {
+		return env
+	}
+	return append(env, startupWait+"=1000")
 }
