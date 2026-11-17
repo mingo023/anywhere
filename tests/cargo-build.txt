@@ -1,4 +1,3 @@
-commit 241bed8f
-   Compiling pocket v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/pocket)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 15s
+commit e9795cca
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.36s
 exit 0

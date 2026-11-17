@@ -1,4 +1,4 @@
-commit 241bed8f
+commit e9795cca
 warning: called `Iterator::last` on a `DoubleEndedIterator`; this will needlessly iterate the entire iterator
    --> crates/git/src/git.rs:197:19
     |
@@ -31,7 +31,6 @@ warning: deref which would be done by auto-deref
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
 
-   Compiling pocket v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/pocket)
 warning: `project` (lib) generated 2 warnings (run `cargo clippy --fix --lib -p project -- ` to apply 2 suggestions)
 warning: `project` (lib test) generated 2 warnings (2 duplicates)
 warning: a `Vec` of `Range` that is only one element
@@ -126,23 +125,6 @@ help: if you wanted a `Vec` of len 6, try
      |
 
 warning: `git` (lib test) generated 6 warnings (1 duplicate)
-warning: deref which would be done by auto-deref
-   --> crates/pocket/src/open_in.rs:240:107
-    |
-240 | ...   let nested = editions.map(|apps| flyout("open-in-editions", apps.iter().map(|app| self.opener_row(*app, flyouts, cx)).collect...
-    |                                                                                                         ^^^^ help: try: `app`
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
-    = note: `#[warn(clippy::explicit_auto_deref)]` on by default
-
-warning: deref which would be done by auto-deref
-   --> crates/pocket/src/open_in.rs:266:48
-    |
-266 |             Entry::App(app) => self.opener_row(*app, to(None), cx),
-    |                                                ^^^^ help: try: `app`
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
-
 warning: field assignment outside of initializer for an instance created with Default::default()
    --> crates/pocket/src/inbox.rs:187:9
     |
@@ -170,7 +152,24 @@ note: consider initializing the variable with `agents::Agents { list: vec![agent
     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
 
-warning: `pocket` (bin "pocket-desktop") generated 2 warnings (run `cargo clippy --fix --bin "pocket-desktop" -p pocket -- ` to apply 2 suggestions)
-warning: `pocket` (bin "pocket-desktop" test) generated 4 warnings (2 duplicates)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.08s
+warning: deref which would be done by auto-deref
+   --> crates/pocket/src/open_in.rs:240:107
+    |
+240 | ...   let nested = editions.map(|apps| flyout("open-in-editions", apps.iter().map(|app| self.opener_row(*app, flyouts, cx)).collect...
+    |                                                                                                         ^^^^ help: try: `app`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
+    = note: `#[warn(clippy::explicit_auto_deref)]` on by default
+
+warning: deref which would be done by auto-deref
+   --> crates/pocket/src/open_in.rs:266:48
+    |
+266 |             Entry::App(app) => self.opener_row(*app, to(None), cx),
+    |                                                ^^^^ help: try: `app`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
+
+warning: `pocket` (bin "pocket-desktop" test) generated 4 warnings (run `cargo clippy --fix --bin "pocket-desktop" -p pocket --tests -- ` to apply 2 suggestions)
+warning: `pocket` (bin "pocket-desktop") generated 2 warnings (2 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.41s
 exit 0
