@@ -1,0 +1,17 @@
+# from the scratch pocketd's exact env: HOME=<scratch>/home POCKET_HOME=<scratch>/home PATH=$SCRATCH_BIN:/usr/bin:/bin:/usr/sbin:/sbin (env -i)
+$ which claude codex opencode pi hermes cursor-agent grok fx agy omp ssh
+$SCRATCH_BIN/claude
+$SCRATCH_BIN/codex
+$SCRATCH_BIN/opencode
+$SCRATCH_BIN/pi
+$SCRATCH_BIN/hermes
+$SCRATCH_BIN/cursor-agent
+$SCRATCH_BIN/grok
+$SCRATCH_BIN/fx
+$SCRATCH_BIN/agy
+$SCRATCH_BIN/omp
+$SCRATCH_BIN/ssh
+
+# every hit, same env, login shell the daemon uses (fish -l): non-scratch hits
+/usr/bin/ssh
+# (only the system ssh, shadowed by the fake ssh first on PATH)

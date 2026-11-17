@@ -12,8 +12,9 @@ help: try
 197 +             Some((parts.next_back()?.to_string(), if status == 'R' { 'M' } else { status }))
     |
 
-warning: `git` (lib) generated 1 warning (run `cargo clippy --fix --lib -p git -- ` to apply 1 suggestion)
     Checking agents v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/agents)
+warning: `git` (lib) generated 1 warning (run `cargo clippy --fix --lib -p git -- ` to apply 1 suggestion)
+   Compiling pocket v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/pocket)
 warning: deref which would be done by auto-deref
    --> crates/project/src/open_in.rs:129:76
     |
@@ -31,7 +32,6 @@ warning: deref which would be done by auto-deref
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_auto_deref
 
-   Compiling pocket v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/pocket)
 warning: `project` (lib) generated 2 warnings (run `cargo clippy --fix --lib -p project -- ` to apply 2 suggestions)
 warning: `project` (lib test) generated 2 warnings (2 duplicates)
 warning: a `Vec` of `Range` that is only one element
@@ -175,5 +175,5 @@ note: consider initializing the variable with `agents::Agents { list: vec![agent
     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
 
 warning: `pocket` (bin "pocket-desktop" test) generated 4 warnings (2 duplicates)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.38s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.20s
 exit 0

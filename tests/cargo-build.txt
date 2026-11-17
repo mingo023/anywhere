@@ -1,2 +1,7 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.70s
+   Compiling agents v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/agents)
+   Compiling pocket v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/pocket)
+   Compiling hosts v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/hosts)
+   Compiling chat v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/chat)
+   Compiling store v0.0.0 (~/.anywhere/worktrees/anywhere/spirited-bluebill/packages/desktop/crates/store)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 24s
 exit 0
