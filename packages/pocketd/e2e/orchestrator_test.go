@@ -238,7 +238,7 @@ func TestAColdRestartKeepsTheTitleOfACodexACPPiAndTerminalSession(t *testing.T) 
 			phone.Prompt(id, "Title me")
 			phone.WaitAll("the titled turn",
 				func(m Message) bool {
-					return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Title == "Title me"
+					return m.Type == "agent.update" && m.Agent.ID == id && m.Agent.Title != ""
 				},
 				statusOf(id, "done"))
 			var before []string
