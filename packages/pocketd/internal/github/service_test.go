@@ -547,3 +547,17 @@ func TestAGhThatCantStartIsAFailureNotAMissingGh(t *testing.T) {
 		t.Fatalf("%#v", err)
 	}
 }
+
+func TestATreeNoClientWatchesIsAskedOnceForItsPRAndThenServedAsGhLastTold(t *testing.T) {
+	f := newFake(t)
+	f.put("view.json", fixture(t, "open.json"))
+	_, tree, reg := repo(t, false)
+	s := New(f.env(true), reg)
+	if pr := s.Cached(ctx(t), tree); pr == nil || pr.Number != 42 {
+		t.Fatalf("first: %+v", pr)
+	}
+	before := len(f.calls())
+	if pr := s.Cached(ctx(t), tree); pr == nil || pr.Number != 42 || len(f.calls()) != before {
+		t.Fatalf("gh asked again: %+v %v", pr, f.calls())
+	}
+}

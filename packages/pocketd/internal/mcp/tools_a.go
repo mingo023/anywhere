@@ -707,9 +707,15 @@ func threadSearch(ctx context.Context, c *Call) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		// gh is asked for the trees it never told of, as no client watches them, within prWait for the whole search.
+		prCtx, cancel := context.WithTimeout(ctx, prWait)
+		defer cancel()
 		for _, s := range trees {
-			pr := c.Host.PR(s.Worktree)
-			if len(hits) < limit && pr != nil && prMatches(pr, p.Query) && !slices.ContainsFunc(hits, func(h orch.Hit) bool { return h.Session.ID == s.ID }) {
+			if len(hits) >= limit {
+				break
+			}
+			pr := c.Host.PR(prCtx, s.Worktree)
+			if pr != nil && prMatches(pr, p.Query) && !slices.ContainsFunc(hits, func(h orch.Hit) bool { return h.Session.ID == s.ID }) {
 				hits = append(hits, orch.Hit{Session: s, Snippet: fmt.Sprintf("PR #%d %s", pr.Number, pr.Title)})
 			}
 		}
@@ -720,6 +726,9 @@ func threadSearch(ctx context.Context, c *Call) (any, error) {
 	}
 	return map[string]any{"results": out}, nil
 }
+
+// prWait bounds how long one search waits on gh for pull requests it never told of.
+const prWait = 5 * time.Second
 
 // prMatches says whether query names pr: its number, with or without #, its URL, or words of its title.
 func prMatches(pr *proto.PR, query string) bool {

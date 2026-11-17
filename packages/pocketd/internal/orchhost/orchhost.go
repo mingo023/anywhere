@@ -54,7 +54,7 @@ type Host struct {
 	Hosts *hosts.Manager
 	Envs  mcp.Environments
 	// PRs is the pull request of each tree's branch, as gh last told; nil tells none.
-	PRs func(tree string) *proto.PR
+	PRs func(ctx context.Context, tree string) *proto.PR
 
 	engine *orch.Engine
 	models sync.Map // kind -> func() []string
@@ -498,11 +498,11 @@ func (h *Host) Schedules() mcp.Schedules { return h.Sched }
 
 func (h *Host) Environments() mcp.Environments { return h.Envs }
 
-func (h *Host) PR(tree string) *proto.PR {
+func (h *Host) PR(ctx context.Context, tree string) *proto.PR {
 	if h.PRs == nil {
 		return nil
 	}
-	return h.PRs(tree)
+	return h.PRs(ctx, tree)
 }
 
 func (h *Host) token(terminal, provider string) (string, error) {
