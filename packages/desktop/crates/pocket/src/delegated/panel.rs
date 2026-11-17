@@ -97,6 +97,12 @@ impl Panel {
         shut
     }
 
+    /// Steps the list and the panel toward their targets; true while either still moves.
+    fn step(&mut self, now: Instant, still: bool) -> bool {
+        let (spread_to, shown_to) = self.targets();
+        [self.spread.tick(spread_to, now, still), self.shown.tick(shown_to, now, still)].contains(&true)
+    }
+
     fn leave(&mut self) {
         (self.leaving, self.collapse) = (true, None);
     }
@@ -104,6 +110,11 @@ impl Panel {
     fn gone(&self, moving: bool) -> bool {
         self.leaving && !moving
     }
+}
+
+/// A capture draws one frame a step, which would catch the panel midway between capsule and list.
+fn still(reduce_motion: bool, capturing: bool) -> bool {
+    reduce_motion || capturing
 }
 
 #[derive(Debug, PartialEq)]
@@ -272,11 +283,9 @@ impl Desktop {
     pub(crate) fn delegated_panel(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
         shown(self.agents.delegations.of(agent), &self.delegated.cleared).next()?;
         let reduce_transparency = cx.try_global::<ReduceTransparency>().is_some_and(|r| r.0);
-        let reduce_motion = cx.reduce_motion();
+        let still = still(cx.reduce_motion(), self.capturing);
         let panel = self.delegated.panels.entry(agent.to_string()).or_insert_with(Panel::new);
-        let (spread_to, shown_to) = panel.targets();
-        let now = Instant::now();
-        let moving = [panel.spread.tick(spread_to, now, reduce_motion), panel.shown.tick(shown_to, now, reduce_motion)].contains(&true);
+        let moving = panel.step(Instant::now(), still);
         if panel.gone(moving) {
             self.delegated.clear_settled(self.agents.delegations.of(agent));
             self.delegated.panels.remove(agent);
@@ -419,7 +428,8 @@ fn row(d: &Delegation, now: i64, live: bool, hosts: &Hosts, cx: &mut Context<Des
 
 #[cfg(test)]
 mod tests {
-    use super::{Act, Counts, Delegation, HEAD_H, Material, Panel, QUESTION_LINE, ROW_H, Watch, capsule_opacity, clock, full_height, headline, list_opacity, material};
+    use super::{Act, Counts, Delegation, HEAD_H, Material, Panel, QUESTION_LINE, ROW_H, Watch, capsule_opacity, clock, full_height, headline, list_opacity, material, still};
+    use std::time::Instant;
 
     fn counts(starting: usize, working: usize, asking: usize, done: usize, failed: usize) -> Counts {
         Counts { total: starting + working + asking + done + failed, starting, working, asking, done, failed, stopped: 0 }
@@ -499,6 +509,19 @@ mod tests {
         assert!(!panel.gone(true), "still fading");
         assert!(panel.gone(false));
         assert!(!Panel::new().gone(false), "a panel nobody cleared stays");
+    }
+
+    #[test]
+    fn a_capture_shows_an_opening_panel_open_where_a_live_window_starts_it_closed() {
+        let open = |still: bool| {
+            let mut panel = Panel::new();
+            panel.open = true;
+            let moving = panel.step(Instant::now(), still);
+            (moving, panel.spread.at(), panel.shown.at())
+        };
+        assert_eq!(open(still(false, true)), (false, 1., 1.));
+        assert_eq!(open(still(true, false)), (false, 1., 1.));
+        assert_eq!(open(still(false, false)), (true, 0., 0.));
     }
 
     #[test]

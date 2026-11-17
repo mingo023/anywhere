@@ -504,11 +504,13 @@ type Task = { taskId: string; parentId: string; childId: string; title: string; 
 const tasks = new Map<string, Task[]>();
 const childTimelines = new Map<string, Item[]>();
 const childItems = new Map<string, Item[]>();
-const TASKS: [string, Provider, string, string][] = [
+const ALL_TASKS: [string, Provider, string, string][] = [
   ["Write the tests", "codex", "gpt-5.5", "Write unit tests for the login redirect in src/auth/redirect.ts."],
   ["Review the diff", "claude", "claude-sonnet-5-5", "Review the diff on this branch and list what could break."],
   ["Update the docs", "opencode", "opencode/big-pickle", "Update docs/auth.md for the new redirect behaviour."],
 ];
+// FIXTURE_DELEGATE_ONE=1: one task with a long title, which finishes; every task of the chat is settled and its panel offers Clear.
+const TASKS = process.env.FIXTURE_DELEGATE_ONE ? [["Review the diff on this branch and list what could break", ALL_TASKS[1][1], ALL_TASKS[1][2], ALL_TASKS[1][3]] as (typeof ALL_TASKS)[number]] : ALL_TASKS;
 const announce = () => conns.forEach((c) => c.write(JSON.stringify({ ev: "terminals", items: sessions }) + "\n"));
 const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
   Object.assign(t, patch);
@@ -570,6 +572,13 @@ const delegate = (ws: Ws, parentId: string) => {
   });
   const at = (ms: number, f: () => void) => setTimeout(f, ms);
   at(900, () => list.forEach((t) => setTask(ws, t, { status: "working" })));
+  if (process.env.FIXTURE_DELEGATE_ONE) {
+    at(1700, () => {
+      setTask(ws, list[0], { status: "completed", summary: "Two findings", settledAt: Date.now() });
+      deliver(ws, list[0], "done");
+    });
+    return;
+  }
   at(1300, () => {
     setTask(ws, list[0], { question: "Which test runner?" });
     deliver(ws, list[0], "asks");
