@@ -506,6 +506,9 @@ func createThreads(ctx context.Context, c *Call) (any, error) {
 		}
 		receipts[i], refused[i] = c.Host.Engine().Dispatch(orch.NewCommand(id, orch.CmdSessionCreate, c.Caller.ID, lp))
 	}
+	if !slices.Contains(refused, nil) {
+		return nil, refused[0]
+	}
 	var out []map[string]any
 	for i, r := range receipts {
 		item := map[string]any{"title": p.Threads[i].Title}

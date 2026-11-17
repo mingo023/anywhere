@@ -210,6 +210,20 @@ func TestCreateThreadsReturnsTheSessionsItStartedBesideTheOnesRefused(t *testing
 	}
 }
 
+func TestCreateThreadsFailsWithTheRefusalsCodeWhenEveryEntryIsRefused(t *testing.T) {
+	f := newFixtureAs(t, "working", "auto")
+	f.engine.Agent = func(kind string) orch.AgentInfo {
+		return orch.AgentInfo{Known: true, Access: []string{"ask", "edits", "auto", "full"}, NeverAsks: kind == "pi"}
+	}
+	sc, isErr := f.call(t, "create_threads", `{"threads":[{"prompt":"one","target":{"agent":"pi"}},{"prompt":"two","target":{"agent":"pi"}}]}`)
+	if !isErr || errorCode(sc) != orch.CodeForbidden {
+		t.Fatalf("a batch with nothing started was not an error: %v", sc)
+	}
+	if n := len(f.eff.launches()); n != 0 {
+		t.Fatalf("launches = %d", n)
+	}
+}
+
 func TestCreateThreadsStartsNothingWhenAnEntryNamesAnUnknownAgent(t *testing.T) {
 	f := newFixture(t)
 	sc, isErr := f.call(t, "create_threads", `{"threads":[{"prompt":"one"},{"prompt":"two","target":{"agent":"nope"}}]}`)
