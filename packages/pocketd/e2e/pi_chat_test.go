@@ -542,7 +542,7 @@ func TestARestartBeforeTheFirstPromptBringsTheChatPiBackOnTheSameSession(t *test
 
 	h.Restart()
 
-	again := h.Owner()
+	again := resumedChat(h, id)
 	h.WaitScreen(term, "fake pi ready --session-id "+session+" --mode rpc")
 	again.Prompt(id, "after the restart")
 	again.WaitAll("the first turn", streamOf(id, "assistant", "echo: after the restart"), statusOf(id, "done"))
