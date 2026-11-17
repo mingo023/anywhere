@@ -62,7 +62,7 @@ mod tests {
     use hosts::Host;
 
     fn host(id: &str, name: &str, target: Target) -> Host {
-        Host { id: id.into(), name: name.into(), target, windows: false }
+        Host { id: id.into(), name: name.into(), target, windows: false, socket: Default::default() }
     }
 
     fn alias(name: &str) -> Target {

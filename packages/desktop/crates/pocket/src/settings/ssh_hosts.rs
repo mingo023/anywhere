@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn a_host_row_names_the_address_only_when_its_name_doesnt() {
-        let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false };
+        let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false, socket: Default::default() };
         let alias = host("devbox", Target::Alias { name: "devbox".into() });
         assert_eq!(host_line(&alias, None), "Not connected");
         let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None });

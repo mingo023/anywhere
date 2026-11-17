@@ -18,28 +18,25 @@ pub struct Host {
     pub target: Target,
     /// Its pocketd is reached on its owner TCP port with a token, not on its socket.
     pub windows: bool,
+    /// Where this Mac's end of the tunnel to the host's pocketd listens, as pocketd says.
+    pub socket: PathBuf,
 }
 
 impl From<&Entry> for Host {
     fn from(e: &Entry) -> Self {
-        Self { id: e.id.clone(), name: e.name.clone(), target: e.target.clone(), windows: e.windows }
+        Self { id: e.id.clone(), name: e.name.clone(), target: e.target.clone(), windows: e.windows, socket: e.socket.clone().into() }
     }
 }
 
 impl Host {
-    /// Where this Mac's end of the tunnel to the host's pocketd listens.
-    pub fn socket(&self, home: &Path) -> PathBuf {
-        home.join("hosts").join(format!("{}.sock", self.id))
-    }
-
-    /// The owner token a Windows host's pocketd gave this Mac.
-    pub fn owner_file(&self, home: &Path) -> PathBuf {
-        home.join("hosts").join(format!("{}.token", self.id))
+    /// The owner token a Windows host's pocketd gave this Mac, which it keeps beside the socket.
+    pub fn owner_file(&self) -> PathBuf {
+        self.socket.with_extension("token")
     }
 
     /// The tunnel's socket, with the owner token when there is one. Reads a file.
-    pub fn endpoint(&self, home: &Path) -> daemon::Endpoint {
-        daemon::Endpoint { path: self.socket(home), token: owner::load(&self.owner_file(home)).map(|o| o.token) }
+    pub fn endpoint(&self) -> daemon::Endpoint {
+        daemon::Endpoint { path: self.socket.clone(), token: owner::load(&self.owner_file()).map(|o| o.token) }
     }
 
     /// `user@addr:port` as typed, or the alias.
@@ -153,7 +150,7 @@ mod tests {
 
     #[test]
     fn the_address_leaves_out_the_default_port_and_an_empty_user() {
-        let host = |target| Host { id: "h".into(), name: "h".into(), target, windows: false };
+        let host = |target| Host { id: "h".into(), name: "h".into(), target, windows: false, socket: PathBuf::new() };
         assert_eq!(host(Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None }).address(), "dev@10.0.4.12:2222");
         assert_eq!(host(address("devbox")).address(), "devbox");
     }
@@ -178,7 +175,20 @@ mod tests {
     fn a_host_entry_from_the_wire_keeps_its_target() {
         let target = Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: Some("~/.ssh/id_ed25519".into()) };
         let entry = Entry { id: "10-0-4-12".into(), name: "build box".into(), target: target.clone(), windows: true, socket: "/h/10-0-4-12.sock".into(), link: agents::hosts::Link::Connecting };
-        assert_eq!(Host::from(&entry), Host { id: "10-0-4-12".into(), name: "build box".into(), target, windows: true });
+        assert_eq!(Host::from(&entry), Host { id: "10-0-4-12".into(), name: "build box".into(), target, windows: true, socket: "/h/10-0-4-12.sock".into() });
+    }
+
+    #[test]
+    fn a_hosts_endpoint_is_the_socket_pocketd_reports_and_the_token_it_keeps_beside_it() {
+        let dir = std::env::temp_dir().join(format!("host-endpoint-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("win.token"), r#"{"token":"t0k","port":7}"#).unwrap();
+        let entry = |id: &str| Entry { id: id.into(), name: id.into(), target: address("10.0.4.12"), windows: true, socket: dir.join(format!("{id}.sock")).to_string_lossy().into_owned(), link: agents::hosts::Link::Connecting };
+        let with_token = Host::from(&entry("win")).endpoint();
+        assert_eq!((with_token.path, with_token.token), (dir.join("win.sock"), Some("t0k".to_string())));
+        let without = Host::from(&entry("mac")).endpoint();
+        assert_eq!((without.path, without.token), (dir.join("mac.sock"), None));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

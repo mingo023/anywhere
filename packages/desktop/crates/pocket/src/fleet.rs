@@ -398,13 +398,12 @@ impl Desktop {
     /// Serves the host's folders and terminals here, once its pocketd says it can.
     fn host_online(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(host) = self.fleet.hosts.list.iter().find(|h| h.id == id).cloned() else { return };
-        let home = self.store.home().to_path_buf();
         let id = id.to_string();
         cx.spawn_in(window, async move |this, cx| {
             let (client, endpoint, info) = cx
                 .background_executor()
                 .spawn(async move {
-                    let endpoint = host.endpoint(&home);
+                    let endpoint = host.endpoint();
                     let client = Arc::new(Client::to(&host.id, endpoint.clone()));
                     let info = client.status();
                     (client, endpoint, info)

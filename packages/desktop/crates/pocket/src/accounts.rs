@@ -9,7 +9,6 @@ use gpui_kit::*;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Display;
-use std::path::PathBuf;
 use std::time::Duration;
 
 /// Each provider's own login: `~/.claude` or `~/.codex`.
@@ -335,19 +334,18 @@ pub(crate) fn checked(checking: bool, at: i64, now: i64) -> String {
 }
 
 /// Where a machine's pocketd listens. Finding a host's reads a file, so call it off the UI thread.
-fn endpoint(host: &Option<(hosts::Host, PathBuf)>) -> daemon::Endpoint {
+fn endpoint(host: &Option<hosts::Host>) -> daemon::Endpoint {
     match host {
-        Some((host, home)) => host.endpoint(home),
+        Some(host) => host.endpoint(),
         None => daemon::Endpoint::own(),
     }
 }
 
 impl Desktop {
-    /// The machine's host and the app's home, to reach its pocketd; `None` for a host since removed.
-    fn machine(&self, host: &Host) -> Option<Option<(hosts::Host, PathBuf)>> {
+    /// The machine's host, to reach its pocketd; `None` for a host since removed.
+    fn machine(&self, host: &Host) -> Option<Option<hosts::Host>> {
         let Some(id) = host else { return Some(None) };
-        let host = self.fleet.hosts.list.iter().find(|h| &h.id == id)?.clone();
-        Some(Some((host, self.store.home().to_path_buf())))
+        Some(Some(self.fleet.hosts.list.iter().find(|h| &h.id == id)?.clone()))
     }
 
     /// "this Mac", else the host's name, to sit inside a sentence.
