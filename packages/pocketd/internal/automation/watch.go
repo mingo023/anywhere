@@ -36,6 +36,8 @@ type Entry func(agentID, entryID string) (text, state string)
 // A prompt that queued behind other messages has its entry: its turn is the first with the entry's text now.
 func TurnWatcher(reg *agent.Registry, after int64, prompt, entry string, queued Entry) Watcher {
 	since := int64(-1)
+	// shown is whether the turn was there at the first look: only a turn shown before a restart can have been cut by it.
+	shown := false
 	return func(id string) (Seen, bool) {
 		a, err := reg.Get(id)
 		if err != nil {
@@ -63,6 +65,9 @@ func TurnWatcher(reg *agent.Registry, after int64, prompt, entry string, queued 
 		sum := a.Summary()
 		items, _ := a.Timeline.Page(since, 500)
 		i := slices.IndexFunc(items, own)
+		if first {
+			shown = i >= 0
+		}
 		// An entry already sent, or gone, when the watch begins on an idle session will start no turn, so a turn
 		// with its text not shown by then was lost.
 		sent := entry != "" && first && (state == "sent" || state == "") && sum.Status != "working" && sum.Status != "needsYou"
@@ -76,7 +81,7 @@ func TurnWatcher(reg *agent.Registry, after int64, prompt, entry string, queued 
 		}
 		seen := Seen{Status: sum.Status, Failed: sum.Failed}
 		seen.Before = !slices.ContainsFunc(items, func(it proto.Item) bool { return it.Kind == "assistant" || it.Kind == "result" })
-		seen.Cut = i >= 0 && seen.Before && sum.Restore == proto.RestoreInterrupted
+		seen.Cut = shown && seen.Before && sum.Restore == proto.RestoreInterrupted
 		if sum.Status == "done" || sum.Status == "idle" {
 			seen.Summary = lastAssistantText(items)
 			seen.Answered = Answered(items)
