@@ -26,6 +26,8 @@ type Seen struct {
 	Cancel string
 	// Fail is why the run's turn is gone: a crash lost it.
 	Fail string
+	// Cut is whether the run's turn was shown and got no reply, and a restart says the session's running turn ended.
+	Cut bool
 }
 
 // finished is a status a run never leaves.
@@ -53,6 +55,9 @@ func Step(r proto.Run, seen Seen, present, worked bool) (proto.Run, bool) {
 		next.Status, next.Why = "cancelled", seen.Cancel
 	case seen.Fail != "":
 		next.Status, next.Why = "failed", seen.Fail
+	// Only a run the restart left going: one posted since isn't seen working before its turn clears the mark.
+	case seen.Cut && worked:
+		next.Status, next.Why = "failed", "pocketd restarted during its turn"
 	case seen.Status == "working":
 		next.Status, next.Why = "running", ""
 	case seen.Status == "needsYou":

@@ -76,6 +76,7 @@ func TurnWatcher(reg *agent.Registry, after int64, prompt, entry string, queued 
 		}
 		seen := Seen{Status: sum.Status, Failed: sum.Failed}
 		seen.Before = !slices.ContainsFunc(items, func(it proto.Item) bool { return it.Kind == "assistant" || it.Kind == "result" })
+		seen.Cut = i >= 0 && seen.Before && sum.Restore == proto.RestoreInterrupted
 		if sum.Status == "done" || sum.Status == "idle" {
 			seen.Summary = lastAssistantText(items)
 			seen.Answered = Answered(items)

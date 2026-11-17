@@ -224,3 +224,28 @@ func TestEditingAnAutomationAnAgentMadeKeepsItsBindingAndWebhook(t *testing.T) {
 		t.Fatalf("the snapshot must carry the webhook URL and never its secret: %s", snap.Raw)
 	}
 }
+
+func TestABoundRunWhoseTurnARestartCutBeforeAnyReplyFails(t *testing.T) {
+	h, phone, _, id := chatClaude(t, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, `mcp schedule_task {"prompt":"hang","bindToThisSession":true,"schedule":{"kind":"interval","everyMin":60}}`)
+	h.eventually("the schedule made", func() bool {
+		tl := timelineOf(phone, id)
+		return len(tl) == 3 && tl[2] == "result"
+	})
+	o := h.Owner(proto.CapAutomations)
+	snap := o.WaitFor("the bound automation", func(m Message) bool {
+		return m.Type == "automations" && len(m.Automations) == 1 && m.Automations[0].Bound == id
+	})
+	if a := o.Automation("run", "r1", map[string]any{"automationId": snap.Automations[0].ID}); a.Type != "ack" {
+		t.Fatalf("got %s", a.Raw)
+	}
+	run := o.WaitRun("the run in its session", func(r proto.Run) bool { return r.Status == "running" && r.AgentID == id })
+	phone.WaitFor("its prompt shown", streamOf(id, "user", "hang"))
+
+	h.Restart()
+
+	restoredChat(h, id, "interrupted")
+	if r := h.Owner(proto.CapAutomations).WaitRun("the run ended", func(r proto.Run) bool { return r.ID == run.ID && r.Status != "running" }); r.Status != "failed" {
+		t.Fatalf("run = %+v", r)
+	}
+}

@@ -144,6 +144,23 @@ func TestATurnWatcherWhoseQueuedPromptWasSentOrGoneBeforeACrashLostItsTurnFailsT
 	}
 }
 
+func TestATurnWatcherFailsTheRunWhoseTurnARestartCutButNotOnePostedSince(t *testing.T) {
+	reg := agent.NewRegistry(hub.New())
+	a := reg.Add("a1", "/w", "claude", idleDriver{})
+	answer(a, "earlier", "Earlier reply.")
+	_, after := a.Timeline.State()
+	a.Record(timeline.Event{Kind: "user", Text: "the run's prompt"})
+	a.SetRestore(proto.RestoreInterrupted)
+	seen, _ := TurnWatcher(reg, after, "the run's prompt", "", nil)("a1")
+
+	if run, _ := Step(proto.Run{Status: "running"}, seen, true, true); run.Status != "failed" {
+		t.Fatalf("left going by the restart: %+v from %+v", run, seen)
+	}
+	if run, _ := Step(proto.Run{Status: "running"}, seen, true, false); run.Status != "running" {
+		t.Fatalf("posted since: %+v from %+v", run, seen)
+	}
+}
+
 func TestATurnWatcherWhoseQueuedPromptWentOutAsItBeganFollowsTheTurnItStarted(t *testing.T) {
 	reg := agent.NewRegistry(hub.New())
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
