@@ -22,23 +22,32 @@ const signInTimeout = 30 * time.Second
 // The host's key must already be trusted, so the password never goes to a host nobody checked. The password
 // lives only in this call and in ssh's environment.
 func (m *Manager) SignIn(id, password string) error {
-	h, ok := m.host(id)
+	m.mu.Lock()
+	h, ok := m.hostLocked(id)
+	var ctx context.Context
+	var done func()
+	if ok {
+		ctx, done = m.begin(id)
+	}
+	m.mu.Unlock()
 	if !ok {
 		return ErrUnknown
 	}
-	if f := m.signIn(h, password); f != "" {
+	f := m.signIn(ctx, h, password)
+	done()
+	if f != "" {
 		return &SSHError{f}
 	}
 	return m.Retry(id)
 }
 
-func (m *Manager) signIn(h Host, password string) Failure {
+func (m *Manager) signIn(ctx context.Context, h Host, password string) Failure {
 	dir := filepath.Join(m.paths.Home, "hosts")
 	if os.MkdirAll(dir, 0o700) != nil {
 		return FailOther
 	}
 	key := m.paths.Key(h.ID)
-	if _, err := os.Stat(key); err != nil && !m.keygen(key) {
+	if _, err := os.Stat(key); err != nil && !m.keygen(ctx, key) {
 		return FailOther
 	}
 	public, err := os.ReadFile(key + ".pub")
@@ -49,9 +58,9 @@ func (m *Manager) signIn(h Host, password string) Failure {
 	if err != nil {
 		return FailOther
 	}
-	stderr, ok := m.passwordSignIn(h, askpass, password, public, methodPassword)
+	stderr, ok := m.passwordSignIn(ctx, h, askpass, password, public, methodPassword)
 	if !ok && !takesPasswords(stderr) {
-		stderr, ok = m.passwordSignIn(h, askpass, password, public, methodKeyboardInteractive)
+		stderr, ok = m.passwordSignIn(ctx, h, askpass, password, public, methodKeyboardInteractive)
 	}
 	if ok {
 		return ""
@@ -60,8 +69,8 @@ func (m *Manager) signIn(h Host, password string) Failure {
 }
 
 // passwordSignIn runs the key install over one sign-in with method; ssh's stderr when it fails.
-func (m *Manager) passwordSignIn(h Host, askpass, password string, public []byte, method passwordMethod) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), signInTimeout)
+func (m *Manager) passwordSignIn(ctx context.Context, h Host, askpass, password string, public []byte, method passwordMethod) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, signInTimeout)
 	defer cancel()
 	cmd, err := m.command(ctx, passwordArgs(h, m.paths.KnownHosts(h.ID), method, installKey))
 	if err != nil {
@@ -96,7 +105,7 @@ func writeAskpass(dir string) (string, error) {
 	return path, os.Chmod(path, 0o700)
 }
 
-func (m *Manager) keygen(key string) bool {
-	code, _, _, err := hostop.Run(context.Background(), m.env(), "", []string{"ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "anywhere", "-f", key}, nil, 0)
+func (m *Manager) keygen(ctx context.Context, key string) bool {
+	code, _, _, err := hostop.Run(ctx, m.env(), "", []string{"ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "anywhere", "-f", key}, nil, 0)
 	return err == nil && code == 0
 }

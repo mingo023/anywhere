@@ -46,6 +46,10 @@ type Manager struct {
 	links    map[string]Link
 	sups     map[string]*supervisor
 	installs map[string]bool
+	// work is each host's installs and sign-ins under way, which removing it ends; removing is the ids whose
+	// removal hasn't finished, which an Add mustn't take.
+	work     map[string]*work
+	removing map[string]bool
 	changed  chan struct{}
 	// remotes is each online host's conn to its pocketd, last the latest one each host had, and summaries the
 	// sessions mirrored from them.
@@ -60,7 +64,7 @@ func Open(paths Paths, env func() []string, version, name string) (*Manager, err
 		return nil, err
 	}
 	m := &Manager{paths: paths, env: env, version: version, name: name, hosts: saved,
-		links: map[string]Link{}, sups: map[string]*supervisor{}, installs: map[string]bool{}, changed: make(chan struct{}),
+		links: map[string]Link{}, sups: map[string]*supervisor{}, installs: map[string]bool{}, work: map[string]*work{}, removing: map[string]bool{}, changed: make(chan struct{}),
 		remotes: map[string]*remote{}, last: map[string]*remote{}, summaries: map[string]proto.AgentSummary{}}
 	for _, h := range saved {
 		m.links[h.ID] = Link{State: StateConnecting}
@@ -104,7 +108,11 @@ func (m *Manager) Changed() <-chan struct{} {
 func (m *Manager) Add(t Target, name string) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	h, err := Add(m.hosts, t)
+	taken := slices.Clone(m.hosts)
+	for id := range m.removing {
+		taken = append(taken, Host{ID: id})
+	}
+	h, err := Add(taken, t)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -143,14 +151,21 @@ func (m *Manager) Remove(id string, uninstall bool) error {
 		m.mu.Unlock()
 		return err
 	}
-	s := m.sups[id]
+	s, w := m.sups[id], m.work[id]
 	m.hosts = list
 	delete(m.sups, id)
 	delete(m.links, id)
+	delete(m.work, id)
+	m.removing[id] = true
 	m.follow(id, Link{})
 	delete(m.last, id)
 	m.notify()
 	m.mu.Unlock()
+	// What runs ssh to the host could still write its files.
+	if w != nil {
+		w.cancel()
+		w.wg.Wait()
+	}
 	if s != nil {
 		s.stop()
 	}
@@ -160,7 +175,28 @@ func (m *Manager) Remove(id string, uninstall bool) error {
 	if m.Mirror != nil {
 		m.Mirror.Removed(id, h.Name)
 	}
+	m.mu.Lock()
+	delete(m.removing, id)
+	m.mu.Unlock()
 	return nil
+}
+
+type work struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// begin counts an install or sign-in on id under way until done, which runs on ctx; m.mu is held.
+func (m *Manager) begin(id string) (ctx context.Context, done func()) {
+	w := m.work[id]
+	if w == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		w = &work{ctx: ctx, cancel: cancel}
+		m.work[id] = w
+	}
+	w.wg.Add(1)
+	return w.ctx, w.wg.Done
 }
 
 func (m *Manager) Retry(id string) error {
@@ -181,8 +217,11 @@ func (m *Manager) Install(id string, update bool, archiveDir string, on func(Pro
 	m.mu.Lock()
 	h, ok := m.hostLocked(id)
 	busy := m.installs[id]
+	var ctx context.Context
+	var done func()
 	if ok && !busy {
 		m.installs[id] = true
+		ctx, done = m.begin(id)
 	}
 	m.mu.Unlock()
 	switch {
@@ -196,10 +235,11 @@ func (m *Manager) Install(id string, update bool, archiveDir string, on func(Pro
 			m.mu.Lock()
 			delete(m.installs, id)
 			m.mu.Unlock()
+			done()
 		}()
 		// Finding the platform and uploading the archive come before bootstrap says it checks the host.
 		on(Progress{Kind: ProgressStep, Step: StepDetect})
-		if err := m.install(h, update, archiveDir, on); err != nil {
+		if err := m.install(ctx, h, update, archiveDir, on); err != nil {
 			on(Progress{Kind: ProgressError, Text: message(err, h.Name)})
 			return
 		}
