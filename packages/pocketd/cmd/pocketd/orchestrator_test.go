@@ -17,6 +17,7 @@ import (
 	"pocketd/internal/hub"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
+	"pocketd/internal/timeline"
 )
 
 type fakeSchedules struct {
@@ -165,8 +166,8 @@ func TestABoundRunQueuedInABusySessionIsFollowedByItsPrompt(t *testing.T) {
 	if !ok || entry == "" {
 		t.Fatalf("ok %v, entry %q", ok, entry)
 	}
-	if text, cancelled, ok := queuedEntry(e.Store())("a1", entry); !ok || cancelled || text != "check the build" {
-		t.Fatalf("queued: %q cancelled %v found %v", text, cancelled, ok)
+	if text, state := queuedEntry(e.Store())("a1", entry); state != orch.EntryPending || text != "check the build" {
+		t.Fatalf("queued: %q %s", text, state)
 	}
 }
 
@@ -177,18 +178,58 @@ func TestABoundRunsQueuedPromptIsFoundEditedOrCancelledInTheQueue(t *testing.T) 
 	if _, err := e.Dispatch(orch.NewCommand("", orch.CmdQueueEdit, "a1", orch.EntryPayload{EntryID: entry, Text: "check the tests"})); err != nil {
 		t.Fatal(err)
 	}
-	if text, cancelled, _ := queuedEntry(e.Store())("a1", entry); cancelled || text != "check the tests" {
-		t.Fatalf("after the edit: %q cancelled %v", text, cancelled)
+	if text, state := queuedEntry(e.Store())("a1", entry); state != orch.EntryPending || text != "check the tests" {
+		t.Fatalf("after the edit: %q %s", text, state)
 	}
 	if _, err := e.Dispatch(orch.NewCommand("", orch.CmdQueueCancel, "a1", orch.EntryPayload{EntryID: entry})); err != nil {
 		t.Fatal(err)
 	}
-	if _, cancelled, ok := queuedEntry(e.Store())("a1", entry); !ok || !cancelled {
-		t.Fatalf("after the cancel: cancelled %v found %v", cancelled, ok)
+	if _, state := queuedEntry(e.Store())("a1", entry); state != orch.EntryCancelled {
+		t.Fatalf("after the cancel: %s", state)
 	}
 	seen, _ := automation.TurnWatcher(reg, 0, "check the build", entry, queuedEntry(e.Store()))("a1")
 	if run, _ := automation.Step(proto.Run{Status: "running"}, seen, true, true); run.Status != "cancelled" {
 		t.Fatalf("the run is %q after its queued prompt was cancelled", run.Status)
+	}
+}
+
+func TestABoundRunsPromptHeldByAStopWaitsUntilTheNextSendReleasesItAndThenFollowsItsTurn(t *testing.T) {
+	reg, post, rec, e := boundRig(t)
+	a := reg.Add("a1", "/w", "claude", quietDriver{})
+	a.Working()
+	_, after := a.Timeline.State()
+	entry, _ := post("run1", proto.Automation{Bound: "a1", Prompt: "check the build"})
+	if _, err := e.Dispatch(orch.NewCommand("", orch.CmdSessionStop, "a1", nil)); err != nil {
+		t.Fatal(err)
+	}
+	a.TurnEnded(false)
+	if _, state := queuedEntry(e.Store())("a1", entry); state != orch.EntryHeld {
+		t.Fatalf("after the stop: %s", state)
+	}
+	watch := automation.TurnWatcher(reg, after, "check the build", entry, queuedEntry(e.Store()))
+	run := proto.Run{Status: "running"}
+	seen, _ := watch("a1")
+	if run, _ = automation.Step(run, seen, true, true); run.Status != "running" {
+		t.Fatalf("the held run is %q: %+v", run.Status, seen)
+	}
+
+	if _, err := e.Dispatch(orch.NewCommand("", orch.CmdMessageSend, "a1", orch.SendPayload{Text: "go on", Origin: orch.OriginUser})); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for _, state := queuedEntry(e.Store())("a1", entry); state != orch.EntrySent; _, state = queuedEntry(e.Store())("a1", entry) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the released prompt is %s after %d turns", state, len(rec.turns()))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	a.Record(timeline.Event{Kind: "user", Text: "check the build"})
+	a.Working()
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "Built."})
+	a.TurnEnded(false)
+	seen, _ = watch("a1")
+	if run, _ = automation.Step(run, seen, true, true); run.Status != "succeeded" || run.Summary != "Built." {
+		t.Fatalf("after its turn: %+v from %+v", run, seen)
 	}
 }
 

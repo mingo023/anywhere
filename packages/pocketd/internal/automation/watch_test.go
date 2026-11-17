@@ -57,7 +57,7 @@ func TestATurnWatcherForAQueuedPromptIsNotEndedByAMessageQueuedAheadOfIt(t *test
 	reg := agent.NewRegistry(hub.New())
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the run's prompt", false))
+	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the run's prompt", "pending"))
 	answer(a, "a message queued first", "Its reply.")
 	if seen, _ := watch("a1"); !seen.Before || seen.Summary != "" {
 		t.Fatalf("after the message ahead: %+v", seen)
@@ -68,16 +68,16 @@ func TestATurnWatcherForAQueuedPromptIsNotEndedByAMessageQueuedAheadOfIt(t *test
 	}
 }
 
-// entryAs is an Entry that finds every entry with text, cancelled or not.
-func entryAs(text string, cancelled bool) Entry {
-	return func(string, string) (string, bool, bool) { return text, cancelled, true }
+// entryAs is an Entry that finds every entry with text, in state.
+func entryAs(text, state string) Entry {
+	return func(string, string) (string, string) { return text, state }
 }
 
 func TestATurnWatcherFollowsTheEditedTextOfItsQueuedPrompt(t *testing.T) {
 	reg := agent.NewRegistry(hub.New())
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the edited prompt", false))
+	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the edited prompt", "pending"))
 	answer(a, "the edited prompt", "Own reply.")
 	if seen, _ := watch("a1"); seen.Before || seen.Summary != "Own reply." {
 		t.Fatalf("%+v", seen)
@@ -89,7 +89,7 @@ func TestATurnWatcherWhoseQueuedPromptWasCancelledEndsTheRun(t *testing.T) {
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	a.Working()
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the run's prompt", true))
+	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the run's prompt", "cancelled"))
 	if seen, _ := watch("a1"); seen.Cancel == "" {
 		t.Fatalf("%+v", seen)
 	}
@@ -108,12 +108,12 @@ func crashed() *agent.Registry {
 func TestATurnWatcherAfterACrashLostItsTurnEndsTheRunInsteadOfFollowingALaterTurn(t *testing.T) {
 	reg := crashed()
 	watch := TurnWatcher(reg, 7, "the run's prompt", "", nil)
-	if seen, _ := watch("a1"); !seen.Before || seen.Cancel != "" {
+	if seen, _ := watch("a1"); !seen.Before || seen.Fail != "" {
 		t.Fatalf("before any turn: %+v", seen)
 	}
 	a, _ := reg.Get("a1")
 	answer(a, "a later prompt", "Later reply.")
-	if seen, _ := watch("a1"); seen.Cancel == "" || seen.Summary != "" {
+	if seen, _ := watch("a1"); seen.Fail == "" || seen.Summary != "" {
 		t.Fatalf("after a later turn: %+v", seen)
 	}
 }
@@ -121,16 +121,43 @@ func TestATurnWatcherAfterACrashLostItsTurnEndsTheRunInsteadOfFollowingALaterTur
 func TestATurnWatcherAfterACrashFindsItsTurnWhenItComesAfterAll(t *testing.T) {
 	for _, entry := range []string{"", "q1"} {
 		reg := crashed()
-		watch := TurnWatcher(reg, 7, "the run's prompt", entry, entryAs("the run's prompt", false))
+		watch := TurnWatcher(reg, 7, "the run's prompt", entry, entryAs("the run's prompt", "pending"))
 		watch("a1")
 		a, _ := reg.Get("a1")
 		if entry != "" {
 			answer(a, "a message queued first", "Its reply.")
 		}
 		answer(a, "the run's prompt", "Own reply.")
-		if seen, _ := watch("a1"); seen.Before || seen.Cancel != "" || seen.Summary != "Own reply." {
+		if seen, _ := watch("a1"); seen.Before || seen.Fail != "" || seen.Summary != "Own reply." {
 			t.Fatalf("entry %q: %+v", entry, seen)
 		}
+	}
+}
+
+func TestATurnWatcherWhoseQueuedPromptWasSentOrGoneBeforeACrashLostItsTurnFailsTheRun(t *testing.T) {
+	for _, state := range []string{"sent", ""} {
+		watch := TurnWatcher(crashed(), 7, "the run's prompt", "q1", entryAs("the run's prompt", state))
+		seen, _ := watch("a1")
+		if run, _ := Step(proto.Run{Status: "running"}, seen, true, true); run.Status != "failed" || run.Why != "Its turn was lost in a crash" {
+			t.Fatalf("entry %q: %+v from %+v", state, run, seen)
+		}
+	}
+}
+
+func TestATurnWatcherWhoseQueuedPromptWentOutAsItBeganFollowsTheTurnItStarted(t *testing.T) {
+	reg := agent.NewRegistry(hub.New())
+	a := reg.Add("a1", "/w", "claude", idleDriver{})
+	_, after := a.Timeline.State()
+	a.Working()
+	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the run's prompt", "sent"))
+	if seen, _ := watch("a1"); !seen.Before || seen.Fail != "" {
+		t.Fatalf("as its turn starts: %+v", seen)
+	}
+	a.Record(timeline.Event{Kind: "user", Text: "the run's prompt"})
+	a.Record(timeline.Event{Kind: "assistant_text", Text: "Own reply."})
+	a.TurnEnded(false)
+	if seen, _ := watch("a1"); seen.Before || seen.Summary != "Own reply." {
+		t.Fatalf("after its turn: %+v", seen)
 	}
 }
 

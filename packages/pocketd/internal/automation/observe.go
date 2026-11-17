@@ -22,8 +22,10 @@ type Seen struct {
 	Answered bool
 	// Before is whether the turn the run's prompt starts hasn't ended, so a Done or idle status is an earlier turn's.
 	Before bool
-	// Cancel is why the run's turn will never come: its queued message was removed, or lost.
+	// Cancel is why the run's turn will never come: its queued message was removed.
 	Cancel string
+	// Fail is why the run's turn is gone: a crash lost it.
+	Fail string
 }
 
 // finished is a status a run never leaves.
@@ -49,6 +51,8 @@ func Step(r proto.Run, seen Seen, present, worked bool) (proto.Run, bool) {
 		next.Status, next.Why = "cancelled", "Session closed"
 	case seen.Cancel != "":
 		next.Status, next.Why = "cancelled", seen.Cancel
+	case seen.Fail != "":
+		next.Status, next.Why = "failed", seen.Fail
 	case seen.Status == "working":
 		next.Status, next.Why = "running", ""
 	case seen.Status == "needsYou":
