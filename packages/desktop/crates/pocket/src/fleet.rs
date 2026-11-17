@@ -398,13 +398,12 @@ impl Desktop {
     /// Serves the host's folders and terminals here, once its pocketd says it can.
     fn host_online(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(host) = self.fleet.hosts.list.iter().find(|h| h.id == id).cloned() else { return };
-        let home = self.store.home().to_path_buf();
         let id = id.to_string();
         cx.spawn_in(window, async move |this, cx| {
             let (client, endpoint, info) = cx
                 .background_executor()
                 .spawn(async move {
-                    let endpoint = host.endpoint(&home);
+                    let endpoint = host.endpoint();
                     let client = Arc::new(Client::to(&host.id, endpoint.clone()));
                     let info = client.status();
                     (client, endpoint, info)
@@ -451,9 +450,13 @@ impl Desktop {
 
     /// Opens Settings › Hosts with the add form filled with `hint`, as an agent's card asks.
     pub(crate) fn link_host(&mut self, hint: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_hosts(window, cx);
+        self.open_add_host(Some(hint), window, cx);
+    }
+
+    pub(crate) fn show_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_settings(&crate::actions::OpenSettings, window, cx);
         self.show_section(crate::settings::Section::Hosts, cx);
-        self.open_add_host(Some(hint), window, cx);
     }
 
     /// An older pocketd, without hosts.v1, answered: it links no hosts, so the saved ones only show.

@@ -32,6 +32,7 @@ fn link_line(link: Option<&Link>, name: &str) -> String {
         Some(Link::Retrying(Failure::Throttled)) => failure_message(Failure::Throttled, name),
         Some(Link::Retrying(f)) => format!("{} Trying again\u{2026}", failure_message(*f, name)),
         Some(Link::Failed(f)) => failure_message(*f, name),
+        Some(Link::Unknown) => "Status unknown".into(),
     }
 }
 
@@ -46,7 +47,7 @@ pub(crate) fn link_color(link: Option<&Link>) -> Token {
         Some(Link::Online { .. }) => SUCCESS,
         Some(Link::Failed(_)) => FAILED,
         Some(Link::Connecting | Link::Retrying(_)) => WAITING_DOT,
-        None => TEXT_4,
+        Some(Link::Unknown) | None => TEXT_4,
     }
 }
 
@@ -267,11 +268,12 @@ mod tests {
         assert_eq!(link_line(Some(&Link::Retrying(Failure::Dropped)), "devbox"), "Lost the connection to devbox. Trying again\u{2026}");
         assert_eq!(link_line(Some(&Link::Failed(Failure::Auth)), "devbox"), failure_message(Failure::Auth, "devbox"));
         assert_eq!(link_line(None, "devbox"), "Not connected");
+        assert_eq!(link_line(Some(&Link::Unknown), "devbox"), "Status unknown");
     }
 
     #[test]
     fn a_host_row_names_the_address_only_when_its_name_doesnt() {
-        let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false };
+        let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false, socket: Default::default() };
         let alias = host("devbox", Target::Alias { name: "devbox".into() });
         assert_eq!(host_line(&alias, None), "Not connected");
         let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None });

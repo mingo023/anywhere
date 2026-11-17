@@ -4,6 +4,7 @@ use crate::desktop::chrome::id;
 use crate::util::now_ms;
 use agents::queue::Entry;
 use chat::{Delivery, Pending};
+use gpui_kit::component::input::RopeExt as _;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use theme::*;
@@ -212,7 +213,10 @@ impl Desktop {
         self.chat_take_input(agent, window, cx);
         let text = editing(&self.chats.input.read(cx).value(), text);
         self.set_chat_text(&text, window, cx);
-        self.chats.input.update(cx, |s, cx| s.focus(window, cx));
+        self.chats.input.update(cx, |s, cx| {
+            let end = s.text().offset_to_position(text.len());
+            s.set_cursor_position(end, window, cx);
+        });
     }
 
     /// Lets the queue go on past the turn it was paused behind; the next send goes once the agent is idle.

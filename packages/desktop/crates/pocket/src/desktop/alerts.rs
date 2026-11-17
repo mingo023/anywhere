@@ -155,6 +155,15 @@ impl Desktop {
             self.error = Some(stop_failed(self.agents.get(agent), reason));
             return cx.notify();
         }
+        if let Event::QueueFailed { agent, reason, text } = ev {
+            // Only pocketd's list says what the queue holds now.
+            self.outbox.queue_list(&agent);
+            if let Some(text) = text {
+                self.chat_add_text(&agent, &text, window, cx);
+            }
+            self.error = Some(format!("Couldn't change the queue: {reason}"));
+            return cx.notify();
+        }
         if let Event::Commands { agent, commands } = ev {
             self.chats.composer.suggest.listed(agent, commands);
             return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);

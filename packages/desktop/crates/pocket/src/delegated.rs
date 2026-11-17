@@ -74,6 +74,11 @@ fn child_trees(list: &[Summary], projects: &[String], tracked: impl Fn(&str) -> 
     trees
 }
 
+/// The host holding `agent` when the session isn't listed here because that host isn't connected.
+fn unlisted_host<'a>(list: &[Summary], agent: &'a str) -> Option<&'a str> {
+    hosts::session::untag(agent).0.filter(|_| !list.iter().any(|a| a.id == agent))
+}
+
 impl Desktop {
     /// Asks pocketd for the delegations of each chat that just showed a delegated session or is on screen; it pushes the rest.
     pub(crate) fn delegated_listed(&mut self, cx: &mut Context<Self>) {
@@ -120,6 +125,10 @@ impl Desktop {
     }
 
     pub(crate) fn delegated_open(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(host) = unlisted_host(&self.agents.list, agent) {
+            self.error = Some(format!("That session runs on {}, which isn't connected", self.host_name(host)));
+            return cx.notify();
+        }
         let from = self.session().map(str::to_string);
         self.delegated.push = from.and_then(|from| push::direction(&self.agents.list, &from, agent).map(|dir| push::Push::begin(self.delegated.push.as_ref(), from, agent.to_string(), dir)));
         self.focus_agent(agent, window, cx);
@@ -129,7 +138,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{DelegatedState, child_trees, session_link, shown, unasked};
+    use super::{DelegatedState, child_trees, session_link, shown, unasked, unlisted_host};
     use agents::Summary;
     use agents::delegations::Delegation;
     use std::collections::HashSet;
@@ -167,6 +176,12 @@ mod tests {
         let viewing = ["s".to_string(), "p".to_string()];
         assert_eq!(unasked(&list, &viewing, &HashSet::new()), ["p", "s"]);
         assert_eq!(unasked(&list, &viewing, &HashSet::from(["s".to_string()])), ["p"]);
+    }
+
+    #[test]
+    fn a_session_on_a_host_not_connected_is_not_listed_but_names_its_host() {
+        let list = [child("devbox/c", "p", "subagent"), child("c2", "p", "subagent")];
+        assert_eq!([unlisted_host(&list, "devbox/c"), unlisted_host(&list, "gpu/c"), unlisted_host(&list, "c2"), unlisted_host(&list, "gone")], [None, Some("gpu"), None, None]);
     }
 
     fn task(id: &str, status: &str) -> Delegation {

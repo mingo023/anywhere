@@ -121,7 +121,8 @@ fn escape_leaves(delegated: bool, asking: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{CRUMB_H, by_label, escape_leaves, inset, parent_of};
-    use agents::Summary;
+    use agents::delegations::Delegation;
+    use agents::{Agents, Event, Summary};
     use chrono::FixedOffset;
 
     fn session(id: &str, parent: &str, relationship: &str) -> Summary {
@@ -133,6 +134,18 @@ mod tests {
         let list = [session("p", "", ""), session("c", "p", "subagent"), session("f", "p", "fork"), session("o", "gone", "subagent")];
         assert_eq!(parent_of(&list, "c").map(|p| p.id.as_str()), Some("p"));
         assert_eq!([parent_of(&list, "p").is_none(), parent_of(&list, "f").is_none(), parent_of(&list, "o").is_none()], [true, true, true], "a fork, an orphan and a plain chat have none");
+    }
+
+    #[test]
+    fn a_child_on_a_linked_host_is_a_child_and_goes_back_to_the_chat_that_delegated_it() {
+        let mut agents = Agents::default();
+        agents.apply(Event::Agents(vec![session("p", "", "")]));
+        agents.apply_from(Some("devbox"), Event::Agents(vec![session("devbox/c", "", "")]));
+        let task = Delegation { task_id: "t".into(), parent_id: "p".into(), child_id: "devbox/c".into(), created_at: 7, ..Default::default() };
+        agents.apply(Event::Delegated { agent: "p".into(), delegation: task });
+        assert_eq!(parent_of(&agents.list, "devbox/c").map(|p| p.id.as_str()), Some("p"));
+        assert!(agents.get("devbox/c").is_some_and(crate::status::is_child));
+        assert!(agents.get("p").is_some_and(|p| !crate::status::is_child(p)));
     }
 
     #[test]

@@ -35,12 +35,14 @@ pub struct Entry {
 
 /// A host's connection.
 #[derive(Deserialize, Clone, Debug, PartialEq)]
-#[serde(try_from = "LinkWire")]
+#[serde(from = "LinkWire")]
 pub enum Link {
     Connecting,
     Online { version: String, uptime: u64 },
     Retrying(Failure),
     Failed(Failure),
+    /// A state a newer pocketd reports, or one missing its failure.
+    Unknown,
 }
 
 #[derive(Deserialize)]
@@ -53,17 +55,15 @@ struct LinkWire {
     failure: Option<Failure>,
 }
 
-impl TryFrom<LinkWire> for Link {
-    type Error = String;
-
-    fn try_from(w: LinkWire) -> Result<Self, String> {
-        Ok(match (w.state.as_str(), w.failure) {
+impl From<LinkWire> for Link {
+    fn from(w: LinkWire) -> Self {
+        match (w.state.as_str(), w.failure) {
             ("connecting", _) => Link::Connecting,
             ("online", _) => Link::Online { version: w.version, uptime: w.uptime },
             ("retrying", Some(f)) => Link::Retrying(f),
             ("failed", Some(f)) => Link::Failed(f),
-            (state, _) => return Err(format!("unknown link {state}")),
-        })
+            _ => Link::Unknown,
+        }
     }
 }
 
@@ -212,6 +212,15 @@ mod tests {
         let f: Value = serde_json::from_str(golden_text!("server/stream_host_link.json")).unwrap();
         let item: crate::Item = serde_json::from_value(f["item"].clone()).unwrap();
         assert_eq!((item.kind.as_str(), item.hint.as_str(), item.reason.as_str()), ("host_link", "vps", "The build needs the GPU box."));
+    }
+
+    #[test]
+    fn a_host_in_a_state_this_app_does_not_know_is_listed_with_the_rest() {
+        let entry = |id: &str, link: Value| json!({"id": id, "name": id, "target": {"kind": "alias", "name": id}, "socket": format!("/h/{id}.sock"), "link": link});
+        let frame = json!({"type": "host.list", "id": "h1", "hosts": [entry("a", json!({"state": "connecting"})), entry("b", json!({"state": "hibernating"})), entry("c", json!({"state": "retrying"}))]}).to_string();
+        let Some(Event::Hosts(list)) = event(&frame) else { panic!("the list was dropped") };
+        assert_eq!(list.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(list.iter().map(|h| h.link.clone()).collect::<Vec<_>>(), [Link::Connecting, Link::Unknown, Link::Unknown]);
     }
 
     #[test]
