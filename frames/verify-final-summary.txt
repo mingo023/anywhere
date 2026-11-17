@@ -1,0 +1,51 @@
+Verification re-run for PR #268 (branch feat/orchestrator)
+Date: Tue 2026-11-17, 15:30-15:45 +07
+Worktree head: 2d15c6c0 (Go-only commit on top of 540a0213: packages/pocketd/internal/codex/session.go + test; no desktop or fixture file changed)
+
+Binaries and where each part was built from
+- Part 1 desktop: packages/desktop/target/release/pocket-desktop, built 12:43 from crates at 540a0213 (last crates change 241bed8f; no .rs file newer than the binary; drive.sh's cargo build was a no-op). 2d15c6c0 touches no desktop file, so it is the same desktop.
+- Part 1 fake pocketd: .ui-review/fixture/fixture.ts at 2d15c6c0 (bun).
+- Parts 2 and 3 pocketd: built from the worktree at 2d15c6c0; `pocketd --version` = "pocketd 2d15c6c0164d" (also in hello.ok "version" of the scratch daemons).
+- Part 2 fake agents: built from packages/pocketd/e2e/{fakeclaude,fakecodex,fakeacp,fakepi,fakessh} at 2d15c6c0.
+
+Doctor (verify-anywhere scripts/doctor.sh): PASS (exit 0). ok bun 1.3.14, cargo, fixture, binary has capture, binary newer than every crate source. One warn: POCKETD_SOCK pointed at the live pocketd in the caller's env; every command here ran with env -u POCKETD_SOCK / env -i and a scratch socket.
+
+Part 1: verify-anywhere journeys, fake pocketd (drive.sh, scenario sessions; a6/a7 scenario chat). Steps/env copied from the earlier runs. Every new PNG was read next to the old one (old copies in old-23a0/).
+PASS a1-panel                    Delegated panel fully open, header "Delegated 3", 3 rows (Needs you + Which test runner?, Done, Failed), delivery rows; frames a1-panel-frames.jsonl (23 lines)
+PASS a2-child                    click on the Review the diff row opens the child, breadcrumb "Start / Review the diff", esc chip
+PASS a3-esc-back                 Esc returns to the parent, panel open, "Delegated 3"
+PASS a4-reopen-child             child reopened after Esc
+PASS a5-cmd-bracket-back         Cmd+[ returns to the parent, panel open
+PASS a6-host-only-panel          chat scenario, FIXTURE_HOST_ONLY: panel open, "Delegated 3", three working rows; frames a6-host-only-frames.jsonl (11)
+PASS a7-host-unreachable-row     FIXTURE_HOST_ONLY+HOST_DOWN: third row "Host 10.0.4.12 unreachable"
+PASS b1-delivery-row-opens-child clicking the "Review the diff done" delivery row opens that child
+PASS c1-queued                   "2 queued", Second/Third message
+PASS c2-edited                   second entry reads "Third message edited"
+PASS c3-reordered                order swapped, "Move up" tooltip
+PASS c4-send-now                 "Third message edited" sent as a user message, "1 queued" left; frames c-queue-frames.jsonl (24, from the c4 run)
+PASS c5-edit-caret-at-end        queue entry "first draft", composer "first draftXY" (caret at end)
+PASS c6-queue-refused-toast      toast "Couldn't change the queue: That queued message was sent or removed"; frames c6-queue-refused-frames.jsonl (8, from agent.create on, as before)
+PASS d1-automation-agent-made    Automations, "Re-run tests on push", "Created by Fix stale terminal reveal"
+PASS d4-automation-saved         same screen after Edit/save clicks; d4-automation-save.txt (14, has automation.save)
+PASS e1-host-link-card           "Add vps as a host" card with Add host...
+PASS e2-add-host-filled          Settings > Hosts, Add a host form with address vps; e2-add-host-frames.jsonl (21)
+PASS e3-hosts                    Hosts list: This Mac, devbox, 10.0.4.12, Add host
+PASS e4-host-link-linked         card "vps is linked"
+PASS e5-host-link-linking        card "Linking vps..."
+PASS e6-host-link-failed         card "Couldn't link vps" + Hosts...
+Notes: only clock times, streamed-text length and "working for Ns" differ from the old shots. No home path or user name visible in any shot (project paths show ~/code/..., user "dev").
+
+Part 2: real pocketd 2d15c6c0 + fake agents (scratch home under rt540/p2; env -i, PATH = scratch bin only)
+PASS safety-which.txt            which and fish -l `type -a` for claude codex opencode pi hermes cursor-agent grok fx agy omp ssh all resolve to $SCRATCH_BIN; only /usr/bin/ssh is shadowed (listed)
+PASS r1-real-pocketd-delegated   parent "Say hello" delegated via "mcp delegate_task"; delivery row "Tests done", capsule "1 done"; sessions-before-restart.txt, delegations-before-restart.txt (completed|delivered, isolation worktree)
+PASS r2-real-pocketd-after-restart  after SIGTERM + start on the same home: both sessions (say-hello, say-hello-2), titles, panel "Delegated 1 / Tests Done" (opened with delegate-panel)
+PASS r3-real-pocketd-parent-after-restart  parent, delivery row and capsule "1 done" kept
+PASS sessions-after-restart.txt / delegations-after-restart.txt  parent + child (relationship subagent, parent set); delegation completed|delivered
+PASS capabilities-models.txt     via a fake hermes chat after the restart; codex | fake-codex-sol, fake-codex-luna | low, medium, high, ultra (efforts now present); claude efforts low..max; pi/omp off..max
+Differences from the earlier r1-r3: r1 was taken after a first desktop capture, so the child row is not bold/unread; both sessions are idle after the restart (old file had the child "done"); r2 "Clear" is greyed.
+
+Part 3: real claude/codex CLIs, no tokens spent (real-run3, bin/ symlinks kept, scratch home/socket, pocketd 2d15c6c0164d)
+PASS real-4-capabilities-models.txt  orchestrator_capabilities called with a bare MCP tools/call over HTTP using the token pocketd minted for a freshly created, never-prompted Claude chat (no model turn). Real codex: 8 models and efforts low, medium, high, xhigh, max, ultra. Claude: 8 models, efforts low..max.
+Setup change: restore.resumeAgents set to false in the scratch config for the run (a resume would have restarted an old real Codex session), original config restored afterwards.
+
+Cleanup: pocketd, drive, fake and real agent processes started here stopped; pgrep for rt540, real-run3 and verify-anywhere scratch dirs finds nothing. No tracked file changed, no commit (git status clean at 2d15c6c0).

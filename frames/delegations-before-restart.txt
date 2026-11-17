@@ -1,2 +1,2 @@
 task_id|parent_id|child_id|title|agent|status|delivery|summary|error|isolation
-task_e35dc90363c18bfe_1|bd202cde-9794-421d-9b55-e45e87e164bf|281fd7c3-3332-4544-b6ef-d43c8fc46862|Tests|claude|completed|delivered|echo: write the tests||worktree
+task_740e9e22f2c1b3b0_1|d3e6c81c-d861-4b0b-97e0-919a24d50ebc|ca6abec8-aa70-426e-9f2b-a97df49e87b9|Tests|claude|completed|delivered|echo: write the tests||worktree

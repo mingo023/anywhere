@@ -1,17 +1,17 @@
 # orchestrator_capabilities, called by a fake hermes chat in the scratch pocketd (prompt: mcp orchestrator_capabilities {}), after the cold restart
-# per agent: id | models
-claude | fake-claude-opus
-codex | fake-codex-sol, fake-codex-luna
-cursor | 
-grok | 
-opencode | 
-pi | fake/model, fake/other
-omp | fake/model, fake/other
-fx | 
-hermes | fake-model, fake/other
-antigravity | 
+# per agent: id | models | efforts
+claude | fake-claude-opus | low, medium, high, xhigh, max
+codex | fake-codex-sol, fake-codex-luna | low, medium, high, ultra
+cursor |  | 
+grok |  | low, medium, high, xhigh
+opencode |  | 
+pi | fake/model, fake/other | off, minimal, low, medium, high, xhigh, max
+omp | fake/model, fake/other | off, minimal, low, medium, high, xhigh, max
+fx |  | 
+hermes | fake-model, fake/other | 
+antigravity |  | 
 
 # claude/codex/pi, as asked:
-claude: fake-claude-opus
-codex: fake-codex-sol, fake-codex-luna
-pi: fake/model, fake/other
+claude: models fake-claude-opus; efforts low, medium, high, xhigh, max
+codex: models fake-codex-sol, fake-codex-luna; efforts low, medium, high, ultra
+pi: models fake/model, fake/other; efforts off, minimal, low, medium, high, xhigh, max

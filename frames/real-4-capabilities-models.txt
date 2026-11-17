@@ -1,5 +1,6 @@
-# Step 4: orchestrator_capabilities as real Claude received it (tool output of mcp__anywhere__orchestrator_capabilities, step 2a, 10:25:57)
-# (Codex never got to run it: see real-3.)
+# orchestrator_capabilities against the rebuilt real pocketd (pocketd --version: pocketd 2d15c6c0164d), real claude and codex CLIs on PATH via symlinks, scratch home/socket.
+# Called with a bare MCP tools/call over HTTP using the token pocketd minted for a freshly created, never-prompted Claude chat session: no model turn, no tokens spent.
+# Real Codex's models and its efforts are both listed below.
 {
  "agents": [
   {
@@ -41,6 +42,14 @@
     "full"
    ],
    "canDelegate": true,
+   "efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra"
+   ],
    "id": "codex",
    "installed": true,
    "models": [
@@ -192,10 +201,7 @@
   "access": "ask",
   "agent": "claude",
   "depth": 0,
-  "link": "anywhere://session/f57023c6-e4b0-4334-bda9-714ca9116acb",
-  "threadId": "f57023c6-e4b0-4334-bda9-714ca9116acb"
+  "link": "anywhere://session/a558e0af-31cc-4b5c-b3bd-b9003443fe4d",
+  "threadId": "a558e0af-31cc-4b5c-b3bd-b9003443fe4d"
  }
 }
-
-INSTALLED claude models: opus, fable, sonnet, haiku, claude-fable-5-1, claude-haiku-4-5-20251001, claude-sonnet-5, claude-opus-5 | efforts: ['low', 'medium', 'high', 'xhigh', 'max']
-INSTALLED codex models: gpt-6.1-sol, gpt-6-astra, gpt-6.1-terra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna | efforts: None

@@ -1,4 +1,5 @@
-# from the scratch pocketd's exact env: HOME=<scratch>/home POCKET_HOME=<scratch>/home PATH=$SCRATCH_BIN:/usr/bin:/bin:/usr/sbin:/sbin (env -i)
+# from the scratch pocketd's exact env: env -i HOME=<scratch>/home POCKET_HOME=<scratch>/pk PATH=$SCRATCH_BIN:/usr/bin:/bin:/usr/sbin:/sbin
+# ($SCRATCH_BIN holds the repo fake agents built from packages/pocketd/e2e/fake* at 2d15c6c0, and the pocketd under test)
 $ which claude codex opencode pi hermes cursor-agent grok fx agy omp ssh
 $SCRATCH_BIN/claude
 $SCRATCH_BIN/codex
@@ -12,6 +13,19 @@ $SCRATCH_BIN/agy
 $SCRATCH_BIN/omp
 $SCRATCH_BIN/ssh
 
-# every hit, same env, login shell the daemon uses (fish -l): non-scratch hits
-/usr/bin/ssh
-# (only the system ssh, shadowed by the fake ssh first on PATH)
+# same names, in the login shell the daemon uses (fish -l, scratch config.fish): type -a, every hit
+claude is $SCRATCH_BIN/claude
+codex is $SCRATCH_BIN/codex
+opencode is $SCRATCH_BIN/opencode
+pi is $SCRATCH_BIN/pi
+hermes is $SCRATCH_BIN/hermes
+cursor-agent is $SCRATCH_BIN/cursor-agent
+grok is $SCRATCH_BIN/grok
+fx is $SCRATCH_BIN/fx
+agy is $SCRATCH_BIN/agy
+omp is $SCRATCH_BIN/omp
+ssh is $SCRATCH_BIN/ssh
+ssh is /usr/bin/ssh
+
+# every hit outside the scratch bin (ssh: only the system one, shadowed by the fake ssh first on PATH):
+ssh is /usr/bin/ssh
