@@ -8,9 +8,12 @@ mod push;
 pub(crate) use delivery::{Arrivals, delivered};
 
 use crate::desktop::Desktop;
+use crate::fleet::Links;
 use agents::Summary;
-use agents::delegations::Delegation;
+use agents::delegations::{Delegation, Phase};
+use agents::hosts::Link;
 use gpui_kit::*;
+use hosts::Host;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -79,6 +82,18 @@ fn unlisted_host<'a>(list: &[Summary], agent: &'a str) -> Option<&'a str> {
     hosts::session::untag(agent).0.filter(|_| !list.iter().any(|a| a.id == agent))
 }
 
+/// The name of the linked host a working task's session runs on, while that host's link is down. A host still connecting, or not listed (the list may not have arrived), isn't flagged.
+fn unreachable_host(d: &Delegation, list: &[Host], links: &Links) -> Option<String> {
+    let host = hosts::session::untag(&d.child_id).0.filter(|_| d.phase() == Phase::Working)?;
+    let host = list.iter().find(|h| h.id == host)?;
+    matches!(links.get(&host.id), Some(Link::Retrying(_) | Link::Failed(_) | Link::Unknown)).then(|| host.name.clone())
+}
+
+/// What a task's row says in place of its phase while its host is down.
+fn unreachable_label(host: &str) -> String {
+    format!("Host {host} unreachable")
+}
+
 impl Desktop {
     /// Asks pocketd for the delegations of each chat that just showed a delegated session or is on screen; it pushes the rest.
     pub(crate) fn delegated_listed(&mut self, cx: &mut Context<Self>) {
@@ -138,9 +153,12 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{DelegatedState, child_trees, session_link, shown, unasked, unlisted_host};
+    use super::{DelegatedState, child_trees, session_link, shown, unasked, unlisted_host, unreachable_host};
+    use crate::fleet::Links;
     use agents::Summary;
     use agents::delegations::Delegation;
+    use agents::hosts::{Failure, Link, Target};
+    use hosts::Host;
     use std::collections::HashSet;
 
     fn child(id: &str, parent: &str, relationship: &str) -> Summary {
@@ -182,6 +200,39 @@ mod tests {
     fn a_session_on_a_host_not_connected_is_not_listed_but_names_its_host() {
         let list = [child("devbox/c", "p", "subagent"), child("c2", "p", "subagent")];
         assert_eq!([unlisted_host(&list, "devbox/c"), unlisted_host(&list, "gpu/c"), unlisted_host(&list, "c2"), unlisted_host(&list, "gone")], [None, Some("gpu"), None, None]);
+    }
+
+    fn on_host(child: &str, status: &str) -> Delegation {
+        Delegation { child_id: child.into(), status: status.into(), ..Default::default() }
+    }
+
+    fn unreachable_with(link: Option<Link>, d: &Delegation) -> Option<String> {
+        let list = [Host { id: "gpu".into(), name: "GPU box".into(), target: Target::Alias { name: "gpu".into() }, windows: false, socket: Default::default() }];
+        unreachable_host(d, &list, &Links(link.into_iter().map(|l| ("gpu".to_string(), l)).collect()))
+    }
+
+    #[test]
+    fn a_working_task_on_a_host_whose_link_is_down_names_the_host() {
+        let working = on_host("gpu/c", "working");
+        let online = Some(Link::Online { version: "1.4.2".into(), uptime: 5 });
+        assert_eq!(unreachable_with(online, &working), None);
+        for down in [Link::Retrying(Failure::Dropped), Link::Failed(Failure::Auth), Link::Unknown] {
+            assert_eq!(unreachable_with(Some(down), &working).as_deref(), Some("GPU box"));
+        }
+        assert_eq!(unreachable_with(Some(Link::Connecting), &working), None, "a link coming up");
+    }
+
+    #[test]
+    fn a_local_task_a_settled_one_and_one_on_a_host_not_listed_are_never_unreachable() {
+        let down = || Some(Link::Retrying(Failure::TimedOut));
+        assert_eq!(unreachable_with(down(), &on_host("c", "working")), None);
+        assert_eq!(unreachable_with(down(), &on_host("", "working")), None);
+        for status in ["completed", "failed", "cancelled", "starting"] {
+            assert_eq!(unreachable_with(down(), &on_host("gpu/c", status)), None, "{status}");
+        }
+        assert_eq!(unreachable_with(down(), &on_host("other/c", "working")), None);
+        let asking = Delegation { question: "Which?".into(), ..on_host("gpu/c", "working") };
+        assert_eq!(unreachable_with(down(), &asking), None, "a question still shows");
     }
 
     fn task(id: &str, status: &str) -> Delegation {

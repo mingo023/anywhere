@@ -48,6 +48,7 @@ impl Desktop {
         let parent = self.delegated_parent(agent)?;
         let child = self.agents.get(agent)?;
         let to = parent.id.clone();
+        let down = self.agents.delegations.of(&parent.id).iter().find(|d| d.child_id == agent).and_then(|d| super::unreachable_host(d, &self.fleet.hosts.list, &self.fleet.hosts.links));
         let solid: Hsla = if is_dark() { window_fill() } else { SURFACE_SUNKEN.into() };
         let back = div()
             .id("delegated-back")
@@ -93,7 +94,8 @@ impl Desktop {
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(TEXT)
                         .child(provider_icon(&child.provider, 13., TEXT))
-                        .child(div().min_w_0().truncate().child(status::title(child))),
+                        .child(div().min_w_0().truncate().child(status::title(child)))
+                        .children(down.map(|host| div().flex_none().font_weight(FontWeight::NORMAL).text_color(WAITING_TEXT).child(super::unreachable_label(&host)))),
                 )
                 .child(div().flex_1())
                 .child(ui::kbd("esc")),

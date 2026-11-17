@@ -3,6 +3,7 @@ use super::shown;
 use crate::chat::sub_agent::{self, Mark};
 use crate::chat::user_bubble::text_lines;
 use crate::desktop::{Desktop, ReduceTransparency};
+use crate::fleet::Hosts;
 use crate::glide::Glide;
 use crate::util::now_ms;
 use agents::delegations::{Counts, Delegation, Headline, Phase};
@@ -296,7 +297,7 @@ impl Desktop {
         let scale = lerp(ENTER_SCALE, 1., appeared);
         let parent = agent.to_string();
         let capsule = (capsule_opacity(spread) > 0.).then(|| capsule(&parent, list.clone(), &counts, logos, summary, spread < 0.5, cx).opacity(capsule_opacity(spread)));
-        let full = (list_opacity(spread) > 0.).then(|| full(&parent, list, counts.total, settled, spread >= 0.5, cx).opacity(list_opacity(spread)));
+        let full = (list_opacity(spread) > 0.).then(|| full(&parent, list, counts.total, settled, spread >= 0.5, &self.fleet.hosts, cx).opacity(list_opacity(spread)));
         let material = material(reduce_transparency, cfg!(target_os = "macos"));
         Some(
             div().absolute().top(px(TOP)).right(px(16.)).child(
@@ -350,7 +351,7 @@ fn capsule<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation> + Clone,
     if live { capsule.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&to, true, cx))) } else { capsule }
 }
 
-fn full<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation>, total: usize, settled: bool, live: bool, cx: &mut Context<Desktop>) -> Div {
+fn full<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation>, total: usize, settled: bool, live: bool, hosts: &Hosts, cx: &mut Context<Desktop>) -> Div {
     let now = now_ms();
     let (clear, shut) = (parent.to_string(), parent.to_string());
     let button = |id: &'static str| div().id(id).h(px(24.)).px(px(8.)).rounded(px(7.)).flex().items_center().text_size(px(12.)).text_color(TEXT_3).hover(|s| s.bg(FILL_3).text_color(TEXT));
@@ -366,17 +367,20 @@ fn full<'a>(parent: &str, list: impl Iterator<Item = &'a Delegation>, total: usi
         .child(div().flex_1())
         .when(settled && live, |d| d.child(button("delegated-clear").cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_clear(&clear, cx))).child("Clear")))
         .child(button("delegated-collapse").w(px(24.)).px_0().justify_center().when(live, |d| d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.delegated_set_open(&shut, false, cx)))).child(icon("chevron-up", 12., TEXT_3)));
-    let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(list.map(|d| row(d, now, live, cx)));
+    let rows = div().px(px(6.)).pb(px(6.)).flex().flex_col().children(list.map(|d| row(d, now, live, hosts, cx)));
     div().absolute().top_0().right_0().w(px(FULL_W)).flex().flex_col().child(head).child(rows)
 }
 
-fn row(d: &Delegation, now: i64, live: bool, cx: &mut Context<Desktop>) -> Stateful<Div> {
+fn row(d: &Delegation, now: i64, live: bool, hosts: &Hosts, cx: &mut Context<Desktop>) -> Stateful<Div> {
     let phase = d.phase();
+    let down = super::unreachable_host(d, &hosts.list, &hosts.links);
     let colour = match phase {
         Phase::Asking => WAITING_TEXT,
         Phase::Failed => FAILED_TEXT,
+        _ if down.is_some() => WAITING_TEXT,
         _ => TEXT_3,
     };
+    let status = down.map_or_else(|| label(phase).to_string(), |host| super::unreachable_label(&host));
     let title = if d.title.is_empty() { "Session".to_string() } else { d.title.clone() };
     let open = d.child_id.clone();
     let opens = live && !d.child_id.is_empty();
@@ -401,7 +405,7 @@ fn row(d: &Delegation, now: i64, live: bool, cx: &mut Context<Desktop>) -> State
                 .flex()
                 .flex_col()
                 .child(div().h(px(18.)).truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title))
-                .child(div().h(px(16.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(TEXT_3).child(div().text_color(colour).child(label(phase))).child("\u{b7}").child(clock(d.elapsed_ms(now)))),
+                .child(div().h(px(16.)).flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(TEXT_3).child(div().min_w_0().truncate().text_color(colour).child(status)).child("\u{b7}").child(clock(d.elapsed_ms(now)))),
         )
         .child(end);
     let asks = question(d).map(|q| div().ml(px(26.)).mt(px(6.)).text_size(px(QUESTION_SIZE)).line_height(px(QUESTION_LINE)).text_color(TEXT_2).line_clamp(QUESTION_LINES).child(q.to_string()));
