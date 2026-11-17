@@ -150,6 +150,8 @@ type Item struct {
 	HostLink   *HostLink
 	// ParentToolUseID is the tool call that spawned the sub-agent this item belongs to.
 	ParentToolUseID string
+	// Origin is who wrote a user item pocketd sent itself: wake, question or context. Empty for the user's own.
+	Origin string
 }
 
 func (it Item) MarshalJSON() ([]byte, error) {
@@ -159,8 +161,9 @@ func (it Item) MarshalJSON() ([]byte, error) {
 		Seq             int64  `json:"seq"`
 		Ts              int64  `json:"ts"`
 		ParentToolUseID string `json:"parentToolUseId,omitempty"`
+		Origin          string `json:"origin,omitempty"`
 	}
-	h := head{it.Kind, it.ID, it.Seq, it.Ts, it.ParentToolUseID}
+	h := head{it.Kind, it.ID, it.Seq, it.Ts, it.ParentToolUseID, it.Origin}
 	switch it.Kind {
 	case "user", "assistant", "thinking", "plan":
 		return json.Marshal(struct {
@@ -229,6 +232,7 @@ func (it *Item) UnmarshalJSON(b []byte) error {
 		Seq             int64      `json:"seq"`
 		Ts              int64      `json:"ts"`
 		ParentToolUseID string     `json:"parentToolUseId"`
+		Origin          string     `json:"origin"`
 		Text            string     `json:"text"`
 		Call            *ToolCall  `json:"call"`
 		Items           []TaskItem `json:"items"`
@@ -242,7 +246,7 @@ func (it *Item) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	*it = Item{ID: w.ID, Seq: w.Seq, Ts: w.Ts, Kind: w.Kind, Text: w.Text, Call: w.Call, Tasks: w.Items, Trigger: w.Trigger,
-		OK: w.OK, DurationMs: w.DurationMs, Error: w.Error, Usage: w.Usage, ParentToolUseID: w.ParentToolUseID}
+		OK: w.OK, DurationMs: w.DurationMs, Error: w.Error, Usage: w.Usage, ParentToolUseID: w.ParentToolUseID, Origin: w.Origin}
 	switch w.Kind {
 	case "delivery":
 		it.Delivery = &Delivery{}

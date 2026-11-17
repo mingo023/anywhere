@@ -229,18 +229,21 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
     public var ts: Int
     /// The tool call that spawned the sub-agent this item belongs to.
     public var parentToolUseId: String?
+    /// Who wrote a user item pocketd sent itself: wake, question or context. Nil on the user's own.
+    public var origin: String?
     public var body: TimelineBody
 
-    public init(id: String, seq: Int, ts: Int, parentToolUseId: String? = nil, body: TimelineBody) {
+    public init(id: String, seq: Int, ts: Int, parentToolUseId: String? = nil, origin: String? = nil, body: TimelineBody) {
         self.id = id
         self.seq = seq
         self.ts = ts
         self.parentToolUseId = parentToolUseId
+        self.origin = origin
         self.body = body
     }
 
     enum Keys: String, CodingKey {
-        case kind, id, seq, ts, parentToolUseId, text, call, items, trigger, ok, durationMs, error, usage
+        case kind, id, seq, ts, parentToolUseId, origin, text, call, items, trigger, ok, durationMs, error, usage
         case taskIds, childIds, titles, agents, outcome, question
         case environmentId, hint, reason
     }
@@ -251,6 +254,7 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
         seq = try c.decode(Int.self, forKey: .seq)
         ts = try c.decode(Int.self, forKey: .ts)
         parentToolUseId = try c.decodeIfPresent(String.self, forKey: .parentToolUseId)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
         let kind = try c.decode(String.self, forKey: .kind)
         let text = { try c.decode(String.self, forKey: .text) }
         switch kind {
@@ -295,6 +299,7 @@ public struct TimelineItem: Codable, Hashable, Sendable, Identifiable {
         try c.encode(seq, forKey: .seq)
         try c.encode(ts, forKey: .ts)
         try c.encodeIfPresent(parentToolUseId, forKey: .parentToolUseId)
+        try c.encodeIfPresent(origin, forKey: .origin)
         switch body {
         case .user(let text), .assistant(let text), .thinking(let text), .plan(let text):
             try c.encode(text, forKey: .text)

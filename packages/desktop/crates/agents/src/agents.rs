@@ -218,6 +218,15 @@ pub struct Item {
     pub reason: String,
     /// The tool-use id of the sub-agent call this item belongs to.
     pub parent_tool_use_id: Option<String>,
+    /// Who wrote a user item pocketd sent itself: "wake", "question" or "context". Empty on the user's own.
+    pub origin: String,
+}
+
+impl Item {
+    /// Whether this is a prompt to show: a wake is told by the delivery before it instead.
+    pub fn is_prompt(&self) -> bool {
+        self.kind == "user" && self.origin != "wake"
+    }
 }
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]

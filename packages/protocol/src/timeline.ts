@@ -100,6 +100,8 @@ export const TimelineItem = Schema.extend(
     ts: Schema.Number,
     /** The tool call that spawned the sub-agent this item belongs to. */
     parentToolUseId: Schema.optional(Schema.String),
+    /** Who wrote a user item pocketd sent itself. Absent on the user's own. */
+    origin: Schema.optional(Schema.Literal("wake", "question", "context")),
   }),
 );
 export type TimelineItem = typeof TimelineItem.Type;

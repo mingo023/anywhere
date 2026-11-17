@@ -61,10 +61,11 @@ type Message struct {
 		UpgradeFailed string `json:"upgradeFailed"`
 	} `json:"host"`
 	Item struct {
-		Kind string `json:"kind"`
-		Text string `json:"text"`
-		OK   bool   `json:"ok"`
-		Call struct {
+		Kind   string `json:"kind"`
+		Text   string `json:"text"`
+		Origin string `json:"origin"`
+		OK     bool   `json:"ok"`
+		Call   struct {
 			Status string `json:"status"`
 			Output string `json:"output"`
 		} `json:"call"`

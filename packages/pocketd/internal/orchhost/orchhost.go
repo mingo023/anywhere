@@ -194,6 +194,16 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 // from a restart waits until it has, since nobody sends it again; the user's
 // own prompt is refused at once, as before.
 func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
+	own := p.Origin != "" && p.Origin != orch.OriginUser
+	if own {
+		a.Timeline.Expect(p.Text, p.Origin)
+	}
+	unsent := func(err error) error {
+		if own && err != nil {
+			a.Timeline.Expect(p.Text, "")
+		}
+		return err
+	}
 	for {
 		idle, starts := a.Turn() == "idle" || a.Turn() == "done", a.Starts()
 		d := a.Driver()
@@ -202,11 +212,11 @@ func prompt(ctx context.Context, a *agent.Agent, p orch.TurnPayload) error {
 			began(ctx, a, starts)
 		}
 		if !errors.Is(err, agent.ErrResuming) || p.Origin == orch.OriginUser {
-			return err
+			return unsent(err)
 		}
 		select {
 		case <-ctx.Done():
-			return err
+			return unsent(err)
 		case <-time.After(200 * time.Millisecond):
 		}
 	}

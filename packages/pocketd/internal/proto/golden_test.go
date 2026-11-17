@@ -83,6 +83,7 @@ var serverGolden = map[string]any{
 	}),
 	"error_agent_resuming": NewErrorCode("p1", CodeAgentResuming, "This session is still resuming"),
 	"stream_user":          NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "hi"}),
+	"stream_user_wake":     NewAgentStream("a1", 1, Item{ID: "i1", Seq: 1, Ts: 10, Kind: "user", Text: "Delegated task t1 reached a terminal state.", Origin: "wake"}),
 	"stream_tool_running": NewAgentStream("a1", 1, Item{ID: "i2", Seq: 2, Ts: 11, Kind: "tool", Call: &ToolCall{
 		ToolUseID: "t1", Name: "Bash", Status: "running", Detail: ToolDetail{Kind: "shell", Command: "ls"},
 	}}),

@@ -58,6 +58,8 @@ type Timeline struct {
 	detached map[string]bool
 	// tasks maps a background call's task id to its index in items.
 	tasks map[string]int
+	// expected maps a message pocketd is sending the agent to its origin, until its user item shows.
+	expected map[string]string
 	// drafts holds, per kind, the items Claude's stream opened that its transcript hasn't written yet, oldest first.
 	drafts map[string][]int
 	// draft names the streamed block each open draft item grows from.
@@ -295,13 +297,31 @@ func (t *Timeline) Unanswered() bool {
 	return t.last().Kind == "user"
 }
 
+// Expect marks the user item that will say text as pocketd's own, of origin. An empty origin takes the mark back.
+func (t *Timeline) Expect(text, origin string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	text = strings.TrimSpace(text)
+	if origin == "" {
+		delete(t.expected, text)
+		return
+	}
+	if t.expected == nil {
+		t.expected = map[string]string{}
+	}
+	t.expected[text] = origin
+}
+
 // Apply returns the new or changed item, or false when nothing visible changed.
 func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	switch e.Kind {
 	case "user":
-		return t.append(proto.Item{Kind: "user", Text: e.Text}, e.ParentToolUseID, ts), true
+		said := strings.TrimSpace(e.Text)
+		origin := t.expected[said]
+		delete(t.expected, said)
+		return t.append(proto.Item{Kind: "user", Text: e.Text, Origin: origin}, e.ParentToolUseID, ts), true
 
 	case "user_images":
 		// Claude writes the images right after their prompt, so any other item before them means that prompt showed nothing.

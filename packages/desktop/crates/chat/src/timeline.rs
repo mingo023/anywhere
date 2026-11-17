@@ -122,7 +122,8 @@ fn fold_level<'a>(items: &[&'a Item], children: &mut HashMap<&'a str, Vec<&'a It
 /// Folds one item into `t`; `tools` finds each call (turn, block) by use id, so a later item refreshes it in place.
 fn step(t: &mut Transcript, tools: &mut HashMap<String, (usize, usize)>, item: &Item) {
     match item.kind.as_str() {
-        "user" => t.turns.push(Turn { id: item.id.clone(), prompt: Some(message(item)), ..Turn::default() }),
+        "user" if item.is_prompt() => t.turns.push(Turn { id: item.id.clone(), prompt: Some(message(item)), ..Turn::default() }),
+        "user" => {}
         "result" => open(t, item).end = Some(end(item)),
         "tool" => {
             let Some(call) = &item.call else { return };
@@ -593,6 +594,24 @@ mod tests {
         ])));
         let child = |id: &str, title: &str, agent: &str| Child { id: id.into(), title: title.into(), agent: agent.into() };
         assert_eq!(t.turns[0].blocks, vec![Block::Delivered(Delivered { id: "i1".into(), outcome: Outcome::Asks, question: "Which test runner?".into(), children: vec![child("a2", "Write the tests", "codex"), child("a3", "Review", "claude")] })]);
+    }
+
+    #[test]
+    fn a_wake_shows_no_prompt_and_what_the_agent_does_for_it_follows_the_delivery() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/stream_user_wake.json")).unwrap();
+        let mut wake: Item = serde_json::from_value(golden["item"].clone()).unwrap();
+        (wake.id, wake.seq) = ("i4".into(), 4);
+        let mut all = items(json!([
+            {"kind": "user", "text": "go"},
+            {"kind": "result", "ok": true, "durationMs": 5},
+            {"kind": "delivery", "outcome": "done", "childIds": ["a2"], "titles": ["Tests"], "agents": ["codex"]},
+        ]));
+        all.push(wake);
+        all.extend(items(json!([{"kind": "assistant", "text": "The tests pass.", "seq": 5, "id": "i5"}])));
+        let t = fold(&all);
+        assert_eq!(t.turns.len(), 2);
+        assert_eq!(t.turns[1].prompt, None);
+        assert!(matches!(&t.turns[1].blocks[..], [Block::Delivered(_), Block::Text(said)] if said.text == "The tests pass."));
     }
 
     #[test]

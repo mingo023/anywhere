@@ -3,6 +3,7 @@ package timeline
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -617,5 +618,19 @@ func TestUnseenDropsTextAStoredTimelineSplitAroundAnotherSubAgentsItem(t *testin
 	}
 	if got := unseen([]Event{{Kind: "assistant_text", Text: "three", ParentToolUseID: "t1"}}); len(got) != 1 || got[0].Text != "three" {
 		t.Fatalf("what came after: %+v", got)
+	}
+}
+
+func TestAMessagePocketdSendsShowsWithItsOriginAndTheUsersOwnWithNone(t *testing.T) {
+	tl := New()
+	tl.Expect("Delegated task t1 reached a terminal state.\n", "wake")
+	own, _ := tl.Apply(Event{Kind: "user", Text: "hi"}, 1)
+	wake, _ := tl.Apply(Event{Kind: "user", Text: "Delegated task t1 reached a terminal state."}, 2)
+	again, _ := tl.Apply(Event{Kind: "user", Text: "Delegated task t1 reached a terminal state."}, 3)
+	tl.Expect("never sent", "wake")
+	tl.Expect("never sent", "")
+	unsent, _ := tl.Apply(Event{Kind: "user", Text: "never sent"}, 4)
+	if got := []string{own.Origin, wake.Origin, again.Origin, unsent.Origin}; !slices.Equal(got, []string{"", "wake", "", ""}) {
+		t.Fatalf("origins = %q", got)
 	}
 }

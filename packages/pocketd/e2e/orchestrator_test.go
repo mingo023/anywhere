@@ -38,7 +38,7 @@ func TestAChatDelegatesOverMCPAndIsWokenWhenTheChildSettles(t *testing.T) {
 				m.Delegation.Status == "completed" && m.Delegation.Summary == "echo: write the tests"
 		},
 		func(m Message) bool {
-			return m.Type == "agent.stream" && m.AgentID == parent && m.Item.Kind == "user" &&
+			return m.Type == "agent.stream" && m.AgentID == parent && m.Item.Kind == "user" && m.Item.Origin == "wake" &&
 				strings.Contains(m.Item.Text, "reached a terminal state")
 		},
 	)
