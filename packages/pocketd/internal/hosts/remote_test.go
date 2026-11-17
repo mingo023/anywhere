@@ -254,6 +254,7 @@ func (m *stored) Live(string) []proto.AgentSummary {
 }
 
 func (m *stored) Open(string) []string { return nil }
+func (m *stored) Linked(string)        {}
 
 func TestAReconnectedLinkReadsOnlyTheItemsPastThoseMirroredBefore(t *testing.T) {
 	var all []proto.Item

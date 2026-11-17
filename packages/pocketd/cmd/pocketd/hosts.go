@@ -42,6 +42,8 @@ func (x mirror) Answered(session, request string) { x.o.engine.AskClosed(session
 
 func (x mirror) Removed(host, name string) { x.o.engine.FailHost(host, name) }
 
+func (x mirror) Linked(host string) { x.o.engine.Relink(host) }
+
 // Gone settles the task of a session its host lost before its closing does, so the parent hears why.
 func (x mirror) Gone(session, name string) {
 	ts, err := x.o.store.Delegations(`child_id = ? AND status IN ('starting', 'working')`, session)

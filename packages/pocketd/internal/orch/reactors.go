@@ -109,6 +109,18 @@ func (e *Engine) FailHost(host, name string) {
 	e.pumpOthers("")
 }
 
+// Relink sends again each of host's sessions' stop that failed, as one does while the link is down: a task cancelled
+// then would run on there. Only a session's last effect is sent again, so a stop older than a prompt stays undone.
+func (e *Engine) Relink(host string) {
+	_, err := e.store.db.Exec(`UPDATE outbox SET state = 'pending' WHERE state = 'failed' AND kind IN (?, ?)
+		AND id IN (SELECT MAX(id) FROM outbox WHERE session_id LIKE ? GROUP BY session_id)`, EffInterrupt, EffClose, host+"/%")
+	if err != nil {
+		log.Printf("orch: stops on %s: %v", host, err)
+		return
+	}
+	e.KickAll()
+}
+
 // pumpOthers lets every other chat with a queued task use the room a settled
 // task left under the per-Mac limit, oldest queue first.
 func (e *Engine) pumpOthers(parent string) {

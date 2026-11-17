@@ -425,3 +425,25 @@ func TestAHostChildsQuestionStillOpenAcrossARestartReachesTheParentOnce(t *testi
 		t.Fatalf("the parent was told %d times: %q", len(notices), notices)
 	}
 }
+
+func TestAHostTaskCancelledWhileTheHostWasDownInterruptsTheChildThereOnceItIsBackAfterARestart(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"hang","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	dropLink(t, mac, host)
+	phone.Prompt(parent, `mcp task_cancel {"taskId":"`+task.TaskID+`"}`)
+	hostTask(mac, phone, parent, 1, "cancelled")
+
+	mac.Restart()
+	os.Remove(filepath.Join(filepath.Dir(host.Home), ".fakessh-no-keys"))
+	owner := mac.Owner(proto.CapHosts)
+	owner.Send(map[string]any{"type": "host.retry", "id": "back", "hostId": "devbox"})
+	waitLink(owner, "devbox", proto.LinkOnline, "")
+
+	host.WaitScreen(child.TerminalID, "interrupt")
+}

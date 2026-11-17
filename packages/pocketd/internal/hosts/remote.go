@@ -25,6 +25,8 @@ type Mirror interface {
 	Open(session string) []string
 	// Removed is host forgotten, with name as it was shown.
 	Removed(host, name string)
+	// Linked is host's link up, with what its hello sent mirrored.
+	Linked(host string)
 	// Gone is a mirrored session its host no longer has: its pocketd came back without it. name is the host's.
 	Gone(session, name string)
 }
@@ -100,6 +102,7 @@ func (r *remote) open(ctx context.Context) {
 	// hello sends the host's open asks with nothing to mark the last; the reply to a call comes after them all.
 	if _, err := c.Call(dial, "agent.list", map[string]any{"type": "agent.list"}); err == nil {
 		r.push(r.answeredMeanwhile)
+		r.m.Mirror.Linked(r.host)
 	}
 }
 
