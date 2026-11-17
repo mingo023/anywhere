@@ -53,6 +53,9 @@ type remote struct {
 	// ready closes once client is set, or the dial failed and it stays nil.
 	ready  chan struct{}
 	client *Client
+	// prev is the host's remote before this one, whose cursors this one takes up once finished closes.
+	prev     *remote
+	finished chan struct{}
 
 	mu    sync.Mutex
 	queue []func()
@@ -71,8 +74,8 @@ type remote struct {
 	ended   map[string]bool
 }
 
-func newRemote(m *Manager, host string) *remote {
-	return &remote{m: m, host: host, ready: make(chan struct{}), wake: make(chan struct{}, 1), latest: map[string]proto.AgentSummary{},
+func newRemote(m *Manager, host string, prev *remote) *remote {
+	return &remote{m: m, host: host, ready: make(chan struct{}), prev: prev, finished: make(chan struct{}), wake: make(chan struct{}, 1), latest: map[string]proto.AgentSummary{},
 		tracked: map[string]bool{}, asks: map[string]string{}, early: map[string]proto.PermissionRequest{}, seq: map[string]int64{}, started: map[string]bool{}, ended: map[string]bool{}}
 }
 
@@ -82,13 +85,25 @@ func (r *remote) open(ctx context.Context) {
 	defer cancel()
 	c, err := Dial(dial, socket, token, func(kind string, raw []byte) { r.push(func() { r.frame(kind, raw) }) })
 	if err != nil {
+		r.inherit()
 		r.m.drop(r)
 		close(r.ready)
+		close(r.finished)
 		return
 	}
 	r.client = c
 	close(r.ready)
 	go r.run()
+}
+
+// inherit takes up where the last remote left off, so a reconnect pages only what's new.
+func (r *remote) inherit() {
+	if r.prev == nil {
+		return
+	}
+	<-r.prev.finished
+	r.seq, r.started, r.ended = r.prev.seq, r.prev.started, r.prev.ended
+	r.prev = nil
 }
 
 func (r *remote) close() {
@@ -109,7 +124,9 @@ func (r *remote) push(f func()) {
 }
 
 func (r *remote) run() {
+	defer close(r.finished)
 	defer r.m.drop(r)
+	r.inherit()
 	for {
 		r.mu.Lock()
 		queue := r.queue
@@ -146,8 +163,10 @@ func (r *remote) frame(kind string, raw []byte) {
 				continue
 			}
 			r.tracked[theirs] = true
-			// Stored mid-turn, so whatever the host shows now is past that turn.
-			r.started[theirs] = busy(s.Status)
+			if busy(s.Status) {
+				// Stored mid-turn, so whatever the host shows now is past that turn.
+				r.started[theirs] = true
+			}
 			r.sync(a)
 		}
 	case "agent.update":
@@ -317,8 +336,8 @@ func (m *Manager) follow(id string, l Link) {
 	r := m.remotes[id]
 	switch {
 	case l.State == StateOnline && r == nil && m.Mirror != nil:
-		r = newRemote(m, id)
-		m.remotes[id] = r
+		r = newRemote(m, id, m.last[id])
+		m.remotes[id], m.last[id] = r, r
 		go r.open(m.ctx)
 	case l.State != StateOnline && r != nil:
 		delete(m.remotes, id)

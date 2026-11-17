@@ -47,8 +47,10 @@ type Manager struct {
 	sups     map[string]*supervisor
 	installs map[string]bool
 	changed  chan struct{}
-	// remotes is each online host's conn to its pocketd, and summaries the sessions mirrored from them.
+	// remotes is each online host's conn to its pocketd, last the latest one each host had, and summaries the
+	// sessions mirrored from them.
 	remotes   map[string]*remote
+	last      map[string]*remote
 	summaries map[string]proto.AgentSummary
 }
 
@@ -59,7 +61,7 @@ func Open(paths Paths, env func() []string, version, name string) (*Manager, err
 	}
 	m := &Manager{paths: paths, env: env, version: version, name: name, hosts: saved,
 		links: map[string]Link{}, sups: map[string]*supervisor{}, installs: map[string]bool{}, changed: make(chan struct{}),
-		remotes: map[string]*remote{}, summaries: map[string]proto.AgentSummary{}}
+		remotes: map[string]*remote{}, last: map[string]*remote{}, summaries: map[string]proto.AgentSummary{}}
 	for _, h := range saved {
 		m.links[h.ID] = Link{State: StateConnecting}
 	}
@@ -146,6 +148,7 @@ func (m *Manager) Remove(id string, uninstall bool) error {
 	delete(m.sups, id)
 	delete(m.links, id)
 	m.follow(id, Link{})
+	delete(m.last, id)
 	m.notify()
 	m.mu.Unlock()
 	if s != nil {

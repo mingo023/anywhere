@@ -4,7 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,7 +49,7 @@ func (a *asks) Answered(session, request string) {
 
 func TestAQuestionAskedBeforeTheLaunchReturnedReachesTheMirrorOnceTracked(t *testing.T) {
 	m := &asks{}
-	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox")
+	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox", nil)
 	ask := func(agent, request string) {
 		detail := proto.ToolDetail{Kind: "other", Name: "AskUserQuestion", Input: json.RawMessage(`{"questions":[{"question":"Which?"}]}`)}
 		raw, err := json.Marshal(proto.NewPermissionRequest(proto.PermissionRequest{RequestID: request, AgentID: agent, ToolName: "AskUserQuestion", Detail: detail}))
@@ -107,7 +112,7 @@ func TestASessionMoreThanAPageAheadIsMirroredFromItsFirstUnseenItem(t *testing.T
 	}
 	defer c.Close()
 	m := &seqs{}
-	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox")
+	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox", nil)
 	r.client = c
 	r.seq["a1"] = 100
 	r.catchUp("a1", false)
@@ -146,7 +151,7 @@ func replying(t *testing.T, m Mirror) *remote {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
-	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox")
+	r := newRemote(&Manager{Mirror: m, summaries: map[string]proto.AgentSummary{}}, "devbox", nil)
 	r.client = c
 	return r
 }
@@ -168,5 +173,104 @@ func TestASessionMirroredMidTurnThatIsIdleOnReconnectWithoutAResultSettles(t *te
 	r.frame("agent.list", raw)
 	if !slices.Equal(m.got, []string{"idle"}) {
 		t.Fatalf("mirrored %v", m.got)
+	}
+}
+
+type stored struct {
+	Mirror
+	mu       sync.Mutex
+	sessions map[string]proto.AgentSummary
+	items    int
+	fed      chan string
+}
+
+func (m *stored) Summary(s proto.AgentSummary) {
+	m.mu.Lock()
+	m.sessions[s.ID] = s
+	m.mu.Unlock()
+	m.fed <- s.Status
+}
+
+func (m *stored) Item(string, int64, proto.Item) {
+	m.mu.Lock()
+	m.items++
+	m.mu.Unlock()
+}
+
+func (m *stored) Live(string) []proto.AgentSummary {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Collect(maps.Values(m.sessions))
+}
+
+func TestAReconnectedLinkReadsOnlyTheItemsPastThoseMirroredBefore(t *testing.T) {
+	var all []proto.Item
+	for seq := int64(1); seq < 1234; seq++ {
+		all = append(all, proto.Item{ID: fmt.Sprint("i", seq), Seq: seq, Kind: "assistant", Text: "x"})
+	}
+	all = append(all, proto.Item{ID: "end", Seq: 1234, Kind: "result", OK: true})
+	var conns atomic.Int32
+	var requests [3]atomic.Int32
+	socket := fakePocketd(t, func(read func() map[string]any, send func(any)) {
+		conn := conns.Add(1)
+		for m := read(); m != nil; m = read() {
+			requests[conn].Add(1)
+			since, _ := m["sinceSeq"].(float64)
+			before, backwards := m["beforeSeq"].(float64)
+			var match []proto.Item
+			for _, it := range all {
+				if backwards && float64(it.Seq) < before || !backwards && float64(it.Seq) > since {
+					match = append(match, it)
+				}
+			}
+			page := match[len(match)-min(len(match), int(m["limit"].(float64))):]
+			send(proto.NewAgentTimeline(m["id"].(string), "a1", 1, page, len(page) < len(match), 1234))
+		}
+	}, proto.AgentSummary{ID: "a1", Status: "done"})
+	home, err := os.MkdirTemp("/tmp", "hm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	m, err := Open(Paths{Home: home, RemoteDir: ".cp"}, os.Environ, "1.2.0", "Mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Add(alias("devbox"), ""); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(home, "hosts"), 0o700)
+	if err := os.Symlink(socket, m.paths.Socket("devbox")); err != nil {
+		t.Fatal(err)
+	}
+	mirror := &stored{sessions: map[string]proto.AgentSummary{"devbox/a1": {ID: "devbox/a1", Status: "working"}}, fed: make(chan string, 8)}
+	m.Mirror, m.ctx = mirror, context.Background()
+	link := func(l Link) {
+		m.mu.Lock()
+		m.follow("devbox", l)
+		m.mu.Unlock()
+	}
+	fed := func() {
+		t.Helper()
+		select {
+		case s := <-mirror.fed:
+			if s != "done" {
+				t.Fatalf("mirrored %s", s)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("nothing mirrored")
+		}
+	}
+
+	link(Link{State: StateOnline})
+	fed()
+	link(Link{State: StateRetrying})
+	link(Link{State: StateOnline})
+	fed()
+
+	mirror.mu.Lock()
+	defer mirror.mu.Unlock()
+	if got := requests[2].Load(); got != 1 || mirror.items != len(all) {
+		t.Fatalf("after the reconnect: %d page requests, %d items mirrored in all", got, mirror.items)
 	}
 }
