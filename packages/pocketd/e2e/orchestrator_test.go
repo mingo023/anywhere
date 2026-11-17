@@ -178,6 +178,29 @@ func TestAColdRestartEndsTheCallItsChatCodexLeftRunning(t *testing.T) {
 	endedAndPromptable(h, id, "ok")
 }
 
+func TestAColdRestartEndsTheCallItsChatPiLeftRunning(t *testing.T) {
+	h, phone, _, id := chatPi(t, "pi", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "hang ls")
+	h.eventually("the call running", func() bool { return slices.Contains(timelineOf(phone, id), "tool ls running") })
+
+	h.Restart()
+
+	endedAndPromptable(h, id, "error")
+}
+
+func TestAColdRestartEndsTheCallItsChatHermesLeftRunning(t *testing.T) {
+	h, phone, _, id := chatACP(t, "hermes", nil, func(h *Harness) { h.resume = true })
+	phone.Prompt(id, "run ls")
+	phone.WaitFor("the ask", asked)
+	if got := timelineOf(phone, id); !slices.Contains(got, "tool ls running") {
+		t.Fatalf("before the restart: %q", got)
+	}
+
+	h.Restart()
+
+	endedAndPromptable(h, id, "error")
+}
+
 // endedAndPromptable waits until id's call ls, cut short by a restart, shows
 // ended with status as the store keeps it, and id then takes a prompt.
 func endedAndPromptable(h *Harness, id, status string) {
