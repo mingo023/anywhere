@@ -32,7 +32,7 @@ func TestATurnWatcherIgnoresTheSessionsEarlierTurnsAndSeesItsOwn(t *testing.T) {
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	answer(a, "earlier", "Earlier reply.")
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after, "")
+	watch := TurnWatcher(reg, after, "the run's prompt", "", nil)
 
 	if seen, ok := watch("a1"); !ok || !seen.Before || seen.Status != "done" || seen.Summary != "" || seen.Answered {
 		t.Fatalf("before the prompt went in: %+v %v", seen, ok)
@@ -57,7 +57,7 @@ func TestATurnWatcherForAQueuedPromptIsNotEndedByAMessageQueuedAheadOfIt(t *test
 	reg := agent.NewRegistry(hub.New())
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after, "the run's prompt")
+	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the run's prompt", false))
 	answer(a, "a message queued first", "Its reply.")
 	if seen, _ := watch("a1"); !seen.Before || seen.Summary != "" {
 		t.Fatalf("after the message ahead: %+v", seen)
@@ -68,12 +68,78 @@ func TestATurnWatcherForAQueuedPromptIsNotEndedByAMessageQueuedAheadOfIt(t *test
 	}
 }
 
+// entryAs is an Entry that finds every entry with text, cancelled or not.
+func entryAs(text string, cancelled bool) Entry {
+	return func(string, string) (string, bool, bool) { return text, cancelled, true }
+}
+
+func TestATurnWatcherFollowsTheEditedTextOfItsQueuedPrompt(t *testing.T) {
+	reg := agent.NewRegistry(hub.New())
+	a := reg.Add("a1", "/w", "claude", idleDriver{})
+	_, after := a.Timeline.State()
+	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the edited prompt", false))
+	answer(a, "the edited prompt", "Own reply.")
+	if seen, _ := watch("a1"); seen.Before || seen.Summary != "Own reply." {
+		t.Fatalf("%+v", seen)
+	}
+}
+
+func TestATurnWatcherWhoseQueuedPromptWasCancelledEndsTheRun(t *testing.T) {
+	reg := agent.NewRegistry(hub.New())
+	a := reg.Add("a1", "/w", "claude", idleDriver{})
+	a.Working()
+	_, after := a.Timeline.State()
+	watch := TurnWatcher(reg, after, "the run's prompt", "q1", entryAs("the run's prompt", true))
+	if seen, _ := watch("a1"); seen.Cancel == "" {
+		t.Fatalf("%+v", seen)
+	}
+}
+
+// crashed is a session restored from a store that lost every item after seq 3, as a crash can.
+func crashed() *agent.Registry {
+	reg := agent.NewRegistry(hub.New())
+	reg.History = func(string) ([]proto.Item, bool) {
+		return []proto.Item{{ID: "i3", Seq: 3, Kind: "user", Text: "earlier"}}, true
+	}
+	reg.Restore(agent.Restored{ID: "a1", Cwd: "/w", Provider: "claude"}, idleDriver{})
+	return reg
+}
+
+func TestATurnWatcherAfterACrashLostItsTurnEndsTheRunInsteadOfFollowingALaterTurn(t *testing.T) {
+	reg := crashed()
+	watch := TurnWatcher(reg, 7, "the run's prompt", "", nil)
+	if seen, _ := watch("a1"); !seen.Before || seen.Cancel != "" {
+		t.Fatalf("before any turn: %+v", seen)
+	}
+	a, _ := reg.Get("a1")
+	answer(a, "a later prompt", "Later reply.")
+	if seen, _ := watch("a1"); seen.Cancel == "" || seen.Summary != "" {
+		t.Fatalf("after a later turn: %+v", seen)
+	}
+}
+
+func TestATurnWatcherAfterACrashFindsItsTurnWhenItComesAfterAll(t *testing.T) {
+	for _, entry := range []string{"", "q1"} {
+		reg := crashed()
+		watch := TurnWatcher(reg, 7, "the run's prompt", entry, entryAs("the run's prompt", false))
+		watch("a1")
+		a, _ := reg.Get("a1")
+		if entry != "" {
+			answer(a, "a message queued first", "Its reply.")
+		}
+		answer(a, "the run's prompt", "Own reply.")
+		if seen, _ := watch("a1"); seen.Before || seen.Cancel != "" || seen.Summary != "Own reply." {
+			t.Fatalf("entry %q: %+v", entry, seen)
+		}
+	}
+}
+
 func TestATurnWatcherStillFindsItsTurnAfterTheTimelineWasCleared(t *testing.T) {
 	reg := agent.NewRegistry(hub.New())
 	a := reg.Add("a1", "/w", "claude", idleDriver{})
 	answer(a, "earlier", "Earlier reply.")
 	_, after := a.Timeline.State()
-	watch := TurnWatcher(reg, after, "")
+	watch := TurnWatcher(reg, after, "the run's prompt", "", nil)
 	a.ClearTimeline()
 	answer(a, "the run's prompt", "Own reply.")
 	if seen, _ := watch("a1"); seen.Before || seen.Summary != "Own reply." {
@@ -82,7 +148,7 @@ func TestATurnWatcherStillFindsItsTurnAfterTheTimelineWasCleared(t *testing.T) {
 }
 
 func TestATurnWatcherReportsAMissingAgentAsAbsent(t *testing.T) {
-	if _, ok := TurnWatcher(agent.NewRegistry(hub.New()), 0, "")("nope"); ok {
+	if _, ok := TurnWatcher(agent.NewRegistry(hub.New()), 0, "p", "", nil)("nope"); ok {
 		t.Fatal("found an agent that is not there")
 	}
 }

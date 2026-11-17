@@ -225,7 +225,22 @@ func (e *Engine) Recover() error {
 	if err := e.awaitPending(); err != nil {
 		return err
 	}
+	e.catchUpAll()
+	e.pumpOthers("")
 	return e.KickAll()
+}
+
+// catchUpAll settles each working task whose child's turn ended: a crash after
+// the task began, or after the turn ended, lost what would have settled it.
+func (e *Engine) catchUpAll() {
+	ts, err := e.store.Delegations(`status = 'working' AND child_id != '' AND environment_id = ''`)
+	if err != nil {
+		log.Printf("orch: tasks to catch up: %v", err)
+		return
+	}
+	for _, t := range ts {
+		e.catchUp(t.ChildID)
+	}
 }
 
 // awaitPending lets a retry of a command wait for the effects an earlier

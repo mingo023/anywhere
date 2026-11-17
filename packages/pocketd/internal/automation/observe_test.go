@@ -30,6 +30,7 @@ func TestStepMapsWhatTheAgentDoesToTheRunsStatus(t *testing.T) {
 		{"absent agent", "running", Seen{}, false, true, "cancelled", "Session closed"},
 		{"absent while waiting", "waiting", Seen{}, false, true, "cancelled", "Session closed"},
 		{"closed agent", "running", Seen{Status: "closed"}, true, true, "cancelled", "Session closed"},
+		{"queued message removed", "running", Seen{Cancel: "Its queued message was removed"}, true, true, "cancelled", "Its queued message was removed"},
 		{"absent agent of a finished run", "succeeded", Seen{}, false, true, "succeeded", ""},
 	} {
 		got, _ := Step(proto.Run{Status: c.from}, c.seen, c.present, c.worked)

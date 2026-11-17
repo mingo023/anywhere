@@ -27,21 +27,43 @@ func AgentWatcher(reg *agent.Registry) Watcher {
 	}
 }
 
+// Entry looks up a queued run's message: its text now and whether it was cancelled; ok is false once it is gone.
+type Entry func(agentID, entryID string) (text string, cancelled, ok bool)
+
 // TurnWatcher is AgentWatcher for a run that put its prompt into a session that already had turns.
 // after is the session's timeline seq before the prompt went in: nothing at or
 // before it says anything about the run. Seq keeps counting through a clear.
-// A prompt that queued behind other messages is given: its turn is the first with that text.
-func TurnWatcher(reg *agent.Registry, after int64, prompt string) Watcher {
+// A prompt that queued behind other messages has its entry: its turn is the first with the entry's text now.
+func TurnWatcher(reg *agent.Registry, after int64, prompt, entry string, queued Entry) Watcher {
+	since := int64(-1)
 	return func(id string) (Seen, bool) {
 		a, err := reg.Get(id)
 		if err != nil {
 			return Seen{}, false
 		}
+		if since < 0 {
+			// A crash can lose the timeline's last items, and seq goes on from the last one kept.
+			_, top := a.Timeline.State()
+			since = min(after, top)
+		}
+		lost := since < after
+		if entry != "" {
+			if text, cancelled, ok := queued(id, entry); cancelled {
+				return Seen{Cancel: "Its queued message was removed"}, true
+			} else if ok {
+				prompt = text
+			}
+		}
+		own := func(it proto.Item) bool {
+			return it.Kind == "user" && (entry == "" && !lost || slices.Equal(strings.Fields(it.Text), strings.Fields(prompt)))
+		}
 		sum := a.Summary()
-		items, _ := a.Timeline.Page(after, 500)
-		if i := slices.IndexFunc(items, func(it proto.Item) bool {
-			return it.Kind == "user" && (prompt == "" || slices.Equal(strings.Fields(it.Text), strings.Fields(prompt)))
-		}); i >= 0 {
+		items, _ := a.Timeline.Page(since, 500)
+		i := slices.IndexFunc(items, own)
+		if i < 0 && lost && entry == "" && slices.ContainsFunc(items, func(it proto.Item) bool { return it.Kind == "user" }) {
+			return Seen{Cancel: "Its turn was lost in a crash"}, true
+		}
+		if i >= 0 {
 			items = items[i:]
 		} else {
 			items = nil

@@ -96,6 +96,10 @@ type Launcher struct {
 	trees    *receipts[built]
 	running  atomic.Int32
 
+	// held are the names of the placeholder Worktrees being made, which git doesn't list yet.
+	heldMu sync.Mutex
+	held   []string
+
 	mu       sync.Mutex
 	pending  map[string]chan exit
 	found    map[string]found
@@ -306,6 +310,13 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 		o, err := openPR(f, s, env)
 		return opened(w, f, s, o, err, progress)
 	}
+	if n.AutoName {
+		release, err := l.hold(f, s.Project, n)
+		if err != nil {
+			return "", "", gitFailure(err)
+		}
+		defer release()
+	}
 	plan, err := worktree.Prepare(f, s.Project, n.Name, n.Base)
 	if err != nil {
 		return "", "", gitFailure(err)
@@ -320,6 +331,25 @@ func (l *Launcher) checkout(w Who, f registry.File, s proto.LaunchSpec, env []st
 		return "", "", gitFailure(err)
 	}
 	return filled(w, f, s, c.Path, progress)
+}
+
+// hold renames n's placeholder to the first free one, so two creates with the
+// same placeholder each get a Worktree, and keeps it from others until release.
+func (l *Launcher) hold(f registry.File, project string, n *proto.NewWorktree) (release func(), err error) {
+	l.heldMu.Lock()
+	defer l.heldMu.Unlock()
+	taken, err := worktree.Taken(project, worktree.Dir(f, project))
+	if err != nil {
+		return nil, err
+	}
+	name := worktree.Free(n.Name, append(taken, l.held...))
+	n.Name = name
+	l.held = append(l.held, name)
+	return func() {
+		l.heldMu.Lock()
+		defer l.heldMu.Unlock()
+		l.held = slices.DeleteFunc(l.held, func(h string) bool { return h == name })
+	}, nil
 }
 
 func openPR(f registry.File, s proto.LaunchSpec, env []string) (*worktree.Open, error) {

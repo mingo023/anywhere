@@ -109,6 +109,40 @@ func TestAListenerKeptForTheNextBinaryAcceptsOnTheSamePortAfterTheOriginalCloses
 	accepted.Close()
 }
 
+func TestAListenerThatCantBeCopiedHandsDownNoFDAndItsPortBindsAfreshOnceItCloses(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lim unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &lim); err != nil {
+		t.Fatal(err)
+	}
+	// No fd may open, so the copy fails as it does when pocketd runs out of them.
+	none := lim
+	none.Cur = 0
+	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &none); err != nil {
+		t.Fatal(err)
+	}
+	fd, kept := Keep(ln)
+	if err := unix.Setrlimit(unix.RLIMIT_NOFILE, &lim); err != nil {
+		t.Fatal(err)
+	}
+	if kept == nil || fd != 0 {
+		t.Fatalf("fd %d, err %v: want no fd and the copy's error", fd, kept)
+	}
+	if err := Check(File{Format: Format, MCPFD: fd}); err != nil {
+		t.Fatalf("the dry run refused the upgrade: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	again, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("the next pocketd can't listen on %s: %v", addr, err)
+	}
+	again.Close()
+}
+
 func TestCheckRefusesAListenerFDThatClosesOnExec(t *testing.T) {
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {

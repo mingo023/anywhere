@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"pocketd/internal/proto"
 )
 
 func TestAWorktreeChildStartsFromTheParentsHeadAndTheResultSaysTheParentIsDirty(t *testing.T) {
@@ -43,5 +45,32 @@ func TestAWorktreeChildStartsFromTheParentsHeadAndTheResultSaysTheParentIsDirty(
 	}
 	if got, _ := os.ReadFile(filepath.Join(worktree, "notes.txt")); string(got) != "committed\n" {
 		t.Errorf("the child's notes.txt = %q, want the committed one", got)
+	}
+}
+
+func TestTwoWorktreeChildrenWithTheSameTitleGetBranchesOfTheirOwn(t *testing.T) {
+	h, phone, _, parent := chatClaude(t)
+	for range 2 {
+		phone.Prompt(parent, `mcp delegate_task {"task":"read the notes","title":"Notes"}`)
+		phone.WaitStatus(parent, "done")
+	}
+	var ts []proto.Delegation
+	h.eventually("two tasks started or failed", func() bool {
+		ts = delegationsOf(phone, parent)
+		return len(ts) == 2 && ts[0].Status != "queued" && ts[0].Status != "starting" && ts[1].Status != "queued" && ts[1].Status != "starting"
+	})
+	for _, d := range ts {
+		if d.Status == "failed" {
+			t.Fatalf("a task failed: %+v", d)
+		}
+	}
+	branches := map[string]bool{}
+	for _, line := range strings.Split(gitOut(t, h.Repo, "worktree", "list", "--porcelain"), "\n") {
+		if b, ok := strings.CutPrefix(line, "branch "); ok {
+			branches[b] = true
+		}
+	}
+	if len(branches) != 3 {
+		t.Fatalf("branches %v, want the repo's and one for each child", branches)
 	}
 }

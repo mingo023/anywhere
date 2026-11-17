@@ -114,6 +114,7 @@ type Agent struct {
 	prompted        bool   // a prompt went to claude and its turn hasn't begun
 	goal            proto.Goal
 	holding         bool // the turn ended with sub-agents running on in the background, so it ends with them
+	starts          int  // the turns it began
 	holdGen         int  // holds so far, so a grace timer from an older one is dropped
 	drafts          map[string]proto.Item
 	draftTimer      *time.Timer
@@ -430,11 +431,21 @@ func (r *Registry) Busy() bool {
 
 func (a *Agent) Working() {
 	a.update(true, func() {
+		if a.phase == "idle" {
+			a.starts++
+		}
 		a.enter("working")
 		a.unseenEnd, a.failed, a.lastError, a.restore = false, false, "", ""
 		a.stopped, a.prompted = false, false
 		a.unhold()
 	})
+}
+
+// Starts counts the turns the agent began, so a caller can tell one began since.
+func (a *Agent) Starts() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.starts
 }
 
 // enter moves to phase. The activity belonged to the phase left, so it goes too.

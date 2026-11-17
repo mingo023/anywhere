@@ -308,6 +308,14 @@ func wire(pr *PR) *proto.PR {
 	return pr.Wire()
 }
 
+// Cached is tree's PR as gh last told, without asking it again.
+func (s *Service) Cached(tree string) *proto.PR {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pr, _ := s.cache.get(tree)
+	return wire(pr)
+}
+
 // PRs are the cached PRs of project's Worktrees, in the order they are
 // listed, and a missing or signed-out gh that keeps them from being asked.
 func (s *Service) PRs(project string) ([]proto.PRItem, Problem) {

@@ -50,7 +50,11 @@ func Keep(ln net.Listener) (int, error) {
 	if err := raw.Control(func(s uintptr) { fd, dupErr = unix.FcntlInt(s, unix.F_DUPFD, 0) }); err != nil {
 		return 0, err
 	}
-	return fd, dupErr
+	// No fd goes down then: the listener closes on exec, and the next pocketd listens on its port afresh.
+	if dupErr != nil {
+		return 0, dupErr
+	}
+	return fd, nil
 }
 
 // Release closes an fd Keep returned; 0 is no fd.

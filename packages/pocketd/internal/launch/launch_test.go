@@ -472,3 +472,28 @@ func TestASessionsShellThatIsntInstalledFallsBackToTheLoginShell(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestTwoCreatesHoldingTheSamePlaceholderGetNamesOfTheirOwnUntilOneIsMade(t *testing.T) {
+	project := t.TempDir()
+	if out, err := exec.Command("git", "-C", project, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	f := registry.File{Projects: []string{project}, Worktree: registry.Worktree{Root: t.TempDir()}}
+	l := &Launcher{}
+	first, second := &proto.NewWorktree{Name: "notes"}, &proto.NewWorktree{Name: "notes"}
+	release, err := l.hold(f, project, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.hold(f, project, second); err != nil {
+		t.Fatal(err)
+	}
+	if first.Name != "notes" || second.Name != "notes-2" {
+		t.Fatalf("held %q and %q", first.Name, second.Name)
+	}
+	release()
+	third := &proto.NewWorktree{Name: "notes"}
+	if _, err := l.hold(f, project, third); err != nil || third.Name != "notes" {
+		t.Fatalf("after the first let go: %q, %v", third.Name, err)
+	}
+}

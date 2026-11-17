@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -266,13 +267,21 @@ func postBound(reg *agent.Registry, e *orch.Engine) func(string, proto.Automatio
 		if err != nil {
 			return launch.Result{}, 0, "", false
 		}
-		var sent struct{ Queued bool }
+		var sent struct{ EntryID string }
 		json.Unmarshal(r.Result, &sent)
-		prompt := ""
-		if sent.Queued {
-			prompt = a.Prompt
+		return launch.Result{AgentID: a.Bound, TerminalID: bound.Summary().TerminalID}, after, sent.EntryID, true
+	}
+}
+
+// queuedEntry is automation.Entry over the store's queue.
+func queuedEntry(store *orch.Store) automation.Entry {
+	return func(session, id string) (string, bool, bool) {
+		q, _ := store.Queue(session, false)
+		i := slices.IndexFunc(q, func(e orch.QueueEntry) bool { return e.ID == id })
+		if i < 0 {
+			return "", false, false
 		}
-		return launch.Result{AgentID: a.Bound, TerminalID: bound.Summary().TerminalID}, after, prompt, true
+		return q[i].Text, q[i].State == orch.EntryCancelled, true
 	}
 }
 
