@@ -174,6 +174,7 @@ fn run(r: &Removal, teardown: &str, limit: Duration) -> Result<Removed, Failure>
         run_script(teardown, &r.tree, &script_env(r), limit).map_err(Failure::Teardown)?;
     }
     let runner = hosts::runner_for(&r.project);
+    let branch = doomed_branch(r, &runner);
     let aside = set_aside(&r.tree);
     if let Err(e) = git::remove_worktree(&runner, &r.project, &r.tree) {
         if let Some(aside) = &aside {
@@ -181,8 +182,19 @@ fn run(r: &Removal, teardown: &str, limit: Duration) -> Result<Removed, Failure>
         }
         return Err(Failure::Remove(e));
     }
-    let kept = r.branch.as_deref().filter(|_| r.delete_branch).and_then(|b| git::delete_branch(&runner, &r.project, b).err().map(|e| (b.to_string(), e)));
+    let kept = branch.and_then(|b| git::delete_branch(&runner, &r.project, &b).err().map(|e| (b, e)));
     Ok(Removed { aside, kept })
+}
+
+/// The branch going with `r`'s tree: the confirmed one, or, once a rename has moved it (pocketd names a new chat's branch), the tree's own.
+/// A confirmed branch that still exists wins, so a tree switched to another branch never takes that one.
+fn doomed_branch(r: &Removal, runner: &git::Runner) -> Option<String> {
+    let confirmed = r.branch.clone().filter(|_| r.delete_branch)?;
+    if git::branches(runner, &r.project).contains(&confirmed) {
+        return Some(confirmed);
+    }
+    let now = git::worktrees(runner, &r.project).into_iter().find(|w| w.path == r.tree).map(|w| w.branch);
+    now.filter(|b| branch_deletable(b)).or(Some(confirmed))
 }
 
 impl Desktop {
@@ -285,7 +297,7 @@ mod tests {
 
     /// A repository with a worktree `feat` on branch `feat`, and the removal of both.
     fn scratch(tag: &str) -> (PathBuf, Removal) {
-        let dir = std::env::temp_dir().join(format!("pocket-removal-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().canonicalize().unwrap().join(format!("pocket-removal-{tag}-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         let (repo, tree) = (dir.join("repo"), dir.join("feat"));
         std::fs::create_dir_all(&repo).unwrap();
@@ -344,6 +356,38 @@ mod tests {
     }
 
     #[test]
+    fn a_branch_renamed_after_the_sidebar_read_it_still_goes_with_its_worktree() {
+        let (dir, r) = scratch("renamed");
+        sh(Path::new(&r.tree), &["branch", "-m", "renamed"]);
+        let removed = run(&r, "", LIMIT).unwrap();
+        assert_eq!(removed.kept, None);
+        assert!(!git::branches(&git::Runner::Local, &r.project).contains(&"renamed".to_string()));
+        dispose(&removed.aside.unwrap(), false);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_renamed_branch_goes_even_when_its_folder_is_already_gone() {
+        let (dir, r) = scratch("renamed-gone");
+        sh(Path::new(&r.tree), &["branch", "-m", "renamed"]);
+        std::fs::remove_dir_all(&r.tree).unwrap();
+        assert_eq!(run(&r, "", LIMIT).unwrap().kept, None);
+        assert!(!git::branches(&git::Runner::Local, &r.project).contains(&"renamed".to_string()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_tree_switched_to_another_branch_takes_only_the_confirmed_one() {
+        let (dir, r) = scratch("switched");
+        sh(Path::new(&r.tree), &["checkout", "-q", "-b", "other"]);
+        let removed = run(&r, "", LIMIT).unwrap();
+        let left = git::branches(&git::Runner::Local, &r.project);
+        assert!(!left.contains(&"feat".to_string()) && left.contains(&"other".to_string()), "{left:?}");
+        dispose(&removed.aside.unwrap(), false);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn the_folder_is_set_aside_so_its_files_are_purged_after_the_worktree_is_gone() {
         let (dir, r) = scratch("aside");
         std::fs::write(Path::new(&r.tree).join("big"), "x").unwrap();
@@ -371,9 +415,9 @@ mod tests {
     #[test]
     fn a_branch_that_cannot_be_deleted_leaves_the_worktree_deleted() {
         let (dir, r) = scratch("kept");
-        let r = Removal { branch: Some("gone".into()), ..r };
+        sh(&dir.join("repo"), &["worktree", "add", "-q", "--force", dir.join("twin").to_str().unwrap(), "feat"]);
         let removed = run(&r, "", LIMIT).unwrap();
-        assert_eq!(removed.kept.map(|(b, _)| b).as_deref(), Some("gone"));
+        assert_eq!(removed.kept.map(|(b, _)| b).as_deref(), Some("feat"));
         dispose(&removed.aside.unwrap(), false);
         assert!(!Path::new(&r.tree).exists());
         std::fs::remove_dir_all(&dir).unwrap();
