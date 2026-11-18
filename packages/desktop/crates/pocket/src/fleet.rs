@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+const STATUS_RETRY: Duration = Duration::from_secs(2);
+
 /// Each host's link as last reported; a host is listed only while it's in Settings.
 #[derive(Default)]
 pub(crate) struct Links(pub(crate) HashMap<String, Link>);
@@ -281,6 +283,8 @@ pub(crate) struct Fleet {
     pending: Pending,
     /// Host messages sent and not yet answered, by request id.
     asked: HashMap<String, Asked>,
+    /// Each host's next `status` ask after one failed; a newer one replaces it, so one runs per host.
+    status_retries: HashMap<String, Task<()>>,
 }
 
 impl Fleet {
@@ -317,6 +321,7 @@ impl Fleet {
             password,
             pending: Pending::default(),
             asked: HashMap::new(),
+            status_retries: HashMap::new(),
         };
         (fleet, subs)
     }
@@ -340,6 +345,7 @@ impl Fleet {
         self.installs.remove(id);
         self.tokens.remove(id);
         self.notices.remove(id);
+        self.status_retries.remove(id);
         if self.password.host.as_deref() == Some(id) {
             self.password.host = None;
         }
@@ -421,7 +427,23 @@ impl Desktop {
                 })
                 .await;
             this.update_in(cx, |d, window, cx| {
-                let Ok(info) = info else { return };
+                let Ok(info) = info else {
+                    // The link only turns online once, so a pocketd that didn't answer (still starting, say) is asked again here.
+                    let retry = cx.spawn_in(window, {
+                        let id = id.clone();
+                        async move |this, cx| {
+                            cx.background_executor().timer(STATUS_RETRY).await;
+                            this.update_in(cx, |d, window, cx| {
+                                if d.fleet.hosts.links.online(&id) && hosts::remote::connected(&id).is_none() {
+                                    d.host_online(&id, window, cx);
+                                }
+                            })
+                            .ok();
+                        }
+                    });
+                    d.fleet.status_retries.insert(id.clone(), retry);
+                    return;
+                };
                 let status = on_status(&info, d.fleet.hosts.links.online(&id), d.fleet.tokens.get(&id), &endpoint.token);
                 if !status.serve {
                     return;
@@ -432,6 +454,7 @@ impl Desktop {
                 }
                 d.fleet.tokens.insert(id.clone(), endpoint.token.clone());
                 hosts::remote::register(client);
+                d.finder_host_back(&id, window, cx);
                 d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 d.check_accounts(Some(id.clone()), true, cx);
                 if !d.daemon.has(&id) {

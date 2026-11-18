@@ -86,6 +86,13 @@ impl Desktop {
         .detach();
     }
 
+    /// Opens again a finder that was left without `host`'s home, now that the host answers.
+    pub(crate) fn finder_host_back(&mut self, host: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.host_finder.finder.as_ref().is_some_and(|f| f.host == host && f.home.is_none()) {
+            self.open_host_finder(host.into(), None, self.host_finder.opener, window, cx);
+        }
+    }
+
     /// Closes the finder, leaving what opened it as it was. False when it wasn't open.
     pub(crate) fn close_host_finder(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.host_finder.finder.take().is_none() {

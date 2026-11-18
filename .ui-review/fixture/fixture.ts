@@ -14,6 +14,7 @@
 // repositories; devbox's app-ios is a project, the twin of this Mac's, and 10.0.4.12 (retrying) holds one called api.
 // With FIXTURE_HOST_FILES, devbox's git holds a clone unanswered, as one over a slow link would; FIXTURE_CLONE_DONE=1 lets it succeed.
 // FIXTURE_HOST_DELAY_MS delays each of devbox's replies, as a host over a real link answers.
+// FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -454,6 +455,7 @@ const hostGit = ([, , dir, ...args]: string[]) => {
   return "";
 };
 if (process.env.FIXTURE_HOST_FILES) {
+  let statusFails = Number(process.env.FIXTURE_HOST_STATUS_FAILS ?? 0);
   mkdirSync(join(pocket, "hosts"), { recursive: true });
   createServer((c) => {
     let buf = "";
@@ -468,7 +470,8 @@ if (process.env.FIXTURE_HOST_FILES) {
         const send = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
         const reply = (msg: object) => (process.env.FIXTURE_HOST_DELAY_MS ? setTimeout(() => send(msg), Number(process.env.FIXTURE_HOST_DELAY_MS)) : send(msg));
         const body = HOST_FILES[op.path];
-        if (op.op === "status") reply({ ev: "status", status: { hostId: "devbox", os: "linux", arch: "arm64", userHome: "/home/dev", shell: "/bin/bash", name: "devbox", caps: ["exec.v1", "fs.v1"] } });
+        if (op.op === "status" && statusFails > 0) statusFails--, reply({ ev: "error", error: "pocketd is starting" });
+        else if (op.op === "status") reply({ ev: "status", status: { hostId: "devbox", os: "linux", arch: "arm64", userHome: "/home/dev", shell: "/bin/bash", name: "devbox", caps: ["exec.v1", "fs.v1"] } });
         else if (op.op === "fs.list" && Array.isArray(body)) reply({ entries: body.map((n) => hostEntryOf(op.path, n)) });
         else if (op.op === "fs.read" && typeof body === "string") reply({ data: Buffer.from(body).toString("base64") });
         else if (op.op === "fs.stat") reply({ exists: body !== undefined, dir: Array.isArray(body), size: typeof body === "string" ? body.length : 0 });
