@@ -878,7 +878,7 @@ func macFull(st State) error {
 
 // pump starts the session's queued delegations as far as the limits allow.
 func pump(st State, cmd Command) (Decision, error) {
-	if st.Session == nil {
+	if st.Session == nil || st.Session.ClosedAt > 0 {
 		return Decision{}, nil
 	}
 	running := 0
