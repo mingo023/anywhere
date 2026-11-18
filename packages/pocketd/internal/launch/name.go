@@ -5,8 +5,11 @@ import (
 	"errors"
 	"log"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
+	"pocketd/internal/accounts"
 	"pocketd/internal/agent"
 	"pocketd/internal/naming"
 	"pocketd/internal/terminal"
@@ -77,6 +80,10 @@ func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 			if n.Title = ownTitle(a); n.Title == "" {
 				return
 			}
+		} else if errors.Is(err, naming.ErrLimit) && l.moveOff(&j) {
+			// Accounts it moved off count as at their limit, so moves end.
+			try--
+			continue
 		} else if err != nil {
 			continue
 		}
@@ -108,6 +115,45 @@ func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 	if p, ok := worktree.Find(l.reg.Load(), j.tree); ok {
 		a.SetLocation(p.Project, p.Worktree, p.Branch, p.Main)
 	}
+}
+
+// moveOff moves j off the account that refused it at a limit, onto the
+// signed-in one with the most left, as an agent at its limit moves; false
+// when switching at a limit is off, every account is at one, or the CLI is
+// a shell function.
+func (l *Launcher) moveOff(j *job) bool {
+	s := l.d.Accounts
+	// A CLI the shell finds runs after the user's rc, which can set the account back.
+	if s == nil || !filepath.IsAbs(j.exe) {
+		return false
+	}
+	from := s.Of(j.provider, j.env)
+	if from == "" {
+		from = accounts.BuiltIn
+	}
+	s.Hit(j.provider, from)
+	if !s.AutoSwitch() {
+		return false
+	}
+	to, ok := s.Best(j.provider, from)
+	if !ok {
+		return false
+	}
+	account := s.Env(j.provider, to)
+	var drop []string
+	for _, kv := range slices.Concat(s.Env(j.provider, from), account) {
+		k, _, _ := strings.Cut(kv, "=")
+		drop = append(drop, k)
+	}
+	if account != nil {
+		// As the shell a managed account's agent runs in drops them.
+		drop = append(drop, accounts.Unset...)
+	}
+	j.env = slices.Concat(slices.DeleteFunc(slices.Clone(j.env), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return slices.Contains(drop, k)
+	}), account)
+	return true
 }
 
 func (l *Launcher) title(a *agent.Agent, claim int, j job, title string) {

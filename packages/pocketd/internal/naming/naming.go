@@ -33,6 +33,9 @@ const (
 // Timeout bounds one attempt.
 var Timeout = 20 * time.Second
 
+// ErrLimit is a run its account refused at a usage limit.
+var ErrLimit = errors.New("naming: the account is at its limit")
+
 const instructions = `Name a coding session from the request below. Reply with one JSON object and nothing else:
 {"title": "...", "branchName": "...", "vague": false}
 - title: what the work is, in English whatever the request's language, at most 150 characters, one line, no quotes or trailing punctuation.
@@ -96,6 +99,9 @@ func Generate(ctx context.Context, argv, env []string) (Result, error) {
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
+		if limited(string(out)) {
+			return Result{}, ErrLimit
+		}
 		return Result{}, err
 	}
 	n, ok := Parse(string(out))
@@ -103,6 +109,11 @@ func Generate(ctx context.Context, argv, env []string) (Result, error) {
 		return Result{}, errors.New("naming: no names in the reply")
 	}
 	return n, nil
+}
+
+// limited is whether out is Claude's refusal at a usage limit: "You've hit your weekly limit · resets …".
+func limited(out string) bool {
+	return strings.HasPrefix(strings.TrimSpace(out), "You've hit your") && strings.Contains(out, "limit")
 }
 
 // Parse takes the last flat JSON object in out that holds a title or branchName.

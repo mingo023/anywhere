@@ -181,6 +181,10 @@ func main() {
 		os.Exit(1)
 	}
 	if slices.Contains(os.Args, "-p") {
+		if _, err := os.Stat(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "limited")); err == nil {
+			fmt.Println("You've hit your weekly limit · resets Nov 19 at 3pm (Asia/Saigon)")
+			os.Exit(1)
+		}
 		fmt.Println(`{"title":"Say hello","branchName":"say-hello","vague":false}`)
 		return
 	}

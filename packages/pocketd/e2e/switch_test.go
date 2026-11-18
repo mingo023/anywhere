@@ -191,6 +191,19 @@ func onWork(h *Harness) {
 	os.WriteFile(path, raw, 0o600)
 }
 
+func TestANewSessionOnAnAccountAtItsLimitIsNamedFromAnother(t *testing.T) {
+	h := Start(t, launchReady(""), resumingAccounts, onWork)
+	os.WriteFile(filepath.Join(h.Home, ".anywhere", "accounts", "claude", "work", "limited"), nil, 0o600)
+	id, errOut, code := h.anywhere("session", "create", "--access", "ask", "--new-worktree", "--prompt", "hello")
+	if code != 0 {
+		t.Fatalf("exited %d: %s %s", code, id, errOut)
+	}
+	h.eventually("the session on work, and it and its branch named from the prompt", func() bool {
+		a, ok := h.listed(id)
+		return ok && a.Account == "work" && a.Title == "Say hello" && a.Branch == "say-hello"
+	})
+}
+
 func TestAProjectsNewSessionsStartOnItsAccount(t *testing.T) {
 	h := Start(t, launchReady(""), resumingAccounts, onWork)
 	phone := h.Owner()

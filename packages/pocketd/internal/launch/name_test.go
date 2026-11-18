@@ -5,11 +5,15 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"pocketd/internal/accounts"
 	"pocketd/internal/agent"
+	"pocketd/internal/envdir"
 	"pocketd/internal/locals"
 	"pocketd/internal/names"
 	"pocketd/internal/naming"
@@ -197,4 +201,106 @@ func eventually(t *testing.T, ok func() bool) {
 		}
 	}
 	t.Fatal("timed out")
+}
+
+// twoAccounts signs claude in on the built-in account and on work, whose config dir it returns.
+func twoAccounts(t *testing.T, l *Launcher) string {
+	t.Helper()
+	s := &accounts.Store{Root: t.TempDir(), Home: t.TempDir()}
+	work := filepath.Join(s.Root, "claude", "work")
+	for _, dir := range []string{filepath.Join(s.Home, ".claude"), work} {
+		os.MkdirAll(dir, 0o700)
+		os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(`{"claudeAiOauth":{"accessToken":"tok-`+filepath.Base(dir)+`"}}`), 0o600)
+	}
+	os.WriteFile(filepath.Join(s.Root, "accounts.json"), []byte(`{"accounts":[{"id":"work","provider":"claude"}]}`), 0o600)
+	l.d.Accounts = s
+	return work
+}
+
+// refusing has naming refuse at a limit on the config dirs in limited, "" being
+// the built-in account's, and returns the dir each run used.
+func refusing(l *Launcher, limited ...string) *[]string {
+	dirs := &[]string{}
+	l.generate = func(_, _, _ string, env []string) (naming.Result, error) {
+		dir := envdir.Value(env, "CLAUDE_CONFIG_DIR")
+		*dirs = append(*dirs, dir)
+		if slices.Contains(limited, dir) {
+			return naming.Result{}, naming.ErrLimit
+		}
+		return naming.Result{Title: "Fix login", Branch: "fix-login"}, nil
+	}
+	return dirs
+}
+
+func TestNamingAtItsAccountsLimitMovesToAnotherSignedInAccount(t *testing.T) {
+	l, a, j := placed(t)
+	work := twoAccounts(t, l)
+	dirs := refusing(l, "")
+	j.exe = "/bin/claude"
+	name(l, a, j)
+	if a.Summary().Title != "Fix login" || current(t, j.tree) != "fix-login" || !slices.Equal(*dirs, []string{"", work}) {
+		t.Fatalf("%+v %q", a.Summary(), *dirs)
+	}
+
+	l, a, j = placed(t)
+	work = twoAccounts(t, l)
+	dirs = refusing(l, work+"/")
+	j.exe = "/bin/claude"
+	j.env = []string{"HOME=/h", "CLAUDE_CONFIG_DIR=" + work + "/"}
+	name(l, a, j)
+	if a.Summary().Title != "Fix login" || !slices.Equal(*dirs, []string{work + "/", ""}) {
+		t.Fatalf("to the built-in account: %+v %q", a.Summary(), *dirs)
+	}
+}
+
+func TestNamingMovedToAManagedAccountDropsTheLoginThatWouldOverrideIt(t *testing.T) {
+	l, a, j := placed(t)
+	twoAccounts(t, l)
+	var envs [][]string
+	l.generate = func(_, _, _ string, env []string) (naming.Result, error) {
+		envs = append(envs, env)
+		if len(envs) == 1 {
+			return naming.Result{}, naming.ErrLimit
+		}
+		return naming.Result{Title: "Fix login"}, nil
+	}
+	j.exe, j.env = "/bin/claude", []string{"HOME=/h", "CLAUDE_CODE_OAUTH_TOKEN=t"}
+	name(l, a, j)
+	if len(envs) != 2 || slices.Contains(envs[1], "CLAUDE_CODE_OAUTH_TOKEN=t") || !slices.Contains(envs[1], "HOME=/h") {
+		t.Fatalf("%q", envs)
+	}
+}
+
+func TestNamingFailsWhenEveryAccountIsAtItsLimitOrSwitchingIsOff(t *testing.T) {
+	for _, auto := range []bool{true, false} {
+		l, a, j := placed(t)
+		j.exe = "/bin/claude"
+		work := twoAccounts(t, l)
+		limited := []string{""}
+		if auto {
+			limited = append(limited, work)
+		}
+		dirs := refusing(l, limited...)
+		l.d.Accounts.SetAutoSwitch(auto)
+		msgs, stop := l.Names.Subscribe()
+		name(l, a, j)
+		var m map[string]any
+		json.Unmarshal(<-msgs, &m)
+		stop()
+		if a.Summary().Title != "" || m["type"] != "naming.failed" || !auto && slices.Contains(*dirs, work) {
+			t.Fatalf("auto %v: %+v %v %q", auto, a.Summary(), m, *dirs)
+		}
+	}
+}
+
+// The user's rc runs before a shell function, and can set the account back.
+func TestNamingThroughAShellFunctionStaysOnItsAccount(t *testing.T) {
+	l, a, j := placed(t)
+	work := twoAccounts(t, l)
+	dirs := refusing(l, "")
+	j.exe = "claude"
+	name(l, a, j)
+	if a.Summary().Title != "" || slices.Contains(*dirs, work) {
+		t.Fatalf("%+v %q", a.Summary(), *dirs)
+	}
 }
