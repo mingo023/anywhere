@@ -3,10 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Anywhere: every coding agent, one window, open source</title>
-  <meta name="description" content="Run Claude Code, Codex, Cursor and seven more coding agents side by side. See which one needs you, review what it changed, and answer from your phone. MIT licensed. No cloud tier, no premium tier.">
+  <title>Anywhere – run Claude Code, Codex and more agents side by side</title>
+  <meta name="description" content="Run Claude Code, Codex, Cursor and seven more coding agents side by side. See who needs you, review diffs, and work in git worktrees. Free and open source.">
+  <link rel="canonical" href="https://getanywhere.dev/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Anywhere">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="Anywhere – run Claude Code, Codex and more agents side by side">
+  <meta property="og:description" content="Run Claude Code, Codex, Cursor and seven more coding agents side by side. See who needs you, review diffs, and work in git worktrees. Free and open source.">
+  <meta property="og:url" content="https://getanywhere.dev/">
+  <meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Anywhere – run Claude Code, Codex and more agents side by side">
+  <meta name="twitter:description" content="Run Claude Code, Codex, Cursor and seven more coding agents side by side. See who needs you, review diffs, and work in git worktrees. Free and open source.">
+  <meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
   <meta name="theme-color" content="#09090a">
   <link rel="icon" href="assets/icon.png">
+  <link rel="apple-touch-icon" href="/assets/icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -64,7 +80,7 @@
       <div class="hero-copy">
         <a class="badge-oss" href="#open-source"><span class="dot"></span>100% open source · MIT · no paid tier, ever</a>
         <h1>Every coding agent.<br><span class="grad">One window.</span></h1>
-        <p class="lede">Run Claude Code, Codex and your other agents side by side. See who needs you, review their changes, and reply from your phone.</p>
+        <p class="lede">Run multiple Claude Code, Codex and Cursor agents side by side. See who needs you, review their changes, and reply from your phone.</p>
         <div class="ctas">
           <a class="btn primary" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2.1-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1-3.2-1 .1-2.3.7-3 1.6-.7.8-1.2 2-1.1 3.1 1.2.1 2.3-.6 3.1-1.5z"/></svg>
@@ -139,6 +155,9 @@
           </article>
         </div>
       </div>
+      <figure class="shot">
+        <img src="assets/screenshot.webp" alt="Anywhere on macOS: sessions grouped by project and git worktree, a Codex terminal asking to run a command, a file diff, and the Changes panel" width="1440" height="900" loading="lazy" decoding="async">
+      </figure>
     </section>
 
     <section class="native" id="native">
@@ -282,6 +301,39 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
       </div>
     </section>
 
+    <section class="faq" id="faq">
+      <header class="intro">
+        <span class="eyebrow">FAQ</span>
+        <h2>Questions</h2>
+      </header>
+      <div class="faq-grid">
+          <article class="card">
+            <h3>What is Anywhere?</h3>
+            <p>A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with builds for Linux and Windows too.</p>
+          </article>
+          <article class="card">
+            <h3>Which coding agents does it support?</h3>
+            <p>Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Anywhere runs the CLIs you already installed and signed in to.</p>
+          </article>
+          <article class="card">
+            <h3>Can I run multiple Claude Code or Codex agents at once?</h3>
+            <p>Yes. Sessions are grouped by project and git worktree. Each one is Working, Needs you, Done, Failed or Idle, and Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications.</p>
+          </article>
+          <article class="card">
+            <h3>Do sessions keep running if I close the window?</h3>
+            <p>Yes. The daemon, pocketd, owns the terminals, so agents keep running. Automations also run while the desktop app is closed.</p>
+          </article>
+          <article class="card">
+            <h3>Can I answer an agent from my phone?</h3>
+            <p>Coming soon. A native SwiftUI app for iPhone and iPad pairs with your Mac over Tailscale, with push notifications and Live Activities.</p>
+          </article>
+          <article class="card">
+            <h3>Is Anywhere free and open source?</h3>
+            <p>Yes. It is MIT licensed, with no account, no cloud tier and no premium tier. The source is at <a href="https://github.com/mingo023/anywhere">github.com/mingo023/anywhere</a>.</p>
+          </article>
+      </div>
+    </section>
+
     <section class="closing">
       <video class="butterfly" src="assets/butterfly.mp4" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1"></video>
       <div class="closing-inner">
@@ -308,5 +360,98 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
       <a href="/support">Support</a>
     </nav>
   </footer>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "Anywhere",
+      "url": "https://getanywhere.dev",
+      "description": "Native desktop app for watching and driving many coding agents at once.",
+      "operatingSystem": "macOS 13+, Linux, Windows",
+      "applicationCategory": "DeveloperApplication",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "isAccessibleForFree": true,
+      "license": "https://github.com/mingo023/anywhere/blob/main/LICENSE",
+      "sameAs": [
+        "https://github.com/mingo023/anywhere"
+      ],
+      "downloadUrl": "https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg",
+      "softwareHelp": "https://getanywhere.dev/docs/",
+      "author": {
+        "@type": "Person",
+        "name": "Minh Ngo"
+      },
+      "featureList": [
+        "Runs Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity",
+        "Sessions grouped by project and git worktree",
+        "Session status: Working, Needs you, Done, Failed, Idle",
+        "Diffs, commits and a pull request card beside the session",
+        "Board tickets, scheduled automations and delegated work over MCP",
+        "SSH hosts on Mac, Linux and Windows",
+        "anywhere command line tool"
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is Anywhere?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with builds for Linux and Windows too."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which coding agents does it support?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Anywhere runs the CLIs you already installed and signed in to."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I run multiple Claude Code or Codex agents at once?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Sessions are grouped by project and git worktree. Each one is Working, Needs you, Done, Failed or Idle, and Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Do sessions keep running if I close the window?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. The daemon, pocketd, owns the terminals, so agents keep running. Automations also run while the desktop app is closed."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I answer an agent from my phone?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Coming soon. A native SwiftUI app for iPhone and iPad pairs with your Mac over Tailscale, with push notifications and Live Activities."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Anywhere free and open source?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. It is MIT licensed, with no account, no cloud tier and no premium tier. The source is at github.com/mingo023/anywhere."
+          }
+        }
+      ]
+    }
+  ]
+}
+  </script>
 </body>
 </html>
