@@ -54,6 +54,7 @@ use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use crate::themes::Themes;
 use crate::terminals::link::Hint;
+use crate::star::Star;
 use crate::updates::Updates;
 use agents::Agents;
 use hosts::session::{Daemons, Outboxes};
@@ -124,6 +125,7 @@ pub struct Desktop {
     pub(crate) host_agents: HostAgents,
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
+    pub(crate) star: Star,
     pub(crate) chips: Chips,
     pub(crate) delegated: crate::delegated::DelegatedState,
     pub(crate) overlay: Option<Overlay>,
@@ -164,6 +166,7 @@ impl Desktop {
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         let updates = Updates::new(&mut store, cx);
+        let star = Star::new(&mut store, &updates.update, crate::star::unix_now());
         let open_in = OpenIn::new(store.home(), cx);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
@@ -264,6 +267,7 @@ impl Desktop {
             host_agents: HostAgents::default(),
             accounts: Accounts::default(),
             updates,
+            star,
             chips,
             delegated: crate::delegated::DelegatedState::new(),
             overlay: None,
@@ -615,8 +619,8 @@ impl Render for Desktop {
         self.sync_panels();
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, reduce_motion) = (Instant::now(), cx.reduce_motion() || self.capturing);
-        // Not `||`: both step every frame.
-        if self.sidebar.tick(self.layout, now, reduce_motion) | self.panels.tick(now, reduce_motion) {
+        // Not `||`: each steps every frame.
+        if self.sidebar.tick(self.layout, now, reduce_motion) | self.panels.tick(now, reduce_motion) | self.star.tick(now, self.capturing) {
             window.request_animation_frame();
         }
         self.sync_code(window, cx);

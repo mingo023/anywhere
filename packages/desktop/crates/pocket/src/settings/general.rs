@@ -26,6 +26,8 @@ fn cli_status(available: bool, installed: bool) -> &'static str {
     }
 }
 
+const STAR_HINT: &str = "It\u{2019}s free and open source. A star helps others find it.";
+
 const CHECK_HOURS: [u32; 4] = [1, 6, 24, 168];
 const LAUNCH_LAYOUTS: [Option<Layout>; 4] = [None, Some(Layout::Sidebars), Some(Layout::Compact), Some(Layout::Focus)];
 const CONFIRM: [ConfirmQuit; 3] = [ConfirmQuit::Never, ConfirmQuit::Always, ConfirmQuit::Working];
@@ -39,6 +41,7 @@ fn index<T: PartialEq>(options: &[T], value: T, fallback: usize) -> usize {
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::custom("update", "Software update", "Software update", |d, _, cx| d.update_row(cx)).hint("Check for a new version of Anywhere"),
+    Setting::custom("star", "Software update", "Star Anywhere on GitHub", |d, _, cx| d.star_row(cx)).hint(STAR_HINT),
     Setting::switch("auto-install", "Software update", "Install updates automatically", |s| s.general.auto_install, |s, on| s.general.auto_install = on)
         .hint("Downloads in the background and installs the next time you quit")
         .effect(follow_updates),
@@ -156,6 +159,18 @@ impl Desktop {
             })
         })
         .detach();
+    }
+
+    fn star_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let thanked = self.star.thanked;
+        let label = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(crate::star::glyph("settings-star-pop", thanked, 13., cx.reduce_motion()))
+            .child(if thanked { "Thank you" } else { "Star" });
+        let star = action("settings-star", label).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.star_on_github(cx)));
+        row("Star Anywhere on GitHub", Some(STAR_HINT), star)
     }
 
     fn update_row(&mut self, cx: &mut Context<Self>) -> Div {

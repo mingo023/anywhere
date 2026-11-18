@@ -10,6 +10,7 @@ mod row_menu;
 mod scratch;
 pub(crate) mod sections;
 pub(crate) mod sessions;
+mod star_card;
 mod tree_card;
 mod update;
 mod usage;
@@ -316,7 +317,7 @@ impl Desktop {
             .children(self.scratch_section(cx))
             .child(header)
             .child(body)
-            .children(self.update_card(cx))
+            .children(self.update_card(cx).or_else(|| self.star_card(cx)))
             .child(settings);
         let aside = self.resizable(aside, Column::Projects, cx);
         gpui_kit::gpui::hitch::debug_note(|| format!("[DEBUG-sidebar] aside built in {:.1}ms: inbox={:.1}ms header={:.1}ms sections={:.1}ms ({n_sections})", t0.elapsed().as_secs_f64() * 1e3, t_inbox.as_secs_f64() * 1e3, t_header.as_secs_f64() * 1e3, t_sections.as_secs_f64() * 1e3)); // [DEBUG-sidebar]
