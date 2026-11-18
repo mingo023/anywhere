@@ -538,7 +538,6 @@ fn spawn_op(cmd: &str, args: Vec<String>, env: Vec<(String, String)>, cwd: &str)
 /// How long a link must stay up before a drop starts the reconnect backoff over.
 const LINK_STABLE: Duration = Duration::from_secs(5);
 const RETRY_MIN: Duration = Duration::from_millis(200);
-/// How long a write to pocketd may block before the link counts as dropped.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]

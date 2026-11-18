@@ -887,8 +887,8 @@ const QUEUE: &str = "queue-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
-/// How long a pocketd may take to answer the websocket handshake, and to take a write, before the link counts as lost.
-const HANDSHAKE: Duration = Duration::from_secs(5);
+/// How long a pocketd may take to answer the websocket handshake, and to take each write after it, before the link counts as lost.
+const STALL: Duration = Duration::from_secs(5);
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -1301,7 +1301,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
         let mut unanswered = Vec::new();
         let mut requests = Requests::default();
         loop {
-            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered, &mut requests, HANDSHAKE);
+            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered, &mut requests, STALL);
             for ev in requests.refuse_all(UNSENT) {
                 let _ = tx.unbounded_send(ev);
             }
@@ -1325,10 +1325,10 @@ fn hello(token: Option<&str>) -> Value {
     hello
 }
 
-fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>, requests: &mut Requests, handshake: Duration) -> Option<()> {
+fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>, requests: &mut Requests, stall: Duration) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
-    stream.set_read_timeout(Some(handshake)).ok()?;
-    stream.set_write_timeout(Some(handshake)).ok()?;
+    stream.set_read_timeout(Some(stall)).ok()?;
+    stream.set_write_timeout(Some(stall)).ok()?;
     let (mut ws, _) = tungstenite::client("ws://localhost/", stream).ok()?;
     // Reads time out so the loop gets to send the queue even while pocketd is quiet; the timeout is as long as a
     // send can wait, so it stays short.
@@ -1430,7 +1430,6 @@ impl Requests {
         if f.kind == "error" { refused(&m, &f.message) } else { None }
     }
 
-    /// Drains what no answer will ever come for, the link that would have carried it being gone.
     fn refuse_all(&mut self, reason: &str) -> Vec<Event> {
         self.0.drain(..).filter_map(|m| refused(&m, reason)).collect()
     }
@@ -2227,7 +2226,7 @@ mod tests {
         drop(ws);
         let (tx, failures) = std::sync::mpsc::channel();
         std::thread::spawn(move || futures::executor::block_on_stream(events).take(2).for_each(|ev| drop(tx.send(ev))));
-        let next =|| failures.recv_timeout(Duration::from_secs(2)).ok();
+        let next = || failures.recv_timeout(Duration::from_secs(2)).ok();
         assert!(matches!(next(), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == prompt));
         assert!(matches!(next(), Some(Event::InterruptFailed { agent, reason }) if agent == "a2" && reason == UNSENT));
         std::fs::remove_file(&sock).unwrap();

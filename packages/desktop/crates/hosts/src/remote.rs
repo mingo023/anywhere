@@ -67,10 +67,13 @@ struct Conn {
     waiters: Waiters,
 }
 
-impl Drop for Conn {
-    /// The reader thread holds a clone of the socket, which stays open until it's shut.
+impl Drop for Client {
+    /// The reader thread holds a clone of the socket, which stays open until it's shut. A connection `call` drops
+    /// is left open, as calls already sent on it may still get their replies.
     fn drop(&mut self) {
-        let _ = self.stream.shutdown(Shutdown::Both);
+        if let Some(c) = self.conn.get_mut().unwrap().as_ref() {
+            let _ = c.stream.shutdown(Shutdown::Both);
+        }
     }
 }
 
@@ -281,7 +284,6 @@ fn open(endpoint: &Endpoint, write_timeout: Duration) -> io::Result<Conn> {
     Ok(Conn { stream, waiters })
 }
 
-/// Empty when pocketd omitted the field.
 fn bytes(v: &Value) -> io::Result<Vec<u8>> {
     v.as_str().map_or(Ok(Vec::new()), |s| STANDARD.decode(s).map_err(|e| io::Error::new(ErrorKind::InvalidData, e)))
 }
@@ -511,6 +513,32 @@ mod tests {
         assert_eq!(garbled.unwrap_err().kind(), ErrorKind::InvalidData);
         let silent = client.exec("/", &["silent"], None, Duration::from_secs(5)).unwrap();
         assert_eq!((silent.code, silent.stdout, silent.stderr), (0, vec![], vec![]));
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn a_write_that_times_out_leaves_the_calls_in_flight_their_replies() {
+        let sock = temp_sock("inflight");
+        let listener = UnixListener::bind(&sock).unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            let mut first = String::new();
+            BufReader::new(&stream).read_line(&mut first).unwrap();
+            let msg: Value = serde_json::from_str(&first).unwrap();
+            std::thread::sleep(Duration::from_millis(1000));
+            writeln!(writer, "{}", json!({"ev": "exec", "id": msg["id"]})).unwrap();
+            std::thread::sleep(Duration::from_secs(3));
+        });
+        let client = Arc::new(Client::new("devbox", sock.clone()));
+        *client.conn.lock().unwrap() = Some(open(&client.endpoint, Duration::from_millis(300)).unwrap());
+        let slow = {
+            let client = client.clone();
+            std::thread::spawn(move || client.exec("/", &["sleep"], None, Duration::from_secs(5)))
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(client.exec("/", &["cat"], Some(&vec![b'x'; 16 << 20]), Duration::from_secs(5)).is_err());
+        assert!(slow.join().unwrap().is_ok(), "the slow call lost its reply");
         let _ = std::fs::remove_file(sock);
     }
 
