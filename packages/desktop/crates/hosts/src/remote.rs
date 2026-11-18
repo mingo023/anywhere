@@ -183,7 +183,11 @@ impl Client {
 
     pub fn list(&self, dir: &str) -> io::Result<Vec<Entry>> {
         let reply = self.fs("fs.list", json!({"path": self.host_path(dir)}))?;
-        serde_json::from_value(reply["entries"].clone()).or_else(|_| Ok(Vec::new()))
+        // pocketd omits `entries` for an empty folder.
+        match &reply["entries"] {
+            Value::Null => Ok(Vec::new()),
+            entries => Vec::deserialize(entries).map_err(|e| io::Error::new(ErrorKind::InvalidData, e)),
+        }
     }
 
     pub fn write(&self, path: &str, data: &[u8], create: bool) -> io::Result<()> {
@@ -269,8 +273,9 @@ fn open(endpoint: &Endpoint, write_timeout: Duration) -> io::Result<Conn> {
     Ok(Conn { stream, waiters })
 }
 
-fn bytes(v: &Value) -> Vec<u8> {
-    v.as_str().and_then(|s| STANDARD.decode(s).ok()).unwrap_or_default()
+/// Empty when pocketd omitted the field.
+fn bytes(v: &Value) -> io::Result<Vec<u8>> {
+    v.as_str().map_or(Ok(Vec::new()), |s| STANDARD.decode(s).map_err(|e| io::Error::new(ErrorKind::InvalidData, e)))
 }
 
 impl git::Exec for Client {
@@ -284,7 +289,7 @@ impl git::Exec for Client {
         }
         let reply = self.call(op, timeout + REPLY_SLACK)?;
         // pocketd omits a zero `code`.
-        Ok(git::Output { code: reply["code"].as_i64().unwrap_or(0) as i32, stdout: bytes(&reply["stdout"]), stderr: bytes(&reply["stderr"]) })
+        Ok(git::Output { code: reply["code"].as_i64().unwrap_or(0) as i32, stdout: bytes(&reply["stdout"])?, stderr: bytes(&reply["stderr"])? })
     }
 
     fn read(&self, path: &str, max: usize) -> io::Result<Vec<u8>> {
@@ -292,7 +297,7 @@ impl git::Exec for Client {
         if reply["truncated"] == true {
             return Err(git::too_large(max));
         }
-        Ok(bytes(&reply["data"]))
+        bytes(&reply["data"])
     }
 
     fn stat(&self, path: &str) -> io::Result<Option<git::Stat>> {
@@ -453,6 +458,51 @@ mod tests {
         std::thread::spawn(move || tx.send(client.exec("/", &["cat"], Some(&vec![b'x'; 8 << 20]), Duration::from_millis(100))));
         let reply = done.recv_timeout(Duration::from_secs(2)).expect("the write blocked past the call's own timeout");
         assert!(reply.is_err());
+        let _ = std::fs::remove_file(sock);
+    }
+
+    /// A pocketd stand-in that answers each call with `reply`'s result for it.
+    fn serve_with(sock: &PathBuf, reply: impl Fn(&Value) -> Value + Send + 'static) {
+        let listener = UnixListener::bind(sock).unwrap();
+        std::thread::spawn(move || {
+            let Ok((stream, _)) = listener.accept() else { return };
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                writeln!(writer, "{}", reply(&msg)).unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn a_folder_reply_of_the_wrong_shape_is_invalid_data_but_one_without_entries_is_an_empty_folder() {
+        let sock = temp_sock("entries");
+        serve_with(&sock, |m| match m["path"].as_str() {
+            Some("/bad") => json!({"ev": "fs.list", "id": m["id"], "entries": [{"name": "a", "size": -1}]}),
+            Some("/null") => json!({"ev": "fs.list", "id": m["id"], "entries": null}),
+            Some("/some") => json!({"ev": "fs.list", "id": m["id"], "entries": [{"name": "a", "dir": true}]}),
+            _ => json!({"ev": "fs.list", "id": m["id"]}),
+        });
+        let client = Client::new("devbox", sock.clone());
+        assert_eq!(client.list("/bad").unwrap_err().kind(), ErrorKind::InvalidData);
+        assert_eq!(client.list("/null").unwrap(), vec![]);
+        assert_eq!(client.list("/omitted").unwrap(), vec![]);
+        assert_eq!(client.list("/some").unwrap(), vec![Entry { name: "a".into(), dir: true, ..Entry::default() }]);
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn output_that_is_not_base64_is_invalid_data_but_omitted_output_is_empty() {
+        let sock = temp_sock("base64");
+        serve_with(&sock, |m| match m["argv"][0].as_str() {
+            Some("garbled") => json!({"ev": "exec", "id": m["id"], "stdout": "!!not base64!!"}),
+            _ => json!({"ev": "exec", "id": m["id"]}),
+        });
+        let client = Client::new("devbox", sock.clone());
+        let garbled = client.exec("/", &["garbled"], None, Duration::from_secs(5));
+        assert_eq!(garbled.unwrap_err().kind(), ErrorKind::InvalidData);
+        let silent = client.exec("/", &["silent"], None, Duration::from_secs(5)).unwrap();
+        assert_eq!((silent.code, silent.stdout, silent.stderr), (0, vec![], vec![]));
         let _ = std::fs::remove_file(sock);
     }
 
