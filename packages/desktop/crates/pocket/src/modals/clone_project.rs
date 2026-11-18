@@ -51,9 +51,10 @@ fn parse_repo(url: &str) -> Option<Repo> {
     (host.contains('.') && named(owner) && named(name)).then(|| Repo { host: host.into(), owner: owner.into(), name: name.into() })
 }
 
-/// Where `typed` points on a machine whose home is `home`: home expanded, no trailing slash.
-fn folder(typed: &str, home: &str) -> String {
-    untilde_in(typed.trim(), home).trim_end_matches('/').to_string()
+/// Where `typed` points on a machine whose home is `home`: `~` expanded once the home is known, no trailing slash.
+fn folder(typed: &str, home: Option<&str>) -> String {
+    let typed = typed.trim();
+    home.map_or_else(|| typed.to_string(), |home| untilde_in(typed, home)).trim_end_matches('/').to_string()
 }
 
 /// The folder a clone starts in: on this Mac the one chosen in Settings or `~/code`; on a host `~/code` under its own home, as the Mac's choice is no path there.
@@ -198,7 +199,7 @@ impl Desktop {
 
     /// The folder typed, as a path on the machine cloned onto.
     fn clone_dest(&self, cx: &App) -> String {
-        folder(&self.clone_form.path.read(cx).value(), &self.clone_home().unwrap_or_default())
+        folder(&self.clone_form.path.read(cx).value(), self.clone_home().as_deref())
     }
 
     fn clone_check(&self, cx: &App) -> Check {
@@ -476,8 +477,8 @@ mod tests {
     #[test]
     fn a_clone_needs_a_full_path_and_a_trailing_slash_names_the_same_folder() {
         let projects = vec!["/code/app".to_string()];
-        assert_eq!(folder(" /code/app/ ", "/Users/me"), "/code/app");
-        assert_eq!(check("https://github.com/org/app", &folder("/code/app/", "/Users/me"), None, &projects), Check::Taken);
+        assert_eq!(folder(" /code/app/ ", Some("/Users/me")), "/code/app");
+        assert_eq!(check("https://github.com/org/app", &folder("/code/app/", Some("/Users/me")), None, &projects), Check::Taken);
         for dest in ["", "code/app", "host:/code/app"] {
             assert_eq!(check("https://github.com/org/app", dest, None, &projects), Check::NoFolder, "{dest}");
         }
@@ -505,6 +506,11 @@ mod tests {
     fn the_default_folder_on_a_host_is_code_under_its_own_home_not_this_macs_choice() {
         assert_eq!(default_root(Some("devbox"), "/home/dev", "/Users/me/work"), "/home/dev/code");
         assert_eq!(default_root(None, "/Users/me", "/Users/me/work"), "/Users/me/work");
-        assert_eq!(folder("~/code/app", "/home/dev"), "/home/dev/code/app");
+        assert_eq!(folder("~/code/app", Some("/home/dev")), "/home/dev/code/app");
+    }
+
+    #[test]
+    fn a_tilde_path_is_not_a_full_path_while_the_hosts_home_is_unknown() {
+        assert_eq!(check("https://github.com/org/app", &folder("~/code/app", None), Some("devbox"), &[]), Check::NoFolder);
     }
 }
