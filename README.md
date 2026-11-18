@@ -8,7 +8,7 @@ Watch and drive many coding agents at once, from a native macOS app and from you
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
-<img src="docs/hero.webp" alt="Anywhere on macOS: projects, worktrees and sessions in the sidebar, an agent chat, a Swift file, and the file tree" width="2880">
+<img src="docs/hero.png" alt="Anywhere on macOS: projects, worktrees and sessions in the sidebar, an agent chat, a Swift file, and the file tree" width="2880">
 
 ## Why
 
