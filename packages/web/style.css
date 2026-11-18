@@ -298,6 +298,11 @@ section { position: relative; }
 .price .never b { font: 500 15px "Geist Mono", ui-monospace, monospace; color: #ff9a4d; }
 
 /* Closing */
+.faq { padding: 96px 24px 0; }
+.faq-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: var(--max); margin: 48px auto 0; }
+.faq h3 { font-size: 16px; letter-spacing: -0.01em; }
+.faq p { margin: 8px 0 0; color: var(--text-2); font-size: 15px; }
+.faq a { color: var(--text); }
 .closing { padding: 96px 24px; text-align: center; }
 .closing img { margin: 0 auto 24px; border-radius: 16px; }
 
@@ -309,6 +314,7 @@ section { position: relative; }
 @media (max-width: 960px) {
   .tour-grid, .iphone, .native-grid { grid-template-columns: 1fr; }
   .oss-bento { grid-template-columns: 1fr 1fr; }
+  .faq-grid { grid-template-columns: 1fr; }
   .iphone { padding: 64px 24px; }
 }
 .menu-button { display: none; padding: 8px; border: 0; border-radius: 8px; color: var(--text); background: transparent; font: inherit; cursor: pointer; }
