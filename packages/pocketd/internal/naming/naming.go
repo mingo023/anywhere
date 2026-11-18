@@ -33,6 +33,9 @@ const (
 // Timeout bounds one attempt.
 var Timeout = 20 * time.Second
 
+// ErrLimit is a run its account refused at a usage limit.
+var ErrLimit = errors.New("naming: the account is at its limit")
+
 const instructions = `Name a coding session from the request below. Reply with one JSON object and nothing else:
 {"title": "...", "branchName": "...", "vague": false}
 - title: what the work is, in English whatever the request's language, at most 150 characters, one line, no quotes or trailing punctuation.

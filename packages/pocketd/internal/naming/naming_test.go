@@ -2,6 +2,7 @@ package naming
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -84,5 +85,22 @@ func TestGenerateGivesUpAtTheTimeout(t *testing.T) {
 	start := time.Now()
 	if _, err := Generate(context.Background(), []string{"/bin/sh", "-c", "sleep 5"}, nil); err == nil || time.Since(start) > 2*time.Second {
 		t.Fatalf("%v after %v", err, time.Since(start))
+	}
+}
+
+func TestGenerateTellsALimitFromOtherFailures(t *testing.T) {
+	for _, c := range []struct {
+		script string
+		limit  bool
+	}{
+		{`echo "You've hit your weekly limit · resets Nov 19 at 3pm (Asia/Saigon)"; exit 1`, true},
+		{`echo "You've hit your session limit · resets 9:20am"; exit 1`, true},
+		{`echo "Not logged in · Please run /login"; exit 1`, false},
+		{`echo "You've hit your weekly limit"`, false},
+	} {
+		_, err := Generate(context.Background(), []string{"/bin/sh", "-c", c.script}, nil)
+		if err == nil || errors.Is(err, ErrLimit) != c.limit {
+			t.Errorf("%s: %v", c.script, err)
+		}
 	}
 }
