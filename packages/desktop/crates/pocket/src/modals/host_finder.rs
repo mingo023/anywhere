@@ -49,6 +49,12 @@ impl HostFinder {
     fn scroll(&mut self, dir: &str) -> UniformListScrollHandle {
         self.scrolls.entry(dir.to_string()).or_default().clone()
     }
+
+    /// The finder, if it's still the one opened `opened`th: one closed and opened again on the same host takes none of the first one's replies.
+    fn opened_as(&mut self, opened: usize) -> Option<&mut Finder> {
+        let same = self.opened == opened;
+        self.finder.as_mut().filter(|_| same)
+    }
 }
 
 impl Desktop {
@@ -72,8 +78,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let home = cx.background_executor().spawn(async move { client.home() }).await;
             this.update(cx, |d, cx| {
-                // A finder closed and opened again on the same host must not take the first one's reply.
-                let Some(f) = d.host_finder.finder.as_mut().filter(|_| d.host_finder.opened == opened) else { return };
+                let Some(f) = d.host_finder.opened_as(opened) else { return };
                 match home {
                     Ok(home) => f.homed(home, start),
                     Err(e) => f.error = Some(e.to_string()),
@@ -110,14 +115,14 @@ impl Desktop {
     fn finder_fetch(&mut self, cx: &mut Context<Self>) {
         let Some(f) = self.host_finder.finder.as_mut() else { return };
         let Some(client) = remote::connected(&f.host) else { return };
-        let host = f.host.clone();
+        let (host, opened) = (f.host.clone(), self.host_finder.opened);
         for dir in f.wanted() {
             let (client, host) = (client.clone(), host.clone());
             cx.spawn(async move |this, cx| {
                 let asked = dir.clone();
                 let listed = cx.background_executor().spawn(async move { client.list(&asked).map_err(|e| e.to_string()) }).await;
                 this.update(cx, |d, cx| {
-                    if d.host_finder.finder.as_mut().is_some_and(|f| f.listed(&host, &dir, listed)) {
+                    if d.host_finder.opened_as(opened).is_some_and(|f| f.listed(&host, &dir, listed)) {
                         d.finder_fetch(cx);
                         cx.notify();
                     }
@@ -132,7 +137,7 @@ impl Desktop {
                 let asked = path.clone();
                 let read = cx.background_executor().spawn(async move { client.read(&asked, PREVIEW_MAX).map_err(|e| e.to_string()) }).await;
                 this.update(cx, |d, cx| {
-                    if let Some(f) = d.host_finder.finder.as_mut() {
+                    if let Some(f) = d.host_finder.opened_as(opened) {
                         f.previewed(&host, &path, read);
                         cx.notify();
                     }
@@ -150,7 +155,7 @@ impl Desktop {
                 let (head, config) = futures::join!(text(".git/HEAD"), text(".git/config"));
                 let repo = Repo { branch: head.as_deref().and_then(branch_of), remote: config.as_deref().and_then(remote_of) };
                 this.update(cx, |d, cx| {
-                    if let Some(f) = d.host_finder.finder.as_mut() {
+                    if let Some(f) = d.host_finder.opened_as(opened) {
                         f.repo_read(&host, &dir, repo);
                         cx.notify();
                     }

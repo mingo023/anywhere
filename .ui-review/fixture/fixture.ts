@@ -14,6 +14,7 @@
 // repositories; devbox's app-ios is a project, the twin of this Mac's, and 10.0.4.12 (retrying) holds one called api.
 // With FIXTURE_HOST_FILES, devbox's git holds a clone unanswered, as one over a slow link would; FIXTURE_CLONE_DONE=1 lets it succeed.
 // FIXTURE_HOST_DELAY_MS delays each of devbox's replies, as a host over a real link answers.
+// FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
@@ -242,6 +243,7 @@ const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
 const hosts: Host[] = [
   hostEntry("devbox", "devbox", { kind: "alias", name: "devbox" }, ONLINE),
   hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "dev" }, { state: "retrying", failure: "not_running" }),
+  ...Array.from({ length: Number(process.env.FIXTURE_EXTRA_HOSTS ?? 0) }, (_, i) => hostEntry(`box-${i + 1}`, `box-${i + 1}`, { kind: "alias", name: `box-${i + 1}` }, { state: "retrying", failure: "not_running" })),
 ];
 const pushHost = (ws: Ws, h: Host, id?: string) => ws.send(JSON.stringify({ type: "host.update", ...(id && { id }), host: h }));
 const setLink = (ws: Ws, hostId: string, link: Host["link"]) => {

@@ -455,6 +455,7 @@ impl Desktop {
                 d.fleet.tokens.insert(id.clone(), endpoint.token.clone());
                 hosts::remote::register(client);
                 d.finder_host_back(&id, window, cx);
+                d.fetch_clone_home(window, cx);
                 d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 d.check_accounts(Some(id.clone()), true, cx);
                 if !d.daemon.has(&id) {

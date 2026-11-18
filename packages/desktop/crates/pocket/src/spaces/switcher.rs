@@ -59,7 +59,10 @@ impl Desktop {
             .gap(px(2.))
             .border_t(px(0.5))
             .border_color(SEPARATOR)
-            .children(self.space_buttons("aside", order, current, cx))
+            .child(
+                // With many hosts the buttons scroll, so Add and Settings stay in reach.
+                div().id("aside-spaces").flex().items_center().gap(px(2.)).min_w_0().p(px(1.)).overflow_x_scroll().children(self.space_buttons("aside", order, current, cx)),
+            )
             .child(add)
             .child(div().flex_1())
             .child(settings)

@@ -158,7 +158,7 @@ impl Desktop {
     }
 
     /// Asks a host for its home, off the UI thread, once; the folder names itself when it arrives.
-    fn fetch_clone_home(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn fetch_clone_home(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Space::Host(id) = self.clone_form.machine.clone() else { return };
         let Some(client) = remote::connected(&id).filter(|_| !self.clone_form.homes.contains_key(&id)) else { return };
         cx.spawn_in(window, async move |this, cx| {
