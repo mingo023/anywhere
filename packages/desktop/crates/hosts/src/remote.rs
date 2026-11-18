@@ -8,6 +8,7 @@ use daemon::Endpoint;
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, ErrorKind, Write};
 use daemon::UnixStream;
+use std::net::Shutdown;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -64,6 +65,13 @@ type Waiters = Arc<Mutex<Option<HashMap<String, Sender<Value>>>>>;
 struct Conn {
     stream: UnixStream,
     waiters: Waiters,
+}
+
+impl Drop for Conn {
+    /// The reader thread holds a clone of the socket, which stays open until it's shut.
+    fn drop(&mut self) {
+        let _ = self.stream.shutdown(Shutdown::Both);
+    }
 }
 
 /// A host's pocketd, reached through the socket its tunnel forwards. Paths may be the host's own or desktop keys under this host.
@@ -503,6 +511,27 @@ mod tests {
         assert_eq!(garbled.unwrap_err().kind(), ErrorKind::InvalidData);
         let silent = client.exec("/", &["silent"], None, Duration::from_secs(5)).unwrap();
         assert_eq!((silent.code, silent.stdout, silent.stderr), (0, vec![], vec![]));
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn dropping_the_client_closes_its_connection() {
+        let sock = temp_sock("dropped");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let (tx, closed) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                writeln!(writer, "{}", json!({"ev": "exec", "id": msg["id"]})).unwrap();
+            }
+            let _ = tx.send(());
+        });
+        let client = Client::new("devbox", sock.clone());
+        client.exec("/", &["echo", "0"], None, Duration::from_secs(5)).unwrap();
+        drop(client);
+        assert!(closed.recv_timeout(Duration::from_secs(2)).is_ok(), "pocketd never saw the connection close");
         let _ = std::fs::remove_file(sock);
     }
 
