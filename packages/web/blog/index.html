@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Blog · Anywhere</title>
+	<meta name="description" content="Guides and fair comparisons for running Claude Code, Codex and other coding agents in parallel, from the people who build Anywhere.">
+	<link rel="canonical" href="https://getanywhere.dev/blog/">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="Anywhere">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Blog · Anywhere">
+	<meta property="og:description" content="Guides and fair comparisons for running Claude Code, Codex and other coding agents in parallel, from the people who build Anywhere.">
+	<meta property="og:url" content="https://getanywhere.dev/blog/">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Blog · Anywhere">
+	<meta name="twitter:description" content="Guides and fair comparisons for running Claude Code, Codex and other coding agents in parallel, from the people who build Anywhere.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="../assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="../docs/docs.css">
+	<link rel="stylesheet" href="blog.css">
+	<script src="../docs/docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "Blog",
+			"@id": "https://getanywhere.dev/blog/#blog",
+			"name": "Anywhere blog",
+			"url": "https://getanywhere.dev/blog/",
+			"description": "Guides and fair comparisons for running Claude Code, Codex and other coding agents in parallel, from the people who build Anywhere.",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"blogPost": [
+				{ "@type": "BlogPosting", "headline": "How to run multiple Claude Code agents in parallel", "url": "https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "Open-source Conductor alternative: Anywhere vs Conductor", "url": "https://getanywhere.dev/blog/conductor-alternative", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "Crystal is now Nimbalyst: options for parallel Claude Code and Codex sessions", "url": "https://getanywhere.dev/blog/crystal-alternative", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "Best tools to run multiple coding agents in parallel on Mac (2026), compared fairly", "url": "https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "Keep coding agents running after you close the window", "url": "https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "A free, open-source agent workspace with no paid tier", "url": "https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "Native, not Electron: a Rust/GPUI app for your coding agents", "url": "https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "Run multiple Codex CLI agents in git worktrees", "url": "https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees", "datePublished": "2026-11-18" },
+				{ "@type": "BlogPosting", "headline": "Script coding agents from your shell with anywhere session wait", "url": "https://getanywhere.dev/blog/script-claude-code-codex-from-cli", "datePublished": "2026-11-18" }
+			]
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="../index.html">Home</a>
+			<a href="../docs/index.html">Docs</a>
+			<a href="index.html">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<main id="main">
+		<div class="blog-index">
+			<p class="eyebrow">Blog</p>
+			<h1>The Anywhere blog</h1>
+			<p class="lede">Guides and fair comparisons for running Claude Code, Codex and other coding agents in parallel, from the people who build Anywhere.</p>
+			<ol class="post-list">
+				<li>
+					<h2><a href="run-multiple-claude-code-agents-in-parallel.html">How to run multiple Claude Code agents in parallel</a></h2>
+					<div class="post-meta">Guide · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>One git worktree per agent, by hand first, then in Anywhere with worktrees from a branch or pull request, status, and diffs beside each session.</p>
+				</li>
+				<li>
+					<h2><a href="conductor-alternative.html">Open-source Conductor alternative: Anywhere vs Conductor</a></h2>
+					<div class="post-meta">Comparison · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>License, price, platforms, supported agents, and what happens to local sessions when you close the app, with a fair look at where Conductor fits better.</p>
+				</li>
+				<li>
+					<h2><a href="crystal-alternative.html">Crystal is now Nimbalyst: options for parallel Claude Code and Codex sessions</a></h2>
+					<div class="post-meta">Comparison · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>Crystal was deprecated in February 2026 and replaced by Nimbalyst. What Crystal users need next, and the open-source options, Anywhere included.</p>
+				</li>
+				<li>
+					<h2><a href="best-tools-run-multiple-coding-agents.html">Best tools to run multiple coding agents in parallel on Mac (2026), compared fairly</a></h2>
+					<div class="post-meta">Comparison · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>Anywhere, Conductor, Paradev, Synara, Orca, Zeron and MonoCode in one table of checked facts, each in its own words, with a "best for" line.</p>
+				</li>
+				<li>
+					<h2><a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a></h2>
+					<div class="post-meta">Explanation · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>Why agents die with their window, how pocketd keeps sessions and automations running, and the other ways people solve it.</p>
+				</li>
+				<li>
+					<h2><a href="open-source-agent-workspace-no-paid-tier.html">A free, open-source agent workspace with no paid tier</a></h2>
+					<div class="post-meta">Comparison · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>What "free" means across Paradev, Synara and Anywhere, and what Anywhere includes at $0, with no account and no premium tier.</p>
+				</li>
+				<li>
+					<h2><a href="native-mac-app-coding-agents-rust-gpui.html">Native, not Electron: a Rust/GPUI app for your coding agents</a></h2>
+					<div class="post-meta">Engineering · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>Anywhere's stack, a Rust window on GPUI and a Go daemon, and the other native-minded tools in this space.</p>
+				</li>
+				<li>
+					<h2><a href="run-multiple-codex-agents-git-worktrees.html">Run multiple Codex CLI agents in git worktrees</a></h2>
+					<div class="post-meta">Guide · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>The worktree-per-agent method for Codex, and running Codex next to Claude Code on one repository.</p>
+				</li>
+				<li>
+					<h2><a href="script-claude-code-codex-from-cli.html">Script coding agents from your shell with anywhere session wait</a></h2>
+					<div class="post-meta">Guide · <time datetime="2026-11-18">18 November 2026</time></div>
+					<p>Start sessions in new worktrees, send prompts, and branch on exit codes, with recipes for scripts, tickets and cron.</p>
+				</li>
+			</ol>
+		</div>
+	</main>
+	<footer class="site-footer">
+		<span>Anywhere · MIT licensed. Free forever.</span>
+		<nav aria-label="Footer">
+			<a href="../index.html">Home</a>
+			<a href="../docs/index.html">Docs</a>
+			<a href="index.html">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
+			<a href="../privacy.html">Privacy</a>
+			<a href="../support.html">Support</a>
+		</nav>
+	</footer>
+</body>
+</html>

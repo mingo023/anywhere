@@ -26,6 +26,19 @@
 - [iPhone](https://getanywhere.dev/docs/iphone): Pair the iPhone app with a Mac over Tailscale and get push notifications.
 - [Architecture](https://getanywhere.dev/docs/architecture): What runs where: pocketd, the desktop app, the iPhone app, the protocol and the push relay.
 
+## Blog
+
+- [Blog](https://getanywhere.dev/blog/): Guides and fair comparisons for running coding agents in parallel.
+- [How to run multiple Claude Code agents in parallel](https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel): One git worktree per agent, by hand with git or in Anywhere, with status, diffs and sessions that keep running.
+- [Anywhere vs Conductor](https://getanywhere.dev/blog/conductor-alternative): An open-source Conductor alternative: license, price, platforms, agents and local sessions compared, and when Conductor fits better.
+- [Crystal is now Nimbalyst](https://getanywhere.dev/blog/crystal-alternative): Crystal was deprecated in February 2026 and replaced by Nimbalyst; options for parallel Claude Code and Codex sessions in git worktrees.
+- [Best tools to run multiple coding agents in parallel](https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents): Anywhere, Conductor, Paradev, Synara, Orca, Zeron and MonoCode compared from their own sites, checked 18 November 2026.
+- [Keep coding agents running after you close the window](https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window): How pocketd keeps sessions and automations running when the window closes, and the other ways to keep agents alive.
+- [A free, open-source agent workspace with no paid tier](https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier): What free means across Paradev, Synara and Anywhere, and what Anywhere includes at $0 with no account.
+- [Native, not Electron](https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui): Anywhere's stack, a Rust window on GPUI and a Go daemon, and other native-minded agent apps.
+- [Run multiple Codex CLI agents in git worktrees](https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees): One worktree per Codex agent, in a terminal or as a chat, next to Claude Code on one repository.
+- [Script coding agents from your shell](https://getanywhere.dev/blog/script-claude-code-codex-from-cli): Start sessions, send prompts and branch on the exit codes of anywhere session wait, with recipes for tickets and cron.
+
 ## Download
 
 - [Source on GitHub](https://github.com/mingo023/anywhere): Code, issues, releases and the MIT license.
