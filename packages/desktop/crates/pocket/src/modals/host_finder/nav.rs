@@ -200,9 +200,11 @@ impl Finder {
         self.listings.get(dir).is_some_and(|l| l.as_ref().is_ok_and(|l| l.repo))
     }
 
-    /// The columns' folders not yet asked for, each handed out once.
+    /// The columns' folders not yet asked for, each handed out once. A folder that failed is asked again once the pick has left it.
     pub fn wanted(&mut self) -> Vec<String> {
-        let wanted: Vec<String> = self.chain().into_iter().filter(|d| !self.listings.contains_key(d) && !self.asked.contains(d)).collect();
+        let chain = self.chain();
+        self.listings.retain(|d, l| l.is_ok() || chain.contains(d));
+        let wanted: Vec<String> = chain.into_iter().filter(|d| !self.listings.contains_key(d) && !self.asked.contains(d)).collect();
         self.asked.extend(wanted.iter().cloned());
         wanted
     }
@@ -598,5 +600,17 @@ mod tests {
         let mut pc = Finder::new("pc");
         pc.homed("C:/Users/me".into(), Some("C:/tools".into()));
         assert_eq!(pc.crumbs(), [("C:".to_string(), "C:/".to_string()), ("tools".into(), "C:/tools".into())]);
+    }
+
+    #[test]
+    fn a_column_that_failed_is_asked_again_when_the_pick_comes_back_to_it() {
+        let mut f = Finder::new("devbox");
+        f.homed("/home/me".into(), Some("/home/me/code".into()));
+        f.wanted();
+        f.listed("devbox", "/home/me/code", Err("lost the host".into()));
+        f.go("/home/me".into());
+        f.wanted();
+        f.go("/home/me/code".into());
+        assert!(f.wanted().contains(&"/home/me/code".to_string()));
     }
 }
