@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Sessions and status · Anywhere docs</title>
+	<meta name="description" content="What a session is in Anywhere, chat and terminal sessions, access modes, and where each status shows.">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="../assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script src="docs.js" defer></script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="../index.html">Home</a>
+			<a href="index.html">Docs</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="index.html">Run your first agent</a></li>
+				<li><a href="install.html">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="sessions.html">Sessions and status</a></li>
+				<li><a href="worktrees.html">Work in worktrees</a></li>
+				<li><a href="review.html">Review and commit changes</a></li>
+				<li><a href="board.html">Plan work on the Board</a></li>
+				<li><a href="automations.html">Schedule automations</a></li>
+				<li><a href="delegation.html">Delegate work from a chat</a></li>
+				<li><a href="hosts.html">Run agents on another machine</a></li>
+				<li><a href="iphone.html">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="agents.html">Supported agents</a></li>
+				<li><a href="cli.html">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="architecture.html">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">Reference</p>
+				<h1>Sessions and status</h1>
+				<p class="lede">A session is one agent, from launch to exit. This page describes the kinds of session, the access modes, the five statuses, and every place a status shows.</p>
+
+				<h2 id="sessions">Sessions</h2>
+				<ul>
+					<li>A session runs one agent: one of the <a href="agents.html">supported agents</a>.</li>
+					<li>A session belongs to a project and to one of its worktrees or Locals. It stays there wherever the agent changes directory.</li>
+					<li>A session with no project lives in a folder Anywhere makes under <code>~/.anywhere/sessions</code>. The sidebar lists these under <strong>Sessions</strong>, above the projects. To start one, pick <strong>No project</strong> on the new session page.</li>
+					<li>pocketd runs every session, so agents keep running after the window closes.</li>
+					<li>A session ends, and leaves the list, when its agent exits. Closing a session closes its terminal.</li>
+					<li><code>/clear</code> keeps the same session.</li>
+				</ul>
+
+				<h2 id="chat-and-terminal-sessions">Chat and terminal sessions</h2>
+				<p>A session runs as a chat or in a terminal.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th></th><th>Chat</th><th>Terminal</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>What it is</td><td>Anywhere's own chat view. pocketd drives the agent.</td><td>Your login shell, with the agent's own terminal interface running inside it.</td></tr>
+						<tr><td>Agents</td><td>All ten.</td><td>All ten. Only Claude Code and Codex report their status from a terminal.</td></tr>
+						<tr><td>How to start one</td><td>The new session page (<kbd>⌘N</kbd>), or <strong>New chat</strong> in a tab's <strong>+</strong> menu.</td><td>An agent's row in a tab's <strong>+</strong> menu. Claude Code and Codex also start in a terminal from the new session page when <strong>Start as a chat</strong> is off.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p><strong>Start as a chat</strong> is in Settings › <strong>Agents</strong> › <strong>New sessions</strong> and is on by default. Agents other than Claude Code and Codex always start as a chat from the new session page.</p>
+
+				<h2 id="attached-agents">Attached agents</h2>
+				<p>An agent is attached when Anywhere hears its status from the agent itself. An agent that isn't attached is still listed, but it shows only terminal activity and never Needs you or Done. Anywhere labels it <strong>Not attached</strong>.</p>
+				<ul>
+					<li>Claude Code is attached in a chat and in a terminal. In a terminal, it reports through Claude Code hooks. Claude skips hooks in folders it doesn't trust, so trust the folder in Claude to see its status.</li>
+					<li>Codex is attached in a chat and in a terminal. A <code>codex</code> that runs without its app-server isn't attached.</li>
+					<li>Every other agent is attached only in a chat.</li>
+				</ul>
+
+				<h2 id="access-modes">Access modes</h2>
+				<p>The access chip on the new session page sets what the agent can do without asking. The default comes from Settings › <strong>Agents</strong> › <strong>New sessions</strong> › <strong>Permission mode</strong>.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Mode</th><th>CLI value</th><th>Description</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><strong>Agent's settings</strong></td><td><code>settings</code></td><td>Use the agent's own permission config. The default.</td></tr>
+						<tr><td><strong>Ask</strong></td><td><code>ask</code></td><td>Ask before commands and file changes.</td></tr>
+						<tr><td><strong>Edits</strong></td><td><code>edits</code></td><td>Auto-approve edits, ask before other actions.</td></tr>
+						<tr><td><strong>Auto</strong></td><td><code>auto</code></td><td>A reviewer model approves or denies actions.</td></tr>
+						<tr><td><strong>Full</strong></td><td><code>full</code></td><td>Skip every approval.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>A running session can switch between <strong>Ask</strong>, <strong>Edits</strong>, <strong>Auto</strong>, and <strong>Full</strong>. Pi and omp never ask before they use a tool, so their sessions always run with <strong>Full</strong> access.</p>
+
+				<h2 id="statuses">Statuses</h2>
+				<p>A session shows its agent's status. The statuses, from most to least urgent:</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Status</th><th>Meaning</th><th>Sidebar mark</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><span class="status needs-you">Needs you</span></td><td>The agent can't continue until you answer something: a permission, a question, or a dialog. It clears only when answered.</td><td>Amber dot</td></tr>
+						<tr><td><span class="status failed">Failed</span></td><td>A turn ended with an error. Stopping the agent yourself isn't a failure. The agent goes Idle.</td><td>Red cross</td></tr>
+						<tr><td><span class="status done">Done</span></td><td>A turn ended and nobody has seen it yet.</td><td>Green dot, title in bold</td></tr>
+						<tr><td><span class="status working">Working</span></td><td>The agent is running a turn.</td><td>Spinner</td></tr>
+						<tr><td><span class="status">Idle</span></td><td>The agent is at its prompt, with nothing unseen.</td><td>None</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>A terminal without an agent has no status. A folded project in the sidebar shows the most urgent status of its sessions.</p>
+
+				<h3>Seen</h3>
+				<p>A session is seen while its pane is visible in a focused Anywhere window, or while its timeline is open on the phone. A turn that ends while the session is seen goes to Idle, not Done. Opening a Done or Failed session marks it seen.</p>
+
+				<h2 id="where-each-status-shows">Where each status shows</h2>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Place</th><th>Needs you</th><th>Failed</th><th>Done</th><th>Working</th><th>Idle</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>Sidebar</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+						<tr><td>Inbox</td><td>Yes</td><td>Until seen</td><td>Until seen</td><td>No</td><td>No</td></tr>
+						<tr><td>Dock badge</td><td>Yes</td><td>Until seen</td><td>Until seen</td><td>No</td><td>No</td></tr>
+						<tr><td>Banners and sounds</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
+						<tr><td>Activity</td><td>Yes</td><td>Yes, in <strong>Needs you</strong></td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+					</tbody>
+				</table>
+				</div>
+
+				<h3>Inbox</h3>
+				<p>To open the Inbox, click the bell at the top of the sidebar. The bell shows a count. The Inbox lists sessions that are Needs you, and Failed and Done sessions you haven't seen. It has the filters <strong>All</strong>, <strong>Needs you</strong>, <strong>Failed</strong>, and <strong>Done</strong>, and a <strong>Mark all seen</strong> button. In the Inbox, <kbd>J</kbd> and <kbd>K</kbd> move to the next and previous session, and <kbd>⌘↩</kbd> opens the session.</p>
+
+				<h3>Dock badge</h3>
+				<p>The number on the app icon. Set it in Settings › <strong>Notifications &amp; Sounds</strong> › <strong>Dock badge</strong>:</p>
+				<ul>
+					<li><strong>Inbox count</strong>: sessions that need you, plus Failed and Done sessions not yet seen. The default.</li>
+					<li><strong>Needs you count</strong>: sessions that need you.</li>
+					<li><strong>Off</strong>.</li>
+				</ul>
+				<p>The badge is hidden at zero.</p>
+
+				<h3>Banners</h3>
+				<p>Anywhere shows a macOS banner when a session needs you, fails, or is done. Settings › <strong>Notifications &amp; Sounds</strong> has a switch for each of the three, all on by default. By default, the session you are looking at gets no banner or sound. To change that, turn on <strong>Alert even when the session is on screen</strong>. A banner for a permission request has the actions <strong>Allow</strong> and <strong>Deny and stop</strong>.</p>
+				<p>A delegated session's Done doesn't alert, because the session that delegated the work reads the result. See <a href="delegation.html">Let a chat delegate work to other sessions</a>.</p>
+
+				<h3>Activity</h3>
+				<p>Activity lists every session across projects in columns. To open it, click <strong>Activity</strong> in the sidebar, or choose <strong>Go to Activity</strong> in the command palette (<kbd>⌘K</kbd>).</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Column</th><th>Holds</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><strong>Idle</strong></td><td>At the prompt, nothing unseen.</td></tr>
+						<tr><td><strong>Working</strong></td><td>Agents mid-turn.</td></tr>
+						<tr><td><strong>Needs you</strong></td><td>Questions and permissions, and failed turns.</td></tr>
+						<tr><td><strong>Done</strong></td><td>Ended turns you haven't seen yet.</td></tr>
+						<tr><td><strong>In review</strong></td><td>Idle sessions whose worktree's branch has an open or draft pull request.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>Clicking a card previews the session and marks a Done or Failed one seen. <strong>Open session</strong> goes to its pane.</p>
+
+				<h3>Up next</h3>
+				<p>Up next is the sessions that want a look, in the order to handle them: Needs you, then Failed, then Done, each oldest first. <kbd>⌘⇧J</kbd> goes to the first one. <kbd>⌘J</kbd> goes to the next session that needs you.</p>
+
+				<h3>iPhone</h3>
+				<p>The iPhone app shows the same statuses and can send push notifications for Needs you, Failed, and Done. The app is coming soon. See <a href="iphone.html">Pair an iPhone</a>.</p>
+
+				<h2 id="fork-a-session">Fork a session</h2>
+				<p>To start a new session from another session's conversation, open the session row's menu and click <strong>Fork session</strong>. The fork starts in the same folder with the same model. The item shows only for agents that can fork.</p>
+
+				<h2 id="keyboard-shortcuts">Keyboard shortcuts</h2>
+				<p>These are the defaults on macOS. On Linux and Windows, <kbd>Ctrl</kbd> replaces <kbd>⌘</kbd>. Change them in Settings › <strong>Keyboard</strong>.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Shortcut</th><th>Action</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><kbd>⌘N</kbd></td><td>New session</td></tr>
+						<tr><td><kbd>⌘⇧N</kbd></td><td>New worktree</td></tr>
+						<tr><td><kbd>⌘J</kbd></td><td>Next Needs you</td></tr>
+						<tr><td><kbd>⌘⇧J</kbd></td><td>Go to Up next</td></tr>
+						<tr><td><kbd>⌘K</kbd></td><td>Command palette</td></tr>
+						<tr><td><kbd>⌘,</kbd></td><td>Settings</td></tr>
+						<tr><td><kbd>⌘⇧A</kbd></td><td>Go to Automations</td></tr>
+						<tr><td><kbd>⌘T</kbd></td><td>New shell tab</td></tr>
+						<tr><td><kbd>⌘D</kbd></td><td>Split right</td></tr>
+						<tr><td><kbd>⌘⇧D</kbd></td><td>Split down</td></tr>
+						<tr><td><kbd>⌘P</kbd></td><td>Go to file</td></tr>
+						<tr><td><kbd>⌘B</kbd></td><td>Toggle sidebar</td></tr>
+						<tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>9</kbd></td><td>Jump to session</td></tr>
+					</tbody>
+				</table>
+				</div>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="install.html"><span>Previous</span>Install Anywhere</a>
+				<a class="next" href="worktrees.html"><span>Next</span>Work in worktrees</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>

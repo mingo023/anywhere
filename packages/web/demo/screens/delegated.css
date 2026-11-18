@@ -1,0 +1,97 @@
+/* Delegated: the panel over a chat that lists the sessions it delegated to, the lines in the transcript, and a child's view. */
+
+.app .dg-parent .bar .sp, .app .dg-child .bar .sp { flex: 1; }
+.dg-app { display: flex; align-items: center; gap: 6px; margin-right: 8px; color: var(--t4); }
+.dg-app i { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(160deg, #4cb0ff, #1a6bff); }
+
+.dg-jump { position: absolute; top: 52px; left: 50%; z-index: 2; display: flex; align-items: center; gap: 8px; height: 32px; max-width: 700px; padding: 0 14px 0 6px; border-radius: 16px; background: #2a2a2ab8; box-shadow: inset 0 0 0 0.5px var(--sep2); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 13.5px; transform: translateX(-50%); white-space: nowrap; }
+.dg-jump > svg { width: 22px; height: 22px; padding: 4px; border-radius: 50%; background: var(--f3); color: var(--t2); }
+.dg-jump .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dg-jump .t { color: var(--t4); }
+
+/* A chat opened from a delegation draws no entrance of its own; only what arrives later rises. */
+.app[data-screen="delegated"] .tool, .app[data-screen="delegated"] .reply p { animation: none; }
+
+.app .dg-parent .reply + .reply { margin-top: 16px; }
+.dg-lines { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; margin: 6px 0 12px -8px; }
+.app .dg-line { gap: 8px; max-width: calc(100% + 8px); height: 28px; padding: 0 8px; border-radius: 8px; color: var(--t3); font-size: 14px; white-space: nowrap; }
+.app .dg-lines:last-child .dg-line:last-child { animation: rise 300ms cubic-bezier(0.23, 1, 0.32, 1); }
+.app .dg-line:hover { background: var(--f2); }
+.app .dg-line:active { background: var(--f3); }
+.dg-line .who { min-width: 0; overflow: hidden; color: var(--tb); font-weight: 500; text-overflow: ellipsis; }
+.dg-line .vb { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dg-line .vb.asks { max-width: 340px; color: var(--t2); }
+.dg-line .chev { display: grid; color: var(--t4); opacity: 0; transform: translateX(-3px); transition: opacity 120ms ease-out, transform 180ms cubic-bezier(0.23, 1, 0.32, 1); }
+.dg-line:hover .chev { opacity: 1; transform: none; }
+
+/* The panel */
+.dg-panel { position: absolute; top: 52px; right: 16px; z-index: 10; overflow: hidden; border-radius: 17px; background: #2a2a2ab8; box-shadow: inset 0 0.5px 0 #ffffff0f, 0 0 0 0.5px var(--sep), 0 18px 50px #00000080, 0 2px 6px #0000000f; -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%); opacity: 0; transform: scale(0.9); transform-origin: top right; transition: width 380ms cubic-bezier(0.22, 1, 0.36, 1), height 380ms cubic-bezier(0.22, 1, 0.36, 1), border-radius 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms, transform 320ms cubic-bezier(0.22, 1, 0.36, 1); user-select: none; -webkit-user-select: none; }
+.dg-panel.shown { opacity: 1; transform: none; }
+.dg-cap, .dg-full { position: absolute; top: 0; right: 0; }
+.dg-cap { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 7px; font-size: 13px; white-space: nowrap; cursor: pointer; transition: opacity 160ms; }
+.dg-panel.open .dg-cap { opacity: 0; pointer-events: none; }
+.dg-cap .logos { display: flex; }
+.dg-cap .lg { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--f4); box-shadow: 0 0 0 2px #121212; }
+.dg-cap .lg + .lg { margin-left: -5px; }
+.dg-cap .sum { display: flex; align-items: center; gap: 6px; color: var(--t2); }
+.dg-cap .sum.ask { color: var(--waiting-text); }
+.dg-full { width: 312px; opacity: 0; pointer-events: none; transition: opacity 160ms; }
+.dg-panel.open .dg-full { opacity: 1; pointer-events: auto; transition-delay: 90ms; }
+.dg-full .hd { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 6px 0 14px; }
+.dg-full .hd .t { color: var(--t2); font-size: 12px; font-weight: 600; }
+.dg-full .hd .n { color: var(--t4); font-size: 12px; }
+.dg-full .hd .sp { flex: 1; }
+.app .dg-full .ib { width: 24px; height: 24px; border-radius: 7px; }
+.app .dg-full .txtb { height: 24px; padding: 0 8px; border-radius: 7px; color: var(--t3); font-size: 12px; }
+.app .dg-full .txtb:hover { background: var(--f3); color: var(--t1); }
+.dg-full .rows { display: flex; flex-direction: column; padding: 0 6px 6px; }
+.app .dg-row { display: grid; grid-template-columns: 16px 1fr 24px; column-gap: 10px; align-items: start; width: 100%; padding: 7px 8px; border-radius: 9px; }
+.app .dg-row:hover { background: var(--f2); }
+.app .dg-row:active { background: var(--f3); }
+.dg-row .lg { display: grid; padding-top: 2px; color: var(--t1); }
+.dg-row .tx { display: flex; flex-direction: column; min-width: 0; }
+.dg-row .tt { height: 18px; overflow: hidden; font-size: 13px; font-weight: 500; line-height: 18px; white-space: nowrap; text-overflow: ellipsis; }
+.dg-row .meta { display: flex; align-items: center; gap: 5px; height: 16px; color: var(--t3); font-size: 12px; line-height: 16px; white-space: nowrap; }
+.dg-row .meta .needs { color: var(--waiting-text); }
+.dg-row .end { position: relative; display: grid; place-items: center; width: 24px; height: 24px; }
+.dg-row .end .go { position: absolute; display: none; color: var(--t3); }
+.dg-row:hover .end .gl { visibility: hidden; }
+.dg-row:hover .end .go { display: grid; }
+.dg-row .q { grid-column: 2 / 4; display: -webkit-box; overflow: hidden; margin-top: 6px; color: var(--t2); font-size: 12.5px; line-height: 17px; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dg-run { position: relative; display: block; width: 14px; height: 14px; }
+.dg-run svg { position: absolute; inset: 0; }
+.dg-run > svg { color: #323237; }
+.dg-arc { display: block; position: absolute; inset: 0; color: var(--t2); animation: dg-spin 1s linear infinite; }
+@keyframes dg-spin { to { transform: rotate(360deg); } }
+.dg-dot { display: grid; place-items: center; width: 14px; height: 14px; }
+.dg-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--waiting); }
+.dg-row .gl svg:only-child { color: var(--t4); }
+
+/* A delegated session */
+.dg-child { outline: 0; }
+.dg-ccol { padding-top: 88px !important; }
+.dg-from { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 8px 0 -2px; color: var(--t4); font-size: 12px; }
+.dg-crumb { position: absolute; top: 40px; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 4px; height: 48px; padding: 0 14px; background: linear-gradient(180deg, #101010 55%, #10101000); }
+.app .dg-crumb .back { gap: 6px; flex-shrink: 1; min-width: 0; height: 28px; padding: 0 9px 0 6px; border-radius: 8px; color: var(--t3); font-size: 13px; }
+.app .dg-crumb .back:hover { background: var(--f3); color: var(--t1); }
+.app .dg-crumb .back span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dg-crumb > i { color: var(--t6); font-size: 13px; font-style: normal; }
+.dg-crumb .here { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0 6px; font-size: 13px; font-weight: 600; }
+.dg-crumb .here span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dg-crumb .sp { flex: 1; }
+.app .dg-k { padding: 1px 6px; border-radius: 5px; background: var(--f4); color: var(--t2); font: 11px/16px var(--mono); }
+.dg-ask { margin: 4px 0 16px; padding: 14px 16px 12px; border-radius: 14px; box-shadow: inset 0 0 0 0.5px var(--sep2); animation: rise 260ms cubic-bezier(0.16, 1, 0.3, 1); }
+.dg-ask .h { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--waiting-text); font-size: 12px; font-weight: 600; }
+.dg-ask p { margin: 0 0 12px; font-size: 15px; line-height: 22px; }
+.dg-ask .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.app .dg-ask .opts button { height: 30px; padding: 0 12px; border-radius: 8px; background: var(--f3); font-size: 13px; }
+.app .dg-ask .opts button:hover { background: var(--f4); }
+.app .dg-ask .opts button:active { transform: scale(0.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  .app .dg-panel { transition: opacity 200ms; }
+  .app .dg-arc { animation-duration: 3s; }
+  .app .dg-line:last-child, .app .dg-ask { animation: none; }
+}
+
+.app .dg-leaving { position: absolute; top: 0; left: 0; bottom: 0; right: 43px; z-index: 5; flex: none; pointer-events: none; background: #0f0f0f; }

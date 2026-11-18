@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Let a chat delegate work to other sessions · Anywhere docs</title>
+	<meta name="description" content="How a chat session hands work to other sessions through Anywhere's orchestrator over MCP.">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="../assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script src="docs.js" defer></script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="../index.html">Home</a>
+			<a href="index.html">Docs</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="index.html">Run your first agent</a></li>
+				<li><a href="install.html">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="sessions.html">Sessions and status</a></li>
+				<li><a href="worktrees.html">Work in worktrees</a></li>
+				<li><a href="review.html">Review and commit changes</a></li>
+				<li><a href="board.html">Plan work on the Board</a></li>
+				<li><a href="automations.html">Schedule automations</a></li>
+				<li><a href="delegation.html">Delegate work from a chat</a></li>
+				<li><a href="hosts.html">Run agents on another machine</a></li>
+				<li><a href="iphone.html">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="agents.html">Supported agents</a></li>
+				<li><a href="cli.html">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="architecture.html">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">How-to guide</p>
+				<h1>Let a chat delegate work to other sessions</h1>
+				<p class="lede">A chat session can hand part of its work to other sessions. pocketd runs an orchestrator that gives each chat a set of tools over MCP. The agent uses them to start delegated sessions, wait for them, and read their results.</p>
+				<p>You don't turn the orchestrator on. Every chat session of a supported agent gets its tools when it starts.</p>
+
+				<h2 id="check-that-the-agent-can-delegate">Check that the agent can delegate</h2>
+				<ul>
+					<li>The session must be a chat. Sessions in a terminal don't get the tools.</li>
+					<li>Claude Code and Codex chats can delegate.</li>
+					<li>Cursor, Grok Build, OpenCode, fx, Hermes Agent, and Antigravity chats can delegate when the agent supports MCP servers over HTTP.</li>
+					<li>Pi and omp can't delegate.</li>
+				</ul>
+				<p>Claude Code chats are allowed to call the tools without asking. Codex chats approve them by default.</p>
+
+				<h2 id="ask-for-delegated-work">Ask for delegated work</h2>
+				<p>Ask the agent in plain words. For example:</p>
+				<pre><code>Split this into three parts and delegate each one to its own session. Use Codex for the tests.</code></pre>
+				<p>The agent calls the <code>anywhere</code> MCP server's tools. It starts with <code>orchestrator_capabilities</code>, then uses <code>delegate_task</code> to start each delegated session and <code>task_status</code> to read results. <code>tool_search</code> loads the server's other tools.</p>
+				<p>Each delegated session:</p>
+				<ul>
+					<li>Is an ordinary session of the agent it names, which can differ from the parent's agent.</li>
+					<li>Runs in a new worktree, made from the parent's latest commit, unless the agent asks to share the parent's checkout. Uncommitted changes in the parent's checkout aren't in the new worktree. Without a git repository, the session shares the parent's folder.</li>
+					<li>Runs with the parent's access. If the target agent doesn't offer that access, it gets the closest narrower one.</li>
+					<li>Starts in plan mode if the parent is in plan mode.</li>
+				</ul>
+
+				<h2 id="follow-delegated-sessions">Follow delegated sessions</h2>
+				<p>The parent chat shows a <strong>Delegated</strong> panel with a row for each delegated session and its status. Open a row to read that session's chat, which says <strong>Delegated by</strong> and the parent agent. The sidebar, Activity, and the command palette don't list a delegated session while its parent is listed.</p>
+				<p>When a delegated session settles, pocketd queues a message for the parent. The message names the task and tells the agent to read the result with <code>task_status</code>. If the parent is in a turn, the message waits until the turn ends. Sessions that settle before the message is sent share one message.</p>
+				<p>A delegated session's Done doesn't alert you or join Up next, because the parent reads the result. Its Needs you and Failed alert you like any session's. If a delegated session asks a question, the parent is told. Permission requests always come to you.</p>
+
+				<h2 id="change-the-limits">Change the limits</h2>
+				<p>pocketd limits how deep delegation goes and how many delegated sessions run at once. Tasks over a limit wait in a queue and start when a running one settles.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Key</th><th>Default</th><th>Range</th><th>Limits</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>orchestrator.depth</code></td><td>3</td><td>1 to 5</td><td>Levels of delegation below a session you opened.</td></tr>
+						<tr><td><code>orchestrator.perSession</code></td><td>6</td><td>1 to 20</td><td>Delegated sessions of one session running at once.</td></tr>
+						<tr><td><code>orchestrator.perMac</code></td><td>12</td><td>1 to 50</td><td>Sessions that agents started, running at once on the machine.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>The desktop app has no control for these. Set one with <code>pocketd config set</code>, for example:</p>
+				<pre><code>pocketd config set orchestrator.perSession 4</code></pre>
+				<p>On macOS, the <code>pocketd</code> binary is inside the app at <code>Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd</code>.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="automations.html"><span>Previous</span>Schedule automations</a>
+				<a class="next" href="hosts.html"><span>Next</span>Run agents on another machine</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>

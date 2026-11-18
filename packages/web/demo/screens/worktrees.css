@@ -1,0 +1,79 @@
+/* New worktree: the new-session page's menus and the progress page. Sizes are the app's points. */
+.app .wt-new .home { padding: 18px 0 0; }
+.app .wt-rel { position: relative; display: flex; min-width: 0; }
+.app .wt-new .where-row { align-items: center; gap: 2px; }
+.app .wt-dot { color: var(--t4); font-size: 13px; padding: 0 2px; }
+.app .wt-based { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 6px; color: var(--t3); font-size: 14px; }
+.app .wt-pill { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 9px; border-radius: 8px; background: var(--f2); font-size: 12.5px; font-weight: 500; }
+.app .wt-pill svg { color: var(--t2); }
+.app .wt-pill button { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 9px; color: var(--t3); }
+.app .wt-pill button:hover { background: var(--f3); }
+.app .wt-prb { width: 32px; height: 32px; }
+.app .wt-new .composer .foot { gap: 4px; }
+
+/* Menus */
+.app .wt-pop { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; display: flex; flex-direction: column; width: 300px; padding: 5px; overflow: hidden; border-radius: 12px; background: #232323f5; box-shadow: 0 0 0 0.5px var(--sep), inset 0 1px 0 #ffffff0f, 0 18px 50px #00000066; animation: wt-in 140ms cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: blur(20px); }
+.app .wt-pop.right { left: auto; right: 0; }
+.app .wt-pop.w260 { width: 260px; }
+.app .wt-pop.w300 { width: 300px; }
+.app .wt-pop.w340 { width: 340px; padding: 0; }
+@keyframes wt-in { from { opacity: 0; transform: translateY(-4px); } }
+.app .wt-row { gap: 10px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 8px; font-size: 13.5px; }
+.app .wt-row:hover { background: var(--f2); }
+.wt-row .lead { display: grid; place-items: center; width: 18px; flex: none; color: var(--t2); }
+.wt-row .tx { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 1px; }
+.wt-row .tx b { font-weight: 400; color: var(--t1); }
+.wt-row .tx small { color: var(--t4); font-size: 12px; line-height: 15px; }
+.wt-row .mini { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; background: var(--f3); color: var(--t3); font-size: 8px; }
+.wt-row .ck, .wt-pick .ck { display: flex; flex: none; justify-content: flex-end; width: 16px; color: var(--t1); }
+.wt-search { display: flex; align-items: center; gap: 10px; flex: none; height: 44px; padding: 0 14px; border-bottom: 0.5px solid var(--sep); color: var(--t3); }
+.wt-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--t1); font: 13px Geist, sans-serif; }
+.wt-search input::placeholder { color: var(--t4); }
+.wt-blist { display: flex; flex-direction: column; max-height: 316px; padding: 5px; overflow: auto; scrollbar-width: none; }
+.wt-ph { padding: 8px 8px 4px; color: var(--t3); font-size: 11.5px; font-weight: 600; }
+.wt-none { display: flex; align-items: center; height: 36px; padding: 0 10px; color: var(--t3); font-size: 13px; }
+.app .wt-pick { position: relative; gap: 9px; width: 100%; min-height: 34px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+.app div.wt-pick { display: flex; align-items: center; }
+.app .wt-pick:hover { background: var(--f2); }
+.wt-pick .bi { display: grid; place-items: center; width: 14px; color: var(--t3); }
+.wt-pick b { min-width: 0; overflow: hidden; font: 500 12.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.wt-pick i { margin-left: auto; padding-left: 10px; color: var(--t4); font-size: 12px; font-style: normal; }
+.wt-pick i + .ck { margin-left: 0; }
+.wt-pick b + .ck { margin-left: auto; }
+.app .wt-pick .open { position: absolute; top: 5px; right: 6px; display: none; height: 24px; padding: 0 9px; border-radius: 6px; background: #232323; box-shadow: 0 0 0 0.5px var(--sep2); font-size: 12px; font-weight: 500; }
+.app .wt-pick.o:hover .open { display: flex; }
+.wt-note { padding: 10px 14px; color: var(--t4); font-size: 12px; }
+.wt-note.bad { color: var(--failed); }
+
+/* Progress */
+.wt-make .wt-center { display: flex; flex: 1; align-items: center; justify-content: center; }
+.wt-page { display: flex; flex-direction: column; gap: 12px; width: 440px; transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1), transform 240ms cubic-bezier(0.16, 1, 0.3, 1); }
+.wt-page.leave { opacity: 0; transform: translateY(-6px); }
+.wt-title { display: flex; align-items: center; }
+.wt-title b { font-size: 17px; font-weight: 700; }
+.wt-title code { margin-left: auto; color: var(--t3); font: 13px var(--mono); }
+.wt-branch { display: flex; align-items: center; gap: 6px; color: var(--t3); font-size: 13px; }
+.wt-branch code { color: var(--t2); font: 13px var(--mono); }
+.wt-steps { display: flex; flex-direction: column; padding: 6px 14px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--sep2), 0 1px 2px #1111130a; }
+.wt-step { display: flex; gap: 10px; padding: 7px 0; }
+.wt-step .ld { display: grid; place-items: center; width: 16px; height: 16px; flex: none; }
+.wt-step .ok { display: grid; color: var(--success); }
+.wt-step .pd { width: 6px; height: 6px; border-radius: 50%; background: var(--t5); }
+.wt-step .tx { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 3px; }
+.wt-step .tx b { font-size: 13.5px; font-weight: 400; line-height: 16px; }
+.wt-step.pending .tx b { color: var(--t4); }
+.wt-step .tx small { color: var(--t3); font-size: 12px; line-height: 14px; }
+.wt-step code { color: var(--t4); font: 12px var(--mono); line-height: 16px; }
+.wt-step .gspin { color: var(--t3); }
+.wt-foot { display: flex; align-items: center; min-height: 32px; }
+.app .wt-link { color: var(--t2); font-size: 13px; text-decoration: underline; text-decoration-color: var(--t5); text-underline-offset: 2px; }
+.app .wt-link:hover { color: var(--t1); }
+.wt-page .in { animation: wt-rise 300ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--d) - var(--e)); }
+@keyframes wt-rise { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .wt-page .in { animation: wt-fade 200ms linear both; animation-delay: 0ms; }
+  .wt-pop { animation: none; }
+  .wt-page { transition: opacity 200ms linear; }
+  .wt-page.leave { transform: none; }
+  @keyframes wt-fade { from { opacity: 0; } }
+}
