@@ -9,7 +9,7 @@ pub(crate) mod toast;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, Side, id};
 use crate::fs::fs_for;
-use crate::util::list_dir;
+use crate::util::{list_dir, list_dirs};
 use git::FileStat;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -166,7 +166,7 @@ impl Desktop {
         dirs.extend(self.explore_root().map(PathBuf::from));
         cx.spawn(async move |this, cx| {
             let shown = files.clone();
-            let fresh: HashMap<_, _> = cx.background_executor().spawn(async move { dirs.into_iter().map(|d| { let l = list_dir(&d, &shown); (d, l) }).collect() }).await;
+            let fresh = cx.background_executor().spawn(async move { list_dirs(dirs, &shown) }).await;
             this.update(cx, |d, cx| {
                 if d.store.files != files {
                     return;
@@ -190,7 +190,11 @@ impl Desktop {
             });
             let listing = listing.await;
             this.update(cx, |d, cx| {
-                if d.store.files == files && d.explore_root().as_deref().map(Path::new) == Some(root.as_path()) && d.explorer.set_listing(root, listing) {
+                if let Some(listing) = listing
+                    && d.store.files == files
+                    && d.explore_root().as_deref().map(Path::new) == Some(root.as_path())
+                    && d.explorer.set_listing(root, listing)
+                {
                     cx.notify();
                 }
             })
@@ -212,7 +216,9 @@ impl Desktop {
             });
             let listing = listing.await;
             this.update(cx, |d, cx| {
-                if d.store.files == files {
+                if let Some(listing) = listing
+                    && d.store.files == files
+                {
                     d.explorer.tree.insert(dir, listing);
                     cx.notify();
                 }
@@ -331,7 +337,7 @@ fn outline(color: impl Into<Hsla>) -> Vec<BoxShadow> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExplorerState, Row, folder_status, list_dir, merge_tree, seek, status_of};
+    use super::{ExplorerState, Row, folder_status, list_dir, list_dirs, merge_tree, seek, status_of};
     use store::prefs::files::Files;
     use git::FileStat;
     use std::collections::HashMap;
@@ -393,13 +399,20 @@ mod tests {
     }
 
     #[test]
+    fn a_host_that_cannot_be_reached_keeps_the_folders_it_listed() {
+        let dir = PathBuf::from("//devbox/home/me/app");
+        let open = HashMap::from([(dir.clone(), vec![(false, dir.join("a.rs"))])]);
+        assert_eq!(merge_tree(list_dirs(vec![dir.clone()], &Files::default()), &open, Some(&dir)), open);
+    }
+
+    #[test]
     fn a_folder_lists_folders_first_then_folds_keeping_open_subfolders() {
         let dir = std::env::temp_dir().join(format!("pocket-explorer-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::write(dir.join("a.rs"), "").unwrap();
         let mut explorer = ExplorerState::new();
         explorer.tree.insert(dir.join("sub"), Vec::new());
-        explorer.tree.insert(dir.clone(), list_dir(&dir, &Files::default()));
+        explorer.tree.insert(dir.clone(), list_dir(&dir, &Files::default()).unwrap());
         assert_eq!(explorer.tree[&dir], [(true, dir.join("sub")), (false, dir.join("a.rs"))]);
         assert!(explorer.fold(&dir));
         assert!(!explorer.fold(&dir));

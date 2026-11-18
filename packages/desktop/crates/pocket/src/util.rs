@@ -1,5 +1,6 @@
 use crate::fs::fs_at;
 use agents::locals::is_local;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use store::ProjectIcon;
 
@@ -56,11 +57,13 @@ pub fn mark(icon: Option<&ProjectIcon>, letters: String) -> ui::Mark {
     }
 }
 
-/// Reads `.gitignore`s up to the repository root, so call it off the UI thread.
-pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, PathBuf)> {
+/// Reads `.gitignore`s up to the repository root, so call it off the UI thread. `None` on a host that isn't connected.
+pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Option<Vec<(bool, PathBuf)>> {
     let fs = fs_at(dir);
-    if fs.local().is_err() {
-        return fs.list(dir, files).unwrap_or_default();
+    match fs {
+        crate::fs::Fs::NotConnected => return None,
+        crate::fs::Fs::Remote(_) => return Some(fs.list(dir, files).unwrap_or_default()),
+        crate::fs::Fs::Local => {}
     }
     let git = files.hide_ignored;
     let walk = ignore::WalkBuilder::new(dir).standard_filters(false).max_depth(Some(1)).parents(git).git_ignore(git).git_exclude(git).git_global(git).build();
@@ -70,7 +73,12 @@ pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, Pa
         .map(|e| (e.file_type().is_some_and(|t| t.is_dir()), e.into_path()))
         .collect();
     files.sort(&mut entries);
-    entries
+    Some(entries)
+}
+
+/// Listings of `dirs`, leaving out those on a host that isn't connected so the ones shown stay. Call it off the UI thread.
+pub fn list_dirs(dirs: Vec<PathBuf>, files: &store::prefs::files::Files) -> HashMap<PathBuf, Vec<(bool, PathBuf)>> {
+    dirs.into_iter().filter_map(|d| list_dir(&d, files).map(|l| (d, l))).collect()
 }
 
 /// Moves `path` to the Trash, returning where it landed; `None` when it couldn't.
@@ -207,7 +215,7 @@ mod tests {
         for f in ["a.log", "main.rs", "src/b.log", "src/lib.rs"] {
             std::fs::write(dir.join(f), "").unwrap();
         }
-        let names = |d: &str, files: &Files| list_dir(&dir.join(d), files).into_iter().map(|(_, p)| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let names = |d: &str, files: &Files| list_dir(&dir.join(d), files).unwrap().into_iter().map(|(_, p)| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
         let shown = Files { hide_ignored: false, ..Files::default() };
         assert_eq!(names("", &Files::default()), ["src", ".gitignore", "main.rs"]);
         assert_eq!(names("src", &Files::default()), ["lib.rs"]);
