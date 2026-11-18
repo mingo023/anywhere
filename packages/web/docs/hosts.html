@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Run agents on another machine over SSH · Anywhere docs</title>
+	<meta name="description" content="Add a Mac, Linux, or Windows host over SSH and open projects on it.">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="../assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script src="docs.js" defer></script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="../index.html">Home</a>
+			<a href="index.html">Docs</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="index.html">Run your first agent</a></li>
+				<li><a href="install.html">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="sessions.html">Sessions and status</a></li>
+				<li><a href="worktrees.html">Work in worktrees</a></li>
+				<li><a href="review.html">Review and commit changes</a></li>
+				<li><a href="board.html">Plan work on the Board</a></li>
+				<li><a href="automations.html">Schedule automations</a></li>
+				<li><a href="delegation.html">Delegate work from a chat</a></li>
+				<li><a href="hosts.html">Run agents on another machine</a></li>
+				<li><a href="iphone.html">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="agents.html">Supported agents</a></li>
+				<li><a href="cli.html">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="architecture.html">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">How-to guide</p>
+				<h1>Run agents on another machine over SSH</h1>
+				<p class="lede">Add a Mac, Linux, or Windows machine as a host, and Anywhere installs pocketd on it over SSH. Projects on the host show in your sidebar, and their agents run on the host.</p>
+
+				<h2 id="before-you-start">Before you start</h2>
+				<ul>
+					<li>You can sign in to the machine with <code>ssh</code> from this computer, with your keys, your <code>~/.ssh/config</code>, a key file, or a password.</li>
+					<li>The machine runs macOS, Linux, or Windows, on arm64 or amd64.</li>
+					<li>The machine can download from GitHub over HTTPS. It needs <code>curl</code> or <code>wget</code>, <code>sha256sum</code> or <code>shasum</code>, and <code>tar</code>.</li>
+					<li>The agents you want to run are installed on the machine and signed in there.</li>
+				</ul>
+
+				<h2 id="add-a-host">Add a host</h2>
+				<ol>
+					<li>Open Settings with <kbd>⌘,</kbd> and select <strong>Hosts</strong>.</li>
+					<li>Click <strong>Add host</strong>.</li>
+					<li>Do one of these:
+						<ul>
+							<li>If the machine has an entry in your <code>~/.ssh/config</code>, click its name under <strong>Suggested</strong>. Anywhere uses that entry's user, port, key, and jump host as they are.</li>
+							<li>Otherwise, fill in <strong>Address</strong>, <strong>Port</strong>, and <strong>Username</strong>.</li>
+						</ul>
+					</li>
+					<li>Choose how to sign in:
+						<ul>
+							<li>To use your SSH keys and <code>~/.ssh/config</code>, change nothing.</li>
+							<li>To use a specific key, click <strong>Use a key file…</strong> and pick the file.</li>
+							<li>If the machine refuses your keys, type the <strong>Password</strong>.</li>
+						</ul>
+					</li>
+					<li>Click <strong>Connect</strong>.</li>
+				</ol>
+				<p>Anywhere installs pocketd on the host and shows each step under <strong>Installing pocketd</strong>. When it finishes, the list says <strong>pocketd is installed</strong>, and the host's row says <strong>Connected</strong> with its version. If pocketd already runs on the host, Anywhere uses it.</p>
+				<p>Anywhere changes nothing in your <code>~/.ssh</code>. If you sign in with a password, Anywhere uses it once to add a key for the app to the host's <code>~/.ssh/authorized_keys</code>. It doesn't save the password.</p>
+
+				<h3>What the install puts on the host</h3>
+				<ul>
+					<li>The pocketd release for the host's system, downloaded by the host from the Anywhere GitHub releases and checked against its SHA-256 sum.</li>
+					<li>The program at <code>~/.coding-pocket/bin/pocketd</code>.</li>
+					<li>A per-user service that starts pocketd: a LaunchAgent on macOS, a systemd user unit on Linux, or a Task Scheduler logon task on Windows.</li>
+				</ul>
+				<div class="callout">
+					<p><span class="callout-title">Note</span>On Linux, if lingering is off, pocketd stops when you log out of the host. Anywhere warns you and gives the command to turn it on, <code>sudo loginctl enable-linger &lt;user&gt;</code>.</p>
+				</div>
+
+				<h2 id="open-a-project-on-the-host">Open a project on the host</h2>
+				<ol>
+					<li>Press <kbd>⌘K</kbd> and choose <strong>Open folder on a host…</strong>.</li>
+					<li>Pick the host and the folder.</li>
+					<li>Click <strong>Add project</strong>.</li>
+				</ol>
+				<p>The project shows in the sidebar with a globe icon and a dot for the connection. Start sessions in it as in any project. New worktrees of a host's project go in the host's <code>~/.anywhere/worktrees</code>.</p>
+
+				<h2 id="keep-a-host-up-to-date">Keep a host up to date</h2>
+				<p>When the host's pocketd is older than the app, its row in Settings › <strong>Hosts</strong> shows <strong>Update</strong>. Terminals on a Mac or Linux host stay open through the update.</p>
+				<div class="callout warning">
+					<p><span class="callout-title">Warning</span>On a Windows host, an update restarts pocketd, which closes that host's terminals. The update dialog says so before it runs.</p>
+				</div>
+
+				<h2 id="fix-a-host-that-doesnt-connect">Fix a host that doesn't connect</h2>
+				<ul>
+					<li>If the row says the host didn't accept your SSH keys, check that <code>ssh</code> to the host works in a terminal. Or click <strong>Use password</strong> to sign in once with a password.</li>
+					<li>If pocketd isn't running on the host, click <strong>Install</strong>.</li>
+					<li>To try the connection again, click <strong>Reconnect</strong>.</li>
+				</ul>
+
+				<h2 id="remove-a-host">Remove a host</h2>
+				<ol>
+					<li>In Settings › <strong>Hosts</strong>, click <strong>Remove</strong> on the host's row.</li>
+					<li>Click <strong>Remove from this Mac</strong>, or <strong>Uninstall and remove</strong> to also uninstall pocketd from the host.</li>
+				</ol>
+				<p>Removing a host disconnects it. Its projects leave your sidebar. The projects and files on the host stay.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="delegation.html"><span>Previous</span>Delegate work from a chat</a>
+				<a class="next" href="iphone.html"><span>Next</span>Pair an iPhone</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>

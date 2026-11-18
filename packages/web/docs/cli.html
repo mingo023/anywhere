@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>The anywhere command · Anywhere docs</title>
+	<meta name="description" content="Reference for the anywhere command line tool: every subcommand, flag, and exit code.">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="../assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script src="docs.js" defer></script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="../index.html">Home</a>
+			<a href="index.html">Docs</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="index.html">Run your first agent</a></li>
+				<li><a href="install.html">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="sessions.html">Sessions and status</a></li>
+				<li><a href="worktrees.html">Work in worktrees</a></li>
+				<li><a href="review.html">Review and commit changes</a></li>
+				<li><a href="board.html">Plan work on the Board</a></li>
+				<li><a href="automations.html">Schedule automations</a></li>
+				<li><a href="delegation.html">Delegate work from a chat</a></li>
+				<li><a href="hosts.html">Run agents on another machine</a></li>
+				<li><a href="iphone.html">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="agents.html">Supported agents</a></li>
+				<li><a href="cli.html">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="architecture.html">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">Reference</p>
+				<h1>The anywhere command</h1>
+				<p class="lede"><code>anywhere</code> is pocketd run under the name <code>anywhere</code>. It starts sessions, sends prompts, reads replies, and edits Board tickets. The sessions it starts show in the desktop app like any other.</p>
+				<p>To install the command, see <a href="install.html#install-the-anywhere-command">Install the anywhere command</a>.</p>
+
+				<h2 id="synopsis">Synopsis</h2>
+				<pre><code>anywhere project list [--json]
+anywhere session list [--json]
+anywhere session read [--limit 200] [--json] &lt;id&gt;
+anywhere session create [--project &lt;name|path&gt;] [--worktree &lt;name&gt; | --new-worktree [&lt;name&gt;] [--base &lt;branch&gt;]] [--provider &lt;agent&gt;] [--access settings|ask|edits|auto|full] [--prompt &lt;text&gt;]
+anywhere session prompt &lt;id&gt; &lt;text|-&gt;
+anywhere session close &lt;id&gt;
+anywhere session wait [--timeout 30m] &lt;id&gt;
+anywhere ticket create [--project &lt;name|path&gt;] [--provider &lt;agent&gt;] [--base &lt;branch&gt;] [--title &lt;text&gt;] [--start] &lt;prompt|-&gt;
+anywhere ticket list [--json]
+anywhere ticket read [--json] &lt;id&gt;
+anywhere ticket update [--title &lt;text&gt;] [--provider &lt;agent&gt;] [--base &lt;branch&gt;] [--prompt &lt;text|-&gt;] &lt;id&gt;
+anywhere ticket delete &lt;id&gt;</code></pre>
+
+				<h2 id="conventions">Conventions</h2>
+				<ul>
+					<li>Flags go before or after the positional arguments.</li>
+					<li><code>&lt;agent&gt;</code> is one of <code>claude</code>, <code>codex</code>, <code>cursor</code>, <code>grok</code>, <code>opencode</code>, <code>pi</code>, <code>omp</code>, <code>fx</code>, <code>hermes</code>, or <code>antigravity</code>. Left out, it is <code>claude</code>. See <a href="agents.html">Supported agents</a>.</li>
+					<li>A text argument of <code>-</code> reads the text from standard input.</li>
+					<li><code>--json</code> prints indented JSON instead of a table.</li>
+					<li><code>--project</code> takes a project's name or its path. Without it, the command uses the project whose main checkout or worktree holds the current directory.</li>
+					<li>The command talks to pocketd over its Unix socket, <code>~/.coding-pocket/pocketd.sock</code>. The <code>POCKETD_SOCK</code> environment variable sets another path. If pocketd isn't running, the command fails with <code>can't reach Anywhere's service at &lt;socket&gt;</code>.</li>
+				</ul>
+
+				<h2 id="project-list">project list</h2>
+				<pre><code>anywhere project list [--json]</code></pre>
+				<p>Prints one line per project: its name and its path.</p>
+
+				<h2 id="session-list">session list</h2>
+				<pre><code>anywhere session list [--json]</code></pre>
+				<p>Prints one line per session, the most recently updated first: its id, status, agent, project, and title.</p>
+
+				<h2 id="session-create">session create</h2>
+				<pre><code>anywhere session create [--project &lt;name|path&gt;] [--worktree &lt;name&gt; | --new-worktree [&lt;name&gt;] [--base &lt;branch&gt;]] [--provider &lt;agent&gt;] [--access settings|ask|edits|auto|full] [--prompt &lt;text&gt;]</code></pre>
+				<p>Starts a chat session and prints its id.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>--project &lt;name|path&gt;</code></td><td>The project holding the current directory</td><td>The project to start the session in.</td></tr>
+						<tr><td><code>--worktree &lt;name&gt;</code></td><td>The main worktree</td><td>An existing worktree of the project, by name.</td></tr>
+						<tr><td><code>--new-worktree [&lt;name&gt;]</code></td><td>Off</td><td>Creates a new worktree for the session. Without a name and with <code>--prompt</code>, pocketd names the branch from the prompt. Can't be used with <code>--worktree</code>.</td></tr>
+						<tr><td><code>--base &lt;branch&gt;</code></td><td>The project's default</td><td>The branch the new worktree starts from. Only with <code>--new-worktree</code>.</td></tr>
+						<tr><td><code>--provider &lt;agent&gt;</code></td><td><code>claude</code></td><td>The agent to run.</td></tr>
+						<tr><td><code>--access &lt;mode&gt;</code></td><td><code>settings</code></td><td>The access mode: <code>settings</code>, <code>ask</code>, <code>edits</code>, <code>auto</code>, or <code>full</code>. <code>settings</code> uses the agent's own permission settings. See <a href="sessions.html#access-modes">Access modes</a>.</td></tr>
+						<tr><td><code>--prompt &lt;text&gt;</code></td><td>None</td><td>The first prompt.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>With <code>--prompt</code>, the command prints the id and then waits up to 30 seconds for the turn to start. If the turn doesn't start in that time, it fails with <code>session &lt;id&gt; didn't start a turn within 30s</code>. The session still exists.</p>
+
+				<h2 id="session-prompt">session prompt</h2>
+				<pre><code>anywhere session prompt &lt;id&gt; &lt;text|-&gt;</code></pre>
+				<p>Sends the text to the session. If the session reports its status, the command waits up to 30 seconds for the turn to start, so a <code>session wait</code> right after it waits for that turn.</p>
+
+				<h2 id="session-read">session read</h2>
+				<pre><code>anywhere session read [--limit 200] [--json] &lt;id&gt;</code></pre>
+				<p>Prints the agent's last reply: everything it said after the last user message.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>--limit &lt;n&gt;</code></td><td><code>200</code></td><td>How many timeline items to fetch, from 1 to 500.</td></tr>
+						<tr><td><code>--json</code></td><td>Off</td><td>Prints the fetched timeline items as JSON instead of the last reply.</td></tr>
+					</tbody>
+				</table>
+				</div>
+
+				<h2 id="session-wait">session wait</h2>
+				<pre><code>anywhere session wait [--timeout 30m] &lt;id&gt;</code></pre>
+				<p>Waits until the session is no longer Working, then prints one word and exits with its code. <code>--timeout</code> takes a duration such as <code>90s</code>, <code>30m</code>, or <code>2h</code>. The default is <code>30m</code>.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Word</th><th>Exit code</th><th>Meaning</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>done</code></td><td>0</td><td>The turn ended. The session is Done, or Idle if someone was looking at it.</td></tr>
+						<tr><td><code>failed</code></td><td>3</td><td>The turn ended with an error.</td></tr>
+						<tr><td><code>needsYou</code></td><td>4</td><td>The agent is waiting for an answer or a permission.</td></tr>
+						<tr><td><code>timeout</code></td><td>5</td><td>The timeout passed first.</td></tr>
+						<tr><td><code>closed</code></td><td>6</td><td>The session closed.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>If the session isn't Working when the command starts, it reports the current state right away. A session that doesn't report its status, such as an agent other than Claude Code or Codex running in a terminal, fails with exit code 1 and <code>session &lt;id&gt; doesn't report its status</code>.</p>
+
+				<h2 id="session-close">session close</h2>
+				<pre><code>anywhere session close &lt;id&gt;</code></pre>
+				<p>Closes the session and its terminal.</p>
+
+				<h2 id="ticket-create">ticket create</h2>
+				<pre><code>anywhere ticket create [--project &lt;name|path&gt;] [--provider &lt;agent&gt;] [--base &lt;branch&gt;] [--title &lt;text&gt;] [--start] &lt;prompt|-&gt;</code></pre>
+				<p>Adds a ticket to the Board and prints its id.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>--project &lt;name|path&gt;</code></td><td>The project holding the current directory</td><td>The ticket's project.</td></tr>
+						<tr><td><code>--provider &lt;agent&gt;</code></td><td><code>claude</code></td><td>The agent that works on the ticket.</td></tr>
+						<tr><td><code>--base &lt;branch&gt;</code></td><td>The project's default</td><td>The branch the ticket's worktree starts from.</td></tr>
+						<tr><td><code>--title &lt;text&gt;</code></td><td>The prompt's first line</td><td>The title, 1 to 200 characters.</td></tr>
+						<tr><td><code>--start</code></td><td>Off</td><td>Starts the ticket. It waits in Queued until a slot is free.</td></tr>
+					</tbody>
+				</table>
+				</div>
+
+				<h2 id="ticket-list">ticket list</h2>
+				<pre><code>anywhere ticket list [--json]</code></pre>
+				<p>Prints one line per ticket: its id, state, agent, project folder, and title. For a started ticket, the state is its session's status.</p>
+
+				<h2 id="ticket-read">ticket read</h2>
+				<pre><code>anywhere ticket read [--json] &lt;id&gt;</code></pre>
+				<p>Prints the ticket's title, then its state, agent, and folder, then its prompt.</p>
+
+				<h2 id="ticket-update">ticket update</h2>
+				<pre><code>anywhere ticket update [--title &lt;text&gt;] [--provider &lt;agent&gt;] [--base &lt;branch&gt;] [--prompt &lt;text|-&gt;] &lt;id&gt;</code></pre>
+				<p>Changes only the fields you pass. Pass at least one flag. An empty <code>--base ""</code> clears the base branch.</p>
+
+				<h2 id="ticket-delete">ticket delete</h2>
+				<pre><code>anywhere ticket delete &lt;id&gt;</code></pre>
+				<p>Deletes the ticket.</p>
+
+				<h2 id="inside-an-anywhere-terminal">Inside an Anywhere terminal</h2>
+				<p>A process that runs inside an Anywhere terminal can only read. <code>project list</code>, <code>session list</code>, <code>session read</code>, and <code>session wait</code> work there. Every other command fails with this message:</p>
+				<pre><code>a process inside an Anywhere terminal can only read sessions; run this from outside Anywhere</code></pre>
+
+				<h2 id="exit-codes">Exit codes</h2>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Code</th><th>Meaning</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>0</td><td>Success. For <code>session wait</code>, <code>done</code>.</td></tr>
+						<tr><td>1</td><td>The command failed. The error is printed after <code>anywhere:</code>.</td></tr>
+						<tr><td>2</td><td>Bad command line. The usage is printed.</td></tr>
+						<tr><td>3</td><td><code>session wait</code>: <code>failed</code>.</td></tr>
+						<tr><td>4</td><td><code>session wait</code>: <code>needsYou</code>.</td></tr>
+						<tr><td>5</td><td><code>session wait</code>: <code>timeout</code>.</td></tr>
+						<tr><td>6</td><td><code>session wait</code>: <code>closed</code>.</td></tr>
+					</tbody>
+				</table>
+				</div>
+
+				<h2 id="the-agent-skill">The agent skill</h2>
+				<p>Installing the command also installs a skill that tells Claude Code and Codex how to use it. <code>pocketd skill install</code> writes the skill to these files:</p>
+				<ul>
+					<li><code>~/.claude/skills/anywhere/SKILL.md</code></li>
+					<li><code>~/.agents/skills/anywhere/SKILL.md</code></li>
+				</ul>
+
+				<h2 id="pocketd-settings">pocketd settings</h2>
+				<p>Set these pocketd settings with <code>pocketd config set &lt;key&gt; &lt;value&gt;</code>. Run it under the name <code>pocketd</code>, not <code>anywhere</code>, while pocketd is running. The desktop app has controls for some of them, but none for the <code>orchestrator</code> keys and <code>push.relay</code>.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Key</th><th>Values</th><th>Default</th><th>Description</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>orchestrator.depth</code></td><td>1 to 5</td><td>3</td><td>How many levels of delegated sessions a session you opened can have below it.</td></tr>
+						<tr><td><code>orchestrator.perSession</code></td><td>1 to 20</td><td>6</td><td>How many of one session's delegated sessions run at once.</td></tr>
+						<tr><td><code>orchestrator.perMac</code></td><td>1 to 50</td><td>12</td><td>How many sessions agents run at once on this machine.</td></tr>
+						<tr><td><code>automations.graceHours</code></td><td>0 to 24</td><td>12</td><td>How late a scheduled run can start before it is skipped.</td></tr>
+						<tr><td><code>automations.history</code></td><td>10 to 500</td><td>50</td><td>How many runs to keep.</td></tr>
+						<tr><td><code>push.relay</code></td><td>An <code>https</code> URL</td><td><code>https://push.getanywhere.dev</code></td><td>The relay pocketd sends iPhone push notifications through.</td></tr>
+						<tr><td><code>phone.terminals</code></td><td><code>on</code>, <code>off</code></td><td><code>on</code></td><td>Whether a phone can type into, open, and close terminals.</td></tr>
+						<tr><td><code>listen</code></td><td><code>auto</code>, <code>loopback</code></td><td><code>auto</code></td><td>Where phones reach pocketd: this machine and the tailnet, or this machine only.</td></tr>
+						<tr><td><code>port</code></td><td>1024 to 65535</td><td>4517</td><td>The port phones connect to.</td></tr>
+						<tr><td><code>restore.resumeAgents</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Whether agents resume after pocketd or the machine restarts.</td></tr>
+					</tbody>
+				</table>
+				</div>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="agents.html"><span>Previous</span>Supported agents</a>
+				<a class="next" href="architecture.html"><span>Next</span>How Anywhere runs</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>

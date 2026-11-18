@@ -1,0 +1,158 @@
+/* Settings on Hosts: the window's section sidebar, the hosts list with the install steps, and the Add host form. */
+.app[data-screen="hosts"] .stw { position: absolute; inset: 0; display: flex; }
+.app[data-screen="hosts"] .stw button { cursor: pointer; }
+.app[data-screen="hosts"] .snav { position: relative; display: flex; flex-direction: column; flex: none; width: 272px; padding: 0 8px; border-right: 0.5px solid var(--sep); }
+.app[data-screen="hosts"] .sdrag { height: 42px; flex: none; }
+.app[data-screen="hosts"] .sback { margin-bottom: 4px; }
+.app[data-screen="hosts"] .sitem { display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 9px; border-radius: 7px; color: var(--tb); font-size: 13px; }
+.app[data-screen="hosts"] .sitem svg { color: var(--t3); }
+.app[data-screen="hosts"] .sitem span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.app[data-screen="hosts"] .sitem b { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--f3); color: var(--t2); font: 500 10.5px/16px Geist, sans-serif; text-align: center; }
+.app[data-screen="hosts"] .sitem:hover { background: var(--f1); }
+.app[data-screen="hosts"] .sitem.on { background: var(--f4); color: var(--t1); font-weight: 600; }
+.app[data-screen="hosts"] .sitem.on svg { color: var(--t1); }
+.app[data-screen="hosts"] .sitem.dimm { opacity: 0.4; }
+.app[data-screen="hosts"] .ssearch { margin: 0 0 6px; }
+.app[data-screen="hosts"] .ssearch label { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--f2); color: var(--t3); cursor: text; }
+.app[data-screen="hosts"] .ssearch input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--t1); font: 13px Geist, sans-serif; }
+.app[data-screen="hosts"] .ssearch input::placeholder { color: var(--t3); }
+.app[data-screen="hosts"] .ssearch kbd { font: 500 11.5px Geist, sans-serif; color: var(--t4); }
+.app[data-screen="hosts"] .sgroups { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; scrollbar-width: none; }
+.app[data-screen="hosts"] .sgroup h5 { margin: 14px 0 3px; padding: 0 9px; color: var(--t4); font-size: 11px; font-weight: 600; }
+
+
+.app[data-screen="hosts"] .spage { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.app[data-screen="hosts"] .sbar { display: flex; align-items: center; justify-content: center; flex: none; height: 42px; border-bottom: 0.5px solid var(--sep); }
+.app[data-screen="hosts"] .sbar b { font-size: 14px; font-weight: 600; }
+.app[data-screen="hosts"] .sbody { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.app[data-screen="hosts"] .scol { display: flex; flex-direction: column; gap: 22px; max-width: 704px; margin: 0 auto; padding: 26px 32px 40px; }
+.app[data-screen="hosts"] .shead { display: flex; align-items: center; gap: 14px; }
+.app[data-screen="hosts"] .shead h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.app[data-screen="hosts"] .shead p { margin: 3px 0 0; color: var(--t3); font-size: 12.5px; line-height: 1.35; }
+.app[data-screen="hosts"] .stile { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px; background: var(--f3); color: var(--t1); }
+.app[data-screen="hosts"] .sgrp { display: flex; flex-direction: column; gap: 8px; }
+.app[data-screen="hosts"] .sgrp h3 { margin: 0; padding: 0 2px; color: var(--t2); font-size: 13px; font-weight: 600; }
+.app[data-screen="hosts"] .scard { border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--hair); }
+.app[data-screen="hosts"] .ssep { border-top: 0.5px solid var(--sep); }
+.app[data-screen="hosts"] .snote { padding: 18px 14px; color: var(--t3); font-size: 13px; }
+
+
+.app[data-screen="hosts"] .srow { display: flex; align-items: center; gap: 16px; min-height: 52px; padding: 9px 14px; }
+.app[data-screen="hosts"] .stx { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+.app[data-screen="hosts"] .stx b { font-size: 13px; font-weight: 500; }
+.app[data-screen="hosts"] .stx span { color: var(--t3); font-size: 12px; line-height: 16px; }
+.app[data-screen="hosts"] .sctl { display: flex; align-items: center; flex: none; }
+
+
+.app[data-screen="hosts"] .hrow { display: flex; align-items: center; gap: 12px; padding: 9px 14px; }
+.app[data-screen="hosts"] .htile { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; background: var(--f2); color: var(--t2); }
+.app[data-screen="hosts"] .htile.faint { opacity: 0.5; }
+.app[data-screen="hosts"] .hag { display: flex; }
+.app[data-screen="hosts"] .htext { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+.app[data-screen="hosts"] .htext b { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+.app[data-screen="hosts"] .htext b em { padding: 1px 6px; border-radius: 5px; background: var(--f3); color: var(--t2); font-size: 10.5px; font-style: normal; font-weight: 500; }
+.app[data-screen="hosts"] .hline { display: flex; align-items: center; gap: 6px; color: var(--t3); font-size: 12px; line-height: 16px; }
+.app[data-screen="hosts"] .hline i { flex: none; width: 7px; height: 7px; border-radius: 4px; }
+.app[data-screen="hosts"] .hline span { min-width: 0; }
+.app[data-screen="hosts"] .hl2 { color: var(--t3); font-size: 12px; line-height: 16px; }
+.app[data-screen="hosts"] .here { color: var(--t3); font-size: 12px; }
+
+
+.app[data-screen="hosts"] .act { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--sep2); color: var(--t1); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.app[data-screen="hosts"] .act:hover { background: var(--f4); }
+.app[data-screen="hosts"] .act.wide { min-width: 150px; justify-content: space-between; }
+.app[data-screen="hosts"] .hrow .act + .act, .app[data-screen="hosts"] .hrow .act + .rm { margin-left: -4px; }
+.app[data-screen="hosts"] .rm { display: flex; align-items: center; flex: none; height: 26px; padding: 0 12px; border-radius: 13px; background: var(--failed); color: #fff; font-size: 13px; font-weight: 600; }
+.app[data-screen="hosts"] .rm:hover { filter: brightness(1.08); }
+.app[data-screen="hosts"] .hbtn { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; height: 28px; padding: 0 14px; border-radius: 14px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.app[data-screen="hosts"] .hbtn.prim { background: var(--t1); color: #171717; box-shadow: inset 0 1px 0 #ffffff2e, 0 4px 12px #0000002e; }
+.app[data-screen="hosts"] .hbtn.prim:hover { opacity: 0.9; }
+.app[data-screen="hosts"] .hbtn.scnd { background: var(--f3); color: var(--t1); }
+.app[data-screen="hosts"] .hbtn.scnd:hover { background: var(--f4); }
+.app[data-screen="hosts"] .hbtn.danger { background: var(--failed); color: #fff; }
+.app[data-screen="hosts"] .hbtn.danger:hover { filter: brightness(1.08); }
+
+
+.app[data-screen="hosts"] .inst { margin: -2px 14px 10px 54px; padding: 8px 12px; border-radius: 8px; background: var(--f2); }
+.app[data-screen="hosts"] .ih { display: flex; align-items: center; justify-content: space-between; height: 22px; margin-bottom: 2px; }
+.app[data-screen="hosts"] .ih b { font-size: 12.5px; font-weight: 600; }
+.app[data-screen="hosts"] .step { display: flex; align-items: center; gap: 8px; height: 20px; color: var(--t1); font-size: 12px; }
+.app[data-screen="hosts"] .step.pending { color: var(--t4); }
+.app[data-screen="hosts"] .lead { display: grid; place-items: center; flex: none; width: 14px; height: 14px; }
+.app[data-screen="hosts"] .ck { display: flex; color: var(--success-text); }
+.app[data-screen="hosts"] .pdot { width: 5px; height: 5px; border-radius: 3px; background: var(--t5); }
+.app[data-screen="hosts"] .sring { width: 12px; height: 12px; border: 1.5px solid var(--f4); border-top-color: var(--t1); border-radius: 50%; animation: hsspin 0.8s linear infinite; }
+@keyframes hsspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .app[data-screen="hosts"] .sring { animation-duration: 2.4s; } }
+
+
+.app[data-screen="hosts"] .addf { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 12px; }
+.app[data-screen="hosts"] .addf > b { font-size: 13px; font-weight: 500; }
+.app[data-screen="hosts"] .sugs { display: flex; align-items: center; gap: 6px; }
+.app[data-screen="hosts"] .sugs > span { color: var(--t3); font-size: 12px; margin-right: 2px; }
+.app[data-screen="hosts"] .sug { height: 22px; padding: 0 9px; border-radius: 11px; box-shadow: inset 0 0 0 1px var(--sep2); color: var(--t2); font: 12px var(--mono); }
+.app[data-screen="hosts"] .sug:hover { background: var(--f2); }
+.app[data-screen="hosts"] .sug.on { background: var(--f4); color: var(--t1); box-shadow: none; }
+.app[data-screen="hosts"] .two { display: flex; gap: 10px; }
+.app[data-screen="hosts"] .fld { display: flex; flex-direction: column; gap: 4px; }
+.app[data-screen="hosts"] .fld.grow { flex: 1; min-width: 0; }
+.app[data-screen="hosts"] .fld.port { width: 90px; }
+.app[data-screen="hosts"] .fld span { color: var(--t3); font-size: 12px; }
+.app[data-screen="hosts"] .fld input { width: 100%; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; outline: 0; background: var(--f2); color: var(--t1); font: 12px var(--mono); box-sizing: border-box; }
+.app[data-screen="hosts"] .fld input:focus { box-shadow: inset 0 0 0 1px var(--sep2); }
+.app[data-screen="hosts"] .keyl { display: flex; align-items: center; gap: 4px; color: var(--t2); font-size: 12px; line-height: 16px; }
+.app[data-screen="hosts"] .keyl.mute { color: var(--t3); }
+.app[data-screen="hosts"] .keyl code { font: 12px var(--mono); color: var(--t1); }
+.app[data-screen="hosts"] .lnk { display: inline; color: var(--goal); font-size: 12px; }
+.app[data-screen="hosts"] .lnk:hover { text-decoration: underline; }
+.app[data-screen="hosts"] .hib { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; color: var(--t3); }
+.app[data-screen="hosts"] .hib:hover { background: var(--f3); color: var(--t1); }
+.app[data-screen="hosts"] .ferr { color: var(--failed-text); font-size: 12px; }
+.app[data-screen="hosts"] .ffoot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.app[data-screen="hosts"] .ffoot span { flex: 1; color: var(--t4); font-size: 12px; }
+
+
+.app[data-screen="hosts"] .tg { position: relative; display: block; width: 30px; height: 18px; border-radius: 9px; background: var(--f4); }
+.app[data-screen="hosts"] .tg i { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 7px; background: #fff; transition: transform 0.15s ease-out; }
+.app[data-screen="hosts"] .tg.on { background: var(--success); }
+.app[data-screen="hosts"] .tg.on i { transform: translateX(12px); }
+.app[data-screen="hosts"] .sseg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--f2); }
+.app[data-screen="hosts"] .sseg button { height: 24px; padding: 0 11px; border-radius: 6px; color: var(--t2); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.app[data-screen="hosts"] .sseg button.on { background: var(--surface-solid); color: var(--t1); box-shadow: 0 1px 2px #0000004d, inset 0 0 0 0.5px var(--sep2); }
+.app[data-screen="hosts"] .rel { position: relative; display: flex; }
+.app[data-screen="hosts"] .spop { position: absolute; top: 30px; right: 0; z-index: 6; display: flex; flex-direction: column; min-width: 190px; max-height: 260px; overflow-y: auto; padding: 4px; border-radius: 10px; background: var(--popover); box-shadow: inset 0 0 0 0.5px var(--sep2), 0 12px 32px #00000066; }
+.app[data-screen="hosts"] .spop button { justify-content: space-between; gap: 10px; height: 28px; padding: 0 9px; border-radius: 6px; font-size: 13px; }
+.app[data-screen="hosts"] .spop button:hover { background: var(--f3); }
+.app[data-screen="hosts"] .spop button.on { font-weight: 600; }
+.app[data-screen="hosts"] .stepper { display: flex; align-items: center; height: 26px; border-radius: 7px; background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--sep2); font-size: 12.5px; font-weight: 500; }
+.app[data-screen="hosts"] .stepper button { justify-content: center; width: 26px; height: 26px; color: var(--t2); font-size: 15px; }
+.app[data-screen="hosts"] .stepper button:hover:not(:disabled) { background: var(--f3); color: var(--t1); }
+.app[data-screen="hosts"] .stepper button:disabled { opacity: 0.35; cursor: default; }
+.app[data-screen="hosts"] .stepper span { min-width: 44px; text-align: center; }
+.app[data-screen="hosts"] .slide { display: flex; align-items: center; gap: 10px; }
+.app[data-screen="hosts"] .slide input { width: 150px; accent-color: var(--t1); }
+.app[data-screen="hosts"] .slide span { width: 34px; color: var(--t2); font-size: 12.5px; text-align: right; }
+.app[data-screen="hosts"] .sw { display: flex; gap: 8px; }
+.app[data-screen="hosts"] .sw button { width: 18px; height: 18px; border-radius: 9px; background: var(--c); }
+.app[data-screen="hosts"] .sw button.on { box-shadow: 0 0 0 2px #121212, 0 0 0 3.5px var(--c); }
+.app[data-screen="hosts"] .btns { display: flex; gap: 6px; }
+.app[data-screen="hosts"] .swc { display: flex; align-items: center; }
+
+
+.app[data-screen="hosts"] .provs { display: flex; flex-direction: column; }
+.app[data-screen="hosts"] .prov { display: flex; align-items: center; gap: 12px; padding: 9px 14px; color: var(--t4); }
+.app[data-screen="hosts"] .prov .htext b { color: var(--t1); }
+.app[data-screen="hosts"] .prov.top { border-top: 0.5px solid var(--sep); }
+.app[data-screen="hosts"] .prov .swc { margin-right: 4px; }
+.app[data-screen="hosts"] .sfoot { display: flex; justify-content: center; padding-top: 6px; }
+.app[data-screen="hosts"] .resetb { gap: 7px; height: 28px; padding: 0 12px; border-radius: 8px; color: var(--t3); font-size: 12.5px; }
+.app[data-screen="hosts"] .resetb:hover { background: var(--f2); color: var(--t1); }
+
+
+.app[data-screen="hosts"] .sscrim { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; background: #00000066; }
+.app[data-screen="hosts"] .sscrim.clear { z-index: 5; background: none; }
+.app[data-screen="hosts"] .sdlg { width: 500px; padding: 20px; border-radius: 14px; background: var(--popover); box-shadow: inset 0 0 0 0.5px var(--sep2), 0 24px 64px #00000099; }
+.app[data-screen="hosts"] .sdlg > b { display: block; margin-bottom: 10px; font-size: 15px; font-weight: 600; }
+.app[data-screen="hosts"] .sdlg ul { margin: 0 0 16px; padding-left: 18px; color: var(--t2); font-size: 13px; line-height: 1.55; }
+.app[data-screen="hosts"] .dbtn { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.app[data-screen="hosts"] .prov.off .htext b { color: var(--t4); }
