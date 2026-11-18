@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support — Anywhere</title>
+  <meta name="description" content="Help for Anywhere – Agent Remote: GitHub issues, pairing the iPhone with your Mac, and the README.">
+  <link rel="canonical" href="https://getanywhere.dev/support">
+  <link rel="icon" href="/assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc">
+  <div class="backdrop" aria-hidden="true"></div>
+
+  <header class="nav glass-light">
+    <a class="brand" href="/"><img src="/assets/icon.png" alt="" width="26" height="26">Anywhere</a>
+    <nav>
+      <a href="/#features">Features</a>
+      <a href="https://github.com/mingo023/anywhere">GitHub</a>
+      <a href="https://github.com/mingo023/anywhere/releases">Releases</a>
+    </nav>
+    <a class="btn primary small" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+  </header>
+
+  <main class="doc-main">
+    <article>
+      <h1>Support</h1>
+      <p>Anywhere on your iPhone or iPad pairs with Anywhere on your Mac. The two talk over Tailscale.</p>
+
+      <h2>Get help</h2>
+      <p>Open an issue at <a href="https://github.com/mingo023/anywhere/issues">github.com/mingo023/anywhere/issues</a>. Install, the agents the Mac app runs, and the phone app are in the <a href="https://github.com/mingo023/anywhere#ios">README</a>.</p>
+
+      <h2>Pairing</h2>
+      <ul>
+        <li>Install <a href="https://apps.apple.com/app/tailscale/id1470499037">Tailscale</a> on the iPhone and the Mac, and connect both. The phone app does not include Tailscale.</li>
+        <li>On the Mac, open Anywhere → Settings → Phone → Pair a phone. The QR code lasts 5 minutes.</li>
+        <li>On the iPhone, scan that code. Or choose Enter code instead, and type the Mac's Tailscale address and the code. Leave the port out and the app uses 4517.</li>
+        <li>If the phone can't reach the Mac, check that Tailscale is connected on both and that the Mac is awake.</li>
+      </ul>
+
+      <h2>Privacy</h2>
+      <p>How the app handles data is in the <a href="/privacy">privacy policy</a>.</p>
+    </article>
+  </main>
+
+  <footer class="footer">
+    <span>Anywhere</span>
+    <nav>
+      <a href="https://github.com/mingo023/anywhere">GitHub</a>
+      <a href="https://github.com/mingo023/anywhere/releases">Releases</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/support" aria-current="page">Support</a>
+    </nav>
+  </footer>
+</body>
+</html>
