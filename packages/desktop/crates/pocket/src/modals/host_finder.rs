@@ -44,11 +44,12 @@ pub(crate) struct HostFinder {
     scrolls: HashMap<String, UniformListScrollHandle>,
     preview_scroll: UniformListScrollHandle,
     host_menu: bool,
+    opened: usize,
 }
 
 impl HostFinder {
     pub fn new(cx: &mut App) -> Self {
-        Self { finder: None, opener: Opener::AddProject, focus: cx.focus_handle(), scrolls: HashMap::new(), preview_scroll: UniformListScrollHandle::new(), host_menu: false }
+        Self { finder: None, opener: Opener::AddProject, focus: cx.focus_handle(), scrolls: HashMap::new(), preview_scroll: UniformListScrollHandle::new(), host_menu: false, opened: 0 }
     }
 
     fn scroll(&mut self, dir: &str) -> UniformListScrollHandle {
@@ -64,13 +65,21 @@ impl Desktop {
         hf.opener = opener;
         hf.host_menu = false;
         hf.scrolls.clear();
+        hf.opened += 1;
+        let opened = hf.opened;
         window.focus(&hf.focus, cx);
         cx.notify();
-        let Some(client) = remote::connected(&host) else { return };
+        let Some(client) = remote::connected(&host) else {
+            if let Some(f) = self.host_finder.finder.as_mut() {
+                f.error = Some("Not connected to this host. Reconnect it, then open the folder again.".into());
+            }
+            return;
+        };
         cx.spawn(async move |this, cx| {
             let home = cx.background_executor().spawn(async move { client.status().map(|s| s.user_home.replace('\\', "/")) }).await;
             this.update(cx, |d, cx| {
-                let Some(f) = d.host_finder.finder.as_mut().filter(|f| f.host == host) else { return };
+                // A finder closed and opened again on the same host must not take the first one's reply.
+                let Some(f) = d.host_finder.finder.as_mut().filter(|_| d.host_finder.opened == opened) else { return };
                 match home {
                     Ok(home) => f.homed(home, start),
                     Err(e) => f.error = Some(e.to_string()),

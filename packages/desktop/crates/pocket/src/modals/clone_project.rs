@@ -179,7 +179,7 @@ impl Desktop {
         if !self.clone_form.path_edited {
             let home = self.clone_home();
             let host = self.clone_form.machine.host().map(str::to_string);
-            let root = home.as_deref().map(|h| self.clone_form.root.clone().unwrap_or_else(|| default_root(host.as_deref(), h, &self.store.clone_root(h))));
+            let root = self.clone_form.root.clone().or_else(|| home.as_deref().map(|h| default_root(host.as_deref(), h, &self.store.clone_root(h))));
             let shown = |path: &str| tilde_in(path, home.as_deref().unwrap_or_default());
             let dest = root.as_deref().zip(parse_repo(&self.clone_form.url.read(cx).value())).map(|(root, r)| shown(&format!("{root}/{}", r.name))).unwrap_or_default();
             let placeholder = root.map_or_else(String::new, |root| format!("{}/repo", shown(&root)));
