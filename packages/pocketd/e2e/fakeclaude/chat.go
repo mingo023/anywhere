@@ -174,6 +174,8 @@ func (c *chatter) turn(text string) {
 		failed = c.slow(model, "done")
 	case strings.HasPrefix(text, "mcp "):
 		c.reply(model, callMCP(strings.TrimPrefix(text, "mcp ")))
+	case strings.HasPrefix(text, "env "):
+		c.reply(model, os.Getenv(strings.TrimPrefix(text, "env ")))
 	case strings.HasPrefix(text, "slow "):
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
 	case strings.HasPrefix(text, "await "):
