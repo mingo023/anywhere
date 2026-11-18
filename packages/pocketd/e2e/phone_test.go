@@ -21,6 +21,11 @@ type Phone struct {
 	ws *websocket.Conn
 }
 
+type Task struct {
+	Text   string `json:"text"`
+	Status string `json:"status"`
+}
+
 type Message struct {
 	Type    string `json:"type"`
 	ID      string `json:"id"`
@@ -69,6 +74,7 @@ type Message struct {
 			Status string `json:"status"`
 			Output string `json:"output"`
 		} `json:"call"`
+		Items []Task `json:"items"`
 	} `json:"item"`
 	Request struct {
 		RequestID string `json:"requestId"`

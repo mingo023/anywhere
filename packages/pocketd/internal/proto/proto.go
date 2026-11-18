@@ -121,6 +121,8 @@ type ToolCall struct {
 }
 
 type TaskItem struct {
+	// ID is Claude's id for a task of its TaskCreate, so a restored timeline can apply later TaskUpdates.
+	ID     string `json:"id,omitempty"`
 	Text   string `json:"text"`
 	Status string `json:"status"`
 }

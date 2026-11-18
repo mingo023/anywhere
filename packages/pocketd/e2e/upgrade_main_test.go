@@ -128,7 +128,13 @@ func TestAnUpgradeFromMainKeepsEverySessionAndMainPutBackRestoresTheTerminals(t 
 	sessionsListed(h, again, chat, inTerm)
 	for _, id := range []string{chat, inTerm} {
 		h.eventually("the history after the upgrade", func() bool { return hasReply(again, id, "before") })
-		again.Prompt(id, "after")
+		// The session is adopted again a moment after its history shows; until then a prompt is refused.
+		h.eventually("the session takes a prompt", func() bool {
+			again.Prompt(id, "after")
+			return again.WaitFor("the prompt's answer", func(m Message) bool {
+				return m.ID == "prompt-after" && (m.Type == "ack" || m.Type == "error")
+			}).Type == "ack"
+		})
 		h.eventually("the reply after the upgrade", func() bool { return hasReply(again, id, "after") })
 	}
 

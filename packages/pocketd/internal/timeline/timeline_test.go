@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -49,6 +50,105 @@ func TestTodoWriteBecomesTasksAndSwallowsItsResult(t *testing.T) {
 	}
 	if _, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "t1", OK: true}, 2); ok {
 		t.Fatal("folded tool_end produced an item")
+	}
+}
+
+func TestClaudesTaskToolsBecomeTasks(t *testing.T) {
+	tl := New()
+	create := func(id, subject, out string) (proto.Item, bool) {
+		tl.Apply(Event{Kind: "tool_start", ToolUseID: id, Name: "TaskCreate", Input: json.RawMessage(`{"subject":"` + subject + `","description":"d","activeForm":"a"}`)}, 1)
+		return tl.Apply(Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: str(out)}, 2)
+	}
+	update := func(id, input string) (proto.Item, bool) {
+		if it, ok := tl.Apply(Event{Kind: "tool_start", ToolUseID: id, Name: "TaskUpdate", Input: json.RawMessage(input)}, 3); ok {
+			t.Fatalf("TaskUpdate start produced %+v", it)
+		}
+		return tl.Apply(Event{Kind: "tool_end", ToolUseID: id, OK: true, Output: str("Updated task status")}, 4)
+	}
+	create("c1", "read", "Task #1 created successfully: read")
+	create("c2", "fix", "Task #2 created successfully: fix")
+	it, _ := create("c3", "ship", "Task #3 created successfully: ship")
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "pending"}, {ID: "2", Text: "fix", Status: "pending"}, {ID: "3", Text: "ship", Status: "pending"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("after creates: %+v", it)
+	}
+	update("u1", `{"taskId":"1","status":"completed"}`)
+	update("u2", `{"taskId":"2","status":"in_progress","subject":"fix it"}`)
+	it, _ = update("u3", `{"taskId":"3","status":"deleted"}`)
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "completed"}, {ID: "2", Text: "fix it", Status: "in_progress"}}; it.Kind != "tasks" || !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("after updates: %+v", it)
+	}
+}
+
+func TestATaskUpdateThatChangesNothingShownAddsNoTasks(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c1", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"read"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "c1", OK: true, Output: str("Task #1 created successfully: read")}, 2)
+	for _, input := range []string{`{"taskId":"1","owner":"bob"}`, `{"taskId":"1","status":"pending"}`, `{"taskId":"1","status":"bogus"}`} {
+		tl.Apply(Event{Kind: "tool_start", ToolUseID: "u1", Name: "TaskUpdate", Input: json.RawMessage(input)}, 3)
+		if it, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "u1", OK: true}, 4); ok {
+			t.Fatalf("%s produced %+v", input, it)
+		}
+	}
+}
+
+func TestAFailedTaskUpdateLeavesTheTaskAsItWas(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c1", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"read"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "c1", OK: true, Output: str("Task #1 created successfully: read")}, 2)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "u1", Name: "TaskUpdate", Input: json.RawMessage(`{"taskId":"1","status":"deleted"}`)}, 3)
+	if _, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "u1", OK: false, Output: str("interrupted")}, 4); ok {
+		t.Fatal("failed TaskUpdate produced an item")
+	}
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "u2", Name: "TaskUpdate", Input: json.RawMessage(`{"taskId":"1","status":"completed"}`)}, 5)
+	it, _ := tl.Apply(Event{Kind: "tool_end", ToolUseID: "u2", OK: true}, 6)
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "completed"}}; !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("%+v", it.Tasks)
+	}
+}
+
+func TestARestoredTimelineKeepsClaudesTasks(t *testing.T) {
+	old := New()
+	for n, subject := range []string{"read", "fix"} {
+		id := strconv.Itoa(n + 1)
+		old.Apply(Event{Kind: "tool_start", ToolUseID: "c" + id, Name: "TaskCreate", Input: json.RawMessage(`{"subject":"` + subject + `"}`)}, 1)
+		old.Apply(Event{Kind: "tool_end", ToolUseID: "c" + id, OK: true, Output: str("Task #" + id + " created successfully: " + subject)}, 2)
+	}
+	old.Apply(Event{Kind: "tool_start", ToolUseID: "w1", Name: "TodoWrite", Input: json.RawMessage(`{"todos":[{"content":"other","status":"pending"}]}`)}, 2)
+	page, _ := old.Page(0, 100)
+	raw, _ := json.Marshal(page)
+	var stored []proto.Item
+	_ = json.Unmarshal(raw, &stored)
+
+	tl := New()
+	tl.Load(stored)
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "u1", Name: "TaskUpdate", Input: json.RawMessage(`{"taskId":"1","status":"completed"}`)}, 3)
+	it, _ := tl.Apply(Event{Kind: "tool_end", ToolUseID: "u1", OK: true}, 4)
+	if want := []proto.TaskItem{{ID: "1", Text: "read", Status: "completed"}, {ID: "2", Text: "fix", Status: "pending"}}; !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("%+v", it.Tasks)
+	}
+}
+
+func TestAFailedTaskCreateOrAnUpdateOfAnUnknownTaskAddsNoTask(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c1", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"read"}`)}, 1)
+	if _, ok := tl.Apply(Event{Kind: "tool_end", ToolUseID: "c1", OK: false, Output: str("Error: no task list")}, 2); ok {
+		t.Fatal("failed TaskCreate produced an item")
+	}
+	it, _ := tl.Apply(Event{Kind: "tool_start", ToolUseID: "u1", Name: "TaskUpdate", Input: json.RawMessage(`{"taskId":"7","status":"completed"}`)}, 3)
+	if it.Kind != "tool" {
+		t.Fatalf("update of an unknown task: %+v", it)
+	}
+}
+
+func TestClearForgetsClaudesTasks(t *testing.T) {
+	tl := New()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c1", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"old"}`)}, 1)
+	tl.Apply(Event{Kind: "tool_end", ToolUseID: "c1", OK: true, Output: str("Task #1 created successfully: old")}, 2)
+	tl.Clear()
+	tl.Apply(Event{Kind: "tool_start", ToolUseID: "c2", Name: "TaskCreate", Input: json.RawMessage(`{"subject":"new"}`)}, 3)
+	it, _ := tl.Apply(Event{Kind: "tool_end", ToolUseID: "c2", OK: true, Output: str("Task #1 created successfully: new")}, 4)
+	if want := []proto.TaskItem{{ID: "1", Text: "new", Status: "pending"}}; !reflect.DeepEqual(it.Tasks, want) {
+		t.Fatalf("%+v", it.Tasks)
 	}
 }
 

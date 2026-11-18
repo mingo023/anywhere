@@ -64,6 +64,10 @@ type Timeline struct {
 	drafts map[string][]int
 	// draft names the streamed block each open draft item grows from.
 	draft map[int]string
+	// claudeTasks is the list Claude's TaskCreate and TaskUpdate keep, oldest first.
+	claudeTasks []proto.TaskItem
+	// taskCalls holds the TaskCreate and TaskUpdate calls waiting on their result, which names a new task's id.
+	taskCalls map[string]Event
 }
 
 func New() *Timeline {
@@ -77,6 +81,8 @@ func (t *Timeline) forget() {
 	t.lasting = map[string]bool{}
 	t.detached = map[string]bool{}
 	t.tasks = map[string]int{}
+	t.claudeTasks = nil
+	t.taskCalls = map[string]Event{}
 	t.closeDrafts()
 }
 
@@ -144,6 +150,10 @@ func (t *Timeline) Load(items []proto.Item) {
 		t.seq = max(t.seq, it.Seq)
 		if it.Kind == "tool" && it.Call != nil && it.Call.Status == "running" {
 			t.tools[it.Call.ToolUseID] = i
+		}
+		// A TodoWrite card has no ids and leaves Claude's list alone, as it does live.
+		if it.Kind == "tasks" && (len(it.Tasks) == 0 || it.Tasks[0].ID != "") {
+			t.claudeTasks = slices.Clone(it.Tasks)
 		}
 	}
 	t.epoch++
@@ -371,6 +381,11 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 				return t.append(proto.Item{Kind: "tasks", Tasks: tasks}, e.ParentToolUseID, ts), true
 			}
 		}
+		if e.Name == "TaskCreate" || e.Name == "TaskUpdate" && t.claudeTask(e.Input) >= 0 {
+			t.folded[e.ToolUseID] = true
+			t.taskCalls[e.ToolUseID] = e
+			return proto.Item{}, false
+		}
 		if e.Name == "ExitPlanMode" {
 			if plan, ok := planText(e.Input); ok {
 				t.folded[e.ToolUseID] = true
@@ -451,6 +466,13 @@ func (t *Timeline) Apply(e Event, ts int64) (proto.Item, bool) {
 		return t.items[n], true
 
 	case "tool_end":
+		if call, ok := t.taskCalls[e.ToolUseID]; ok {
+			delete(t.taskCalls, e.ToolUseID)
+			if !e.OK || !t.applyTaskCall(call, e.Output) {
+				return proto.Item{}, false
+			}
+			return t.appendClaudeTasks(e.ParentToolUseID, ts), true
+		}
 		// An agent's later run names the SendMessage that resumed it, so its task, not the call named, says which call ends.
 		if n, ok := t.tasks[e.TaskID]; ok {
 			named := e.ToolUseID != ""
@@ -718,6 +740,60 @@ func taskItems(raw json.RawMessage) ([]proto.TaskItem, bool) {
 		items[n] = proto.TaskItem{Text: entry.get("content"), Status: status}
 	}
 	return items, true
+}
+
+// createdTaskID is the id in a TaskCreate's result, "Task #3 created successfully: …".
+func createdTaskID(out *string) string {
+	if out == nil {
+		return ""
+	}
+	rest, ok := strings.CutPrefix(*out, "Task #")
+	id, _, created := strings.Cut(rest, " created")
+	if !ok || !created {
+		return ""
+	}
+	return id
+}
+
+// claudeTask is the index of the task a TaskUpdate names, or -1.
+func (t *Timeline) claudeTask(raw json.RawMessage) int {
+	var in toolInput
+	_ = json.Unmarshal(raw, &in)
+	return slices.IndexFunc(t.claudeTasks, func(c proto.TaskItem) bool { return c.ID == in.get("taskId") })
+}
+
+// applyTaskCall applies a TaskCreate or TaskUpdate that succeeded, reporting whether the list changed.
+func (t *Timeline) applyTaskCall(call Event, out *string) bool {
+	var in toolInput
+	_ = json.Unmarshal(call.Input, &in)
+	if call.Name == "TaskCreate" {
+		id := createdTaskID(out)
+		if id == "" {
+			return false
+		}
+		t.claudeTasks = append(t.claudeTasks, proto.TaskItem{ID: id, Text: in.get("subject"), Status: "pending"})
+		return true
+	}
+	i := t.claudeTask(call.Input)
+	if i < 0 {
+		return false
+	}
+	was := t.claudeTasks[i]
+	switch status := in.get("status"); status {
+	case "deleted":
+		t.claudeTasks = slices.Delete(t.claudeTasks, i, i+1)
+		return true
+	case "pending", "in_progress", "completed":
+		t.claudeTasks[i].Status = status
+	}
+	if subject := in.get("subject"); subject != "" {
+		t.claudeTasks[i].Text = subject
+	}
+	return t.claudeTasks[i] != was
+}
+
+func (t *Timeline) appendClaudeTasks(parent string, ts int64) proto.Item {
+	return t.append(proto.Item{Kind: "tasks", Tasks: slices.Clone(t.claudeTasks)}, parent, ts)
 }
 
 func planText(raw json.RawMessage) (string, bool) {

@@ -157,6 +157,20 @@ func runTool(s *session, id, command string, desktop bool) {
 	}
 }
 
+// plan keeps a task list as Claude does: two TaskCreates, then a TaskUpdate finishing the first.
+func plan(s *session, id string) {
+	call := func(use, name string, input map[string]any, result string) {
+		s.write(assistant(map[string]any{"type": "tool_use", "id": use, "name": name, "input": input}))
+		s.write(toolResult(use, result, false))
+	}
+	for n, subject := range []string{"Read the code", "Fix it"} {
+		call(fmt.Sprintf("%s_create%d", id, n+1), "TaskCreate", map[string]any{"subject": subject, "description": subject, "activeForm": subject},
+			fmt.Sprintf("Task #%d created successfully: %s", n+1, subject))
+	}
+	call(id+"_update", "TaskUpdate", map[string]any{"taskId": "1", "status": "completed"}, "Updated task #1 status")
+	fmt.Println("planned")
+}
+
 func main() {
 	if slices.Contains(os.Args, "--input-format") {
 		chat()
@@ -192,6 +206,8 @@ func main() {
 			runTool(s, id, strings.TrimPrefix(line, "run "), false)
 		case strings.HasPrefix(line, "desk "):
 			runTool(s, id, strings.TrimPrefix(line, "desk "), true)
+		case line == "plan":
+			plan(s, id)
 		case line == "hang":
 			time.Sleep(time.Hour)
 		default:
