@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.48
+
+- A new chat starts its first turn within a second of Send (#272): (133225fc)
+- Claude's task list shows as the Tasks card again (#273): (b6020b68)
+
 ## 0.1.47
 
 - A chat delegates work to other sessions through a pocketd orchestrator over MCP (#268): (5f85116e)
