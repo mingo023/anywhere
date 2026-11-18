@@ -223,10 +223,7 @@ impl Desktop {
                 (c, r)
             }).collect();
             let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, at, open, shown)| (p, diff::read_diff(&cwd, path, at, open, options, &shown))).collect()).unwrap_or_default();
-            let tree: HashMap<PathBuf, Vec<(bool, PathBuf)>> = dirs.into_iter().map(|d| {
-                let listing = util::list_dir(&d, &shown);
-                (d, listing)
-            }).collect();
+            let tree = util::list_dirs(dirs, &shown);
             let (projects, unread): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| readable(p));
             let worktrees: HashMap<String, Vec<git::Worktree>> = projects.into_iter().map(|p| {
                 let w = git::worktrees(&hosts::runner_for(&p), &p);
@@ -371,7 +368,8 @@ fn readable(p: &str) -> bool {
     hosts::split(p).0.is_none_or(|h| hosts::remote::connected(h).is_some())
 }
 
-/// Applies `read`, keeping folders it skipped so switching back shows them at once. Returns whether anything changed.
+/// Applies `read`, keeping folders it skipped so switching back shows them at once, and those on a host that went offline,
+/// whose failed read says nothing about the repo. Returns whether anything changed.
 fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo>)>) -> bool {
     let mut changed = false;
     for (cwd, repo) in read {
@@ -381,6 +379,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
                 true
             }
             Some(_) => false,
+            None if !readable(&cwd) => false,
             None => repos.remove(&cwd).is_some(),
         };
     }
@@ -393,6 +392,13 @@ mod tests {
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
+    }
+
+    #[test]
+    fn a_host_that_cannot_be_reached_keeps_the_repo_it_showed() {
+        let mut repos = HashMap::from([("//devbox/home/me/app".to_string(), repo("main"))]);
+        assert!(!merge_repos(&mut repos, vec![("//devbox/home/me/app".into(), None)]));
+        assert_eq!(repos["//devbox/home/me/app"].branch, "main");
     }
 
     #[test]
