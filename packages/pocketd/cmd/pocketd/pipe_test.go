@@ -6,14 +6,19 @@ import (
 )
 
 func TestAChatAgentHoldsItsFirstTurnForMCPServersAtMostASecond(t *testing.T) {
-	got := agentEnv([]string{"HOME=/h"})
-	if want := []string{"HOME=/h", "CLAUDE_CODE_MCP_STARTUP_WAIT_MS=1000"}; !slices.Equal(got, want) {
-		t.Fatalf("env = %v, want %v", got, want)
+	if got := agentEnv([]string{"HOME=/h"}); !slices.Contains(got, "CLAUDE_CODE_MCP_STARTUP_WAIT_MS=1000") {
+		t.Fatalf("env = %v", got)
 	}
 }
 
-func TestAStartupWaitTheUserSetIsKept(t *testing.T) {
-	env := []string{"CLAUDE_CODE_MCP_STARTUP_WAIT_MS=5000", "HOME=/h"}
+func TestAChatAgentHasClaudesTaskTools(t *testing.T) {
+	if got := agentEnv([]string{"HOME=/h"}); !slices.Contains(got, "CLAUDE_CODE_ENABLE_TODO_TOOLS=1") {
+		t.Fatalf("env = %v", got)
+	}
+}
+
+func TestWhatTheUserSetIsKept(t *testing.T) {
+	env := []string{"CLAUDE_CODE_MCP_STARTUP_WAIT_MS=5000", "CLAUDE_CODE_ENABLE_TODO_TOOLS=0", "HOME=/h"}
 	if got := agentEnv(env); !slices.Equal(got, env) {
 		t.Fatalf("env = %v", got)
 	}
