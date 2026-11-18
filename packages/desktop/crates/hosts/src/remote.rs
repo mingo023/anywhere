@@ -67,13 +67,20 @@ struct Conn {
     waiters: Waiters,
 }
 
+impl Conn {
+    /// The reader thread holds a clone of the socket, which stays open until it's shut.
+    fn close(&self) {
+        let _ = self.stream.shutdown(Shutdown::Both);
+    }
+
+    fn idle(&self) -> bool {
+        self.waiters.lock().unwrap().as_ref().is_none_or(|w| w.is_empty())
+    }
+}
+
 impl Drop for Client {
-    /// The reader thread holds a clone of the socket, which stays open until it's shut. A connection `call` drops
-    /// is left open, as calls already sent on it may still get their replies.
     fn drop(&mut self) {
-        if let Some(c) = self.conn.get_mut().unwrap().as_ref() {
-            let _ = c.stream.shutdown(Shutdown::Both);
-        }
+        self.conn.get_mut().unwrap().iter().chain(self.retired.get_mut().unwrap().iter()).for_each(Conn::close);
     }
 }
 
@@ -86,6 +93,8 @@ pub struct Client {
     /// An exec's cwd when it names none; `/` isn't absolute on Windows, so there it's the home `status` gave.
     root: OnceLock<String>,
     home: OnceLock<String>,
+    /// Connections a failed write retired, left open until the calls already sent on them are answered or give up.
+    retired: Mutex<Vec<Conn>>,
     /// Held across `sync_registry`'s read and write, so two creates don't drop each other's projects.
     registry: Mutex<()>,
 }
@@ -96,7 +105,7 @@ impl Client {
     }
 
     pub fn to(id: &str, endpoint: Endpoint) -> Self {
-        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), registry: Mutex::default() }
+        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), retired: Mutex::default(), registry: Mutex::default() }
     }
 
     pub fn id(&self) -> &str {
@@ -121,7 +130,7 @@ impl Client {
         let id = self.next.fetch_add(1, Ordering::Relaxed).to_string();
         op["id"] = id.clone().into();
         let (tx, rx) = mpsc::channel();
-        {
+        let waiters = {
             let mut conn = self.conn.lock().unwrap();
             if conn.as_ref().is_some_and(|c| c.waiters.lock().unwrap().is_none()) {
                 *conn = None;
@@ -132,24 +141,38 @@ impl Client {
             };
             open.waiters.lock().unwrap().get_or_insert_default().insert(id.clone(), tx);
             if let Err(e) = writeln!(open.stream, "{op}") {
-                *conn = None;
+                open.waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
+                self.retire(conn.take());
                 return Err(e);
             }
-        }
+            open.waiters.clone()
+        };
         let reply = rx.recv_timeout(timeout).map_err(|e| match e {
             mpsc::RecvTimeoutError::Timeout => io::Error::new(ErrorKind::TimedOut, "host did not answer in time"),
             mpsc::RecvTimeoutError::Disconnected => io::Error::new(ErrorKind::ConnectionAborted, "lost the host"),
         });
-        if reply.is_err()
-            && let Some(c) = self.conn.lock().unwrap().as_ref()
-        {
-            c.waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
+        if reply.is_err() {
+            waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
         }
+        self.retire(None);
         let reply = reply?;
         if reply["ev"] == "error" {
             return Err(io::Error::other(reply["error"].as_str().unwrap_or("host refused").to_string()));
         }
         Ok(reply)
+    }
+
+    /// Adds `conn` to the retired ones and closes those with no call left waiting.
+    fn retire(&self, conn: Option<Conn>) {
+        let mut retired = self.retired.lock().unwrap();
+        retired.extend(conn);
+        retired.retain(|c| {
+            let idle = c.idle();
+            if idle {
+                c.close();
+            }
+            !idle
+        });
     }
 
     fn fs(&self, op: &str, fields: Value) -> io::Result<Value> {
@@ -517,9 +540,10 @@ mod tests {
     }
 
     #[test]
-    fn a_write_that_times_out_leaves_the_calls_in_flight_their_replies() {
+    fn a_write_that_times_out_leaves_the_calls_in_flight_their_replies_then_closes() {
         let sock = temp_sock("inflight");
         let listener = UnixListener::bind(&sock).unwrap();
+        let (closed_tx, closed) = mpsc::channel();
         std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut writer = stream.try_clone().unwrap();
@@ -528,7 +552,8 @@ mod tests {
             let msg: Value = serde_json::from_str(&first).unwrap();
             std::thread::sleep(Duration::from_millis(1000));
             writeln!(writer, "{}", json!({"ev": "exec", "id": msg["id"]})).unwrap();
-            std::thread::sleep(Duration::from_secs(3));
+            let _ = std::io::copy(&mut &stream, &mut std::io::sink());
+            let _ = closed_tx.send(());
         });
         let client = Arc::new(Client::new("devbox", sock.clone()));
         *client.conn.lock().unwrap() = Some(open(&client.endpoint, Duration::from_millis(300)).unwrap());
@@ -539,6 +564,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
         assert!(client.exec("/", &["cat"], Some(&vec![b'x'; 16 << 20]), Duration::from_secs(5)).is_err());
         assert!(slow.join().unwrap().is_ok(), "the slow call lost its reply");
+        assert!(closed.recv_timeout(Duration::from_secs(2)).is_ok(), "the dropped connection was never closed");
         let _ = std::fs::remove_file(sock);
     }
 
