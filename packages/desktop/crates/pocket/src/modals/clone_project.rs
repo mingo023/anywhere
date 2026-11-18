@@ -161,7 +161,7 @@ impl Desktop {
         let Space::Host(id) = self.clone_form.machine.clone() else { return };
         let Some(client) = remote::connected(&id).filter(|_| !self.clone_form.homes.contains_key(&id)) else { return };
         cx.spawn_in(window, async move |this, cx| {
-            let home = cx.background_executor().spawn(async move { client.status().map(|s| s.user_home.replace('\\', "/")) }).await;
+            let home = cx.background_executor().spawn(async move { client.home() }).await;
             this.update_in(cx, |d, window, cx| {
                 if let Ok(home) = home {
                     d.clone_form.homes.insert(id, home);

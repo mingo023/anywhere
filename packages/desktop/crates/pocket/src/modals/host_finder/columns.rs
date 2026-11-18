@@ -63,7 +63,9 @@ impl Desktop {
                                 .h(px(ROW))
                                 .px(px(5.))
                                 .child(
+                                    // GPUI repaints a hover only on an element with an id.
                                     div()
+                                        .id(("finder-row-fill", r))
                                         .size_full()
                                         .px(px(7.))
                                         .flex()
