@@ -169,10 +169,10 @@ impl Endpoint {
         let stream = UnixStream::connect(&self.path).map_err(|e| e.to_string())?;
         let Some(token) = &self.token else { return Ok(stream) };
         stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
-        writeln!(&stream, "{}", json!({"op": "auth", "token": token})).map_err(|e| e.to_string())?;
+        writeln!(&stream, "{}", json!({"op": "auth", "token": token})).map_err(auth_error)?;
         let mut line = Vec::new();
         for byte in (&stream).bytes() {
-            match byte.map_err(|e| e.to_string())? {
+            match byte.map_err(auth_error)? {
                 b'\n' => break,
                 b => line.push(b),
             }
@@ -186,6 +186,14 @@ impl Endpoint {
         }
         stream.set_read_timeout(None).map_err(|e| e.to_string())?;
         Ok(stream)
+    }
+}
+
+/// A timeout reads as "Resource temporarily unavailable (os error 35)" otherwise.
+fn auth_error(e: std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => "pocketd didn't answer in time".into(),
+        _ => e.to_string(),
     }
 }
 
@@ -905,6 +913,14 @@ mod tests {
         assert_eq!(next(&mut rx), "spawned");
         assert!(d.send(json!({"op": "list"})));
         assert_eq!(read_line(&peer), json!({"op": "list"}));
+    }
+
+    #[test]
+    fn a_pocketd_that_doesnt_answer_the_token_in_time_says_so() {
+        let path = sock("silent");
+        let _ln = UnixListener::bind(&path).unwrap();
+        let endpoint = Endpoint { path, token: Some("t1".into()) };
+        assert_eq!(endpoint.connect(Duration::from_millis(100)).unwrap_err(), "pocketd didn't answer in time");
     }
 
     #[test]
