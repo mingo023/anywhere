@@ -803,6 +803,84 @@ func TestATaskCancelledWhileItsChildLaunchesClosesTheChild(t *testing.T) {
 	}
 }
 
+// delegateTwo has p delegate twice with room for one at a time: child-1 runs and the second task waits.
+func delegateTwo(t *testing.T, s *Store, f *fakeEffector) (*Engine, []Delegation) {
+	t.Helper()
+	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "auto", Status: "working", Project: "proj", Cwd: "/r"})
+	launched := 0
+	f.result = func(e Effect) (map[string]any, error) {
+		if e.Kind == EffLaunch {
+			launched++
+			return map[string]any{"childId": fmt.Sprintf("child-%d", launched)}, nil
+		}
+		return nil, nil
+	}
+	e := NewEngine(s, f)
+	e.Agent = agents
+	e.Limits = func() Limits { return Limits{Depth: 3, PerSession: 1, PerMac: 6} }
+	var tasks []Delegation
+	for _, id := range []string{"d1", "d2"} {
+		r, err := e.Dispatch(NewCommand(id, CmdDelegate, "p", DelegatePayload{Agent: "codex", Brief: id}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var task Delegation
+		json.Unmarshal(r.Result, &task)
+		tasks = append(tasks, task)
+	}
+	waitFor(t, func() bool {
+		ts, _ := s.Delegations(`task_id = ?`, tasks[0].TaskID)
+		return ts[0].Status == TaskWorking
+	})
+	return e, tasks
+}
+
+func TestClosingASessionClosesTheSessionsItDelegatedToAndCancelsItsQueue(t *testing.T) {
+	s := openTest(t)
+	f := &fakeEffector{}
+	e, tasks := delegateTwo(t, s, f)
+	defer e.Close()
+	k := NewSink(s)
+	defer k.Close()
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "p", Provider: "claude", Status: "closed"})
+	waitFor(t, func() bool { return slices.Contains(f.kinds(), EffClose+"@child-1") })
+	for _, task := range tasks {
+		ts, _ := s.Delegations(`task_id = ?`, task.TaskID)
+		if ts[0].Status != TaskCancelled {
+			t.Fatalf("task %s: status %s", task.TaskID, ts[0].Status)
+		}
+	}
+	if slices.Contains(f.kinds(), EffLaunch+"@launch:"+tasks[1].TaskID) {
+		t.Fatal("the queued task launched after its parent closed")
+	}
+}
+
+func TestAStoppingPocketdLeavesTheChildrenOfTheSessionsItEnds(t *testing.T) {
+	s := openTest(t)
+	f := &fakeEffector{}
+	e, tasks := delegateTwo(t, s, f)
+	e.Pause()
+	heard := make(chan struct{})
+	e.OnClosed = func(string) { close(heard) }
+	k := NewSink(s)
+	k.OnTurn = e.OnTurn
+	k.Summary(proto.AgentSummary{ID: "p", Provider: "claude", Status: "closed"})
+	select {
+	case <-heard:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the close never reached OnTurn")
+	}
+	k.Close()
+	e.Close()
+	var closes int
+	s.db.QueryRow(`SELECT COUNT(*) FROM outbox WHERE kind = ? AND session_id = 'child-1'`, EffClose).Scan(&closes)
+	ts, _ := s.Delegations(`task_id = ?`, tasks[1].TaskID)
+	if closes != 0 || ts[0].Status != TaskQueued {
+		t.Fatalf("closes of child-1: %d, queued task: %s", closes, ts[0].Status)
+	}
+}
+
 func TestASessionAnAgentStartsTakesItsAccessAndCountsAgainstTheMacLimit(t *testing.T) {
 	s := openTest(t)
 	putSession(t, s, Session{ID: "p", Agent: "claude", Access: "edits", Status: "working", Project: "proj", Cwd: "/r"})
