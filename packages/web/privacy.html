@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Anywhere</title>
+  <meta name="description" content="Privacy policy for Anywhere – Agent Remote, the iPhone and iPad app, and getanywhere.dev.">
+  <link rel="canonical" href="https://getanywhere.dev/privacy">
+  <link rel="icon" href="/assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc">
+  <div class="backdrop" aria-hidden="true"></div>
+
+  <header class="nav glass-light">
+    <a class="brand" href="/"><img src="/assets/icon.png" alt="" width="26" height="26">Anywhere</a>
+    <nav>
+      <a href="/#features">Features</a>
+      <a href="https://github.com/mingo023/anywhere">GitHub</a>
+      <a href="https://github.com/mingo023/anywhere/releases">Releases</a>
+    </nav>
+    <a class="btn primary small" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+  </header>
+
+  <main class="doc-main">
+    <article>
+      <h1>Privacy Policy</h1>
+      <p class="meta">Last updated 18 November 2026</p>
+      <p>This policy covers Anywhere – Agent Remote, the iPhone and iPad app, and this website. The app is the companion to Anywhere on your Mac. It is published by Minh Ngo. The app has no accounts.</p>
+
+      <h2>What stays on your Mac</h2>
+      <p>The phone talks to your own Mac over your Tailscale network. Chat messages, prompts, file contents, diffs, git and GitHub data, photos you attach, and the name of this iPhone or iPad (the name your Mac lists for the paired device) go to that Mac. They are not sent to a server operated by the publisher, except as described under Notifications.</p>
+      <p>The app does not include Tailscale. It connects to your Mac's address on the tailnet. Tailscale is a separate app you install.</p>
+
+      <h2>Notifications</h2>
+      <p>Push notifications and Live Activities go through a relay at <a href="https://push.getanywhere.dev">push.getanywhere.dev</a>, which the publisher operates. The relay holds the app's Apple Push key.</p>
+      <p>The phone sends the relay its APNs device token, and the tokens used for Live Activities. The relay seals each token into a handle and does not store tokens in plaintext. The only record it keeps is rate counters, in memory.</p>
+      <p>Your Mac sends the notifications. The text of an alert is encrypted on the Mac with AES-256-GCM, under a key created on this phone and shared only with that Mac. A Notification Service Extension on the phone decrypts it. Until then, the relay and Apple can read the ciphertext, a fixed banner (the title is "Anywhere", and the body is a status such as "A session needs you"), a badge count, and an opaque id that is not the session's id. The session title, the project, and the line of the alert — which can include what a session asks to run, or the start of a reply — stay inside the ciphertext.</p>
+      <p>Live Activity updates are not encrypted. They include session counts, statuses, one session's id, and, when the Lock Screen can answer that session, a request id. If you turn on Show Commands, they also include the verb and a short subject of the ask. A Live Activity started by push also includes the Mac's name and id, and the same kind of fixed banner. The relay and Apple can read all of that.</p>
+      <p>The relay sees the caller's IP address — the phone's when a token is registered, the Mac's when a notification is sent — and uses it for rate limiting.</p>
+      <p>The default relay is <a href="https://push.getanywhere.dev">https://push.getanywhere.dev</a>. A Mac can use another one with <code>pocketd config set push.relay</code>.</p>
+
+      <h2>Permissions the app may ask for</h2>
+      <ul>
+        <li>Camera: to scan the pairing QR code, and to take a photo you attach in chat.</li>
+        <li>Photos and Files: only when you choose an image to attach. The system picker is used, and the app does not get access to the rest of your library or files. The image goes to your Mac, not to the publisher.</li>
+        <li>Local network: so the app can reach your Mac.</li>
+        <li>Notifications: if you allow them, for session alerts and Live Activities.</li>
+      </ul>
+
+      <h2>What the app does not collect</h2>
+      <p>The iOS app does not include analytics, advertising, or crash-reporting SDKs. It does not use App Tracking Transparency, and it has no sign-in to a publisher account.</p>
+
+      <h2>This website</h2>
+      <p>This site is static files, served by Cloudflare. The shipped pages have no analytics of their own. They load fonts from Google Fonts, so your browser sends that request to Google.</p>
+
+      <h2>Contact</h2>
+      <p>Questions about this policy: open an issue at <a href="https://github.com/mingo023/anywhere/issues">github.com/mingo023/anywhere/issues</a>.</p>
+    </article>
+  </main>
+
+  <footer class="footer">
+    <span>Anywhere</span>
+    <nav>
+      <a href="https://github.com/mingo023/anywhere">GitHub</a>
+      <a href="https://github.com/mingo023/anywhere/releases">Releases</a>
+      <a href="/privacy" aria-current="page">Privacy</a>
+      <a href="/support">Support</a>
+    </nav>
+  </footer>
+</body>
+</html>
