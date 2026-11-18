@@ -1299,8 +1299,12 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
     let sock = sock.to_path_buf();
     std::thread::spawn(move || {
         let mut unanswered = Vec::new();
+        let mut requests = Requests::default();
         loop {
-            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered, HANDSHAKE);
+            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered, &mut requests, HANDSHAKE);
+            for ev in requests.refuse_all(UNSENT) {
+                let _ = tx.unbounded_send(ev);
+            }
             if tx.is_closed() {
                 return;
             }
@@ -1321,7 +1325,7 @@ fn hello(token: Option<&str>) -> Value {
     hello
 }
 
-fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>, handshake: Duration) -> Option<()> {
+fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>, requests: &mut Requests, handshake: Duration) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
     stream.set_read_timeout(Some(handshake)).ok()?;
     stream.set_write_timeout(Some(handshake)).ok()?;
@@ -1334,7 +1338,6 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         ws.send(Message::text(m.to_string())).ok()?;
     }
     let mut known: Vec<String> = Vec::new();
-    let mut requests = Requests::default();
     loop {
         for m in queue.try_iter() {
             if m["type"] == "agent.create" {
@@ -1425,6 +1428,11 @@ impl Requests {
         let i = self.0.iter().position(|m| m["id"] == f.id.as_str())?;
         let m = self.0.remove(i)?;
         if f.kind == "error" { refused(&m, &f.message) } else { None }
+    }
+
+    /// Drains what no answer will ever come for, the link that would have carried it being gone.
+    fn refuse_all(&mut self, reason: &str) -> Vec<Event> {
+        self.0.drain(..).filter_map(|m| refused(&m, reason)).collect()
     }
 }
 
@@ -1815,7 +1823,7 @@ mod tests {
         let (tx, _events) = unbounded();
         let (_out, queue) = channel();
         let (done_tx, done) = std::sync::mpsc::channel();
-        std::thread::spawn(move || done_tx.send(run(&sock, None, &tx, &queue, &mut Vec::new(), Duration::from_millis(200))));
+        std::thread::spawn(move || done_tx.send(run(&sock, None, &tx, &queue, &mut Vec::new(), &mut Requests::default(), Duration::from_millis(200))));
         assert_eq!(done.recv_timeout(Duration::from_secs(2)), Ok(None));
     }
 
@@ -2204,6 +2212,24 @@ mod tests {
         ws.send(Message::text(json!({"type": "agent.update", "agent": {"id": "a1"}}).to_string())).unwrap();
         let mut events = futures::executor::block_on_stream(events);
         assert!(matches!(events.next(), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == second));
+        std::fs::remove_file(&sock).unwrap();
+    }
+
+    #[test]
+    fn a_prompt_or_stop_still_unanswered_when_the_link_drops_fails() {
+        let (server, sock) = pocketd("dropped");
+        let (out, events) = connect(&sock);
+        let mut ws = accept(&server);
+        read(&mut ws);
+        let prompt = out.prompt("a1", "Fix it");
+        out.interrupt("a2");
+        assert_eq!((read(&mut ws)["id"].as_str(), read(&mut ws)["type"].as_str()), (Some(prompt.as_str()), Some("agent.interrupt")));
+        drop(ws);
+        let (tx, failures) = std::sync::mpsc::channel();
+        std::thread::spawn(move || futures::executor::block_on_stream(events).take(2).for_each(|ev| drop(tx.send(ev))));
+        let next =|| failures.recv_timeout(Duration::from_secs(2)).ok();
+        assert!(matches!(next(), Some(Event::PromptFailed { agent, request }) if agent == "a1" && request == prompt));
+        assert!(matches!(next(), Some(Event::InterruptFailed { agent, reason }) if agent == "a2" && reason == UNSENT));
         std::fs::remove_file(&sock).unwrap();
     }
 
