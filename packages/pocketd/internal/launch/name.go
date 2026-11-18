@@ -5,8 +5,10 @@ import (
 	"errors"
 	"log"
 	"path/filepath"
+	"slices"
 	"time"
 
+	"pocketd/internal/accounts"
 	"pocketd/internal/agent"
 	"pocketd/internal/naming"
 	"pocketd/internal/terminal"
@@ -77,6 +79,10 @@ func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 			if n.Title = ownTitle(a); n.Title == "" {
 				return
 			}
+		} else if errors.Is(err, naming.ErrLimit) && l.moveOff(&j) {
+			// Accounts it moved off count as at their limit, so moves end.
+			try--
+			continue
 		} else if err != nil {
 			continue
 		}
@@ -108,6 +114,31 @@ func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 	if p, ok := worktree.Find(l.reg.Load(), j.tree); ok {
 		a.SetLocation(p.Project, p.Worktree, p.Branch, p.Main)
 	}
+}
+
+// moveOff moves j off the account that refused it at a limit, onto the
+// signed-in one with the most left, as an agent at its limit moves; false
+// when switching at a limit is off or every account is at one.
+func (l *Launcher) moveOff(j *job) bool {
+	s := l.d.Accounts
+	if s == nil {
+		return false
+	}
+	from := s.Of(j.provider, j.env)
+	if from == "" {
+		from = accounts.BuiltIn
+	}
+	s.Hit(j.provider, from)
+	if !s.AutoSwitch() {
+		return false
+	}
+	to, ok := s.Best(j.provider, from)
+	if !ok {
+		return false
+	}
+	old := s.Env(j.provider, from)
+	j.env = slices.Concat(slices.DeleteFunc(slices.Clone(j.env), func(kv string) bool { return slices.Contains(old, kv) }), s.Env(j.provider, to))
+	return true
 }
 
 func (l *Launcher) title(a *agent.Agent, claim int, j job, title string) {

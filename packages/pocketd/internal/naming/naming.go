@@ -99,6 +99,9 @@ func Generate(ctx context.Context, argv, env []string) (Result, error) {
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
+		if limited(string(out)) {
+			return Result{}, ErrLimit
+		}
 		return Result{}, err
 	}
 	n, ok := Parse(string(out))
@@ -106,6 +109,11 @@ func Generate(ctx context.Context, argv, env []string) (Result, error) {
 		return Result{}, errors.New("naming: no names in the reply")
 	}
 	return n, nil
+}
+
+// limited is whether out is Claude's refusal at a usage limit: "You've hit your weekly limit · resets …".
+func limited(out string) bool {
+	return strings.HasPrefix(strings.TrimSpace(out), "You've hit your") && strings.Contains(out, "limit")
 }
 
 // Parse takes the last flat JSON object in out that holds a title or branchName.
