@@ -10,7 +10,7 @@ use std::process::{Child, Command, Stdio};
 #[cfg(windows)]
 pub use uds_windows::UnixStream;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub mod cli;
 pub mod service;
@@ -527,6 +527,10 @@ fn spawn_op(cmd: &str, args: Vec<String>, env: Vec<(String, String)>, cwd: &str)
     json!({"op": "spawn", "cmd": cmd, "args": args, "cwd": cwd, "env": env, "cols": 120, "rows": 36})
 }
 
+/// How long a link must stay up before a drop starts the reconnect backoff over.
+const LINK_STABLE: Duration = Duration::from_secs(5);
+const RETRY_MIN: Duration = Duration::from_millis(200);
+
 #[derive(Clone)]
 pub struct Daemon {
     writer: Arc<Mutex<Option<UnixStream>>>,
@@ -545,7 +549,7 @@ impl Daemon {
         let shared = writer.clone();
         std::thread::spawn(move || {
             let link = |ev: &str| tx.unbounded_send(Msg { ev: ev.into(), ..Default::default() }).is_ok();
-            let mut wait = Duration::from_millis(200);
+            let mut wait = RETRY_MIN;
             let mut down = false;
             loop {
                 if let Ok((reader, stream)) = endpoint.connect(Duration::from_secs(5)).and_then(|s| Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))) {
@@ -554,7 +558,7 @@ impl Daemon {
                     if !link("up") {
                         return;
                     }
-                    wait = Duration::from_millis(200);
+                    let up = Instant::now();
                     for line in reader.lines().map_while(Result::ok) {
                         let Ok(msg) = serde_json::from_str::<Msg>(&line) else { continue };
                         if tx.unbounded_send(msg).is_err() {
@@ -562,6 +566,9 @@ impl Daemon {
                         }
                     }
                     *shared.lock().unwrap() = None;
+                    if up.elapsed() >= LINK_STABLE {
+                        wait = RETRY_MIN;
+                    }
                 }
                 if !down {
                     if !link("down") {
@@ -834,6 +841,18 @@ mod tests {
         assert_eq!(next(&mut rx), "up");
         drop(ln.accept().unwrap());
         assert_eq!(next(&mut rx), "down");
+    }
+
+    #[test]
+    fn a_link_that_drops_at_once_backs_off() {
+        let path = sock("flap");
+        let ln = UnixListener::bind(&path).unwrap();
+        let (tx, accepted) = std::sync::mpsc::channel();
+        std::thread::spawn(move || ln.incoming().flatten().try_for_each(|_| tx.send(())));
+        let (_d, _rx) = Daemon::spawn(&path);
+        std::thread::sleep(Duration::from_millis(1500));
+        let connects = accepted.try_iter().count();
+        assert!(connects <= 5, "reconnected {connects} times in 1.5s");
     }
 
     fn read_line(peer: &UnixStream) -> Value {
