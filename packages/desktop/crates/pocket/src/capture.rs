@@ -1030,7 +1030,7 @@ const STEPS: [(&str, Step); 292] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file").
-const INPUT_STEPS: [(&str, Step); 13] = [
+const INPUT_STEPS: [(&str, Step); 14] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1104,6 +1104,20 @@ const INPUT_STEPS: [(&str, Step); 13] = [
                 window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: left, modifiers }), cx);
             }
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
+        });
+    }),
+    // A two-finger trackpad scroll: touch down, four moves of a quarter `dx`, `dy` each, then lift.
+    ("scroll", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_SCROLLS", ';') else { return };
+        let Some((at, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
+        window.defer(cx, move |window, cx| {
+            let modifiers = Modifiers::default();
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
+            let phases = [TouchPhase::Started, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Ended];
+            for (i, touch_phase) in phases.into_iter().enumerate() {
+                let delta = if i == 4 { point(px(0.), px(0.)) } else { by * 0.25 };
+                window.dispatch_event(PlatformInput::Scroll(ScrollEvent { position: at, delta: ScrollDelta::Pixels(delta), modifiers, touch_phase, source: ScrollSource::Pointer }), cx);
+            }
         });
     }),
     ("pinch", |_, window, cx| {
