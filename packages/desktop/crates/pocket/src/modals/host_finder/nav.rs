@@ -319,8 +319,7 @@ impl Finder {
 
     /// Takes `path`'s bytes, unless another file is previewed by now.
     pub fn previewed(&mut self, host: &str, path: &str, read: Result<Vec<u8>, String>) {
-        let picked = self.file.as_ref().is_some_and(|f| child(&self.dir, f) == path);
-        if host == self.host && picked && self.preview.as_ref().is_some_and(|(p, _)| p == path) {
+        if host == self.host && self.preview.as_ref().is_some_and(|(p, _)| p == path) {
             self.preview = Some((path.into(), read.map_or_else(Preview::Failed, |b| Preview::of(&b))));
         }
     }
@@ -503,6 +502,18 @@ mod tests {
     }
 
     #[test]
+    fn a_file_left_before_its_read_lands_shows_that_read_when_picked_again() {
+        let mut f = finder();
+        f.select("/home/me/code", "todo.txt");
+        let path = f.preview_wanted().unwrap();
+        f.select("/home/me", "code");
+        f.previewed("devbox", &path, Ok(b"done\n".to_vec()));
+        f.select("/home/me/code", "todo.txt");
+        assert_eq!(f.preview_wanted(), None);
+        assert_eq!(f.preview.unwrap().1, Preview::Text(vec!["done".into()]));
+    }
+
+    #[test]
     fn picking_a_file_previews_it_and_keeps_its_folder_as_the_pick() {
         let mut f = finder();
         f.select("/home/me/code", "todo.txt");
@@ -525,13 +536,15 @@ mod tests {
     }
 
     #[test]
-    fn a_preview_for_a_file_no_longer_picked_is_dropped() {
+    fn a_preview_for_a_file_another_file_replaced_is_dropped() {
         let mut f = finder();
+        f.listed("devbox", "/home/me/code", Ok(vec![entry("todo.txt", false), entry("notes.txt", false)]));
         f.select("/home/me/code", "todo.txt");
         f.preview_wanted();
-        f.select("/home/me/code", "app");
+        f.select("/home/me/code", "notes.txt");
+        f.preview_wanted();
         f.previewed("devbox", "/home/me/code/todo.txt", Ok(b"late".to_vec()));
-        assert_eq!(f.preview.unwrap().1, Preview::Loading);
+        assert_eq!(f.preview.unwrap(), ("/home/me/code/notes.txt".into(), Preview::Loading));
     }
 
     #[test]
