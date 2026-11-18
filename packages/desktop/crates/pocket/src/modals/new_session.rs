@@ -514,7 +514,7 @@ impl Desktop {
     }
 
     /// The projects a session can start in: those with a git checkout. A Scratch folder counts only while it's the one picked.
-    pub(super) fn form_projects(&self) -> Vec<String> {
+    pub(crate) fn form_projects(&self) -> Vec<String> {
         let repo = self.new_form.draft.repo.as_deref();
         self.projects().into_iter().filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty())).collect()
     }

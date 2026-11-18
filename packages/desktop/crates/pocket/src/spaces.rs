@@ -320,7 +320,7 @@ impl Desktop {
             return cx.notify();
         }
         self.remember_space(&to, cx);
-        let projects = self.space_projects(&to);
+        let projects = in_space(&self.form_projects(), &to);
         let from = self.drafted_project().or(self.project.as_deref());
         if let Some(target) = arrival(from, &to, &projects).filter(|_| self.space_reach(&to) == Reach::Online) {
             self.new_place(target, window, cx);
