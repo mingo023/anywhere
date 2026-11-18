@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"pocketd/internal/accounts"
@@ -136,8 +137,20 @@ func (l *Launcher) moveOff(j *job) bool {
 	if !ok {
 		return false
 	}
-	old := s.Env(j.provider, from)
-	j.env = slices.Concat(slices.DeleteFunc(slices.Clone(j.env), func(kv string) bool { return slices.Contains(old, kv) }), s.Env(j.provider, to))
+	account := s.Env(j.provider, to)
+	var drop []string
+	for _, kv := range slices.Concat(s.Env(j.provider, from), account) {
+		k, _, _ := strings.Cut(kv, "=")
+		drop = append(drop, k)
+	}
+	if account != nil {
+		// As the shell a managed account's agent runs in drops them.
+		drop = append(drop, accounts.Unset...)
+	}
+	j.env = slices.Concat(slices.DeleteFunc(slices.Clone(j.env), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return slices.Contains(drop, k)
+	}), account)
 	return true
 }
 

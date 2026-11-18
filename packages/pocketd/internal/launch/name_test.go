@@ -243,11 +243,29 @@ func TestNamingAtItsAccountsLimitMovesToAnotherSignedInAccount(t *testing.T) {
 
 	l, a, j = placed(t)
 	work = twoAccounts(t, l)
-	dirs = refusing(l, work)
-	j.env = append([]string{"HOME=/h"}, l.d.Accounts.Env("claude", "work")...)
+	dirs = refusing(l, work+"/")
+	j.env = []string{"HOME=/h", "CLAUDE_CONFIG_DIR=" + work + "/"}
 	name(l, a, j)
-	if a.Summary().Title != "Fix login" || !slices.Equal(*dirs, []string{work, ""}) {
+	if a.Summary().Title != "Fix login" || !slices.Equal(*dirs, []string{work + "/", ""}) {
 		t.Fatalf("to the built-in account: %+v %q", a.Summary(), *dirs)
+	}
+}
+
+func TestNamingMovedToAManagedAccountDropsTheLoginThatWouldOverrideIt(t *testing.T) {
+	l, a, j := placed(t)
+	twoAccounts(t, l)
+	var envs [][]string
+	l.generate = func(_, _, _ string, env []string) (naming.Result, error) {
+		envs = append(envs, env)
+		if len(envs) == 1 {
+			return naming.Result{}, naming.ErrLimit
+		}
+		return naming.Result{Title: "Fix login"}, nil
+	}
+	j.env = []string{"HOME=/h", "CLAUDE_CODE_OAUTH_TOKEN=t"}
+	name(l, a, j)
+	if len(envs) != 2 || slices.Contains(envs[1], "CLAUDE_CODE_OAUTH_TOKEN=t") || !slices.Contains(envs[1], "HOME=/h") {
+		t.Fatalf("%q", envs)
 	}
 }
 
