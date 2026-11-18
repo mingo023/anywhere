@@ -4,14 +4,14 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>A free, open-source agent workspace with no paid tier · Anywhere blog</title>
-	<meta name="description" content="What free means across open-source agent workspaces like Paradev and Synara, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.">
+	<meta name="description" content="What free means across open-source agent workspaces like Paradev, Synara and T3 Code, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
 	<meta property="og:title" content="A free, open-source agent workspace with no paid tier">
-	<meta property="og:description" content="What free means across open-source agent workspaces like Paradev and Synara, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.">
+	<meta property="og:description" content="What free means across open-source agent workspaces like Paradev, Synara and T3 Code, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.">
 	<meta property="og:url" content="https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier">
 	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
 	<meta property="og:image:width" content="1200">
@@ -22,7 +22,7 @@
 	<meta property="article:author" content="Minh Ngo">
 	<meta name="twitter:card" content="summary_large_image">
 	<meta name="twitter:title" content="A free, open-source agent workspace with no paid tier">
-	<meta name="twitter:description" content="What free means across open-source agent workspaces like Paradev and Synara, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.">
+	<meta name="twitter:description" content="What free means across open-source agent workspaces like Paradev, Synara and T3 Code, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.">
 	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
 	<meta name="theme-color" content="#0a0a0b">
 	<link rel="icon" href="../assets/icon.png">
@@ -40,7 +40,7 @@
 			"@type": "BlogPosting",
 			"@id": "https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier#article",
 			"headline": "A free, open-source agent workspace with no paid tier",
-			"description": "What free means across open-source agent workspaces like Paradev and Synara, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.",
+			"description": "What free means across open-source agent workspaces like Paradev, Synara and T3 Code, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.",
 			"datePublished": "2026-11-18",
 			"dateModified": "2026-11-18",
 			"inLanguage": "en",
@@ -97,7 +97,8 @@
 
 				<h2 id="what-free-means">What "free" means across open-source agent workspaces</h2>
 				<p>Credit where it's due. <a href="https://paradev.com/">Paradev</a> (formerly Superset; its CLI is still <code>superset</code>, and it is unrelated to Apache Superset) and <a href="https://www.trysynara.com/">Synara</a> both keep their desktop apps MIT licensed and free, and both say so plainly. Paradev's README says the desktop app is free forever for running agents in parallel on your own machine. Synara's free plan says "No card, no account."</p>
-				<p>Where they differ from Anywhere is in what sits on top. Both sell hosted or remote features as paid plans, which is a reasonable way to fund a product. Here is what each one includes, from their own pricing pages:</p>
+				<p><a href="https://t3.codes/">T3 Code</a> is another free MIT app, and it goes further on price: its FAQ says "There's no way to pay us to use T3 Code. You bring your own sub." Like Anywhere, it runs the agent CLIs you already pay for, and you keep paying your provider.</p>
+				<p>Where Paradev and Synara differ from Anywhere is in what sits on top. Both sell hosted or remote features as paid plans, which is a reasonable way to fund a product. Here is what each one includes, from their own pricing pages:</p>
 				<div class="table-wrap">
 				<table>
 					<thead>
@@ -106,11 +107,12 @@
 					<tbody>
 						<tr><td><a href="https://paradev.com/pricing">Paradev</a></td><td>$0: one user, local workspaces, desktop app, CLI. No credit card</td><td>Pro, $20 per user a month or $16 billed yearly: remote access, automations, Linear, Slack, mobile. Team, $60 or $54 yearly: adds cloud workspaces. Ultra, $200. Enterprise, custom</td></tr>
 						<tr><td><a href="https://www.trysynara.com/pricing">Synara</a></td><td>$0, "No card, no account": 10 coding agents side by side, git worktrees, diffs, browser, PRs</td><td>Alto, $9.99 a month or $79.99 a year: remote from iPhone and iPad (beta), remote from another computer running Synara, approvals and alerts when an agent needs you, a public profile</td></tr>
+						<tr><td><a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/faq.md">T3 Code</a></td><td>$0, "no way to pay us to use T3 Code": desktop, web, and phone clients, and the <code>t3</code> CLI. LAN and Tailscale remote access</td><td>None for the app. T3 Connect, its built-in remote, is "free too, for now", for up to 3 machines per account. A linked paid T3 Chat account raises the limit</td></tr>
 						<tr><td>Anywhere</td><td>$0: everything below</td><td>None. The site lists cloud tier and premium tier as "Never"</td></tr>
 					</tbody>
 				</table>
 				</div>
-				<p>None of the three resells model usage. You bring your own agent subscriptions or API keys either way.</p>
+				<p>None of the four resells model usage. You bring your own agent subscriptions or API keys either way.</p>
 
 				<h2 id="whats-included">What's included in Anywhere at $0</h2>
 				<p>Everything in the app, with no plan, no seat, and no account:</p>
@@ -139,6 +141,7 @@
 					<li>The one service the project runs is the push relay for iPhone notifications, and it stores no device tokens.</li>
 					<li>Anywhere's own code has no analytics, telemetry, or crash reporting.</li>
 				</ul>
+				<p>T3 Code is close on price, and the honest difference is the promise. Its FAQ says this about T3 Connect: "We don't want to charge for this, but if the bill gets unacceptable we may have to change course. If you hit limits or have issues, you can always fork it, self host, or use Tailscale." That is a fair position for a hosted relay. Anywhere doesn't run a relay for remote sessions, and its site says there will never be a premium tier.</p>
 				<p>There is little to charge for, because there is little to host. That is a design choice, and it has costs: no cloud workspaces, no team seats, no hosted dashboard. If you need those, the two sections below are for you.</p>
 
 				<h2 id="when-paradev-may-fit-better">When Paradev may fit better</h2>
@@ -165,7 +168,8 @@
 						<li>Remote and iPhone access today, as a clearly priced add-on.</li>
 					</ul>
 				</div>
-				<p>For all seven tools in one table, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>.</p>
+				<p>T3 Code is the better pick if you want shipping iOS, Android, and web clients, first-class Windows and Linux builds, any ACP agent, or a built-in remote that doesn't need Tailscale. See <a href="t3-code-alternative.html">Anywhere vs T3 Code</a>.</p>
+				<p>For all eight tools in one table, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>

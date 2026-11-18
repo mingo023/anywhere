@@ -56,7 +56,7 @@
 			"mainEntity": [
 				{ "@type": "Question", "name": "Is Anywhere built on Electron?", "acceptedAnswer": { "@type": "Answer", "text": "Anywhere's desktop app is written in Rust on GPUI, with a Go daemon called pocketd that owns the terminals and keeps agents running after the window closes. It uses no Electron or Tauri: there is no bundled Chromium and no Node runtime." } },
 				{ "@type": "Question", "name": "What is GPUI?", "acceptedAnswer": { "@type": "Answer", "text": "GPUI is the Rust UI framework Anywhere's desktop window is built with. It draws the interface on the GPU. Its home page is gpui.rs." } },
-				{ "@type": "Question", "name": "Are there other native apps for running coding agents?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Zeron is also built with Rust and GPUI, with desktop builds for macOS, Windows and Linux. MonoCode ships an experimental Rust and GPUI preview next to its React/Tauri production app. Orca, Paradev and Synara are Electron apps." } },
+				{ "@type": "Question", "name": "Are there other native apps for running coding agents?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Zeron is also built with Rust and GPUI, with desktop builds for macOS, Windows and Linux. MonoCode ships an experimental Rust and GPUI preview next to its React/Tauri production app. Orca, Paradev, Synara and T3 Code are Electron apps." } },
 				{ "@type": "Question", "name": "Does Anywhere run on Linux and Windows?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Anywhere publishes builds for Linux on x86_64 and Windows on x64 next to the macOS app. They are unsigned and have no updater, and you run pocket-desktop from the unpacked folder. pocketd installs itself as a systemd user service on Linux and a scheduled task on Windows." } }
 			]
 		},
@@ -139,15 +139,16 @@
 					<li><a href="https://www.usemono.dev/"><strong>MonoCode</strong></a> ships an experimental "Monocode Native preview" in Rust and GPUI for macOS, Linux, and Windows. Its production app is React and Tauri, and the preview shares the same database.</li>
 				</ul>
 				<p><a href="https://orca.dev/">Orca</a>, <a href="https://paradev.com/">Paradev</a>, and <a href="https://www.trysynara.com/">Synara</a> are Electron apps, per their public repositories. Orca's site highlights a GPU-rendered terminal with splits.</p>
+				<p><a href="https://t3.codes/">T3 Code</a> is Electron too: the desktop <code>package.json</code> in its public repository depends on <code>electron</code>, <code>electron-builder</code>, and <code>electron-updater</code>, and the app is written in TypeScript. It ships first-class desktop builds for macOS, Windows, and Linux with an updater, a web client, and iOS and Android apps in the stores. See <a href="t3-code-alternative.html">Anywhere vs T3 Code</a>.</p>
 
 				<h2 id="when-electron-may-fit-better">When an Electron app may fit better</h2>
 				<div class="callout">
 					<p><span class="callout-title">Pick on features, not on the toolkit</span>A native window is one reason to choose a tool. The Electron apps here do more in several areas:</p>
 					<ul>
-						<li><strong>Any CLI agent.</strong> Orca and Paradev run any agent that works in a terminal. Anywhere supports a fixed list of ten.</li>
+						<li><strong>Any CLI agent.</strong> Orca and Paradev run any agent that works in a terminal, and T3 Code runs any ACP agent. Anywhere supports a fixed list of ten.</li>
 						<li><strong>A browser in the workspace.</strong> Orca and Paradev have an in-app browser with Design mode, and Synara has browser verification.</li>
-						<li><strong>More surfaces.</strong> Orca adds mobile emulators, Computer Use, and a plugin catalog. Paradev adds Pages, a TypeScript SDK, and an MCP server.</li>
-						<li><strong>Windows and Linux first.</strong> Orca and Synara ship them as first-class release targets.</li>
+						<li><strong>More surfaces.</strong> Orca adds mobile emulators, Computer Use, and a plugin catalog. Paradev adds Pages, a TypeScript SDK, and an MCP server. T3 Code adds a web client and iOS and Android apps.</li>
+						<li><strong>Windows and Linux first.</strong> Orca, Synara, and T3 Code ship them as first-class release targets.</li>
 					</ul>
 				</div>
 				<p>For the full comparison, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>.</p>
@@ -159,7 +160,7 @@
 					<h3>What is GPUI?</h3>
 					<p>GPUI is the Rust UI framework Anywhere's desktop window is built with. It draws the interface on the GPU. Its home page is gpui.rs.</p>
 					<h3>Are there other native apps for running coding agents?</h3>
-					<p>Yes. Zeron is also built with Rust and GPUI, with desktop builds for macOS, Windows and Linux. MonoCode ships an experimental Rust and GPUI preview next to its React/Tauri production app. Orca, Paradev and Synara are Electron apps.</p>
+					<p>Yes. Zeron is also built with Rust and GPUI, with desktop builds for macOS, Windows and Linux. MonoCode ships an experimental Rust and GPUI preview next to its React/Tauri production app. Orca, Paradev, Synara and T3 Code are Electron apps.</p>
 					<h3>Does Anywhere run on Linux and Windows?</h3>
 					<p>Yes. Anywhere publishes builds for Linux on x86_64 and Windows on x64 next to the macOS app. They are unsigned and have no updater, and you run pocket-desktop from the unpacked folder. pocketd installs itself as a systemd user service on Linux and a scheduled task on Windows.</p>
 				</section>
