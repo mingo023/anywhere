@@ -887,6 +887,8 @@ const QUEUE: &str = "queue-";
 const INTERRUPT: &str = "interrupt-";
 /// Why a prompt or stop the socket never took failed.
 const UNSENT: &str = "Lost the connection to pocketd";
+/// How long a pocketd may take to answer the websocket handshake, and to take a write, before the link counts as lost.
+const HANDSHAKE: Duration = Duration::from_secs(5);
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -1298,7 +1300,7 @@ pub fn connect_with(sock: &Path, token: Option<String>) -> (Outbox, UnboundedRec
     std::thread::spawn(move || {
         let mut unanswered = Vec::new();
         loop {
-            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered);
+            let _ = run(&sock, token.as_deref(), &tx, &queue, &mut unanswered, HANDSHAKE);
             if tx.is_closed() {
                 return;
             }
@@ -1319,8 +1321,10 @@ fn hello(token: Option<&str>) -> Value {
     hello
 }
 
-fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>) -> Option<()> {
+fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>, handshake: Duration) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
+    stream.set_read_timeout(Some(handshake)).ok()?;
+    stream.set_write_timeout(Some(handshake)).ok()?;
     let (mut ws, _) = tungstenite::client("ws://localhost/", stream).ok()?;
     // Reads time out so the loop gets to send the queue even while pocketd is quiet; the timeout is as long as a
     // send can wait, so it stays short.
@@ -1803,6 +1807,16 @@ mod tests {
 
     fn read(ws: &mut Ws) -> Value {
         serde_json::from_str(ws.read().unwrap().to_text().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_pocketd_that_never_answers_the_handshake_is_given_up_on() {
+        let (_server, sock) = pocketd("silent");
+        let (tx, _events) = unbounded();
+        let (_out, queue) = channel();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        std::thread::spawn(move || done_tx.send(run(&sock, None, &tx, &queue, &mut Vec::new(), Duration::from_millis(200))));
+        assert_eq!(done.recv_timeout(Duration::from_secs(2)), Ok(None));
     }
 
     #[test]
