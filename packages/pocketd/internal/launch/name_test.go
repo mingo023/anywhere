@@ -236,6 +236,7 @@ func TestNamingAtItsAccountsLimitMovesToAnotherSignedInAccount(t *testing.T) {
 	l, a, j := placed(t)
 	work := twoAccounts(t, l)
 	dirs := refusing(l, "")
+	j.exe = "/bin/claude"
 	name(l, a, j)
 	if a.Summary().Title != "Fix login" || current(t, j.tree) != "fix-login" || !slices.Equal(*dirs, []string{"", work}) {
 		t.Fatalf("%+v %q", a.Summary(), *dirs)
@@ -244,6 +245,7 @@ func TestNamingAtItsAccountsLimitMovesToAnotherSignedInAccount(t *testing.T) {
 	l, a, j = placed(t)
 	work = twoAccounts(t, l)
 	dirs = refusing(l, work+"/")
+	j.exe = "/bin/claude"
 	j.env = []string{"HOME=/h", "CLAUDE_CONFIG_DIR=" + work + "/"}
 	name(l, a, j)
 	if a.Summary().Title != "Fix login" || !slices.Equal(*dirs, []string{work + "/", ""}) {
@@ -262,7 +264,7 @@ func TestNamingMovedToAManagedAccountDropsTheLoginThatWouldOverrideIt(t *testing
 		}
 		return naming.Result{Title: "Fix login"}, nil
 	}
-	j.env = []string{"HOME=/h", "CLAUDE_CODE_OAUTH_TOKEN=t"}
+	j.exe, j.env = "/bin/claude", []string{"HOME=/h", "CLAUDE_CODE_OAUTH_TOKEN=t"}
 	name(l, a, j)
 	if len(envs) != 2 || slices.Contains(envs[1], "CLAUDE_CODE_OAUTH_TOKEN=t") || !slices.Contains(envs[1], "HOME=/h") {
 		t.Fatalf("%q", envs)
@@ -272,6 +274,7 @@ func TestNamingMovedToAManagedAccountDropsTheLoginThatWouldOverrideIt(t *testing
 func TestNamingFailsWhenEveryAccountIsAtItsLimitOrSwitchingIsOff(t *testing.T) {
 	for _, auto := range []bool{true, false} {
 		l, a, j := placed(t)
+		j.exe = "/bin/claude"
 		work := twoAccounts(t, l)
 		limited := []string{""}
 		if auto {
@@ -287,5 +290,17 @@ func TestNamingFailsWhenEveryAccountIsAtItsLimitOrSwitchingIsOff(t *testing.T) {
 		if a.Summary().Title != "" || m["type"] != "naming.failed" || !auto && slices.Contains(*dirs, work) {
 			t.Fatalf("auto %v: %+v %v %q", auto, a.Summary(), m, *dirs)
 		}
+	}
+}
+
+// The user's rc runs before a shell function, and can set the account back.
+func TestNamingThroughAShellFunctionStaysOnItsAccount(t *testing.T) {
+	l, a, j := placed(t)
+	work := twoAccounts(t, l)
+	dirs := refusing(l, "")
+	j.exe = "claude"
+	name(l, a, j)
+	if a.Summary().Title != "" || slices.Contains(*dirs, work) {
+		t.Fatalf("%+v %q", a.Summary(), *dirs)
 	}
 }

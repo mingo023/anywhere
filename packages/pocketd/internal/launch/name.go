@@ -119,10 +119,12 @@ func (l *Launcher) name(a *agent.Agent, claim int, j job) {
 
 // moveOff moves j off the account that refused it at a limit, onto the
 // signed-in one with the most left, as an agent at its limit moves; false
-// when switching at a limit is off or every account is at one.
+// when switching at a limit is off, every account is at one, or the CLI is
+// a shell function.
 func (l *Launcher) moveOff(j *job) bool {
 	s := l.d.Accounts
-	if s == nil {
+	// A CLI the shell finds runs after the user's rc, which can set the account back.
+	if s == nil || !filepath.IsAbs(j.exe) {
 		return false
 	}
 	from := s.Of(j.provider, j.env)
