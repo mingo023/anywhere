@@ -13,6 +13,7 @@
 // FIXTURE_HOST_FILES=1 runs devbox's own pocketd on its socket, answering status, the file reads the host finder makes and git in its
 // repositories; devbox's app-ios is a project, the twin of this Mac's, and 10.0.4.12 (retrying) holds one called api.
 // With FIXTURE_HOST_FILES, devbox's git holds a clone unanswered, as one over a slow link would; FIXTURE_CLONE_DONE=1 lets it succeed.
+// FIXTURE_HOST_DELAY_MS delays each of devbox's replies, as a host over a real link answers.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -403,7 +404,8 @@ const HOST_FILES: Record<string, string[] | string> = {
   "/etc/hostname": "devbox\n",
   "/opt": [],
   "/home": ["dev/"],
-  "/home/dev": [".bashrc", ".ssh/", "code/", "Downloads/", "notes.md"],
+  "/home/dev": [".bashrc", ".ssh/", "code/", "Downloads/", "Library/", "notes.md"],
+  "/home/dev/Library": Array.from({ length: 2000 }, (_, i) => `item-${String(i).padStart(4, "0")}${i % 3 ? "/" : ""}`),
   "/home/dev/.bashrc": 'export PATH="$HOME/.cargo/bin:$PATH"\nalias gs="git status"\n',
   "/home/dev/.ssh": ["config"],
   "/home/dev/.ssh/config": "Host github.com\n  IdentityFile ~/.ssh/id_ed25519\n",
@@ -462,8 +464,9 @@ if (process.env.FIXTURE_HOST_FILES) {
       buf = lines.pop()!;
       for (const line of lines.filter(Boolean)) {
         const op = JSON.parse(line);
-        if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-devbox.jsonl"), line + "\n");
-        const reply = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
+        if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-devbox.jsonl"), JSON.stringify({ t: Date.now(), ...op }) + "\n");
+        const send = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
+        const reply = (msg: object) => (process.env.FIXTURE_HOST_DELAY_MS ? setTimeout(() => send(msg), Number(process.env.FIXTURE_HOST_DELAY_MS)) : send(msg));
         const body = HOST_FILES[op.path];
         if (op.op === "status") reply({ ev: "status", status: { hostId: "devbox", os: "linux", arch: "arm64", userHome: "/home/dev", shell: "/bin/bash", name: "devbox", caps: ["exec.v1", "fs.v1"] } });
         else if (op.op === "fs.list" && Array.isArray(body)) reply({ entries: body.map((n) => hostEntryOf(op.path, n)) });

@@ -70,7 +70,7 @@ impl Desktop {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let home = cx.background_executor().spawn(async move { client.status().map(|s| s.user_home.replace('\\', "/")) }).await;
+            let home = cx.background_executor().spawn(async move { client.home() }).await;
             this.update(cx, |d, cx| {
                 // A finder closed and opened again on the same host must not take the first one's reply.
                 let Some(f) = d.host_finder.finder.as_mut().filter(|_| d.host_finder.opened == opened) else { return };
@@ -136,14 +136,12 @@ impl Desktop {
         }
         if let Some(dir) = f.repo_wanted() {
             cx.spawn(async move |this, cx| {
-                let at = dir.clone();
-                let repo = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let text = |name: &str| client.read(&child(&at, name), 64 * 1024).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
-                        Repo { branch: text(".git/HEAD").as_deref().and_then(branch_of), remote: text(".git/config").as_deref().and_then(remote_of) }
-                    })
-                    .await;
+                let text = |name: &str| {
+                    let (client, path) = (client.clone(), child(&dir, name));
+                    cx.background_executor().spawn(async move { client.read(&path, 64 * 1024).ok().map(|b| String::from_utf8_lossy(&b).into_owned()) })
+                };
+                let (head, config) = futures::join!(text(".git/HEAD"), text(".git/config"));
+                let repo = Repo { branch: head.as_deref().and_then(branch_of), remote: config.as_deref().and_then(remote_of) };
                 this.update(cx, |d, cx| {
                     if let Some(f) = d.host_finder.finder.as_mut() {
                         f.repo_read(&host, &dir, repo);

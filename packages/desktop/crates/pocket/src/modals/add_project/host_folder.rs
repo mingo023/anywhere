@@ -70,7 +70,7 @@ impl Desktop {
         let Some(client) = remote::connected(&host) else { return };
         self.repo_form.draft.browse = Some(Browse::at(&host, ""));
         cx.spawn_in(window, async move |this, cx| {
-            let home = cx.background_executor().spawn(async move { client.status().map(|s| s.user_home.replace('\\', "/")) }).await;
+            let home = cx.background_executor().spawn(async move { client.home() }).await;
             this.update_in(cx, |d, window, cx| match home {
                 Ok(home) => d.browse_to(home, window, cx),
                 Err(e) => {

@@ -74,6 +74,7 @@ pub struct Client {
     next: AtomicU64,
     /// An exec's cwd when it names none; `/` isn't absolute on Windows, so there it's the home `status` gave.
     root: OnceLock<String>,
+    home: OnceLock<String>,
     /// Held across `sync_registry`'s read and write, so two creates don't drop each other's projects.
     registry: Mutex<()>,
 }
@@ -84,7 +85,7 @@ impl Client {
     }
 
     pub fn to(id: &str, endpoint: Endpoint) -> Self {
-        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), registry: Mutex::default() }
+        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), registry: Mutex::default() }
     }
 
     pub fn id(&self) -> &str {
@@ -156,8 +157,12 @@ impl Client {
             match reply["ev"].as_str() {
                 Some("status") => {
                     let info: HostInfo = serde_json::from_value(reply["status"].clone()).map_err(io::Error::other)?;
-                    if info.os == "windows" && !info.user_home.is_empty() {
-                        let _ = self.root.set(info.user_home.replace('\\', "/"));
+                    let home = info.user_home.replace('\\', "/");
+                    if !home.is_empty() {
+                        if info.os == "windows" {
+                            let _ = self.root.set(home.clone());
+                        }
+                        let _ = self.home.set(home);
                     }
                     return Ok(info);
                 }
@@ -166,6 +171,14 @@ impl Client {
             }
         }
         Err(io::Error::new(ErrorKind::ConnectionAborted, "lost the host"))
+    }
+
+    /// The host's home folder with `/` separators, asked of pocketd only until a `status` gives it.
+    pub fn home(&self) -> io::Result<String> {
+        match self.home.get() {
+            Some(home) => Ok(home.clone()),
+            None => Ok(self.status()?.user_home.replace('\\', "/")),
+        }
     }
 
     pub fn list(&self, dir: &str) -> io::Result<Vec<Entry>> {
@@ -360,6 +373,16 @@ mod tests {
         assert_eq!(info.user_home, "/home/dev");
         assert!(info.serves_projects());
         let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn home_is_remembered_from_the_first_status() {
+        let sock = temp_sock("home");
+        serve(&sock);
+        let client = Client::new("devbox", sock.clone());
+        assert_eq!(client.home().unwrap(), "/home/dev");
+        std::fs::remove_file(&sock).unwrap();
+        assert_eq!(client.home().unwrap(), "/home/dev");
     }
 
     #[test]
