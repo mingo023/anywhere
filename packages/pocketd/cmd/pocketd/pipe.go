@@ -65,16 +65,23 @@ func pipeCmd(sock string, argv []string) (int, error) {
 	return 0, err
 }
 
-// startupWait caps, in ms, how long claude -p given --mcp-config holds its
-// first turn for MCP servers still connecting. Left alone it waits out each
-// one: 13s for a server awaiting a login. Anywhere's own server is local and
-// connects well inside the cap.
-const startupWait = "CLAUDE_CODE_MCP_STARTUP_WAIT_MS"
+// agentDefaults is the env a chat agent gets unless the user sets it.
+// CLAUDE_CODE_MCP_STARTUP_WAIT_MS caps, in ms, how long claude -p given
+// --mcp-config holds its first turn for MCP servers still connecting. Left
+// alone it waits out each one: 13s for a server awaiting a login. Anywhere's
+// own server is local and connects well inside the cap.
+// CLAUDE_CODE_ENABLE_TODO_TOOLS gives claude -p TaskCreate and TaskUpdate,
+// which only the interactive claude has by default; the Tasks card draws them.
+var agentDefaults = []string{"CLAUDE_CODE_MCP_STARTUP_WAIT_MS=1000", "CLAUDE_CODE_ENABLE_TODO_TOOLS=1"}
 
-// agentEnv is env with startupWait set, unless env sets it already.
+// agentEnv is env with each of agentDefaults it doesn't set.
 func agentEnv(env []string) []string {
-	if slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, startupWait+"=") }) {
-		return env
+	out := env
+	for _, kv := range agentDefaults {
+		key, _, _ := strings.Cut(kv, "=")
+		if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, key+"=") }) {
+			out = append(out, kv)
+		}
 	}
-	return append(env, startupWait+"=1000")
+	return out
 }

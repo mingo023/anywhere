@@ -54,6 +54,12 @@ func TestAChatAgentHoldsItsFirstTurnForMCPServersAtMostASecond(t *testing.T) {
 	phone.WaitFor("the reply", streamOf(id, "assistant", "echo: 1000"))
 }
 
+func TestAChatAgentHasClaudesTaskTools(t *testing.T) {
+	_, phone, _, id := chatClaude(t)
+	phone.Prompt(id, "env CLAUDE_CODE_ENABLE_TODO_TOOLS")
+	phone.WaitFor("the reply", streamOf(id, "assistant", "echo: 1"))
+}
+
 func TestAChatAgentsFailedTurnEndsWithItsError(t *testing.T) {
 	_, phone, _, id := chatClaude(t)
 	phone.Send(map[string]any{"type": "agent.settings", "id": "s1", "agentId": id, "model": "bogus"})
