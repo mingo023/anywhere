@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.49
+
+- README shows the app icon above the title (#280): (10c2178a)
+- Redesign website and add product documentation (#279): (faf70082)
+- Claude chats show the Tasks card (#278): (a24d5fb4)
+- Deleting a worktree also deletes its just-renamed branch (#277): (9a509ac4)
+- Naming moves off an account at its limit, as the session does (#275): (6558b6d7)
+- The site has a privacy policy and a support page (#276): (b260a4f8)
+- Rewrite the README and replace the hero screenshot. (#274): (4305ba81)
+
 ## 0.1.48
 
 - A new chat starts its first turn within a second of Send (#272): (133225fc)
