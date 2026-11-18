@@ -402,6 +402,10 @@ pub struct Store {
     pub board_views: Vec<BoardView>,
     /// The app version that last launched, so a relaunch on another one says what's new.
     pub seen_version: Option<String>,
+    /// When the app first launched, in seconds since the Unix epoch, so it asks for a GitHub star only after a few days.
+    pub first_launch: Option<u64>,
+    /// The sidebar asked for a star and was answered, by starring or closing it.
+    pub star_asked: bool,
     /// Settings sections showing their advanced rows, by id.
     #[serde(deserialize_with = "lenient")]
     pub advanced: BTreeSet<String>,

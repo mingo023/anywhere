@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket · Star hint prototype</title>
+<style>
+:root{
+  --surface:#fff;--sep-strong:rgba(17,17,19,.122);
+  --text:#111113;--t2:#6f6f78;--t3:#8b8b94;--t4:#a1a1aa;
+  --window:#f4f4f5;--side:#fafafb;--panel:#fafafa;--notice:rgba(255,255,255,.55);
+  --fill2:rgba(17,17,19,.043);--fill3:rgba(17,17,19,.055);--fill4:rgba(17,17,19,.067);
+  --sep:rgba(17,17,19,.09);--ring:rgba(17,17,19,.055);
+  --btn:#111113;--btn-text:#fff;--star:#f5a524;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+}
+[data-theme=dark]{
+  --surface:rgba(235,235,235,.1);--sep-strong:rgba(235,235,235,.14);
+  --text:#ebebeb;--t2:#a1a1a1;--t3:#818181;--t4:#6c6c6c;
+  --window:#121212;--side:#0e0e0e;--panel:#121212;--notice:rgba(235,235,235,.05);
+  --fill2:rgba(235,235,235,.078);--fill3:rgba(235,235,235,.1);--fill4:rgba(235,235,235,.12);
+  --sep:rgba(235,235,235,.078);--ring:rgba(235,235,235,.1);
+  --btn:#ebebeb;--btn-text:#171717;--star:#ffc53d;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+body[data-theme=dark]{background:radial-gradient(1100px 700px at 12% 0%,#2a2f38 0%,transparent 60%),#16181c}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+svg{display:block;flex:none}
+[hidden]{display:none!important}
+
+/* demo controls: harness, not design */
+#demo{position:absolute;top:10px;left:12px;right:12px;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;font-size:12px;color:#3f3f46;white-space:nowrap}
+body[data-theme=dark] #demo{color:#bcbcbc}
+#demo b{font-weight:600;margin:0 2px 0 10px}
+#demo button{height:24px;padding:0 9px;border-radius:6px;background:rgba(255,255,255,.55);box-shadow:0 0 0 .5px rgba(0,0,0,.12);color:#111113}
+#demo button:hover{background:rgba(255,255,255,.85)}
+#demo button[data-on]{background:#111113;color:#fff}
+#status{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(17,17,19,.55);white-space:nowrap}
+body[data-theme=dark] #status{color:rgba(255,255,255,.45)}
+
+#win{position:absolute;inset:var(--hud,50px) 28px 84px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:5}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+#side{width:280px;flex:none;display:flex;flex-direction:column;background:var(--side);border-right:.5px solid var(--sep);padding:0 8px 8px}
+.shead{margin-top:44px;padding:0 10px 8px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--t3);text-transform:uppercase}
+.body{flex:1;min-height:0}
+.row{padding:8px 10px;border-radius:10px;display:flex;flex-direction:column;gap:3px}
+.row:hover{background:var(--fill2)}
+.row.sel{background:var(--fill4)}
+.row .a{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .b{font-size:12px;color:var(--t3)}
+.settings{margin-top:8px;height:30px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;font-size:13px;color:var(--t2)}
+.settings:hover{background:var(--fill3)}
+
+#main{flex:1;min-width:0;display:flex;background:var(--panel)}
+#chat{flex:1;display:flex;align-items:center;justify-content:center;color:var(--t4);font-size:13px}
+.settings.sel{background:var(--fill4);color:var(--text)}
+#prefs{flex:1;overflow:auto;padding:44px 32px 32px}
+#prefs .in{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+.phead{display:flex;align-items:center;gap:14px;margin-bottom:-4px}
+.tile{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--surface);box-shadow:0 0 0 .5px var(--sep),0 1px 1.5px rgba(0,0,0,.05);color:var(--text)}
+.phead h1{margin:0;font-size:20px;line-height:26px;font-weight:700}
+.phead p{margin:2px 0 0;font-size:12.5px;line-height:17px;color:var(--t2)}
+.gt{margin:0 0 7px 2px;font-size:13px;line-height:18px;font-weight:600;color:var(--t2)}
+.gcard{border-radius:12px;background:var(--surface);box-shadow:0 0 0 .5px var(--sep),0 1px 2px rgba(0,0,0,.035);overflow:hidden}
+.srow{padding:10px 14px;display:flex;align-items:center;gap:16px}
+.srow+.srow{border-top:.5px solid var(--sep)}
+.srow .l{flex:1;min-width:0}
+.srow .n{font-size:13px;line-height:18px;font-weight:500}
+.srow .h{font-size:12px;line-height:16px;color:var(--t3);margin-top:1px}
+.act{height:26px;padding:0 10px;border-radius:7px;display:flex;align-items:center;gap:6px;background:var(--surface);box-shadow:0 0 0 .5px var(--sep-strong),0 1px 1.5px rgba(0,0,0,.05);font-size:12.5px;font-weight:500;white-space:nowrap}
+.act:hover{background:var(--fill3)}
+.act:active{opacity:.6}
+.act .star{width:13px;height:13px;margin:0}
+#star2.thanked .star{color:var(--star)}
+#star2.thanked .star path{fill:var(--star)}
+.sw{width:30px;height:18px;border-radius:9px;background:var(--text);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:var(--panel)}
+.sw.off{background:var(--fill4)}
+.sw.off::after{right:auto;left:2px;background:#fff}
+
+/* the hint */
+#slot{overflow:hidden;margin:0 -8px;padding:0 8px 1px}
+#slot.settled{overflow:visible}
+#hint{margin:8px 2px 0;padding:10px 10px 10px 12px;border-radius:12px;background:var(--notice);box-shadow:0 0 0 .5px var(--ring);
+  will-change:transform,opacity}
+.top{display:flex;align-items:flex-start;gap:8px}
+.star{width:16px;height:16px;margin-top:1px;color:var(--t2)}
+.star path{fill:transparent;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round;transition:fill 120ms ease-out,stroke 120ms ease-out}
+#hint.thanked .star{color:var(--star)}
+#hint.thanked .star path{fill:var(--star)}
+.copy{flex:1;min-width:0}
+.t1{font-size:12.5px;font-weight:600;letter-spacing:-.005em}
+.t2{font-size:12px;color:var(--t2);line-height:1.4;margin-top:2px}
+.x{width:20px;height:20px;flex:none;margin:-2px -2px 0 0;display:flex;align-items:center;justify-content:center;border-radius:5px;color:var(--t3)}
+.x:hover{background:var(--fill3)}
+.x:active{opacity:.6}
+.go{margin-top:10px;width:100%;height:28px;border-radius:14px;display:grid;
+  background:var(--btn);color:var(--btn-text);font-size:12.5px;font-weight:600;}
+.go>span{grid-area:1/1;display:flex;align-items:center;justify-content:center;gap:6px;transition:opacity 180ms ease-out}
+.go .thanks{opacity:0}
+#hint.thanked .go{pointer-events:none}
+#hint.thanked .go .ask{opacity:0}
+#hint.thanked .go .thanks{opacity:1}
+.go:active{opacity:.85}
+.go svg path{fill:currentColor}
+#hint.compact{padding:8px 6px 8px 10px;cursor:pointer}
+#hint.compact .top{align-items:center}
+#hint.compact .star{width:13px;height:13px;margin:0}
+#hint.compact .t1{font-size:12px;font-weight:400}
+#hint.compact .t2,#hint.compact .go{display:none}
+#hint.compact .x{margin:0}
+#hint.compact .t1 .full{display:none}
+#hint .t1 .short{display:none}
+#hint.compact .t1 .short{display:inline}
+#hint.compact.thanked .t1 .short{display:none}
+#hint .t1 .ty{display:none}
+#hint.compact.thanked .t1 .ty{display:inline}
+#news{margin:8px 2px 0;padding:8px 6px 8px 10px;border-radius:12px;background:var(--notice);box-shadow:0 0 0 .5px var(--ring);font-size:12px;display:flex;align-items:center;gap:8px}
+#news span{flex:1}
+#news[hidden]{display:none}
+</style>
+</head>
+<body>
+<div id="demo">
+  <button id="launch">Launch app</button>
+  <button id="reset">Reset</button>
+  <b>Screen</b><button data-screen="chat" data-on>Chat</button><button data-screen="prefs">Settings</button>
+  <b>Size</b><button id="size">Card</button>
+  <b>Update card</b><button id="upd">Off</button>
+  <b>Theme</b><button data-theme-v="light" data-on>Light</button><button data-theme-v="dark">Dark</button>
+  <b>Motion</b><button id="reduced">Full</button><button id="slow">1×</button>
+</div>
+
+<div id="win">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <aside id="side">
+    <div class="shead">anywhere</div>
+    <div class="body">
+      <div class="row sel" data-go="chat"><div class="a">Star hint in the sidebar</div><div class="b">Claude · enlivened-rhino</div></div>
+      <div class="row" data-go="chat"><div class="a">Board drag reorder</div><div class="b">Codex · Done</div></div>
+      <div class="row" data-go="chat"><div class="a">Fix diff scroll jump</div><div class="b">Claude · 2h ago</div></div>
+    </div>
+    <div id="slot" hidden>
+      <div id="hint" role="status">
+        <div class="top">
+          <svg class="star" viewBox="0 0 16 16"><path d="M8 1.6l1.95 3.95 4.36.63-3.16 3.08.75 4.34L8 11.55l-3.9 2.05.75-4.34L1.69 6.18l4.36-.63z"/></svg>
+          <div class="copy"><div class="t1"><span class="full">Enjoying Anywhere?</span><span class="short">Star Anywhere on GitHub</span><span class="ty">Thank you!</span></div><div class="t2">A star helps others find it.</div></div>
+          <button class="x" id="dismiss" aria-label="Don't show again">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2L2 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <button class="go" id="star">
+          <span class="ask"><svg width="12" height="12" viewBox="0 0 16 16"><path d="M8 1.6l1.95 3.95 4.36.63-3.16 3.08.75 4.34L8 11.55l-3.9 2.05.75-4.34L1.69 6.18l4.36-.63z"/></svg>Star on GitHub</span>
+          <span class="thanks">Thank you!</span>
+        </button>
+      </div>
+    </div>
+    <div id="news" hidden><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="color:var(--t2)"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z"/></svg><span>What's new in 0.1.50</span></div>
+    <div class="settings" data-go="prefs">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>
+      Settings
+    </div>
+  </aside>
+  <main id="main">
+    <div id="chat">Chat</div>
+    <div id="prefs" hidden><div class="in">
+      <div class="phead">
+        <div class="tile"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 5h12M4 10h12M4 15h12"/><circle cx="7" cy="5" r="1.6" fill="var(--surface)"/><circle cx="13" cy="10" r="1.6" fill="var(--surface)"/><circle cx="9" cy="15" r="1.6" fill="var(--surface)"/></svg></div>
+        <div><h1>General</h1><p>Updates, startup, quitting and how hard the app works in the background.</p></div>
+      </div>
+      <div>
+        <div class="gt">Software update</div>
+        <div class="gcard">
+          <div class="srow"><div class="l"><div class="n">Anywhere 0.1.49</div><div class="h">Checks for updates automatically</div></div><button class="act">Check now</button></div>
+          <div class="srow"><div class="l"><div class="n">Star Anywhere on GitHub</div><div class="h">It’s free and open source. A star helps others find it.</div></div>
+            <button class="act" id="star2"><svg class="star" viewBox="0 0 16 16"><path d="M8 1.6l1.95 3.95 4.36.63-3.16 3.08.75 4.34L8 11.55l-3.9 2.05.75-4.34L1.69 6.18l4.36-.63z"/></svg><span>Star</span></button></div>
+          <div class="srow"><div class="l"><div class="n">Install updates automatically</div><div class="h">Downloads in the background and installs the next time you quit</div></div><span class="sw"></span></div>
+          <div class="srow"><div class="l"><div class="n">Show “What’s new” after updating</div><div class="h">A card in the sidebar links to the release notes, once</div></div><span class="sw"></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="gt">Startup &amp; background</div>
+        <div class="gcard">
+          <div class="srow"><div class="l"><div class="n">Open at login</div><div class="h">Opens Anywhere when you log in to the Mac</div></div><span class="sw off"></span></div>
+          <div class="srow"><div class="l"><div class="n">Resume agents after restart</div><div class="h">Reopens agent sessions when the service or the Mac restarts</div></div><span class="sw"></span></div>
+        </div>
+      </div>
+    </div></div>
+  </main>
+</div>
+<div id="status"></div>
+
+<script>
+const REPO = 'https://github.com/mingo023/anywhere';
+const SHOW_FROM_DAY = 3;
+const $ = (s) => document.querySelector(s);
+const slot = $('#slot'), hint = $('#hint');
+
+// What the app persists: first launch day and whether the hint is done.
+let day = 0, done = false, updateCard = false;
+const shouldShow = () => day >= SHOW_FROM_DAY && !done && !updateCard;
+
+let reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, slow = 1;
+
+// Critically damped spring on one value p (0 hidden, 1 shown). Re-targeting keeps the live value and velocity.
+const spring = { p: 0, v: 0, target: 0, raf: 0, done: null };
+function animateTo(target, onDone) {
+  spring.target = target;
+  spring.done = onDone || null;
+  if (!spring.raf) { let last = performance.now(); spring.raf = requestAnimationFrame(function tick(now) {
+    const dt = Math.min(0.032, (now - last) / 1000) / slow; last = now;
+    const w = (2 * Math.PI) / 0.35; // response 0.35s, damping 1.0
+    spring.v += (-w * w * (spring.p - spring.target) - 2 * w * spring.v) * dt;
+    spring.p += spring.v * dt;
+    if (Math.abs(spring.p - spring.target) < 0.001 && Math.abs(spring.v) < 0.01) {
+      spring.p = spring.target; spring.v = 0; spring.raf = 0; paint();
+      const cb = spring.done; spring.done = null; cb && cb(); return;
+    }
+    paint(); spring.raf = requestAnimationFrame(tick);
+  }); }
+}
+let fullHeight = 0;
+function paint() {
+  const p = spring.p;
+  slot.classList.toggle('settled', p === 1);
+  slot.style.height = (fullHeight * Math.min(1, Math.max(0, p))) + 'px';
+  hint.style.opacity = reduced ? p : Math.min(1, Math.max(0, p * 1.4 - 0.2));
+  hint.style.transform = reduced ? '' : `translateY(${(1 - p) * 10}px)`;
+}
+
+function show() {
+  clearTimeout(thanksTimer);
+  hint.classList.remove('thanked');
+  slot.hidden = false; slot.style.height = 'auto'; fullHeight = slot.offsetHeight; paint();
+  animateTo(1);
+}
+function hide() {
+  done = true; render();
+  animateTo(0, () => { slot.hidden = true; });
+}
+
+$('#dismiss').addEventListener('click', (e) => { e.stopPropagation(); hide(); });
+let thanksTimer = 0;
+function starIt() {
+  window.open(REPO, '_blank', 'noopener');
+  hint.classList.add('thanked');
+  popStar();
+  thanksTimer = setTimeout(hide, 1400 * slow);
+}
+$('#star').addEventListener('click', starIt);
+hint.addEventListener('click', (e) => { if (hint.classList.contains('compact') && !e.target.closest('#dismiss') && !hint.classList.contains('thanked')) starIt(); });
+// The star's own pop is the one place with overshoot: it celebrates, the card itself never bounces.
+function popStar() {
+  if (reduced) return;
+  hint.querySelector('.star').animate(
+    [{ transform: 'scale(1)' }, { transform: 'scale(1.35)', offset: .35 }, { transform: 'scale(.94)', offset: .7 }, { transform: 'scale(1)' }],
+    { duration: 420 * slow, easing: 'ease-out' });
+}
+
+$('#launch').addEventListener('click', () => {
+  day++;
+  if (shouldShow() && spring.target === 0) show();
+  render();
+});
+$('#reset').addEventListener('click', () => {
+  clearTimeout(thanksTimer);
+  day = 0; done = false;
+  if (spring.target === 1) animateTo(0, () => { slot.hidden = true; });
+  render();
+});
+$('#upd').addEventListener('click', (e) => {
+  updateCard = !updateCard; e.target.textContent = updateCard ? 'On' : 'Off'; e.target.toggleAttribute('data-on', updateCard);
+  $('#news').hidden = !updateCard;
+  if (updateCard && spring.target === 1) animateTo(0, () => { slot.hidden = true; });
+  render();
+});
+document.querySelectorAll('[data-theme-v]').forEach((b) => b.addEventListener('click', () => {
+  document.body.dataset.theme = b.dataset.themeV;
+  document.querySelectorAll('[data-theme-v]').forEach((o) => o.toggleAttribute('data-on', o === b));
+}));
+$('#reduced').addEventListener('click', (e) => { reduced = !reduced; e.target.textContent = reduced ? 'Reduced' : 'Full'; e.target.toggleAttribute('data-on', reduced); paint(); });
+$('#slow').addEventListener('click', (e) => { slow = slow === 1 ? 5 : 1; e.target.textContent = slow + '×'; e.target.toggleAttribute('data-on', slow > 1); });
+$('#size').addEventListener('click', (e) => {
+  const c = hint.classList.toggle('compact'); e.target.textContent = c ? 'Compact' : 'Card'; e.target.toggleAttribute('data-on', c);
+  if (!slot.hidden) { slot.style.height = 'auto'; fullHeight = slot.offsetHeight; paint(); }
+});
+$('#reduced').toggleAttribute('data-on', reduced); $('#reduced').textContent = reduced ? 'Reduced' : 'Full';
+
+function render() {
+  const why = day === 0 ? 'press Launch app (once per day of use)'
+    : done ? 'done, never shows again'
+    : updateCard ? 'update card wins, waits for a later launch'
+    : day < SHOW_FROM_DAY ? `shows from day ${SHOW_FROM_DAY}` : 'showing';
+  $('#status').textContent = `Day ${day} · ${why}`;
+}
+function screen(name) {
+  $('#chat').hidden = name !== 'chat'; $('#prefs').hidden = name !== 'prefs';
+  document.querySelectorAll('[data-screen]').forEach((b) => b.toggleAttribute('data-on', b.dataset.screen === name));
+  $('.settings').classList.toggle('sel', name === 'prefs');
+  document.querySelectorAll('.row').forEach((r, i) => r.classList.toggle('sel', name === 'chat' && i === 0));
+}
+document.querySelectorAll('[data-screen]').forEach((b) => b.addEventListener('click', () => screen(b.dataset.screen)));
+document.querySelectorAll('[data-go]').forEach((el) => el.addEventListener('click', () => screen(el.dataset.go)));
+// The Settings row is always there: no day rule, nothing to dismiss.
+$('#star2').addEventListener('click', (e) => {
+  const b = e.currentTarget;
+  window.open(REPO, '_blank', 'noopener');
+  b.classList.add('thanked'); b.querySelector('span').textContent = 'Thank you';
+  if (!reduced) b.querySelector('.star').animate(
+    [{ transform: 'scale(1)' }, { transform: 'scale(1.35)', offset: .35 }, { transform: 'scale(.94)', offset: .7 }, { transform: 'scale(1)' }],
+    { duration: 420 * slow, easing: 'ease-out' });
+});
+const fitHud = () => document.body.style.setProperty('--hud', ($('#demo').offsetHeight + 20) + 'px');
+addEventListener('resize', fitHud); fitHud();
+render();
+</script>
+</body>
+</html>
