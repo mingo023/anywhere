@@ -187,14 +187,14 @@ fn run(r: &Removal, teardown: &str, limit: Duration) -> Result<Removed, Failure>
 }
 
 /// The branch going with `r`'s tree: the confirmed one, or, once a rename has moved it (pocketd names a new chat's branch), the tree's own.
-/// A confirmed branch that still exists wins, so a tree switched to another branch never takes that one.
+/// The tree's branch goes only when its reflog shows the rename, so a branch the tree merely switched to is never taken.
 fn doomed_branch(r: &Removal, runner: &git::Runner) -> Option<String> {
     let confirmed = r.branch.clone().filter(|_| r.delete_branch)?;
     if git::branches(runner, &r.project).contains(&confirmed) {
         return Some(confirmed);
     }
     let now = git::worktrees(runner, &r.project).into_iter().find(|w| w.path == r.tree).map(|w| w.branch);
-    now.filter(|b| branch_deletable(b)).or(Some(confirmed))
+    now.filter(|b| branch_deletable(b) && git::renamed_from(runner, &r.project, b, &confirmed)).or(Some(confirmed))
 }
 
 impl Desktop {
@@ -373,6 +373,18 @@ mod tests {
         std::fs::remove_dir_all(&r.tree).unwrap();
         assert_eq!(run(&r, "", LIMIT).unwrap().kept, None);
         assert!(!git::branches(&git::Runner::Local, &r.project).contains(&"renamed".to_string()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_branch_the_tree_switched_to_stays_when_the_confirmed_one_is_already_gone() {
+        let (dir, r) = scratch("switched-gone");
+        sh(Path::new(&r.tree), &["checkout", "-q", "-b", "other"]);
+        sh(&dir.join("repo"), &["branch", "-D", "feat"]);
+        let removed = run(&r, "", LIMIT).unwrap();
+        assert_eq!(removed.kept.map(|(b, _)| b).as_deref(), Some("feat"));
+        assert!(git::branches(&git::Runner::Local, &r.project).contains(&"other".to_string()));
+        dispose(&removed.aside.unwrap(), false);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

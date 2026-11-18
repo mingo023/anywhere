@@ -332,6 +332,12 @@ pub fn dirty_files(run: &Runner, cwd: &str) -> Option<usize> {
     git(run, cwd, &["status", "--porcelain", "-uall"]).map(|out| out.lines().count())
 }
 
+/// Whether `branch` was once named `old`, per the entry `git branch -m` leaves in its reflog.
+pub fn renamed_from(run: &Runner, cwd: &str, branch: &str, old: &str) -> bool {
+    let moved = format!("Branch: renamed refs/heads/{old} to ");
+    lines(git(run, cwd, &["log", "-g", "--format=%gs", &format!("refs/heads/{branch}"), "--"])).iter().any(|l| l.starts_with(&moved))
+}
+
 /// Deletes `branch`, merged or not; git refuses while a worktree has it checked out.
 pub fn delete_branch(run: &Runner, repo: &str, branch: &str) -> Result<(), String> {
     git_result(run, repo, &["branch", "-D", "--", branch])
