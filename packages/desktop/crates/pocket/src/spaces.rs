@@ -311,7 +311,8 @@ impl Desktop {
         }
         self.remember_space(&to, cx);
         let projects = self.space_projects(&to);
-        if let Some(target) = arrival(self.project.as_deref(), &to, &projects).filter(|_| self.space_reach(&to) == Reach::Online) {
+        let from = self.drafted_project().or(self.project.as_deref());
+        if let Some(target) = arrival(from, &to, &projects).filter(|_| self.space_reach(&to) == Reach::Online) {
             self.new_place(target, window, cx);
         }
         self.land_draft(window, cx);

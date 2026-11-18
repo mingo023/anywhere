@@ -530,6 +530,11 @@ impl Desktop {
         }
     }
 
+    /// The project the new-session page has drafted, while it shows.
+    pub(crate) fn drafted_project(&self) -> Option<&str> {
+        self.new_form.draft.repo.as_deref().filter(|_| self.new_form.shown)
+    }
+
     /// The machine pill's pick: the machine is the space, so this switches it.
     pub(crate) fn pick_machine(&mut self, space: Space, window: &mut Window, cx: &mut Context<Self>) {
         self.new_form.draft.picker = None;
@@ -540,6 +545,7 @@ impl Desktop {
     /// Takes `key`, a folder just chosen as a project on This Mac or a host, as the project the page starts in.
     pub(crate) fn pick_new_project(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
         self.save_folder(&key, cx);
+        self.switch_space(spaces::space_of(&key), window, cx);
         self.pick_repo(key, window, cx);
         self.focus_prompt(window, cx);
     }

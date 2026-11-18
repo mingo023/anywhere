@@ -294,7 +294,7 @@ impl Desktop {
         let id = &self.delegated_show(id);
         let Some(term) = self.agents.get(id).map(|a| a.terminal_id.clone()) else { return };
         let Some(tree) = self.terminals.sessions.get(&term).and_then(|s| self.place_of(&s.info)) else { return };
-        self.show_tree(&tree);
+        self.show_tree(&tree, cx);
         self.side = Side::Sessions;
         let w = self.workspace(&tree);
         if let Some((pane, i)) = w.show_term(&term) {
@@ -313,8 +313,9 @@ impl Desktop {
         window.set_background_appearance(theme::window_background());
     }
 
-    pub(crate) fn show_tree(&mut self, tree: &str) {
+    pub(crate) fn show_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
         if let Some(p) = self.folder_of(tree).and_then(|cwd| self.project_of(&cwd, &self.projects()).cloned()) {
+            self.follow_space(&p, cx);
             self.project = Some(p);
         }
         (self.screen, self.new_form.shown) = (Screen::Sessions, false);
