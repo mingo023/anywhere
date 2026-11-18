@@ -1,3 +1,5 @@
+<img src="packages/desktop/assets/AppIcon.png" alt="" width="96">
+
 # Anywhere
 
 Watch and drive many coding agents at once, from a native macOS app and from your phone.
