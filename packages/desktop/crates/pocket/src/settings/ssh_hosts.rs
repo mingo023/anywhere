@@ -4,6 +4,8 @@ use super::{field_box, row};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use crate::fleet::needs_update;
+use crate::spaces::Space;
+use crate::spaces::header::tile;
 use agents::hosts::{Failure, Link};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -36,6 +38,18 @@ fn link_line(link: Option<&Link>, name: &str) -> String {
     }
 }
 
+/// What the install's panel is headed: for a finished install, that the host is ready.
+fn checklist_title(list: &Checklist, name: &str) -> String {
+    match (&list.outcome, list.update) {
+        (None, false) => "Installing pocketd".into(),
+        (None, true) => "Updating pocketd".into(),
+        (Some(Outcome::Failed(_)), false) => "Couldn't install pocketd".into(),
+        (Some(Outcome::Failed(_)), true) => "Couldn't update pocketd".into(),
+        (Some(_), false) => format!("{name} is ready."),
+        (Some(_), true) => "pocketd is updated".into(),
+    }
+}
+
 /// A host row's second line: where it goes, unless its name says so, and how its link is doing.
 fn host_line(host: &Host, link: Option<&Link>) -> String {
     let address = host.address();
@@ -51,8 +65,7 @@ pub(crate) fn link_color(link: Option<&Link>) -> Token {
     }
 }
 
-fn host_row(i: usize, tile: &'static str, name: String, line: String, dot: Token) -> Div {
-    let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(icon(tile, 14., TEXT_2));
+fn host_row(i: usize, tile: Div, name: String, line: String, dot: Token) -> Div {
     let line = div().flex().items_start().gap(px(6.)).text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(div().pt(px(4.5)).child(ui::dot(7., dot))).child(div().flex_1().min_w_0().child(line));
     let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(div().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name)).child(line);
     div().px(px(14.)).py(px(9.)).flex().items_center().gap(px(12.)).when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR)).child(tile).child(text)
@@ -66,15 +79,21 @@ fn field(label: &'static str, input: &Entity<InputState>) -> Div {
 impl Desktop {
     fn host_rows(&mut self, cx: &mut Context<Self>) -> Div {
         let connected = !self.terminals.link.is_down();
-        let here = host_row(0, "laptop", "This Mac".into(), service_line(connected, self.settings.host.status.as_ref()), if connected { SUCCESS } else { TEXT_4 })
+        let here = host_row(0, tile(&Space::Local, None, 28.), "This Mac".into(), service_line(connected, self.settings.host.status.as_ref()), if connected { SUCCESS } else { TEXT_4 })
             .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
         if self.hosts_read_only() {
             // The hosts the desktop linked itself before pocketd did, named as it saved them.
-            let saved = self.store.hosts.iter().enumerate().map(|(i, h)| host_row(i + 1, "server", h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4));
+            let saved = self.store.hosts.iter().enumerate().map(|(i, h)| host_row(i + 1, tile(&Space::Host(String::new()), None, 28.), h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4));
             return div().flex().flex_col().child(here).children(saved.collect::<Vec<_>>());
         }
+        let order = self.space_order();
         let remotes = self.fleet.hosts.list.clone().into_iter().enumerate().map(|(i, h)| {
             let link = self.fleet.hosts.links.get(&h.id);
+            let space = Space::Host(h.id.clone());
+            let open = matches!(link, Some(Link::Online { .. })).then(|| {
+                let space = space.clone();
+                super::action(("host-open", i), "Open").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_space(space.clone(), window, cx)))
+            });
             let list = self.fleet.installs.get(&h.id);
             let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, link));
             let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
@@ -104,7 +123,7 @@ impl Desktop {
                 (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
                 cx.notify();
             }));
-            let row = host_row(i + 1, "server", h.name.clone(), line, link_color(link)).children(password).children(install).children(update).children(reconnect).child(remove);
+            let row = host_row(i + 1, tile(&space, self.space_colour(&space, &order), 28.), h.name.clone(), line, link_color(link)).children(password).children(install).children(update).children(reconnect).children(open).child(remove);
             let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &list, cx));
             div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
         });
@@ -113,14 +132,8 @@ impl Desktop {
 
     /// The install's steps under the host's row, with Retry once it failed and Done once pocketd runs.
     fn checklist_panel(&mut self, i: usize, id: &str, list: &Checklist, cx: &mut Context<Self>) -> Div {
-        let title = match (&list.outcome, list.update) {
-            (None, false) => "Installing pocketd",
-            (None, true) => "Updating pocketd",
-            (Some(Outcome::Failed(_)), false) => "Couldn't install pocketd",
-            (Some(Outcome::Failed(_)), true) => "Couldn't update pocketd",
-            (Some(_), false) => "pocketd is installed",
-            (Some(_), true) => "pocketd is updated",
-        };
+        let name = self.host_name(id);
+        let title = checklist_title(list, &name);
         let rows = list.rows().map(|(step, mark)| {
             let lead = match mark {
                 Mark::Done => icon("check", 13., SUCCESS).into_any_element(),
@@ -142,15 +155,25 @@ impl Desktop {
             _ => None,
         };
         let (id, update) = (id.to_string(), list.update);
-        let button = match &list.outcome {
-            Some(Outcome::Failed(_)) => Some(super::action(("host-install-retry", i), "Retry").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx)))),
-            Some(_) => Some(super::action(("host-install-done", i), "Done").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.fleet.installs.remove(&id);
-                cx.notify();
-            }))),
-            None => None,
+        let (open, button) = match &list.outcome {
+            Some(Outcome::Failed(_)) => (None, Some(super::action(("host-install-retry", i), "Retry").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx))))),
+            Some(_) => {
+                let (space, done_id) = (Space::Host(id.clone()), id.clone());
+                let open = (!update).then(|| {
+                    ui::button(("host-install-open", i), ui::Variant::Primary, None, format!("Open {name}")).h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.fleet.installs.remove(&id);
+                        this.switch_space(space.clone(), window, cx);
+                    }))
+                });
+                let done = super::action(("host-install-done", i), "Done").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.fleet.installs.remove(&done_id);
+                    cx.notify();
+                }));
+                (open, Some(done))
+            }
+            None => (None, None),
         };
-        let head = div().flex().items_center().child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title)).children(button);
+        let head = div().flex().items_center().gap(px(6.)).child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title)).children(open).children(button);
         div().ml(px(54.)).mr(px(14.)).mb(px(10.)).px(px(12.)).py(px(8.)).flex().flex_col().gap(px(4.)).rounded(px(8.)).bg(FILL_2).child(head).children(rows.collect::<Vec<_>>()).children(warnings).children(error)
     }
 
@@ -259,8 +282,25 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Host, Link, failure_message, host_line, link_line};
+    use super::{Failure, Host, Link, checklist_title, failure_message, host_line, link_line};
+    use agents::hosts::Progress;
     use hosts::Target;
+    use hosts::checklist::Checklist;
+
+    #[test]
+    fn a_finished_install_says_the_host_is_ready_and_an_update_does_not() {
+        let done = |update| {
+            let mut list = Checklist::new(update);
+            list.apply(Progress::Done);
+            list
+        };
+        assert_eq!(checklist_title(&done(false), "devbox"), "devbox is ready.");
+        assert_eq!(checklist_title(&done(true), "devbox"), "pocketd is updated");
+        assert_eq!(checklist_title(&Checklist::new(false), "devbox"), "Installing pocketd");
+        let mut failed = Checklist::new(false);
+        failed.apply(Progress::Error("no sshd".into()));
+        assert_eq!(checklist_title(&failed, "devbox"), "Couldn't install pocketd");
+    }
 
     #[test]
     fn a_host_row_says_how_its_link_is_doing() {

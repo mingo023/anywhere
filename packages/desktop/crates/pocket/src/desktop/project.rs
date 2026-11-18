@@ -347,7 +347,7 @@ impl Desktop {
         self.repos.retain(|cwd, _| project::project_of(cwd, &only, &self.worktrees).is_none());
         self.worktrees.remove(p);
         if self.project.as_deref() == Some(p) {
-            self.set_project(None);
+            self.set_project(None, cx);
             if let Some(next) = self.projects().into_iter().next() {
                 self.select_tree(next, None, cx);
             }

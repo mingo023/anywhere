@@ -333,6 +333,13 @@ impl Desktop {
         }
     }
 
+    /// Takes `dir` on `host`, picked in the host finder, as the project's folder, with the host browser moved there too.
+    pub(crate) fn pick_host_folder(&mut self, host: String, dir: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.repo_form.draft.browse = Some(Browse::at(&host, &dir));
+        self.browse_to(dir.clone(), window, cx);
+        self.set_repo_path(hosts::place(&host, &dir), window, cx);
+    }
+
     fn set_repo_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let f = &mut self.repo_form;
         f.draft.path = Some(path.clone());

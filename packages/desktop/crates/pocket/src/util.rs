@@ -22,19 +22,18 @@ pub fn folder(path: &str) -> &str {
 
 /// "/Users/me/code/app" reads as "~/code/app".
 pub fn tilde(path: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    match path.strip_prefix(&home) {
+    tilde_in(path, &std::env::var("HOME").unwrap_or_default())
+}
+
+/// `tilde` against `home`, another machine's maybe.
+pub fn tilde_in(path: &str, home: &str) -> String {
+    match path.strip_prefix(home) {
         Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => format!("~{rest}"),
         _ => path.to_string(),
     }
 }
 
-/// "~/code/app" reads as "/Users/me/code/app".
-pub fn untilde(path: &str) -> String {
-    untilde_in(path, &std::env::var("HOME").unwrap_or_default())
-}
-
-/// `untilde` against `home`, another machine's maybe.
+/// "~/code/app" reads as "/Users/me/code/app" with `home` "/Users/me"; the home may be another machine's.
 pub fn untilde_in(path: &str, home: &str) -> String {
     match path.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
@@ -146,7 +145,7 @@ pub fn first_line(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, first_line, folder, initials, list_dir, mark, tilde, tree_icon, untilde};
+    use super::{ago, ago_long, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -185,11 +184,17 @@ mod tests {
     }
 
     #[test]
+    fn tilde_in_shortens_another_machines_home() {
+        assert_eq!(tilde_in("/home/dev/code/app", "/home/dev"), "~/code/app");
+        assert_eq!(tilde_in("/home/devs/app", "/home/dev"), "/home/devs/app");
+        assert_eq!(tilde_in("/home/dev/code", ""), "/home/dev/code");
+    }
+
+    #[test]
     fn untilde_expands_only_a_leading_home() {
-        let home = std::env::var("HOME").unwrap();
-        assert_eq!(untilde("~/code/app"), format!("{home}/code/app"));
-        assert_eq!(untilde("~x/app"), "~x/app");
-        assert_eq!(untilde("/code/~/app"), "/code/~/app");
+        assert_eq!(untilde_in("~/code/app", "/home/dev"), "/home/dev/code/app");
+        assert_eq!(untilde_in("~x/app", "/home/dev"), "~x/app");
+        assert_eq!(untilde_in("/code/~/app", "/home/dev"), "/code/~/app");
     }
 
     #[test]

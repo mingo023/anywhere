@@ -50,6 +50,7 @@ use crate::removal::Removals;
 use crate::renames::Renames;
 use crate::settings::SettingsState;
 use crate::sidebar::SidebarState;
+use crate::spaces::Spaces;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use crate::themes::Themes;
@@ -118,6 +119,7 @@ pub struct Desktop {
     pub(crate) root: FocusHandle,
     pub(crate) palette: PaletteState,
     pub(crate) sidebar: SidebarState,
+    pub(crate) spaces: Spaces,
     pub(crate) regions: Regions,
     pub(crate) settings: SettingsState,
     pub(crate) fleet: Fleet,
@@ -134,6 +136,7 @@ pub struct Desktop {
     pub(crate) preview: PreviewState,
     pub(crate) new_form: new_session::NewForm,
     pub(crate) repo_form: add_project::RepoForm,
+    pub(crate) host_finder: crate::modals::host_finder::HostFinder,
     pub(crate) clone_form: clone_project::CloneForm,
     pub(crate) pair: PairPhone,
     pub(crate) capturing: bool,
@@ -145,6 +148,7 @@ impl Desktop {
     pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, themes: Themes, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (palette, palette_subs) = PaletteState::new(window, cx);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
+        let spaces = Spaces::new(store.sidebar.space.as_deref());
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
         let (fleet, fleet_subs) = Fleet::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
@@ -156,6 +160,7 @@ impl Desktop {
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
+        let host_finder = crate::modals::host_finder::HostFinder::new(cx);
         let (clone_form, clone_subs) = clone_project::CloneForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
@@ -259,6 +264,7 @@ impl Desktop {
             board,
             palette,
             sidebar,
+            spaces,
             settings,
             fleet,
             host_agents: HostAgents::default(),
@@ -274,6 +280,7 @@ impl Desktop {
             preview: PreviewState::default(),
             new_form,
             repo_form,
+            host_finder,
             clone_form,
             pair: PairPhone::default(),
             capturing: false,
@@ -319,7 +326,10 @@ impl Desktop {
         self.select_tree(p, tree, cx);
     }
 
-    fn set_project(&mut self, p: Option<String>) {
+    fn set_project(&mut self, p: Option<String>, cx: &mut Context<Self>) {
+        if let Some(p) = &p {
+            self.follow_space(p, cx);
+        }
         self.project = p;
         self.worktree = None;
         for v in self.diff.panes.values_mut() {
@@ -336,7 +346,7 @@ impl Desktop {
         (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         let moved = self.project.as_ref() != Some(&p);
         if moved {
-            self.set_project(Some(p));
+            self.set_project(Some(p), cx);
         }
         if moved || self.worktree != tree {
             self.worktree = tree;
@@ -475,7 +485,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self) -> bool {
-        self.board.menu.is_some() || self.panels.menu.is_some() || self.panels.actions.is_some() || self.panels.top_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.chats.files.is_some() || self.open_in.menu.is_some() || self.activity.menu.is_some()
+        self.board.menu.is_some() || self.panels.menu.is_some() || self.panels.actions.is_some() || self.panels.top_actions.is_some() || self.row_menu.is_some() || self.changes.commit_menu || self.changes.menu || self.compare.menu || self.pr.ship_menu || self.pr.merge_menu || self.pr.create_menu || self.sidebar.picker.open || self.sidebar.add_menu || self.sidebar.organize.menu || self.spaces.menu || self.automations.menu.is_some() || self.explorer.menu.is_some() || self.terminal.menu.is_some() || self.accounts.menu.is_some() || self.clone_form.group_menu || self.clone_form.machine_menu || self.chats.files.is_some() || self.open_in.menu.is_some() || self.activity.menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -488,11 +498,13 @@ impl Desktop {
         self.sidebar.picker.open = false;
         self.sidebar.add_menu = false;
         self.sidebar.organize.menu = false;
+        self.spaces.menu = false;
         self.automations.menu = None;
         self.board.menu = None;
         self.activity.menu = None;
         self.accounts.menu = None;
         self.clone_form.group_menu = false;
+        self.clone_form.machine_menu = false;
         self.explorer.close_menu();
         self.terminal.menu = None;
         self.chats.files = None;
@@ -628,7 +640,8 @@ impl Render for Desktop {
         let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx)) };
         let page = if settings { self.settings_page(cx) } else { self.main_view(window, cx) };
         let workspace = (self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
-        let overlay = self.overlay_view(window, cx);
+        // The finder opened from the new-session page has no overlay under it.
+        let overlay = self.overlay_view(window, cx).or_else(|| self.host_finder_view(window, cx));
         div()
             .relative()
             .size_full()
@@ -653,7 +666,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.delegated_escape(window, cx) {
+                if this.close_host_finder(window, cx) || this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.delegated_escape(window, cx) {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
@@ -688,6 +701,7 @@ impl Render for Desktop {
                 }
             }))
             .on_action(cx.listener(Self::jump_to))
+            .on_action(cx.listener(Self::switch_to_nth_space))
             .on_action(cx.listener(Self::next_session))
             .on_action(cx.listener(Self::prev_session))
             .on_modifiers_changed(cx.listener(Self::on_modifiers))

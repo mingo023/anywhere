@@ -134,6 +134,10 @@ impl Desktop {
         let path = ui::field_box()
             .child(icon("globe", 13., TEXT_3))
             .child(div().flex_1().font_family(MONO).child(Input::new(&self.repo_form.host_path).appearance(false).p_0().text_size(px(13.))))
+            .child(ui::button("host-finder", Variant::Ghost, None, "Browse\u{2026}").on_click({
+                let (host, dir) = (b.host.clone(), b.dir.clone());
+                cx.listener(move |this, _: &ClickEvent, window, cx| this.open_host_finder(host.clone(), Some(dir.clone()), crate::modals::host_finder::Opener::AddProject, window, cx))
+            }))
             .child(ui::button("host-open", Variant::Secondary, None, "Open").when(!b.dir.is_empty(), |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_browsed(window, cx)))));
         let rows = b.rows();
         let height = px((rows.len() as f32 * ROW).min(200.));

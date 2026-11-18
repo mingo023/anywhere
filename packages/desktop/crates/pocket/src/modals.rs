@@ -2,6 +2,7 @@ pub(crate) mod add_project;
 pub(crate) mod clone_project;
 mod confirm;
 pub(crate) mod form;
+pub(crate) mod host_finder;
 mod more;
 pub(crate) mod new_session;
 pub(crate) mod pair_phone;
@@ -38,6 +39,7 @@ impl Desktop {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = None;
+        self.host_finder.finder = None;
         self.refocus(window, cx);
     }
 
@@ -62,15 +64,17 @@ impl Desktop {
             Overlay::PairPhone => (self.pair_view(cx), 0x2e, Some((200, 8.))),
         };
         let backdrop = ui::backdrop("backdrop", alpha).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let finder = self.host_finder_view(window, cx);
         let layer = div().absolute().inset_0();
         let Some((ms, rise)) = entrance else {
-            return Some(layer.child(backdrop).child(body).into_any_element());
+            return Some(layer.child(backdrop).child(body).children(finder).into_any_element());
         };
         let enter = Animation::new(Duration::from_millis(ms)).with_easing(ease_out_quint());
         Some(
             layer
                 .child(backdrop.with_animation("backdrop-in", enter.clone(), |d, t| d.opacity(t)))
                 .child(body.with_animation("overlay-in", enter, move |d, t| d.opacity(t).mt(px(rise * (1. - t)))))
+                .children(finder)
                 .into_any_element(),
         )
     }

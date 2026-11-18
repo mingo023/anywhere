@@ -25,6 +25,8 @@ use crate::sidebar::filter::Filter;
 use crate::sidebar::fold::{Closing, Fold};
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
+use crate::modals::host_finder::Opener;
+use crate::spaces::{SLIDE_MS, Space, on_host};
 use crate::renames::{self, Renames, Slot};
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
@@ -35,7 +37,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use theme::*;
 use ui::{self, icon_button_sized};
 
@@ -91,11 +93,6 @@ impl ProjectRow {
     fn selected(&self, current: Option<&str>) -> bool {
         current.is_some() && !self.open
     }
-}
-
-/// A host's project shows a globe, with its link's dot.
-fn host_mark(link: Option<&agents::hosts::Link>) -> Div {
-    div().flex().flex_none().items_center().gap(px(3.)).child(icon("globe", 12., TEXT_3)).child(ui::dot(6., crate::settings::ssh_hosts::link_color(link)))
 }
 
 /// Whether a terminal is setting up `tree`; `setups` maps terminals to the worktree they set up.
@@ -220,10 +217,11 @@ impl Desktop {
             cx.notify();
         }));
         div().relative().child(button).when(open, |d| {
-            let add = ui::menu_row("aside-add-project", "plus", "Add project…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
-            let clone = ui::menu_row("aside-add-clone", "branch", "Clone from URL…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
+            let host = self.space().host().map(|h| self.host_name(h));
+            let add = ui::menu_row("aside-add-project", "folder", &on_host("Open folder", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
+            let clone = ui::menu_row("aside-add-clone", "branch", &on_host("Clone from URL", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
             let menu = ui::pop(div().id("aside-add-menu"))
-                .w(px(220.))
+                .w(px(238.))
                 .p(px(6.))
                 .flex()
                 .flex_col()
@@ -277,7 +275,7 @@ impl Desktop {
                 icon_button_sized("aside-collapse", "sidebar-collapse", 28., TEXT_3)
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_sidebar(&crate::actions::ToggleSidebar, window, cx))),
             );
-        let search = ui::trigger_field("aside-search", "search", "Search", "⌘K")
+        let search = ui::trigger_field("aside-search", "search", "Search all machines", "⌘K")
             .mx(px(4.))
             .mb(px(6.))
             .h(px(32.))
@@ -297,10 +295,21 @@ impl Desktop {
         let t2 = Instant::now(); // [DEBUG-sidebar]
         let sections = self.sections(cx);
         let (t_sections, n_sections) = (t2.elapsed(), sections.len()); // [DEBUG-sidebar]
-        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().gap(px(1.)).children(sections);
-        let settings = ui::nav_row("aside-settings", "settings", "Settings", false)
-            .mt(px(6.))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(&crate::actions::OpenSettings, window, cx)));
+        let (order, space) = (self.space_order(), self.space());
+        let list = div().flex().flex_col().gap(px(1.)).children(self.offline_card(&space, cx)).children(sections);
+        let slide = self.spaces.sliding(Instant::now()).filter(|_| !cx.reduce_motion() && !self.capturing);
+        let list = match slide {
+            Some((n, heading)) => list
+                .with_animation(("aside-space-slide", n as usize), Animation::new(Duration::from_millis(SLIDE_MS)).with_easing(ease_out_quint()), move |d, t| {
+                    let off = 24. * heading.sign() * (1. - t);
+                    d.opacity(t).ml(px(off)).mr(px(-off))
+                })
+                .into_any_element(),
+            None => list.into_any_element(),
+        };
+        let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
+        let space_header = self.space_header(&space, &order, cx);
+        let switcher = self.space_switcher(&order, &space, cx);
         let aside = ui::side(div())
             .bg(nav_fill())
             .w(px(self.aside_width()))
@@ -313,14 +322,22 @@ impl Desktop {
             .child(top)
             .child(search)
             .children(pages)
-            .children(self.scratch_section(cx))
+            .child(space_header)
+            .children((space == Space::Local).then(|| self.scratch_section(cx)).flatten())
             .child(header)
             .child(body)
             .children(self.update_card(cx))
-            .child(settings);
+            .child(switcher)
+            .on_scroll(cx.listener(|this, e: &ScrollEvent, window, cx| this.swipe_spaces(e, window, cx)));
         let aside = self.resizable(aside, Column::Projects, cx);
         gpui_kit::gpui::hitch::debug_note(|| format!("[DEBUG-sidebar] aside built in {:.1}ms: inbox={:.1}ms header={:.1}ms sections={:.1}ms ({n_sections})", t0.elapsed().as_secs_f64() * 1e3, t_inbox.as_secs_f64() * 1e3, t_header.as_secs_f64() * 1e3, t_sections.as_secs_f64() * 1e3)); // [DEBUG-sidebar]
         aside
+    }
+
+    /// `state` of a tree in `p`, as a row shows it: a host that can't be reached has nothing working, so its spinners stop.
+    fn calm(&self, p: &str, state: Option<ui::State>) -> Option<ui::State> {
+        let unreachable = hosts::split(p).0.is_some_and(|h| !self.fleet.hosts.links.online(h));
+        state.filter(|s| !(unreachable && *s == ui::State::Working))
     }
 
     fn tree_cards(&self, project: &str, tree: &str) -> Vec<Card> {
@@ -343,7 +360,7 @@ impl Desktop {
         let renames = self.agents.renames_offered(key);
         let pins = self.store.projects.iter().any(|k| k == p);
         let (selected, own) = (current == Some(key), selects.is_none());
-        let state = rolled_state(&self.tree_cards(p, key));
+        let state = self.calm(p, rolled_state(&self.tree_cards(p, key)));
         let mark = ui::indicator(id(format!("aside-spin:{key}")), state).or_else(|| self.pr_mark(key).filter(|_| own));
         let (name, sub) = match sub {
             Some(project) if own => (project, Some(self.local_name(key))),
@@ -478,7 +495,7 @@ impl Desktop {
         let fold = ProjectRow::new(trees.as_deref(), only.is_none() && self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref());
         let ProjectRow { git, open, setting_up } = fold;
-        let state = if open { None } else { rolled_state(&self.cards(p)).filter(|_| !setting_up) };
+        let state = if open { None } else { self.calm(p, rolled_state(&self.cards(p)).filter(|_| !setting_up)) };
         let chevron = git.then(|| ui::chevron(("aside-chevron", i), open));
         let menu = RowMenu::Project(p.to_string());
         let mut buttons = Vec::new();
@@ -502,10 +519,10 @@ impl Desktop {
         let host = hosts::split(p).0;
         let offline = host.is_some_and(|h| !self.fleet.hosts.links.online(h));
         let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, kept, state)
-            .children(host.map(|h| host_mark(self.fleet.hosts.links.get(h))))
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
             .when(self.sidebar.filter.lit(p, None), |row| row.bg(FILL_3))
+            .when(self.spaces.flashed(p, Instant::now()), |row| row.bg(ACCENT_BG))
             .on_hover(cx.listener(move |this, over: &bool, _, cx| {
                 this.sidebar.hover.point_project(&pointed, *over);
                 cx.notify();
@@ -559,7 +576,7 @@ impl Desktop {
         let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
         let selected = current == Some(tree.as_str());
         let (failed, setting) = (self.creates.failed(tree), self::setting_up(setups, tree));
-        let state = rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting);
+        let state = self.calm(p, rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting));
         let mark = if failed {
             ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
         } else if setting {

@@ -34,6 +34,7 @@ mod removal;
 mod renames;
 mod settings;
 mod sidebar;
+mod spaces;
 mod status;
 mod syntax;
 mod terminal_view;

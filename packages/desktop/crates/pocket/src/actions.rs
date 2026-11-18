@@ -18,6 +18,11 @@ pub struct JumpTo(pub usize);
 #[action(namespace = desktop, no_json)]
 pub struct JumpToTab(pub usize);
 
+/// The nth space in the sidebar's switcher, 1-based.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = desktop, no_json)]
+pub struct SwitchSpace(pub usize);
+
 #[derive(Clone, PartialEq, Debug, Action)]
 #[action(namespace = desktop, no_json)]
 pub struct PageEdit(pub web::Edit);
@@ -140,6 +145,8 @@ pub fn bindings() -> Vec<KeyBinding> {
     out.extend((1..=9).map(|n| bind(&format!("cmd-{n}"), JumpToTab(n), None)));
     // Not ⌘⇧n: macOS takes ⌘⇧3–5 for screenshots before the app sees them.
     out.extend((1..=9).map(|n| bind(&format!("ctrl-{n}"), JumpTo(n), None)));
+    // ⌃n is the session jump above, so spaces take ⌃⌘n.
+    out.extend((1..=9).map(|n| bind(&format!("cmd-ctrl-{n}"), SwitchSpace(n), None)));
     out
 }
 
@@ -236,6 +243,11 @@ mod tests {
     fn cmd_n_jumps_to_a_tab_and_ctrl_n_to_a_session() {
         assert_eq!([bound("cmd-1"), bound("cmd-9")], [["desktop::JumpToTab"], ["desktop::JumpToTab"]]);
         assert_eq!([bound("ctrl-1"), bound("ctrl-9")], [["desktop::JumpTo"], ["desktop::JumpTo"]]);
+    }
+
+    #[test]
+    fn cmd_ctrl_n_switches_to_a_space() {
+        assert_eq!([bound("cmd-ctrl-1"), bound("cmd-ctrl-9")], [["desktop::SwitchSpace"], ["desktop::SwitchSpace"]]);
     }
 
     #[test]
