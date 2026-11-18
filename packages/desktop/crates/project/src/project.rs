@@ -11,11 +11,12 @@ fn under(cwd: &str, project: &str) -> bool {
     cwd == project || cwd.strip_prefix(project).is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// The saved projects, then the folders of terminals none of them holds.
+/// The saved projects, then the folders of this Mac's terminals none of them holds. A host's terminals add nothing:
+/// its own desktop starts them in its worktrees, which this Mac knows nothing about.
 pub fn projects<'a>(saved: &[String], cwds: impl IntoIterator<Item = &'a str>, worktrees: &Worktrees) -> Vec<String> {
     let mut out = saved.to_vec();
     for cwd in cwds {
-        if project_of(cwd, &out, worktrees).is_none() {
+        if !cwd.starts_with("//") && project_of(cwd, &out, worktrees).is_none() {
             out.push(cwd.to_string());
         }
     }
@@ -101,6 +102,14 @@ mod tests {
 
     fn list(paths: &[&str]) -> Vec<String> {
         paths.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn only_a_terminal_on_this_mac_adds_its_folder_as_a_project() {
+        let saved = list(&["/a/foo", "//devbox/app"]);
+        let trees = trees("//devbox/app", &["//devbox/app", "//devbox/wt/feat"]);
+        let cwds = ["/tmp/scratch", "//mini/Users/me/.anywhere/worktrees/api/brave-otter", "//devbox/wt/feat/src", "//devbox/app"];
+        assert_eq!(projects(&saved, cwds, &trees), list(&["/a/foo", "//devbox/app", "/tmp/scratch"]));
     }
 
     #[test]
