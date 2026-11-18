@@ -117,7 +117,7 @@ impl Client {
             }
             let open = match conn.as_mut() {
                 Some(c) => c,
-                None => conn.insert(open(&self.endpoint)?),
+                None => conn.insert(open(&self.endpoint, FS_TIMEOUT)?),
             };
             open.waiters.lock().unwrap().get_or_insert_default().insert(id.clone(), tx);
             if let Err(e) = writeln!(open.stream, "{op}") {
@@ -248,8 +248,10 @@ fn merged(mut theirs: Value, ours: &Value) -> Value {
     theirs
 }
 
-fn open(endpoint: &Endpoint) -> io::Result<Conn> {
+/// A write that blocks past `write_timeout` fails, so a host that stopped reading can't hold the lock `call` writes under.
+fn open(endpoint: &Endpoint, write_timeout: Duration) -> io::Result<Conn> {
     let stream = endpoint.connect(FS_TIMEOUT).map_err(io::Error::other)?;
+    stream.set_write_timeout(Some(write_timeout))?;
     let waiters: Waiters = Arc::new(Mutex::new(Some(HashMap::new())));
     let reader = BufReader::new(stream.try_clone()?);
     let shared = waiters.clone();
@@ -437,6 +439,20 @@ mod tests {
         let client = Client::new("devbox", sock.clone());
         let err = client.call(json!({"op": "exec", "cwd": "/", "argv": ["echo", "2000"]}), Duration::from_millis(50)).unwrap_err();
         assert!(matches!(err.kind(), ErrorKind::TimedOut), "{err}");
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn a_write_the_host_never_drains_fails_instead_of_holding_the_client() {
+        let sock = temp_sock("undrained");
+        let listener = UnixListener::bind(&sock).unwrap();
+        std::thread::spawn(move || drop(listener.incoming().flatten().collect::<Vec<_>>()));
+        let client = Client::new("devbox", sock.clone());
+        *client.conn.lock().unwrap() = Some(open(&client.endpoint, Duration::from_millis(300)).unwrap());
+        let (tx, done) = mpsc::channel();
+        std::thread::spawn(move || tx.send(client.exec("/", &["cat"], Some(&vec![b'x'; 8 << 20]), Duration::from_millis(100))));
+        let reply = done.recv_timeout(Duration::from_secs(2)).expect("the write blocked past the call's own timeout");
+        assert!(reply.is_err());
         let _ = std::fs::remove_file(sock);
     }
 
