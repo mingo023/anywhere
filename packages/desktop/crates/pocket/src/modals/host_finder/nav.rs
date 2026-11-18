@@ -4,6 +4,7 @@ use crate::modals::add_project::host_folder::{child, parent};
 use crate::util::folder;
 use hosts::remote::Entry;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// A file bigger than this isn't read for its preview.
 pub(crate) const PREVIEW_MAX: usize = 256 * 1024;
@@ -22,7 +23,7 @@ pub(crate) struct Row {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Listing {
     all: Vec<Row>,
-    pub shown: Vec<Row>,
+    pub shown: Rc<Vec<Row>>,
     pub repo: bool,
 }
 
@@ -32,20 +33,20 @@ impl Listing {
         let repo = entries.iter().any(|e| e.name == ".git");
         let mut all: Vec<Row> = entries.into_iter().map(|e| Row { name: e.name, dir: e.dir, ignored: e.ignored, size: e.size }).collect();
         all.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-        let mut listing = Self { all, shown: Vec::new(), repo };
+        let mut listing = Self { all, shown: Rc::default(), repo };
         listing.show(hidden);
         listing
     }
 
     fn show(&mut self, hidden: bool) {
-        self.shown = self.all.iter().filter(|r| hidden || !r.name.starts_with('.')).cloned().collect();
+        self.shown = Rc::new(self.all.iter().filter(|r| hidden || !r.name.starts_with('.')).cloned().collect());
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Preview {
     Loading,
-    Text(Vec<String>),
+    Text(Rc<Vec<String>>),
     Binary,
     TooBig(u64),
     Failed(String),
@@ -54,7 +55,7 @@ pub(crate) enum Preview {
 impl Preview {
     fn of(bytes: &[u8]) -> Self {
         match std::str::from_utf8(bytes) {
-            Ok(text) if !text.contains('\0') => Self::Text(text.lines().take(PREVIEW_LINES).map(|l| l.replace('\t', "    ")).collect()),
+            Ok(text) if !text.contains('\0') => Self::Text(Rc::new(text.lines().take(PREVIEW_LINES).map(|l| l.replace('\t', "    ")).collect())),
             _ => Self::Binary,
         }
     }
@@ -510,7 +511,7 @@ mod tests {
         f.previewed("devbox", &path, Ok(b"done\n".to_vec()));
         f.select("/home/me/code", "todo.txt");
         assert_eq!(f.preview_wanted(), None);
-        assert_eq!(f.preview.unwrap().1, Preview::Text(vec!["done".into()]));
+        assert_eq!(f.preview.unwrap().1, Preview::Text(Rc::new(vec!["done".into()])));
     }
 
     #[test]
@@ -521,7 +522,7 @@ mod tests {
         assert_eq!(f.preview_wanted().as_deref(), Some("/home/me/code/todo.txt"));
         assert_eq!(f.preview_wanted(), None, "asked once");
         f.previewed("devbox", "/home/me/code/todo.txt", Ok(b"one\ttab\ntwo\n".to_vec()));
-        assert_eq!(f.preview.unwrap().1, Preview::Text(vec!["one    tab".into(), "two".into()]));
+        assert_eq!(f.preview.unwrap().1, Preview::Text(Rc::new(vec!["one    tab".into(), "two".into()])));
     }
 
     #[test]

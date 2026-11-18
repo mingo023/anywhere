@@ -453,7 +453,7 @@ impl Desktop {
             }
             None => el,
         };
-        let host = hosts::split(c.project()).0.map(|h| self.host_name(h));
+        let host = self.project_host_name(c.project());
         let bar = self.page_bar(crate::spaces::crumbs(host, [self.repo_name(c.project()), c.name()]), Vec::new(), div(), cx);
         let mono = |s: String| div().font_family(MONO).text_color(TEXT_2).child(s);
         let title = div()

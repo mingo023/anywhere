@@ -12,12 +12,12 @@ pub(crate) fn glyph(space: &Space) -> &'static str {
     if *space == Space::Local { LOCAL_ICON } else { "server" }
 }
 
-/// A space's icon on a tile of its colour; This Mac's is plain.
-pub(crate) fn tile(space: &Space, tint: Option<u32>, size: f32) -> Div {
+/// An icon on a tile of a space's colour; This Mac's is plain.
+pub(crate) fn tile(glyph: &str, tint: Option<u32>, size: f32) -> Div {
     let tile = div().size(px(size)).flex().flex_none().items_center().justify_center().rounded(px(size * 0.28));
     match tint {
-        Some(c) => tile.bg(rgb(c)).child(icon(glyph(space), size * 0.6, WHITE)),
-        None => tile.bg(FILL_4).child(icon(glyph(space), size * 0.6, TEXT_2)),
+        Some(c) => tile.bg(rgb(c)).child(icon(glyph, size * 0.6, WHITE)),
+        None => tile.bg(FILL_4).child(icon(glyph, size * 0.6, TEXT_2)),
     }
 }
 
@@ -44,7 +44,7 @@ impl Desktop {
             .cursor_pointer()
             .hover(|s| s.bg(FILL_2))
             .when(open, |d| d.bg(FILL_2))
-            .child(tile(space, self.space_colour(space, order), 22.))
+            .child(tile(glyph(space), self.space_colour(space, order), 22.))
             .child(div().min_w_0().max_w(px(120.)).truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(self.space_name(space)))
             .children(host.map(|_| ui::dot(6., link_color(link))))
             .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(host.map(|h| h.address()).unwrap_or_default()))

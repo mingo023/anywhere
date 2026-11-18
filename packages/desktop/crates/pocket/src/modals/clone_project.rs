@@ -2,7 +2,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::modals::form::{footer, home};
 use crate::modals::host_finder::Opener;
-use crate::modals::new_session::picker::machine_row;
+use crate::modals::new_session::picker::machine_rows;
 use crate::settings::ssh_hosts::link_color;
 use crate::sidebar::sections::group_mark;
 use crate::spaces::header::glyph;
@@ -366,12 +366,7 @@ impl Desktop {
                 }))
             });
         let menu = open.then(|| {
-            let rows = self.space_order().into_iter().enumerate().map(|(i, space)| {
-                let reach = self.space_reach(&space);
-                let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
-                let row = machine_row(("clone-machine", i), &space, &self.space_name(&space), link, reach, space == f.machine).when(reach != Reach::Online, |d| d.opacity(0.5));
-                row.when(reach == Reach::Online, |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_clone_machine(space.clone(), window, cx)))).into_any_element()
-            });
+            let rows = machine_rows(self, "clone-machine", &f.machine, Self::pick_clone_machine, cx);
             let menu = ui::pop(div().id("clone-machine-menu"))
                 .w(px(240.))
                 .p(px(6.))

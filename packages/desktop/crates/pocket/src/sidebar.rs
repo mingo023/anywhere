@@ -217,7 +217,7 @@ impl Desktop {
             cx.notify();
         }));
         div().relative().child(button).when(open, |d| {
-            let host = self.space().host().map(|h| self.host_name(h));
+            let host = self.space_host_name(&self.space());
             let add = ui::menu_row("aside-add-project", "folder", &on_host("Open folder", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
             let clone = ui::menu_row("aside-add-clone", "branch", &on_host("Clone from URL", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
             let menu = ui::pop(div().id("aside-add-menu"))

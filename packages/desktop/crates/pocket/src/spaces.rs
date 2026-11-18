@@ -273,7 +273,17 @@ impl Desktop {
 
     /// `space`'s name: This Mac, or the host's.
     pub(crate) fn space_name(&self, space: &Space) -> String {
-        space.host().map_or_else(|| "This Mac".to_string(), |id| self.host_name(id))
+        self.space_host_name(space).unwrap_or_else(|| "This Mac".to_string())
+    }
+
+    /// `space`'s host's name; none for This Mac.
+    pub(crate) fn space_host_name(&self, space: &Space) -> Option<String> {
+        space.host().map(|id| self.host_name(id))
+    }
+
+    /// The name of the host a project is on; none for one on this Mac.
+    pub(crate) fn project_host_name(&self, project: &str) -> Option<String> {
+        hosts::split(project).0.map(|id| self.host_name(id))
     }
 
     pub(crate) fn space_reach(&self, space: &Space) -> Reach {
@@ -282,7 +292,7 @@ impl Desktop {
 
     /// A project's name, with its host's when it is on one.
     pub(crate) fn labelled_project(&self, project: &str) -> String {
-        labelled(&self.repo_name(project), hosts::split(project).0.map(|h| self.host_name(h)).as_deref())
+        labelled(&self.repo_name(project), self.project_host_name(project).as_deref())
     }
 
     /// The projects the sidebar lists in `space`: not its Scratch folders.

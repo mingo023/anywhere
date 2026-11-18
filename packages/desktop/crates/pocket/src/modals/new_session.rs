@@ -848,7 +848,7 @@ impl Desktop {
         // Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
         let drop = drop_zone(move |paths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)));
         let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx).relative().child(drop);
-        div().flex_1().flex().flex_col().child(self.page_bar(spaces::crumbs(self.space().host().map(|h| self.host_name(h)), [name, "New session".into()]), Vec::new(), div(), cx)).child(body)
+        div().flex_1().flex().flex_col().child(self.page_bar(spaces::crumbs(self.space_host_name(&self.space()), [name, "New session".into()]), Vec::new(), div(), cx)).child(body)
     }
 }
 

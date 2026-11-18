@@ -46,7 +46,7 @@ fn menu_frame(id: &'static str, width: f32, cx: &mut Context<Desktop>) -> Statef
 }
 
 /// A machine's menu row: its link's dot, and why it can't be picked while it can't be reached.
-pub(crate) fn machine_row(id: impl Into<ElementId>, space: &Space, name: &str, link: Option<&Link>, reach: Reach, chosen: bool) -> Stateful<Div> {
+fn machine_row(id: impl Into<ElementId>, space: &Space, name: &str, link: Option<&Link>, reach: Reach, chosen: bool) -> Stateful<Div> {
     let unusable = reach != Reach::Online;
     let note = match reach {
         Reach::Online => "",
@@ -57,6 +57,21 @@ pub(crate) fn machine_row(id: impl Into<ElementId>, space: &Space, name: &str, l
         .when(unusable, |d| d.cursor_default().child(div().text_size(px(11.5)).text_color(TEXT_3).child(note)))
         .when(space.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
         .when(chosen, |d| d.child(icon("check", 13., TEXT_2)))
+}
+
+/// A row per space in the switcher's order, `chosen` checked. Only a reachable one takes a click, which calls `pick`.
+pub(crate) fn machine_rows(desktop: &Desktop, id: &'static str, chosen: &Space, pick: fn(&mut Desktop, Space, &mut Window, &mut Context<Desktop>), cx: &mut Context<Desktop>) -> Vec<AnyElement> {
+    desktop
+        .space_order()
+        .into_iter()
+        .enumerate()
+        .map(|(i, space)| {
+            let link = space.host().and_then(|id| desktop.fleet.hosts.links.get(id));
+            let reach = desktop.space_reach(&space);
+            let row = machine_row((id, i), &space, &desktop.space_name(&space), link, reach, space == *chosen).when(reach != Reach::Online, |d| d.opacity(0.5));
+            row.when(reach == Reach::Online, |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| pick(this, space.clone(), window, cx)))).into_any_element()
+        })
+        .collect()
 }
 
 pub(crate) fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
@@ -206,13 +221,7 @@ impl Desktop {
 
     /// Run on: This Mac and the SSH hosts; one that can't be reached is dimmed and can't be picked.
     fn machine_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let current = self.space();
-        let rows = self.space_order().into_iter().enumerate().map(|(i, space)| {
-            let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
-            let reach = self.space_reach(&space);
-            let row = machine_row(("machine", i), &space, &self.space_name(&space), link, reach, space == current).when(reach != Reach::Online, |d| d.opacity(0.5));
-            row.when(reach == Reach::Online, |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_machine(space.clone(), window, cx)))).into_any_element()
-        });
+        let rows = machine_rows(self, "machine", &self.space(), Self::pick_machine, cx);
         let add = ui::menu_pick("machine-add", icon("plus", 14., TEXT_3), "Add a host\u{2026}", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
             this.new_form.draft.picker = None;
             this.add_host_from_sidebar(window, cx);
@@ -286,7 +295,7 @@ impl Desktop {
                 }))
                 .into_any_element()
         });
-        let host = space.host().map(|h| self.host_name(h));
+        let host = self.space_host_name(&space);
         let open = ui::menu_pick("project-open", icon("folder-plus", 14., TEXT_3), &on_host("Open folder", host.as_deref()), false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::NewSession, window, cx)));
         let clone = ui::menu_pick("project-clone", icon("branch", 14., TEXT_3), "Clone from URL\u{2026}", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
             this.new_form.draft.picker = None;

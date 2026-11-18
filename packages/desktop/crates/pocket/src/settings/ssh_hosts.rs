@@ -5,7 +5,8 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use crate::fleet::needs_update;
 use crate::spaces::Space;
-use crate::spaces::header::tile;
+use crate::spaces::header::{glyph, tile};
+use crate::util::LOCAL_ICON;
 use agents::hosts::{Failure, Link};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -79,11 +80,11 @@ fn field(label: &'static str, input: &Entity<InputState>) -> Div {
 impl Desktop {
     fn host_rows(&mut self, cx: &mut Context<Self>) -> Div {
         let connected = !self.terminals.link.is_down();
-        let here = host_row(0, tile(&Space::Local, None, 28.), "This Mac".into(), service_line(connected, self.settings.host.status.as_ref()), if connected { SUCCESS } else { TEXT_4 })
+        let here = host_row(0, tile(LOCAL_ICON, None, 28.), "This Mac".into(), service_line(connected, self.settings.host.status.as_ref()), if connected { SUCCESS } else { TEXT_4 })
             .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
         if self.hosts_read_only() {
             // The hosts the desktop linked itself before pocketd did, named as it saved them.
-            let saved = self.store.hosts.iter().enumerate().map(|(i, h)| host_row(i + 1, tile(&Space::Host(String::new()), None, 28.), h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4));
+            let saved = self.store.hosts.iter().enumerate().map(|(i, h)| host_row(i + 1, tile("server", None, 28.), h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4));
             return div().flex().flex_col().child(here).children(saved.collect::<Vec<_>>());
         }
         let order = self.space_order();
@@ -123,7 +124,7 @@ impl Desktop {
                 (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
                 cx.notify();
             }));
-            let row = host_row(i + 1, tile(&space, self.space_colour(&space, &order), 28.), h.name.clone(), line, link_color(link)).children(password).children(install).children(update).children(reconnect).children(open).child(remove);
+            let row = host_row(i + 1, tile(glyph(&space), self.space_colour(&space, &order), 28.), h.name.clone(), line, link_color(link)).children(password).children(install).children(update).children(reconnect).children(open).child(remove);
             let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &list, cx));
             div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
         });
