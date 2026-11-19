@@ -220,11 +220,11 @@ pub fn settled_tail(before: Option<&str>, t: &Transcript) -> Option<String> {
     (live_tail(t).map(|f| t.turns[f].id.as_str()) != Some(before)).then(|| before.to_string())
 }
 
-/// Sub-agents and commands still running in `turns` after their own turn ended, the ones working in the background, with
-/// their turn and block.
+/// Sub-agents and commands still running in `turns` after their own reply ended, the ones working in the background, with
+/// their turn and block. A turn a steer carried on never ends itself, so a later turn's end ends it.
 pub fn in_background(turns: &[Turn]) -> impl Iterator<Item = (usize, usize, &ToolCall)> {
-    let ended = turns.iter().enumerate().filter(|(_, turn)| turn.end.is_some());
-    ended.flat_map(|(t, turn)| {
+    let over = turns.iter().rposition(|turn| turn.end.is_some()).map_or(0, |last| last + 1);
+    turns[..over].iter().enumerate().flat_map(|(t, turn)| {
         turn.blocks.iter().enumerate().filter_map(move |(b, block)| match block {
             Block::Tool(c) if c.status == ToolStatus::Running && matches!(c.kind, ToolKind::Agent(_) | ToolKind::Shell { .. }) => Some((t, b, c)),
             _ => None,
@@ -698,6 +698,16 @@ mod tests {
         let t = Transcript { turns: vec![turn("u1", vec![server, shell()], done())] };
         assert_eq!(in_background(&t.turns).count(), 1);
         assert!(!at_work_on(&t, 0..1));
+    }
+
+    #[test]
+    fn a_command_left_running_before_a_steer_is_in_the_background_once_the_reply_ends() {
+        let server = call(ToolKind::Shell { command: "gh run watch".into(), description: String::new() }, ToolStatus::Running);
+        let open = Transcript { turns: vec![turn("u1", vec![server.clone()], None), turn("u2", vec![shell()], None)] };
+        assert_eq!(in_background(&open.turns).count(), 0, "the reply goes on");
+        let ended = Transcript { turns: vec![turn("u0", vec![shell()], done()), turn("u1", vec![server], None), turn("u2", vec![shell()], done())] };
+        let found: Vec<_> = in_background(&ended.turns).map(|(turn, block, _)| (turn, block)).collect();
+        assert_eq!(found, [(1, 0)]);
     }
 
     #[test]
