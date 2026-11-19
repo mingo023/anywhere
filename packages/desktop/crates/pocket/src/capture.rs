@@ -12,6 +12,7 @@ use crate::modals::new_session::picker::Picker;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::git_ui::diff::At;
 use crate::git_ui::graph::GraphState;
+use crate::git_ui::pull_request::PrTab;
 use crate::settings::Section;
 use crate::status::Status;
 use crate::updates::Update;
@@ -19,7 +20,7 @@ use agents::providers;
 use chat::{Block, Command, Row, ToolKind};
 use git::Kind;
 use serde_json::json;
-use git::github::{Check, Checks, Comment, Mergeable, Outcome, Pr, PrState, Review, Thread};
+use git::github::{Check, Checks, Comment, Label, Mergeable, Note, Outcome, Pr, PrCommit, PrFile, PrState, Review, Submitted, Thread};
 use gpui_kit::component::Root;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
@@ -33,7 +34,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 294] = [
+const STEPS: [(&str, Step); 298] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -926,8 +927,15 @@ const STEPS: [(&str, Step); 294] = [
     ("pr-loop", |d, _, _| {
         let Some(tree) = d.cwd() else { return };
         let at = crate::util::now_ms() as u64;
-        let said = |author: &str, body: &str, mins: u64| Comment { author: author.into(), body: body.into(), at: at - mins * 60_000, hunk: String::new() };
-        let thread = |id: &str, line: u32, resolved: bool, comments: Vec<Comment>| Thread { id: id.into(), path: "hooks/use-restore-preview.ts".into(), line: Some(line), resolved, comments, ..Thread::default() };
+        let ago = |mins: u64| at - mins * 60_000;
+        let said = |author: &str, body: &str, mins: u64| Comment { author: author.into(), body: body.into(), at: ago(mins), ..Comment::default() };
+        let thread = |id: &str, review: &str, line: u32, resolved: bool, mut comments: Vec<Comment>| {
+            comments[0].review = Some(review.into());
+            Thread { id: id.into(), path: "hooks/use-restore-preview.ts".into(), line: Some(line), resolved, comments, ..Thread::default() }
+        };
+        let review = |id: &str, author: &str, verdict: Review, body: &str, mins: u64| Submitted { id: id.into(), author: author.into(), verdict, body: body.into(), at: ago(mins) };
+        let commit = |oid: &str, subject: &str, mins: u64| PrCommit { oid: oid.into(), subject: subject.into(), author: "minhngo".into(), at: ago(mins) };
+        let file = |path: &str, additions: u32, deletions: u32| PrFile { path: path.into(), additions, deletions };
         let run = |name: &str, outcome: Outcome| Check { name: name.into(), outcome, url: "https://github.com/acme/app/actions/runs/1".into() };
         let pr = Pr {
             number: 128,
@@ -942,10 +950,20 @@ const STEPS: [(&str, Step); 294] = [
             base: "main".into(),
             head: "fix/restore-handoff".into(),
             threads: vec![
-                thread("t1", 4, false, vec![said("hoang", "This reads the preview before the session restores, so the first frame is stale.", 40)]),
-                thread("t2", 12, false, vec![said("hoang", "Can we drop the timeout here?", 35), said("Minh Ngo", "Dropped it in the next push.", 10)]),
-                thread("t3", 18, true, vec![said("linh", "Nit: name it restorePreview.", 90)]),
+                thread("t1", "r2", 4, false, vec![said("hoang", "This reads the preview before the session restores, so the first frame is stale.", 40)]),
+                thread("t2", "r2", 12, false, vec![said("hoang", "Can we drop the timeout here?", 35), said("Minh Ngo", "Dropped it in the next push.", 10)]),
+                thread("t3", "r1", 18, true, vec![said("linh", "Nit: name it restorePreview.", 90)]),
             ],
+            body: "## Summary\nThe terminal pane reveals once the session has restored, so the first frame is never stale.\n\n## Testing\n- [x] Restoring a session shows its last frame\n- [ ] Tested on a host with 1200 sessions".into(),
+            author: "minhngo".into(),
+            opened: ago(180),
+            labels: vec![Label { name: "bug".into(), color: 0xd73a4a }, Label { name: "desktop".into(), color: 0x0e8a16 }],
+            additions: 42,
+            deletions: 17,
+            commits: vec![commit("a1b2c3d4e5", "Reveal the terminal once the session restores", 170), commit("b2c3d4e5f6", "Drop the fixed reveal timeout", 12)],
+            files: vec![file("hooks/use-restore-preview.ts", 30, 12), file("components/terminal-pane.tsx", 12, 5)],
+            notes: vec![Note { id: "c1".into(), author: "linh".into(), body: "Does this also cover a session restored from another machine?".into(), at: ago(60), url: "https://github.com/acme/app/pull/128#issuecomment-1".into() }],
+            submitted: vec![review("r1", "linh", Review::None, "", 90), review("r2", "hoang", Review::ChangesRequested, "Close, but the first frame is still stale on a cold start.", 40)],
             ..Pr::default()
         };
         let now = Instant::now();
@@ -965,7 +983,7 @@ const STEPS: [(&str, Step); 294] = [
             ("Minh Ngo", "Yes, a 3s fallback, logged.", 13),
         ];
         if let Some(t) = pr.threads.iter_mut().find(|t| t.id == "t2") {
-            let said = replies.iter().map(|(author, body, mins)| Comment { author: author.to_string(), body: body.to_string(), at: at - mins * 60_000, hunk: String::new() });
+            let said = replies.iter().map(|(author, body, mins)| Comment { author: author.to_string(), body: body.to_string(), at: at - mins * 60_000, ..Comment::default() });
             t.comments.splice(1..1, said);
         }
         let now = Instant::now();
@@ -979,8 +997,17 @@ const STEPS: [(&str, Step); 294] = [
         d.pr.track.send(&tree, "capture", &pr, &[], &failed, false);
     }),
     ("pr-side", |d, _, cx| d.show_pr_side(cx)),
-    ("pr-comments", |d, _, _| d.pr.track.comments = true),
-    ("pr-fold", |d, _, _| d.pr.track.folded = true),
+    ("pr-checks", |d, _, _| d.pr.track.tab = PrTab::Checks),
+    ("pr-commits", |d, _, _| d.pr.track.tab = PrTab::Commits),
+    ("pr-files", |d, _, _| d.pr.track.tab = PrTab::Files),
+    ("pr-all", |d, _, _| d.pr.track.all = true),
+    ("pr-comment", |d, window, cx| d.open_comment(window, cx)),
+    // Downloads from GitHub, so only the captures that show the pictures ask for it.
+    ("pr-avatars", |d, _, cx| {
+        if let Some(tree) = d.cwd() {
+            d.fetch_avatars(&tree, cx);
+        }
+    }),
     ("pr-diff", |d, _, cx| {
         let first = d.shown_pr().and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
         if let Some(id) = first {
@@ -1489,8 +1516,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.workspaces.clear();
     d.creates.list.clear();
     d.graph = GraphState::default();
-    d.pr.track.comments = false;
-    d.pr.track.folded = false;
+    d.pr.track.tab = PrTab::default();
+    d.pr.track.all = false;
     d.agents.names.clear();
     d.agents.locals.clear();
     d.sidebar.rename = None;
