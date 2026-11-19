@@ -41,7 +41,3 @@ pub(crate) fn send_button(id: ElementId, action: Action, empty: bool, blocked: b
     b.when(blocked, |b| b.opacity(0.35)).when(!blocked && !(action == Action::Send && empty), |b| b.cursor_pointer().hover(|s| s.opacity(0.85)).active(|s| s.opacity(0.7)))
 }
 
-/// Stop beside Steer, for an agent working while you type.
-pub(super) fn ghost_stop(id: ElementId) -> Stateful<Div> {
-    button(id, "Stop · esc").bg(FILL_3).cursor_pointer().hover(|s| s.bg(FILL_4)).child(stop_square(TEXT))
-}

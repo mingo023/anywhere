@@ -86,9 +86,22 @@ fn placeholder(working: bool, stopping: bool, can_queue: bool) -> &'static str {
     }
 }
 
-/// Whether Stop stands beside Steer: while the agent can be stopped. Once stopping, a draft queues and the stop is on its way.
-fn stop_beside_steer(action: Action, interrupt: bool) -> bool {
-    action == Action::Steer && interrupt
+/// How long Stop ignores clicks after a send clicked on the same button, unless the pointer leaves it first.
+const CLICK_GUARD_MS: i64 = 3_000;
+
+/// Whether the box shows its button: an idle agent's empty box has nothing to send or stop.
+fn shows_button(action: Action, empty: bool) -> bool {
+    !(action == Action::Send && empty)
+}
+
+/// Whether the pointer left the box's button: GPUI reports a pointer moving while it holds the button down as not hovering.
+fn pointer_left(over: bool, pressing: bool) -> bool {
+    !over && !pressing
+}
+
+/// Whether a click on Stop is the tail of the send clicked on that button: it turns into Stop under the pointer.
+fn guards_stop(clicked_send: Option<&(String, i64)>, agent: &str, now: i64) -> bool {
+    clicked_send.is_some_and(|(a, at)| a == agent && now - at < CLICK_GUARD_MS)
 }
 
 /// The text `key` types, if it types any: shortcuts and keys like Enter, Tab or Escape don't.
@@ -131,6 +144,10 @@ pub(crate) struct ComposerState {
     pub(crate) background_folded: bool,
     /// Each chat's side question, by agent.
     pub(crate) btw: HashMap<String, btw::Btw>,
+    /// The agent and time of the last send clicked on the box's button, until the pointer leaves it.
+    clicked_send: Option<(String, i64)>,
+    /// Whether the box's button is held down.
+    pressing_send: bool,
 }
 
 impl ComposerState {
@@ -166,6 +183,8 @@ impl ComposerState {
             suggest: Default::default(),
             background_folded: true,
             btw: HashMap::new(),
+            clicked_send: None,
+            pressing_send: false,
         };
         (state, subs)
     }
@@ -578,20 +597,13 @@ impl Desktop {
         cx.notify();
     }
 
-    fn chat_press(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(a) = self.summary(terminal) else { return };
-        let empty = self.chats.input.read(cx).value().trim().is_empty() && !self.chats.composer.draft.has_attachments();
-        if chat::action(self.chat_busy(a), self.chat_stopping(a), empty) == Action::Stop {
-            let agent = a.id.clone();
-            self.chat_command(&agent, Command::Interrupt, cx);
-        } else {
+    /// A click on the box's button does what it showed.
+    fn chat_press(&mut self, terminal: &str, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(agent) = self.summary(terminal).map(|a| a.id.clone()) else { return };
+        if action != Action::Stop {
             self.chat_send(terminal, false, window, cx);
-        }
-    }
-
-    fn chat_stop(&mut self, terminal: &str, cx: &mut Context<Self>) {
-        if let Some(a) = self.summary(terminal) {
-            let agent = a.id.clone();
+            self.chats.composer.clicked_send = Some((agent, now_ms()));
+        } else if !guards_stop(self.chats.composer.clicked_send.as_ref(), &agent, now_ms()) {
             self.chat_command(&agent, Command::Interrupt, cx);
         }
     }
@@ -761,13 +773,23 @@ impl Desktop {
         let blocked = !caps.allows(action);
         let press = |t: &str| {
             let t = t.to_string();
-            cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, window, cx))
+            cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, action, window, cx))
         };
-        let ghost = (!view_only && stop_beside_steer(action, caps.interrupt)).then(|| {
-            let t = terminal.to_string();
-            send_button::ghost_stop(id(format!("chat-stop:{terminal}"))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_stop(&t, cx)))
+        let left = cx.listener(|this, over: &bool, _, _| {
+            if pointer_left(*over, this.chats.composer.pressing_send) {
+                this.chats.composer.clicked_send = None;
+            }
         });
-        let send = (!view_only).then(|| send_button::send_button(id(format!("chat-send:{terminal}")), action, empty, blocked).when(!blocked && !(action == Action::Send && empty), |b| b.on_click(press(terminal))));
+        let released = || cx.listener(|this, _: &MouseUpEvent, _, _| this.chats.composer.pressing_send = false);
+        // The id names the action so the tooltip of the button a send was clicked on doesn't stay on the Stop that replaced it.
+        let send = (!view_only && shows_button(action, empty)).then(|| {
+            send_button::send_button(id(format!("chat-send:{terminal}:{action:?}")), action, empty, blocked)
+                .on_hover(left)
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, _| this.chats.composer.pressing_send = true))
+                .on_mouse_up(MouseButton::Left, released())
+                .on_mouse_up_out(MouseButton::Left, released())
+                .when(!blocked, |b| b.on_click(press(terminal)))
+        });
         let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), |d| &mut d.chats.composer.draft, cx));
         let strip = draft.and_then(|d| attachments::strip(d, cx));
         let input = if view_only {
@@ -797,7 +819,6 @@ impl Desktop {
             .children(self.chats.views.get(&agent.id).and_then(|v| self.chat_agents_chip(agent, &v.session.transcript, cx)))
             .child(div().flex_1())
             .children(attach)
-            .children(ghost)
             .children(send);
         let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
         let keyed = self.suggest_keys(Prompt::Chat, frame(typing), cx);
@@ -829,7 +850,7 @@ fn added(draft: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, said_in_chat, stop_beside_steer, terminal_only_said, text_view_focused, typed_text, working};
+    use super::{Mode, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, guards_stop, pointer_left, said_in_chat, shows_button, terminal_only_said, text_view_focused, typed_text, working};
     use gpui_kit::{KeyContext, Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
@@ -920,9 +941,28 @@ mod tests {
         assert_eq!(hint(Mode::Prompt, false, true, true, true), None, "the turn ended");
         assert_eq!(placeholder(true, true, true), "Queue a follow-up…");
         assert_eq!(placeholder(true, false, true), "Send a follow-up into this turn…");
-        assert!(stop_beside_steer(Action::Steer, true));
-        assert!(!stop_beside_steer(Action::Queue, true), "the stop is already on its way");
-        assert!(!stop_beside_steer(Action::Steer, false));
+    }
+
+    #[test]
+    fn the_box_shows_one_button_and_none_for_an_idle_agent_with_nothing_typed() {
+        assert!(!shows_button(Action::Send, true));
+        assert!([(Action::Send, false), (Action::Steer, false), (Action::Queue, false), (Action::Stop, true), (Action::Stopping, true)].into_iter().all(|(a, empty)| shows_button(a, empty)));
+    }
+
+    #[test]
+    fn a_stop_that_turned_up_under_a_clicked_send_takes_no_click_for_a_while() {
+        let sent = ("a1".to_string(), 10_000);
+        assert!(guards_stop(Some(&sent), "a1", 12_200), "the second click of a double press");
+        assert!(!guards_stop(Some(&sent), "a1", 13_000), "a stop clicked once the guard ends");
+        assert!(!guards_stop(Some(&sent), "a2", 10_100), "another chat's send");
+        assert!(!guards_stop(None, "a1", 10_100), "the pointer left the button");
+    }
+
+    #[test]
+    fn a_pointer_that_shakes_during_a_click_hasnt_left_the_button() {
+        assert!(!pointer_left(false, true), "GPUI reads a held button as not hovered");
+        assert!(pointer_left(false, false));
+        assert!(!pointer_left(true, false));
     }
 
     #[test]
