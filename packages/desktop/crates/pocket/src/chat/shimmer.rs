@@ -12,7 +12,7 @@ fn amount(x: f32, t: f32) -> f32 {
 }
 
 /// A label in `base` with a band of light sweeping across it: what's at work right now.
-pub(super) fn shimmer(id: impl Into<ElementId>, text: impl Into<SharedString>, base: Token) -> AnimationElement<Div> {
+pub(crate) fn shimmer(id: impl Into<ElementId>, text: impl Into<SharedString>, base: Token) -> AnimationElement<Div> {
     let text = text.into();
     let (base, peak): (Hsla, Hsla) = (base.into(), TEXT.into());
     // Uncapped, a repeating animation redraws the whole window every vsync.

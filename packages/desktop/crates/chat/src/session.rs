@@ -1,4 +1,4 @@
-use crate::rows::{at_work, rows_from};
+use crate::rows::{at_work, group_start, rows_from, Span};
 use crate::{splice, Backend, Block, Delivery, Fold, Outgoing, Row, Transcript, Turn};
 use std::ops::Range;
 
@@ -22,6 +22,10 @@ pub struct Session {
     /// Sends the transcript shows, and whether a working row trails them: a send is on its way, or the agent compacts
     /// where its transcript can't show it.
     sends: (usize, bool),
+    /// The sessions the chat delegated to, which tell the report summing the rest up.
+    delegated: Vec<Span>,
+    /// The turns as laid out before the delegated sessions last changed, if they have changed since.
+    regroup: Option<Vec<Turn>>,
 }
 
 impl Session {
@@ -38,12 +42,25 @@ impl Session {
         self.outgoing.settle(&self.transcript, working, now_ms);
         let sending = self.outgoing.echoed().any(|(_, p)| p.delivery == Delivery::Sending);
         let sends = (self.outgoing.echoed().count(), sending || (self.outgoing.compacting() && !at_work(&self.transcript)));
-        if old.is_none() && sends == self.sends {
+        let regroup = self.regroup.take();
+        if old.is_none() && sends == self.sends && regroup.is_none() {
             return None;
         }
         self.sends = sends;
-        let (from, replaced) = old.unwrap_or((self.transcript.turns.len(), Vec::new()));
+        let (from, replaced) = match regroup {
+            Some(turns) => (0, turns),
+            None => old.unwrap_or((self.transcript.turns.len(), Vec::new())),
+        };
         self.resplice(from, &replaced)
+    }
+
+    /// Takes when each session the chat delegated to began and settled, which tells the report summing the rest up;
+    /// a change lays the chat out again on the next update.
+    pub fn delegated(&mut self, spans: &[Span]) {
+        if spans != self.delegated {
+            self.delegated = spans.to_vec();
+            self.regroup.get_or_insert_with(|| self.transcript.turns.clone());
+        }
     }
 
     /// Shows a transcript folded elsewhere, such as a sub-agent's inside its parent's, and returns how the rows moved, if they did.
@@ -58,9 +75,18 @@ impl Session {
 
     /// Rebuilds the rows of turns from `from` on, which `old` held before, and the trailer under them.
     fn resplice(&mut self, from: usize, old: &[Turn]) -> Option<Change> {
+        // A report joining a group lays the group out again from its first turn, which held the same before.
+        let start = group_start(&self.transcript, from, &self.delegated);
+        let joined: Vec<Turn>;
+        let (from, old) = if start < from {
+            joined = self.transcript.turns[start..from].iter().chain(old).cloned().collect();
+            (start, joined.as_slice())
+        } else {
+            (from, old)
+        };
         let keep = self.rows.partition_point(|r| r.turn().is_some_and(|turn| turn < from));
         let old_rows = self.rows.split_off(keep);
-        rows_from(&mut self.rows, &self.transcript, from, self.sends.0, self.sends.1);
+        rows_from(&mut self.rows, &self.transcript, from, self.sends.0, self.sends.1, &self.delegated);
         let ids: Vec<String> = self.rows[keep..].iter().map(|r| r.id(&self.transcript)).collect();
         let (range, count) = splice(&self.ids[keep..], &ids);
         // Ids hold while a row's content changes (a tool finishing, text streaming in): the list measures those rows
@@ -116,6 +142,7 @@ fn same_content(old: &[Turn], from: usize, new: &Transcript, row: &Row) -> bool 
         }
         // One line, whatever the reply it heads does.
         Row::Fold { .. } | Row::Notice { .. } => true,
+        Row::Reports { turns, .. } => turns.clone().all(|ix| old.get(ix - from) == new.turns.get(ix)),
         Row::End { .. } => a.end == b.end,
         Row::Live { .. } | Row::Working | Row::Pending(_) => true,
     }
@@ -164,6 +191,57 @@ mod tests {
         s.update(backend, 1, &[item(1, json!({"kind": "user", "text": "go"})), item(2, task), item(3, json!({"kind": "result", "ok": true}))], false, 0);
         let agent = s.rows.iter().position(|r| matches!(r, Row::Phase { .. })).unwrap();
         assert_eq!(s.shut_fold_over(agent), None, "its sub-agent still at work holds the fold open");
+    }
+
+    fn wake(seq: i64, child: &str, said: &str) -> Vec<Item> {
+        vec![
+            item(seq, json!({"kind": "delivery", "outcome": "done", "childIds": [child], "titles": [child], "agents": ["codex"]})),
+            item(seq + 1, json!({"kind": "assistant", "text": said})),
+            item(seq + 2, json!({"kind": "result", "ok": true, "durationMs": 1})),
+        ]
+    }
+
+    #[test]
+    fn listing_the_delegated_sessions_groups_their_reports_and_a_report_joining_the_group_lays_out_as_from_scratch() {
+        let backend = for_provider("claude");
+        let opening = vec![item(1, json!({"kind": "user", "text": "split it"})), item(2, json!({"kind": "result", "ok": true, "durationMs": 1}))];
+        let first: Vec<Item> = [opening, wake(3, "a2", "One is back.")].concat();
+        let all: Vec<Item> = [first.clone(), wake(6, "a3", "Both are back.")].concat();
+        let spans = [Span { began: 1, settled: Some(3) }, Span { began: 1, settled: Some(6) }];
+        let mut s = Session::default();
+        s.update(backend, 1, &first, false, 0);
+        assert!(!s.rows.iter().any(|r| matches!(r, Row::Reports { .. })), "nothing groups before the sessions are listed");
+        s.delegated(&spans);
+        assert!(s.update(backend, 1, &first, false, 0).is_some(), "the listing alone lays the chat out again");
+        assert!(s.rows.contains(&Row::Reports { turns: 1..2, closes: false }), "the report at 4 waits on a3, so it groups");
+        s.update(backend, 2, &all, false, 0);
+        let mut fresh = Session::default();
+        fresh.delegated(&spans);
+        fresh.update(backend, 1, &all, false, 0);
+        assert_eq!((&s.rows, &s.ids), (&fresh.rows, &fresh.ids));
+        assert!(s.rows.contains(&Row::Reports { turns: 1..3, closes: true }));
+    }
+
+    #[test]
+    fn a_report_that_fails_after_joining_a_group_lays_out_as_from_scratch() {
+        let backend = for_provider("claude");
+        let streaming: Vec<Item> = [
+            vec![item(1, json!({"kind": "user", "text": "split it"})), item(2, json!({"kind": "result", "ok": true, "durationMs": 1}))],
+            wake(3, "a2", "One is back."),
+            vec![item(6, json!({"kind": "delivery", "outcome": "done", "childIds": ["a3"], "titles": ["a3"], "agents": ["codex"]})), item(7, json!({"kind": "assistant", "text": "Both"}))],
+        ]
+        .concat();
+        let failed: Vec<Item> = [streaming.clone(), vec![item(8, json!({"kind": "result", "ok": false, "error": "API Error", "durationMs": 1}))]].concat();
+        let spans = [Span { began: 1, settled: Some(2) }, Span { began: 1, settled: Some(2) }];
+        let mut s = Session::default();
+        s.delegated(&spans);
+        s.update(backend, 1, &streaming, false, 0);
+        assert!(s.rows.contains(&Row::Reports { turns: 1..3, closes: true }));
+        s.update(backend, 2, &failed, false, 0);
+        let mut fresh = Session::default();
+        fresh.delegated(&spans);
+        fresh.update(backend, 1, &failed, false, 0);
+        assert_eq!((&s.rows, &s.ids), (&fresh.rows, &fresh.ids));
     }
 
     #[test]

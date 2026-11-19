@@ -18,7 +18,7 @@ pub use answers::answers;
 pub use commands::{menu, skips_queue, slash, Builtin, Kind, Local, Slash};
 pub use marks::{code, marks, marks_outside_code, mention_name, Code, Marks};
 pub use outgoing::{action, busy, Action, Delivery, Outgoing, Pending};
-pub use rows::{at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows, running_agent, settled_tail, splice, step_prompt, top_gap, worked, Row};
+pub use rows::{at_work, at_work_on, fold_of, folded, in_background, is_work, live_tail, markdown_blocks, narrates, phase_title, reply, reported, row_of, rows, running_agent, settled_tail, splice, step_prompt, top_gap, worked, Row, Span};
 pub use session::{Folds, Session};
 pub use spawned::{Spawned, spawned};
 pub use timeline::Fold;

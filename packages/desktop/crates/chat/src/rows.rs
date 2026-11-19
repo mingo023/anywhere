@@ -15,6 +15,9 @@ pub enum Row {
     Note { turn: usize, block: usize },
     /// A `Block::Delivered`: what pocketd told the chat of the sessions it delegated to.
     Delivery { turn: usize, block: usize },
+    /// The turns the agent spent taking in its delegated sessions' reports, as one row. When `closes`, the last of them
+    /// sums the reports up and lays out after the row as a reply of its own.
+    Reports { turns: Range<usize>, closes: bool },
     /// A `Block::HostLink`: a card asking the user to add a host.
     HostLink { turn: usize, block: usize },
     /// The turn's latest todo list, as a card after its work.
@@ -34,12 +37,13 @@ pub enum Row {
 }
 
 impl Row {
-    /// `{turn}`, `{turn}#notice`, `{turn}#fold`, `{turn}#p{first}`, `{turn}#{block}.{start}`, `{turn}#{block}`, `{turn}#end`, `{turn}#live`, `working`, `pending-{i}`.
+    /// `{turn}`, `{turn}#notice`, `{turn}#reports`, `{turn}#fold`, `{turn}#p{first}`, `{turn}#{block}.{start}`, `{turn}#{block}`, `{turn}#end`, `{turn}#live`, `working`, `pending-{i}`.
     pub fn id(&self, t: &Transcript) -> String {
         let turn = |ix: usize| &t.turns[ix].id;
         match self {
             Row::Prompt { turn: ix } => turn(*ix).clone(),
             Row::Notice { turn: ix } => format!("{}#notice", turn(*ix)),
+            Row::Reports { turns, .. } => format!("{}#reports", turn(turns.start)),
             Row::Fold { turn: ix } => format!("{}#fold", turn(*ix)),
             Row::Phase { turn: ix, blocks } => format!("{}#p{}", turn(*ix), blocks.start),
             Row::Text { turn: ix, block, range } => format!("{}#{block}.{}", turn(*ix), range.start),
@@ -67,6 +71,7 @@ impl Row {
             | Row::Question { turn, .. }
             | Row::Compacted { turn, .. }
             | Row::End { turn } => Some(*turn),
+            Row::Reports { turns, .. } => Some(turns.start),
             Row::Live { .. } | Row::Working | Row::Pending(_) => None,
         }
     }
@@ -75,15 +80,88 @@ impl Row {
 /// The transcript's rows, then a row per pending send, "Sending…" while one is on its way, and what the agent is doing while at work.
 pub fn rows(t: &Transcript, pending: usize, sending: bool) -> Vec<Row> {
     let mut rows = Vec::new();
-    rows_from(&mut rows, t, 0, pending, sending);
+    rows_from(&mut rows, t, 0, pending, sending, &[]);
     rows
+}
+
+/// When a session the chat delegated to began, and when it settled, if it has; Unix ms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Span {
+    pub began: i64,
+    pub settled: Option<i64>,
+}
+
+/// Whether `turn` is the agent taking in news of its delegated sessions: begun by a delivery rather than a prompt, and
+/// holding no error, question or host link card, which the user has to see, and no sub-agent or command outliving the
+/// turn, which the agent map and background tray show by its row.
+fn reports(turn: &Turn) -> bool {
+    let news = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. } | Block::Delivered(_))).any(|b| matches!(b, Block::Delivered(_)));
+    let asks = turn.blocks.iter().any(|b| matches!(b, Block::HostLink { .. }) || matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Question(_))));
+    let left = turn.blocks.iter().any(|b| match b {
+        Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)) => true,
+        Block::Tool(c) if matches!(c.kind, ToolKind::Shell { .. }) => {
+            ended_at(turn).is_some_and(|end| c.status == ToolStatus::Running || c.duration_ms.is_some_and(|d| c.at + d as i64 > end))
+        }
+        _ => false,
+    });
+    turn.prompt.is_none() && news && !asks && !left && !matches!(turn.end, Some(End::Failed { .. }))
+}
+
+/// Whether report turn `ix` sums the reports up: every session delegated before it began had settled by then, and the
+/// report after it, if any, can't say the same, so of several that could the last does. False while a turn has no
+/// start time.
+fn sums_up(t: &Transcript, ix: usize, delegated: &[Span]) -> bool {
+    let after_all = |turn: &Turn| start(turn).is_some_and(|at| delegated.iter().all(|s| s.began >= at || s.settled.is_some_and(|end| end <= at)));
+    after_all(&t.turns[ix]) && !t.turns.get(ix + 1).is_some_and(|next| reports(next) && after_all(next))
+}
+
+/// The report turns grouped from turn `ix` on, up to and with the one that sums them up, and whether one does. None
+/// when `ix` holds no report, only one that sums up, which lays out as any reply does, or no delegated sessions are
+/// listed, which leaves none to tell a summing up by.
+pub(crate) fn reports_at(t: &Transcript, ix: usize, delegated: &[Span]) -> Option<(Range<usize>, bool)> {
+    if delegated.is_empty() {
+        return None;
+    }
+    let mut end = ix;
+    while end < t.turns.len() && reports(&t.turns[end]) {
+        end += 1;
+        if sums_up(t, end - 1, delegated) {
+            return (end - ix > 1).then_some((ix..end, true));
+        }
+    }
+    (end > ix).then_some((ix..end, false))
+}
+
+/// The first turn of the group of reports turn `ix` would join, else `ix`. A report just before `ix` counts too:
+/// whether it sums up turns on what follows it.
+pub(crate) fn group_start(t: &Transcript, ix: usize, delegated: &[Span]) -> usize {
+    let mut start = ix.min(t.turns.len());
+    if start > 0 && reports(&t.turns[start - 1]) {
+        start -= 1;
+    }
+    while start > 0 && reports(&t.turns[start - 1]) && !sums_up(t, start - 1, delegated) {
+        start -= 1;
+    }
+    start
 }
 
 /// Appends the rows of `t`'s turns from `from` on, then the trailer `rows` describes.
 /// A turn lays out as its prompt or what it reports, the notices that set it going, the fold if it starts a reply, its
 /// phases and the text between them, its todos, then its answer.
-pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pending: usize, sending: bool) {
+/// Report turns lay out as one row, but for the one summing them up, which lays out after it as a reply without its deliveries.
+pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pending: usize, sending: bool, delegated: &[Span]) {
+    let (mut grouped, mut sum) = (from..from, None);
     for (ix, turn) in t.turns.iter().enumerate().skip(from) {
+        if !grouped.contains(&ix)
+            && let Some((turns, closes)) = reports_at(t, ix, delegated)
+        {
+            sum = closes.then_some(turns.end - 1);
+            grouped = turns.clone();
+            rows.push(Row::Reports { turns, closes });
+        }
+        if grouped.contains(&ix) && sum != Some(ix) {
+            continue;
+        }
         if turn.prompt.is_some() {
             rows.push(Row::Prompt { turn: ix });
         }
@@ -91,7 +169,7 @@ pub(crate) fn rows_from(rows: &mut Vec<Row>, t: &Transcript, from: usize, pendin
             rows.push(Row::Notice { turn: ix });
         }
         let lead = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. } | Block::Delivered(_))).count();
-        for (block, b) in turn.blocks[..lead].iter().enumerate() {
+        for (block, b) in turn.blocks[..lead].iter().enumerate().filter(|(_, b)| sum != Some(ix) || !matches!(b, Block::Delivered(_))) {
             plain(rows, ix, block, b);
         }
         // A turn stopped or failed before anything came has nothing to fold.
@@ -334,7 +412,7 @@ pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
         (Row::Delivery { .. }, Row::Delivery { .. }) => 2.,
-        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. } | Row::Delivery { .. } | Row::HostLink { .. }) => 8.,
+        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. } | Row::Delivery { .. } | Row::Reports { .. } | Row::HostLink { .. }) => 8.,
         _ => 6.,
     }
 }
@@ -786,6 +864,106 @@ mod tests {
         assert_eq!(ids_of(&t)[4..], ["d1#0", "d1#1"]);
         assert_eq!(rows(&t, 0, false)[4], Row::Delivery { turn: 1, block: 0 });
         assert!(!at_work(&t) && live_tail(&t).is_none());
+    }
+
+    fn said(at: i64, t: &str) -> Block {
+        Block::Text(Message { id: format!("m{at}"), at, text: t.into() })
+    }
+
+    fn report(id: &str, blocks: Vec<Block>, end: Option<End>) -> Turn {
+        Turn { prompt: None, ..turn(id, [vec![delivered(id)], blocks].concat(), end) }
+    }
+
+    const fn span(began: i64, settled: i64) -> Span {
+        Span { began, settled: Some(settled) }
+    }
+
+    /// Three sessions delegated at 10, settling at 100, 200 and 300.
+    const THREE: [Span; 3] = [span(10, 100), span(10, 200), span(10, 300)];
+
+    fn laid_out(t: &Transcript, delegated: &[Span]) -> Vec<String> {
+        let mut rows = Vec::new();
+        rows_from(&mut rows, t, 0, 0, false, delegated);
+        rows.iter().map(|r| r.id(t)).collect()
+    }
+
+    #[test]
+    fn reports_fold_into_one_row_and_the_turn_summing_them_up_lays_out_after_it_without_its_news() {
+        let t = Transcript {
+            turns: vec![
+                turn("u1", vec![text("Split three ways.")], done()),
+                report("r1", vec![said(150, "Review is clean.")], done()),
+                report("r2", vec![said(250, "Docs are in."), shell()], done()),
+                report("r3", vec![said(350, "Running them."), shell(), said(360, "All three are back.")], done()),
+            ],
+        };
+        assert_eq!(laid_out(&t, &THREE)[4..], ["r1#reports", "r3#fold", "r3#1.0", "r3#p2", "r3#3.0", "r3#end"]);
+        let mut rows = Vec::new();
+        rows_from(&mut rows, &t, 0, 0, false, &THREE);
+        assert!(rows.contains(&Row::Reports { turns: 1..4, closes: true }));
+    }
+
+    #[test]
+    fn reports_while_a_session_still_runs_all_stay_in_the_row() {
+        let t = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One is back.")], done()), report("r2", vec![said(250, "Two are back.")], None)] };
+        let mut rows = Vec::new();
+        rows_from(&mut rows, &t, 0, 0, false, &THREE);
+        assert_eq!(rows[4..], [Row::Reports { turns: 1..3, closes: false }, Row::Live { turn: 2 }]);
+    }
+
+    #[test]
+    fn a_lone_report_summing_up_lays_out_as_any_reply_and_so_does_all_news_without_the_sessions_listed() {
+        let t = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "It is back.")], done())] };
+        assert_eq!(laid_out(&t, &[span(10, 100)]), ids_of(&t));
+        let waiting = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One is back.")], done())] };
+        assert_eq!(laid_out(&waiting, &[]), ids_of(&waiting), "nothing to tell a summing up by");
+    }
+
+    #[test]
+    fn a_report_that_failed_or_asks_the_user_stands_apart_and_a_prompt_ends_the_group() {
+        let ask = call(ToolKind::Question(Default::default()), ToolStatus::Running);
+        let card = Block::HostLink { id: "h1".into(), hint: "vps".into(), reason: String::new() };
+        let tests = call(ToolKind::Shell { command: "cargo test".into(), description: String::new() }, ToolStatus::Running);
+        let helper = call(ToolKind::Agent(Default::default()), ToolStatus::Ok);
+        let failed = Some(End::Failed { error: "API Error".into(), duration_ms: 1 });
+        let t = Transcript {
+            turns: vec![
+                report("r1", vec![said(150, "One.")], done()),
+                report("r2", vec![said(160, "Hmm.")], failed),
+                report("r3", vec![said(170, "Which?"), ask], None),
+                report("r5", vec![said(180, "I need the GPU box."), card], done()),
+                report("r6", vec![said(190, "Testing in the background."), tests], done()),
+                report("r7", vec![said(200, "Asking a helper."), helper], done()),
+                turn("u2", vec![text("Go on.")], done()),
+                report("r4", vec![said(250, "Two.")], done()),
+            ],
+        };
+        let ids = laid_out(&t, &THREE);
+        assert_eq!(ids.iter().filter(|id| id.ends_with("#reports")).collect::<Vec<_>>(), ["r1#reports", "r4#reports"]);
+        assert!(ids.contains(&"r2#end".to_string()) && ids.contains(&"r3#fold".to_string()) && ids.contains(&"r5#2".to_string()));
+        assert!(["r6", "r7"].iter().all(|turn| ids.iter().any(|id| id.starts_with(&format!("{turn}#")) && !id.ends_with("#reports"))));
+    }
+
+    #[test]
+    fn of_reports_that_all_came_after_every_session_settled_only_the_last_sums_up() {
+        let both = [span(10, 100), span(10, 120)];
+        let t = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One is back.")], done()), report("r2", vec![said(250, "Both are back.")], done())] };
+        let mut rows = Vec::new();
+        rows_from(&mut rows, &t, 0, 0, false, &both);
+        assert!(rows.contains(&Row::Reports { turns: 1..3, closes: true }));
+        assert_eq!(group_start(&t, 2, &both), 1);
+        let open = [Span { began: 10, settled: None }];
+        assert_eq!(laid_out(&t, &open).iter().filter(|id| id.ends_with("#reports")).count(), 1, "a session still running leaves every report in the group");
+    }
+
+    #[test]
+    fn laying_out_from_a_report_joining_a_group_starts_again_at_the_groups_first_turn() {
+        let t = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One.")], done()), report("r2", vec![said(250, "Two.")], done())] };
+        assert_eq!(group_start(&t, 2, &THREE), 1);
+        assert_eq!(group_start(&t, 1, &THREE), 1);
+        let mut tail = Vec::new();
+        rows_from(&mut tail, &t, group_start(&t, 2, &THREE), 0, false, &THREE);
+        assert_eq!(tail, [Row::Reports { turns: 1..3, closes: false }]);
     }
 
     #[test]
