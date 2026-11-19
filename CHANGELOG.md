@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.50
+
+- The sidebar shows one machine at a time as a space (#283): (017d90ca)
+- Add blog with comparison and how-to posts (#286): (d1835a75)
+- The sidebar and Settings ask for a GitHub star (#284): (62354fe3)
+- Closing a session closes the sessions it delegated to (#282): (69543658)
+- The site has search and social metadata, a sitemap and an FAQ (#281): (2347a870)
+
 ## 0.1.49
 
 - README shows the app icon above the title (#280): (10c2178a)
