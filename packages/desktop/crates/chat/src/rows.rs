@@ -92,10 +92,10 @@ pub struct Span {
 }
 
 /// Whether `turn` is the agent taking in news of its delegated sessions: begun by a delivery rather than a prompt, and
-/// holding no error or question, which the user has to see.
+/// holding no error, question or host link card, which the user has to see.
 fn reports(turn: &Turn) -> bool {
     let news = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. } | Block::Delivered(_))).any(|b| matches!(b, Block::Delivered(_)));
-    let asks = turn.blocks.iter().any(|b| matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Question(_))));
+    let asks = turn.blocks.iter().any(|b| matches!(b, Block::HostLink { .. }) || matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Question(_))));
     turn.prompt.is_none() && news && !asks && !matches!(turn.end, Some(End::Failed { .. }))
 }
 
@@ -914,19 +914,21 @@ mod tests {
     #[test]
     fn a_report_that_failed_or_asks_the_user_stands_apart_and_a_prompt_ends_the_group() {
         let ask = call(ToolKind::Question(Default::default()), ToolStatus::Running);
+        let card = Block::HostLink { id: "h1".into(), hint: "vps".into(), reason: String::new() };
         let failed = Some(End::Failed { error: "API Error".into(), duration_ms: 1 });
         let t = Transcript {
             turns: vec![
                 report("r1", vec![said(150, "One.")], done()),
                 report("r2", vec![said(160, "Hmm.")], failed),
                 report("r3", vec![said(170, "Which?"), ask], None),
+                report("r5", vec![said(180, "I need the GPU box."), card], done()),
                 turn("u2", vec![text("Go on.")], done()),
                 report("r4", vec![said(250, "Two.")], done()),
             ],
         };
         let ids = laid_out(&t, &THREE);
         assert_eq!(ids.iter().filter(|id| id.ends_with("#reports")).collect::<Vec<_>>(), ["r1#reports", "r4#reports"]);
-        assert!(ids.contains(&"r2#end".to_string()) && ids.contains(&"r3#fold".to_string()));
+        assert!(ids.contains(&"r2#end".to_string()) && ids.contains(&"r3#fold".to_string()) && ids.contains(&"r5#2".to_string()));
     }
 
     #[test]
