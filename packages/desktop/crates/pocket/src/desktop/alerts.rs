@@ -124,79 +124,7 @@ impl Desktop {
 
     /// An agent event from this Mac's pocketd, or from `host`'s already tagged; a host's hello says nothing of this Mac's pocketd.
     pub(crate) fn on_agents_from(&mut self, host: Option<&str>, ev: Event, window: &mut Window, cx: &mut Context<Self>) {
-        if let Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_) = ev {
-            return self.on_pair(ev, cx);
-        }
-        if let Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_) = ev {
-            return self.on_hosts(ev, window, cx);
-        }
-        if let Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. } = ev {
-            return self.on_launch(ev, window, cx);
-        }
-        if let Event::SettingsFailed(message) = ev {
-            self.error = Some(message);
-            return cx.notify();
-        }
-        if let Event::AutomationError(message) | Event::BoardError(message) = ev {
-            self.error = Some(message);
-            return cx.notify();
-        }
-        if let Event::PromptFailed { agent, request } = &ev {
-            // A chat not yet opened has no send to fail.
-            if let Some(v) = self.chats.views.get_mut(agent) {
-                v.session.outgoing.fail(request);
-            }
-            return cx.notify();
-        }
-        if let Event::InterruptFailed { agent, reason } = &ev {
-            if let Some(v) = self.chats.views.get_mut(agent) {
-                v.session.outgoing.stop_refused();
-            }
-            self.error = Some(stop_failed(self.agents.get(agent), reason));
-            return cx.notify();
-        }
-        if let Event::QueueFailed { agent, reason, text } = ev {
-            // Only pocketd's list says what the queue holds now.
-            self.outbox.queue_list(&agent);
-            if let Some(text) = text {
-                self.chat_add_text(&agent, &text, window, cx);
-            }
-            self.error = Some(format!("Couldn't change the queue: {reason}"));
-            return cx.notify();
-        }
-        if let Event::Commands { agent, commands } = ev {
-            self.chats.composer.suggest.listed(agent, commands);
-            return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
-        }
-        if let Event::Skills { provider, account, project, commands } = ev {
-            self.new_form.composer.suggest.listed(crate::chat::composer::suggest::launch_key(&provider, &account, &project), commands);
-            return self.suggest(crate::chat::composer::suggest::Prompt::Launch, cx);
-        }
-        if let Event::Mcp { agent, servers, auth_url, acted } = ev {
-            if !auth_url.is_empty() {
-                cx.open_url(&auth_url);
-            }
-            self.chats.composer.suggest.mcp_listed(agent.clone(), servers, &auth_url, acted);
-            self.recheck_servers(agent, cx);
-            return self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
-        }
-        if let Event::McpActFailed { agent, reason } = ev {
-            self.chats.composer.suggest.mcp_act_failed(&agent);
-            // The servers may have moved on from what the rows show, as when a sign-in ended.
-            self.outbox.mcp(&agent);
-            self.error = Some(reason);
-            return cx.notify();
-        }
-        if let Event::Btw { request, answer } = ev {
-            return self.chat_btw_answered(&request, answer, cx);
-        }
-        if let Event::RemoteControl { agent, url } = ev {
-            return self.chat_remote_controlled(agent, url, cx);
-        }
-        if let Event::NamingFailed(_) = ev {
-            self.error = Some("Couldn't name the session from its prompt".into());
-            return cx.notify();
-        }
+        let Some(ev) = self.on_agent_reply(ev, window, cx) else { return };
         if let Event::Host(host) = &ev
             && let Some(message) = upgrade_toast(self.agents.host.as_ref(), host)
         {
@@ -284,6 +212,73 @@ impl Desktop {
             self.chime(connected, cx);
         }
         cx.notify();
+    }
+
+    /// Handles an event that answers one request or feeds one feature and changes nothing else; gives back the rest.
+    fn on_agent_reply(&mut self, ev: Event, window: &mut Window, cx: &mut Context<Self>) -> Option<Event> {
+        match ev {
+            ev @ (Event::PairCode { .. } | Event::Paired(_) | Event::PairFailed(_)) => self.on_pair(ev, cx),
+            ev @ (Event::Hosts(_) | Event::HostUpdate { .. } | Event::HostProgress { .. } | Event::HostError { .. } | Event::HostDone(_)) => self.on_hosts(ev, window, cx),
+            ev @ (Event::Creating { .. } | Event::Progress { .. } | Event::Created { .. } | Event::CreateFailed { .. }) => self.on_launch(ev, window, cx),
+            Event::SettingsFailed(message) | Event::AutomationError(message) | Event::BoardError(message) => {
+                self.error = Some(message);
+                cx.notify();
+            }
+            Event::PromptFailed { agent, request } => {
+                // A chat not yet opened has no send to fail.
+                if let Some(v) = self.chats.views.get_mut(&agent) {
+                    v.session.outgoing.fail(&request);
+                }
+                cx.notify();
+            }
+            Event::InterruptFailed { agent, reason } => {
+                if let Some(v) = self.chats.views.get_mut(&agent) {
+                    v.session.outgoing.stop_refused();
+                }
+                self.error = Some(stop_failed(self.agents.get(&agent), &reason));
+                cx.notify();
+            }
+            Event::QueueFailed { agent, reason, text } => {
+                // Only pocketd's list says what the queue holds now.
+                self.outbox.queue_list(&agent);
+                if let Some(text) = text {
+                    self.chat_add_text(&agent, &text, window, cx);
+                }
+                self.error = Some(format!("Couldn't change the queue: {reason}"));
+                cx.notify();
+            }
+            Event::Commands { agent, commands } => {
+                self.chats.composer.suggest.listed(agent, commands);
+                self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
+            }
+            Event::Skills { provider, account, project, commands } => {
+                self.new_form.composer.suggest.listed(crate::chat::composer::suggest::launch_key(&provider, &account, &project), commands);
+                self.suggest(crate::chat::composer::suggest::Prompt::Launch, cx);
+            }
+            Event::Mcp { agent, servers, auth_url, acted } => {
+                if !auth_url.is_empty() {
+                    cx.open_url(&auth_url);
+                }
+                self.chats.composer.suggest.mcp_listed(agent.clone(), servers, &auth_url, acted);
+                self.recheck_servers(agent, cx);
+                self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
+            }
+            Event::McpActFailed { agent, reason } => {
+                self.chats.composer.suggest.mcp_act_failed(&agent);
+                // The servers may have moved on from what the rows show, as when a sign-in ended.
+                self.outbox.mcp(&agent);
+                self.error = Some(reason);
+                cx.notify();
+            }
+            Event::Btw { request, answer } => self.chat_btw_answered(&request, answer, cx),
+            Event::RemoteControl { agent, url } => self.chat_remote_controlled(agent, url, cx),
+            Event::NamingFailed(_) => {
+                self.error = Some("Couldn't name the session from its prompt".into());
+                cx.notify();
+            }
+            ev => return Some(ev),
+        }
+        None
     }
 
     /// "{project} · {worktree}" for the Local or worktree the agent's terminal belongs to; empty outside every project.
