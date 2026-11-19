@@ -104,7 +104,7 @@ impl Desktop {
             .children(bulk)
             .children(entries)
             .children(resolved)
-            .child(self.pr_comment_box(cx))
+            .child(self.pr_comment_box(tree, cx))
     }
 
     fn pr_entry(&self, k: usize, e: Entry, shown: &Shown, cx: &mut Context<Self>) -> AnyElement {
@@ -145,8 +145,8 @@ impl Desktop {
         div().flex().child(small(("pr-quote", k), Variant::Ghost, "Quote reply").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.quote_reply(&said, window, cx))))
     }
 
-    fn pr_comment_box(&self, cx: &mut Context<Self>) -> AnyElement {
-        if !self.pr.commenting {
+    fn pr_comment_box(&self, tree: &str, cx: &mut Context<Self>) -> AnyElement {
+        if self.pr.commenting.as_deref() != Some(tree) {
             return div()
                 .id("pr-comment-open")
                 .h(px(36.))

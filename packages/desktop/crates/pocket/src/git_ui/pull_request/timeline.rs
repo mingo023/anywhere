@@ -1,4 +1,4 @@
-use git::github::{Pr, Thread};
+use git::github::{Pr, Review, Thread};
 
 /// One card of the Conversation; indexes point into the PR's lists.
 #[derive(Debug, PartialEq)]
@@ -15,13 +15,13 @@ fn opened_in(t: &Thread) -> Option<&str> {
 }
 
 /// The Conversation, oldest first: each review with the threads it opened, then what was said on the PR itself, in time order.
-/// Without `all`, resolved threads are left out, and a review left with neither a body nor a thread goes too, as a reply in a thread submits one.
+/// Without `all`, resolved threads are left out. A review that only commented, with neither a body nor a shown thread, goes too, as a reply in a thread submits one.
 pub(crate) fn timeline(pr: &Pr, all: bool) -> Vec<Entry> {
     let shown: Vec<usize> = (0..pr.threads.len()).filter(|&i| all || !pr.threads[i].resolved).collect();
     let mut entries: Vec<(u64, Entry)> = Vec::new();
     for (at, r) in pr.submitted.iter().enumerate() {
         let threads: Vec<usize> = shown.iter().copied().filter(|&i| opened_in(&pr.threads[i]) == Some(r.id.as_str())).collect();
-        if !r.body.trim().is_empty() || !threads.is_empty() {
+        if !r.body.trim().is_empty() || !threads.is_empty() || matches!(r.verdict, Review::Approved | Review::ChangesRequested) {
             entries.push((r.at, Entry::Review { at, threads }));
         }
     }
@@ -44,7 +44,7 @@ pub(crate) fn said(pr: &Pr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{Entry, said, timeline};
-    use git::github::{Comment, Note, Pr, Submitted, Thread};
+    use git::github::{Comment, Note, Pr, Review, Submitted, Thread};
 
     fn thread(id: &str, review: Option<&str>, at: u64, resolved: bool) -> Thread {
         let c = Comment { review: review.map(str::to_string), at, ..Comment::default() };
@@ -79,6 +79,14 @@ mod tests {
         let mut pr = pr();
         pr.threads[0].resolved = true;
         assert_eq!(timeline(&pr, false)[1], Entry::Review { at: 0, threads: vec![] });
+    }
+
+    #[test]
+    fn an_approval_or_change_request_stays_without_a_body_or_threads() {
+        let mut pr = pr();
+        pr.submitted[1].verdict = Review::ChangesRequested;
+        pr.submitted[2].verdict = Review::Approved;
+        assert_eq!(timeline(&pr, false)[3..], [Entry::Review { at: 1, threads: vec![] }, Entry::Review { at: 2, threads: vec![] }]);
     }
 
     #[test]

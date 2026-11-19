@@ -368,7 +368,8 @@ pub(crate) struct PullRequest {
     pub(crate) reply: Entity<TextareaState>,
     /// What is said on the PR itself, outside any thread.
     pub(crate) comment: Entity<TextareaState>,
-    pub(crate) commenting: bool,
+    /// The worktree the comment box writes for, while it is open.
+    pub(crate) commenting: Option<String>,
     pub(crate) comment_error: Option<String>,
     pub(crate) commits_scroll: UniformListScrollHandle,
     pub(crate) files_scroll: UniformListScrollHandle,
@@ -421,7 +422,7 @@ impl PullRequest {
             body,
             reply,
             comment,
-            commenting: false,
+            commenting: None,
             comment_error: None,
             commits_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
@@ -820,8 +821,13 @@ impl Desktop {
     }
 
     pub(crate) fn open_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tree) = self.cwd() else { return };
         self.pr.track.tab = PrTab::Conversation;
-        self.pr.commenting = true;
+        if self.pr.commenting.as_ref() != Some(&tree) {
+            self.pr.comment_error = None;
+            self.pr.comment.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+        self.pr.commenting = Some(tree);
         // The box sits at the end of the Conversation, which may be scrolled far above it.
         self.pr.conversation_scroll.scroll_to_bottom();
         self.pr.comment.update(cx, |s, cx| s.focus(window, cx));
@@ -829,7 +835,7 @@ impl Desktop {
     }
 
     pub(crate) fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.pr.commenting = false;
+        self.pr.commenting = None;
         self.pr.comment_error = None;
         self.pr.comment.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
@@ -837,10 +843,10 @@ impl Desktop {
 
     /// Opens the comment box with `said` quoted after what it already holds: GitHub has no replies to a comment on the PR itself.
     pub(crate) fn quote_reply(&mut self, said: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_comment(window, cx);
         let held = self.pr.comment.read(cx).value().trim_end().to_string();
         let text = if held.is_empty() { body::quote(said) } else { format!("{held}\n\n{}", body::quote(said)) };
         self.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
-        self.open_comment(window, cx);
     }
 
     pub(crate) fn copy_link(&mut self, url: String, cx: &mut Context<Self>) {
@@ -856,9 +862,9 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Posts the comment box on the PR on screen and shows it at once as being sent; a failure takes it back out and returns its text to the box.
+    /// Posts the comment box on the PR of the worktree it was opened for, and shows it at once as being sent; a failure takes it back out and returns its text to the box.
     pub(crate) fn send_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((dir, number)) = self.shown_pr().map(|(tree, pr)| (tree, pr.number)) else { return };
+        let Some((dir, number)) = self.pr.commenting.clone().and_then(|tree| Some((tree.clone(), self.prs.get(&tree)?.number))) else { return };
         let body = self.pr.comment.read(cx).value().trim().to_string();
         if body.is_empty() {
             return;
@@ -883,12 +889,16 @@ impl Desktop {
                         d.prs.expire(&tree, Instant::now());
                         d.poll_prs(cx);
                     }
+                    Err(e) if d.pr.commenting.as_ref().is_some_and(|t| *t != tree) => {
+                        d.prs.edit(&tree, |pr| pr.notes.retain(|n| *n != note));
+                        d.notify_pr(format!("Couldn't post the comment: {e}"), None, cx);
+                    }
                     Err(e) => {
                         d.prs.edit(&tree, |pr| pr.notes.retain(|n| *n != note));
                         let held = d.pr.comment.read(cx).value().trim().to_string();
                         let text = if held.is_empty() { body } else { format!("{body}\n\n{held}") };
                         d.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
-                        d.pr.commenting = true;
+                        d.pr.commenting = Some(tree);
                         d.pr.comment_error = Some(format!("Couldn't post the comment: {e}"));
                     }
                 }
