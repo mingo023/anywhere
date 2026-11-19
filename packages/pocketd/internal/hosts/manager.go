@@ -23,6 +23,8 @@ var (
 	ErrBusy    = errors.New("An install is already under way on that host")
 )
 
+const wakeCheckEvery = 5 * time.Second
+
 type Entry struct {
 	Host
 	Socket string
@@ -76,6 +78,39 @@ func (m *Manager) Start(ctx context.Context) {
 	m.ctx = ctx
 	for _, h := range m.hosts {
 		m.supervise(h.ID)
+	}
+	ticker := time.NewTicker(wakeCheckEvery)
+	go func() {
+		defer ticker.Stop()
+		m.retryAfterWake(ctx, ticker.C, wakeCheckEvery)
+	}()
+}
+
+// retryAfterWake retries every host that isn't online when a tick comes in much later than it was due, as after the
+// machine slept: its network is back, but the links wait out their backoff.
+func (m *Manager) retryAfterWake(ctx context.Context, tick <-chan time.Time, every time.Duration) {
+	var last time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-tick:
+			// Round(0) drops the monotonic reading, which stands still while the machine sleeps.
+			if !last.IsZero() && now.Round(0).Sub(last.Round(0)) > 2*every {
+				m.retryOffline()
+			}
+			last = now
+		}
+	}
+}
+
+func (m *Manager) retryOffline() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, s := range m.sups {
+		if m.links[id].State != StateOnline {
+			s.retry()
+		}
 	}
 }
 
