@@ -1072,7 +1072,7 @@ const STEPS: [(&str, Step); 299] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file").
-const INPUT_STEPS: [(&str, Step); 15] = [
+const INPUT_STEPS: [(&str, Step); 16] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1094,6 +1094,17 @@ const INPUT_STEPS: [(&str, Step); 15] = [
             let modifiers = Modifiers::default();
             window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
             window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1 }), cx);
+        });
+    }),
+    // A click with a frame drawn while the button is down, as a hand's gets: what the press changed shows before the release lands.
+    ("hand-click", |_, window, cx| {
+        let Some(at) = next_arg("CAPTURE_CLICKS", ';').and_then(|a| point_arg(&a)) else { return };
+        window.defer(cx, move |window, cx| {
+            let modifiers = Modifiers::default();
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
+            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }), cx);
+            draw(window, cx);
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1 }), cx);
         });
     }),

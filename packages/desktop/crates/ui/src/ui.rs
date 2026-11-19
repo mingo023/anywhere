@@ -33,6 +33,18 @@ pub fn control<E: InteractiveElement>(e: E) -> E {
     e.on_mouse_down(MouseButton::Left, |_, _, cx| cx.set_global(ControlPress(true)))
 }
 
+/// Makes `e` the trigger of a popover that shuts on `on_mouse_down_out`, opening it on press so a second press shuts it.
+/// A press on the trigger has already shut an open popover by the time a click lands, and the click would reopen it.
+/// `open` is whether the popover showed in the frame that drew `e`, the frame the press was hit-tested against.
+pub fn popover_trigger<E: InteractiveElement>(e: E, open: bool, on_open: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> E {
+    e.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+        cx.stop_propagation();
+        if !open {
+            on_open(event, window, cx);
+        }
+    })
+}
+
 /// Flat surface that holds content.
 pub fn page<E: Styled>(e: E) -> E {
     e.bg(PAGE)

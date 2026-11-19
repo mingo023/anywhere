@@ -212,11 +212,15 @@ impl Desktop {
     /// The Projects add button and its menu: add a project, or clone one.
     fn add_menu(&self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.add_menu;
-        let button = icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.close_menus();
-            this.sidebar.add_menu = !open;
-            cx.notify();
-        }));
+        let button = ui::popover_trigger(
+            icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.close_menus();
+                this.sidebar.add_menu = true;
+                cx.notify();
+            }),
+        );
         div().relative().child(button).when(open, |d| {
             let host = self.space_host_name(&self.space());
             let add = ui::menu_row("aside-add-project", "folder", &on_host("Open folder", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
