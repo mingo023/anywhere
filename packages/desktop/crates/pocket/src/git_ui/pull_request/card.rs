@@ -1,8 +1,6 @@
-use super::{CheckRows, card_busy, check_rows, fix_summary, fixing_text, gate_text, opening, plural, resolving_text, review_lines, spot, tally, to_fix};
+use super::{CheckRows, PrTab, check_rows, gate_text, opening, plural, resolving_text, review_lines, spot, tally, to_fix};
 use crate::desktop::Desktop;
-use crate::git_ui::changes::commit_box::split_button;
-use git::github::{Check, Gate, Method, Outcome, Pr, PrState, Review, ThreadState};
-use gpui_kit::component::tooltip::Tooltip;
+use git::github::{Check, Gate, Outcome, Pr, PrState, Review, ThreadState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -55,21 +53,6 @@ pub(crate) fn glyph_slot(glyph: impl IntoElement) -> Div {
     div().size(px(13.)).flex_none().flex().items_center().justify_center().child(glyph)
 }
 
-/// What to fix, or who is fixing it, under the card's title; the text wraps so the action keeps its place.
-fn banner(lead: impl IntoElement, bg: Token, title: String, sub: String, action: Option<Stateful<Div>>) -> Div {
-    let text = div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .text_size(px(12.))
-        .line_height(px(16.))
-        .text_color(TEXT_2)
-        .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title))
-        .child(sub);
-    div().mx(px(10.)).mb(px(10.)).pl(px(10.)).pr(px(8.)).py(px(8.)).flex().items_center().gap(px(9.)).rounded(px(9.)).bg(bg).child(lead).child(text).children(action)
-}
-
 pub(super) fn section(title: &'static str, status: Option<(Token, String)>) -> Div {
     let status = status.map(|(color, text)| div().flex_1().min_w_0().flex().justify_end().child(div().min_w_0().truncate().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(color).child(text)));
     div().pt(px(16.)).pb(px(6.)).px(px(12.)).flex().items_center().gap(px(8.)).child(div().flex_none().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).children(status)
@@ -109,106 +92,30 @@ pub(super) fn review_status(pr: &Pr) -> Option<(Token, String)> {
 }
 
 impl Desktop {
-    /// The PR of the worktree on screen: where it stands in one line, and, unfolded, what to fix, then its checks, review and merge, each in its own group.
-    pub(crate) fn pr_card(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let (tree, pr) = self.shown_pr()?;
-        let agent = self.fix_agent();
+    /// The Checks tab: each check that needs a look, the review, and what holds the merge back.
+    pub(crate) fn pr_checks_tab(&self, tree: &str, pr: &Pr, cx: &mut Context<Self>) -> Stateful<Div> {
+        let fixing = self.pr.track.fixing(tree, pr);
         let can_send = !self.agents.observe_only();
-        let fixing = self.pr.track.fixing(&tree, pr);
-        let fixing = fixing.as_ref();
-        let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), &tree);
-        let (color, said) = self.pr_verdict(&tree, pr);
-        let open = pr.state == PrState::Open;
-        let merged = pr.state == PrState::Merged && self.deletable(&tree);
-        // An unanswered "Delete the worktree?" stays in sight, however the card was left.
-        let asks = merged && !self.pr.track.kept(&tree);
-        let unfolds = (open || merged) && !asks;
-        let folded = !asks && (self.pr.track.folded || !unfolds);
-        let url = pr.url.clone();
-        let line = div()
-            .flex()
-            .items_center()
-            .gap(px(5.))
-            .text_size(px(12.))
-            .text_color(TEXT_3)
-            .whitespace_nowrap()
-            .child(div().flex_none().font_family(MONO).text_color(color).child(format!("#{}", pr.number)))
-            .child("·")
-            .when(fixing.is_some(), |d| d.child(spinner("pr-fixing", 11., WAITING)))
-            .child(div().min_w_0().truncate().child(said));
-        let title = div()
-            .text_size(px(13.))
-            .line_height(px(17.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(TEXT)
-            .when(folded, |d| d.truncate())
-            .when(!folded, |d| d.line_clamp(2))
-            .child(pr.title.clone());
-        let open_pr = ui::icon_button_sized("pr-open", "external", 22., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-            cx.stop_propagation();
-            this.open_pr(url.clone(), window, cx);
-        }));
-        let chevron = unfolds.then(|| glyph_slot(icon(if folded { "chevron-right" } else { "chevron-down" }, 13., TEXT_3)).size(px(22.)));
-        let head = div()
-            .id("pr-head")
-            .pl(px(12.))
-            .pr(px(10.))
-            .py(px(11.))
-            .flex()
-            .items_start()
-            .gap(px(10.))
-            .rounded(px(12.))
-            .child(div().pt(px(1.)).child(icon(if pr.state == PrState::Merged { "merge" } else { "pull-request" }, 16., color)))
-            .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(title).child(line))
-            .child(div().mt(px(-2.)).flex().flex_none().items_center().gap(px(2.)).child(open_pr).children(chevron))
-            .when(unfolds, |d| {
-                d.cursor_pointer().hover(|s| s.bg(FILL_1)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.pr.track.folded = !this.pr.track.folded;
-                    this.pr.merge_menu = false;
-                    cx.notify();
-                }))
-            });
-        let card = div().flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(ui::row_shadow()).child(head);
-        // The slots stay when folded, so their springs know an unfold from the card first showing.
-        let spring = |id: &'static str, body: Option<Div>| div().children(body).with_spring(id, SpringAnimation::new(SPRING).to(!folded), |d, t| d.opacity(t.0).mt(px(-4. * (1. - t.0))));
-        let wrap = |card: Div, inner: Option<Div>, groups: Option<Div>| Some(div().flex_none().px(px(10.)).pb(px(8.)).child(card.child(spring("pr-body", inner))).child(spring("pr-groups", groups)));
-        if folded {
-            return wrap(card, None, None);
-        }
-        if !open {
-            return wrap(card, Some(div().px(px(12.)).pt(px(6.)).pb(px(12.)).child(self.pr_merged(&tree, cx))), None);
-        }
-        let (checks, threads) = to_fix(pr, fixing);
-        let resolving = fixing.is_some_and(|s| s.conflict);
-        let items = fixing.map_or(0, |s| s.items());
-        // While the agent works, the banner says so; otherwise it asks only for what's still unsent.
-        let fix = if items > 0 {
-            Some(banner(spinner("pr-banner", 13., WAITING), WAITING_BG, fixing_text(agent, items), "The checks run again once it pushes".into(), None))
-        } else if !checks.is_empty() || !threads.is_empty() {
-            let (title, sub) = fix_summary(checks.len(), threads.len());
-            let names: Vec<String> = checks.iter().map(|c| c.name.clone()).collect();
-            let ids: Vec<String> = threads.iter().map(|t| t.id.clone()).collect();
-            let tip = format!("Send all to {agent}");
-            let send = can_send.then(|| {
-                small("pr-send-all", Variant::Primary, "Send all")
-                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&names, &ids, cx)))
-            });
-            Some(banner(icon("warning", 15., FAILED), FAILED_BG, title, sub, send))
-        } else {
-            None
-        };
-        let merge = div().py(px(10.)).flex().flex_col().gap(px(10.)).child(self.pr_gate(pr, resolving, agent)).child(self.pr_merge(&tree, pr, resolving, busy, agent, cx));
-        let groups = div()
+        let (checks, _) = to_fix(pr, fixing.as_ref());
+        let resolving = fixing.as_ref().is_some_and(|s| s.conflict);
+        let merge = (pr.state == PrState::Open).then(|| {
+            let gate = div().py(px(10.)).child(self.pr_gate(pr, resolving, self.fix_agent()));
+            div().child(section("MERGE", None)).child(group([gate.into_any_element()]))
+        });
+        div()
+            .id("pr-checks")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .px(px(10.))
+            .pb(px(16.))
             .flex()
             .flex_col()
             .child(section("CHECKS", checks_status(pr)))
             .child(group(self.pr_checks(pr, can_send, &checks, cx)))
             .child(section("REVIEW", review_status(pr)))
-            .child(group(self.pr_review(&tree, pr, can_send && fixing.is_none(), cx)))
-            .child(section("MERGE", None))
-            .child(group([merge.into_any_element()]));
-        wrap(card, fix, Some(groups))
+            .child(group(self.pr_review(tree, pr, can_send && fixing.is_none(), cx)))
+            .children(merge)
     }
 
     fn pr_checks(&self, pr: &Pr, can_send: bool, unsent: &[&Check], cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -287,7 +194,7 @@ impl Desktop {
                 .when(unresolved > 0, |d| d.child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_4).child(format!("{unresolved} unresolved"))))
                 .child(icon("chevron-right", 12., TEXT_4))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.pr.track.comments = true;
+                    this.pr.track.tab = PrTab::Conversation;
                     cx.notify();
                 }))
                 .into_any_element()
@@ -306,96 +213,6 @@ impl Desktop {
             _ => (ui::dot(6., TEXT_4).into_any_element(), TEXT_3, gate_text(gate, &pr.base)),
         };
         row().text_color(color).child(glyph_slot(lead)).child(div().flex_1().min_w_0().child(text))
-    }
-
-    /// Merge, or what stands in for it while the PR can't be: resolving its conflict, or marking it ready.
-    fn pr_merge(&self, tree: &str, pr: &Pr, resolving: bool, busy: Option<&'static str>, agent: &str, cx: &mut Context<Self>) -> Div {
-        let gate = pr.gate();
-        let primary = match gate {
-            Gate::Conflicts => {
-                let b = ui::button("pr-resolve", Variant::Primary, None, format!("Resolve with {agent}")).h(px(30.)).justify_center();
-                if resolving || self.agents.observe_only() { b.opacity(0.5).cursor_default() } else { b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_conflict(cx))) }.into_any_element()
-            }
-            Gate::Draft => {
-                let b = ui::button("pr-ready", Variant::Primary, None, busy.unwrap_or("Ready for review")).h(px(30.)).justify_center();
-                if busy.is_some() { b.opacity(0.5).cursor_default() } else { b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.mark_ready(cx))) }.into_any_element()
-            }
-            _ => {
-                let method = self.pr.track.method;
-                let lead = if busy.is_some() { spinner("pr-merging", 13., ON_PRIMARY).into_any_element() } else { icon("merge", 14., ON_PRIMARY).into_any_element() };
-                let menu = div()
-                    .id("merge-menu")
-                    .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        this.pr.merge_menu = false;
-                        cx.notify();
-                    }))
-                    .children(Method::ALL.into_iter().enumerate().map(|(i, m)| {
-                        ui::menu_row(("merge-method", i), "merge", m.label(), None).children((m == method).then(|| icon("check", 13., TEXT_2))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.pr.track.method = m;
-                            this.pr.merge_menu = false;
-                            cx.notify();
-                        }))
-                    }));
-                split_button(
-                    "merge",
-                    lead,
-                    busy.unwrap_or(method.label()),
-                    gate == Gate::Ready && busy.is_none(),
-                    self.pr.merge_menu,
-                    Box::new(|this, _, cx| this.merge_pr(cx)),
-                    Box::new(|this, _, _| {
-                        this.pr.merge_menu = !this.pr.merge_menu;
-                        this.pr.ship_menu = false;
-                    }),
-                    menu,
-                    cx,
-                )
-                .into_any_element()
-            }
-        };
-        let after = self.pr.track.delete_after;
-        let delete_after = self.deletable(tree).then(|| {
-            div()
-                .id("pr-delete-after")
-                .flex()
-                .items_start()
-                .gap(px(8.))
-                .cursor_pointer()
-                .text_size(px(12.))
-                .line_height(px(16.))
-                .text_color(TEXT_2)
-                .child(ui::checkbox(after).mt(px(1.)))
-                .child(div().flex_1().min_w_0().flex().flex_col().child("Delete the worktree after merging").child(div().text_size(px(11.5)).text_color(TEXT_4).child("Keeps the branch")))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.pr.track.delete_after = !this.pr.track.delete_after;
-                    cx.notify();
-                }))
-        });
-        div().flex().flex_col().gap(px(8.)).child(primary).children(delete_after)
-    }
-
-    fn pr_merged(&self, tree: &str, cx: &mut Context<Self>) -> Div {
-        let branch = self.repo().map(|r| r.branch.clone()).unwrap_or_default();
-        let kept = self.pr.track.kept(tree);
-        let (keep_tree, delete_tree) = (tree.to_string(), tree.to_string());
-        let keep = small("pr-keep", Variant::Secondary, if kept { "Kept" } else { "Keep" })
-            .flex_1()
-            .h(px(30.))
-            .justify_center()
-            .when(kept, |d| d.opacity(0.5).cursor_default())
-            .when(!kept, |d| {
-                d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.pr.track.keep(&keep_tree);
-                    cx.notify();
-                }))
-            });
-        let delete = ui::button("pr-delete-tree", Variant::Primary, Some("trash"), "Delete worktree")
-            .flex_1()
-            .h(px(30.))
-            .justify_center()
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.delete_merged(&delete_tree, cx)));
-        let text = div().text_size(px(12.5)).text_color(TEXT_2).child(format!("Delete the worktree {branch}? Its terminals close; the branch stays."));
-        div().flex().flex_col().gap(px(8.)).child(text).child(div().flex().gap(px(8.)).child(keep).child(delete))
     }
 }
 

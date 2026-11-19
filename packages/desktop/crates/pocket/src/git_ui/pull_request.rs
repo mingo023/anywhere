@@ -1,8 +1,13 @@
+mod body;
 mod card;
 mod comments;
 mod composer;
+mod conversation;
+mod hero;
+mod lists;
 mod notice;
 mod side;
+mod timeline;
 
 pub(crate) use card::{glyph_slot, review_icon, row, small};
 
@@ -10,10 +15,11 @@ use crate::chat::Route;
 use crate::desktop::Desktop;
 use crate::git_ui::changes::push;
 use crate::git_ui::diff::At;
+use crate::git_ui::gh_accounts::Gh;
 use crate::git_ui::pull_requests::PrItem;
 use crate::removal::Removal;
 use crate::status::Status;
-use git::github::{self, Check, Gate, Mergeable, Method, Outcome, Pr, PrState, Review, Thread, ThreadState};
+use git::github::{self, Check, Gate, Mergeable, Method, Note, Outcome, Pr, PrState, Review, Thread, ThreadState};
 use git::{Commit, Repo};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
@@ -236,25 +242,46 @@ impl Sent {
     }
 }
 
-/// The PR card's choices and what agents were sent, apart from the inputs so it tests without a window.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) enum PrTab {
+    #[default]
+    Conversation,
+    Checks,
+    Commits,
+    Files,
+}
+
+impl PrTab {
+    pub(crate) const ALL: [PrTab; 4] = [PrTab::Conversation, PrTab::Checks, PrTab::Commits, PrTab::Files];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            PrTab::Conversation => "Conversation",
+            PrTab::Checks => "Checks",
+            PrTab::Commits => "Commits",
+            PrTab::Files => "Files",
+        }
+    }
+}
+
+/// The panel's choices and what agents were sent, apart from the inputs so it tests without a window.
 pub(crate) struct Track {
     sent: HashMap<String, Sent>,
     kept: HashSet<String>,
     pub(crate) method: Method,
     pub(crate) delete_after: bool,
-    /// The Comments view replaces Changes.
-    pub(crate) comments: bool,
-    /// It lists resolved threads too.
+    pub(crate) tab: PrTab,
+    /// The Conversation lists resolved threads too.
     pub(crate) all: bool,
     /// Threads shown whole: a resolved one unfolded, or a long one with every reply.
     pub(crate) expanded: HashSet<String>,
-    /// The card shows only its title and verdict.
-    pub(crate) folded: bool,
+    /// The description is folded to its heading.
+    pub(crate) about_folded: bool,
 }
 
 impl Default for Track {
     fn default() -> Self {
-        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, comments: false, all: false, expanded: HashSet::new(), folded: false }
+        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), about_folded: false }
     }
 }
 
@@ -339,6 +366,13 @@ pub(crate) struct PullRequest {
     pub(crate) title: Entity<InputState>,
     pub(crate) body: Entity<TextareaState>,
     pub(crate) reply: Entity<TextareaState>,
+    /// What is said on the PR itself, outside any thread.
+    pub(crate) comment: Entity<TextareaState>,
+    pub(crate) commenting: bool,
+    pub(crate) comment_error: Option<String>,
+    pub(crate) commits_scroll: UniformListScrollHandle,
+    pub(crate) files_scroll: UniformListScrollHandle,
+    pub(crate) conversation_scroll: ScrollHandle,
     /// The worktree whose PR the composer writes.
     pub(crate) composing: Option<String>,
     pub(crate) writing: bool,
@@ -359,6 +393,7 @@ impl PullRequest {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Title"));
         let body = cx.new(|cx| TextareaState::new(window, cx).placeholder("What this changes, and why").rows(8));
         let reply = cx.new(|cx| TextareaState::new(window, cx).placeholder("Reply…").auto_grow(2, 8));
+        let comment = cx.new(|cx| TextareaState::new(window, cx).placeholder("Leave a comment").auto_grow(3, 10));
         let subs = vec![
             cx.subscribe_in(&title, window, |_, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
@@ -375,11 +410,22 @@ impl PullRequest {
                 InputEvent::Change => cx.notify(),
                 _ => {}
             }),
+            cx.subscribe_in(&comment, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { secondary: true, .. } => this.send_comment(window, cx),
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            }),
         ];
         let state = Self {
             title,
             body,
             reply,
+            comment,
+            commenting: false,
+            comment_error: None,
+            commits_scroll: UniformListScrollHandle::new(),
+            files_scroll: UniformListScrollHandle::new(),
+            conversation_scroll: ScrollHandle::new(),
             composing: None,
             writing: false,
             busy: None,
@@ -631,7 +677,7 @@ impl Desktop {
         let Some((_, pr)) = self.shown_pr() else { return };
         let Some(t) = pr.threads.iter().find(|t| t.id == id) else { return };
         if t.outdated || t.line.is_none() {
-            self.pr.track.comments = true;
+            self.pr.track.tab = PrTab::Conversation;
             return self.show_pr_side(cx);
         }
         let doc = Doc::PrFile { base: self.pr_base(pr), path: t.path.clone() };
@@ -738,15 +784,11 @@ impl Desktop {
             return;
         }
         let gh = self.gh_in(&dir);
-        let me = match (gh.account(), &self.prs.gh) {
-            (Some(account), _) => account.to_string(),
-            (None, Some(Some(github::GhStatus::Ready { login, .. }))) => login.clone(),
-            _ => "You".into(),
-        };
+        let me = self.login(&gh);
         let at = crate::util::now_ms() as u64;
         self.prs.edit(&dir, |pr| {
             if let Some(t) = pr.thread_mut(&thread) {
-                t.comments.push(github::Comment { author: me, body: body.clone(), at, hunk: String::new() });
+                t.comments.push(github::Comment { author: me, body: body.clone(), at, ..github::Comment::default() });
             }
         });
         self.cancel_reply(window, cx);
@@ -766,6 +808,96 @@ impl Desktop {
             .ok();
         })
         .detach();
+    }
+
+    /// Who `gh` acts as, as a comment it posts names its author.
+    fn login(&self, gh: &Gh) -> String {
+        match (gh.account(), &self.prs.gh) {
+            (Some(account), _) => account.to_string(),
+            (None, Some(Some(github::GhStatus::Ready { login, .. }))) => login.clone(),
+            _ => "You".into(),
+        }
+    }
+
+    pub(crate) fn open_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pr.track.tab = PrTab::Conversation;
+        self.pr.commenting = true;
+        // The box sits at the end of the Conversation, which may be scrolled far above it.
+        self.pr.conversation_scroll.scroll_to_bottom();
+        self.pr.comment.update(cx, |s, cx| s.focus(window, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pr.commenting = false;
+        self.pr.comment_error = None;
+        self.pr.comment.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    /// Opens the comment box with `said` quoted after what it already holds: GitHub has no replies to a comment on the PR itself.
+    pub(crate) fn quote_reply(&mut self, said: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let held = self.pr.comment.read(cx).value().trim_end().to_string();
+        let text = if held.is_empty() { body::quote(said) } else { format!("{held}\n\n{}", body::quote(said)) };
+        self.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
+        self.open_comment(window, cx);
+    }
+
+    pub(crate) fn copy_link(&mut self, url: String, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(url));
+        self.notify_pr("Copied the link".into(), None, cx);
+    }
+
+    /// Asks `gh` about the PR on screen now, rather than at its next poll.
+    pub(crate) fn refresh_pr(&mut self, cx: &mut Context<Self>) {
+        let Some(tree) = self.cwd() else { return };
+        self.prs.expire(&tree, Instant::now());
+        self.poll_prs(cx);
+        cx.notify();
+    }
+
+    /// Posts the comment box on the PR on screen and shows it at once as being sent; a failure takes it back out and returns its text to the box.
+    pub(crate) fn send_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((dir, number)) = self.shown_pr().map(|(tree, pr)| (tree, pr.number)) else { return };
+        let body = self.pr.comment.read(cx).value().trim().to_string();
+        if body.is_empty() {
+            return;
+        }
+        let gh = self.gh_in(&dir);
+        let note = Note { author: self.login(&gh), body: body.clone(), at: crate::util::now_ms() as u64, ..Note::default() };
+        self.prs.edit(&dir, |pr| pr.notes.push(note.clone()));
+        self.cancel_comment(window, cx);
+        let (argv, tree, input) = (github::comment_argv(number), dir.clone(), body.clone());
+        let task = cx.background_executor().spawn(async move { gh.run(&argv, &dir, &input) });
+        cx.spawn_in(window, async move |this, cx| {
+            let res = task.await;
+            this.update_in(cx, |d, window, cx| {
+                match res {
+                    Ok(out) => {
+                        let url = out.lines().last().unwrap_or_default().trim().to_string();
+                        d.prs.edit(&tree, |pr| {
+                            if let Some(n) = pr.notes.iter_mut().find(|n| **n == note) {
+                                (n.id, n.url) = (url.rsplit('#').next().unwrap_or("posted").to_string(), url);
+                            }
+                        });
+                        d.prs.expire(&tree, Instant::now());
+                        d.poll_prs(cx);
+                    }
+                    Err(e) => {
+                        d.prs.edit(&tree, |pr| pr.notes.retain(|n| *n != note));
+                        let held = d.pr.comment.read(cx).value().trim().to_string();
+                        let text = if held.is_empty() { body } else { format!("{body}\n\n{held}") };
+                        d.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
+                        d.pr.commenting = true;
+                        d.pr.comment_error = Some(format!("Couldn't post the comment: {e}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
     }
 
     /// Resolves or reopens a thread at once, with Undo; a failure flips it back.
@@ -887,7 +1019,7 @@ mod tests {
     }
 
     fn thread(id: &str) -> Thread {
-        let said = |author: &str, body: &str| Comment { author: author.into(), body: body.into(), at: 0, hunk: "@@ -1,4 +1,4 @@\n a\n b\n-c\n+d\n e".into() };
+        let said = |author: &str, body: &str| Comment { author: author.into(), body: body.into(), at: 0, hunk: "@@ -1,4 +1,4 @@\n a\n b\n-c\n+d\n e".into(), ..Comment::default() };
         Thread { id: id.into(), path: "src/a.rs".into(), line: Some(42), comments: vec![said("mira", "Handle None here."), said("bo", "Agreed.")], ..Thread::default() }
     }
 

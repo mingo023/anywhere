@@ -117,6 +117,10 @@ impl PullRequests {
         self.drop_run(tree);
     }
 
+    pub(crate) fn asking(&self, tree: &str) -> bool {
+        self.running.as_ref().is_some_and(|(t, _)| t == tree)
+    }
+
     /// Keeps showing `tree`'s PR but asks `gh` about it at the next poll.
     pub(crate) fn expire(&mut self, tree: &str, now: Instant) {
         if let Some((at, _)) = self.by_tree.get_mut(tree) {

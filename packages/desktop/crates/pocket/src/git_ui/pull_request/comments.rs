@@ -1,7 +1,6 @@
-use super::card::{group, group_row, pill, review_icon, review_status, row, section, small, thread_chip, who};
-use super::{hunk_tail, opening, plural, review_lines, to_fix};
+use super::card::{pill, small, thread_chip, who};
+use super::{hunk_tail, opening, spot};
 use crate::desktop::Desktop;
-use crate::git_ui::pull_requests::chip;
 use crate::util::{ago, now_ms};
 use git::github::{Comment, Pr, Thread, ThreadState};
 use gpui_kit::component::input::Textarea;
@@ -9,17 +8,16 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
 use theme::*;
-use ui::{Segment, Variant};
+use ui::Variant;
 
-const THREADS_SHOWN: usize = 100;
 const LATEST_SHOWN: usize = 2;
 
 /// The PR a thread belongs to, and what every one of its threads offers.
-struct Shown<'a> {
-    tree: &'a str,
-    pr: &'a Pr,
-    agent: &'static str,
-    can_send: bool,
+pub(super) struct Shown<'a> {
+    pub(super) tree: &'a str,
+    pub(super) pr: &'a Pr,
+    pub(super) agent: &'static str,
+    pub(super) can_send: bool,
 }
 
 fn hunk(t: &Thread) -> Option<Div> {
@@ -42,18 +40,6 @@ fn folded_replies(comments: usize, whole: bool) -> Option<Range<usize>> {
     (!whole && hidden >= 2).then(|| 1..1 + hidden)
 }
 
-/// Indexes into `threads` per file, the files in the order they first come.
-fn by_file<'a>(threads: &[&'a Thread]) -> Vec<(&'a str, Vec<usize>)> {
-    let mut files: Vec<(&str, Vec<usize>)> = Vec::new();
-    for (i, t) in threads.iter().enumerate() {
-        match files.iter_mut().find(|(path, _)| *path == t.path) {
-            Some((_, at)) => at.push(i),
-            None => files.push((t.path.as_str(), vec![i])),
-        }
-    }
-    files
-}
-
 /// Who wrote `comments`, each once, first come first.
 fn authors(comments: &[Comment]) -> Vec<&str> {
     let mut seen: Vec<&str> = Vec::new();
@@ -69,87 +55,9 @@ fn at_line(t: &Thread) -> String {
     t.line.map_or_else(|| "File".into(), |l| format!("Line {l}"))
 }
 
-fn file_head(path: &str, threads: usize) -> Div {
-    let cut = path.rfind('/').map_or(0, |i| i + 1);
-    let path = div().flex_1().min_w_0().flex().font_family(MONO).child(div().min_w_0().truncate().text_color(TEXT_4).child(path[..cut].to_string())).child(div().flex_none().text_color(TEXT_2).child(path[cut..].to_string()));
-    div().pt(px(16.)).pb(px(6.)).px(px(12.)).flex().items_center().gap(px(8.)).text_size(px(11.5)).child(path).child(div().flex_none().text_color(TEXT_4).child(plural(threads, "thread")))
-}
-
 impl Desktop {
-    /// Every review thread of the PR on screen, in place of Changes.
-    pub(crate) fn pr_comments(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let (tree, pr) = self.shown_pr()?;
-        let fixing = self.pr.track.fixing(&tree, pr);
-        let shown = self.shown(&tree, pr);
-        let (agent, can_send) = (shown.agent, shown.can_send);
-        let url = pr.url.clone();
-        let back = ui::icon_button_sized("pr-comments-back", "back", 26., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.pr.track.comments = false;
-            cx.notify();
-        }));
-        let head = div()
-            .h(px(40.))
-            .flex_none()
-            .pl(px(8.))
-            .pr(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .child(back)
-            .child(div().flex_1().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child("Comments"))
-            .child(chip("pr-comments-chip", pr, self.pr_verdict(&tree, pr).0))
-            .child(ui::icon_button_sized("pr-comments-open", "external", 26., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(url.clone(), window, cx))));
-        let unresolved = pr.unresolved().count();
-        let all = self.pr.track.all;
-        let filter = ui::segmented(
-            vec![
-                Segment { icon: None, value: false, label: "Unresolved".into(), badge: Some(unresolved.to_string()) },
-                Segment { icon: None, value: true, label: "All".into(), badge: Some(pr.threads.len().to_string()) },
-            ],
-            all,
-            true,
-            true,
-            |this: &mut Desktop, all, cx| {
-                this.pr.track.all = all;
-                cx.notify();
-            },
-            cx,
-        );
-        let reviews = review_lines(pr).into_iter().map(|(r, text)| group_row().child(review_icon(r)).child(div().flex_1().min_w_0().truncate().child(text)).into_any_element());
-        let review = div().child(section("REVIEW", review_status(pr))).child(group(reviews));
-        let listed: Vec<&Thread> = pr.threads.iter().filter(|t| all || !t.resolved).take(THREADS_SHOWN).collect();
-        let empty = listed.is_empty().then(|| {
-            let resolved = row().justify_center().py(px(14.)).text_color(TEXT_3).child(icon("check", 13., SUCCESS)).child("All conversations resolved");
-            div().pt(px(16.)).child(group([resolved.into_any_element()]))
-        });
-        let threads: Vec<Div> = by_file(&listed).into_iter().map(|(path, at)| div().child(file_head(path, at.len())).child(group(at.into_iter().map(|i| self.pr_thread(i, &shown, listed[i], false, cx))))).collect();
-        let (_, open) = to_fix(pr, fixing.as_ref());
-        let bulk = (can_send && open.len() > 1).then(|| {
-            let ids: Vec<String> = open.iter().map(|t| t.id.clone()).collect();
-            ui::button("pr-send-open", Variant::Primary, None, format!("Send {} open comments to {agent}", ids.len()))
-                .h(px(30.))
-                .justify_center()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&[], &ids, cx)))
-        });
-        let body = div()
-            .id("pr-comments")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .px(px(10.))
-            .pb(px(10.))
-            .flex()
-            .flex_col()
-            .child(filter)
-            .child(review)
-            .children(threads)
-            .children(empty)
-            .children(bulk.map(|b| b.mt(px(12.))));
-        Some(div().flex_1().min_h_0().flex().flex_col().child(head).child(body))
-    }
-
     /// Threads of `pr` can go to the agent when sessions aren't only watched and it isn't fixing this PR already.
-    fn shown<'a>(&self, tree: &'a str, pr: &'a Pr) -> Shown<'a> {
+    pub(super) fn shown<'a>(&self, tree: &'a str, pr: &'a Pr) -> Shown<'a> {
         let can_send = !self.agents.observe_only() && self.pr.track.fixing(tree, pr).is_none();
         Shown { tree, pr, agent: self.fix_agent(), can_send }
     }
@@ -161,11 +69,12 @@ impl Desktop {
         Some(self.pr_thread(k, &self.shown(&tree, pr), t, true, cx))
     }
 
-    /// A thread: on its own card under its line in the diff (`inline`), or a row of its file's group in Comments. A long one folds its middle replies.
-    fn pr_thread(&self, i: usize, shown: &Shown, t: &Thread, inline: bool, cx: &mut Context<Self>) -> AnyElement {
+    /// A thread: on its own card under its line in the diff (`inline`), or in the Conversation under its file and line. A long one folds its middle replies.
+    pub(super) fn pr_thread(&self, i: usize, shown: &Shown, t: &Thread, inline: bool, cx: &mut Context<Self>) -> AnyElement {
         let (agent, can_send, now) = (shown.agent, shown.can_send, now_ms());
         let state = t.state(self.pr.track.thread_sent(shown.tree, shown.pr, &t.id));
-        let frame = |d: Stateful<Div>| if inline { d.px(px(10.)).rounded(px(10.)).bg(SURFACE).shadow(ui::row_shadow()) } else { d };
+        let frame = |d: Stateful<Div>| if inline { d.px(px(10.)).rounded(px(10.)).bg(SURFACE).shadow(ui::row_shadow()) } else { d.px(px(10.)).rounded(px(9.)).border(px(0.5)).border_color(SEPARATOR_STRONG) };
+        let at = if inline { at_line(t) } else { spot(t) };
         let toggle = |id: String| {
             cx.listener(move |this: &mut Desktop, _: &ClickEvent, _, cx| {
                 this.pr.track.toggle_expanded(&id);
@@ -183,7 +92,7 @@ impl Desktop {
                 .text_size(px(12.))
                 .text_color(TEXT_3)
                 .child(icon("check", 12., SUCCESS))
-                .child(div().flex_none().font_family(MONO).text_size(px(11.5)).child(at_line(t)))
+                .child(div().flex_none().font_family(MONO).text_size(px(11.5)).child(at.clone()))
                 .child(div().flex_1().min_w_0().truncate().child(opening(t)))
                 .child(icon("chevron-right", 11., TEXT_4))
                 .on_click(toggle(t.id.clone()))
@@ -214,7 +123,7 @@ impl Desktop {
             .gap(px(6.))
             .text_size(px(11.5))
             .text_color(TEXT_3)
-            .child(div().flex_none().font_family(MONO).child(at_line(t)))
+            .child(div().min_w_0().truncate().font_family(MONO).child(at))
             .children(thread_chip(state))
             .when(t.outdated, |d| d.child(pill("Outdated", FILL_3, TEXT_3)))
             .child(div().flex_1())
@@ -300,8 +209,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{authors, by_file, folded_replies};
-    use git::github::{Comment, Thread};
+    use super::{authors, folded_replies};
+    use git::github::Comment;
 
     #[test]
     fn a_long_thread_folds_all_but_its_opening_and_last_two_replies() {
@@ -322,13 +231,5 @@ mod tests {
         let said = |author: &str| Comment { author: author.into(), ..Comment::default() };
         assert_eq!(authors(&[said("mingo"), said("hoang"), said("mingo"), said("linh")]), vec!["mingo", "hoang", "linh"]);
         assert!(authors(&[]).is_empty());
-    }
-
-    #[test]
-    fn threads_group_by_file_in_the_order_their_files_first_come() {
-        let t = |path: &str| Thread { path: path.into(), ..Thread::default() };
-        let (a, b, c) = (t("src/a.rs"), t("src/b.rs"), t("src/a.rs"));
-        assert_eq!(by_file(&[&a, &b, &c]), vec![("src/a.rs", vec![0, 2]), ("src/b.rs", vec![1])]);
-        assert!(by_file(&[]).is_empty());
     }
 }

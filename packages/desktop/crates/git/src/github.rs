@@ -21,6 +21,61 @@ pub struct Pr {
     pub base: String,
     pub head: String,
     pub threads: Vec<Thread>,
+    pub body: String,
+    pub author: String,
+    /// When it was opened, in Unix milliseconds.
+    pub opened: u64,
+    pub labels: Vec<Label>,
+    pub additions: u32,
+    pub deletions: u32,
+    pub commits: Vec<PrCommit>,
+    pub files: Vec<PrFile>,
+    /// What was said on the PR itself, outside any review.
+    pub notes: Vec<Note>,
+    /// Every review submitted, oldest first; a reply in a thread submits one with no body.
+    pub submitted: Vec<Submitted>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Label {
+    pub name: String,
+    /// `0xRRGGBB`.
+    pub color: u32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PrCommit {
+    pub oid: String,
+    pub subject: String,
+    pub author: String,
+    pub at: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PrFile {
+    pub path: String,
+    pub additions: u32,
+    pub deletions: u32,
+}
+
+/// A comment on the PR itself; one still being posted has no `id`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Note {
+    pub id: String,
+    pub author: String,
+    pub body: String,
+    pub at: u64,
+    pub url: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Submitted {
+    pub id: String,
+    pub author: String,
+    /// `Review::None` for a review that only commented.
+    pub verdict: Review,
+    pub body: String,
+    pub at: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -86,6 +141,11 @@ pub struct Thread {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Comment {
+    /// Empty while it is being posted.
+    pub id: String,
+    pub url: String,
+    /// The review it was submitted in, which [`Submitted::id`] names.
+    pub review: Option<String>,
     pub author: String,
     pub body: String,
     /// Unix milliseconds.
@@ -106,7 +166,7 @@ pub const VIEW: &[&str] = &[
     "pr",
     "view",
     "--json",
-    "number,title,url,state,isDraft,statusCheckRollup,reviewDecision,latestReviews,reviewRequests,mergeable,mergeStateStatus,headRefOid,baseRefName",
+    "number,title,url,state,isDraft,statusCheckRollup,reviewDecision,latestReviews,reviewRequests,mergeable,mergeStateStatus,headRefOid,baseRefName,body,author,createdAt,labels,additions,deletions,commits,files,comments,reviews",
 ];
 
 /// The branch name on the remote, without `origin/`.
@@ -169,7 +229,7 @@ pub fn ready_argv(number: u32) -> Vec<String> {
     vec!["gh".into(), "pr".into(), "ready".into(), number.to_string()]
 }
 
-const THREADS: &str = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved isOutdated path line originalLine diffSide comments(first:50){nodes{author{login} body createdAt diffHunk}}}}}}}";
+const THREADS: &str = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved isOutdated path line originalLine diffSide comments(first:50){nodes{id url author{login} body createdAt diffHunk pullRequestReview{id}}}}}}}}";
 const REPLY: &str = "mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{id}}}";
 const RESOLVE: &str = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}";
 const UNRESOLVE: &str = "mutation($id:ID!){unresolveReviewThread(input:{threadId:$id}){thread{isResolved}}}";
@@ -184,6 +244,11 @@ pub fn threads_argv(number: u32) -> Vec<String> {
 pub fn reply_argv(thread: &str, body: &str) -> Vec<String> {
     let (id, body, query) = (format!("id={thread}"), format!("body={body}"), format!("query={REPLY}"));
     ["gh", "api", "graphql", "-f", &id, "-f", &body, "-f", &query].map(String::from).to_vec()
+}
+
+/// Comments on PR `number`, the body read from stdin.
+pub fn comment_argv(number: u32) -> Vec<String> {
+    ["gh", "pr", "comment", &number.to_string(), "--body-file", "-"].map(String::from).to_vec()
 }
 
 pub fn resolve_argv(thread: &str, resolved: bool) -> Vec<String> {
@@ -209,7 +274,15 @@ pub fn threads_result(json: &str) -> Option<Vec<Thread>> {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .map(|c| Comment { author: author(&c["author"]), body: str(&c["body"]), at: epoch_ms(c["createdAt"].as_str().unwrap_or("")).unwrap_or(0), hunk: str(&c["diffHunk"]) })
+                    .map(|c| Comment {
+                        id: str(&c["id"]),
+                        url: str(&c["url"]),
+                        review: c["pullRequestReview"]["id"].as_str().map(str::to_string),
+                        author: author(&c["author"]),
+                        body: str(&c["body"]),
+                        at: stamp(&c["createdAt"]),
+                        hunk: str(&c["diffHunk"]),
+                    })
                     .collect(),
             })
             .collect(),
@@ -401,7 +474,33 @@ fn parse(json: &str) -> Option<Pr> {
         base: str(&v["baseRefName"]),
         head: str(&v["headRefOid"]),
         threads: Vec::new(),
+        body: str(&v["body"]),
+        author: author(&v["author"]),
+        opened: stamp(&v["createdAt"]),
+        labels: list(&v["labels"]).map(|l| Label { name: str(&l["name"]), color: u32::from_str_radix(l["color"].as_str().unwrap_or(""), 16).unwrap_or(0x8b8b94) }).collect(),
+        additions: count(&v["additions"]),
+        deletions: count(&v["deletions"]),
+        commits: list(&v["commits"])
+            .map(|c| PrCommit { oid: str(&c["oid"]), subject: str(&c["messageHeadline"]), author: c["authors"][0]["login"].as_str().or(c["authors"][0]["name"].as_str()).unwrap_or("").to_string(), at: stamp(&c["authoredDate"]) })
+            .collect(),
+        files: list(&v["files"]).map(|f| PrFile { path: str(&f["path"]), additions: count(&f["additions"]), deletions: count(&f["deletions"]) }).collect(),
+        notes: list(&v["comments"]).map(|c| Note { id: str(&c["id"]), author: author(&c["author"]), body: str(&c["body"]), at: stamp(&c["createdAt"]), url: str(&c["url"]) }).collect(),
+        submitted: list(&v["reviews"])
+            .map(|r| Submitted { id: str(&r["id"]), author: author(&r["author"]), verdict: verdict(r["state"].as_str().unwrap_or("")), body: str(&r["body"]), at: stamp(&r["submittedAt"]) })
+            .collect(),
     })
+}
+
+fn list(v: &Value) -> impl Iterator<Item = &Value> {
+    v.as_array().into_iter().flatten()
+}
+
+fn count(v: &Value) -> u32 {
+    v.as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(0)
+}
+
+fn stamp(v: &Value) -> u64 {
+    epoch_ms(v.as_str().unwrap_or("")).unwrap_or(0)
 }
 
 fn str(v: &Value) -> String {
@@ -591,7 +690,7 @@ mod tests {
 
     const THREADS_OUT: &str = r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
         {"id":"PRRT_a","isResolved":false,"isOutdated":false,"path":"src/sync.rs","line":42,"originalLine":40,"diffSide":"RIGHT","comments":{"nodes":[
-            {"author":{"login":"rina"},"body":"This retries forever.","createdAt":"2026-10-02T18:37:02Z","diffHunk":"@@ -38,3 +38,5 @@\n fn sync() {\n+    loop {\n+        retry();"},
+            {"id":"PRRC_1","url":"https://github.com/acme/app/pull/7#discussion_r1","author":{"login":"rina"},"body":"This retries forever.","createdAt":"2026-10-02T18:37:02Z","diffHunk":"@@ -38,3 +38,5 @@\n fn sync() {\n+    loop {\n+        retry();","pullRequestReview":{"id":"PRR_1"}},
             {"author":{"login":"mingo"},"body":"Capped at 5.","createdAt":"2026-10-02T18:40:00Z","diffHunk":"@@"}
         ]}},
         {"id":"PRRT_b","isResolved":true,"isOutdated":true,"path":"README.md","line":null,"originalLine":7,"diffSide":"LEFT","comments":{"nodes":[
@@ -603,10 +702,61 @@ mod tests {
     fn review_threads_fall_back_to_their_original_line() {
         let threads = threads_result(THREADS_OUT).unwrap();
         assert_eq!((threads[0].id.as_str(), threads[0].path.as_str(), threads[0].line, threads[0].left, threads[0].resolved), ("PRRT_a", "src/sync.rs", Some(42), false, false));
-        assert_eq!(threads[0].comments[0], Comment { author: "rina".into(), body: "This retries forever.".into(), at: 1_790_966_222_000, hunk: "@@ -38,3 +38,5 @@\n fn sync() {\n+    loop {\n+        retry();".into() });
+        let first = Comment {
+            id: "PRRC_1".into(),
+            url: "https://github.com/acme/app/pull/7#discussion_r1".into(),
+            review: Some("PRR_1".into()),
+            author: "rina".into(),
+            body: "This retries forever.".into(),
+            at: 1_790_966_222_000,
+            hunk: "@@ -38,3 +38,5 @@\n fn sync() {\n+    loop {\n+        retry();".into(),
+        };
+        assert_eq!(threads[0].comments[0], first);
+        assert_eq!(threads[0].comments[1].review, None);
         assert_eq!((threads[1].line, threads[1].left, threads[1].outdated, threads[1].resolved), (Some(7), true, true, true));
         assert_eq!(threads[1].comments[0].author, "ghost");
         assert_eq!(threads_result(r#"{"errors":[{"message":"Could not resolve"}]}"#), None);
+    }
+
+    /// `gh pr view` on cli/cli#15083, cut to one of each and a label added.
+    const DETAIL: &str = r#"{"number":15083,"state":"OPEN","title":"t","url":"u","isDraft":false,"additions":407,"deletions":62,
+        "author":{"id":"MDQ6","is_bot":false,"login":"babakks","name":"Babak K. Shandiz"},"body":"<!--\nThank you\n-->\n## Summary","createdAt":"2026-11-17T17:44:23Z",
+        "labels":[{"id":"LA_1","name":"enhancement","description":"","color":"a2eeef"},{"id":"LA_2","name":"odd","description":"","color":"nope"}],
+        "commits":[{"authoredDate":"2026-11-17T17:22:38Z","authors":[{"email":"b@github.com","login":"babakks","name":"Babak K. Shandiz"},{"login":"Copilot","name":"Copilot"}],"messageBody":"When…","messageHeadline":"fix(eventstream): split a buffered line after a skipped LF","oid":"4be67a7009cd25fb24704b462e8a7f5dabba13f0"}],
+        "files":[{"additions":10,"changeType":"MODIFIED","deletions":1,"path":"evals/src/commands.test.ts"}],
+        "comments":[{"author":{"login":"babakks"},"body":"The latest automated review comments","createdAt":"2026-11-17T19:02:41Z","id":"IC_kwDODKw3uc8AAAABnrngRg","url":"https://github.com/cli/cli/pull/15083#issuecomment-6957948998"}],
+        "reviews":[{"author":{"login":"copilot-pull-request-reviewer"},"body":"Changes recommended","id":"PRR_kwDODKw3uc8AAAABYkanbw","state":"COMMENTED","submittedAt":"2026-11-17T17:55:04Z"},
+            {"author":{"login":"BagToad"},"body":"","id":"PRR_kwDODKw3uc8AAAABYlVB6Q","state":"APPROVED","submittedAt":"2026-11-17T18:59:36Z"}]}"#;
+
+    #[test]
+    fn a_pr_reads_its_description_author_labels_size_commits_and_files() {
+        let pr = view_result(Ok(DETAIL.into())).unwrap().unwrap();
+        assert_eq!((pr.author.as_str(), pr.opened, pr.additions, pr.deletions), ("babakks", 1_794_937_463_000, 407, 62));
+        assert!(pr.body.ends_with("## Summary"));
+        assert_eq!(pr.labels, [Label { name: "enhancement".into(), color: 0xa2eeef }, Label { name: "odd".into(), color: 0x8b8b94 }]);
+        let commit = &pr.commits[0];
+        assert_eq!((commit.oid.as_str(), commit.subject.as_str(), commit.author.as_str(), commit.at), ("4be67a7009cd25fb24704b462e8a7f5dabba13f0", "fix(eventstream): split a buffered line after a skipped LF", "babakks", 1_794_936_158_000));
+        assert_eq!(pr.files, [PrFile { path: "evals/src/commands.test.ts".into(), additions: 10, deletions: 1 }]);
+    }
+
+    #[test]
+    fn a_pr_reads_its_comments_and_every_submitted_review() {
+        let pr = view_result(Ok(DETAIL.into())).unwrap().unwrap();
+        let note = &pr.notes[0];
+        assert_eq!((note.id.as_str(), note.author.as_str(), note.url.as_str()), ("IC_kwDODKw3uc8AAAABnrngRg", "babakks", "https://github.com/cli/cli/pull/15083#issuecomment-6957948998"));
+        let verdicts: Vec<_> = pr.submitted.iter().map(|r| (r.id.as_str(), r.author.as_str(), r.verdict, r.body.as_str())).collect();
+        assert_eq!(verdicts, [("PRR_kwDODKw3uc8AAAABYkanbw", "copilot-pull-request-reviewer", Review::None, "Changes recommended"), ("PRR_kwDODKw3uc8AAAABYlVB6Q", "BagToad", Review::Approved, "")]);
+    }
+
+    #[test]
+    fn a_pr_without_the_new_fields_still_reads() {
+        let pr = view_result(Ok(RERUN.into())).unwrap().unwrap();
+        assert_eq!((pr.body.as_str(), pr.author.as_str(), pr.opened, pr.labels.len(), pr.commits.len(), pr.notes.len()), ("", "ghost", 0, 0, 0, 0));
+    }
+
+    #[test]
+    fn a_comment_on_the_pr_reads_its_body_from_stdin() {
+        assert_eq!(comment_argv(283), ["gh", "pr", "comment", "283", "--body-file", "-"]);
     }
 
     #[test]
