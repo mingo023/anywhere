@@ -74,6 +74,12 @@ impl Terminals {
         items.iter().filter(|i| self.closed.contains(&i.id)).map(|i| i.id.clone()).collect()
     }
 
+    /// Records pocketd `host`'s list; returns the terminals closed here that it still runs, and every pocketd's terminals together.
+    pub(crate) fn heard(&mut self, host: Option<&str>, items: Vec<Info>) -> (Vec<String>, Vec<Info>) {
+        let items = self.lists.listed(host, items);
+        (self.unclosed(&items), items)
+    }
+
     /// Adopts pocketd's terminal list, minus the ones closed here; returns the ids that still need an attach.
     pub(crate) fn listed(&mut self, items: Vec<Info>) -> Vec<String> {
         let items = items.into_iter().filter(|i| !self.closed.contains(&i.id)).collect();
@@ -236,8 +242,8 @@ impl Desktop {
     pub(crate) fn on_msg_from(&mut self, host: Option<&str>, m: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match (m.ev.as_str(), host) {
             ("terminals", _) => {
-                let items = self.terminals.lists.listed(host, m.items);
-                for id in self.terminals.unclosed(&items) {
+                let (unclosed, items) = self.terminals.heard(host, m.items);
+                for id in unclosed {
                     self.daemon.send(json!({"op": "close", "id": id}));
                 }
                 for id in self.terminals.listed(items) {
@@ -813,6 +819,18 @@ mod tests {
         t.listed(vec![info("a"), info("b")]);
         t.close("a");
         assert_eq!(t.unclosed(&[info("a"), info("b")]), vec!["a"]);
+    }
+
+    #[test]
+    fn a_close_is_sent_again_only_on_the_word_of_the_pocketd_that_holds_the_terminal() {
+        let mut t = Terminals::new(Default::default());
+        t.heard(None, vec![info("a")]);
+        t.close("a");
+        assert_eq!(t.heard(None, vec![info("a")]).0, vec!["a"], "this Mac's pocketd still runs it");
+        assert!(t.heard(Some("devbox"), vec![info("devbox/1")]).0.is_empty(), "devbox's list says nothing of this Mac's terminals");
+        t.close("devbox/1");
+        assert!(t.heard(None, vec![]).0.is_empty(), "this Mac's list says nothing of devbox's");
+        assert_eq!(t.heard(Some("devbox"), vec![info("devbox/1")]).0, vec!["devbox/1"]);
     }
 
     #[test]
