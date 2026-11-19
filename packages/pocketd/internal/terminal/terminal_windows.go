@@ -13,7 +13,42 @@ import (
 	"pocketd/internal/conpty"
 )
 
-type console = *conpty.Console
+// conSession is a process on a ConPTY pocketd holds; Windows has no holders.
+type conSession struct {
+	c *conpty.Console
+	p *os.Process
+}
+
+func (s conSession) Read(b []byte) (int, error)  { return s.c.Read(b) }
+func (s conSession) Write(b []byte) (int, error) { return s.c.Write(b) }
+func (s conSession) Resize(cols, rows int) error { return s.c.Resize(cols, rows) }
+func (s conSession) Pid() int                    { return s.p.Pid }
+func (s conSession) Close() error                { return s.c.Close() }
+func (s conSession) Checkpoint([]byte)           {}
+
+// Stop hangs up the console, so its programs get CTRL_CLOSE_EVENT, then
+// kills the whole tree after grace.
+func (s conSession) Stop(grace time.Duration) {
+	s.c.Hangup()
+	time.AfterFunc(grace, func() { s.c.Kill() })
+}
+
+func (s conSession) Wait() int {
+	if st, err := s.p.Wait(); err == nil {
+		return st.ExitCode()
+	}
+	return -1
+}
+
+func (m *Manager) open(bin string, spec Spec) (session, error) {
+	c, p, err := start(bin, spec)
+	if err != nil {
+		return nil, err
+	}
+	return conSession{c, p}, nil
+}
+
+func (m *Manager) adopt(Adopted) (session, error) { return nil, errNoHandoff }
 
 // LookPath resolves cmd against the caller's Path and PATHEXT, not the
 // daemon's. Windows env names ignore case; the last entry wins.
@@ -69,26 +104,14 @@ func start(bin string, spec Spec) (*conpty.Console, *os.Process, error) {
 
 var errNoHandoff = errors.New("terminal: Windows can't hand a terminal to another pocketd")
 
-func adopt(fd, pid int) (*conpty.Console, *os.Process, error) { return nil, nil, errNoHandoff }
-
-func inherit(c *conpty.Console, on bool) (int, error) {
-	if !on {
-		return 0, nil
-	}
-	return 0, errNoHandoff
-}
-
-func setsize(c *conpty.Console, cols, rows int) error { return c.Resize(cols, rows) }
-
 // group is the root: Windows has no foreground process group, so the whole
 // tree under it stands in for one (proc.Members).
-func (s *Terminal) group() (int, error) { return s.proc.Pid, nil }
+func group(sess session) (int, error) { return sess.Pid(), nil }
 
-// stop hangs up the console, so its programs get CTRL_CLOSE_EVENT, then
-// kills the whole tree after grace.
+// stop hangs up the console, then kills the whole tree after grace, unless it ended first.
 func (s *Terminal) stop(grace time.Duration) {
 	s.mu.Lock()
-	c := s.pty
+	c := s.sess.(conSession).c
 	s.mu.Unlock()
 	c.Hangup()
 	select {
@@ -97,6 +120,3 @@ func (s *Terminal) stop(grace time.Duration) {
 		c.Kill()
 	}
 }
-
-// endSession ends the console a Replace left behind.
-func endSession(c console, _ *os.Process) { c.Kill() }

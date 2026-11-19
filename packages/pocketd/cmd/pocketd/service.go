@@ -13,7 +13,9 @@ import (
 	"slices"
 
 	"pocketd/internal/config"
+	"pocketd/internal/holder"
 	"pocketd/internal/service"
+	"pocketd/internal/terminal"
 )
 
 const serviceUsage = "usage: pocketd service install|uninstall|status [--json] [--label <name>]"
@@ -67,7 +69,9 @@ func serviceMain(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 		err = service.Install(s)
 	case "uninstall":
-		err = service.Uninstall(s)
+		if err = service.Uninstall(s); err == nil {
+			holder.EndAll(holder.Dir(s.Home), terminal.CloseGrace)
+		}
 	}
 	if err != nil {
 		return 1, err

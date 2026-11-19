@@ -12,4 +12,5 @@ func Check(File) error { return errUnsupported }
 
 func Keep(net.Listener) (int, error)    { return 0, errUnsupported }
 func Release(int)                       {}
+func Claim(File)                        {}
 func Inherit(int) (net.Listener, error) { return nil, errUnsupported }

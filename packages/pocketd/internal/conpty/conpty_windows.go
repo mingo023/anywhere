@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"sync"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -146,9 +145,6 @@ func (c *Console) Write(b []byte) (int, error) { return c.in.Write(b) }
 func (c *Console) Resize(cols, rows int) error {
 	return windows.ResizePseudoConsole(c.hpc, coord(cols, rows))
 }
-
-// SetReadDeadline fails: anonymous pipes can't be polled.
-func (c *Console) SetReadDeadline(time.Time) error { return os.ErrNoDeadline }
 
 // Hangup closes the pseudoconsole, which sends its programs CTRL_CLOSE_EVENT
 // and ends output.

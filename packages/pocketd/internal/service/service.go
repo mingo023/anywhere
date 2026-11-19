@@ -65,6 +65,8 @@ func plist(s Spec) []byte {
 
 // A pocketd already holding the home's lock makes a new one exit 75, so the unit
 // retries until that one exits; with a start limit systemd would give up first.
+// KillMode=process stops only pocketd: the holders in its cgroup keep their
+// Terminals running across a restart (ADR 0008).
 const unitTemplate = `[Unit]
 Description=Anywhere pocketd
 StartLimitIntervalSec=0
@@ -74,6 +76,7 @@ ExecStart=%s serve
 Environment=%s
 Restart=always
 RestartSec=30
+KillMode=process
 
 [Install]
 WantedBy=default.target

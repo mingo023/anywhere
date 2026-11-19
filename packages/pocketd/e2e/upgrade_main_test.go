@@ -12,8 +12,6 @@ import (
 	"sync"
 	"syscall"
 	"testing"
-
-	"pocketd/internal/ops"
 )
 
 var (
@@ -93,8 +91,9 @@ func hasReply(p *Phone, id, text string) bool {
 }
 
 // The release gate: a pocketd from main upgrades in place to this one with
-// nothing lost, and main put back restores its terminals.
-func TestAnUpgradeFromMainKeepsEverySessionAndMainPutBackRestoresTheTerminals(t *testing.T) {
+// nothing lost, its sessions then outlive a restart, and main's binary put
+// back is refused rather than exec'd into, which would orphan every holder.
+func TestAnUpgradeFromMainKeepsEverySessionWhichOutlivesARestartAndRefusesMainBack(t *testing.T) {
 	old := mainPocketd(t)
 	h := Start(t, launchReady(""), func(h *Harness) {
 		h.resume = true
@@ -141,18 +140,30 @@ func TestAnUpgradeFromMainKeepsEverySessionAndMainPutBackRestoresTheTerminals(t 
 	if code := h.Stop(syscall.SIGTERM); code != 0 {
 		t.Fatalf("pocketd exited %d", code)
 	}
-	copyFile(t, old, h.exe)
+	pids := heldPids(h)
+	if pids[chatTerm] == 0 || pids[term] == 0 {
+		t.Fatalf("held %v", pids)
+	}
 	h.up()
+	last := h.Owner("host.v1")
+	sessionsListed(h, last, chat, inTerm)
+	for _, a := range last.agents() {
+		if a.Restore != "" {
+			t.Fatalf("agent %s was restored: %s", a.ID, a.Restore)
+		}
+	}
 
-	c := h.Ops()
-	c.Send(ops.Msg{Op: "list"})
-	m, err := c.Recv()
-	var terms []string
-	for _, it := range m.Items {
-		terms = append(terms, it.ID)
+	h.replaceBinary(old)
+	if out, code := h.Pocketd("upgrade"); code == 0 || !strings.Contains(out, "format 2") {
+		t.Fatalf("upgrade to main exited %d: %s", code, out)
 	}
-	if err != nil || !slices.Contains(terms, chatTerm) || !slices.Contains(terms, term) {
-		t.Fatalf("terminals %q after main was put back, %v", terms, err)
+	last.WaitFor("upgradeFailed", func(m Message) bool { return m.Type == "host.changed" && m.Host.UpgradeFailed != "" })
+	if v := h.Status().Version; v != "e2e-next" {
+		t.Fatalf("pocketd %s after main was put back", v)
 	}
-	sessionsListed(h, h.Owner(), chat, inTerm)
+	for _, pid := range pids {
+		if syscall.Kill(pid, 0) != nil {
+			t.Fatalf("agent %d died", pid)
+		}
+	}
 }

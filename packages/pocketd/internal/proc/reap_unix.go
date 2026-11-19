@@ -32,3 +32,28 @@ func Kill(pids []int, grace time.Duration) {
 		}
 	}
 }
+
+// EndSession signals every process group in session sid: job-control jobs
+// get their own groups, and nohup'd children ignore the pty's SIGHUP.
+// SIGHUP goes with SIGTERM because an interactive shell ignores SIGTERM.
+// What is left after grace gets SIGKILL.
+func EndSession(sid int, grace time.Duration) {
+	signal := func(sigs ...unix.Signal) {
+		pgids, err := Session(sid)
+		if err != nil {
+			pgids = []int{sid}
+		}
+		for _, pg := range pgids {
+			for _, sig := range sigs {
+				unix.Kill(-pg, sig)
+			}
+		}
+	}
+	signal(unix.SIGHUP, unix.SIGTERM)
+	for deadline := time.Now().Add(grace); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if pgids, err := Session(sid); err == nil && len(pgids) == 0 {
+			return
+		}
+	}
+	signal(unix.SIGKILL)
+}

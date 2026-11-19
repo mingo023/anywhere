@@ -396,7 +396,7 @@ func TestARestartWithAStoreAndNoTranscriptsShowsTheSameTimeline(t *testing.T) {
 	phone.Prompt(id, "before")
 	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: before"), streamOf(id, "result", ""), statusOf(id, "done"))
 	before := itemsOf(phone, id)
-	h.Stop(syscall.SIGTERM)
+	h.Shutdown()
 	os.RemoveAll(filepath.Join(h.ClaudeDir, "projects"))
 
 	h.up()
@@ -416,7 +416,7 @@ func TestATranscriptIsImportedIntoTheStoreOnlyOnce(t *testing.T) {
 	h, phone, _, id := chatClaude(t, func(h *Harness) { h.resume = true })
 	phone.Prompt(id, "before")
 	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: before"), statusOf(id, "done"))
-	h.Stop(syscall.SIGTERM)
+	h.Shutdown()
 	// As after an upgrade from a pocketd without a store.
 	dbs, _ := filepath.Glob(filepath.Join(h.Home, "state", "orchestrator.db*"))
 	for _, f := range dbs {
@@ -430,7 +430,7 @@ func TestATranscriptIsImportedIntoTheStoreOnlyOnce(t *testing.T) {
 		return slices.Contains(timelineOf(again, id), "assistant echo: before")
 	})
 	storedAsLive(h, id)
-	h.Stop(syscall.SIGTERM)
+	h.Shutdown()
 	store, err := orch.Open(h.Home)
 	if err != nil {
 		t.Fatal(err)

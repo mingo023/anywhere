@@ -839,7 +839,7 @@ func TestAnACPParentsDeliveryRowSurvivesARestart(t *testing.T) {
 	phone.Prompt(id, "hello")
 	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: hello"), statusOf(id, "done"))
 	want := append(timelineOf(phone, id), "delivery")
-	h.Stop(syscall.SIGTERM)
+	h.Shutdown()
 	delivered(t, h.Home, id)
 
 	h.up()

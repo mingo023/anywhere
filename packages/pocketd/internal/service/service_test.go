@@ -47,6 +47,7 @@ func TestUnitRestartsServeForeverWithTheHome(t *testing.T) {
 		`ExecStart="/Users/me/.coding-pocket/runtime/1.2.0/pocketd" serve`,
 		`Environment="POCKET_HOME=/Users/me/.coding-pocket"`,
 		"Restart=always",
+		"KillMode=process",
 		"StartLimitIntervalSec=0",
 		"WantedBy=default.target",
 	} {

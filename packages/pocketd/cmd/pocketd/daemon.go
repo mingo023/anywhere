@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	"pocketd/internal/config"
+	"pocketd/internal/holder"
 	"pocketd/internal/launchagent"
 	"pocketd/internal/lock"
 	"pocketd/internal/ops"
 	"pocketd/internal/peer"
+	"pocketd/internal/terminal"
 )
 
 // installCheck is what decides whether the service may run this binary.
@@ -120,6 +122,7 @@ func uninstall(force bool) (int, error) {
 	if err := launchagent.Uninstall(launchagent.Path(user), os.Getuid()); err != nil {
 		return 1, err
 	}
+	holder.EndAll(holder.Dir(home), terminal.CloseGrace)
 	if loaded {
 		fmt.Println("The service is stopped and will not start automatically.")
 	} else {

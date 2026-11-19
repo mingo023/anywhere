@@ -22,6 +22,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"pocketd/internal/holder"
 	"pocketd/internal/ops"
 	"pocketd/internal/registry"
 )
@@ -93,6 +94,7 @@ func Start(t *testing.T, opts ...func(*Harness)) *Harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
+	t.Cleanup(func() { endHolders(home) })
 	h := &Harness{
 		t:         t,
 		Home:      home,
@@ -115,6 +117,15 @@ func Start(t *testing.T, opts ...func(*Harness)) *Harness {
 	return h
 }
 
+// endHolders ends the Terminals that outlive the pocketds on home: its own,
+// and those of a host pocketd fakessh started with home as its HOME.
+func endHolders(home string) {
+	dirs, _ := filepath.Glob(filepath.Join(home, "*", "holders"))
+	for _, dir := range append(dirs, holder.Dir(home)) {
+		holder.EndAll(dir, 0)
+	}
+}
+
 // up starts pocketd, again if another process takes the free port before pocketd listens on it.
 func (h *Harness) up() {
 	h.t.Helper()
@@ -125,12 +136,21 @@ func (h *Harness) up() {
 	}
 }
 
-// Restart stops pocketd with SIGTERM and starts it again on the same home.
-func (h *Harness) Restart() {
+// Shutdown stops pocketd with SIGTERM and ends its Terminals, which
+// otherwise outlive it, as a reboot does.
+func (h *Harness) Shutdown() {
 	h.t.Helper()
 	if code := h.Stop(syscall.SIGTERM); code != 0 {
 		h.t.Fatalf("pocketd exited %d", code)
 	}
+	holder.EndAll(holder.Dir(h.Home), 2*time.Second)
+}
+
+// Restart is a reboot: pocketd and its Terminals stop, and pocketd starts
+// again on the same home.
+func (h *Harness) Restart() {
+	h.t.Helper()
+	h.Shutdown()
 	h.up()
 }
 

@@ -14,10 +14,63 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 
+	"pocketd/internal/holder"
 	"pocketd/internal/proc"
 )
 
-type console = *os.File
+// ptySession is a process on a pty pocketd holds itself.
+type ptySession struct {
+	f *os.File
+	p *os.Process
+}
+
+func (s ptySession) Read(b []byte) (int, error)  { return s.f.Read(b) }
+func (s ptySession) Write(b []byte) (int, error) { return s.f.Write(b) }
+func (s ptySession) Resize(cols, rows int) error { return setsize(s.f, cols, rows) }
+func (s ptySession) Pid() int                    { return s.p.Pid }
+func (s ptySession) Stop(grace time.Duration)    { proc.EndSession(s.p.Pid, grace) }
+func (s ptySession) Close() error                { return s.f.Close() }
+func (s ptySession) Checkpoint([]byte)           {}
+func (s ptySession) Foreground() (int, error)    { return proc.Foreground(s.f) }
+
+func (s ptySession) Wait() int {
+	if st, err := s.p.Wait(); err == nil {
+		return st.ExitCode()
+	}
+	return -1
+}
+
+// open starts spec's process: under a holder when the Manager has one.
+func (m *Manager) open(bin string, spec Spec) (session, error) {
+	if m.Holder != nil {
+		return m.Holder.Start(holder.Spec{ID: spec.ID, Cmd: spec.Cmd, Bin: bin, Args: spec.Args, Cwd: spec.Cwd, Env: spec.Env,
+			Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local}, nil)
+	}
+	f, p, err := start(bin, spec)
+	if err != nil {
+		return nil, err
+	}
+	return ptySession{f, p}, nil
+}
+
+// adopt takes a's pty. A holder can't learn the exit code of a process it
+// didn't start, and this pocketd, its parent, reaps it.
+func (m *Manager) adopt(a Adopted) (session, error) {
+	f, p, err := adopt(a.FD, a.Pid)
+	if err != nil {
+		return nil, err
+	}
+	if m.Holder == nil {
+		return ptySession{f, p}, nil
+	}
+	defer f.Close()
+	c, err := m.Holder.Start(holder.Spec{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows, Local: a.Local, AdoptPid: a.Pid}, f)
+	if err != nil {
+		return nil, err
+	}
+	go p.Wait()
+	return c, nil
+}
 
 // LookPath resolves cmd against the caller's PATH, not the daemon's: a
 // daemon started by launchd has a minimal PATH. The last PATH entry wins, as
@@ -67,8 +120,8 @@ func adopt(fd, pid int) (*os.File, *os.Process, error) {
 	return f, p, nil
 }
 
-// pollable moves f to a non-blocking fd the runtime poller owns, so a read
-// deadline can stop the pump. creack/pty's file blocks a thread instead.
+// pollable moves f to a non-blocking fd the runtime poller owns, so Close
+// ends a pending read. creack/pty's file blocks a thread instead.
 func pollable(f *os.File) (*os.File, error) {
 	defer f.Close()
 	fd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 0)
@@ -95,53 +148,13 @@ func setsize(f *os.File, cols, rows int) error {
 	return cmp.Or(err, ioErr)
 }
 
-// inherit sets whether f survives exec, and returns its fd. Fd would make f blocking again.
-func inherit(f *os.File, on bool) (int, error) {
-	rc, err := f.SyscallConn()
-	if err != nil {
-		return 0, err
-	}
-	var fd int
-	var ioErr error
-	err = rc.Control(func(p uintptr) {
-		fd = int(p)
-		flags := unix.FD_CLOEXEC
-		if on {
-			flags = 0
-		}
-		_, ioErr = unix.FcntlInt(p, unix.F_SETFD, flags)
-	})
-	return fd, cmp.Or(err, ioErr)
+func group(sess session) (int, error) {
+	return sess.(interface{ Foreground() (int, error) }).Foreground()
 }
 
-func (s *Terminal) group() (int, error) { return proc.Foreground(s.pty) }
-
-// stop signals every process group in the shell's session: job-control jobs
-// get their own groups, and nohup'd children ignore the pty's SIGHUP.
-// SIGHUP goes with SIGTERM because an interactive shell ignores SIGTERM.
-func (s *Terminal) stop(grace time.Duration) { stopSession(s.Pid(), grace) }
-
-// endSession ends the session a Replace left behind, without a grace period:
-// its shell must not get to report the agent's exit.
-func endSession(_ console, p *os.Process) { stopSession(p.Pid, 0) }
-
-func stopSession(sid int, grace time.Duration) {
-	signal := func(sigs ...syscall.Signal) {
-		pgids, err := proc.Session(sid)
-		if err != nil {
-			pgids = []int{sid}
-		}
-		for _, pg := range pgids {
-			for _, sig := range sigs {
-				syscall.Kill(-pg, sig)
-			}
-		}
-	}
-	signal(syscall.SIGHUP, syscall.SIGTERM)
-	for deadline := time.Now().Add(grace); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if pgids, err := proc.Session(sid); err == nil && len(pgids) == 0 {
-			return
-		}
-	}
-	signal(syscall.SIGKILL)
+func (s *Terminal) stop(grace time.Duration) {
+	s.mu.Lock()
+	sess := s.sess
+	s.mu.Unlock()
+	sess.Stop(grace)
 }

@@ -12,22 +12,20 @@ import (
 
 // Check is the dry run's test: every fd in f is open here and survives exec.
 func Check(f File) error {
+	fds := map[string]int{"mcp listener": f.MCPFD, "lock": f.LockFD}
 	for _, t := range f.Terminals {
-		flags, err := unix.FcntlInt(uintptr(t.FD), unix.F_GETFD, 0)
-		if err != nil {
-			return fmt.Errorf("terminal %s: fd %d: %w", t.Saved.TerminalID, t.FD, err)
-		}
-		if flags&unix.FD_CLOEXEC != 0 {
-			return fmt.Errorf("terminal %s: fd %d closes on exec", t.Saved.TerminalID, t.FD)
-		}
+		fds["terminal "+t.Saved.TerminalID] = t.FD
 	}
-	if f.MCPFD != 0 {
-		flags, err := unix.FcntlInt(uintptr(f.MCPFD), unix.F_GETFD, 0)
+	for what, fd := range fds {
+		if fd == 0 {
+			continue
+		}
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
 		if err != nil {
-			return fmt.Errorf("mcp listener: fd %d: %w", f.MCPFD, err)
+			return fmt.Errorf("%s: fd %d: %w", what, fd, err)
 		}
 		if flags&unix.FD_CLOEXEC != 0 {
-			return fmt.Errorf("mcp listener: fd %d closes on exec", f.MCPFD)
+			return fmt.Errorf("%s: fd %d closes on exec", what, fd)
 		}
 	}
 	return nil
@@ -69,4 +67,14 @@ func Inherit(fd int) (net.Listener, error) {
 	f := os.NewFile(uintptr(fd), "handed-down listener")
 	defer f.Close()
 	return net.FileListener(f)
+}
+
+// Claim marks f's pty fds close-on-exec, so the holder started for one
+// doesn't inherit the others.
+func Claim(f File) {
+	for _, t := range f.Terminals {
+		if t.FD > 0 {
+			unix.CloseOnExec(t.FD)
+		}
+	}
 }

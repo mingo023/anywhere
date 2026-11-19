@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"pocketd/internal/holder"
 	"pocketd/internal/vt"
 )
 
@@ -56,11 +57,29 @@ type subscriber struct {
 	tty bool
 }
 
+// session is a Terminal's process: on a pty pocketd holds, or under a holder.
+type session interface {
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+	Resize(cols, rows int) error
+	Pid() int
+	// Wait is the exit code once Read has ended; -1 when unknown.
+	Wait() int
+	// Stop ends the whole session: SIGHUP and SIGTERM, then SIGKILL after grace.
+	Stop(grace time.Duration)
+	Close() error
+	// Checkpoint keeps the screen after everything Read has returned, for a pocketd that reattaches.
+	Checkpoint(screen []byte)
+}
+
+// checkpointEvery is how much output a Terminal reads between checkpoints.
+const checkpointEvery = 256 << 10
+
 type Terminal struct {
 	info   Info
 	mu     sync.Mutex
-	pty    console
-	proc   *os.Process
+	sess   session
+	open   func(bin string, spec Spec) (session, error)
 	vt     *vt.VT
 	subs   map[*subscriber]bool
 	done   chan struct{}
@@ -68,8 +87,8 @@ type Terminal struct {
 	closed bool
 	input  func(id string, b []byte)
 	origin string
-	resume chan struct{} // closed by Resume; nil unless paused
-	parked chan struct{} // closed once the pump stops reading for this pause
+	muted  bool // replaying a screen: its queries were asked of a pocketd that is gone
+	fed    int  // output since the last checkpoint
 	osc    scanner
 	last   *Report
 	report func(id string, r Report)
@@ -83,6 +102,9 @@ type Manager struct {
 	terminals map[string]*Terminal
 	OnInput   func(id string, b []byte) // sees each Write, before the process does
 	OnReport  func(id string, r Report) // each root OSC 7501 report, in order, outside the terminal's lock
+	// Holder runs each Terminal under its own holder process, so it outlives
+	// pocketd (ADR 0008); nil keeps it inside pocketd, as on Windows.
+	Holder *holder.Starter
 
 	watchMu  sync.Mutex
 	watchers map[*func()]bool
@@ -141,33 +163,29 @@ func (m *Manager) Spawn(spec Spec) (*Terminal, error) {
 	}
 	// The process may ask pocketd who it is before it is listed, so Roots waits until it is.
 	m.mu.Lock()
-	f, p, err := start(bin, spec)
+	sess, err := m.open(bin, spec)
 	if err != nil {
 		m.mu.Unlock()
 		return nil, err
 	}
-	s := &Terminal{
-		info:   Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local},
-		pty:    f,
-		proc:   p,
-		subs:   map[*subscriber]bool{},
-		done:   make(chan struct{}),
-		input:  m.OnInput,
-		report: m.OnReport,
-		change: m.changed,
-		origin: spec.Origin,
-	}
+	s := m.newTerminal(Info{ID: spec.ID, Cmd: spec.Cmd, Args: spec.Args, Cwd: spec.Cwd, Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local}, sess)
+	s.origin = spec.Origin
 	s.vt, err = vt.New(spec.Cols, spec.Rows, s.replyToQuery)
 	if err != nil {
 		m.mu.Unlock()
-		p.Kill()
-		f.Close()
+		sess.Stop(0)
+		sess.Close()
 		return nil, err
 	}
 	m.terminals[s.info.ID] = s
 	m.mu.Unlock()
 	m.start(s)
 	return s, nil
+}
+
+func (m *Manager) newTerminal(info Info, sess session) *Terminal {
+	return &Terminal{info: info, sess: sess, open: m.open, subs: map[*subscriber]bool{}, done: make(chan struct{}),
+		input: m.OnInput, report: m.OnReport, change: m.changed}
 }
 
 // start runs a listed Terminal. Its change is set before it is listed: a
@@ -178,11 +196,11 @@ func (m *Manager) start(s *Terminal) {
 		delete(m.terminals, s.info.ID)
 		m.mu.Unlock()
 	}
-	go s.pump(s.pty, s.proc)
+	go s.pump(s.sess)
 	m.changed()
 }
 
-// Adopted is a Terminal the image before exec handed down.
+// Adopted is a Terminal a pocketd from before holders handed down across exec.
 type Adopted struct {
 	ID, Cmd             string
 	Args                []string
@@ -192,28 +210,38 @@ type Adopted struct {
 	Local               string
 }
 
-// Adopt takes over a handed-down Terminal. Its fd is still non-blocking,
-// so the new file is pollable too.
+// Adopt takes over a handed-down Terminal, moving its pty into a holder when
+// Terminals run under holders.
 func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
-	f, p, err := adopt(a.FD, a.Pid)
+	sess, err := m.adopt(a)
 	if err != nil {
 		return nil, err
 	}
-	s := &Terminal{
-		info:   Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows, Local: a.Local},
-		pty:    f,
-		proc:   p,
-		subs:   map[*subscriber]bool{},
-		done:   make(chan struct{}),
-		input:  m.OnInput,
-		report: m.OnReport,
-		change: m.changed,
-	}
-	if s.vt, err = vt.New(a.Cols, a.Rows, s.replyToQuery); err != nil {
-		f.Close()
+	return m.attach(Info{ID: a.ID, Cmd: a.Cmd, Args: a.Args, Cwd: a.Cwd, Cols: a.Cols, Rows: a.Rows, Local: a.Local}, sess, a.Screen, nil)
+}
+
+// Reattach takes over the Terminal a holder kept running while no pocketd was there.
+func (m *Manager) Reattach(c *holder.Client) (*Terminal, error) {
+	return m.attach(Info{ID: c.ID, Cmd: c.Cmd, Args: c.Args, Cwd: c.Cwd, Cols: c.Cols, Rows: c.Rows, Local: c.Local}, c, c.Snapshot, c.Tail)
+}
+
+// attach lists a Terminal whose process already runs, its screen redrawn from
+// screen and the output after it.
+func (m *Manager) attach(info Info, sess session, screen, tail []byte) (*Terminal, error) {
+	s := m.newTerminal(info, sess)
+	var err error
+	if s.vt, err = vt.New(info.Cols, info.Rows, s.replyToQuery); err != nil {
+		sess.Close()
 		return nil, err
 	}
-	s.vt.Write(a.Screen)
+	s.muted = true
+	s.vt.Write(screen)
+	for _, r := range s.feed(tail) {
+		s.keep(r)
+	}
+	s.vt.Write(tail)
+	s.muted = false
+	sess.Checkpoint(s.vt.Snapshot())
 	m.mu.Lock()
 	m.terminals[s.info.ID] = s
 	m.mu.Unlock()
@@ -256,40 +284,58 @@ func (m *Manager) Roots() map[int]string {
 // replyToQuery runs under s.mu (inside vt.Write). A real terminal attached
 // through `pocketd run` answers queries itself; answering twice corrupts input.
 func (s *Terminal) replyToQuery(b []byte) {
+	if s.muted {
+		return
+	}
 	for sub := range s.subs {
 		if sub.tty {
 			return
 		}
 	}
-	s.pty.Write(b)
+	s.sess.Write(b)
 }
 
-// pump reads f until it ends. A Replace that swapped f out makes it stop
-// quietly: the Terminal lives on in the new process.
-func (s *Terminal) pump(f console, p *os.Process) {
+// feed scans chunk for OSC 7501 reports, answering a query unless muted.
+func (s *Terminal) feed(chunk []byte) []Report {
+	reports, query := s.osc.feed(chunk)
+	if query {
+		s.replyToQuery([]byte(queryReply))
+	}
+	return reports
+}
+
+// keep makes r the latest report.
+func (s *Terminal) keep(r Report) {
+	if r.State == "clear" {
+		s.last = nil
+	} else {
+		s.last = &r
+	}
+}
+
+// pump reads sess until it ends. A Replace that swapped sess out makes it
+// stop quietly: the Terminal lives on in the new process.
+func (s *Terminal) pump(sess session) {
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := f.Read(buf)
+		n, err := sess.Read(buf)
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
 			s.mu.Lock()
-			if s.pty != f {
+			if s.sess != sess {
 				s.mu.Unlock()
 				break
 			}
-			reports, query := s.osc.feed(chunk)
+			reports := s.feed(chunk)
 			for _, r := range reports {
-				if r.State == "clear" {
-					s.last = nil
-				} else {
-					s.last = &r
-				}
-			}
-			if query {
-				s.replyToQuery([]byte(queryReply))
+				s.keep(r)
 			}
 			s.vt.Write(chunk)
 			s.broadcast(Event{Kind: "output", Data: chunk})
+			if s.fed += n; s.fed >= checkpointEvery {
+				s.fed = 0
+				sess.Checkpoint(s.vt.Snapshot())
+			}
 			s.mu.Unlock()
 			if s.report != nil {
 				for _, r := range reports {
@@ -297,22 +343,15 @@ func (s *Terminal) pump(f console, p *os.Process) {
 				}
 			}
 		}
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			s.park()
-			continue
-		}
 		if err != nil {
 			break
 		}
 	}
-	code := -1
-	if st, err := p.Wait(); err == nil {
-		code = st.ExitCode()
-	}
+	code := sess.Wait()
 	s.mu.Lock()
-	if s.pty != f {
+	if s.sess != sess {
 		s.mu.Unlock()
-		f.Close()
+		sess.Close()
 		return
 	}
 	s.closed = true
@@ -324,86 +363,9 @@ func (s *Terminal) pump(f console, p *os.Process) {
 	s.code = code
 	s.broadcast(Event{Kind: "exit", Code: s.code})
 	s.vt.Free()
-	s.pty.Close()
+	s.sess.Close()
 	s.mu.Unlock()
 	close(s.done)
-}
-
-// park holds the pump while paused. A Resume that beat the deadline leaves
-// nothing to wait for.
-func (s *Terminal) park() {
-	s.mu.Lock()
-	parked, resume := s.parked, s.resume
-	s.mu.Unlock()
-	if resume == nil {
-		return
-	}
-	close(parked)
-	<-resume
-}
-
-// Pause stops reading the pty, so output waits in the kernel, and returns
-// once the pump has stopped or wait has passed.
-func (s *Terminal) Pause(wait time.Duration) error {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return ErrClosed
-	}
-	if s.resume == nil {
-		if err := s.pty.SetReadDeadline(time.Now()); err != nil {
-			s.mu.Unlock()
-			return err
-		}
-		s.resume, s.parked = make(chan struct{}), make(chan struct{})
-	}
-	parked := s.parked
-	s.mu.Unlock()
-	select {
-	case <-parked:
-		return nil
-	case <-s.done:
-		return ErrClosed
-	case <-time.After(wait):
-		return fmt.Errorf("terminal %s: reader didn't pause", s.info.ID)
-	}
-}
-
-// Resume reads the pty again and keeps it from surviving an exec.
-func (s *Terminal) Resume() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.resume == nil {
-		return
-	}
-	inherit(s.pty, false)
-	s.pty.SetReadDeadline(time.Time{})
-	close(s.resume)
-	s.resume, s.parked = nil, nil
-}
-
-// Handed is what the next image needs to adopt a Terminal.
-type Handed struct {
-	FD, Pid int
-	Screen  []byte
-}
-
-// Handoff readies a paused Terminal for exec: its pty survives it, and
-// Screen redraws what it shows.
-func (s *Terminal) Handoff() (Handed, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return Handed{}, ErrClosed
-	}
-	if s.resume == nil {
-		return Handed{}, fmt.Errorf("terminal %s: handoff needs a paused terminal", s.info.ID)
-	}
-	fd, err := inherit(s.pty, true)
-	if err != nil {
-		return Handed{}, err
-	}
-	return Handed{FD: fd, Pid: s.proc.Pid, Screen: s.vt.Snapshot()}, nil
 }
 
 func (s *Terminal) broadcast(e Event) {
@@ -445,16 +407,19 @@ func (s *Terminal) TakeOrigin() string {
 func (s *Terminal) Pid() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.proc.Pid
+	return s.sess.Pid()
 }
 
+// Pgrp is the foreground process group. A holder answers it over its socket,
+// so the Terminal isn't locked meanwhile.
 func (s *Terminal) Pgrp() (int, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	closed, sess := s.closed, s.sess
+	s.mu.Unlock()
+	if closed {
 		return 0, nil
 	}
-	return s.group()
+	return group(sess)
 }
 
 func (s *Terminal) SetForeground(text string) {
@@ -491,16 +456,16 @@ func (s *Terminal) Write(b []byte) error {
 		s.input(s.info.ID, b)
 	}
 	s.mu.Lock()
-	f := s.pty
+	sess := s.sess
 	s.mu.Unlock()
-	_, err := f.Write(b)
+	_, err := sess.Write(b)
 	return err
 }
 
 // Replace ends the Terminal's session and runs cmd in its place, keeping the
 // id, the size and whoever is attached. Attached screens are reset, and no
-// exit is reported for the old process. A closed or paused Terminal refuses,
-// and the old session stays as it was when cmd doesn't start. origin is who
+// exit is reported for the old process. A closed Terminal refuses, and the
+// old session stays as it was when cmd doesn't start. origin is who
 // asked for cmd, as Spec.Origin.
 func (s *Terminal) Replace(cmd string, args, env []string, origin string) error {
 	bin, err := LookPath(cmd, env)
@@ -512,22 +477,19 @@ func (s *Terminal) Replace(cmd string, args, env []string, origin string) error 
 	if s.closed {
 		return ErrClosed
 	}
-	if s.resume != nil {
-		return fmt.Errorf("terminal %s: paused", s.info.ID)
-	}
-	f, p, err := start(bin, Spec{Cmd: cmd, Args: args, Cwd: s.info.Cwd, Env: env, Cols: s.info.Cols, Rows: s.info.Rows})
+	sess, err := s.open(bin, Spec{ID: s.info.ID, Cmd: cmd, Args: args, Cwd: s.info.Cwd, Env: env, Cols: s.info.Cols, Rows: s.info.Rows, Local: s.info.Local})
 	if err != nil {
 		return err
 	}
-	oldPty, oldProc := s.pty, s.proc
-	s.pty, s.proc = f, p
+	old := s.sess
+	s.sess, s.fed = sess, 0
 	s.info.Cmd, s.info.Args, s.origin = cmd, args, origin
 	s.last, s.osc = nil, scanner{}
 	reset := []byte("\x1bc") // RIS: the new process starts on a blank screen
 	s.vt.Write(reset)
 	s.broadcast(Event{Kind: "output", Data: reset})
-	go endSession(oldPty, oldProc)
-	go s.pump(f, p)
+	go old.Stop(0)
+	go s.pump(sess)
 	return nil
 }
 
@@ -586,7 +548,7 @@ func (s *Terminal) Resize(cols, rows int) {
 		return
 	}
 	s.info.Cols, s.info.Rows = cols, rows
-	setsize(s.pty, cols, rows)
+	s.sess.Resize(cols, rows)
 	s.vt.Resize(cols, rows)
 	s.broadcast(Event{Kind: "resize", Cols: cols, Rows: rows})
 }

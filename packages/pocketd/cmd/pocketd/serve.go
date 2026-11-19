@@ -3,7 +3,9 @@ package main
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/netip"
@@ -14,6 +16,7 @@ import (
 	"pocketd/internal/accounts"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -33,6 +36,7 @@ import (
 	"pocketd/internal/github"
 	"pocketd/internal/gitview"
 	"pocketd/internal/handoff"
+	"pocketd/internal/holder"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
 	"pocketd/internal/launch"
@@ -60,8 +64,14 @@ import (
 
 func serve(sock, handed string) error {
 	home := config.Home()
-	held, err := lock.Acquire(home)
+	inherited, err := handedDown(home, handed)
 	if err != nil {
+		return err
+	}
+	var held *lock.Lock
+	if inherited.LockFD > 0 {
+		held = lock.Adopt(inherited.LockFD, home)
+	} else if held, err = lock.Acquire(home); err != nil {
 		return err
 	}
 	defer held.Close()
@@ -128,6 +138,9 @@ func serve(sock, handed string) error {
 		Sock:      sock,
 		Registry:  reg,
 	}
+	if runtime.GOOS != "windows" {
+		d.Terminals.Holder = &holder.Starter{Exe: exe, Dir: holder.Dir(home)}
+	}
 	d.Capture = func() shellenv.Result {
 		shell := shellenv.LoginShell()
 		return shellenv.Capture(ctx, shell, shellenv.Base(os.Environ(), shell), 5*time.Second)
@@ -141,13 +154,6 @@ func serve(sock, handed string) error {
 	}
 	notifier := &push.Notifier{Store: pushes, Agents: d.Agents, Broker: d.Broker, Mac: hostname, Events: evs}
 	settings := config.NewSettings(home)
-	var inherited handoff.File
-	if handed != "" {
-		if inherited, err = handoff.Read(handed); err != nil {
-			os.Remove(handed)
-			return fmt.Errorf("handoff: %w", err)
-		}
-	}
 	o, err := openOrchestrator(home, settings, d.Agents, h, inherited.MCPFD)
 	if err != nil {
 		return fmt.Errorf("orchestrator.db: %w", err)
@@ -211,7 +217,7 @@ func serve(sock, handed string) error {
 	d.OnRestore = func(id string, ok bool, ms int64, outcome, reason string) {
 		evs.Emit(events.Event{Kind: "restore", Agent: id, OK: &ok, MS: ms, Outcome: outcome, Reason: reason})
 	}
-	up := &upgrader{exe: exe, home: home, d: d, starting: l.Starting, evs: evs, mon: mon, handover: o.handover, resume: o.engine.Resume, mcp: o.ln}
+	up := &upgrader{exe: exe, home: home, d: d, lock: held, starting: l.Starting, evs: evs, mon: mon, handover: o.handover, resume: o.engine.Resume, mcp: o.ln}
 	// Taken before restoring, so a binary swapped meanwhile still counts as a change.
 	var watch *selfWatch
 	if st, err := os.Stat(exe); err == nil {
@@ -274,23 +280,33 @@ func serve(sock, handed string) error {
 		return err
 	}
 	statePath := state.Path(d.Home)
-	if handed != "" {
-		os.Remove(handed)
-		var saved []state.Terminal
-		for _, e := range inherited.Terminals {
-			saved = append(saved, e.Saved)
+	// Found before Adopt starts holders of its own.
+	var clients []*holder.Client
+	if d.Terminals.Holder != nil {
+		clients = holder.Find(d.Terminals.Holder.Dir)
+	}
+	var ptys []state.Terminal
+	for _, e := range inherited.Terminals {
+		if e.FD > 0 {
+			ptys = append(ptys, e.Saved)
 		}
-		o.takeIn(saved)
+	}
+	if len(ptys) > 0 {
+		handoff.Claim(inherited)
+		o.takeIn(ptys)
 		d.Adopt(inherited)
-		o.host.Rehold(true)
-		// The awake assertion died with the old image.
-		select {
-		case kick <- struct{}{}:
-		default:
-		}
-	} else {
-		d.Restore(o.restoring(statePath), cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
-		o.host.Rehold(false)
+	}
+	saved := o.restoring(statePath)
+	saved.Terminals = slices.DeleteFunc(saved.Terminals, func(e state.Terminal) bool {
+		return slices.ContainsFunc(ptys, func(p state.Terminal) bool { return p.TerminalID == e.TerminalID })
+	})
+	saved.Terminals = d.Reattach(clients, inherited.Terminals, saved.Terminals)
+	d.Restore(saved, cmp.Or(os.Getenv("POCKETD_RESTORE_SHELL"), shellenv.LoginShell()))
+	o.host.Rehold(len(ptys)+len(clients) > 0)
+	// The awake assertion died with the pocketd before.
+	select {
+	case kick <- struct{}{}:
+	default:
 	}
 	o.closeAbsent(d.Agents)
 	go d.Watch(context.Background())
@@ -323,7 +339,7 @@ func serve(sock, handed string) error {
 			ln.Close()
 			return fmt.Errorf("ownerListen: %w", err)
 		} else if err != nil {
-			// Exiting now would close every Terminal the handoff adopted.
+			// An upgrade goes on without the owner port: exiting would start again into the same taken port.
 			log.Printf("ownerListen: %v", err)
 		}
 	}
@@ -396,10 +412,43 @@ func serve(sock, handed string) error {
 	err = srv.Serve(ln)
 	if ctx.Err() != nil {
 		writer.Freeze()
-		d.Terminals.CloseAll(terminal.CloseGrace)
+		if d.Terminals.Holder == nil {
+			d.Terminals.CloseAll(terminal.CloseGrace)
+			return nil
+		}
+		// The holders keep the Terminals running for the next pocketd.
+		o.handover()
+		if err := handoff.Write(handoff.Path(home), handoff.File{Format: handoff.Format, Terminals: d.Carry()}); err != nil {
+			log.Printf("handoff: %v", err)
+		}
 		return nil
 	}
 	return err
+}
+
+// handedDown is what the pocketd before this one left: the file an upgrade's
+// exec named, with the fds it kept open, or the one a pocketd that stopped
+// wrote, whose fds died with it. Either is read once.
+func handedDown(home, handed string) (handoff.File, error) {
+	path := cmp.Or(handed, handoff.Path(home))
+	f, err := handoff.Read(path)
+	os.Remove(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist) && handed == "":
+		return handoff.File{}, nil
+	case err != nil && handed == "":
+		log.Printf("handoff: %v", err)
+		return handoff.File{}, nil
+	case err != nil:
+		return handoff.File{}, fmt.Errorf("handoff: %w", err)
+	}
+	if handed == "" {
+		f.MCPFD, f.LockFD = 0, 0
+		for i := range f.Terminals {
+			f.Terminals[i].FD = 0
+		}
+	}
+	return f, nil
 }
 
 // reap ends what a crashed pocketd left running (proc.Reap has the rule).
