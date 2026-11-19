@@ -1,6 +1,6 @@
 pub(crate) mod column;
 mod filter;
-mod fold;
+pub(crate) mod fold;
 pub(crate) mod host;
 pub(crate) mod panel;
 pub(crate) mod project_picker;

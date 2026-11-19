@@ -4,14 +4,14 @@ use theme::SELECTION;
 
 /// Text that joins the window's text selection: a drag, a double or triple click, and copy.
 /// `child` lays out `text` as `layout`; wrapping it rather than the text keeps what `child` adds, such as tooltips.
-pub(super) struct Selectable {
+pub(crate) struct Selectable {
     id: ElementId,
     text: SharedString,
     layout: TextLayout,
     child: AnyElement,
 }
 
-pub(super) fn selectable(id: impl Into<ElementId>, text: SharedString, layout: TextLayout, child: impl IntoElement) -> Selectable {
+pub(crate) fn selectable(id: impl Into<ElementId>, text: SharedString, layout: TextLayout, child: impl IntoElement) -> Selectable {
     Selectable { id: id.into(), text, layout, child: child.into_any_element() }
 }
 
