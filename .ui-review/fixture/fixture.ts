@@ -4,6 +4,7 @@
 // prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
 // "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn), "stream-code" (a reply whose code block streams in over 4.5s)
 // or "delegate" (the agent hands three sessions to others: they appear under it, one asks "Which test runner?", one finishes, one fails, and pocketd tells the chat of each).
+// FIXTURE_DELEGATE_WAKE=1: each delivery wakes the agent into a short reply, as pocketd does, and the session that asked finishes last, waking it to sum all three up.
 // A prompt sent with the queue mode while the agent works waits in pocketd's queue (queue.list, queue.update, edit, cancel, reorder, send_now) and runs once the turn ends; a Stop holds it.
 // FIXTURE_NO_ORCHESTRATOR=1 leaves out the orchestrator capability, as an older pocketd does: the desktop then holds sends to a busy agent itself.
 // pocketd links two SSH hosts: devbox (online, 1.4.2) and 10.0.4.12 (pocketd stopped there). Reconnecting 10.0.4.12 finds it refusing the
@@ -633,8 +634,17 @@ const setTask = (ws: Ws, t: Task, patch: Partial<Task>) => {
   }
   ws.send(JSON.stringify({ type: "delegation.update", agentId: t.parentId, delegation: t }));
 };
-const deliver = (ws: Ws, t: Task, outcome: "done" | "failed" | "asks") =>
+const WAKES: Record<string, string> = {
+  "Which test runner?": "**Write the tests** asks which test runner to use. That one is yours; I left it waiting.",
+  "Two findings": "**Review the diff** found two things: an unused import in `src/auth/redirect.ts`, and a missing check on `next`. Both are fixed on its branch.",
+  "opencode exited 2: provider returned 401.": "**Update the docs** failed: OpenCode's provider returned 401. I'll redo the docs myself once the tests are in.",
+  "24 tests pass": "All three are back. **24 tests pass** on Vitest, the review fixed an unused import and a missing check on `next`, and the docs task failed on an expired OpenCode key, so I'll update `docs/auth.md` myself next.",
+};
+const deliver = (ws: Ws, t: Task, outcome: "done" | "failed" | "asks") => {
   item(ws, t.parentId, { id: `delivery-${t.taskId}-${outcome}`, kind: "delivery", taskIds: [t.taskId], childIds: [t.childId], titles: [t.title], agents: [t.agent], outcome, ...(outcome === "asks" && { question: t.question }) });
+  const said = WAKES[(outcome === "asks" ? t.question : outcome === "failed" ? t.error : t.summary) ?? ""];
+  if (process.env.FIXTURE_DELEGATE_WAKE && said) setTimeout(() => reply(ws, t.parentId, said, t.summary === "24 tests pass" ? 60 : 8), 20);
+};
 // pocketd's default isolation: a child gets a worktree of its own from the parent's checkout; FIXTURE_DELEGATE_SHARED=1 keeps it in the parent's, as isolation "shared" does.
 const childCheckout = (parentId: string, parentCwd: string, title: string) => {
   const local = (sessions.find((s) => s.id === parentId) as { local?: string } | undefined)?.local ?? "";
@@ -693,6 +703,11 @@ const delegate = (ws: Ws, parentId: string) => {
     setTask(ws, list[2], { status: "failed", error: "opencode exited 2: provider returned 401.", settledAt: Date.now() });
     deliver(ws, list[2], "failed");
   });
+  if (process.env.FIXTURE_DELEGATE_WAKE)
+    at(2800, () => {
+      setTask(ws, list[0], { status: "completed", question: undefined, summary: "24 tests pass", settledAt: Date.now() });
+      deliver(ws, list[0], "done");
+    });
 };
 
 const QUESTIONS = JSON.parse(readFileSync(join(import.meta.dir, "chat", "every-tool-kind.json"), "utf8")).find((i: Item) => i.id === "t9").call.detail;

@@ -10,7 +10,7 @@ use crate::creating;
 use crate::desktop::Desktop;
 use crate::explorer::mermaid;
 use crate::util::now_ms;
-use chat::{Block, Command, Delivery, End, Message, Row, Session, ToolKind, ToolStatus, Transcript, Turn};
+use chat::{Block, Command, Delivered, Delivery, End, Message, Row, Session, ToolKind, ToolStatus, Transcript, Turn};
 use gpui_kit::base::text::TextView;
 use gpui_kit::*;
 use std::cell::Cell;
@@ -244,8 +244,10 @@ impl View {
         self.copied.as_ref().is_some_and(|(k, _)| k == key)
     }
 
-    /// Refolds the session when its timeline moved and lays out what changed; returns the queued sends it let go.
-    fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item]) -> Vec<(u64, String)> {
+    /// Refolds the session when its timeline moved, or the sessions it delegated to did, and lays out what changed;
+    /// returns the queued sends it let go.
+    fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item], delegations: &[agents::delegations::Delegation]) -> Vec<(u64, String)> {
+        self.session.delegated(&crate::delegated::spans(delegations));
         let before: HashMap<String, usize> = latest_texts(&self.session.transcript).map(|m| (m.id.clone(), m.text.len())).collect();
         let tail = self.session.live_tail().map(|f| self.session.transcript.turns[f].id.clone());
         self.session.outgoing.set_compacting(agent.compacting);
@@ -268,7 +270,8 @@ impl View {
             }
             let ids: HashSet<&str> = self.session.ids.iter().map(String::as_str).collect();
             self.code.retain(|row| ids.contains(row.as_str()));
-            self.docs.retain(|row| ids.contains(row));
+            // A group of reports keeps a document per report, keyed under its row's id.
+            self.docs.retain(|key| ids.contains(key.split('|').next().unwrap_or(key)));
         }
         self.session.outgoing.released()
     }
@@ -364,6 +367,15 @@ fn phase_live(t: &Transcript, turn: usize, blocks: &Range<usize>) -> bool {
 /// When what follows a phase began: its next timed block, else the next turn's start.
 fn next_at(t: &Transcript, turn: usize, end: usize) -> Option<i64> {
     t.turns[turn].blocks[end..].iter().find_map(block_at).or_else(|| t.turns.get(turn + 1).and_then(started))
+}
+
+fn delivered_in(turns: &[Turn]) -> impl Iterator<Item = &Delivered> {
+    turns.iter().flat_map(|turn| &turn.blocks).filter_map(|b| if let Block::Delivered(d) = b { Some(d) } else { None })
+}
+
+/// Whether the agent is taking in a report of group `turns`, which its line shows in place of the live line.
+fn taking_in(t: &Transcript, turns: &Range<usize>, closes: bool, ask: Option<bool>) -> bool {
+    !closes && ask.is_none() && chat::at_work_on(t, turns.clone())
 }
 
 /// A reply's answer: the text each of its turns ends on, after its work.
@@ -481,7 +493,7 @@ impl Desktop {
         for (id, view) in self.chats.views.iter_mut() {
             let Some(agent) = self.agents.get(id) else { continue };
             let items = self.agents.timelines.get(id).map_or(&[][..], Vec::as_slice);
-            released.extend(view.refresh(agent, self.agents.revision(id), items).into_iter().map(|(send, text)| (id.clone(), send, text)));
+            released.extend(view.refresh(agent, self.agents.revision(id), items, self.agents.delegations.of(id)).into_iter().map(|(send, text)| (id.clone(), send, text)));
         }
         for id in self.chats.views.keys().filter(|id| self.agents.holds_queue(id)).cloned().collect::<Vec<_>>() {
             if self.agents.queues.ask(&id) {
@@ -511,7 +523,7 @@ impl Desktop {
             v
         });
         view.inset = inset;
-        for (send, text) in view.refresh(&agent, self.agents.revision(&id), items) {
+        for (send, text) in view.refresh(&agent, self.agents.revision(&id), items, self.agents.delegations.of(&id)) {
             if let Some(request) = self.outbox.prompt(&id, &text) {
                 view.session.outgoing.sent_as(send, request);
             }
@@ -556,6 +568,7 @@ impl Desktop {
     pub(crate) fn chat_toggle(&mut self, agent: &str, id: &str, default: bool, cx: &mut Context<Self>) {
         let Some(view) = self.chats.views.get_mut(agent) else { return };
         view.held = Some(Instant::now());
+        view.toggled = Some((id.to_string(), Instant::now()));
         let s = &mut view.session;
         s.toggle(id, default);
         if let Some(ix) = s.ids.iter().position(|i| i == id) {
@@ -928,6 +941,28 @@ impl Desktop {
                 }
                 _ => div(),
             },
+            Row::Reports { turns, closes } => {
+                let newest = s.rows.iter().rposition(|r| matches!(r, Row::Reports { .. })) == Some(ix);
+                let sessions = crate::delegated::standing(delivered_in(&t.turns[turns.clone()]), self.agents.delegations.of(agent), newest);
+                let live = taking_in(t, turns, *closes, ask).then(|| crate::delegated::reading(delivered_in(&t.turns[turns.end - 1..turns.end]).last()));
+                let sums_up = closes.then(|| turns.end - 1);
+                let reports = turns
+                    .clone()
+                    .map(|at| {
+                        let said = answer(t, at..at + 1);
+                        let answer = (sums_up != Some(at) && !said.is_empty()).then(|| {
+                            let doc = view.docs.get(&format!("{id}|{at}"), &said, false, cx);
+                            markdown::block(TextView::new(&doc), open.clone()).text_size(px(13.)).line_height(px(20.)).text_color(TEXT_2).into_any_element()
+                        });
+                        crate::delegated::Report { key: format!("{id}-{at}"), deliveries: delivered_in(&t.turns[at..at + 1]).collect(), answer }
+                    })
+                    .collect();
+                let toggled = view.toggled.as_ref().filter(|(row, _)| *row == id).map(|(_, at)| *at);
+                let (arrivals, now) = (&view.arrivals, Instant::now());
+                let age = move |d: &str| arrivals.age(d, now);
+                let group = crate::delegated::Group { id: &id, sessions, live, reports, open: s.open(&id, false), toggled, age: &age };
+                crate::delegated::group(group, toggle(agent, &id, false, cx), window, cx)
+            }
             Row::Delivery { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
                 Some(Block::Delivered(d)) => crate::delegated::delivered(&id, d, view.arrivals.age(&d.id, Instant::now()), window, cx),
                 _ => div(),
@@ -964,6 +999,7 @@ impl Desktop {
                 },
                 None => div(),
             },
+            Row::Live { turn } if s.rows.iter().rev().find_map(|r| if let Row::Reports { turns, closes } = r { Some((turns, *closes)) } else { None }).is_some_and(|(turns, closes)| turns.contains(turn) && taking_in(t, turns, closes, ask)) => div(),
             Row::Live { turn } => fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms()))),
             Row::Working if s.outgoing.compacting() => working::compacting(),
             Row::Working => working::sending(),

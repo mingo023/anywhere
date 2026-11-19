@@ -18,7 +18,7 @@ mod question;
 mod question_marker;
 mod reveal;
 mod selectable;
-mod shimmer;
+pub(crate) mod shimmer;
 mod sticky;
 pub(crate) mod sub_agent;
 mod thinking;

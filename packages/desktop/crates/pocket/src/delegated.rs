@@ -1,11 +1,13 @@
-//! The sessions a chat delegated to: the panel over the chat that lists them, the rows in the transcript for what pocketd told the chat of them, and a delegated session's chat with its way back.
+//! The sessions a chat delegated to: the panel over the chat that lists them, the rows in the transcript for what pocketd told the chat of them and the reports the chat took in, and a delegated session's chat with its way back.
 
 mod child_view;
 mod delivery;
 mod panel;
 mod push;
+mod reports;
 
 pub(crate) use delivery::{Arrivals, delivered};
+pub(crate) use reports::{Group, Report, group, reading, spans, standing};
 
 use crate::desktop::Desktop;
 use crate::fleet::Links;
