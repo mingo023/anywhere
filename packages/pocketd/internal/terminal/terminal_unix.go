@@ -30,7 +30,7 @@ func (s ptySession) Resize(cols, rows int) error { return setsize(s.f, cols, row
 func (s ptySession) Pid() int                    { return s.p.Pid }
 func (s ptySession) Stop(grace time.Duration)    { proc.EndSession(s.p.Pid, grace) }
 func (s ptySession) Close() error                { return s.f.Close() }
-func (s ptySession) Checkpoint([]byte)           {}
+func (s ptySession) Checkpoint(int64, []byte)    {}
 func (s ptySession) Foreground() (int, error)    { return proc.Foreground(s.f) }
 
 func (s ptySession) Wait() int {

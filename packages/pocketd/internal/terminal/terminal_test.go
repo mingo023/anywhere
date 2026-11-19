@@ -676,29 +676,37 @@ func TestWhatAHeldProcessPrintsBeforePocketdAttachesReachesTheScreen(t *testing.
 }
 
 func TestAHeldTerminalResizedBeforePocketdRestartsComesBackWithTheSameScreen(t *testing.T) {
-	dir := holderDir(t)
-	m := held(t, dir)
-	s, err := m.Spawn(Spec{Cmd: "sh", Args: []string{"-c", `trap 'printf "\033[2;30Hwide"' WINCH; printf "\033[2J\033[4;15Hnarrow\033[1;1Hready"; while :; do sleep 0.1; done`}, Cols: 20, Rows: 6})
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitScreen(t, s, "ready")
-	s.Resize(40, 3)
-	waitScreen(t, s, "wide")
-	want := s.Screen()
-	s.sess.Close()
-	<-s.Done()
+	for name, script := range map[string]string{
+		"redrawn": `trap 'printf "\033[2;30Hwide"' WINCH; printf "\033[2J\033[4;15Hnarrow\033[1;1Hready"; while :; do sleep 0.1; done`,
+		"idle":    `printf "\033[2J\033[4;15Hnarrow\033[1;1Hready"; while :; do sleep 0.1; done`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := holderDir(t)
+			s, err := held(t, dir).Spawn(Spec{Cmd: "sh", Args: []string{"-c", script}, Cols: 20, Rows: 6})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitScreen(t, s, "ready")
+			s.Resize(40, 3)
+			if name == "redrawn" {
+				waitScreen(t, s, "wide")
+			}
+			want := s.Screen()
+			s.sess.Close()
+			<-s.Done()
 
-	found := holder.Find(dir)
-	if len(found) != 1 {
-		t.Fatalf("%d holders", len(found))
-	}
-	again, err := held(t, dir).Reattach(found[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(again.Close)
-	if got := again.Screen(); got != want {
-		t.Fatalf("screen after the restart:\n%q\nbefore:\n%q", got, want)
+			found := holder.Find(dir)
+			if len(found) != 1 {
+				t.Fatalf("%d holders", len(found))
+			}
+			again, err := held(t, dir).Reattach(found[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(again.Close)
+			if got := again.Screen(); got != want {
+				t.Fatalf("screen after the restart:\n%q\nbefore:\n%q", got, want)
+			}
+		})
 	}
 }

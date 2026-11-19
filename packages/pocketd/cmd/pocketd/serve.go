@@ -419,13 +419,16 @@ func serve(sock, handed string) error {
 	err = srv.Serve(ln)
 	if ctx.Err() != nil {
 		writer.Freeze()
+		defer o.close()
 		if d.Terminals.Holder == nil {
 			d.Terminals.CloseAll(terminal.CloseGrace)
 			return nil
 		}
-		// The holders keep the Terminals running for the next pocketd.
+		// The holders keep the Terminals running for the next pocketd. The tails stop before the store's last
+		// flush, so no line they read is carried past without its items stored.
+		terms := d.Carry()
 		o.handover()
-		if err := handoff.Write(handoff.Path(home), handoff.File{Format: handoff.Format, Terminals: d.Carry()}); err != nil {
+		if err := handoff.Write(handoff.Path(home), handoff.File{Format: handoff.Format, Terminals: terms}); err != nil {
 			log.Printf("handoff: %v", err)
 		}
 		return nil

@@ -24,7 +24,7 @@ func (s conSession) Write(b []byte) (int, error) { return s.c.Write(b) }
 func (s conSession) Resize(cols, rows int) error { return s.c.Resize(cols, rows) }
 func (s conSession) Pid() int                    { return s.p.Pid }
 func (s conSession) Close() error                { return s.c.Close() }
-func (s conSession) Checkpoint([]byte)           {}
+func (s conSession) Checkpoint(int64, []byte)    {}
 
 // Stop hangs up the console, so its programs get CTRL_CLOSE_EVENT, then
 // kills the whole tree after grace.

@@ -142,7 +142,7 @@ type Client struct {
 	ended  bool
 	exited bool // the holder reported the exit, rather than going away
 	code   int
-	off    int64 // the output offset after what Read has returned
+	base   int64 // the output offset of the first byte Read returns
 }
 
 // Dial attaches to the holder on sock and reads its replay.
@@ -188,7 +188,7 @@ func (c *Client) replay() error {
 		case kOutput:
 			c.Tail = append(c.Tail, p...)
 		case kLive:
-			c.off = c.From + int64(len(c.Tail))
+			c.base = c.From + int64(len(c.Tail))
 			return nil
 		default:
 			return fmt.Errorf("holder: %c during replay", k)
@@ -242,7 +242,6 @@ func (c *Client) Read(p []byte) (int, error) {
 	}
 	n := copy(p, c.queue)
 	c.queue = c.queue[n:]
-	c.off += int64(n)
 	return n, nil
 }
 
@@ -271,13 +270,10 @@ func (c *Client) Stop(grace time.Duration) {
 	c.send(kStop, b)
 }
 
-// Checkpoint gives the holder screen, the screen after everything Read has returned.
-func (c *Client) Checkpoint(screen []byte) {
-	c.mu.Lock()
-	off := c.off
-	c.mu.Unlock()
+// Checkpoint gives the holder screen, the screen after the first read bytes Read returned.
+func (c *Client) Checkpoint(read int64, screen []byte) {
 	p := make([]byte, 8, 8+len(screen))
-	binary.BigEndian.PutUint64(p, uint64(off))
+	binary.BigEndian.PutUint64(p, uint64(c.base+read))
 	c.send(kCheckpoint, append(p, screen...))
 }
 

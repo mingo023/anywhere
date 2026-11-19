@@ -93,8 +93,8 @@ func TestAHolderRelaysInputAndOutputAndKeepsTheExitCodeUntilSeen(t *testing.T) {
 func TestAClientThatComesBackGetsTheLastCheckpointAndTheOutputSinceIt(t *testing.T) {
 	sock, _ := serve(t, `echo one; read x; echo two; read y`)
 	c := dial(t, sock)
-	readUntil(t, c, "one")
-	c.Checkpoint([]byte("SCREEN"))
+	read := readUntil(t, c, "one")
+	c.Checkpoint(int64(len(read)-len(c.Tail)), []byte("SCREEN"))
 	c.Write([]byte("go\r"))
 	readUntil(t, c, "two")
 	c.conn.Close()

@@ -62,7 +62,7 @@ func (s *Starter) Start(spec Spec, adopted *os.File) (*Client, error) {
 	}
 	// What the process wrote before this attached is news to pocketd, not a screen to redraw.
 	c.mu.Lock()
-	c.queue, c.Tail, c.off = append(c.Tail, c.queue...), nil, c.From
+	c.queue, c.Tail, c.base = append(c.Tail, c.queue...), nil, c.From
 	c.mu.Unlock()
 	return c, nil
 }

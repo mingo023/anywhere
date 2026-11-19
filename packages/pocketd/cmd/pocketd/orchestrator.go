@@ -157,8 +157,6 @@ func (o *orchestrator) run(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			o.engine.Close()
-			o.sink.Close()
 			return
 		case <-prune.C:
 		}
@@ -256,6 +254,11 @@ func (o *orchestrator) closeAbsent(reg *agent.Registry) {
 func (o *orchestrator) handover() {
 	o.engine.Drain(5 * time.Second)
 	o.sink.Flush()
+}
+
+func (o *orchestrator) close() {
+	o.engine.Close()
+	o.sink.Close()
 }
 
 // postBound is automation.Scheduler.Post: it sends an automation's prompt to the open session it is bound to,

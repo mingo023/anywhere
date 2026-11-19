@@ -68,8 +68,8 @@ type session interface {
 	// Stop ends the whole session: SIGHUP and SIGTERM, then SIGKILL after grace.
 	Stop(grace time.Duration)
 	Close() error
-	// Checkpoint keeps the screen after everything Read has returned, for a pocketd that reattaches.
-	Checkpoint(screen []byte)
+	// Checkpoint keeps the screen after the first read bytes Read returned, for a pocketd that reattaches.
+	Checkpoint(read int64, screen []byte)
 }
 
 // checkpointEvery is how much output a Terminal reads between checkpoints.
@@ -87,8 +87,9 @@ type Terminal struct {
 	closed bool
 	input  func(id string, b []byte)
 	origin string
-	muted  bool // replaying a screen: its queries were asked of a pocketd that is gone
-	fed    int  // output since the last checkpoint
+	muted  bool  // replaying a screen: its queries were asked of a pocketd that is gone
+	fed    int   // output since the last checkpoint
+	read   int64 // output sess has given the screen
 	osc    scanner
 	last   *Report
 	report func(id string, r Report)
@@ -241,7 +242,7 @@ func (m *Manager) attach(info Info, sess session, screen, tail []byte) (*Termina
 	}
 	s.vt.Write(tail)
 	s.muted = false
-	sess.Checkpoint(s.vt.Snapshot())
+	sess.Checkpoint(0, s.vt.Snapshot())
 	m.mu.Lock()
 	m.terminals[s.info.ID] = s
 	m.mu.Unlock()
@@ -331,10 +332,11 @@ func (s *Terminal) pump(sess session) {
 				s.keep(r)
 			}
 			s.vt.Write(chunk)
+			s.read += int64(n)
 			s.broadcast(Event{Kind: "output", Data: chunk})
 			if s.fed += n; s.fed >= checkpointEvery {
 				s.fed = 0
-				sess.Checkpoint(s.vt.Snapshot())
+				sess.Checkpoint(s.read, s.vt.Snapshot())
 			}
 			s.mu.Unlock()
 			if s.report != nil {
@@ -482,7 +484,7 @@ func (s *Terminal) Replace(cmd string, args, env []string, origin string) error 
 		return err
 	}
 	old := s.sess
-	s.sess, s.fed = sess, 0
+	s.sess, s.fed, s.read = sess, 0, 0
 	s.info.Cmd, s.info.Args, s.origin = cmd, args, origin
 	s.last, s.osc = nil, scanner{}
 	reset := []byte("\x1bc") // RIS: the new process starts on a blank screen
@@ -550,8 +552,8 @@ func (s *Terminal) Resize(cols, rows int) {
 	s.info.Cols, s.info.Rows = cols, rows
 	s.sess.Resize(cols, rows)
 	s.vt.Resize(cols, rows)
-	// A replay draws into the new size, so the next output checkpoints, as the process redraws for it.
-	s.fed = checkpointEvery
+	// Kept now, or a reattach before more output would bring back the screen at its old size.
+	s.sess.Checkpoint(s.read, s.vt.Snapshot())
 	s.broadcast(Event{Kind: "resize", Cols: cols, Rows: rows})
 }
 
