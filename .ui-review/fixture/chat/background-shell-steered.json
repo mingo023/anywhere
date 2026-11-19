@@ -1,0 +1,8 @@
+[
+  { "id": "u1", "kind": "user", "text": "Watch the CD run, then promote it to staging" },
+  { "id": "b1", "kind": "tool", "call": { "toolUseId": "tu-b1", "name": "Bash", "detail": { "kind": "shell", "command": "gh run watch 4444 --exit-status", "description": "Watch the CD run until it finishes" }, "status": "running" } },
+  { "id": "a1", "kind": "assistant", "text": "Watching the CD run in the background. Opening the promote page meanwhile." },
+  { "id": "u2", "kind": "user", "text": "Move the finished tickets to In Review too" },
+  { "id": "a2", "kind": "assistant", "text": "All four tickets are In Review. The CD watch keeps going in the background." },
+  { "id": "r1", "kind": "result", "ok": true, "durationMs": 60000, "usage": { "inputTokens": 3000, "outputTokens": 120 } }
+]
