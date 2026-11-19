@@ -94,6 +94,11 @@ fn shows_button(action: Action, empty: bool) -> bool {
     !(action == Action::Send && empty)
 }
 
+/// Whether the pointer left the box's button: GPUI reports a pointer moving while it holds the button down as not hovering.
+fn pointer_left(over: bool, pressing: bool) -> bool {
+    !over && !pressing
+}
+
 /// Whether a click on Stop is the tail of the send clicked on that button: it turns into Stop under the pointer.
 fn guards_stop(clicked_send: Option<&(String, i64)>, agent: &str, now: i64) -> bool {
     clicked_send.is_some_and(|(a, at)| a == agent && now - at < CLICK_GUARD_MS)
@@ -141,6 +146,8 @@ pub(crate) struct ComposerState {
     pub(crate) btw: HashMap<String, btw::Btw>,
     /// The agent and time of the last send clicked on the box's button, until the pointer leaves it.
     clicked_send: Option<(String, i64)>,
+    /// Whether the box's button is held down.
+    pressing_send: bool,
 }
 
 impl ComposerState {
@@ -177,6 +184,7 @@ impl ComposerState {
             background_folded: true,
             btw: HashMap::new(),
             clicked_send: None,
+            pressing_send: false,
         };
         (state, subs)
     }
@@ -768,13 +776,20 @@ impl Desktop {
             cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, action, window, cx))
         };
         let left = cx.listener(|this, over: &bool, _, _| {
-            if !*over {
+            if pointer_left(*over, this.chats.composer.pressing_send) {
                 this.chats.composer.clicked_send = None;
             }
         });
+        let released = || cx.listener(|this, _: &MouseUpEvent, _, _| this.chats.composer.pressing_send = false);
         // The id names the action so the tooltip of the button a send was clicked on doesn't stay on the Stop that replaced it.
-        let send = (!view_only && shows_button(action, empty))
-            .then(|| send_button::send_button(id(format!("chat-send:{terminal}:{action:?}")), action, empty, blocked).on_hover(left).when(!blocked, |b| b.on_click(press(terminal))));
+        let send = (!view_only && shows_button(action, empty)).then(|| {
+            send_button::send_button(id(format!("chat-send:{terminal}:{action:?}")), action, empty, blocked)
+                .on_hover(left)
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, _| this.chats.composer.pressing_send = true))
+                .on_mouse_up(MouseButton::Left, released())
+                .on_mouse_up_out(MouseButton::Left, released())
+                .when(!blocked, |b| b.on_click(press(terminal)))
+        });
         let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), |d| &mut d.chats.composer.draft, cx));
         let strip = draft.and_then(|d| attachments::strip(d, cx));
         let input = if view_only {
@@ -835,7 +850,7 @@ fn added(draft: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, guards_stop, said_in_chat, shows_button, terminal_only_said, text_view_focused, typed_text, working};
+    use super::{Mode, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, guards_stop, pointer_left, said_in_chat, shows_button, terminal_only_said, text_view_focused, typed_text, working};
     use gpui_kit::{KeyContext, Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
@@ -941,6 +956,13 @@ mod tests {
         assert!(!guards_stop(Some(&sent), "a1", 13_000), "a stop clicked once the guard ends");
         assert!(!guards_stop(Some(&sent), "a2", 10_100), "another chat's send");
         assert!(!guards_stop(None, "a1", 10_100), "the pointer left the button");
+    }
+
+    #[test]
+    fn a_pointer_that_shakes_during_a_click_hasnt_left_the_button() {
+        assert!(!pointer_left(false, true), "GPUI reads a held button as not hovered");
+        assert!(pointer_left(false, false));
+        assert!(!pointer_left(true, false));
     }
 
     #[test]

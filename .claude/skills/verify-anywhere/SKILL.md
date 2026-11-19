@@ -69,6 +69,7 @@ Prove things through the **input steps**. They dispatch real GPUI input events, 
 | `key` | `CAPTURE_KEYS` | `;`-separated GPUI keystrokes: `cmd-n`, `enter`, `cmd-shift-j`, `escape` |
 | `type` | `CAPTURE_TYPE` | `\|`-separated strings, typed one character at a time |
 | `click` | `CAPTURE_CLICKS` | `;`-separated `x,y` in window points |
+| `jiggle-click` | `CAPTURE_CLICKS` | a click whose pointer moves 2pt while the button is down |
 | `move` | `CAPTURE_MOVES` | `x,y` hover |
 | `drop` / `drag` | `CAPTURE_DROPS` / `CAPTURE_DRAGS` | `x,y,/abs/file` (Finder drop / held drag) |
 | `paste-image` | `CAPTURE_PASTE` | path to a PNG, pasted with Cmd+V |
