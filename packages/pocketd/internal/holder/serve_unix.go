@@ -36,6 +36,10 @@ type server struct {
 	done    chan struct{}
 	once    sync.Once
 	stops   sync.WaitGroup
+	typed   chan struct{}
+
+	inMu  sync.Mutex
+	input []byte
 
 	mu         sync.Mutex
 	cols, rows int
@@ -59,7 +63,7 @@ func Serve(spec Spec, adopted *os.File, ready io.Writer) error {
 	}
 	defer os.Remove(spec.Sock)
 	defer ln.Close()
-	s := &server{spec: spec, started: time.Now().UnixNano(), done: make(chan struct{}), cols: spec.Cols, rows: spec.Rows}
+	s := &server{spec: spec, started: time.Now().UnixNano(), done: make(chan struct{}), typed: make(chan struct{}, 1), cols: spec.Cols, rows: spec.Rows}
 	wait := func() int { return -1 }
 	if adopted != nil {
 		s.pty, s.pid = adopted, spec.AdoptPid
@@ -83,6 +87,7 @@ func Serve(spec Spec, adopted *os.File, ready io.Writer) error {
 		c.Close()
 	}
 	go s.pump(wait)
+	go s.writeInput()
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -137,6 +142,23 @@ func (s *server) sendLocked(k kind, p []byte) {
 	if err := writeFrame(s.client, k, p); err != nil {
 		s.client.Close()
 		s.client = nil
+	}
+}
+
+// writeInput writes what clients typed apart from the frame reader, which a
+// process that stops reading would otherwise block, stops included.
+func (s *server) writeInput() {
+	for {
+		select {
+		case <-s.typed:
+		case <-s.done:
+			return
+		}
+		s.inMu.Lock()
+		p := s.input
+		s.input = nil
+		s.inMu.Unlock()
+		s.pty.Write(p)
 	}
 }
 
@@ -204,7 +226,13 @@ func (s *server) serve(conn net.Conn) {
 		}
 		switch k {
 		case kInput:
-			s.pty.Write(p)
+			s.inMu.Lock()
+			s.input = append(s.input, p...)
+			s.inMu.Unlock()
+			select {
+			case s.typed <- struct{}{}:
+			default:
+			}
 		case kResize:
 			var sz size
 			if json.Unmarshal(p, &sz) == nil {

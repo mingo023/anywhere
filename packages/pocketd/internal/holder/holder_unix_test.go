@@ -191,3 +191,19 @@ func TestAHolderStaysUntilAStopHasKilledWhatIgnoredIt(t *testing.T) {
 		}
 	}
 }
+
+func TestAStopGetsThroughInputTheProcessDoesntRead(t *testing.T) {
+	sock, _ := serve(t, `stty raw -echo; echo ready; sleep 60`)
+	c := dial(t, sock)
+	readUntil(t, c, "ready")
+	c.Write(make([]byte, 1<<20))
+	c.Stop(0)
+	exited := make(chan int, 1)
+	go func() { exited <- c.Wait() }()
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stop waited behind the input")
+	}
+	c.Close()
+}

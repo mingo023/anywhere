@@ -550,6 +550,8 @@ func (s *Terminal) Resize(cols, rows int) {
 	s.info.Cols, s.info.Rows = cols, rows
 	s.sess.Resize(cols, rows)
 	s.vt.Resize(cols, rows)
+	// A replay draws into the new size, so the next output checkpoints, as the process redraws for it.
+	s.fed = checkpointEvery
 	s.broadcast(Event{Kind: "resize", Cols: cols, Rows: rows})
 }
 
