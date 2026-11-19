@@ -31,9 +31,6 @@ pub struct Provider {
     pub fork_args: Option<String>,
 }
 
-/// Where fork args take the source session's id.
-pub const SESSION_ID: &str = "{sessionId}";
-
 /// The words pocketd puts around a provider's command; empty leaves them out.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Args {

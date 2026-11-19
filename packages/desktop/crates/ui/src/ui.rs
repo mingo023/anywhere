@@ -191,12 +191,6 @@ pub fn group_button(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
     glyph_button(id, name, 34., 30., 15., TEXT)
 }
 
-/// A group button whose glyph fades in, for one that just swapped it.
-pub fn group_button_swapped(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
-    let fade = Animation::new(std::time::Duration::from_millis(120)).with_easing(ease_out_quint());
-    glyph_frame(id, 34., 30., 15.).child(icon(name, 16., TEXT).with_animation("swap-in", fade, |i, t| i.opacity(t)))
-}
-
 pub struct Segment<T> {
     pub icon: Option<&'static str>,
     pub value: T,
@@ -1013,29 +1007,6 @@ pub fn meta_diff(added: usize, removed: usize, size: f32) -> Div {
 
 pub fn meta_value(text: impl Into<SharedString>) -> Div {
     div().text_color(TEXT).font_weight(FontWeight::MEDIUM).child(text.into())
-}
-
-/// How much of the context window is left, drawn as a 32px bar.
-pub fn context_bar(left: f32) -> Div {
-    let used = (1. - left).clamp(0., 1.);
-    div().w(px(32.)).h(px(4.)).rounded(px(2.)).bg(SEPARATOR_STRONG).child(div().h_full().w(px(32. * used)).rounded(px(2.)).bg(if used > 0.8 { WAITING } else { TEXT }))
-}
-
-pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> Div {
-    div()
-        .pt(px(12.))
-        .px(px(10.))
-        .pb(px(6.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .text_size(px(12.))
-        .line_height(px(15.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(TEXT_2)
-        .child(label.into())
-        .children(count.map(|n| div().font_weight(FontWeight::MEDIUM).child(n.to_string())))
 }
 
 /// A project's mark in white on its colour.

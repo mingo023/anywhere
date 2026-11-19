@@ -370,8 +370,6 @@ themed! {
     pub MD_PAGE "markdown.page" = Token::new(0xffffffff, 0x00000000);
 }
 
-pub const TEAL: Token = Token::new(0x0e7c86ff, 0x0bd8b6ff);
-pub const TEAL_BG: Token = Token::fixed(0x0f9d8a14);
 /// How far `POPOVER_GLASS` blurs what's behind it.
 pub const POPOVER_BLUR: f32 = 24.;
 
