@@ -36,7 +36,7 @@ CAPTURE_KEYS="cmd-n" CAPTURE_CLICKS="792,451" CAPTURE_TYPE="Fix the parser test"
 
 What it does, in order:
 
-1. `cargo build -q --release -p pocket --features capture` in `packages/desktop`. Cold build is about 4 minutes; then seconds. Judge speed only in release.
+1. `cargo build -q --release -p pocket --features capture` in `packages/desktop`, on half the cores (`-j`), and only one such build at a time across the machine (a `lockf` on `$TMPDIR/verify-anywhere-build.lock`; other runs wait). Cold build is several minutes; then seconds. Judge speed only in release.
 2. Unsets `POCKETD_SOCK`: inside an Anywhere terminal it points at the user's live pocketd and would win over `POCKET_HOME`.
 3. Starts `bun .ui-review/fixture/fixture.ts <scenario> <scratch>` with `FIXTURE_LOG=<out>/pocketd-frames.jsonl`, and waits for its `ready` line (30s cap). The scratch dir is `$TMPDIR/verify-anywhere.XXXXXX`, holding `home/code/<repo>` git repos and worktrees plus `pocket/` (socket, config, `desktop.json`).
 4. Runs `HOME=<scratch>/home POCKET_HOME=<scratch>/pocket pocket-desktop --capture <out> <specs…>`. The window is off-screen and unfocused, 1440×900 points, light theme. It quits after the last screen.

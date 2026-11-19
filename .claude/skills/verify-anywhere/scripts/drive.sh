@@ -10,7 +10,9 @@ scenario=$1 out=$2; shift 2
 unset POCKETD_SOCK
 root=$(cd "$(dirname "$0")/../../../.." && pwd)
 bin="$root/packages/desktop/target/release/pocket-desktop"
-cargo build -q --release -p pocket --features capture --manifest-path "$root/packages/desktop/Cargo.toml"
+# One verify build at a time machine-wide, on half the cores: parallel sessions otherwise pin every core.
+lockf -k "${TMPDIR:-/tmp}/verify-anywhere-build.lock" \
+  cargo build -q --release -j $(( $(sysctl -n hw.ncpu) / 2 )) -p pocket --features capture --manifest-path "$root/packages/desktop/Cargo.toml"
 mkdir -p "$out"
 out=$(cd "$out" && pwd -P)
 fx=$(mktemp -d "${TMPDIR:-/tmp}/verify-anywhere.XXXXXX")
