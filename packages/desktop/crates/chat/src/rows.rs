@@ -92,11 +92,19 @@ pub struct Span {
 }
 
 /// Whether `turn` is the agent taking in news of its delegated sessions: begun by a delivery rather than a prompt, and
-/// holding no error, question or host link card, which the user has to see.
+/// holding no error, question or host link card, which the user has to see, and no sub-agent or command outliving the
+/// turn, which the agent map and background tray show by its row.
 fn reports(turn: &Turn) -> bool {
     let news = turn.blocks.iter().take_while(|b| matches!(b, Block::Notice { .. } | Block::Delivered(_))).any(|b| matches!(b, Block::Delivered(_)));
     let asks = turn.blocks.iter().any(|b| matches!(b, Block::HostLink { .. }) || matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Question(_))));
-    turn.prompt.is_none() && news && !asks && !matches!(turn.end, Some(End::Failed { .. }))
+    let left = turn.blocks.iter().any(|b| match b {
+        Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)) => true,
+        Block::Tool(c) if matches!(c.kind, ToolKind::Shell { .. }) => {
+            ended_at(turn).is_some_and(|end| c.status == ToolStatus::Running || c.duration_ms.is_some_and(|d| c.at + d as i64 > end))
+        }
+        _ => false,
+    });
+    turn.prompt.is_none() && news && !asks && !left && !matches!(turn.end, Some(End::Failed { .. }))
 }
 
 /// Whether report turn `ix` sums the reports up: every session delegated before it began had settled by then, and the
@@ -915,6 +923,8 @@ mod tests {
     fn a_report_that_failed_or_asks_the_user_stands_apart_and_a_prompt_ends_the_group() {
         let ask = call(ToolKind::Question(Default::default()), ToolStatus::Running);
         let card = Block::HostLink { id: "h1".into(), hint: "vps".into(), reason: String::new() };
+        let tests = call(ToolKind::Shell { command: "cargo test".into(), description: String::new() }, ToolStatus::Running);
+        let helper = call(ToolKind::Agent(Default::default()), ToolStatus::Ok);
         let failed = Some(End::Failed { error: "API Error".into(), duration_ms: 1 });
         let t = Transcript {
             turns: vec![
@@ -922,6 +932,8 @@ mod tests {
                 report("r2", vec![said(160, "Hmm.")], failed),
                 report("r3", vec![said(170, "Which?"), ask], None),
                 report("r5", vec![said(180, "I need the GPU box."), card], done()),
+                report("r6", vec![said(190, "Testing in the background."), tests], done()),
+                report("r7", vec![said(200, "Asking a helper."), helper], done()),
                 turn("u2", vec![text("Go on.")], done()),
                 report("r4", vec![said(250, "Two.")], done()),
             ],
@@ -929,6 +941,7 @@ mod tests {
         let ids = laid_out(&t, &THREE);
         assert_eq!(ids.iter().filter(|id| id.ends_with("#reports")).collect::<Vec<_>>(), ["r1#reports", "r4#reports"]);
         assert!(ids.contains(&"r2#end".to_string()) && ids.contains(&"r3#fold".to_string()) && ids.contains(&"r5#2".to_string()));
+        assert!(["r6", "r7"].iter().all(|turn| ids.iter().any(|id| id.starts_with(&format!("{turn}#")) && !id.ends_with("#reports"))));
     }
 
     #[test]
