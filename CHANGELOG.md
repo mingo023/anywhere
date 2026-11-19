@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.51
+
+- The Pull request panel shows the whole PR (#291): (25bec15c)
+- Blog index leads with the newest post, and posts read more easily (#294): (09beacd4)
+- Chat folds delegated sessions' reports into one row (#293): (a35f4833)
+- Blog: How to clean up the git worktrees your coding agents leave behind (#292): (da1804d7)
+- Restart service isn't offered while pocketd upgrades in place (#290): (aed20e8e)
+- Chat shows a background command launched before a steer (#288): (01c1ff0d)
+
 ## 0.1.50
 
 - The sidebar shows one machine at a time as a space (#283): (017d90ca)
