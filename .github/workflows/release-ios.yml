@@ -16,8 +16,8 @@ concurrency:
 
 jobs:
   testflight:
-    # The app needs the iOS 26 SDK.
-    runs-on: macos-26
+    # App Store Connect takes only builds made with the iOS 27 SDK from April 2027 (ITMS-90725).
+    runs-on: xcode-27
     environment: release
     timeout-minutes: 90
     steps:
@@ -26,7 +26,7 @@ jobs:
       - name: XcodeGen
         run: brew install xcodegen
 
-      # The archive compiles Metal shaders, whose compiler Xcode 26 ships as a separate download.
+      # The archive compiles Metal shaders, whose compiler Xcode ships as a separate download.
       - name: Metal toolchain
         run: xcodebuild -downloadComponent MetalToolchain
 
