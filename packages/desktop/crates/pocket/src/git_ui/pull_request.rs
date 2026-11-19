@@ -371,8 +371,8 @@ pub(crate) struct PullRequest {
     /// The worktree the comment box writes for, while it is open.
     pub(crate) commenting: Option<String>,
     pub(crate) comment_error: Option<String>,
-    /// A comment that failed to post while another worktree's box was open: its worktree, text and error, back in the box when that worktree's opens.
-    pub(crate) unsent: Option<(String, String, String)>,
+    /// What each worktree's comment box held while another's was open, and why its post failed; back in the box when that worktree's opens.
+    pub(crate) drafts: HashMap<String, (String, Option<String>)>,
     pub(crate) commits_scroll: UniformListScrollHandle,
     pub(crate) files_scroll: UniformListScrollHandle,
     pub(crate) conversation_scroll: ScrollHandle,
@@ -425,7 +425,7 @@ impl PullRequest {
             reply,
             comment,
             commenting: None,
-            unsent: None,
+            drafts: HashMap::new(),
             comment_error: None,
             commits_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
@@ -827,10 +827,11 @@ impl Desktop {
         let Some(tree) = self.cwd() else { return };
         self.pr.track.tab = PrTab::Conversation;
         if self.pr.commenting.as_ref() != Some(&tree) {
-            let (text, error) = match self.pr.unsent.take_if(|(t, ..)| *t == tree) {
-                Some((_, text, error)) => (text, Some(error)),
-                None => (String::new(), None),
-            };
+            let held = self.pr.comment.read(cx).value().to_string();
+            if let Some(left) = self.pr.commenting.take().filter(|_| !held.trim().is_empty()) {
+                self.pr.drafts.insert(left, (held, self.pr.comment_error.take()));
+            }
+            let (text, error) = self.pr.drafts.remove(&tree).unwrap_or_default();
             self.pr.comment_error = error;
             self.pr.comment.update(cx, |s, cx| s.set_value(text, window, cx));
         }
@@ -898,7 +899,9 @@ impl Desktop {
                     }
                     Err(e) if d.pr.commenting.as_ref().is_some_and(|t| *t != tree) => {
                         d.prs.edit(&tree, |pr| pr.notes.retain(|n| *n != note));
-                        d.pr.unsent = Some((tree, body, format!("Couldn't post the comment: {e}")));
+                        let draft = d.pr.drafts.entry(tree).or_default();
+                        draft.0 = if draft.0.trim().is_empty() { body } else { format!("{body}\n\n{}", draft.0) };
+                        draft.1 = Some(format!("Couldn't post the comment: {e}"));
                         d.notify_pr("Couldn't post the comment; it's back in its worktree's comment box".into(), None, cx);
                     }
                     Err(e) => {
