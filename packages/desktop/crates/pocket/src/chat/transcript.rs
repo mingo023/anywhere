@@ -942,25 +942,27 @@ impl Desktop {
                 _ => div(),
             },
             Row::Reports { turns, closes } => {
-                let newest = s.rows.iter().rposition(|r| matches!(r, Row::Reports { .. })) == Some(ix);
-                let sessions = crate::delegated::standing(delivered_in(&t.turns[turns.clone()]), self.agents.delegations.of(agent), newest);
+                // Sessions yet to report belong to a group still waiting, until a prompt starts another wave.
+                let waiting = !closes && !s.rows[ix + 1..].iter().any(|r| matches!(r, Row::Prompt { .. } | Row::Reports { .. }));
+                let sessions = crate::delegated::standing(delivered_in(&t.turns[turns.clone()]), self.agents.delegations.of(agent), waiting);
                 let live = taking_in(t, turns, *closes, ask).then(|| crate::delegated::reading(delivered_in(&t.turns[turns.end - 1..turns.end]).last()));
                 let sums_up = closes.then(|| turns.end - 1);
+                let (shown, toggled) = (s.open(&id, false), view.toggled.as_ref().filter(|(row, _)| *row == id).map(|(_, at)| *at));
+                let drawn = crate::delegated::drawn(shown, toggled);
                 let reports = turns
                     .clone()
                     .map(|at| {
-                        let said = answer(t, at..at + 1);
-                        let answer = (sums_up != Some(at) && !said.is_empty()).then(|| {
+                        let said = if drawn && sums_up != Some(at) { answer(t, at..at + 1) } else { String::new() };
+                        let answer = (!said.is_empty()).then(|| {
                             let doc = view.docs.get(&format!("{id}|{at}"), &said, false, cx);
                             markdown::block(TextView::new(&doc), open.clone()).text_size(px(13.)).line_height(px(20.)).text_color(TEXT_2).into_any_element()
                         });
                         crate::delegated::Report { key: format!("{id}-{at}"), deliveries: delivered_in(&t.turns[at..at + 1]).collect(), answer }
                     })
                     .collect();
-                let toggled = view.toggled.as_ref().filter(|(row, _)| *row == id).map(|(_, at)| *at);
                 let (arrivals, now) = (&view.arrivals, Instant::now());
                 let age = move |d: &str| arrivals.age(d, now);
-                let group = crate::delegated::Group { id: &id, sessions, live, reports, open: s.open(&id, false), toggled, age: &age };
+                let group = crate::delegated::Group { id: &id, sessions, live, reports, open: shown, toggled, age: &age };
                 crate::delegated::group(group, toggle(agent, &id, false, cx), window, cx)
             }
             Row::Delivery { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {

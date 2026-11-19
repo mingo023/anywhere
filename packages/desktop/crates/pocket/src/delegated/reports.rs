@@ -26,9 +26,9 @@ pub(crate) fn spans(list: &[Delegation]) -> Vec<Span> {
     list.iter().map(|d| Span { began: d.created_at, settled: d.phase().settled().then_some(d.settled_at) }).collect()
 }
 
-/// The sessions `deliveries` speak of, as pocketd lists them now, else as their last delivery left them. The newest
-/// group also counts the sessions still at work, which have yet to report.
-pub(crate) fn standing<'a>(deliveries: impl Iterator<Item = &'a Delivered>, list: &[Delegation], newest: bool) -> Vec<Standing> {
+/// The sessions `deliveries` speak of, as pocketd lists them now, else as their last delivery left them. A group still
+/// `waiting` also counts the sessions at work, which have yet to report.
+pub(crate) fn standing<'a>(deliveries: impl Iterator<Item = &'a Delivered>, list: &[Delegation], waiting: bool) -> Vec<Standing> {
     let mut out: Vec<Standing> = Vec::new();
     for d in deliveries {
         for child in &d.children {
@@ -49,7 +49,7 @@ pub(crate) fn standing<'a>(deliveries: impl Iterator<Item = &'a Delivered>, list
             }
         }
     }
-    if newest {
+    if waiting {
         let yet: Vec<Standing> = list
             .iter()
             .filter(|l| !l.phase().settled() && !out.iter().any(|o| o.child.id == l.child_id))
@@ -113,16 +113,20 @@ pub(crate) struct Group<'a> {
     pub age: &'a dyn Fn(&str) -> Option<Duration>,
 }
 
+/// Whether a group's reports are drawn: open, or shut so lately that they are still leaving.
+pub(crate) fn drawn(open: bool, toggled: Option<Instant>) -> bool {
+    open || toggled.is_some_and(|at| at.elapsed() < LEAVE)
+}
+
 /// One line for the group, the questions sessions in it wait on under it, and, opened, each report and what the agent
 /// made of it, hung from a hairline. They come and go on a spring, or a fade when motion is reduced.
 pub(crate) fn group(g: Group, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
     let (id, updates) = (g.id, g.reports.iter().map(|r| r.deliveries.len()).sum());
     let pins: Vec<Div> = g.sessions.iter().filter(|s| s.phase == Phase::Asking).map(|s| pin(id, s, window, cx)).collect();
-    let leaving = !g.open && g.toggled.is_some_and(|at| at.elapsed() < LEAVE);
-    if leaving {
+    if !g.open && drawn(g.open, g.toggled) {
         window.request_animation_frame();
     }
-    let body = (g.open || leaving).then(|| {
+    let body = drawn(g.open, g.toggled).then(|| {
         let reports = g.reports.into_iter().map(|r| {
             let lines = r.deliveries.into_iter().map(|d| delivered(&format!("{}-{}", r.key, d.id), d, (g.age)(&d.id), window, cx));
             div().flex().flex_col().children(lines).children(r.answer.map(|a| div().pl(px(24.)).pr(px(8.)).pb(px(6.)).child(a)))
@@ -225,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_newest_group_counts_the_sessions_yet_to_report() {
+    fn only_a_group_still_waiting_counts_the_sessions_yet_to_report() {
         let deliveries = [news(Outcome::Done, &["a"])];
         let list = [listed("a", "completed", "", 100), listed("b", "working", "", 0), listed("c", "completed", "", 50)];
         assert_eq!(standing(deliveries.iter(), &list, true).len(), 2, "b runs on; c settled and reported elsewhere");

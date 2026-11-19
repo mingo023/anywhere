@@ -7,7 +7,7 @@ mod push;
 mod reports;
 
 pub(crate) use delivery::{Arrivals, delivered};
-pub(crate) use reports::{Group, Report, group, reading, spans, standing};
+pub(crate) use reports::{Group, Report, drawn, group, reading, spans, standing};
 
 use crate::desktop::Desktop;
 use crate::fleet::Links;
