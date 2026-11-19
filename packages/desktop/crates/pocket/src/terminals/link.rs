@@ -25,6 +25,8 @@ pub(crate) struct Link {
     down_since: Option<Instant>,
     /// pocketd's build when it isn't this app's, and since when.
     stale_since: Option<(String, Instant)>,
+    /// pocketd went away since it last answered as another build: it is likely exec'ing the new one.
+    dropped: bool,
     /// The bundled service's state; only release builds read it.
     pub(crate) service: Option<Service>,
 }
@@ -32,6 +34,7 @@ pub(crate) struct Link {
 impl Link {
     pub(crate) fn down(&mut self, now: Instant) {
         self.down_since.get_or_insert(now);
+        self.dropped |= self.stale_since.is_some();
     }
 
     pub(crate) fn up(&mut self) {
@@ -40,6 +43,7 @@ impl Link {
 
     /// hello.ok arrived: a release app expects the pocketd it ships, which upgrades itself in place within seconds.
     pub(crate) fn connected(&mut self, ours: &str, theirs: &str, release: bool, now: Instant) {
+        self.dropped = false;
         let since = self.stale_since.take().map_or(now, |(_, t)| t);
         self.stale_since = (release && ours != theirs).then(|| (theirs.to_string(), since));
     }
@@ -55,7 +59,9 @@ impl Link {
     }
 
     pub(crate) fn hint(&self, now: Instant) -> Option<Hint> {
-        if let Some((_, since)) = &self.stale_since {
+        if let Some((_, since)) = &self.stale_since
+            && !self.dropped
+        {
             return (now.duration_since(*since) >= STALE_AFTER).then_some(Hint::Stale);
         }
         self.down_since.filter(|t| now.duration_since(*t) >= HINT_AFTER)?;
@@ -116,6 +122,19 @@ mod tests {
         assert_eq!(l.hint(t + STALE_AFTER), Some(Hint::Stale));
         l.connected("0.2.0", "0.2.0", true, t + Duration::from_secs(20));
         assert_eq!((l.is_down(), l.stale(), l.hint(t + Duration::from_secs(60))), (false, None, None));
+    }
+
+    #[test]
+    fn an_outdated_pocketd_that_goes_away_is_upgrading_and_gets_no_restart_until_it_answers_old_again() {
+        let (t, gone) = (Instant::now(), Duration::from_secs(5));
+        let mut l = Link { service: Some(Service::Enabled), ..Link::default() };
+        l.connected("0.2.0", "0.1.0", true, t);
+        l.down(t + gone);
+        assert_eq!((l.stale(), l.hint(t + gone + HINT_AFTER)), (Some("0.1.0"), Some(Hint::Reopen)));
+        l.up();
+        assert_eq!((l.is_down(), l.hint(t + Duration::from_secs(60))), (true, None));
+        l.connected("0.2.0", "0.1.0", true, t + Duration::from_secs(61));
+        assert_eq!(l.hint(t + Duration::from_secs(61)), Some(Hint::Stale));
     }
 
     #[test]
