@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>How to run multiple Claude Code agents in parallel · Anywhere blog</title>
+	<meta name="description" content="Run several Claude Code agents on one repo without collisions: one git worktree per agent, by hand or in Anywhere, with status, diffs and sessions that keep running.">
+	<meta name="author" content="Minh Ngo">
+	<link rel="canonical" href="https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel">
+	<meta property="og:type" content="article">
+	<meta property="og:site_name" content="Anywhere">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="How to run multiple Claude Code agents in parallel">
+	<meta property="og:description" content="Run several Claude Code agents on one repo without collisions: one git worktree per agent, by hand or in Anywhere, with status, diffs and sessions that keep running.">
+	<meta property="og:url" content="https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta property="article:published_time" content="2026-11-18">
+	<meta property="article:modified_time" content="2026-11-18">
+	<meta property="article:author" content="Minh Ngo">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="How to run multiple Claude Code agents in parallel">
+	<meta name="twitter:description" content="Run several Claude Code agents on one repo without collisions: one git worktree per agent, by hand or in Anywhere, with status, diffs and sessions that keep running.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="../assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="../docs/docs.css">
+	<link rel="stylesheet" href="blog.css">
+	<script src="../docs/docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "BlogPosting",
+			"@id": "https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel#article",
+			"headline": "How to run multiple Claude Code agents in parallel",
+			"description": "Run several Claude Code agents on one repo without collisions: one git worktree per agent, by hand or in Anywhere, with status, diffs and sessions that keep running.",
+			"datePublished": "2026-11-18",
+			"dateModified": "2026-11-18",
+			"inLanguage": "en",
+			"keywords": "run multiple claude code agents in parallel, claude code git worktree, claude code worktrees GUI, claude code notification when done, run multiple coding agents in parallel",
+			"author": { "@type": "Person", "name": "Minh Ngo" },
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "HowTo",
+			"name": "Run multiple Claude Code agents in parallel with git worktrees",
+			"step": [
+				{ "@type": "HowToStep", "name": "Create one worktree per agent", "text": "Run git worktree add with a new branch for each task, or create the worktree from a branch or pull request in Anywhere." },
+				{ "@type": "HowToStep", "name": "Set the worktree up", "text": "Install dependencies and copy local config into the new worktree, by hand or with .anywhere/config.json or .anywhere/setup.sh." },
+				{ "@type": "HowToStep", "name": "Start Claude Code in each worktree", "text": "Start a Claude Code session in each worktree folder so every agent edits its own checkout on its own branch." },
+				{ "@type": "HowToStep", "name": "Follow status and review the diffs", "text": "Answer the sessions that need you, then read each worktree's diff, commit, and open a pull request." }
+			]
+		},
+		{
+			"@type": "FAQPage",
+			"mainEntity": [
+				{ "@type": "Question", "name": "Can two Claude Code agents work on the same repo at once?", "acceptedAnswer": { "@type": "Answer", "text": "To run multiple Claude Code agents in parallel, give each agent its own git worktree so they edit separate checkouts on separate branches. You can do this by hand with git worktree add, or use Anywhere, a free MIT Mac app that creates the worktree, starts the session, and shows which agent needs you." } },
+				{ "@type": "Question", "name": "Do I need a separate branch for each Claude Code agent?", "acceptedAnswer": { "@type": "Answer", "text": "For agents in separate worktrees, yes: git checks a branch out in one worktree at a time. In Anywhere, a new worktree starts on a new branch of the same name. If you want an agent on your current branch instead, pick Local, which shares the project's checkout and branch." } },
+				{ "@type": "Question", "name": "How do I know when a Claude Code agent needs my input?", "acceptedAnswer": { "@type": "Answer", "text": "Anywhere sets the session to Needs you when Claude Code waits on a permission, a question or a dialog. The session gets an amber dot in the sidebar, goes into the Inbox, counts on the Dock badge, and shows a macOS banner. In a terminal session, Claude Code reports this through its hooks, so trust the folder in Claude." } },
+				{ "@type": "Question", "name": "Can I start a Claude Code agent from a pull request?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. On Anywhere's new session page, click the pull request button next to the branch chip and enter 123, #123 or the pull request URL. The session starts in a new worktree based on that pull request." } },
+				{ "@type": "Question", "name": "Do Claude Code sessions keep running if I close Anywhere's window?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. pocketd, Anywhere's background service, runs the sessions, so agents keep running after the window closes. On macOS, closing the window leaves Anywhere running in the background by default, so the Dock badge and notifications stay." } }
+			]
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "How to run multiple Claude Code agents in parallel", "item": "https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="../index.html">Home</a>
+			<a href="../docs/index.html">Docs</a>
+			<a href="index.html">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="post-layout">
+		<main id="main">
+			<article>
+				<p class="eyebrow"><a href="index.html">Blog</a> · Guide</p>
+				<h1>How to run multiple Claude Code agents in parallel</h1>
+				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
+				<p class="lede">To run multiple Claude Code agents in parallel, give each agent its own git worktree so they edit separate checkouts on separate branches. You can do this by hand with <code>git worktree add</code>, or use Anywhere, a free MIT Mac app that creates the worktree, starts the session, and shows which agent needs you.</p>
+				<p>This guide does it by hand first, so you know what is going on underneath. Then it shows the same method in Anywhere, which takes over the bookkeeping.</p>
+
+				<h2 id="why-parallel-agents-collide">Why parallel Claude Code agents collide</h2>
+				<p>Open two terminals in the same repository, start <code>claude</code> in each, and give them two different tasks. They now share one working tree and one branch:</p>
+				<ul>
+					<li>Both agents edit the same files on disk. One agent's half-finished change is in the other agent's build and test run.</li>
+					<li>A commit from one agent can pick up the other's edits.</li>
+					<li>If one agent switches branch, the other agent's files change under it.</li>
+					<li>When you review, <code>git diff</code> shows both tasks mixed together.</li>
+				</ul>
+				<p>A second clone of the repository avoids this, but it is a second copy of the history to fetch and keep in sync. A git worktree is lighter: another checkout of the same repository, in its own folder, on its own branch.</p>
+
+				<h2 id="one-worktree-per-agent">The method: one git worktree per agent</h2>
+
+				<h3>By hand</h3>
+				<p>From your repository, add one worktree per task. Each gets a new branch:</p>
+				<pre><code>cd ~/code/app
+git worktree add -b fix-login ../app-fix-login
+git worktree add -b search-index ../app-search-index</code></pre>
+				<p>Then start one Claude Code session in each folder, in its own terminal:</p>
+				<pre><code>cd ~/code/app-fix-login &amp;&amp; claude
+cd ~/code/app-search-index &amp;&amp; claude</code></pre>
+				<p>Each agent now has its own files and its own branch. The commits land in the same repository, so you push and open pull requests as usual. When a task is merged, remove its worktree:</p>
+				<pre><code>git worktree remove ../app-fix-login</code></pre>
+				<p>A new worktree holds only committed files. Before the agent starts, install dependencies and copy any untracked config, such as <code>.env</code>, into it. Otherwise the agent's first test run fails for reasons that have nothing to do with the task.</p>
+
+				<h3>Check Claude Code's own options</h3>
+				<p>Claude Code changes often. Before you build scripts around it, read the <a href="https://claude.com/product/claude-code">Claude Code documentation</a> for the worktree options in the version you run. The plain git commands above work with any version, and with any other agent.</p>
+
+				<h3>What you still track by hand</h3>
+				<p>Worktrees fix the collisions. They don't tell you what is happening. With three or four agents going, the work moves to bookkeeping:</p>
+				<ul>
+					<li>Which terminal is waiting on a permission prompt, and for how long.</li>
+					<li>Which agent finished while you were looking at another one.</li>
+					<li>What each one changed, which means a <code>git diff</code> in each folder.</li>
+					<li>The setup steps for every new worktree, and the cleanup after merge.</li>
+					<li>The terminals themselves. Close the wrong window and the agent in it stops with it.</li>
+				</ul>
+
+				<div class="cta">
+					<p>Anywhere is free and MIT licensed, with no account and no paid tier.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest">Download for Mac</a>
+				</div>
+
+				<h2 id="doing-it-in-anywhere">Doing it in Anywhere</h2>
+				<p>Anywhere is a desktop app for macOS 13 or later, with unsigned builds for Linux and Windows. It runs the Claude Code you already installed and signed in to, with the same worktree-per-agent method. The steps below are covered in more detail in <a href="../docs/worktrees.html">Start an agent in a new worktree</a>.</p>
+
+				<h3>Create a worktree from a branch or a pull request</h3>
+				<ol>
+					<li>Add your repository as a project: click the folder button at the top of the sidebar's projects list, then <strong>Add project…</strong>.</li>
+					<li>Press <kbd>⌘⇧N</kbd>, or click the <strong>+</strong> on the project's row. The new session page opens with <strong>Worktree</strong> picked.</li>
+					<li>To start from a branch other than the default, click the branch chip and pick one. Branches only on the remote show as <code>origin/&lt;name&gt;</code>.</li>
+					<li>To start from a pull request instead, click the pull request button next to the branch chip and enter <code>123</code>, <code>#123</code>, or the pull request URL.</li>
+					<li>Type the prompt and press <kbd>Return</kbd>.</li>
+				</ol>
+				<p>Anywhere fetches the latest changes, creates the git worktree, copies configuration, runs setup, and starts the agent, showing each step. New worktrees go in <code>~/.anywhere/worktrees/&lt;project&gt;/&lt;name&gt;</code> unless you pick another folder in Settings › <strong>Projects</strong>. To start every new session in a worktree, set Settings › <strong>Agents</strong> › <strong>New sessions</strong> › <strong>Runs in</strong> to <strong>Worktree</strong>.</p>
+
+				<h3>First-run setup with <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code></h3>
+				<p>Commit the setup steps with the repository, and every new worktree runs them before the agent starts:</p>
+				<pre><code>{
+	"setup": ["pnpm install", "cp .env.example .env"]
+}</code></pre>
+				<p>Or put a script at <code>.anywhere/setup.sh</code>. Before setup, Anywhere copies the project's root <code>.env*</code> files into the new worktree, and a <code>.worktreeinclude</code> file lists other untracked files to copy. If setup fails, the agent doesn't start and the terminal stays open so you can read why.</p>
+
+				<h3>Status at a glance</h3>
+				<p>Each session shows one of five statuses: <span class="status working">Working</span>, <span class="status needs-you">Needs you</span>, <span class="status done">Done</span>, <span class="status failed">Failed</span>, or <span class="status">Idle</span>. Claude Code reports its status both as a chat and in a terminal, where it reports through Claude Code hooks.</p>
+				<ul>
+					<li><strong>Needs you</strong>, <strong>Failed</strong>, and <strong>Done</strong> show in the sidebar, the Inbox, the Dock badge, and macOS banners.</li>
+					<li>A banner for a permission request has <strong>Allow</strong> and <strong>Deny and stop</strong>, so you can answer without switching sessions.</li>
+					<li><kbd>⌘J</kbd> goes to the next session that needs you. <strong>Activity</strong> lists every session across projects by status.</li>
+				</ul>
+				<p>The full table is in <a href="../docs/sessions.html">Sessions and status</a>.</p>
+
+				<h3>Review the diff and commit beside the session</h3>
+				<p>The <strong>Changes</strong> panel shows the worktree's diff next to the session that made it. Switch its scope from <strong>Uncommitted</strong> to a branch to see everything the worktree changed, as a pull request would. Commit, or use <strong>Commit, push and create PR</strong>. Once a pull request exists, its card shows checks, review, and merge. A failed check has <strong>Send</strong>, which hands its log to the agent. See <a href="../docs/review.html">Review and commit an agent's changes</a>.</p>
+
+				<h3>Close the window, agents keep running</h3>
+				<p>A Go background service, pocketd, owns the terminals and sessions. The window only shows them. Close it and every agent keeps working. On macOS, closing the window leaves Anywhere running in the background by default, so the Dock badge and banners still tell you when to come back. More in <a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a>.</p>
+
+				<div class="cta">
+					<p>The desktop app, the daemon and the CLI are all in one public repository.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+				</div>
+
+				<h2 id="mixing-agents">Mixing Claude Code with Codex and other agents</h2>
+				<p>The same project can hold sessions of different agents, each in its own worktree. Anywhere runs ten agent CLIs: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent, and Antigravity. Claude Code and Codex run in a real terminal or as a chat and report their status from both. The other eight report it from a chat. The <a href="../docs/agents.html">supported agents</a> page lists each command and its sign-in step.</p>
+				<p>A Claude Code chat can also hand work to other sessions through pocketd's orchestrator, for example: "Split this into three parts and delegate each one to its own session. Use Codex for the tests." Each delegated session runs in its own new worktree by default. See <a href="../docs/delegation.html">Let a chat delegate work to other sessions</a>, and the Codex version of this guide, <a href="run-multiple-codex-agents-git-worktrees.html">Run multiple Codex CLI agents in git worktrees</a>.</p>
+				<p>If you are comparing apps for this, <a href="conductor-alternative.html">Anywhere vs Conductor</a> and <a href="best-tools-run-multiple-coding-agents.html">the roundup of seven tools</a> lay out the differences.</p>
+
+				<section class="faq" aria-labelledby="faq">
+					<h2 id="faq">FAQ</h2>
+					<h3>Can two Claude Code agents work on the same repo at once?</h3>
+					<p>To run multiple Claude Code agents in parallel, give each agent its own git worktree so they edit separate checkouts on separate branches. You can do this by hand with git worktree add, or use Anywhere, a free MIT Mac app that creates the worktree, starts the session, and shows which agent needs you.</p>
+					<h3>Do I need a separate branch for each Claude Code agent?</h3>
+					<p>For agents in separate worktrees, yes: git checks a branch out in one worktree at a time. In Anywhere, a new worktree starts on a new branch of the same name. If you want an agent on your current branch instead, pick Local, which shares the project's checkout and branch.</p>
+					<h3>How do I know when a Claude Code agent needs my input?</h3>
+					<p>Anywhere sets the session to Needs you when Claude Code waits on a permission, a question or a dialog. The session gets an amber dot in the sidebar, goes into the Inbox, counts on the Dock badge, and shows a macOS banner. In a terminal session, Claude Code reports this through its hooks, so trust the folder in Claude.</p>
+					<h3>Can I start a Claude Code agent from a pull request?</h3>
+					<p>Yes. On Anywhere's new session page, click the pull request button next to the branch chip and enter 123, #123 or the pull request URL. The session starts in a new worktree based on that pull request.</p>
+					<h3>Do Claude Code sessions keep running if I close Anywhere's window?</h3>
+					<p>Yes. pocketd, Anywhere's background service, runs the sessions, so agents keep running after the window closes. On macOS, closing the window leaves Anywhere running in the background by default, so the Dock badge and notifications stay.</p>
+				</section>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="index.html"><span>Back to</span>All posts</a>
+				<a class="next" href="conductor-alternative.html"><span>Next</span>Anywhere vs Conductor</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+	<footer class="site-footer">
+		<span>Anywhere · MIT licensed. Free forever.</span>
+		<nav aria-label="Footer">
+			<a href="../index.html">Home</a>
+			<a href="../docs/index.html">Docs</a>
+			<a href="index.html">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
+			<a href="../privacy.html">Privacy</a>
+			<a href="../support.html">Support</a>
+		</nav>
+	</footer>
+</body>
+</html>

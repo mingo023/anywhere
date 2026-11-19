@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Open-source Conductor alternative: Anywhere vs Conductor · Anywhere blog</title>
+	<meta name="description" content="Anywhere vs Conductor for parallel coding agents: license, price, platforms, supported agents, and what happens to local sessions when you close the app.">
+	<meta name="author" content="Minh Ngo">
+	<link rel="canonical" href="https://getanywhere.dev/blog/conductor-alternative">
+	<meta property="og:type" content="article">
+	<meta property="og:site_name" content="Anywhere">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Open-source Conductor alternative: Anywhere vs Conductor">
+	<meta property="og:description" content="Anywhere vs Conductor for parallel coding agents: license, price, platforms, supported agents, and what happens to local sessions when you close the app.">
+	<meta property="og:url" content="https://getanywhere.dev/blog/conductor-alternative">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta property="article:published_time" content="2026-11-18">
+	<meta property="article:modified_time" content="2026-11-18">
+	<meta property="article:author" content="Minh Ngo">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Open-source Conductor alternative: Anywhere vs Conductor">
+	<meta name="twitter:description" content="Anywhere vs Conductor for parallel coding agents: license, price, platforms, supported agents, and what happens to local sessions when you close the app.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="../assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="../docs/docs.css">
+	<link rel="stylesheet" href="blog.css">
+	<script src="../docs/docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "BlogPosting",
+			"@id": "https://getanywhere.dev/blog/conductor-alternative#article",
+			"headline": "Open-source Conductor alternative: Anywhere vs Conductor",
+			"description": "Anywhere vs Conductor for parallel coding agents: license, price, platforms, supported agents, and what happens to local sessions when you close the app.",
+			"datePublished": "2026-11-18",
+			"dateModified": "2026-11-18",
+			"inLanguage": "en",
+			"keywords": "open source conductor alternative, conductor alternative, anywhere vs conductor, conductor alternative linux, conductor alternative windows, run parallel coding agents on mac",
+			"author": { "@type": "Person", "name": "Minh Ngo" },
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/conductor-alternative" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "FAQPage",
+			"mainEntity": [
+				{ "@type": "Question", "name": "Is there an open-source alternative to Conductor?", "acceptedAnswer": { "@type": "Answer", "text": "Anywhere is a free, MIT-licensed alternative to Conductor for running coding agents in parallel git worktrees with diff review. It supports ten agent CLIs, keeps local sessions running after you close the window, publishes Linux and Windows builds, and includes automations, a ticket Board and a CLI, with no paid tier." } },
+				{ "@type": "Question", "name": "Does Anywhere work on Linux or Windows?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Anywhere publishes builds for Linux on x86_64 and Windows on x64. They are unsigned and have no updater, and the binary is pocket-desktop. The macOS app needs macOS 13 or later and is universal, signed and notarized. Conductor's desktop app is macOS only." } },
+				{ "@type": "Question", "name": "Which agents does Anywhere support compared with Conductor?", "acceptedAnswer": { "@type": "Answer", "text": "Anywhere runs ten agent CLIs that you install and sign in to yourself: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Conductor supports Claude Code, Codex, Cursor and OpenCode, and bundles Claude Code, Codex and OpenCode." } },
+				{ "@type": "Question", "name": "Do agents keep running if I close the app?", "acceptedAnswer": { "@type": "Answer", "text": "In Anywhere, yes. pocketd owns the terminals and sessions, so agents keep running after the window closes, and scheduled automations keep firing. Conductor's docs say local workspace sessions end if you close the app or shut down the Mac, and Conductor Cloud workspaces keep working instead." } },
+				{ "@type": "Question", "name": "Is Anywhere free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Anywhere is MIT licensed and costs $0, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use and never proxies a model or resells a token." } }
+			]
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "Open-source Conductor alternative: Anywhere vs Conductor", "item": "https://getanywhere.dev/blog/conductor-alternative" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="../index.html">Home</a>
+			<a href="../docs/index.html">Docs</a>
+			<a href="index.html">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="post-layout">
+		<main id="main">
+			<article>
+				<p class="eyebrow"><a href="index.html">Blog</a> · Comparison</p>
+				<h1>Open-source Conductor alternative: Anywhere vs Conductor</h1>
+				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
+				<p class="lede">Anywhere is a free, MIT-licensed alternative to Conductor for running coding agents in parallel git worktrees with diff review. It supports ten agent CLIs, keeps local sessions running after you close the window, publishes Linux and Windows builds, and includes automations, a ticket Board and a CLI, with no paid tier.</p>
+				<div class="callout">
+					<p><span class="callout-title">Disclosure</span>The Anywhere team wrote this. Conductor facts come from <a href="https://www.conductor.build/">conductor.build</a> and its docs, checked on 18 November 2026. Both products ship often, so check the dates. If something here is out of date, <a href="https://github.com/mingo023/anywhere/issues">open an issue</a>.</p>
+				</div>
+
+				<h2 id="conductor">Conductor in one paragraph</h2>
+				<p>Conductor's own line is "Run parallel coding agents on your Mac." Its homepage goes on: "Create parallel Claude Code, Codex, and Cursor agents in isolated workspaces. See at a glance what they're working on, then review and merge their changes." Its docs put the split this way: "A harness is the agent runtime that writes code; Conductor is the workspace layer around it." It supports four harnesses, Claude Code, Codex, Cursor, and OpenCode, and ships Claude Code, Codex, and OpenCode bundled, so there is less to install. Each workspace has its own branch. Conductor says it is free to use and doesn't bill or resell model usage. Conductor Cloud runs workspaces in a sandbox under Pro, Teams, and Enterprise plans, and an iOS app shipped in version 0.90.0 on 2 October 2026. Review and merge is the core of the product, and it shows.</p>
+
+				<h2 id="anywhere">Anywhere in one paragraph</h2>
+				<p>Anywhere is a desktop app for watching and driving many coding agents at once. The window is Rust on GPUI. A Go background service, pocketd, owns the terminals and sessions. It runs the agent CLIs you already installed and signed in to, puts each session under a project and a git worktree, tells you which one needs you, and keeps the diff and the pull request beside the session. The whole thing, desktop app, daemon, iPhone app, and push relay, is in one MIT-licensed repository.</p>
+
+				<h2 id="side-by-side">Side by side</h2>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th></th><th>Anywhere</th><th>Conductor</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>License</td><td>MIT, public repository</td><td>Source not published</td></tr>
+						<tr><td>Price of the app</td><td>$0, no account</td><td>"Conductor is free to use"</td></tr>
+						<tr><td>Paid plans</td><td>None. The site lists cloud tier and premium tier as "Never"</td><td>Pro, Teams, and Enterprise, for Cloud and related features</td></tr>
+						<tr><td>Desktop platforms</td><td>macOS 13 or later, universal, signed and notarized. Linux x86_64 and Windows x64 builds, unsigned, no updater</td><td>macOS. "Conductor is not available for Windows or Linux yet."</td></tr>
+						<tr><td>Agents</td><td>Ten CLIs you install: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent, Antigravity</td><td>Claude Code, Codex, Cursor, OpenCode. Three come bundled; Cursor uses a Cursor API key</td></tr>
+						<tr><td>Local sessions after you close the app</td><td>Keep running. pocketd owns the terminals</td><td>"If you close the app or shut down your Mac, those sessions end." Cloud workspaces keep working</td></tr>
+						<tr><td>Phone</td><td>Native iPhone and iPad app that pairs over Tailscale, documented. The site still lists it as coming soon</td><td>iOS app, shipped. Experimental remote control of a paired Mac, both signed in to the same Conductor account</td></tr>
+						<tr><td>Other machines</td><td>Mac, Linux, or Windows hosts over SSH</td><td>Conductor Cloud sandboxes</td></tr>
+						<tr><td>Scheduled prompts</td><td>Automations, included, run while the app is closed</td><td>Routines appear in the changelog</td></tr>
+						<tr><td>Scripting</td><td><code>anywhere</code> command and an agent skill</td><td>Conductor API, with Pro</td></tr>
+					</tbody>
+				</table>
+				</div>
+
+				<div class="cta">
+					<p>Read the source, then try it on your own repository.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest">Download for Mac</a>
+				</div>
+
+				<h2 id="where-anywhere-is-different">Where Anywhere is different</h2>
+
+				<h3>Open source, MIT, no paid tier</h3>
+				<p>Anywhere's site says it plainly: "There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be." The pricing table lists the desktop app, the daemon and CLI, and the push relay at $0, and the cloud tier and premium tier as "Never". The architecture page adds that there is no license check in the code. You can read every line, build it yourself, and fork it.</p>
+
+				<h3>Ten agent CLIs, including Grok Build, Pi, omp, fx, Hermes Agent, and Antigravity</h3>
+				<p>Anywhere doesn't bundle agents. It runs the CLIs it finds on your login <code>PATH</code>, signed in to your own accounts, and never proxies a model or resells a token. That is one more install step than a bundle, and in return you choose the version, and you can use six agents beyond the four Conductor supports. Claude Code and Codex run in a real terminal or as a chat and report their status from both. The other eight run as a chat. The commands and sign-in steps are in <a href="../docs/agents.html">Supported agents</a>.</p>
+
+				<h3>Local sessions that outlive the window</h3>
+				<p>Conductor's Cloud FAQ is clear about its local workspaces: "Local workspace sessions run on your Mac. If you close the app or shut down your Mac, those sessions end." Its answer for long runs is Cloud. Anywhere's answer is a local daemon. pocketd runs every session and starts at login, so closing the window doesn't stop an agent, and on macOS the app itself stays in the background by default. See <a href="../docs/sessions.html">Sessions and status</a> and <a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a>.</p>
+
+				<h3>Linux and Windows builds, and SSH hosts</h3>
+				<p>Anywhere publishes Linux and Windows archives next to the Mac app. To be straight about them: they are unsigned and have no updater, and you run <code>pocket-desktop</code> from the unpacked folder. You can also add a Mac, Linux, or Windows machine as a host over SSH. Anywhere installs pocketd there, and that host's projects show in your sidebar while their agents run on the host. See <a href="../docs/hosts.html">Run agents on another machine over SSH</a>.</p>
+
+				<h3>Automations, Board, and the <code>anywhere</code> CLI are included</h3>
+				<ul>
+					<li><a href="../docs/automations.html">Automations</a> start a prompt on chosen weekdays at a time, or every few minutes, and keep firing while the desktop app is closed.</li>
+					<li>The <a href="../docs/board.html">Board</a> holds tickets across projects. A started ticket gets its own worktree and session.</li>
+					<li>The <a href="../docs/cli.html"><code>anywhere</code> command</a> starts sessions, sends prompts, waits for results, and edits tickets from any shell.</li>
+				</ul>
+
+				<h2 id="when-conductor-may-fit-better">When Conductor may fit better</h2>
+				<div class="callout">
+					<p><span class="callout-title">Conductor is the better pick if you want</span></p>
+					<ul>
+						<li>Claude Code, Codex, and OpenCode installed for you, as a bundle, instead of installing each CLI yourself.</li>
+						<li>A long-shipped, tightly scoped review and merge workflow on macOS, including workspaces from pull requests and stacks.</li>
+						<li>Cloud workspaces in a managed sandbox, the Conductor API, and shared workspaces.</li>
+						<li>An iOS app you can install today.</li>
+						<li>Team and Enterprise features such as multiplayer and an admin portal. Anywhere doesn't offer these and has said it won't sell a cloud tier.</li>
+					</ul>
+				</div>
+
+				<h2 id="moving-a-workflow-over">Moving a workflow over</h2>
+				<p>The model is the same: one isolated checkout and branch per task, an agent in it, review, merge. One Conductor workspace per task maps to one Anywhere worktree per task.</p>
+				<ol>
+					<li>Install and sign in to the CLIs you used through Conductor, for example <code>claude auth login</code>, <code>codex login</code>, <code>opencode auth login</code>, or <code>cursor-agent login</code>.</li>
+					<li>Install Anywhere and add your repository as a project.</li>
+					<li>Move workspace setup into <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code>, so new worktrees install dependencies before the agent starts.</li>
+					<li>Press <kbd>⌘⇧N</kbd> to start a session in a new worktree, from a branch or from a pull request number.</li>
+					<li>Review in <strong>Changes</strong> and merge from the pull request card.</li>
+				</ol>
+				<p>The step-by-step version is <a href="run-multiple-claude-code-agents-in-parallel.html">How to run multiple Claude Code agents in parallel</a>. For the wider field, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>.</p>
+
+				<section class="faq" aria-labelledby="faq">
+					<h2 id="faq">FAQ</h2>
+					<h3>Is there an open-source alternative to Conductor?</h3>
+					<p>Anywhere is a free, MIT-licensed alternative to Conductor for running coding agents in parallel git worktrees with diff review. It supports ten agent CLIs, keeps local sessions running after you close the window, publishes Linux and Windows builds, and includes automations, a ticket Board and a CLI, with no paid tier.</p>
+					<h3>Does Anywhere work on Linux or Windows?</h3>
+					<p>Yes. Anywhere publishes builds for Linux on x86_64 and Windows on x64. They are unsigned and have no updater, and the binary is pocket-desktop. The macOS app needs macOS 13 or later and is universal, signed and notarized. Conductor's desktop app is macOS only.</p>
+					<h3>Which agents does Anywhere support compared with Conductor?</h3>
+					<p>Anywhere runs ten agent CLIs that you install and sign in to yourself: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Conductor supports Claude Code, Codex, Cursor and OpenCode, and bundles Claude Code, Codex and OpenCode.</p>
+					<h3>Do agents keep running if I close the app?</h3>
+					<p>In Anywhere, yes. pocketd owns the terminals and sessions, so agents keep running after the window closes, and scheduled automations keep firing. Conductor's docs say local workspace sessions end if you close the app or shut down the Mac, and Conductor Cloud workspaces keep working instead.</p>
+					<h3>Is Anywhere free?</h3>
+					<p>Yes. Anywhere is MIT licensed and costs $0, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use and never proxies a model or resells a token.</p>
+				</section>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="run-multiple-claude-code-agents-in-parallel.html"><span>Previous</span>Run multiple Claude Code agents in parallel</a>
+				<a class="next" href="t3-code-alternative.html"><span>Next</span>Anywhere vs T3 Code</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+	<footer class="site-footer">
+		<span>Anywhere · MIT licensed. Free forever.</span>
+		<nav aria-label="Footer">
+			<a href="../index.html">Home</a>
+			<a href="../docs/index.html">Docs</a>
+			<a href="index.html">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
+			<a href="../privacy.html">Privacy</a>
+			<a href="../support.html">Support</a>
+		</nav>
+	</footer>
+</body>
+</html>

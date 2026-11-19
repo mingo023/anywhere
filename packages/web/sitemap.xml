@@ -71,6 +71,61 @@
     <changefreq>monthly</changefreq>
   </url>
   <url>
+    <loc>https://getanywhere.dev/blog/</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>weekly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/conductor-alternative</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/t3-code-alternative</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/crystal-alternative</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://getanywhere.dev/blog/script-claude-code-codex-from-cli</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
     <loc>https://getanywhere.dev/privacy</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>
