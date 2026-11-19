@@ -39,6 +39,7 @@
 - [Native, not Electron](https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui): Anywhere's stack, a Rust window on GPUI and a Go daemon, and other native-minded agent apps.
 - [Run multiple Codex CLI agents in git worktrees](https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees): One worktree per Codex agent, in a terminal or as a chat, next to Claude Code on one repository.
 - [Script coding agents from your shell](https://getanywhere.dev/blog/script-claude-code-codex-from-cli): Start sessions, send prompts and branch on the exit codes of anywhere session wait, with recipes for tickets and cron.
+- [Clean up the git worktrees your coding agents leave behind](https://getanywhere.dev/blog/clean-up-coding-agent-worktrees): Find, measure and remove agent worktrees with git, what Claude Code, Codex and Cursor clean up on their own, and how Anywhere deletes them.
 
 ## Download
 
