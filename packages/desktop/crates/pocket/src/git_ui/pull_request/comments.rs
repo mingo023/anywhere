@@ -262,6 +262,7 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(6.))
+            .rounded_t(px(8.5))
             .bg(FILL_1)
             .cursor_pointer()
             .font_family(MONO)

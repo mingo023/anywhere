@@ -205,7 +205,7 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(4.))
-            .child(div().flex_1().pl(px(4.)).text_size(px(11.)).text_color(TEXT_4).child(format!("Markdown · {}", ui::os_keys("⌘↩"))))
+            .child(div().flex_1().pl(px(4.)).text_size(px(11.)).text_color(TEXT_4).child(ui::os_keys("⌘↩")))
             .child(small("pr-comment-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_comment(window, cx))))
             .child(send);
         div()
