@@ -86,9 +86,15 @@ fn placeholder(working: bool, stopping: bool, can_queue: bool) -> &'static str {
     }
 }
 
-/// Whether Stop stands beside Steer: while the agent can be stopped. Once stopping, a draft queues and the stop is on its way.
-fn stop_beside_steer(action: Action, interrupt: bool) -> bool {
-    action == Action::Steer && interrupt
+/// What the send button shows, and whether Stop stands beside it. While the agent works, Stop stands beside the button,
+/// never in its place: the button a send was just clicked on would turn into Stop under the pointer.
+/// Once stopping, a draft queues and the stop is on its way.
+fn send_and_stop(action: Action, interrupt: bool) -> (Action, bool) {
+    match action {
+        Action::Stop => (Action::Send, interrupt),
+        Action::Steer => (Action::Steer, interrupt),
+        other => (other, false),
+    }
 }
 
 /// The text `key` types, if it types any: shortcuts and keys like Enter, Tab or Escape don't.
@@ -578,17 +584,6 @@ impl Desktop {
         cx.notify();
     }
 
-    fn chat_press(&mut self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(a) = self.summary(terminal) else { return };
-        let empty = self.chats.input.read(cx).value().trim().is_empty() && !self.chats.composer.draft.has_attachments();
-        if chat::action(self.chat_busy(a), self.chat_stopping(a), empty) == Action::Stop {
-            let agent = a.id.clone();
-            self.chat_command(&agent, Command::Interrupt, cx);
-        } else {
-            self.chat_send(terminal, false, window, cx);
-        }
-    }
-
     fn chat_stop(&mut self, terminal: &str, cx: &mut Context<Self>) {
         if let Some(a) = self.summary(terminal) {
             let agent = a.id.clone();
@@ -757,13 +752,13 @@ impl Desktop {
         let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
         let typing = !empty || (held && self.chats.input.read(cx).focus_handle(cx).is_focused(window));
         let stopping = self.chat_stopping(agent);
-        let action = chat::action(self.chat_busy(agent), stopping, empty);
+        let (action, stop_beside) = send_and_stop(chat::action(self.chat_busy(agent), stopping, empty), caps.interrupt);
         let blocked = !caps.allows(action);
         let press = |t: &str| {
             let t = t.to_string();
-            cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, window, cx))
+            cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_send(&t, false, window, cx))
         };
-        let ghost = (!view_only && stop_beside_steer(action, caps.interrupt)).then(|| {
+        let ghost = (!view_only && stop_beside).then(|| {
             let t = terminal.to_string();
             send_button::ghost_stop(id(format!("chat-stop:{terminal}"))).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_stop(&t, cx)))
         });
@@ -829,7 +824,7 @@ fn added(draft: &str, text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, said_in_chat, stop_beside_steer, terminal_only_said, text_view_focused, typed_text, working};
+    use super::{Mode, added, busy, composer_mode, hint, placeholder, remote_control_on, remote_control_said, said_in_chat, send_and_stop, terminal_only_said, text_view_focused, typed_text, working};
     use gpui_kit::{KeyContext, Keystroke, Modifiers};
     use crate::explorer::toast::Notice;
     use agents::Summary;
@@ -920,9 +915,15 @@ mod tests {
         assert_eq!(hint(Mode::Prompt, false, true, true, true), None, "the turn ended");
         assert_eq!(placeholder(true, true, true), "Queue a follow-up…");
         assert_eq!(placeholder(true, false, true), "Send a follow-up into this turn…");
-        assert!(stop_beside_steer(Action::Steer, true));
-        assert!(!stop_beside_steer(Action::Queue, true), "the stop is already on its way");
-        assert!(!stop_beside_steer(Action::Steer, false));
+        assert_eq!(send_and_stop(Action::Steer, true), (Action::Steer, true));
+        assert_eq!(send_and_stop(Action::Queue, true), (Action::Queue, false), "the stop is already on its way");
+        assert_eq!(send_and_stop(Action::Steer, false), (Action::Steer, false));
+    }
+
+    #[test]
+    fn the_button_a_send_was_clicked_on_never_turns_into_stop() {
+        assert_eq!(send_and_stop(Action::Stop, true), (Action::Send, true), "Stop keeps its place beside the button");
+        assert_eq!(send_and_stop(Action::Stop, false), (Action::Send, false));
     }
 
     #[test]
