@@ -15,7 +15,7 @@ import (
 	"pocketd/internal/state"
 )
 
-func TestSigtermKillsEveryTerminalAndExitsZero(t *testing.T) {
+func TestARestartSparesWhatATerminalStartedAndSigtermExitsZero(t *testing.T) {
 	h := Start(t)
 	f := filepath.Join(h.Home, "pid")
 	h.Spawn("sh", "-c", `nohup sh -c 'sleep 60 & echo $! > `+f+`; wait' >/dev/null 2>&1 & wait`)
@@ -29,7 +29,10 @@ func TestSigtermKillsEveryTerminalAndExitsZero(t *testing.T) {
 	if code := h.Stop(syscall.SIGTERM); code != 0 {
 		t.Fatalf("exit code %d, want 0", code)
 	}
-	h.eventually("the grandchild gone", func() bool { return syscall.Kill(pid, 0) != nil })
+	h.up()
+	if syscall.Kill(pid, 0) != nil {
+		t.Fatal("the grandchild was reaped")
+	}
 }
 
 func TestSigtermKeepsTheTerminalsInTheStateFile(t *testing.T) {
@@ -92,7 +95,7 @@ func TestAgentListAfterARestartWithoutTerminalsJsonListsTheSameSessions(t *testi
 	if len(before) != 2 {
 		t.Fatalf("listed %q", before)
 	}
-	h.Stop(syscall.SIGTERM)
+	h.Shutdown()
 	if err := os.Remove(state.Path(h.Home)); err != nil {
 		t.Fatal(err)
 	}

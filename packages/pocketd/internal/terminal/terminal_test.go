@@ -4,10 +4,11 @@ package terminal
 
 import (
 	"encoding/base64"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,7 +16,50 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
+
+	"pocketd/internal/holder"
 )
+
+// TestMain lets this test binary stand in for `pocketd hold`.
+func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "hold" {
+		var spec holder.Spec
+		if err := json.NewDecoder(os.Stdin).Decode(&spec); err != nil {
+			os.Exit(1)
+		}
+		holder.Serve(spec, nil, os.Stdout)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// held is a Manager that runs each Terminal under a holder in dir.
+func held(t *testing.T, dir string) *Manager {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	m.Holder = &holder.Starter{Exe: exe, Dir: dir}
+	return m
+}
+
+func holderDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "held")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		holder.EndAll(dir, 0)
+		os.RemoveAll(dir)
+	})
+	return dir
+}
 
 func spawn(t *testing.T, m *Manager, script string) *Terminal {
 	t.Helper()
@@ -353,41 +397,6 @@ func TestSpawnKeepsTheGivenID(t *testing.T) {
 	}
 }
 
-func TestAPausedTerminalKeepsItsOutputUntilResumed(t *testing.T) {
-	s := spawn(t, NewManager(), `printf 'ready\n'; read x; echo "got:$x"; sleep 5`)
-	waitScreen(t, s, "ready")
-	if err := s.Pause(time.Second); err != nil {
-		t.Fatal(err)
-	}
-	s.Write([]byte("hi\r"))
-	time.Sleep(300 * time.Millisecond)
-	if strings.Contains(s.Screen(), "got:hi") {
-		t.Fatal("a paused terminal read the pty")
-	}
-	s.Resume()
-	waitScreen(t, s, "got:hi")
-}
-
-func TestAResizedTerminalCanStillPause(t *testing.T) {
-	s := spawn(t, NewManager(), `printf 'ready\n'; read x; stty size; sleep 5`)
-	waitScreen(t, s, "ready")
-	s.Resize(60, 10)
-	s.Write([]byte("\r"))
-	waitScreen(t, s, "10 60")
-	if err := s.Pause(500 * time.Millisecond); err != nil {
-		t.Fatalf("pause after a resize: %v", err)
-	}
-	s.Resume()
-}
-
-func TestPausingAnExitedTerminalSaysItIsClosed(t *testing.T) {
-	s := spawn(t, NewManager(), `exit 0`)
-	<-s.Done()
-	if err := s.Pause(time.Second); !errors.Is(err, ErrClosed) {
-		t.Fatalf("err = %v", err)
-	}
-}
-
 func TestWatchersHearASpawnAForegroundChangeAndAnExit(t *testing.T) {
 	m := NewManager()
 	heard := make(chan string, 16)
@@ -483,26 +492,6 @@ func TestReplaceThatCannotStartLeavesTheTerminalAlone(t *testing.T) {
 	}
 }
 
-func TestAPausedTerminalRefusesToBeReplaced(t *testing.T) {
-	s := spawn(t, NewManager(), `echo ready; sleep 100`)
-	waitScreen(t, s, "ready")
-	if err := s.Pause(time.Second); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Resume()
-
-	if err := s.Replace("sh", []string{"-c", "true"}, os.Environ(), ""); err == nil {
-		t.Fatal("replaced a paused terminal")
-	}
-}
-
-func TestHandoffNeedsAPausedTerminal(t *testing.T) {
-	s := spawn(t, NewManager(), `sleep 5`)
-	if _, err := s.Handoff(); err == nil {
-		t.Fatal("handed over a terminal that is still reading")
-	}
-}
-
 func TestATerminalSurvivesAnExec(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -528,24 +517,29 @@ func TestHandoffHelper(t *testing.T) {
 	}
 }
 
+// handBefore stands in for a pocketd from before holders: its pty fd stays open across exec.
 func handBefore(t *testing.T) {
-	s, err := NewManager().Spawn(Spec{ID: "t-1", Cmd: "sh", Args: []string{"-c", `echo before; read x; sleep 0.3; echo "after $x"; sleep 1; exit 7`}, Cols: 40, Rows: 5})
+	cmd := exec.Command("sh", "-c", `echo before; read x; sleep 0.3; echo "after $x"; sleep 1; exit 7`)
+	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 40, Rows: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitScreen(t, s, "before")
-	if err := s.Pause(time.Second); err != nil {
+	buf := make([]byte, 64)
+	for got := ""; !strings.Contains(got, "before"); {
+		n, err := f.Read(buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got += string(buf[:n])
+	}
+	if _, err := unix.FcntlInt(f.Fd(), unix.F_SETFD, 0); err != nil {
 		t.Fatal(err)
 	}
-	h, err := s.Handoff()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.Write([]byte("go\r"))
+	f.Write([]byte("go\r"))
 	exe, _ := os.Executable()
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "POCKETD_HANDOFF") })
-	env = append(env, "POCKETD_HANDOFF=after", "POCKETD_HANDOFF_FD="+strconv.Itoa(h.FD), "POCKETD_HANDOFF_PID="+strconv.Itoa(h.Pid),
-		"POCKETD_HANDOFF_SCREEN="+base64.StdEncoding.EncodeToString(h.Screen))
+	env = append(env, "POCKETD_HANDOFF=after", "POCKETD_HANDOFF_FD="+strconv.Itoa(int(f.Fd())), "POCKETD_HANDOFF_PID="+strconv.Itoa(cmd.Process.Pid),
+		"POCKETD_HANDOFF_SCREEN="+base64.StdEncoding.EncodeToString([]byte("before\r\n")))
 	t.Fatal(syscall.Exec(exe, []string{exe, "-test.run=^TestHandoffHelper$"}, env))
 }
 
@@ -588,4 +582,131 @@ func TestAForegroundChangeTheMomentATerminalIsListedIsHeard(t *testing.T) {
 	}
 	close(stop)
 	<-done
+}
+
+func TestATerminalUnderAHolderOutlivesItsPocketdAndIsReattachedWithItsScreen(t *testing.T) {
+	dir := holderDir(t)
+	s := spawn(t, held(t, dir), `echo before; read x; echo "after $x"; read y; exit 4`)
+	waitScreen(t, s, "before")
+	pid := s.Pid()
+	s.sess.Close()
+	<-s.Done()
+
+	found := holder.Find(dir)
+	if len(found) != 1 {
+		t.Fatalf("%d holders", len(found))
+	}
+	again, err := held(t, dir).Reattach(found[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Info().ID != s.Info().ID || again.Pid() != pid {
+		t.Fatalf("reattached %+v pid %d, was %s pid %d", again.Info(), again.Pid(), s.Info().ID, pid)
+	}
+	waitScreen(t, again, "before")
+	again.Write([]byte("go\r"))
+	waitScreen(t, again, "after go")
+	again.Write([]byte("\r"))
+	if code := again.ExitCode(); code != 4 {
+		t.Fatalf("exit code %d", code)
+	}
+	waitHolders(t, dir, 0)
+}
+
+// waitHolders waits until n holders listen in dir.
+func waitHolders(t *testing.T, dir string, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		socks, _ := filepath.Glob(filepath.Join(dir, "*.sock"))
+		if len(socks) == n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("holders %v, want %d", socks, n)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestATerminalUnderAHolderAnswersQueriesAndReportsItsForeground(t *testing.T) {
+	s := spawn(t, held(t, holderDir(t)), `stty raw -echo; printf ready; head -c 1 >/dev/null; printf '\033]7501;?\033\\'; head -c 10; sleep 5`)
+	waitScreen(t, s, "ready")
+	if pg, err := s.Pgrp(); err != nil || pg <= 0 {
+		t.Fatalf("pgrp %d, %v", pg, err)
+	}
+	events := make(chan Event, 16)
+	_, detach, err := s.Attach(false, func(e Event) { events <- e })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer detach()
+	s.Write([]byte("g"))
+	var out strings.Builder
+	timeout := time.After(5 * time.Second)
+	for strings.Count(out.String(), "\x1b]7501;?\x1b\\") < 2 {
+		select {
+		case e := <-events:
+			out.Write(e.Data)
+		case <-timeout:
+			t.Fatalf("output = %q", out.String())
+		}
+	}
+}
+
+func TestReplaceUnderAHolderEndsTheOldHolder(t *testing.T) {
+	dir := holderDir(t)
+	s := spawn(t, held(t, dir), `echo old; sleep 100`)
+	waitScreen(t, s, "old")
+	if err := s.Replace("sh", []string{"-c", "echo new; sleep 100"}, os.Environ(), ""); err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, s, "new")
+	waitHolders(t, dir, 1)
+}
+
+func TestWhatAHeldProcessPrintsBeforePocketdAttachesReachesTheScreen(t *testing.T) {
+	m := held(t, holderDir(t))
+	s, err := m.Spawn(Spec{Cmd: "sh", Args: []string{"-c", "echo early; sleep 30"}, Cols: 40, Rows: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	waitScreen(t, s, "early")
+}
+
+func TestAHeldTerminalResizedBeforePocketdRestartsComesBackWithTheSameScreen(t *testing.T) {
+	for name, script := range map[string]string{
+		"redrawn": `trap 'printf "\033[2;30Hwide"' WINCH; printf "\033[2J\033[4;15Hnarrow\033[1;1Hready"; while :; do sleep 0.1; done`,
+		"idle":    `printf "\033[2J\033[4;15Hnarrow\033[1;1Hready"; while :; do sleep 0.1; done`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := holderDir(t)
+			s, err := held(t, dir).Spawn(Spec{Cmd: "sh", Args: []string{"-c", script}, Cols: 20, Rows: 6})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitScreen(t, s, "ready")
+			s.Resize(40, 3)
+			if name == "redrawn" {
+				waitScreen(t, s, "wide")
+			}
+			want := s.Screen()
+			s.sess.Close()
+			<-s.Done()
+
+			found := holder.Find(dir)
+			if len(found) != 1 {
+				t.Fatalf("%d holders", len(found))
+			}
+			again, err := held(t, dir).Reattach(found[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(again.Close)
+			if got := again.Screen(); got != want {
+				t.Fatalf("screen after the restart:\n%q\nbefore:\n%q", got, want)
+			}
+		})
+	}
 }

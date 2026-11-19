@@ -154,3 +154,17 @@ func TestCheckRefusesAListenerFDThatClosesOnExec(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestClaimedPtyFDsCloseOnExecAgain(t *testing.T) {
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devnull.Close()
+	unix.FcntlInt(devnull.Fd(), unix.F_SETFD, 0)
+	f := File{Format: Format, Terminals: []Terminal{{Saved: state.Terminal{TerminalID: "t-1"}, FD: int(devnull.Fd())}}}
+	Claim(f)
+	if Check(f) == nil {
+		t.Fatal("a claimed fd still survives exec")
+	}
+}

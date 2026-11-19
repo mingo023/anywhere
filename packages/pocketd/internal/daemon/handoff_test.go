@@ -14,7 +14,7 @@ import (
 	"pocketd/internal/timeline"
 )
 
-func TestHandoffDescribesEachTerminalAndItsAgent(t *testing.T) {
+func TestCarryDescribesEachTerminalAndItsAgent(t *testing.T) {
 	d := newDaemon(t)
 	term, pr := claudeIn(t, d)
 	path := transcript(t, "hi")
@@ -24,30 +24,19 @@ func TestHandoffDescribesEachTerminalAndItsAgent(t *testing.T) {
 	claim, _ := pr.a.ClaimNaming()
 	pr.a.SetNamed(claim, "Fix login")
 
-	terms, err := d.Handoff()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer d.CancelHandoff()
+	terms := d.Carry()
+	defer d.Release()
 	s := pr.a.Summary()
 	if len(terms) != 1 {
 		t.Fatalf("handed %d terminals", len(terms))
 	}
 	got := terms[0]
-	if got.Saved.TerminalID != term.Info().ID || got.Saved.AgentID != s.ID || got.Saved.ConversationID != "c1" || got.Pid != term.Pid() ||
+	if got.Saved.TerminalID != term.Info().ID || got.Saved.AgentID != s.ID || got.Saved.ConversationID != "c1" || got.FD != 0 ||
 		got.Agent == nil || got.Agent.Named != "Fix login" || got.Agent.Epoch != s.Epoch || got.Agent.Seq != s.MaxSeq {
 		t.Fatalf("handed = %+v", got)
 	}
 	if bg := got.Agent.Background; bg.Tasks["bt1"] != "t1" || len(bg.Lasting) != 1 || bg.Lasting[0] != "t1" {
 		t.Fatalf("handed background = %+v", bg)
-	}
-	f := handoff.File{Format: handoff.Format, Terminals: terms}
-	if err := handoff.Check(f); err != nil {
-		t.Fatalf("before cancel: %v", err)
-	}
-	d.CancelHandoff()
-	if handoff.Check(f) == nil {
-		t.Fatal("the pty still survives exec after CancelHandoff")
 	}
 }
 
@@ -58,11 +47,8 @@ func TestAHandedOverTerminalKeepsItsLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(term.Close)
-	terms, err := d.Handoff()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer d.CancelHandoff()
+	terms := d.Carry()
+	defer d.Release()
 	if len(terms) != 1 || terms[0].Saved.Local != "l1" {
 		t.Fatalf("handed = %+v", terms)
 	}

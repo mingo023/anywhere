@@ -1,5 +1,6 @@
-// Package handoff is the file one pocketd leaves for the binary it execs
-// into: its live Terminals, their open pty fds, and their Agents.
+// Package handoff is the file one pocketd leaves for the next: its Terminals
+// and their Agents, and the fds an upgrade's exec keeps open. A pocketd from
+// before holders also handed down each Terminal's pty fd.
 package handoff
 
 import (
@@ -14,9 +15,10 @@ import (
 )
 
 // Format is the format this release writes; MinFormat is the oldest it
-// reads. A release must read the file the release before it wrote.
+// reads. A release must read the file the release before it wrote. A release
+// before holders refuses format 2 instead of orphaning every holder.
 const (
-	Format    = 1
+	Format    = 2
 	MinFormat = 1
 )
 
@@ -25,17 +27,20 @@ type File struct {
 	Terminals []Terminal `json:"terminals"`
 	// MCPFD is the open MCP listener the new pocketd takes over; 0 when none came.
 	MCPFD int `json:"mcpFd,omitempty"`
+	// LockFD is pocketd.lock, held across exec; 0 when none came.
+	LockFD int `json:"lockFd,omitempty"`
 }
 
 type Terminal struct {
-	Saved  state.Terminal `json:"saved"`
-	Cmd    string         `json:"cmd"`
-	Args   []string       `json:"args,omitempty"`
-	Cwd    string         `json:"cwd"`
-	FD     int            `json:"fd"`
-	Pid    int            `json:"pid"`
-	Screen []byte         `json:"screen"`
-	Agent  *Agent         `json:"agent,omitempty"`
+	Saved state.Terminal `json:"saved"`
+	Cmd   string         `json:"cmd"`
+	Args  []string       `json:"args,omitempty"`
+	Cwd   string         `json:"cwd"`
+	// FD and Pid are 0 under a holder.
+	FD     int    `json:"fd"`
+	Pid    int    `json:"pid"`
+	Screen []byte `json:"screen"`
+	Agent  *Agent `json:"agent,omitempty"`
 }
 
 // Agent is what an Agent keeps across the exec beyond its saved entry.

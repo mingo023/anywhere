@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"testing"
 
+	"pocketd/internal/holder"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -220,7 +221,9 @@ func TestAHostPocketdKilledMidTaskCancelsItSayingTheHostWentAway(t *testing.T) {
 	phone.Prompt(parent, `mcp delegate_task {"task":"hang","target":{"environmentId":"devbox"},"isolation":"shared"}`)
 	hostTask(mac, phone, parent, 1, "working")
 
+	// The host machine goes down: its pocketd and the child with it.
 	host.Stop(syscall.SIGKILL)
+	holder.EndAll(holder.Dir(host.Home), 0)
 	host.up()
 
 	if task := settledAndWoken(mac, phone, parent, "cancelled"); !strings.Contains(task.Error, "devbox") {

@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"errors"
 	"os"
 
 	"golang.org/x/sys/windows"
@@ -17,3 +18,9 @@ func lockNB(f *os.File, exclusive bool) error {
 	}
 	return windows.LockFileEx(windows.Handle(f.Fd()), flags, 0, 1, 0, &windows.Overlapped{OffsetHigh: 0x7fffffff})
 }
+
+func (l *Lock) Keep() (int, error) {
+	return 0, errors.New("lock: Windows can't keep a lock across exec")
+}
+
+func Adopt(fd int, home string) *Lock { return nil }

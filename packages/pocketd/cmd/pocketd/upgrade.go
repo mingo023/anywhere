@@ -21,6 +21,7 @@ import (
 	"pocketd/internal/events"
 	"pocketd/internal/handoff"
 	"pocketd/internal/host"
+	"pocketd/internal/lock"
 	"pocketd/internal/ops"
 	"pocketd/internal/proto"
 )
@@ -30,11 +31,13 @@ var (
 	errNoHandoff = errors.New("Windows can't hand terminals to a new pocketd; restart it instead, which ends its terminals")
 )
 
-// upgrader hands pocketd's live state to the binary at exe and execs it in
-// this pid (ADR 0005).
+// upgrader execs the binary at exe in this pid. Holders keep the Terminals
+// running (ADR 0008); the exec hands down each Agent's place, the lock and the
+// MCP listener, so nothing notices but a reconnect.
 type upgrader struct {
 	exe, home string
 	d         *daemon.Daemon
+	lock      *lock.Lock
 	starting  func() bool
 	evs       *events.Log
 	mon       *host.Monitor
@@ -60,13 +63,13 @@ func (u *upgrader) run() error {
 	if err != nil {
 		return u.failed("", "not_runnable", err)
 	}
-	terms, err := u.d.Handoff()
-	if err != nil {
-		u.d.CancelHandoff()
-		return u.failed(to, "pause", err)
-	}
 	path := handoff.Path(u.home)
-	file := handoff.File{Format: handoff.Format, Terminals: terms}
+	file := handoff.File{Format: handoff.Format, Terminals: u.d.Carry()}
+	if file.LockFD, err = u.lock.Keep(); err != nil {
+		u.d.Release()
+		return u.failed(to, "lock", err)
+	}
+	defer handoff.Release(file.LockFD)
 	if u.mcp != nil {
 		if file.MCPFD, err = handoff.Keep(u.mcp); err != nil {
 			log.Printf("upgrade: mcp listener stays behind: %v", err)
@@ -92,7 +95,7 @@ func (u *upgrader) run() error {
 }
 
 func (u *upgrader) abort(path, to, reason string, err error) error {
-	u.d.CancelHandoff()
+	u.d.Release()
 	os.Remove(path)
 	return u.failed(to, reason, err)
 }
@@ -120,8 +123,8 @@ func binaryVersion(exe string) (string, error) {
 	return v, nil
 }
 
-// dryRun has the new binary check the handoff file. It inherits the pty fds,
-// since Handoff cleared their close-on-exec.
+// dryRun has the new binary check the handoff file. It inherits the fds the
+// file names, which survive exec.
 func dryRun(exe, path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

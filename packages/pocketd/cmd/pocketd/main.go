@@ -60,6 +60,8 @@ func main() {
 		err = configSet(sock, os.Args[3], os.Args[4], os.Stdout)
 	case os.Args[1] == "hook":
 		err = hook(sock)
+	case slices.Equal(os.Args[1:], []string{"hold"}):
+		err = hold()
 	case os.Args[1] == "attach" && len(os.Args) == 3:
 		code, err = run(sock, os.Args[2], "", nil)
 	case os.Args[1] == "pair" && slices.Contains(os.Args[2:], "--json"):

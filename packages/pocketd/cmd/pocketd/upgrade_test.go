@@ -13,6 +13,7 @@ import (
 	"pocketd/internal/handoff"
 	"pocketd/internal/host"
 	"pocketd/internal/hub"
+	"pocketd/internal/lock"
 	"pocketd/internal/terminal"
 )
 
@@ -25,7 +26,7 @@ func fakePocketd(t *testing.T) string {
 	return f
 }
 
-func TestAFailedDryRunResumesTheTerminalsAndFlagsTheHost(t *testing.T) {
+func TestAFailedDryRunLeavesTheTerminalsRunningAndFlagsTheHost(t *testing.T) {
 	d := &daemon.Daemon{Terminals: terminal.NewManager(), Agents: agent.NewRegistry(hub.New())}
 	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: "sh", Args: []string{"-c", `read x; echo "got:$x"; sleep 5`}, Cols: 40, Rows: 5})
 	if err != nil {
@@ -33,7 +34,13 @@ func TestAFailedDryRunResumesTheTerminalsAndFlagsTheHost(t *testing.T) {
 	}
 	t.Cleanup(term.Close)
 	mon := host.NewMonitor()
-	u := &upgrader{exe: fakePocketd(t), home: t.TempDir(), d: d, starting: func() bool { return false }, mon: mon}
+	home := t.TempDir()
+	held, err := lock.Acquire(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { held.Close() })
+	u := &upgrader{exe: fakePocketd(t), home: home, d: d, lock: held, starting: func() bool { return false }, mon: mon}
 
 	if err := u.run(); err == nil || !strings.Contains(err.Error(), "check") {
 		t.Fatalf("err = %v", err)
