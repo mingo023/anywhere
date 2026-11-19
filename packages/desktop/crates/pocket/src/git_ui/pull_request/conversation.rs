@@ -1,5 +1,5 @@
 use super::body::body_view;
-use super::card::{card, face, small, small_with};
+use super::card::{card, small, small_with};
 use super::comments::Shown;
 use super::timeline::{Entry, timeline};
 use super::to_fix;
@@ -14,7 +14,7 @@ use theme::*;
 use ui::Variant;
 
 /// Who said it and when, over what they said, indented under their name.
-fn said_card(id: impl Into<ElementId>, author: &str, when: String) -> (Stateful<Div>, Div) {
+fn said_card(id: impl Into<ElementId>, face: Div, author: &str, when: String) -> (Stateful<Div>, Div) {
     let head = div()
         .pt(px(9.))
         .pr(px(8.))
@@ -23,7 +23,7 @@ fn said_card(id: impl Into<ElementId>, author: &str, when: String) -> (Stateful<
         .items_center()
         .gap(px(7.))
         .text_size(px(12.5))
-        .child(face(author, 20.))
+        .child(face)
         .child(div().min_w_0().truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(author.to_string()))
         .child(div().flex_none().text_color(TEXT_4).child(when))
         .child(div().flex_1());
@@ -141,7 +141,7 @@ impl Desktop {
             Entry::Thread(i) => self.conv_thread(i, shown, &pr.threads[i], cx),
             Entry::Review { at, threads } => {
                 let r = &pr.submitted[at];
-                let (card, head) = said_card(("pr-review", k), &r.author, ago(r.at as i64, now));
+                let (card, head) = said_card(("pr-review", k), self.face(&r.author, 20.), &r.author, ago(r.at as i64, now));
                 let has_body = !r.body.trim().is_empty();
                 let quote = has_body.then(|| {
                     let said = r.body.clone();
@@ -157,7 +157,7 @@ impl Desktop {
             Entry::Note(i) => {
                 let n = &pr.notes[i];
                 let sending = n.id.is_empty();
-                let (card, head) = said_card(("pr-note", k), &n.author, if sending { "Sending…".into() } else { ago(n.at as i64, now) });
+                let (card, head) = said_card(("pr-note", k), self.face(&n.author, 20.), &n.author, if sending { "Sending…".into() } else { ago(n.at as i64, now) });
                 let link = (!n.url.is_empty()).then(|| {
                     let url = n.url.clone();
                     ui::icon_button_sized(("pr-note-link", k), "copy", 22., TEXT_3)
@@ -190,7 +190,7 @@ impl Desktop {
                 .hover(|s| s.bg(FILL_3))
                 .text_size(px(12.5))
                 .text_color(TEXT_4)
-                .child(face(&me, 20.))
+                .child(self.face(&me, 20.))
                 .child("Leave a comment…")
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_comment(window, cx)))
                 .into_any_element();

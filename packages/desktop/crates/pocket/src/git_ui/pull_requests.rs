@@ -275,7 +275,8 @@ impl Desktop {
                 if let (true, Ok(Some(pr))) = (lost, &mut result) {
                     pr.threads = d.prs.get(&tree).map(|p| p.threads.clone()).unwrap_or_default();
                 }
-                if d.prs.apply(tree, started, result, Instant::now()) {
+                if d.prs.apply(tree.clone(), started, result, Instant::now()) {
+                    d.fetch_avatars(&tree, cx);
                     d.refresh_pr_diffs(cx);
                     d.activity_changed();
                     cx.notify();

@@ -1,4 +1,4 @@
-use super::card::{face, pill, small, small_with, thread_chip};
+use super::card::{pill, small, small_with, thread_chip};
 use super::{opening, spot};
 use crate::desktop::Desktop;
 use crate::util::{ago, now_ms};
@@ -148,7 +148,7 @@ impl Desktop {
                 .flex()
                 .items_start()
                 .gap(px(8.))
-                .child(face(&c.author, 20.))
+                .child(self.face(&c.author, 20.))
                 .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(name).child(div().text_size(px(12.5)).text_color(TEXT_BODY).child(c.body.trim().to_string())))
                 .into_any_element()
         };
@@ -156,7 +156,7 @@ impl Desktop {
             None => t.comments.iter().map(comment).collect(),
             Some(hidden) => {
                 let faces = authors(&t.comments[hidden.clone()]).into_iter().take(3).enumerate().map(|(k, a)| {
-                    face(a, 16.).shadow(vec![ui::ring(SURFACE, 1.5)]).when(k > 0, |d| d.ml(px(-3.)))
+                    self.face(a, 16.).shadow(vec![ui::ring(SURFACE, 1.5)]).when(k > 0, |d| d.ml(px(-3.)))
                 });
                 let more = div()
                     .id(("pr-more", i))
@@ -284,7 +284,7 @@ impl Desktop {
                 .text_size(px(12.5))
                 .line_height(px(18.))
                 .text_color(TEXT_BODY)
-                .child(face(&c.author, 20.))
+                .child(self.face(&c.author, 20.))
                 .child(div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(c.body.trim().to_string()))
                 .into_any_element()
         };

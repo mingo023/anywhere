@@ -3,6 +3,7 @@ use crate::desktop::Desktop;
 use git::github::{Check, Gate, Outcome, Pr, PrState, Review, ThreadState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::path::Path;
 use theme::*;
 use ui::Variant;
 
@@ -37,8 +38,8 @@ pub(super) fn thread_chip(state: ThreadState) -> Option<Div> {
     }
 }
 
-/// `login`'s initial on a colour of its own, the same for them everywhere in the panel.
-pub(super) fn face(login: &str, size: f32) -> Div {
+/// `login`'s GitHub picture once it's saved, over their initial on a colour of its own.
+pub(super) fn face(login: &str, size: f32, picture: Option<&Path>) -> Div {
     let hue = login.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b.into())) % 360;
     div()
         .size(px(size))
@@ -52,6 +53,7 @@ pub(super) fn face(login: &str, size: f32) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(gpui_kit::white())
         .child(initial(login))
+        .when_some(picture, |d, p| d.relative().child(img(p.to_path_buf()).absolute().top_0().left_0().size(px(size)).rounded_full()))
 }
 
 fn initial(login: &str) -> String {
@@ -101,6 +103,10 @@ pub(super) fn list_head(left: impl IntoElement, right: impl IntoElement) -> Div 
 }
 
 impl Desktop {
+    pub(super) fn face(&self, login: &str, size: f32) -> Div {
+        face(login, size, self.pr.avatars.path(login))
+    }
+
     /// Every check, then who reviewed and what holds the merge back.
     pub(crate) fn pr_checks_tab(&self, tree: &str, pr: &Pr, cx: &mut Context<Self>) -> Stateful<Div> {
         let fixing = self.pr.track.fixing(tree, pr);

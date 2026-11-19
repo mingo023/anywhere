@@ -1,4 +1,4 @@
-use super::card::{card, face, list_head, list_row};
+use super::card::{card, list_head, list_row};
 use crate::desktop::Desktop;
 use crate::util::{ago, now_ms};
 use git::github::{Pr, base_branch};
@@ -37,7 +37,7 @@ impl Desktop {
                     .map(|(i, c)| {
                         let url = format!("{}/commits/{}", pr.url, c.oid);
                         row(("pr-commit", i), i)
-                            .child(face(&c.author, 20.))
+                            .child(this.face(&c.author, 20.))
                             .child(div().flex_1().min_w_0().truncate().text_color(TEXT).child(c.subject.clone()))
                             .child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(c.oid.chars().take(7).collect::<String>()))
                             .child(div().flex_none().w(px(32.)).flex().justify_end().text_size(px(11.5)).text_color(TEXT_4).child(ago(c.at as i64, now)))

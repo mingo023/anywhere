@@ -1,4 +1,4 @@
-use super::card::{face, small};
+use super::card::small;
 use super::{PrTab, card_busy, fix_summary, fixing_text, resolving_text, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
@@ -36,14 +36,14 @@ fn label_pill(l: &Label) -> Div {
     div().h(px(20.)).px(px(8.)).flex().flex_none().items_center().rounded(px(10.)).bg(c(0x24)).border_1().border_color(c(0x66)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(c(0xff)).child(l.name.clone())
 }
 
-fn reviewer(login: &str, verdict: Review) -> Div {
+fn reviewer(face: Div, verdict: Review) -> Div {
     let (bg, mark) = match verdict {
         Review::Approved => (SUCCESS, "check"),
         Review::ChangesRequested => (FAILED, "x"),
         _ => (TEXT_4, "clock"),
     };
     let badge = div().absolute().right(px(-3.)).bottom(px(-3.)).size(px(11.)).flex().items_center().justify_center().rounded_full().bg(bg).shadow(vec![ui::ring(SIDE, 1.5)]).child(icon(mark, 7., ON_PRIMARY));
-    div().relative().child(face(login, 20.)).child(badge)
+    div().relative().child(face).child(badge)
 }
 
 impl Desktop {
@@ -97,10 +97,10 @@ impl Desktop {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .child(face(&pr.author, 20.))
+                .child(self.face(&pr.author, 20.))
                 .child(div().min_w_0().truncate().flex().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(pr.author.clone())).child(format!("opened {}", ago(pr.opened as i64, now_ms()))))
         });
-        let reviewers = (!seen.is_empty()).then(|| div().flex().flex_none().items_center().gap(px(6.)).child(div().w(px(1.)).h(px(14.)).bg(SEPARATOR_STRONG)).children(seen.iter().map(|(w, r)| reviewer(w, *r))));
+        let reviewers = (!seen.is_empty()).then(|| div().flex().flex_none().items_center().gap(px(6.)).child(div().w(px(1.)).h(px(14.)).bg(SEPARATOR_STRONG)).children(seen.iter().map(|(w, r)| reviewer(self.face(w, 20.), *r))));
         let people = div().min_h(px(22.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_3).children(opened).children(reviewers);
         let labels = (!pr.labels.is_empty()).then(|| div().min_h(px(22.)).flex().flex_wrap().items_center().gap(px(6.)).children(pr.labels.iter().map(label_pill)));
         div()

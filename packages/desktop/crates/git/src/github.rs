@@ -1,6 +1,9 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::path::Path;
+use std::process::Command;
+use std::time::Duration;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Pr {
@@ -249,6 +252,43 @@ pub fn reply_argv(thread: &str, body: &str) -> Vec<String> {
 /// Comments on PR `number`, the body read from stdin.
 pub fn comment_argv(number: u32) -> Vec<String> {
     ["gh", "pr", "comment", &number.to_string(), "--body-file", "-"].map(String::from).to_vec()
+}
+
+/// Everyone the PR shows a face for: who opened it, reviewed it, commented on it or wrote a commit in it.
+pub fn people(pr: &Pr) -> Vec<&str> {
+    let mut all: Vec<&str> = [pr.author.as_str()]
+        .into_iter()
+        .chain(pr.reviews.iter().map(|(who, _)| who.as_str()))
+        .chain(pr.requested.iter().map(String::as_str))
+        .chain(pr.submitted.iter().map(|s| s.author.as_str()))
+        .chain(pr.notes.iter().map(|n| n.author.as_str()))
+        .chain(pr.threads.iter().flat_map(|t| t.comments.iter().map(|c| c.author.as_str())))
+        .chain(pr.commits.iter().map(|c| c.author.as_str()))
+        .filter(|login| !login.is_empty())
+        .collect();
+    all.sort_unstable();
+    all.dedup();
+    all
+}
+
+/// `login`'s picture on the host the PR at `pr_url` is on; `None` for what can't be a login, like a commit author's plain name.
+pub fn avatar_url(pr_url: &str, login: &str) -> Option<String> {
+    let host = pr_url.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
+    let login_like = !login.is_empty() && login.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    (login_like && host.starts_with("https://")).then(|| format!("{host}/{login}.png?size=80"))
+}
+
+const AVATAR_KEPT: Duration = Duration::from_secs(7 * 24 * 3600);
+
+/// Saves the picture at `url` to `to`, unless a copy younger than a week is there; an older copy stays when the download fails. Whether `to` holds one now.
+pub fn fetch_avatar(url: &str, to: &Path) -> bool {
+    let fresh = std::fs::metadata(to).and_then(|m| m.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|age| age < AVATAR_KEPT));
+    if fresh {
+        return true;
+    }
+    let part = to.with_extension("part");
+    let got = Command::new("curl").args(["-fsSL", "--max-time", "15", "-o"]).arg(&part).arg(url).status().is_ok_and(|s| s.success());
+    (got && std::fs::rename(&part, to).is_ok()) || to.exists()
 }
 
 pub fn resolve_argv(thread: &str, resolved: bool) -> Vec<String> {
@@ -597,6 +637,28 @@ fn epoch_ms(stamp: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_avatar_comes_from_the_prs_own_host_and_only_for_a_login() {
+        assert_eq!(avatar_url("https://github.com/acme/app/pull/7", "rina-k").as_deref(), Some("https://github.com/rina-k.png?size=80"));
+        assert_eq!(avatar_url("https://ghe.corp.io/acme/app/pull/7", "rina").as_deref(), Some("https://ghe.corp.io/rina.png?size=80"));
+        assert_eq!(avatar_url("https://github.com/acme/app/pull/7", "Rina Kato"), None);
+        assert_eq!(avatar_url("https://github.com/acme/app/pull/7", "../x"), None);
+        assert_eq!(avatar_url("", "rina"), None);
+    }
+
+    #[test]
+    fn people_counts_each_login_once_and_skips_none() {
+        let pr = Pr {
+            author: "mingo".into(),
+            reviews: vec![("rina".into(), Review::Approved)],
+            requested: vec!["tom".into()],
+            notes: vec![Note { author: "rina".into(), ..Default::default() }],
+            commits: vec![PrCommit { author: String::new(), ..Default::default() }],
+            ..Default::default()
+        };
+        assert_eq!(people(&pr), ["mingo", "rina", "tom"]);
+    }
 
     const OPEN: &str = r#"{"isDraft":false,"number":42,"state":"OPEN","title":"Fix the flaky snapshot","url":"https://github.com/acme/app/pull/42","statusCheckRollup":[
         {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},

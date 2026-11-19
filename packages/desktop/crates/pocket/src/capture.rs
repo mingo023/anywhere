@@ -34,7 +34,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 297] = [
+const STEPS: [(&str, Step); 298] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -1002,6 +1002,12 @@ const STEPS: [(&str, Step); 297] = [
     ("pr-files", |d, _, _| d.pr.track.tab = PrTab::Files),
     ("pr-all", |d, _, _| d.pr.track.all = true),
     ("pr-comment", |d, window, cx| d.open_comment(window, cx)),
+    // Downloads from GitHub, so only the captures that show the pictures ask for it.
+    ("pr-avatars", |d, _, cx| {
+        if let Some(tree) = d.cwd() {
+            d.fetch_avatars(&tree, cx);
+        }
+    }),
     ("pr-diff", |d, _, cx| {
         let first = d.shown_pr().and_then(|(_, pr)| pr.threads.first().map(|t| t.id.clone()));
         if let Some(id) = first {

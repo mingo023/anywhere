@@ -1,3 +1,4 @@
+mod avatars;
 mod body;
 mod card;
 mod comments;
@@ -387,6 +388,7 @@ pub(crate) struct PullRequest {
     pub(crate) replying: Option<String>,
     pub(crate) notice: Option<Notice>,
     pub(crate) track: Track,
+    pub(crate) avatars: avatars::Avatars,
 }
 
 impl PullRequest {
@@ -428,6 +430,7 @@ impl PullRequest {
             commits_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
             conversation_scroll: ScrollHandle::new(),
+            avatars: avatars::Avatars::default(),
             composing: None,
             writing: false,
             busy: None,
