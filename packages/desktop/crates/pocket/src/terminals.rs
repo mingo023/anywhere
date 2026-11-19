@@ -75,9 +75,10 @@ impl Terminals {
     }
 
     /// Records pocketd `host`'s list; returns the terminals closed here that it still runs, and every pocketd's terminals together.
+    /// Only `host`'s own list can say that: another pocketd's was heard earlier and may name a terminal since gone, which a second close would hear of as "no such terminal".
     pub(crate) fn heard(&mut self, host: Option<&str>, items: Vec<Info>) -> (Vec<String>, Vec<Info>) {
-        let items = self.lists.listed(host, items);
-        (self.unclosed(&items), items)
+        let unclosed = self.unclosed(&items);
+        (unclosed, self.lists.listed(host, items))
     }
 
     /// Adopts pocketd's terminal list, minus the ones closed here; returns the ids that still need an attach.
