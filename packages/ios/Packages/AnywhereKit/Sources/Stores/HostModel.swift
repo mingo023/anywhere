@@ -43,6 +43,7 @@ public final class HostModel: Identifiable {
     @ObservationIgnored private var listener: Task<Void, Never>?
     /// The app is in front, as the scene last said; a new hello makes pocketd think so until it hears otherwise.
     @ObservationIgnored private var active = true
+    @ObservationIgnored private var leftAt: ContinuousClock.Instant?
     @ObservationIgnored private let now: @MainActor () -> Date
 
     public init(credentials: Credentials, connection: DaemonConnection? = nil, now: @escaping @MainActor () -> Date = { Date() }) {
@@ -89,17 +90,21 @@ public final class HostModel: Identifiable {
     }
 
     /// In the background the phone stops being Seen at once, so pocketd pushes what ends meanwhile; in front it redials
-    /// now, or checks a link that looks up is still there.
+    /// now, or checks a link that looks up is still there; after a long background it dials afresh.
     public func scene(active: Bool) {
         self.active = active
         let connection = connection
+        var away = Duration.zero
+        if active {
+            if let leftAt { away = .now - leftAt }
+            leftAt = nil
+        } else if leftAt == nil {
+            leftAt = .now
+        }
         // A link that stayed up says hello again to no one, so the chat on screen tells pocketd it's viewed once more.
         let view = sceneView(front: hello?.has(Caps.front) ?? false)
         Task {
-            if active {
-                await connection.reconnectNow()
-                await connection.verify()
-            }
+            if active { await connection.foregrounded(after: away) }
             if let view { _ = try? await connection.send(.agentView(view)) }
         }
     }

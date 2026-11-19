@@ -230,6 +230,40 @@ struct DaemonConnectionTests {
         #expect(try await connection.request(.agentList) == .ack)
     }
 
+    @Test("coming back after a long background drops the socket, fails what waited on it, and dials afresh at once")
+    func foregroundedAfterAWhile() async throws {
+        let server = try await TestServer { peer, frame in
+            switch frame.message {
+            case .hello: peer.send(ServerFrame(id: frame.id, .helloOk(helloOk)))
+            case .agentCompact: break
+            default: peer.send(ServerFrame(id: frame.id, .ack))
+            }
+        }
+        defer { server.stop() }
+        let (connection, recorder) = await connect(server, backoff: Backoff(first: 30, cap: 30))
+        defer { Task { await connection.stop() } }
+        #expect(await recorder.wait { $0.contains(where: \.isConnected) })
+        let waiting = Task { try await connection.request(.agentCompact(.init(agentId: "a")), timeout: .seconds(30)) }
+        try await Task.sleep(for: .milliseconds(100))
+        await connection.foregrounded(after: .seconds(40))
+        await #expect(throws: DaemonError.closed) { try await waiting.value }
+        #expect(await recorder.wait { $0.filter(\.isConnected).count == 2 })
+        #expect(server.accepted == 2)
+    }
+
+    @Test("coming back after a short background keeps the socket")
+    func foregroundedSoon() async throws {
+        let server = try await TestServer(script: helloThenAck)
+        defer { server.stop() }
+        let (connection, recorder) = await connect(server)
+        defer { Task { await connection.stop() } }
+        #expect(await recorder.wait { $0.contains(where: \.isConnected) })
+        await connection.foregrounded(after: .seconds(1))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(server.accepted == 1)
+        #expect(await connection.isOnline)
+    }
+
     @Test("a request with no reply times out, and its late reply is dropped")
     func timeout() async throws {
         let server = try await TestServer { peer, frame in
