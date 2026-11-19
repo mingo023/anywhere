@@ -302,7 +302,7 @@ impl Desktop {
         }).collect();
         let none = rows.is_empty().then(|| div().h(px(30.)).px(px(8.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("Add a project from the sidebar"));
         let menu = open.then(|| ui::dropdown(36., ui::menu_in("editor-project-in", self.popup("editor-project-menu", 260., cx).gap(px(2.)).children(rows).children(none))));
-        div().relative().child(self.menu_toggle(chip, Menu::Project, cx)).children(menu)
+        div().relative().child(self.menu_toggle(chip, Menu::Project, open, cx)).children(menu)
     }
 
     fn checkout_chip(&self, worktree: bool, cx: &mut Context<Self>) -> Div {
@@ -317,7 +317,7 @@ impl Desktop {
             }))
         }).collect();
         let menu = open.then(|| ui::dropdown(36., ui::menu_in("editor-checkout-in", self.popup("editor-checkout-menu", 300., cx).gap(px(2.)).children(rows))));
-        div().relative().child(self.menu_toggle(chip, Menu::Checkout, cx)).children(menu)
+        div().relative().child(self.menu_toggle(chip, Menu::Checkout, open, cx)).children(menu)
     }
 
     /// The branch each run's new worktree starts from; the menu lists the folder's local branches, as a session's base.
@@ -329,17 +329,16 @@ impl Desktop {
         let chip = ui::menu_chip("editor-branch", open)
             .child(icon("branch", 14., TEXT_3))
             .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label.clone().unwrap_or_else(|| "Default branch".into())))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                this.toggle_menu(Menu::Branch, cx);
-                if this.automations.menu == Some(Menu::Branch) {
-                    search_input.update(cx, |s, cx| {
-                        s.set_value("", window, cx);
-                        s.focus(window, cx);
-                    });
-                }
-            }));
+            .child(icon("chevron-down", 12., TEXT_4));
+        let chip = ui::popover_trigger(chip, open, cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+            this.toggle_menu(Menu::Branch, cx);
+            if this.automations.menu == Some(Menu::Branch) {
+                search_input.update(cx, |s, cx| {
+                    s.set_value("", window, cx);
+                    s.focus(window, cx);
+                });
+            }
+        }));
         let menu = open.then(|| {
             let search = f.branch_search.read(cx).value().to_string();
             let now = now_ms();

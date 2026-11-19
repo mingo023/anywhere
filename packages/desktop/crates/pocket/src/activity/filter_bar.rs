@@ -17,30 +17,31 @@ impl Desktop {
         let open = self.activity.menu == Some(menu);
         let picked = self.activity.filters.picks(menu).len();
         let text = if picked == 0 { menu.label().to_string() } else { format!("{} · {picked}", menu.label()) };
-        let chip = div()
-            .id(("activity-filter-chip", menu as usize))
-            .h(px(26.))
-            .px(px(10.))
-            .flex()
-            .items_center()
-            .gap(px(5.))
-            .rounded(px(13.))
-            .border_1()
-            .border_color(SEPARATOR)
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_2))
-            .when(open || picked > 0, |d| d.bg(FILL_3))
-            .text_size(px(12.5))
-            .text_color(TEXT_2)
-            .child(text)
-            .child(icon("chevron-down", 11., TEXT_3))
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                let was = this.activity.menu;
+        let chip = ui::popover_trigger(
+            div()
+                .id(("activity-filter-chip", menu as usize))
+                .h(px(26.))
+                .px(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .rounded(px(13.))
+                .border_1()
+                .border_color(SEPARATOR)
+                .cursor_pointer()
+                .hover(|s| s.bg(FILL_2))
+                .when(open || picked > 0, |d| d.bg(FILL_3))
+                .text_size(px(12.5))
+                .text_color(TEXT_2)
+                .child(text)
+                .child(icon("chevron-down", 11., TEXT_3)),
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 this.close_menus();
-                this.activity.menu = (was != Some(menu)).then_some(menu);
+                this.activity.menu = Some(menu);
                 cx.notify();
-            }));
+            }),
+        );
         div().relative().child(chip).when(open, |d| d.child(self.activity_filter_menu(menu, cx)))
     }
 

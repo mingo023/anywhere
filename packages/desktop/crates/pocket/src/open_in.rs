@@ -41,7 +41,6 @@ pub(crate) struct OpenIn {
     apps: Installed,
     icons: HashMap<&'static str, PathBuf>,
     pub(crate) menu: Option<Flyouts>,
-    over_chevron: bool,
 }
 
 impl OpenIn {
@@ -80,9 +79,9 @@ impl OpenIn {
         }
     }
 
-    /// True when the press closed the menu. A press on the chevron leaves that to its click, which would otherwise reopen it.
+    /// True when the press closed the menu.
     fn press_outside(&mut self) -> bool {
-        !self.over_chevron && self.menu.take().is_some()
+        self.menu.take().is_some()
     }
 }
 
@@ -151,10 +150,9 @@ impl Desktop {
         self.show_notice(Notice::Copied(folder), cx);
     }
 
-    fn toggle_open_in(&mut self, cx: &mut Context<Self>) {
-        let opening = self.open_in.menu.is_none();
+    fn show_open_in(&mut self, cx: &mut Context<Self>) {
         self.close_menus();
-        self.open_in.menu = opening.then(Flyouts::default);
+        self.open_in.menu = Some(Flyouts::default());
         cx.notify();
     }
 
@@ -192,21 +190,23 @@ impl Desktop {
             .hover(|s| s.bg(FILL_2))
             .child(self.opener_icon(self.selected_opener(), 16.))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_folder_in(this.selected_opener(), cx)));
-        let chevron = div()
-            .id("open-in-chevron")
-            .w(px(18.))
-            .h(px(28.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(6.))
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_2))
-            .when(flyouts.is_some(), |d| d.bg(FILL_2))
-            .child(icon("chevron-down", 12., TEXT_3))
-            .on_hover(cx.listener(|this, hovered: &bool, _, _| this.open_in.over_chevron = *hovered))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_open_in(cx)));
+        let chevron = ui::popover_trigger(
+            div()
+                .id("open-in-chevron")
+                .w(px(18.))
+                .h(px(28.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(FILL_2))
+                .when(flyouts.is_some(), |d| d.bg(FILL_2))
+                .child(icon("chevron-down", 12., TEXT_3)),
+            flyouts.is_some(),
+            cx.listener(|this, _: &MouseDownEvent, _, cx| this.show_open_in(cx)),
+        );
         Some(
             div()
                 .relative()
@@ -303,12 +303,8 @@ mod tests {
     }
 
     #[test]
-    fn a_press_outside_closes_the_menu_but_the_chevron_leaves_it_to_its_click() {
+    fn a_press_outside_closes_the_menu() {
         let mut state = shown();
-        state.over_chevron = true;
-        assert!(!state.press_outside());
-        assert!(state.menu.is_some());
-        state.over_chevron = false;
         assert!(state.press_outside());
         assert_eq!(state.menu, None);
         assert!(!state.press_outside());

@@ -17,15 +17,15 @@ impl Desktop {
             },
         ));
         let open = self.changes.menu;
-        // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
-        let more = icon_button_sized("changes-more", "more", 26., TEXT_3).when(open, |d| d.bg(FILL_3)).capture_any_mouse_down(cx.listener(
-            |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.changes.menu = !this.changes.menu;
+        let more = ui::popover_trigger(
+            icon_button_sized("changes-more", "more", 26., TEXT_3).when(open, |d| d.bg(FILL_3)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.changes.menu = true;
                 this.changes.commit_menu = false;
                 cx.notify();
-            },
-        ));
+            }),
+        );
         let pr = self.cwd().and_then(|tree| {
             let pr = self.prs.get(&tree)?;
             Some(pull_requests::chip("changes-pr", pr, self.pr_verdict(&tree, pr).0).cursor_pointer().on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.show_pr_side(cx))))

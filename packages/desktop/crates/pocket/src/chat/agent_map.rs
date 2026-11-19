@@ -189,19 +189,18 @@ impl Desktop {
             return None;
         }
         let a = agent.id.clone();
-        let chip = super::super::composer::pill()
-            .id(id(format!("chat-agents:{}", agent.id)))
-            .cursor_pointer()
-            .text_color(if open { ACCENT } else { TEXT_2 })
-            .when(open, |d| d.bg(ACCENT_BG))
-            .hover(|s| s.bg(FILL_2))
-            .map(|d| if live { d.child(ui::dot(6., SUCCESS)) } else { d.child(icon("agent-map", 13., if open { ACCENT } else { TEXT_3 })) })
-            .child(div().font_weight(FontWeight::MEDIUM).child(label))
-            // As the model pill: in capture, so the map's own press-outside doesn't shut what this opens.
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                this.chat_toggle_map(&a, window, cx);
-            }));
+        let chip = ui::popover_trigger(
+            super::super::composer::pill()
+                .id(id(format!("chat-agents:{}", agent.id)))
+                .cursor_pointer()
+                .text_color(if open { ACCENT } else { TEXT_2 })
+                .when(open, |d| d.bg(ACCENT_BG))
+                .hover(|s| s.bg(FILL_2))
+                .map(|d| if live { d.child(ui::dot(6., SUCCESS)) } else { d.child(icon("agent-map", 13., if open { ACCENT } else { TEXT_3 })) })
+                .child(div().font_weight(FontWeight::MEDIUM).child(label)),
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_toggle_map(&a, window, cx)),
+        );
         Some(chip)
     }
 

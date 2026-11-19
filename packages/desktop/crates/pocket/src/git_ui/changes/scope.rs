@@ -13,27 +13,26 @@ impl Desktop {
         let read = against.and_then(|a| self.compare.view.get(&cwd, a)).and_then(|s| s.files.as_ref());
         let label = switch_label(scope, against);
         let open = self.compare.menu;
-        // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
-        let switch = div()
-            .id("changes-scope")
-            .h(px(24.))
-            .min_w_0()
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .rounded(px(6.))
-            .cursor_pointer()
-            .text_size(px(12.))
-            .text_color(TEXT_2)
-            .when(open, |d| d.bg(FILL_3))
-            .hover(|st| st.bg(FILL_2))
-            .child(div().min_w_0().truncate().child(label))
-            .child(icon("chevron-down", 10., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                this.toggle_compare_menu(window, cx);
-            }));
+        let switch = ui::popover_trigger(
+            div()
+                .id("changes-scope")
+                .h(px(24.))
+                .min_w_0()
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(TEXT_2)
+                .when(open, |d| d.bg(FILL_3))
+                .hover(|st| st.bg(FILL_2))
+                .child(div().min_w_0().truncate().child(label))
+                .child(icon("chevron-down", 10., TEXT_4)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_compare_menu(window, cx)),
+        );
         let totals = read.filter(|files| !files.is_empty()).map(|files| {
             let (added, removed) = git::totals(files);
             ui::meta_diff(added, removed, 11.)

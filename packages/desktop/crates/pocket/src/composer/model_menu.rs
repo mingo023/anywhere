@@ -311,10 +311,11 @@ impl Desktop {
         let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &levels, names);
         let detail: Vec<String> = effort.into_iter().chain(settings_shown(pick, self.launch_settings(&pick.provider, &pick.model))).collect();
         let (open, provider, opened_in) = (c.draft.menu == Some(Menu::Model), pick.provider.clone(), project.clone());
-        let chip = super::picker(model_effort_pill(&pick.provider, model, (!detail.is_empty()).then(|| detail.join(" \u{b7} "))), "composer-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-            cx.stop_propagation();
-            this.toggle_model_menu(slot, &provider, opened_in.as_deref(), window, cx);
-        }));
+        let chip = ui::popover_trigger(
+            super::picker(model_effort_pill(&pick.provider, model, (!detail.is_empty()).then(|| detail.join(" \u{b7} "))), "composer-model", open),
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, window, cx| this.toggle_model_menu(slot, &provider, opened_in.as_deref(), window, cx)),
+        );
         let menu = open.then(|| {
             let menu = div()
                 .id("composer-model-menu")

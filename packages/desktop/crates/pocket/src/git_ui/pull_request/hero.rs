@@ -208,7 +208,7 @@ impl Desktop {
             self.pr.merge_menu,
             Box::new(|this, _, cx| this.merge_pr(cx)),
             Box::new(|this, _, _| {
-                this.pr.merge_menu = !this.pr.merge_menu;
+                this.pr.merge_menu = true;
                 this.pr.ship_menu = false;
             }),
             menu,

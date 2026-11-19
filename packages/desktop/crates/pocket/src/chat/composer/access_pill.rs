@@ -26,12 +26,14 @@ impl Desktop {
             return Some(access_pill(access));
         }
         let open = self.chats.composer.draft.menu == Some(Menu::Access);
-        let chip = composer::picker(access_pill(access), "chat-access", open)
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
+        let chip = ui::popover_trigger(
+            composer::picker(access_pill(access), "chat-access", open),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.chats.composer.draft.toggle(Menu::Access);
                 cx.notify();
-            }));
+            }),
+        );
         let menu = open.then(|| {
             let id = agent.id.clone();
             let pick: Pick = Rc::new(move |this, access, cx| {

@@ -159,11 +159,14 @@ impl Desktop {
         };
         let open = self.accounts.menu.as_ref() == Some(&key);
         let toggle = key.clone();
-        let more = ui::icon_button_sized(SharedString::from(format!("{id}-more")), "more", 26., TEXT_3).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            this.accounts.menu = (!open).then(|| toggle.clone());
-            cx.notify();
-        }));
+        let more = ui::popover_trigger(
+            ui::icon_button_sized(SharedString::from(format!("{id}-more")), "more", 26., TEXT_3),
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                this.accounts.menu = Some(toggle.clone());
+                cx.notify();
+            }),
+        );
         let menu = open.then(|| self.account_menu(&id, key.clone(), a, name, cx));
         let can_default = !a.default && a.signed_in;
         let radio = div().id(SharedString::from(format!("{id}-default"))).flex_none().child(ui::radio(a.default)).when(!a.signed_in, |d| d.opacity(0.35)).when(can_default, |d| {

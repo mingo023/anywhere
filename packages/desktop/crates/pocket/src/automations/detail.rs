@@ -109,7 +109,7 @@ impl Desktop {
 
     fn automation_menu(&self, id: &str, cx: &mut Context<Self>) -> Div {
         let open = self.automations.menu == Some(Menu::More);
-        let button = self.menu_toggle(ui::icon_button("automation-more", "more"), Menu::More, cx);
+        let button = self.menu_toggle(ui::icon_button("automation-more", "more"), Menu::More, open, cx);
         let target = id.to_string();
         div().relative().child(button).when(open, |d| {
             let menu = ui::menu_in(

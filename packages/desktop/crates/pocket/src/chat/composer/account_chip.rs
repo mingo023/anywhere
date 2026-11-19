@@ -52,25 +52,27 @@ impl Desktop {
             div().flex().items_center().gap(px(5.)).child(bar(p, 22., 4.)).child(pct)
         });
         let open = matches!(self.chats.composer.draft.menu, Some(Menu::Usage { .. } | Menu::Switch));
-        let chip = div()
-            .id("chat-account")
-            .h(px(22.))
-            .px(px(6.))
-            .flex()
-            .items_center()
-            .gap(px(5.))
-            .rounded(px(6.))
-            .cursor_pointer()
-            .hover(|d| d.bg(FILL_2))
-            .when(open, |d| d.bg(FILL_2))
-            .child(provider_icon(&agent.provider, 12., TEXT_2))
-            .when(!a.label.is_empty(), |d| d.child(div().max_w(px(140.)).truncate().text_color(TEXT_2).child(a.label.clone())))
-            .children(meter)
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
+        let chip = ui::popover_trigger(
+            div()
+                .id("chat-account")
+                .h(px(22.))
+                .px(px(6.))
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_2))
+                .when(open, |d| d.bg(FILL_2))
+                .child(provider_icon(&agent.provider, 12., TEXT_2))
+                .when(!a.label.is_empty(), |d| d.child(div().max_w(px(140.)).truncate().text_color(TEXT_2).child(a.label.clone())))
+                .children(meter),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.chats.composer.draft.toggle_account();
                 cx.notify();
-            }));
+            }),
+        );
         let menu = open.then(|| self.chat_account_menu(agent, &host, a, cx));
         Some(div().relative().flex_none().child(chip).children(menu))
     }

@@ -196,11 +196,15 @@ impl Desktop {
     /// The header's sort button and its menu: new group, the sort, folding every project.
     fn organize_menu(&self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.organize.menu;
-        let button = icon_button_sized("aside-organize", "arrow-down-wide-narrow", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.close_menus();
-            this.sidebar.organize.menu = !open;
-            cx.notify();
-        }));
+        let button = ui::popover_trigger(
+            icon_button_sized("aside-organize", "arrow-down-wide-narrow", 22., TEXT_3).rounded(px(6.)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.close_menus();
+                this.sidebar.organize.menu = true;
+                cx.notify();
+            }),
+        );
         div().relative().child(button).when(open, |d| {
             let new = ui::menu_row("aside-new-group", "folder-plus", "New group", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.sidebar.organize.menu = false;

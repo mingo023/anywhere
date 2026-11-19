@@ -44,18 +44,20 @@ impl Desktop {
         let words = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(text);
         // At work for as long as it's active, like the agent's other live labels.
         let words = if active && !cx.reduce_motion() { words.child(shimmer(SharedString::from(format!("chat-goal-shimmer:{}", agent.id)), label, text)) } else { words.child(label) };
-        let chip = composer::pill()
-            .id("chat-goal")
-            .cursor_pointer()
-            .bg(if open { hover } else { fill })
-            .hover(move |s| s.bg(hover))
-            .child(icon("sparkle", 13., mark))
-            .child(words)
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
+        let chip = ui::popover_trigger(
+            composer::pill()
+                .id("chat-goal")
+                .cursor_pointer()
+                .bg(if open { hover } else { fill })
+                .hover(move |s| s.bg(hover))
+                .child(icon("sparkle", 13., mark))
+                .child(words),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.chats.composer.draft.toggle(Menu::Goal);
                 cx.notify();
-            }));
+            }),
+        );
         let menu = open.then(|| self.chat_goal_menu(agent, goal, cx));
         // The model pill's own padding and the bar's gap already sit right of the rule, so all its room goes left.
         let divider = div().w(px(1.)).h(px(16.)).ml(px(11.)).bg(SEPARATOR);
