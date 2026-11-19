@@ -35,3 +35,4 @@ Baselines to beat:
 | Click file → diff shown | 490ms | ~100ms |
 | Chat with 1200 items scrolled back over, frames over 8.3ms of CPU (of 300) | 139 | 2 |
 | Chat with 1200 items scrolling, one frame's draw (p50) | ~5.5ms | ~3.8ms |
+| 66 sessions and 1200 changed files, one frame's draw (p50, capture `bench` with `FIXTURE_SESSIONS=60 FIXTURE_CHANGED=1200`) | 10–14ms | 5–7ms |
