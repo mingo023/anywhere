@@ -297,6 +297,7 @@ impl Desktop {
             let me = self.login(&self.gh_in(tree));
             return div()
                 .id("pr-comment-open")
+                .flex_none()
                 .h(px(36.))
                 .px(px(10.))
                 .flex()
@@ -327,6 +328,7 @@ impl Desktop {
             .child(small("pr-comment-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_comment(window, cx))))
             .child(send);
         div()
+            .flex_none()
             .rounded(px(10.))
             .bg(FILL_2)
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
