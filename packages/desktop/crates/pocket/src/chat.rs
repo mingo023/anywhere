@@ -17,7 +17,7 @@ mod pr_link;
 mod question;
 mod question_marker;
 mod reveal;
-mod selectable;
+pub(crate) mod selectable;
 pub(crate) mod shimmer;
 mod sticky;
 pub(crate) mod sub_agent;

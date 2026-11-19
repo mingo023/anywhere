@@ -1,5 +1,7 @@
 use gpui_kit::*;
+use std::borrow::Borrow;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::time::{Duration, Instant};
 use theme::SPRING;
 
@@ -16,17 +18,25 @@ pub(crate) enum Fold {
 }
 
 /// Folds shut a moment ago.
-#[derive(Default)]
-pub(crate) struct Closing(HashMap<Fold, Instant>);
+pub(crate) struct Closing<K = Fold>(HashMap<K, Instant>);
 
-impl Closing {
-    pub(crate) fn start(&mut self, fold: Fold) {
+impl<K> Default for Closing<K> {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+impl<K: Eq + Hash> Closing<K> {
+    pub(crate) fn start(&mut self, fold: K) {
         self.0.retain(|_, at| at.elapsed() < SHUTTING);
         self.0.insert(fold, Instant::now());
     }
 
     /// Whether `fold`'s rows are drawn: it is open, or still shutting.
-    pub(crate) fn drawn(&self, fold: &Fold, open: bool) -> bool {
+    pub(crate) fn drawn<Q: Eq + Hash + ?Sized>(&self, fold: &Q, open: bool) -> bool
+    where
+        K: Borrow<Q>,
+    {
         open || self.0.get(fold).is_some_and(|at| at.elapsed() < SHUTTING)
     }
 }

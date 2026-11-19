@@ -34,7 +34,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 298] = [
+const STEPS: [(&str, Step); 299] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -986,6 +986,19 @@ const STEPS: [(&str, Step); 298] = [
             let said = replies.iter().map(|(author, body, mins)| Comment { author: author.to_string(), body: body.to_string(), at: at - mins * 60_000, ..Comment::default() });
             t.comments.splice(1..1, said);
         }
+        let now = Instant::now();
+        d.prs.start(&tree, now);
+        d.prs.apply(tree, now, Ok(Some(pr)), now);
+    }),
+    ("pr-long-body", |d, _, _| {
+        let Some((tree, pr)) = d.shown_pr() else { return };
+        let mut pr = pr.clone();
+        let steps: String = (1..=14).map(|i| format!("- Step {i}: restore the session, wait for the settled redraw, then reveal the pane.\n")).collect();
+        pr.body = format!("{}\n\n## Steps\n{steps}\n## Last line\nThe end of the description.", pr.body);
+        let mut long = pr.notes[0].clone();
+        (long.id, long.author, long.at) = ("c2".into(), "hoang".into(), long.at + 60_000);
+        long.body = (1..=16).map(|i| format!("Paragraph {i} of a long comment about the reveal timing.")).collect::<Vec<_>>().join("\n\n");
+        pr.notes.push(long);
         let now = Instant::now();
         d.prs.start(&tree, now);
         d.prs.apply(tree, now, Ok(Some(pr)), now);

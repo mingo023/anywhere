@@ -19,12 +19,15 @@ use crate::git_ui::diff::At;
 use crate::git_ui::gh_accounts::Gh;
 use crate::git_ui::pull_requests::PrItem;
 use crate::removal::Removal;
+use crate::sidebar::fold::Closing;
 use crate::status::Status;
 use git::github::{self, Check, Gate, Mergeable, Method, Note, Outcome, Pr, PrState, Review, Thread, ThreadState};
 use git::{Commit, Repo};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_3, TEXT_4, Token, WAITING_TEXT};
 use workspace::Doc;
@@ -274,15 +277,37 @@ pub(crate) struct Track {
     pub(crate) all: bool,
     /// Threads shown whole: a resolved one unfolded, or a long one with every reply.
     pub(crate) expanded: HashSet<String>,
-    /// The description is folded to its heading.
-    pub(crate) about_folded: bool,
-    /// Reviews and comments folded to their author line.
-    pub(crate) folded: HashSet<String>,
+    /// Descriptions, reviews and comments folded to their heading.
+    folded: HashSet<String>,
+    closing: Closing<String>,
+    /// Long bodies shown past [`CLIP`].
+    whole: HashSet<String>,
+    /// Written while painting, the only time a body's height is known.
+    pub(crate) heights: Rc<RefCell<HashMap<String, f32>>>,
+}
+
+pub(crate) const CLIP: f32 = 240.;
+/// A body only a line or two past [`CLIP`] shows whole: hiding so little behind Show more costs more than it saves.
+const CLIP_SLACK: f32 = 40.;
+/// Under this, a height change is layout rounding, not a new height.
+const JITTER: f32 = 0.5;
+
+/// How long a body runs, once laid out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Length {
+    Unmeasured,
+    Short,
+    Long(f32),
+}
+
+/// `pr`'s description among the folds.
+pub(crate) fn about(pr: &Pr) -> String {
+    format!("about:{}", pr.url)
 }
 
 impl Default for Track {
     fn default() -> Self {
-        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), about_folded: false, folded: HashSet::new() }
+        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), folded: HashSet::new(), closing: Closing::default(), whole: HashSet::new(), heights: Rc::default() }
     }
 }
 
@@ -346,9 +371,50 @@ impl Track {
         flip(&mut self.expanded, thread);
     }
 
-    pub(crate) fn toggle_folded(&mut self, card: &str) {
-        flip(&mut self.folded, card);
+    pub(crate) fn folded(&self, key: &str) -> bool {
+        self.folded.contains(key)
     }
+
+    pub(crate) fn toggle_folded(&mut self, key: &str) {
+        flip(&mut self.folded, key);
+        if self.folded(key) {
+            self.closing.start(key.to_string());
+        }
+    }
+
+    pub(crate) fn drawn(&self, key: &str) -> bool {
+        self.closing.drawn(key, !self.folded(key))
+    }
+
+    pub(crate) fn whole(&self, key: &str) -> bool {
+        self.whole.contains(key)
+    }
+
+    pub(crate) fn toggle_whole(&mut self, key: &str) {
+        flip(&mut self.whole, key);
+    }
+
+    pub(crate) fn height(&self, key: &str) -> Option<f32> {
+        self.heights.borrow().get(key).copied()
+    }
+
+    pub(crate) fn length(&self, key: &str) -> Length {
+        match self.height(key) {
+            None => Length::Unmeasured,
+            Some(h) if h > CLIP + CLIP_SLACK => Length::Long(h),
+            Some(_) => Length::Short,
+        }
+    }
+}
+
+/// Whether `height` moved `key`'s, so what was drawn from the old one needs another frame.
+pub(crate) fn record_height(heights: &RefCell<HashMap<String, f32>>, key: &str, height: f32) -> bool {
+    let mut heights = heights.borrow_mut();
+    let moved = heights.get(key).is_none_or(|h| (h - height).abs() > JITTER);
+    if moved {
+        heights.insert(key.to_string(), height);
+    }
+    moved
 }
 
 fn flip(set: &mut HashSet<String>, id: &str) {
@@ -981,7 +1047,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ship, Status, Track, card_busy, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, review_lines, ship, tally, to_fix, verdict};
+    use super::{CLIP, Length, Ship, Status, Track, card_busy, check_rows, conflict_prompt, fix_prompt, fix_summary, from_commits, gate_text, hunk_tail, pr_wants_you, record_height, review_lines, ship, tally, to_fix, verdict};
     use crate::git_ui::pull_requests::PrItem;
     use git::github::{Check, Checks, Comment, Gate, Mergeable, Outcome, Pr, PrState, Review, Thread};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_4, WAITING_TEXT};
@@ -1234,5 +1300,40 @@ mod tests {
         assert_eq!(gate_text(Gate::Ready, "main"), "No conflicts with main");
         assert_eq!(gate_text(Gate::Conflicts, "main"), "Conflicts with main");
         assert_eq!(gate_text(Gate::ChecksRunning, "main"), "Checks in progress");
+    }
+
+    #[test]
+    fn a_fold_stays_drawn_while_it_closes_and_others_stay_open() {
+        let mut track = Track::default();
+        track.toggle_folded("about");
+        assert!(track.folded("about") && track.drawn("about"));
+        assert!(!track.folded("review") && track.drawn("review"));
+        track.toggle_folded("about");
+        assert!(!track.folded("about") && track.drawn("about"));
+    }
+
+    #[test]
+    fn each_pr_keeps_its_own_description_state() {
+        let pr = |n: u32| Pr { url: format!("https://github.com/acme/app/pull/{n}"), ..Pr::default() };
+        assert_ne!(super::about(&pr(1)), super::about(&pr(2)));
+    }
+
+    #[test]
+    fn only_a_body_well_past_the_clip_is_long_and_an_unmeasured_one_is_unknown() {
+        let track = Track::default();
+        assert_eq!(track.length("about"), Length::Unmeasured);
+        record_height(&track.heights, "about", CLIP + 20.);
+        assert_eq!(track.length("about"), Length::Short);
+        record_height(&track.heights, "about", CLIP + 200.);
+        assert_eq!(track.length("about"), Length::Long(CLIP + 200.));
+    }
+
+    #[test]
+    fn a_height_counts_as_moved_only_past_layout_jitter() {
+        let track = Track::default();
+        assert!(record_height(&track.heights, "note", 100.));
+        assert!(!record_height(&track.heights, "note", 100.3));
+        assert!(record_height(&track.heights, "note", 120.));
+        assert_eq!(track.height("note"), Some(120.));
     }
 }

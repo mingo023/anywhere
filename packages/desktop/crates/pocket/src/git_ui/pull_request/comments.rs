@@ -1,3 +1,4 @@
+use super::body::selectable_text;
 use super::card::{pill, small, small_with, thread_chip};
 use super::{opening, spot};
 use crate::desktop::Desktop;
@@ -88,6 +89,10 @@ fn at_line(t: &Thread) -> String {
     t.line.map_or_else(|| "File".into(), |l| format!("Line {l}"))
 }
 
+fn comment_text(t: &Thread, c: &Comment) -> impl IntoElement {
+    selectable_text(SharedString::from(format!("pr-c:{}:{}", t.id, c.id)), c.body.trim().to_string())
+}
+
 impl Desktop {
     /// Threads of `pr` can go to the agent when sessions aren't only watched and it isn't fixing this PR already.
     pub(super) fn shown<'a>(&self, tree: &'a str, pr: &'a Pr) -> Shown<'a> {
@@ -149,7 +154,7 @@ impl Desktop {
                 .items_start()
                 .gap(px(8.))
                 .child(self.face(&c.author, 20.))
-                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(name).child(div().text_size(px(12.5)).text_color(TEXT_BODY).child(c.body.trim().to_string())))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(name).child(div().text_size(px(12.5)).text_color(TEXT_BODY).child(comment_text(t, c))))
                 .into_any_element()
         };
         let said: Vec<AnyElement> = match folded_replies(t.comments.len(), whole) {
@@ -286,7 +291,7 @@ impl Desktop {
                 .line_height(px(18.))
                 .text_color(TEXT_BODY)
                 .child(self.face(&c.author, 20.))
-                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(c.body.trim().to_string()))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(comment_text(t, c)))
                 .into_any_element()
         };
         let rows: Vec<AnyElement> = match folded_replies(t.comments.len(), whole) {
