@@ -119,6 +119,19 @@ mod tests {
     }
 
     #[test]
+    fn an_outdated_pocketd_that_goes_away_is_upgrading_and_gets_no_restart_until_it_answers_old_again() {
+        let (t, gone) = (Instant::now(), Duration::from_secs(5));
+        let mut l = Link { service: Some(Service::Enabled), ..Link::default() };
+        l.connected("0.2.0", "0.1.0", true, t);
+        l.down(t + gone);
+        assert_eq!((l.stale(), l.hint(t + gone + HINT_AFTER)), (Some("0.1.0"), Some(Hint::Reopen)));
+        l.up();
+        assert_eq!((l.is_down(), l.hint(t + Duration::from_secs(60))), (true, None));
+        l.connected("0.2.0", "0.1.0", true, t + Duration::from_secs(61));
+        assert_eq!(l.hint(t + Duration::from_secs(61)), Some(Hint::Stale));
+    }
+
+    #[test]
     fn a_dev_app_takes_any_pocketd_and_a_release_app_none_without_a_version() {
         let t = Instant::now();
         let mut l = Link::default();
