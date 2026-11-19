@@ -1,4 +1,4 @@
-use super::{CheckRows, PrTab, check_rows, gate_text, opening, plural, resolving_text, review_lines, spot, tally, to_fix};
+use super::{gate_text, resolving_text, review_lines, tally, to_fix};
 use crate::desktop::Desktop;
 use git::github::{Check, Gate, Outcome, Pr, PrState, Review, ThreadState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -6,11 +6,16 @@ use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
-const CHECKS_SHOWN: usize = 6;
-const COMMENTS_SHOWN: usize = 3;
-
 pub(crate) fn small(id: impl Into<ElementId>, v: Variant, label: impl Into<SharedString>) -> Stateful<Div> {
-    ui::button(id, v, None, label.into()).h(px(24.)).px(px(9.)).gap(px(5.)).rounded(px(7.)).text_size(px(12.))
+    sized(ui::button(id, v, None, label.into()))
+}
+
+pub(super) fn small_with(id: impl Into<ElementId>, v: Variant, glyph: &str, label: impl Into<SharedString>) -> Stateful<Div> {
+    sized(ui::button(id, v, Some(glyph), label.into()))
+}
+
+fn sized(b: Stateful<Div>) -> Stateful<Div> {
+    b.h(px(24.)).px(px(9.)).gap(px(5.)).rounded(px(7.)).text_size(px(12.))
 }
 
 pub(super) fn pill(label: impl Into<SharedString>, bg: Token, fg: Token) -> Div {
@@ -32,8 +37,25 @@ pub(super) fn thread_chip(state: ThreadState) -> Option<Div> {
     }
 }
 
-pub(super) fn who(login: &str) -> String {
-    login.chars().filter(|c| c.is_alphanumeric()).take(2).collect::<String>().to_uppercase()
+/// `login`'s initial on a colour of its own, the same for them everywhere in the panel.
+pub(super) fn face(login: &str, size: f32) -> Div {
+    let hue = login.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b.into())) % 360;
+    div()
+        .size(px(size))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(hsla(hue as f32 / 360., 0.45, 0.42, 1.))
+        .text_size(px(size / 2.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(gpui_kit::white())
+        .child(initial(login))
+}
+
+fn initial(login: &str) -> String {
+    login.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_default()
 }
 
 pub(crate) fn review_icon(r: Review) -> AnyElement {
@@ -53,153 +75,84 @@ pub(crate) fn glyph_slot(glyph: impl IntoElement) -> Div {
     div().size(px(13.)).flex_none().flex().items_center().justify_center().child(glyph)
 }
 
-pub(super) fn section(title: &'static str, status: Option<(Token, String)>) -> Div {
-    let status = status.map(|(color, text)| div().flex_1().min_w_0().flex().justify_end().child(div().min_w_0().truncate().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(color).child(text)));
-    div().pt(px(16.)).pb(px(6.)).px(px(12.)).flex().items_center().gap(px(8.)).child(div().flex_none().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(title)).children(status)
+/// Every check, what failed first; passed and skipped ones last.
+fn by_outcome(pr: &Pr) -> Vec<&Check> {
+    let rank = |o: Outcome| [Outcome::Failed, Outcome::Pending, Outcome::Passed, Outcome::Skipped].iter().position(|x| *x == o);
+    let mut runs: Vec<&Check> = pr.runs.iter().collect();
+    runs.sort_by_key(|c| rank(c.outcome));
+    runs
 }
 
-pub(super) fn group(rows: impl IntoIterator<Item = AnyElement>) -> Div {
-    let rows = rows.into_iter().enumerate().map(|(i, r)| div().when(i > 0, |d| d.border_t_1().border_color(HAIRLINE)).child(r));
-    div().px(px(12.)).flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(ui::row_shadow()).children(rows)
+fn count(pr: &Pr, o: Outcome) -> usize {
+    pr.runs.iter().filter(|c| c.outcome == o).count()
 }
 
-pub(super) fn group_row() -> Div {
-    row().min_h(px(36.))
+pub(super) fn card() -> Div {
+    div().rounded(px(12.)).bg(SURFACE).shadow(ui::row_shadow()).overflow_hidden()
 }
 
-fn checks_status(pr: &Pr) -> Option<(Token, String)> {
-    let CheckRows { named, passed, .. } = check_rows(pr);
-    let failed = named.iter().filter(|c| c.outcome == Outcome::Failed).count();
-    let pending = named.len() - failed;
-    if pr.runs.is_empty() {
-        None
-    } else if failed > 0 {
-        Some((FAILED_TEXT, tally([(failed, "failed"), (passed, "passed")])))
-    } else if pending > 0 {
-        Some((WAITING_TEXT, format!("{} in progress", plural(pending, "check"))))
-    } else {
-        Some((SUCCESS_TEXT, "All passed".into()))
-    }
+/// A row of a list card, under a hairline unless it is the first.
+pub(super) fn list_row(i: usize) -> Div {
+    div().w_full().h(px(34.)).flex_none().pl(px(10.)).pr(px(8.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_2).when(i > 0, |d| d.border_t(px(0.5)).border_color(HAIRLINE))
 }
 
-pub(super) fn review_status(pr: &Pr) -> Option<(Token, String)> {
-    match pr.review {
-        Review::ChangesRequested => Some((FAILED_TEXT, "Changes requested".into())),
-        Review::Approved => Some((SUCCESS_TEXT, "Approved".into())),
-        Review::Required => Some((TEXT_3, "Review required".into())),
-        Review::None => None,
-    }
+pub(super) fn list_head(left: impl IntoElement, right: impl IntoElement) -> Div {
+    div().flex_none().px(px(14.)).pt(px(4.)).pb(px(8.)).flex().items_center().justify_between().gap(px(8.)).text_size(px(12.)).text_color(TEXT_3).child(left).child(right)
 }
 
 impl Desktop {
-    /// The Checks tab: each check that needs a look, the review, and what holds the merge back.
+    /// Every check, then who reviewed and what holds the merge back.
     pub(crate) fn pr_checks_tab(&self, tree: &str, pr: &Pr, cx: &mut Context<Self>) -> Stateful<Div> {
         let fixing = self.pr.track.fixing(tree, pr);
         let can_send = !self.agents.observe_only();
-        let (checks, _) = to_fix(pr, fixing.as_ref());
+        let (unsent, _) = to_fix(pr, fixing.as_ref());
         let resolving = fixing.as_ref().is_some_and(|s| s.conflict);
-        let merge = (pr.state == PrState::Open).then(|| {
-            let gate = div().py(px(10.)).child(self.pr_gate(pr, resolving, self.fix_agent()));
-            div().child(section("MERGE", None)).child(group([gate.into_any_element()]))
-        });
+        let (failed, pending) = (count(pr, Outcome::Failed), count(pr, Outcome::Pending));
+        let rest = tally([(count(pr, Outcome::Passed), "passed"), (count(pr, Outcome::Skipped), "skipped")]);
+        let sum = div()
+            .flex()
+            .gap(px(4.))
+            .when(failed > 0, |d| d.child(div().font_weight(FontWeight::MEDIUM).text_color(FAILED_TEXT).child(format!("{failed} failed"))))
+            .when(pending > 0, |d| d.child(div().font_weight(FontWeight::MEDIUM).text_color(WAITING_TEXT).child(format!("{pending} in progress"))))
+            .when(!rest.is_empty() && failed + pending > 0, |d| d.child("·"))
+            .child(rest);
+        let rows = by_outcome(pr).into_iter().enumerate().map(|(i, c)| self.check_row(i, c, !unsent.iter().any(|u| u.name == c.name), can_send, cx));
+        let list = if pr.runs.is_empty() { card().child(list_row(0).text_color(TEXT_3).child(glyph_slot(ui::dot(6., TEXT_4))).child("No checks on this branch")) } else { card().children(rows) };
+        let reviews = review_lines(pr).into_iter().map(|(r, text)| row().min_h(px(22.)).child(glyph_slot(review_icon(r))).child(div().flex_1().min_w_0().truncate().child(text)));
+        let gate = (pr.state == PrState::Open).then(|| self.pr_gate(pr, resolving, self.fix_agent()).min_h(px(22.)).pt(px(6.)).border_t(px(0.5)).border_color(HAIRLINE));
         div()
             .id("pr-checks")
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .px(px(10.))
+            .pt(px(4.))
             .pb(px(16.))
             .flex()
             .flex_col()
-            .child(section("CHECKS", checks_status(pr)))
-            .child(group(self.pr_checks(pr, can_send, &checks, cx)))
-            .child(section("REVIEW", review_status(pr)))
-            .child(group(self.pr_review(tree, pr, can_send && fixing.is_none(), cx)))
-            .children(merge)
+            .child(list_head(sum, div()))
+            .child(div().mx(px(10.)).child(list))
+            .child(card().mt(px(12.)).mx(px(10.)).px(px(12.)).py(px(10.)).flex().flex_col().gap(px(6.)).children(reviews).children(gate))
     }
 
-    fn pr_checks(&self, pr: &Pr, can_send: bool, unsent: &[&Check], cx: &mut Context<Self>) -> Vec<AnyElement> {
-        if pr.runs.is_empty() {
-            return vec![group_row().text_color(TEXT_3).child(glyph_slot(ui::dot(6., TEXT_4))).child("No checks on this branch").into_any_element()];
-        }
-        let CheckRows { named, passed, skipped } = check_rows(pr);
-        let hidden = named.len().saturating_sub(CHECKS_SHOWN);
-        let rows = named.into_iter().take(CHECKS_SHOWN).enumerate().map(|(i, check)| {
-            if check.outcome == Outcome::Pending {
-                return group_row()
-                    .child(glyph_slot(spinner(("pr-run", i), 11., WAITING)))
-                    .child(div().flex_1().min_w_0().truncate().child(check.name.clone()))
-                    .child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_4).child("in progress"));
+    /// `sent`: the agent is fixing it.
+    fn check_row(&self, i: usize, check: &Check, sent: bool, can_send: bool, cx: &mut Context<Self>) -> Div {
+        let name = |color: Token| div().flex_1().min_w_0().truncate().text_color(color).child(check.name.clone());
+        let meta = |text: &'static str| div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_4).child(text);
+        match check.outcome {
+            Outcome::Failed => {
+                let (log, send) = (check.url.clone(), check.name.clone());
+                let acts = div()
+                    .flex()
+                    .flex_none()
+                    .gap(px(4.))
+                    .when(!log.is_empty(), |d| d.child(small(("pr-check-log", i), Variant::Ghost, "Log").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(log.clone(), window, cx)))))
+                    .when(can_send, |d| d.child(small(("pr-check-send", i), Variant::Secondary, "Send").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(std::slice::from_ref(&send), &[], cx)))));
+                list_row(i).child(glyph_slot(icon("x", 13., FAILED))).child(name(FAILED_TEXT).font_weight(FontWeight::MEDIUM)).child(if sent { fixing_mark() } else { acts })
             }
-            let (log, name) = (check.url.clone(), check.name.clone());
-            let sent = !unsent.iter().any(|u| u.name == check.name);
-            let send = (can_send && !sent).then(|| {
-                small(("pr-check-send", i), Variant::Secondary, "Send").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(std::slice::from_ref(&name), &[], cx)))
-            });
-            let trail = div()
-                .flex()
-                .flex_none()
-                .gap(px(4.))
-                .when(sent, |d| d.child(fixing_mark()))
-                .when(!sent && !log.is_empty(), |d| d.child(small(("pr-check-log", i), Variant::Ghost, "Log").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(log.clone(), window, cx)))))
-                .children(send);
-            group_row()
-                .child(glyph_slot(icon("x", 13., FAILED)))
-                .child(div().flex_1().min_w_0().truncate().text_color(FAILED_TEXT).font_weight(FontWeight::MEDIUM).child(check.name.clone()))
-                .child(trail)
-        });
-        let more = (hidden > 0).then(|| group_row().text_color(TEXT_4).child(glyph_slot(div())).child(format!("{hidden} more")));
-        let quiet = (passed + skipped > 0).then(|| {
-            group_row().child(glyph_slot(icon("check", 13., SUCCESS))).child(div().flex_1().min_w_0().truncate().child(tally([(passed, "passed"), (skipped, "skipped")])))
-        });
-        rows.chain(more).chain(quiet).map(IntoElement::into_any_element).collect()
-    }
-
-    fn pr_review(&self, tree: &str, pr: &Pr, can_send: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let unresolved = pr.unresolved().count();
-        let draft = pr.draft && pr.state == PrState::Open;
-        let lines = review_lines(pr).into_iter().enumerate().map(|(i, (r, text))| {
-            group_row().child(review_icon(r)).child(div().flex_1().min_w_0().truncate().child(text)).when(i == 0 && draft, |d| d.child(pill("Draft", FILL_3, TEXT_3))).into_any_element()
-        });
-        let comments = pr.unresolved().take(COMMENTS_SHOWN).enumerate().map(|(i, t)| {
-            let state = t.state(self.pr.track.thread_sent(tree, pr, &t.id));
-            let first = t.comments.first();
-            let (id, open) = (t.id.clone(), t.id.clone());
-            let send = (can_send && state == ThreadState::Open).then(|| {
-                small(("pr-comment-send", i), Variant::Secondary, "Send").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.send_fix(&[], std::slice::from_ref(&id), cx);
-                }))
-            });
-            let at = div().flex().items_center().gap(px(6.)).font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(div().min_w_0().truncate().child(spot(t))).children(thread_chip(state));
-            div()
-                .id(("pr-comment", i))
-                .py(px(8.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .cursor_pointer()
-                .child(ui::avatar(&who(first.map_or("", |c| c.author.as_str())), 20.).text_size(px(9.)))
-                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(at).child(div().truncate().text_size(px(12.5)).text_color(TEXT_2).child(opening(t))))
-                .children(send)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.view_thread(&open, cx)))
-                .into_any_element()
-        });
-        let all = (!pr.threads.is_empty()).then(|| {
-            group_row()
-                .id("pr-all-comments")
-                .cursor_pointer()
-                .child(glyph_slot(icon("comment", 13., TEXT_3)))
-                .child(div().flex_1().min_w_0().truncate().text_color(TEXT).child("All comments"))
-                .when(unresolved > 0, |d| d.child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_4).child(format!("{unresolved} unresolved"))))
-                .child(icon("chevron-right", 12., TEXT_4))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.pr.track.tab = PrTab::Conversation;
-                    cx.notify();
-                }))
-                .into_any_element()
-        });
-        lines.chain(comments).chain(all).collect()
+            Outcome::Pending => list_row(i).child(glyph_slot(spinner(("pr-run", i), 11., WAITING))).child(name(TEXT_2)).child(meta("in progress")),
+            Outcome::Skipped => list_row(i).text_color(TEXT_4).child(glyph_slot(icon("chevron-right", 12., TEXT_4))).child(name(TEXT_4)).child(meta("skipped")),
+            Outcome::Passed => list_row(i).child(glyph_slot(icon("check", 13., SUCCESS))).child(name(TEXT_2)),
+        }
     }
 
     /// What holds the merge back, or that nothing does.
@@ -218,21 +171,21 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::checks_status;
+    use super::{by_outcome, initial};
     use git::github::{Check, Outcome, Pr};
-    use theme::{FAILED_TEXT, SUCCESS_TEXT, WAITING_TEXT};
 
-    fn pr(runs: &[Outcome]) -> Pr {
-        Pr { runs: runs.iter().enumerate().map(|(i, o)| Check { name: format!("c{i}"), outcome: *o, url: String::new() }).collect(), ..Default::default() }
+    #[test]
+    fn checks_list_what_failed_then_what_runs_then_what_passed_then_what_was_skipped() {
+        use Outcome::*;
+        let runs = [Passed, Skipped, Pending, Failed, Passed];
+        let pr = Pr { runs: runs.iter().enumerate().map(|(i, o)| Check { name: format!("c{i}"), outcome: *o, url: String::new() }).collect(), ..Default::default() };
+        let names: Vec<&str> = by_outcome(&pr).iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["c3", "c2", "c0", "c4", "c1"]);
     }
 
     #[test]
-    fn the_checks_title_counts_failures_first_then_what_still_runs_then_says_all_passed() {
-        use Outcome::*;
-        assert_eq!(checks_status(&pr(&[Failed, Passed, Passed, Pending])), Some((FAILED_TEXT, "1 failed · 2 passed".into())));
-        assert_eq!(checks_status(&pr(&[Failed])), Some((FAILED_TEXT, "1 failed".into())));
-        assert_eq!(checks_status(&pr(&[Passed, Pending, Pending])), Some((WAITING_TEXT, "2 checks in progress".into())));
-        assert_eq!(checks_status(&pr(&[Passed, Skipped])), Some((SUCCESS_TEXT, "All passed".into())));
-        assert_eq!(checks_status(&pr(&[])), None);
+    fn a_face_shows_the_first_letter_of_the_login() {
+        assert_eq!(initial("-mingo"), "M");
+        assert_eq!(initial(""), "");
     }
 }

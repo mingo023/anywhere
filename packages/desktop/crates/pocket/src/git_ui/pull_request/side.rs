@@ -109,7 +109,7 @@ impl Desktop {
         let comment = ui::icon_button_sized("pr-comment-new", "comment", 26., TEXT_3)
             .tooltip(|window, cx| Tooltip::new("Leave a comment").build(window, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_comment(window, cx)));
-        div().h(px(44.)).flex_none().px(px(10.)).flex().items_center().gap(px(2.)).border_b(px(0.5)).border_color(SEPARATOR).children(tabs).child(div().flex_1()).child(comment)
+        div().h(px(44.)).flex_none().px(px(10.)).flex().items_center().gap(px(2.)).children(tabs).child(div().flex_1()).child(comment)
     }
 
     /// Why the worktree has no PR to show, with Create pull request when it can have one.

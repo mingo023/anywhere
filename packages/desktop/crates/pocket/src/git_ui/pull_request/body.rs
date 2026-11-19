@@ -2,7 +2,7 @@ use gpui_kit::*;
 use theme::*;
 
 /// A block of a PR's Markdown, as much of it as a narrow panel shows.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Block {
     Heading(String),
     Para(String),
@@ -98,21 +98,36 @@ pub(crate) fn quote(said: &str) -> String {
     format!("{}\n\n", quoted.join("\n"))
 }
 
+/// The room above `cur`, as the web's collapsing margins would leave it: a heading sits apart from what came before and close to what follows, list items sit together.
+fn space(prev: Option<&Block>, cur: &Block) -> f32 {
+    match (prev, cur) {
+        (None, _) => 0.,
+        (_, Block::Heading(_)) => 10.,
+        (Some(Block::Heading(_)), _) => 4.,
+        (Some(Block::Task(..) | Block::Bullet(_)), Block::Task(..) | Block::Bullet(_)) => 0.,
+        _ => 8.,
+    }
+}
+
 pub(crate) fn body_view(md: &str) -> Div {
-    let blocks = blocks(md).into_iter().map(|b| match b {
-        Block::Heading(t) => div().pt(px(4.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(t),
+    let blocks = blocks(md);
+    let views = blocks.iter().enumerate().map(|(i, b)| {
+        let view = match b.clone() {
+        Block::Heading(t) => div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(t),
         Block::Para(t) => div().child(t),
-        Block::Task(done, t) => div().flex().items_start().gap(px(8.)).child(ui::checkbox(done).mt(px(2.))).child(div().flex_1().min_w_0().child(t)),
-        Block::Bullet(t) => div().flex().items_start().gap(px(8.)).child(div().flex_none().text_color(TEXT_4).child("•")).child(div().flex_1().min_w_0().child(t)),
+        Block::Task(done, t) => div().py(px(2.)).flex().items_start().gap(px(8.)).child(ui::checkbox(done).mt(px(3.))).child(div().flex_1().min_w_0().child(t)),
+        Block::Bullet(t) => div().py(px(2.)).flex().items_start().gap(px(8.)).child(div().flex_none().text_color(TEXT_4).child("•")).child(div().flex_1().min_w_0().child(t)),
         Block::Quote(t) => div().pl(px(8.)).border_l_2().border_color(SEPARATOR_STRONG).text_color(TEXT_3).child(t),
         Block::Code(t) => div().px(px(8.)).py(px(6.)).rounded(px(7.)).bg(FILL_2).font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(t),
+        };
+        view.mt(px(space(i.checked_sub(1).map(|k| &blocks[k]), b)))
     });
-    div().flex().flex_col().gap(px(6.)).text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_BODY).children(blocks)
+    div().flex().flex_col().text_size(px(13.)).line_height(px(19.)).text_color(TEXT_BODY).children(views)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Block, blocks, quote};
+    use super::{Block, blocks, quote, space};
 
     #[test]
     fn a_description_reads_as_headings_paragraphs_and_tasks() {
@@ -157,5 +172,11 @@ mod tests {
     #[test]
     fn a_quote_reply_quotes_every_line_then_leaves_room_to_answer() {
         assert_eq!(quote("Does it remember?\n\nOr only the scroll?\n"), "> Does it remember?\n>\n> Or only the scroll?\n\n");
+    }
+
+    #[test]
+    fn a_heading_sits_apart_from_what_came_before_and_list_items_sit_together() {
+        let (h, p, t) = (Block::Heading(String::new()), Block::Para(String::new()), Block::Task(false, String::new()));
+        assert_eq!([space(None, &h), space(Some(&p), &h), space(Some(&h), &p), space(Some(&p), &t), space(Some(&t), &t)], [0., 10., 4., 8., 0.]);
     }
 }

@@ -1,4 +1,4 @@
-use super::card::who;
+use super::card::{card, face, list_head, list_row};
 use crate::desktop::Desktop;
 use crate::util::{ago, now_ms};
 use git::github::{Pr, base_branch};
@@ -8,16 +8,18 @@ use std::ops::Range;
 use theme::*;
 use workspace::Doc;
 
-fn summary(left: String, right: Div) -> Div {
-    div().h(px(36.)).flex_none().px(px(16.)).flex().items_center().gap(px(8.)).text_size(px(12.)).text_color(TEXT_3).child(div().flex_1().child(left)).child(right)
-}
-
 fn size(additions: u32, deletions: u32) -> Div {
     div().flex().flex_none().gap(px(5.)).font_family(MONO).text_size(px(11.5)).child(div().text_color(SUCCESS_TEXT).child(format!("+{additions}"))).child(div().text_color(FAILED_TEXT).child(format!("−{deletions}")))
 }
 
-fn row(id: impl Into<ElementId>) -> Stateful<Div> {
-    div().id(id).w_full().h(px(34.)).px(px(8.)).flex().items_center().gap(px(8.)).rounded(px(8.)).cursor_pointer().hover(|s| s.bg(FILL_1)).text_size(px(12.5))
+fn row(id: impl Into<ElementId>, i: usize) -> Stateful<Div> {
+    list_row(i).id(id).cursor_pointer().hover(|s| s.bg(FILL_1))
+}
+
+/// The list's card, as tall as its rows up to the room there is, so a short list doesn't leave an empty card below it.
+fn list_card(id: &'static str, rows: usize, list: impl IntoElement, scroll: &UniformListScrollHandle) -> Div {
+    let card = card().id(id).relative().w_full().h(px(rows as f32 * 34.)).max_h_full().child(list).vertical_scrollbar(scroll);
+    div().flex_1().min_h_0().px(px(10.)).pb(px(16.)).child(card)
 }
 
 impl Desktop {
@@ -34,8 +36,8 @@ impl Desktop {
                     .filter_map(|i| pr.commits.get(i).map(|c| (i, c)))
                     .map(|(i, c)| {
                         let url = format!("{}/commits/{}", pr.url, c.oid);
-                        row(("pr-commit", i))
-                            .child(ui::avatar(&who(&c.author), 20.).text_size(px(9.)))
+                        row(("pr-commit", i), i)
+                            .child(face(&c.author, 20.))
                             .child(div().flex_1().min_w_0().truncate().text_color(TEXT).child(c.subject.clone()))
                             .child(div().flex_none().font_family(MONO).text_size(px(11.5)).text_color(TEXT_3).child(c.oid.chars().take(7).collect::<String>()))
                             .child(div().flex_none().w(px(32.)).flex().justify_end().text_size(px(11.5)).text_color(TEXT_4).child(ago(c.at as i64, now)))
@@ -46,16 +48,15 @@ impl Desktop {
             }),
         )
         .track_scroll(&self.pr.commits_scroll)
-        .size_full()
-        .px(px(8.))
-        .pb(px(8.));
+        .size_full();
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .child(summary(format!("{} commits", pr.commits.len()), branches))
-            .child(div().id("pr-commits-list").relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.pr.commits_scroll))
+            .pt(px(4.))
+            .child(list_head(format!("{} commits", pr.commits.len()), branches))
+            .child(list_card("pr-commits-list", pr.commits.len(), list, &self.pr.commits_scroll))
     }
 
     pub(crate) fn pr_files(&self, pr: &Pr, cx: &mut Context<Self>) -> Div {
@@ -78,9 +79,12 @@ impl Desktop {
                             .text_size(px(12.))
                             .child(div().min_w_0().truncate().text_color(TEXT_4).child(f.path[..cut].to_string()))
                             .child(div().flex_none().text_color(TEXT).child(f.path[cut..].to_string()));
-                        row(("pr-file", i))
+                        let threads = pr.threads.iter().filter(|t| t.path == f.path).count();
+                        let said = (threads > 0).then(|| div().flex().flex_none().items_center().gap(px(3.)).font_family(MONO).text_size(px(11.)).text_color(TEXT_3).child(icon("comment", 11., TEXT_3)).child(threads.to_string()));
+                        row(("pr-file", i), i)
                             .child(icon("file", 13., TEXT_3))
                             .child(path)
+                            .children(said)
                             .child(size(f.additions, f.deletions))
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_doc(doc.clone(), false, cx)))
                             .into_any_element()
@@ -89,15 +93,14 @@ impl Desktop {
             }),
         )
         .track_scroll(&self.pr.files_scroll)
-        .size_full()
-        .px(px(8.))
-        .pb(px(8.));
+        .size_full();
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .child(summary(format!("{} files", pr.files.len()), size(pr.additions, pr.deletions)))
-            .child(div().id("pr-files-list").relative().flex_1().min_h_0().child(list).vertical_scrollbar(&self.pr.files_scroll))
+            .pt(px(4.))
+            .child(list_head(format!("{} files", pr.files.len()), size(pr.additions, pr.deletions)))
+            .child(list_card("pr-files-list", pr.files.len(), list, &self.pr.files_scroll))
     }
 }

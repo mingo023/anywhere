@@ -1,15 +1,20 @@
-use super::card::{small, who};
+use super::card::{face, small};
 use super::{PrTab, card_busy, fix_summary, fixing_text, resolving_text, to_fix};
 use crate::desktop::Desktop;
 use crate::git_ui::changes::commit_box::split_button;
 use crate::git_ui::pull_requests::MERGED_BG;
-use crate::util::{ago_long, now_ms};
+use crate::util::{ago, now_ms};
 use git::Repo;
 use git::github::{Gate, Label, Method, Pr, PrState, Review, base_branch};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use theme::*;
 use ui::Variant;
+
+/// The first of the reasons a verdict gives; the Checks tab has the rest.
+fn lead(said: &str) -> &str {
+    said.split(" · ").next().unwrap_or(said)
+}
 
 fn chip_bg(fg: Token) -> Token {
     [(SUCCESS_TEXT, SUCCESS_BG), (FAILED_TEXT, FAILED_BG), (WAITING_TEXT, WAITING_BG), (MERGED, MERGED_BG)].into_iter().find(|(t, _)| *t == fg).map_or(FILL_3, |(_, bg)| bg)
@@ -38,7 +43,7 @@ fn reviewer(login: &str, verdict: Review) -> Div {
         _ => (TEXT_4, "clock"),
     };
     let badge = div().absolute().right(px(-3.)).bottom(px(-3.)).size(px(11.)).flex().items_center().justify_center().rounded_full().bg(bg).shadow(vec![ui::ring(SIDE, 1.5)]).child(icon(mark, 7., ON_PRIMARY));
-    div().relative().child(ui::avatar(&who(login), 20.).text_size(px(9.))).child(badge)
+    div().relative().child(face(login, 20.)).child(badge)
 }
 
 impl Desktop {
@@ -63,7 +68,8 @@ impl Desktop {
             .font_weight(FontWeight::MEDIUM)
             .text_color(fg)
             .child(chip_glyph(fg, pr))
-            .child(div().min_w_0().truncate().child(said))
+            .child(div().min_w_0().truncate().child(lead(&said).to_string()))
+            .child(div().flex_none().opacity(0.7).child(icon("chevron-down", 12., fg)))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.pr.track.tab = PrTab::Checks;
                 cx.notify();
@@ -91,15 +97,16 @@ impl Desktop {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .child(ui::avatar(&who(&pr.author), 20.).text_size(px(9.)))
-                .child(div().min_w_0().truncate().child(format!("{} opened {}", pr.author, ago_long(pr.opened as i64, now_ms()))))
+                .child(face(&pr.author, 20.))
+                .child(div().min_w_0().truncate().flex().gap(px(4.)).child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child(pr.author.clone())).child(format!("opened {}", ago(pr.opened as i64, now_ms()))))
         });
-        let reviewers = (!seen.is_empty()).then(|| div().flex().flex_none().items_center().gap(px(6.)).child(div().w(px(0.5)).h(px(14.)).bg(SEPARATOR_STRONG)).children(seen.iter().map(|(w, r)| reviewer(w, *r))));
-        let people = div().flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_3).children(opened).children(reviewers);
-        let labels = (!pr.labels.is_empty()).then(|| div().flex().flex_wrap().gap(px(6.)).children(pr.labels.iter().map(label_pill)));
+        let reviewers = (!seen.is_empty()).then(|| div().flex().flex_none().items_center().gap(px(6.)).child(div().w(px(1.)).h(px(14.)).bg(SEPARATOR_STRONG)).children(seen.iter().map(|(w, r)| reviewer(w, *r))));
+        let people = div().min_h(px(22.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_3).children(opened).children(reviewers);
+        let labels = (!pr.labels.is_empty()).then(|| div().min_h(px(22.)).flex().flex_wrap().items_center().gap(px(6.)).children(pr.labels.iter().map(label_pill)));
         div()
             .flex_none()
             .px(px(16.))
+            .pt(px(2.))
             .pb(px(12.))
             .flex()
             .flex_col()
@@ -240,5 +247,16 @@ impl Desktop {
         let agent = self.fix_agent();
         let title = if fixing.items() > 0 { fixing_text(agent, fixing.items()) } else { resolving_text(agent) };
         Some(banner(spinner("pr-banner", 13., WAITING).into_any_element(), WAITING_BG, title, "The checks run again once it pushes".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lead;
+
+    #[test]
+    fn the_chip_says_only_the_first_reason() {
+        assert_eq!(lead("1 check failed · changes requested"), "1 check failed");
+        assert_eq!(lead("Ready to merge"), "Ready to merge");
     }
 }

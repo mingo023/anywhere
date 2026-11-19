@@ -125,18 +125,16 @@ pub(crate) fn fix_summary(checks: usize, comments: usize) -> (String, String) {
     (format!("{} to fix", plural(checks + comments, "thing")), parts.join(" · "))
 }
 
-/// The checks named one by one, failed before pending; the passed and skipped ones are only counted.
+/// The checks named one by one, failed before pending; the passed ones are only counted.
 pub(crate) struct CheckRows<'a> {
     pub(crate) named: Vec<&'a Check>,
     pub(crate) passed: usize,
-    pub(crate) skipped: usize,
 }
 
 pub(crate) fn check_rows(pr: &Pr) -> CheckRows<'_> {
     let mut named: Vec<&Check> = pr.runs.iter().filter(|c| matches!(c.outcome, Outcome::Failed | Outcome::Pending)).collect();
     named.sort_by_key(|c| c.outcome != Outcome::Failed);
-    let count = |o: Outcome| pr.runs.iter().filter(|c| c.outcome == o).count();
-    CheckRows { named, passed: count(Outcome::Passed), skipped: count(Outcome::Skipped) }
+    CheckRows { named, passed: pr.runs.iter().filter(|c| c.outcome == Outcome::Passed).count() }
 }
 
 /// "5 passed · 1 skipped", leaving out what is none.
@@ -1169,7 +1167,7 @@ mod tests {
         let pr = Pr { runs: vec![check("a", Outcome::Passed), check("b", Outcome::Pending), check("c", Outcome::Failed), check("d", Outcome::Skipped), check("e", Outcome::Passed)], ..pr() };
         let rows = check_rows(&pr);
         assert_eq!(rows.named.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["c", "b"]);
-        assert_eq!((rows.passed, rows.skipped), (2, 1));
+        assert_eq!(rows.passed, 2);
     }
 
     #[test]
