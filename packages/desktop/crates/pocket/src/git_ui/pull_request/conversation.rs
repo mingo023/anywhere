@@ -13,25 +13,39 @@ use gpui_kit::*;
 use theme::*;
 use ui::Variant;
 
-/// Who said it and when, over what they said, indented under their name.
-fn said_card(id: impl Into<ElementId>, face: Div, author: &str, when: String) -> (Stateful<Div>, Div) {
-    let head = div()
-        .pt(px(9.))
-        .pr(px(8.))
-        .pl(px(10.))
+/// Who said it and when, over what they said, indented under their name. `who` is the author line; clicking it folds the card.
+fn said_card(id: impl Into<ElementId>, who: Stateful<Div>, folded: bool) -> (Stateful<Div>, Div) {
+    let head = div().pt(px(9.)).pr(px(8.)).pl(px(10.)).when(folded, |d| d.pb(px(9.))).flex().items_center().gap(px(7.)).text_size(px(12.5)).child(who);
+    (card().id(id).flex().flex_col(), head)
+}
+
+/// `hidden`: a hint of what a folded card keeps out of sight, after the time.
+fn who(id: impl Into<ElementId>, face: Div, author: &str, when: String, hidden: Option<Div>) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_1()
+        .min_w_0()
         .flex()
         .items_center()
         .gap(px(7.))
-        .text_size(px(12.5))
+        .cursor_pointer()
         .child(face)
-        .child(div().min_w_0().truncate().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(author.to_string()))
+        .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(author.to_string()))
         .child(div().flex_none().text_color(TEXT_4).child(when))
-        .child(div().flex_1());
-    (card().id(id).flex().flex_col(), head)
+        .children(hidden)
 }
 
 fn said_body(md: &str) -> Div {
     div().pt(px(5.)).pr(px(12.)).pb(px(10.)).pl(px(37.)).child(body_view(md))
+}
+
+/// The first line of what was said, as a folded card's hint of it.
+fn first_line(body: &str) -> &str {
+    body.lines().map(|l| l.trim_start_matches(['#', '>', '-', '*', ' ']).trim()).find(|l| !l.is_empty()).unwrap_or_default()
+}
+
+fn gist(body: &str) -> Div {
+    div().flex_1().min_w_0().truncate().text_color(TEXT_4).child(first_line(body).to_string())
 }
 
 fn verdict(r: Review) -> Div {
@@ -141,23 +155,43 @@ impl Desktop {
             Entry::Thread(i) => self.conv_thread(i, shown, &pr.threads[i], cx),
             Entry::Review { at, threads } => {
                 let r = &pr.submitted[at];
-                let (card, head) = said_card(("pr-review", k), self.face(&r.author, 20.), &r.author, ago(r.at as i64, now));
+                let folded = self.pr.track.folded.contains(&r.id);
+                let hidden = folded.then(|| match threads.len() {
+                    0 => gist(&r.body),
+                    n => div().flex().flex_none().items_center().gap(px(3.)).text_color(TEXT_4).child(icon("comment", 12., TEXT_4)).child(n.to_string()),
+                });
+                let id = r.id.clone();
+                let who = who(("pr-review-who", k), self.face(&r.author, 20.), &r.author, ago(r.at as i64, now), hidden).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.pr.track.toggle_folded(&id);
+                    cx.notify();
+                }));
+                let (card, head) = said_card(("pr-review", k), who, folded);
                 let has_body = !r.body.trim().is_empty();
-                let quote = has_body.then(|| {
+                let quote = (has_body && !folded).then(|| {
                     let said = r.body.clone();
                     ui::icon_button_sized(("pr-review-quote", k), "reply", 22., TEXT_3)
                         .tooltip(|window, cx| Tooltip::new("Quote reply").build(window, cx))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.quote_reply(&said, window, cx)))
                 });
-                card.child(head.child(verdict(r.verdict)).children(quote))
-                    .child(if has_body { said_body(&r.body) } else { div().h(px(8.)) })
-                    .children(threads.into_iter().map(|i| self.conv_thread(i, shown, &pr.threads[i], cx)))
-                    .into_any_element()
+                let card = card.child(head.child(verdict(r.verdict)).children(quote));
+                if folded {
+                    return card.into_any_element();
+                }
+                card.child(if has_body { said_body(&r.body) } else { div().h(px(8.)) }).children(threads.into_iter().map(|i| self.conv_thread(i, shown, &pr.threads[i], cx))).into_any_element()
             }
             Entry::Note(i) => {
                 let n = &pr.notes[i];
                 let sending = n.id.is_empty();
-                let (card, head) = said_card(("pr-note", k), self.face(&n.author, 20.), &n.author, if sending { "Sending…".into() } else { ago(n.at as i64, now) });
+                let folded = !sending && self.pr.track.folded.contains(&n.id);
+                let id = n.id.clone();
+                let who = who(("pr-note-who", k), self.face(&n.author, 20.), &n.author, if sending { "Sending…".into() } else { ago(n.at as i64, now) }, folded.then(|| gist(&n.body)))
+                    .when(!sending, |d| {
+                        d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.pr.track.toggle_folded(&id);
+                            cx.notify();
+                        }))
+                    });
+                let (card, head) = said_card(("pr-note", k), who, folded);
                 let link = (!n.url.is_empty()).then(|| {
                     let url = n.url.clone();
                     ui::icon_button_sized(("pr-note-link", k), "copy", 22., TEXT_3)
@@ -168,7 +202,11 @@ impl Desktop {
                     let said = n.body.clone();
                     div().p(px(8.)).pl(px(36.)).flex().child(small_with(("pr-quote", k), Variant::Ghost, "reply", "Quote reply").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.quote_reply(&said, window, cx))))
                 });
-                card.when(sending, |d| d.opacity(0.55)).child(head.children(link)).child(said_body(&n.body)).children(quote).into_any_element()
+                let card = card.when(sending, |d| d.opacity(0.55)).child(head.children(link));
+                if folded {
+                    return card.into_any_element();
+                }
+                card.child(said_body(&n.body)).children(quote).into_any_element()
             }
         }
     }
@@ -216,5 +254,17 @@ impl Desktop {
             .children(error)
             .child(foot)
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_line;
+
+    #[test]
+    fn a_folded_card_hints_at_its_first_line_without_markdown_marks() {
+        assert_eq!(first_line("\n## Summary\nMore"), "Summary");
+        assert_eq!(first_line("> quoted\n"), "quoted");
+        assert_eq!(first_line("  "), "");
     }
 }

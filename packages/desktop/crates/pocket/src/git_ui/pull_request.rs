@@ -276,11 +276,13 @@ pub(crate) struct Track {
     pub(crate) expanded: HashSet<String>,
     /// The description is folded to its heading.
     pub(crate) about_folded: bool,
+    /// Reviews and comments folded to their author line.
+    pub(crate) folded: HashSet<String>,
 }
 
 impl Default for Track {
     fn default() -> Self {
-        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), about_folded: false }
+        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), about_folded: false, folded: HashSet::new() }
     }
 }
 
@@ -341,9 +343,17 @@ impl Track {
     }
 
     pub(crate) fn toggle_expanded(&mut self, thread: &str) {
-        if !self.expanded.remove(thread) {
-            self.expanded.insert(thread.to_string());
-        }
+        flip(&mut self.expanded, thread);
+    }
+
+    pub(crate) fn toggle_folded(&mut self, card: &str) {
+        flip(&mut self.folded, card);
+    }
+}
+
+fn flip(set: &mut HashSet<String>, id: &str) {
+    if !set.remove(id) {
+        set.insert(id.to_string());
     }
 }
 
