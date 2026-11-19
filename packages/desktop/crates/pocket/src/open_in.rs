@@ -237,7 +237,7 @@ impl Desktop {
             .child(ui::menu_divider())
             .child(copy);
         let panel = group.map(|g| flyout("open-in-group", g.entries.iter().map(|e| self.entry_row(e, g.id, flyouts, cx)).collect()));
-        let nested = editions.map(|apps| flyout("open-in-editions", apps.iter().map(|app| self.opener_row(*app, flyouts, cx)).collect()));
+        let nested = editions.map(|apps| flyout("open-in-editions", apps.iter().map(|app| self.opener_row(app, flyouts, cx)).collect()));
         let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
             if this.open_in.press_outside() {
                 cx.notify();
@@ -263,7 +263,7 @@ impl Desktop {
     fn entry_row(&self, entry: &Entry, group: &'static str, flyouts: Flyouts, cx: &mut Context<Self>) -> Stateful<Div> {
         let to = |sub| Flyouts { group: Some(group), sub };
         match entry {
-            Entry::App(app) => self.opener_row(*app, to(None), cx),
+            Entry::App(app) => self.opener_row(app, to(None), cx),
             Entry::Editions { id, label, apps } => Self::submenu_row(format!("open-in-{id}"), self.opener_icon(apps[0], 14.), label, flyouts.sub == Some(*id), to(Some(*id)), cx),
         }
     }

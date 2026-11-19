@@ -126,7 +126,7 @@ pub fn menu(installed: &Installed) -> Vec<Group> {
                     Slot::App(app) => have(app).then_some(Entry::App(app)),
                     Slot::Editions { id, label, apps } => {
                         let apps: Vec<&'static Opener> = apps.iter().filter(|app| have(app)).collect();
-                        (!apps.is_empty()).then_some(Entry::Editions { id: *id, label: *label, apps })
+                        (!apps.is_empty()).then_some(Entry::Editions { id, label, apps })
                     }
                 })
                 .collect();

@@ -183,9 +183,11 @@ mod tests {
 
     #[test]
     fn lists_agents_that_need_you_then_failed_then_done() {
-        let mut agents = Agents::default();
-        agents.list = vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), Summary { attached: false, ..agent("blind", "done", 9) }];
-        agents.pending = vec![Permission { agent_id: "ask".into(), tool_name: "Bash".into(), ..Default::default() }];
+        let mut agents = Agents {
+            list: vec![agent("done", "done", 3), Summary { failed: true, ..agent("fail", "done", 1) }, agent("ask", "needsYou", 0), agent("busy", "working", 9), Summary { attached: false, ..agent("blind", "done", 9) }],
+            pending: vec![Permission { agent_id: "ask".into(), tool_name: "Bash".into(), ..Default::default() }],
+            ..Default::default()
+        };
         agents.timelines.insert("done".into(), vec![Item { kind: "assistant".into(), text: "\nTagged v2\nmore".into(), ..Default::default() }]);
         agents.timelines.insert("fail".into(), vec![Item { kind: "result".into(), error: "exit 1".into(), ..Default::default() }]);
         let got: Vec<(String, Status, String, String)> = notes(&agents).into_iter().map(|n| (n.terminal, n.status, n.title, n.subtitle)).collect();
@@ -218,8 +220,7 @@ mod tests {
 
     #[test]
     fn a_needs_you_agent_without_an_open_ask_reads_its_title_and_last_text() {
-        let mut agents = Agents::default();
-        agents.list = vec![agent("ask", "needsYou", 0)];
+        let mut agents = Agents { list: vec![agent("ask", "needsYou", 0)], ..Default::default() };
         agents.timelines.insert("ask".into(), vec![Item { kind: "assistant".into(), text: "Which branch?".into(), ..Default::default() }]);
         let n = &notes(&agents)[0];
         assert_eq!((n.title.as_str(), n.subtitle.as_str()), ("ASK", "Which branch?"));

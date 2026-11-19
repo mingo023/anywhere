@@ -67,11 +67,6 @@ fn from_commits(commits: &[Commit]) -> (String, String) {
 }
 
 /// The last `n` lines of a review comment's hunk, which ends at the line it's on.
-/// Runs `argv` in `dir` through the login shell, so the agent finds what it does in a terminal.
-fn run(argv: &[String], dir: &str, input: &str) -> Result<String, String> {
-    crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), dir, input)
-}
-
 pub(crate) fn hunk_tail(hunk: &str, n: usize) -> Vec<&str> {
     let lines: Vec<&str> = hunk.lines().filter(|l| !l.starts_with("@@")).collect();
     lines[lines.len().saturating_sub(n)..].to_vec()
@@ -583,7 +578,7 @@ impl Desktop {
         self.pr.error = None;
         let task = cx.background_executor().spawn(async move {
             let context = git::pr_context(&hosts::runner_for(&cwd), &cwd, &base);
-            run(&argv, &cwd, &context)
+            crate::util::run_login(&argv.iter().map(String::as_str).collect::<Vec<_>>(), &cwd, &context)
         });
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
