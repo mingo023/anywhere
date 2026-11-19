@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.52
+
+- The chat box shows one button, and a send's second click doesn't stop (#298): (a73e009b)
+- Agents keep running when pocketd upgrades, restarts or crashes (#297): (805182be)
+- Closing a terminal no longer shows "no such terminal" (#296): (5a592264)
+- Pull request panel folds smoothly, selects text, and clips long bodies (#295): (7e959618)
+
 ## 0.1.51
 
 - The Pull request panel shows the whole PR (#291): (25bec15c)
