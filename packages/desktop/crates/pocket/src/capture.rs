@@ -1,4 +1,5 @@
 use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
+use crate::spaces::{Space, space_of};
 use crate::add_to_chat::Quote;
 use crate::chat::composer::suggest::Prompt;
 use crate::chat::tool_row::{self, Tools};
@@ -32,7 +33,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 271] = [
+const STEPS: [(&str, Step); 294] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -602,6 +603,44 @@ const STEPS: [(&str, Step); 271] = [
         }
     }),
     ("vm-browse", |d, window, cx| d.browse_to("/home/mingo/vm-app".into(), window, cx)),
+    // The host finder over Add project, on the fixture's devbox (FIXTURE_HOST_FILES=1).
+    ("finder", |d, window, cx| {
+        d.open_host_folder(window, cx);
+        d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::AddProject, window, cx);
+    }),
+    ("finder-app", |d, _, cx| d.finder_select("/home/dev/code".into(), "app".into(), cx)),
+    ("finder-readme", |d, _, cx| d.finder_select("/home/dev/code/app".into(), "README.md".into(), cx)),
+    ("finder-down", |d, _, cx| d.finder_step("down", cx)),
+    ("finder-left", |d, _, cx| d.finder_step("left", cx)),
+    ("finder-hidden", |d, _, cx| d.finder_toggle_hidden(cx)),
+    // The sidebar's spaces, with devbox online and 10.0.4.12 retrying (FIXTURE_HOST_FILES=1).
+    ("space-mac", |d, window, cx| d.switch_space(Space::Local, window, cx)),
+    ("space-devbox", |d, window, cx| d.switch_space(Space::Host("devbox".into()), window, cx)),
+    ("space-menu", |d, window, cx| {
+        d.switch_space(Space::Host("devbox".into()), window, cx);
+        d.spaces.menu = true;
+    }),
+    ("space-offline", |d, window, cx| d.switch_space(Space::Host("10-0-4-12".into()), window, cx)),
+    ("space-empty", |d, window, cx| {
+        d.store.projects.retain(|p| space_of(p) != Space::Host("devbox".into()));
+        d.switch_space(Space::Host("devbox".into()), window, cx);
+    }),
+    // The new-session page's machine pill, with devbox's app-ios the twin of this Mac's (FIXTURE_HOST_FILES=1).
+    ("form-machine", |d, _, cx| d.toggle_picker(Picker::Machine, cx)),
+    ("form-app-ios", |d, window, cx| {
+        if let Some(p) = d.projects().into_iter().find(|p| p.ends_with("/code/app-ios") && !p.starts_with("//")) {
+            d.new_place(p, window, cx);
+        }
+    }),
+    ("form-space-devbox", |d, window, cx| d.pick_machine(Space::Host("devbox".into()), window, cx)),
+    ("form-mac", |d, window, cx| d.pick_machine(Space::Local, window, cx)),
+    // 10.0.4.12 is retrying, so the page holds its project and says why nothing starts.
+    ("form-offline", |d, window, cx| {
+        d.switch_space(Space::Host("10-0-4-12".into()), window, cx);
+        d.new_session(None, true, window, cx);
+    }),
+    ("form-host-folder", |d, window, cx| d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::NewSession, window, cx)),
+    ("finder-choose", |d, window, cx| d.finder_choose(window, cx)),
     ("vm-open", |d, window, cx| d.open_browsed(window, cx)),
     ("vm-save", |d, window, cx| d.save_repo(window, cx)),
     ("vm-shell", |d, _, cx| d.new_shell(workspace::Place::Pane(None), cx)),
@@ -634,6 +673,14 @@ const STEPS: [(&str, Step); 271] = [
     ("hosts-password", |d, window, cx| d.open_password("10-0-4-12".into(), window, cx)),
     ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
     ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
+    // The Hosts page with each host's space colour and Open; and an install that has finished.
+    ("hosts-spaces", |d, _, _| d.settings.section = Section::Hosts),
+    ("hosts-installed", |d, window, cx| {
+        d.settings.section = Section::Hosts;
+        for progress in [agents::hosts::Progress::Step(agents::hosts::Step::Detect), agents::hosts::Progress::Step(agents::hosts::Step::Start), agents::hosts::Progress::Done] {
+            d.on_hosts(agents::Event::HostProgress { host: "devbox".into(), update: false, progress }, window, cx);
+        }
+    }),
     ("host-link-add", |d, window, cx| d.link_host("vps".into(), window, cx)),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
     ("hosts-remove", |d, _, _| {
@@ -751,6 +798,14 @@ const STEPS: [(&str, Step); 271] = [
         d.clone_url_changed(window, cx);
     }),
     ("clone-group-menu", |d, _, _| d.clone_form.group_menu = true),
+    // Clone from URL on the space on screen, then cloning (FIXTURE_HOST_FILES=1; devbox's git holds the clone until it is let go).
+    ("clone-host", |d, window, cx| {
+        d.clone_project(window, cx);
+        d.clone_form.url.update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
+        d.clone_url_changed(window, cx);
+    }),
+    ("clone-host-progress", |d, window, cx| d.start_clone(window, cx)),
+    ("finder-open-host", |d, window, cx| d.open_folder(crate::modals::host_finder::Opener::Sidebar, window, cx)),
     ("project-settings", |d, window, cx| d.project_settings(&crate::actions::ProjectSettings, window, cx)),
     ("project-icons", |d, _, _| {
         let app_icon = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/AppIcon.png"));
@@ -977,7 +1032,7 @@ const STEPS: [(&str, Step); 271] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file").
-const INPUT_STEPS: [(&str, Step); 13] = [
+const INPUT_STEPS: [(&str, Step); 14] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1051,6 +1106,20 @@ const INPUT_STEPS: [(&str, Step); 13] = [
                 window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: left, modifiers }), cx);
             }
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
+        });
+    }),
+    // A two-finger trackpad scroll: touch down, four moves of a quarter `dx`, `dy` each, then lift.
+    ("scroll", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_SCROLLS", ';') else { return };
+        let Some((at, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
+        window.defer(cx, move |window, cx| {
+            let modifiers = Modifiers::default();
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
+            let phases = [TouchPhase::Started, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Ended];
+            for (i, touch_phase) in phases.into_iter().enumerate() {
+                let delta = if i == 4 { point(px(0.), px(0.)) } else { by * 0.25 };
+                window.dispatch_event(PlatformInput::Scroll(ScrollEvent { position: at, delta: ScrollDelta::Pixels(delta), modifiers, touch_phase, source: ScrollSource::Pointer }), cx);
+            }
         });
     }),
     ("pinch", |_, window, cx| {
@@ -1425,6 +1494,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.agents.names.clear();
     d.agents.locals.clear();
     d.sidebar.rename = None;
+    d.spaces.reset();
     d.updates.update = Update::Idle;
     d.terminals.link.up();
     d.terminals.link.service = None;

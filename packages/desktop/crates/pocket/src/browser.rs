@@ -148,7 +148,7 @@ impl Desktop {
         if self.browsers.tabs.is_empty() {
             return;
         }
-        let covered = self.overlay.is_some() || self.menu_open() || self.sidebar.menu_at.is_some() || self.shown_create().is_some() || self.panels.parks_pages();
+        let covered = self.overlay.is_some() || self.host_finder.finder.is_some() || self.menu_open() || self.sidebar.menu_at.is_some() || self.shown_create().is_some() || self.panels.parks_pages();
         let shown: Vec<u64> = match self.session_tree().and_then(|t| self.workspaces.get(&t)) {
             Some(w) if !covered => w.shown().into_iter().filter_map(|(_, t)| web(t)).collect(),
             _ => Vec::new(),

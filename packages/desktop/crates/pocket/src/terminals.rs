@@ -328,7 +328,7 @@ impl Desktop {
     fn adopt(&mut self, id: String, tree: String, place: Place, window: &mut Window, cx: &mut Context<Self>) {
         self.workspace(&tree).open_term(id.clone(), place);
         if self.place().as_deref() == Some(tree.as_str()) {
-            self.show_tree(&tree);
+            self.show_tree(&tree, cx);
             self.load_active(cx);
             self.focus_chat_or_terminal(id, window, cx);
         }

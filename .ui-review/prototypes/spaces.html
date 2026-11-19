@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spaces · machines in Anywhere — design prototype</title>
+<style>
+:root{
+  /* Solarized Light (packages/desktop/themes/solarized-light.json) */
+  --text:#073642;--text-body:#365b61;--text-2:#566c73;--text-3:#657b83;--text-4:#93a1a1;--text-5:#b0bab0;--text-6:#d1d3c6;--on-text:#fdf6e3;
+  --window:#eee8d5;--surface:#fdf6e3;--page:#f9f2df;--side:#f6efdcb3;--popover:#fdf6e3;--highlight:#fffffff2;--shadow:#00000024;
+  --fill-1:#07364208;--fill-2:#0736420b;--fill-3:#0736420e;--fill-4:#07364211;--separator:#07364217;--separator-strong:#0736421f;--accent-bg:#0736421c;
+  --waiting:#947000;--waiting-text:#826300;--waiting-dot:#b58900;--success:#7a8d00;--success-text:#606e00;--failed:#dc322f;--failed-text:#c42c2a;--failed-bg:#dc322f1c;--working:#cb4b16;--claude:#d97757;
+}
+:root[data-theme=graphite]{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;--on-text:#fff;
+  --window:#f4f4f5;--surface:#fff;--page:#f7f7f7;--side:#fafafbb3;--popover:#fff;
+  --fill-1:#11111308;--fill-2:#1111130b;--fill-3:#1111130e;--fill-4:#11111311;--separator:#11111317;--separator-strong:#1111131f;--accent-bg:#1111131c;
+  --waiting:#ad5700;--waiting-text:#ad5700;--waiting-dot:#ffb224;--success:#2b9a66;--success-text:#18794e;--failed:#cd2b31;--failed-text:#cd2b31;--failed-bg:#e5484d1c;--working:#cc4e00;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:var(--text);background:var(--window);font-size:13px;height:100vh;overflow:hidden}
+button,input{font:inherit;color:inherit;background:none;border:0;outline:0}
+button{cursor:pointer;text-align:left}
+svg.i{flex:none;display:block}
+.mono{font-family:"Geist Mono",ui-monospace,Menlo,monospace}
+.app{display:flex;height:100vh}
+.grow{flex:1;min-width:0}
+
+/* ---------- sidebar (ui::side, sidebar_row 28px) ---------- */
+.side{width:272px;flex:none;background:var(--side);border-right:.5px solid var(--separator);display:flex;flex-direction:column;padding:0 10px;position:relative}
+.top{height:40px;flex:none;display:flex;align-items:center;justify-content:flex-end;gap:12px;color:var(--text-3)}
+.search{height:32px;flex:none;margin:2px 0 8px;padding:0 10px;display:flex;align-items:center;gap:8px;border-radius:9px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong);color:var(--text-3);font-size:13.5px}
+.search kbd{margin-left:auto;font:inherit;font-size:11.5px;color:var(--text-4)}
+.row{height:28px;flex:none;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px;font-size:13.5px;white-space:nowrap;position:relative;cursor:default}
+.row:hover{background:var(--fill-2)}
+.row.on{background:var(--fill-4)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.row.nav{color:var(--text-2)}
+.row .acts{display:none;gap:6px;color:var(--text-3)}
+.row:hover .acts{display:flex}
+.row:hover .meta{display:none}
+.child{padding-left:32px}
+.child .lead{position:absolute;left:12px;top:7px;width:14px;display:flex;justify-content:center}
+.child.dim{color:var(--text-3)}
+.stat{font-size:12px}.stat .a{color:var(--success-text)}.stat .d{color:var(--failed-text);margin-left:6px}
+.sh{height:28px;flex:none;margin:6px 0 2px;padding:0 6px;display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--text-3)}
+.sh>span:first-child{flex:1}
+.sh .b{display:flex;cursor:pointer}
+.sh .b:hover{color:var(--text)}
+.list{flex:1;overflow-y:auto;overflow-x:hidden;margin:0 -4px;padding:0 4px 8px}
+.grp{margin-bottom:8px}
+.tile{width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:5px;font-size:10px;font-weight:600;color:var(--text-2);background:var(--surface);box-shadow:inset 0 0 0 .5px var(--separator-strong)}
+.tile.e{font-size:12px}
+.dot{width:6px;height:6px;border-radius:3px;flex:none;background:var(--success)}
+.dot.off{background:var(--text-5)}
+.dot.wait{background:var(--waiting-dot)}
+.dot.bad{background:var(--failed)}
+.sdot{width:7px;height:7px;border-radius:4px;background:var(--waiting-dot)}
+.spin{width:9px;height:9px;border-radius:5px;border:1.5px solid var(--working);border-right-color:transparent;animation:sp .8s linear infinite}
+.spin.big{width:13px;height:13px;border-width:2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.fresh{animation:fresh 1.8s ease-out}
+@keyframes fresh{0%{background:var(--accent-bg)}100%{background:transparent}}
+
+/* space header + switcher */
+.space{height:34px;flex:none;margin:8px 0 0;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px;cursor:pointer;position:relative}
+.space:hover{background:var(--fill-2)}
+.space .sw-ic{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff}
+.space b{font-size:14px;font-weight:600}
+.space .h{font-size:12px;color:var(--text-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.space .car{color:var(--text-4)}
+.switcher{flex:none;display:flex;align-items:center;gap:2px;padding:6px 0 10px;border-top:.5px solid var(--separator);margin:0 -10px;padding-left:8px;padding-right:8px}
+.sw{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--text-3);position:relative}
+.sw:hover{background:var(--fill-2)}
+.sw.on{background:var(--fill-4);color:var(--text)}
+.sw .pip{position:absolute;left:50%;bottom:1px;width:12px;height:2.5px;border-radius:2px;transform:translateX(-50%)}
+.sw .dot{position:absolute;right:5px;bottom:6px;box-shadow:0 0 0 1.5px var(--window)}
+.sw .badge{position:absolute;right:1px;top:1px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--waiting-dot);color:#171717;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.sw.fresh{animation:pop .6s cubic-bezier(.34,1.56,.64,1)}
+@keyframes pop{0%{transform:scale(.4);opacity:0}100%{transform:none;opacity:1}}
+.pane{animation:slide .22s cubic-bezier(.22,1,.36,1)}
+.pane.l{animation-name:slidel}
+@keyframes slide{from{opacity:0;transform:translateX(24px)}}
+@keyframes slidel{from{opacity:0;transform:translateX(-24px)}}
+.offline{margin:4px 0 10px;padding:10px 12px;border-radius:10px;background:var(--fill-2);font-size:12px;color:var(--text-3);display:flex;flex-direction:column;gap:8px}
+.offline b{color:var(--text);font-weight:500;font-size:12.5px;display:flex;align-items:center;gap:6px}
+.empty{margin:20px 8px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:var(--text-3);font-size:12.5px}
+.empty b{color:var(--text);font-weight:500}
+
+/* ---------- menus (ui::pop) ---------- */
+.pop{background:var(--popover);border-radius:12px;box-shadow:0 0 0 .5px var(--separator),inset 0 1px 0 var(--highlight),0 18px 50px var(--shadow),0 2px 6px #0000000f}
+.menu{position:absolute;z-index:20;padding:5px;display:flex;flex-direction:column;gap:1px;animation:menuin .15s cubic-bezier(.22,1,.36,1)}
+.menu.up{animation-name:menuup}
+@keyframes menuin{from{opacity:0;transform:translateY(-4px)}}
+@keyframes menuup{from{opacity:0;transform:translateY(4px)}}
+.ml{padding:6px 10px 2px;font-size:11.5px;font-weight:500;color:var(--text-3)}
+.md{height:.5px;margin:4px 8px;background:var(--separator);flex:none}
+.mp{height:32px;padding:0 10px;display:flex;align-items:center;gap:10px;border-radius:8px;font-size:13.5px;white-space:nowrap;cursor:pointer;color:var(--text)}
+.mp:hover{background:var(--fill-2)}
+.mp .lead{width:14px;display:flex;justify-content:center;flex:none;color:var(--text-2)}
+.mp .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mp .h{font-size:11.5px;color:var(--text-4)}
+.mp.off{color:var(--text-4);cursor:default}.mp.off:hover{background:none}
+.mp.danger{color:var(--failed)}.mp.danger .lead{color:var(--failed)}.mp.danger:hover{background:var(--failed-bg)}
+.ar{padding:7px 8px;display:flex;align-items:center;gap:9px;border-radius:6px;cursor:pointer}
+.ar:hover,.ar.on{background:var(--fill-2)}
+.ar .g{align-self:flex-start;padding-top:1px;color:var(--text-2)}
+.ar .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ar .l{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500}
+.ar .h{font-size:11.5px;color:var(--text-3)}
+.ar .ck{width:16px;display:flex;justify-content:flex-end;flex:none}
+.ar.off{cursor:default}.ar.off:hover{background:none}.ar.off .l,.ar.off .g{color:var(--text-4)}
+.swatches{display:flex;gap:6px;padding:4px 10px 6px}
+.swatch{width:16px;height:16px;border-radius:8px;cursor:pointer;box-shadow:inset 0 0 0 .5px #00000026}
+.swatch.on{box-shadow:0 0 0 2px var(--popover),0 0 0 3.5px var(--text-3)}
+
+/* ---------- page ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--page)}
+.bar{height:40px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;color:var(--text-3);border-bottom:.5px solid transparent}
+.bar b{color:var(--text);font-weight:600}
+.bar .crumb{display:flex;align-items:center;gap:5px}
+.body{flex:1;position:relative;display:flex;justify-content:center;background-image:radial-gradient(var(--text-6) .9px,transparent 1px);background-size:14px 14px;background-position:7px 7px;overflow:auto}
+.content{width:600px;margin-top:20vh;display:flex;flex-direction:column;align-items:center}
+h1{font-size:21px;line-height:25px;font-weight:600}
+.frame{width:100%;margin-top:20px;background:var(--surface);border-radius:16px;box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a,0 8px 24px #0000000d}
+.ptext{padding:11px 9px 0}
+.ptext textarea{width:100%;border:0;outline:0;resize:none;background:none;font:inherit;font-size:14.5px;line-height:22px;color:var(--text);padding:0 7px;height:66px}
+.ptext textarea::placeholder{color:var(--text-4)}
+.pbar{display:flex;align-items:center;gap:4px;padding:4px 11px 11px}
+.pill{height:30px;display:flex;align-items:center;gap:6px;padding:0 6px 0 7px;border-radius:9px;font-size:12.5px;color:var(--text-2)}
+.pill:hover{background:var(--fill-2)}
+.pill b{font-weight:500;color:var(--text)}
+.ib{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.ib:hover{background:var(--fill-2)}
+.send{width:32px;height:32px;border-radius:16px;display:flex;align-items:center;justify-content:center;background:var(--text);color:var(--on-text)}
+.send.off{background:var(--fill-4);color:var(--text-4);cursor:default}
+.foot-row{width:100%;margin-top:10px;display:flex;align-items:center;gap:2px;font-size:13px}
+.pw{position:relative}
+.chip{height:30px;padding:0 8px 0 10px;display:flex;align-items:center;gap:7px;border-radius:8px;background:var(--fill-2);white-space:nowrap;font-weight:500}
+.chip:hover,.chip[data-open]{background:var(--fill-3)}
+.chip.dim{opacity:.5;cursor:default}
+.sepdot{color:var(--text-4);padding:0 4px}
+.notice{width:100%;margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--waiting-text)}
+.notice a{color:var(--text);font-weight:500;text-decoration:underline;cursor:pointer}
+
+/* session view */
+.chat{width:680px;margin-top:28px;display:flex;flex-direction:column;gap:14px}
+.where{align-self:flex-start;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:9px;background:var(--fill-2);font-size:12px;color:var(--text-2)}
+.bubble{align-self:flex-end;max-width:520px;padding:10px 14px;border-radius:14px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong);font-size:14px;line-height:21px}
+.reply{display:flex;gap:10px;align-items:center;color:var(--text-2);font-size:13.5px}
+
+/* buttons (ui::button, pills) */
+.btn{height:28px;padding:0 13px;border-radius:14px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn.sm{height:26px;padding:0 11px;font-size:12.5px}
+.btn.lg{height:36px;padding:0 18px;border-radius:18px;font-size:14px}
+.btn.primary{background:var(--text);color:var(--on-text)}
+.btn.secondary{background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a}
+.btn.ghost{background:var(--fill-2)}
+.btn.ghost:hover{background:var(--fill-3)}
+.btn.danger{background:var(--failed);color:#fff}
+.btn[disabled]{opacity:.5;cursor:default}
+
+/* ---------- settings › hosts ---------- */
+.snav{width:272px;flex:none;background:var(--side);border-right:.5px solid var(--separator);padding:0 10px;display:flex;flex-direction:column;gap:1px;overflow:auto}
+.snav .row{color:var(--text)}
+.snav .grpl{padding:14px 8px 4px;font-size:12px;color:var(--text-3)}
+.sbody{flex:1;overflow:auto}
+.scontent{width:640px;margin:28px auto 60px}
+.shead{display:flex;gap:14px;align-items:center;margin-bottom:26px}
+.shead .ic{width:40px;height:40px;border-radius:10px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a;display:flex;align-items:center;justify-content:center;color:var(--text)}
+.shead b{display:block;font-size:22px;font-weight:600;line-height:28px}
+.shead span{font-size:13px;color:var(--text-3)}
+.slabel{font-size:13px;font-weight:500;color:var(--text-2);margin:0 2px 8px}
+.card{background:var(--surface);border-radius:12px;box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a;overflow:hidden}
+.hrow{padding:9px 14px;display:flex;align-items:center;gap:12px}
+.hrow+.hrow,.card>*+*{border-top:.5px solid var(--separator)}
+.htile{width:28px;height:28px;border-radius:7px;background:var(--fill-2);display:flex;align-items:center;justify-content:center;color:var(--text-2);flex:none;position:relative}
+.htile .c{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:5px;box-shadow:0 0 0 1.5px var(--surface)}
+.htx{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.htx .n{font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
+.htx .l{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:16px;color:var(--text-3)}
+.htx .l .dot{width:7px;height:7px;border-radius:4px;margin-top:4.5px}
+.here{font-size:13px;color:var(--text-3)}
+.hacts{display:flex;gap:8px;align-items:center}
+.steps{padding:4px 14px 12px 54px;display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--text-2)}
+.steps .st{display:flex;align-items:center;gap:8px}
+.steps .st.todo{color:var(--text-4)}
+.steps .st .ok{color:var(--success)}
+.steps .done{display:flex;align-items:center;gap:8px;margin-top:4px}
+.form{padding:14px;display:flex;flex-direction:column;gap:12px}
+.form .t{font-size:13px;font-weight:500}
+.sugg{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)}
+.sugg button{height:24px;padding:0 10px;border-radius:12px;background:var(--fill-2);font-size:12.5px;color:var(--text)}
+.sugg button:hover{background:var(--fill-3)}
+.fields{display:flex;gap:10px}
+.field{display:flex;flex-direction:column;gap:5px;flex:1}
+.field label{font-size:12px;color:var(--text-2)}
+.field input{height:26px;padding:0 9px;border-radius:7px;background:var(--fill-2);font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px}
+.field input::placeholder{color:var(--text-4)}
+.hint{font-size:12px;color:var(--text-3)}
+.hint a{color:var(--text);text-decoration:underline;cursor:pointer}
+.err{font-size:12px;color:var(--failed-text)}
+.ffoot{display:flex;align-items:center;gap:8px}
+.ffoot .hint{flex:1}
+.pwrow{padding:2px 14px 12px 54px;display:flex;gap:8px;align-items:center}
+.pwrow input{flex:1;height:26px;padding:0 9px;border-radius:7px;background:var(--fill-2);font-size:12.5px}
+
+/* ---------- modals ---------- */
+.backdrop{position:fixed;inset:0;background:#0000002e;display:flex;align-items:center;justify-content:center;z-index:30;animation:fade .18s}
+@keyframes fade{from{opacity:0}}
+.modal{width:480px;padding:24px 24px 22px;border-radius:16px;display:flex;flex-direction:column;animation:modalin .2s cubic-bezier(.22,1,.36,1)}
+@keyframes modalin{from{opacity:0;transform:scale(.97)}}
+.modal h2{font-size:20px;font-weight:600;display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.modal .lab{font-size:12.5px;font-weight:500;color:var(--text-2);margin:0 0 7px}
+.fbox{height:38px;padding:0 6px 0 12px;display:flex;align-items:center;gap:10px;border-radius:10px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong);color:var(--text-3)}
+.fbox input{flex:1;min-width:0;font-family:"Geist Mono",ui-monospace,monospace;font-size:13px;color:var(--text)}
+.fbox .in{flex:1;font-family:"Geist Mono",ui-monospace,monospace;font-size:13px;color:var(--text)}
+.fbox .choose{height:28px;padding:0 12px;border-radius:8px;background:var(--fill-2);font-size:13px;color:var(--text)}
+.fbox .on{height:26px;padding:0 8px;border-radius:7px;background:var(--fill-3);display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);font-weight:500;cursor:pointer}
+.repo-line{display:flex;align-items:center;gap:7px;margin:9px 2px 18px;font-size:12.5px;color:var(--text-3)}
+.repo-line b{color:var(--text);font-weight:600}
+.mfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
+.progress{margin-top:4px;display:flex;flex-direction:column;gap:8px}
+.progress .bar2{height:6px;border-radius:3px;background:var(--fill-3);overflow:hidden}
+.progress .bar2 i{display:block;height:100%;background:var(--text);border-radius:3px;transition:width .25s}
+.progress .ln{display:flex;justify-content:space-between;font-size:12px;color:var(--text-3)}
+.confirm p{font-size:13.5px;line-height:20px;color:var(--text-2)}
+
+/* host finder (modals/host_finder.rs) */
+.finder{width:860px;height:520px;display:flex;flex-direction:column;overflow:hidden;animation:modalin .2s cubic-bezier(.22,1,.36,1)}
+.fh{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px 0 20px;border-bottom:.5px solid var(--separator)}
+.fh .t{font-size:14px;font-weight:600;color:var(--text-2)}
+.crumbs{font-size:13.5px;color:var(--text-3);display:flex;gap:6px}
+.crumbs b{font-weight:500;color:var(--text-2)}
+.hostchip{margin-left:auto;height:30px;padding:0 10px;display:flex;align-items:center;gap:7px;border-radius:8px;background:var(--fill-2);font-weight:500;font-size:13px}
+.fbody{flex:1;display:flex;min-height:0}
+.places{width:170px;flex:none;padding:14px 8px;border-right:.5px solid var(--separator)}
+.places .ml{padding:6px 10px 4px;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.col{width:210px;flex:none;padding:5px;border-right:.5px solid var(--separator);overflow:auto}
+.fr{height:26px;padding:0 8px;display:flex;align-items:center;gap:8px;border-radius:6px;font-size:13px;white-space:nowrap;cursor:pointer}
+.fr:hover{background:var(--fill-2)}
+.fr.anc{background:var(--fill-4)}
+.fr.cur{background:var(--accent-bg)}
+.fr .nm{flex:1}
+.fr .chev{color:var(--text-4)}
+.fr .tag{font-size:11px;color:var(--text-4)}
+.detail{flex:1;min-width:0;padding:16px;display:flex;flex-direction:column;gap:12px}
+.dh{display:flex;align-items:center;gap:12px}
+.dh .ic{width:34px;height:34px;border-radius:9px;background:var(--fill-3);display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+.dh b{display:block;font-size:14px;font-weight:600}
+.dh span{font-size:12px;color:var(--text-3)}
+.facts{display:grid;grid-template-columns:64px 1fr;row-gap:6px;font-size:12.5px}
+.facts dt{color:var(--text-3)}
+.facts dd{font-family:"Geist Mono",ui-monospace,monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ff{height:60px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px 0 20px;border-top:.5px solid var(--separator)}
+.ff .p{display:flex;flex-direction:column;gap:2px;margin-right:auto}
+.ff .p .mono{font-size:12.5px}
+.ff .p span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-3)}
+.ff .p span.ok{color:var(--success-text)}
+.ff .p span.warn{color:var(--waiting-text)}
+
+.toast{position:fixed;right:20px;bottom:64px;z-index:40;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;animation:menuin .2s}
+.tip{position:fixed;z-index:50;padding:5px 8px;border-radius:7px;background:var(--text);color:var(--on-text);font-size:11.5px;pointer-events:none;white-space:nowrap}
+.kbd{font-size:11px;padding:1px 5px;border-radius:4px;background:var(--fill-3);color:var(--text-2)}
+
+/* prototype controls, not part of the design */
+.proto{position:fixed;right:14px;bottom:14px;display:flex;gap:2px;padding:4px;font-size:12px;color:var(--text-3);z-index:45}
+.proto button{padding:4px 9px;border-radius:7px}
+.proto button:hover{background:var(--fill-2)}
+.proto .sep{width:.5px;background:var(--separator);margin:2px 4px}
+.guide{position:fixed;right:14px;bottom:56px;width:300px;padding:14px 16px;font-size:12.5px;line-height:1.55;color:var(--text-2);z-index:25}
+.guide b{color:var(--text)}
+.guide ol{margin:6px 0 0 18px}
+.guide li{margin:2px 0;cursor:pointer}
+.guide li:hover{color:var(--text)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const ICONS={"laptop": {"vb": "0 0 24 24", "body": "<path d=\"M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z\"/><path d=\"M20.054 15.987H3.946\"/>", "fill": false}, "server": {"vb": "0 0 24 24", "body": "<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>", "fill": false}, "globe": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>", "fill": false}, "check": {"vb": "0 0 24 24", "body": "<path d=\"M20 6 9 17l-5-5\"/>", "fill": false}, "chevron-down": {"vb": "0 0 24 24", "body": "<path d=\"m6 9 6 6 6-6\"/>", "fill": false}, "chevron-right": {"vb": "0 0 24 24", "body": "<path d=\"m9 18 6-6-6-6\"/>", "fill": false}, "chevron-up": {"vb": "0 0 24 24", "body": "<path d=\"m18 15-6-6-6 6\"/>", "fill": false}, "folder": {"vb": "0 0 24 24", "body": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "folder-plus": {"vb": "0 0 24 24", "body": "<path d=\"M12 10v6\"/><path d=\"M9 13h6\"/><path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "worktree": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>", "fill": false}, "branch": {"vb": "0 0 24 24", "body": "<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>", "fill": false}, "plus": {"vb": "0 0 24 24", "body": "<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>", "fill": false}, "search": {"vb": "0 0 24 24", "body": "<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>", "fill": false}, "activity": {"vb": "0 0 24 24", "body": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>", "fill": false}, "blocks": {"vb": "0 0 24 24", "body": "<path d=\"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2\"/><rect x=\"14\" y=\"2\" width=\"8\" height=\"8\" rx=\"1\"/>", "fill": false}, "bolt": {"vb": "0 0 24 24", "body": "<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\"/>", "fill": false}, "settings": {"vb": "0 0 24 24", "body": "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "fill": false}, "warning": {"vb": "0 0 24 24", "body": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>", "fill": false}, "x": {"vb": "0 0 24 24", "body": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>", "fill": false}, "sidebar-collapse": {"vb": "0 0 24 24", "body": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/><path d=\"m16 15-3-3 3-3\"/>", "fill": false}, "bell": {"vb": "0 0 24 24", "body": "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>", "fill": false}, "claude": {"vb": "0 0 24 24", "body": "<path d=\"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z\"/>", "fill": true}, "terminal": {"vb": "0 0 24 24", "body": "<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>", "fill": false}, "more": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>", "fill": false}, "reload": {"vb": "0 0 24 24", "body": "<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>", "fill": false}, "arrow-down-wide-narrow": {"vb": "0 0 24 24", "body": "<path d=\"m3 16 4 4 4-4\"/><path d=\"M7 20V4\"/><path d=\"M11 4h10\"/><path d=\"M11 8h7\"/><path d=\"M11 12h4\"/>", "fill": false}, "arrow-up": {"vb": "0 0 24 24", "body": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "fill": false}, "back": {"vb": "0 0 24 24", "body": "<path d=\"m15 18-6-6 6-6\"/>", "fill": false}, "pull-request": {"vb": "0 0 24 24", "body": "<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M13 6h3a2 2 0 0 1 2 2v7\"/><line x1=\"6\" x2=\"6\" y1=\"9\" y2=\"21\"/>", "fill": false}, "shield": {"vb": "0 0 24 24", "body": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/>", "fill": false}, "file": {"vb": "0 0 24 24", "body": "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/>", "fill": false}, "trash": {"vb": "0 0 24 24", "body": "<path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/>", "fill": false}, "pencil": {"vb": "0 0 24 24", "body": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "fill": false}, "sliders": {"vb": "0 0 24 24", "body": "<path d=\"M10 5H3\"/><path d=\"M12 19H3\"/><path d=\"M14 3v4\"/><path d=\"M16 17v4\"/><path d=\"M21 12h-9\"/><path d=\"M21 19h-5\"/><path d=\"M21 5h-7\"/><path d=\"M8 10v4\"/><path d=\"M8 12H3\"/>", "fill": false}, "appearance": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 18a6 6 0 0 0 0-12v12z\"/>", "fill": false}, "keyboard": {"vb": "0 0 24 24", "body": "<path d=\"M10 8h.01\"/><path d=\"M12 12h.01\"/><path d=\"M14 8h.01\"/><path d=\"M16 12h.01\"/><path d=\"M18 8h.01\"/><path d=\"M6 8h.01\"/><path d=\"M7 16h10\"/><path d=\"M8 12h.01\"/><rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/>", "fill": false}, "bot": {"vb": "0 0 24 24", "body": "<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\"/><path d=\"M2 14h2\"/><path d=\"M20 14h2\"/><path d=\"M15 13v2\"/><path d=\"M9 13v2\"/>", "fill": false}, "phone": {"vb": "0 0 24 24", "body": "<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>", "fill": false}, "list-checks": {"vb": "0 0 24 24", "body": "<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><path d=\"m3 7 2 2 4-4\"/>", "fill": false}, "code": {"vb": "0 0 24 24", "body": "<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>", "fill": false}, "diff-split": {"vb": "0 0 24 24", "body": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>", "fill": false}, "github": {"vb": "0 0 24 24", "body": "<path d=\"M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4\"/><path d=\"M9 18c-4.51 2-5-2-7-2\"/>", "fill": false}, "cloud": {"vb": "0 0 24 24", "body": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "fill": false}};
+const ic=(n,s=14,c='currentColor')=>{const d=ICONS[n];return d.fill?`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="var(--claude)">${d.body}</svg>`:`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.body}</svg>`};
+const COLORS=['#268bd2','#6c71c4','#d33682','#dc322f','#cb4b16','#b58900','#859900','#2aa198'];
+const NAMES=['brave-otter','quiet-heron','lucky-lynx','calm-tapir','swift-ibis','wild-gecko'];
+
+/* ---------- data ---------- */
+function fresh(){return{
+  hosts:[
+    {id:'mac',name:'This Mac',local:true,icon:'laptop',link:'online'},
+    {id:'mini',name:'mac-mini',addr:'minhngo@100.67.254.9',icon:'laptop',link:'online',version:'0.1.49',up:'3d',color:COLORS[0],home:'/Users/minhngo'},
+    {id:'devbox',name:'devbox',addr:'dev@devbox.lan',icon:'server',link:'retrying',version:'0.1.47',up:'',color:COLORS[6],seen:'2h ago',home:'/home/dev'},
+  ],
+  projects:{
+    mac:[
+      {repo:'employer-backend',path:'~/Developer/work/hodfords/employer-backend',trees:[['local','Local','idle'],['worktree','fix/login-redirect','working',[42,17]]]},
+      {repo:'anywhere',path:'~/Developer/self/coding-pocket',trees:[['local','Local','idle'],['worktree','eternal-creeper','working',[318,41]]]},
+      {repo:'app-android',path:'~/code/app-android',trees:[['worktree','fix/restore-handoff','need',[42,17]],['worktree','feat/haptics','idle',[84,51]]]},
+      {repo:'glow-me',path:'~/Developer/self/glow-me',trees:[['local','Local','idle']]},
+    ],
+    mini:[
+      {repo:'employer-backend',path:'~/code/employer-backend',trees:[['local','Local','idle'],['worktree','monumental-falconet','working',[12,3]],['worktree','tender-booklouse','idle'],['worktree','poignant-kingfisher','need']]},
+      {repo:'employer-ai-e2e',path:'~/code/employer-ai-e2e',trees:[['worktree','congenial-cardinal','idle']]},
+      {repo:'anywhere',path:'~/code/anywhere',trees:[['worktree','cute-boa','idle']]},
+    ],
+    devbox:[
+      {repo:'dragon',path:'~/code/rail-changer-backend',trees:[['local','Local','idle']]},
+      {repo:'anywhere',path:'~/code/anywhere',trees:[['local','Local','need']]},
+    ],
+  },
+  space:'mac',dir:'',view:'new',sel:null,repo:'employer-backend',checkout:'worktree',prompt:'',
+  menu:null,modal:null,finder:null,clone:null,add:null,pw:null,install:{},confirm:null,toast:null,flash:null,n:0,guide:true,
+};}
+let s=fresh();
+const H=id=>s.hosts.find(h=>h.id===id);
+const MARK={'employer-backend':'🍀','glow-me':'🧠'};
+const tile=(r,size=20)=>MARK[r]?`<span class="tile e" style="width:${size}px;height:${size}px">${MARK[r]}</span>`:`<span class="tile" style="width:${size}px;height:${size}px;font-size:${Math.round(size*.5)}px">${r[0].toUpperCase()}</span>`;
+const online=id=>H(id)?.link==='online';
+const dotOf=h=>h.local?'':`<span class="dot${h.link==='online'?'':h.link==='connecting'||h.link==='installing'?' wait':h.link==='refused'?' bad':' off'}"></span>`;
+const needs=id=>(s.projects[id]||[]).flatMap(p=>p.trees).filter(t=>t[2]==='need').length;
+const chev=ic('chevron-down',12,'var(--text-4)');
+const projs=()=>s.projects[s.space]||[];
+const hasRepo=(id,r)=>(s.projects[id]||[]).some(p=>p.repo===r);
+const spaceIcon=(h,size=14)=>h.local?ic('laptop',size):ic(h.icon,size);
+
+/* ---------- sidebar ---------- */
+function lead(t,h){const st=t[2];if(st==='working')return h.link==='online'?'<span class="spin"></span>':'<span class="sdot" style="background:var(--working);opacity:.5"></span>';if(st==='need')return '<span class="sdot"></span>';return ic(t[0]==='local'?(h.local?'laptop':h.icon):'worktree',13,'var(--text-3)')}
+function sidebar(){
+  const h=H(s.space),off=!h.local&&h.link!=='online';
+  const header=`<div class="space" data-act="menu" data-v="space"><span class="sw-ic" style="background:${h.color||'var(--fill-4)'};color:${h.color?'#fff':'var(--text-2)'}">${spaceIcon(h,13)}</span><b>${h.name}</b>${dotOf(h)}<span class="h">${h.local?'':h.addr}</span><span class="car">${chev}</span>${s.menu==='space'?spaceMenu(h):''}</div>`;
+  const banner=off?`<div class="offline"><b>${ic(h.icon,13)}${h.name} is ${h.link==='connecting'?'connecting…':'offline'}</b><span>${h.link==='connecting'?'Signing in over SSH.':`Lost the connection ${h.seen}. Its projects come back when it reconnects; agents there keep running.`}</span>${h.link==='connecting'?'':`<span><button class="btn ghost sm" data-act="reconnect" data-v="${h.id}">${ic('reload',12)}Reconnect</button></span>`}</div>`:'';
+  const rows=projs().map(p=>`<div class="grp"${off?' style="opacity:.55"':''}><div class="row${s.flash===s.space+'/'+p.repo?' fresh':''}" data-act="newin" data-v="${p.repo}">${tile(p.repo)}<span class="nm">${p.repo}</span><span class="acts"><span data-act="newin" data-v="${p.repo}" data-tip="New session">${ic('plus',14)}</span>${ic('more',14)}</span></div>`
+    +p.trees.map(t=>{const k=`${s.space}/${p.repo}/${t[1]}`;return `<div class="row child${s.sel===k?' on':''}${off?' dim':''}${s.flash===k?' fresh':''}" data-act="sel" data-v="${k}"><span class="lead">${lead(t,h)}</span><span class="nm">${t[1]}</span>${t[3]?`<span class="meta stat mono"><span class="a">+${t[3][0]}</span><span class="d">−${t[3][1]}</span></span>`:''}</div>`}).join('')+`</div>`).join('');
+  const empty=!projs().length?`<div class="empty">${ic('folder',22,'var(--text-4)')}<b>No projects on ${h.name} yet</b><span>Open a folder that's already there, or clone a repository onto it.</span><span style="display:flex;gap:6px"><button class="btn ghost sm" data-act="finder" data-v="open">Open folder…</button><button class="btn ghost sm" data-act="clone">Clone…</button></span></div>`:'';
+  const sw=s.hosts.map((x,i)=>{const b=needs(x.id);return `<button class="sw${x.id===s.space?' on':''}${s.flash==='sw/'+x.id?' fresh':''}" data-act="space" data-v="${x.id}" data-tip="${x.name}${i<9?' · ⌃'+(i+1):''}">${spaceIcon(x,16)}${x.local?'':`<span class="dot${x.link==='online'?'':x.link==='installing'||x.link==='connecting'?' wait':' off'}"></span>`}${x.color&&x.id===s.space?`<span class="pip" style="background:${x.color}"></span>`:''}${b&&x.id!==s.space?`<span class="badge">${b}</span>`:''}</button>`}).join('');
+  return `<aside class="side"><div class="top">${ic('bell',16)}${ic('sidebar-collapse',16)}</div>
+  <div class="search">${ic('search',14)}<span>Search all machines</span><kbd>⌘K</kbd></div>
+  <div class="row nav">${ic('activity',15)}<span class="nm">Activity</span></div>
+  <div class="row nav">${ic('blocks',15)}<span class="nm">Board</span></div>
+  ${header}
+  <div class="sh"><span>PROJECTS</span><span class="b" data-tip="Search">${ic('search',13)}</span><span class="b pw" data-act="menu" data-v="add" data-tip="Add project">${ic('folder-plus',13)}${s.menu==='add'?addMenu(h):''}</span></div>
+  <div class="list"><div class="pane ${s.dir}">${banner}${rows}${empty}</div></div>
+  <div class="switcher">${sw}<button class="sw" data-act="addhost" data-tip="Add a host">${ic('plus',15)}</button><span style="flex:1"></span><button class="sw" data-act="settings" data-tip="Settings">${ic('settings',15)}</button></div></aside>`;
+}
+function spaceMenu(h){
+  if(h.local)return `<div class="menu pop" style="top:38px;left:0;width:250px" data-stop><div class="mp" data-act="toast" data-v="Opens a terminal on this Mac"><span class="lead">${ic('terminal',14)}</span><span class="nm">Open terminal</span></div><div class="mp" data-act="settings"><span class="lead">${ic('settings',14)}</span><span class="nm">Hosts settings…</span></div></div>`;
+  return `<div class="menu pop" style="top:38px;left:0;width:250px" data-stop>
+    <div class="mp" data-act="toast" data-v="Opens a terminal on ${h.name}"><span class="lead">${ic('terminal',14)}</span><span class="nm">Open terminal on ${h.name}</span></div>
+    ${h.link!=='online'?`<div class="mp" data-act="reconnect" data-v="${h.id}"><span class="lead">${ic('reload',14)}</span><span class="nm">Reconnect</span></div>`:''}
+    <div class="mp" data-act="settings"><span class="lead">${ic('settings',14)}</span><span class="nm">Host settings…</span></div>
+    <div class="md"></div><div class="ml">Color</div><div class="swatches">${COLORS.map(c=>`<span class="swatch${h.color===c?' on':''}" style="background:${c}" data-act="color" data-v="${c}"></span>`).join('')}</div>
+    <div class="md"></div><div class="mp danger" data-act="remove" data-v="${h.id}"><span class="lead">${ic('trash',14)}</span><span class="nm">Remove host…</span></div></div>`;
+}
+function addMenu(h){
+  const where=h.local?'':` on ${h.name}`;
+  return `<div class="menu pop" style="top:22px;right:-6px;width:250px;letter-spacing:0;font-weight:400" data-stop>
+    <div class="mp" data-act="finder" data-v="open"><span class="lead">${ic('folder',14)}</span><span class="nm">Open folder${where}…</span></div>
+    <div class="mp" data-act="clone"><span class="lead">${ic('branch',14)}</span><span class="nm">Clone from URL${where}…</span></div></div>`;
+}
+
+/* ---------- new session page ---------- */
+function machineChip(){
+  const open=s.menu==='machine',h=H(s.space);
+  const row=x=>{const ok=x.link==='online'||x.local;const tag=!ok?`<span class="h" style="margin-left:auto">${x.link==='retrying'?'Offline':'Not ready'}</span>`:s.repo&&!x.local?(hasRepo(x.id,s.repo)?`<span class="h" style="color:var(--success-text)">has ${s.repo}</span>`:`<span class="h">no ${s.repo}</span>`):'';
+    return `<div class="ar${s.space===x.id?' on':''}${ok?'':' off'}" ${ok?`data-act="space" data-v="${x.id}"`:''}><span class="g">${spaceIcon(x)}</span><span class="tx"><span class="l">${x.name}${dotOf(x)}</span><span class="h">${x.local?'ming-macbook · macOS':x.addr}</span></span>${tag}<span class="ck">${s.space===x.id?ic('check',14):''}</span></div>`};
+  const menu=open?`<div class="menu pop" style="top:36px;left:0;width:330px" data-stop><div class="ml">Run on</div>${s.hosts.map(row).join('')}<div class="md"></div><div class="mp" data-act="addhost"><span class="lead">${ic('plus',14)}</span><span class="nm">Add a host…</span></div></div>`:'';
+  return `<div class="pw"><button class="chip"${open?' data-open':''} data-act="menu" data-v="machine">${spaceIcon(h)}<span>${h.name}</span>${dotOf(h)}${chev}</button>${menu}</div>`;
+}
+function projectChip(){
+  const open=s.menu==='project',h=H(s.space),missing=s.repo&&!hasRepo(s.space,s.repo);
+  let items=`<div class="mp" data-act="repo" data-v=""><span class="lead">${ic('folder',14,'var(--text-3)')}</span><span class="nm">No project</span></div>`;
+  items+=projs().map(p=>`<div class="mp" data-act="repo" data-v="${p.repo}"><span class="lead">${tile(p.repo,14)}</span><span class="nm">${p.repo}</span>${s.repo===p.repo?ic('check',13,'var(--text-2)'):''}</div>`).join('');
+  items+=`<div class="md"></div><div class="mp" data-act="finder" data-v="open"><span class="lead">${ic('folder-plus',14)}</span><span class="nm">Open folder${h.local?'':' on '+h.name}…</span></div><div class="mp" data-act="clone"><span class="lead">${ic('branch',14)}</span><span class="nm">Clone from URL…</span></div>`;
+  const lead=s.repo?tile(s.repo,16):ic('folder',14,'var(--text-3)');
+  return `<div class="pw"><button class="chip"${open?' data-open':''} data-act="menu" data-v="project">${lead}<span>${s.repo??'No project'}</span>${missing?`<span style="color:var(--waiting)">${ic('warning',13)}</span>`:''}${chev}</button>${open?`<div class="menu pop" style="top:36px;left:0;width:270px" data-stop>${items}</div>`:''}</div>`;
+}
+function checkoutChip(dim){
+  const open=s.menu==='checkout',h=H(s.space);
+  const opt=(v,g,l,hint)=>`<div class="ar${s.checkout===v?' on':''}" data-act="checkout" data-v="${v}"><span class="g">${ic(g,14)}</span><span class="tx"><span class="l">${l}</span><span class="h">${hint}</span></span><span class="ck">${s.checkout===v?ic('check',14):''}</span></div>`;
+  const menu=open?`<div class="menu pop" style="top:36px;left:0;width:300px" data-stop>${opt('worktree','worktree','Worktree','Its own branch and copy of the files')}${opt('local',h.local?'laptop':h.icon,'Local','Work in the checkout as it is')}</div>`:'';
+  return `<div class="pw"><button class="chip${dim?' dim':''}"${open?' data-open':''} ${dim?'':'data-act="menu" data-v="checkout"'}>${ic(s.checkout==='worktree'?'worktree':(h.local?'laptop':h.icon),14,'var(--text-3)')}<span>${s.checkout==='worktree'?'Worktree':'Local'}</span>${chev}</button>${menu}</div>`;
+}
+function newPage(){
+  const h=H(s.space),missing=s.repo&&!hasRepo(s.space,s.repo),off=!h.local&&h.link!=='online';
+  const ready=!missing&&!off&&s.prompt.trim();
+  const notice=off?`<div class="notice">${ic('warning',13)}<span>${h.name} is offline. Sessions start once it reconnects.</span><a data-act="reconnect" data-v="${h.id}">Reconnect</a></div>`
+    :missing?`<div class="notice">${ic('warning',13)}<span><b style="font-weight:500">${s.repo}</b> isn't on ${h.name} yet.</span><a data-act="finder" data-v="open">Open its folder…</a><a data-act="clone">Clone it…</a></div>`:'';
+  const branch=s.checkout==='worktree'&&s.repo?`<button class="chip${missing?' dim':''}">${ic('branch',14,'var(--text-3)')}<span class="mono" style="font-size:12.5px">${s.repo==='employer-backend'?'develop':'main'}</span>${chev}</button>`:'';
+  return `<div class="bar"><span class="crumb">${h.local?'':`${spaceIcon(h,12)}${h.name}<span>/</span>`}</span><span>${s.repo??'No project'}</span><span>/</span><b>New session</b></div>
+  <div class="body"><div class="content"><h1>What should we build next?</h1>
+    <div class="frame"><div class="ptext"><textarea id="prompt" placeholder="Ask, build, / for commands, @ for files">${s.prompt}</textarea></div>
+      <div class="pbar"><button class="pill">${ic('claude',15)}<b>Opus 5.5</b><span>High</span>${chev}</button><button class="pill">${ic('shield',14,'var(--text-3)')}<span style="color:var(--waiting)">Full</span>${chev}</button><span class="grow"></span><button class="ib">${ic('pull-request',15)}</button><button class="ib">${ic('plus',16)}</button><button class="send${ready?'':' off'}" ${ready?'data-act="send"':''}>${ic('arrow-up',15)}</button></div></div>
+    <div class="foot-row">${machineChip()}<span class="sepdot">·</span>${projectChip()}<span class="sepdot">·</span>${checkoutChip(missing)}${branch}</div>${notice}
+  </div></div>`;
+}
+function sessionPage(){
+  const [mid,repo,name]=s.sel.split('/'),h=H(mid),p=(s.projects[mid]||[]).find(p=>p.repo===repo);
+  const path=name==='Local'?p.path:`~/.anywhere/worktrees/${repo}/${name}`;
+  const off=!h.local&&h.link!=='online';
+  return `<div class="bar"><span class="crumb">${h.local?'':`${spaceIcon(h,12)}${h.name}${dotOf(h)}<span>/</span>`}</span><span>${repo}</span><span>/</span><b>${name}</b></div>
+  <div class="body"><div class="chat"><span class="where">${spaceIcon(h,12)}<span>${h.local?'This Mac':h.name}</span><span style="color:var(--text-4)">·</span><span class="mono" style="font-size:11.5px">${path}</span></span>
+    ${s.last&&s.last.k===s.sel?`<div class="bubble">${s.last.text}</div>`:''}
+    <div class="reply">${off?ic('warning',14,'var(--waiting)'):'<span class="spin big"></span>'}<span>${off?`${h.name} is offline. The agent keeps running there; its replies show once it reconnects.`:`Claude is working on ${h.local?'this Mac':h.name}…`}</span></div></div></div>`;
+}
+
+/* ---------- settings › hosts ---------- */
+function lineOf(h){
+  if(h.local)return ['Connected','var(--success)'];
+  const addr=h.addr+' · ';
+  return {online:[`${addr}Connected · version ${h.version} · up ${h.up||'1m'}`,'var(--success)'],retrying:[`${addr}Lost the connection to ${h.name}. Trying again…`,'var(--waiting-dot)'],connecting:[`${addr}Connecting…`,'var(--waiting-dot)'],installing:[`${addr}Installing pocketd…`,'var(--waiting-dot)'],refused:[`${addr}${h.name} refused your SSH keys`,'var(--failed)']}[h.link];
+}
+function hostRow(h){
+  const [line,c]=lineOf(h);
+  let acts='';
+  if(h.local)acts=`<span class="here">Here</span>`;
+  else{
+    if(h.link==='online'&&h.version!=='0.1.49')acts+=`<button class="btn secondary sm" data-act="update" data-v="${h.id}">Update</button>`;
+    if(h.link==='refused')acts+=`<button class="btn secondary sm" data-act="usepw" data-v="${h.id}">Use password</button>`;
+    if(h.link==='retrying')acts+=`<button class="btn secondary sm" data-act="reconnect" data-v="${h.id}">Reconnect</button>`;
+    if(h.link==='online')acts+=`<button class="btn secondary sm" data-act="space" data-v="${h.id}">Open</button>`;
+    acts+=`<button class="btn danger sm" data-act="remove" data-v="${h.id}">Remove</button>`;
+  }
+  const inst=s.install[h.id];
+  const steps=inst?`<div class="steps">${['Connect over SSH','Copy pocketd 0.1.49','Start the service','Link to this Mac'].map((t,i)=>`<div class="st${i>inst.step?' todo':''}">${i<inst.step?`<span class="ok">${ic('check',13)}</span>`:i===inst.step&&!inst.done?'<span class="spin"></span>':`<span style="width:13px"></span>`}<span>${t}</span></div>`).join('')}${inst.done?`<div class="done"><span style="color:var(--success-text);font-weight:500">${h.name} is ready.</span><button class="btn primary sm" data-act="space" data-v="${h.id}">Open ${h.name}</button><button class="btn ghost sm" data-act="dismiss" data-v="${h.id}">Done</button></div>`:''}</div>`:'';
+  const pw=s.pw===h.id?`<div class="pwrow"><input id="pw" type="password" placeholder="Password for ${h.addr}"><button class="btn ghost sm" data-act="pwcancel">Cancel</button><button class="btn primary sm" data-act="signin" data-v="${h.id}">Sign in</button></div><div class="hint" style="padding:0 14px 12px 54px">Used once to add the app's key to ${h.name}; it isn't kept.</div>`:'';
+  return `<div><div class="hrow"><span class="htile">${spaceIcon(h)}${h.color?`<span class="c" style="background:${h.color}"></span>`:''}</span><div class="htx"><span class="n">${h.name}</span><span class="l"><span class="dot" style="background:${c}"></span><span>${line}</span></span></div><div class="hacts">${acts}</div></div>${steps}${pw}</div>`;
+}
+function settingsPage(){
+  const nav=[['App',[['sliders','General'],['appearance','Appearance'],['bell','Notifications & Sounds'],['keyboard','Keyboard']]],['Agents',[['bot','Agents'],['shield','Accounts'],['phone','Phone & Remote'],['server','Hosts']]],['Projects',[['folder','Projects'],['terminal','Terminal']]]];
+  const a=s.add;
+  const form=a?`<div class="form"><span class="t">Add a host</span>
+    <div class="sugg">Suggested ${['gpu-box','nas'].filter(n=>!H(n)).map(n=>`<button data-act="suggest" data-v="${n}">${n}</button>`).join('')}<span style="color:var(--text-4)">from ~/.ssh/config</span></div>
+    <div class="fields"><div class="field"><label>Address</label><input id="addr" value="${a.addr}" placeholder="10.0.4.12 or devbox.example.com"></div><div class="field" style="flex:none;width:80px"><label>Port</label><input value="22"></div></div>
+    <div class="fields"><div class="field"><label>Username</label><input value="${a.user}" placeholder="dev"></div><div class="field"><label>Password</label><input type="password" placeholder="Only if it refuses your keys"></div></div>
+    <div class="hint">Signs in with your SSH keys and ~/.ssh/config. <a>Use a key file…</a></div>
+    ${a.err?`<div class="err">${a.err}</div>`:''}
+    <div class="ffoot"><span class="hint">Nothing is changed in your ~/.ssh</span><button class="btn ghost" data-act="addcancel">Cancel</button><button class="btn primary" data-act="connect">Connect</button></div></div>`
+    :`<div class="hrow"><div class="htx"><span class="n">Add a host</span><span class="l">A Mac, Linux or Windows machine you can reach over SSH</span></div><button class="btn primary" data-act="addhost">${ic('plus',13)}Add host</button></div>`;
+  return `<nav class="snav"><div style="height:40px"></div><div class="row" data-act="back" style="color:var(--text)">${ic('back',15)}<span class="nm">Back</span></div>
+    <div class="search" style="margin-top:6px">${ic('search',14)}<span>Search</span><kbd>⌘F</kbd></div>
+    ${nav.map(([g,items])=>`<div class="grpl">${g}</div>`+items.map(([i,l])=>`<div class="row${l==='Hosts'?' on':''}">${ic(i,15,'var(--text-2)')}<span class="nm">${l}</span></div>`).join('')).join('')}</nav>
+  <div class="main"><div class="bar" style="border-bottom-color:var(--separator)"><b>Hosts</b></div><div class="sbody"><div class="scontent">
+    <div class="shead"><span class="ic">${ic('server',20)}</span><div><b>Hosts</b><span>Machines your agents run on: this Mac, and any machine you can sign in to over SSH. Each one is a space in the sidebar.</span></div></div>
+    <div class="slabel">Hosts</div><div class="card">${s.hosts.map(hostRow).join('')}${form}</div>
+    <div class="slabel" style="margin-top:22px">Sidebar</div><div class="card"><div class="hrow"><div class="htx"><span class="n">Switch spaces</span><span class="l">⌃1–⌃9, or swipe left and right with two fingers on the sidebar</span></div></div><div class="hrow"><div class="htx"><span class="n">Badges</span><span class="l">A space's icon counts the sessions there waiting on you</span></div><span class="here">On</span></div></div>
+  </div></div></div>`;
+}
+
+/* ---------- modals ---------- */
+const TREE={
+  '~':['code/','Downloads/','notes.md'],
+  '~/code':['anywhere/','employer-backend/','rail-changer-backend/','zed/','scratch/'],
+};
+const REPOS={'~/code/employer-backend':{branch:'develop',remote:'git@github.com:hodfords/employer-backend.git'},'~/code/anywhere':{branch:'main',remote:'git@github.com:mingo023/anywhere.git'},'~/code/rail-changer-backend':{branch:'main',remote:'git@github.com:railchanger/backend.git'},'~/code/zed':{branch:'main',remote:'https://github.com/zed-industries/zed'}};
+function finderModal(){
+  const f=s.finder,h=H(f.host),parts=f.dir.split('/'),name=parts.at(-1);
+  const col=(dir,picked)=>`<div class="col">${(TREE[dir]||[]).map(n=>{const d=n.endsWith('/'),nm=n.replace('/','');const path=dir+'/'+nm;const sel=picked===nm;const cls=sel?(path===f.dir?' cur':' anc'):'';const proj=(s.projects[f.host]||[]).some(p=>p.path===path);return `<div class="fr${cls}" ${d?`data-act="fgo" data-v="${path}"`:''}>${ic(d?'folder':'file',14,'var(--text-3)')}<span class="nm">${nm}</span>${proj?'<span class="tag">Project</span>':''}${d?`<span class="chev">${ic('chevron-right',12)}</span>`:''}</div>`}).join('')}</div>`;
+  const cols=parts.length>=3?col('~','code')+col('~/code',parts[2]):col('~',parts[1]||null)+(parts[1]==='code'?col('~/code',null):'');
+  const repo=REPOS[f.dir];
+  const detail=repo?`<div class="dh"><span class="ic">${ic('branch',16)}</span><div><b>${name}</b><span>Git repository</span></div></div><dl class="facts"><dt>Branch</dt><dd>${repo.branch}</dd><dt>Remote</dt><dd>${repo.remote}</dd><dt>Path</dt><dd>${f.dir}</dd></dl>`:`<div class="dh"><span class="ic">${ic('folder',16)}</span><div><b>${name}</b><span>${(TREE[f.dir]||[]).length} items</span></div></div>`;
+  const already=(s.projects[f.host]||[]).some(p=>p.path===f.dir);
+  const pick=f.mode==='pick';
+  const hint=pick?`<span>${ic('folder',11)}Clones into ${f.dir}/${s.clone.name}</span>`:already?`<span class="warn">${ic('warning',11)}Already a project</span>`:repo?`<span class="ok">${ic('check',11)}Git repository</span>`:`<span>${ic('folder',11)}Folder, without git</span>`;
+  return `<div class="backdrop" data-act="fclose"><div class="finder pop" data-stop>
+    <div class="fh"><span class="t">${pick?'Clone into':'Open a folder'}</span><span class="crumbs">${parts.map((p,i)=>i===parts.length-1?`<b>${p}</b>`:`<span>${p}</span><span>/</span>`).join('')}</span><span class="hostchip">${spaceIcon(h)}${h.name}${dotOf(h)}</span><button class="ib" data-act="fclose">${ic('x',15)}</button></div>
+    <div class="fbody"><div class="places"><div class="ml">${h.name}</div><div class="fr" data-act="fgo" data-v="~">${ic('laptop',14,'var(--text-3)')}<span class="nm">Home</span></div><div class="fr">${ic('server',14,'var(--text-3)')}<span class="nm">Root</span></div></div>${cols}<div class="detail">${detail}</div></div>
+    <div class="ff"><div class="p"><span class="mono" style="color:var(--text)">${f.dir}</span>${hint}</div><button class="btn ghost" data-act="fclose">Cancel</button><button class="btn primary" data-act="fuse" ${!pick&&already?'disabled':''}>${pick?'Clone here':'Use this folder'}</button></div>
+  </div></div>`;
+}
+function cloneModal(){
+  const c=s.clone,h=H(c.host);
+  const url=`<div class="lab">Repository URL</div><div class="fbox">${ic('globe',14)}<input id="url" value="${c.url}" placeholder="https://github.com/owner/repo" ${c.progress!=null?'disabled':''}></div>
+    ${c.name?`<div class="repo-line">${ic('branch',13)}<b>${c.name}</b><span>from ${c.from}</span></div>`:'<div style="height:18px"></div>'}`;
+  const into=`<div class="lab">Clone into</div><div class="fbox">${ic('folder',14)}<span class="in">${c.into}</span><span class="pw"><span class="on" data-act="menu" data-v="clonehost">${spaceIcon(h,12)}${h.name}${dotOf(h)}${chev}</span>${s.menu==='clonehost'?`<div class="menu pop" style="top:32px;right:0;width:240px" data-stop><div class="ml">Clone onto</div>${s.hosts.map(x=>{const ok=x.local||x.link==='online';return `<div class="mp${ok?'':' off'}" ${ok?`data-act="clonehost" data-v="${x.id}"`:''}><span class="lead">${spaceIcon(x)}</span><span class="nm">${x.name}</span>${ok?(x.id===c.host?ic('check',13,'var(--text-2)'):''):'<span class="h">offline</span>'}</div>`}).join('')}</div>`:''}</span><button class="choose" data-act="finder" data-v="pick">Choose…</button></div>`;
+  const prog=c.progress!=null?`<div class="progress" style="margin-top:18px"><div class="bar2"><i style="width:${c.progress}%"></i></div><div class="ln"><span>${c.progress<100?`Cloning on ${h.name} · Receiving objects ${c.progress}%`:'Cloned'}</span><span class="mono">${c.into}</span></div></div>`:'';
+  return `<div class="backdrop"><div class="modal pop" data-stop><h2>Clone from URL<button class="ib" data-act="cclose">${ic('x',16)}</button></h2>${url}${into}${prog}
+    <div class="mfoot"><button class="btn ghost lg" data-act="cclose">Cancel</button><button class="btn primary lg" data-act="docl" ${!c.name||c.progress!=null?'disabled':''}>${c.progress!=null?'Cloning…':'Clone'}</button></div></div></div>`;
+}
+function confirmModal(){
+  const h=H(s.confirm),n=(s.projects[h.id]||[]).length;
+  return `<div class="backdrop"><div class="modal pop confirm" data-stop style="width:420px"><h2>Remove ${h.name}?</h2><p>Its space and ${n} project${n===1?'':'s'} leave the sidebar. Terminals and agents already running on ${h.name} keep going there. Anywhere's service is uninstalled from it first.</p>
+    <div class="mfoot"><button class="btn ghost lg" data-act="ccancel">Cancel</button><button class="btn danger lg" data-act="doremove" data-v="${h.id}">Remove</button></div></div></div>`;
+}
+
+/* ---------- render ---------- */
+const GUIDE=[['Switch spaces','space-mini'],['Space menu: color, terminal, remove','space-menu'],['Offline space','space-devbox'],['Manage hosts','settings'],['Add a host (with install)','add'],['Start a session on mac-mini','start'],['Open a folder on mac-mini','open'],['Clone onto mac-mini','clone']];
+function render(){
+  const focusPrompt=document.activeElement?.id==='prompt';
+  const main=s.view==='settings'?settingsPage():`${sidebar()}<main class="main">${s.view==='session'?sessionPage():newPage()}</main>`;
+  document.getElementById('root').innerHTML=`<div class="app">${main}</div>
+  ${s.modal==='finder'?finderModal():''}${s.modal==='clone'?cloneModal():''}${s.modal==='confirm'?confirmModal():''}
+  ${s.toast?`<div class="toast pop"><span style="color:var(--success)">${ic('check',14)}</span>${s.toast}</div>`:''}
+  ${s.guide?`<div class="guide pop"><b>Walk through</b><ol>${GUIDE.map(([l,k])=>`<li data-act="walk" data-v="${k}">${l}</li>`).join('')}</ol></div>`:''}
+  <div class="proto pop"><button data-act="guide">${s.guide?'Hide':'Show'} guide</button><span class="sep"></span><button data-act="theme">${document.documentElement.dataset.theme==='graphite'?'Graphite':'Solarized'}</button><button data-act="reset">Reset</button></div>`;
+  const t=document.getElementById('prompt');
+  if(t){t.oninput=()=>{s.prompt=t.value;const b=document.querySelector('.send');const h=H(s.space);const ok=!(s.repo&&!hasRepo(s.space,s.repo))&&(h.local||h.link==='online')&&s.prompt.trim();b.classList.toggle('off',!ok);ok?b.setAttribute('data-act','send'):b.removeAttribute('data-act')};if(focusPrompt){t.focus();t.selectionStart=t.selectionEnd=t.value.length}}
+  const u=document.getElementById('url');if(u)u.oninput=()=>{s.clone.url=u.value;parseUrl();const keep=u.selectionStart;render();const u2=document.getElementById('url');u2.focus();u2.selectionStart=u2.selectionEnd=keep};
+  const a=document.getElementById('addr');if(a)a.oninput=()=>{s.add.addr=a.value};
+  s.dir='';
+}
+function parseUrl(){const c=s.clone,m=c.url.match(/github\.com[/:]([^/]+)\/([^/.\s]+)/);c.name=m?m[2]:'';c.from=m?'github.com/'+m[1]:'';c.into=c.name?`~/code/${c.name}`:'~/code'}
+function toast(msg){s.toast=msg;render();clearTimeout(toast.t);toast.t=setTimeout(()=>{s.toast=null;render()},2400)}
+function flash(k){s.flash=k;setTimeout(()=>{if(s.flash===k){s.flash=null;render()}},1900)}
+function go(id){if(id===s.space){s.view=s.view==='settings'?'new':s.view;return render()}const a=s.hosts.findIndex(h=>h.id===s.space),b=s.hosts.findIndex(h=>h.id===id);s.dir=b<a?'l':'';s.space=id;if(s.view==='settings'||s.view==='session')s.view='new';if(!hasRepo(id,s.repo))s.repo=projs()[0]?.repo??nullrender()}
+function later(ms,f){setTimeout(()=>{f();render()},ms)}
+function install(id){const h=H(id);h.link='installing';s.install[id]={step:0};const tick=()=>{const i=s.install[id];if(!i)return;i.step++;if(i.step>=4){i.done=true;h.link='online';h.version='0.1.49';h.up='1m';flash('sw/'+id);render();return}render();setTimeout(tick,700)};setTimeout(tick,700)}
+
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');
+  if(!el){if(s.menu){s.menu=null;render()}return}
+  const v=el.dataset.v,act=el.dataset.act;
+  if(act==='fclose'&&e.target.closest('[data-stop]')&&!e.target.closest('button'))return;
+  if(s.menu&&act!=='menu'&&!['color','clonehost'].includes(act))s.menu=null;
+  switch(act){
+    case 'menu':e.stopPropagation();s.menu=s.menu===v?null:v;break;
+    case 'space':s.menu=null;return go(v);
+    case 'settings':s.view='settings';break;
+    case 'back':s.view='new';break;
+    case 'newin':s.repo=v;s.view='new';s.sel=null;break;
+    case 'sel':s.sel=v;s.view='session';break;
+    case 'repo':s.repo=v||null;break;
+    case 'checkout':s.checkout=v;break;
+    case 'toast':return toast(v);
+    case 'color':H(s.space).color=v;break;
+    case 'reconnect':{const h=H(v);h.link='connecting';later(1400,()=>{h.link='online';h.up='1m'});break;}
+    case 'remove':s.confirm=v;s.modal='confirm';break;
+    case 'ccancel':s.modal=null;break;
+    case 'doremove':{const i=s.hosts.findIndex(h=>h.id===v);s.hosts.splice(i,1);delete s.projects[v];s.modal=null;if(s.space===v)s.space='mac';delete s.install[v];toast(`Removed ${v}`);return;}
+    case 'update':{const h=H(v);s.install[v]={step:1};h.link='installing';const tick=()=>{const i=s.install[v];i.step++;if(i.step>=4){i.done=true;h.link='online';h.version='0.1.49';render();return}render();setTimeout(tick,600)};setTimeout(tick,600);break;}
+    case 'dismiss':delete s.install[v];break;
+    case 'addhost':s.view='settings';s.add={addr:'',user:''};s.menu=null;break;
+    case 'addcancel':s.add=null;break;
+    case 'suggest':s.add={addr:v,user:v==='nas'?'admin':'ubuntu'};break;
+    case 'connect':{
+      const addr=(document.getElementById('addr')?.value||'').trim();
+      if(!addr){s.add.err="Enter the host's address or name";break;}
+      const id=addr.replace(/[^a-z0-9-]/gi,'-');
+      s.hosts.push({id,name:addr,addr:`${s.add.user||'dev'}@${addr}`,icon:'server',link:'connecting',version:'0.1.49',color:COLORS[s.hosts.length%COLORS.length],home:'/home/'+(s.add.user||'dev')});
+      s.projects[id]=[];s.add=null;flash('sw/'+id);
+      later(1200,()=>{const h=H(id);if(!h)return;if(addr==='nas'){h.link='refused'}else install(id)});
+      break;}
+    case 'usepw':s.pw=v;break;
+    case 'pwcancel':s.pw=null;break;
+    case 'signin':s.pw=null;H(v).link='connecting';later(900,()=>install(v));break;
+    case 'send':{
+      const h=H(s.space),p=projs().find(p=>p.repo===s.repo);if(!p)return;
+      const nm=s.checkout==='local'?'Local':NAMES[s.n++%NAMES.length];
+      if(s.checkout==='local'){const t=p.trees.find(t=>t[0]==='local');if(t)t[2]='working';else p.trees.unshift(['local','Local','working'])}else p.trees.push(['worktree',nm,'working']);
+      const k=`${s.space}/${p.repo}/${nm}`;s.last={k,text:s.prompt};s.prompt='';s.sel=k;s.view='session';flash(k);break;}
+    case 'finder':{const host=s.modal==='clone'?s.clone.host:s.space;const h=H(host);if(!h.local&&h.link!=='online')return toast(`${h.name} is offline`);if(h.local&&v==='open')return toast('Opens the macOS folder picker');s.finder={host,dir:v==='pick'?'~/code':'~/code',mode:v};s.prevModal=s.modal;s.modal='finder';break;}
+    case 'fgo':s.finder.dir=v;break;
+    case 'fclose':s.modal=s.finder.mode==='pick'?'clone':null;break;
+    case 'fuse':{
+      const f=s.finder;
+      if(f.mode==='pick'){s.clone.into=`${f.dir}/${s.clone.name||''}`.replace(/\/$/,'');s.modal='clone';break;}
+      const name=f.dir.split('/').pop();
+      if(!s.projects[f.host])s.projects[f.host]=[];
+      s.projects[f.host].push({repo:name,path:f.dir,trees:[['local','Local','idle']]});
+      s.modal=null;s.repo=name;s.view='new';if(f.host!==s.space)s.space=f.host;flash(f.host+'/'+name);toast(`Added ${name} on ${H(f.host).name}`);return;}
+    case 'clone':{const h=H(s.space);s.clone={url:'',name:'',from:'',into:'~/code',host:h.local||h.link==='online'?s.space:'mac',progress:null};s.modal='clone';break;}
+    case 'clonehost':s.clone.host=v;s.menu=null;break;
+    case 'cclose':s.modal=null;break;
+    case 'docl':{const c=s.clone;c.progress=0;const tick=()=>{c.progress=Math.min(100,c.progress+Math.ceil(9+Math.random()*14));render();if(c.progress<100)return setTimeout(tick,180);setTimeout(()=>{if(!s.projects[c.host])s.projects[c.host]=[];s.projects[c.host].push({repo:c.name,path:c.into,trees:[['local','Local','idle']]});s.modal=null;s.space=c.host;s.repo=c.name;s.view='new';flash(c.host+'/'+c.name);toast(`Cloned ${c.name} onto ${H(c.host).name}`)},450)};setTimeout(tick,200);break;}
+    case 'guide':s.guide=!s.guide;break;
+    case 'theme':document.documentElement.dataset.theme=document.documentElement.dataset.theme==='graphite'?'':'graphite';break;
+    case 'reset':{const g=s.guide;s=fresh();s.guide=g;break;}
+    case 'walk':return walk(v);
+  }
+  render();
+});
+function walk(k){
+  const g=s.guide;s=fresh();s.guide=g;
+  ({
+    'space-mini':()=>{s.space='mini'},
+    'space-menu':()=>{s.space='mini';s.menu='space'},
+    'space-devbox':()=>{s.space='devbox'},
+    'settings':()=>{s.view='settings'},
+    'add':()=>{s.view='settings';s.add={addr:'gpu-box',user:'ubuntu'}},
+    'start':()=>{s.space='mini';s.repo='employer-backend';s.prompt='Fix the flaky login test, then run the suite.'},
+    'open':()=>{s.space='mini';s.finder={host:'mini',dir:'~/code/rail-changer-backend',mode:'open'};s.modal='finder'},
+    'clone':()=>{s.space='mini';s.clone={url:'https://github.com/zed-industries/zed',host:'mini',into:'',progress:null};parseUrl();s.modal='clone'},
+  })[k]();
+  render();
+}
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if(s.menu)s.menu=null;else if(s.modal==='finder')s.modal=s.finder.mode==='pick'?'clone':null;else if(s.modal)s.modal=null;else if(s.view==='settings')s.view='new';render();return}
+  if(e.ctrlKey&&/^[1-9]$/.test(e.key)){const h=s.hosts[+e.key-1];if(h)go(h.id)}
+});
+let wheel=0;document.addEventListener('wheel',e=>{if(!e.target.closest('.side')||Math.abs(e.deltaX)<Math.abs(e.deltaY))return;wheel+=e.deltaX;if(Math.abs(wheel)>80){const i=s.hosts.findIndex(h=>h.id===s.space)+(wheel>0?1:-1);wheel=0;if(s.hosts[i])go(s.hosts[i].id)}},{passive:true});
+let tipEl=null;document.addEventListener('mouseover',e=>{const t=e.target.closest('[data-tip]');tipEl?.remove();tipEl=null;if(!t)return;const r=t.getBoundingClientRect();tipEl=document.createElement('div');tipEl.className='tip';tipEl.textContent=t.dataset.tip;document.body.append(tipEl);tipEl.style.left=Math.max(8,Math.min(r.left+r.width/2-tipEl.offsetWidth/2,innerWidth-tipEl.offsetWidth-8))+'px';tipEl.style.top=(r.top-30)+'px'});
+const start=location.hash.slice(1);if(start)walk(start);else render();
+</script>
+</body>
+</html>

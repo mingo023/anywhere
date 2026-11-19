@@ -10,7 +10,7 @@ use std::process::{Child, Command, Stdio};
 #[cfg(windows)]
 pub use uds_windows::UnixStream;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub mod cli;
 pub mod service;
@@ -169,10 +169,10 @@ impl Endpoint {
         let stream = UnixStream::connect(&self.path).map_err(|e| e.to_string())?;
         let Some(token) = &self.token else { return Ok(stream) };
         stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
-        writeln!(&stream, "{}", json!({"op": "auth", "token": token})).map_err(|e| e.to_string())?;
+        writeln!(&stream, "{}", json!({"op": "auth", "token": token})).map_err(auth_error)?;
         let mut line = Vec::new();
         for byte in (&stream).bytes() {
-            match byte.map_err(|e| e.to_string())? {
+            match byte.map_err(auth_error)? {
                 b'\n' => break,
                 b => line.push(b),
             }
@@ -186,6 +186,14 @@ impl Endpoint {
         }
         stream.set_read_timeout(None).map_err(|e| e.to_string())?;
         Ok(stream)
+    }
+}
+
+/// A timeout reads as "Resource temporarily unavailable (os error 35)" otherwise.
+fn auth_error(e: std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => "pocketd didn't answer in time".into(),
+        _ => e.to_string(),
     }
 }
 
@@ -527,6 +535,11 @@ fn spawn_op(cmd: &str, args: Vec<String>, env: Vec<(String, String)>, cwd: &str)
     json!({"op": "spawn", "cmd": cmd, "args": args, "cwd": cwd, "env": env, "cols": 120, "rows": 36})
 }
 
+/// How long a link must stay up before a drop starts the reconnect backoff over.
+const LINK_STABLE: Duration = Duration::from_secs(5);
+const RETRY_MIN: Duration = Duration::from_millis(200);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Clone)]
 pub struct Daemon {
     writer: Arc<Mutex<Option<UnixStream>>>,
@@ -540,21 +553,28 @@ impl Daemon {
 
     /// `spawn` to `endpoint`; a connection pocketd refuses as owner counts as down.
     pub fn spawn_to(endpoint: Endpoint) -> (Self, UnboundedReceiver<Msg>) {
+        Self::spawn_with(endpoint, WRITE_TIMEOUT)
+    }
+
+    fn spawn_with(endpoint: Endpoint, write_timeout: Duration) -> (Self, UnboundedReceiver<Msg>) {
         let writer = Arc::new(Mutex::new(None));
         let (tx, rx) = unbounded();
         let shared = writer.clone();
         std::thread::spawn(move || {
             let link = |ev: &str| tx.unbounded_send(Msg { ev: ev.into(), ..Default::default() }).is_ok();
-            let mut wait = Duration::from_millis(200);
+            let mut wait = RETRY_MIN;
             let mut down = false;
             loop {
-                if let Ok((reader, stream)) = endpoint.connect(Duration::from_secs(5)).and_then(|s| Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))) {
+                if let Ok((reader, stream)) = endpoint.connect(Duration::from_secs(5)).and_then(|s| {
+                    s.set_write_timeout(Some(write_timeout)).map_err(|e| e.to_string())?;
+                    Ok((BufReader::new(s.try_clone().map_err(|e| e.to_string())?), s))
+                }) {
                     *shared.lock().unwrap() = Some(stream);
                     down = false;
                     if !link("up") {
                         return;
                     }
-                    wait = Duration::from_millis(200);
+                    let up = Instant::now();
                     for line in reader.lines().map_while(Result::ok) {
                         let Ok(msg) = serde_json::from_str::<Msg>(&line) else { continue };
                         if tx.unbounded_send(msg).is_err() {
@@ -562,6 +582,9 @@ impl Daemon {
                         }
                     }
                     *shared.lock().unwrap() = None;
+                    if up.elapsed() >= LINK_STABLE {
+                        wait = RETRY_MIN;
+                    }
                 }
                 if !down {
                     if !link("down") {
@@ -581,7 +604,15 @@ impl Daemon {
 
     /// Whether the message reached pocketd's socket; false while it is down.
     pub fn send(&self, msg: Value) -> bool {
-        self.writer.lock().unwrap().as_mut().is_some_and(|w| writeln!(w, "{msg}").is_ok())
+        let mut writer = self.writer.lock().unwrap();
+        let Some(stream) = writer.as_mut() else { return false };
+        if writeln!(stream, "{msg}").is_ok() {
+            return true;
+        }
+        // A write that timed out may have left half a line, so the link is no good; shutting it ends the reader, which reports "down".
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        *writer = None;
+        false
     }
 
     pub fn input(&self, id: &str, bytes: &[u8]) -> bool {
@@ -836,6 +867,33 @@ mod tests {
         assert_eq!(next(&mut rx), "down");
     }
 
+    #[test]
+    fn a_link_that_drops_at_once_backs_off() {
+        let path = sock("flap");
+        let ln = UnixListener::bind(&path).unwrap();
+        let (tx, accepted) = std::sync::mpsc::channel();
+        std::thread::spawn(move || ln.incoming().flatten().try_for_each(|_| tx.send(())));
+        let (_d, _rx) = Daemon::spawn(&path);
+        std::thread::sleep(Duration::from_millis(1500));
+        let connects = accepted.try_iter().count();
+        assert!(connects <= 5, "reconnected {connects} times in 1.5s");
+    }
+
+    #[test]
+    fn a_peer_that_stops_reading_fails_the_send_and_drops_the_link() {
+        let path = sock("stuck");
+        let ln = UnixListener::bind(&path).unwrap();
+        std::thread::spawn(move || drop(ln.incoming().flatten().collect::<Vec<_>>()));
+        let (d, mut rx) = Daemon::spawn_with(Endpoint::local(&path), Duration::from_millis(300));
+        assert_eq!(next(&mut rx), "up");
+        let (tx, sent) = std::sync::mpsc::channel();
+        let sender = d.clone();
+        std::thread::spawn(move || tx.send(sender.input("t1", &vec![b'x'; 4 << 20])));
+        assert_eq!(sent.recv_timeout(Duration::from_secs(2)), Ok(false));
+        assert_eq!(next(&mut rx), "down");
+        assert!(!d.send(json!({"op": "list"})));
+    }
+
     fn read_line(peer: &UnixStream) -> Value {
         let mut line = String::new();
         BufReader::new(peer).read_line(&mut line).unwrap();
@@ -854,6 +912,14 @@ mod tests {
         assert_eq!(next(&mut rx), "spawned");
         assert!(d.send(json!({"op": "list"})));
         assert_eq!(read_line(&peer), json!({"op": "list"}));
+    }
+
+    #[test]
+    fn a_pocketd_that_doesnt_answer_the_token_in_time_says_so() {
+        let path = sock("silent");
+        let _ln = UnixListener::bind(&path).unwrap();
+        let endpoint = Endpoint { path, token: Some("t1".into()) };
+        assert_eq!(endpoint.connect(Duration::from_millis(100)).unwrap_err(), "pocketd didn't answer in time");
     }
 
     #[test]

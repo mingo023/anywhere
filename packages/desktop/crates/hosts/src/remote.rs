@@ -8,6 +8,7 @@ use daemon::Endpoint;
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, ErrorKind, Write};
 use daemon::UnixStream;
+use std::net::Shutdown;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -66,6 +67,23 @@ struct Conn {
     waiters: Waiters,
 }
 
+impl Conn {
+    /// The reader thread holds a clone of the socket, which stays open until it's shut.
+    fn close(&self) {
+        let _ = self.stream.shutdown(Shutdown::Both);
+    }
+
+    fn idle(&self) -> bool {
+        self.waiters.lock().unwrap().as_ref().is_none_or(|w| w.is_empty())
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.conn.get_mut().unwrap().iter().chain(self.retired.get_mut().unwrap().iter()).for_each(Conn::close);
+    }
+}
+
 /// A host's pocketd, reached through the socket its tunnel forwards. Paths may be the host's own or desktop keys under this host.
 pub struct Client {
     id: String,
@@ -74,6 +92,9 @@ pub struct Client {
     next: AtomicU64,
     /// An exec's cwd when it names none; `/` isn't absolute on Windows, so there it's the home `status` gave.
     root: OnceLock<String>,
+    home: OnceLock<String>,
+    /// Connections a failed write retired, left open until the calls already sent on them are answered or give up.
+    retired: Mutex<Vec<Conn>>,
     /// Held across `sync_registry`'s read and write, so two creates don't drop each other's projects.
     registry: Mutex<()>,
 }
@@ -84,7 +105,7 @@ impl Client {
     }
 
     pub fn to(id: &str, endpoint: Endpoint) -> Self {
-        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), registry: Mutex::default() }
+        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), retired: Mutex::default(), registry: Mutex::default() }
     }
 
     pub fn id(&self) -> &str {
@@ -109,35 +130,49 @@ impl Client {
         let id = self.next.fetch_add(1, Ordering::Relaxed).to_string();
         op["id"] = id.clone().into();
         let (tx, rx) = mpsc::channel();
-        {
+        let waiters = {
             let mut conn = self.conn.lock().unwrap();
             if conn.as_ref().is_some_and(|c| c.waiters.lock().unwrap().is_none()) {
                 *conn = None;
             }
             let open = match conn.as_mut() {
                 Some(c) => c,
-                None => conn.insert(open(&self.endpoint)?),
+                None => conn.insert(open(&self.endpoint, FS_TIMEOUT)?),
             };
             open.waiters.lock().unwrap().get_or_insert_default().insert(id.clone(), tx);
             if let Err(e) = writeln!(open.stream, "{op}") {
-                *conn = None;
+                open.waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
+                self.retire(conn.take());
                 return Err(e);
             }
-        }
+            open.waiters.clone()
+        };
         let reply = rx.recv_timeout(timeout).map_err(|e| match e {
             mpsc::RecvTimeoutError::Timeout => io::Error::new(ErrorKind::TimedOut, "host did not answer in time"),
             mpsc::RecvTimeoutError::Disconnected => io::Error::new(ErrorKind::ConnectionAborted, "lost the host"),
         });
-        if reply.is_err()
-            && let Some(c) = self.conn.lock().unwrap().as_ref()
-        {
-            c.waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
+        if reply.is_err() {
+            waiters.lock().unwrap().as_mut().map(|w| w.remove(&id));
         }
+        self.retire(None);
         let reply = reply?;
         if reply["ev"] == "error" {
             return Err(io::Error::other(reply["error"].as_str().unwrap_or("host refused").to_string()));
         }
         Ok(reply)
+    }
+
+    /// Adds `conn` to the retired ones and closes those with no call left waiting.
+    fn retire(&self, conn: Option<Conn>) {
+        let mut retired = self.retired.lock().unwrap();
+        retired.extend(conn);
+        retired.retain(|c| {
+            let idle = c.idle();
+            if idle {
+                c.close();
+            }
+            !idle
+        });
     }
 
     fn fs(&self, op: &str, fields: Value) -> io::Result<Value> {
@@ -156,8 +191,12 @@ impl Client {
             match reply["ev"].as_str() {
                 Some("status") => {
                     let info: HostInfo = serde_json::from_value(reply["status"].clone()).map_err(io::Error::other)?;
-                    if info.os == "windows" && !info.user_home.is_empty() {
-                        let _ = self.root.set(info.user_home.replace('\\', "/"));
+                    let home = info.user_home.replace('\\', "/");
+                    if !home.is_empty() {
+                        if info.os == "windows" {
+                            let _ = self.root.set(home.clone());
+                        }
+                        let _ = self.home.set(home);
                     }
                     return Ok(info);
                 }
@@ -168,9 +207,21 @@ impl Client {
         Err(io::Error::new(ErrorKind::ConnectionAborted, "lost the host"))
     }
 
+    /// The host's home folder with `/` separators, asked of pocketd only until a `status` gives it.
+    pub fn home(&self) -> io::Result<String> {
+        match self.home.get() {
+            Some(home) => Ok(home.clone()),
+            None => Ok(self.status()?.user_home.replace('\\', "/")),
+        }
+    }
+
     pub fn list(&self, dir: &str) -> io::Result<Vec<Entry>> {
         let reply = self.fs("fs.list", json!({"path": self.host_path(dir)}))?;
-        serde_json::from_value(reply["entries"].clone()).or_else(|_| Ok(Vec::new()))
+        // pocketd omits `entries` for an empty folder.
+        match &reply["entries"] {
+            Value::Null => Ok(Vec::new()),
+            entries => Vec::deserialize(entries).map_err(|e| io::Error::new(ErrorKind::InvalidData, e)),
+        }
     }
 
     pub fn write(&self, path: &str, data: &[u8], create: bool) -> io::Result<()> {
@@ -235,8 +286,10 @@ fn merged(mut theirs: Value, ours: &Value) -> Value {
     theirs
 }
 
-fn open(endpoint: &Endpoint) -> io::Result<Conn> {
+/// A write that blocks past `write_timeout` fails, so a host that stopped reading can't hold the lock `call` writes under.
+fn open(endpoint: &Endpoint, write_timeout: Duration) -> io::Result<Conn> {
     let stream = endpoint.connect(FS_TIMEOUT).map_err(io::Error::other)?;
+    stream.set_write_timeout(Some(write_timeout))?;
     let waiters: Waiters = Arc::new(Mutex::new(Some(HashMap::new())));
     let reader = BufReader::new(stream.try_clone()?);
     let shared = waiters.clone();
@@ -254,8 +307,8 @@ fn open(endpoint: &Endpoint) -> io::Result<Conn> {
     Ok(Conn { stream, waiters })
 }
 
-fn bytes(v: &Value) -> Vec<u8> {
-    v.as_str().and_then(|s| STANDARD.decode(s).ok()).unwrap_or_default()
+fn bytes(v: &Value) -> io::Result<Vec<u8>> {
+    v.as_str().map_or(Ok(Vec::new()), |s| STANDARD.decode(s).map_err(|e| io::Error::new(ErrorKind::InvalidData, e)))
 }
 
 impl git::Exec for Client {
@@ -269,7 +322,7 @@ impl git::Exec for Client {
         }
         let reply = self.call(op, timeout + REPLY_SLACK)?;
         // pocketd omits a zero `code`.
-        Ok(git::Output { code: reply["code"].as_i64().unwrap_or(0) as i32, stdout: bytes(&reply["stdout"]), stderr: bytes(&reply["stderr"]) })
+        Ok(git::Output { code: reply["code"].as_i64().unwrap_or(0) as i32, stdout: bytes(&reply["stdout"])?, stderr: bytes(&reply["stderr"])? })
     }
 
     fn read(&self, path: &str, max: usize) -> io::Result<Vec<u8>> {
@@ -277,7 +330,7 @@ impl git::Exec for Client {
         if reply["truncated"] == true {
             return Err(git::too_large(max));
         }
-        Ok(bytes(&reply["data"]))
+        bytes(&reply["data"])
     }
 
     fn stat(&self, path: &str) -> io::Result<Option<git::Stat>> {
@@ -363,6 +416,16 @@ mod tests {
     }
 
     #[test]
+    fn home_is_remembered_from_the_first_status() {
+        let sock = temp_sock("home");
+        serve(&sock);
+        let client = Client::new("devbox", sock.clone());
+        assert_eq!(client.home().unwrap(), "/home/dev");
+        std::fs::remove_file(&sock).unwrap();
+        assert_eq!(client.home().unwrap(), "/home/dev");
+    }
+
+    #[test]
     fn concurrent_calls_each_get_their_own_reply() {
         let sock = temp_sock("concurrent");
         serve(&sock);
@@ -414,6 +477,115 @@ mod tests {
         let client = Client::new("devbox", sock.clone());
         let err = client.call(json!({"op": "exec", "cwd": "/", "argv": ["echo", "2000"]}), Duration::from_millis(50)).unwrap_err();
         assert!(matches!(err.kind(), ErrorKind::TimedOut), "{err}");
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn a_write_the_host_never_drains_fails_instead_of_holding_the_client() {
+        let sock = temp_sock("undrained");
+        let listener = UnixListener::bind(&sock).unwrap();
+        std::thread::spawn(move || drop(listener.incoming().flatten().collect::<Vec<_>>()));
+        let client = Client::new("devbox", sock.clone());
+        *client.conn.lock().unwrap() = Some(open(&client.endpoint, Duration::from_millis(300)).unwrap());
+        let (tx, done) = mpsc::channel();
+        std::thread::spawn(move || tx.send(client.exec("/", &["cat"], Some(&vec![b'x'; 8 << 20]), Duration::from_millis(100))));
+        let reply = done.recv_timeout(Duration::from_secs(2)).expect("the write blocked past the call's own timeout");
+        assert!(reply.is_err());
+        let _ = std::fs::remove_file(sock);
+    }
+
+    /// A pocketd stand-in that answers each call with `reply`'s result for it.
+    fn serve_with(sock: &PathBuf, reply: impl Fn(&Value) -> Value + Send + 'static) {
+        let listener = UnixListener::bind(sock).unwrap();
+        std::thread::spawn(move || {
+            let Ok((stream, _)) = listener.accept() else { return };
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                writeln!(writer, "{}", reply(&msg)).unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn a_folder_reply_of_the_wrong_shape_is_invalid_data_but_one_without_entries_is_an_empty_folder() {
+        let sock = temp_sock("entries");
+        serve_with(&sock, |m| match m["path"].as_str() {
+            Some("/bad") => json!({"ev": "fs.list", "id": m["id"], "entries": [{"name": "a", "size": -1}]}),
+            Some("/null") => json!({"ev": "fs.list", "id": m["id"], "entries": null}),
+            Some("/some") => json!({"ev": "fs.list", "id": m["id"], "entries": [{"name": "a", "dir": true}]}),
+            _ => json!({"ev": "fs.list", "id": m["id"]}),
+        });
+        let client = Client::new("devbox", sock.clone());
+        assert_eq!(client.list("/bad").unwrap_err().kind(), ErrorKind::InvalidData);
+        assert_eq!(client.list("/null").unwrap(), vec![]);
+        assert_eq!(client.list("/omitted").unwrap(), vec![]);
+        assert_eq!(client.list("/some").unwrap(), vec![Entry { name: "a".into(), dir: true, ..Entry::default() }]);
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn output_that_is_not_base64_is_invalid_data_but_omitted_output_is_empty() {
+        let sock = temp_sock("base64");
+        serve_with(&sock, |m| match m["argv"][0].as_str() {
+            Some("garbled") => json!({"ev": "exec", "id": m["id"], "stdout": "!!not base64!!"}),
+            _ => json!({"ev": "exec", "id": m["id"]}),
+        });
+        let client = Client::new("devbox", sock.clone());
+        let garbled = client.exec("/", &["garbled"], None, Duration::from_secs(5));
+        assert_eq!(garbled.unwrap_err().kind(), ErrorKind::InvalidData);
+        let silent = client.exec("/", &["silent"], None, Duration::from_secs(5)).unwrap();
+        assert_eq!((silent.code, silent.stdout, silent.stderr), (0, vec![], vec![]));
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn a_write_that_times_out_leaves_the_calls_in_flight_their_replies_then_closes() {
+        let sock = temp_sock("inflight");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let (closed_tx, closed) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            let mut first = String::new();
+            BufReader::new(&stream).read_line(&mut first).unwrap();
+            let msg: Value = serde_json::from_str(&first).unwrap();
+            std::thread::sleep(Duration::from_millis(1000));
+            writeln!(writer, "{}", json!({"ev": "exec", "id": msg["id"]})).unwrap();
+            let _ = std::io::copy(&mut &stream, &mut std::io::sink());
+            let _ = closed_tx.send(());
+        });
+        let client = Arc::new(Client::new("devbox", sock.clone()));
+        *client.conn.lock().unwrap() = Some(open(&client.endpoint, Duration::from_millis(300)).unwrap());
+        let slow = {
+            let client = client.clone();
+            std::thread::spawn(move || client.exec("/", &["sleep"], None, Duration::from_secs(5)))
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(client.exec("/", &["cat"], Some(&vec![b'x'; 16 << 20]), Duration::from_secs(5)).is_err());
+        assert!(slow.join().unwrap().is_ok(), "the slow call lost its reply");
+        assert!(closed.recv_timeout(Duration::from_secs(2)).is_ok(), "the dropped connection was never closed");
+        let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn dropping_the_client_closes_its_connection() {
+        let sock = temp_sock("dropped");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let (tx, closed) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                writeln!(writer, "{}", json!({"ev": "exec", "id": msg["id"]})).unwrap();
+            }
+            let _ = tx.send(());
+        });
+        let client = Client::new("devbox", sock.clone());
+        client.exec("/", &["echo", "0"], None, Duration::from_secs(5)).unwrap();
+        drop(client);
+        assert!(closed.recv_timeout(Duration::from_secs(2)).is_ok(), "pocketd never saw the connection close");
         let _ = std::fs::remove_file(sock);
     }
 

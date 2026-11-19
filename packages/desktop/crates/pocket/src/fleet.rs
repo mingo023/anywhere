@@ -1,6 +1,7 @@
 //! SSH hosts: the ones this Mac's pocketd links, shown and served here, and the Settings form that adds one.
 
 use crate::desktop::Desktop;
+use crate::spaces::{Space, flash_key};
 use agents::hosts::{Entry, Failure, Link, Progress};
 use futures::StreamExt;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -12,6 +13,8 @@ use hosts::remote::{Client, HostInfo};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+const STATUS_RETRY: Duration = Duration::from_secs(2);
 
 /// Each host's link as last reported; a host is listed only while it's in Settings.
 #[derive(Default)]
@@ -44,6 +47,11 @@ impl Links {
             _ => false,
         }
     }
+}
+
+/// Whether `list`, which was still running if `was_open`, just ended in an install: the host is new to the sidebar.
+fn just_installed(was_open: bool, list: &Checklist) -> bool {
+    was_open && !list.update && list.outcome == Some(Outcome::Installed)
 }
 
 /// Whether the host's pocketd is older than the one this app ships; one that didn't say its version is left alone.
@@ -275,6 +283,8 @@ pub(crate) struct Fleet {
     pending: Pending,
     /// Host messages sent and not yet answered, by request id.
     asked: HashMap<String, Asked>,
+    /// Each host's next `status` ask after one failed; a newer one replaces it, so one runs per host.
+    status_retries: HashMap<String, Task<()>>,
 }
 
 impl Fleet {
@@ -311,18 +321,22 @@ impl Fleet {
             password,
             pending: Pending::default(),
             asked: HashMap::new(),
+            status_retries: HashMap::new(),
         };
         (fleet, subs)
     }
 
     /// Records how the install on `id` goes, as one started elsewhere too; a pocketd that was already running
-    /// needs no checklist.
-    fn install_progress(&mut self, id: &str, update: bool, progress: Progress) {
+    /// needs no checklist. True when this progress finished an install, as its host's space is new then.
+    fn install_progress(&mut self, id: &str, update: bool, progress: Progress) -> bool {
         let list = self.installs.entry(id.into()).or_insert_with(|| Checklist::new(update));
+        let was_open = list.outcome.is_none();
         list.apply(progress);
+        let installed = just_installed(was_open, list);
         if list.outcome == Some(Outcome::Reused) {
             self.installs.remove(id);
         }
+        installed
     }
 
     fn remove(&mut self, id: &str) {
@@ -331,6 +345,7 @@ impl Fleet {
         self.installs.remove(id);
         self.tokens.remove(id);
         self.notices.remove(id);
+        self.status_retries.remove(id);
         if self.password.host.as_deref() == Some(id) {
             self.password.host = None;
         }
@@ -358,7 +373,9 @@ impl Desktop {
                 turns
             }
             Event::HostProgress { host, update, progress } => {
-                self.fleet.install_progress(&host, update, progress);
+                if self.fleet.install_progress(&host, update, progress) {
+                    self.flash(flash_key(&Space::Host(host)), cx);
+                }
                 Vec::new()
             }
             Event::HostError { request, detail, message, .. } => {
@@ -410,7 +427,23 @@ impl Desktop {
                 })
                 .await;
             this.update_in(cx, |d, window, cx| {
-                let Ok(info) = info else { return };
+                let Ok(info) = info else {
+                    // The link only turns online once, so a pocketd that didn't answer (still starting, say) is asked again here.
+                    let retry = cx.spawn_in(window, {
+                        let id = id.clone();
+                        async move |this, cx| {
+                            cx.background_executor().timer(STATUS_RETRY).await;
+                            this.update_in(cx, |d, window, cx| {
+                                if d.fleet.hosts.links.online(&id) && hosts::remote::connected(&id).is_none() {
+                                    d.host_online(&id, window, cx);
+                                }
+                            })
+                            .ok();
+                        }
+                    });
+                    d.fleet.status_retries.insert(id.clone(), retry);
+                    return;
+                };
                 let status = on_status(&info, d.fleet.hosts.links.online(&id), d.fleet.tokens.get(&id), &endpoint.token);
                 if !status.serve {
                     return;
@@ -421,6 +454,8 @@ impl Desktop {
                 }
                 d.fleet.tokens.insert(id.clone(), endpoint.token.clone());
                 hosts::remote::register(client);
+                d.finder_host_back(&id, window, cx);
+                d.fetch_clone_home(window, cx);
                 d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 d.check_accounts(Some(id.clone()), true, cx);
                 if !d.daemon.has(&id) {
@@ -640,7 +675,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Hosts, Leave, Link, Links, Pending, Removing, Status, Tries, Turn, needs_update, on_status, removal, sign_in_error};
+    use super::{Failure, Hosts, Leave, Link, Links, Pending, Removing, Status, Tries, Turn, just_installed, needs_update, on_status, removal, sign_in_error};
     use agents::hosts::{Entry, Target};
     use hosts::remote::HostInfo;
     use std::time::{Duration, Instant};
@@ -651,6 +686,21 @@ mod tests {
 
     fn online() -> Link {
         Link::Online { version: "1.4.2".into(), uptime: 0 }
+    }
+
+    #[test]
+    fn only_an_install_that_just_finished_makes_a_new_space() {
+        let list = |update, progress: &[agents::hosts::Progress]| {
+            let mut list = hosts::checklist::Checklist::new(update);
+            progress.iter().cloned().for_each(|p| list.apply(p));
+            list
+        };
+        let done = list(false, &[agents::hosts::Progress::Done]);
+        assert!(just_installed(true, &done));
+        assert!(!just_installed(false, &done), "a late message after the end");
+        assert!(!just_installed(true, &list(true, &[agents::hosts::Progress::Done])), "an update");
+        assert!(!just_installed(true, &list(false, &[agents::hosts::Progress::Running])), "pocketd already ran");
+        assert!(!just_installed(true, &list(false, &[agents::hosts::Progress::Error("no sshd".into())])));
     }
 
     #[test]

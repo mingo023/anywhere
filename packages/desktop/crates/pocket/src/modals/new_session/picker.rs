@@ -1,13 +1,21 @@
+use super::machine::{Blocker, blocker, unreachable_notice};
 use super::{Checkout, NO_PROJECT, Source, checkout_choice, listed_branches, parse_pr};
 use crate::composer::launch::access_row;
 use crate::desktop::Desktop;
+use crate::modals::host_finder::Opener;
+use crate::settings::ssh_hosts::link_color;
+use agents::hosts::Link;
+use crate::spaces::header::glyph;
+use crate::spaces::{Reach, Space, in_space, on_host};
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Picker {
+    Machine,
     Project,
     Checkout,
     Branch,
@@ -35,6 +43,35 @@ fn menu_frame(id: &'static str, width: f32, cx: &mut Context<Desktop>) -> Statef
             this.new_form.draft.picker = None;
             cx.notify();
         }))
+}
+
+/// A machine's menu row: its link's dot, and why it can't be picked while it can't be reached.
+fn machine_row(id: impl Into<ElementId>, space: &Space, name: &str, link: Option<&Link>, reach: Reach, chosen: bool) -> Stateful<Div> {
+    let unusable = reach != Reach::Online;
+    let note = match reach {
+        Reach::Online => "",
+        Reach::Connecting => "Connecting",
+        Reach::Offline => "Offline",
+    };
+    ui::menu_pick(id, icon(glyph(space), 14., TEXT_3), name, false)
+        .when(unusable, |d| d.cursor_default().child(div().text_size(px(11.5)).text_color(TEXT_3).child(note)))
+        .when(space.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
+        .when(chosen, |d| d.child(icon("check", 13., TEXT_2)))
+}
+
+/// A row per space in the switcher's order, `chosen` checked. Only a reachable one takes a click, which calls `pick`.
+pub(crate) fn machine_rows(desktop: &Desktop, id: &'static str, chosen: &Space, pick: fn(&mut Desktop, Space, &mut Window, &mut Context<Desktop>), cx: &mut Context<Desktop>) -> Vec<AnyElement> {
+    desktop
+        .space_order()
+        .into_iter()
+        .enumerate()
+        .map(|(i, space)| {
+            let link = space.host().and_then(|id| desktop.fleet.hosts.links.get(id));
+            let reach = desktop.space_reach(&space);
+            let row = machine_row((id, i), &space, &desktop.space_name(&space), link, reach, space == *chosen).when(reach != Reach::Online, |d| d.opacity(0.5));
+            row.when(reach == Reach::Online, |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| pick(this, space.clone(), window, cx)))).into_any_element()
+        })
+        .collect()
 }
 
 pub(crate) fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
@@ -176,14 +213,78 @@ impl Desktop {
         div().relative().child(button).children(menu)
     }
 
-    /// No project, then the projects a session can start in: those with a git checkout. A Scratch folder shows only while it's the one picked.
-    fn form_project_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let repo = self.new_form.draft.repo.as_deref();
-        let none = ui::menu_pick("project-none", icon("folder", 14., TEXT_3), NO_PROJECT, self.new_form.draft.no_project()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.new_form.draft.pick_no_project();
-            this.focus_prompt(window, cx);
+    /// What stops the draft starting in the space on screen.
+    pub(super) fn draft_blocker(&self) -> Option<Blocker> {
+        let space = self.space();
+        blocker(self.new_form.draft.repo.as_deref(), &space, self.space_reach(&space))
+    }
+
+    /// Run on: This Mac and the SSH hosts; one that can't be reached is dimmed and can't be picked.
+    fn machine_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let rows = machine_rows(self, "machine", &self.space(), Self::pick_machine, cx);
+        let add = ui::menu_pick("machine-add", icon("plus", 14., TEXT_3), "Add a host\u{2026}", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.new_form.draft.picker = None;
+            this.add_host_from_sidebar(window, cx);
         }));
-        let rows = self.projects().into_iter().filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty())).enumerate().map(|(i, p)| {
+        let rows: Vec<AnyElement> = std::iter::once(ui::menu_label("Run on").into_any_element()).chain(rows).chain([ui::menu_divider().into_any_element(), add.into_any_element()]).collect();
+        picker_menu("machine-menu", 260., rows, cx).gap(px(2.))
+    }
+
+    /// The machine pill: the space on screen, whose menu switches it.
+    pub(super) fn machine_select(&self, cx: &mut Context<Self>) -> Div {
+        let (space, f) = (self.space(), &self.new_form.draft);
+        let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
+        let chip = ui::menu_chip("form-machine", f.picker == Some(Picker::Machine))
+            .child(icon(glyph(&space), 14., TEXT_3))
+            .child(div().font_weight(FontWeight::MEDIUM).child(self.space_name(&space)))
+            .when(space.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
+            .child(icon("chevron-down", 12., TEXT_4))
+            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.toggle_picker(Picker::Machine, cx);
+            }));
+        let menu = (f.picker == Some(Picker::Machine)).then(|| ui::dropdown(36., ui::menu_in("machine-menu-in", self.machine_menu(cx))));
+        div().relative().child(chip).children(menu)
+    }
+
+    /// Under the footer: why an unreachable machine starts nothing, and Reconnect.
+    pub(super) fn machine_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let space = self.space();
+        let Some(Blocker::Unreachable(reach)) = self.draft_blocker() else { return None };
+        let id = space.host()?.to_string();
+        let reconnect = (reach == Reach::Offline).then(|| {
+            ui::link("form-reconnect", "Reconnect").text_color(TEXT).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.retry_host(&id);
+                cx.notify();
+            }))
+        });
+        Some(
+            div()
+                .w_full()
+                .max_w(px(600.))
+                .mt(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .text_size(px(12.5))
+                .text_color(WAITING_TEXT)
+                .child(icon("warning", 13., WAITING_TEXT))
+                .child(unreachable_notice(reach, &self.space_name(&space)))
+                .children(reconnect),
+        )
+    }
+
+    /// The space's projects, led by No project on This Mac, then a folder to open there and Clone from URL.
+    fn form_project_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let f = &self.new_form.draft;
+        let (space, repo) = (self.space(), f.repo.as_deref());
+        let none = (space == Space::Local).then(|| {
+            ui::menu_pick("project-none", icon("folder", 14., TEXT_3), NO_PROJECT, f.no_project()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.new_form.draft.pick_no_project();
+                this.focus_prompt(window, cx);
+            }))
+        });
+        let rows = in_space(&self.form_projects(), &space).into_iter().enumerate().map(|(i, p)| {
             let (name, tile) = (self.repo_name(&p), self.repo_tile_for(&p, 14.));
             let chosen = repo == Some(p.as_str());
             ui::menu_pick(("project", i), tile, &name, chosen)
@@ -194,7 +295,13 @@ impl Desktop {
                 }))
                 .into_any_element()
         });
-        let rows: Vec<AnyElement> = std::iter::once(none.into_any_element()).chain(rows).collect();
+        let host = self.space_host_name(&space);
+        let open = ui::menu_pick("project-open", icon("folder-plus", 14., TEXT_3), &on_host("Open folder", host.as_deref()), false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::NewSession, window, cx)));
+        let clone = ui::menu_pick("project-clone", icon("branch", 14., TEXT_3), "Clone from URL\u{2026}", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.new_form.draft.picker = None;
+            this.clone_project(window, cx);
+        }));
+        let rows: Vec<AnyElement> = none.map(IntoElement::into_any_element).into_iter().chain(rows).chain([ui::menu_divider().into_any_element(), open.into_any_element(), clone.into_any_element()]).collect();
         picker_menu("project-menu", 260., rows, cx).gap(px(2.))
     }
 
@@ -206,10 +313,12 @@ impl Desktop {
         let f = &self.new_form.draft;
         let name = f.repo.as_ref().map_or_else(|| NO_PROJECT.to_string(), |repo| self.repo_name(repo));
         let tile = f.repo.as_ref().map(|repo| self.repo_tile_for(repo, 16.));
+        let missing = (self.draft_blocker() == Some(Blocker::Elsewhere)).then(|| format!("Not on {}", self.space_name(&self.space())));
         let chip = ui::menu_chip("form-project", f.picker == Some(Picker::Project))
             .children(tile)
             .when(f.repo.is_none(), |d| d.child(icon("folder", 14., TEXT_3)))
-            .child(div().font_weight(FontWeight::MEDIUM).child(name))
+            .child(div().font_weight(FontWeight::MEDIUM).when(missing.is_some(), |d| d.text_color(TEXT_3)).child(name))
+            .when_some(missing, |d, tip| d.child(icon("warning", 13., WAITING_TEXT)).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)))
             .child(icon("chevron-down", 12., TEXT_4))
             .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 cx.stop_propagation();
@@ -226,7 +335,7 @@ impl Desktop {
             .child(icon(glyph, 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(label))
             .child(icon("chevron-down", 12., TEXT_4));
-        let checkout = if f.linked_pr().is_some() {
+        let checkout = if f.linked_pr().is_some() || self.draft_blocker().is_some() {
             checkout.opacity(0.5).cursor_default()
         } else {
             checkout.capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -248,11 +357,15 @@ impl Desktop {
         let branch = ui::menu_chip("form-branch", f.picker == Some(Picker::Branch))
             .child(icon("branch", 14., TEXT_3))
             .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
+            .child(icon("chevron-down", 12., TEXT_4));
+        let branch = if self.draft_blocker().is_some() {
+            branch.opacity(0.5).cursor_default()
+        } else {
+            branch.capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
                 cx.stop_propagation();
                 this.toggle_search(Picker::Branch, this.new_form.search.clone(), window, cx);
-            }));
+            }))
+        };
         let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., ui::menu_in("branch-menu-in", self.branch_picker(cx))));
         div().relative().child(branch).children(branch_menu)
     }

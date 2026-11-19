@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Composer · Run on — prototype</title>
+<style>
+:root{
+  /* Solarized Light, packages/desktop/themes/solarized-light.json */
+  --text:#073642;--text-body:#365b61;--text-2:#566c73;--text-3:#657b83;--text-4:#93a1a1;--text-5:#b0bab0;--text-6:#d1d3c6;--on-text:#fdf6e3;
+  --window:#eee8d5;--surface:#fdf6e3;--surface-sunken:#f6efdc;--page:#f9f2df;--side:#f6efdcb3;--popover:#fdf6e3;--highlight:#fffffff2;--shadow:#00000024;
+  --fill-1:#07364208;--fill-2:#0736420b;--fill-3:#0736420e;--fill-4:#07364211;--hairline:#07364212;--separator:#07364217;--separator-strong:#0736421f;
+  --accent-bg:#0736421c;--waiting:#947000;--waiting-text:#826300;--waiting-dot:#b58900;--waiting-bg:#b589002e;--success:#7a8d00;--success-text:#606e00;--failed:#dc322f;--claude:#d97757;
+}
+:root[data-theme=graphite]{
+  /* Graphite Light, crates/theme/src/theme.rs */
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;--on-text:#ffffff;
+  --window:#f4f4f5;--surface:#ffffff;--surface-sunken:#fafafa;--page:#f7f7f7;--side:#fafafbb3;--popover:#ffffff;--highlight:#fffffff2;--shadow:#00000024;
+  --fill-1:#11111308;--fill-2:#1111130b;--fill-3:#1111130e;--fill-4:#11111311;--hairline:#11111312;--separator:#11111317;--separator-strong:#1111131f;
+  --accent-bg:#1111131c;--waiting:#ad5700;--waiting-text:#ad5700;--waiting-dot:#ffb224;--waiting-bg:#ffb2242e;--success:#2b9a66;--success-text:#18794e;--failed:#cd2b31;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:var(--text);background:var(--window);font-size:13px;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left}
+.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+svg.i{flex:none;display:block}
+
+.app{display:flex;height:100vh}
+/* sidebar: ui::side, sidebar_row 28px */
+.side{width:262px;flex:none;background:var(--side);border-right:.5px solid var(--separator);display:flex;flex-direction:column;padding:0 10px 10px}
+.top{height:40px;display:flex;align-items:center;justify-content:flex-end;gap:10px;color:var(--text-3)}
+.search{height:32px;margin:4px 0 8px;padding:0 10px;display:flex;align-items:center;gap:8px;border-radius:9px;background:var(--fill-2);color:var(--text-3);font-size:13.5px}
+.search kbd{margin-left:auto;font:inherit;font-size:11.5px;color:var(--text-4)}
+.row{height:28px;padding:0 6px;display:flex;align-items:center;gap:7px;border-radius:8px;font-size:13px;color:var(--text-2);white-space:nowrap}
+.row:hover{background:var(--fill-2)}
+.row.on{background:var(--fill-4);color:var(--text)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sh{margin:14px 6px 4px;display:flex;align-items:center;font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--text-3)}
+.sh span{flex:1}
+.tile{width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:5px;font-size:10px;font-weight:600;color:var(--text-2);background:var(--surface);box-shadow:inset 0 0 0 .5px var(--separator-strong)}
+.tile.emoji{font-size:12px}
+.prow{color:var(--text);font-weight:500}
+.crow{padding-left:33px}
+.host{display:flex;align-items:center;gap:5px;color:var(--text-3)}
+.dot{width:6px;height:6px;border-radius:3px;flex:none;background:var(--success)}
+.dot.off{background:var(--text-5)}
+.fresh{animation:fresh 1.6s ease-out}
+@keyframes fresh{0%{background:var(--accent-bg)}100%{background:transparent}}
+.side .foot{margin-top:auto}
+
+/* page */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--page)}
+.bar{height:40px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;font-size:13px;color:var(--text-3)}
+.bar b{color:var(--text);font-weight:600}
+.body{flex:1;position:relative;display:flex;justify-content:center;background-image:radial-gradient(var(--text-6) .9px,transparent 1px);background-size:14px 14px;background-position:7px 7px}
+.content{width:600px;margin-top:22vh;display:flex;flex-direction:column;align-items:center}
+h1{font-size:21px;line-height:25px;font-weight:600}
+/* composer frame */
+.frame{width:100%;margin-top:20px;background:var(--surface);border-radius:16px;box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a,0 8px 24px #0000000d}
+.ptext{padding:11px 9px 0}
+.ptext textarea{width:100%;border:0;outline:0;resize:none;background:none;font:inherit;font-size:14.5px;line-height:22px;color:var(--text);padding:0 7px;height:66px}
+.ptext textarea::placeholder{color:var(--text-4)}
+.pbar{display:flex;align-items:center;gap:4px;padding:4px 11px 11px}
+.pill{height:30px;display:flex;align-items:center;gap:6px;padding:0 6px 0 7px;border-radius:9px;font-size:12.5px;color:var(--text-2)}
+.pill:hover{background:var(--fill-2)}
+.pill b{font-weight:500;color:var(--text)}
+.ib{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.ib:hover{background:var(--fill-2)}
+.send{width:32px;height:32px;border-radius:16px;display:flex;align-items:center;justify-content:center;background:var(--text);color:var(--on-text)}
+.send.off{background:var(--fill-4);color:var(--text-4);cursor:default}
+
+/* footer chips: ui::menu_chip */
+.foot-row{width:100%;margin-top:10px;display:flex;align-items:center;gap:2px;font-size:13px}
+.pw{position:relative}
+.chip{height:30px;padding:0 8px 0 10px;display:flex;align-items:center;gap:7px;border-radius:8px;background:var(--fill-2);white-space:nowrap;font-weight:500}
+.chip:hover,.chip[data-open]{background:var(--fill-3)}
+.chip .warn{color:var(--waiting)}
+.chip.dim{opacity:.5;cursor:default}
+.sep{color:var(--text-4);padding:0 4px}
+.notice{width:100%;margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--waiting-text)}
+.notice a{color:var(--text);font-weight:500;text-decoration:underline;cursor:pointer}
+
+/* menus: ui::pop, R_POPOVER 12 */
+.pop{background:var(--popover);border-radius:12px;box-shadow:0 0 0 .5px var(--separator),inset 0 1px 0 var(--highlight),0 18px 50px var(--shadow),0 2px 6px #0000000f}
+.menu{position:absolute;top:36px;left:0;z-index:10;padding:5px;display:flex;flex-direction:column;gap:2px;animation:menuin .15s cubic-bezier(.22,1,.36,1)}
+@keyframes menuin{from{opacity:0;transform:translateY(-4px)}}
+.ml{padding:6px 10px 2px;font-size:11.5px;font-weight:500;color:var(--text-3)}
+.md{height:.5px;margin:4px 8px;background:var(--separator);flex:none}
+/* ui::menu_pick */
+.mp{height:32px;padding:0 10px;display:flex;align-items:center;gap:10px;border-radius:8px;font-size:13.5px;white-space:nowrap}
+.mp:hover{background:var(--fill-2)}
+.mp .lead{width:14px;display:flex;justify-content:center;flex:none;color:var(--text-2)}
+.mp .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mp .sub{font-size:12px;color:var(--text-4)}
+.mp.off{color:var(--text-4);cursor:default}
+.mp.off:hover{background:none}
+/* access_row: label over hint */
+.ar{padding:7px 8px;display:flex;align-items:center;gap:9px;border-radius:6px}
+.ar:hover,.ar.on{background:var(--fill-2)}
+.ar .g{align-self:flex-start;padding-top:1px;color:var(--text-2)}
+.ar .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ar .l{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500}
+.ar .h{font-size:11.5px;color:var(--text-3)}
+.ar .ck{width:16px;display:flex;justify-content:flex-end;flex:none}
+.ar.off{cursor:default}
+.ar.off:hover{background:none}
+.ar.off .l,.ar.off .g{color:var(--text-4)}
+.tag{font-size:11.5px;color:var(--text-4);font-weight:400}
+.tag.ok{color:var(--success-text)}
+
+/* finder (modals/host_finder.rs) */
+.backdrop{position:fixed;inset:0;background:#0000002e;display:flex;align-items:center;justify-content:center;z-index:30;animation:fade .18s}
+@keyframes fade{from{opacity:0}}
+.finder{width:860px;height:520px;display:flex;flex-direction:column;overflow:hidden}
+.fh{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px 0 20px;border-bottom:.5px solid var(--separator)}
+.fh .t{font-size:14px;font-weight:600;color:var(--text-2)}
+.crumb{font-size:13.5px;color:var(--text-3)}
+.crumb b{font-weight:500;color:var(--text-2)}
+.hostchip{margin-left:auto;height:30px;padding:0 10px;display:flex;align-items:center;gap:7px;border-radius:8px;background:var(--fill-2);font-weight:500;font-size:13px}
+.fbody{flex:1;display:flex;min-height:0}
+.places{width:170px;flex:none;padding:14px 8px;border-right:.5px solid var(--separator)}
+.places .ml{padding:6px 10px 4px;letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.col{width:210px;flex:none;padding:5px;border-right:.5px solid var(--separator);overflow:auto}
+.fr{height:26px;padding:0 8px;display:flex;align-items:center;gap:8px;border-radius:6px;font-size:13px;white-space:nowrap}
+.fr:hover{background:var(--fill-2)}
+.fr.anc{background:var(--fill-4)}
+.fr.cur{background:var(--accent-bg)}
+.fr .nm{flex:1}
+.fr .chev{color:var(--text-4)}
+.fr.ign{opacity:.5}
+.detail{flex:1;min-width:0;padding:16px;display:flex;flex-direction:column;gap:12px}
+.dh{display:flex;align-items:center;gap:12px}
+.dh .ic{width:34px;height:34px;border-radius:9px;background:var(--fill-3);display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+.dh b{display:block;font-size:14px;font-weight:600}
+.dh span{font-size:12px;color:var(--text-3)}
+.facts{display:grid;grid-template-columns:64px 1fr;row-gap:6px;font-size:12.5px}
+.facts dt{color:var(--text-3)}
+.facts dd{font-family:"Geist Mono",ui-monospace,monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ff{height:60px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px 0 20px;border-top:.5px solid var(--separator)}
+.ff .p{display:flex;flex-direction:column;gap:2px;margin-right:auto}
+.ff .p .mono{font-size:12.5px}
+.ff .p span{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--success-text)}
+.btn{height:32px;padding:0 14px;border-radius:9px;font-size:13px;font-weight:500;display:flex;align-items:center}
+.btn.ghost:hover{background:var(--fill-2)}
+.btn.primary{background:var(--text);color:var(--on-text)}
+
+.toast{position:fixed;right:20px;bottom:20px;z-index:40;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;animation:menuin .2s}
+.toast .ic{color:var(--success)}
+
+.proto{position:fixed;left:272px;bottom:12px;display:flex;gap:4px;padding:4px;font-size:11.5px;color:var(--text-3);z-index:5}
+.proto button{padding:3px 8px;border-radius:6px}
+.proto button[data-on]{background:var(--fill-4);color:var(--text)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const ICONS={"laptop": {"vb": "0 0 24 24", "body": "<path d=\"M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z\"/><path d=\"M20.054 15.987H3.946\"/>", "fill": false}, "server": {"vb": "0 0 24 24", "body": "<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>", "fill": false}, "globe": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>", "fill": false}, "check": {"vb": "0 0 24 24", "body": "<path d=\"M20 6 9 17l-5-5\"/>", "fill": false}, "chevron-down": {"vb": "0 0 24 24", "body": "<path d=\"m6 9 6 6 6-6\"/>", "fill": false}, "chevron-right": {"vb": "0 0 24 24", "body": "<path d=\"m9 18 6-6-6-6\"/>", "fill": false}, "folder": {"vb": "0 0 24 24", "body": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "folder-plus": {"vb": "0 0 24 24", "body": "<path d=\"M12 10v6\"/><path d=\"M9 13h6\"/><path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "worktree": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>", "fill": false}, "branch": {"vb": "0 0 24 24", "body": "<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>", "fill": false}, "pull-request": {"vb": "0 0 24 24", "body": "<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M13 6h3a2 2 0 0 1 2 2v7\"/><line x1=\"6\" x2=\"6\" y1=\"9\" y2=\"21\"/>", "fill": false}, "plus": {"vb": "0 0 24 24", "body": "<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>", "fill": false}, "arrow-up": {"vb": "0 0 24 24", "body": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "fill": false}, "shield": {"vb": "0 0 24 24", "body": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/>", "fill": false}, "search": {"vb": "0 0 24 24", "body": "<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>", "fill": false}, "activity": {"vb": "0 0 24 24", "body": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>", "fill": false}, "blocks": {"vb": "0 0 24 24", "body": "<path d=\"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2\"/><rect x=\"14\" y=\"2\" width=\"8\" height=\"8\" rx=\"1\"/>", "fill": false}, "bolt": {"vb": "0 0 24 24", "body": "<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\"/>", "fill": false}, "settings": {"vb": "0 0 24 24", "body": "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "fill": false}, "warning": {"vb": "0 0 24 24", "body": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>", "fill": false}, "x": {"vb": "0 0 24 24", "body": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>", "fill": false}, "eye-off": {"vb": "0 0 24 24", "body": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "fill": false}, "sidebar-collapse": {"vb": "0 0 24 24", "body": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/><path d=\"m16 15-3-3 3-3\"/>", "fill": false}, "bell": {"vb": "0 0 24 24", "body": "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>", "fill": false}, "claude": {"vb": "0 0 24 24", "body": "<path d=\"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z\"/>", "fill": true}, "file": {"vb": "0 0 24 24", "body": "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/>", "fill": false}, "comment": {"vb": "0 0 24 24", "body": "<path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\"/>", "fill": false}, "copy": {"vb": "0 0 24 24", "body": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>", "fill": false}, "github": {"vb": "0 0 24 24", "body": "<path d=\"M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4\"/><path d=\"M9 18c-4.51 2-5-2-7-2\"/>", "fill": false}};
+const ic=(n,s=14,c='currentColor')=>{const d=ICONS[n];return d.fill?`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="${c==='currentColor'?'var(--claude)':c}">${d.body}</svg>`:`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.body}</svg>`};
+
+const MACHINES={
+  mac:{name:'This Mac',hint:'ming-macbook · macOS',local:true,online:true},
+  devbox:{name:'devbox',hint:'dev@devbox.lan · Linux',online:true},
+  buildbox:{name:'buildbox',hint:'ci@10.0.4.12',online:false,seen:'2h ago'},
+};
+const ORDER=['mac','devbox','buildbox'];
+const MARK={'employer-backend':'🍀','glow-me':'🧠'};
+const fresh=()=>({
+  projects:{
+    mac:{'employer-backend':'~/Developer/work/hodfords/employer-backend','glow-me':'~/Developer/self/glow-me','anywhere':'~/Developer/self/coding-pocket','dragon':'~/Developer/work/railchanger/rail-changer-backend'},
+    devbox:{'anywhere':'~/code/anywhere','dragon':'~/code/rail-changer-backend'},
+    buildbox:{},
+  },
+  machine:'mac',repo:'employer-backend',checkout:'worktree',menu:null,finder:null,toast:null,flash:null,prompt:'',
+});
+let s=fresh();
+
+const tile=(r,size=20)=>MARK[r]?`<span class="tile emoji" style="width:${size}px;height:${size}px">${MARK[r]}</span>`:`<span class="tile" style="width:${size}px;height:${size}px;font-size:${Math.round(size*.5)}px">${r[0].toUpperCase()}</span>`;
+const mIcon=(id,n=14)=>ic(MACHINES[id].local?'laptop':'server',n);
+const mDot=id=>MACHINES[id].local?'':`<span class="dot${MACHINES[id].online?'':' off'}"></span>`;
+const has=(id,r)=>!!s.projects[id][r];
+const missing=()=>s.repo&&!has(s.machine,s.repo);
+const chev=ic('chevron-down',12,'var(--text-4)');
+
+function side(){
+  let rows='';
+  for(const id of ORDER)for(const r of Object.keys(s.projects[id])){
+    const on=s.machine===id&&s.repo===r;
+    const host=MACHINES[id].local?'':`<span class="host">${ic('globe',13)}${mDot(id)}</span>`;
+    rows+=`<div class="row prow${on?' on':''}${s.flash===id+'/'+r?' fresh':''}" data-act="openproj" data-m="${id}" data-r="${r}">${tile(r)}<span class="nm">${r}</span>${host}</div>`;
+  }
+  return `<div class="top">${ic('bell',16)}${ic('sidebar-collapse',16)}</div>
+  <div class="search">${ic('search',14)}<span>Search</span><kbd>⌘K</kbd></div>
+  <div class="row">${ic('activity',15)}<span class="nm">Activity</span></div>
+  <div class="row">${ic('blocks',15)}<span class="nm">Board</span></div>
+  <div class="row">${ic('bolt',15)}<span class="nm">Automations</span></div>
+  <div class="sh"><span>PROJECTS</span>${ic('search',13)}</div>${rows}
+  <div class="foot"><div class="row">${ic('settings',15)}<span class="nm">Settings</span></div></div>`;
+}
+
+function machineChip(){
+  const open=s.menu==='machine';
+  const row=id=>{
+    const m=MACHINES[id];
+    const tag=!m.online?`<span class="tag">Offline · ${m.seen}</span>`:!s.repo||m.local?'':has(id,s.repo)?`<span class="tag ok">has ${s.repo}</span>`:`<span class="tag">no ${s.repo}</span>`;
+    return `<div class="ar${s.machine===id?' on':''}${m.online?'':' off'}" ${m.online?`data-act="machine" data-v="${id}"`:''}><span class="g">${mIcon(id)}</span><span class="tx"><span class="l">${m.name}${mDot(id)}</span><span class="h">${m.hint}</span></span>${tag}<span class="ck">${s.machine===id?ic('check',14):''}</span></div>`;
+  };
+  const menu=open?`<div class="menu pop" style="width:330px"><div class="ml">Run on</div>${row('mac')}<div class="md"></div><div class="ml">SSH hosts</div>${row('devbox')}${row('buildbox')}<div class="md"></div><div class="mp" data-act="addhost"><span class="lead">${ic('plus',14)}</span><span class="nm">Add SSH host…</span></div></div>`:'';
+  return `<div class="pw"><button class="chip"${open?' data-open':''} data-act="menu" data-v="machine">${mIcon(s.machine)}<span>${MACHINES[s.machine].name}</span>${mDot(s.machine)}${chev}</button>${menu}</div>`;
+}
+
+function projectChip(){
+  const open=s.menu==='project', m=MACHINES[s.machine];
+  const here=Object.keys(s.projects[s.machine]);
+  let items=`<div class="mp" data-act="repo" data-v=""><span class="lead">${ic('folder',14,'var(--text-3)')}</span><span class="nm">No project</span>${s.repo===null?ic('check',13,'var(--text-2)'):''}</div>`;
+  if(!m.local)items+=`<div class="ml">On ${m.name}</div>`;
+  items+=here.map(r=>`<div class="mp" data-act="repo" data-v="${r}"><span class="lead">${tile(r,14)}</span><span class="nm">${r}</span>${s.repo===r?ic('check',13,'var(--text-2)'):''}</div>`).join('');
+  if(!m.local&&!here.length)items+=`<div class="mp off"><span class="lead"></span><span class="nm">No projects on ${m.name} yet</span></div>`;
+  if(!m.local)items+=`<div class="md"></div><div class="mp" data-act="finder"><span class="lead">${ic('folder-plus',14)}</span><span class="nm">Choose folder on ${m.name}…</span></div>`;
+  const label=s.repo??'No project';
+  const lead=s.repo?tile(s.repo,16):ic('folder',14,'var(--text-3)');
+  return `<div class="pw"><button class="chip"${open?' data-open':''} data-act="menu" data-v="project">${lead}<span>${label}</span>${missing()?`<span class="warn">${ic('warning',13)}</span>`:''}${chev}</button>${open?`<div class="menu pop" style="width:260px">${items}</div>`:''}</div>`;
+}
+
+function checkoutChip(){
+  const open=s.menu==='checkout', dim=missing();
+  const local=MACHINES[s.machine].local;
+  const opt=(v,glyph,l,h)=>`<div class="ar${s.checkout===v?' on':''}" data-act="checkout" data-v="${v}"><span class="g">${ic(glyph,14)}</span><span class="tx"><span class="l">${l}</span><span class="h">${h}</span></span><span class="ck">${s.checkout===v?ic('check',14):''}</span></div>`;
+  const menu=open?`<div class="menu pop" style="width:300px">${opt('worktree','worktree','Worktree','Its own branch and copy of the files')}${opt('local',local?'laptop':'globe','Local','Work in the checkout as it is')}</div>`:'';
+  const glyph=s.checkout==='worktree'?'worktree':(local?'laptop':'globe');
+  return `<div class="pw"><button class="chip${dim?' dim':''}"${open?' data-open':''} ${dim?'':'data-act="menu" data-v="checkout"'}>${ic(glyph,14,'var(--text-3)')}<span>${s.checkout==='worktree'?'Worktree':'Local'}</span>${chev}</button>${menu}</div>`;
+}
+
+function branchChip(){
+  if(s.checkout!=='worktree'||!s.repo)return '';
+  return `<button class="chip${missing()?' dim':''}">${ic('branch',14,'var(--text-3)')}<span class="mono" style="font-size:12.5px">${s.repo==='employer-backend'?'develop':'main'}</span>${chev}</button>`;
+}
+
+function page(){
+  const ready=!missing()&&s.prompt.trim();
+  const notice=missing()?`<div class="notice">${ic('warning',13)}<span><b style="font-weight:500">${s.repo}</b> isn't on ${MACHINES[s.machine].name} yet.</span><a data-act="finder">Choose its folder…</a></div>`:'';
+  return `<div class="bar"><span>${s.repo??'No project'}</span><span>/</span><b>New session</b></div>
+  <div class="body"><div class="content">
+    <h1>What should we build next?</h1>
+    <div class="frame">
+      <div class="ptext"><textarea id="prompt" placeholder="Ask, build, / for commands, @ for files">${s.prompt}</textarea></div>
+      <div class="pbar">
+        <button class="pill">${ic('claude',15)}<b>Opus 5.5</b><span>High</span>${chev}</button>
+        <button class="pill">${ic('shield',14,'var(--text-3)')}<span style="color:var(--waiting)">Full</span>${chev}</button>
+        <span style="flex:1"></span>
+        <button class="ib">${ic('pull-request',15)}</button>
+        <button class="ib">${ic('plus',16)}</button>
+        <button class="send${ready?'':' off'}" ${ready?'data-act="send"':''}>${ic('arrow-up',15)}</button>
+      </div>
+    </div>
+    <div class="foot-row">${machineChip()}<span class="sep">·</span>${projectChip()}<span class="sep">·</span>${checkoutChip()}${branchChip()}</div>
+    ${notice}
+  </div></div>`;
+}
+
+/* finder: a few folders on the host */
+const TREE={
+  '~':['code/','Downloads/','notes.md'],
+  '~/code':['anywhere/','employer-backend/','rail-changer-backend/','scratch/'],
+};
+const REPOS={'~/code/employer-backend':{branch:'develop',remote:'git@github.com:hodfords/employer-backend.git'},'~/code/anywhere':{branch:'main',remote:'git@github.com:mingo023/anywhere.git'},'~/code/rail-changer-backend':{branch:'main',remote:'git@github.com:railchanger/backend.git'}};
+function finder(){
+  const f=s.finder, m=MACHINES[s.machine];
+  const col=(dir,picked)=>`<div class="col">${(TREE[dir]||[]).map(n=>{const d=n.endsWith('/'),nm=n.replace('/','');const path=dir+'/'+nm;const sel=picked===nm;const cls=sel?(path===f.dir?' cur':' anc'):'';return `<div class="fr${cls}" ${d?`data-act="fgo" data-v="${path}"`:''}>${ic(d?'folder':'file',14,'var(--text-3)')}<span class="nm">${nm}</span>${d?`<span class="chev">${ic('chevron-right',12)}</span>`:''}</div>`}).join('')}</div>`;
+  const parts=f.dir.split('/');
+  const cols=parts.length>=3?col('~','code')+col('~/code',parts[2]):col('~',parts[1]||null)+(parts[1]==='code'?col('~/code',null):'');
+  const repo=REPOS[f.dir], name=parts[parts.length-1];
+  const detail=repo?`<div class="dh"><span class="ic">${ic('branch',16)}</span><div><b>${name}</b><span>Git repository</span></div></div><dl class="facts"><dt>Branch</dt><dd>${repo.branch}</dd><dt>Remote</dt><dd>${repo.remote}</dd><dt>Path</dt><dd>${f.dir}</dd></dl>`:`<div class="dh"><span class="ic">${ic('folder',16)}</span><div><b>${name}</b><span>${(TREE[f.dir]||[]).length} items</span></div></div>`;
+  const crumbs=parts.map((p,i)=>`<span class="crumb">${i===parts.length-1?`<b>${p}</b>`:p}</span>`).join('<span class="crumb">/</span>');
+  const already=has(s.machine,name)&&s.projects[s.machine][name]===f.dir;
+  return `<div class="backdrop" data-act="fclose"><div class="finder pop" data-stop>
+    <div class="fh"><span class="t">Choose a folder</span>${crumbs}<span class="hostchip">${ic('server',14)}${m.name}${mDot(s.machine)}${chev}</span><button class="ib" data-act="fclose">${ic('x',15)}</button></div>
+    <div class="fbody"><div class="places"><div class="ml">${m.name}</div><div class="fr" data-act="fgo" data-v="~">${ic('laptop',14,'var(--text-3)')}<span class="nm">Home</span></div><div class="fr">${ic('server',14,'var(--text-3)')}<span class="nm">Root</span></div></div>${cols}<div class="detail">${detail}</div></div>
+    <div class="ff"><div class="p"><span class="mono" style="color:var(--text)">${f.dir}</span>${repo?`<span>${ic('check',11)}Git repository</span>`:`<span style="color:var(--text-3)">${ic('folder',11)}Folder, without git</span>`}</div>
+      <button class="btn ghost" data-act="fclose">Cancel</button><button class="btn primary" data-act="fuse" ${already?'style="opacity:.5;cursor:default"':''}>Use this folder</button></div>
+  </div></div>`;
+}
+
+function render(){
+  const focused=document.activeElement?.id==='prompt';
+  document.getElementById('root').innerHTML=`<div class="app"><aside class="side">${side()}</aside><main class="main">${page()}</main></div>
+  ${s.finder?finder():''}
+  ${s.toast?`<div class="toast pop"><span class="ic">${ic('check',14)}</span>${s.toast}</div>`:''}
+  <div class="proto pop"><span style="padding:3px 6px">Theme</span><button data-act="theme" data-v="solarized"${document.documentElement.dataset.theme!=='graphite'?' data-on':''}>Solarized Light</button><button data-act="theme" data-v="graphite"${document.documentElement.dataset.theme==='graphite'?' data-on':''}>Graphite Light</button><button data-act="reset">Reset</button></div>`;
+  const t=document.getElementById('prompt');
+  t.oninput=()=>{s.prompt=t.value;const b=document.querySelector('.send');const ok=!missing()&&s.prompt.trim();b.classList.toggle('off',!ok);ok?b.setAttribute('data-act','send'):b.removeAttribute('data-act')};
+  if(focused){t.focus();t.selectionStart=t.selectionEnd=t.value.length}
+}
+
+function toast(msg){s.toast=msg;render();clearTimeout(toast.t);toast.t=setTimeout(()=>{s.toast=null;render()},2600)}
+
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');
+  if(!el){if(s.menu){s.menu=null;render()}return}
+  if(el.dataset.act==='fclose'&&e.target.closest('[data-stop]')&&!e.target.closest('button[data-act="fclose"],.btn[data-act="fclose"]'))return;
+  const v=el.dataset.v;
+  switch(el.dataset.act){
+    case 'menu':s.menu=s.menu===v?null:v;break;
+    case 'machine':{
+      s.machine=v;s.menu=null;
+      if(s.repo&&!has(v,s.repo)){}
+      break;}
+    case 'repo':s.repo=v||null;s.menu=null;break;
+    case 'checkout':s.checkout=v;s.menu=null;break;
+    case 'addhost':s.menu=null;toast('Opens Settings › Hosts');return;
+    case 'openproj':s.machine=el.dataset.m;s.repo=el.dataset.r;s.menu=null;break;
+    case 'finder':s.menu=null;s.finder={dir:s.repo&&REPOS['~/code/'+s.repo]?'~/code/'+s.repo:'~/code'};break;
+    case 'fgo':s.finder.dir=v;break;
+    case 'fclose':s.finder=null;break;
+    case 'fuse':{
+      const dir=s.finder.dir,name=dir.split('/').pop();
+      if(has(s.machine,name)&&s.projects[s.machine][name]===dir)return;
+      s.projects[s.machine][name]=dir;s.repo=name;s.finder=null;s.flash=s.machine+'/'+name;
+      render();setTimeout(()=>{s.flash=null},1700);toast(`Added ${name} on ${MACHINES[s.machine].name}`);return;}
+    case 'send':toast(`Session starts on ${MACHINES[s.machine].name} in ${s.projects[s.machine][s.repo]}`);s.prompt='';return;
+    case 'theme':document.documentElement.dataset.theme=v==='graphite'?'graphite':'';break;
+    case 'reset':s=fresh();break;
+  }
+  render();
+});
+/* #machine, #devbox, #project, #finder open the prototype on that state */
+({machine:()=>{s.menu='machine'},devbox:()=>{s.machine='devbox'},project:()=>{s.machine='devbox';s.menu='project'},finder:()=>{s.machine='devbox';s.finder={dir:'~/code/employer-backend'}}})[location.hash.slice(1)]?.();
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(s.finder)s.finder=null;else s.menu=null;render()}});
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sidebar · projects across machines — prototype</title>
+<style>
+:root{
+  --text:#073642;--text-2:#566c73;--text-3:#657b83;--text-4:#93a1a1;--text-5:#b0bab0;--text-6:#d1d3c6;--on-text:#fdf6e3;
+  --window:#eee8d5;--surface:#fdf6e3;--page:#f9f2df;--side:#f6efdcb3;--popover:#fdf6e3;--highlight:#fffffff2;--shadow:#00000024;
+  --fill-2:#0736420b;--fill-3:#0736420e;--fill-4:#07364211;--separator:#07364217;--separator-strong:#0736421f;--accent-bg:#0736421c;
+  --waiting:#947000;--waiting-dot:#b58900;--success:#7a8d00;--success-text:#606e00;--failed:#dc322f;--failed-text:#c42c2a;--working:#cb4b16;--claude:#d97757;
+}
+:root[data-theme=graphite]{
+  --text:#111113;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;--on-text:#fff;
+  --window:#f4f4f5;--surface:#fff;--page:#f7f7f7;--side:#fafafbb3;--popover:#fff;
+  --fill-2:#1111130b;--fill-3:#1111130e;--fill-4:#11111311;--separator:#11111317;--separator-strong:#1111131f;--accent-bg:#1111131c;
+  --waiting:#ad5700;--waiting-dot:#ffb224;--success:#2b9a66;--success-text:#18794e;--failed:#cd2b31;--failed-text:#cd2b31;--working:#cc4e00;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:var(--text);background:var(--window);font-size:13px;height:100vh;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left}
+svg.i{flex:none;display:block}
+.mono{font-family:"Geist Mono",ui-monospace,Menlo,monospace}
+.app{display:flex;height:100vh}
+.side{width:272px;flex:none;background:var(--side);border-right:.5px solid var(--separator);display:flex;flex-direction:column;padding:0 10px;position:relative;overflow:hidden}
+.top{height:40px;flex:none;display:flex;align-items:center;justify-content:flex-end;gap:12px;color:var(--text-3)}
+.search{height:32px;flex:none;margin:2px 0 8px;padding:0 10px;display:flex;align-items:center;gap:8px;border-radius:9px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong);color:var(--text-3);font-size:13.5px}
+.search kbd{margin-left:auto;font:inherit;font-size:11.5px;color:var(--text-4)}
+.row{height:28px;flex:none;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px;font-size:13.5px;color:var(--text);white-space:nowrap;position:relative}
+.row:hover{background:var(--fill-2)}
+.row.on{background:var(--fill-4)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.row.nav{color:var(--text-2)}
+.row .acts{display:none;gap:4px;color:var(--text-3)}
+.row:hover .acts{display:flex}
+.row:hover .meta{display:none}
+.child{padding-left:32px;color:var(--text)}
+.child .lead{position:absolute;left:12px;top:7px;width:14px;display:flex;justify-content:center}
+.child.dim{color:var(--text-3)}
+.stat{font-size:12px}.stat .a{color:var(--success-text)}.stat .d{color:var(--failed-text);margin-left:6px}
+.sh{height:28px;flex:none;margin:14px 0 2px;padding:0 6px;display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--text-3)}
+.sh span{flex:1}
+.list{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:8px;margin:0 -4px;padding-left:4px;padding-right:4px}
+.grp{margin-bottom:8px}
+.tile{width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:5px;font-size:10px;font-weight:600;color:var(--text-2);background:var(--surface);box-shadow:inset 0 0 0 .5px var(--separator-strong)}
+.tile.e{font-size:12px}
+.dot{width:6px;height:6px;border-radius:3px;flex:none;background:var(--success)}
+.dot.off{background:var(--text-5)}
+.sdot{width:7px;height:7px;border-radius:4px;background:var(--working)}
+.sdot.need{background:var(--waiting-dot)}
+.spin{width:9px;height:9px;border-radius:5px;border:1.5px solid var(--working);border-right-color:transparent;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.mtag{height:18px;padding:0 6px;display:inline-flex;align-items:center;gap:4px;border-radius:5px;background:var(--fill-3);font-size:11px;color:var(--text-3);flex:none}
+.mtag.off{opacity:.6}
+.foot{flex:none;padding:6px 0 10px;border-top:.5px solid transparent}
+
+/* A · spaces */
+.space-head{height:34px;flex:none;margin:6px 0 0;padding:0 6px;display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
+.space-head .h{font-weight:400;font-size:12px;color:var(--text-3)}
+.switcher{flex:none;display:flex;align-items:center;gap:2px;padding:6px 0 8px}
+.sw{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3);position:relative}
+.sw:hover{background:var(--fill-2)}
+.sw.on{background:var(--fill-4);color:var(--text)}
+.sw .dot{position:absolute;right:5px;bottom:5px;box-shadow:0 0 0 1.5px var(--window)}
+.sw .badge{position:absolute;right:2px;top:2px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--waiting-dot);color:#171717;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.pane{animation:slide .22s cubic-bezier(.22,1,.36,1)}
+.pane.l{animation-name:slidel}
+@keyframes slide{from{opacity:0;transform:translateX(24px)}}
+@keyframes slidel{from{opacity:0;transform:translateX(-24px)}}
+.empty{margin:28px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:var(--text-3);font-size:12.5px}
+.empty b{color:var(--text);font-weight:500;font-size:13px}
+.btn{height:28px;padding:0 12px;border-radius:8px;font-size:12.5px;font-weight:500;background:var(--fill-3);display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--fill-4)}
+
+/* B · project-first filter */
+.filters{flex:none;display:flex;gap:2px;padding:0 2px 4px;overflow-x:auto;scrollbar-width:none}.filters::-webkit-scrollbar{display:none}
+.chip{height:24px;padding:0 7px;flex:none;white-space:nowrap;display:flex;align-items:center;gap:5px;border-radius:7px;font-size:12px;color:var(--text-2)}
+.chip:hover{background:var(--fill-2)}
+.chip.on{background:var(--fill-4);color:var(--text)}
+.msub{height:24px;padding-left:32px;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-3);font-weight:500}
+.msub .ln{flex:1;height:.5px;background:var(--separator)}
+
+/* C · machine sections */
+.mh{height:30px;flex:none;margin-top:12px;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px;font-size:12px;font-weight:600;color:var(--text-2)}
+.mh:hover{background:var(--fill-2)}
+.mh .nm{flex:1}
+.mh .h{font-weight:400;color:var(--text-4)}
+.mh .acts{display:none;gap:6px;color:var(--text-3)}
+.mh:hover .acts{display:flex}
+.mh:hover .h{display:none}
+.mh .car{color:var(--text-4);transition:transform .15s}
+.mh.closed .car{transform:rotate(-90deg)}
+.fromhost{font-size:11px;color:var(--text-4)}
+
+/* main */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--page)}
+.bar{height:40px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;color:var(--text-3)}
+.bar b{color:var(--text);font-weight:600}
+.body{flex:1;padding:32px 48px;background-image:radial-gradient(var(--text-6) .9px,transparent 1px);background-size:14px 14px;overflow:auto}
+.note{max-width:560px;padding:18px 20px;border-radius:14px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong),0 8px 24px #0000000d;line-height:1.55;color:var(--text-2);font-size:13px}
+.note h2{font-size:15px;color:var(--text);margin-bottom:6px}
+.note ul{margin:8px 0 0 18px}
+.note li{margin:3px 0}
+.note b{color:var(--text);font-weight:600}
+.kbd{font-size:11px;padding:1px 5px;border-radius:4px;background:var(--fill-3);color:var(--text-2)}
+
+.proto{position:fixed;right:14px;bottom:14px;display:flex;gap:4px;padding:4px;font-size:12px;color:var(--text-3);background:var(--popover);border-radius:12px;box-shadow:0 0 0 .5px var(--separator),0 18px 50px var(--shadow);z-index:9}
+.proto button{padding:4px 9px;border-radius:7px}
+.proto button[data-on]{background:var(--fill-4);color:var(--text)}
+.proto .sep{width:.5px;background:var(--separator);margin:2px 4px}
+.pm{position:absolute;left:18px;top:28px;z-index:12;width:212px;padding:5px;display:flex;flex-direction:column;gap:1px;background:var(--popover);border-radius:12px;box-shadow:0 0 0 .5px var(--separator),inset 0 1px 0 var(--highlight),0 18px 50px var(--shadow),0 2px 6px #0000000f;animation:slide .15s}
+.pm .ml{padding:6px 10px 2px;font-size:11.5px;font-weight:500;color:var(--text-3)}
+.pm .mp{height:30px;padding:0 10px;display:flex;align-items:center;gap:9px;border-radius:8px;font-size:13px;white-space:nowrap}
+.pm .mp:hover{background:var(--fill-2)}
+.pm .mp .nm{flex:1}
+.pm .mp .h{font-size:11.5px;color:var(--text-4)}
+.pm .mp.off{color:var(--text-4);cursor:default}.pm .mp.off:hover{background:none}
+.pm .md{height:.5px;margin:4px 8px;background:var(--separator)}
+.row .car{width:12px;color:var(--text-4);display:none}
+.row:hover .car{display:block}
+.row.closed .car{transform:rotate(-90deg)}
+.fresh{animation:fresh 1.8s ease-out}
+@keyframes fresh{0%{background:var(--accent-bg)}100%{background:transparent}}
+.sess{max-width:560px;margin-bottom:16px;padding:14px 16px;border-radius:14px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong);display:flex;align-items:center;gap:12px}
+.sess .ic{width:34px;height:34px;border-radius:9px;background:var(--fill-3);display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+.sess b{display:block;font-size:14px}
+.sess span{font-size:12px;color:var(--text-3)}
+.sess.off{background:var(--fill-2)}
+.tip{position:fixed;z-index:20;padding:5px 8px;border-radius:7px;background:var(--text);color:var(--on-text);font-size:11.5px;pointer-events:none;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const ICONS={"laptop": {"vb": "0 0 24 24", "body": "<path d=\"M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z\"/><path d=\"M20.054 15.987H3.946\"/>", "fill": false}, "server": {"vb": "0 0 24 24", "body": "<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>", "fill": false}, "globe": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>", "fill": false}, "check": {"vb": "0 0 24 24", "body": "<path d=\"M20 6 9 17l-5-5\"/>", "fill": false}, "chevron-down": {"vb": "0 0 24 24", "body": "<path d=\"m6 9 6 6 6-6\"/>", "fill": false}, "chevron-right": {"vb": "0 0 24 24", "body": "<path d=\"m9 18 6-6-6-6\"/>", "fill": false}, "folder": {"vb": "0 0 24 24", "body": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "folder-plus": {"vb": "0 0 24 24", "body": "<path d=\"M12 10v6\"/><path d=\"M9 13h6\"/><path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "worktree": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>", "fill": false}, "branch": {"vb": "0 0 24 24", "body": "<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>", "fill": false}, "plus": {"vb": "0 0 24 24", "body": "<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>", "fill": false}, "search": {"vb": "0 0 24 24", "body": "<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>", "fill": false}, "activity": {"vb": "0 0 24 24", "body": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>", "fill": false}, "blocks": {"vb": "0 0 24 24", "body": "<path d=\"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2\"/><rect x=\"14\" y=\"2\" width=\"8\" height=\"8\" rx=\"1\"/>", "fill": false}, "bolt": {"vb": "0 0 24 24", "body": "<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\"/>", "fill": false}, "settings": {"vb": "0 0 24 24", "body": "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "fill": false}, "warning": {"vb": "0 0 24 24", "body": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>", "fill": false}, "x": {"vb": "0 0 24 24", "body": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>", "fill": false}, "sidebar-collapse": {"vb": "0 0 24 24", "body": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/><path d=\"m16 15-3-3 3-3\"/>", "fill": false}, "bell": {"vb": "0 0 24 24", "body": "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>", "fill": false}, "claude": {"vb": "0 0 24 24", "body": "<path d=\"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z\"/>", "fill": true}, "terminal": {"vb": "0 0 24 24", "body": "<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>", "fill": false}, "more": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>", "fill": false}, "reload": {"vb": "0 0 24 24", "body": "<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>", "fill": false}, "arrow-down-wide-narrow": {"vb": "0 0 24 24", "body": "<path d=\"m3 16 4 4 4-4\"/><path d=\"M7 20V4\"/><path d=\"M11 4h10\"/><path d=\"M11 8h7\"/><path d=\"M11 12h4\"/>", "fill": false}, "comment": {"vb": "0 0 24 24", "body": "<path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\"/>", "fill": false}, "copy": {"vb": "0 0 24 24", "body": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>", "fill": false}, "github": {"vb": "0 0 24 24", "body": "<path d=\"M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4\"/><path d=\"M9 18c-4.51 2-5-2-7-2\"/>", "fill": false}, "cloud": {"vb": "0 0 24 24", "body": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "fill": false}, "filter": {"vb": "0 0 24 24", "body": "<path d=\"M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z\"/>", "fill": false}, "list-tree": {"vb": "0 0 24 24", "body": "<path d=\"M8 5h13\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"M3 10a2 2 0 0 0 2 2h3\"/><path d=\"M3 5v12a2 2 0 0 0 2 2h3\"/>", "fill": false}, "list": {"vb": "0 0 24 24", "body": "<path d=\"M9 6h11M9 12h11M9 18h11 M4.5 6h.01M4.5 12h.01M4.5 18h.01\"/>", "fill": false}, "sessions": {"vb": "0 0 24 24", "body": "<path d=\"M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719\"/><path d=\"M8 12h.01\"/><path d=\"M12 12h.01\"/><path d=\"M16 12h.01\"/>", "fill": false}, "agent-done": {"vb": "0 0 14 14", "body": "<circle cx=\"7\" cy=\"7\" r=\"5.25\"/><path d=\"M4.9 7.1l1.5 1.5 2.8-3\"/>", "fill": false}, "phone": {"vb": "0 0 24 24", "body": "<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>", "fill": false}};
+const ic=(n,s=14,c='currentColor')=>{const d=ICONS[n];return d.fill?`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="var(--claude)">${d.body}</svg>`:`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.body}</svg>`};
+
+const M={
+  mac:{name:'This Mac',short:'Mac',hint:'ming-macbook',local:true,online:true,icon:'laptop'},
+  mini:{name:'mac-mini',short:'mini',hint:'minhngo@100.67.254.9',online:true,icon:'laptop'},
+  devbox:{name:'devbox',short:'devbox',hint:'dev@devbox.lan',online:false,seen:'2h ago',icon:'server'},
+};
+const ORDER=['mac','mini','devbox'];
+const MARK={'employer-backend':'🍀','glow-me':'🧠'};
+/* trees: [machine, kind, label, state, stat] — kind local|worktree; state working|need|idle|failed */
+const P=[
+  {repo:'employer-backend',trees:[
+    ['mac','local','Local','idle'],
+    ['mac','worktree','fix/login-redirect','working',[42,17]],
+    ['mini','worktree','monumental-falconet','working',[12,3],'started on mac-mini'],
+    ['mini','worktree','tender-booklouse','idle',null,'started on mac-mini'],
+    ['mini','worktree','poignant-kingfisher','need',null,'started on mac-mini'],
+  ]},
+  {repo:'anywhere',trees:[
+    ['mac','local','Local','idle'],
+    ['mac','worktree','eternal-creeper','working',[318,41]],
+    ['mini','worktree','cute-boa','idle',null,'started on mac-mini'],
+    ['devbox','local','Local','idle'],
+  ]},
+  {repo:'app-android',trees:[
+    ['mac','worktree','fix/restore-handoff','need',[42,17]],
+    ['mac','worktree','feat/haptics','idle',[84,51]],
+  ]},
+  {repo:'employer-ai-e2e',trees:[['mini','worktree','congenial-cardinal','idle',null,'started on mac-mini']]},
+  {repo:'dragon',trees:[['devbox','local','Local','idle']]},
+  {repo:'glow-me',trees:[['mac','local','Local','idle']]},
+];
+
+let s={variant:['spaces','first','sections'].includes(location.hash.slice(1))?location.hash.slice(1):'first',space:'mac',lastSpace:'mac',filter:'all',closed:{},pclosed:{},pmenu:null,flash:null,n:0,sel:'employer-backend/mac/fix/login-redirect',dir:''};
+
+const tile=r=>MARK[r]?`<span class="tile e">${MARK[r]}</span>`:`<span class="tile">${r[0].toUpperCase()}</span>`;
+const mdot=id=>M[id].local?'':`<span class="dot${M[id].online?'':' off'}"></span>`;
+const lead=t=>{const st=t[3];if(st==='working'&&!M[t[0]].online)return '<span class="sdot" style="opacity:.5"></span>';if(st==='working')return '<span class="spin"></span>';if(st==='need')return '<span class="sdot need"></span>';if(st==='failed')return ic('x',13,'var(--failed)');return ic(t[1]==='local'?M[t[0]].icon:'worktree',13,'var(--text-3)')};
+const stat=t=>t[4]?`<span class="meta stat mono"><span class="a">+${t[4][0]}</span><span class="d">−${t[4][1]}</span></span>`:'';
+const machinesOf=p=>[...new Set(p.trees.map(t=>t[0]))];
+const key=(p,t)=>`${p.repo}/${t[0]}/${t[2]}`;
+const needs=id=>P.flatMap(p=>p.trees).filter(t=>t[0]===id&&t[3]==='need').length;
+
+function treeRow(p,t,tag=''){
+  const off=!M[t[0]].online;
+  const tip=M[t[0]].local?'':`${M[t[0]].name}${off?' · offline':''}${t[5]?' · '+t[5]:''}`;
+  return `<div class="row child${s.sel===key(p,t)?' on':''}${off?' dim':''}${s.flash===key(p,t)?' fresh':''}" data-act="sel" data-v="${key(p,t)}" ${tip?`data-tip="${tip}"`:''}><span class="lead">${lead(t)}</span><span class="nm">${t[2]}</span>${tag}${stat(t)}</div>`;
+}
+function projRow(p,extra=''){
+  const closed=s.pclosed[p.repo];
+  return `<div class="pw" style="position:relative"><div class="row${closed?' closed':''}" data-act="pfold" data-v="${p.repo}"><span>${tile(p.repo)}</span><span class="nm">${p.repo}</span>${extra}<span class="car">${ic('chevron-down',12)}</span><span class="acts"><span data-act="pmenu" data-v="${p.repo}" data-tip="New session…">${ic('plus',14)}</span>${ic('more',14)}</span></div>${s.pmenu===p.repo?projMenu(p):''}</div>`;
+}
+function projMenu(p){
+  const on=machinesOf(p);
+  const rows=ORDER.map(k=>{const m=M[k],has=on.includes(k);
+    if(!m.online)return `<div class="mp off">${ic(m.icon,14)}<span class="nm">${m.name}</span><span class="h">offline</span></div>`;
+    return has?`<div class="mp" data-act="newon" data-v="${p.repo}|${k}">${ic(m.icon,14,'var(--text-2)')}<span class="nm">${m.name}</span>${mdot(k)}</div>`
+      :`<div class="mp" data-act="finder" data-v="${k}">${ic(m.icon,14,'var(--text-4)')}<span class="nm" style="color:var(--text-3)">${m.name}</span><span class="h">Choose folder…</span></div>`}).join('');
+  return `<div class="pm"><div class="ml">New session on</div>${rows}<div class="md"></div><div class="mp">${ic('settings',14,'var(--text-2)')}<span class="nm">Project settings</span></div></div>`;
+}
+
+/* A · machine as a space, Arc-style */
+function spaces(){
+  const id=s.space,m=M[id];
+  const ps=P.filter(p=>p.trees.some(t=>t[0]===id));
+  let body;
+  if(!m.online)body=`<div class="empty">${ic('server',22,'var(--text-4)')}<b>${m.name} is offline</b><span>Last seen ${m.seen}. Its ${ps.length} projects come back when it reconnects.</span><button class="btn">${ic('reload',13)}Reconnect</button></div>`
+    +ps.map(p=>`<div class="grp" style="opacity:.55">${projRow(p)}${p.trees.filter(t=>t[0]===id).map(t=>treeRow(p,t)).join('')}</div>`).join('');
+  else body=ps.map(p=>`<div class="grp">${projRow(p)}${p.trees.filter(t=>t[0]===id).map(t=>treeRow(p,t)).join('')}</div>`).join('');
+  const sw=ORDER.map((k,i)=>`<button class="sw${k===id?' on':''}" data-act="space" data-v="${k}" data-tip="${M[k].name} · ⌃${i+1}">${ic(M[k].icon,16)}${M[k].local?'':`<span class="dot${M[k].online?'':' off'}"></span>`}${needs(k)&&k!==id?`<span class="badge">${needs(k)}</span>`:''}</button>`).join('')
+    +`<button class="sw" data-tip="Add SSH host…">${ic('plus',15)}</button>`;
+  return `<div class="top">${ic('bell',16)}${ic('sidebar-collapse',16)}</div>
+  <div class="search">${ic('search',14)}<span>Search</span><kbd>⌘K</kbd></div>
+  <div class="row nav">${ic('activity',15)}<span class="nm">Activity</span></div>
+  <div class="row nav">${ic('blocks',15)}<span class="nm">Board</span></div>
+  <div class="space-head">${ic(m.icon,15,'var(--text-2)')}<span>${m.name}</span>${mdot(id)}<span class="h">${m.local?'':m.hint}</span></div>
+  <div class="sh" style="margin-top:4px"><span>PROJECTS</span>${ic('search',13)}${ic('folder-plus',13)}</div>
+  <div class="list"><div class="pane ${s.dir}">${body}</div></div>
+  <div class="switcher">${sw}<span style="flex:1"></span><button class="sw" data-tip="Settings">${ic('settings',15)}</button></div>`;
+}
+
+/* B · project-first, machines inside */
+function projectFirst(){
+  const f=s.filter;
+  const chips=[['all','All']].concat(ORDER.map(k=>[k,M[k].name])).map(([k,l])=>`<button class="chip${f===k?' on':''}" data-act="filter" data-v="${k}">${k==='all'?'':ic(M[k].icon,12)}${k==='mac'?'Mac':l}${k!=='all'&&!M[k].local?mdot(k):''}</button>`).join('');
+  const ps=P.filter(p=>f==='all'||p.trees.some(t=>t[0]===f));
+  const body=ps.map(p=>{
+    const ms=machinesOf(p).filter(k=>f==='all'||k===f);
+    const single=ms.length===1;
+    const head=single&&!M[ms[0]].local?`<span class="mtag${M[ms[0]].online?'':' off'}">${ic(M[ms[0]].icon,11)}${M[ms[0]].short}</span>`:'';
+    const rows=single?p.trees.filter(t=>t[0]===ms[0]).map(t=>treeRow(p,t)).join('')
+      :ms.map(k=>`<div class="msub">${ic(M[k].icon,11)}${M[k].name}${mdot(k)}${M[k].online?'':`<span style="font-weight:400">· offline</span>`}<span class="ln"></span></div>`+p.trees.filter(t=>t[0]===k).map(t=>treeRow(p,t)).join('')).join('');
+    return `<div class="grp">${projRow(p,head)}${s.pclosed[p.repo]?'':rows}</div>`;
+  }).join('');
+  return `<div class="top">${ic('bell',16)}${ic('sidebar-collapse',16)}</div>
+  <div class="search">${ic('search',14)}<span>Search</span><kbd>⌘K</kbd></div>
+  <div class="row nav">${ic('activity',15)}<span class="nm">Activity</span></div>
+  <div class="row nav">${ic('blocks',15)}<span class="nm">Board</span></div>
+  <div class="sh"><span>PROJECTS</span>${ic('search',13)}${ic('arrow-down-wide-narrow',13)}${ic('folder-plus',13)}</div>
+  <div class="filters">${chips}</div>
+  <div class="list">${body}</div>
+  <div class="foot"><div class="row nav">${ic('settings',15)}<span class="nm">Settings</span></div></div>`;
+}
+
+/* C · machine sections */
+function sections(){
+  const body=ORDER.map(k=>{
+    const m=M[k],ps=P.filter(p=>p.trees.some(t=>t[0]===k)),closed=s.closed[k];
+    const head=`<div class="mh${closed?' closed':''}" data-act="fold" data-v="${k}"><span class="car">${ic('chevron-down',12)}</span>${ic(m.icon,13)}<span class="nm">${m.name.toUpperCase()}</span>${mdot(k)}<span class="h">${m.online?(m.local?'':ps.length+' projects'):'offline · '+m.seen}</span><span class="acts">${ic('folder-plus',13)}${ic('terminal',13)}${ic('more',13)}</span></div>`;
+    if(closed)return head;
+    const rows=ps.map(p=>`<div class="grp"${m.online?'':' style="opacity:.55"'}>${projRow(p)}${p.trees.filter(t=>t[0]===k).map(t=>treeRow(p,t)).join('')}</div>`).join('');
+    return head+rows;
+  }).join('');
+  return `<div class="top">${ic('bell',16)}${ic('sidebar-collapse',16)}</div>
+  <div class="search">${ic('search',14)}<span>Search</span><kbd>⌘K</kbd></div>
+  <div class="row nav">${ic('activity',15)}<span class="nm">Activity</span></div>
+  <div class="row nav">${ic('blocks',15)}<span class="nm">Board</span></div>
+  <div class="list" style="margin-top:4px">${body}</div>
+  <div class="foot"><div class="row nav">${ic('settings',15)}<span class="nm">Settings</span></div></div>`;
+}
+
+const NOTES={
+  spaces:`<h2>A · Machines as spaces</h2>Precedent: Arc's Spaces (switcher at the sidebar bottom, <span class="kbd">⌃1…9</span>), Slack's workspace rail, Linear's switcher.<ul><li>The sidebar shows one machine. Switch with a click, <span class="kbd">⌃1</span> <span class="kbd">⌃2</span> <span class="kbd">⌃3</span>, or a two-finger swipe.</li><li>A badge counts sessions waiting on you on other machines, so they don't hide.</li><li>An offline machine keeps its projects, dimmed, with Reconnect.</li></ul><p style="margin-top:8px"><b>Good:</b> each machine stays short. <b>Cost:</b> the same repo still splits across spaces, and you can't see agents finishing elsewhere. Arc's own team wrote that Spaces "introduce new ways of getting lost", and Dia dropped them for flat profiles.</p>`,
+  first:`<h2>B · Project first, machines inside <span class="kbd">recommended</span></h2>Precedent: Paradev's sidebar. One row per repo, checkouts from every machine under it, local unmarked, remote marked, offline dimmed. A worktree made on another machine appears as soon as that machine is online.<ul><li>employer-backend lists This Mac, then mac-mini, under one row. A small heading names the machine, since Paradev's icon-only mark (name on hover) is easy to miss.</li><li>A repo on one other machine shows a machine tag on its row.</li><li>The chips filter to one machine, like Paradev's "This device / All devices".</li><li>Sessions mac-mini started itself land under their repo instead of becoming phantom projects.</li></ul><p style="margin-top:8px"><b>Good:</b> no duplicate rows, and everything about a repo is in one place. <b>Cost:</b> "same repo" needs a reliable match (remote URL first, folder name as fallback).</p>`,
+  sections:`<h2>C · A section per machine</h2>Precedent: Zed's Remote Projects dialog (a header per server, projects under it), VS Code's Remote Explorer, Termius groups.<ul><li>The header shows status and a project count. On hover: add folder (opens the host finder), terminal, more.</li><li>An offline section dims and says when it was last seen.</li><li>Folding mac-mini hides its five sessions in one click.</li></ul><p style="margin-top:8px"><b>Good:</b> obvious, and one place per machine to connect or set up. <b>Cost:</b> the same repo appears in several sections, and the list grows with each machine. The research suggests it suits a management view (Settings › Hosts) better than the main sidebar.</p>`,
+};
+
+function mainView(){
+  const [repo,mk,...rest]=s.sel.split('/'),name=rest.join('/'),m=M[mk];
+  const crumb=`<span>${repo}</span><span>/</span>${m.local?'':`<span style="display:flex;align-items:center;gap:5px">${ic(m.icon,12)}${m.name}${mdot(mk)}</span><span>/</span>`}<b>${name}</b>`;
+  const card=m.online?`<div class="sess"><span class="ic">${ic('claude',16)}</span><div><b>${name}</b><span>${m.local?'On this Mac':'Runs on '+m.name+' · '+m.hint}</span></div></div>`
+    :`<div class="sess off"><span class="ic">${ic(m.icon,16)}</span><div style="flex:1"><b>${m.name} is offline</b><span>Last seen ${m.seen}. ${name} is still there and comes back when it reconnects.</span></div><button class="btn" data-act="reconnect" data-v="${mk}">${ic('reload',13)}Reconnect</button></div>`;
+  return `<div class="bar">${crumb}</div><div class="body">${card}<div class="note">${NOTES[s.variant]}</div></div>`;
+}
+function render(){
+  const side=s.variant==='spaces'?spaces():s.variant==='first'?projectFirst():sections();
+  document.getElementById('root').innerHTML=`<div class="app"><aside class="side">${side}</aside>
+  <main class="main">${mainView()}</main></div>
+  <div class="proto">${[['spaces','A · Spaces'],['first','B · Project first'],['sections','C · Sections']].map(([k,l])=>`<button data-act="variant" data-v="${k}"${s.variant===k?' data-on':''}>${l}</button>`).join('')}<span class="sep"></span><button data-act="simulate" data-tip="mac-mini's own Anywhere starts a worktree">+ session on mac-mini</button><button data-act="toggle" data-tip="Take mac-mini offline or back">mac-mini ${M.mini.online?'online':'offline'}</button><span class="sep"></span><button data-act="theme">${document.documentElement.dataset.theme==='graphite'?'Graphite':'Solarized'}</button></div>`;
+  s.dir='';
+}
+
+function toast(msg){const d=document.createElement('div');d.className='tip';d.style.cssText='right:20px;bottom:64px;padding:8px 12px';d.textContent=msg;document.body.append(d);setTimeout(()=>d.remove(),2200)}
+let tipEl=null;
+document.addEventListener('mouseover',e=>{const t=e.target.closest('[data-tip]');tipEl?.remove();tipEl=null;if(!t)return;const r=t.getBoundingClientRect();tipEl=document.createElement('div');tipEl.className='tip';tipEl.textContent=t.dataset.tip;document.body.append(tipEl);tipEl.style.left=Math.min(r.left,window.innerWidth-tipEl.offsetWidth-8)+'px';tipEl.style.top=(r.top-28)+'px'});
+function go(space){if(space===s.space)return;s.dir=ORDER.indexOf(space)<ORDER.indexOf(s.space)?'l':'';s.space=space;render()}
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');if(!el){if(s.pmenu){s.pmenu=null;render()}return}const v=el.dataset.v;
+  if(s.pmenu&&!['pmenu','newon','finder'].includes(el.dataset.act))s.pmenu=null;
+  switch(el.dataset.act){
+    case 'variant':s.variant=v;location.hash=v;break;
+    case 'space':return go(v);
+    case 'filter':s.filter=v;break;
+    case 'fold':s.closed[v]=!s.closed[v];break;
+    case 'sel':s.sel=v;break;
+    case 'pfold':if(e.target.closest('.acts'))return;s.pclosed[v]=!s.pclosed[v];break;
+    case 'pmenu':e.stopPropagation();s.pmenu=s.pmenu===v?null:v;break;
+    case 'newon':{const [r,k]=v.split('|');const p=P.find(p=>p.repo===r);const nm=['brave-otter','quiet-heron','lucky-lynx'][s.n++%3];p.trees.push([k,'worktree',nm,'working',null,k==='mac'?'':'started from this Mac']);s.sel=`${r}/${k}/${nm}`;s.flash=s.sel;s.pmenu=null;break;}
+    case 'finder':s.pmenu=null;toast(`Opens the host finder on ${M[v].name}`);return;
+    case 'simulate':{const p=P[0];const nm=['wild-gecko','calm-tapir','swift-ibis'][s.n++%3];p.trees.push(['mini','worktree',nm,'working',null,'started on mac-mini']);s.flash=`${p.repo}/mini/${nm}`;s.pclosed[p.repo]=false;break;}
+    case 'toggle':M.mini.online=!M.mini.online;M.mini.seen='just now';break;
+    case 'reconnect':M[v].online=true;break;
+    case 'theme':document.documentElement.dataset.theme=document.documentElement.dataset.theme==='graphite'?'':'graphite';break;
+  }
+  tipEl?.remove();tipEl=null;render();setTimeout(()=>{s.flash=null},1900);
+});
+document.addEventListener('keydown',e=>{if(e.ctrlKey&&/^[1-3]$/.test(e.key)&&s.variant==='spaces')go(ORDER[+e.key-1])});
+let wheel=0;document.addEventListener('wheel',e=>{if(s.variant!=='spaces'||!e.target.closest('.side')||Math.abs(e.deltaX)<Math.abs(e.deltaY))return;wheel+=e.deltaX;if(Math.abs(wheel)>80){const i=ORDER.indexOf(s.space)+(wheel>0?1:-1);wheel=0;if(ORDER[i])go(ORDER[i])}},{passive:true});
+/* #menu and #offline open variant B on that state */
+({menu:()=>{s.pmenu='employer-backend'},offline:()=>{M.mini.online=false;M.mini.seen='5m ago';s.sel='employer-backend/mini/monumental-falconet'}})[location.hash.slice(1)]?.();
+render();
+</script>
+</body>
+</html>

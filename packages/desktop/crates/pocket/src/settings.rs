@@ -147,7 +147,7 @@ impl Section {
             Section::Accounts => "Claude Code and Codex sign-ins on each machine, and the one new agents start on.",
             Section::Automations => "Defaults for new automations, and what happens to runs the Mac missed.",
             Section::Phone => "Pair the iPhone app and decide how much it can approve, and from where.",
-            Section::Hosts => "Machines your agents run on: this Mac, and any machine you can sign in to over SSH.",
+            Section::Hosts => "Machines your agents run on: this Mac, and any machine you can sign in to over SSH. Each one is a space in the sidebar.",
             Section::Projects => "Where code lives on disk, per-project setup, and what happens when a worktree is deleted.",
             Section::Sidebar => "How sessions are listed in the sidebar, the right panel and the Inbox.",
             Section::Terminal => "The terminal that every shell and agent runs in.",

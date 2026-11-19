@@ -1,3 +1,4 @@
+pub(crate) mod machine;
 pub(crate) mod picker;
 
 use agents::locals::Local;
@@ -14,12 +15,14 @@ use crate::desktop::chrome::Screen;
 use crate::field::Field;
 use crate::fs::fs_for;
 use crate::modals::form::default_base;
+use crate::spaces::{self, Reach, Space};
 use crate::terminals::link;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON};
 use git::github;
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use machine::{Landing, landing};
 use picker::Picker;
 use serde_json::{Value, json};
 use store::LaunchPick;
@@ -473,6 +476,9 @@ impl Desktop {
             Some(repo) => self.pick_repo(repo, window, cx),
             None => f.draft.pick_no_project(),
         }
+        if !keep_project {
+            self.land_draft(window, cx);
+        }
     }
 
     pub(super) fn pick_repo(&mut self, repo: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -507,6 +513,43 @@ impl Desktop {
         .detach();
     }
 
+    /// The projects a session can start in: those with a git checkout. A Scratch folder counts only while it's the one picked.
+    pub(crate) fn form_projects(&self) -> Vec<String> {
+        let repo = self.new_form.draft.repo.as_deref();
+        self.projects().into_iter().filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty())).collect()
+    }
+
+    /// Moves the draft into the space on screen: its project's twin there, else the space's first.
+    pub(crate) fn land_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let to = self.space();
+        let pool = if self.space_reach(&to) == Reach::Online { self.form_projects() } else { self.space_projects(&to) };
+        match landing(self.new_form.draft.repo.as_deref(), &to, &pool) {
+            Landing::Project(p) => self.pick_repo(p, window, cx),
+            Landing::NoProject => self.new_form.draft.pick_no_project(),
+            Landing::Stay => {}
+        }
+    }
+
+    /// The project the new-session page has drafted, while it shows.
+    pub(crate) fn drafted_project(&self) -> Option<&str> {
+        self.new_form.draft.repo.as_deref().filter(|_| self.new_form.shown)
+    }
+
+    /// The machine pill's pick: the machine is the space, so this switches it.
+    pub(crate) fn pick_machine(&mut self, space: Space, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_form.draft.picker = None;
+        self.switch_space(space, window, cx);
+        self.focus_prompt(window, cx);
+    }
+
+    /// Takes `key`, a folder just chosen as a project on This Mac or a host, as the project the page starts in.
+    pub(crate) fn pick_new_project(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_folder(&key, cx);
+        self.switch_space(spaces::space_of(&key), window, cx);
+        self.pick_repo(key, window, cx);
+        self.focus_prompt(window, cx);
+    }
+
     /// The agent the page starts, picked here or the Project's last.
     pub(crate) fn new_form_pick(&self) -> LaunchPick {
         let repo = self.new_form.draft.repo.as_deref();
@@ -514,11 +557,12 @@ impl Desktop {
     }
 
     fn session_ready(&self) -> bool {
-        self.new_form.draft.ready(&self.new_form.draft.name())
+        let f = &self.new_form.draft;
+        f.ready(&f.name()) && self.draft_blocker().is_none()
     }
 
     /// The menu held the focus; Enter in the prompt is what starts the session.
-    fn focus_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn focus_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_form.composer.prompt.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
@@ -737,6 +781,8 @@ impl Desktop {
         let f = &self.new_form.draft;
         let repo = f.repo.clone().unwrap_or_default();
         let name = if f.no_project() { NO_PROJECT.to_string() } else { self.repo_name(&repo) };
+        let machine = self.machine_select(cx);
+        let notice = self.machine_notice(cx);
         let project = self.project_select(cx);
         let scratch = f.scratch;
         let checkout = (!scratch).then(|| self.checkout_select(cx));
@@ -782,6 +828,8 @@ impl Desktop {
             .items_center()
             .gap(px(2.))
             .text_size(px(13.))
+            .child(machine)
+            .child(div().text_color(TEXT_4).child("·"))
             .child(project)
             .when(!scratch, |d| d.child(div().text_color(TEXT_4).child("·")))
             .children(checkout)
@@ -794,12 +842,13 @@ impl Desktop {
             .child(div().text_size(px(21.)).line_height(px(25.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("What should we build next?"))
             .child(div().w_full().max_w(px(600.)).mt(px(20.)).child(composer))
             .children(error)
-            .child(footer);
+            .child(footer)
+            .children(notice);
         let prompt = self.new_form.composer.prompt.clone();
         // Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
         let drop = drop_zone(move |paths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)));
         let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx).relative().child(drop);
-        div().flex_1().flex().flex_col().child(self.page_bar(vec![name, "New session".into()], Vec::new(), div(), cx)).child(body)
+        div().flex_1().flex().flex_col().child(self.page_bar(spaces::crumbs(self.space_host_name(&self.space()), [name, "New session".into()]), Vec::new(), div(), cx)).child(body)
     }
 }
 

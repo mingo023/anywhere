@@ -3,6 +3,7 @@ use crate::desktop::chrome::{RowMenu, Screen, id};
 use crate::sidebar::filter::FIELD_H;
 use crate::sidebar::fold::{self, Fold};
 use crate::sidebar::rename::rename_field;
+use crate::spaces::space_of;
 use crate::sidebar::{DragProject, tree_label, tree_place};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -140,7 +141,8 @@ impl Desktop {
 
     /// The projects in their sections, sorted, with what `query` leaves of them.
     pub(super) fn listed(&self, query: &str) -> Listed {
-        let mut projects = self.store.without_scratch(self.projects());
+        let space = self.space();
+        let mut projects = self.space_projects(&space);
         let sections = &self.store.sections;
         sort_projects(&mut projects, sections.sort, |p| self.repo_name(p), |p| self.cards(p).iter().map(|c| c.at).max().unwrap_or(0));
         let arranged = sections.arrange(&projects, |p| self.store.projects.iter().any(|k| k == p));
@@ -160,6 +162,9 @@ impl Desktop {
             .filter_map(|pin| match pin {
                 Pin::Project(p) => block(projects.iter().position(|x| x == p)?).map(Item::Project),
                 Pin::Tree { project, tree } => {
+                    if space_of(project) != space {
+                        return None;
+                    }
                     // Kept shut until its project's trees are listed, so it springs open then.
                     let Some(trees) = self.trees_shown(project) else {
                         return query.is_empty().then(|| Item::Tree { project: project.clone(), key: tree.clone() });
@@ -296,6 +301,10 @@ impl Desktop {
         let filtering = !query.is_empty();
         let listed = self.listed(&query);
         let sections = &self.store.sections;
+        let nothing = listed.pinned.is_empty() && listed.other.is_empty() && listed.groups.iter().all(|(_, blocks)| blocks.is_empty());
+        if !filtering && nothing {
+            return self.empty_space(&self.space(), cx).into_iter().collect();
+        }
         let mut out = Vec::new();
         if !listed.pinned.is_empty() {
             let open = filtering || !sections.pins_folded;

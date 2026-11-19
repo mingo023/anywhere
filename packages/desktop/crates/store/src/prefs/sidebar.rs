@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -65,6 +66,12 @@ pub struct Sidebar {
     pub inbox_sort: InboxSort,
     #[serde(deserialize_with = "crate::lenient")]
     pub inbox_filter: InboxFilter,
+    /// The host whose space the sidebar shows; `None` is This Mac.
+    #[serde(deserialize_with = "crate::lenient")]
+    pub space: Option<String>,
+    /// Each host's chosen colour (RGB), by host id.
+    #[serde(deserialize_with = "crate::lenient")]
+    pub space_colours: HashMap<String, u32>,
 }
 
 impl Default for Sidebar {
@@ -80,6 +87,8 @@ impl Default for Sidebar {
             hint_delay_ms: 280,
             inbox_sort: InboxSort::default(),
             inbox_filter: InboxFilter::default(),
+            space: None,
+            space_colours: HashMap::new(),
         }
     }
 }
@@ -122,5 +131,13 @@ mod tests {
         let s: Sidebar = serde_json::from_str("{}").unwrap();
         assert_eq!(s, Sidebar::default());
         assert_eq!((s.sort, s.details, s.external_worktrees, s.warn_at, s.critical_at, s.hint_delay_ms), (SessionSort::Newest, Details::default(), false, 75, 90, 280));
+    }
+
+    #[test]
+    fn the_space_and_its_colours_are_kept_and_a_bad_value_falls_back_alone() {
+        let s: Sidebar = serde_json::from_str(r#"{"space":"devbox","space_colours":{"devbox":4294967}}"#).unwrap();
+        assert_eq!((s.space.as_deref(), s.space_colours.get("devbox")), (Some("devbox"), Some(&4294967)));
+        let bad: Sidebar = serde_json::from_str(r#"{"space":7,"space_colours":{"devbox":"red"},"usage_card":false}"#).unwrap();
+        assert_eq!((bad.space, bad.space_colours, bad.usage_card), (None, HashMap::new(), false));
     }
 }

@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anywhere · Pick a machine for a new session</title>
+<style>
+:root{
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;
+  --window:#f4f4f5;--surface:#fff;--sunken:#fafafa;--side:#f8f8f9;
+  --fill-1:rgba(17,17,19,.031);--fill-2:rgba(17,17,19,.043);--fill-3:rgba(17,17,19,.055);--fill-4:rgba(17,17,19,.067);
+  --hairline:rgba(17,17,19,.071);--sep:rgba(17,17,19,.09);--sep-strong:rgba(17,17,19,.122);
+  --accent:#5b5bd6;--accent-bg:rgba(91,91,214,.11);
+  --waiting:#ad5700;--waiting-bg:rgba(255,178,36,.16);
+  --failed:#cd2b31;--failed-bg:rgba(229,72,77,.1);--success:#2b9a66;
+  --claude:#d97757;
+  --row-shadow:0 1px 2px rgba(17,17,19,.06),0 0 0 .5px rgba(17,17,19,.06);
+  --pop-shadow:0 0 0 .5px rgba(17,17,19,.12),0 16px 40px rgba(17,17,19,.16),0 2px 6px rgba(17,17,19,.06);
+  --mono:"Geist Mono","SF Mono",ui-monospace,Menlo,monospace;
+  --sans:system-ui,-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;color:var(--text);
+  background:radial-gradient(1100px 700px at 12% 0%,#d9dfe9 0%,transparent 60%),radial-gradient(900px 600px at 92% 100%,#e0d9e6 0%,transparent 60%),#c8cdd7}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:default}
+input,textarea{font:inherit;color:inherit}
+svg{display:block;flex:none}
+
+/* demo controls: harness, not design */
+#demo{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;font-size:12px;color:#3f3f46;white-space:nowrap}
+#demo b{font-weight:600;margin-right:4px}
+#demo button{height:24px;padding:0 9px;border-radius:6px;background:rgba(255,255,255,.55);box-shadow:0 0 0 .5px rgba(0,0,0,.12)}
+#demo button:hover{background:rgba(255,255,255,.85)}
+#notes{position:absolute;left:28px;right:28px;bottom:22px;font-size:12px;color:#3f3f46;line-height:1.55;display:flex;gap:22px}
+#notes div{flex:1}
+#notes b{font-weight:600}
+
+#win{position:absolute;inset:50px 28px 92px;display:flex;border-radius:10px;overflow:hidden;background:var(--window);
+  box-shadow:0 0 0 .5px rgba(0,0,0,.28),0 24px 70px rgba(0,0,0,.24),0 6px 18px rgba(0,0,0,.1);user-select:none;-webkit-user-select:none}
+.lights{position:absolute;left:14px;top:15px;display:flex;gap:8px;z-index:5}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+/* sidebar */
+#side{width:268px;flex:none;display:flex;flex-direction:column;background:var(--side);border-right:.5px solid var(--sep);overflow:hidden}
+.search{margin:44px 12px 8px;height:32px;border-radius:8px;background:var(--surface);box-shadow:var(--row-shadow);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:var(--text-3)}
+.search kbd{margin-left:auto;font:11px var(--sans);color:var(--text-4)}
+.shead{display:flex;align-items:center;padding:12px 14px 6px 16px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text-3);text-transform:uppercase}
+.shead span{flex:1}
+.plist{flex:1;overflow:auto;padding-bottom:12px}
+.prow{display:flex;align-items:center;gap:9px;margin:4px 8px 0;padding:0 8px;height:30px;border-radius:7px;font-size:13.5px;white-space:nowrap}
+.prow:hover{background:var(--fill-2)}
+.prow.on{background:var(--fill-4)}
+.av{width:18px;height:18px;border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:600;color:var(--text-2);background:var(--surface);box-shadow:var(--row-shadow)}
+.prow .host{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-3)}
+.crow{display:flex;align-items:center;gap:9px;margin:0 8px;padding:0 8px 0 18px;height:28px;border-radius:7px;font-size:13px;color:var(--text-body);white-space:nowrap}
+.crow:hover{background:var(--fill-2)}
+.crow.on{background:var(--fill-4);color:var(--text)}
+.crow svg{color:var(--text-3)}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dot.up{background:var(--success)}.dot.down{background:var(--text-5)}.dot.busy{background:var(--waiting)}
+.fresh{animation:fresh 1.6s var(--out)}
+@keyframes fresh{0%{background:var(--accent-bg)}100%{background:transparent}}
+
+/* main */
+#main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--sunken)}
+.crumb{height:46px;flex:none;display:flex;align-items:center;gap:8px;padding:0 18px;font-size:13px;color:var(--text-3)}
+.crumb b{color:var(--text);font-weight:600}
+.stage{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 32px 60px;
+  background-image:radial-gradient(var(--sep) 1px,transparent 1px);background-size:18px 18px}
+h1{font-size:22px;font-weight:700;margin:0 0 20px;letter-spacing:-.01em}
+.composer{width:100%;max-width:640px;background:var(--surface);border-radius:16px;box-shadow:0 0 0 .5px var(--sep-strong),0 1px 3px rgba(17,17,19,.05);padding:14px 12px 10px 16px}
+.composer textarea{width:100%;height:58px;border:0;outline:0;resize:none;background:none;font-size:14px;line-height:1.5;padding:0}
+.composer textarea::placeholder{color:var(--text-4)}
+.cbar{display:flex;align-items:center;gap:4px;margin-top:10px;margin-left:-4px}
+.pill{height:28px;padding:0 9px;border-radius:8px;display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;color:var(--text-body)}
+.pill:hover,.pill[data-open]{background:var(--fill-3)}
+.pill b{font-weight:600;color:var(--text)}
+.pill .chev{color:var(--text-4)}
+.pill.warn .nm{color:var(--text-3)}
+.pill.dim{opacity:.45;pointer-events:none}
+.kbd{margin-left:auto;font-size:10.5px;color:var(--text-3);background:var(--fill-3);border-radius:5px;padding:2px 6px}
+.send{width:32px;height:32px;border-radius:50%;background:var(--text);color:#fff;display:flex;align-items:center;justify-content:center;margin-left:8px;transition:opacity .15s}
+.send:disabled{opacity:.25}
+.under{width:100%;max-width:640px;display:flex;align-items:center;gap:2px;margin-top:8px;font-size:13px}
+.under .sepd{color:var(--text-5);margin:0 2px}
+.under .esc{margin-left:auto;color:var(--text-4);font-size:12px}
+.pw{position:relative}
+
+/* the line/card under the launch row */
+.notice{width:100%;max-width:640px;margin-top:10px;min-height:118px}
+.line{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-3);padding:0 9px}
+.line code{font:12px var(--mono);color:var(--text-2)}
+.card{border-radius:12px;background:var(--surface);box-shadow:var(--row-shadow);padding:12px 14px;display:flex;align-items:flex-start;gap:11px;animation:rise .22s var(--out)}
+@keyframes rise{from{opacity:0;transform:translateY(-4px)}}
+.card .ic{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--waiting-bg);color:var(--waiting)}
+.card .ic.grey{background:var(--fill-3);color:var(--text-2)}
+.card .body{flex:1;min-width:0}
+.card .t{font-size:13.5px;font-weight:600}
+.card .d{font-size:12.5px;color:var(--text-2);margin-top:2px;line-height:1.45}
+.card .d code{font:11.5px var(--mono)}
+.card .acts{display:flex;gap:6px;margin-top:10px}
+.btn{height:28px;padding:0 11px;border-radius:7px;font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:6px;background:var(--fill-3)}
+.btn:hover{background:var(--fill-4)}
+.btn.pri{background:var(--text);color:#fff}
+.btn.pri:hover{background:#2a2a2e}
+.btn:disabled{opacity:.4}
+.steps{margin-top:8px;display:flex;flex-direction:column;gap:5px;font-size:12.5px}
+.step{display:flex;align-items:center;gap:8px;color:var(--text-3)}
+.step.done{color:var(--text-2)}.step.now{color:var(--text)}
+.step .m{width:14px;display:flex;justify-content:center;color:var(--success)}
+.bar{height:3px;border-radius:2px;background:var(--fill-4);margin:4px 0 0 22px;overflow:hidden;width:220px}
+.bar i{display:block;height:100%;background:var(--accent);transition:width .2s linear}
+.spin{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--text-5);border-top-color:var(--text-2);animation:spin .7s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* menus */
+.menu{position:absolute;top:34px;left:0;z-index:20;min-width:290px;background:var(--surface);border-radius:11px;box-shadow:var(--pop-shadow);padding:5px;animation:pop .14s var(--out);transform-origin:top left}
+@keyframes pop{from{opacity:0;transform:scale(.97)}}
+.mh{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);padding:8px 9px 4px}
+.mi{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:7px;font-size:13px;width:100%;text-align:left}
+.mi:hover{background:var(--fill-3)}
+.mi .tx{flex:1;min-width:0;display:flex;flex-direction:column}
+.mi .sub{font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mi .tag{font-size:11.5px;color:var(--text-3);white-space:nowrap}
+.mi .tag.ok{color:var(--success)}
+.mi.off .nm{color:var(--text-3)}
+.mi .ck{color:var(--text);width:14px}
+.msep{height:.5px;background:var(--sep);margin:5px 4px}
+
+/* modal */
+.scrim{position:absolute;inset:0;background:rgba(17,17,19,.18);display:flex;align-items:center;justify-content:center;z-index:30;animation:fade .15s}
+@keyframes fade{from{opacity:0}}
+.modal{width:460px;background:var(--surface);border-radius:14px;box-shadow:var(--pop-shadow);padding:18px 18px 16px;animation:pop .18s var(--out);transform-origin:center}
+.modal h2{font-size:15px;margin:0 0 4px}
+.modal .lead{font-size:12.5px;color:var(--text-2);margin:0 0 14px}
+.seg{display:flex;background:var(--fill-3);border-radius:8px;padding:2px;margin-bottom:14px}
+.seg button{flex:1;height:26px;border-radius:6px;font-size:12.5px;color:var(--text-2)}
+.seg button[data-on]{background:var(--surface);color:var(--text);box-shadow:var(--row-shadow);font-weight:500}
+.seg button:disabled{opacity:.4}
+.fl{font-size:12px;font-weight:500;color:var(--text-2);margin:0 0 5px}
+.fr{display:flex;gap:6px;margin-bottom:12px;position:relative}
+.in{flex:1;height:32px;border-radius:8px;border:0;box-shadow:0 0 0 .5px var(--sep-strong);padding:0 10px;font:12.5px var(--mono);outline:0;background:var(--surface)}
+.in:focus{box-shadow:0 0 0 1.5px var(--accent)}
+.in[readonly]{background:var(--fill-1);color:var(--text-2)}
+.hint{font-size:12px;color:var(--text-3);margin:-4px 0 12px;line-height:1.5}
+.hint code{font:11.5px var(--mono);color:var(--text-2)}
+.mfoot{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+.dirs{position:absolute;top:36px;right:0;z-index:5;width:230px;background:var(--surface);border-radius:10px;box-shadow:var(--pop-shadow);padding:5px}
+.dirs .mh{text-transform:none;letter-spacing:0;font-weight:500}
+
+/* session view */
+.strip{height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:.5px solid var(--sep)}
+.tab{height:30px;border-radius:8px;display:flex;align-items:center;gap:7px;padding:0 12px;font-size:13px;font-weight:600;background:var(--surface);box-shadow:var(--row-shadow)}
+.where{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)}
+.where code{font:11.5px var(--mono);color:var(--text-2)}
+.thread{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:36px 32px 0}
+.col{width:100%;max-width:700px;display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:1.6;color:var(--text-body)}
+.bubble{align-self:flex-end;background:var(--fill-3);border-radius:16px;padding:9px 15px;color:var(--text);max-width:80%}
+.sys{display:flex;align-items:center;gap:7px;color:var(--text-3);font-size:13px}
+.working{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.shimmer{background:linear-gradient(90deg,var(--text-3) 0%,var(--text-5) 50%,var(--text-3) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 1.6s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+
+#toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:#fff;font-size:12.5px;padding:8px 14px;border-radius:9px;display:flex;align-items:center;gap:8px;box-shadow:var(--pop-shadow);z-index:40;animation:rise .2s var(--out)}
+</style>
+</head>
+<body>
+<div id="demo">
+  <b>Kịch bản:</b>
+  <button data-act="scn" data-v="present">Host đã có repo</button>
+  <button data-act="scn" data-v="missing">Host chưa có repo</button>
+  <button data-act="scn" data-v="noremote">Repo không có remote</button>
+  <button data-act="scn" data-v="offline">Host offline</button>
+  <button data-act="scn" data-v="reset">Reset</button>
+</div>
+<div id="win"><div class="lights"><i></i><i></i><i></i></div><aside id="side"></aside><main id="main"></main><div id="layer"></div></div>
+<div id="notes">
+  <div><b>Ô máy đứng đầu hàng.</b> Chọn máy trước, rồi mới chọn project; menu project chỉ đưa lên các repo có trên máy đó.</div>
+  <div><b>Repo đi theo máy.</b> Đổi máy thì giữ nguyên repo nếu máy kia cũng có (khớp theo GitHub remote), không thì hiện thẻ "Clone / Dùng folder có sẵn".</div>
+  <div><b>Clone chạy trên host,</b> bằng git của host. Xong thì project hiện trong sidebar với nhãn host, và gửi được ngay.</div>
+</div>
+
+<script>
+const P={
+  laptop:'<path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/>',
+  server:'<rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/>',
+  globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  branch:'<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  fork:'<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  folder:'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  up:'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  alert:'<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+  off:'<path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M2 8.82a15 15 0 0 1 4.17-2.65M10.66 5c4.01-.36 8.14.9 11.34 3.76M16.85 11.25a10 10 0 0 1 2.22 1.68M5 13a10 10 0 0 1 5.24-2.76M2 2l20 20"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  spark:'<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
+  shield:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+};
+const ic=(n,s=14)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
+const chev=`<span class="chev">${ic('chev',12)}</span>`;
+const claude=`<span style="color:var(--claude);font-size:15px;line-height:1">✳</span>`;
+
+const M={
+  mac:{name:'This Mac',sub:'ming-macbook',online:true,local:true},
+  linux:{name:'anywhere-linux',sub:'mingo@127.0.0.1:2222',online:true},
+  box:{name:'build-box',sub:'ci@10.0.0.12',online:false,seen:'2h ago'},
+};
+const ORDER=['mac','linux','box'];
+const R={
+  'app-android':'github.com/acme/app-android',
+  'app-ios':'github.com/acme/app-ios',
+  'app-hook':null,
+  'marketing':'github.com/acme/marketing',
+  'vm-app':'github.com/acme/vm-app',
+};
+const NAMES=['swift-otter','calm-heron','brisk-lynx','quiet-fox','amber-wren'];
+
+function fresh(){return{
+  clones:{
+    mac:{'app-android':'~/Developer/app-android','app-ios':'~/Developer/app-ios','app-hook':'~/Developer/app-hook','marketing':'~/Developer/marketing'},
+    linux:{'vm-app':'~/vm-app','app-ios':'~/code/app-ios'},
+    box:{'app-ios':'~/src/app-ios'},
+  },
+  sessions:[],machine:'mac',repo:'app-android',checkout:'worktree',
+  menu:null,modal:null,job:null,view:'new',sel:null,prompt:'',toast:null,flash:null,
+};}
+let s=fresh();
+
+const esc=t=>t.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const av=r=>`<span class="av">${r[0].toUpperCase()}</span>`;
+const mIcon=(id,n=14)=>ic(M[id].local?'laptop':'server',n);
+const mDot=id=>M[id].local?'':`<span class="dot ${M[id].online?'up':'down'}"></span>`;
+
+function status(){
+  const m=M[s.machine];
+  if(s.job&&s.job.machine===s.machine&&s.job.repo===s.repo)return{kind:'working'};
+  if(!m.online)return{kind:'offline'};
+  const path=s.clones[s.machine][s.repo];
+  if(path)return{kind:'ready',path};
+  return{kind:R[s.repo]?'missing':'noremote'};
+}
+
+/* ---------- sidebar ---------- */
+function side(){
+  let rows='';
+  for(const mid of ORDER)for(const repo of Object.keys(s.clones[mid])){
+    const on=s.view==='new'&&s.machine===mid&&s.repo===repo;
+    const flash=s.flash===mid+'/'+repo?' fresh':'';
+    const host=M[mid].local?'':`<span class="host">${ic('globe',12)}${M[mid].name}${mDot(mid)}</span>`;
+    rows+=`<div class="prow${on?' on':''}${flash}" data-act="openproj" data-m="${mid}" data-r="${repo}">${av(repo)}<span>${repo}</span>${host}</div>`;
+    rows+=`<div class="crow">${ic(M[mid].local?'laptop':'globe',13)}<span>Local</span></div>`;
+    if(mid==='mac'&&repo==='app-android')rows+=`<div class="crow"><span class="dot busy" style="margin:0 3.5px"></span><span>fix/restore-handoff</span></div><div class="crow">${ic('fork',13)}<span>feat/haptics</span></div>`;
+    for(const x of s.sessions.filter(x=>x.machine===mid&&x.repo===repo))
+      rows+=`<div class="crow${s.sel===x.id&&s.view==='session'?' on':''}" data-act="opensess" data-id="${x.id}"><span class="spin" style="margin:0 2px"></span><span>${x.checkout==='local'?'Local':x.name}</span></div>`;
+  }
+  return `<div class="search">${ic('search',14)}Search<kbd>⌘K</kbd></div>
+  <div class="shead"><span>Projects</span>${ic('plus',14)}</div><div class="plist">${rows}</div>`;
+}
+
+/* ---------- launch row pills ---------- */
+function machinePill(){
+  const open=s.menu==='machine';
+  let items=`<div class="mh">Run on</div>`;
+  const has=id=>!!s.clones[id][s.repo];
+  const row=id=>{
+    const m=M[id];
+    const tag=!m.online?`<span class="tag">Offline · ${m.seen}</span>`:has(id)?`<span class="tag ok">has ${s.repo}</span>`:`<span class="tag">no ${s.repo}</span>`;
+    return `<button class="mi${m.online?'':' off'}" data-act="machine" data-v="${id}"><span class="ck">${s.machine===id?ic('check',14):''}</span>${mIcon(id)}<span class="tx"><span class="nm">${m.name}</span><span class="sub">${m.sub}</span></span>${mDot(id)}${tag}</button>`;
+  };
+  items+=row('mac')+`<div class="msep"></div><div class="mh">SSH hosts</div>`+row('linux')+row('box');
+  items+=`<div class="msep"></div><button class="mi"><span class="ck"></span>${ic('plus',14)}<span class="tx"><span class="nm">Add SSH host…</span></span></button>`;
+  return `<div class="pw"><button class="pill"${open?' data-open':''} data-act="menu" data-v="machine">${mIcon(s.machine)}<span>${M[s.machine].name}</span>${mDot(s.machine)}${chev}</button>${open?`<div class="menu">${items}</div>`:''}</div>`;
+}
+function projectPill(){
+  const open=s.menu==='project';
+  const here=Object.keys(s.clones[s.machine]);
+  const elsewhere=Object.keys(R).filter(r=>!here.includes(r));
+  const missing=!here.includes(s.repo);
+  let items=`<div class="mh">On ${M[s.machine].name}</div>`;
+  items+=here.map(r=>`<button class="mi" data-act="repo" data-v="${r}"><span class="ck">${s.repo===r?ic('check',14):''}</span>${av(r)}<span class="tx"><span class="nm">${r}</span><span class="sub">${s.clones[s.machine][r]}</span></span></button>`).join('')||`<div class="mi" style="color:var(--text-3)">No projects yet</div>`;
+  if(elsewhere.length){
+    items+=`<div class="msep"></div><div class="mh">Not on ${M[s.machine].name}</div>`;
+    items+=elsewhere.map(r=>`<button class="mi off" data-act="repo" data-v="${r}"><span class="ck">${s.repo===r?ic('check',14):''}</span>${av(r)}<span class="tx"><span class="nm">${r}</span><span class="sub">${R[r]??'No remote'}</span></span><span class="tag">${R[r]?'Clone…':'Folder…'}</span></button>`).join('');
+  }
+  return `<div class="pw"><button class="pill${missing?' warn':''}"${open?' data-open':''} data-act="menu" data-v="project">${av(s.repo)}<span class="nm">${s.repo}</span>${missing?`<span style="color:var(--waiting)">${ic('alert',13)}</span>`:''}${chev}</button>${open?`<div class="menu">${items}</div>`:''}</div>`;
+}
+function checkoutPill(ready){
+  const open=s.menu==='checkout';
+  const opt=(v,n,d,i)=>`<button class="mi" data-act="checkout" data-v="${v}"><span class="ck">${s.checkout===v?ic('check',14):''}</span>${ic(i,14)}<span class="tx"><span class="nm">${n}</span><span class="sub">${d}</span></span></button>`;
+  const items=opt('worktree','Worktree','A new branch in its own folder','fork')+opt('local','Local','Work in the checkout as it is',M[s.machine].local?'laptop':'globe');
+  return `<div class="pw"><button class="pill${ready?'':' dim'}"${open?' data-open':''} data-act="menu" data-v="checkout">${ic(s.checkout==='worktree'?'fork':(M[s.machine].local?'laptop':'globe'),14)}<span>${s.checkout==='worktree'?'Worktree':'Local'}</span>${chev}</button>${open?`<div class="menu" style="min-width:250px">${items}</div>`:''}</div>`;
+}
+
+/* ---------- notice under the row ---------- */
+function notice(st){
+  const m=M[s.machine];
+  if(st.kind==='ready'){
+    if(m.local)return '';
+    return `<div class="line">${ic('globe',13)}Runs on ${m.name} in <code>${st.path}</code></div>`;
+  }
+  if(st.kind==='offline')return `<div class="card"><span class="ic grey">${ic('off',15)}</span><div class="body"><div class="t">${m.name} is offline</div><div class="d">Last seen ${m.seen}. Anywhere can't reach its pocketd over SSH.</div><div class="acts"><button class="btn" data-act="retry">Try again</button><button class="btn" data-act="machine" data-v="mac">Use This Mac</button></div></div></div>`;
+  if(st.kind==='missing')return `<div class="card"><span class="ic">${ic('download',15)}</span><div class="body"><div class="t">${s.repo} isn't on ${m.name} yet</div><div class="d">Clone it from <code>${R[s.repo]}</code> there, or point to a copy it already has.</div><div class="acts"><button class="btn pri" data-act="modal" data-v="clone">${ic('download',13)}Clone to ${m.name}</button><button class="btn" data-act="modal" data-v="folder">${ic('folder',13)}Use a folder there</button></div></div></div>`;
+  if(st.kind==='noremote')return `<div class="card"><span class="ic">${ic('alert',15)}</span><div class="body"><div class="t">${s.repo} has no GitHub remote</div><div class="d">${m.name} can't clone it. Push it to GitHub first, or point to a copy already on ${m.name}.</div><div class="acts"><button class="btn" data-act="modal" data-v="folder">${ic('folder',13)}Use a folder there</button></div></div></div>`;
+  if(st.kind==='working'){
+    const j=s.job;
+    const steps=j.steps.map((t,i)=>{
+      const cls=i<j.step?'done':i===j.step?'now':'';
+      const mk=i<j.step?ic('check',13):i===j.step?'<span class="spin"></span>':'';
+      const bar=i===j.step&&j.pct!=null?`<div class="bar"><i style="width:${j.pct}%"></i></div>`:'';
+      return `<div class="step ${cls}"><span class="m">${mk}</span>${t}</div>${bar}`;
+    }).join('');
+    return `<div class="card"><span class="ic grey">${ic(j.mode==='clone'?'download':'folder',15)}</span><div class="body"><div class="t">${j.mode==='clone'?'Cloning':'Adding'} ${s.repo} on ${m.name}</div><div class="steps">${steps}</div></div></div>`;
+  }
+  return '';
+}
+
+/* ---------- views ---------- */
+function newView(){
+  const st=status(),ready=st.kind==='ready';
+  return `<div class="crumb">${M[s.machine].local?'':`<span>${M[s.machine].name}</span><span>/</span>`}<span>${s.repo}</span><span>/</span><b>New session</b></div>
+  <div class="stage">
+    <h1>What should we build next?</h1>
+    <div class="composer">
+      <textarea id="prompt" placeholder="Describe a task…">${esc(s.prompt)}</textarea>
+      <div class="cbar">
+        <button class="pill">${claude}<b>Claude Code</b>${chev}</button>
+        <button class="pill">${ic('spark',14)}<span>Default model</span>${chev}</button>
+        <button class="pill">${ic('shield',14)}<span>Agent's settings</span>${chev}</button>
+        <span class="kbd">⌘↵</span>
+        <button class="send" data-act="send" ${ready?'':'disabled'} title="${ready?'Start':'Pick a machine that has this project'}">${ic('up',16)}</button>
+      </div>
+    </div>
+    <div class="under">
+      ${machinePill()}<span class="sepd">·</span>${projectPill()}<span class="sepd">·</span>${checkoutPill(ready)}
+      <button class="pill${ready?'':' dim'}">${ic('branch',14)}<span style="font-family:var(--mono);font-size:12.5px">main</span>${chev}</button>
+      <span class="esc">esc to cancel</span>
+    </div>
+    <div class="notice">${notice(st)}</div>
+  </div>`;
+}
+function sessView(){
+  const x=s.sessions.find(x=>x.id===s.sel);
+  const m=M[x.machine];
+  const dir=x.checkout==='local'?x.path:`${x.path}/.worktrees/${x.name}`;
+  return `<div class="strip"><div class="tab">${claude}Claude Code</div>
+    <div class="where">${mIcon(x.machine,13)}${m.name}${mDot(x.machine)}<span>·</span><code>${dir}</code></div></div>
+  <div class="thread"><div class="col">
+    <div class="bubble">${esc(x.prompt||'Clean up stale TODOs')}</div>
+    <div class="sys">${ic(m.local?'laptop':'globe',13)}${m.local?'Started on this Mac':`Started on ${m.name} over SSH`}${x.checkout==='worktree'?` · branch <code style="font:12px var(--mono)">${x.name}</code> from main`:''}</div>
+    <div class="working"><span class="spin"></span><span class="shimmer">Working…</span></div>
+  </div></div>`;
+}
+
+/* ---------- modal ---------- */
+function modal(){
+  const md=s.modal,m=M[s.machine],remote=R[s.repo];
+  const dirs=['~/code','~/src','~/work','~'];
+  const browse=md.browse?`<div class="dirs"><div class="mh">Folders on ${m.name}</div>${dirs.map(d=>`<button class="mi" data-act="pickdir" data-v="${d}">${ic('folder',14)}<span class="tx"><span class="nm" style="font-family:var(--mono);font-size:12.5px">${d}</span></span></button>`).join('')}</div>`:'';
+  const body=md.mode==='clone'
+    ?`<div class="fl">Repository</div><div class="fr"><input class="in" readonly value="${remote}"></div>
+      <div class="fl">Folder on ${m.name}</div><div class="fr"><input class="in" id="dir" value="${esc(md.dir)}"><button class="btn" data-act="browse">Browse…</button>${browse}</div>
+      <div class="hint">Clones to <code>${esc(md.dir.replace(/\/$/,''))}/${s.repo}</code> with ${m.name}'s own git credentials.</div>`
+    :`<div class="fl">Existing checkout on ${m.name}</div><div class="fr"><input class="in" id="dir" value="${esc(md.folder)}"><button class="btn" data-act="browse">Browse…</button>${browse}</div>
+      <div class="hint">Must be a git checkout${remote?` of <code>${remote}</code>`:''}.</div>`;
+  return `<div class="scrim" data-act="closemodal"><div class="modal" data-stop>
+    <h2>Add ${s.repo} to ${m.name}</h2>
+    <p class="lead">The project stays the same; this gives ${m.name} its own copy to work in.</p>
+    <div class="seg"><button data-act="mode" data-v="clone" ${md.mode==='clone'?'data-on':''} ${remote?'':'disabled'}>Clone from GitHub</button><button data-act="mode" data-v="folder" ${md.mode==='folder'?'data-on':''}>Use a folder there</button></div>
+    ${body}
+    <div class="mfoot"><button class="btn" data-act="closemodal">Cancel</button><button class="btn pri" data-act="startjob">${md.mode==='clone'?'Clone':'Add'}</button></div>
+  </div></div>`;
+}
+
+/* ---------- render ---------- */
+function render(){
+  const ta=document.getElementById('prompt');
+  const focused=ta&&document.activeElement===ta, caret=ta?ta.selectionStart:0;
+  document.getElementById('side').innerHTML=side();
+  document.getElementById('main').innerHTML=s.view==='new'?newView():sessView();
+  document.getElementById('layer').innerHTML=(s.modal?modal():'')+(s.toast?`<div id="toast">${ic('check',13)}${s.toast}</div>`:'');
+  const nt=document.getElementById('prompt');
+  if(nt&&focused){nt.focus();nt.setSelectionRange(caret,caret);}
+}
+
+function toast(t){s.toast=t;render();clearTimeout(toast.t);toast.t=setTimeout(()=>{s.toast=null;render();},2600);}
+
+function startJob(){
+  const md=s.modal,m=M[s.machine];
+  const dirEl=document.getElementById('dir');
+  const val=(dirEl?dirEl.value:'').trim()||(md.mode==='clone'?'~/code':'~/'+s.repo);
+  const path=md.mode==='clone'?`${val.replace(/\/$/,'')}/${s.repo}`:val;
+  const steps=md.mode==='clone'
+    ?[`Connect to ${m.name}`,`git clone ${R[s.repo]}`,'Add project']
+    :[`Connect to ${m.name}`,'Check it is a git checkout','Add project'];
+  const job={machine:s.machine,repo:s.repo,mode:md.mode,steps,step:0,pct:null,path};
+  s.job=job;s.modal=null;render();
+  const tick=(fn,ms)=>new Promise(r=>setTimeout(()=>{fn();render();r();},ms));
+  (async()=>{
+    await tick(()=>{job.step=1;job.pct=md.mode==='clone'?0:null;},700);
+    if(md.mode==='clone')for(let p=12;p<=100;p+=11)await tick(()=>{job.pct=Math.min(p,100);},160);
+    else await tick(()=>{},600);
+    await tick(()=>{job.step=2;job.pct=null;},250);
+    await tick(()=>{
+      s.clones[job.machine][job.repo]=job.path;s.job=null;s.flash=job.machine+'/'+job.repo;
+    },500);
+    toast(`${job.repo} is ready on ${M[job.machine].name}`);
+    setTimeout(()=>{s.flash=null;},1700);
+  })();
+}
+
+function send(){
+  if(status().kind!=='ready')return;
+  const name=NAMES[s.sessions.length%NAMES.length];
+  const x={id:'s'+Date.now(),machine:s.machine,repo:s.repo,name,checkout:s.checkout,prompt:s.prompt.trim(),path:s.clones[s.machine][s.repo]};
+  s.sessions.push(x);s.sel=x.id;s.view='session';s.prompt='';s.menu=null;render();
+}
+
+function scenario(v){
+  const keep=s.toast;s=fresh();s.toast=keep;
+  if(v==='present'){s.repo='app-ios';s.machine='mac';s.menu='machine';}
+  if(v==='missing'){s.repo='app-android';s.machine='linux';}
+  if(v==='noremote'){s.repo='app-hook';s.machine='linux';}
+  if(v==='offline'){s.repo='app-ios';s.machine='box';}
+  render();
+}
+
+document.addEventListener('input',e=>{
+  if(e.target.id==='prompt')s.prompt=e.target.value;
+  if(e.target.id==='dir'&&s.modal){if(s.modal.mode==='clone')s.modal.dir=e.target.value;else s.modal.folder=e.target.value;
+    const h=document.querySelector('.hint code');if(h&&s.modal.mode==='clone')h.textContent=`${e.target.value.replace(/\/$/,'')}/${s.repo}`;}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)&&s.view==='new'&&!s.modal){e.preventDefault();send();}
+  if(e.key==='Escape'){if(s.modal)s.modal=null;else s.menu=null;render();}
+});
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');
+  if(el&&el.dataset.act==='closemodal'&&e.target.closest('[data-stop]')&&!e.target.closest('.mfoot'))return;
+  if(!el){if(s.menu||s.modal?.browse){s.menu=null;if(s.modal)s.modal.browse=false;render();}return;}
+  const a=el.dataset.act,v=el.dataset.v;
+  switch(a){
+    case 'scn':scenario(v);return;
+    case 'menu':s.menu=s.menu===v?null:v;break;
+    case 'machine':s.machine=v;s.menu=null;break;
+    case 'repo':s.repo=v;s.menu=null;break;
+    case 'checkout':s.checkout=v;s.menu=null;break;
+    case 'modal':s.modal={mode:v,dir:'~/code',folder:'~/'+s.repo,browse:false};break;
+    case 'closemodal':s.modal=null;break;
+    case 'mode':s.modal.mode=v;s.modal.browse=false;break;
+    case 'browse':s.modal.browse=!s.modal.browse;break;
+    case 'pickdir':if(s.modal.mode==='clone')s.modal.dir=v;else s.modal.folder=`${v.replace(/\/$/,'')}/${s.repo}`;s.modal.browse=false;break;
+    case 'startjob':startJob();return;
+    case 'retry':toast(`Still can't reach ${M[s.machine].name}`);return;
+    case 'send':send();return;
+    case 'openproj':s.machine=el.dataset.m;s.repo=el.dataset.r;s.view='new';s.menu=null;break;
+    case 'opensess':s.sel=el.dataset.id;s.view='session';break;
+  }
+  render();
+});
+render();
+</script>
+</body>
+</html>

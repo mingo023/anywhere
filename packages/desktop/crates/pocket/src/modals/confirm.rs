@@ -125,10 +125,19 @@ impl ConfirmText {
 
     /// "Uninstall and remove" sits beside the action.
     fn remove_host(name: &str, projects: usize) -> Self {
-        let facts = std::iter::once("It disconnects now".to_string())
-            .chain(counted(projects, "Its project leaves this Mac's list", |n| format!("Its {n} projects leave this Mac's list")))
-            .chain([format!("Projects and files on {name} aren't touched"), "Uninstall and remove also stops Anywhere's service there".into()])
-            .collect();
+        let space = match projects {
+            0 => "Its space leaves the sidebar".to_string(),
+            1 => "Its space and project leave the sidebar".to_string(),
+            n => format!("Its space and {n} projects leave the sidebar"),
+        };
+        let facts = [
+            "It disconnects now".to_string(),
+            space,
+            format!("Terminals and agents already open on {name} keep going there"),
+            format!("Projects and files on {name} aren't touched"),
+            "Uninstall and remove also stops Anywhere's service there".into(),
+        ]
+        .into();
         Self { title: format!("Remove {name}?"), action: "Remove from this Mac", facts, dirty: 0, lost: 0, danger: true }
     }
 
@@ -482,14 +491,15 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_host_takes_its_projects_off_this_mac_only() {
+    fn removing_a_host_takes_its_space_and_projects_off_the_sidebar_only() {
         let got = ConfirmText::remove_host("devbox", 2);
         assert_eq!((got.title.as_str(), got.action), ("Remove devbox?", "Remove from this Mac"));
         assert_eq!(
             got.detail(),
-            Some("It disconnects now. Its 2 projects leave this Mac's list. Projects and files on devbox aren't touched. Uninstall and remove also stops Anywhere's service there.".into())
+            Some("It disconnects now. Its space and 2 projects leave the sidebar. Terminals and agents already open on devbox keep going there. Projects and files on devbox aren't touched. Uninstall and remove also stops Anywhere's service there.".into())
         );
-        assert_eq!(ConfirmText::remove_host("devbox", 0).facts[1], "Projects and files on devbox aren't touched");
+        assert_eq!(ConfirmText::remove_host("devbox", 0).facts[1], "Its space leaves the sidebar");
+        assert_eq!(ConfirmText::remove_host("devbox", 1).facts[1], "Its space and project leave the sidebar");
     }
 
     #[test]

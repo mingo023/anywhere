@@ -9,8 +9,12 @@ One PTY that pocketd owns. A terminal the desktop opens runs the user's login sh
 _Avoid_: pane, PTY session, pocketd session
 
 **Project**:
-A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order, by name or by recent activity, under Pinned, a Group or Other. Selecting it selects its main worktree, the repository's own checkout; with nothing open there, the new session page shows instead. A terminal launched outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves its folder on disk.
+A git repository, or any other folder, added to Pocket, listed on the sidebar in the user's order, by name or by recent activity, under Pinned, a Group or Other. Selecting it selects its main worktree, the repository's own checkout; with nothing open there, the new session page shows instead. A terminal launched on this Mac outside every project adds its folder as a project while the folder has terminals, unless the user keeps it; a folder that isn't a repository is its own only worktree. Removing a project closes its terminals and leaves its folder on disk.
 _Avoid_: repository, repo, folder
+
+**Space**:
+A machine as the sidebar shows it: This Mac, or one SSH host. The sidebar lists one space's projects at a time, the switcher at its foot moves between them (a click, ⌃⌘1–9, or a two-finger swipe over the sidebar), and a badge on a space counts the sessions there that need you. Each host's space has a colour, by default from a palette by its place in the switcher. The Sessions (Scratch) section shows only in This Mac's space. Choosing a project anywhere moves the sidebar to its space. A project on two machines is two projects, one in each space, matched by folder name.
+_Avoid_: machine view, workspace
 
 **Worktree**:
 A git worktree of a project, listed under it on the sidebar by its name: the name of its folder, which stays when its branch changes. A project lists its main worktree and the ones Pocket created or the user imported; a folder in any other worktree belongs to the main one. One Pocket creates starts on a new branch of the same name. Deleting a worktree closes its terminals and removes its folder but keeps its branch; the main worktree can't be deleted. Its terminals are laid out in tabs and splits; the sessions in them are its session list.

@@ -1,5 +1,6 @@
 use crate::fs::fs_at;
 use agents::locals::is_local;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use store::ProjectIcon;
 
@@ -22,19 +23,18 @@ pub fn folder(path: &str) -> &str {
 
 /// "/Users/me/code/app" reads as "~/code/app".
 pub fn tilde(path: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    match path.strip_prefix(&home) {
+    tilde_in(path, &std::env::var("HOME").unwrap_or_default())
+}
+
+/// `tilde` against `home`, another machine's maybe.
+pub fn tilde_in(path: &str, home: &str) -> String {
+    match path.strip_prefix(home) {
         Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => format!("~{rest}"),
         _ => path.to_string(),
     }
 }
 
-/// "~/code/app" reads as "/Users/me/code/app".
-pub fn untilde(path: &str) -> String {
-    untilde_in(path, &std::env::var("HOME").unwrap_or_default())
-}
-
-/// `untilde` against `home`, another machine's maybe.
+/// "~/code/app" reads as "/Users/me/code/app" with `home` "/Users/me"; the home may be another machine's.
 pub fn untilde_in(path: &str, home: &str) -> String {
     match path.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
@@ -57,11 +57,13 @@ pub fn mark(icon: Option<&ProjectIcon>, letters: String) -> ui::Mark {
     }
 }
 
-/// Reads `.gitignore`s up to the repository root, so call it off the UI thread.
-pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, PathBuf)> {
+/// Reads `.gitignore`s up to the repository root, so call it off the UI thread. `None` on a host that isn't connected.
+pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Option<Vec<(bool, PathBuf)>> {
     let fs = fs_at(dir);
-    if fs.local().is_err() {
-        return fs.list(dir, files).unwrap_or_default();
+    match fs {
+        crate::fs::Fs::NotConnected => return None,
+        crate::fs::Fs::Remote(_) => return Some(fs.list(dir, files).unwrap_or_default()),
+        crate::fs::Fs::Local => {}
     }
     let git = files.hide_ignored;
     let walk = ignore::WalkBuilder::new(dir).standard_filters(false).max_depth(Some(1)).parents(git).git_ignore(git).git_exclude(git).git_global(git).build();
@@ -71,7 +73,12 @@ pub fn list_dir(dir: &Path, files: &store::prefs::files::Files) -> Vec<(bool, Pa
         .map(|e| (e.file_type().is_some_and(|t| t.is_dir()), e.into_path()))
         .collect();
     files.sort(&mut entries);
-    entries
+    Some(entries)
+}
+
+/// Listings of `dirs`, leaving out those on a host that isn't connected so the ones shown stay. Call it off the UI thread.
+pub fn list_dirs(dirs: Vec<PathBuf>, files: &store::prefs::files::Files) -> HashMap<PathBuf, Vec<(bool, PathBuf)>> {
+    dirs.into_iter().filter_map(|d| list_dir(&d, files).map(|l| (d, l))).collect()
 }
 
 /// Moves `path` to the Trash, returning where it landed; `None` when it couldn't.
@@ -146,7 +153,7 @@ pub fn first_line(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, first_line, folder, initials, list_dir, mark, tilde, tree_icon, untilde};
+    use super::{ago, ago_long, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -185,11 +192,17 @@ mod tests {
     }
 
     #[test]
+    fn tilde_in_shortens_another_machines_home() {
+        assert_eq!(tilde_in("/home/dev/code/app", "/home/dev"), "~/code/app");
+        assert_eq!(tilde_in("/home/devs/app", "/home/dev"), "/home/devs/app");
+        assert_eq!(tilde_in("/home/dev/code", ""), "/home/dev/code");
+    }
+
+    #[test]
     fn untilde_expands_only_a_leading_home() {
-        let home = std::env::var("HOME").unwrap();
-        assert_eq!(untilde("~/code/app"), format!("{home}/code/app"));
-        assert_eq!(untilde("~x/app"), "~x/app");
-        assert_eq!(untilde("/code/~/app"), "/code/~/app");
+        assert_eq!(untilde_in("~/code/app", "/home/dev"), "/home/dev/code/app");
+        assert_eq!(untilde_in("~x/app", "/home/dev"), "~x/app");
+        assert_eq!(untilde_in("/code/~/app", "/home/dev"), "/code/~/app");
     }
 
     #[test]
@@ -202,7 +215,7 @@ mod tests {
         for f in ["a.log", "main.rs", "src/b.log", "src/lib.rs"] {
             std::fs::write(dir.join(f), "").unwrap();
         }
-        let names = |d: &str, files: &Files| list_dir(&dir.join(d), files).into_iter().map(|(_, p)| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let names = |d: &str, files: &Files| list_dir(&dir.join(d), files).unwrap().into_iter().map(|(_, p)| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
         let shown = Files { hide_ignored: false, ..Files::default() };
         assert_eq!(names("", &Files::default()), ["src", ".gitignore", "main.rs"]);
         assert_eq!(names("src", &Files::default()), ["lib.rs"]);

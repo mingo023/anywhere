@@ -10,6 +10,12 @@
 // user's keys; it takes the password hunter2; an install there stops at Verify. An added host comes online after 400ms.
 // FIXTURE_HOST_ADD=connecting|failed leaves an added host linking for good, or refuses its keys, instead of coming online.
 // FIXTURE_NO_HOSTS=1 leaves out hosts.v1, as a pocketd older than the hosts move, with devbox saved in desktop.json.
+// FIXTURE_HOST_FILES=1 runs devbox's own pocketd on its socket, answering status, the file reads the host finder makes and git in its
+// repositories; devbox's app-ios is a project, the twin of this Mac's, and 10.0.4.12 (retrying) holds one called api.
+// With FIXTURE_HOST_FILES, devbox's git holds a clone unanswered, as one over a slow link would; FIXTURE_CLONE_DONE=1 lets it succeed.
+// FIXTURE_HOST_DELAY_MS delays each of devbox's replies, as a host over a real link answers.
+// FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
+// FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
@@ -228,7 +234,8 @@ const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
 const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbox", target: { kind: "alias", name: "devbox" } }] : [];
-write(join(pocket, "desktop.json"), JSON.stringify({ projects: scenario.repos.map(repoPath), children: children.map((c) => [c.id, c.parent]), repos: {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined }));
+const hostProjects = process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
+write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined }));
 
 type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
 type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };
@@ -237,6 +244,7 @@ const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
 const hosts: Host[] = [
   hostEntry("devbox", "devbox", { kind: "alias", name: "devbox" }, ONLINE),
   hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "dev" }, { state: "retrying", failure: "not_running" }),
+  ...Array.from({ length: Number(process.env.FIXTURE_EXTRA_HOSTS ?? 0) }, (_, i) => hostEntry(`box-${i + 1}`, `box-${i + 1}`, { kind: "alias", name: `box-${i + 1}` }, { state: "retrying", failure: "not_running" })),
 ];
 const pushHost = (ws: Ws, h: Host, id?: string) => ws.send(JSON.stringify({ type: "host.update", ...(id && { id }), host: h }));
 const setLink = (ws: Ws, hostId: string, link: Host["link"]) => {
@@ -392,6 +400,96 @@ createServer((c) =>
     c.pipe(ws).pipe(c);
   }),
 ).listen(join(pocket, "pocketd.sock"));
+
+// devbox's folders, by path: a folder holds its names (a trailing / marks one), a file its text.
+const HOST_FILES: Record<string, string[] | string> = {
+  "/": ["etc/", "home/", "opt/"],
+  "/etc": ["hostname"],
+  "/etc/hostname": "devbox\n",
+  "/opt": [],
+  "/home": ["dev/"],
+  "/home/dev": [".bashrc", ".ssh/", "code/", "Downloads/", "Library/", "notes.md"],
+  "/home/dev/Library": Array.from({ length: 2000 }, (_, i) => `item-${String(i).padStart(4, "0")}${i % 3 ? "/" : ""}`),
+  "/home/dev/.bashrc": 'export PATH="$HOME/.cargo/bin:$PATH"\nalias gs="git status"\n',
+  "/home/dev/.ssh": ["config"],
+  "/home/dev/.ssh/config": "Host github.com\n  IdentityFile ~/.ssh/id_ed25519\n",
+  "/home/dev/Downloads": [],
+  "/home/dev/notes.md": "# Notes\n\n- set up the build box\n- clone app-android here\n",
+  "/home/dev/code": ["api/", "app/", "app-ios/", "scratch/", "todo.txt"],
+  "/home/dev/code/app-ios": [".git/", "Sources/", "Package.swift"],
+  "/home/dev/code/app-ios/.git": ["HEAD", "config"],
+  "/home/dev/code/app-ios/.git/HEAD": "ref: refs/heads/main\n",
+  "/home/dev/code/app-ios/.git/config": '[remote "origin"]\n\turl = git@github.com:acme/app-ios.git\n',
+  "/home/dev/code/app-ios/Sources": [],
+  "/home/dev/code/app-ios/Package.swift": "// swift-tools-version:5.9\n",
+  "/home/dev/code/todo.txt": "try the relay idea\n",
+  "/home/dev/code/scratch": ["try.sh"],
+  "/home/dev/code/scratch/try.sh": "#!/bin/sh\necho hi\n",
+  "/home/dev/code/api": [".git/", "cmd/", "go.mod"],
+  "/home/dev/code/api/.git": ["HEAD", "config"],
+  "/home/dev/code/api/.git/HEAD": "ref: refs/heads/develop\n",
+  "/home/dev/code/api/.git/config": '[remote "origin"]\n\turl = git@github.com:acme/api.git\n',
+  "/home/dev/code/api/cmd": [],
+  "/home/dev/code/api/go.mod": "module github.com/acme/api\n\ngo 1.23\n",
+  "/home/dev/code/app": [".git/", "node_modules/", "src/", "package.json", "README.md"],
+  "/home/dev/code/app/.git": ["HEAD", "config"],
+  "/home/dev/code/app/.git/HEAD": "ref: refs/heads/main\n",
+  "/home/dev/code/app/.git/config": '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/acme/app.git\n',
+  "/home/dev/code/app/node_modules": [],
+  "/home/dev/code/app/src": ["main.ts"],
+  "/home/dev/code/app/src/main.ts": 'import { start } from "./server";\n\nstart({ port: 8080 });\n',
+  "/home/dev/code/app/package.json": '{\n  "name": "app",\n  "private": true,\n  "scripts": { "dev": "vite" }\n}\n',
+  "/home/dev/code/app/README.md": "# app\n\nThe web app.\n\n## Develop\n\n\tpnpm install\n\tpnpm dev\n",
+};
+const hostEntryOf = (dir: string, name: string) => {
+  const folder = name.endsWith("/");
+  const path = `${dir === "/" ? "" : dir}/${name.replace(/\/$/, "")}`;
+  const body = HOST_FILES[path];
+  return { name: name.replace(/\/$/, ""), dir: folder, size: typeof body === "string" ? body.length : 0, mtime: now - 3 * 3_600_000, ignored: name === "node_modules/" };
+};
+// What git prints in a devbox repository, for the commands the new-session page and the sidebar run.
+const hostGit = ([, , dir, ...args]: string[]) => {
+  if (!Array.isArray(HOST_FILES[`${dir}/.git`])) return null;
+  const run = args.join(" ");
+  const at = Math.floor(now / 1000);
+  if (run.startsWith("worktree list")) return `worktree ${dir}\nHEAD ${"0".repeat(40)}\nbranch refs/heads/main\n\n`;
+  if (run === "rev-parse --abbrev-ref HEAD") return "main\n";
+  if (run.startsWith("for-each-ref") && run.endsWith(" refs/heads")) return run.includes("committerdate:unix") ? `${at} main\n${at - 86_400} develop\n` : "main\ndevelop\n";
+  return "";
+};
+if (process.env.FIXTURE_HOST_FILES) {
+  let statusFails = Number(process.env.FIXTURE_HOST_STATUS_FAILS ?? 0);
+  mkdirSync(join(pocket, "hosts"), { recursive: true });
+  createServer((c) => {
+    let buf = "";
+    c.on("data", (raw: Buffer) => {
+      // The desktop's websocket to the host's pocketd isn't served here; it retries on its own.
+      if (!buf && raw[0] === 0x47) return c.destroy();
+      const lines = (buf + raw.toString()).split("\n");
+      buf = lines.pop()!;
+      for (const line of lines.filter(Boolean)) {
+        const op = JSON.parse(line);
+        if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-devbox.jsonl"), JSON.stringify({ t: Date.now(), ...op }) + "\n");
+        const send = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
+        const reply = (msg: object) => (process.env.FIXTURE_HOST_DELAY_MS ? setTimeout(() => send(msg), Number(process.env.FIXTURE_HOST_DELAY_MS)) : send(msg));
+        const body = HOST_FILES[op.path];
+        if (op.op === "status" && statusFails > 0) statusFails--, reply({ ev: "error", error: "pocketd is starting" });
+        else if (op.op === "status") reply({ ev: "status", status: { hostId: "devbox", os: "linux", arch: "arm64", userHome: "/home/dev", shell: "/bin/bash", name: "devbox", caps: ["exec.v1", "fs.v1"] } });
+        else if (op.op === "fs.list" && Array.isArray(body)) reply({ entries: body.map((n) => hostEntryOf(op.path, n)) });
+        else if (op.op === "fs.read" && typeof body === "string") reply({ data: Buffer.from(body).toString("base64") });
+        else if (op.op === "fs.stat") reply({ exists: body !== undefined, dir: Array.isArray(body), size: typeof body === "string" ? body.length : 0 });
+        else if (op.op === "exec" && op.argv[3] === "clone") {
+          if (process.env.FIXTURE_CLONE_DONE) reply({ ev: "exec", stdout: "" });
+        } else if (op.op === "exec") {
+          const out = hostGit(op.argv);
+          reply(out === null ? { ev: "exec", code: 128, stderr: Buffer.from("fatal: not a git repository\n").toString("base64") } : { ev: "exec", stdout: Buffer.from(out).toString("base64") });
+        } else if (op.op === "list") reply({ ev: "terminals", items: [] });
+        else if (op.op === "accounts" || op.op === "accounts.usage") reply({ ev: "accounts", accounts: [] });
+        else reply({ ev: "error", error: `${op.op} isn't in the fixture` });
+      }
+    });
+  }).listen(join(pocket, "hosts", "devbox.sock"));
+}
 
 type Ws = { send(msg: string): unknown };
 const streams = new Map<string, ReturnType<typeof setInterval>>();
