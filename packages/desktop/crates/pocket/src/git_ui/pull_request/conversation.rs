@@ -256,7 +256,7 @@ impl Desktop {
                 let card = card.child(head.child(verdict(r.verdict)).children(quote));
                 let body = drawn.then(|| {
                     let said = if has_body { said_body(self.clipped(&r.id, body_view(&r.id, &r.body), fade_into(Some(SURFACE)), cx)) } else { div().h(px(8.)) };
-                    self.folding(&r.id, FOLDED_PAD, said.children(threads.into_iter().map(|i| self.conv_thread(i, shown, &pr.threads[i], cx))))
+                    self.folding(&r.id, FOLDED_PAD, div().child(said).children(threads.into_iter().map(|i| self.conv_thread(i, shown, &pr.threads[i], cx))))
                 });
                 card.children(body).into_any_element()
             }
