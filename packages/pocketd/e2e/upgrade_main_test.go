@@ -7,17 +7,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
+
+	"pocketd/internal/handoff"
 )
 
 var (
 	mainOnce sync.Once
 	mainErr  error
 	mainSkip string
+	// mainFormat is the handoff format main's pocketd writes and reads up to.
+	mainFormat int
 )
 
 // mainPocketd builds the pocketd at origin/main once a run, from a detached
@@ -50,6 +56,13 @@ func mainPocketd(t *testing.T) string {
 			return
 		}
 		defer git("-C", repo, "worktree", "remove", "--force", src)
+		code, err := os.ReadFile(filepath.Join(src, "packages", "pocketd", "internal", "handoff", "handoff.go"))
+		m := regexp.MustCompile(`(?m)^\s*Format\s*=\s*(\d+)`).FindSubmatch(code)
+		if err != nil || m == nil {
+			mainErr = fmt.Errorf("main's handoff format: %v", err)
+			return
+		}
+		mainFormat, _ = strconv.Atoi(string(m[1]))
 		// main's terminal emulator links libghostty from the checkout's untracked third_party.
 		libs, _ := filepath.Glob(filepath.Join(repo, "third_party", "*"))
 		os.MkdirAll(filepath.Join(src, "third_party"), 0o755)
@@ -92,8 +105,9 @@ func hasReply(p *Phone, id, text string) bool {
 
 // The release gate: a pocketd from main upgrades in place to this one with
 // nothing lost, its sessions then outlive a restart, and main's binary put
-// back is refused rather than exec'd into, which would orphan every holder.
-func TestAnUpgradeFromMainKeepsEverySessionWhichOutlivesARestartAndRefusesMainBack(t *testing.T) {
+// back orphans no holder: a main that can't read this handoff format is
+// refused rather than exec'd into, and one that can takes over.
+func TestAnUpgradeFromMainKeepsEverySessionWhichOutlivesARestartAndMainPutBackOrphansNoHolder(t *testing.T) {
 	old := mainPocketd(t)
 	h := Start(t, launchReady(""), func(h *Harness) {
 		h.resume = true
@@ -154,12 +168,20 @@ func TestAnUpgradeFromMainKeepsEverySessionWhichOutlivesARestartAndRefusesMainBa
 	}
 
 	h.replaceBinary(old)
-	if out, code := h.Pocketd("upgrade"); code == 0 || !strings.Contains(out, "format 2") {
-		t.Fatalf("upgrade to main exited %d: %s", code, out)
-	}
-	last.WaitFor("upgradeFailed", func(m Message) bool { return m.Type == "host.changed" && m.Host.UpgradeFailed != "" })
-	if v := h.Status().Version; v != "e2e-next" {
-		t.Fatalf("pocketd %s after main was put back", v)
+	if mainFormat < handoff.Format {
+		if out, code := h.Pocketd("upgrade"); code == 0 || !strings.Contains(out, fmt.Sprintf("format %d", handoff.Format)) {
+			t.Fatalf("upgrade to main exited %d: %s", code, out)
+		}
+		last.WaitFor("upgradeFailed", func(m Message) bool { return m.Type == "host.changed" && m.Host.UpgradeFailed != "" })
+		if v := h.Status().Version; v != "e2e-next" {
+			t.Fatalf("pocketd %s after main was put back", v)
+		}
+	} else {
+		if out, code := h.Pocketd("upgrade"); code != 0 {
+			t.Fatalf("upgrade to main exited %d: %s", code, out)
+		}
+		h.eventually("main's pocketd", func() bool { return h.Status().Version != "e2e-next" })
+		sessionsListed(h, h.Owner(), chat, inTerm)
 	}
 	for _, pid := range pids {
 		if syscall.Kill(pid, 0) != nil {
