@@ -196,7 +196,7 @@ impl Desktop {
         let full = track.height(&measure);
         div()
             .child(measured(&track.heights, measure, content))
-            .with_spring(SharedString::from(format!("pr-fold:{key}")), SpringAnimation::new(SPRING).to(!track.folded(key)), move |d, t| match full {
+            .with_spring(SharedString::from(format!("pr-fold:{key}")), SpringAnimation::new(SPRING).to(!track.folded(key)).from(!track.opening(key)), move |d, t| match full {
                 Some(full) if t.0 < 1. => d.h(px(rest + (full - rest) * t.0)).overflow_hidden(),
                 _ => d,
             })

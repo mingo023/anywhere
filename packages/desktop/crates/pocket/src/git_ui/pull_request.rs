@@ -280,6 +280,8 @@ pub(crate) struct Track {
     /// Descriptions, reviews and comments folded to their heading.
     folded: HashSet<String>,
     closing: Closing<String>,
+    /// Folds opened a moment ago, whose body mounts afresh and so must spring from shut.
+    opening: Closing<String>,
     /// Long bodies shown past [`CLIP`].
     whole: HashSet<String>,
     /// Written while painting, the only time a body's height is known.
@@ -307,7 +309,7 @@ pub(crate) fn about(pr: &Pr) -> String {
 
 impl Default for Track {
     fn default() -> Self {
-        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), folded: HashSet::new(), closing: Closing::default(), whole: HashSet::new(), heights: Rc::default() }
+        Self { sent: HashMap::new(), kept: HashSet::new(), method: Method::default(), delete_after: true, tab: PrTab::default(), all: false, expanded: HashSet::new(), folded: HashSet::new(), closing: Closing::default(), opening: Closing::default(), whole: HashSet::new(), heights: Rc::default() }
     }
 }
 
@@ -379,7 +381,13 @@ impl Track {
         flip(&mut self.folded, key);
         if self.folded(key) {
             self.closing.start(key.to_string());
+        } else {
+            self.opening.start(key.to_string());
         }
+    }
+
+    pub(crate) fn opening(&self, key: &str) -> bool {
+        self.opening.drawn(key, false)
     }
 
     pub(crate) fn drawn(&self, key: &str) -> bool {
@@ -1310,6 +1318,7 @@ mod tests {
         assert!(!track.folded("review") && track.drawn("review"));
         track.toggle_folded("about");
         assert!(!track.folded("about") && track.drawn("about"));
+        assert!(track.opening("about") && !track.opening("review"));
     }
 
     #[test]
