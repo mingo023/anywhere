@@ -16,6 +16,9 @@ func (e *Engine) OnTurn(c TurnChange) {
 	if busy(c.To) {
 		return
 	}
+	if c.To == "closed" {
+		e.dropChildren(c.Session)
+	}
 	if c.To == "closed" || busy(c.From) {
 		e.settleChild(c)
 		// A session an agent started on its own counts against the Mac's limit while busy.
@@ -26,6 +29,31 @@ func (e *Engine) OnTurn(c TurnChange) {
 	}
 	if c.To == "closed" && e.OnClosed != nil {
 		e.OnClosed(c.Session)
+	}
+}
+
+// dropChildren cancels a closed session's unsettled tasks and closes the sessions it delegated to, as nothing is
+// left to read them. A stopping or starting pocketd skips it: its sessions end with it and come back on restore.
+func (e *Engine) dropChildren(parent string) {
+	e.mu.Lock()
+	stopped := e.stopped
+	e.mu.Unlock()
+	if stopped {
+		return
+	}
+	ts, err := e.store.Delegations(`parent_id = ? AND status IN ('queued', 'starting', 'working')`, parent)
+	if err != nil {
+		log.Printf("orch: tasks of %s: %v", parent, err)
+	}
+	for _, t := range ts {
+		e.dispatch(NewCommand("", CmdDelegateCancel, parent, TaskPayload{TaskID: t.TaskID}))
+	}
+	kids, err := e.store.Sessions(`parent_id = ? AND relationship = 'subagent' AND closed_at = 0`, parent)
+	if err != nil {
+		log.Printf("orch: children of %s: %v", parent, err)
+	}
+	for _, k := range kids {
+		e.dispatch(Command{Kind: CmdSessionClose, Session: k.ID})
 	}
 }
 

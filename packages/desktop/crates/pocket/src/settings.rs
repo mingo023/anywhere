@@ -363,7 +363,7 @@ fn card(rows: Vec<Div>) -> Div {
     div().flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x00000009), 1., 2.)]).overflow_hidden().children(rows)
 }
 
-fn action(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
+fn action(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
     div()
         .id(id)
         .h(px(26.))

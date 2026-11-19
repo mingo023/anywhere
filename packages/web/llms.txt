@@ -1,0 +1,37 @@
+# Anywhere
+
+> Anywhere is a free, open source (MIT) desktop app for watching and driving many coding agents at once. It runs on macOS 13 or later, with unsigned builds for Linux (x86_64) and Windows (x64). There is no account, no cloud tier and no premium tier.
+
+- The desktop app is Rust on GPUI. A Go daemon, pocketd, owns the terminals, so agents keep running after the window closes.
+- It runs ten agent CLIs that are already installed and signed in on the machine: Claude Code (`claude`), Codex (`codex`), Cursor (`cursor-agent`), Grok Build (`grok`), OpenCode (`opencode`), Pi (`pi`), omp (`omp`), fx (`fx`), Hermes Agent (`hermes`) and Antigravity (`agy`). It does not proxy models or resell tokens.
+- Sessions sit under a project and a git worktree. Each is Working, Needs you, Done, Failed or Idle; Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications.
+- Diffs, commits and a pull request card sit beside the session. Worktrees are created from a branch, with optional setup commands.
+- Board tickets, scheduled automations that run while the desktop is closed, delegated work through an orchestrator over MCP, and SSH hosts (Mac, Linux, Windows).
+- The `anywhere` command starts sessions, sends prompts, waits for results and edits Board tickets.
+- An iPhone and iPad app that pairs with the Mac over Tailscale is coming soon.
+
+## Docs
+
+- [Run your first agent](https://getanywhere.dev/docs/): Install Anywhere, start Claude Code on a project, watch its status, and review what it changed.
+- [Install](https://getanywhere.dev/docs/install): Install on macOS, Linux or Windows, and install the `anywhere` command line tool.
+- [The anywhere command](https://getanywhere.dev/docs/cli): Every subcommand, flag and exit code of the command line tool.
+- [Supported agents](https://getanywhere.dev/docs/agents): Each agent's command, install and sign-in steps, and the status it reports.
+- [Sessions and status](https://getanywhere.dev/docs/sessions): Chat and terminal sessions, access modes, and where each status shows.
+- [Worktrees](https://getanywhere.dev/docs/worktrees): Start agents in their own git worktrees, run setup commands, and choose where worktrees go.
+- [Review](https://getanywhere.dev/docs/review): Read diffs, compare a worktree with a branch, commit, and use the pull request card.
+- [Automations](https://getanywhere.dev/docs/automations): Run a prompt on a schedule, and answer a run that needs you.
+- [Board](https://getanywhere.dev/docs/board): Write tickets, start them in their own worktrees, and limit how many run at once.
+- [Delegation](https://getanywhere.dev/docs/delegation): How a chat hands work to other sessions through the orchestrator over MCP.
+- [Hosts](https://getanywhere.dev/docs/hosts): Add a Mac, Linux or Windows host over SSH and open projects on it.
+- [iPhone](https://getanywhere.dev/docs/iphone): Pair the iPhone app with a Mac over Tailscale and get push notifications.
+- [Architecture](https://getanywhere.dev/docs/architecture): What runs where: pocketd, the desktop app, the iPhone app, the protocol and the push relay.
+
+## Download
+
+- [Source on GitHub](https://github.com/mingo023/anywhere): Code, issues, releases and the MIT license.
+- [Latest macOS DMG](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg): Universal, signed and notarized, updated through Sparkle.
+
+## Optional
+
+- [Privacy](https://getanywhere.dev/privacy): Privacy policy for the iPhone app and this site.
+- [Support](https://getanywhere.dev/support): Where to get help.

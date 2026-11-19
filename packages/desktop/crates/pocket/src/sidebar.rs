@@ -10,6 +10,7 @@ mod row_menu;
 mod scratch;
 pub(crate) mod sections;
 pub(crate) mod sessions;
+mod star_card;
 mod tree_card;
 mod update;
 mod usage;
@@ -326,7 +327,7 @@ impl Desktop {
             .children((space == Space::Local).then(|| self.scratch_section(cx)).flatten())
             .child(header)
             .child(body)
-            .children(self.update_card(cx))
+            .children(self.update_card(cx).or_else(|| self.star_card(cx)))
             .child(switcher)
             .on_scroll(cx.listener(|this, e: &ScrollEvent, window, cx| this.swipe_spaces(e, window, cx)));
         let aside = self.resizable(aside, Column::Projects, cx);

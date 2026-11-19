@@ -35,6 +35,7 @@ mod renames;
 mod settings;
 mod sidebar;
 mod spaces;
+mod star;
 mod status;
 mod syntax;
 mod terminal_view;
