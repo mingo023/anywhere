@@ -114,6 +114,9 @@ SCENARIOS.restored = { ...SCENARIOS.sessions, agents: SCENARIOS.sessions.agents.
 const [name, arg] = process.argv.slice(2);
 const scenario = SCENARIOS[name];
 if (!scenario || !arg) throw new Error(`usage: bun fixture.ts <${Object.keys(SCENARIOS).join("|")}> <dir>`);
+// FIXTURE_SESSIONS=n adds n sessions, each on its own worktree, spread over the scenario's repos: a long day's sidebar.
+for (let i = 0; i < Number(process.env.FIXTURE_SESSIONS ?? 0); i++)
+  scenario.agents.push({ id: `load${i}`, title: `Load session ${i}`, provider: i % 2 ? "claude" : "codex", repo: scenario.repos[i % scenario.repos.length], branch: `load/s${i}`, status: i % 3 ? "idle" : "running", ago: i });
 rmSync(arg, { recursive: true, force: true });
 mkdirSync(join(arg, "pocket"), { recursive: true });
 // git reports worktree paths resolved (/tmp → /private/tmp); agent cwds must match them.
@@ -129,6 +132,9 @@ function write(path: string, text: string) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
 }
+// FIXTURE_CHANGED=n changes n more files across 40 folders in the first repo's first worktree, the size of a big refactor.
+const CHANGED = Number(process.env.FIXTURE_CHANGED ?? 0);
+const changedFile = (i: number) => `src/gen/m${i % 40}/f${i}.ts`;
 const lines = (tag: string, n: number) => Array.from({ length: n }, (_, i) => `export const ${tag}${i} = ${i};`).join("\n") + "\n";
 const repoPath = (r: string) => join(home, "code", r);
 const treePath = (r: string, b: string) => join(home, "code", `${r}.worktrees`, b.replace("/", "-"));
@@ -141,6 +147,7 @@ for (const r of scenario.repos) {
   git(p, "config", "user.email", "dev@example.com");
   for (const a of scenario.agents.filter((a) => a.repo === r)) for (const [f, , removed] of a.diff ?? []) write(join(p, f), lines("base", removed + 10));
   write(join(p, "README.md"), `# ${r}\n`);
+  if (CHANGED && r === scenario.repos[0]) for (let i = 0; i < CHANGED; i++) write(join(p, changedFile(i)), lines("base", 6));
   git(p, "add", "-A");
   git(p, "commit", "-q", "-m", "Initial commit");
 }
@@ -156,6 +163,7 @@ for (const [key, agents] of trees) {
     git(w, "commit", "-q", "-m", `Start ${b}`);
   }
   for (const [f, added, removed] of agents.flatMap((a) => a.diff ?? [])) write(join(w, f), lines("next", added) + lines("base", removed + 10).split("\n").slice(removed).join("\n"));
+  if (CHANGED && r === scenario.repos[0] && trees.keys().next().value === key) for (let i = 0; i < CHANGED; i++) write(join(w, changedFile(i)), lines("next", 2) + lines("base", 6));
 }
 
 type Item = { id: string; kind: string; [k: string]: unknown };
