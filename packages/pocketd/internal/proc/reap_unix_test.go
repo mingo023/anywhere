@@ -70,7 +70,7 @@ func TestOrphansSeeAnAdoptedChildWithItsMarker(t *testing.T) {
 		// Until it execs, the forked child reads back with sh's argv and no env.
 		return len(mine) == 1 && markedBy(mine[0].Env) == parent
 	})
-	if got := Reap(os.Getpid(), dead, mine); !slices.Equal(got, []int{pid}) {
+	if got := Reap(os.Getpid(), dead, nil, mine); !slices.Equal(got, []int{pid}) {
 		t.Fatalf("Reap = %v, want [%d]", got, pid)
 	}
 	Kill([]int{pid}, time.Second)

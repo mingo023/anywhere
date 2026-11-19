@@ -664,3 +664,13 @@ func TestReplaceUnderAHolderEndsTheOldHolder(t *testing.T) {
 	waitScreen(t, s, "new")
 	waitHolders(t, dir, 1)
 }
+
+func TestWhatAHeldProcessPrintsBeforePocketdAttachesReachesTheScreen(t *testing.T) {
+	m := held(t, holderDir(t))
+	s, err := m.Spawn(Spec{Cmd: "sh", Args: []string{"-c", "echo early; sleep 30"}, Cols: 40, Rows: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	waitScreen(t, s, "early")
+}

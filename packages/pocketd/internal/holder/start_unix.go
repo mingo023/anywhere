@@ -56,5 +56,13 @@ func (s *Starter) Start(spec Spec, adopted *os.File) (*Client, error) {
 	if r.Error != "" {
 		return nil, errors.New(r.Error)
 	}
-	return Dial(spec.Sock, 5*time.Second)
+	c, err := Dial(spec.Sock, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	// What the process wrote before this attached is news to pocketd, not a screen to redraw.
+	c.mu.Lock()
+	c.queue, c.Tail, c.off = append(c.Tail, c.queue...), nil, c.From
+	c.mu.Unlock()
+	return c, nil
 }

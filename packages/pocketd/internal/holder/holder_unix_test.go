@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -167,5 +168,26 @@ func TestAClientThatFindsTheProcessEndedLetsTheHolderGo(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the holder stayed after its exit was seen")
+	}
+}
+
+func TestAHolderStaysUntilAStopHasKilledWhatIgnoredIt(t *testing.T) {
+	sock, done := serve(t, `sh -c 'trap "" HUP TERM; echo bg=$$; exec sleep 60' </dev/null 2>/dev/null & sleep 0.2; echo up; trap 'exit 0' HUP TERM; while :; do sleep 0.1; done`)
+	c := dial(t, sock)
+	got := readUntil(t, c, "up")
+	bg, _ := strconv.Atoi(strings.TrimSpace(strings.SplitN(strings.SplitN(got, "bg=", 2)[1], "\n", 2)[0]))
+	t.Cleanup(func() { syscall.Kill(bg, syscall.SIGKILL) })
+	c.Stop(time.Second)
+	c.Wait()
+	c.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the holder never left")
+	}
+	for deadline := time.Now().Add(time.Second); syscall.Kill(bg, 0) == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the holder left while what ignored the stop still ran")
+		}
 	}
 }

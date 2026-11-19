@@ -64,9 +64,12 @@ import (
 
 func serve(sock, handed string) error {
 	home := config.Home()
-	inherited, err := handedDown(home, handed)
-	if err != nil {
-		return err
+	var inherited handoff.File
+	var err error
+	if handed != "" {
+		if inherited, err = handedDown(home, handed); err != nil {
+			return err
+		}
 	}
 	var held *lock.Lock
 	if inherited.LockFD > 0 {
@@ -75,6 +78,10 @@ func serve(sock, handed string) error {
 		return err
 	}
 	defer held.Close()
+	// Read under the lock, so a start that loses it leaves the file to the one that holds it.
+	if handed == "" {
+		inherited, _ = handedDown(home, "")
+	}
 	logPath := filepath.Join(home, "logs", "pocketd.log")
 	logs, err := logfile.Open(logPath, 5<<20, 1)
 	if err != nil {
@@ -86,7 +93,6 @@ func serve(sock, handed string) error {
 	started := time.Now()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	reap()
 
 	evs, err := events.Open(home)
 	if err != nil {
@@ -285,6 +291,7 @@ func serve(sock, handed string) error {
 	if d.Terminals.Holder != nil {
 		clients = holder.Find(d.Terminals.Holder.Dir)
 	}
+	reap(clients)
 	var ptys []state.Terminal
 	for _, e := range inherited.Terminals {
 		if e.FD > 0 {
@@ -452,13 +459,17 @@ func handedDown(home, handed string) (handoff.File, error) {
 }
 
 // reap ends what a crashed pocketd left running (proc.Reap has the rule).
-func reap() {
+func reap(held []*holder.Client) {
 	ps, err := proc.Orphans(os.Getuid())
 	if err != nil {
 		log.Printf("reap: %v", err)
 		return
 	}
-	if pids := proc.Reap(os.Getpid(), proc.Alive, ps); len(pids) > 0 {
+	sessions := map[int]bool{}
+	for _, c := range held {
+		sessions[c.Pid()] = true
+	}
+	if pids := proc.Reap(os.Getpid(), proc.Alive, sessions, ps); len(pids) > 0 {
 		log.Printf("reap: ending %d processes of a dead pocketd", len(pids))
 		go proc.Kill(pids, terminal.CloseGrace)
 	}

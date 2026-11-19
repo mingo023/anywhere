@@ -35,6 +35,7 @@ type server struct {
 	started int64
 	done    chan struct{}
 	once    sync.Once
+	stops   sync.WaitGroup
 
 	mu         sync.Mutex
 	cols, rows int
@@ -92,6 +93,8 @@ func Serve(spec Spec, adopted *os.File, ready io.Writer) error {
 		}
 	}()
 	<-s.done
+	// A stop's SIGKILL is still due to what ignored its SIGTERM.
+	s.stops.Wait()
 	return nil
 }
 
@@ -213,7 +216,7 @@ func (s *server) serve(conn net.Conn) {
 		case kStop:
 			var st stop
 			json.Unmarshal(p, &st)
-			go proc.EndSession(s.pid, time.Duration(st.GraceMS)*time.Millisecond)
+			s.stops.Go(func() { proc.EndSession(s.pid, time.Duration(st.GraceMS)*time.Millisecond) })
 		case kCheckpoint:
 			if len(p) >= 8 {
 				at := int64(binary.BigEndian.Uint64(p))

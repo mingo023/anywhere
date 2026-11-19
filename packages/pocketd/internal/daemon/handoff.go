@@ -102,8 +102,8 @@ func (d *Daemon) Adopt(f handoff.File) {
 // Reattach takes over the Terminals whose holders outlived the pocketd before
 // this one, each under its id with its Agent. carried is what that pocketd
 // handed down when it stopped cleanly; without it, an Agent goes on from its
-// saved entry and its store. A Terminal that ended while no pocketd was there
-// is let go. It returns the saved entries no holder kept, for Restore.
+// saved entry and its store. It returns the saved entries no running holder
+// kept, for Restore.
 func (d *Daemon) Reattach(clients []*holder.Client, carried []handoff.Terminal, saved []state.Terminal) []state.Terminal {
 	if len(clients) > 0 && d.Capture != nil {
 		go d.Recapture()
@@ -118,11 +118,11 @@ func (d *Daemon) Reattach(clients []*holder.Client, carried []handoff.Terminal, 
 	}
 	held := map[string]bool{}
 	for _, c := range clients {
-		held[c.ID] = true
 		if c.Exited {
 			c.Close()
 			continue
 		}
+		held[c.ID] = true
 		t, err := d.Terminals.Reattach(c)
 		if err != nil {
 			log.Printf("reattach %s: %v", c.ID, err)
