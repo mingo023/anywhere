@@ -64,7 +64,6 @@ pub fn details(rows: Vec<(&str, AnyElement)>) -> Div {
 }
 
 impl Desktop {
-    /// `button` as the trigger of `menu`, `open` while it shows.
     pub(super) fn menu_toggle(&self, button: Stateful<Div>, menu: Menu, open: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         ui::popover_trigger(button, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| this.toggle_menu(menu, cx)))
     }

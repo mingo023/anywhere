@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use theme::*;
 use ui::State;
+use store::prefs::sidebar::SessionSort;
 use workspace::Workspace;
 
 /// A terminal, the tree it is placed in if any, and whether it is a delegated session, which only its chat shows.
@@ -50,6 +51,18 @@ fn without_child_only(trees: Vec<git::Worktree>, terminals: &[Placed]) -> Vec<gi
 pub(crate) struct Placement {
     projects: Vec<String>,
     cards: HashMap<String, Vec<Card>>,
+}
+
+/// Each project's cards, sorted as one project's are.
+fn by_project<'a>(placed: impl Iterator<Item = (&'a String, Card)>, by: SessionSort) -> HashMap<String, Vec<Card>> {
+    let mut cards: HashMap<String, Vec<Card>> = HashMap::new();
+    for (p, card) in placed {
+        cards.entry(p.clone()).or_default().push(card);
+    }
+    for list in cards.values_mut() {
+        status::sort(list, by);
+    }
+    cards
 }
 
 impl Desktop {
@@ -146,13 +159,7 @@ impl Desktop {
     /// project's cards, and placing each session again per row took most of a frame with 60 sessions.
     pub(crate) fn placed<R>(&self, f: impl FnOnce() -> R) -> R {
         let projects = self.projects();
-        let mut cards: HashMap<String, Vec<Card>> = HashMap::new();
-        for (p, card) in self.placed_cards(&projects) {
-            cards.entry(p.clone()).or_default().push(card);
-        }
-        for list in cards.values_mut() {
-            status::sort(list, self.store.sidebar.sort);
-        }
+        let cards = by_project(self.placed_cards(&projects), self.store.sidebar.sort);
         self.sidebar.placement.replace(Some(Placement { projects, cards }));
         let out = f();
         self.sidebar.placement.take();
@@ -420,7 +427,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
 
 #[cfg(test)]
 mod tests {
-    use super::{HashMap, Placed, Repo, child_only, held, merge_repos, without_child_only};
+    use super::{HashMap, Placed, Repo, SessionSort, by_project, child_only, held, merge_repos, without_child_only};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -451,6 +458,16 @@ mod tests {
     fn reading_the_same_state_changes_nothing() {
         let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
         assert!(!merge_repos(&mut repos, vec![("/a".into(), Some(repo("main"))), ("/b".into(), None)]));
+    }
+
+    #[test]
+    fn each_project_gets_only_its_own_cards_in_sort_order() {
+        let card = |id: &str, created: i64| crate::status::card(&agents::Summary { id: id.into(), created_at: created, ..Default::default() }, "/w");
+        let (a, b) = ("/a".to_string(), "/b".to_string());
+        let placed = vec![(&a, card("a-old", 1)), (&b, card("b", 5)), (&a, card("a-new", 9))];
+        let ids = |cards: &[crate::status::Card]| cards.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let grouped = by_project(placed.into_iter(), SessionSort::Newest);
+        assert_eq!((ids(&grouped["/a"]), ids(&grouped["/b"]), grouped.len()), (vec!["a-new".to_string(), "a-old".to_string()], vec!["b".to_string()], 2));
     }
 
     fn at(id: &str, tree: Option<&str>, hidden: bool) -> Placed {

@@ -441,7 +441,7 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
-    /// Says goodbye before cancelling unless `graceful` is off: a send on a half-open socket may never complete, so a lost link cancels at once.
+    /// `graceful: false` skips the close frame: its send may never complete on a half-open socket.
     private func drop(graceful: Bool = true) {
         retry?.cancel()
         retry = nil

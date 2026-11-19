@@ -86,8 +86,8 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
-// retryAfterWake retries every host that isn't online when a tick comes in much later than it was due, as after the
-// machine slept: its network is back, but the links wait out their backoff.
+// retryAfterWake retries every host waiting out a backoff when a tick comes in much later than it was due, as after the
+// machine slept: its network is back, but the links still wait. A failed host waits for the user, as a refused key does.
 func (m *Manager) retryAfterWake(ctx context.Context, tick <-chan time.Time, every time.Duration) {
 	var last time.Time
 	for {
@@ -97,18 +97,18 @@ func (m *Manager) retryAfterWake(ctx context.Context, tick <-chan time.Time, eve
 		case now := <-tick:
 			// Round(0) drops the monotonic reading, which stands still while the machine sleeps.
 			if !last.IsZero() && now.Round(0).Sub(last.Round(0)) > 2*every {
-				m.retryOffline()
+				m.retryWaiting()
 			}
 			last = now
 		}
 	}
 }
 
-func (m *Manager) retryOffline() {
+func (m *Manager) retryWaiting() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, s := range m.sups {
-		if m.links[id].State != StateOnline {
+		if m.links[id].State == StateRetrying {
 			s.retry()
 		}
 	}

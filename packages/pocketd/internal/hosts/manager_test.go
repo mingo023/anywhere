@@ -212,12 +212,13 @@ func TestAHostAddedAgainBeforeItsRemovalFinishesKeepsItsFiles(t *testing.T) {
 	}
 }
 
-func TestAHostThatIsNotOnlineRetriesWhenTheClockJumpsPastASleep(t *testing.T) {
+func TestAHostWaitingOutABackoffRetriesWhenTheClockJumpsPastASleep(t *testing.T) {
 	m := &Manager{
-		links: map[string]Link{"down": {State: StateRetrying}, "up": {State: StateOnline}},
+		links: map[string]Link{"down": {State: StateRetrying}, "up": {State: StateOnline}, "refused": {State: StateFailed}},
 		sups: map[string]*supervisor{
-			"down": {events: make(chan event, 16)},
-			"up":   {events: make(chan event, 16)},
+			"down":    {events: make(chan event, 16)},
+			"up":      {events: make(chan event, 16)},
+			"refused": {events: make(chan event, 16)},
 		},
 	}
 	tick := make(chan time.Time)
@@ -245,5 +246,8 @@ func TestAHostThatIsNotOnlineRetriesWhenTheClockJumpsPastASleep(t *testing.T) {
 	}
 	if n := len(m.sups["up"].events); n != 0 {
 		t.Fatalf("an online host retried %d times", n)
+	}
+	if n := len(m.sups["refused"].events); n != 0 {
+		t.Fatalf("a failed host retried %d times", n)
 	}
 }
