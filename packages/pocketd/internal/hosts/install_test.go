@@ -2,13 +2,18 @@ package hosts
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"pocketd/internal/config"
 )
@@ -218,6 +223,95 @@ func TestTheChecksumComesFromTheFileBesideTheArchive(t *testing.T) {
 	if _, ok := checksum(filepath.Join(dir, "none.tar.gz")); ok {
 		t.Error("a missing file has a checksum")
 	}
+}
+
+func TestAnUpdateLeavesThePocketdAnAnywhereAppRunsThereAlone(t *testing.T) {
+	const app = "/Applications/Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd"
+	out, linked := forceUpdate(t, func(dir string) string { return app })
+	if runtime.GOOS != "darwin" {
+		if !linked {
+			t.Errorf("only a Mac runs the app, yet the update stopped:\n%s", out)
+		}
+		return
+	}
+	if linked || !strings.Contains(out, "ANYWHERE error pocketd here runs from "+app+", which an update can't replace") {
+		t.Errorf("linked %v:\n%s", linked, out)
+	}
+}
+
+func TestAnUpdateReplacesThePocketdItsOwnServiceRuns(t *testing.T) {
+	out, linked := forceUpdate(t, func(dir string) string { return filepath.Join(dir, "bin", "pocketd") })
+	if !linked || !strings.HasSuffix(out, "ANYWHERE done\n") {
+		t.Errorf("linked %v:\n%s", linked, out)
+	}
+}
+
+// forceUpdate runs bootstrap.sh with ANYWHERE_FORCE in a scratch home reached through a symlink, as launchd resolves
+// it, against a pocketd that answers on its socket with the pid of a process whose argv[0] is running(dir), dir being
+// the resolved path. An earlier update's bin/pocketd is already there. Every pocketd it runs is a stub, so nothing
+// reaches launchd or systemd.
+func forceUpdate(t *testing.T, running func(dir string) string) (out string, linked bool) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bootstrap.sh runs on unix hosts")
+	}
+	base, err := os.MkdirTemp("", "bs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	if base, err = filepath.EvalSymlinks(base); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(base, "home")
+	dir := filepath.Join(base, "real", ".cp")
+	stub := filepath.Join(base, "src", "pocketd-test")
+	for _, d := range []string{filepath.Join(dir, "bin"), stub} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(base, "real"), home); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "pocketd"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncase $1 in\nversion) echo '{\"version\": \"1.2.0\"}' ;;\nstatus) printf '{\\n  \"pid\": %s,\\n  \"version\": \"1.2.0\"\\n}\\n' \"$STUB_PID\" ;;\nservice) echo '{\"linger\":true}' ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(stub, "pocketd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(base, "pocketd.tar.gz")
+	if b, err := exec.Command("tar", "-czf", archive, "-C", filepath.Dir(stub), filepath.Base(stub)).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, b)
+	}
+	b, _ := os.ReadFile(archive)
+	ln, err := net.Listen("unix", filepath.Join(dir, "pocketd.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder := &exec.Cmd{Path: sleep, Args: []string{running(dir), "30"}}
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { holder.Process.Kill(); holder.Wait() }()
+	rendered, err := fill(bootstrapSh, "1.2.0", "https://x/v1.2.0", ".cp", "dev.mingo.anywhere.test.host.pocketd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-s")
+	cmd.Stdin = strings.NewReader(rendered)
+	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "STUB_PID=" + strconv.Itoa(holder.Process.Pid), "ANYWHERE_FORCE=1",
+		"ANYWHERE_ARCHIVE=" + archive, fmt.Sprintf("ANYWHERE_SHA256=%x", sha256.Sum256(b))}
+	got, _ := cmd.CombinedOutput()
+	now, _ := os.ReadFile(filepath.Join(dir, "bin", "pocketd"))
+	return string(got), string(now) == script
 }
 
 // Installs for real on the Linux host ANYWHERE_TEST_HOST names, an ssh alias that signs in with keys, from the archive

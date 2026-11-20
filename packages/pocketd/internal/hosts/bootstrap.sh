@@ -4,7 +4,8 @@
 # @@URL@@ is the release's download directory; it holds pocketd-<os>-<arch>.tar.gz and its .sha256.
 # ANYWHERE_ARCHIVE names a tarball already on the host to use instead, checked against ANYWHERE_SHA256.
 # Downloads are https only; ANYWHERE_ALLOW_HTTP=1 lets scripts/test-bootstrap.sh serve them from this Mac.
-# ANYWHERE_FORCE=1 updates: installs the archive even over a running pocketd, which hands off to it in place.
+# ANYWHERE_FORCE=1 updates: installs the archive even over a running pocketd, which hands off to it in place,
+# unless an Anywhere app on the host runs it.
 # Lines for the desktop: ANYWHERE step <name> | warn <msg> | error <msg> | running | done. Others are log.
 set -u
 umask 077
@@ -23,6 +24,16 @@ fail() {
 # running: whether a pocketd answers on DIR's socket, asked through the pocketd at $1.
 running() {
   [ -S "$DIR/pocketd.sock" ] && [ -x "$1" ] && POCKET_HOME="$DIR" POCKETD_SOCK="$DIR/pocketd.sock" "$1" status >/dev/null 2>&1
+}
+
+# app_owned: whether the pocketd answering on DIR's socket, asked through the pocketd at $1, runs from somewhere other
+# than DIR/bin/pocketd, as an Anywhere app's does; replacing bin/pocketd never reaches it. It sets from to that path.
+# Only a Mac runs the app. Its ps prints argv[0], which launchd and a handoff set to the full path, with HOME's
+# symlinks resolved, so -ef compares files rather than paths.
+app_owned() {
+  [ "$os" = darwin ] || return 1
+  pid=$(POCKET_HOME="$DIR" POCKETD_SOCK="$DIR/pocketd.sock" "$1" status --json 2>/dev/null </dev/null | sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
+  [ -n "$pid" ] && from=$(ps -o comm= -p "$pid") && [ -n "$from" ] && ! [ "$from" -ef "$DIR/bin/pocketd" ]
 }
 
 # version_of: the "version" field of what the pocketd at $1 prints for the rest of the arguments.
@@ -112,9 +123,12 @@ main() {
     exit 0
   fi
 
+  say step link
+  if [ -n "$force" ] && running "$bin" && app_owned "$bin"; then
+    fail "pocketd here runs from $from, which an update can't replace; update the Anywhere app on this Mac instead"
+  fi
   # A copy, not a symlink: the service runs this path, and a running pocketd hands off in place
   # when the file it runs from changes, so replacing it is the update.
-  say step link
   mkdir -p "$DIR/bin" && cp "$bin" "$DIR/bin/pocketd.new" && mv -f "$DIR/bin/pocketd.new" "$DIR/bin/pocketd" || fail "can't install $DIR/bin/pocketd"
 
   say step service
