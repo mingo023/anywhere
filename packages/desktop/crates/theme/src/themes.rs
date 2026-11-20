@@ -13,16 +13,19 @@ pub struct Theme {
     pub(crate) accent: u32,
     /// By position in `KEYS`; `None` keeps the token's own colour for `dark`.
     pub(crate) colors: [Option<u32>; KEYS.len()],
+    pub(crate) backdrop: Option<[u32; 2]>,
+    pub(crate) bubble_radius: Option<f32>,
 }
 
 impl Theme {
     /// The default theme of an appearance.
     pub fn graphite(dark: bool) -> Self {
-        Self { name: if dark { "Graphite Dark" } else { "Graphite Light" }.into(), dark, accent: 0, colors: [None; KEYS.len()] }
+        Self { name: if dark { "Graphite Dark" } else { "Graphite Light" }.into(), dark, accent: 0, colors: [None; KEYS.len()], backdrop: None, bubble_radius: None }
     }
 
     /// Reads a theme file: a name, an appearance, and under `colors` any of `KEYS`. Keys it leaves out keep Graphite's
-    /// colour for its appearance and keys it adds are ignored. The error says what to fix.
+    /// colour for its appearance and keys it adds are ignored. `backdrop`, a colour or a top and bottom pair, paints
+    /// behind the chat, and `bubble.radius` rounds the user's messages. The error says what to fix.
     pub fn parse(json: &str) -> Result<Self, String> {
         let file: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("Not a JSON file: {e}"))?;
         let name = file["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).ok_or("\"name\" is missing")?;
@@ -45,7 +48,20 @@ impl Theme {
             }
             _ => return Err("\"colors\" must be an object of colors".into()),
         }
-        Ok(Self { name: name.into(), dark, accent, colors })
+        let backdrop = match &file["backdrop"] {
+            serde_json::Value::Null => None,
+            serde_json::Value::Array(stops) if stops.len() == 2 => Some([color("backdrop[0]", &stops[0])?, color("backdrop[1]", &stops[1])?]),
+            one => Some([color("backdrop", one)?; 2]),
+        };
+        let bubble_radius = match &file["bubble"] {
+            serde_json::Value::Null => None,
+            serde_json::Value::Object(bubble) => match bubble.get("radius") {
+                None => None,
+                Some(r) => Some(r.as_f64().filter(|r| (0. ..=32.).contains(r)).ok_or("\"bubble.radius\" must be a number from 0 to 32")? as f32),
+            },
+            _ => return Err("\"bubble\" must be an object like { \"radius\": 4 }".into()),
+        };
+        Ok(Self { name: name.into(), dark, accent, colors, backdrop, bubble_radius })
     }
 
     /// The colour this theme paints `token`, before any of the user's settings.
@@ -112,6 +128,17 @@ mod tests {
         assert_eq!(t.color(TEXT_2), TEXT_2.pick(true));
         let light = Theme::parse(r#"{ "name": "Day", "appearance": "light" }"#).unwrap();
         assert_eq!(light.color(TEXT), TEXT.pick(false));
+    }
+
+    #[test]
+    fn a_theme_s_backdrop_and_bubble_radius_are_read_and_checked() {
+        let t = theme(r##""backdrop": ["#102030", "#40506080"], "bubble": { "radius": 0 }"##).unwrap();
+        assert_eq!((t.backdrop, t.bubble_radius), (Some([0x102030ff, 0x40506080]), Some(0.)));
+        assert_eq!(theme(r##""backdrop": "#102030""##).unwrap().backdrop, Some([0x102030ff; 2]));
+        assert_eq!((Theme::graphite(true).backdrop, theme(r#""colors": {}"#).map(|t| t.bubble_radius)), (None, Ok(None)));
+        assert!(theme(r##""bubble": { "radius": 33 }"##).unwrap_err().contains("bubble.radius"));
+        assert!(theme(r##""backdrop": ["#102030"]"##).unwrap_err().contains("backdrop"));
+        assert!(theme(r##""bubble": 4"##).unwrap_err().contains("\"bubble\""));
     }
 
     #[test]

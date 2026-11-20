@@ -33,6 +33,8 @@ static THEMED: [AtomicU64; KEYS.len()] = [const { AtomicU64::new(0) }; KEYS.len(
 static GLASS_ALPHA: AtomicU32 = AtomicU32::new(WINDOW.pick(true) & 0xff);
 /// The interface and code fonts the user picked; `None` is `SANS` and `MONO`.
 static CHOSEN_FONTS: RwLock<(Option<SharedString>, Option<SharedString>)> = RwLock::new((None, None));
+static BACKDROP: RwLock<Option<[u32; 2]>> = RwLock::new(None);
+static BUBBLE_RADIUS: RwLock<Option<f32>> = RwLock::new(None);
 
 pub fn is_dark() -> bool {
     DARK.load(Ordering::Relaxed)
@@ -752,7 +754,18 @@ pub fn set_theme(theme: &Theme, cx: &mut App) {
     for (themed, color) in THEMED.iter().zip(theme.colors) {
         themed.store(color.map_or(0, |c| (1 << 32) | c as u64), Ordering::Relaxed);
     }
+    *BACKDROP.write().unwrap() = theme.backdrop;
+    *BUBBLE_RADIUS.write().unwrap() = theme.bubble_radius;
     sync_kit(cx);
+}
+
+/// The active theme's backdrop behind the chat, as top and bottom colours `0xRRGGBBAA`.
+pub fn backdrop() -> Option<[u32; 2]> {
+    *BACKDROP.read().unwrap()
+}
+
+pub fn bubble_radius() -> Option<f32> {
+    *BUBBLE_RADIUS.read().unwrap()
 }
 
 /// Points gpui-kit's theme at the tokens as they paint now.

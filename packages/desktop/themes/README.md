@@ -24,6 +24,8 @@ Every theme the desktop app ships is a JSON file in this folder. To make your ow
 | `appearance` | `"light"` or `"dark"`. A theme is one look; make two files for a pair. |
 | `accent` | Optional. The colour of selection, focus rings and primary buttons. |
 | `colors` | The colours, by key. A key you leave out keeps the default theme's colour for the same appearance. Keys the app doesn't know are ignored. |
+| `backdrop` | Optional. A colour, or a `["top", "bottom"]` pair for a gradient, painted behind a chat's messages. |
+| `bubble` | Optional. `{ "radius": 0–32 }` rounds the corners of your messages in a chat. |
 
 A colour is `#RRGGBB`, or `#RRGGBBAA` with an alpha.
 

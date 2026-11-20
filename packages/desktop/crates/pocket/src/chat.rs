@@ -38,6 +38,7 @@ use crate::desktop::Desktop;
 use crate::region::{self, Region};
 use agents::Summary;
 use gpui_kit::component::input::TextareaState;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
 use theme::*;
@@ -201,7 +202,8 @@ impl Desktop {
             None => (shown, None),
         };
         let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
-        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().child(stage).child(composer).children(files).children(drop);
+        let backdrop = |d: Div, [top, bottom]: [u32; 2]| d.bg(linear_gradient(180., linear_color_stop(rgba(top), 0.), linear_color_stop(rgba(bottom), 1.)));
+        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().when_some(theme::backdrop(), backdrop).child(stage).child(composer).children(files).children(drop);
         div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
     }
 

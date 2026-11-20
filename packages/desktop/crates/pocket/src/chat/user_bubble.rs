@@ -273,7 +273,7 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
         .bg(BUBBLE)
         .border_1()
         .border_color(HAIRLINE)
-        .rounded(px(RADIUS))
+        .rounded(px(bubble_radius().unwrap_or(RADIUS)))
         .px(px(16.))
         .py(px(9.))
         .text_size(px(TEXT_SIZE))
