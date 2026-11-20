@@ -436,6 +436,12 @@ pub fn token_argv(login: &str) -> [&str; 7] {
     ["gh", "auth", "token", "--hostname", "github.com", "--user", login]
 }
 
+/// `argv` run as `login` with the token `gh` keeps on the machine running it, so the token never leaves there; as the active account when it has none.
+pub fn as_account(login: &str, argv: &[&str]) -> Vec<String> {
+    let set = "t=$(gh auth token --hostname github.com --user \"$0\") && export GH_TOKEN=\"$t\"; exec \"$@\"";
+    ["sh", "-c", set, login].into_iter().chain(argv.iter().copied()).map(str::to_string).collect()
+}
+
 /// GitHub refused the token, as it does one revoked by signing in again.
 pub fn unauthorized(err: &str) -> bool {
     err.contains("HTTP 401")
@@ -938,6 +944,26 @@ mod tests {
     fn gh_status_lists_three_accounts_with_the_first_active() {
         let auth = "github.com\n  ✓ Logged in to github.com account mingo023 (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'\n\n  ✓ Logged in to github.com account hodfords-minhngo-be (keyring)\n  - Active account: false\n  - Git operations protocol: https\n  - Token: gho_************************************\n\n  ✓ Logged in to github.com account minhngovan-regask (keyring)\n  - Active account: false\n";
         assert_eq!(status(Ok(VERSION_OUT.into()), Ok(auth.into())), ready("mingo023", &["mingo023", "hodfords-minhngo-be", "minhngovan-regask"]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_command_as_an_account_takes_its_token_from_gh_there_and_keeps_its_args_and_stdin() {
+        let bin = std::env::temp_dir().join(format!("gh-as-{}", std::process::id()));
+        std::fs::create_dir_all(&bin).unwrap();
+        let gh = bin.join("gh");
+        std::fs::write(&gh, "#!/bin/sh\n[ \"$*\" = \"auth token --hostname github.com --user work\" ] && echo tok-work || exit 1\n").unwrap();
+        std::fs::set_permissions(&gh, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let run = |login: &str| {
+            let argv = as_account(login, &["sh", "-c", "printf '%s|%s|' \"$GH_TOKEN\" \"$1\"; cat", "-", "it's \"quoted\""]);
+            let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+            let mut child = Command::new(&argv[0]).args(&argv[1..]).env("PATH", path).env_remove("GH_TOKEN").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+            std::io::Write::write_all(&mut child.stdin.take().unwrap(), b"body").unwrap();
+            String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+        };
+        assert_eq!(run("work"), "tok-work|it's \"quoted\"|body");
+        assert_eq!(run("gone"), "|it's \"quoted\"|body");
+        std::fs::remove_dir_all(&bin).unwrap();
     }
 
     #[test]

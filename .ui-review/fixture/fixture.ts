@@ -15,6 +15,8 @@
 // repositories; devbox's app-ios is a project, the twin of this Mac's, and 10.0.4.12 (retrying) holds one called api.
 // With FIXTURE_HOST_FILES, devbox's git holds a clone unanswered, as one over a slow link would; FIXTURE_CLONE_DONE=1 lets it succeed.
 // FIXTURE_HOST_DELAY_MS delays each of devbox's replies, as a host over a real link answers.
+// FIXTURE_HOST_GH=1 (with FIXTURE_HOST_FILES) gives devbox's app-ios a worktree, app-ios-login on fix/login, whose PR #42 only devbox's
+// `gh` account `work` can see, and app-ios has `work` chosen; its active account, `me`, can't see acme/app-ios.
 // FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
@@ -244,7 +246,8 @@ write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
 const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbox", target: { kind: "alias", name: "devbox" } }] : [];
 const hostProjects = process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
-write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined }));
+if (process.env.FIXTURE_HOST_GH) tracked.push("//devbox/home/dev/code/app-ios-login");
+write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: process.env.FIXTURE_HOST_GH ? { "//devbox/home/dev/code/app-ios": { gh_account: "work" } } : {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined }));
 
 type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
 type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };
@@ -450,6 +453,8 @@ const HOST_FILES: Record<string, string[] | string> = {
   "/home/dev/code/app/package.json": '{\n  "name": "app",\n  "private": true,\n  "scripts": { "dev": "vite" }\n}\n',
   "/home/dev/code/app/README.md": "# app\n\nThe web app.\n\n## Develop\n\n\tpnpm install\n\tpnpm dev\n",
 };
+const HOST_LOGIN = "/home/dev/code/app-ios-login";
+if (process.env.FIXTURE_HOST_GH) Object.assign(HOST_FILES, { [HOST_LOGIN]: [".git", "Sources/"], [`${HOST_LOGIN}/.git`]: [], [`${HOST_LOGIN}/Sources`]: [] });
 const hostEntryOf = (dir: string, name: string) => {
   const folder = name.endsWith("/");
   const path = `${dir === "/" ? "" : dir}/${name.replace(/\/$/, "")}`;
@@ -461,10 +466,30 @@ const hostGit = ([, , dir, ...args]: string[]) => {
   if (!Array.isArray(HOST_FILES[`${dir}/.git`])) return null;
   const run = args.join(" ");
   const at = Math.floor(now / 1000);
-  if (run.startsWith("worktree list")) return `worktree ${dir}\nHEAD ${"0".repeat(40)}\nbranch refs/heads/main\n\n`;
-  if (run === "rev-parse --abbrev-ref HEAD") return "main\n";
+  const login = process.env.FIXTURE_HOST_GH && dir.startsWith("/home/dev/code/app-ios") ? `worktree ${HOST_LOGIN}\nHEAD ${"1".repeat(40)}\nbranch refs/heads/fix/login\n\n` : "";
+  if (run.startsWith("worktree list")) return `worktree ${dir === HOST_LOGIN ? "/home/dev/code/app-ios" : dir}\nHEAD ${"0".repeat(40)}\nbranch refs/heads/main\n\n${login}`;
+  if (run === "rev-parse --abbrev-ref HEAD") return dir === HOST_LOGIN ? "fix/login\n" : "main\n";
   if (run.startsWith("for-each-ref") && run.endsWith(" refs/heads")) return run.includes("committerdate:unix") ? `${at} main\n${at - 86_400} develop\n` : "main\ndevelop\n";
   return "";
+};
+const hostGhAs = (login: string, cwd: string, args: string[]) => {
+  const hidden = { code: 1, stderr: "GraphQL: Could not resolve to a Repository with the name 'acme/app-ios'. (repository)\n" };
+  const run = args.join(" ");
+  if (run === "--version") return { stdout: "gh version 2.81.0 (2026-01-01)\n" };
+  if (run.startsWith("repo view")) return login === "work" ? { stdout: '{"viewerPermission":"WRITE"}' } : hidden;
+  if (run.startsWith("pr view") && cwd === HOST_LOGIN) {
+    const pr = { number: 42, title: "Fix login on devbox", url: "https://github.com/acme/app-ios/pull/42", state: "OPEN", isDraft: false, statusCheckRollup: [], headRefOid: "1".repeat(40), baseRefName: "main" };
+    return login === "work" ? { stdout: JSON.stringify(pr) } : hidden;
+  }
+  if (run.startsWith("api graphql")) return login === "work" ? { stdout: '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}' } : hidden;
+  return { code: 1, stderr: `no pull requests found for branch "main"\n` };
+};
+const AUTH_STATUS = "github.com\n  ✓ Logged in to github.com account me (keyring)\n  - Active account: true\n  ✓ Logged in to github.com account work (keyring)\n  - Active account: false\n";
+const hostGh = (cwd: string, argv: string[]) => {
+  if (argv[0] === "gh") return hostGhAs("me", cwd, argv.slice(1));
+  if (argv[0] === "sh" && argv[2]?.startsWith("gh auth status")) return { stdout: AUTH_STATUS };
+  if (argv[0] === "sh" && argv[2]?.includes("gh auth token") && argv[4] === "gh") return hostGhAs(["me", "work"].includes(argv[3]) ? argv[3] : "me", cwd, argv.slice(5));
+  return null;
 };
 if (process.env.FIXTURE_HOST_FILES) {
   let statusFails = Number(process.env.FIXTURE_HOST_STATUS_FAILS ?? 0);
@@ -482,6 +507,7 @@ if (process.env.FIXTURE_HOST_FILES) {
         const send = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
         const reply = (msg: object) => (process.env.FIXTURE_HOST_DELAY_MS ? setTimeout(() => send(msg), Number(process.env.FIXTURE_HOST_DELAY_MS)) : send(msg));
         const body = HOST_FILES[op.path];
+        let gh: ReturnType<typeof hostGh> = null;
         if (op.op === "status" && statusFails > 0) statusFails--, reply({ ev: "error", error: "pocketd is starting" });
         else if (op.op === "status") reply({ ev: "status", status: { hostId: "devbox", os: "linux", arch: "arm64", userHome: "/home/dev", shell: "/bin/bash", name: "devbox", caps: ["exec.v1", "fs.v1"] } });
         else if (op.op === "fs.list" && Array.isArray(body)) reply({ entries: body.map((n) => hostEntryOf(op.path, n)) });
@@ -489,6 +515,9 @@ if (process.env.FIXTURE_HOST_FILES) {
         else if (op.op === "fs.stat") reply({ exists: body !== undefined, dir: Array.isArray(body), size: typeof body === "string" ? body.length : 0 });
         else if (op.op === "exec" && op.argv[3] === "clone") {
           if (process.env.FIXTURE_CLONE_DONE) reply({ ev: "exec", stdout: "" });
+        } else if (op.op === "exec" && (gh = process.env.FIXTURE_HOST_GH ? hostGh(op.cwd, op.argv) : null)) {
+          const { code = 0, stdout = "", stderr = "" } = gh;
+          reply({ ev: "exec", code, stdout: Buffer.from(stdout).toString("base64"), stderr: Buffer.from(stderr).toString("base64") });
         } else if (op.op === "exec") {
           const out = hostGit(op.argv);
           reply(out === null ? { ev: "exec", code: 128, stderr: Buffer.from("fatal: not a git repository\n").toString("base64") } : { ev: "exec", stdout: Buffer.from(out).toString("base64") });
