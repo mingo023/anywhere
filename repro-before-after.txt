@@ -1,0 +1,9 @@
+# HEAD (old glob)
+pattern: *webview2-com-sys-*/out/x64/WebView2Loader.dll
+rust 1.99.1: FOUND target/aarch64-apple-darwin/dist/build/webview2-com-sys-788e0d56484ec0d6/out/x64/WebView2Loader.dll
+rust 1.100.0: MISSING (actual: target/aarch64-apple-darwin/dist/build/webview2-com-sys/4f5d0e72663c8be3/out/x64/WebView2Loader.dll)
+
+# This PR (new glob)
+pattern: *webview2-com-sys*/out/x64/WebView2Loader.dll
+rust 1.99.1: FOUND target/aarch64-apple-darwin/dist/build/webview2-com-sys-788e0d56484ec0d6/out/x64/WebView2Loader.dll
+rust 1.100.0: FOUND target/aarch64-apple-darwin/dist/build/webview2-com-sys/4f5d0e72663c8be3/out/x64/WebView2Loader.dll
