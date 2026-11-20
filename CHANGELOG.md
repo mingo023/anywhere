@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.53
+
+- A menu's button closes it on a second click; faster sidebar; reconnect after wifi loss and sleep (#299): (f7de4380)
+
 ## 0.1.52
 
 - The chat box shows one button, and a send's second click doesn't stop (#298): (a73e009b)
