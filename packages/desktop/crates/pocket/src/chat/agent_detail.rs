@@ -112,7 +112,7 @@ fn step_row(c: &ToolCall, start: i64, tools: &Entity<Tools>, cx: &App) -> Div {
 }
 
 /// The details: a head with `lead` before the mark and `actions` after the name, then the facts, the newest steps,
-/// and the report or error. `on_brief` shows the whole brief or two lines of it again; `on_more` shows every step, or
+/// and the report or error. `on_brief` shows the whole brief above the facts, or hides it again; `on_more` shows every step, or
 /// only the newest again.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>, on_brief: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, links: &markdown::Open, cx: &mut App) -> Div {
@@ -128,7 +128,7 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
             .text_color(TEXT_3)
             .cursor_pointer()
             .hover(|s| s.text_color(TEXT_2))
-            .when(!brief_open, |d| d.line_clamp(2))
+            .line_clamp(2)
             .on_click(on_brief)
             .child(b.to_string())
     });
@@ -184,7 +184,8 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
     let report = report.map(|r| div().mt(px(18.)).child(heading(if m == Mark::Failed { "Error" } else { "Report" })).child(r));
 
     // One flex child: a scroll's height counts from its first child's top, so a first child's margin would cut off the end.
-    let content = div().flex().flex_col().child(facts).children(steps).children(report);
+    let full = sub_agent::brief(agent).filter(|_| brief_open).map(|b| div().mb(px(18.)).whitespace_normal().text_size(px(13.)).line_height(px(20.)).text_color(TEXT_BODY).child(b.to_string()));
+    let content = div().flex().flex_col().children(full).child(facts).children(steps).children(report);
     let body = div().id(SharedString::from(format!("{key}-body"))).flex_1().min_h_0().overflow_y_scroll().pt(px(14.)).pb(px(20.)).px(px(16.)).child(content);
     div().size_full().flex().flex_col().child(head).child(body)
 }
