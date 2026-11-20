@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.54
+
+- Updating a host leaves the Anywhere app's pocketd there alone (#300): (81b7e7ef)
+
 ## 0.1.53
 
 - A menu's button closes it on a second click; faster sidebar; reconnect after wifi loss and sleep (#299): (f7de4380)
