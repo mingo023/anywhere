@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.55
+
+- PRs of a project on a remote host show on this Mac (#306): (94c776a5)
+- Sub-agent rows stay one line and open their details in a docked panel (#305): (36bd4bf5)
+- Chat shows the notes Claude writes between its steps (#304): (52b3a590)
+- The Merge button and PR status chip drop their chevron while merging (#303): (c8ce7f10)
+- Base branches show at once when a project is picked again (#302): (466d2690)
+- Hosts can be renamed and given an icon (#301): (90cda387)
+
 ## 0.1.54
 
 - Updating a host leaves the Anywhere app's pocketd there alone (#300): (81b7e7ef)
