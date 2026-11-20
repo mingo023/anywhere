@@ -126,4 +126,4 @@ It kills only pids recorded in `run.pid` that are still `fixture.ts` or `pocket-
 
 ## Isolation
 
-Runs are independent. Each gets its own scratch `HOME`/`POCKET_HOME`, a random fixture port (45000–49999), and its own unix socket, so parallel runs and the user's running Anywhere don't collide. Give parallel runs different `<out-dir>`s. `CAPTURE_HOLD=1` keeps the window shown and the app running after the last screen. `drive.sh` then waits forever, so don't use it with the helper.
+Runs are independent. Each gets its own scratch `HOME`/`POCKET_HOME`, a random fixture port (45000–49999), and its own unix socket, so parallel runs and the user's running Anywhere don't collide. Give parallel runs different `<out-dir>`s. `SEED_POCKET=<dir>` copies the dir's contents into the scratch `POCKET_HOME` before launch (mods, imported themes). `CAPTURE_HOLD=1` keeps the window shown and the app running after the last screen. `drive.sh` then waits forever, so don't use it with the helper.

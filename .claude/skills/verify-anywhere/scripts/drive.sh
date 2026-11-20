@@ -33,7 +33,8 @@ until grep -q "^ready" "$fx.log"; do
 done
 fx=$(cd "$fx" && pwd -P)
 printf '%s\n' "$@" > "$out/steps.txt"
-env | grep -E '^(CAPTURE|FIXTURE)_' >> "$out/steps.txt" || true
+env | grep -E '^(CAPTURE|FIXTURE|SEED)_' >> "$out/steps.txt" || true
+[ -z "${SEED_POCKET:-}" ] || cp -R "$SEED_POCKET"/. "$fx/pocket/"
 # The Add host form's username placeholder is $USER.
 HOME="$fx/home" POCKET_HOME="$fx/pocket" USER=dev "$bin" --capture "$out" "$@" > "$out/desktop.log" 2>&1 &
 app=$!
