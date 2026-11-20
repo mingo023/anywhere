@@ -1,0 +1,22 @@
+Real transcript of the reported session (note text omitted), replayed through pocketd's Claude mapper and timeline.
+
+== main (90cda387) ==
+line 155 -> thinking: "<note text omitted>"
+line 229 -> thinking: "<note text omitted>"
+line 273 -> thinking: "<note text omitted>"
+
+== this PR ==
+line 155 -> assistant: "<note text omitted>"
+line 229 -> assistant: "<note text omitted>"
+line 273 -> assistant: "<note text omitted>"
+
+== new tests on main ==
+--- FAIL: TestASubagentsNarrationShowsAsText (0.00s)
+--- FAIL: TestMap (0.00s)
+--- FAIL: TestClaudesNarrationDraftsAsText (0.01s)
+--- FAIL: TestUnseenDropsANoteAStoredTimelineKeptAsThinking (0.00s)
+--- FAIL: TestAChatClaudesNotesToTheUserShowAsItsWords (4.13s)
+
+== new tests with this PR ==
+--- PASS: TestMap, TestASubagentsNarrationShowsAsText, TestClaudesNarrationDraftsAsText, TestUnseenDropsANoteAStoredTimelineKeptAsThinking
+--- PASS: TestAChatClaudesNotesToTheUserShowAsItsWords (4.19s)
