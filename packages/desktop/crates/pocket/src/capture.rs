@@ -34,7 +34,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 299] = [
+const STEPS: [(&str, Step); 300] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -910,6 +910,7 @@ const STEPS: [(&str, Step); 299] = [
     ("whats-new", |d, _, _| d.updates.update = Update::WhatsNew { version: "0.2.0".into() }),
     ("star", |d, _, _| d.star.shown = true),
     ("star-thanked", |d, _, _| (d.star.shown, d.star.thanked) = (true, true)),
+    ("welcome", |d, _, _| d.welcome = Some(crate::welcome::Welcome::new())),
     ("prs", |d, _, _| {
         let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
@@ -1547,6 +1548,7 @@ fn holding() -> bool {
 fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     cx.set_reduce_motion(false);
     d.delegated.clock = None;
+    d.welcome = None;
     d.cancel_chat(window, cx);
     d.store.chats.clear();
     d.set_chat_text("", window, cx);

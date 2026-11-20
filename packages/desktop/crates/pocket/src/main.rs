@@ -43,6 +43,7 @@ mod terminals;
 mod themes;
 mod updates;
 mod util;
+mod welcome;
 
 use crate::desktop::geometry::{self, MIN_WINDOW};
 use crate::desktop::{Desktop, follow_reduce_motion, follow_reduce_transparency};

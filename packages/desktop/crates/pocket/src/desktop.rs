@@ -56,6 +56,7 @@ use crate::terminals::Terminals;
 use crate::themes::Themes;
 use crate::terminals::link::Hint;
 use crate::star::Star;
+use crate::welcome::Welcome;
 use crate::updates::Updates;
 use agents::Agents;
 use hosts::session::{Daemons, Outboxes};
@@ -128,6 +129,7 @@ pub struct Desktop {
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
     pub(crate) star: Star,
+    pub(crate) welcome: Option<Welcome>,
     pub(crate) chips: Chips,
     pub(crate) delegated: crate::delegated::DelegatedState,
     pub(crate) overlay: Option<Overlay>,
@@ -170,6 +172,8 @@ impl Desktop {
         let (activity, activity_subs) = ActivityState::new(window, cx);
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
+        // Read before updates and the star record this launch.
+        let welcome = crate::welcome::greets(&store).then(Welcome::new);
         let updates = Updates::new(&mut store, cx);
         let star = Star::new(&mut store, &updates.update, crate::star::unix_now());
         let open_in = OpenIn::new(store.home(), cx);
@@ -199,6 +203,7 @@ impl Desktop {
             cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
         ];
         _subs.push(Self::confirm_on_enter(cx));
+        _subs.push(Self::welcome_on_enter(cx));
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
@@ -274,6 +279,7 @@ impl Desktop {
             accounts: Accounts::default(),
             updates,
             star,
+            welcome,
             chips,
             delegated: crate::delegated::DelegatedState::new(),
             overlay: None,
@@ -640,13 +646,22 @@ impl Render for Desktop {
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
         self.sync_browser(window);
+        let welcome = self.welcome_view(now, reduce_motion, window, cx);
+        // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.
+        let shown = !self.welcome.as_ref().is_some_and(crate::welcome::Welcome::covers);
         let settings = self.screen == Screen::Settings;
-        let lead = (!settings).then(|| self.lead());
-        let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx)) };
-        let page = if settings { self.settings_page(cx) } else { self.main_view(window, cx) };
-        let workspace = (self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
+        let lead = (shown && !settings).then(|| self.lead());
+        let column = if !shown {
+            None
+        } else if settings {
+            Some(self.settings_nav(cx))
+        } else {
+            crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx))
+        };
+        let page = shown.then(|| if settings { self.settings_page(cx) } else { self.main_view(window, cx) });
+        let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
         // The finder opened from the new-session page has no overlay under it.
-        let overlay = self.overlay_view(window, cx).or_else(|| self.host_finder_view(window, cx));
+        let overlay = if shown { self.overlay_view(window, cx).or_else(|| self.host_finder_view(window, cx)) } else { None };
         div()
             .relative()
             .size_full()
@@ -682,66 +697,70 @@ impl Render for Desktop {
                 }
                 cx.stop_propagation();
             }))
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                if this.screen_key(&ev.keystroke, window, cx) || this.type_into_chat(&ev.keystroke, window, cx) {
-                    cx.stop_propagation();
-                }
-            }))
-            .on_action(cx.listener(|this, _: &crate::actions::OpenPalette, window, cx| this.open(Overlay::Palette, window, cx)))
-            .on_action(cx.listener(|this, _: &crate::actions::StartSession, window, cx| this.new_session(None, false, window, cx)))
-            .on_action(cx.listener(|this, _: &crate::actions::PrevPrompt, _, cx| this.chat_step_prompt(false, cx)))
-            .on_action(cx.listener(|this, _: &crate::actions::NextPrompt, _, cx| this.chat_step_prompt(true, cx)))
-            .on_action(cx.listener(Self::go_to_file))
-            .on_action(cx.listener(Self::new_worktree))
-            .on_action(cx.listener(Self::project_settings))
-            .on_action(cx.listener(Self::open_settings))
-            .on_action(cx.listener(Self::focus_settings_search))
-            .map(|root| pages::on_actions(root, cx))
-            .on_action(cx.listener(Self::check_for_updates))
-            .on_action(cx.listener(Self::next_needs_you))
-            .on_action(cx.listener(Self::go_to_up_next))
-            .on_action(cx.listener(|this, _: &crate::actions::BackToParent, window, cx| {
-                if !this.delegated_back(window, cx) {
-                    cx.propagate();
-                }
-            }))
-            .on_action(cx.listener(Self::jump_to))
-            .on_action(cx.listener(Self::switch_to_nth_space))
-            .on_action(cx.listener(Self::next_session))
-            .on_action(cx.listener(Self::prev_session))
-            .on_modifiers_changed(cx.listener(Self::on_modifiers))
-            .on_action(cx.listener(Self::toggle_rail))
-            .on_action(cx.listener(Self::toggle_sidebar))
-            .on_action(cx.listener(Self::toggle_focus))
-            .on_action(cx.listener(Self::zoom_in))
-            .on_action(cx.listener(Self::zoom_out))
-            .on_action(cx.listener(Self::reset_zoom))
-            .on_action(cx.listener(Self::new_tab))
-            .on_action(cx.listener(Self::new_browser))
-            .on_action(cx.listener(Self::close_active_tab))
-            .on_action(cx.listener(Self::split_right))
-            .on_action(cx.listener(Self::split_down))
-            .on_action(cx.listener(Self::focus_toward))
-            .on_action(cx.listener(Self::prev_tab))
-            .on_action(cx.listener(Self::next_tab))
-            .on_action(cx.listener(Self::jump_to_tab))
-            .on_action(cx.listener(Self::zoom_pane))
-            .on_action(cx.listener(Self::equalize_panes))
-            .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::quit))
-            .on_action(cx.listener(Self::open_selected))
-            .on_action(cx.listener(Self::add_to_chat))
-            .on_action(cx.listener(Self::tree_menu_item))
-            .on_action(cx.listener(Self::tree_menu_arrow))
-            .on_action(cx.listener(Self::tree_menu_choose))
-            .on_action(cx.listener(Self::copy_worktree_path))
+            // Bound shortcuts run before `capture_key_down`, so under the welcome the app's own have no handler.
+            .when(shown, |root| {
+                root.on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                    if this.screen_key(&ev.keystroke, window, cx) || this.type_into_chat(&ev.keystroke, window, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &crate::actions::OpenPalette, window, cx| this.open(Overlay::Palette, window, cx)))
+                .on_action(cx.listener(|this, _: &crate::actions::StartSession, window, cx| this.new_session(None, false, window, cx)))
+                .on_action(cx.listener(|this, _: &crate::actions::PrevPrompt, _, cx| this.chat_step_prompt(false, cx)))
+                .on_action(cx.listener(|this, _: &crate::actions::NextPrompt, _, cx| this.chat_step_prompt(true, cx)))
+                .on_action(cx.listener(Self::go_to_file))
+                .on_action(cx.listener(Self::new_worktree))
+                .on_action(cx.listener(Self::project_settings))
+                .on_action(cx.listener(Self::open_settings))
+                .on_action(cx.listener(Self::focus_settings_search))
+                .map(|root| pages::on_actions(root, cx))
+                .on_action(cx.listener(Self::check_for_updates))
+                .on_action(cx.listener(Self::next_needs_you))
+                .on_action(cx.listener(Self::go_to_up_next))
+                .on_action(cx.listener(|this, _: &crate::actions::BackToParent, window, cx| {
+                    if !this.delegated_back(window, cx) {
+                        cx.propagate();
+                    }
+                }))
+                .on_action(cx.listener(Self::jump_to))
+                .on_action(cx.listener(Self::switch_to_nth_space))
+                .on_action(cx.listener(Self::next_session))
+                .on_action(cx.listener(Self::prev_session))
+                .on_modifiers_changed(cx.listener(Self::on_modifiers))
+                .on_action(cx.listener(Self::toggle_rail))
+                .on_action(cx.listener(Self::toggle_sidebar))
+                .on_action(cx.listener(Self::toggle_focus))
+                .on_action(cx.listener(Self::zoom_in))
+                .on_action(cx.listener(Self::zoom_out))
+                .on_action(cx.listener(Self::reset_zoom))
+                .on_action(cx.listener(Self::new_tab))
+                .on_action(cx.listener(Self::new_browser))
+                .on_action(cx.listener(Self::close_active_tab))
+                .on_action(cx.listener(Self::split_right))
+                .on_action(cx.listener(Self::split_down))
+                .on_action(cx.listener(Self::focus_toward))
+                .on_action(cx.listener(Self::prev_tab))
+                .on_action(cx.listener(Self::next_tab))
+                .on_action(cx.listener(Self::jump_to_tab))
+                .on_action(cx.listener(Self::zoom_pane))
+                .on_action(cx.listener(Self::equalize_panes))
+                .on_action(cx.listener(Self::save))
+                .on_action(cx.listener(Self::open_selected))
+                .on_action(cx.listener(Self::add_to_chat))
+                .on_action(cx.listener(Self::tree_menu_item))
+                .on_action(cx.listener(Self::tree_menu_arrow))
+                .on_action(cx.listener(Self::tree_menu_choose))
+                .on_action(cx.listener(Self::copy_worktree_path))
+            })
             .children(lead)
             .children(column)
-            .child(page)
+            .children(page)
             .children(workspace)
             .children(overlay)
-            .children(self.chat_pill(cx))
-            .children(self.chat_popover(cx))
+            .children(shown.then(|| self.chat_pill(cx)).flatten())
+            .children(shown.then(|| self.chat_popover(cx)).flatten())
+            .children(welcome)
     }
 }
 
