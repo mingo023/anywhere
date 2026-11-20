@@ -437,7 +437,7 @@ impl Desktop {
 
     /// Whether nothing that takes typing holds the keys.
     fn keys_free(&self, window: &Window) -> bool {
-        self.root.is_focused(window) || text_view_focused(&window.context_stack())
+        self.root.is_focused(window) || self.chats.dock.focused(window) || text_view_focused(&window.context_stack())
     }
 
     /// [DEBUG-focus] Logs text typed while a chat is focused that neither its input nor `type_into_chat` takes.

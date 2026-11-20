@@ -95,8 +95,14 @@ fn fact_row(f: Fact) -> Div {
     div().flex().child(div().w(px(LABEL_W)).flex_none().text_color(TEXT_4).child(f.label)).child(div().min_w_0().flex().text_color(f.color).child(f.value).children(bad))
 }
 
-/// A step on the details' rail, opening to its output, error or diff as in the chat, beside when into the run it started.
-fn step_row(c: &ToolCall, start: i64, tools: &Entity<Tools>, cx: &App) -> Div {
+/// A step on the details' rail: a call, opening to its output, error or diff as in the chat, beside when into the run
+/// it started, or a note the sub-agent wrote between calls.
+fn step_row(b: &Block, start: i64, tools: &Entity<Tools>, cx: &App) -> Div {
+    let Block::Tool(c) = b else {
+        let text = if let Block::Text(m) = b { m.text.trim().to_string() } else { String::new() };
+        let dot = div().absolute().left(px(4.)).top(px(11.)).size(px(5.)).rounded_full().bg(TEXT_5);
+        return div().relative().pl(px(20.)).py(px(4.)).whitespace_normal().text_size(px(13.)).line_height(px(19.)).text_color(TEXT_BODY).child(dot).child(text);
+    };
     let failed = c.status == ToolStatus::Failed;
     let dot = div().absolute().left(px(3.)).top(px(11.)).size(px(7.)).rounded_full().border_1().map(|d| if failed { d.border_color(FAILED).bg(FAILED) } else { d.border_color(TEXT_5).bg(window_fill()) });
     div()
@@ -152,7 +158,7 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
     let local = |ms: i64| format_timestamp(ms, &chrono::Local);
     let facts = div().flex().flex_col().gap(px(7.)).text_size(px(13.)).line_height(px(19.)).children(facts(call, agent, now, local).into_iter().map(fact_row));
 
-    let all: Vec<&ToolCall> = calls(agent).collect();
+    let all = sub_agent::steps(agent);
     let first = first_shown(all.len(), all_steps);
     let steps = (!all.is_empty()).then(|| {
         let rail = div().absolute().left(px(6.)).top(px(4.)).bottom(px(4.)).w(px(1.)).bg(RAIL);
@@ -170,7 +176,7 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
                     .child(if all_steps { "Show fewer".to_string() } else { format!("Show {} more", first) }),
             )
         });
-        div().mt(px(18.)).child(heading("Steps")).child(div().relative().flex().flex_col().child(rail).children(all[first..].iter().map(|c| step_row(c, call.at, tools, cx)))).children(more)
+        div().mt(px(18.)).child(heading("Steps")).child(div().relative().flex().flex_col().child(rail).children(all[first..].iter().map(|b| step_row(b, call.at, tools, cx)))).children(more)
     });
 
     let report = match m {

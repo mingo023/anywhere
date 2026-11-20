@@ -101,6 +101,11 @@ impl AgentDock {
         Self { pick: Pick::default(), glide: Glide::from(0.), focus: cx.focus_handle() }
     }
 
+    /// Whether it holds the keys; it takes only the arrows, so typing still goes to the chat.
+    pub(crate) fn focused(&self, window: &Window) -> bool {
+        self.focus.is_focused(window)
+    }
+
     /// Slides the dock in or out; true while it still moves.
     pub(crate) fn tick(&mut self, now: Instant, reduce_motion: bool) -> bool {
         let moving = self.glide.tick(if self.pick.open.is_some() { 1. } else { 0. }, now, reduce_motion);
