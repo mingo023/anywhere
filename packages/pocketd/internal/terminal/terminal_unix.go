@@ -74,7 +74,8 @@ func (m *Manager) adopt(a Adopted) (session, error) {
 
 // LookPath resolves cmd against the caller's PATH, not the daemon's: a
 // daemon started by launchd has a minimal PATH. The last PATH entry wins, as
-// it does for exec.Cmd.Env.
+// it does for exec.Cmd.Env. A relative entry (`.git/safe/../../bin`) is
+// skipped: it would resolve against the daemon's own dir.
 func LookPath(cmd string, env []string) (string, error) {
 	if strings.Contains(cmd, "/") {
 		return cmd, nil
@@ -89,6 +90,9 @@ func LookPath(cmd string, env []string) (string, error) {
 		return exec.LookPath(cmd)
 	}
 	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
 		f := filepath.Join(dir, cmd)
 		if st, err := os.Stat(f); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
 			return f, nil
