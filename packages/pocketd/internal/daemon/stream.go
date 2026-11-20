@@ -220,6 +220,9 @@ func (s *stream) draft(l streamLine) (timeline.Event, bool) {
 	switch {
 	case ev.Delta.Type == "text_delta" && ev.Delta.Text != "":
 		return timeline.Event{Kind: "assistant_draft", Text: ev.Delta.Text, Draft: block}, true
+	// Under the "updates" display the model's thinking is notes to the user, which the transcript writes as its words.
+	case ev.Delta.Type == "thinking_delta" && ev.Delta.Thinking != "" && l.ThinkingDisplay == "updates":
+		return timeline.Event{Kind: "assistant_draft", Text: ev.Delta.Thinking, Draft: block}, true
 	case ev.Delta.Type == "thinking_delta" && ev.Delta.Thinking != "":
 		return timeline.Event{Kind: "thinking_draft", Text: ev.Delta.Thinking, Draft: block}, true
 	}
@@ -298,6 +301,7 @@ type streamLine struct {
 			Thinking string `json:"thinking"`
 		} `json:"delta"`
 	} `json:"event"`
+	ThinkingDisplay string  `json:"thinking_display"`
 	ParentToolUseID *string `json:"parent_tool_use_id"`
 }
 
