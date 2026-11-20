@@ -12,6 +12,8 @@ Follow `docs/adr/0003-desktop-code-layout.md` (Zed's split); its map says where 
 - **Tests sit beside the logic** in `#[cfg(test)] mod tests` at the bottom, named as sentences (`tree_hides_what_a_folded_folder_holds`). Test behaviour through the public interface; no mocks, no render tests. Test git writes against a temp repo.
 - **Refactors change no behaviour.** A bug found while moving code gets pinned by a test and fixed separately.
 
+UI follows the interaction rules in `docs/DESIGN.md` (a popover's trigger shuts it on a second press).
+
 Before committing, from `packages/desktop`: `cargo build --workspace`, `cargo clippy --workspace --all-targets` with no new warnings, `cargo test --workspace`. For view changes, capture screens before and after with `.ui-review/fixture/capture.sh <dir> <name>=<steps>…` and compare.
 
 ## Desktop performance
@@ -33,3 +35,4 @@ Baselines to beat:
 | Click file → diff shown | 490ms | ~100ms |
 | Chat with 1200 items scrolled back over, frames over 8.3ms of CPU (of 300) | 139 | 2 |
 | Chat with 1200 items scrolling, one frame's draw (p50) | ~5.5ms | ~3.8ms |
+| 66 sessions and 1200 changed files, one frame's draw (p50, capture `bench` with `FIXTURE_SESSIONS=60 FIXTURE_CHANGED=1200`) | 10–14ms | 5–7ms |

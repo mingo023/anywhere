@@ -33,6 +33,18 @@ pub fn control<E: InteractiveElement>(e: E) -> E {
     e.on_mouse_down(MouseButton::Left, |_, _, cx| cx.set_global(ControlPress(true)))
 }
 
+/// Makes `e` the trigger of a popover that shuts on `on_mouse_down_out`, opening it on press so a second press shuts it.
+/// A press on the trigger has already shut an open popover by the time a click lands, and the click would reopen it.
+/// `open` is whether the popover showed in the frame that drew `e`, the frame the press was hit-tested against.
+pub fn popover_trigger<E: InteractiveElement>(e: E, open: bool, on_open: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> E {
+    e.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+        cx.stop_propagation();
+        if !open {
+            on_open(event, window, cx);
+        }
+    })
+}
+
 /// Flat surface that holds content.
 pub fn page<E: Styled>(e: E) -> E {
     e.bg(PAGE)
@@ -189,12 +201,6 @@ pub fn icon_group(buttons: impl IntoIterator<Item = Stateful<Div>>) -> Div {
 
 pub fn group_button(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
     glyph_button(id, name, 34., 30., 15., TEXT)
-}
-
-/// A group button whose glyph fades in, for one that just swapped it.
-pub fn group_button_swapped(id: impl Into<ElementId>, name: &str) -> Stateful<Div> {
-    let fade = Animation::new(std::time::Duration::from_millis(120)).with_easing(ease_out_quint());
-    glyph_frame(id, 34., 30., 15.).child(icon(name, 16., TEXT).with_animation("swap-in", fade, |i, t| i.opacity(t)))
 }
 
 pub struct Segment<T> {
@@ -1013,29 +1019,6 @@ pub fn meta_diff(added: usize, removed: usize, size: f32) -> Div {
 
 pub fn meta_value(text: impl Into<SharedString>) -> Div {
     div().text_color(TEXT).font_weight(FontWeight::MEDIUM).child(text.into())
-}
-
-/// How much of the context window is left, drawn as a 32px bar.
-pub fn context_bar(left: f32) -> Div {
-    let used = (1. - left).clamp(0., 1.);
-    div().w(px(32.)).h(px(4.)).rounded(px(2.)).bg(SEPARATOR_STRONG).child(div().h_full().w(px(32. * used)).rounded(px(2.)).bg(if used > 0.8 { WAITING } else { TEXT }))
-}
-
-pub fn section_header(label: impl Into<SharedString>, count: Option<usize>) -> Div {
-    div()
-        .pt(px(12.))
-        .px(px(10.))
-        .pb(px(6.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .text_size(px(12.))
-        .line_height(px(15.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(TEXT_2)
-        .child(label.into())
-        .children(count.map(|n| div().font_weight(FontWeight::MEDIUM).child(n.to_string())))
 }
 
 /// A project's mark in white on its colour.

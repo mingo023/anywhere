@@ -81,6 +81,7 @@ impl Desktop {
         let button = self.menu_toggle(
             div().id("trigger-add").h(px(48.)).w_full().flex().items_center().justify_center().gap(px(8.)).rounded(px(8.)).cursor_pointer().text_size(px(14.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).hover(|s| s.bg(FILL_2)).child(icon("plus", 16., TEXT_2)).child("Add trigger"),
             Menu::Add,
+            open,
             cx,
         );
         let events = ["Pull request opened", "Issue created", "Check failed"].into_iter().enumerate().map(|(i, name)| {

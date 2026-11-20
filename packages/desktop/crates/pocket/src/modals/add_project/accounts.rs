@@ -43,27 +43,29 @@ impl Desktop {
             None => div().flex().gap(px(4.)).child(div().text_color(TEXT).child("Default")).child(div().text_color(TEXT_3).child(format!("\u{b7} {default}"))),
         };
         let open = self.settings.menu == Some(ACCOUNT_MENU) && draft.account_menu == Some(provider);
-        let button = div()
-            .id(SharedString::from(format!("repo-account-{provider}")))
-            .h(px(28.))
-            .pl(px(10.))
-            .pr(px(7.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .rounded(px(7.))
-            .bg(FILL_3)
-            .hover(|d| d.bg(FILL_4))
-            .cursor_pointer()
-            .text_size(px(12.5))
-            .child(shown)
-            .child(icon("chevron-down", 11., TEXT_3))
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.settings.menu = (!open).then_some(ACCOUNT_MENU);
-                this.repo_form.draft.account_menu = (!open).then_some(provider);
+        let button = ui::popover_trigger(
+            div()
+                .id(SharedString::from(format!("repo-account-{provider}")))
+                .h(px(28.))
+                .pl(px(10.))
+                .pr(px(7.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(7.))
+                .bg(FILL_3)
+                .hover(|d| d.bg(FILL_4))
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .child(shown)
+                .child(icon("chevron-down", 11., TEXT_3)),
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                this.settings.menu = Some(ACCOUNT_MENU);
+                this.repo_form.draft.account_menu = Some(provider);
                 cx.notify();
-            }));
+            }),
+        );
         let menu = open.then(|| {
             let pick = |id: Option<String>| {
                 cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| {

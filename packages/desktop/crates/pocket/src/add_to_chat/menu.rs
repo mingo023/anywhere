@@ -125,28 +125,24 @@ impl Desktop {
 
     pub(super) fn chat_target_picker(&self, chosen: Option<&Choice>, choices: &[Choice], cx: &mut Context<Self>) -> Div {
         let open = self.chat.menu;
-        let pill = div()
-            .id("chat-target")
-            .h(px(32.))
-            .px(px(12.))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(7.))
-            .rounded(px(16.))
-            .bg(FILL_3)
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_4))
-            .when(open, |d| d.bg(FILL_4))
-            .text_size(px(13.))
-            // On press, not click: by the click, the menu's own press-outside has already closed it.
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    if open { this.close_chat_menu(window, cx) } else { this.open_chat_menu(window, cx) }
-                }),
-            );
+        let pill = ui::popover_trigger(
+            div()
+                .id("chat-target")
+                .h(px(32.))
+                .px(px(12.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(7.))
+                .rounded(px(16.))
+                .bg(FILL_3)
+                .cursor_pointer()
+                .hover(|s| s.bg(FILL_4))
+                .when(open, |d| d.bg(FILL_4))
+                .text_size(px(13.)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, window, cx| this.open_chat_menu(window, cx)),
+        );
         let pill = match chosen {
             Some(c) => pill
                 .child(provider_icon(&c.provider, 13., TEXT))

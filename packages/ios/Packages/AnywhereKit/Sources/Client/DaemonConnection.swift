@@ -78,6 +78,7 @@ public actor DaemonConnection {
     /// Bytes received since the ping went: a reply still arriving holds the pong back, as pocketd writes it whole first.
     private var arriving: NWConnection.PendingDataTransferReport?
     private var path: NWPathMonitor?
+    private var interfaces: Set<String>?
 
     public init(config: Config) {
         self.config = config
@@ -96,8 +97,8 @@ public actor DaemonConnection {
     public func start() {
         guard case .idle = state else { return }
         let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { [weak self] _ in
-            self?.assumeIsolated { $0.pathChanged() }
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.assumeIsolated { $0.pathChanged(path) }
         }
         monitor.start(queue: queue)
         path = monitor
@@ -169,8 +170,33 @@ public actor DaemonConnection {
     }
 
     /// A new network may have left an online socket half-open, or brought back a Mac that was out of reach.
-    private func pathChanged() {
-        if isOnline { verify() } else { reconnectNow() }
+    private func pathChanged(_ path: NWPath) {
+        let now = Set(path.availableInterfaces.map(\.name))
+        defer { interfaces = now }
+        revive(Revival.onPath(online: isOnline, satisfied: path.status == .satisfied, interfacesChanged: interfaces.map { $0 != now } ?? false))
+    }
+
+    /// The app is back in front after `away`: a socket that sat through a long background is presumed dead.
+    public func foregrounded(after away: Duration) {
+        revive(Revival.onForeground(online: isOnline, away: away))
+    }
+
+    private func revive(_ revival: Revival) {
+        switch revival {
+        case .none: break
+        case .verify: verify()
+        case .reconnect: reconnectNow()
+        case .redial: redialNow()
+        }
+    }
+
+    private func redialNow() {
+        guard isOnline else { return }
+        drop(graceful: false)
+        failPending(.closed)
+        continuation.yield(.closed(.retrying(seconds: 0)))
+        backoff.reset()
+        dial()
     }
 
     /// Dials now instead of waiting out the backoff: the app came to the front or the network changed.
@@ -385,7 +411,7 @@ public actor DaemonConnection {
     private func lost(closeCode: Int?) {
         guard !isStopped else { return }
         if let end = CloseOutcome.final(closeCode: closeCode, errorCode: refusal) { return finish(end) }
-        drop()
+        drop(graceful: false)
         failPending(.closed)
         state = .idle
         let delay = backoff.next()
@@ -415,7 +441,8 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
-    private func drop() {
+    /// `graceful: false` skips the close frame: its send may never complete on a half-open socket.
+    private func drop(graceful: Bool = true) {
         retry?.cancel()
         retry = nil
         helloTimer?.cancel()
@@ -429,6 +456,7 @@ public actor DaemonConnection {
         guard let connection else { return }
         self.connection = nil
         connection.stateUpdateHandler = nil
+        guard graceful else { return connection.cancel() }
         let metadata = NWProtocolWebSocket.Metadata(opcode: .close)
         metadata.closeCode = .protocolCode(.normalClosure)
         let context = NWConnection.ContentContext(identifier: "close", metadata: [metadata])

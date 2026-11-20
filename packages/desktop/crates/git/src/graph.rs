@@ -1,5 +1,7 @@
 //! Lanes of the commit graph, laid out one commit at a time like VS Code's Source Control graph (`scmHistory.ts`).
 
+use crate::{Runner, base_of, git, github, lines};
+
 /// The colour of a lane: the checked-out branch, its upstream, the base branch, or one of the rotating colours.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LaneColor {
@@ -63,9 +65,112 @@ impl Lanes {
     }
 }
 
+/// A commit as the graph shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GraphCommit {
+    pub sha: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub subject: String,
+}
+
+/// `n` commits reachable from `revs`, children before parents, after skipping `skip`.
+pub fn log_graph(run: &Runner, cwd: &str, revs: &[String], skip: usize, n: usize) -> Vec<GraphCommit> {
+    let (skip, n) = (format!("--skip={skip}"), format!("-n{n}"));
+    let mut args = vec!["log", "--format=%H%x00%P%x00%aN%x00%s", "--topo-order", skip.as_str(), n.as_str()];
+    args.extend(revs.iter().map(String::as_str));
+    args.push("--");
+    lines(git(run, cwd, &args))
+        .into_iter()
+        .filter_map(|l| {
+            let mut p = l.splitn(4, '\0');
+            Some(GraphCommit {
+                sha: p.next()?.into(),
+                parents: p.next()?.split_whitespace().map(str::to_string).collect(),
+                author: p.next()?.into(),
+                subject: p.next()?.into(),
+            })
+        })
+        .collect()
+}
+
+/// A branch the graph labels: its short name, the commit it points at, and whether it is a remote-tracking branch.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Tip {
+    pub name: String,
+    pub sha: String,
+    pub remote: bool,
+}
+
+/// What the graph follows: HEAD, the checked-out branch, its upstream and the base branch it grew from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Tips {
+    pub head: String,
+    pub branch: Option<Tip>,
+    pub upstream: Option<Tip>,
+    pub base: Option<Tip>,
+    /// Every other branch's commit, when the graph follows them all.
+    pub others: Vec<String>,
+}
+
+impl Tips {
+    /// The commits the graph's history starts from, each once.
+    pub fn revs(&self) -> Vec<String> {
+        let mut revs = vec![self.head.clone()];
+        let shas = [&self.upstream, &self.base].into_iter().flatten().map(|t| &t.sha).chain(&self.others);
+        for sha in shas {
+            if !revs.contains(sha) {
+                revs.push(sha.clone());
+            }
+        }
+        revs
+    }
+
+    /// The tips pointing at `sha`, with the colour each labels its lane with.
+    pub fn pointing_at<'a>(&'a self, sha: &'a str) -> impl Iterator<Item = (LaneColor, &'a Tip)> {
+        [(LaneColor::Head, &self.branch), (LaneColor::Upstream, &self.upstream), (LaneColor::Base, &self.base)]
+            .into_iter()
+            .filter_map(move |(c, t)| Some((c, t.as_ref().filter(|t| t.sha == sha)?)))
+    }
+
+    /// The colour of the lane leaving `sha`, when a tip points at it.
+    pub fn color(&self, sha: &str) -> Option<LaneColor> {
+        (sha == self.head).then_some(LaneColor::Head).or_else(|| self.pointing_at(sha).next().map(|(c, _)| c))
+    }
+}
+
+/// The worktree's tips, with every branch and remote branch when `all`; `None` before its first commit.
+pub fn tips(run: &Runner, cwd: &str, all: bool) -> Option<Tips> {
+    let head = git(run, cwd, &["rev-parse", "--verify", "-q", "HEAD"])?.trim().to_string();
+    let refs: Vec<(String, String, String)> = lines(git(run, cwd, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads", "refs/remotes"]))
+        .into_iter()
+        .filter_map(|l| {
+            let mut p = l.splitn(3, '\0');
+            Some((p.next()?.to_string(), p.next()?.to_string(), p.next()?.to_string()))
+        })
+        .collect();
+    let tip = |name: &str| {
+        refs.iter().find(|(r, ..)| r == name).map(|(r, sha, _)| {
+            let short = r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/")).unwrap_or(r);
+            Tip { name: short.to_string(), sha: sha.clone(), remote: r.starts_with("refs/remotes/") }
+        })
+    };
+    let current = git(run, cwd, &["symbolic-ref", "-q", "HEAD"]).map(|s| s.trim().to_string());
+    let branch = current.as_deref().and_then(tip);
+    let upstream = current.as_deref().and_then(|c| refs.iter().find(|(r, ..)| r == c)).and_then(|(.., u)| tip(u));
+    let name = current.as_deref().and_then(|c| c.strip_prefix("refs/heads/")).unwrap_or_default();
+    let base = match name {
+        "main" | "master" => None,
+        _ => base_of(run, cwd, name).filter(|b| github::base_branch(b) != name).and_then(|b| tip(&format!("refs/remotes/{b}")).or_else(|| tip(&format!("refs/heads/{b}")))),
+    };
+    let others = if all { refs.into_iter().map(|(_, sha, _)| sha).collect() } else { Vec::new() };
+    Some(Tips { head, branch, upstream, base, others })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::{committer, develop_ahead_of_master, scratch_repo, sh, sha};
 
     fn s(shas: &[&str]) -> Vec<String> {
         shas.iter().map(|s| s.to_string()).collect()
@@ -137,5 +242,92 @@ mod tests {
         assert_eq!(row.input[0].color, LaneColor::Head);
         assert_eq!(row.output, vec![Lane { sha: "p".into(), color: LaneColor::Upstream }]);
         assert_eq!(row.color, LaneColor::Upstream);
+    }
+
+    #[test]
+    fn the_graph_follows_the_branch_a_branch_was_created_from() {
+        let dir = develop_ahead_of_master("graph-grew-from");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        sh(&repo, &["switch", "-qc", "feature", "--no-track", "origin/develop"]);
+        assert_eq!(tips(&Runner::Local, r, false).unwrap().base.map(|b| b.name).as_deref(), Some("origin/develop"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn tips_follow_the_branch_its_upstream_and_main() {
+        let dir = scratch_repo("tips");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "main"]);
+        sh(&repo, &["checkout", "-qb", "feature"]);
+        sh(&repo, &["update-ref", "refs/remotes/origin/feature", "HEAD"]);
+        for (k, v) in [("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"), ("branch.feature.remote", "origin"), ("branch.feature.merge", "refs/heads/feature")] {
+            sh(&repo, &["config", k, v]);
+        }
+        std::fs::write(repo.join("b"), "b\n").unwrap();
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-qm", "b"]);
+        let (head, main) = (sha(r, "HEAD"), sha(r, "main"));
+        let t = tips(&Runner::Local, r, false).unwrap();
+        assert_eq!(t.head, head);
+        assert_eq!(t.branch, Some(Tip { name: "feature".into(), sha: head.clone(), remote: false }));
+        assert_eq!(t.upstream, Some(Tip { name: "origin/feature".into(), sha: main.clone(), remote: true }));
+        assert_eq!(t.base, Some(Tip { name: "main".into(), sha: main.clone(), remote: false }));
+        assert_eq!(t.revs(), vec![head, main.clone()]);
+        assert_eq!(t.color(&main), Some(LaneColor::Upstream));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn on_main_the_graph_has_no_base() {
+        let dir = scratch_repo("tips-main");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        sh(&repo, &["branch", "-M", "main"]);
+        let t = tips(&Runner::Local, r, false).unwrap();
+        assert_eq!(t.revs(), vec![sha(r, "HEAD")]);
+        assert_eq!(t.branch.map(|b| b.name).as_deref(), Some("main"));
+        assert_eq!((t.upstream, t.base), (None, None));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn following_every_branch_starts_the_graph_from_side_branches_too() {
+        let dir = scratch_repo("tips-all");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "main"]);
+        sh(&repo, &["checkout", "-qb", "side"]);
+        sh(&repo, &["commit", "-q", "--allow-empty", "-m", "side"]);
+        sh(&repo, &["checkout", "-q", "main"]);
+        let side = sha(r, "side");
+        assert_eq!(tips(&Runner::Local, r, false).unwrap().revs(), vec![sha(r, "HEAD")]);
+        assert_eq!(tips(&Runner::Local, r, true).unwrap().revs(), vec![sha(r, "HEAD"), side]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn log_graph_pages_through_history_children_first() {
+        let dir = scratch_repo("log");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        for name in ["b", "c"] {
+            std::fs::write(repo.join(name), name).unwrap();
+            sh(&repo, &["add", "."]);
+            sh(&repo, &["commit", "-qm", name]);
+        }
+        let head = vec![sha(r, "HEAD")];
+        let all = log_graph(&Runner::Local, r, &head, 0, 50);
+        assert_eq!(all.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["c", "b", "init"]);
+        assert_eq!(all[0].sha, head[0]);
+        assert_eq!(all[0].parents, vec![all[1].sha.clone()]);
+        assert_eq!(all[0].author, "t");
+        assert!(all[2].parents.is_empty());
+        assert_eq!(log_graph(&Runner::Local, r, &head, 1, 1), all[1..2].to_vec());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

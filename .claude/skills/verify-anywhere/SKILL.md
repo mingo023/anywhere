@@ -70,6 +70,8 @@ Prove things through the **input steps**. They dispatch real GPUI input events, 
 | `type` | `CAPTURE_TYPE` | `\|`-separated strings, typed one character at a time |
 | `click` | `CAPTURE_CLICKS` | `;`-separated `x,y` in window points |
 | `jiggle-click` | `CAPTURE_CLICKS` | a click whose pointer moves 2pt while the button is down |
+| `hand-click` | `CAPTURE_CLICKS` | a click with a frame drawn while the button is down, as a real click gets; use it for anything a press changes before the release (popovers) |
+| `bench` | — | times whole-window frames, each after a notify, and prints `[bench] p50/p90/max` to `desktop.log` (`CAPTURE_BENCH_FRAMES`, default 60); `FIXTURE_SESSIONS=n` and `FIXTURE_CHANGED=n` make the fixture big |
 | `move` | `CAPTURE_MOVES` | `x,y` hover |
 | `drop` / `drag` | `CAPTURE_DROPS` / `CAPTURE_DRAGS` | `x,y,/abs/file` (Finder drop / held drag) |
 | `paste-image` | `CAPTURE_PASTE` | path to a PNG, pasted with Cmd+V |

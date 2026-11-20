@@ -226,16 +226,18 @@ impl Desktop {
             .cursor_pointer()
             .when(open, |d| d.bg(FILL_3))
             .hover(|s| s.bg(FILL_3))
-            .child(icon("plus", 15., ink))
-            // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.panels.menu = if open { None } else { Some(place) };
+            .child(icon("plus", 15., ink));
+        let plus = ui::popover_trigger(
+            plus,
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                this.panels.menu = Some(place);
                 this.panels.actions = None;
                 this.panels.top_actions = None;
                 this.row_menu = None;
                 cx.notify();
-            }));
+            }),
+        );
         let menu = open.then(|| ui::dropdown(29., ui::menu_in("tab-menu-in", self.tab_menu_view(place, cx))));
         div().relative().flex().flex_none().items_center().child(plus).children(menu)
     }

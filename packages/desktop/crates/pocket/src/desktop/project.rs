@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use theme::*;
 use ui::State;
+use store::prefs::sidebar::SessionSort;
 use workspace::Workspace;
 
 /// A terminal, the tree it is placed in if any, and whether it is a delegated session, which only its chat shows.
@@ -46,8 +47,29 @@ fn without_child_only(trees: Vec<git::Worktree>, terminals: &[Placed]) -> Vec<gi
     trees.into_iter().filter(|w| w.main || !only.contains(w.path.as_str())).collect()
 }
 
+/// Every project, and each one's sessions as cards, worked out once while the sidebar draws.
+pub(crate) struct Placement {
+    projects: Vec<String>,
+    cards: HashMap<String, Vec<Card>>,
+}
+
+/// Each project's cards, sorted as one project's are.
+fn by_project<'a>(placed: impl Iterator<Item = (&'a String, Card)>, by: SessionSort) -> HashMap<String, Vec<Card>> {
+    let mut cards: HashMap<String, Vec<Card>> = HashMap::new();
+    for (p, card) in placed {
+        cards.entry(p.clone()).or_default().push(card);
+    }
+    for list in cards.values_mut() {
+        status::sort(list, by);
+    }
+    cards
+}
+
 impl Desktop {
     pub fn projects(&self) -> Vec<String> {
+        if let Some(placed) = self.sidebar.placement.borrow().as_ref() {
+            return placed.projects.clone();
+        }
         let placeable = self.git_done > 0 || project::all_listed(&self.store.projects, &self.worktrees, readable);
         let hidden = status::hidden_terminals(&self.agents.list);
         let sessions = if placeable { self.terminals.sessions.items.as_slice() } else { &[] };
@@ -116,14 +138,31 @@ impl Desktop {
     }
 
     pub fn cards(&self, project: &str) -> Vec<Card> {
+        if let Some(placed) = self.sidebar.placement.borrow().as_ref() {
+            return placed.cards.get(project).cloned().unwrap_or_default();
+        }
         let projects = self.projects();
-        let mut out: Vec<Card> = status::listed(&self.agents.list)
+        let mut out: Vec<Card> = self.placed_cards(&projects).filter(|(p, _)| *p == project).map(|(_, c)| c).collect();
+        status::sort(&mut out, self.store.sidebar.sort);
+        out
+    }
+
+    /// Each listed session's card, with the project it sits in.
+    fn placed_cards<'a>(&'a self, projects: &'a [String]) -> impl Iterator<Item = (&'a String, Card)> + 'a {
+        status::listed(&self.agents.list)
             .into_iter()
             .filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?)))
-            .filter(|(_, s)| self.project_of(&s.info.cwd, &projects).is_some_and(|p| p == project))
-            .map(|(a, s)| status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })
-            .collect();
-        status::sort(&mut out, self.store.sidebar.sort);
+            .filter_map(|(a, s)| Some((self.project_of(&s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })))
+    }
+
+    /// Runs `f` with `projects` and `cards` answered from one pass over the sessions. Every sidebar row asks for its
+    /// project's cards, and placing each session again per row took most of a frame with 60 sessions.
+    pub(crate) fn placed<R>(&self, f: impl FnOnce() -> R) -> R {
+        let projects = self.projects();
+        let cards = by_project(self.placed_cards(&projects), self.store.sidebar.sort);
+        self.sidebar.placement.replace(Some(Placement { projects, cards }));
+        let out = f();
+        self.sidebar.placement.take();
         out
     }
 
@@ -388,7 +427,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
 
 #[cfg(test)]
 mod tests {
-    use super::{HashMap, Placed, Repo, child_only, held, merge_repos, without_child_only};
+    use super::{HashMap, Placed, Repo, SessionSort, by_project, child_only, held, merge_repos, without_child_only};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -419,6 +458,16 @@ mod tests {
     fn reading_the_same_state_changes_nothing() {
         let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
         assert!(!merge_repos(&mut repos, vec![("/a".into(), Some(repo("main"))), ("/b".into(), None)]));
+    }
+
+    #[test]
+    fn each_project_gets_only_its_own_cards_in_sort_order() {
+        let card = |id: &str, created: i64| crate::status::card(&agents::Summary { id: id.into(), created_at: created, ..Default::default() }, "/w");
+        let (a, b) = ("/a".to_string(), "/b".to_string());
+        let placed = vec![(&a, card("a-old", 1)), (&b, card("b", 5)), (&a, card("a-new", 9))];
+        let ids = |cards: &[crate::status::Card]| cards.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let grouped = by_project(placed.into_iter(), SessionSort::Newest);
+        assert_eq!((ids(&grouped["/a"]), ids(&grouped["/b"]), grouped.len()), (vec!["a-new".to_string(), "a-old".to_string()], vec!["b".to_string()], 2));
     }
 
     fn at(id: &str, tree: Option<&str>, hidden: bool) -> Placed {

@@ -58,11 +58,8 @@ pub(crate) fn full_access_chip(id: &'static str, agent: String) -> Stateful<Div>
 
 /// A composer chip led by `glyph`; `toggle` opens or closes its menu.
 pub(crate) fn chip(id: &'static str, open: bool, glyph: &str, label: impl Into<SharedString>, color: Token, toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
-    super::picker(super::pill().child(icon(glyph, 14., TEXT_2)).child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(color).child(label.into())), id, open)
-        .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            toggle(this, cx);
-        }))
+    let chip = super::picker(super::pill().child(icon(glyph, 14., TEXT_2)).child(div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(color).child(label.into())), id, open);
+    ui::popover_trigger(chip, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| toggle(this, cx)))
 }
 
 pub(crate) fn access_chip(id: &'static str, open: bool, picked: &str, app: &str, toggle: impl Fn(&mut Desktop, &mut Context<Desktop>) + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {

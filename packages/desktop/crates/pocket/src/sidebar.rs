@@ -16,6 +16,7 @@ mod update;
 mod usage;
 
 use crate::desktop::Desktop;
+use crate::desktop::project::Placement;
 use crate::desktop::pages;
 use crate::desktop::chrome::{Column, Layout, Overlay, RAIL, RowMenu, Screen, Side, drag_area, id, state};
 use crate::glide::Glide;
@@ -37,6 +38,7 @@ use store::sections::Sort;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use theme::*;
@@ -178,6 +180,8 @@ pub struct SidebarState {
     pub(crate) filter: Filter,
     pub(crate) organize: Organize,
     pub(crate) closing: Closing,
+    /// Set only while the sidebar draws; see `Desktop::placed`.
+    pub(crate) placement: RefCell<Option<Placement>>,
     /// The lead column, between its `lead_stop`s.
     pub(crate) lead: Glide,
     /// How far the right-hand panel is open.
@@ -192,7 +196,7 @@ impl SidebarState {
         let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
         subs.extend(picker_subs);
         subs.extend(filter_subs);
-        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default(), lead: Glide::default(), panel: Glide::default() }, subs)
+        (Self { search, menu_at: None, picker, add_menu: false, panel_open, rename: None, hover: Hover::default(), filter, organize: Organize::default(), closing: Closing::default(), placement: RefCell::default(), lead: Glide::default(), panel: Glide::default() }, subs)
     }
 
     /// Steps the lead column toward `layout` and the panel toward open or shut; true while either still moves.
@@ -212,11 +216,15 @@ impl Desktop {
     /// The Projects add button and its menu: add a project, or clone one.
     fn add_menu(&self, cx: &mut Context<Self>) -> Div {
         let open = self.sidebar.add_menu;
-        let button = icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.close_menus();
-            this.sidebar.add_menu = !open;
-            cx.notify();
-        }));
+        let button = ui::popover_trigger(
+            icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.close_menus();
+                this.sidebar.add_menu = true;
+                cx.notify();
+            }),
+        );
         div().relative().child(button).when(open, |d| {
             let host = self.space_host_name(&self.space());
             let add = ui::menu_row("aside-add-project", "folder", &on_host("Open folder", host.as_deref()), None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
@@ -258,9 +266,11 @@ impl Desktop {
 
     /// The expanded sidebar: projects with their worktrees.
     pub(crate) fn aside(&self, cx: &mut Context<Self>) -> Div {
-        let t0 = Instant::now(); // [DEBUG-sidebar]
+        self.placed(|| self.aside_body(cx))
+    }
+
+    fn aside_body(&self, cx: &mut Context<Self>) -> Div {
         let unseen = crate::inbox::count(&self.agents);
-        let t_inbox = t0.elapsed(); // [DEBUG-sidebar]
         let top = drag_area(div())
             .h(px(42.))
             .flex()
@@ -290,12 +300,8 @@ impl Desktop {
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.go_to_screen(screen, window, cx)))
             })
             .collect();
-        let t1 = Instant::now(); // [DEBUG-sidebar]
         let header = self.projects_header(cx);
-        let t_header = t1.elapsed(); // [DEBUG-sidebar]
-        let t2 = Instant::now(); // [DEBUG-sidebar]
         let sections = self.sections(cx);
-        let (t_sections, n_sections) = (t2.elapsed(), sections.len()); // [DEBUG-sidebar]
         let (order, space) = (self.space_order(), self.space());
         let list = div().flex().flex_col().gap(px(1.)).children(self.offline_card(&space, cx)).children(sections);
         let slide = self.spaces.sliding(Instant::now()).filter(|_| !cx.reduce_motion() && !self.capturing);
@@ -330,9 +336,7 @@ impl Desktop {
             .children(self.update_card(cx).or_else(|| self.star_card(cx)))
             .child(switcher)
             .on_scroll(cx.listener(|this, e: &ScrollEvent, window, cx| this.swipe_spaces(e, window, cx)));
-        let aside = self.resizable(aside, Column::Projects, cx);
-        gpui_kit::gpui::hitch::debug_note(|| format!("[DEBUG-sidebar] aside built in {:.1}ms: inbox={:.1}ms header={:.1}ms sections={:.1}ms ({n_sections})", t0.elapsed().as_secs_f64() * 1e3, t_inbox.as_secs_f64() * 1e3, t_header.as_secs_f64() * 1e3, t_sections.as_secs_f64() * 1e3)); // [DEBUG-sidebar]
-        aside
+        self.resizable(aside, Column::Projects, cx)
     }
 
     /// `state` of a tree in `p`, as a row shows it: a host that can't be reached has nothing working, so its spinners stop.

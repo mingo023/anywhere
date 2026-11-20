@@ -53,12 +53,9 @@ impl Desktop {
     }
 
     fn bar_toggle(&self, id: &'static str, glyph: &'static str, tip: &'static str, menu: Menu, open: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        div().id(id).size(px(26.)).flex().items_center().justify_center().rounded(px(13.)).border_1().border_color(SEPARATOR).cursor_pointer().hover(|s| s.bg(FILL_2)).when(open, |d| d.bg(FILL_3)).child(icon(glyph, 13., TEXT_2)).when(!open, |d| d.tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-            cx.stop_propagation();
-            if open {
-                this.close_menus();
-                cx.notify();
-            } else if menu == Menu::Filter {
+        let toggle = div().id(id).size(px(26.)).flex().items_center().justify_center().rounded(px(13.)).border_1().border_color(SEPARATOR).cursor_pointer().hover(|s| s.bg(FILL_2)).when(open, |d| d.bg(FILL_3)).child(icon(glyph, 13., TEXT_2)).when(!open, |d| d.tooltip(move |window, cx| Tooltip::new(tip).build(window, cx)));
+        ui::popover_trigger(toggle, open, cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+            if menu == Menu::Filter {
                 this.open_filter_menu(window, cx);
             } else {
                 this.toggle_board_menu(menu.clone(), cx);
@@ -212,7 +209,7 @@ impl Desktop {
             this.board_changed();
             cx.notify();
         }));
-        let value = cell("board-token-value").text_color(TEXT).font_weight(FontWeight::MEDIUM).child(self.filter_token_value(cat)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+        let value = ui::popover_trigger(cell("board-token-value").text_color(TEXT).font_weight(FontWeight::MEDIUM).child(self.filter_token_value(cat)), self.board.menu == Some(Menu::FilterIn(cat)), cx.listener(move |this, _: &MouseDownEvent, window, cx| {
             this.open_filter_menu(window, cx);
             this.board.menu = Some(Menu::FilterIn(cat));
         }));
@@ -229,15 +226,8 @@ impl Desktop {
         let f = &self.board.filters;
         let tokens: Vec<Div> = FilterCat::ALL.into_iter().enumerate().filter(|(_, cat)| f.count(*cat) > 0).map(|(i, cat)| self.filter_token(cat, i, cx)).collect();
         (!tokens.is_empty()).then(|| {
-            let add = ui::icon_button_sized("board-token-add", "plus", 22., TEXT_3).capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                if matches!(this.board.menu, Some(Menu::Filter | Menu::FilterIn(_))) {
-                    this.close_menus();
-                    cx.notify();
-                } else {
-                    this.open_filter_menu(window, cx);
-                }
-            }));
+            let open = matches!(self.board.menu, Some(Menu::Filter | Menu::FilterIn(_)));
+            let add = ui::popover_trigger(ui::icon_button_sized("board-token-add", "plus", 22., TEXT_3), open, cx.listener(|this, _: &MouseDownEvent, window, cx| this.open_filter_menu(window, cx)));
             let clear = bar_button("board-filters-clear", Variant::Ghost, None, "Clear").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clear_board_filters(window, cx)));
             let save = can_save_view(&self.store.board_views, f).then(|| bar_button("board-view-save", Variant::Secondary, None, "Save view").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.save_board_view(cx))));
             div().mx(px(8.)).mb(px(6.)).min_h(px(40.)).flex_none().px(px(8.)).py(px(6.)).flex().flex_wrap().items_center().gap(px(6.)).rounded(px(8.)).bg(FILL_1).children(tokens).child(add).child(div().flex_1()).child(clear).children(save)

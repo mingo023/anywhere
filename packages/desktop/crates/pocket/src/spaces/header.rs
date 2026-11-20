@@ -32,28 +32,31 @@ impl Desktop {
         let open = self.spaces.menu;
         let host = space.host().and_then(|id| self.fleet.hosts.list.iter().find(|h| h.id == id));
         let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
-        let row = div()
-            .id("aside-space")
-            .h(px(34.))
-            .mt(px(6.))
-            .px(px(6.))
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .rounded(px(8.))
-            .cursor_pointer()
-            .hover(|s| s.bg(FILL_2))
-            .when(open, |d| d.bg(FILL_2))
-            .child(tile(glyph(space), self.space_colour(space, order), 22.))
-            .child(div().min_w_0().max_w(px(120.)).truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(self.space_name(space)))
-            .children(host.map(|_| ui::dot(6., link_color(link))))
-            .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(host.map(|h| h.address()).unwrap_or_default()))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let row = ui::popover_trigger(
+            div()
+                .id("aside-space")
+                .h(px(34.))
+                .mt(px(6.))
+                .px(px(6.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .rounded(px(8.))
+                .cursor_pointer()
+                .hover(|s| s.bg(FILL_2))
+                .when(open, |d| d.bg(FILL_2))
+                .child(tile(glyph(space), self.space_colour(space, order), 22.))
+                .child(div().min_w_0().max_w(px(120.)).truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(self.space_name(space)))
+                .children(host.map(|_| ui::dot(6., link_color(link))))
+                .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(host.map(|h| h.address()).unwrap_or_default()))
+                .child(icon("chevron-down", 12., TEXT_4)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.close_menus();
-                this.spaces.menu = !open;
+                this.spaces.menu = true;
                 cx.notify();
-            }));
+            }),
+        );
         div().relative().flex_none().child(row).when(open, |d| d.child(ui::dropdown(40., ui::menu_in("aside-space-menu-in", self.space_menu(space, order, cx)))))
     }
 

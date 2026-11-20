@@ -57,3 +57,37 @@ struct CredentialsTests {
         #expect(Credentials.newClientId() != Credentials.newClientId())
     }
 }
+
+@Suite("Link revival")
+struct RevivalTests {
+    @Test("a path with no route does nothing, so airplane mode causes no redial churn")
+    func unsatisfiedPath() {
+        #expect(Revival.onPath(online: false, satisfied: false, interfacesChanged: true) == .none)
+        #expect(Revival.onPath(online: true, satisfied: false, interfacesChanged: true) == .none)
+    }
+
+    @Test("an online link whose interfaces changed dials afresh, and one whose didn't is only pinged")
+    func onlineOnPath() {
+        #expect(Revival.onPath(online: true, satisfied: true, interfacesChanged: true) == .redial)
+        #expect(Revival.onPath(online: true, satisfied: true, interfacesChanged: false) == .verify)
+    }
+
+    @Test("a route back to an offline link dials now")
+    func offlineOnPath() {
+        #expect(Revival.onPath(online: false, satisfied: true, interfacesChanged: false) == .reconnect)
+        #expect(Revival.onPath(online: false, satisfied: true, interfacesChanged: true) == .reconnect)
+    }
+
+    @Test("an online link comes back from more than thirty seconds away with a fresh dial, and from less with a ping")
+    func foreground() {
+        #expect(Revival.onForeground(online: true, away: .seconds(31)) == .redial)
+        #expect(Revival.onForeground(online: true, away: .seconds(30)) == .verify)
+        #expect(Revival.onForeground(online: true, away: .zero) == .verify)
+    }
+
+    @Test("an offline link dials now when the app comes back, however long it was away")
+    func offlineForeground() {
+        #expect(Revival.onForeground(online: false, away: .zero) == .reconnect)
+        #expect(Revival.onForeground(online: false, away: .seconds(60)) == .reconnect)
+    }
+}

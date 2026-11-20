@@ -1,11 +1,8 @@
 /// Times here are seconds on one clock, as `Date.timeIntervalSinceReferenceDate`.
 public typealias Seconds = Double
 
-/// 1 - (1 - t)⁵.
-public func easeOutQuint(_ t: Double) -> Double { 1 - pow5(1 - t) }
 /// 1 - (1 - t)³.
 public func easeOutCubic(_ t: Double) -> Double { 1 - (1 - t) * (1 - t) * (1 - t) }
-private func pow5(_ x: Double) -> Double { x * x * x * x * x }
 
 /// How much of a streaming message shows. What arrives is let out at an even pace,
 /// so a whole paragraph landing at once still reads as being written.

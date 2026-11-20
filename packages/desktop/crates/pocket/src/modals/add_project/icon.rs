@@ -49,22 +49,24 @@ impl Desktop {
             .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x00000040), 2., 6.)])
             .child(icon("pencil", 11., TEXT));
         let open = self.settings.menu == Some(EMOJI_MENU);
-        let button = div()
-            .id("repo-icon")
-            .relative()
-            .size(px(MARK))
-            .flex()
-            .items_center()
-            .justify_center()
-            .cursor_pointer()
-            .active(|s| s.opacity(0.85))
-            .child(mark)
-            .child(badge)
-            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.settings.menu = (!open).then_some(EMOJI_MENU);
+        let button = ui::popover_trigger(
+            div()
+                .id("repo-icon")
+                .relative()
+                .size(px(MARK))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .active(|s| s.opacity(0.85))
+                .child(mark)
+                .child(badge),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.settings.menu = Some(EMOJI_MENU);
                 cx.notify();
-            }));
+            }),
+        );
         let menu = open.then(|| self.icon_menu(chosen, cx));
         div().relative().child(button).children(menu)
     }

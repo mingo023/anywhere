@@ -64,12 +64,8 @@ pub fn details(rows: Vec<(&str, AnyElement)>) -> Div {
 }
 
 impl Desktop {
-    /// `button` as the toggle of `menu`; the press is caught so the menu's own outside-click doesn't close it first.
-    pub(super) fn menu_toggle(&self, button: Stateful<Div>, menu: Menu, cx: &mut Context<Self>) -> Stateful<Div> {
-        button.capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            this.toggle_menu(menu, cx);
-        }))
+    pub(super) fn menu_toggle(&self, button: Stateful<Div>, menu: Menu, open: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+        ui::popover_trigger(button, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| this.toggle_menu(menu, cx)))
     }
 
     /// The scrolling column every detail page is: centred, 760 wide, `gap` between blocks.

@@ -64,15 +64,18 @@ impl Desktop {
             return pill;
         }
         let (open, id) = (self.chats.composer.draft.menu == Some(Menu::Model), agent.id.clone());
-        let chip = composer::picker(pill, "chat-model", open).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-            cx.stop_propagation();
-            if this.chats.composer.draft.toggle(Menu::Model) {
-                let search = this.chats.composer.search.clone();
-                focus_search(&search, window, cx);
-                this.chat_models_opened(&id, cx);
-            }
-            cx.notify();
-        }));
+        let chip = ui::popover_trigger(
+            composer::picker(pill, "chat-model", open),
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                if this.chats.composer.draft.toggle(Menu::Model) {
+                    let search = this.chats.composer.search.clone();
+                    focus_search(&search, window, cx);
+                    this.chat_models_opened(&id, cx);
+                }
+                cx.notify();
+            }),
+        );
         let menu = open.then(|| {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
             let project = self.chat_project(agent);

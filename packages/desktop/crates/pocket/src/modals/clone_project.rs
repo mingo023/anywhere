@@ -310,11 +310,11 @@ impl Desktop {
             .gap(px(8.))
             .children(picked.and_then(group_mark))
             .child(div().flex_1().text_size(px(13.5)).child(picked.map_or("No group".to_string(), |g| g.name.clone())))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.clone_form.group_menu = !open;
-                cx.notify();
-            }));
+            .child(icon("chevron-down", 12., TEXT_4));
+        let button = ui::popover_trigger(button, open, cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.clone_form.group_menu = true;
+            cx.notify();
+        }));
         let pick = |id: Option<u32>, lead: AnyElement, label: &str| {
             ui::menu_pick(SharedString::from(format!("clone-group-{id:?}")), lead, label, f.group == id).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 (this.clone_form.group, this.clone_form.group_menu) = (id, false);
@@ -359,13 +359,15 @@ impl Desktop {
             .child(icon(glyph(&f.machine), 12., TEXT_3))
             .child(self.space_name(&f.machine))
             .when(f.machine.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
-            .child(icon("chevron-down", 11., TEXT_4))
-            .when(!f.busy, |d| {
-                d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.clone_form.machine_menu = !open;
-                    cx.notify();
-                }))
-            });
+            .child(icon("chevron-down", 11., TEXT_4));
+        let chip = if f.busy {
+            chip
+        } else {
+            ui::popover_trigger(chip, open, cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.clone_form.machine_menu = true;
+                cx.notify();
+            }))
+        };
         let menu = open.then(|| {
             let rows = machine_rows(self, "clone-machine", &f.machine, Self::pick_clone_machine, cx);
             let menu = ui::pop(div().id("clone-machine-menu"))

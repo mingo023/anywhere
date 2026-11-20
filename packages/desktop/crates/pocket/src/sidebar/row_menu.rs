@@ -101,18 +101,19 @@ impl Desktop {
 
     pub(super) fn row_menu_button(&self, key: &str, menu: RowMenu, cx: &mut Context<Self>) -> AnyElement {
         let open = self.row_menu.as_ref() == Some(&menu);
-        let toggle = menu.clone();
-        let button = icon_button_sized(id(format!("aside-more:{key}")), "more", 22., TEXT_3).rounded(px(6.)).capture_any_mouse_down(cx.listener(
-            move |this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
+        let opens = menu.clone();
+        let button = ui::popover_trigger(
+            icon_button_sized(id(format!("aside-more:{key}")), "more", 22., TEXT_3).rounded(px(6.)),
+            open,
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                 this.sidebar.hover.press();
-                this.row_menu = (this.row_menu.as_ref() != Some(&toggle)).then(|| toggle.clone());
+                this.row_menu = Some(opens.clone());
                 this.sidebar.menu_at = None;
                 this.panels.menu = None;
                 this.panels.actions = None;
                 cx.notify();
-            },
-        ));
+            }),
+        );
         div().relative().child(button).when(open, |d| d.child(self.row_menu_pop(&menu, cx))).into_any_element()
     }
 

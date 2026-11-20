@@ -74,7 +74,7 @@ impl Desktop {
                     this.create_pr(window, cx);
                 }
             }),
-            Box::new(|this, _, _| this.pr.create_menu = !this.pr.create_menu),
+            Box::new(|this, _, _| this.pr.create_menu = true),
             menu,
             cx,
         )

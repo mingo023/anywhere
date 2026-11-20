@@ -205,11 +205,9 @@ impl Desktop {
     }
 
     pub(super) fn pr_select(&self, cx: &mut Context<Self>) -> Div {
-        let button = ui::icon_button_sized("form-pr", "pull-request", 32., TEXT_3).capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
-            cx.stop_propagation();
-            this.toggle_search(Picker::Pr, this.new_form.pr.clone(), window, cx);
-        }));
-        let menu = (self.new_form.draft.picker == Some(Picker::Pr)).then(|| ui::dropdown_right(38., ui::menu_in("pr-menu-in", self.pr_picker(cx))));
+        let open = self.new_form.draft.picker == Some(Picker::Pr);
+        let button = ui::popover_trigger(ui::icon_button_sized("form-pr", "pull-request", 32., TEXT_3), open, cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_search(Picker::Pr, this.new_form.pr.clone(), window, cx)));
+        let menu = open.then(|| ui::dropdown_right(38., ui::menu_in("pr-menu-in", self.pr_picker(cx))));
         div().relative().child(button).children(menu)
     }
 
@@ -238,11 +236,8 @@ impl Desktop {
             .child(icon(glyph(&space), 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(self.space_name(&space)))
             .when(space.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_picker(Picker::Machine, cx);
-            }));
+            .child(icon("chevron-down", 12., TEXT_4));
+        let chip = ui::popover_trigger(chip, f.picker == Some(Picker::Machine), cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Machine, cx)));
         let menu = (f.picker == Some(Picker::Machine)).then(|| ui::dropdown(36., ui::menu_in("machine-menu-in", self.machine_menu(cx))));
         div().relative().child(chip).children(menu)
     }
@@ -319,11 +314,8 @@ impl Desktop {
             .when(f.repo.is_none(), |d| d.child(icon("folder", 14., TEXT_3)))
             .child(div().font_weight(FontWeight::MEDIUM).when(missing.is_some(), |d| d.text_color(TEXT_3)).child(name))
             .when_some(missing, |d, tip| d.child(icon("warning", 13., WAITING_TEXT)).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)))
-            .child(icon("chevron-down", 12., TEXT_4))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_picker(Picker::Project, cx);
-            }));
+            .child(icon("chevron-down", 12., TEXT_4));
+        let chip = ui::popover_trigger(chip, f.picker == Some(Picker::Project), cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Project, cx)));
         let menu = (f.picker == Some(Picker::Project)).then(|| ui::dropdown(36., ui::menu_in("project-menu-in", self.form_project_menu(cx))));
         div().relative().child(chip).children(menu)
     }
@@ -338,10 +330,7 @@ impl Desktop {
         let checkout = if f.linked_pr().is_some() || self.draft_blocker().is_some() {
             checkout.opacity(0.5).cursor_default()
         } else {
-            checkout.capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                cx.stop_propagation();
-                this.toggle_picker(Picker::Checkout, cx);
-            }))
+            ui::popover_trigger(checkout, f.picker == Some(Picker::Checkout), cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Checkout, cx)))
         };
         let menu = (f.picker == Some(Picker::Checkout)).then(|| ui::dropdown(36., ui::menu_in("checkout-menu-in", self.checkout_picker(cx))));
         div().relative().child(checkout).children(menu)
@@ -361,10 +350,7 @@ impl Desktop {
         let branch = if self.draft_blocker().is_some() {
             branch.opacity(0.5).cursor_default()
         } else {
-            branch.capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                this.toggle_search(Picker::Branch, this.new_form.search.clone(), window, cx);
-            }))
+            ui::popover_trigger(branch, f.picker == Some(Picker::Branch), cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_search(Picker::Branch, this.new_form.search.clone(), window, cx)))
         };
         let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., ui::menu_in("branch-menu-in", self.branch_picker(cx))));
         div().relative().child(branch).children(branch_menu)

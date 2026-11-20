@@ -12,7 +12,7 @@ type Act = Box<dyn Fn(&mut Desktop, &mut Window, &mut Context<Desktop>)>;
 
 /// The primary button with a chevron beside it that opens `menu`; it looks pressable only when `ready`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn split_button(id: &'static str, lead: impl IntoElement, label: impl IntoElement, ready: bool, open: bool, main: Act, toggle: Act, menu: Stateful<Div>, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn split_button(id: &'static str, lead: impl IntoElement, label: impl IntoElement, ready: bool, open: bool, main: Act, on_open: Act, menu: Stateful<Div>, cx: &mut Context<Desktop>) -> Div {
     let wash = Token::new(0xffffff1a, 0x1717171a);
     let primary = div()
         .id(id)
@@ -42,13 +42,15 @@ pub(crate) fn split_button(id: &'static str, lead: impl IntoElement, label: impl
         .cursor_pointer()
         .hover(|s| s.bg(wash))
         .when(open, |d| d.bg(wash))
-        .child(icon("chevron-down", 12., ON_PRIMARY))
-        // Runs before the open menu's click-outside handler, which would otherwise close it only for this click to reopen it.
-        .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-            cx.stop_propagation();
-            toggle(this, window, cx);
+        .child(icon("chevron-down", 12., ON_PRIMARY));
+    let chevron = ui::popover_trigger(
+        chevron,
+        open,
+        cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+            on_open(this, window, cx);
             cx.notify();
-        }));
+        }),
+    );
     let button = ui::primary(div().h(px(30.)).flex().rounded(px(9.))).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ON_PRIMARY).when(!ready, |d| d.opacity(0.5)).child(primary).child(chevron);
     let menu = ui::pop(menu).w(px(232.)).p(px(6.)).flex().flex_col().occlude();
     div().relative().child(button).when(open, |d| d.child(ui::dropdown(34., ui::menu_in((id, 2u32), menu))))
@@ -115,7 +117,7 @@ impl Desktop {
             self.changes.commit_menu,
             Box::new(|this, window, cx| this.commit(CommitKind::Commit, window, cx)),
             Box::new(|this, _, _| {
-                this.changes.commit_menu = !this.changes.commit_menu;
+                this.changes.commit_menu = true;
                 this.changes.menu = false;
             }),
             menu,
@@ -189,7 +191,7 @@ impl Desktop {
                 }
             }),
             Box::new(|this, _, _| {
-                this.pr.ship_menu = !this.pr.ship_menu;
+                this.pr.ship_menu = true;
                 this.changes.menu = false;
             }),
             menu,

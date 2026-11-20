@@ -1,6 +1,7 @@
 package hosts
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -208,5 +209,45 @@ func TestAHostAddedAgainBeforeItsRemovalFinishesKeepsItsFiles(t *testing.T) {
 	}
 	if l := m.List(); len(l) != 1 || l[0].ID != again.ID {
 		t.Errorf("listed %+v", l)
+	}
+}
+
+func TestAHostWaitingOutABackoffRetriesWhenTheClockJumpsPastASleep(t *testing.T) {
+	m := &Manager{
+		links: map[string]Link{"down": {State: StateRetrying}, "up": {State: StateOnline}, "refused": {State: StateFailed}},
+		sups: map[string]*supervisor{
+			"down":    {events: make(chan event, 16)},
+			"up":      {events: make(chan event, 16)},
+			"refused": {events: make(chan event, 16)},
+		},
+	}
+	tick := make(chan time.Time)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.retryAfterWake(ctx, tick, time.Second)
+
+	t0 := time.Now().Round(0)
+	// A send is taken only once the one before it is handled.
+	tick <- t0
+	tick <- t0.Add(time.Second)
+	tick <- t0.Add(2 * time.Second)
+	if n := len(m.sups["down"].events); n != 0 {
+		t.Fatalf("a steady clock retried %d times", n)
+	}
+	tick <- t0.Add(time.Hour)
+	tick <- t0.Add(time.Hour + time.Second)
+	select {
+	case e := <-m.sups["down"].events:
+		if e.kind != evRetry {
+			t.Fatalf("%+v", e)
+		}
+	default:
+		t.Fatal("a clock that jumped past a sleep retried nothing")
+	}
+	if n := len(m.sups["up"].events); n != 0 {
+		t.Fatalf("an online host retried %d times", n)
+	}
+	if n := len(m.sups["refused"].events); n != 0 {
+		t.Fatalf("a failed host retried %d times", n)
 	}
 }

@@ -126,10 +126,8 @@ impl Desktop {
             Surface::Composer => div().h(px(24.)).px(px(7.)).flex().flex_none().items_center().gap(px(5.)).max_w(px(170.)).rounded(px(7.)).text_size(px(12.)).text_color(TEXT_2).whitespace_nowrap(),
             Surface::Page => prop_chip(),
         };
-        let chip = chip.id(id).cursor_pointer().hover(|s| s.bg(FILL_2).text_color(TEXT)).when(open, |d| d.bg(FILL_2).text_color(TEXT)).child(lead).child(div().min_w_0().truncate().child(value)).capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-            cx.stop_propagation();
-            this.toggle_board_menu(menu.clone(), cx);
-        }));
+        let chip = chip.id(id).cursor_pointer().hover(|s| s.bg(FILL_2).text_color(TEXT)).when(open, |d| d.bg(FILL_2).text_color(TEXT)).child(lead).child(div().min_w_0().truncate().child(value));
+        let chip = ui::popover_trigger(chip, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| this.toggle_board_menu(menu.clone(), cx)));
         let popup = open.then(|| ui::dropdown(30., ui::menu_in("ticket-pick-in", self.popup("ticket-pick-menu", 240., cx).max_h(px(320.)).overflow_y_scroll().children(self.field_rows(surface, field, cx)))));
         div().relative().child(chip).children(popup)
     }

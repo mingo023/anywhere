@@ -33,12 +33,11 @@ impl Desktop {
         let open = self.sidebar.picker.open;
         let p = self.project.as_deref().unwrap_or_default();
         let mark = self.project_mark(p, ui::mark_letter(&self.repo_name(p)));
-        let button = rail_slot("nav-project", open)
-            .child(ui::repo_tile(&mark, 24., true, None))
-            .capture_any_mouse_down(cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                cx.stop_propagation();
-                this.toggle_project_picker(window, cx);
-            }));
+        let button = ui::popover_trigger(
+            rail_slot("nav-project", open).child(ui::repo_tile(&mark, 24., true, None)),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_project_picker(window, cx)),
+        );
         let project = div().relative().child(button).when(open, |d| d.child(ui::dropdown(36., ui::menu_in("projects-menu-in", self.project_picker(cx)))));
         let order = self.space_order();
         let current = self.space();
