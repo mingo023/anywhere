@@ -34,6 +34,15 @@ func TestRunFindsTheProgramOnTheGivenPath(t *testing.T) {
 	}
 }
 
+func TestRunSkipsARelativePathEntryThatOnlyResolvesFromPocketdsOwnDir(t *testing.T) {
+	t.Chdir("/")
+	env := append(os.Environ(), "PATH=.git/safe/../../bin:/usr/bin:/bin")
+	_, out, _, err := Run(context.Background(), env, t.TempDir(), []string{"sh", "-c", "echo ok"}, nil, 0)
+	if err != nil || string(out) != "ok\n" {
+		t.Fatalf("%q %v", out, err)
+	}
+}
+
 func TestRunGivesMinusOneWhenTheTimeoutKillsIt(t *testing.T) {
 	start := time.Now()
 	code, _, _, err := Run(context.Background(), os.Environ(), t.TempDir(), []string{"sleep", "10"}, nil, 100*time.Millisecond)
