@@ -203,6 +203,7 @@ impl Desktop {
             cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
         ];
         _subs.push(Self::confirm_on_enter(cx));
+        _subs.push(Self::welcome_on_enter(cx));
         _subs.extend(palette_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
@@ -675,9 +676,6 @@ impl Render for Desktop {
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.log_focus_miss(&ev.keystroke, window, cx); // [DEBUG-focus]
-                if this.welcome_key(&ev.keystroke, cx) {
-                    return cx.stop_propagation();
-                }
                 this.hide_chips(cx);
                 if crate::explorer::toast::is_undo(&ev.keystroke, || window.context_stack()) && this.undo_trash(cx) {
                     return cx.stop_propagation();
@@ -699,6 +697,7 @@ impl Render for Desktop {
                 }
                 cx.stop_propagation();
             }))
+            .on_action(cx.listener(Self::quit))
             // Bound shortcuts run before `capture_key_down`, so under the welcome the app's own have no handler.
             .when(shown, |root| {
                 root.on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -747,7 +746,6 @@ impl Render for Desktop {
                 .on_action(cx.listener(Self::zoom_pane))
                 .on_action(cx.listener(Self::equalize_panes))
                 .on_action(cx.listener(Self::save))
-                .on_action(cx.listener(Self::quit))
                 .on_action(cx.listener(Self::open_selected))
                 .on_action(cx.listener(Self::add_to_chat))
                 .on_action(cx.listener(Self::tree_menu_item))

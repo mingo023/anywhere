@@ -41,15 +41,24 @@ impl Desktop {
             }
             return None;
         }
-        // macOS hands keys to a focused text field before any key handler, so the composer under it would take Return.
+        // The composer under it would otherwise take what is typed.
         if w.covers() && !self.root.is_focused(window) {
             window.focus(&self.root, cx);
         }
         Some(view(w.pose(now, still), cx))
     }
 
-    /// Return takes the way in while the welcome covers the app.
-    pub(crate) fn welcome_key(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> bool {
+    /// Ahead of the keymap and of focus: Return takes the way in while the welcome covers the app.
+    pub(crate) fn welcome_on_enter(cx: &mut Context<Self>) -> Subscription {
+        let desktop = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |ev, _, cx| {
+            if desktop.update(cx, |d, cx| d.welcome_key(&ev.keystroke, cx)).unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        })
+    }
+
+    fn welcome_key(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> bool {
         let Some(w) = self.welcome.as_mut().filter(|w| w.covers()) else { return false };
         if key.key != "enter" || key.modifiers.modified() {
             return false;
