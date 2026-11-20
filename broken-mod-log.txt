@@ -1,0 +1,5 @@
+seeded mods/broken/mod.js:
+export function register(on) { on('start', () => { throw new Error('no paper today') }) }
+
+desktop.log:
+mod broken: Error: no paper today
