@@ -151,3 +151,11 @@ func TestTailGoesOnFromTheWholeLinesSpawnedReadWithNoneTwice(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestASubagentsNarrationShowsAsText(t *testing.T) {
+	line := []byte(`{"type":"assistant","isSidechain":true,"thinkingDisplay":"updates","message":{"content":[{"type":"thinking","thinking":"Reading the parser."}]}}`)
+	got := MapSubagent(line, "toolu_spawn")
+	if len(got) != 1 || got[0].Kind != "assistant_text" || got[0].Text != "Reading the parser." {
+		t.Fatalf("%+v", got)
+	}
+}

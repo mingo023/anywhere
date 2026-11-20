@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +47,19 @@ func TestAChatAgentAnswersInItsTranscriptAndEndsItsTurn(t *testing.T) {
 		},
 		statusOf(id, "done"),
 	)
+}
+
+func TestAChatClaudesNotesToTheUserShowAsItsWords(t *testing.T) {
+	_, phone, _, id := chatClaude(t)
+	phone.Prompt(id, "narrate Found the cause.")
+	shown := []func(Message) bool{streamOf(id, "assistant", "Found the cause."), streamOf(id, "assistant", "echo: done"), statusOf(id, "done")}
+	phone.WaitFor("the turn", func(m Message) bool {
+		if m.Type == "agent.stream" && m.AgentID == id && m.Item.Kind == "thinking" {
+			t.Fatalf("a note to the user came as thinking: %s", m.Raw)
+		}
+		shown = slices.DeleteFunc(shown, func(ok func(Message) bool) bool { return ok(m) })
+		return len(shown) == 0
+	})
 }
 
 func TestAChatAgentHoldsItsFirstTurnForMCPServersAtMostASecond(t *testing.T) {

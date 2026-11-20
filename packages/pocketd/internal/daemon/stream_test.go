@@ -39,6 +39,33 @@ func TestClaudesStreamDraftsEachBlockOfItsOwnMessages(t *testing.T) {
 	}
 }
 
+func TestClaudesNarrationDraftsAsText(t *testing.T) {
+	s := newStream()
+	var got []timeline.Event
+	for _, raw := range []string{
+		`{"type":"stream_event","thinking_display":"updates","event":{"type":"message_start","message":{}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"x"}}}`,
+		`{"type":"stream_event","thinking_display":"updates","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Found it."}}}`,
+		`{"type":"stream_event","thinking_display":"summarized","event":{"type":"message_start","message":{}}}`,
+		`{"type":"stream_event","thinking_display":"summarized","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Hmm"}}}`,
+	} {
+		var l streamLine
+		if err := json.Unmarshal([]byte(raw), &l); err != nil {
+			t.Fatal(err)
+		}
+		if e, ok := s.draft(l); ok {
+			got = append(got, e)
+		}
+	}
+	want := []timeline.Event{
+		{Kind: "assistant_draft", Text: "Found it.", Draft: "1:0"},
+		{Kind: "thinking_draft", Text: "Hmm", Draft: "2:0"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+}
+
 func TestASubagentsStreamIsNoDraft(t *testing.T) {
 	var l streamLine
 	json.Unmarshal([]byte(`{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}}`), &l)

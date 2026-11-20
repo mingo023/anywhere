@@ -734,3 +734,14 @@ func TestAMessagePocketdSendsShowsWithItsOriginAndTheUsersOwnWithNone(t *testing
 		t.Fatalf("origins = %q", got)
 	}
 }
+
+func TestUnseenDropsANoteAStoredTimelineKeptAsThinking(t *testing.T) {
+	shown := []proto.Item{{Kind: "thinking", Text: "Reading the parser.", ParentToolUseID: "t1"}, {Kind: "tool", ParentToolUseID: "t1", Call: &proto.ToolCall{ToolUseID: "c1", Status: "ok"}}}
+	unseen := Unseen(shown)
+	if got := unseen([]Event{{Kind: "assistant_text", Text: "Reading the parser.", ParentToolUseID: "t1"}}); len(got) != 0 {
+		t.Fatalf("the note came again: %+v", got)
+	}
+	if got := unseen([]Event{{Kind: "tool_start", ToolUseID: "c1", Name: "Bash", ParentToolUseID: "t1"}, {Kind: "tool_end", ToolUseID: "c1", OK: true, ParentToolUseID: "t1"}}); len(got) != 0 {
+		t.Fatalf("the call came again: %+v", got)
+	}
+}
