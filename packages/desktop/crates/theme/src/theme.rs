@@ -13,8 +13,10 @@ pub const MENU_IN: std::time::Duration = std::time::Duration::from_millis(150);
 pub const SPRING: SpringConfig = SpringConfig::new(900., 60., 1.);
 
 pub mod contrast;
+mod scene;
 mod themes;
 
+pub use scene::{Placement, Scene, Sprite};
 pub use themes::{GRAPHITE_DARK, GRAPHITE_LIGHT, Preset, Theme, presets};
 
 static DARK: AtomicBool = AtomicBool::new(false);
@@ -35,6 +37,7 @@ static GLASS_ALPHA: AtomicU32 = AtomicU32::new(WINDOW.pick(true) & 0xff);
 static CHOSEN_FONTS: RwLock<(Option<SharedString>, Option<SharedString>)> = RwLock::new((None, None));
 static BACKDROP: RwLock<Option<[u32; 2]>> = RwLock::new(None);
 static BUBBLE_RADIUS: RwLock<Option<f32>> = RwLock::new(None);
+static SCENE: RwLock<Option<Arc<Scene>>> = RwLock::new(None);
 
 pub fn is_dark() -> bool {
     DARK.load(Ordering::Relaxed)
@@ -756,6 +759,7 @@ pub fn set_theme(theme: &Theme, cx: &mut App) {
     }
     *BACKDROP.write().unwrap() = theme.backdrop;
     *BUBBLE_RADIUS.write().unwrap() = theme.bubble_radius;
+    *SCENE.write().unwrap() = theme.scene.clone().map(Arc::new);
     sync_kit(cx);
 }
 
@@ -766,6 +770,10 @@ pub fn backdrop() -> Option<[u32; 2]> {
 
 pub fn bubble_radius() -> Option<f32> {
     *BUBBLE_RADIUS.read().unwrap()
+}
+
+pub fn scene() -> Option<Arc<Scene>> {
+    SCENE.read().unwrap().clone()
 }
 
 /// Points gpui-kit's theme at the tokens as they paint now.

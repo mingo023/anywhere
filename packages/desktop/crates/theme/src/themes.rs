@@ -1,3 +1,4 @@
+use crate::scene::{self, Scene};
 use crate::{KEYS, Look, Token};
 use std::sync::OnceLock;
 
@@ -15,17 +16,18 @@ pub struct Theme {
     pub(crate) colors: [Option<u32>; KEYS.len()],
     pub(crate) backdrop: Option<[u32; 2]>,
     pub(crate) bubble_radius: Option<f32>,
+    pub(crate) scene: Option<Scene>,
 }
 
 impl Theme {
     /// The default theme of an appearance.
     pub fn graphite(dark: bool) -> Self {
-        Self { name: if dark { "Graphite Dark" } else { "Graphite Light" }.into(), dark, accent: 0, colors: [None; KEYS.len()], backdrop: None, bubble_radius: None }
+        Self { name: if dark { "Graphite Dark" } else { "Graphite Light" }.into(), dark, accent: 0, colors: [None; KEYS.len()], backdrop: None, bubble_radius: None, scene: None }
     }
 
     /// Reads a theme file: a name, an appearance, and under `colors` any of `KEYS`. Keys it leaves out keep Graphite's
     /// colour for its appearance and keys it adds are ignored. `backdrop`, a colour or a top and bottom pair, paints
-    /// behind the chat, and `bubble.radius` rounds the user's messages. The error says what to fix.
+    /// behind the chat, `bubble.radius` rounds the user's messages, and `scene` swims pixel art behind the chat. The error says what to fix.
     pub fn parse(json: &str) -> Result<Self, String> {
         let file: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("Not a JSON file: {e}"))?;
         let name = file["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).ok_or("\"name\" is missing")?;
@@ -61,7 +63,12 @@ impl Theme {
             },
             _ => return Err("\"bubble\" must be an object like { \"radius\": 4 }".into()),
         };
-        Ok(Self { name: name.into(), dark, accent, colors, backdrop, bubble_radius })
+        let scene = scene::parse(&file["scene"])?;
+        Ok(Self { name: name.into(), dark, accent, colors, backdrop, bubble_radius, scene })
+    }
+
+    pub fn scene(&self) -> Option<&Scene> {
+        self.scene.as_ref()
     }
 
     /// The colour this theme paints `token`, before any of the user's settings.
@@ -71,7 +78,7 @@ impl Theme {
 }
 
 /// `#RRGGBB` or `#RRGGBBAA` as `0xRRGGBBAA`.
-fn color(key: &str, value: &serde_json::Value) -> Result<u32, String> {
+pub(crate) fn color(key: &str, value: &serde_json::Value) -> Result<u32, String> {
     let hex = value.as_str().and_then(|c| c.strip_prefix('#')).filter(|hex| hex.bytes().all(|b| b.is_ascii_hexdigit()));
     let rgba = match hex {
         Some(hex) if hex.len() == 6 => u32::from_str_radix(hex, 16).ok().map(|c| (c << 8) | 0xff),
