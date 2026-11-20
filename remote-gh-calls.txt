@@ -1,0 +1,9 @@
+== before: gh calls the Mac sent the devbox fixture (count, cwd, command) ==
+   1 /home/dev/code/app-ios-login gh pr view (as the active account)
+== after: gh calls the Mac sent the devbox fixture (count, cwd, command) ==
+   2 /home/dev/code/app-ios gh --version (as the active account)
+   2 /home/dev/code/app-ios gh auth status --hostname github.com 2>&1
+   2 /home/dev/code/app-ios gh repo view (as me)
+   2 /home/dev/code/app-ios gh repo view (as work)
+   1 /home/dev/code/app-ios-login gh api graphql (as work)
+   1 /home/dev/code/app-ios-login gh pr view (as work)
