@@ -130,7 +130,7 @@ impl Desktop {
 
     /// Each project's account, once `gh` has more than one.
     fn gh_accounts_rows(&mut self, cx: &mut Context<Self>) -> Div {
-        if self.gh_accounts.accounts.len() < 2 {
+        if !self.gh_accounts.any_choice() {
             return div();
         }
         let caption = div()
@@ -153,7 +153,7 @@ impl Desktop {
         let shown = match (&chosen, checking) {
             (Some(account), _) => div().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(account.clone()),
             (None, true) => div().text_color(TEXT_3).child("Checking accounts…"),
-            (None, false) => div().text_color(TEXT_3).child(format!("Active account ({})", self.gh_accounts.active)),
+            (None, false) => div().text_color(TEXT_3).child(format!("Active account ({})", self.gh_accounts.accounts_of(&project).map_or("", |s| s.active.as_str()))),
         };
         let toggle = project.clone();
         let button = action(("gh-account", i), "").gap(px(6.)).child(shown).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -161,7 +161,7 @@ impl Desktop {
             cx.notify();
         }));
         let menu = open.then(|| {
-            let options = self.gh_accounts.accounts.clone().into_iter().enumerate().map(|(j, account)| {
+            let options = self.gh_accounts.accounts_of(&project).map(|s| s.accounts.clone()).unwrap_or_default().into_iter().enumerate().map(|(j, account)| {
                 let project = project.clone();
                 div()
                     .id(("gh-account-option", j))

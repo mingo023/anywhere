@@ -16,7 +16,8 @@ pub(crate) struct PullRequests {
     by_tree: HashMap<String, (Instant, Option<Pr>)>,
     /// The tree `gh` is asked about, and since when.
     running: Option<(String, Instant)>,
-    problem: Option<(GhProblem, Instant)>,
+    /// Why `gh` can't be asked, on this Mac (`None`) or a host, and since when.
+    problems: HashMap<Option<String>, (GhProblem, Instant)>,
     /// What the last Settings check of `gh` found; `Some(None)` while it runs.
     pub(crate) gh: Option<Option<GhStatus>>,
 }
@@ -33,10 +34,11 @@ impl PullRequests {
     /// The tree to ask `gh` about next: the one on screen `every` so often, the others every OTHERS_EVERY, one at a time.
     fn due(&self, selected: Option<&str>, every: Duration, trees: &[String], now: Instant) -> Option<String> {
         // A gh that hangs gives up its turn after a minute.
-        if self.running.as_ref().is_some_and(|(_, at)| now.duration_since(*at) < GH_TURN) || self.problem.is_some_and(|(_, at)| now.duration_since(at) < OTHERS_EVERY) {
+        if self.running.as_ref().is_some_and(|(_, at)| now.duration_since(*at) < GH_TURN) {
             return None;
         }
-        let stale = |t: &str, every: Duration| self.by_tree.get(t).is_none_or(|(at, _)| now.duration_since(*at) >= every);
+        let blocked = |t: &str| self.problem(t).is_some_and(|(_, at)| now.duration_since(at) < OTHERS_EVERY);
+        let stale = |t: &str, every: Duration| !blocked(t) && self.by_tree.get(t).is_none_or(|(at, _)| now.duration_since(*at) >= every);
         selected
             .filter(|s| trees.iter().any(|t| t == s) && stale(s, every))
             .map(str::to_string)
@@ -46,7 +48,7 @@ impl PullRequests {
     /// Records a Settings check of `gh`; a ready one lets PR polling resume at once.
     pub(crate) fn checked(&mut self, status: GhStatus) {
         if matches!(status, GhStatus::Ready { .. }) {
-            self.problem = None;
+            self.problems.clear();
         }
         self.gh = Some(Some(status));
     }
@@ -63,17 +65,17 @@ impl PullRequests {
         }
         self.running = None;
         match result {
-            Err(p) => {
-                let changed = self.problem.map(|(old, _)| old) != Some(p);
-                self.problem = Some((p, now));
-                changed
-            }
+            Err(p) => self.problems.insert(machine(&tree), (p, now)).map(|(old, _)| old) != Some(p),
             Ok(pr) => {
-                let changed = self.problem.take().is_some() || self.by_tree.get(&tree).is_none_or(|(_, old)| *old != pr);
+                let changed = self.problems.remove(&machine(&tree)).is_some() || self.by_tree.get(&tree).is_none_or(|(_, old)| *old != pr);
                 self.by_tree.insert(tree, (now, pr));
                 changed
             }
         }
+    }
+
+    fn problem(&self, tree: &str) -> Option<(GhProblem, Instant)> {
+        self.problems.get(&machine(tree)).copied()
     }
 
     pub(crate) fn get(&self, tree: &str) -> Option<&Pr> {
@@ -90,7 +92,7 @@ impl PullRequests {
         if let Some(pr) = self.get(tree) {
             return Some(PrItem::Open(&pr.url));
         }
-        match self.problem.map(|(p, _)| p) {
+        match self.problem(tree).map(|(p, _)| p) {
             Some(GhProblem::Missing) => Some(PrItem::Hint("Install gh to see PRs")),
             Some(GhProblem::LoggedOut) => Some(PrItem::Hint("Run gh auth login to see PRs")),
             None => (self.by_tree.contains_key(tree) && base.is_some_and(|b| github::base_branch(b) != branch)).then_some(PrItem::Create),
@@ -134,6 +136,11 @@ impl PullRequests {
             self.running = None;
         }
     }
+}
+
+/// The host holding `tree`, `None` on this Mac: each signs in to `gh` on its own.
+fn machine(tree: &str) -> Option<String> {
+    hosts::split(tree).0.map(str::to_string)
 }
 
 pub(crate) fn tone(pr: &Pr) -> Token {
@@ -245,11 +252,11 @@ impl Desktop {
 
     /// Asks `gh` about the next due worktree, off the UI thread.
     pub(crate) fn poll_prs(&mut self, cx: &mut Context<Self>) {
-        // Until `gh` is checked, no project's account is known to be signed in, so it would ask as the active one.
+        // Until `gh` is checked, no project's account is known to be signed in, so it would ask as the active one; a host's trees likewise wait for its accounts.
         if !matches!(self.prs.gh, Some(Some(_))) {
             return self.check_gh(cx);
         }
-        let mut trees: Vec<String> = self.projects().iter().filter_map(|p| self.listed_trees(p)).flatten().filter(|w| !w.main && w.branch != "detached").map(|w| w.path).collect();
+        let mut trees: Vec<String> = self.projects().iter().filter_map(|p| self.listed_trees(p)).flatten().filter(|w| !w.main && w.branch != "detached" && self.gh_accounts.accounts_of(&w.path).is_some()).map(|w| w.path).collect();
         trees.sort();
         let Some(tree) = self.prs.due(self.cwd().as_deref(), self.store.general.prs_every(), &trees, Instant::now()) else { return };
         let started = Instant::now();
@@ -429,6 +436,19 @@ mod tests {
         let mut logged_out = PullRequests::default();
         answer(&mut logged_out, "/a", Err(GhProblem::LoggedOut), now);
         assert_eq!(logged_out.item("/a", "fix", Some("main")), Some(PrItem::Hint("Run gh auth login to see PRs")));
+    }
+
+    #[test]
+    fn a_host_whose_gh_is_signed_out_leaves_this_macs_trees_asked_about() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now());
+        let trees: Vec<String> = vec!["//h/a".into(), "/b".into()];
+        answer(&mut prs, "//h/a", Err(GhProblem::LoggedOut), now);
+        assert_eq!(prs.due(None, EVERY, &trees, now).as_deref(), Some("/b"));
+        assert_eq!(prs.item("/b", "fix", Some("main")), None);
+        assert_eq!(prs.item("//h/a", "fix", Some("main")), Some(PrItem::Hint("Run gh auth login to see PRs")));
+        answer(&mut prs, "/b", Ok(None), now);
+        assert_eq!(prs.due(None, EVERY, &trees, now + Duration::from_secs(299)), None);
+        assert_eq!(prs.due(None, EVERY, &trees, now + Duration::from_secs(300)).as_deref(), Some("//h/a"));
     }
 
     #[test]

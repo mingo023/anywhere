@@ -34,6 +34,7 @@ impl Desktop {
     /// Lists the host's agents beside this Mac's, and lists its projects where its pocketd looks for them.
     pub(crate) fn open_host_agents(&mut self, id: &str, endpoint: &daemon::Endpoint, home: String, window: &mut Window, cx: &mut Context<Self>) {
         self.host_agents.homes.insert(id.into(), home);
+        self.gh_accounts.reconnected(id);
         self.sync_host_registry(id, cx);
         // Its channel rides out the link's drops on its own, as the terminals' does.
         if self.outbox.has(id) {
