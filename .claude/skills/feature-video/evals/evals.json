@@ -1,0 +1,21 @@
+{
+  "skill_name": "feature-video",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Làm giúp mình video showcase cho tính năng Board của Anywhere (kanban tickets): tạo một ticket mới rồi giao cho agent chạy, ticket tự chuyển cột khi agent làm xong. Lần này chỉ cần storyboard theo beat, timeline, và 3 still của các màn chính để mình duyệt hướng, chưa render full video.",
+      "expected_output": "A Remotion project outside the repo with a beat storyboard of one continuous flow, a timeline.json for it, and three Window stills in Graphite Dark rebuilt from source and gated against dark captures from the fake pocketd.",
+      "files": [],
+      "assertions": [
+        "The Remotion project is outside the repo (~/video/...) and no tracked file in the repo changed",
+        "storyboard.md describes one continuous in-app flow (no cuts inside the app window) with beat numbers, 30–40s total",
+        "The timeline file sets about 128 BPM and lists clicks and typing runs that drive both picture and sound",
+        "All three stills are Graphite Dark (mean luma under 60) and show the Board feature's screens",
+        "The UI is rebuilt from source: colours from theme.rs dark tokens and icons from the app's icon set, not screenshots placed as images",
+        "Session and ticket labels are real titles (fixture or realistic), not branch names",
+        "Reference screens came from the fake pocketd via verify-anywhere (evidence under .ui-review/shots/verify), not real repos",
+        "No full-length video or 4K render was produced"
+      ]
+    }
+  ]
+}
