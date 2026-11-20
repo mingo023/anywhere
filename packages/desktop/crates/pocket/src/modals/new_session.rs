@@ -26,7 +26,7 @@ use machine::{Landing, landing};
 use picker::Picker;
 use serde_json::{Value, json};
 use store::LaunchPick;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use theme::*;
 
@@ -89,6 +89,17 @@ struct Draft {
     want_base: Option<String>,
     reply: CreateReply,
     picker: Option<Picker>,
+    /// Each project's branches as last read, shown at once when it's picked again while a fresh read runs.
+    read: HashMap<String, RepoBranches>,
+}
+
+/// A project's branches as read from git.
+#[derive(Clone)]
+struct RepoBranches {
+    current: String,
+    branches: Vec<(String, Option<i64>)>,
+    remote: Vec<String>,
+    taken: HashSet<String>,
 }
 
 impl Default for Draft {
@@ -109,6 +120,7 @@ impl Default for Draft {
             want_base: None,
             reply: CreateReply::default(),
             picker: None,
+            read: HashMap::new(),
         }
     }
 }
@@ -158,9 +170,10 @@ impl Draft {
         self.source = Source::New;
     }
 
-    /// A new branch from the `i`th local branch.
+    /// A new branch from the `i`th local branch, kept when the branches are read again.
     fn pick_base(&mut self, i: usize) {
         (self.base, self.source, self.picker) = (i, Source::New, None);
+        self.want_base = self.branches.get(i).map(|(b, _)| b.clone());
     }
 
     fn target(&self) -> Target {
@@ -268,6 +281,23 @@ impl Draft {
         self.branches.clear();
         self.remote_branches.clear();
         self.base = 0;
+        if let Some(read) = self.repo.as_ref().and_then(|r| self.read.get(r)).cloned() {
+            self.show(read);
+        }
+    }
+
+    /// A fresh read is kept for `repo` and shown if it's still picked.
+    fn branches_read(&mut self, repo: String, read: RepoBranches) {
+        if self.repo.as_ref() == Some(&repo) {
+            self.show(read.clone());
+        }
+        self.read.insert(repo, read);
+    }
+
+    fn show(&mut self, read: RepoBranches) {
+        let RepoBranches { current, mut branches, remote, taken } = read;
+        default_first(&mut branches, self.want_base.as_deref().unwrap_or_default(), &current);
+        (self.base, self.branches, self.remote_branches, self.taken) = (0, branches, remote, taken);
     }
 }
 
@@ -492,20 +522,12 @@ impl Desktop {
             let entries = fs.local().and_then(|()| std::fs::read_dir(&folders)).into_iter().flatten().flatten();
             let remote = git::remote_branches(&runner, &dir);
             let taken = taken_names(&branches, &remote, entries.filter_map(|e| e.file_name().into_string().ok()));
-            (current, branches, taken, remote)
+            RepoBranches { current, branches, remote, taken }
         });
         cx.spawn_in(window, async move |this, cx| {
-            let (current, mut branches, taken, remote) = task.await;
+            let read = task.await;
             this.update(cx, |d, cx| {
-                let f = &mut d.new_form;
-                if f.draft.repo.as_ref() != Some(&repo) {
-                    return;
-                }
-                default_first(&mut branches, f.draft.want_base.as_deref().unwrap_or_default(), &current);
-                f.draft.base = 0;
-                f.draft.branches = branches;
-                f.draft.remote_branches = remote;
-                f.draft.taken = taken;
+                d.new_form.draft.branches_read(repo, read);
                 cx.notify();
             })
             .ok();
@@ -854,7 +876,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Local, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, names_folder, parse_pr, taken_names};
+    use super::{Draft, Local, RepoBranches, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, names_folder, parse_pr, taken_names};
     use agents::CreateReply;
     use serde_json::json;
     use store::LaunchPick;
@@ -1100,6 +1122,56 @@ mod tests {
         assert_eq!((draft.linked_pr(), draft.in_worktree(), draft.name()), (Some(7), true, "#7".to_string()));
         draft.unlink_pr();
         assert_eq!((draft.linked_pr(), draft.in_worktree(), draft.name()), (None, false, draft.auto_name()));
+    }
+
+    fn read(branches: &[&str], current: &str) -> RepoBranches {
+        RepoBranches { current: current.into(), branches: branches.iter().map(|b| (b.to_string(), None)).collect(), remote: vec!["origin-only".into()], taken: HashSet::from(["taken".to_string()]) }
+    }
+
+    fn listed(draft: &Draft) -> Vec<&str> {
+        draft.branches.iter().map(|(b, _)| b.as_str()).collect()
+    }
+
+    #[test]
+    fn a_project_picked_again_shows_its_branches_as_last_read() {
+        let mut draft = Draft::default();
+        draft.pick_repo(Some("/a".into()), false);
+        draft.branches_read("/a".into(), read(&["dev", "main"], "dev"));
+        draft.pick_repo(Some("/b".into()), false);
+        assert!(draft.branches.is_empty());
+        draft.pick_repo(Some("/a".into()), false);
+        assert_eq!((listed(&draft), draft.base_branch(), draft.remote_branches.clone()), (vec!["main", "dev"], "main".to_string(), vec!["origin-only".to_string()]));
+        assert!(draft.taken.contains("taken"));
+    }
+
+    #[test]
+    fn a_read_for_a_project_left_is_kept_but_not_shown() {
+        let mut draft = Draft::default();
+        draft.pick_repo(Some("/b".into()), false);
+        draft.branches_read("/a".into(), read(&["main"], "main"));
+        assert!(draft.branches.is_empty());
+        draft.pick_repo(Some("/a".into()), false);
+        assert_eq!(listed(&draft), ["main"]);
+    }
+
+    #[test]
+    fn a_fresh_read_keeps_the_base_picked_from_the_last_one() {
+        let mut draft = Draft::default();
+        draft.branches_read("/a".into(), read(&["main", "dev"], "main"));
+        draft.pick_repo(Some("/a".into()), false);
+        draft.pick_base(1);
+        draft.branches_read("/a".into(), read(&["new", "main", "dev"], "main"));
+        assert_eq!(draft.base_branch(), "dev");
+    }
+
+    #[test]
+    fn a_retried_create_picks_its_base_over_the_one_last_shown() {
+        let mut draft = Draft::default();
+        draft.branches_read("/a".into(), read(&["main", "dev"], "main"));
+        draft.pick_repo(Some("/a".into()), false);
+        draft.want_base = Some("dev".into());
+        draft.branches_read("/a".into(), read(&["main", "dev"], "main"));
+        assert_eq!(draft.base_branch(), "dev");
     }
 
     #[test]
