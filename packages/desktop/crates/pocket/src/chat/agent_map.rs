@@ -1,6 +1,7 @@
 mod detail;
 mod graph;
 
+use super::agent_detail::{ran_ms, thousands};
 use super::sub_agent::{self, Mark};
 use super::working::format_elapsed;
 use crate::desktop::Desktop;
@@ -36,11 +37,11 @@ pub(crate) struct Nav {
     detail: Option<String>,
     /// The details last shown, kept while they slide back out.
     shown: Option<String>,
-    prompt_open: bool,
+    all_steps: bool,
 }
 
 impl Nav {
-    fn is_open(&self, agent: &str) -> bool {
+    pub(crate) fn is_open(&self, agent: &str) -> bool {
         self.open.as_deref() == Some(agent)
     }
 
@@ -67,7 +68,7 @@ impl Nav {
         self.selected = node;
         self.detail = Some(call.to_string());
         self.shown = self.detail.clone();
-        self.prompt_open = false;
+        self.all_steps = false;
     }
 
     fn back(&mut self) {
@@ -112,19 +113,6 @@ impl AgentMap {
     }
 }
 
-/// How long `call` has run: until now while it runs.
-fn ran_ms(call: &ToolCall, now: i64) -> i64 {
-    match call.status {
-        ToolStatus::Running => now - call.at,
-        _ => call.duration_ms.map_or(0, |ms| ms as i64),
-    }
-}
-
-/// "32.9k", "640".
-fn thousands(n: u64) -> String {
-    if n < 1_000 { n.to_string() } else { format!("{:.1}k", n as f64 / 1_000.) }
-}
-
 /// "32.9k tokens", "640 tokens".
 fn tokens(n: u64) -> String {
     format!("{} tokens", thousands(n))
@@ -138,11 +126,6 @@ fn meta(call: &ToolCall, tokens_used: u64, now: i64) -> String {
         _ if tokens_used == 0 => ran,
         _ => format!("{ran} · {}", tokens(tokens_used)),
     }
-}
-
-/// The tool calls a sub-agent made itself.
-fn calls(agent: &chat::SubAgent) -> usize {
-    agent.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| matches!(b, Block::Tool(_))).count()
 }
 
 /// What the main agent is on: the sub-agents its turn ends handing off to, its newest step, or done but for those still at work.

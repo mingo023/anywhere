@@ -1,23 +1,17 @@
-use super::markdown;
-use super::phase;
+use super::agent_detail;
 use super::shimmer::shimmer;
-use super::tool_row::{self, Arg, Tools};
-use super::working::format_elapsed;
+use super::tool_row::{self, Arg};
 use crate::util::now_ms;
-use chat::{Block, SubAgent, ToolCall, ToolStatus};
-use gpui_kit::base::text::TextView;
+use chat::{Block, SubAgent, ToolCall, ToolKind, ToolStatus};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::rc::Rc;
 use std::time::Duration;
 use theme::*;
 
 /// Chars a sub-agent's name keeps before it's cut.
 const NAME_MAX: usize = 55;
-/// Lines a brief and a report show until "Show more".
-const BRIEF_LINES: usize = 3;
-const REPORT_LINES: usize = 12;
-/// Chars a line of the body holds at the chat's usual width, to guess how many lines a text wraps to.
-const WRAP: usize = 90;
+const ROW: &str = "agent-row";
 
 /// Where a sub-agent stands, as its mark shows it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -52,30 +46,58 @@ pub(crate) fn steps(agent: &SubAgent) -> Vec<&Block> {
     agent.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| matches!(b, Block::Tool(_) | Block::Text(_))).collect()
 }
 
-/// "failed", "starting", "done" when it shows no steps, or its step count with the failed ones.
-pub(crate) fn meta(call: &ToolCall, agent: &SubAgent) -> String {
-    let calls = || steps(agent).into_iter().filter_map(|b| if let Block::Tool(c) = b { Some(c) } else { None });
-    match mark(call, agent) {
-        Mark::Failed => "failed".into(),
-        Mark::Starting => "starting".into(),
-        Mark::Done if calls().next().is_none() => "done".into(),
-        _ => {
-            let (n, failed) = (calls().count(), calls().filter(|c| c.status == ToolStatus::Failed).count());
-            let steps = format!("{n} step{}", if n == 1 { "" } else { "s" });
-            if failed > 0 { format!("{steps}, {failed} failed") } else { steps }
-        }
+/// "3 steps · 1m 14s": how many tool calls it made and how long it ran, or "starting" until it does anything.
+pub(crate) fn meta(call: &ToolCall, agent: &SubAgent, now: i64) -> String {
+    let m = mark(call, agent);
+    if m == Mark::Starting {
+        return "starting".into();
+    }
+    let n = agent_detail::calls(agent).count();
+    let steps = (n > 0).then(|| format!("{n} step{}", if n == 1 { "" } else { "s" }));
+    let parts: Vec<String> = [steps, agent_detail::took(call, now)].into_iter().flatten().collect();
+    match (parts.is_empty(), m) {
+        (true, Mark::Failed) => "failed".into(),
+        (true, _) => "done".into(),
+        _ => parts.join(" · "),
     }
 }
 
 /// What it reported back: the call's output, else the last thing it wrote. While it runs, only what it said so far as
 /// it waits on its own work.
 pub(crate) fn report(call: &ToolCall, agent: &SubAgent) -> Option<String> {
-    let output = call.output.clone().filter(|o| !o.trim().is_empty());
+    report_text(call, agent).map(str::to_string)
+}
+
+fn report_text<'a>(call: &'a ToolCall, agent: &'a SubAgent) -> Option<&'a str> {
+    let output = call.output.as_deref().map(str::trim).filter(|o| !o.is_empty());
     if call.status == ToolStatus::Running {
-        return output.map(|r| r.trim().to_string());
+        return output;
     }
-    let last = || steps(agent).into_iter().rev().find_map(|b| if let Block::Text(m) = b { Some(m.text.clone()) } else { None });
-    output.or_else(last).map(|r| r.trim().to_string())
+    let last = || steps(agent).into_iter().rev().find_map(|b| if let Block::Text(m) = b { Some(m.text.trim()) } else { None });
+    output.or_else(last)
+}
+
+/// A report's first line as plain text, without its markdown's heading, list or quote marks, bold or code ticks.
+pub(crate) fn first_line(text: &str) -> Option<String> {
+    text.lines().find_map(|l| {
+        let l = l.trim().trim_start_matches(['#', '>']).trim_start();
+        let l = l.strip_prefix("- ").or_else(|| l.strip_prefix("* ")).unwrap_or(l);
+        let digits = l.find(|c: char| !c.is_ascii_digit()).unwrap_or(0);
+        let l = if digits > 0 { l[digits..].strip_prefix(". ").unwrap_or(l) } else { l };
+        let l = l.replace("**", "").replace('`', "");
+        let l = l.trim();
+        (!l.is_empty()).then(|| l.to_string())
+    })
+}
+
+/// The model every sub-agent among `blocks` runs on, as its name, when they share one.
+pub(crate) fn shared_model(blocks: &[Block]) -> Option<String> {
+    let mut models = blocks.iter().filter_map(|b| match b {
+        Block::Tool(ToolCall { kind: ToolKind::Agent(a), .. }) => Some(a.model.as_str()),
+        _ => None,
+    });
+    let first = models.next().filter(|m| !m.is_empty()).map(agents::model_name)?;
+    models.all(|m| !m.is_empty() && agents::model_name(m) == first).then_some(first)
 }
 
 /// What it was asked to do: the prompt it started on, which its task only names.
@@ -94,34 +116,6 @@ pub(crate) fn step(call: &ToolCall) -> String {
     if verb.is_empty() { arg } else { format!("{verb} {arg}") }
 }
 
-/// About how many lines `text` wraps to; the row has no window to measure it in.
-pub(crate) fn lines(text: &str) -> usize {
-    text.lines().map(|l| l.chars().count().div_ceil(WRAP).max(1)).sum()
-}
-
-/// Under a clipped text: "Show more", or "Show less" once it's open.
-fn more(key: String, expanded: bool, tools: &Entity<Tools>) -> Div {
-    let tools = tools.clone();
-    div().flex().child(
-        div()
-            .id(SharedString::from(format!("more-{key}")))
-            .pt(px(4.))
-            .text_size(px(12.5))
-            .text_color(TEXT_2)
-            .cursor_pointer()
-            .hover(|s| s.text_color(TEXT))
-            .on_click(move |_, _, cx| tools.update(cx, |t, cx| t.toggle(&key, false, None, cx)))
-            .child(if expanded { "Show less" } else { "Show more" }),
-    )
-}
-
-/// `body`, cut to `max` lines of `line` px unless opened by its "Show more", when `text` runs longer.
-fn clipped(key: String, text: &str, max: usize, line: f32, body: impl IntoElement, tools: &Entity<Tools>, cx: &App) -> Div {
-    let long = lines(text) > max;
-    let expanded = tools.read(cx).details.open(&key, false);
-    div().flex().flex_col().child(div().when(long && !expanded, |d| d.max_h(px(line * max as f32)).overflow_hidden()).child(body)).when(long, |d| d.child(more(key, expanded, tools)))
-}
-
 pub(crate) fn glyph(id: &str, mark: Mark) -> AnyElement {
     let spin = |svg: Svg| svg.with_animation(SharedString::from(format!("agent-spin-{id}")), Animation::new(Duration::from_secs(1)).repeat_synced().with_max_fps(20.), |s, t| s.with_transformation(Transformation::rotate(percentage(t))));
     match mark {
@@ -132,23 +126,37 @@ pub(crate) fn glyph(id: &str, mark: Mark) -> AnyElement {
     }
 }
 
-/// A sub-agent as one line: its mark, its task, what it does now while it runs, its model, then how far it got and,
-/// running, for how long. Opened, its brief, its steps on a rail and its report.
-pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, links: &markdown::Open, tools: &Entity<Tools>, cx: &mut App) -> Div {
+/// Shows a sub-agent's call in its chat's dock.
+pub(crate) type OnPick = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
+/// The sub-agent a chat's dock shows, and what a click on a sub-agent's row does: show its call there.
+pub(crate) struct Picks {
+    pub(crate) open: Option<String>,
+    pub(crate) on_pick: OnPick,
+}
+
+/// A sub-agent as one line: its mark, its task, what it does now while it runs or what it found once done, then how far
+/// it got and for how long, after its model unless the phase's title names it. A click shows it in the dock.
+pub(crate) fn row(call: &ToolCall, agent: &SubAgent, model: bool, picks: &Picks) -> Div {
     let m = mark(call, agent);
-    let steps = steps(agent);
-    let report = report(call, agent);
-    let brief = brief(agent);
-    let openable = !steps.is_empty() || report.is_some() || brief.is_some();
-    let open = open && openable;
-    let failed = m == Mark::Failed;
+    let open = picks.open.as_deref() == Some(call.id.as_str());
     let running = matches!(m, Mark::Running | Mark::Starting);
-    let doing = (m == Mark::Running && !open).then(|| latest(agent).map(step)).flatten();
+    let line = match m {
+        Mark::Running => latest(agent).map(|c| div().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(step(c))),
+        Mark::Starting => None,
+        Mark::Done | Mark::Failed => report_text(call, agent).and_then(first_line).map(|f| div().text_size(px(13.)).text_color(if m == Mark::Failed { FAILED_TEXT } else { TEXT_3 }).child(f)),
+    };
     let name = name(agent);
-    let label = div().min_w_0().overflow_hidden().text_color(if failed { FAILED } else { TEXT_BODY });
-    let label = if doing.is_some() { label.flex_none().max_w(relative(0.5)) } else { label.flex_1() };
+    let color = match m {
+        _ if open => TEXT,
+        Mark::Failed => FAILED_TEXT,
+        Mark::Done => TEXT_2,
+        _ => TEXT_BODY,
+    };
+    let label = div().min_w_0().overflow_hidden().text_color(color);
+    let label = if line.is_some() { label.flex_none().max_w(relative(0.44)) } else { label.flex_1() };
     let label = if running { label.child(shimmer(SharedString::from(format!("agent-name-{}", call.id)), name, TEXT_BODY)) } else { label.truncate().child(name) };
-    let doing = doing.map(|s| div().flex_1().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(s));
+    let line = line.map(|l| l.flex_1().min_w_0().truncate());
     let side = div()
         .flex_none()
         .flex()
@@ -156,12 +164,14 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl
         .gap(px(8.))
         .text_size(px(12.))
         .text_color(TEXT_4)
-        .when(!agent.model.is_empty(), |d| d.child(agents::model_name(&agent.model)))
-        .child(meta(call, agent))
-        .when(running, |d| d.child(format_elapsed((now_ms() - call.at) / 1000)))
-        .when(openable, |d| d.child(icon(if open { "chevron-down" } else { "chevron-right" }, 14., TEXT_5)));
+        .when(model && !agent.model.is_empty(), |d| d.child(agents::model_name(&agent.model)))
+        .child(meta(call, agent, now_ms()))
+        .child(div().when(!open, |d| d.invisible().group_hover(ROW, |s| s.visible())).child(icon("chevron-right", 14., if open { TEXT_2 } else { TEXT_5 })));
+    let on_pick = picks.on_pick.clone();
+    let id = call.id.clone();
     let head = div()
         .id(SharedString::from(format!("agent-{}", call.id)))
+        .group(ROW)
         .w(relative(1.))
         .mx(px(-6.))
         .px(px(6.))
@@ -172,46 +182,20 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, open: bool, on_toggle: impl
         .rounded(px(7.))
         .text_size(px(14.))
         .line_height(px(20.))
-        .when(open, |d| d.bg(FILL_3))
-        .when(openable, |d| d.cursor_pointer().hover(|s| s.bg(FILL_3)).on_click(on_toggle))
+        .cursor_pointer()
+        .map(|d| if open { d.bg(FILL_3) } else { d.hover(|s| s.bg(FILL_2)) })
+        .active(|s| s.bg(FILL_3))
+        .on_click(move |_, window, cx| on_pick(&id, window, cx))
         .child(glyph(&call.id, m))
         .child(label)
-        .children(doing)
+        .children(line)
         .child(side);
-    let body = open.then(|| {
-        let brief = brief.map(|b| {
-            let text = div().whitespace_normal().text_size(px(13.)).line_height(px(20.)).text_color(TEXT_3).child(b.to_string());
-            div().pl(px(20.)).pt(px(2.)).pb(px(6.)).child(clipped(format!("brief-{}", call.id), b, BRIEF_LINES, 20., text, tools, cx))
-        });
-        // Before `rail`, which holds `cx` until the children take it.
-        let report = report.clone().map(|r| {
-            let d = div().pt(px(6.));
-            if failed {
-                d.whitespace_normal().font_family(code_font()).text_size(px(12.)).line_height(px(20.)).text_color(FAILED).child(r)
-            } else {
-                let doc = tools.update(cx, |t, cx| t.docs.get(&call.id, &r, false, cx));
-                let text = markdown::block(TextView::new(&doc), links.clone()).text_size(px(13.5)).line_height(px(21.));
-                d.child(clipped(format!("report-{}", call.id), &r, REPORT_LINES, 21., text, tools, cx))
-            }
-        });
-        let n = steps.len();
-        let rail = steps.iter().enumerate().map(|(i, b)| {
-            let last = i + 1 == n && report.is_none();
-            let step = match b {
-                Block::Tool(c) => tool_row::row(c, false, tools, cx),
-                Block::Text(t) => phase::note(&t.text),
-                _ => div(),
-            };
-            phase::step(last, step)
-        });
-        div().pt(px(2.)).pb(px(4.)).flex().flex_col().children(brief).children(rail).children(report)
-    });
-    div().w_full().min_w_0().flex().flex_col().child(head).children(body)
+    div().w_full().min_w_0().flex().child(head)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Mark, brief, latest, lines, mark, meta, name, report, step};
+    use super::{Mark, brief, first_line, latest, mark, meta, name, report, shared_model, step};
     use chat::{Block, Message, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn tool(id: &str, status: ToolStatus) -> Block {
@@ -236,16 +220,39 @@ mod tests {
     }
 
     #[test]
-    fn a_sub_agent_starts_until_it_does_something_then_counts_its_steps_if_it_shows_any() {
+    fn a_sub_agent_starts_until_it_does_something_then_counts_its_steps_and_time() {
         let quiet = agent(vec![]);
-        assert_eq!((mark(&call(&quiet, ToolStatus::Running, None), &quiet), meta(&call(&quiet, ToolStatus::Running, None), &quiet).as_str()), (Mark::Starting, "starting"));
+        assert_eq!((mark(&call(&quiet, ToolStatus::Running, None), &quiet), meta(&call(&quiet, ToolStatus::Running, None), &quiet, 5_000).as_str()), (Mark::Starting, "starting"));
         let busy = agent(vec![tool("a", ToolStatus::Ok), tool("b", ToolStatus::Failed), tool("c", ToolStatus::Running)]);
         assert_eq!(mark(&call(&busy, ToolStatus::Running, None), &busy), Mark::Running);
-        assert_eq!(meta(&call(&busy, ToolStatus::Running, None), &busy), "3 steps, 1 failed");
+        assert_eq!(meta(&call(&busy, ToolStatus::Running, None), &busy, 74_000), "3 steps · 1m 14s");
         let one = agent(vec![tool("a", ToolStatus::Ok)]);
-        assert_eq!(meta(&call(&one, ToolStatus::Ok, None), &one), "1 step");
-        assert_eq!(meta(&call(&one, ToolStatus::Failed, None), &one), "failed");
-        assert_eq!(meta(&call(&quiet, ToolStatus::Ok, Some("Done.")), &quiet), "done", "not \"0 steps\"");
+        let timed = |status, ms| ToolCall { duration_ms: ms, ..call(&one, status, None) };
+        assert_eq!(meta(&timed(ToolStatus::Ok, Some(9_000)), &one, 0), "1 step · 9s");
+        assert_eq!(meta(&timed(ToolStatus::Failed, None), &one, 0), "1 step", "no duration known, none shown");
+        assert_eq!(meta(&call(&quiet, ToolStatus::Ok, Some("Done.")), &quiet, 0), "done", "not \"0 steps\"");
+        assert_eq!(meta(&call(&quiet, ToolStatus::Failed, None), &quiet, 0), "failed");
+    }
+
+    #[test]
+    fn a_reports_first_line_drops_its_markdown() {
+        assert_eq!(first_line("\n## Summary\nmore").as_deref(), Some("Summary"));
+        assert_eq!(first_line("- **left-pad** is unused").as_deref(), Some("left-pad is unused"));
+        assert_eq!(first_line("1. Use `cargo test`").as_deref(), Some("Use cargo test"));
+        assert_eq!(first_line("> quoted").as_deref(), Some("quoted"));
+        assert_eq!(first_line("2024 was fine").as_deref(), Some("2024 was fine"), "a number that starts a sentence stays");
+        assert_eq!(first_line("#\n  \n"), None);
+    }
+
+    #[test]
+    fn the_phase_names_the_model_only_when_every_sub_agent_shares_it() {
+        let on = |model: &str| Block::Tool(call(&SubAgent { model: model.into(), ..Default::default() }, ToolStatus::Ok, None));
+        let sonnet = agents::model_name("claude-sonnet-4-5");
+        assert_eq!(shared_model(&[on("claude-sonnet-4-5"), tool("s", ToolStatus::Ok), on("claude-sonnet-4-5")]), Some(sonnet));
+        assert_eq!(shared_model(&[on("claude-sonnet-4-5"), on("claude-haiku-4-5")]), None);
+        assert_eq!(shared_model(&[on("claude-sonnet-4-5"), on("")]), None, "one not known yet");
+        assert_eq!(shared_model(&[on("")]), None);
+        assert_eq!(shared_model(&[tool("s", ToolStatus::Ok)]), None);
     }
 
     #[test]
@@ -282,12 +289,5 @@ mod tests {
         read.kind = ToolKind::Shell { command: "\ncargo test\n".into(), description: String::new() };
         assert_eq!(step(&read), "cargo test");
         assert_eq!(latest(&agent(vec![])), None);
-    }
-
-    #[test]
-    fn a_text_counts_the_lines_it_wraps_to() {
-        assert_eq!(lines("one"), 1);
-        assert_eq!(lines("one\n\nthree"), 3);
-        assert_eq!(lines(&"x".repeat(91)), 2);
     }
 }

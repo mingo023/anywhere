@@ -1,3 +1,5 @@
+mod agent_detail;
+mod agent_dock;
 mod agent_map;
 pub(crate) mod composer;
 mod diff;
@@ -91,6 +93,7 @@ pub(crate) struct ChatState {
     /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
     pub(crate) unsent: Option<(String, String)>,
     pub(crate) map: agent_map::AgentMap,
+    pub(crate) dock: agent_dock::AgentDock,
     /// Mermaid fences drawn in every chat, sharing one image budget.
     pub(crate) diagrams: Entity<Diagrams>,
     /// The queued entry each agent's composer text was taken from, which its next send replaces.
@@ -103,7 +106,7 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), diagrams, editing: HashMap::new() }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), dock: agent_dock::AgentDock::new(cx), diagrams, editing: HashMap::new() }, subs)
     }
 }
 
@@ -157,6 +160,7 @@ impl Desktop {
         }
         self.chats.transcripts.remove(agent);
         let unsent = self.chats.views.remove(agent).map(|mut v| v.session.outgoing.drain()).unwrap_or_default();
+        self.chat_prune_dock();
         if let Some((message, text)) = unsent_notice(who, unsent, typed) {
             self.error = Some(message.clone());
             self.chats.unsent = Some((message, text));
@@ -188,6 +192,7 @@ impl Desktop {
         let crumb = agent.as_ref().and_then(|agent| self.delegated_crumb(agent, cx));
         let panel = agent.as_ref().and_then(|agent| self.delegated_panel(agent, window, cx));
         let pushed = agent.as_ref().and_then(|agent| self.delegated_pushed(agent, window, cx));
+        let dock = agent.as_ref().and_then(|agent| self.chat_dock(agent, cx));
         let files = agent.and_then(|agent| self.chat_files_menu(&agent, cx));
         let drop = self.chat_drop_zone(terminal, cx);
         let shown = div().relative().size_full().flex().flex_col().child(transcript).children(crumb).children(panel);
@@ -196,7 +201,8 @@ impl Desktop {
             None => (shown, None),
         };
         let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
-        div().relative().flex_1().min_h_0().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).child(stage).child(composer).children(files).children(drop)
+        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().child(stage).child(composer).children(files).children(drop);
+        div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
     }
 
     /// The chat `from` as it was, sliding and fading out under the one arriving: the transcript as last drawn, with its breadcrumb and panel. None where it also shows in a pane, which draws it once.
