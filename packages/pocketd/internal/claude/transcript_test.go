@@ -56,6 +56,8 @@ func TestMap(t *testing.T) {
 		{"compact summary", `{"type":"user","isCompactSummary":true,"message":{"content":"x"}}`, nil},
 		{"synthetic filler", `{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`, nil},
 		{"assistant", `{"type":"assistant","message":{"content":[{"type":"thinking","thinking":""},{"type":"thinking","thinking":"hm"},{"type":"text","text":"ok"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}`, []string{"thinking", "assistant_text", "tool_start"}},
+		{"narration", `{"type":"assistant","thinkingDisplay":"updates","message":{"content":[{"type":"thinking","thinking":""},{"type":"thinking","thinking":"Found it."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}`, []string{"assistant_text", "tool_start"}},
+		{"summarized thinking", `{"type":"assistant","thinkingDisplay":"summarized","message":{"content":[{"type":"thinking","thinking":"hm"}]}}`, []string{"thinking"}},
 		{"tool result", `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a"}],"is_error":true}]}}`, []string{"tool_end"}},
 		{"tool result and text", `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"a"},{"type":"text","text":"hi"}]}}`, []string{"tool_end", "user"}},
 		{"turn end", `{"type":"system","subtype":"turn_duration","durationMs":7}`, []string{"result"}},

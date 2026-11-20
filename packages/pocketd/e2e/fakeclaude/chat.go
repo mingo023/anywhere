@@ -176,6 +176,8 @@ func (c *chatter) turn(text string) {
 		c.reply(model, callMCP(strings.TrimPrefix(text, "mcp ")))
 	case strings.HasPrefix(text, "env "):
 		c.reply(model, os.Getenv(strings.TrimPrefix(text, "env ")))
+	case strings.HasPrefix(text, "narrate "):
+		c.narrate(model, strings.TrimPrefix(text, "narrate "))
 	case strings.HasPrefix(text, "slow "):
 		failed = c.slow(model, strings.TrimPrefix(text, "slow "))
 	case strings.HasPrefix(text, "await "):
@@ -221,6 +223,16 @@ func (c *chatter) run(model, id, cmd string) (failed bool) {
 	c.s.write(toolResult(id, "ran: "+cmd, false))
 	c.reply(model, "ran "+cmd)
 	return false
+}
+
+// narrate streams and writes note as claude does a note to the user under the "updates" thinking display, then replies.
+func (c *chatter) narrate(model, note string) {
+	c.send(map[string]any{"type": "stream_event", "thinking_display": "updates", "session_id": c.s.id, "parent_tool_use_id": nil, "event": map[string]any{"type": "message_start", "message": map[string]any{}}})
+	c.send(map[string]any{"type": "stream_event", "thinking_display": "updates", "session_id": c.s.id, "parent_tool_use_id": nil, "event": map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "thinking_delta", "thinking": note}}})
+	a := assistant(map[string]any{"type": "thinking", "thinking": note, "signature": "x"})
+	a["thinkingDisplay"] = "updates"
+	c.s.write(a)
+	c.reply(model, "done")
 }
 
 // slow replies text after 3s, unless interrupted first.

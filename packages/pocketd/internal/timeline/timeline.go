@@ -205,7 +205,9 @@ func joined(items []proto.Item) []proto.Item {
 
 // holds is whether stored, an item a timeline shows, already holds it, the same item as a replay has it so far.
 func holds(stored, it proto.Item) bool {
-	if stored.Kind != it.Kind || !strings.HasPrefix(stored.Text, it.Text) || (stored.Call == nil) != (it.Call == nil) {
+	// An older pocketd stored a note to the user as thinking.
+	note := stored.Kind == "thinking" && it.Kind == "assistant"
+	if (stored.Kind != it.Kind && !note) || !strings.HasPrefix(stored.Text, it.Text) || (stored.Call == nil) != (it.Call == nil) {
 		return false
 	}
 	return it.Call == nil || stored.Call.ToolUseID == it.Call.ToolUseID && (it.Call.Status == "running" || it.Call.Status == stored.Call.Status)

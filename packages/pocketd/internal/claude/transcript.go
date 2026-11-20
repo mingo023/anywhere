@@ -31,6 +31,7 @@ type line struct {
 	Error            string          `json:"error"`
 	TurnOrigin       string          `json:"turnOrigin"`
 	Entrypoint       string          `json:"entrypoint"`
+	ThinkingDisplay  string          `json:"thinkingDisplay"`
 	Timestamp        string          `json:"timestamp"`
 	Content          json.RawMessage `json:"content"`
 	DurationMs       int64           `json:"durationMs"`
@@ -313,6 +314,9 @@ func (l line) events() (events []timeline.Event) {
 			switch {
 			case b.Type == "text" && b.Text != "":
 				events = append(events, timeline.Event{Kind: "assistant_text", Text: b.Text})
+			// Under the "updates" display the model's thinking is notes to the user, which Claude shows as its words.
+			case b.Type == "thinking" && b.Thinking != "" && l.ThinkingDisplay == "updates":
+				events = append(events, timeline.Event{Kind: "assistant_text", Text: b.Thinking})
 			case b.Type == "thinking" && b.Thinking != "":
 				events = append(events, timeline.Event{Kind: "thinking", Text: b.Thinking})
 			case b.Type == "tool_use":
