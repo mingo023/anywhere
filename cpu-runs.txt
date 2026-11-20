@@ -1,0 +1,4 @@
+none#1: avg %CPU 15.6 over 16 samples
+koi#1: avg %CPU 16.0 over 16 samples
+none#2: avg %CPU 15.6 over 16 samples
+koi#2: avg %CPU 16.6 over 16 samples
