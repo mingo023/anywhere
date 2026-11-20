@@ -1,5 +1,6 @@
 use super::{Pose, Wake, Welcome};
 use crate::desktop::Desktop;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::Instant;
 use theme::*;
@@ -104,6 +105,7 @@ fn view(pose: Pose, cx: &mut Context<Desktop>) -> AnyElement {
         .justify_center()
         .on_mouse_down(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, |w| w.skip(Instant::now()))))
         .on_mouse_up(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, Welcome::release)))
+        .on_mouse_up_out(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, Welcome::release)))
         .on_mouse_move(cx.listener(|d, ev: &MouseMoveEvent, _, cx| d.with_welcome(cx, |w| w.look_at(f32::from(ev.position.x), f32::from(ev.position.y)))))
         .on_hover(cx.listener(|d, hovered: &bool, _, cx| {
             if !hovered {
@@ -147,26 +149,28 @@ fn mascot(pose: Pose, cx: &mut Context<Desktop>) -> Stateful<Div> {
         .h(px(BOX_H))
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, cx.listener(|d, _, _, cx| d.with_welcome(cx, |w| w.press(Instant::now()))))
-        .child(
-            div()
-                .absolute()
-                .left(px((BOX_W - GLOW) / 2.))
-                .top(px((BOX_H - GLOW) / 2.))
-                .size(px(GLOW))
-                .rounded_full()
-                .shadow(vec![BoxShadow { color: shade(GLOW_COLOR, 0.45 * pose.glow), offset: point(px(0.), px(0.)), blur_radius: px(110.), spread_radius: px(0.), inset: false }]),
-        )
-        .child(div().absolute().bottom(px(4. + MASCOT * (1. - FEET))).left(px((BOX_W - shadow_w) / 2.)).w(px(shadow_w)).h(px(4.)).rounded_full().shadow(vec![BoxShadow {
-            color: shade(0x000000, 0.1 + 0.4 * pose.near),
-            offset: point(px(0.), px(0.)),
-            blur_radius: px(10.),
-            spread_radius: px(2.),
-            inset: false,
-        }]))
-        .child(layer("halo", shade(LIGHT_ON, pose.halo), body))
-        .child(layer("body", rgb(BODY).into(), body))
-        .child(layer("sheen", shade(0xffffff, 0.08), body))
-        .child(layer("light", rgb(if pose.lit { LIGHT_ON } else { LIGHT_OFF }).into(), body))
-        .child(layer("eyes", rgb(EYES).into(), eyes))
+        .when(!pose.hidden, |d| {
+            d.child(
+                div()
+                    .absolute()
+                    .left(px((BOX_W - GLOW) / 2.))
+                    .top(px((BOX_H - GLOW) / 2.))
+                    .size(px(GLOW))
+                    .rounded_full()
+                    .shadow(vec![BoxShadow { color: shade(GLOW_COLOR, 0.45 * pose.glow), offset: point(px(0.), px(0.)), blur_radius: px(110.), spread_radius: px(0.), inset: false }]),
+            )
+            .child(div().absolute().bottom(px(4. + MASCOT * (1. - FEET))).left(px((BOX_W - shadow_w) / 2.)).w(px(shadow_w)).h(px(4.)).rounded_full().shadow(vec![BoxShadow {
+                color: shade(0x000000, 0.1 + 0.4 * pose.near),
+                offset: point(px(0.), px(0.)),
+                blur_radius: px(10.),
+                spread_radius: px(2.),
+                inset: false,
+            }]))
+            .child(layer("halo", shade(LIGHT_ON, pose.halo), body))
+            .child(layer("body", rgb(BODY).into(), body))
+            .child(layer("sheen", shade(0xffffff, 0.08), body))
+            .child(layer("light", rgb(if pose.lit { LIGHT_ON } else { LIGHT_OFF }).into(), body))
+            .child(layer("eyes", rgb(EYES).into(), eyes))
+        })
         .child(measure)
 }

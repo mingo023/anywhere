@@ -6,14 +6,16 @@ use std::time::{Duration, Instant};
 
 /// Pixels per second², pulling the mascot to its floor.
 const GRAVITY: f32 = 2600.;
-/// Where it falls from: above its floor, out of sight.
+/// Where it falls from, above its floor, and higher in a window tall enough to show it there (`above`).
 const DROP: f32 = -340.;
 /// The share of its landing speed it bounces back up with, until it lands slower than `STILL_LANDING`.
 const REBOUND: f32 = 0.3;
 const STILL_LANDING: f32 = 600.;
-/// Its speed up as it hops out, and how high it is gone.
+/// Its speed up as it hops out, and how high it is gone; both grow with the window (`above`).
 const HOP: f32 = -1700.;
 const GONE: f32 = -420.;
+/// From where it is laid out (its eyes) to below its feet: how far past the window's top it must be to be out of sight.
+const OVER_TOP: f32 = 100.;
 /// Frames this close together, this many in a row, mean the app's first work is done and the drop will run smoothly; it drops after `CALM_CAP` regardless.
 const CALM_FRAME: f32 = 0.02;
 const CALM_FRAMES: u8 = 6;
@@ -107,6 +109,8 @@ pub(crate) struct Pose {
     /// Its shadow: 1 on the floor, 0 far above.
     pub near: f32,
     pub opacity: f32,
+    /// Not drawn while it waits to drop.
+    pub hidden: bool,
 }
 
 /// The first-launch screen: the mascot drops in, watches the pointer until dismissed, hops out, then fades onto the app.
@@ -179,7 +183,11 @@ impl Welcome {
             Phase::Waiting { since, calm } => {
                 let since = since.unwrap_or(now);
                 let calm = if gap.is_some_and(|g| g < CALM_FRAME) { calm + 1 } else { 0 };
-                self.phase = if calm >= CALM_FRAMES || now >= since + CALM_CAP { Phase::Falling { bounced: false } } else { Phase::Waiting { since: Some(since), calm } };
+                if calm >= CALM_FRAMES || now >= since + CALM_CAP {
+                    (self.y, self.phase) = (self.above(DROP), Phase::Falling { bounced: false });
+                } else {
+                    self.phase = Phase::Waiting { since: Some(since), calm };
+                }
             }
             Phase::Falling { bounced } => {
                 self.vy += GRAVITY * dt;
@@ -195,14 +203,15 @@ impl Welcome {
             }
             Phase::Landed(at) if now >= at + SETTLE => self.phase = Phase::Ready(now),
             Phase::Crouching(at) if now >= at + CROUCH => {
-                (self.vy, self.phase) = (HOP, Phase::Hopping);
+                // Fast enough to rise past where it is gone, with some to spare.
+                (self.vy, self.phase) = (HOP.min(-(2.4 * GRAVITY * -self.above(GONE)).sqrt()), Phase::Hopping);
             }
             Phase::Hopping => {
                 self.vy += GRAVITY * dt;
                 self.y += self.vy * dt;
                 self.squash = rest(1. + (self.vy.abs() / STRETCH).min(0.15));
                 thrown = true;
-                if self.y < GONE {
+                if self.y < self.above(GONE) {
                     self.phase = Phase::Fading(now);
                 }
             }
@@ -222,6 +231,11 @@ impl Welcome {
             (false, Some(next)) if !still => Wake::At(next),
             _ => Wake::Idle,
         }
+    }
+
+    /// `at_least` up, or past the window's top when that is higher.
+    fn above(&self, at_least: f32) -> f32 {
+        self.center.map_or(at_least, |(_, y)| at_least.min(-(y + OVER_TOP)))
     }
 
     fn land(&mut self, now: Instant) {
@@ -373,13 +387,14 @@ impl Welcome {
             copy,
             near: (1. + self.y / SHADOW_FADE).clamp(0., 1.),
             opacity,
+            hidden: matches!(self.phase, Phase::Waiting { .. }),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DROP, Phase, Wake, Welcome, greets};
+    use super::{DROP, OVER_TOP, Phase, Wake, Welcome, greets};
     use std::time::{Duration, Instant};
     use store::Store;
 
@@ -437,6 +452,31 @@ mod tests {
         // Too few frames to be calm, but past the cap.
         [0u64, 300, 600, 900, 1250].iter().for_each(|&ms| _ = w.tick(t0 + Duration::from_millis(ms), false));
         assert!(matches!(w.phase, Phase::Falling { .. }), "{:?}", w.phase);
+    }
+
+    #[test]
+    fn in_a_tall_window_it_waits_unseen_drops_from_past_the_top_and_hops_back_out_past_it() {
+        let (mut w, t0) = (Welcome::new(), Instant::now());
+        w.center = Some((500., 700.));
+        let top = -(700. + OVER_TOP);
+        assert!(w.pose(t0, false).hidden);
+        let t = (0..50u64).map(|i| t0 + Duration::from_millis(8 * i)).find(|&t| {
+            w.tick(t, false);
+            matches!(w.phase, Phase::Falling { .. })
+        });
+        let t = t.expect("it drops");
+        let pose = w.pose(t, false);
+        assert!(!pose.hidden && pose.y <= top, "drops from out of sight: {}", pose.y);
+        let t = run(&mut w, t, 1500);
+        w.go(t);
+        let mut highest = 0f32;
+        let t = (0..200u64).map(|i| t + Duration::from_millis(8 * i)).find(|&t| {
+            w.tick(t, false);
+            highest = highest.min(w.y);
+            !w.covers()
+        });
+        assert!(t.is_some(), "it leaves");
+        assert!(highest < top, "out of sight before the screen fades: {highest}");
     }
 
     #[test]
