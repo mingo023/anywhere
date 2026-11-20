@@ -251,6 +251,9 @@ func TestAnUpdateReplacesThePocketdItsOwnServiceRuns(t *testing.T) {
 // the resolved path. An earlier update's bin/pocketd is already there. Every pocketd it runs is a stub, so nothing
 // reaches launchd or systemd.
 func forceUpdate(t *testing.T, running func(dir string) string) (out string, linked bool) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bootstrap.sh runs on unix hosts")
+	}
 	base, err := os.MkdirTemp("", "bs")
 	if err != nil {
 		t.Fatal(err)
