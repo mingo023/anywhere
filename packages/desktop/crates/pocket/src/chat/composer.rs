@@ -531,6 +531,7 @@ impl Desktop {
         if let Some((Kind::Local(local), _, arg)) = slash {
             return self.chat_local(&agent, local, &arg, window, cx);
         }
+        self.mods_prompt(&typed, cx);
         if let Some(entry) = self.chat_editing(&agent) {
             self.outbox.queue_edit(&agent, &entry, &text);
             return cx.notify();

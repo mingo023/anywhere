@@ -26,6 +26,7 @@ Every theme the desktop app ships is a JSON file in this folder. To make your ow
 | `colors` | The colours, by key. A key you leave out keeps the default theme's colour for the same appearance. Keys the app doesn't know are ignored. |
 | `backdrop` | Optional. A colour, or a `["top", "bottom"]` pair for a gradient, painted behind a chat's messages. |
 | `bubble` | Optional. `{ "radius": 0–32 }` rounds the corners of your messages in a chat. |
+| `scene` | Optional. `{ "sprites": [{ "art": ["..ab"], "colors": { "a": "#hex" }, "pixel": 4, "count": 3, "speed": 30 }] }`: pixel art that swims across a chat behind its messages. In `art` each character names a colour, and `.` or a space is clear. `pixel` is 1–16 points, `count` 0–24 copies, `speed` 0–400 points a second. It moves 12 times a second, and stands still under Reduce motion. |
 
 A colour is `#RRGGBB`, or `#RRGGBBAA` with an alpha.
 

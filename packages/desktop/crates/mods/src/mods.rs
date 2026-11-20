@@ -1,7 +1,8 @@
 //! Mods: JavaScript that hooks the app's events, kept in `<home>/mods/<id>/mod.js` and run in QuickJS.
 //!
-//! A mod exports `register(on)`. Each `on(event, hook)` adds a hook, called as `hook($, e)`, where `$` is what the mod
-//! can ask of the app: `$.theme.set(look)`, a look being a theme file's fields as an object.
+//! A mod exports `register(on)`. Each `on(event, hook)` adds a hook, called as `hook($, e)`, where `e` holds the event's
+//! name and fields and `$` is what the mod can ask of the app: `$.theme.set(look)`, a look being a theme file's fields
+//! as an object.
 
 use rquickjs::{CatchResultExt, Context, Function, Module, Runtime};
 use std::path::Path;
@@ -11,7 +12,7 @@ const TIME_LIMIT: Duration = Duration::from_millis(250);
 const MEMORY_LIMIT: usize = 16 << 20;
 
 const PRELUDE: &str = r#"
-globalThis.__fire = (register, event) => {
+globalThis.__fire = (register, event, fields) => {
     const hooks = [];
     register((name, hook) => {
         if (typeof hook !== 'function') throw new TypeError(`on('${name}', …) needs a function`);
@@ -19,7 +20,8 @@ globalThis.__fire = (register, event) => {
     });
     const looks = [];
     const $ = { theme: { set(look) { looks.push(JSON.stringify(look)); } } };
-    for (const [name, hook] of hooks) if (name === event) hook($, { event });
+    const e = { ...JSON.parse(fields), event };
+    for (const [name, hook] of hooks) if (name === event) hook($, e);
     return looks;
 };
 "#;
@@ -41,9 +43,10 @@ pub fn list(home: &Path) -> Vec<Mod> {
     mods
 }
 
-/// Runs the hooks `source` adds for `event` in a fresh engine, and returns the looks they set, as JSON, in order.
+/// Runs the hooks `source` adds for `event` in a fresh engine, with `fields` (a JSON object) in their `e`, and returns
+/// the looks they set, as JSON, in order.
 /// The error says why the mod failed: it threw, it doesn't export `register`, or it ran past its time or memory.
-pub fn fire(source: &str, event: &str) -> Result<Vec<String>, String> {
+pub fn fire(source: &str, event: &str, fields: &str) -> Result<Vec<String>, String> {
     let runtime = Runtime::new().map_err(|e| e.to_string())?;
     runtime.set_memory_limit(MEMORY_LIMIT);
     let deadline = Instant::now() + TIME_LIMIT;
@@ -56,7 +59,7 @@ pub fn fire(source: &str, event: &str) -> Result<Vec<String>, String> {
             done.finish::<()>()?;
             let register: Function = module.get("register")?;
             let fire: Function = cx.globals().get("__fire")?;
-            fire.call((register, event))
+            fire.call((register, event, fields))
         };
         run().catch(&cx).map_err(|e| e.to_string())
     })
@@ -72,31 +75,37 @@ mod tests {
             on('start', $ => { $.theme.set({ name: 'A' }); $.theme.set({ name: 'B', accent: '#ff0000' }); });
             on('other', $ => $.theme.set({ name: 'C' }));
         }"#;
-        assert_eq!(fire(source, "start").unwrap(), [r#"{"name":"A"}"#, r##"{"name":"B","accent":"#ff0000"}"##]);
-        assert_eq!(fire(source, "nothing").unwrap(), Vec::<String>::new());
+        assert_eq!(fire(source, "start", "{}").unwrap(), [r#"{"name":"A"}"#, r##"{"name":"B","accent":"#ff0000"}"##]);
+        assert_eq!(fire(source, "nothing", "{}").unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_hook_reads_the_event_s_fields() {
+        let source = "export const register = on => on('prompt', ($, e) => $.theme.set({ name: e.event + ':' + e.text }));";
+        assert_eq!(fire(source, "prompt", r#"{"text":"fix the \"bug\""}"#).unwrap(), [r#"{"name":"prompt:fix the \"bug\""}"#]);
     }
 
     #[test]
     fn a_mod_computes_its_look_in_code() {
         let source = "export const register = on => on('start', $ => $.theme.set({ name: ['a', 'b'].map(s => s.toUpperCase()).join('') }));";
-        assert_eq!(fire(source, "start").unwrap(), [r#"{"name":"AB"}"#]);
+        assert_eq!(fire(source, "start", "{}").unwrap(), [r#"{"name":"AB"}"#]);
     }
 
     #[test]
     fn a_mod_that_fails_says_why() {
-        let thrown = fire("export function register(on) { on('start', () => { throw new Error('no paper') }) }", "start").unwrap_err();
+        let thrown = fire("export function register(on) { on('start', () => { throw new Error('no paper') }) }", "start", "{}").unwrap_err();
         assert!(thrown.contains("no paper"), "{thrown}");
-        assert!(fire("export const x = 1;", "start").is_err());
-        assert!(fire("export function register(on) { on('start', 3) }", "start").unwrap_err().contains("needs a function"));
-        assert!(fire("export function register( {", "start").is_err());
+        assert!(fire("export const x = 1;", "start", "{}").is_err());
+        assert!(fire("export function register(on) { on('start', 3) }", "start", "{}").unwrap_err().contains("needs a function"));
+        assert!(fire("export function register( {", "start", "{}").is_err());
     }
 
     #[test]
     fn a_mod_that_runs_forever_or_hogs_memory_is_stopped() {
         let started = std::time::Instant::now();
-        assert!(fire("export function register(on) { on('start', () => { while (true) {} }) }", "start").is_err());
+        assert!(fire("export function register(on) { on('start', () => { while (true) {} }) }", "start", "{}").is_err());
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
-        assert!(fire("export function register(on) { on('start', () => { 'x'.repeat(64 << 20) }) }", "start").is_err());
+        assert!(fire("export function register(on) { on('start', () => { 'x'.repeat(64 << 20) }) }", "start", "{}").is_err());
     }
 
     #[test]

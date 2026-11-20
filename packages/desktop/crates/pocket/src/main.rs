@@ -67,7 +67,7 @@ fn main() {
     let home = path.parent().unwrap_or(path).to_path_buf();
     let (outbox, mut agent_rx) = agents::connect_with(path, own.token.clone());
     let store = Store::load(&home);
-    let themes = themes::Themes { mod_look: crate::mods::look(&home), ..themes::Themes::new(themes::load(&home)) };
+    let themes = themes::Themes { mod_look: crate::mods::look(&home, "start", &serde_json::json!({})), ..themes::Themes::new(themes::load(&home)) };
     if channel::is_release() && store.general.open_at_login {
         std::thread::spawn(|| daemon::service::open_at_login(true));
     }
