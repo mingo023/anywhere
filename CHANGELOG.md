@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.56
+
+- First launch greets you with a mascot that watches your cursor (#309): (d0ddca6d)
+- Host projects' PRs show when the host's PATH has a relative entry (#308): (77502aee)
+
 ## 0.1.55
 
 - PRs of a project on a remote host show on this Mac (#306): (94c776a5)
