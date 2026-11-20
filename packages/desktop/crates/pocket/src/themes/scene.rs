@@ -45,7 +45,7 @@ impl Render for SceneView {
 fn paint(scene: &Scene, t: f32, bounds: Bounds<Pixels>, window: &mut Window) {
     let (width, height) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
     for sprite in &scene.sprites {
-        let (p, columns) = (sprite.pixel, (sprite.size().0 / sprite.pixel) as usize);
+        let (p, columns) = (sprite.pixel, sprite.cells.iter().map(Vec::len).max().unwrap_or(0));
         for i in 0..sprite.count {
             let Placement { x, y, faces_left } = sprite.place(i, t, width, height);
             for (row, cells) in sprite.cells.iter().enumerate() {

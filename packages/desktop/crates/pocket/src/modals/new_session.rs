@@ -626,6 +626,7 @@ impl Desktop {
         }
         self.store.save();
         let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
+        self.mods_prompt(&prompt, cx);
         if !worktree {
             self.creates.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default());
             self.new_form.draft.reply.sent(request);
@@ -686,6 +687,7 @@ impl Desktop {
         self.store.save();
         self.select_tree(folder, None, cx);
         let Some(request) = self.send_create(spec.clone()) else { return cx.notify() };
+        self.mods_prompt(sent.trim(), cx);
         self.creates.sent_in_place(request.clone(), spec["prompt"].as_str().unwrap_or_default());
         self.new_form.draft.reply.sent(request);
         cx.notify();
