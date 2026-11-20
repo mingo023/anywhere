@@ -817,6 +817,7 @@ impl Desktop {
                 return None;
             }
         }
+        self.mods_prompt(prompt, cx);
         self.notify_pr(format!("Sent to {}", theme::provider_name(&provider)), None, cx);
         Some(target)
     }

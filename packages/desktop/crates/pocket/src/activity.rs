@@ -123,6 +123,7 @@ impl Desktop {
         let text = self.activity.reply.read(cx).value().trim().to_string();
         let Some(id) = self.activity.previewed.clone().filter(|_| !text.is_empty()) else { return };
         self.outbox.prompt(&id, &text);
+        self.mods_prompt(&text, cx);
         self.activity.reply.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
     }
@@ -141,6 +142,7 @@ impl Desktop {
     fn retry_turn(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(prompt) = self.activity_last_prompt(id) {
             self.outbox.prompt(id, &prompt);
+            self.mods_prompt(&prompt, cx);
         }
         cx.notify();
     }
