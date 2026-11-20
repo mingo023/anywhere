@@ -38,6 +38,7 @@ pub(crate) struct Nav {
     /// The details last shown, kept while they slide back out.
     shown: Option<String>,
     all_steps: bool,
+    brief_open: bool,
 }
 
 impl Nav {
@@ -69,6 +70,7 @@ impl Nav {
         self.detail = Some(call.to_string());
         self.shown = self.detail.clone();
         self.all_steps = false;
+        self.brief_open = false;
     }
 
     fn back(&mut self) {

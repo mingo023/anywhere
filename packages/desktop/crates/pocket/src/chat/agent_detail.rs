@@ -2,7 +2,7 @@ use super::markdown;
 use super::meta::format_timestamp;
 use super::shimmer::shimmer;
 use super::sub_agent::{self, Mark};
-use super::tool_row::{self, Arg, Tools};
+use super::tool_row::{self, Tools};
 use super::working::format_elapsed;
 use chat::{Block, SubAgent, ToolCall, ToolStatus};
 use gpui_kit::base::text::TextView;
@@ -75,12 +75,6 @@ pub(crate) fn facts(call: &ToolCall, agent: &SubAgent, now: i64, local: impl Fn(
     .collect()
 }
 
-/// A step as its tool and what it acted on: "Read" and a path, or the tool's own name and its command.
-pub(crate) fn step(call: &ToolCall) -> (String, String) {
-    let (verb, Arg::File(arg) | Arg::Text(arg) | Arg::Raw(arg)) = tool_row::line(call);
-    (if verb.is_empty() { call.name.clone() } else { verb.to_string() }, arg)
-}
-
 /// A sub-agent's details as the Facts layout draws them, in the dock beside the chat and on the agent map.
 pub(crate) struct Detail<'a> {
     /// Unique to where it's drawn, for its elements' ids.
@@ -89,6 +83,7 @@ pub(crate) struct Detail<'a> {
     pub(crate) agent: &'a SubAgent,
     pub(crate) now: i64,
     pub(crate) all_steps: bool,
+    pub(crate) brief_open: bool,
 }
 
 fn heading(title: &str) -> Div {
@@ -100,31 +95,43 @@ fn fact_row(f: Fact) -> Div {
     div().flex().child(div().w(px(LABEL_W)).flex_none().text_color(TEXT_4).child(f.label)).child(div().min_w_0().flex().text_color(f.color).child(f.value).children(bad))
 }
 
-/// A step on the details' rail: its tool, what it acted on, and when into the run it started.
-fn step_row(c: &ToolCall, start: i64) -> Div {
+/// A step on the details' rail, opening to its output, error or diff as in the chat, beside when into the run it started.
+fn step_row(c: &ToolCall, start: i64, tools: &Entity<Tools>, cx: &App) -> Div {
     let failed = c.status == ToolStatus::Failed;
-    let (tool, arg) = step(c);
-    let dot = div().absolute().left(px(3.)).top(px(9.)).size(px(7.)).rounded_full().border_1().map(|d| if failed { d.border_color(FAILED).bg(FAILED) } else { d.border_color(TEXT_5).bg(window_fill()) });
+    let dot = div().absolute().left(px(3.)).top(px(11.)).size(px(7.)).rounded_full().border_1().map(|d| if failed { d.border_color(FAILED).bg(FAILED) } else { d.border_color(TEXT_5).bg(window_fill()) });
     div()
         .relative()
-        .h(px(24.))
         .pl(px(20.))
         .flex()
-        .items_center()
+        .items_start()
         .gap(px(8.))
-        .text_size(px(12.5))
+        .text_size(px(13.))
         .child(dot)
-        .child(div().flex_none().text_color(TEXT_4).child(tool))
-        .child(div().flex_1().min_w_0().truncate().font_family(code_font()).text_size(px(12.)).text_color(if failed { FAILED_TEXT } else { TEXT_BODY }).child(arg))
-        .child(div().flex_none().pl(px(10.)).text_size(px(11.)).text_color(TEXT_5).child(format_elapsed((c.at - start).max(0) / 1000)))
+        .child(div().flex_1().min_w_0().child(tool_row::row(c, false, tools, cx)))
+        .child(div().flex_none().pt(px(6.)).text_size(px(11.)).text_color(TEXT_5).child(format_elapsed((c.at - start).max(0) / 1000)))
 }
 
 /// The details: a head with `lead` before the mark and `actions` after the name, then the facts, the newest steps,
-/// and the report or error. `on_more` shows every step, or only the newest again.
-pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>, on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, links: &markdown::Open, cx: &mut App) -> Div {
-    let Detail { key, call, agent, now, all_steps } = d;
+/// and the report or error. `on_brief` shows the whole brief or two lines of it again; `on_more` shows every step, or
+/// only the newest again.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>, on_brief: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, tools: &Entity<Tools>, links: &markdown::Open, cx: &mut App) -> Div {
+    let Detail { key, call, agent, now, all_steps, brief_open } = d;
     let m = sub_agent::mark(call, agent);
-    let brief = sub_agent::brief(agent).map(|b| div().mt(px(2.)).whitespace_normal().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_3).line_clamp(2).child(b.to_string()));
+    let brief = sub_agent::brief(agent).map(|b| {
+        div()
+            .id(SharedString::from(format!("{key}-brief")))
+            .mt(px(2.))
+            .whitespace_normal()
+            .text_size(px(12.5))
+            .line_height(px(18.))
+            .text_color(TEXT_3)
+            .cursor_pointer()
+            .hover(|s| s.text_color(TEXT_2))
+            .when(!brief_open, |d| d.line_clamp(2))
+            .on_click(on_brief)
+            .child(b.to_string())
+    });
     let title = div().flex_1().min_w_0().child(div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(sub_agent::name(agent))).children(brief);
     let head = div()
         .flex_none()
@@ -163,7 +170,7 @@ pub(crate) fn view(d: Detail, lead: Option<AnyElement>, actions: Vec<AnyElement>
                     .child(if all_steps { "Show fewer".to_string() } else { format!("Show {} more", first) }),
             )
         });
-        div().mt(px(18.)).child(heading("Steps")).child(div().relative().flex().flex_col().child(rail).children(all[first..].iter().map(|c| step_row(c, call.at)))).children(more)
+        div().mt(px(18.)).child(heading("Steps")).child(div().relative().flex().flex_col().child(rail).children(all[first..].iter().map(|c| step_row(c, call.at, tools, cx)))).children(more)
     });
 
     let report = match m {
@@ -202,7 +209,7 @@ pub(crate) fn action(id: String, glyph: &'static str, on_click: impl Fn(&ClickEv
 
 #[cfg(test)]
 mod tests {
-    use super::{Fact, facts, first_shown, step, took};
+    use super::{Fact, facts, first_shown, took};
     use chat::{Block, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn tool(id: &str, status: ToolStatus) -> Block {
@@ -248,12 +255,5 @@ mod tests {
         assert_eq!(first_shown(5, false), 1);
         assert_eq!(first_shown(5, true), 0);
         assert_eq!(first_shown(0, false), 0);
-    }
-
-    #[test]
-    fn a_step_names_its_tool_beside_what_it_acted_on() {
-        let c = |name: &str, kind| ToolCall { id: "c".into(), name: name.into(), kind, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 };
-        assert_eq!(step(&c("Read", ToolKind::Read { path: "src/a.rs".into() })), ("Read".into(), "src/a.rs".into()));
-        assert_eq!(step(&c("Bash", ToolKind::Shell { command: "cargo test\n".into(), description: String::new() })), ("Bash".into(), "cargo test".into()));
     }
 }

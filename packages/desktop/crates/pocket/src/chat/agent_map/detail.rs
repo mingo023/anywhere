@@ -30,6 +30,12 @@ impl Desktop {
                 cx.notify();
             }
         });
+        let on_brief = cx.listener(move |this, _: &ClickEvent, _, cx| {
+            if live {
+                this.chats.map.nav.brief_open ^= true;
+                cx.notify();
+            }
+        });
         let on_more = cx.listener(move |this, _: &ClickEvent, _, cx| {
             if live {
                 this.chats.map.nav.all_steps ^= true;
@@ -38,8 +44,8 @@ impl Desktop {
         });
         let Some(view) = self.chats.views.get(agent) else { return div() };
         let links = self.chat_links(agent, cx);
-        let detail = Detail { key, call: s.call, agent: s.agent, now, all_steps: self.chats.map.nav.all_steps };
-        let body = agent_detail::view(detail, Some(agent_detail::action(format!("chat-map-back:{agent}"), "back", back)), vec![agent_detail::action(format!("chat-map-close2:{agent}"), "x", close)], on_more, &view.tools, &links, cx);
+        let detail = Detail { key, call: s.call, agent: s.agent, now, all_steps: self.chats.map.nav.all_steps, brief_open: self.chats.map.nav.brief_open };
+        let body = agent_detail::view(detail, Some(agent_detail::action(format!("chat-map-back:{agent}"), "back", back)), vec![agent_detail::action(format!("chat-map-close2:{agent}"), "x", close)], on_brief, on_more, &view.tools, &links, cx);
         let foot = div().flex_none().flex().gap(px(8.)).pt(px(10.)).pb(px(14.)).px(px(16.)).border_t(px(0.5)).border_color(HAIRLINE).child(button(format!("chat-map-reveal:{agent}"), "Show in chat").when(live, |d| {
             let agent = agent.to_string();
             d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_map_reveal(&agent, ix, window, cx)))

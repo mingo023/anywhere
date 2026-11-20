@@ -36,6 +36,7 @@ pub(crate) struct Pick {
     /// The sub-agent last shown, drawn while the dock slides out.
     shown: Option<Shown>,
     all_steps: bool,
+    brief_open: bool,
 }
 
 impl Pick {
@@ -56,6 +57,7 @@ impl Pick {
         self.open = Some(Shown { agent: agent.into(), call: call.into() });
         self.shown = self.open.clone();
         self.all_steps = false;
+        self.brief_open = false;
     }
 
     fn close(&mut self) {
@@ -172,13 +174,17 @@ impl Desktop {
             agent_detail::action(format!("{key}-down"), "chevron-down", cx.listener(|this, _: &ClickEvent, _, cx| _ = this.chat_step_dock(true, cx))),
             agent_detail::action(format!("{key}-close"), "x", cx.listener(|this, _: &ClickEvent, window, cx| this.chat_close_dock(window, cx))),
         ];
+        let on_brief = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.chats.dock.pick.brief_open ^= true;
+            cx.notify();
+        });
         let on_more = cx.listener(|this, _: &ClickEvent, _, cx| {
             this.chats.dock.pick.all_steps ^= true;
             cx.notify();
         });
         let links = self.chat_links(agent, cx);
-        let detail = Detail { key: key.clone(), call, agent: sub, now: now_ms(), all_steps: dock.pick.all_steps };
-        let body = agent_detail::view(detail, None, actions, on_more, &view.tools, &links, cx);
+        let detail = Detail { key: key.clone(), call, agent: sub, now: now_ms(), all_steps: dock.pick.all_steps, brief_open: dock.pick.brief_open };
+        let body = agent_detail::view(detail, None, actions, on_brief, on_more, &view.tools, &links, cx);
         // Laid out at its full width as it slides, so its text doesn't rewrap every frame.
         let inner = div().absolute().top_0().bottom_0().left_0().w(relative(1. / t)).opacity(t).child(body);
         let focus = dock.focus.clone();
@@ -219,9 +225,9 @@ mod tests {
     fn a_second_click_on_the_row_shown_closes_the_dock_and_another_row_switches_it() {
         let mut p = Pick::default();
         p.toggle("a", "c1");
-        p.all_steps = true;
+        (p.all_steps, p.brief_open) = (true, true);
         p.toggle("a", "c2");
-        assert_eq!((picked(&p), p.all_steps), (Some(("a", "c2")), false), "a new sub-agent starts on its newest steps");
+        assert_eq!((picked(&p), p.all_steps, p.brief_open), (Some(("a", "c2")), false, false), "a new sub-agent starts on its newest steps and a short brief");
         p.toggle("a", "c2");
         assert_eq!(picked(&p), None);
         assert_eq!(p.shown.as_ref().map(|s| s.call.as_str()), Some("c2"), "kept while it slides out");
