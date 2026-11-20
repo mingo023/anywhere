@@ -203,7 +203,8 @@ impl Desktop {
         };
         let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
         let backdrop = |d: Div, [top, bottom]: [u32; 2]| d.bg(linear_gradient(180., linear_color_stop(rgba(top), 0.), linear_color_stop(rgba(bottom), 1.)));
-        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().when_some(theme::backdrop(), backdrop).child(stage).child(composer).children(files).children(drop);
+        let scene = self.themes.scene.clone().map(|view| AnyView::from(view).cached(StyleRefinement::default().absolute().top_0().left_0().size_full()));
+        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().when_some(theme::backdrop(), backdrop).children(scene).child(stage).child(composer).children(files).children(drop);
         div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
     }
 

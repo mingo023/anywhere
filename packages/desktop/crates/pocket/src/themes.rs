@@ -1,4 +1,7 @@
+mod scene;
+
 use crate::desktop::Desktop;
+use scene::SceneView;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
 use store::{Appearance, Mode};
@@ -31,6 +34,9 @@ pub(crate) struct Themes {
     /// Counts changes to `custom`, so a reload that read the folder before one doesn't undo it.
     pub edits: usize,
     pub mod_look: Option<Theme>,
+    pub scene: Option<Entity<SceneView>>,
+    /// Counts prompts told to the mods, so a look set for an older one doesn't land after a newer one's.
+    pub prompts: usize,
 }
 
 impl Themes {
@@ -59,6 +65,16 @@ impl Themes {
 
     pub fn active(&self, a: &Appearance, system_dark: bool) -> Theme {
         self.mod_look.clone().unwrap_or_else(|| active(a, &self.custom, system_dark))
+    }
+
+    /// Takes the look the mods set for prompt `run`; false when a later prompt was sent since, or the look is the one
+    /// already painting.
+    pub fn prompt_look(&mut self, run: usize, look: Theme) -> bool {
+        let take = run == self.prompts && self.mod_look.as_ref() != Some(&look);
+        if take {
+            self.mod_look = Some(look);
+        }
+        take
     }
 
     /// Takes the themes read from disk when `edits` was the count; false when it has moved on, or nothing changed.
@@ -172,6 +188,11 @@ impl Desktop {
     /// Paints the theme chosen for when macOS is `system_dark`. Diff and commit rows hold the colours they were highlighted with.
     pub(crate) fn paint_theme(&mut self, system_dark: bool, cx: &mut Context<Self>) {
         theme::set_theme(&self.themes.active(&self.store.appearance, system_dark), cx);
+        match (theme::scene(), &self.themes.scene) {
+            (None, _) => self.themes.scene = None,
+            (Some(_), Some(view)) => view.update(cx, |_, cx| cx.notify()),
+            (Some(_), None) => self.themes.scene = Some(cx.new(SceneView::new)),
+        }
         self.recolor_diff(cx);
         self.recolor_commit(cx);
         cx.notify();
@@ -416,5 +437,16 @@ mod tests {
         assert_eq!((themes.forced(&a), themes.active(&a, false).name), (Some(false), "Graphite Light".to_string()));
         themes.mod_look = Some(custom("Ink", true).theme);
         assert_eq!((themes.forced(&a), themes.active(&a, false).name), (Some(true), "Ink".to_string()));
+    }
+
+    #[test]
+    fn only_the_latest_prompt_s_look_paints_and_only_when_it_changes_something() {
+        let mut themes = Themes::new(vec![]);
+        let (ink, paper) = (custom("Ink", true).theme, custom("Paper", false).theme);
+        themes.prompts = 2;
+        assert!(!themes.prompt_look(1, ink.clone()), "a look for an older prompt");
+        assert!(themes.prompt_look(2, paper.clone()));
+        assert!(!themes.prompt_look(2, paper), "the look already painting");
+        assert_eq!(themes.mod_look.map(|t| t.name), Some("Paper".to_string()));
     }
 }
