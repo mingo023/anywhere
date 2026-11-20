@@ -1,0 +1,13 @@
+##### pocketd-old
+-- sh -c gh auth status --hostname github.com 2>&1 | grep -E 'a | code 0 | fork/exec bin/sh: no such file or directory
+-- mingo023 | code 0 | fork/exec bin/sh: no such file or directory
+-- hodfords-minhngo-be | code 0 | fork/exec bin/sh: no such file or directory
+##### pocketd-new
+-- sh -c gh auth status --hostname github.com 2>&1 | grep -E 'a | code 0 | ✓ Logged in to github.com account mingo023 (keyring)
+  - Active account: true
+  ✓ Logged in to github.com account hodfords-minhngo-be (keyring)
+  - Active account: false
+  ✓ Logged in to github.com account minhngovan-regask (keyring)
+  - Active account: false
+-- mingo023 | code 1 | GraphQL: Could not resolve to a Repository with the name 'hodfords-limited/employer-backend'. (repository)
+-- hodfords-minhngo-be | code 0 | {"viewerPermission":"MAINTAIN"}
