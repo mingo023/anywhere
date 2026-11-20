@@ -39,7 +39,8 @@ build() {
       (cd "$DESKTOP" && ANYWHERE_CHANNEL=release ANYWHERE_VERSION="$VERSION" cargo zigbuild --profile dist -p pocket --target x86_64-pc-windows-gnu)
       cp "$TARGET/x86_64-pc-windows-gnu/dist/pocket-desktop.exe" "$OUT/Anywhere/"
       # The GNU target links wry's WebView2 loader as a DLL, which Windows doesn't ship; without it the app won't start.
-      cp "$(find "$TARGET/x86_64-pc-windows-gnu/dist/build" -path '*webview2-com-sys-*/out/x64/WebView2Loader.dll' | head -n 1)" "$OUT/Anywhere/"
+      # Cargo 1.100 moved build-script output from build/<crate>-<hash>/out to build/<crate>/<hash>/out; match both.
+      cp "$(find "$TARGET/x86_64-pc-windows-gnu/dist/build" -path '*webview2-com-sys*/out/x64/WebView2Loader.dll' | head -n 1)" "$OUT/Anywhere/"
       cc="zig cc -target x86_64-windows-gnu"
       exe=.exe
       ;;
