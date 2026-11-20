@@ -72,6 +72,12 @@ pub struct Sidebar {
     /// Each host's chosen colour (RGB), by host id.
     #[serde(deserialize_with = "crate::lenient")]
     pub space_colours: HashMap<String, u32>,
+    /// Each host's name as the user renamed it, by host id; shown on this Mac only.
+    #[serde(deserialize_with = "crate::lenient")]
+    pub space_names: HashMap<String, String>,
+    /// Each host's chosen icon, by host id.
+    #[serde(deserialize_with = "crate::lenient")]
+    pub space_icons: HashMap<String, String>,
 }
 
 impl Default for Sidebar {
@@ -89,6 +95,8 @@ impl Default for Sidebar {
             inbox_filter: InboxFilter::default(),
             space: None,
             space_colours: HashMap::new(),
+            space_names: HashMap::new(),
+            space_icons: HashMap::new(),
         }
     }
 }
@@ -139,5 +147,13 @@ mod tests {
         assert_eq!((s.space.as_deref(), s.space_colours.get("devbox")), (Some("devbox"), Some(&4294967)));
         let bad: Sidebar = serde_json::from_str(r#"{"space":7,"space_colours":{"devbox":"red"},"usage_card":false}"#).unwrap();
         assert_eq!((bad.space, bad.space_colours, bad.usage_card), (None, HashMap::new(), false));
+    }
+
+    #[test]
+    fn a_hosts_name_and_icon_are_kept_and_a_bad_value_falls_back_alone() {
+        let s: Sidebar = serde_json::from_str(r#"{"space_names":{"devbox":"GPU box"},"space_icons":{"devbox":"cloud"}}"#).unwrap();
+        assert_eq!((s.space_names.get("devbox").map(String::as_str), s.space_icons.get("devbox").map(String::as_str)), (Some("GPU box"), Some("cloud")));
+        let bad: Sidebar = serde_json::from_str(r#"{"space_names":["GPU box"],"space_icons":{"devbox":7},"usage_card":false}"#).unwrap();
+        assert_eq!((bad.space_names, bad.space_icons, bad.usage_card), (HashMap::new(), HashMap::new(), false));
     }
 }

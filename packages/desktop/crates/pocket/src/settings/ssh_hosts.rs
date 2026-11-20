@@ -5,7 +5,7 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use crate::fleet::needs_update;
 use crate::spaces::Space;
-use crate::spaces::header::{glyph, tile};
+use crate::spaces::header::tile;
 use crate::util::LOCAL_ICON;
 use agents::hosts::{Failure, Link};
 use gpui_kit::component::input::{Input, InputState};
@@ -51,10 +51,10 @@ fn checklist_title(list: &Checklist, name: &str) -> String {
     }
 }
 
-/// A host row's second line: where it goes, unless its name says so, and how its link is doing.
-fn host_line(host: &Host, link: Option<&Link>) -> String {
+/// A host row's second line: where it goes, unless the `shown` name says so, and how its link is doing.
+fn host_line(host: &Host, shown: &str, link: Option<&Link>) -> String {
     let address = host.address();
-    if address == host.name { link_line(link, &host.name) } else { format!("{address} \u{b7} {}", link_line(link, &host.name)) }
+    if address == shown { link_line(link, &host.name) } else { format!("{address} \u{b7} {}", link_line(link, &host.name)) }
 }
 
 pub(crate) fn link_color(link: Option<&Link>) -> Token {
@@ -91,19 +91,20 @@ impl Desktop {
         let remotes = self.fleet.hosts.list.clone().into_iter().enumerate().map(|(i, h)| {
             let link = self.fleet.hosts.links.get(&h.id);
             let space = Space::Host(h.id.clone());
+            let shown = self.host_name(&h.id);
             let open = matches!(link, Some(Link::Online { .. })).then(|| {
                 let space = space.clone();
                 super::action(("host-open", i), "Open").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_space(space.clone(), window, cx)))
             });
             let list = self.fleet.installs.get(&h.id);
-            let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, link));
+            let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, &shown, link));
             let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
             let install = (not_running && list.is_none()).then(|| {
                 let id = h.id.clone();
                 super::action(("host-install", i), "Install").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, false, cx)))
             });
             let update = (list.is_none() && needs_update(link, channel::version())).then(|| {
-                let (id, name, windows) = (h.id.clone(), h.name.clone(), h.windows);
+                let (id, name, windows) = (h.id.clone(), shown.clone(), h.windows);
                 super::action(("host-update", i), "Update").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }), Some(Overlay::Confirm));
                     cx.notify();
@@ -119,12 +120,12 @@ impl Desktop {
                 let id = h.id.clone();
                 super::action(("host-password", i), "Use password").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_password(id.clone(), window, cx)))
             });
-            let (id, name) = (h.id.clone(), h.name.clone());
+            let (id, name) = (h.id.clone(), shown.clone());
             let remove = ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
                 cx.notify();
             }));
-            let row = host_row(i + 1, tile(glyph(&space), self.space_colour(&space, &order), 28.), h.name.clone(), line, link_color(link)).children(password).children(install).children(update).children(reconnect).children(open).child(remove);
+            let row = host_row(i + 1, tile(self.space_glyph(&space), self.space_colour(&space, &order), 28.), shown, line, link_color(link)).children(password).children(install).children(update).children(reconnect).children(open).child(remove);
             let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &list, cx));
             div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
         });
@@ -316,8 +317,9 @@ mod tests {
     fn a_host_row_names_the_address_only_when_its_name_doesnt() {
         let host = |name: &str, target| Host { id: "h".into(), name: name.into(), target, windows: false, socket: Default::default() };
         let alias = host("devbox", Target::Alias { name: "devbox".into() });
-        assert_eq!(host_line(&alias, None), "Not connected");
+        assert_eq!(host_line(&alias, "devbox", None), "Not connected");
+        assert_eq!(host_line(&alias, "GPU box", None), "devbox \u{b7} Not connected");
         let ip = host("10.0.4.12", Target::Address { addr: "10.0.4.12".into(), port: 2222, user: "dev".into(), key_file: None });
-        assert_eq!(host_line(&ip, None), "dev@10.0.4.12:2222 \u{b7} Not connected");
+        assert_eq!(host_line(&ip, "10.0.4.12", None), "dev@10.0.4.12:2222 \u{b7} Not connected");
     }
 }

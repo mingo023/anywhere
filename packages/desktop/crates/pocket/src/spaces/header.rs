@@ -1,15 +1,19 @@
-use super::{Reach, Space, colour, space_of};
+use super::{HOST_ICONS, Reach, Space, colour, glyph, kept_name, space_of};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
 use crate::settings::ssh_hosts::link_color;
-use crate::util::LOCAL_ICON;
+use crate::sidebar::rename::rename_field;
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 use workspace::Place;
 
-pub(crate) fn glyph(space: &Space) -> &'static str {
-    if *space == Space::Local { LOCAL_ICON } else { "server" }
+/// A host's name, edited in the space header; leaving it saves, as Enter does.
+pub(crate) struct HostRename {
+    id: String,
+    input: Entity<InputState>,
+    _sub: Subscription,
 }
 
 /// An icon on a tile of a space's colour; This Mac's is plain.
@@ -27,36 +31,70 @@ impl Desktop {
         colour(space, &self.store.sidebar.space_colours, order.iter().position(|s| s == space).unwrap_or_default())
     }
 
+    /// `space`'s icon: the one chosen for it, else This Mac's or a server.
+    pub(crate) fn space_glyph(&self, space: &Space) -> &'static str {
+        glyph(space, &self.store.sidebar.space_icons)
+    }
+
+    /// Edits the host's name in the space header, starting from the one shown.
+    fn start_host_rename(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let (input, sub) = rename_field(self.host_name(&id), window, cx, Self::save_host_rename);
+        self.spaces.menu = false;
+        self.spaces.rename = Some(HostRename { id, input, _sub: sub });
+        cx.notify();
+    }
+
+    fn save_host_rename(&mut self, cx: &mut Context<Self>) {
+        let Some(r) = self.spaces.rename.take() else { return };
+        let kept = kept_name(&r.input.read(cx).value(), &self.added_name(&r.id));
+        let names = &mut self.store.sidebar.space_names;
+        match kept {
+            Some(name) => names.insert(r.id, name),
+            None => names.remove(&r.id),
+        };
+        self.save_soon(cx);
+        cx.notify();
+    }
+
     /// Above Projects: the space on screen, its link and address, opening the space menu.
     pub(crate) fn space_header(&self, space: &Space, order: &[Space], cx: &mut Context<Self>) -> Div {
         let open = self.spaces.menu;
         let host = space.host().and_then(|id| self.fleet.hosts.list.iter().find(|h| h.id == id));
         let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
-        let row = ui::popover_trigger(
-            div()
-                .id("aside-space")
-                .h(px(34.))
-                .mt(px(6.))
-                .px(px(6.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded(px(8.))
-                .cursor_pointer()
-                .hover(|s| s.bg(FILL_2))
-                .when(open, |d| d.bg(FILL_2))
-                .child(tile(glyph(space), self.space_colour(space, order), 22.))
-                .child(div().min_w_0().max_w(px(120.)).truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(self.space_name(space)))
-                .children(host.map(|_| ui::dot(6., link_color(link))))
-                .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(host.map(|h| h.address()).unwrap_or_default()))
-                .child(icon("chevron-down", 12., TEXT_4)),
-            open,
-            cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus();
-                this.spaces.menu = true;
-                cx.notify();
-            }),
-        );
+        let renaming = self.spaces.rename.as_ref().filter(|r| space.host() == Some(r.id.as_str()));
+        let name = match renaming {
+            Some(r) => div().flex_1().min_w_0().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(Input::new(&r.input).appearance(false).p_0().text_size(px(14.))),
+            None => div().min_w_0().max_w(px(120.)).truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(self.space_name(space)),
+        };
+        let row = div()
+            .id("aside-space")
+            .h(px(34.))
+            .mt(px(6.))
+            .px(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(8.))
+            .when(open, |d| d.bg(FILL_2))
+            .child(tile(self.space_glyph(space), self.space_colour(space, order), 22.))
+            .child(name)
+            .children(host.map(|_| ui::dot(6., link_color(link))));
+        // While its name is edited, a press in the row places the caret rather than opening the menu.
+        let row = match renaming {
+            Some(_) => row,
+            None => ui::popover_trigger(
+                row.cursor_pointer()
+                    .hover(|s| s.bg(FILL_2))
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(host.map(|h| h.address()).unwrap_or_default()))
+                    .child(icon("chevron-down", 12., TEXT_4)),
+                open,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.close_menus();
+                    this.spaces.menu = true;
+                    cx.notify();
+                }),
+            ),
+        };
         div().relative().flex_none().child(row).when(open, |d| d.child(ui::dropdown(40., ui::menu_in("aside-space-menu-in", self.space_menu(space, order, cx)))))
     }
 
@@ -91,6 +129,30 @@ impl Desktop {
                 cx.notify();
             }))
         });
+        let rename = {
+            let id = id.clone();
+            ui::menu_row("space-rename", "compose", "Rename\u{2026}", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_host_rename(id.clone(), window, cx)))
+        };
+        let chosen_icon = self.space_glyph(space);
+        let icons = HOST_ICONS.map(|g| {
+            let id = id.clone();
+            div()
+                .id(SharedString::from(format!("space-icon-{g}")))
+                .size(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|d| d.bg(FILL_2))
+                .when(chosen_icon == g, |d| d.bg(FILL_4))
+                .child(icon(g, 14., if chosen_icon == g { TEXT } else { TEXT_2 }))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.store.sidebar.space_icons.insert(id.clone(), g.to_string());
+                    this.save_soon(cx);
+                    cx.notify();
+                }))
+        });
         let chosen = self.space_colour(space, order);
         let swatches = ACCENT_SWATCHES.map(|c| {
             let id = id.clone();
@@ -116,10 +178,13 @@ impl Desktop {
             cx.notify();
         }));
         menu.children(reconnect)
+            .child(rename)
             .child(settings)
             .child(ui::menu_divider())
             .child(ui::menu_label("Color"))
             .child(div().flex().gap(px(4.)).px(px(8.)).pb(px(6.)).children(swatches))
+            .child(ui::menu_label("Icon"))
+            .child(div().flex().gap(px(2.)).px(px(6.)).pb(px(6.)).children(icons))
             .child(ui::menu_divider())
             .child(remove)
     }

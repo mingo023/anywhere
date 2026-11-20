@@ -5,7 +5,6 @@ use crate::desktop::Desktop;
 use crate::modals::host_finder::Opener;
 use crate::settings::ssh_hosts::link_color;
 use agents::hosts::Link;
-use crate::spaces::header::glyph;
 use crate::spaces::{Reach, Space, in_space, on_host};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::tooltip::Tooltip;
@@ -46,14 +45,14 @@ fn menu_frame(id: &'static str, width: f32, cx: &mut Context<Desktop>) -> Statef
 }
 
 /// A machine's menu row: its link's dot, and why it can't be picked while it can't be reached.
-fn machine_row(id: impl Into<ElementId>, space: &Space, name: &str, link: Option<&Link>, reach: Reach, chosen: bool) -> Stateful<Div> {
+fn machine_row(id: impl Into<ElementId>, space: &Space, glyph: &str, name: &str, link: Option<&Link>, reach: Reach, chosen: bool) -> Stateful<Div> {
     let unusable = reach != Reach::Online;
     let note = match reach {
         Reach::Online => "",
         Reach::Connecting => "Connecting",
         Reach::Offline => "Offline",
     };
-    ui::menu_pick(id, icon(glyph(space), 14., TEXT_3), name, false)
+    ui::menu_pick(id, icon(glyph, 14., TEXT_3), name, false)
         .when(unusable, |d| d.cursor_default().child(div().text_size(px(11.5)).text_color(TEXT_3).child(note)))
         .when(space.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
         .when(chosen, |d| d.child(icon("check", 13., TEXT_2)))
@@ -68,7 +67,7 @@ pub(crate) fn machine_rows(desktop: &Desktop, id: &'static str, chosen: &Space, 
         .map(|(i, space)| {
             let link = space.host().and_then(|id| desktop.fleet.hosts.links.get(id));
             let reach = desktop.space_reach(&space);
-            let row = machine_row((id, i), &space, &desktop.space_name(&space), link, reach, space == *chosen).when(reach != Reach::Online, |d| d.opacity(0.5));
+            let row = machine_row((id, i), &space, desktop.space_glyph(&space), &desktop.space_name(&space), link, reach, space == *chosen).when(reach != Reach::Online, |d| d.opacity(0.5));
             row.when(reach == Reach::Online, |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| pick(this, space.clone(), window, cx)))).into_any_element()
         })
         .collect()
@@ -233,7 +232,7 @@ impl Desktop {
         let (space, f) = (self.space(), &self.new_form.draft);
         let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
         let chip = ui::menu_chip("form-machine", f.picker == Some(Picker::Machine))
-            .child(icon(glyph(&space), 14., TEXT_3))
+            .child(icon(self.space_glyph(&space), 14., TEXT_3))
             .child(div().font_weight(FontWeight::MEDIUM).child(self.space_name(&space)))
             .when(space.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
             .child(icon("chevron-down", 12., TEXT_4));

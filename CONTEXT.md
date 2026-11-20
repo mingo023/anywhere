@@ -13,7 +13,7 @@ A git repository, or any other folder, added to Pocket, listed on the sidebar in
 _Avoid_: repository, repo, folder
 
 **Space**:
-A machine as the sidebar shows it: This Mac, or one SSH host. The sidebar lists one space's projects at a time, the switcher at its foot moves between them (a click, ⌃⌘1–9, or a two-finger swipe over the sidebar), and a badge on a space counts the sessions there that need you. Each host's space has a colour, by default from a palette by its place in the switcher. The Sessions (Scratch) section shows only in This Mac's space. Choosing a project anywhere moves the sidebar to its space. A project on two machines is two projects, one in each space, matched by folder name.
+A machine as the sidebar shows it: This Mac, or one SSH host. The sidebar lists one space's projects at a time, the switcher at its foot moves between them (a click, ⌃⌘1–9, or a two-finger swipe over the sidebar), and a badge on a space counts the sessions there that need you. Each host's space has a colour, by default from a palette by its place in the switcher, and an icon and a name the user can change from its menu; a new name shows only on this Mac, and ssh still knows the host by the one it was added with. The Sessions (Scratch) section shows only in This Mac's space. Choosing a project anywhere moves the sidebar to its space. A project on two machines is two projects, one in each space, matched by folder name.
 _Avoid_: machine view, workspace
 
 **Worktree**:

@@ -671,7 +671,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.close_host_finder(window, cx) || this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.delegated_escape(window, cx) {
+                if this.close_host_finder(window, cx) || this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.spaces.rename.take().is_some() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.delegated_escape(window, cx) {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);

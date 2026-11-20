@@ -38,8 +38,8 @@ impl Desktop {
                 .bg(FILL_2)
                 .text_size(px(12.))
                 .text_color(TEXT_3)
-                .child(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(icon("server", 13., TEXT_3)).child(offline_title(reach, &name)))
-                .child(offline_note(link, &name))
+                .child(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(icon(self.space_glyph(space), 13., TEXT_3)).child(offline_title(reach, &name)))
+                .child(offline_note(link, &self.added_name(id)))
                 .children(reconnect)
                 .into_any_element(),
         )
