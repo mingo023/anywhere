@@ -9,7 +9,7 @@ use crate::actions::SwitchSpace;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
 use crate::status::{self, Status};
-use crate::util::folder;
+use crate::util::{LOCAL_ICON, folder};
 use agents::hosts::Link;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -97,6 +97,21 @@ pub(crate) fn flash_key(space: &Space) -> String {
 pub(crate) fn colour(space: &Space, saved: &HashMap<String, u32>, position: usize) -> Option<u32> {
     let id = space.host()?;
     Some(saved.get(id).copied().unwrap_or(ACCENT_SWATCHES[position.saturating_sub(1) % ACCENT_SWATCHES.len()]))
+}
+
+/// The icons a host's space can take; the first is the one it has until the user picks another.
+pub(crate) const HOST_ICONS: [&str; 8] = ["server", "cloud", "globe", "terminal", "code", "bot", "bolt", "star"];
+
+/// `space`'s icon: This Mac's, else the host's saved one while it is still offered, else the first.
+pub(crate) fn glyph(space: &Space, saved: &HashMap<String, String>) -> &'static str {
+    let Some(id) = space.host() else { return LOCAL_ICON };
+    saved.get(id).and_then(|s| HOST_ICONS.into_iter().find(|i| i == s)).unwrap_or(HOST_ICONS[0])
+}
+
+/// The name a host's rename saves: none, so the name it was added with shows, when `typed` is blank or that name.
+pub(crate) fn kept_name(typed: &str, added: &str) -> Option<String> {
+    let typed = typed.trim();
+    (!typed.is_empty() && typed != added).then(|| typed.to_string())
 }
 
 /// A project's name with the machine it is on, as the palette lists it.
@@ -217,11 +232,13 @@ pub(crate) struct Spaces {
     switches: u64,
     /// What a change just made, a project's key or a space's `flash_key`, and when.
     flash: Option<(String, Instant)>,
+    /// The host whose name the space header is editing.
+    pub(crate) rename: Option<header::HostRename>,
 }
 
 impl Spaces {
     pub(crate) fn new(saved: Option<&str>) -> Self {
-        Self { shown: Space::on(saved), menu: false, swipe: Swipe::default(), slide: None, switches: 0, flash: None }
+        Self { shown: Space::on(saved), menu: false, swipe: Swipe::default(), slide: None, switches: 0, flash: None, rename: None }
     }
 
     pub(crate) fn current(&self, order: &[Space]) -> Space {
@@ -372,7 +389,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{FLASH, arrival, Heading, Reach, Space, Spaces, SLIDE, Swipe, colour, crumbs, flash_key, heading, in_space, labelled, nth, offline_note, offline_title, on_host, order, reach, resolve, space_of, step, twin, waiting};
+    use super::{FLASH, HOST_ICONS, arrival, Heading, Reach, Space, Spaces, SLIDE, Swipe, colour, crumbs, flash_key, glyph, heading, in_space, kept_name, labelled, nth, offline_note, offline_title, on_host, order, reach, resolve, space_of, step, twin, waiting};
     use agents::hosts::{Failure, Link};
     use std::collections::HashMap;
     use std::time::Instant;
@@ -455,6 +472,22 @@ mod tests {
         assert_eq!(colour(&host("devbox"), &saved, 1), Some(ACCENT_SWATCHES[0]));
         assert_eq!(colour(&host("tenth"), &saved, ACCENT_SWATCHES.len() + 1), Some(ACCENT_SWATCHES[0]));
         assert_eq!(colour(&Space::Local, &saved, 0), None);
+    }
+
+    #[test]
+    fn a_host_takes_its_saved_icon_else_the_server_and_this_mac_keeps_its_own() {
+        let saved: HashMap<String, String> = [("build".to_string(), "cloud".to_string()), ("old".to_string(), "rocket".to_string())].into();
+        assert_eq!(glyph(&host("build"), &saved), "cloud");
+        assert_eq!(glyph(&host("devbox"), &saved), HOST_ICONS[0]);
+        assert_eq!(glyph(&host("old"), &saved), HOST_ICONS[0]);
+        assert_eq!(glyph(&Space::Local, &saved), crate::util::LOCAL_ICON);
+    }
+
+    #[test]
+    fn a_blank_rename_or_the_added_name_goes_back_to_the_added_name() {
+        assert_eq!(kept_name("  GPU box ", "devbox"), Some("GPU box".to_string()));
+        assert_eq!(kept_name("   ", "devbox"), None);
+        assert_eq!(kept_name("devbox", "devbox"), None);
     }
 
     #[test]

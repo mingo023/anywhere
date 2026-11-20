@@ -1,4 +1,5 @@
 use crate::desktop::Desktop;
+use crate::spaces::Space;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use gpui_kit::component::input::Input;
@@ -127,7 +128,7 @@ impl Desktop {
         let chips = div().flex().flex_wrap().gap(px(6.)).children(online.iter().enumerate().map(|(i, h)| {
             let on = picked.as_deref() == Some(h.id.as_str());
             let id = h.id.clone();
-            ui::button(("host-pick", i), if on { Variant::Secondary } else { Variant::Ghost }, Some("server"), h.name.clone())
+            ui::button(("host-pick", i), if on { Variant::Secondary } else { Variant::Ghost }, Some(self.space_glyph(&Space::Host(h.id.clone()))), self.host_name(&h.id))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.browse_host(id.clone(), window, cx)))
         }));
         let Some(b) = browse else { return div().flex().flex_col().gap(px(8.)).child(chips) };

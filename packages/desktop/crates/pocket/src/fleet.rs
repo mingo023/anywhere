@@ -499,7 +499,13 @@ impl Desktop {
         !self.agents.caps.is_empty() && !self.agents.hosts_offered()
     }
 
+    /// The host's name as the user sees it: the one they renamed it to, else the one it was added with.
     pub(crate) fn host_name(&self, id: &str) -> String {
+        self.store.sidebar.space_names.get(id).cloned().unwrap_or_else(|| self.added_name(id))
+    }
+
+    /// The name pocketd lists the host under, which failure messages name as the one to `ssh`.
+    pub(crate) fn added_name(&self, id: &str) -> String {
         self.fleet.hosts.list.iter().find(|h| h.id == id).map_or_else(|| id.to_string(), |h| h.name.clone())
     }
 
@@ -644,7 +650,7 @@ impl Desktop {
 
     /// How the sign-in on `id` ended: `refused` with why ssh failed, if it did, and pocketd's words.
     fn signed_in(&mut self, id: &str, refused: Option<(Option<Failure>, String)>) {
-        let name = self.host_name(id);
+        let name = self.added_name(id);
         let form = &mut self.fleet.password;
         form.signing_in = false;
         // The form may have moved to another host meanwhile.

@@ -5,7 +5,7 @@ pub(crate) mod host;
 pub(crate) mod panel;
 pub(crate) mod project_picker;
 pub(crate) mod rail;
-mod rename;
+pub(crate) mod rename;
 mod row_menu;
 mod scratch;
 pub(crate) mod sections;

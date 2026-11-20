@@ -5,7 +5,6 @@ use crate::modals::host_finder::Opener;
 use crate::modals::new_session::picker::machine_rows;
 use crate::settings::ssh_hosts::link_color;
 use crate::sidebar::sections::group_mark;
-use crate::spaces::header::glyph;
 use crate::spaces::{Reach, Space};
 use crate::util::{tilde_in, untilde_in};
 use hosts::remote;
@@ -356,7 +355,7 @@ impl Desktop {
             .text_color(TEXT_2)
             .when(!f.busy, |d| d.cursor_pointer().hover(|s| s.bg(FILL_3)))
             .when(open, |d| d.bg(FILL_3))
-            .child(icon(glyph(&f.machine), 12., TEXT_3))
+            .child(icon(self.space_glyph(&f.machine), 12., TEXT_3))
             .child(self.space_name(&f.machine))
             .when(f.machine.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
             .child(icon("chevron-down", 11., TEXT_4));
