@@ -1004,7 +1004,10 @@ impl Desktop {
                         let at = t.turns[turns.clone()].iter().flat_map(|turn| &turn.blocks).filter_map(block_at).max();
                         let retry = t.turns[turns.clone()].iter().find_map(|turn| turn.prompt.as_ref()).map(|p| {
                             let (agent, text) = (agent.to_string(), p.text.clone());
-                            cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_command(&agent, Command::Send(text.clone()), cx))
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.mods_prompt(&text, cx);
+                                this.chat_command(&agent, Command::Send(text.clone()), cx)
+                            })
                         });
                         meta::meta(&id, view.copied(&key), copy(agent, key.clone(), answer(t, turns), cx), retry, worked, at)
                     }

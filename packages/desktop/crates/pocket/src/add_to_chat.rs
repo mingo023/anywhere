@@ -261,7 +261,10 @@ impl Desktop {
         let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return };
         let question = self.chat.input.read(cx).value().to_string();
         match self.route(&terminal) {
-            Route::Chat if self.store.agents.send_now => self.chat_command(&target, chat::Command::Send(quote.prompt(&question)), cx),
+            Route::Chat if self.store.agents.send_now => {
+                self.mods_prompt(&question, cx);
+                self.chat_command(&target, chat::Command::Send(quote.prompt(&question)), cx)
+            }
             Route::Chat => self.chat_add_text(&target, &quote.prompt(&question), window, cx),
             Route::Paste => {
                 self.send_input(&terminal, &input_bytes(&quote.payload(), &question), cx);

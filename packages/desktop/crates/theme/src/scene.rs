@@ -33,7 +33,7 @@ impl Sprite {
     /// Where copy `i` sits at `t` seconds in a `width` by `height` area.
     pub fn place(&self, i: usize, t: f32, width: f32, height: f32) -> Placement {
         let (w, h) = self.size();
-        let spread = (i as f32 * 0.618_034).fract();
+        let spread = ((i as f32 + 0.5) * 0.618_034).fract();
         let pace = self.speed * (0.75 + 0.5 * (i as f32 * 0.381_966).fract());
         let span = width + w;
         let run = (spread * span + pace * t).rem_euclid(span);
@@ -124,5 +124,14 @@ mod tests {
         let (a, b) = ((x(0, 1.), x(0, 1.5)), (x(1, 1.), x(1, 1.5)));
         assert!(a.1 > a.0 && b.1 < b.0, "rightwards {a:?}, leftwards {b:?}");
         assert_ne!(fish.place(0, 0., width, height).y, fish.place(2, 0., width, height).y, "copies keep their own lanes");
+    }
+
+    #[test]
+    fn a_still_sprite_stays_in_view() {
+        let still = Sprite { speed: 0., count: 1, ..fish() };
+        for t in [0., 10.] {
+            let x = still.place(0, t, 800., 600.).x;
+            assert!((0. ..=800. - 12.).contains(&x), "at {t}s it is at {x}");
+        }
     }
 }
