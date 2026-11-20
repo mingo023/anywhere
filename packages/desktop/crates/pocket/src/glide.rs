@@ -5,10 +5,10 @@ use theme::SPRING;
 
 const SETTLED: f32 = 0.001;
 
-/// A unit-mass spring with no overshoot that takes about `seconds` to arrive: the response of a design prototype's spring.
-fn critically_damped(seconds: f32) -> SpringConfig {
-    let omega = TAU / seconds;
-    SpringConfig::new(omega * omega, 2. * omega, 1.)
+/// A unit-mass spring by its damping ratio (1 never overshoots) and the seconds it takes to arrive: a design prototype's spring.
+pub(crate) fn spring(damping: f32, response: f32) -> SpringConfig {
+    let omega = TAU / response;
+    SpringConfig::new(omega * omega, 2. * damping * omega, 1.)
 }
 
 /// A value springing to where it is sent, stepped once a frame; it starts where it is first sent, unless made `from` somewhere.
@@ -26,7 +26,7 @@ impl Glide {
 
     /// Takes about `seconds` to arrive instead of the app's usual spring.
     pub(crate) fn response(self, seconds: f32) -> Self {
-        Self { config: Some(critically_damped(seconds)), ..self }
+        Self { config: Some(spring(1., seconds)), ..self }
     }
 
     /// Steps toward `to` by the time since the last step; true while it still moves.

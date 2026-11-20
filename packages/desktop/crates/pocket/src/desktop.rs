@@ -56,6 +56,7 @@ use crate::terminals::Terminals;
 use crate::themes::Themes;
 use crate::terminals::link::Hint;
 use crate::star::Star;
+use crate::welcome::Welcome;
 use crate::updates::Updates;
 use agents::Agents;
 use hosts::session::{Daemons, Outboxes};
@@ -128,6 +129,7 @@ pub struct Desktop {
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
     pub(crate) star: Star,
+    pub(crate) welcome: Option<Welcome>,
     pub(crate) chips: Chips,
     pub(crate) delegated: crate::delegated::DelegatedState,
     pub(crate) overlay: Option<Overlay>,
@@ -170,6 +172,8 @@ impl Desktop {
         let (activity, activity_subs) = ActivityState::new(window, cx);
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
+        // Read before updates and the star record this launch.
+        let welcome = crate::welcome::greets(&store).then(Welcome::new);
         let updates = Updates::new(&mut store, cx);
         let star = Star::new(&mut store, &updates.update, crate::star::unix_now());
         let open_in = OpenIn::new(store.home(), cx);
@@ -274,6 +278,7 @@ impl Desktop {
             accounts: Accounts::default(),
             updates,
             star,
+            welcome,
             chips,
             delegated: crate::delegated::DelegatedState::new(),
             overlay: None,
@@ -640,13 +645,22 @@ impl Render for Desktop {
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
         self.sync_browser(window);
+        let welcome = self.welcome_view(now, reduce_motion, window, cx);
+        // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.
+        let shown = !self.welcome.as_ref().is_some_and(crate::welcome::Welcome::covers);
         let settings = self.screen == Screen::Settings;
-        let lead = (!settings).then(|| self.lead());
-        let column = if settings { Some(self.settings_nav(cx)) } else { crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx)) };
-        let page = if settings { self.settings_page(cx) } else { self.main_view(window, cx) };
-        let workspace = (self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
+        let lead = (shown && !settings).then(|| self.lead());
+        let column = if !shown {
+            None
+        } else if settings {
+            Some(self.settings_nav(cx))
+        } else {
+            crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx))
+        };
+        let page = shown.then(|| if settings { self.settings_page(cx) } else { self.main_view(window, cx) });
+        let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
         // The finder opened from the new-session page has no overlay under it.
-        let overlay = self.overlay_view(window, cx).or_else(|| self.host_finder_view(window, cx));
+        let overlay = if shown { self.overlay_view(window, cx).or_else(|| self.host_finder_view(window, cx)) } else { None };
         div()
             .relative()
             .size_full()
@@ -661,6 +675,9 @@ impl Render for Desktop {
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.log_focus_miss(&ev.keystroke, window, cx); // [DEBUG-focus]
+                if this.welcome_key(&ev.keystroke, cx) {
+                    return cx.stop_propagation();
+                }
                 this.hide_chips(cx);
                 if crate::explorer::toast::is_undo(&ev.keystroke, || window.context_stack()) && this.undo_trash(cx) {
                     return cx.stop_propagation();
@@ -737,11 +754,12 @@ impl Render for Desktop {
             .on_action(cx.listener(Self::copy_worktree_path))
             .children(lead)
             .children(column)
-            .child(page)
+            .children(page)
             .children(workspace)
             .children(overlay)
-            .children(self.chat_pill(cx))
-            .children(self.chat_popover(cx))
+            .children(shown.then(|| self.chat_pill(cx)).flatten())
+            .children(shown.then(|| self.chat_popover(cx)).flatten())
+            .children(welcome)
     }
 }
 
