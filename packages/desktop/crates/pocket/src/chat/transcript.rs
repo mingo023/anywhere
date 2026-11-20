@@ -505,6 +505,13 @@ impl Desktop {
                 v.session.outgoing.sent_as(send, request);
             }
         }
+        self.chat_prune_dock();
+    }
+
+    /// Where a link clicked in `agent`'s chat goes.
+    pub(super) fn chat_links(&self, agent: &str, cx: &Context<Self>) -> markdown::Open {
+        let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
+        Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
     }
 
     /// `terminal`'s agent's transcript, refolded when its timeline moved.
@@ -775,9 +782,13 @@ impl Desktop {
         let ask = self.agents.pending.iter().find(|p| p.agent_id == agent).map(|p| !chat::for_provider(&provider).ask(p).questions.is_empty());
         let send_now = self.chat_caps(&provider).send_now;
         let delegated_by = self.delegated_by(agent);
-        let open: markdown::Open = {
-            let (this, id, cwd) = (cx.weak_entity(), agent.to_string(), self.agents.get(agent).map(|a| a.cwd.clone()).unwrap_or_default());
-            Arc::new(move |link, window, cx| this.update(cx, |d, cx| d.chat_open(&id, link, &cwd, window, cx)).unwrap_or_default())
+        let open = self.chat_links(agent, cx);
+        let picks = sub_agent::Picks {
+            open: self.chats.dock.pick.open_in(agent).map(str::to_string),
+            on_pick: {
+                let (this, id) = (cx.weak_entity(), agent.to_string());
+                Rc::new(move |call: &str, window: &mut Window, cx: &mut App| _ = this.update(cx, |d, cx| d.chat_pick_agent(&id, call, window, cx)))
+            },
         };
         // Only for a message linking a PR: `fix_agent` walks every agent, and this runs per row each frame.
         let links_pr = self.chats.views.get(agent).and_then(|v| match v.session.rows.get(ix) {
@@ -842,7 +853,7 @@ impl Desktop {
             Row::Phase { turn, blocks: range } => {
                 let blocks = &t.turns[*turn].blocks[range.clone()];
                 let on_toggle = toggle(agent, &id, false, cx);
-                phase::phase(&id, blocks, next_at(t, *turn, range.end), phase_live(t, *turn, range), s.open(&id, false), on_toggle, &open, &view.tools, cx)
+                phase::phase(&id, blocks, next_at(t, *turn, range.end), phase_live(t, *turn, range), s.open(&id, false), on_toggle, &picks, &view.tools, cx)
             }
             Row::Notice { turn } => {
                 let calls = chat::reported(t, *turn);

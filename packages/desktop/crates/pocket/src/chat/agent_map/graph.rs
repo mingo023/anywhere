@@ -1,4 +1,5 @@
-use super::{calls, main_line, mark, meta, name, thousands};
+use super::{main_line, mark, meta, name, thousands};
+use crate::chat::agent_detail;
 use crate::chat::sub_agent::{self, Mark};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
@@ -212,7 +213,10 @@ impl Desktop {
             let third = match m {
                 Mark::Running | Mark::Starting => line(sub_agent::latest(s.agent).map_or_else(|| "Starting…".into(), sub_agent::step), true, TEXT_2),
                 Mark::Failed => line(sub_agent::report(s.call, s.agent).and_then(|r| r.lines().next().map(str::to_string)).unwrap_or_else(|| "Failed".into()), true, FAILED),
-                Mark::Done => line(format!("Done · {} tool call{}", calls(s.agent), if calls(s.agent) == 1 { "" } else { "s" }), false, TEXT_4),
+                Mark::Done => {
+                    let n = agent_detail::calls(s.agent).count();
+                    line(format!("Done · {n} tool call{}", if n == 1 { "" } else { "s" }), false, TEXT_4)
+                }
             };
             let (node, call) = (i + 1, s.call.id.clone());
             card(format!("chat-map-node:{}", s.call.id), (x, y), selected == node, failed)

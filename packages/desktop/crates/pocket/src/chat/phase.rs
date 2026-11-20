@@ -1,8 +1,8 @@
 use super::shimmer::shimmer;
 use super::tool_detail;
 use super::tool_row::{self, Tools};
-use super::{markdown, sub_agent, thinking, working::format_elapsed};
-use chat::{Block, ToolKind, ToolStatus};
+use super::{sub_agent, thinking, working::format_elapsed};
+use chat::{Block, ToolKind};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -22,7 +22,7 @@ fn rail(last: bool, elbow: bool, top: f32, child: impl IntoElement) -> Div {
         .child(child)
 }
 
-/// One step on a phase's or a sub-agent's rail.
+/// One step on a phase's rail.
 pub(super) fn step(last: bool, child: impl IntoElement) -> Div {
     rail(last, true, 0., child)
 }
@@ -31,11 +31,6 @@ pub(super) fn step(last: bool, child: impl IntoElement) -> Div {
 /// elbow of its own.
 pub(super) fn in_fold(last: bool, elbow: bool, child: impl IntoElement) -> Div {
     rail(last, elbow, 6., div().pt(px(6.)).pb(px(4.)).child(child))
-}
-
-/// Text the agent wrote between steps.
-pub(super) fn note(text: &str) -> Div {
-    div().py(px(4.)).text_size(px(13.5)).line_height(rems(1.6)).text_color(TEXT_BODY).child(text.trim().to_string())
 }
 
 /// The icon heading a phase: what its work mostly is.
@@ -91,18 +86,12 @@ fn thought(id: &str, text: &str, label: Option<String>, live: bool, tools: &Enti
     div().flex().flex_col().child(head).children(body)
 }
 
-/// One step of a phase. `next` is when the agent did its next thing, which ends a thought.
-fn step_view(block: &Block, next: Option<i64>, live: bool, links: &markdown::Open, tools: &Entity<Tools>, cx: &mut App) -> Div {
+/// One step of a phase. `next` is when the agent did its next thing, which ends a thought. A sub-agent names its model
+/// unless `shared` says the title does.
+fn step_view(block: &Block, next: Option<i64>, live: bool, shared: bool, picks: &sub_agent::Picks, tools: &Entity<Tools>, cx: &mut App) -> Div {
     match block {
         Block::Thinking(m) => thought(&m.id, &m.text, thought_for(m.at, next), live && next.is_none(), tools, cx),
-        Block::Tool(c @ chat::ToolCall { kind: ToolKind::Agent(a), .. }) => {
-            let failed = c.status == ToolStatus::Failed;
-            let on_toggle = {
-                let (tools, id) = (tools.clone(), c.id.clone());
-                move |_: &ClickEvent, _: &mut Window, cx: &mut App| tools.update(cx, |t, cx| t.toggle(&id, failed, None, cx))
-            };
-            sub_agent::row(c, a, tools.read(cx).details.open(&c.id, failed), on_toggle, links, tools, cx)
-        }
+        Block::Tool(c @ chat::ToolCall { kind: ToolKind::Agent(a), .. }) => sub_agent::row(c, a, !shared, picks),
         Block::Tool(c) => tool_row::row(c, !live, tools, cx),
         _ => div(),
     }
@@ -110,10 +99,10 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, links: &markdown::Ope
 
 /// A phase in the fold: a title line that opens to its steps, or, for a lone step, just that step.
 /// `next_at` is when whatever follows the phase began; `live` forces it open with its newest steps showing, as a
-/// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents. Links in a
-/// sub-agent's report go to `links`.
+/// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents and names the
+/// model they share. A click on a sub-agent goes to `picks`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, links: &markdown::Open, tools: &Entity<Tools>, cx: &mut App) -> Div {
+pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, picks: &sub_agent::Picks, tools: &Entity<Tools>, cx: &mut App) -> Div {
     let steps = steps(blocks);
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
@@ -121,11 +110,13 @@ pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool
         && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
     {
         let icon_name = kind_icon(blocks);
-        return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(b, next(i), live, links, tools, cx)));
+        return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(b, next(i), live, false, picks, tools, cx)));
     }
     let open = live || open || blocks.iter().any(chat::running_agent);
     let head_icon = if open && !live { "chevron-down" } else { kind_icon(blocks) };
     let label = chat::phase_title(blocks, live);
+    let model = sub_agent::shared_model(blocks);
+    let shared = model.is_some();
     let title = div().min_w_0().flex_1().overflow_hidden().text_color(TEXT_3);
     let title = if live { title.child(shimmer(SharedString::from(format!("phase-{id}")), label, TEXT_3)) } else { title.truncate().child(label) };
     let head = div()
@@ -138,11 +129,12 @@ pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool
         .line_height(px(20.))
         .child(icon(head_icon, 14., TEXT_4))
         .child(title)
+        .children(model.map(|m| div().flex_none().text_size(px(12.)).text_color(TEXT_4).child(m)))
         .when(!live, |d| d.cursor_pointer().hover(|s| s.opacity(0.8)).on_click(on_toggle));
     let body = open.then(|| {
         let skip = if live { steps.len().saturating_sub(LIVE_STEPS) } else { 0 };
         let n = steps.len();
-        div().flex().flex_col().children(steps.iter().enumerate().skip(skip).map(|(k, &(i, b))| step(k + 1 == n, step_view(b, next(i), live, links, tools, cx))))
+        div().flex().flex_col().children(steps.iter().enumerate().skip(skip).map(|(k, &(i, b))| step(k + 1 == n, step_view(b, next(i), live, shared, picks, tools, cx))))
     });
     div().flex().flex_col().child(head).children(body)
 }

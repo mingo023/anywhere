@@ -633,7 +633,7 @@ impl Render for Desktop {
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, reduce_motion) = (Instant::now(), cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
-        if self.sidebar.tick(self.layout, now, reduce_motion) | self.panels.tick(now, reduce_motion) | self.star.tick(now, self.capturing) {
+        if self.sidebar.tick(self.layout, now, reduce_motion) | self.panels.tick(now, reduce_motion) | self.star.tick(now, self.capturing) | self.chats.dock.tick(now, reduce_motion) {
             window.request_animation_frame();
         }
         self.sync_code(window, cx);
@@ -671,7 +671,7 @@ impl Render for Desktop {
                 if ev.keystroke.key != "escape" {
                     return;
                 }
-                if this.close_host_finder(window, cx) || this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.spaces.rename.take().is_some() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.delegated_escape(window, cx) {
+                if this.close_host_finder(window, cx) || this.cancel_drag() || this.explorer.cancel_edit() || this.sidebar.cancel_rename() || this.spaces.rename.take().is_some() || this.close_picker() || this.escape_composer_menu() || this.close_menus() || this.chat_escape_dock(window, cx) || this.delegated_escape(window, cx) {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
