@@ -4515,6 +4515,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mods"
+version = "0.0.0"
+dependencies = [
+ "rquickjs",
+]
+
+[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5687,6 +5694,7 @@ dependencies = [
  "ignore",
  "image",
  "keys",
+ "mods",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",

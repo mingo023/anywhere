@@ -30,6 +30,7 @@ pub(crate) struct Themes {
     pub error: Option<SharedString>,
     /// Counts changes to `custom`, so a reload that read the folder before one doesn't undo it.
     pub edits: usize,
+    pub mod_look: Option<Theme>,
 }
 
 impl Themes {
@@ -49,6 +50,15 @@ impl Themes {
         let at = self.custom.iter().position(|c| c.slug == slug)?;
         self.edits += 1;
         Some(self.custom.remove(at))
+    }
+
+    /// Whether the theme painting makes the window dark; `None` follows macOS.
+    pub fn forced(&self, a: &Appearance) -> Option<bool> {
+        self.mod_look.as_ref().map(|look| look.dark).or_else(|| forced(a, &self.custom))
+    }
+
+    pub fn active(&self, a: &Appearance, system_dark: bool) -> Theme {
+        self.mod_look.clone().unwrap_or_else(|| active(a, &self.custom, system_dark))
     }
 
     /// Takes the themes read from disk when `edits` was the count; false when it has moved on, or nothing changed.
@@ -153,7 +163,7 @@ fn forget(a: &mut Appearance, id: &str, dark: bool) {
 impl Desktop {
     /// Paints the chosen theme and forces its appearance on the window.
     pub(crate) fn apply_theme(&mut self, cx: &mut Context<Self>) {
-        let forced = forced(&self.store.appearance, &self.themes.custom);
+        let forced = self.themes.forced(&self.store.appearance);
         cx.set_window_appearance(forced.map(|dark| if dark { WindowAppearance::Dark } else { WindowAppearance::Light }));
         // AppKit tells the window when its appearance changes, but not when a theme of the same appearance replaces another.
         self.paint_theme(forced.unwrap_or(theme::is_dark()), cx);
@@ -161,7 +171,7 @@ impl Desktop {
 
     /// Paints the theme chosen for when macOS is `system_dark`. Diff and commit rows hold the colours they were highlighted with.
     pub(crate) fn paint_theme(&mut self, system_dark: bool, cx: &mut Context<Self>) {
-        theme::set_theme(&active(&self.store.appearance, &self.themes.custom, system_dark), cx);
+        theme::set_theme(&self.themes.active(&self.store.appearance, system_dark), cx);
         self.recolor_diff(cx);
         self.recolor_commit(cx);
         cx.notify();
@@ -397,5 +407,14 @@ mod tests {
         assert_eq!(themes.custom.iter().map(|c| (c.slug.as_str(), c.theme.dark)).collect::<Vec<_>>(), [("alpha", true), ("beta", false)]);
         assert_eq!(themes.remove("alpha").map(|c| c.slug), Some("alpha".to_string()));
         assert_eq!((themes.remove("alpha"), themes.custom.len()), (None, 1));
+    }
+
+    #[test]
+    fn a_mod_s_look_paints_in_place_of_the_chosen_theme() {
+        let a = appearance(GRAPHITE_LIGHT);
+        let mut themes = Themes::new(vec![]);
+        assert_eq!((themes.forced(&a), themes.active(&a, false).name), (Some(false), "Graphite Light".to_string()));
+        themes.mod_look = Some(custom("Ink", true).theme);
+        assert_eq!((themes.forced(&a), themes.active(&a, false).name), (Some(true), "Ink".to_string()));
     }
 }

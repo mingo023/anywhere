@@ -16,6 +16,7 @@ daemon = { path = "crates/daemon" }
 git = { path = "crates/git" }
 hosts = { path = "crates/hosts" }
 keys = { path = "crates/keys" }
+mods = { path = "crates/mods" }
 project = { path = "crates/project" }
 store = { path = "crates/store" }
 term = { path = "crates/term" }

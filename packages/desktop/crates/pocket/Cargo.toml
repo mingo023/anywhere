@@ -25,6 +25,7 @@ hosts.workspace = true
 ignore.workspace = true
 image = { workspace = true, features = ["tiff"] }
 keys.workspace = true
+mods.workspace = true
 petname.workspace = true
 project.workspace = true
 qrcode.workspace = true

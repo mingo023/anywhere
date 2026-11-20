@@ -1580,7 +1580,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.terminals.link.service = None;
     let a = &mut d.store.appearance;
     (a.mode, a.theme, a.day, a.night) = (store::Mode::System, None, None, None);
-    d.themes = Default::default();
+    d.themes = crate::themes::Themes { mod_look: d.themes.mod_look.take(), ..Default::default() };
     d.set_appearance(WindowAppearance::Light, window, cx);
     syntax(d, store::SyntaxTheme::Graphite, cx);
     (d.store.appearance.added, d.store.appearance.removed) = (None, None);
