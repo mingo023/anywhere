@@ -1,0 +1,13 @@
+## ~devbox/.anywhere/worktrees/app-android/fix-ota-resume
+branch: fix/ota-resume
+f0a3eb9 Start fix/ota-resume
+65b679c Initial commit
+status:
+M src/ota/resume.ts
+ M src/ota/store.ts
+marker: yes
+conversation: 
+
+worktrees:
+<scratch>/devbox/code/app-android                               65b679c [main]
+<scratch>/devbox/.anywhere/worktrees/app-android/fix-ota-resume f0a3eb9 [fix/ota-resume]
