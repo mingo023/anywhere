@@ -7,6 +7,13 @@
 		<language>en-us</language>
 		<atom:link href="https://getanywhere.dev/blog/rss.xml" rel="self" type="application/rss+xml"/>
 		<item>
+			<title>Vibe Kanban alternative: a local Board for coding agents</title>
+			<link>https://getanywhere.dev/blog/vibe-kanban-alternative</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/vibe-kanban-alternative</guid>
+			<pubDate>Sat, 21 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Vibe Kanban is now community maintained and still runs locally. If you want a free, MIT desktop app whose Board starts each ticket in its own git worktree, compare Anywhere.</description>
+		</item>
+		<item>
 			<title>How to clean up the git worktrees your coding agents leave behind</title>
 			<link>https://getanywhere.dev/blog/clean-up-coding-agent-worktrees</link>
 			<guid isPermaLink="true">https://getanywhere.dev/blog/clean-up-coding-agent-worktrees</guid>
