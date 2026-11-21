@@ -459,11 +459,19 @@ func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, madeBefor
 	}
 	raw, err := c.Call(ctx, "ack", msg)
 	var e proto.Error
-	if err != nil && json.Unmarshal(raw, &e) == nil && (e.Code == "unknown_worktree" || e.Code == "worktree_in_use") {
+	if err == nil || json.Unmarshal(raw, &e) != nil || e.Code == "" {
+		return err
+	}
+	if e.Code == "unknown_worktree" || e.Code == "worktree_in_use" {
 		return nil
 	}
-	return err
+	return Refusal{e}
 }
+
+// Refusal is a host's coded error, kept whole so a phone can act on it.
+type Refusal struct{ Reply proto.Error }
+
+func (r Refusal) Error() string { return r.Reply.Message }
 
 func (m *Manager) Projects(ctx context.Context, id string) ([]proto.Project, error) {
 	r, err := m.connected(ctx, id)

@@ -362,7 +362,8 @@ impl git::Exec for Client {
             return Ok(None);
         }
         // pocketd's stat has no creation time, and its mtime would order worktrees by their last edit.
-        Ok(Some(git::Stat { dir: reply["dir"] == true, size: reply["size"].as_u64().unwrap_or(0), created: None }))
+        let modified = reply["mtime"].as_u64().map(|ms| std::time::UNIX_EPOCH + Duration::from_millis(ms));
+        Ok(Some(git::Stat { dir: reply["dir"] == true, size: reply["size"].as_u64().unwrap_or(0), created: None, modified }))
     }
 
     fn place(&self, path: &str) -> String {
