@@ -1,0 +1,18 @@
+# with the change (3 runs)
+--- PASS: TestDeletingTheParentsWorktreeFromThePhoneTakesTheOneItsSubagentWorkedIn (1.51s)
+--- PASS: TestClosingAParentClosesItsChildsTerminalOnALinkedHost (1.74s)
+--- PASS: TestDeletingTheParentsWorktreeFromThePhoneTakesTheOneItsSubagentWorkedIn (1.54s)
+--- PASS: TestClosingAParentClosesItsChildsTerminalOnALinkedHost (1.48s)
+--- PASS: TestDeletingTheParentsWorktreeFromThePhoneTakesTheOneItsSubagentWorkedIn (1.48s)
+--- PASS: TestClosingAParentClosesItsChildsTerminalOnALinkedHost (1.53s)
+
+# phone delete without the cascade
+    delegation_worktree_test.go:113: /private/tmp/pk2137699008/wt/notes stayed: <nil>
+    delegation_worktree_test.go:118: branches "main\nsay-hello", want main alone
+    harness_test.go:197: pocketd output:
+
+# linked-host close on #331 head
+--- FAIL: TestClosingAParentClosesItsChildsTerminalOnALinkedHost (12.49s)
+    host_delegation_test.go:468: timed out waiting for the child's terminal on the host to end
+    harness_test.go:197: pocketd output:
+    harness_test.go:197: pocketd output:
