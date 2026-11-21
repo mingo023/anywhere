@@ -480,7 +480,7 @@ const hostGhAs = (login: string, cwd: string, args: string[]) => {
   const run = args.join(" ");
   if (run === "--version") return { stdout: "gh version 2.81.0 (2026-01-01)\n" };
   if (run.startsWith("repo view")) return login === "work" ? { stdout: '{"viewerPermission":"WRITE"}' } : hidden;
-  if (run.startsWith("pr view") && cwd === HOST_LOGIN && process.env.FIXTURE_HOST_GH_LIMIT && prViews++ >= Number(process.env.FIXTURE_HOST_GH_LIMIT)) {
+  if (run.startsWith("pr view") && cwd === HOST_LOGIN && login === "work" && process.env.FIXTURE_HOST_GH_LIMIT && prViews++ >= Number(process.env.FIXTURE_HOST_GH_LIMIT)) {
     return { code: 1, stderr: "GraphQL: API rate limit already exceeded for user ID 1.\n" };
   }
   if (run.startsWith("pr view") && cwd === HOST_LOGIN) {
