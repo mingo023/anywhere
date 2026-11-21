@@ -1,0 +1,15 @@
+=== RUN   TestDeletingTheParentsWorktreeFromThePhoneTakesTheOneItsSubagentWorkedIn
+--- PASS: TestDeletingTheParentsWorktreeFromThePhoneTakesTheOneItsSubagentWorkedIn (2.71s)
+=== RUN   TestADelegationToALinkedHostCompletesWithTheDesktopDisconnected
+--- PASS: TestADelegationToALinkedHostCompletesWithTheDesktopDisconnected (1.79s)
+=== RUN   TestClosingAParentClosesItsChildsTerminalOnALinkedHost
+--- PASS: TestClosingAParentClosesItsChildsTerminalOnALinkedHost (1.50s)
+=== RUN   TestDeletingTheParentsWorktreeFromThePhoneTakesItsSubagentsWorktreeOnALinkedHost
+--- PASS: TestDeletingTheParentsWorktreeFromThePhoneTakesItsSubagentsWorktreeOnALinkedHost (1.98s)
+=== RUN   TestDeletingTheWorktreeOfAParentThatClosedTakesItsSubagentsWorktreeOnALinkedHost
+--- PASS: TestDeletingTheWorktreeOfAParentThatClosedTakesItsSubagentsWorktreeOnALinkedHost (2.23s)
+=== RUN   TestAWorktreeMadeAtAClosedSubagentsFolderOnALinkedHostSinceStays
+--- PASS: TestAWorktreeMadeAtAClosedSubagentsFolderOnALinkedHostSinceStays (2.27s)
+=== RUN   TestAnAgentListsLinkedHostsWithWhetherEachIsReachable
+--- PASS: TestAnAgentListsLinkedHostsWithWhetherEachIsReachable (1.17s)
+ok  	pocketd/e2e	21.573s
