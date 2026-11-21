@@ -1,0 +1,15 @@
+# Prompt devbox received for New session on devbox/app-ios with a pasted image
+
+## main (before)
+"prompt":"Describe this screenshot\n\n# Attached images\n\n- /private/tmp/verify-anywhere.0K48dc/pocket/attachments/15593779944758442622.png"
+(devbox got no fs.write for the image)
+
+## this PR (after)
+"prompt":"Describe this screenshot\n\n# Attached images\n\n- /home/dev/.coding-pocket-dev/attachments/15593779944758442622.png"
+
+devbox ops before the create:
+{"t":1795234933886,"path":"/home/dev/.coding-pocket-dev/attachments","parents":true,"op":"fs.mkdir","id":"96"}
+{"t":1795234933893,"path":"/home/dev/.coding-pocket-dev/attachments/15593779944758442622.png","data":"22715 bytes","create":false,"op":"fs.write","id":"97"}
+
+## project on this Mac (unchanged)
+"prompt":"Describe this screenshot\n\n# Attached images\n\n- /private/tmp/verify-anywhere.ybQyrv/pocket/attachments/15593779944758442622.png"
