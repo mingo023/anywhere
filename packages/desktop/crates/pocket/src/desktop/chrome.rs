@@ -66,7 +66,8 @@ pub enum Overlay {
 #[derive(Clone)]
 pub enum Confirm {
     RemoveProject(String),
-    DeleteWorktree { removal: Removal, dirty: usize, lost: usize },
+    /// `subtrees` are the worktrees its sessions' subagents worked in, which go with it.
+    DeleteWorktree { removal: Removal, dirty: usize, lost: usize, subtrees: Vec<String> },
     DeleteLocal(String),
     DeleteScratch { path: String, dirty: usize, lost: usize },
     TeardownFailed { removal: Removal, tail: String },

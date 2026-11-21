@@ -735,20 +735,20 @@ impl Desktop {
         self.chat_target(&self.chat_choices()).and_then(|id| self.agents.get(&id)).map_or("agent", |a| theme::provider_name(&a.provider))
     }
 
-    /// Deletes a merged PR's worktree, keeping its branch; one with changes asks first.
+    /// Deletes a merged PR's worktree and its subagents', keeping their branches; asks first if any has changes.
     pub(crate) fn delete_merged(&mut self, tree: &str, cx: &mut Context<Self>) {
         let Some(project) = self.project.clone().filter(|_| self.deletable(tree)) else { return };
-        let tree = tree.to_string();
-        let dir = tree.clone();
-        // Untracked files count even when Changes hides them, so this reads the tree afresh.
-        let task = cx.background_executor().spawn(async move { git::dirty_files(&hosts::runner_for(&dir), &dir).is_none_or(|n| n > 0) });
+        let removal = Removal { project, tree: tree.to_string(), branch: None, delete_branch: false, teardown: true };
+        let dirs: Vec<String> = std::iter::once(removal.tree.clone()).chain(self.subagent_removals(&removal).into_iter().map(|r| r.tree)).collect();
+        // Untracked files count even when Changes hides them, so this reads the trees afresh.
+        let task = cx.background_executor().spawn(async move { dirs.iter().any(|dir| git::dirty_files(&hosts::runner_for(dir), dir).is_none_or(|n| n > 0)) });
         cx.spawn(async move |this, cx| {
             let dirty = task.await;
             this.update(cx, |d, cx| {
                 if dirty {
-                    d.ask_delete_worktree(project, tree, cx);
+                    d.ask_delete_worktree(removal.project, removal.tree, cx);
                 } else {
-                    d.delete_worktree(Removal { project, tree, branch: None, delete_branch: false, teardown: true }, cx);
+                    d.delete_worktree(removal, cx);
                 }
             })
             .ok();

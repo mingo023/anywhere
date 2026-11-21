@@ -222,6 +222,11 @@ func serve(sock, handed string) error {
 	l.Names = worktreeNames
 	o.host.Broker, o.host.Launcher, o.host.LoginEnv, o.host.Projects, o.host.Planning = d.Broker, l, d.LoginEnv, reg, d.Planning
 	l.MCPFlags = o.host.ClaudeFlags
+	o.engine.CloseTerminal = func(id string) {
+		if t := d.Terminals.Get(id); t != nil {
+			t.Close()
+		}
+	}
 	d.MCPCodex = o.host.CodexConfig
 	d.MCPServers = o.host.ACPServers
 	localStore := locals.Open(home)

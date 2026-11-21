@@ -39,7 +39,9 @@ type Engine struct {
 	// Live is a running session as the registry has it this instant; the
 	// store's row may lag it by a write. Nil reads the store alone.
 	Live func(id string) (Session, bool)
-	Now  func() time.Time
+	// CloseTerminal ends a terminal on this Mac and its processes; nil leaves terminals be.
+	CloseTerminal func(id string)
+	Now           func() time.Time
 
 	mu      sync.Mutex
 	locks   map[string]*sync.Mutex

@@ -3,9 +3,11 @@
 package e2e
 
 import (
+	"slices"
 	"testing"
 
 	"pocketd/internal/ops"
+	"pocketd/internal/terminal"
 )
 
 func TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo(t *testing.T) {
@@ -24,4 +26,18 @@ func TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo(t *testing.T) {
 	phone.WaitStatus(parent, "closed")
 	phone.WaitStatus(finished.ID, "closed")
 	phone.WaitStatus(held.ID, "closed")
+	h.eventually("the children's terminals to end", func() bool {
+		return !h.lists(finished.TerminalID) && !h.lists(held.TerminalID)
+	})
+}
+
+func (h *Harness) lists(id string) bool {
+	c := h.Ops()
+	defer c.Close()
+	c.Send(ops.Msg{Op: "list"})
+	m, err := c.Recv()
+	if err != nil {
+		h.t.Fatalf("list: %v", err)
+	}
+	return slices.ContainsFunc(m.Items, func(i terminal.Info) bool { return i.ID == id })
 }
