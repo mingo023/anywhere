@@ -1,0 +1,15 @@
+== HEAD: default env
+CLAUDE_CODE_ARTIFACT=<unset>
+artifact tools: []
+== HEAD: user sets CLAUDE_CODE_ARTIFACT=0
+CLAUDE_CODE_ARTIFACT=0
+artifact tools: []
+== change: default env
+CLAUDE_CODE_ARTIFACT=1
+artifact tools: ['Artifact', 'ArtifactComments', 'ArtifactData']
+== change: user sets CLAUDE_CODE_ARTIFACT=0
+CLAUDE_CODE_ARTIFACT=0
+artifact tools: []
+== change: user settings with disableArtifact:true loaded
+CLAUDE_CODE_ARTIFACT=1
+artifact tools: []
