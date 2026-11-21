@@ -7,6 +7,7 @@ use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::rc::Rc;
 use store::{Appearance, DiffColors, Store, SyntaxTheme};
 use theme::*;
@@ -175,16 +176,14 @@ fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
     cx.spawn(async move |this, cx| {
         let Ok(Ok(Some(paths))) = rx.await else { return };
         let Some(from) = paths.into_iter().next() else { return };
-        let home = std::path::PathBuf::from(crate::modals::form::home());
-        let kept = match store::backgrounds::is_image(&from) {
-            true => cx.background_executor().spawn(async move { store::backgrounds::keep(&home, &from) }).await.map_err(|e| format!("Couldn't use the image: {e}")),
-            false => Err("Pick a PNG, JPEG, WebP or GIF image.".into()),
+        let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).filter(|h| !h.is_empty()).map(PathBuf::from);
+        let kept = match (store::backgrounds::is_image(&from), home) {
+            (false, _) => Err("Pick a PNG, JPEG, WebP or GIF image.".into()),
+            (true, None) => Err("Couldn't find your home folder to keep the image in.".into()),
+            (true, Some(home)) => cx.background_executor().spawn(async move { store::backgrounds::keep(&home, &from) }).await.map_err(|e| format!("Couldn't use the image: {e}")),
         };
         this.update(cx, |d, cx| match kept {
-            Ok(to) => {
-                d.store.appearance.background = Some(to.to_string_lossy().into_owned());
-                d.changed(setting, cx);
-            }
+            Ok(to) => set_background(d, Some(to.to_string_lossy().into_owned()), setting, cx),
             Err(why) => {
                 d.error = Some(why);
                 cx.notify();
@@ -195,14 +194,19 @@ fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
     .detach();
 }
 
+/// Every pick is a new path, so the picture it replaces would stay decoded in GPUI's image cache until quit.
+fn set_background(d: &mut Desktop, path: Option<String>, setting: &'static Setting, cx: &mut Context<Desktop>) {
+    if let Some(old) = std::mem::replace(&mut d.store.appearance.background, path) {
+        ImageSource::from(PathBuf::from(old)).remove_asset(cx);
+    }
+    d.changed(setting, cx);
+}
+
 fn background_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
     let set = d.store.appearance.background.is_some();
     let choose = action("background-choose", if set { background_name(&d.store) } else { "Choose…".into() }).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| choose_background(setting, cx)));
     let remove = set.then(|| {
-        action("background-remove", "Remove").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.store.appearance.background = None;
-            this.changed(setting, cx);
-        }))
+        action("background-remove", "Remove").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| set_background(this, None, setting, cx)))
     });
     row(setting.label, setting.hint, div().flex().items_center().gap(px(6.)).child(choose).children(remove))
 }
