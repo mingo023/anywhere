@@ -15,7 +15,7 @@ use std::ops::Range;
 use store::Sounds;
 use theme::*;
 use ui::{self, dot};
-use workspace::Place;
+use workspace::{Place, Tab};
 use workspace::tree::Edge;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +32,8 @@ pub enum Pick {
     Go(Screen),
     PairPhone,
     HostFolder,
+    /// Hands off the session in the focused pane, by agent id.
+    Handoff(String),
     Sound(Cue),
 }
 
@@ -330,7 +332,10 @@ impl Desktop {
         let q = query(&self.palette.filter.read(cx).value());
         let words = q.words();
         let project = self.project.as_deref().map(|p| self.repo_name(p)).unwrap_or_default();
-        let actions = action_entries(words, &project, &self.store.sounds, &self.agents);
+        let mut actions = action_entries(words, &project, &self.store.sounds, &self.agents);
+        if let Some(entry) = self.handoff_entry().filter(|e| matches(words, &[&e.title])) {
+            actions.push(entry);
+        }
         let groups = match q {
             Query::Actions(_) => vec![("Actions", actions)],
             Query::All(_) => {
@@ -363,6 +368,13 @@ impl Desktop {
         groups.into_iter().filter(|(_, e)| !e.is_empty()).collect()
     }
 
+    /// "Hand off to a host…" for the session in the focused pane, when it can be.
+    fn handoff_entry(&self) -> Option<Entry> {
+        let Some(Tab::Term(terminal)) = self.pane_tab(self.focused_pane()) else { return None };
+        let s = self.summary(&terminal).filter(|s| self.can_hand_off(s))?;
+        Some(Entry { pick: Pick::Handoff(s.id.clone()), lead: Lead::Icon("server"), title: crate::handoff::menu_label(self.handoff.moving(&s.id)).into(), detail: s.title.clone(), keys: None })
+    }
+
     fn activate(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = None;
         match pick {
@@ -384,6 +396,7 @@ impl Desktop {
             Pick::Go(screen) => self.go_to_screen(screen, window, cx),
             Pick::PairPhone => self.open(Overlay::PairPhone, window, cx),
             Pick::HostFolder => self.open_host_folder(window, cx),
+            Pick::Handoff(id) => self.open_handoff(&id, window, cx),
             Pick::Sound(cue) => {
                 cue.flip(&mut self.store.sounds);
                 self.store.save();

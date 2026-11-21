@@ -60,6 +60,7 @@ pub enum Overlay {
     More,
     Confirm,
     PairPhone,
+    Handoff,
 }
 
 #[derive(Clone)]

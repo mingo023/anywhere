@@ -16,7 +16,7 @@ use std::time::Duration;
 pub(crate) fn may_open(o: Overlay, agents: &Agents) -> bool {
     match o {
         Overlay::PairPhone => agents.owner() && agents.pairing(),
-        Overlay::Palette | Overlay::AddRepo | Overlay::Clone | Overlay::More | Overlay::Confirm => true,
+        Overlay::Palette | Overlay::AddRepo | Overlay::Clone | Overlay::More | Overlay::Confirm | Overlay::Handoff => true,
     }
 }
 
@@ -32,13 +32,15 @@ impl Desktop {
             Overlay::AddRepo => self.reset_repo_form(None, window, cx),
             Overlay::Clone => self.reset_clone_form(window, cx),
             Overlay::PairPhone => self.begin_pairing(window, cx),
-            Overlay::More | Overlay::Confirm => {}
+            Overlay::More | Overlay::Confirm | Overlay::Handoff => {}
         }
         cx.notify();
     }
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.overlay = None;
+        if self.overlay.take() == Some(Overlay::Handoff) {
+            self.handoff_closed(cx);
+        }
         self.host_finder.finder = None;
         self.refocus(window, cx);
     }
@@ -62,6 +64,7 @@ impl Desktop {
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
             Overlay::PairPhone => (self.pair_view(cx), 0x2e, Some((200, 8.))),
+            Overlay::Handoff => (self.handoff_view(cx), 0x2e, Some((200, 8.))),
         };
         let backdrop = ui::backdrop("backdrop", alpha).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
         let finder = self.host_finder_view(window, cx);

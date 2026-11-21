@@ -22,6 +22,8 @@ enum SessionItem {
     CopyPath,
     CopyResume(String),
     Fork,
+    /// `true` while its handoff is underway, to bring the sheet back.
+    Handoff(bool),
     Close,
 }
 
@@ -41,13 +43,13 @@ fn offers_fork(s: &Summary, observe: bool, prefs: &Agents, offered: bool) -> boo
     offered && !observe && s.provider_session_id.is_some() && LaunchPick::PROVIDERS.contains(&s.provider.as_str()) && !prefs.args(&s.provider, Args::Fork).is_empty()
 }
 
-/// `fork` is whether pocketd takes a fork.
-fn session_items(s: &Summary, observe: bool, prefs: &Agents, fork: bool) -> Vec<SessionItem> {
+/// `fork` is whether pocketd takes a fork; `handoff`, whether it can be handed off and whether that is underway.
+fn session_items(s: &Summary, observe: bool, prefs: &Agents, fork: bool, handoff: Option<bool>) -> Vec<SessionItem> {
     let resume = s.provider_session_id.as_deref().and_then(|id| resume_command(prefs, &s.provider, id, &s.cwd));
     let fork = offers_fork(s, observe, prefs, fork);
     let pin = (!observe).then_some(SessionItem::Pin(!s.pinned));
     let close = (!observe).then_some(SessionItem::Close);
-    [pin, Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), fork.then_some(SessionItem::Fork), close].into_iter().flatten().collect()
+    [pin, Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), fork.then_some(SessionItem::Fork), handoff.map(SessionItem::Handoff), close].into_iter().flatten().collect()
 }
 
 /// A create that starts a copy of `s` in its folder, with its model, effort and account.
@@ -351,7 +353,8 @@ impl Desktop {
             RowMenu::Session(id) => {
                 let Some(s) = self.agents.get(&id) else { return vec![] };
                 let mut rows = vec![];
-                for item in session_items(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered()) {
+                let handoff = self.can_hand_off(s).then(|| self.handoff.moving(&id));
+                for item in session_items(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered(), handoff) {
                     let row = match item {
                         SessionItem::Pin(pin) => {
                             let id = id.clone();
@@ -381,6 +384,13 @@ impl Desktop {
                             ui::menu_row("aside-menu-fork", "branch", "Fork session", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.row_menu = None;
                                 this.fork_session(&id, None, cx);
+                            }))
+                        }
+                        SessionItem::Handoff(moving) => {
+                            let id = id.clone();
+                            ui::menu_row("aside-menu-handoff", "server", crate::handoff::menu_label(moving), None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.row_menu = None;
+                                this.open_handoff(&id, window, cx);
                             }))
                         }
                         SessionItem::Close => {
@@ -435,12 +445,20 @@ mod tests {
     }
 
     #[test]
+    fn hand_off_sits_after_fork_and_before_close_and_brings_back_one_underway() {
+        let s = Summary { provider: "claude".into(), cwd: "/w".into(), provider_session_id: Some("s1".into()), ..Default::default() };
+        let items = session_items(&s, false, &Agents::default(), true, Some(false));
+        assert_eq!(items[items.len() - 3..], [SessionItem::Fork, SessionItem::Handoff(false), SessionItem::Close]);
+        assert!(session_items(&s, false, &Agents::default(), true, Some(true)).contains(&SessionItem::Handoff(true)));
+    }
+
+    #[test]
     fn no_resume_item_without_a_provider_session_id() {
         let fresh = Summary { provider: "claude".into(), cwd: "/w".into(), ..Default::default() };
-        assert_eq!(session_items(&fresh, false, &Agents::default(), true), [SessionItem::Pin(true), SessionItem::CopyPath, SessionItem::Close]);
+        assert_eq!(session_items(&fresh, false, &Agents::default(), true, None), [SessionItem::Pin(true), SessionItem::CopyPath, SessionItem::Close]);
         let resumable = Summary { provider_session_id: Some("s1".into()), ..fresh };
         assert_eq!(
-            session_items(&resumable, false, &Agents::default(), true),
+            session_items(&resumable, false, &Agents::default(), true, None),
             [SessionItem::Pin(true), SessionItem::CopyPath, SessionItem::CopyResume("cd '/w' && 'claude' --resume 's1'".into()), SessionItem::Fork, SessionItem::Close]
         );
     }
@@ -448,7 +466,7 @@ mod tests {
     #[test]
     fn fork_is_offered_only_when_pocketd_takes_it_and_the_agent_has_fork_args() {
         let s = Summary { provider: "codex".into(), cwd: "/w".into(), provider_session_id: Some("s1".into()), ..Default::default() };
-        let forks = |prefs: &Agents, offered: bool, observe: bool| session_items(&s, observe, prefs, offered).contains(&SessionItem::Fork);
+        let forks = |prefs: &Agents, offered: bool, observe: bool| session_items(&s, observe, prefs, offered, None).contains(&SessionItem::Fork);
         let mut prefs = Agents::default();
         assert!(forks(&prefs, true, false));
         assert!(!forks(&prefs, false, false));
@@ -491,12 +509,12 @@ mod tests {
     #[test]
     fn a_pinned_session_offers_unpin() {
         let s = Summary { provider: "claude".into(), cwd: "/w".into(), pinned: true, ..Default::default() };
-        assert_eq!(session_items(&s, false, &Agents::default(), true)[0], SessionItem::Pin(false));
+        assert_eq!(session_items(&s, false, &Agents::default(), true, None)[0], SessionItem::Pin(false));
     }
 
     #[test]
     fn an_observer_is_not_offered_close_session() {
         let s = Summary { provider: "claude".into(), cwd: "/w".into(), ..Default::default() };
-        assert_eq!(session_items(&s, true, &Agents::default(), true), [SessionItem::CopyPath]);
+        assert_eq!(session_items(&s, true, &Agents::default(), true, None), [SessionItem::CopyPath]);
     }
 }

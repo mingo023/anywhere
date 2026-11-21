@@ -20,6 +20,7 @@ mod fleet;
 mod fs;
 mod host_agents;
 mod git_ui;
+mod handoff;
 mod glide;
 mod inbox;
 mod modals;

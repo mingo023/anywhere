@@ -5,7 +5,7 @@ mod logic;
 mod motion;
 mod page;
 mod panel;
-mod recap;
+pub(crate) mod recap;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;

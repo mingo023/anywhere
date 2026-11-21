@@ -51,6 +51,7 @@ impl Desktop {
         };
         let details = self.store.sidebar.details;
         let branch = self.repos.get(&c.cwd).map(|r| r.branch.clone()).filter(|_| details.branch);
+        let notice = self.handoff_notice(&c.id).or(c.notice.map(ui::Notice::from));
         let menu = RowMenu::Session(c.id.clone());
         let open = self.row_menu.as_ref() == Some(&menu);
         let when = if open {
@@ -69,11 +70,11 @@ impl Desktop {
             .when(!open, |d| d.invisible().group_hover(ui::SESSION_ROW, |s| s.visible()))
             .child(self.row_menu_button(&c.id, menu.clone(), cx));
         let row = if c.pinned {
-            ui::pinned_row(("card", i), selected, when, c.title, c.notice, branch, Some(pill), details.diff)
+            ui::pinned_row(("card", i), selected, when, c.title, notice, branch, Some(pill), details.diff)
         } else {
             let model = details.model.then_some(c.model).filter(|m| !m.is_empty());
             let label = model.into_iter().chain(self.accounts.session_label(&c.id, &c.provider, &c.account)).collect::<Vec<_>>().join(" \u{b7} ");
-            ui::session_row(("card", i), selected, ui::agent_label(&c.provider, label), when, c.title, c.notice, branch, Some(pill), details.diff)
+            ui::session_row(("card", i), selected, ui::agent_label(&c.provider, label), when, c.title, notice, branch, Some(pill), details.diff)
         };
         row.relative()
             .child(more)
