@@ -460,14 +460,14 @@ fn copy(agent: &str, key: String, text: String, cx: &mut Context<Desktop>) -> im
 /// A prompt's bubble with its copy and time, or `under` in their place. A send shows as its echo will, so the echo
 /// replacing it doesn't show.
 #[allow(clippy::too_many_arguments)]
-fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: bool, under: Option<Div>, width: f32, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
+fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: bool, under: Option<Div>, width: f32, here: &std::path::Path, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
     let lines = user_bubble::lines(text, width, window);
     let toggle = user_bubble::needs_collapse(lines).then(|| {
         let toggled = view.toggled.as_ref().filter(|(row, _)| row == id).map(|(_, at)| *at);
         let (agent, row) = (agent.to_string(), id.to_string());
         (user_bubble::Fold { lines, toggled }, cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_expanded(&agent, &row, cx)))
     });
-    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), toggle);
+    let bubble = user_bubble::bubble(id, text.to_string(), width, dim, view.expanded.contains(id), view.flashing(id), here, toggle);
     let under = under.unwrap_or_else(|| {
         let key = format!("prompt:{id}");
         user_bubble::actions(id, view.copied(&key), copy(agent, key, text.to_string(), cx), Some(at))
@@ -782,6 +782,7 @@ impl Desktop {
         let ask = self.agents.pending.iter().find(|p| p.agent_id == agent).map(|p| !chat::for_provider(&provider).ask(p).questions.is_empty());
         let send_now = self.chat_caps(&provider).send_now;
         let delegated_by = self.delegated_by(agent);
+        let here = self.store.home().join("attachments");
         let open = self.chat_links(agent, cx);
         let picks = sub_agent::Picks {
             open: self.chats.dock.pick.open_in(agent).map(str::to_string),
@@ -828,7 +829,7 @@ impl Desktop {
         let inner = match &row {
             Row::Prompt { turn } => match t.turns.get(*turn).and_then(|t| t.prompt.as_ref()) {
                 Some(p) => {
-                    let bubble = prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, window, cx);
+                    let bubble = prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, &here, window, cx);
                     match delegated_by.filter(|_| *turn == 0) {
                         Some((by, label)) => div().flex().flex_col().items_end().gap(px(6.)).child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_4).child(provider_icon(&by, 11., TEXT_4)).child(label)).child(bubble),
                         None => bubble,
@@ -1040,7 +1041,7 @@ impl Desktop {
                     });
                     let under = under.or_else(|| s.outgoing.after_turn().any(|c| c.id == p.id).then(|| user_bubble::after_turn(who)));
                     let dim = p.delivery == Delivery::Failed || under.is_some();
-                    prompt_bubble(view, agent, &id, &p.text, p.sent_at, dim, under, width, window, cx).children(retry)
+                    prompt_bubble(view, agent, &id, &p.text, p.sent_at, dim, under, width, &here, window, cx).children(retry)
                 }
                 None => div(),
             },

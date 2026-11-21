@@ -514,10 +514,14 @@ impl Desktop {
             return;
         }
         let steer = busy && !self.chat_stopping(a) && !queue;
-        let (agent, provider, chat_only) = (a.id.clone(), a.provider.clone(), a.chat_only);
+        let (agent, provider, cwd, chat_only) = (a.id.clone(), a.provider.clone(), a.cwd.clone(), a.chat_only);
+        if self.chats.copying.contains(&agent) {
+            return;
+        }
         self.chat_take_input(&agent, window, cx);
         let typed = self.chats.input.read(cx).value().to_string();
-        let text = self.chats.composer.draft.prompt(&typed);
+        let copied = self.chats.copied.get(&agent).cloned().unwrap_or_default();
+        let text = self.chats.composer.draft.prompt_with(&typed, &copied);
         if text.is_empty() {
             return;
         }
@@ -526,6 +530,15 @@ impl Desktop {
         if let Some((Kind::Unsupported, name, _)) = slash {
             return self.show_notice(Notice::InChat { agent, icon: "terminal", text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
+        match crate::composer::host_copies(&self.chats.composer.draft, &cwd, &self.store.home().join("attachments")) {
+            Ok(Some(copies)) if copies.files != copied => return self.chat_copy_first(terminal, agent, &cwd, queue, copies, window, cx),
+            Ok(_) => {}
+            Err(host) => {
+                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                return cx.notify();
+            }
+        }
+        self.chats.copied.remove(&agent);
         self.chats.composer.draft.clear();
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
@@ -553,6 +566,35 @@ impl Desktop {
             v.steered();
         }
         cx.notify();
+    }
+
+    /// Copies the draft's attachments to the host the agent runs on, then sends the draft as it stands, so the agent there
+    /// can read them. The draft stays, and this chat sends nothing else, until the copy is done; a chat left meanwhile sends
+    /// on its next Send, without copying again.
+    #[allow(clippy::too_many_arguments)]
+    fn chat_copy_first(&mut self, terminal: &str, agent: String, cwd: &str, queue: bool, copies: crate::composer::HostCopies, window: &mut Window, cx: &mut Context<Self>) {
+        self.chats.copying.insert(agent.clone());
+        let (terminal, host) = (terminal.to_string(), self.host_name(hosts::split(cwd).0.unwrap_or_default()));
+        let copied = cx.background_executor().spawn(async move { copies.make().map(|()| copies.files) });
+        cx.spawn_in(window, async move |this, cx| {
+            let copied = copied.await;
+            this.update_in(cx, |d, window, cx| {
+                d.chats.copying.remove(&agent);
+                match copied {
+                    Ok(files) => {
+                        let held = d.chats.drafts.owner() == Some(agent.as_str());
+                        d.chats.copied.insert(agent, files);
+                        if held {
+                            d.chat_send(&terminal, queue, window, cx);
+                        }
+                    }
+                    Err(e) => d.error = Some(format!("Couldn't copy the attachments to {host}: {e}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Remote Control's answer for `agent`'s chat: its link goes to the clipboard and the footer says so.

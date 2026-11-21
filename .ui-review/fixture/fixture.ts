@@ -11,10 +11,13 @@
 // user's keys; it takes the password hunter2; an install there stops at Verify. An added host comes online after 400ms.
 // FIXTURE_HOST_ADD=connecting|failed leaves an added host linking for good, or refuses its keys, instead of coming online.
 // FIXTURE_NO_HOSTS=1 leaves out hosts.v1, as a pocketd older than the hosts move, with devbox saved in desktop.json.
-// FIXTURE_HOST_FILES=1 runs devbox's own pocketd on its socket, answering status, the file reads the host finder makes and git in its
+// FIXTURE_HOST_FILES=1 runs devbox's own pocketd on its socket, answering status, the file reads the host finder makes, file writes and git in its
 // repositories; devbox's app-ios is a project, the twin of this Mac's, and 10.0.4.12 (retrying) holds one called api.
 // With FIXTURE_HOST_FILES, devbox's git holds a clone unanswered, as one over a slow link would; FIXTURE_CLONE_DONE=1 lets it succeed.
 // FIXTURE_HOST_DELAY_MS delays each of devbox's replies, as a host over a real link answers.
+// FIXTURE_HOST_AGENTS=1 (with FIXTURE_HOST_FILES) also serves devbox's agent websocket, logged to pocketd-frames-devbox-ws.jsonl: a create there
+// starts an agent and echoes its prompt. devbox lists no terminals, so its chat doesn't open.
+// FIXTURE_HOST_WRITE_FAILS=1 refuses each file written to devbox's attachments folder.
 // FIXTURE_HOST_GH=1 (with FIXTURE_HOST_FILES) gives devbox's app-ios a worktree, app-ios-login on fix/login, whose PR #42 only devbox's
 // `gh` account `work` can see, and app-ios has `work` chosen; its active account, `me`, can't see acme/app-ios.
 // FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
@@ -498,13 +501,18 @@ if (process.env.FIXTURE_HOST_FILES) {
   createServer((c) => {
     let buf = "";
     c.on("data", (raw: Buffer) => {
-      // The desktop's websocket to the host's pocketd isn't served here; it retries on its own.
-      if (!buf && raw[0] === 0x47) return c.destroy();
+      // The desktop's websocket to the host's pocketd is served only with FIXTURE_HOST_AGENTS; without it the desktop retries on its own.
+      if (!buf && raw[0] === 0x47) {
+        if (!process.env.FIXTURE_HOST_AGENTS) return c.destroy();
+        const ws = createConnection(port + 1, "127.0.0.1");
+        ws.write(raw);
+        return c.removeAllListeners("data").pipe(ws).pipe(c);
+      }
       const lines = (buf + raw.toString()).split("\n");
       buf = lines.pop()!;
       for (const line of lines.filter(Boolean)) {
         const op = JSON.parse(line);
-        if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-devbox.jsonl"), JSON.stringify({ t: Date.now(), ...op }) + "\n");
+        if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-devbox.jsonl"), JSON.stringify({ t: Date.now(), ...op, ...(op.data && { data: `${Buffer.from(op.data, "base64").length} bytes` }) }) + "\n");
         const send = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
         const reply = (msg: object) => (process.env.FIXTURE_HOST_DELAY_MS ? setTimeout(() => send(msg), Number(process.env.FIXTURE_HOST_DELAY_MS)) : send(msg));
         const body = HOST_FILES[op.path];
@@ -514,6 +522,9 @@ if (process.env.FIXTURE_HOST_FILES) {
         else if (op.op === "fs.list" && Array.isArray(body)) reply({ entries: body.map((n) => hostEntryOf(op.path, n)) });
         else if (op.op === "fs.read" && typeof body === "string") reply({ data: Buffer.from(body).toString("base64") });
         else if (op.op === "fs.stat") reply({ exists: body !== undefined, dir: Array.isArray(body), size: typeof body === "string" ? body.length : 0 });
+        else if (op.op === "fs.mkdir") (HOST_FILES[op.path] ??= []), reply({});
+        else if (op.op === "fs.write" && process.env.FIXTURE_HOST_WRITE_FAILS && op.path.includes("/attachments/")) reply({ ev: "error", error: "no space left on device" });
+        else if (op.op === "fs.write") (HOST_FILES[op.path] = Buffer.from(op.data, "base64").toString("latin1")), reply({});
         else if (op.op === "exec" && op.argv[3] === "clone") {
           if (process.env.FIXTURE_CLONE_DONE) reply({ ev: "exec", stdout: "" });
         } else if (op.op === "exec" && (gh = process.env.FIXTURE_HOST_GH ? hostGh(op.cwd, op.argv) : null)) {
@@ -528,6 +539,34 @@ if (process.env.FIXTURE_HOST_FILES) {
       }
     });
   }).listen(join(pocket, "hosts", "devbox.sock"));
+}
+
+if (process.env.FIXTURE_HOST_AGENTS) {
+  const log = process.env.FIXTURE_LOG?.replace(/\.jsonl$/, "-devbox-ws.jsonl");
+  const agents: typeof summaries = [];
+  Bun.serve({
+    port: port + 1,
+    fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("devbox")),
+    websocket: {
+      message(ws, raw) {
+        const f = JSON.parse(raw.toString());
+        if (log) appendFileSync(log, raw + "\n");
+        if (f.type === "hello") {
+          ws.send(JSON.stringify({ type: "hello.ok", id: f.id, serverId: "devbox", hostname: "devbox", protocolVersion: 3, caps: ["scopes.v1", "summary.v2", "access.v1"], protocol: { min: 3, max: 3 }, scopes: SCOPES, host: { tailnet: false, keepingAwake: true } }));
+          ws.send(JSON.stringify({ type: "agent.list", agents }));
+        }
+        if (f.type === "agent.create") {
+          const { project, provider, prompt } = f.spec;
+          const id = `devbox-${f.requestId}`;
+          agents.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: project, provider, status: "idle", pinned: false, chatOnly: true, createdAt: Date.now(), updatedAt: Date.now() });
+          ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd: project, setup: false }));
+          ws.send(JSON.stringify({ type: "agent.list", agents }));
+          ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));
+          if (prompt) item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
+        }
+      },
+    },
+  });
 }
 
 type Ws = { send(msg: string): unknown };

@@ -210,11 +210,18 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
 /// it; one over five lines clips to five with "Show more".
 /// `toggle` is set when the prompt collapses; `expanded` says which way it reads. Just after a toggle the height eases between the two.
 /// `lit` brightens its wash and ring, fading back, to show the prompt the timeline landed on.
-pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, lit: bool, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {
+/// An image sent to a host shows from this Mac's copy of it in `here`, its attachments folder.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, lit: bool, here: &Path, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {
     let Sent { text, files, images, elements } = split_attachments(&prompt);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
-        let tile = |path: &str| div().size(px(56.)).flex_none().rounded(px(8.)).border_1().border_color(hairline(0.10)).child(img(PathBuf::from(path)).size(px(54.)).rounded(px(7.)).object_fit(ObjectFit::Cover));
+        let thumb = |path: PathBuf| img(path).size(px(54.)).rounded(px(7.)).object_fit(ObjectFit::Cover);
+        let tile = |path: &str| {
+            let here = here.join(Path::new(path).file_name().unwrap_or_default());
+            let image = thumb(PathBuf::from(path)).with_fallback(move || thumb(here.clone()).into_any_element());
+            div().size(px(56.)).flex_none().rounded(px(8.)).border_1().border_color(hairline(0.10)).child(image)
+        };
         let card = |(i, path): (usize, &str)| file_card(SharedString::from(format!("{id}-file-{i}")), Path::new(path));
         let element = |(i, heading): (usize, &str)| {
             let (number, host, title) = heading_parts(heading);

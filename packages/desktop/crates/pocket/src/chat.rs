@@ -39,7 +39,8 @@ use crate::region::{self, Region};
 use agents::Summary;
 use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use theme::*;
 use workspace::Tab;
 
@@ -92,6 +93,10 @@ pub(crate) struct ChatState {
     pub(crate) files: Option<locate::Choice>,
     /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
     pub(crate) unsent: Option<(String, String)>,
+    /// The chats whose attachments are being copied to their host; each sends nothing until its copy is done.
+    pub(crate) copying: HashSet<String>,
+    /// Each chat's attachments copied to its host, by file here, for the send they were copied for.
+    pub(crate) copied: HashMap<String, Vec<(PathBuf, String)>>,
     pub(crate) map: agent_map::AgentMap,
     pub(crate) dock: agent_dock::AgentDock,
     /// Mermaid fences drawn in every chat, sharing one image budget.
@@ -106,7 +111,7 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, map: agent_map::AgentMap::new(cx), dock: agent_dock::AgentDock::new(cx), diagrams, editing: HashMap::new() }, subs)
+        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, unsent: None, copying: HashSet::new(), copied: HashMap::new(), map: agent_map::AgentMap::new(cx), dock: agent_dock::AgentDock::new(cx), diagrams, editing: HashMap::new() }, subs)
     }
 }
 
