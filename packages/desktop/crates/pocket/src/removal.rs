@@ -3,7 +3,7 @@ use crate::desktop::chrome::{Confirm, Overlay};
 use crate::fs::fs_for;
 use crate::util::basename;
 use agents::{Agents, Summary};
-use store::Subtree;
+use store::{Leftover, Subtree};
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -263,16 +263,46 @@ pub(crate) fn host_removals(on: &OnHosts, delete_branch: bool) -> Vec<Removal> {
     out
 }
 
-/// The deletion of the worktree Anywhere made among a host's `ws` that holds `folder`, unless one of `others` is in it
-/// too, or the host made it after the subagent `started`.
-fn host_removal(ws: &[git::Worktree], folder: &str, started: Option<u64>, made_at: impl Fn(&str) -> Option<u64>, others: &[String], delete_branch: bool) -> Option<Removal> {
-    let main = ws.iter().find(|w| w.main)?;
-    let w = holding(ws, folder)?;
-    if others.iter().any(|o| holds(&w.path, o)) || started.is_some_and(|s| made_at(&w.path).is_none_or(|m| m > s)) {
-        return None;
+/// What a host holds at a subagent's folder.
+#[derive(Debug, PartialEq)]
+enum Found {
+    /// The worktree Anywhere made for it, to delete.
+    Theirs(Removal),
+    /// That worktree, which a live session outside the line works in too.
+    Busy,
+    /// No worktree Anywhere made, or one made after the subagent started.
+    Gone,
+}
+
+/// What the worktree Anywhere made among a host's `ws` that holds `folder` is to the subagent that `started` there, with
+/// `others` the folders of live sessions outside its line.
+fn host_found(ws: &[git::Worktree], folder: &str, started: Option<u64>, made_at: impl Fn(&str) -> Option<u64>, others: &[String], delete_branch: bool) -> Found {
+    let (Some(main), Some(w)) = (ws.iter().find(|w| w.main), holding(ws, folder)) else { return Found::Gone };
+    if started.is_some_and(|s| made_at(&w.path).is_none_or(|m| m > s)) {
+        return Found::Gone;
+    }
+    if others.iter().any(|o| holds(&w.path, o)) {
+        return Found::Busy;
     }
     let branch = Some(w.branch.clone()).filter(|b| branch_deletable(b));
-    Some(Removal { project: main.path.clone(), tree: w.path.clone(), delete_branch: delete_branch && branch.is_some(), branch, teardown: true })
+    Found::Theirs(Removal { project: main.path.clone(), tree: w.path.clone(), delete_branch: delete_branch && branch.is_some(), branch, teardown: true })
+}
+
+fn host_removal(ws: &[git::Worktree], folder: &str, started: Option<u64>, made_at: impl Fn(&str) -> Option<u64>, others: &[String], delete_branch: bool) -> Option<Removal> {
+    match host_found(ws, folder, started, made_at, others, delete_branch) {
+        Found::Theirs(r) => Some(r),
+        Found::Busy | Found::Gone => None,
+    }
+}
+
+/// What became of a subagent's worktree left on a host, once the host is back.
+enum Swept {
+    /// Still there for a later listing: a live session works in it, or the host dropped again.
+    Wait,
+    /// Holds work nobody checked, so the user is asked.
+    Ask(Removal),
+    /// Deleted, or no longer the subagent's; `None` when there was nothing to delete.
+    Done(Option<Ordered>),
 }
 
 /// The deletions done, and the one that failed with why.
@@ -330,10 +360,12 @@ fn there_when_started(created: Option<SystemTime>, started: u64) -> bool {
 }
 
 /// The saved links whose folders still hold the worktrees they held: each child's tree to its parent's, as `tree_of`
-/// resolves them, without those `created` says were made after the subagent started.
+/// resolves them, without those `created` says were made after the subagent started. The subagent's start is on its
+/// machine's clock, so a parent's folder on another machine isn't held to it.
 fn saved_links(subtrees: &BTreeMap<String, Subtree>, tree_of: impl Fn(&str) -> Option<String>, created: impl Fn(&str) -> Option<SystemTime>) -> BTreeMap<String, String> {
     let then = |f: &str, started: u64| tree_of(f).filter(|t| there_when_started(created(t), started));
-    subtrees.iter().filter_map(|(c, s)| Some((then(c, s.started)?, then(&s.parent, s.started)?))).collect()
+    let parent = |c: &str, s: &Subtree| if hosts::split(c).0 == hosts::split(&s.parent).0 { then(&s.parent, s.started) } else { tree_of(&s.parent) };
+    subtrees.iter().filter_map(|(c, s)| Some((then(c, s.started)?, parent(c, s)?))).collect()
 }
 
 /// Each live subagent placed apart from its parent: its folder, its parent's and when it started.
@@ -436,10 +468,12 @@ impl Desktop {
         let teardown = |r: &Removal| self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let jobs: Vec<(Removal, String)> = subagents.iter().chain(std::iter::once(&removal)).map(|r| (r.clone(), teardown(r))).collect();
         let (limit, trash) = (Duration::from_secs(self.store.worktree.teardown_secs.into()), self.store.worktree.trash);
+        let delete_branch = removal.delete_branch;
         let task = cx.background_executor().spawn(async move {
             // Read again: a host's worktree may have changed hands since the sheet read it.
             let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
-            let offline: Vec<(String, u64)> = on_hosts.folders.into_iter().filter(|(f, _)| !connected(f)).map(|(f, s)| (f, s.unwrap_or(0))).collect();
+            let leftover = |s: Option<u64>| Leftover { started: s.unwrap_or(0), delete_branch };
+            let offline: Vec<(String, Leftover)> = on_hosts.folders.into_iter().filter(|(f, _)| !connected(f)).map(|(f, s)| (f, leftover(s))).collect();
             let jobs = jobs.into_iter().filter(|(r, _)| hosts::split(&r.tree).0.is_none() || reached.contains(&r.tree)).collect();
             (remove_in_order(jobs, limit), offline)
         });
@@ -449,6 +483,7 @@ impl Desktop {
                 for t in &started {
                     d.removals.running.remove(t);
                 }
+                let rest: Vec<Removal> = subagents.into_iter().filter(|s| !done.iter().any(|(r, _)| r.tree == s.tree)).collect();
                 for (r, Removed { aside, kept }) in done {
                     if let Some(aside) = aside {
                         cx.background_executor().spawn(async move { dispose(&aside, trash) }).detach();
@@ -464,7 +499,7 @@ impl Desktop {
                         d.save_soon(cx);
                     }
                     Some((r, Failure::Teardown(tail))) => {
-                        d.confirm = Some(Confirm::TeardownFailed { removal: r, tail, subtrees: vec![] });
+                        d.confirm = Some(Confirm::TeardownFailed { removal: removal.clone(), failed: r.tree, tail, subtrees: rest });
                         d.overlay = Some(Overlay::Confirm);
                     }
                     Some((r, Failure::Remove(e))) if r.tree == removal.tree => d.error = Some(e),
@@ -480,37 +515,49 @@ impl Desktop {
     }
 
     /// Deletes the worktrees subagents left on hosts that were offline when their parent's went, once each host is back.
+    /// One a live session still works in waits; one holding work nobody checked asks first.
     pub(crate) fn sweep_host_leftovers(&mut self, cx: &mut Context<Self>) {
-        let back: Vec<(String, u64)> = self.store.host_leftovers.iter().filter(|(f, _)| connected(f)).map(|(f, s)| (f.clone(), *s)).collect();
-        let back: Vec<(String, u64)> = back.into_iter().filter(|(f, _)| self.removals.start(f)).collect();
+        let back: Vec<(String, Leftover)> = self.store.host_leftovers.iter().filter(|(f, _)| connected(f)).map(|(f, l)| (f.clone(), *l)).collect();
+        let back: Vec<(String, Leftover)> = back.into_iter().filter(|(f, _)| self.removals.start(f)).collect();
         if back.is_empty() {
             return;
         }
         let others: Vec<String> = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a))).filter(|f| hosts::split(f).0.is_some()).collect();
         let limit = Duration::from_secs(self.store.worktree.teardown_secs.into());
         let task = cx.background_executor().spawn(async move {
-            let sweep = |(f, started): (String, u64)| {
-                let on = OnHosts { folders: vec![(f.clone(), Some(started).filter(|s| *s > 0))], others: others.clone() };
-                let res = remove_in_order(host_removals(&on, false).into_iter().map(|r| (r, String::new())).collect(), limit);
+            let sweep = |(f, l): (String, Leftover)| {
+                let run = hosts::runner_for(&f);
+                let found = host_found(&git::worktrees(&run, &f), &f, Some(l.started).filter(|s| *s > 0), |t| git::made_at(&run, t), &others, l.delete_branch);
                 // A host that dropped mid-read lists no worktrees, which isn't an answer.
-                let answered = connected(&f);
-                (f, res, answered)
+                let outcome = match found {
+                    _ if !connected(&f) => Swept::Wait,
+                    Found::Busy => Swept::Wait,
+                    Found::Gone => Swept::Done(None),
+                    Found::Theirs(r) if git::dirty_files(&run, &r.tree).is_none_or(|n| n > 0) || r.lost() > 0 => Swept::Ask(r),
+                    Found::Theirs(r) => Swept::Done(Some(remove_in_order(vec![(r, String::new())], limit))),
+                };
+                (f, outcome)
             };
             back.into_iter().map(sweep).collect::<Vec<_>>()
         });
         cx.spawn(async move |this, cx| {
             let swept = task.await;
             this.update(cx, |d, cx| {
-                for (f, (done, failed), answered) in swept {
+                for (f, outcome) in swept {
                     d.removals.running.remove(&f);
-                    for (r, _) in done {
-                        d.forget_tree(&r.tree, cx);
+                    match outcome {
+                        Swept::Wait => continue,
+                        Swept::Ask(r) => d.ask_delete_worktree(r.project, r.tree, cx),
+                        Swept::Done(None) => {}
+                        Swept::Done(Some((done, failed))) => {
+                            done.iter().for_each(|(r, _)| d.forget_tree(&r.tree, cx));
+                            if let Some((r, Failure::Teardown(e) | Failure::Remove(e))) = failed {
+                                d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree)));
+                                continue;
+                            }
+                        }
                     }
-                    match failed {
-                        None if answered => _ = d.store.host_leftovers.remove(&f),
-                        None => {}
-                        Some((r, Failure::Teardown(e) | Failure::Remove(e))) => d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree))),
-                    }
+                    d.store.host_leftovers.remove(&f);
                 }
                 d.save_soon(cx);
                 cx.notify();
@@ -549,7 +596,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, host_removal, lost_together, remove_in_order, run, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, lost_together, remove_in_order, run, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -618,15 +665,18 @@ mod tests {
         let tree = |path: &str, main: bool| git::Worktree { path: path.into(), branch: "notes".into(), main, made: !main };
         let ws = [tree("//devbox/app", true), tree("//devbox/wt/notes", false)];
         let made_at = |_: &str| Some(7);
-        let goes = |made: Option<u64>, others: &[&str]| {
+        let found = |started: Option<u64>, others: &[&str]| {
             let others: Vec<String> = others.iter().map(|o| o.to_string()).collect();
-            host_removal(&ws, "//devbox/wt/notes/src", made, made_at, &others, true).map(|r| (r.project, r.tree))
+            host_found(&ws, "//devbox/wt/notes/src", started, made_at, &others, true)
         };
-        let removal = Some(("//devbox/app".to_string(), "//devbox/wt/notes".to_string()));
-        assert_eq!(goes(Some(7), &[]), removal);
-        assert_eq!(goes(None, &["//devbox/wt/notes-2", "//devbox/app"]), removal);
-        assert_eq!(goes(Some(6), &[]), None, "a worktree made at the path since");
-        assert_eq!(goes(Some(7), &["//devbox/wt/notes/docs"]), None, "someone else works in another of its folders");
+        let theirs = Found::Theirs(Removal { project: "//devbox/app".into(), tree: "//devbox/wt/notes".into(), branch: Some("notes".into()), delete_branch: true, teardown: true });
+        assert_eq!(found(Some(7), &[]), theirs);
+        assert_eq!(found(None, &["//devbox/wt/notes-2", "//devbox/app"]), theirs);
+        assert_eq!(found(Some(6), &[]), Found::Gone, "a worktree made at the path since");
+        assert_eq!(found(Some(6), &["//devbox/wt/notes/docs"]), Found::Gone, "someone else's, busy or not");
+        assert_eq!(found(Some(7), &["//devbox/wt/notes/docs"]), Found::Busy, "someone else works in another of its folders, for now");
+        assert_eq!(host_found(&ws, "//devbox/wt/other", Some(7), made_at, &[], true), Found::Gone);
+        assert_eq!(host_removal(&ws, "//devbox/wt/notes/src", Some(7), made_at, &["//devbox/wt/notes".into()], true), None);
     }
 
     #[test]
@@ -670,7 +720,7 @@ mod tests {
     #[test]
     fn a_saved_link_goes_once_its_subagents_or_its_parents_folder_holds_a_newer_worktree() {
         let link = |p: &str| store::Subtree { parent: p.into(), started: 10 };
-        let subtrees = [("/wt-c", link("/wt")), ("/wt-new", link("/wt")), ("/wt-g", link("/wt-reused")), ("//devbox/wt/notes", link("/wt"))].map(|(c, l)| (c.to_string(), l)).into();
+        let subtrees = [("/wt-c", link("/wt")), ("/wt-new", link("/wt")), ("/wt-g", link("/wt-reused")), ("//devbox/wt/notes", link("/wt")), ("//devbox/wt/other", link("/wt-reused"))].map(|(c, l)| (c.to_string(), l)).into();
         let made = |ms: u64| Some(std::time::UNIX_EPOCH + Duration::from_millis(ms));
         let created = |t: &str| match t {
             "/wt-new" | "/wt-reused" => made(11),
@@ -678,7 +728,8 @@ mod tests {
             _ => made(9),
         };
         let links = saved_links(&subtrees, |f| Some(f.to_string()), created);
-        assert_eq!(links, [("/wt-c", "/wt"), ("//devbox/wt/notes", "/wt")].map(|(c, p)| (c.to_string(), p.to_string())).into());
+        // A host's subagent started by the host's clock, which says nothing of a folder on this Mac.
+        assert_eq!(links, [("/wt-c", "/wt"), ("//devbox/wt/notes", "/wt"), ("//devbox/wt/other", "/wt-reused")].map(|(c, p)| (c.to_string(), p.to_string())).into());
     }
 
     #[test]
