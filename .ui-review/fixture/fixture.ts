@@ -567,12 +567,14 @@ const handoffState = (tree: string) => {
 let dropped = false;
 // FIXTURE_DEVBOX_DROP_MS=n: devbox goes offline for n ms once a delete sheet has read its subagent's worktree twice (FIXTURE_SUBAGENT_HOST).
 let subagentReads = 0;
+let devboxDown = false;
 // devbox's agent websockets, which a real link drop closes.
 const devboxSockets = new Set<{ close(): void }>();
 const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
   const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
   const fail = (e: unknown) => reply({ ev: "error", error: String((e as Error).message ?? e) });
-  if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1"] } });
+  if (devboxDown) reply({ ev: "error", error: "host offline" });
+  else if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1"] } });
   else if (op.op === "exec" && ["codex", "claude"].includes(op.argv[0])) {
     const out = op.argv[0] === "claude" ? JSON.stringify({ loggedIn: true, projectsDirectory: join(h.home, ".claude", "projects") }) : "Logged in using ChatGPT";
     reply(h.signedOut ? { ev: "exec", code: 1, stderr: b64("Not logged in\n") } : { ev: "exec", stdout: b64(out) });
@@ -581,11 +583,13 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
     reply({ ev: "exec", code: r.exitCode, stdout: b64(r.stdout), stderr: b64(r.stderr) });
     const drop = Number(process.env.FIXTURE_DEVBOX_DROP_MS ?? 0);
     if (drop && op.argv.includes("worktree") && op.argv.includes("list") && op.argv.some((a) => a.endsWith("delegate-host-notes")) && ++subagentReads === 2) {
+      devboxDown = true;
+      if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
+      devboxSockets.forEach((s) => s.close());
       setTimeout(() => {
-        if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
-        devboxSockets.forEach((s) => s.close());
-      }, 100);
-      setTimeout(() => hostsWs && setLink(hostsWs, h.id, ONLINE), drop);
+        devboxDown = false;
+        if (hostsWs) setLink(hostsWs, h.id, ONLINE);
+      }, drop);
     }
   } else if (op.op === "fs.stat") {
     try {
@@ -902,13 +906,16 @@ if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_HOST) {
   const tree = `${clone}.worktrees/delegate-host-notes`;
   git(clone, "worktree", "add", "-q", "-b", "delegate/host-notes", tree, "HEAD");
   writeFileSync(join(clone, ".git", "worktrees", "delegate-host-notes", "anywhere"), "");
+  // FIXTURE_DEVBOX_DIRTY=1: devbox's child left a file behind, so deleting its worktree asks first.
+  if (process.env.FIXTURE_DEVBOX_DIRTY) writeFileSync(join(tree, "notes.md"), "draft\n");
   summaries.push({ ...parent, id: `devbox/${parent.id}-hsub`, terminalId: "", cwd: tree, title: "Read the notes on devbox", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
   if (process.env.FIXTURE_LOG) {
     const out = join(dirname(process.env.FIXTURE_LOG), "devbox-worktrees.txt");
     // devbox-worktrees-log.txt adds each change, with when devbox's link was up, to show what went while it was offline.
     let last = "";
     setInterval(() => {
-      const now = Bun.spawnSync(["git", "-C", clone, "worktree", "list"]).stdout.toString().replaceAll(dir, "<scratch>");
+      const branches = Bun.spawnSync(["git", "-C", clone, "branch", "--list", "delegate/*"]).stdout.toString();
+      const now = (Bun.spawnSync(["git", "-C", clone, "worktree", "list"]).stdout.toString() + `branches: ${branches.trim() || "none"}\n`).replaceAll(dir, "<scratch>");
       writeFileSync(out, now);
       if (now !== last) appendFileSync(join(dirname(process.env.FIXTURE_LOG!), "devbox-worktrees-log.txt"), `${new Date().toISOString()} link=${hosts[0].link.state}\n${now}\n`);
       last = now;

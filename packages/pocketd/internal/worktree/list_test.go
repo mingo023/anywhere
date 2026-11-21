@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -130,6 +131,22 @@ func TestWorktreesInTheFolderThatHoldAFolderOnRecordAreClaimed(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, []string{"pocket", "named", "running"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAClaimedWorktreeIsAsOldAsItsCheckout(t *testing.T) {
+	p := repo(t)
+	root := filepath.Join(p, "..", "trees")
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: root}}
+	tree := filepath.Join(root, "pocket", "old")
+	git(t, p, "worktree", "add", "-q", "-b", "old", tree)
+	made := time.UnixMilli(1_700_000_000_000)
+	if err := os.Chtimes(filepath.Join(filepath.Dir(markerPath(tree)), "commondir"), made, made); err != nil {
+		t.Fatal(err)
+	}
+	Claim(f, []string{tree})
+	if got := MadeAt(tree); got != made.UnixMilli() {
+		t.Fatalf("MadeAt = %d, want %d", got, made.UnixMilli())
 	}
 }
 

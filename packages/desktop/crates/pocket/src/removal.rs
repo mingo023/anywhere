@@ -457,6 +457,10 @@ impl Desktop {
         }
         let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b));
         let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
+        self.ask_delete(removal, cx);
+    }
+
+    fn ask_delete(&mut self, removal: Removal, cx: &mut Context<Self>) {
         let (mut subtrees, on_hosts) = self.subagent_removals(&removal);
         let main = removal.clone();
         let task = cx.background_executor().spawn(async move {
@@ -588,11 +592,11 @@ impl Desktop {
                     d.removals.running.remove(&f);
                     match outcome {
                         Swept::Wait => continue,
-                        // One sheet at a time; the rest are asked on a later sweep.
-                        Swept::Ask(_) if d.confirm.is_some() || asked => continue,
+                        // One sheet at a time; the rest are asked once it closes.
+                        Swept::Ask(_) if d.overlay == Some(Overlay::Confirm) || asked => continue,
                         Swept::Ask(r) => {
                             asked = true;
-                            d.ask_delete_worktree(r.project, r.tree, cx);
+                            d.ask_delete(r, cx);
                         }
                         Swept::Done(None) => {}
                         Swept::Done(Some((done, failed))) => {
