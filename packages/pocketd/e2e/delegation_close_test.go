@@ -28,10 +28,7 @@ func TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo(t *testing.T) {
 
 	h.Ops().Send(ops.Msg{Op: "close", ID: term})
 
-	phone.WaitStatus(parent, "closed")
-	phone.WaitStatus(finished.ID, "closed")
-	phone.WaitStatus(held.ID, "closed")
-	phone.WaitStatus(grandchild.ID, "closed")
+	phone.WaitAll("all four closed", statusOf(parent, "closed"), statusOf(finished.ID, "closed"), statusOf(held.ID, "closed"), statusOf(grandchild.ID, "closed"))
 	h.eventually("the children's and the grandchild's terminals to end", func() bool {
 		return !h.lists(finished.TerminalID) && !h.lists(held.TerminalID) && !h.lists(grandchild.TerminalID)
 	})
