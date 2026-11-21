@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod compare;
 pub mod github;
@@ -214,6 +214,8 @@ pub struct Worktree {
     pub main: bool,
     /// Anywhere made it, whatever folder it is in.
     pub made: bool,
+    /// When its folder was made, if known.
+    pub created: Option<SystemTime>,
 }
 
 fn parse_worktrees(out: &str) -> Vec<Worktree> {
@@ -230,7 +232,7 @@ fn parse_worktrees(out: &str) -> Vec<Worktree> {
                     branch = "detached".into();
                 }
             }
-            Some(Worktree { path: path?, branch, main: false, made: false })
+            Some(Worktree { path: path?, branch, main: false, made: false, created: None })
         })
         .enumerate()
         .map(|(i, w)| Worktree { main: i == 0, ..w })
@@ -243,8 +245,9 @@ pub fn worktrees(run: &Runner, cwd: &str) -> Vec<Worktree> {
     for w in &mut out {
         w.path = run.place(&w.path);
         w.made = !w.main && marked(run, &w.path);
+        w.created = run.stat(&w.path).ok().flatten().and_then(|s| s.created);
     }
-    out.sort_by_cached_key(|w| (!w.main, run.stat(&w.path).ok().flatten().and_then(|s| s.created)));
+    out.sort_by_key(|w| (!w.main, w.created));
     out
 }
 
