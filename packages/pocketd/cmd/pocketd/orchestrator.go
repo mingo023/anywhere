@@ -235,7 +235,7 @@ func (o *orchestrator) openSessions() ([]orch.Session, error) {
 	return o.store.OpenSessions()
 }
 
-func (o *orchestrator) subagentTrees(tree string, treeOf func(cwd string) string) ([]string, error) {
+func (o *orchestrator) subagentTrees(tree string, treeOf func(cwd string, at int64) string) ([]string, error) {
 	o.sink.Flush()
 	return o.store.SubagentTrees(tree, treeOf)
 }

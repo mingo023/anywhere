@@ -276,9 +276,13 @@ func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *tes
 	var b bench
 	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
 	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
-		s.Workspace.SubagentTrees = func(parent string, treeOf func(string) string) ([]string, error) {
-			if parent != tree("parent") || treeOf(filepath.Join(tree("child"), "src")) != tree("child") || treeOf(b.project) != b.project {
+		s.Workspace.SubagentTrees = func(parent string, treeOf func(string, int64) string) ([]string, error) {
+			now := time.Now().UnixMilli()
+			if parent != tree("parent") || treeOf(filepath.Join(tree("child"), "src"), now) != tree("child") || treeOf(b.project, 0) != b.project {
 				t.Error("the parent's worktree or treeOf is wrong")
+			}
+			if treeOf(tree("child"), 1) != "" {
+				t.Error("a session that closed before the child's worktree was made counts as its")
 			}
 			return []string{tree("child"), tree("unmade"), tree("gone"), b.project}, nil
 		}
@@ -325,7 +329,7 @@ func TestACommitOnlyASubagentsDetachedHeadHoldsRefusesTheDeleteUnlessForced(t *t
 	var b bench
 	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
 	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
-		s.Workspace.SubagentTrees = func(string, func(string) string) ([]string, error) { return []string{tree("child")}, nil }
+		s.Workspace.SubagentTrees = func(string, func(string, int64) string) ([]string, error) { return []string{tree("child")}, nil }
 	})
 	for _, name := range []string{"parent", "child"} {
 		if _, err := worktree.Add(b.s.Registry.Load(), b.project, name, ""); err != nil {

@@ -37,9 +37,16 @@ func TestAWorktreesSubagentTreesReachEveryGenerationButNotOnesSomeoneElseWorksIn
 			('busy', 'idle', '/wt-b', 'p', 'subagent', 0),
 			('user', 'idle', '/wt-b', '', '', 0),
 			('was', 'closed', '/wt-c', '', '', 5),
-			('host/x', 'idle', '/wt-h', 'p', 'subagent', 0)`,
+			('host/x', 'idle', '/wt-h', 'p', 'subagent', 0),
+			('old', 'closed', '/wt-n', 'p', 'subagent', 5)`,
 	)
-	treeOf := func(cwd string) string { return strings.TrimSuffix(cwd, "/src") }
+	// /wt-n was made again at 10, after its old session closed.
+	treeOf := func(cwd string, at int64) string {
+		if cwd == "/wt-n" && at < 10 {
+			return ""
+		}
+		return strings.TrimSuffix(cwd, "/src")
+	}
 	got, err := s.SubagentTrees("/wt", treeOf)
 	if err != nil || !slices.Equal(got, []string{"/wt-c", "/wt-g"}) {
 		t.Fatalf("trees %q, %v", got, err)

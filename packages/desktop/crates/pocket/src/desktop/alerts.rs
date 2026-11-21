@@ -168,6 +168,8 @@ impl Desktop {
         }
         if let Some(parent) = delegating {
             self.delegated_changed(&parent, cx);
+            // A host's child may be listed before its delegation names its parent.
+            self.remember_subtrees(cx);
         }
         if let Some((feed, before)) = named {
             let trees = &self.worktrees;

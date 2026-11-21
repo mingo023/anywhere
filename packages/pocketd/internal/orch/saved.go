@@ -2,6 +2,7 @@ package orch
 
 import (
 	"encoding/json"
+	"math"
 	"slices"
 	"time"
 )
@@ -31,8 +32,10 @@ func (s *Store) OpenSessions() ([]Session, error) {
 
 // SubagentTrees is each worktree the subagents of tree's sessions worked in,
 // every generation down, open or closed, except one an open session outside
-// that line works in. treeOf is the worktree holding a folder, "" for none.
-func (s *Store) SubagentTrees(tree string, treeOf func(cwd string) string) ([]string, error) {
+// that line works in. treeOf is the worktree holding a folder that was there
+// at a time in Unix milliseconds, "" for none: a closed session's folder may
+// hold a newer worktree at the same path by now.
+func (s *Store) SubagentTrees(tree string, treeOf func(cwd string, at int64) string) ([]string, error) {
 	all, err := s.Sessions(`instr(id, '/') = 0 ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
@@ -41,7 +44,11 @@ func (s *Store) SubagentTrees(tree string, treeOf func(cwd string) string) ([]st
 	line := map[string]bool{}
 	var parents []string
 	for _, x := range all {
-		if trees[x.ID] = treeOf(x.Cwd); trees[x.ID] == tree {
+		at := int64(math.MaxInt64)
+		if x.ClosedAt != 0 {
+			at = max(x.UpdatedAt, x.ClosedAt)
+		}
+		if trees[x.ID] = treeOf(x.Cwd, at); trees[x.ID] == tree {
 			parents = append(parents, x.ID)
 		}
 	}
