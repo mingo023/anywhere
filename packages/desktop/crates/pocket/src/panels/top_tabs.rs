@@ -108,7 +108,7 @@ impl Desktop {
             Tab::Term(id) => self.summary(id),
             _ => None,
         });
-        let forkable = agent.filter(|a| self.chat_shown(&a.terminal_id) && self.can_fork(a)).map(|a| a.id.clone());
+        let with_menu = agent.filter(|a| (self.chat_shown(&a.terminal_id) && self.can_fork(a)) || self.can_hand_off(a)).map(|a| a.id.clone());
         let lead = match (agent, head) {
             (Some(a), _) => provider_icon(&a.provider, 14., ink).into_any_element(),
             (None, Some(Tab::Doc(Doc::Commit(_)))) => icon("diff-multiple", 14., ink).into_any_element(),
@@ -184,7 +184,7 @@ impl Desktop {
                 }
             })
             .when(closable, |d| d.on_mouse_up(MouseButton::Middle, cx.listener(move |this, _: &MouseUpEvent, _, cx| this.close_top(i, cx))))
-            .when_some(forkable, |d, agent| {
+            .when_some(with_menu, |d, agent| {
                 d.on_mouse_down(
                     MouseButton::Right,
                     cx.listener(move |this, e: &MouseDownEvent, _, cx| {
@@ -237,7 +237,13 @@ impl Desktop {
     /// What kind of tab a lone tab is: its agent, a terminal, the folder of its file, its changes, or a page.
     fn tab_kind(&self, tab: &Tab) -> String {
         match tab {
-            Tab::Term(id) => self.summary(id).map_or_else(|| "Terminal".to_string(), |a| self.agent_name(&a.provider)),
+            Tab::Term(id) => self.summary(id).map_or_else(
+                || "Terminal".to_string(),
+                |a| {
+                    let name = self.agent_name(&a.provider);
+                    self.handoff_tab(&a.id, &name).unwrap_or(name)
+                },
+            ),
             Tab::Doc(Doc::File(p)) => {
                 let dir = Path::new(p).parent().unwrap_or(Path::new(""));
                 match self.explore_root().map(|root| dir.strip_prefix(root).map(Path::to_path_buf)) {

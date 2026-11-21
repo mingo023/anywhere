@@ -419,6 +419,10 @@ impl Desktop {
     }
 
     fn chat_mode(&self, terminal: &str) -> Mode {
+        // A prompt sent once a handoff began would miss the code and conversation the host gets.
+        if self.summary(terminal).is_some_and(|a| self.handoff_mark(&a.id).is_some()) {
+            return Mode::ViewOnly;
+        }
         composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a))
     }
 
@@ -712,8 +716,13 @@ impl Desktop {
     /// `terminal`'s chat composer: the prompt box, or the agent's open ask in its place, over where the agent works and what Enter does.
     pub(crate) fn chat_composer(&self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Some(agent) = self.summary(terminal) else { return div() };
+        let dock = div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.));
+        if let Some(banner) = self.moved_banner(&agent.id, cx) {
+            return dock.child(div().w_full().max_w(px(MAX_WIDTH)).child(banner));
+        }
         let ask = self.chat_ask(terminal);
-        let mode = composer_mode(self.agents.observe_only(), ask.as_ref().map(|(a, _)| a));
+        let mark = self.handoff_mark(&agent.id);
+        let mode = self.chat_mode(terminal);
         let c = &self.chats.composer;
         let input = self.chats.input.read(cx).focus_handle(cx);
         let handoff = match mode {
@@ -738,7 +747,10 @@ impl Desktop {
         let body = match (mode, ask) {
             (Mode::Permission { answerable }, Some((ask, feedback))) => fade_in(id(format!("chat-ask:{}", ask.request_id)), self.permission_card(terminal, &ask, feedback, answerable, cx)).into_any_element(),
             (Mode::Question { answerable }, Some((ask, _))) => fade_in(id(format!("chat-ask:{}", ask.request_id)), self.question_panel(terminal, &ask, answerable, cx)).into_any_element(),
-            _ => self.prompt_box(terminal, agent, mode == Mode::ViewOnly, window, cx).into_any_element(),
+            _ => {
+                let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
+                self.prompt_box(terminal, agent, locked, window, cx).into_any_element()
+            }
         };
         let view = self.chats.views.get(&agent.id);
         let pending = view.map_or(&[][..], |v| v.session.outgoing.list());
@@ -758,7 +770,7 @@ impl Desktop {
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));
         let column = div().w_full().max_w(px(MAX_WIDTH)).flex().flex_col().children(map).children(btw).children(background).children(tray).child(body).child(footer).children(handoff);
-        div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.)).child(column)
+        dock.child(column)
     }
 
     /// The agent's branch and `account`, then `hint`, amber while the agent asks; `said` stands in for the hint while it shows.
@@ -804,7 +816,9 @@ impl Desktop {
         }))
     }
 
-    fn prompt_box(&self, terminal: &str, agent: &Summary, view_only: bool, window: &mut Window, cx: &mut Context<Self>) -> Div {
+    /// `locked` names why the box takes no prompt; `None` takes one.
+    fn prompt_box(&self, terminal: &str, agent: &Summary, locked: Option<&'static str>, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let view_only = locked.is_some();
         let caps = self.chat_caps(&agent.provider);
         let held = self.chats.drafts.owner() == Some(agent.id.as_str());
         let (typed, draft) = self.chat_draft(&agent.id, cx);
@@ -834,8 +848,8 @@ impl Desktop {
         });
         let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), |d| &mut d.chats.composer.draft, cx));
         let strip = draft.and_then(|d| attachments::strip(d, cx));
-        let input = if view_only {
-            div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child("View only").into_any_element()
+        let input = if let Some(why) = locked {
+            div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child(why).into_any_element()
         } else if !held {
             // Another chat's draft is in the input; this one's shows until a press here takes the input.
             let shown = if typed.is_empty() { (self.chats.composer.placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };

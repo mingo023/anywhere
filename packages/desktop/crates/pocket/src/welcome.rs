@@ -1,4 +1,4 @@
-mod view;
+pub(crate) mod view;
 
 use crate::glide::spring;
 use gpui_kit::{SpringConfig, SpringState};

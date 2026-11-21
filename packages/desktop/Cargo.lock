@@ -3382,6 +3382,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "handoff"
+version = "0.0.0"
+dependencies = [
+ "git",
+ "hosts",
+ "serde_json",
+]
+
+[[package]]
 name = "harfrust"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5683,6 +5692,7 @@ dependencies = [
  "futures",
  "git",
  "gpui-kit",
+ "handoff",
  "hosts",
  "ignore",
  "image",

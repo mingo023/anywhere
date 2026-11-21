@@ -21,6 +21,15 @@
 // FIXTURE_HOST_GH=1 (with FIXTURE_HOST_FILES) gives devbox's app-ios a worktree, app-ios-login on fix/login, whose PR #42 only devbox's
 // `gh` account `work` can see, and app-ios has `work` chosen; its active account, `me`, can't see acme/app-ios.
 // FIXTURE_HOST_GH_LIMIT=n (with FIXTURE_HOST_GH) answers devbox's first n `gh pr view` runs, then refuses each as a spent GraphQL rate limit.
+// FIXTURE_HANDOFF=1 (sets FIXTURE_HOST_FILES and FIXTURE_HOST_AGENTS) makes devbox a real folder, <dir>/devbox, for handing "Fix stale terminal reveal"
+// off to: app-android gets an origin that devbox has cloned, the Codex session a conversation on disk, and devbox's exec and files run for real there
+// (its `codex login status` and `claude auth status` say signed in). A create there starts the agent in its worktree with a conversation of its own.
+// FIXTURE_HANDOFF_SIGNED_OUT=1 signs Codex out on devbox; FIXTURE_HANDOFF_NO_CLONE=1 leaves app-android off it; FIXTURE_HANDOFF_SEND_FAILS=1 refuses the code sent there.
+// FIXTURE_HANDOFF_HOSTS=1 adds two more real-folder hosts: mac-mini, with its own clone and Codex signed out, and gpu-box, without a clone.
+// FIXTURE_HANDOFF_OFFLINE=<ms> drops devbox once the code is being sent, and brings it back after <ms>.
+// FIXTURE_HANDOFF_WORKING=1 has the Codex session mid-turn; FIXTURE_HANDOFF_BRANCH_TAKEN=1 gives devbox's clone its own fix/restore-handoff;
+// FIXTURE_HANDOFF_NO_HISTORY=1 starts the agent there without a conversation; FIXTURE_HANDOFF_CHAT=1 opens the Codex session as a chat;
+// FIXTURE_HANDOFF_PROVIDER=<agent> runs it on that agent instead.
 // FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
@@ -32,7 +41,7 @@
 // FIXTURE_REFUSE_QUEUE=1 refuses every queue edit, cancel, reorder and send-now as pocketd does once the entry went out.
 // FIXTURE_REFUSE_STOP=1 refuses every stop the same way; FIXTURE_STOP_MS delays a stop's interrupted result, as Claude's lags. FIXTURE_CHUNKS sets how many 30ms chunks a reply streams in (default 40).
 // The "agents" and "agents-chat" scenarios' pocketd says all ten agents are installed; any other names none, as one older than the eight new ones.
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 
@@ -120,6 +129,7 @@ SCENARIOS.activity = { ...SCENARIOS.sessions, agents: SCENARIOS.sessions.agents.
 SCENARIOS.restored = { ...SCENARIOS.sessions, agents: SCENARIOS.sessions.agents.map((a) => ({ ...a, restore: RESTORED[a.id] })) };
 
 const [name, arg] = process.argv.slice(2);
+if (process.env.FIXTURE_HANDOFF) (process.env.FIXTURE_HOST_FILES = "1"), (process.env.FIXTURE_HOST_AGENTS = "1");
 const scenario = SCENARIOS[name];
 if (!scenario || !arg) throw new Error(`usage: bun fixture.ts <${Object.keys(SCENARIOS).join("|")}> <dir>`);
 // FIXTURE_SESSIONS=n adds n sessions, each on its own worktree, spread over the scenario's repos: a long day's sidebar.
@@ -174,6 +184,42 @@ for (const [key, agents] of trees) {
   if (CHANGED && r === scenario.repos[0] && trees.keys().next().value === key) for (let i = 0; i < CHANGED; i++) write(join(w, changedFile(i)), lines("next", 2) + lines("base", 6));
 }
 
+const devHome = join(dir, "devbox");
+// The Codex session handed off: 38 messages, as the design counts.
+const handoffTurns = Array.from({ length: 38 }, (_, i) => ({
+  kind: i % 2 ? "assistant" : "user",
+  text: i === 0 ? "The terminal reveal still shows stale output after a restore." : i === 37 ? "Fixed in <fix>/hooks/use-restore-preview.ts" : i % 2 ? `Step ${(i + 1) / 2} done.` : "Keep going.",
+}));
+const FIX_SESSION = "th-fix";
+type HandoffHost = { id: string; home: string; os: string; signedOut: boolean; clone: boolean };
+const handoffHosts: HandoffHost[] = [
+  { id: "devbox", home: devHome, os: "linux", signedOut: !!process.env.FIXTURE_HANDOFF_SIGNED_OUT, clone: !process.env.FIXTURE_HANDOFF_NO_CLONE },
+  ...(process.env.FIXTURE_HANDOFF_HOSTS ? [{ id: "mac-mini", home: join(dir, "mac-mini"), os: "darwin", signedOut: true, clone: true }, { id: "gpu-box", home: join(dir, "gpu-box"), os: "linux", signedOut: false, clone: false }] : []),
+];
+if (process.env.FIXTURE_HANDOFF) {
+  const origin = join(dir, "origin", "app-android.git");
+  mkdirSync(origin, { recursive: true });
+  git(origin, "init", "-q", "--bare", "-b", "main");
+  git(repoPath("app-android"), "remote", "add", "origin", origin);
+  git(repoPath("app-android"), "push", "-q", "origin", "main");
+  for (const h of handoffHosts) {
+    mkdirSync(join(h.home, "code"), { recursive: true });
+    if (h.clone) git(join(h.home, "code"), "clone", "-q", origin, "app-android");
+  }
+  if (process.env.FIXTURE_HANDOFF_BRANCH_TAKEN) {
+    const clone = join(devHome, "code", "app-android");
+    git(clone, "checkout", "-qb", "fix/restore-handoff");
+    write(join(clone, "theirs.txt"), "devbox's own work\n");
+    git(clone, "add", "-A");
+    git(clone, "-c", "user.name=dev", "-c", "user.email=dev@devbox", "commit", "-qm", "devbox's own fix");
+    git(clone, "checkout", "-q", "main");
+  }
+  const fix = treePath("app-android", "fix/restore-handoff");
+  const said = (role: string, text: string) => JSON.stringify({ type: "response_item", payload: { type: "message", role, content: [{ type: "input_text", text }] } });
+  const lines = handoffTurns.map((t) => said(t.kind, t.text.replace("<fix>", fix)));
+  write(join(home, ".codex", "sessions", "2026", "11", "21", `rollout-2026-11-21T10-00-00-${FIX_SESSION}.jsonl`), [JSON.stringify({ type: "session_meta", payload: { id: FIX_SESSION, cwd: fix } }), ...lines].join("\n") + "\n");
+}
+
 type Item = { id: string; kind: string; [k: string]: unknown };
 const CHAT_AGENT = "parser";
 const perf = (items: number): Item[] =>
@@ -218,9 +264,10 @@ const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.re
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left: Record<Provider, number> = { claude: 62, codex: 41, cursor: 77, grok: 58, opencode: 49, pi: 83, omp: 91, fx: 66, hermes: 35, antigravity: 72 };
 const summaries = scenario.agents.map((a) => ({
-  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, chatOnly: !!process.env.FIXTURE_HOST_ONLY, status: status(a), restore: a.restore, activity: a.activity ?? "",
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: (a.id === "fix" && (process.env.FIXTURE_HANDOFF_PROVIDER as Provider)) || a.provider, model: a.model, effort: a.effort, pinned: a.pinned, chatOnly: !!process.env.FIXTURE_HOST_ONLY || (!!process.env.FIXTURE_HANDOFF_CHAT && a.id === "fix"), status: process.env.FIXTURE_HANDOFF_WORKING && a.id === "fix" ? "working" : status(a), restore: a.restore, activity: a.activity ?? "",
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
   tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000, resets: 0,
+  ...(process.env.FIXTURE_HANDOFF && a.id === "fix" && { providerSessionId: FIX_SESSION }),
 }));
 // A session waiting on a permission is mid-turn: its prompt, what it read and edited, and why it asks.
 const asking = (a: Agent): Item[] => {
@@ -235,7 +282,7 @@ const asking = (a: Agent): Item[] => {
 };
 // Only Activity's screens show a turn's prompt and steps; the others keep the one result they were reviewed with.
 const turns = name === "activity";
-const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : turns && a.waiting ? stamp(a.id, asking(a)) : [...(turns && a.failed ? [{ id: `${a.id}-user`, seq: 0, ts: now - (a.ago + 1) * 60_000, kind: "user", text: a.title }] : []), {
+const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : process.env.FIXTURE_HANDOFF && a.id === "fix" ? handoffTurns.map((t, i) => ({ id: `fix-${i}`, seq: i, ts: now - (40 - i) * 60_000, kind: t.kind, text: t.text.replace("<fix>", cwd(a)) })) : turns && a.waiting ? stamp(a.id, asking(a)) : [...(turns && a.failed ? [{ id: `${a.id}-user`, seq: 0, ts: now - (a.ago + 1) * 60_000, kind: "user", text: a.title }] : []), {
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
 }];
@@ -251,7 +298,7 @@ const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
 const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbox", target: { kind: "alias", name: "devbox" } }] : [];
-const hostProjects = process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
+const hostProjects = process.env.FIXTURE_HANDOFF ? handoffHosts.filter((h) => h.clone).map((h) => `//${h.id}${h.home}/code/app-android`) : process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
 if (process.env.FIXTURE_HOST_GH) tracked.push("//devbox/home/dev/code/app-ios-login");
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: process.env.FIXTURE_HOST_GH ? { "//devbox/home/dev/code/app-ios": { gh_account: "work" } } : {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined, appearance: process.env.FIXTURE_BACKGROUND ? { background: process.env.FIXTURE_BACKGROUND } : undefined }));
 
@@ -262,6 +309,7 @@ const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
 const hosts: Host[] = [
   hostEntry("devbox", "devbox", { kind: "alias", name: "devbox" }, ONLINE),
   hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "dev" }, { state: "retrying", failure: "not_running" }),
+  ...handoffHosts.slice(1).map((h) => hostEntry(h.id, h.id, { kind: "address", addr: h.id === "mac-mini" ? "100.67.254.9" : "gpu.local", port: 22, user: "mingo" }, ONLINE)),
   ...Array.from({ length: Number(process.env.FIXTURE_EXTRA_HOSTS ?? 0) }, (_, i) => hostEntry(`box-${i + 1}`, `box-${i + 1}`, { kind: "alias", name: `box-${i + 1}` }, { state: "retrying", failure: "not_running" })),
 ];
 const pushHost = (ws: Ws, h: Host, id?: string) => ws.send(JSON.stringify({ type: "host.update", ...(id && { id }), host: h }));
@@ -269,6 +317,7 @@ const setLink = (ws: Ws, hostId: string, link: Host["link"]) => {
   const h = hosts.find((h) => h.id === hostId);
   if (h) pushHost(ws, Object.assign(h, { link }));
 };
+let hostsWs: Ws | undefined;
 const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target: HostTarget; password: string; update: boolean }) => {
   const ack = () => ws.send(JSON.stringify({ type: "ack", id: f.id }));
   if (f.type === "host.list") ws.send(JSON.stringify({ type: "host.list", id: f.id, hosts }));
@@ -507,6 +556,50 @@ const hostGh = (cwd: string, argv: string[]) => {
   if (argv[0] === "sh" && argv[2]?.includes("gh auth token") && argv[4] === "gh") return hostGhAs(["me", "work"].includes(argv[3]) ? argv[3] : "me", cwd, argv.slice(5));
   return null;
 };
+// What a handoff left on devbox, for evidence: the worktree's branch, commits and changes, Anywhere's marker, and the conversation moved there.
+const handoffState = (tree: string) => {
+  const sh = (argv: string[], cwd = tree) => new TextDecoder().decode(Bun.spawnSync(argv, { cwd, env: { ...process.env, HOME: devHome } }).stdout).trim();
+  const gitdir = sh(["git", "rev-parse", "--absolute-git-dir"]);
+  const conv = sh(["sh", "-c", "find .codex -name '*.jsonl' | head -1"], devHome);
+  return [`## ${tree.replace(devHome, "~devbox")}`, `branch: ${sh(["git", "symbolic-ref", "--short", "HEAD"])}`, sh(["git", "log", "--oneline", "-3"]), "status:", sh(["git", "status", "--short"]), `marker: ${statSync(join(gitdir, "anywhere"), { throwIfNoEntry: false }) ? "yes" : "no"}`, `conversation: ${conv}`, (conv ? readFileSync(join(devHome, conv), "utf8").replaceAll(dir, "<scratch>") : ""), `worktrees:\n${sh(["git", "worktree", "list"]).replaceAll(dir, "<scratch>")}`].join("\n") + "\n";
+};
+// devbox as a real folder: what pocketd's exec and fs ops do there, with its agents' sign-in faked. False for an op it leaves to the rest.
+let dropped = false;
+const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
+  const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
+  const fail = (e: unknown) => reply({ ev: "error", error: String((e as Error).message ?? e) });
+  if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1"] } });
+  else if (op.op === "exec" && ["codex", "claude"].includes(op.argv[0])) {
+    const out = op.argv[0] === "claude" ? JSON.stringify({ loggedIn: true, projectsDirectory: join(h.home, ".claude", "projects") }) : "Logged in using ChatGPT";
+    reply(h.signedOut ? { ev: "exec", code: 1, stderr: b64("Not logged in\n") } : { ev: "exec", stdout: b64(out) });
+  } else if (op.op === "exec") {
+    const r = Bun.spawnSync(op.argv, { cwd: op.cwd, env: { ...process.env, HOME: h.home, GIT_CONFIG_NOSYSTEM: "1" } });
+    reply({ ev: "exec", code: r.exitCode, stdout: b64(r.stdout), stderr: b64(r.stderr) });
+  } else if (op.op === "fs.stat") {
+    try {
+      const st = statSync(op.path);
+      reply({ exists: true, dir: st.isDirectory(), size: st.size });
+    } catch {
+      reply({ exists: false });
+    }
+  } else if (op.op === "fs.mkdir") {
+    try { mkdirSync(op.path, { recursive: op.parents }); reply({}); } catch (e) { fail(e); }
+  } else if (op.op === "fs.write" && process.env.FIXTURE_HANDOFF_SEND_FAILS && op.path.includes("/.anywhere/handoff/")) reply({ ev: "error", error: "no space left on device" });
+  else if (op.op === "fs.write" && process.env.FIXTURE_HANDOFF_OFFLINE && !dropped && op.path.includes("/.anywhere/handoff/")) {
+    dropped = true;
+    if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
+    setTimeout(() => reply({ ev: "error", error: "connection closed" }), 300);
+    setTimeout(() => hostsWs && setLink(hostsWs, h.id, ONLINE), Number(process.env.FIXTURE_HANDOFF_OFFLINE));
+  }
+  else if (op.op === "fs.write") {
+    try { writeFileSync(op.path, Buffer.from(op.data, "base64")); reply({}); } catch (e) { fail(e); }
+  } else if (op.op === "fs.remove") {
+    try { rmSync(op.path, { recursive: op.recursive }); reply({}); } catch (e) { fail(e); }
+  } else if (op.op === "fs.read") {
+    try { reply({ data: b64(readFileSync(op.path)) }); } catch (e) { fail(e); }
+  } else return false;
+  return true;
+};
 if (process.env.FIXTURE_HOST_FILES) {
   let statusFails = Number(process.env.FIXTURE_HOST_STATUS_FAILS ?? 0);
   mkdirSync(join(pocket, "hosts"), { recursive: true });
@@ -527,6 +620,7 @@ if (process.env.FIXTURE_HOST_FILES) {
         if (process.env.FIXTURE_LOG) appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-devbox.jsonl"), JSON.stringify({ t: Date.now(), ...op, ...(op.data && { data: `${Buffer.from(op.data, "base64").length} bytes` }) }) + "\n");
         const send = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
         const reply = (msg: object) => (process.env.FIXTURE_HOST_DELAY_MS ? setTimeout(() => send(msg), Number(process.env.FIXTURE_HOST_DELAY_MS)) : send(msg));
+        if (process.env.FIXTURE_HANDOFF && handoffOp(op, reply)) continue;
         const body = HOST_FILES[op.path];
         let gh: ReturnType<typeof hostGh> = null;
         if (op.op === "status" && statusFails > 0) statusFails--, reply({ ev: "error", error: "pocketd is starting" });
@@ -545,14 +639,36 @@ if (process.env.FIXTURE_HOST_FILES) {
         } else if (op.op === "exec") {
           const out = hostGit(op.argv);
           reply(out === null ? { ev: "exec", code: 128, stderr: Buffer.from("fatal: not a git repository\n").toString("base64") } : { ev: "exec", stdout: Buffer.from(out).toString("base64") });
-        } else if (op.op === "list") reply({ ev: "terminals", items: [] });
+        } else if (op.op === "list") hostConns.add(c), reply({ ev: "terminals", items: hostTerms });
         else if (op.op === "accounts" || op.op === "accounts.usage") reply({ ev: "accounts", accounts: [] });
         else reply({ ev: "error", error: `${op.op} isn't in the fixture` });
       }
     });
   }).listen(join(pocket, "hosts", "devbox.sock"));
+  // The other handoff hosts serve only their files, exec and an empty terminal list; their agents' websocket isn't faked.
+  for (const h of handoffHosts.slice(1))
+    createServer((c) => {
+      let buf = "";
+      c.on("data", (raw: Buffer) => {
+        if (!buf && raw[0] === 0x47) return c.destroy();
+        const lines = (buf + raw.toString()).split("\n");
+        buf = lines.pop()!;
+        for (const line of lines.filter(Boolean)) {
+          const op = JSON.parse(line);
+          const send = (msg: object) => c.write(JSON.stringify({ id: op.id, ...msg }) + "\n");
+          const reply = (msg: object) => (process.env.FIXTURE_HOST_DELAY_MS ? setTimeout(() => send(msg), Number(process.env.FIXTURE_HOST_DELAY_MS)) : send(msg));
+          if (handoffOp(op, reply, h)) continue;
+          if (op.op === "list") reply({ ev: "terminals", items: [] });
+          else if (op.op === "accounts" || op.op === "accounts.usage") reply({ ev: "accounts", accounts: [] });
+          else reply({ ev: "error", error: `${op.op} isn't in the fixture` });
+        }
+      });
+    }).listen(join(pocket, "hosts", `${h.id}.sock`));
 }
 
+// devbox's terminals: one per agent it starts, announced to each connection that listed them.
+const hostTerms: { id: string; cmd: string; args: string[]; cwd: string; local: string }[] = [];
+const hostConns = new Set<{ write(s: string): unknown }>();
 if (process.env.FIXTURE_HOST_AGENTS) {
   const log = process.env.FIXTURE_LOG?.replace(/\.jsonl$/, "-devbox-ws.jsonl");
   const agents: typeof summaries = [];
@@ -568,10 +684,17 @@ if (process.env.FIXTURE_HOST_AGENTS) {
           ws.send(JSON.stringify({ type: "agent.list", agents }));
         }
         if (f.type === "agent.create") {
-          const { project, provider, prompt } = f.spec;
+          const { project, provider, prompt, checkout, fork } = f.spec;
           const id = `devbox-${f.requestId}`;
-          agents.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd: project, provider, status: "idle", pinned: false, chatOnly: true, createdAt: Date.now(), updatedAt: Date.now() });
-          ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd: project, setup: false }));
+          const cwd = process.env.FIXTURE_HANDOFF ? (checkout?.worktree ?? project) : project;
+          const conversation = process.env.FIXTURE_HANDOFF ? { providerSessionId: process.env.FIXTURE_HANDOFF_NO_HISTORY ? undefined : fork ? `${fork}-fork` : `new-${f.requestId}` } : {};
+          agents.push({ ...summaries[0], id, terminalId: id, title: prompt ?? "New session", cwd, provider, status: "idle", pinned: false, chatOnly: true, createdAt: Date.now(), updatedAt: Date.now(), ...conversation });
+          if (process.env.FIXTURE_HANDOFF) {
+            hostTerms.push({ id, cmd: provider, args: [], cwd, local: "" });
+            hostConns.forEach((c) => c.write(JSON.stringify({ ev: "terminals", items: hostTerms }) + "\n"));
+          }
+          if (process.env.FIXTURE_HANDOFF && process.env.FIXTURE_LOG) writeFileSync(join(dirname(process.env.FIXTURE_LOG), "devbox-state.txt"), handoffState(cwd));
+          ws.send(JSON.stringify({ type: "agent.creating", id: f.id, requestId: f.requestId, terminalId: id, cwd, setup: false }));
           ws.send(JSON.stringify({ type: "agent.list", agents }));
           ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));
           if (prompt) item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
@@ -820,6 +943,7 @@ Bun.serve({
         ws.send(JSON.stringify({ type: "automations", automations: AUTOMATIONS, runs: RUNS }));
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
         if (!process.env.FIXTURE_NO_HOSTS) ws.send(JSON.stringify({ type: "host.list", hosts }));
+        hostsWs = ws;
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }

@@ -10,14 +10,14 @@ const MASCOT: f32 = 160.;
 const BOX_W: f32 = 170.;
 const BOX_H: f32 = 176.;
 /// Where squash and stretch pivot and its shadow falls: its feet, as a share of its height from the top (y 168 of the SVG's 200).
-const FEET: f32 = 0.84;
+pub(crate) const FEET: f32 = 0.84;
 const GLOW: f32 = 300.;
 // The mascot keeps the app icon's colours in both appearances.
-const BODY: u32 = 0x1a1a1e;
-const EYES: u32 = 0xf4f2ee;
-const LIGHT_ON: u32 = 0x8ee6cc;
+pub(crate) const BODY: u32 = 0x1a1a1e;
+pub(crate) const EYES: u32 = 0xf4f2ee;
+pub(crate) const LIGHT_ON: u32 = 0x8ee6cc;
 const LIGHT_OFF: u32 = 0x24302c;
-const GLOW_COLOR: u32 = 0x7a68bf;
+pub(crate) const GLOW_COLOR: u32 = 0x7a68bf;
 
 impl Desktop {
     /// Steps the welcome and draws it over the app; drops it once it has faded onto the app.

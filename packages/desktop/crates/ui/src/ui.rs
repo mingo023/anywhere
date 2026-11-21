@@ -275,6 +275,8 @@ pub enum State {
     Done(usize, usize),
     Idle(usize, usize),
     NotAttached,
+    /// Being handed off to a host.
+    Moving,
 }
 
 pub fn diffstat(added: usize, removed: usize) -> Div {
@@ -308,7 +310,7 @@ pub struct Tone {
 pub fn tone(state: State) -> Option<Tone> {
     let (glyph, mark, text, bg) = match state {
         State::NeedsYou => (Glyph::Matrix, WAITING, WAITING_TEXT, WAITING_BG),
-        State::Working => (Glyph::Spinner, WORKING, ACCENT, ACCENT_TINT),
+        State::Working | State::Moving => (Glyph::Spinner, WORKING, ACCENT, ACCENT_TINT),
         State::Done(..) => (Glyph::Matrix, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
         State::Failed => (Glyph::Cross, FAILED, FAILED_TEXT, FAILED_BG),
         _ => return None,
@@ -334,6 +336,7 @@ fn word(state: State) -> &'static str {
         State::Done(..) => "Done",
         State::Idle(..) => "Idle",
         State::NotAttached => "Not attached",
+        State::Moving => "Moving",
     }
 }
 
@@ -680,7 +683,7 @@ pub const SESSION_ROW: &str = "session-row";
 
 /// A session's card. Needs you fills the whole row; hover and selection tint over that fill. `stats` shows a finished session's diff stats.
 #[allow(clippy::too_many_arguments)]
-pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
+pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElement, when: impl IntoElement, title: String, notice: Option<Notice>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
     let id = id.into();
     session_card(id.clone(), selected, state)
         .child(session_line().child(div().flex_1().min_w_0().flex().child(lead)).child(session_when(when)))
@@ -691,7 +694,7 @@ pub fn session_row(id: impl Into<ElementId>, selected: bool, lead: impl IntoElem
 
 /// A pinned session's card: a pin before its title in place of the agent line.
 #[allow(clippy::too_many_arguments)]
-pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoElement, title: String, notice: Option<&'static str>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
+pub fn pinned_row(id: impl Into<ElementId>, selected: bool, when: impl IntoElement, title: String, notice: Option<Notice>, branch: Option<String>, state: Option<State>, stats: bool) -> Stateful<Div> {
     let id = id.into();
     session_card(id.clone(), selected, state)
         .child(div().flex().items_center().gap(px(8.)).child(icon("pin", 13., TEXT_2)).child(session_title(title).flex_1().min_w_0()).child(session_when(when).text_size(px(12.)).text_color(TEXT_2)))
@@ -755,8 +758,25 @@ fn session_title(title: String) -> Div {
     div().truncate().text_size(px(14.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title)
 }
 
-fn session_notice(notice: Option<&'static str>) -> Option<Div> {
-    notice.map(|n| div().truncate().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_2).child(n))
+/// The line under a session card's title, led by an icon when it has one; `warn` turns it amber.
+pub struct Notice {
+    pub icon: Option<&'static str>,
+    pub text: SharedString,
+    pub warn: bool,
+}
+
+impl From<&'static str> for Notice {
+    fn from(text: &'static str) -> Self {
+        Self { icon: None, text: text.into(), warn: false }
+    }
+}
+
+fn session_notice(notice: Option<Notice>) -> Option<Div> {
+    notice.map(|n| {
+        let color = if n.warn { WAITING_TEXT } else { TEXT_2 };
+        let line = div().flex().items_center().gap(px(6.)).text_size(px(12.)).line_height(px(16.)).text_color(color);
+        line.children(n.icon.map(|i| icon(i, 11., color))).child(div().truncate().child(n.text))
+    })
 }
 
 fn session_foot(id: ElementId, branch: Option<String>, state: Option<State>, stats: bool) -> Div {
@@ -1398,6 +1418,7 @@ mod tests {
     fn working_spins_orange_and_reads_working_in_accent() {
         assert_eq!(tone(State::Working), Some(Tone { glyph: Glyph::Spinner, mark: WORKING, text: ACCENT, bg: ACCENT_TINT }));
         assert_eq!(word(State::Working), "Working");
+        assert_eq!((tone(State::Moving), word(State::Moving)), (tone(State::Working), "Moving"));
     }
 
     #[test]

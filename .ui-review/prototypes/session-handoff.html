@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session handoff · Anywhere — design prototype</title>
+<style>
+:root{
+  /* Graphite Light (packages/desktop/themes/graphite-light.json) */
+  --text:#111113;--text-body:#3f3f46;--text-2:#6f6f78;--text-3:#8b8b94;--text-4:#a1a1aa;--text-5:#b4b4bc;--text-6:#d4d4d8;--on-text:#fff;
+  --window:#f4f4f5;--surface:#fff;--page:#f7f7f7;--side:#fafafb;--popover:#fff;--highlight:#fffffff2;--shadow:#00000024;--field:#ffffffd9;
+  --fill-1:#11111308;--fill-2:#1111130b;--fill-3:#1111130e;--fill-4:#11111311;--separator:#11111317;--separator-strong:#1111131f;--accent-bg:#1111131c;
+  --waiting:#ad5700;--waiting-text:#ad5700;--waiting-dot:#ffb224;--waiting-bg:#ffb2242e;--success:#2b9a66;--success-text:#18794e;--success-bg:#30a46c21;
+  --failed:#cd2b31;--failed-text:#cd2b31;--failed-bg:#e5484d1c;--working:#cc4e00;--goal-text:#0b5fb5;--goal-bg:#3e8ef724;--bubble:#f1f1f2;--scrim:#28241e2e;
+  --claude:#d97757;
+}
+:root[data-theme=dark]{
+  /* Graphite Dark (graphite-dark.json), over a dark wallpaper since the window is translucent */
+  --text:#ebebeb;--text-body:#bcbcbc;--text-2:#a1a1a1;--text-3:#818181;--text-4:#6c6c6c;--text-5:#616161;--text-6:#414141;--on-text:#171717;
+  --window:#2b2b2c;--surface:#ebebeb1a;--page:#303031;--side:#2b2b2c;--popover:#232323;--highlight:#ffffff0f;--shadow:#00000059;--field:#ebebeb14;
+  --fill-1:#ebebeb0d;--fill-2:#ebebeb14;--fill-3:#ebebeb1a;--fill-4:#ebebeb1f;--separator:#ebebeb14;--separator-strong:#ebebeb24;--accent-bg:#ebebeb33;
+  --waiting:#ffb224;--waiting-text:#ffca16;--waiting-dot:#ffb224;--waiting-bg:#ffb2242e;--success:#30a46c;--success-text:#3dd68c;--success-bg:#30a46c21;
+  --failed:#e5484d;--failed-text:#ff9592;--failed-bg:#e5484d1c;--working:#f76b15;--goal-text:#70b8ff;--goal-bg:#3e8ef724;--bubble:#2c2c30;--scrim:#0000004d;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Geist",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:var(--text);background:var(--window);font-size:13px;height:100vh;overflow:hidden}
+button,input,textarea{font:inherit;color:inherit;background:none;border:0;outline:0}
+button{cursor:pointer;text-align:left}
+button:focus-visible,.mp:focus-visible,.ar:focus-visible{box-shadow:0 0 0 2px var(--accent-bg)}
+svg.i{flex:none;display:block}
+.mono{font-family:"Geist Mono",ui-monospace,Menlo,monospace}
+.grow{flex:1;min-width:0}
+.app{display:flex;height:100vh}
+
+/* ---------- sidebar (ui::side) ---------- */
+.side{width:272px;flex:none;background:var(--side);border-right:.5px solid var(--separator);display:flex;flex-direction:column;padding:0 10px}
+.top{height:40px;flex:none;display:flex;align-items:center;justify-content:flex-end;gap:12px;color:var(--text-3)}
+.search{height:32px;flex:none;margin:2px 0 8px;padding:0 10px;display:flex;align-items:center;gap:8px;border-radius:9px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong);color:var(--text-3);font-size:13.5px;cursor:pointer}
+.search kbd{margin-left:auto;font:inherit;font-size:11.5px;color:var(--text-4)}
+.row{height:28px;flex:none;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px;font-size:13.5px;white-space:nowrap;position:relative}
+.row:hover{background:var(--fill-2)}
+.row.on{background:var(--fill-4)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.row.nav{color:var(--text-2)}
+.child{padding-left:32px}
+.child .lead{position:absolute;left:12px;top:7px;width:14px;display:flex;justify-content:center}
+.stat{font-size:12px}.stat .a{color:var(--success-text)}.stat .d{color:var(--failed-text);margin-left:6px}
+.space{height:34px;flex:none;margin:8px 0 0;padding:0 6px;display:flex;align-items:center;gap:8px;border-radius:8px}
+.space .sw-ic{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.space b{font-size:14px;font-weight:600}
+.space .h{font-size:12px;color:var(--text-3);flex:1;min-width:0}
+.sh{height:28px;flex:none;margin:8px 0 2px;padding:0 6px;display:flex;align-items:center;gap:10px;font-size:11.5px;font-weight:600;letter-spacing:.04em;color:var(--text-3)}
+.sh>span:first-child{flex:1}
+.list{flex:1;overflow-y:auto;overflow-x:hidden;margin:0 -4px;padding:0 4px 8px}
+.tile{width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:5px;font-size:10px;font-weight:600;color:var(--text-2);background:var(--surface);box-shadow:inset 0 0 0 .5px var(--separator-strong)}
+.dot{width:6px;height:6px;border-radius:3px;flex:none;background:var(--success)}
+.dot.off{background:var(--text-5)}.dot.wait{background:var(--waiting-dot)}
+.sdot{width:7px;height:7px;border-radius:4px;background:var(--waiting-dot)}
+.spin{width:9px;height:9px;flex:none;border-radius:5px;border:1.5px solid var(--working);border-right-color:transparent;animation:sp .8s linear infinite}
+.spin.n{border-color:var(--text-3);border-right-color:transparent}
+.spin.big{width:12px;height:12px;border-width:1.75px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.switcher{flex:none;display:flex;align-items:center;gap:2px;padding:6px 8px 10px;border-top:.5px solid var(--separator);margin:0 -10px}
+.sw{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--text-3);position:relative}
+.sw:hover{background:var(--fill-2)}
+.sw.on{background:var(--fill-4);color:var(--text)}
+.sw .dot{position:absolute;right:5px;bottom:6px;box-shadow:0 0 0 1.5px var(--window)}
+
+/* session card (ui::session_row) */
+.cards{display:flex;flex-direction:column;gap:2px;padding:0 0 4px}
+.card{padding:8px 10px 9px;border-radius:10px;display:flex;flex-direction:column;gap:4px;position:relative;cursor:pointer}
+.card:hover{background:var(--fill-2)}
+.card.on{background:var(--fill-4)}
+.card .ln{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)}
+.card .ln .when{margin-left:auto;color:var(--text-3)}
+.card .tt{font-size:13.5px;font-weight:500;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .ft{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-3)}
+.card .ft .br{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;white-space:nowrap}
+.card .note{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)}
+.card .note.warn{color:var(--waiting-text)}
+.card .more{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:6px;display:none;align-items:center;justify-content:center;color:var(--text-3)}
+.card:hover .more,.card .more[data-open]{display:flex}
+.card:hover .when,.card.menu-open .when{visibility:hidden}
+.card .more:hover,.card .more[data-open]{background:var(--fill-3);color:var(--text)}
+.card.gone{opacity:.62}
+.card.gone .tt{font-weight:400}
+.pill{height:18px;padding:0 7px;border-radius:9px;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;white-space:nowrap}
+.pill.work{color:var(--working);background:#cc4e001a}
+.pill.need{color:var(--waiting-text);background:var(--waiting-bg)}
+.pill.idle{color:var(--text-2);background:var(--fill-3)}
+.pill.move{color:var(--goal-text);background:var(--goal-bg)}
+
+/* ---------- main ---------- */
+.main{flex:1;min-width:0;display:flex;background:var(--page)}
+.mcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.tabs{height:40px;flex:none;display:flex;align-items:center;gap:6px;padding:0 6px;border-bottom:.5px solid var(--separator)}
+.tab{height:32px;padding:0 12px 0 10px;display:flex;align-items:center;gap:8px;border-radius:8px;background:var(--fill-3);max-width:260px;position:relative}
+.tab .t{display:flex;flex-direction:column;line-height:14px;min-width:0}
+.tab .t b{font-weight:400;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tab .t span{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs .add{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.rail{width:44px;flex:none;border-left:.5px solid var(--separator);display:flex;flex-direction:column;align-items:center;gap:14px;padding-top:12px;color:var(--text-3)}
+.chat{flex:1;overflow:auto;display:flex;justify-content:center}
+.chat .col{width:680px;padding:40px 0 20px;display:flex;flex-direction:column;gap:14px}
+.bubble{align-self:flex-end;max-width:520px;padding:10px 16px;border-radius:16px;background:var(--bubble);box-shadow:0 0 0 .5px var(--separator);font-size:14px;line-height:21px}
+.worked{display:flex;align-items:center;gap:8px;color:var(--text-3);font-size:13.5px}
+.reply{font-size:14px;line-height:22px;color:var(--text-body)}
+.reply code{font-family:"Geist Mono",ui-monospace,monospace;font-size:12.5px;padding:1px 6px;border-radius:5px;background:var(--fill-3);color:var(--text)}
+.composer-wrap{flex:none;display:flex;flex-direction:column;align-items:center;padding:0 0 12px}
+.composer{width:690px;border-radius:16px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a,0 8px 24px #0000000d;padding:12px 14px 10px}
+.composer .ph{font-size:14.5px;color:var(--text-4);height:38px}
+.composer .bar{display:flex;align-items:center;gap:8px;font-size:13px}
+.composer .bar .m{display:flex;align-items:center;gap:6px}
+.composer .bar .m span{color:var(--text-3)}
+.composer.locked{opacity:.75}
+.under{width:690px;display:flex;align-items:center;gap:6px;padding:8px 4px 0;font-size:12.5px;color:var(--text-3)}
+.under .r{margin-left:auto;color:var(--waiting-text)}
+.under .r.info{color:var(--text-3)}
+.moved{width:690px;border-radius:16px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a;padding:14px 16px;display:flex;align-items:center;gap:12px}
+.moved .tx{flex:1;display:flex;flex-direction:column;gap:2px}
+.moved .tx b{font-weight:600;font-size:13.5px}
+.moved .tx span{font-size:12.5px;color:var(--text-3)}
+
+/* sessions panel (right), as in the app */
+.spanel{width:340px;flex:none;border-left:.5px solid var(--separator);display:flex;flex-direction:column;background:var(--page)}
+.spanel .phd{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 16px}
+.spanel .phd b{flex:1;min-width:0;font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spanel .phd span{color:var(--text-3);display:flex}
+.spanel .sq{height:40px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px;color:var(--text-3);font-size:14px;border-bottom:.5px solid var(--separator)}
+.spanel .cards{padding:8px;overflow:auto}
+.spanel .card{background:var(--fill-1)}
+.spanel .card.on{background:var(--fill-3)}
+
+/* mascot (icons/mascot-*.svg, coloured as in welcome/view.rs) */
+.cheer{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:4px 0 2px;position:relative}
+.stage{width:200px;height:150px;position:relative;cursor:pointer;margin-bottom:2px}
+.stage .glow{position:absolute;left:50%;top:58%;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;background:radial-gradient(#7a68bf73,#7a68bf00 68%);animation:glow 1.4s ease-out both}
+@keyframes glow{from{opacity:0;transform:scale(.6)}}
+.stage .shadow{position:absolute;left:50%;bottom:14px;width:84px;height:8px;margin-left:-42px;border-radius:50%;background:#00000033;filter:blur(3px);animation:shadow 1.1s both}
+@keyframes shadow{0%{transform:scale(.3);opacity:0}38%{transform:scale(1.05);opacity:1}55%{transform:scale(.92)}100%{transform:none;opacity:1}}
+.stage .bot{position:absolute;left:50%;bottom:8px;width:140px;height:140px;margin-left:-70px;transform-origin:50% 84%;animation:drop 1.1s both}
+/* falls, squashes from its feet, rebounds once, settles (welcome.rs: GRAVITY, REBOUND, landing spring) */
+@keyframes drop{0%{opacity:0;transform:translateY(-64px) scale(.92,1.1);animation-timing-function:cubic-bezier(.55,0,1,.45)}12%{opacity:1}
+ 34%{transform:translateY(0) scale(1.14,.8);animation-timing-function:cubic-bezier(0,.55,.45,1)}
+ 52%{transform:translateY(-26px) scale(.96,1.05);animation-timing-function:cubic-bezier(.55,0,1,.45)}
+ 66%{transform:translateY(0) scale(1.06,.93)}80%{transform:scale(.98,1.02)}100%{transform:none}}
+.stage.hop .bot{animation:hop .6s cubic-bezier(.34,1.4,.64,1) both}
+@keyframes hop{0%{transform:scale(1.12,.84)}35%{transform:translateY(-34px) scale(.94,1.08)}70%{transform:translateY(0) scale(1.08,.92)}100%{transform:none}}
+.stage .light{animation:flash 2.4s ease-in-out .5s infinite}
+@keyframes flash{0%,100%{opacity:1}50%{opacity:.55}}
+.stage .halo{transform-origin:131px 19px;animation:halo 2.4s ease-in-out .5s infinite}
+@keyframes halo{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.25;transform:scale(1.35)}}
+.confetti{position:absolute;left:50%;top:62px;width:0;height:0;pointer-events:none}
+.confetti i{position:absolute;left:0;top:0;width:7px;height:7px;border-radius:2px;opacity:0;animation:burst 1.25s cubic-bezier(.15,.7,.3,1) forwards}
+@keyframes burst{0%{opacity:1;transform:translate(0,0) rotate(0)}70%{opacity:1}100%{opacity:0;transform:translate(var(--x),var(--y)) rotate(var(--r))}}
+.cheer h2{font-size:20px;line-height:26px;font-weight:700;margin-top:4px}
+.cheer .lede{font-size:13.5px;line-height:20px;color:var(--text-2);max-width:380px}
+@media (prefers-reduced-motion:reduce){.confetti{display:none}.stage .bot,.stage .shadow,.stage .glow{animation:none!important}}
+
+/* ---------- menus (ui::pop, menu_row, danger_row) ---------- */
+.pop{background:var(--popover);border-radius:12px;box-shadow:0 0 0 .5px var(--separator),inset 0 1px 0 var(--highlight),0 18px 50px var(--shadow),0 2px 6px #0000000f}
+.menu{position:fixed;z-index:20;padding:6px;display:flex;flex-direction:column;width:230px;animation:menuin .15s cubic-bezier(.22,1,.36,1)}
+@keyframes menuin{from{opacity:0;transform:translateY(-4px)}}
+.ml{padding:6px 10px 2px;font-size:11.5px;font-weight:500;color:var(--text-3)}
+.md{height:.5px;margin:4px 8px;background:var(--separator);flex:none}
+.mp{height:32px;padding:0 10px;display:flex;align-items:center;gap:10px;border-radius:8px;font-size:13.5px;white-space:nowrap;cursor:pointer;color:var(--text);width:100%}
+.mp:hover{background:var(--fill-2)}
+.mp .lead{width:14px;display:flex;justify-content:center;flex:none;color:var(--text-2)}
+.mp .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mp kbd{font:inherit;font-size:12px;color:var(--text-4)}
+.mp.danger{color:var(--failed)}.mp.danger .lead{color:var(--failed)}.mp.danger:hover{background:var(--failed-bg)}
+.mp.new{position:relative}
+.mp.new::after{content:"";position:absolute;inset:0;border-radius:8px;box-shadow:inset 0 0 0 1.5px var(--goal-text);opacity:0;animation:hint 2.4s ease-out .2s}
+@keyframes hint{20%{opacity:.5}100%{opacity:0}}
+
+/* ---------- palette (ui::palette_row) ---------- */
+.palette{position:fixed;left:50%;top:13vh;transform:translateX(-50%);width:640px;z-index:31;overflow:hidden;animation:modalin .2s cubic-bezier(.22,1,.36,1)}
+.palette .q{height:58px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:.5px solid var(--separator);font-size:16px}
+.palette .q .esc{margin-left:auto;font-size:12px;color:var(--text-3)}
+.palette .grp{padding:8px 8px 4px}
+.palette .gl{padding:6px 12px 6px;font-size:12px;font-weight:500;color:var(--text-2)}
+.prow{height:40px;padding:0 12px;display:flex;align-items:center;gap:12px;border-radius:10px;font-size:14px;cursor:pointer;width:100%}
+.prow.sel{background:var(--accent-bg)}
+.prow .lead{width:24px;height:24px;border-radius:7px;background:var(--fill-3);display:flex;align-items:center;justify-content:center;flex:none;color:var(--text-2)}
+.prow .tt{font-weight:500;white-space:nowrap}
+.prow .dt{flex:1;min-width:0;font-size:12.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow kbd{font:inherit;font-size:11px;padding:1px 6px;border-radius:5px;background:var(--fill-3);color:var(--text-2)}
+.palette .ft{height:40px;display:flex;align-items:center;gap:18px;padding:0 20px;border-top:.5px solid var(--separator);font-size:12px;color:var(--text-3)}
+.palette .ft .r{margin-left:auto}
+
+/* ---------- buttons (ui::button) ---------- */
+.btn{height:32px;padding:0 12px;border-radius:16px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex:none}
+.btn.lg{height:36px;padding:0 18px;border-radius:18px;font-size:14px}
+.btn.sm{height:26px;padding:0 10px;border-radius:13px;font-size:12.5px}
+.btn.primary{background:var(--text);color:var(--on-text);font-weight:600;box-shadow:inset 0 1px 0 #ffffff2e,0 4px 12px #0000002e}
+.btn.secondary{background:var(--fill-3)}
+.btn.secondary:hover{background:var(--fill-4)}
+.btn.ghost{color:var(--text-2)}
+.btn.ghost:hover{background:var(--fill-3)}
+.btn.outline{background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a}
+.btn:active{opacity:.85}
+.btn[disabled]{opacity:.45;cursor:default}
+.link{font-size:12.5px;font-weight:500;color:var(--text);text-decoration:underline;text-underline-offset:2px;cursor:pointer;white-space:nowrap}
+
+/* ---------- sheet (ui::modal + ui::pop) ---------- */
+.backdrop{position:fixed;inset:0;background:var(--scrim);z-index:30;animation:fade .18s}
+@keyframes fade{from{opacity:0}}
+.sheet{position:fixed;left:50%;top:12vh;transform:translateX(-50%);width:520px;max-height:80vh;overflow:auto;z-index:31;border-radius:16px;padding:22px 24px 20px;display:flex;flex-direction:column;gap:16px;animation:modalin .2s cubic-bezier(.22,1,.36,1)}
+@keyframes modalin{from{opacity:0;transform:translateX(-50%) scale(.97)}}
+.sheet>*{flex:none}
+.sheet .hd{display:flex;align-items:flex-start;gap:12px}
+.sheet .hd h2{flex:1;font-size:20px;line-height:26px;font-weight:700}
+.sheet .hd .x{width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;color:var(--text-3);margin:-1px -4px 0 0}
+.sheet .hd .x:hover{background:var(--fill-3);color:var(--text)}
+.sheet .sub{font-size:13.5px;line-height:20px;color:var(--text-2);margin-top:-8px}
+.lab{font-size:12px;font-weight:600;color:var(--text-2);margin:0 2px -8px}
+.box{border-radius:12px;background:var(--surface);box-shadow:0 0 0 .5px var(--separator-strong),0 1px 2px #0000000a;overflow:hidden}
+.box>*+*{border-top:.5px solid var(--separator)}
+.foot{display:flex;align-items:center;gap:8px;margin-top:4px}
+.sheet .foot{position:sticky;bottom:-20px;margin:0 -24px -20px;padding:12px 24px 20px;background:var(--popover)}
+.foot .note{flex:1;font-size:12px;line-height:16px;color:var(--text-3)}
+.checks{margin-top:2px}
+.ck{display:flex;gap:10px;padding:10px 12px;font-size:13px;line-height:18px}
+.ck+.ck{border-top:.5px solid var(--separator)}
+.ck>.st{width:16px;height:18px;flex:none;display:flex;align-items:center;justify-content:center}
+.ck.bad>.st{color:var(--waiting)}
+.ck .tx{flex:1;min-width:0}
+.ck .why{display:block;font-size:12.5px;color:var(--text-3);margin-top:1px}
+.cmd{display:flex;align-items:center;gap:8px;margin-top:8px;height:30px;padding:0 4px 0 10px;border-radius:8px;background:var(--fill-1);box-shadow:inset 0 0 0 .5px var(--separator)}
+.cmd code{flex:1;min-width:0;font:12px/1 'Geist Mono',ui-monospace,monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmd button{height:22px;padding:0 8px;border-radius:6px;font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:4px}
+.cmd button:hover{background:var(--fill-3)}
+.ck .acts{display:flex;gap:6px;margin-top:8px}
+.callout{display:flex;gap:10px;padding:11px 12px;border-radius:10px;font-size:12.5px;line-height:18px;color:var(--text-body);background:var(--fill-2)}
+.callout b{color:var(--text);font-weight:600}
+.callout.warn{background:var(--waiting-bg)}.callout.warn>svg{color:var(--waiting)}
+.callout.bad{background:var(--failed-bg)}.callout.bad>svg{color:var(--failed)}
+.callout.ok{background:var(--success-bg)}.callout.ok>svg{color:var(--success)}
+.callout>svg{margin-top:1px}
+
+/* host rows (machine picker .ar) */
+.hr{padding:9px 12px;display:flex;align-items:center;gap:11px;cursor:pointer;width:100%}
+.hr:hover{background:var(--fill-1)}
+.hr.sel{background:var(--fill-2)}
+.hr.off{cursor:default}.hr.off:hover{background:none}
+.hr.off .tx .n{color:var(--text-3)}
+.htile{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex:none;color:#fff;position:relative}
+.htile .dot{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:5px;box-shadow:0 0 0 1.5px var(--surface)}
+.hr .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.hr .tx .n{font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px}
+.hr .tx .h{font-size:12px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{font-size:12px;white-space:nowrap;display:flex;align-items:center;gap:5px}
+.tag.ok{color:var(--success-text)}.tag.warn{color:var(--waiting-text)}.tag.mute{color:var(--text-3)}.tag.bad{color:var(--failed-text)}
+.radio{width:16px;height:16px;border-radius:8px;flex:none;box-shadow:inset 0 0 0 1.5px var(--text-5);position:relative}
+.sel .radio{box-shadow:inset 0 0 0 5px var(--text)}
+
+/* what moves */
+.mv{padding:9px 12px;display:flex;align-items:center;gap:10px;font-size:13px}
+.mv .ic{width:14px;color:var(--text-3);display:flex;justify-content:center}
+.mv .tx{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mv .mt{font-size:12px;color:var(--text-3);white-space:nowrap}
+.mv.off .ic,.mv.off .tx{color:var(--text-3)}
+.mv .chip{height:22px;padding:0 9px 0 7px;border-radius:11px;background:var(--fill-2);color:var(--text-2);font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.mv .chip svg{color:var(--text-3)}
+
+textarea.summary{width:100%;min-height:150px;resize:vertical;padding:11px 12px;border-radius:11px;background:var(--field);box-shadow:0 0 0 .5px var(--separator);font-size:13px;line-height:20px;color:var(--text)}
+
+/* steps (Settings › Hosts install steps) */
+.steps{display:flex;flex-direction:column;padding:4px 0}
+.st{display:flex;gap:11px;padding:7px 12px;font-size:13px;align-items:flex-start}
+.st .mk{width:16px;height:18px;display:flex;align-items:center;justify-content:center;flex:none}
+.st .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.st .tx span{font-size:12px;color:var(--text-3)}
+.st.todo{color:var(--text-4)}
+.st.todo .tx span{color:var(--text-5)}
+.st.fail .tx>b{color:var(--failed-text)}
+.st .tx>b{font-weight:400}
+.st.now .tx>b{font-weight:500}
+.ring{width:12px;height:12px;border-radius:6px;box-shadow:inset 0 0 0 1.5px var(--text-5)}
+.bar2{height:4px;border-radius:2px;background:var(--fill-3);overflow:hidden;margin-top:4px;width:180px}
+.bar2 i{display:block;height:100%;background:var(--text-2);border-radius:2px;transition:width .3s}
+.safe{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)}
+.safe.ok{color:var(--success-text)}
+.donemark{width:40px;height:40px;border-radius:20px;background:var(--success-bg);color:var(--success);display:flex;align-items:center;justify-content:center;animation:pop .45s cubic-bezier(.34,1.56,.64,1)}
+@keyframes pop{from{transform:scale(.6);opacity:0}}
+.facts{display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--text-2)}
+.facts div{display:flex;gap:8px;align-items:center}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:40;padding:9px 14px;display:flex;align-items:center;gap:10px;font-size:13px;animation:menuin .2s}
+.tip{position:fixed;z-index:50;padding:5px 8px;border-radius:7px;background:var(--text);color:var(--on-text);font-size:11.5px;pointer-events:none;white-space:nowrap}
+
+/* prototype controls, not part of the design */
+.guide{position:fixed;right:404px;bottom:14px;width:212px;max-height:calc(100vh - 28px);overflow:auto;padding:12px 10px 10px;font-size:12px;color:var(--text-2);z-index:25}
+.guide .gh{display:flex;align-items:center;gap:6px;padding:0 6px 8px;font-weight:600;color:var(--text)}
+.guide .gh button{margin-left:auto;font-weight:400;color:var(--text-3);font-size:11.5px;padding:2px 6px;border-radius:6px}
+.guide .gh button:hover{background:var(--fill-2)}
+.guide .gs{padding:8px 6px 3px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-4)}
+.guide .gi{display:flex;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer;width:100%;color:var(--text-2)}
+.guide .gi:hover{background:var(--fill-2);color:var(--text)}
+.guide .gi.on{background:var(--fill-3);color:var(--text)}
+.guide .gi i{font-style:normal;color:var(--text-4);width:16px;text-align:right;flex:none}
+.guide .why{margin:8px 6px 0;padding:9px 10px;border-radius:8px;background:var(--fill-2);line-height:1.5;color:var(--text-2)}
+.guide .why b{color:var(--text);display:block;margin-bottom:2px}
+.guide.min{width:auto}
+.guide.min .gs,.guide.min .gi,.guide.min .why{display:none}
+.guide.min .gh{padding:0 4px}
+
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition:none!important}.spin{animation:sp 1.6s linear infinite!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const ICONS={"activity": {"vb": "0 0 24 24", "body": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>", "fill": false}, "antigravity": {"vb": "0 0 113 113", "body": "<path d=\"M89.6992 93.695C94.3659 97.195 101.366 94.8617 94.9492 88.445C75.6992 69.7783 79.7825 18.445 55.8659 18.445C31.9492 18.445 36.0325 69.7783 16.7825 88.445C9.78251 95.445 17.3658 97.195 22.0325 93.695C40.1159 81.445 38.9492 59.8617 55.8659 59.8617C72.7825 59.8617 71.6159 81.445 89.6992 93.695Z\"/>", "fill": true}, "back": {"vb": "0 0 24 24", "body": "<path d=\"m15 18-6-6 6-6\"/>", "fill": false}, "bell": {"vb": "0 0 24 24", "body": "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>", "fill": false}, "blocks": {"vb": "0 0 24 24", "body": "<path d=\"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2\"/><rect x=\"14\" y=\"2\" width=\"8\" height=\"8\" rx=\"1\"/>", "fill": false}, "bolt": {"vb": "0 0 24 24", "body": "<path d=\"M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z\"/>", "fill": false}, "branch": {"vb": "0 0 24 24", "body": "<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>", "fill": false}, "check": {"vb": "0 0 24 24", "body": "<path d=\"M20 6 9 17l-5-5\"/>", "fill": false}, "chevron-down": {"vb": "0 0 24 24", "body": "<path d=\"m6 9 6 6 6-6\"/>", "fill": false}, "chevron-right": {"vb": "0 0 24 24", "body": "<path d=\"m9 18 6-6-6-6\"/>", "fill": false}, "claude": {"vb": "0 0 24 24", "body": "<path d=\"m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z\"/>", "fill": true}, "comment": {"vb": "0 0 24 24", "body": "<path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\"/>", "fill": false}, "copy": {"vb": "0 0 24 24", "body": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>", "fill": false}, "cursor": {"vb": "-4 -4 37 37", "body": "<path fill-rule=\"evenodd\" d=\"M26.5001 6.86227L15.0931 0.161574C14.913 0.055725 14.7086 0 14.5006 0C14.2926 0 14.0882 0.055725 13.908 0.161574L2.49755 6.86227C2.34639 6.95136 2.22087 7.07929 2.13356 7.23325C2.04624 7.38722 2.00018 7.56182 2 7.73958V21.257C2 21.6195 2.19 21.9542 2.49874 22.1355L13.9069 28.8386C14.0871 28.9443 14.2914 29 14.4994 29C14.7074 29 14.9118 28.9443 15.092 28.8386L26.5013 22.1355C26.6528 22.0465 26.7787 21.9184 26.8662 21.7642C26.9538 21.61 26.9999 21.4351 27 21.257V7.74079C26.9997 7.56291 26.9535 7.38823 26.8659 7.23426C26.7784 7.08028 26.6526 6.95242 26.5013 6.86348L26.5001 6.86227ZM25.784 8.28337L14.7702 27.6954C14.6953 27.826 14.4994 27.7728 14.4994 27.6217V14.9104C14.4992 14.7854 14.4667 14.6627 14.4053 14.5545C14.3438 14.4464 14.2554 14.3565 14.1491 14.2941L3.33116 7.93776C3.2041 7.86284 3.25635 7.66224 3.40479 7.66224H25.4325C25.746 7.66224 25.9408 8.00785 25.784 8.28337Z\"/>", "fill": true}, "file": {"vb": "0 0 24 24", "body": "<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/>", "fill": false}, "folder-plus": {"vb": "0 0 24 24", "body": "<path d=\"M12 10v6\"/><path d=\"M9 13h6\"/><path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "fill": false}, "github": {"vb": "0 0 24 24", "body": "<path d=\"M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4\"/><path d=\"M9 18c-4.51 2-5-2-7-2\"/>", "fill": false}, "grok": {"vb": "0 0 35 33", "body": "<path d=\"M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436\"/><path d=\"M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341\"/>", "fill": true}, "hermes": {"vb": "-99.5 -99.5 711 711", "body": "<path fill-rule=\"evenodd\" d=\"M192.3 243.4c-1.4-.8-2.7-1.2-4.2.1-.4.4-1.3.3-2 .2-.6-.1-1.1-.6-1.5-.9-2.3 2-2.3 2-4.4.1-1.2 1-2.6 1.6-4 .2-1.3.6-2.6-.4-3.8-.3-1.5.1-2.1-.7-2.8-1.5l-2.8.7c-.3-5-4.1-4.1-7.3-4.3.1-1.5 1.1-2 2-2 1.2 0 2.3.1 3.4.5 3.5 1.1 6.8 2.6 10.6 2.9 4.3.4 8.6.6 12.8-.3 5.7-1.3 11.1-3.2 15.1-7.8 1-1.2 1.8-2.7 2.5-4.2.4-.8.4-1.8-.4-2.5-2.5-2-5.2-3.5-8.1-4.6.5 2.6-.7 3.9-2.5 4.7 0 .3-.1.5 0 .6 1.7 2.5 1.8 3.4-.1 5.7-1.4 1.7-2.9 3.2-4.7 4.5-4.1 3.2-10.1 2.8-13.7-1.1-1-1-2-2.1-2.8-3.2-1.7-2.3-1.6-2.3-.7-5-3.5-1.7-2.7-4.8-2.2-7.8.2-1.1.6-2 1-3.5-.9.3-1.4.4-1.9.7-2.9 1.9-5.2 4.5-6.7 7.6-.1.3-.2.7-.4 1-.3.3-.7.8-1 .7-.4-.1-.8-.6-1.1-1-.2-.3-.1-.7-.3-1.2h-2.7l1.1-3.7c-.3-.3-.6-.7-.8-1l2.3-6.1c-1.3.6-1.9.9-2.6 1.1-.6.1-1.4 0-2 0 0-.7-.2-1.5.1-2 3.2-4.7 6.5-9.1 12.7-10.2 4.2-.7 8.3-1.3 12.5-1.1 1.1 0 2.1.2 3.2.6 4.3 1.5 8.6 3.1 12.8 4.8.6.2 1.1.8 1.6 1.2l-.3.6c-1.9-.6-3.7-1.2-5.5-1.9-2.5-.8-4.5-1.6-6.7-2.1-5.3-1.1-5.3-1-6.2-.3l12.2 3.1c5.9 3 11.7 5.9 17.6 8.9.9.5 1.9 1.2 2.3 2.1.6 1.3 1.3 1.6 2.5 1.5 1.4-.1 2.8-.4 4.5-.6l-.9 1.8c1.1 1.7 3 .4 4.6 1.4-1.6 2.8-5.3 1.9-7.1 4.2l1.3 1.6-2.6 1.9c0 2.3-.8 3.6-6.5 5.2l.6 1.8-4.2.9 1.5 2.6h-5.3l-.1 2.9c-1.7-.2-3.4-.4-5.2-.6l-1.1 2.6c-.6.2-1.2.1-1.6-.2M116 273.8c.2.3.3.7.5.9 2.4 2.1 4.9 4.1 7.6 6.2.4-.4.9-.8.9-1.1-.2-1-.4-2.2-1-3-1.9-2.6-5.3-3.8-8-3m46.7-43.6c.1-.4-.3-1.3-.6-1.4-.9-.3-.9.5-.8 1.3.6.8 1.2 1 1.4.1m328.6 214.2c-7.7 14-18.9 24.3-32.6 32.1-4.1 2.4-8.4 4.5-12.7 6.6-3.3 1.7-5.3 4.5-6.8 7.8-1.4 2.7-1.6 5.8-.7 8.7q.45 1.5.3 3c-.1 1.6-1.6 3.3-3 3.5-1.2.1-2.7-.9-3.2-2.5-.6-1.6-1-3.3-1.3-5-.9-6.7-3.3-12.8-6.6-18.6-4.2-7.2-9.4-13.8-15.6-19.4-5.4-5.2-11.9-9.1-19.1-11.2-4.8-1.3-9.8-2.3-14.8-2.8-1.6-.2-3.2-.9-4.7.2 3.8 1.3 7.7 2.3 11.5 3.8 9.3 3.7 17.5 9.2 25.2 15.5 6.6 5.4 12.4 11.6 16.9 18.9 2.1 3.3 4 6.7 4.8 10.6.6 2.6.9 5.3 1.4 8 .3 1.3 0 2.3-1.1 3.1-1 .7-2.6.7-3.5-.2-.7-.9-1.3-1.9-1.7-3-.6-1.6-.8-3.4-1.7-4.8-8.3-13.3-18.5-25.3-30.4-35.5-3.4-2.9-7-5.5-11.5-6.9-8-2.4-16.1-4.3-24.5-3.3-4.5.5-9.1.7-13.7 1.1-5.7.6-11.1 2.7-15.7 5.9-6.5 4.5-12.4 9.6-17.8 15.4-7 7.3-13.7 14.9-20.4 22.5-2.9 3.3-5.6 6.8-6.7 11.3-.1.4-.2.7-.3 1.1-.2.9-1 1.6-1.9 1.6h-6.6c-1 0-1.7-1-1.5-2l1.5-6.9c1.6-6.9 4.1-13.5 7.9-19.6.5-.8.9-1.9 2.2-1.7l.2 1 .6 1.6c6-9.3 12.2-17.8 21.2-24.2 6-4.4 12.5-8.1 19-11.7q-1.05-.3-2.1 0c-3.5.9-6.9 1.8-10.3 2.9-8.6 2.6-16.3 7-23.7 12.1-3.1 2.1-6.4 4.1-8.8 7.1-9.3 11.4-17 24.1-22.8 37.7-.3.8-.6 1.7-.9 2.6-.2.7-.8 1.2-1.5 1.2h-10.5c-.9 0-1.3-1.1-.8-1.7 2.6-3 5.2-6 8-8.9 5.9-6 12.4-11.3 16.6-18.9.6-1 1.3-1.9 2-2.9 5.1-7.1 11.5-12.9 17.5-19.2 1.7-1.8 3.7-3.4 5.5-5.1.6-.6 1.1-1.2 1.7-1.8l-.4-.5-2.9.9c-.7.4-1.5.7-2.2 1.1-5.3 3.1-10.5 6.2-15.9 9.2-8.7 4.9-17.6 9.4-25.8 15.2-6 4.3-12.6 7.6-19 11.4-.4.3-.9.3-1.7.6-.3-2.9 3.1-4.3 2.3-7.2-.7.3-1.4.4-1.8.8-2.4 2-4.8 4.1-7 6.3-3.2 3.3-6.1 6.9-9.1 10.4-2.7 3.1-5.3 6.1-8 9.2-.6.7-1.5 1.2-2.4 1.2h-24.1c.1-.3.3-.6.3-.9.6-1.9 1.8-3.7 1.8-6-1.9-.4-3.5 0-4.5 1.6-1 1.5-2 3-2.9 4.6-.2.3-.5.6-.9.6h-2c-.4 0-.6-.5-.4-.8l4.5-5.7s-.1-.3-.3-.5c-.3.1-.6.1-1 .3-3.8 1.9-7.5 3.9-11.2 5.8q-1.65.9-3.6.9H99.8c-.6 0-.8-.8-.4-1.1 4.5-3.8 8.6-8 11.9-12.9 7.1-10.6 11.5-22.3 14.2-34.8.1-.4-.1-.9-.1-1.9-.8 1-1.3 1.5-1.6 2.1-2 3.3-4.4 6.3-7.1 8.9-6 5.5-12.6 9.6-21 9.9-6.3.3-12.5 0-18.5-2.7-9.8-4.5-15.4-12.2-16.9-22.9-.5-3.6-.4-3.6-3.9-4.7-9.2-2.5-17.9-6.7-25.6-12.4-8.1-6.1-14.1-14.5-17.2-24.1-2.7-8.6-3.9-17.6-3.4-26.6 0-.7.3-1.4.5-2.1.7.5 1 .9 1.1 1.4.7 3.3 1.3 6.6 2 9.8 1.8 7.6 5.5 14.2 11 19.6 5.5 5.5 12.2 8.9 19.4 11.3 7.6 2.5 15.3 2.9 22.8-.3 5-2.3 9.5-5.5 13.2-9.6 7-7.4 11.4-16.2 13.8-26.1.2-.7.1-1.5.1-2.3-.3.1-.6.1-.6.2-.7 1.1-1.4 2.1-2 3.2-6.1 10.7-14.5 18.9-25.5 24.2-7.5 3.6-15.3 5.4-23.7 3.4-8.4-1.8-15.8-6.7-20.7-13.7-4.2-5.8-6.9-12.6-7.9-19.7-.8-6.3-.7-12.7.4-18.9 1.1-9.4 9.9-25 15.8-27.1-.4 1.3-.7 2.4-1.1 3.4-.9 2.5-2.1 4.8-2.8 7.4-1.6 5.7-2 11.6-1.1 17.5.7 4.5 1.9 8.9 4.4 12.8 3.1 5 7.4 8.7 13.2 9.9 2.3.5 4.8.3 7.2.4 3 .1 5.9-.9 8.2-2.8 3.5-2.7 6-6.2 7.8-10.3 3.6-8 5.1-16.6 6.6-25.2 1.1-6.3 2-12.7 2.8-19.1.8-6 1.5-12 2.2-18 .6-4.9 1-9.9 1.6-14.8.5-4.9 1.1-9.7 1.6-14.6.5-4.8 1-9.7 1.5-14.6.3-3 .5-6 .7-9l.8-8.9c.5-5.3.9-10.7 1.4-16 .2-1.7-.4-2.8-1.9-3.8-3.9-2.5-7.4-5.5-10.5-8.9-2.1-2.3-4-4.9-6-7.3-.7-.9-1.2-2.1-2.5-2.5 1.3 4.5 3.2 8.8 5.9 12.7 1.3 2 2.8 3.8 4.2 5.7 1.3 1.8 3.9 2.5 5 4.8-.6.1-1 .2-1.3.1-1.6-.4-3.1-.8-4.7-1.2-10.6-3.1-20.2-9.1-27.5-17.5-9.3-10.4-14-23-15.1-36.8-.7-7.5-.6-15.1.3-22.6 1.5-12.8 4.7-25.3 9.6-37.2 3.3-8 7.2-15.8 11.2-23.5 4.4-8.4 9.9-16 16.3-23 10.9-11.9 23.6-21.8 36.8-30.9C120 37.8 136.2 29.1 153.3 22c11.1-4.7 22.2-8.8 33.8-11.8 14-3.5 27.9-7 42.3-8.9 4.9-.6 9.8-1.2 14.7-1.5 4.8-.3 9.7-.2 14.5 0 5.3.2 10.6.5 15.8 1.3 8.6 1.4 17 3.3 25.4 5.8 9.9 2.9 19.6 6.4 28.9 10.9 25.7 12.7 47.5 32.1 62.9 56.4 6.2 10 11.4 20.5 15.8 31.6 4.7 11.9 9.5 23.7 13.3 35.9 4.4 14 7 28.3 9.8 42.6 2.1 10.8 3.9 21.5 6.2 32.2 3.3 15.4 7 30.7 10.5 46.1 4 17.3 8.5 34.5 13.4 51.5 2.2 7.6 4.1 15.2 6 22.9 2.3 9.3 4.3 18.7 5.4 28.2.7 5.9 1.4 11.9 1.6 17.9.2 6.3.1 12.5-.4 18.8-.8 8.8-2.1 17.5-4.8 25.9-4.2 12.9-10.9 24.8-19.5 35.2l-2.8 3.3.4.5c.9-.5 1.9-.9 2.7-1.5 4.3-2.9 8-6.5 11.3-10.5 8.5-9.8 15.4-20.8 20.8-32.6 5.3-11.5 7.7-24.1 6.9-36.7-.5-9-2.1-17.8-6.4-25.9-.3-.6-.3-1.3-.6-2.6 1.1.7 1.7 1 2.2 1.5 2.3 2.8 4.7 5.5 6.7 8.5 7 10.5 9.8 22.4 10.4 35 1.4 15.1-2.1 29.6-9.2 42.4M154.9 101.3c.6 4.3 2.1 8.2 3.7 12.2 0 .1.3.2.5.3l1.7-1.1c1.1.8 1.7 1.9 3.3 1.9 4.4 0 8.7.3 13.1.3 2.1 0 3.4.9 4.4 2.6.4.6.5 1.6 1.9 1.4l-1.7-8.4c-1.1-4.2-1.8-8.4-3.7-12.6-1.2 1.2-2.4 1.5-3.8 1-.9-.3-1.9-.5-2.9-.6-4.7-.6-9.4-1.3-14.1-1.7-2-.2-2.3.2-2.3 2.3-.1.7-.2 1.6-.1 2.4m17.3 66.7c-4.9-9.6-8.6-19.6-12.4-29.7-.2.9-.2 1.9 0 2.8 1.7 6.8 3.3 13.7 5.2 20.5 2.2 8.3 5.8 16 9.7 23.5.4.8 1.3 1.7 2.1 1.9 1.9.2 3.8-.1 5.4-1.1zm-42.3-61.6c-2.8-1.3-5.6-2.9-8.4-4.3-1-.5-2-1.3-3.6-.6-.9 2.6-1.9 5.3-2.9 8.1-2.1 6-1.9 5.2 2 9.7 1 1 2.2.6 3.3.5 1.2-.2 2.3-.6 3.4-.8 2.8-.3 5.5-1.7 7.8-.3 4.4-1.4 8.3-2.6 12.2-3.8q1.65-.45 2.4 1.2c.5.9.7 2 1.7 2.6.8-1.2-.3-2.7 1.3-3.8l3 5.1-.9-31.1c-.4.7-.6 1.1-.8 1.4-1.3 3.9-2.7 7.9-3.8 11.9-.7 2.2-1.9 3.6-4.2 4.1-1.9.4-3.8 1.1-5.7 1.6-.8.2-1.9.3-2.5-.1-.5-.3-.5-1.5-.8-2.3-1.2 1.6-1.6 1.8-3.5.9m-77.5 20.9c4.9-11.6 10.3-22.9 17.5-33.3 1.9-2.8 3.9-5.7 6-8.6.1-.1.1-.3.5-.6 0-.3.1-.7.3-.9l.2-.4-.6.3c-.3.3-.6.6-.9.8-.2.2-.4.4-1 .9L66.7 93c-1.9 1.8-3.6 3.8-5.7 5.4-6.1 4.7-9.1 11.3-11.6 18.2-.2.5-.2 1-.1 1.5.3 1.2.7 2.3 1.1 3.6l1.6.6c-.4 1.2-.6 2.2-1 3.2-1.2 3.5-2.5 7-3.7 10.5-.1.3.2.8.4 1.6 1.6-3.6 3.3-6.9 4.7-10.3M89.5 109c-2.8 0-5.2-.4-7.6.7-.5.2-1.2 0-2.3-.1 1.6-3.2 3-5.9 4.5-8.9.1-.3.3-.6.5-.8 0-.3 0-.6.2-.8l.1-.4c-.1.1-.2.2-.6.4-.1.3-.2.5-.6 1-.1.3-.4.5-.7.7-2.6 3.3-1.9 3.5-5.5 2.3-1.7-.6-1.7-.6-1-3.1.6-1 1.2-2 2.1-3.2 0-.3 0-.7.1-.9l.1-.3c-.1.1-.2.2-.6.3-.1.3-.2.5-.7 1-.8 1.2-1.7 2.4-2.6 3.6-1 1.5-2.5 1.2-3.9.9-2.9-.6-4.9.3-6.1 3.1-1.9 4-4 7.9-5.8 11.9-1 2.3-2.3 4.6-2.5 7.7 1.7.1 3.3.1 4.9.2h4.9c-.5 1.9-1 3.8-1.7 5.6-.2 1.1-.5 2.2-.7 3.3l.4.1c.4-1 .8-2 1.4-3.3 1.4-3 2.8-6.1 4.3-9.1.4-.9.7-2.1 2.5-2 0 .9.1 1.8 0 2.6-.1 1-.4 1.9-.6 3.1 3 .9 1.8 3.7 2.5 5.7 2.2-.5 2.2-4.2 5.3-3.1v4.4h.4zm3.9 12.9c.6-1.5 1.6-2.6 3.1-3.2l3.7-1.5c.9-.4 1.8-1.2 3.1-.7.1 1.1-.2 2.3.3 3.1.9 1.3.9 2.7 1 4.1 0 1 .4 2.1.6 3.1.6-.7.8-1.4 1.1-2.1 3-8.3 5.9-16.7 9.1-25 2.1-5.5 4.7-10.8 7-16.1.3-.6.3-1.4.6-2v-.4c-.1.1-.2.2-.6.3-2 2.7-4.1 5.2-6 8-3.3 5.1-6.4 10.3-9.6 15.4-3 4.8-7.4 7.9-12.3 10.3-.4.2-.9.1-1.7.2.3-1.3.3-2.3.7-3.3 1.5-3.8 3.1-7.4 4.9-11.1l-.1-.4c-.2.2-.5.4-.7.5-.6 1.1-1.2 2.1-2 3.5-5.5 9-9.5 17.4-9.4 20.3.5.1 1 .2 1.6.3 3.9.5 4.1.4 5.6-3.3m4.4 100.8c2.2-1 4.7-1.4 7.2-1.1 4.3.5 7.6 2.9 10.8 5.6l2 1.6c.1-.1.3-.3.5-.4-.4-2.2-.7-4.8-3.2-5.6-3.3-1.1-6.9-1.6-10.8-2.5l-5.1-.1c5.1-3.6 9.6-.9 14.7.2-1.3-2.5-3.3-3.1-4.9-4.1-1.7-1.1-3.6-2-5.3-3.1-1.3-.8-2.6-1.7-1.5-3.7-3.5-.1-7 .9-10 2.7-1.6 1-1.8 1.5-1.1 3.4s1.5 3.7 2.5 5.4c1.1 2.5 1.6 2.7 4.2 1.7m4 25.4c1.3 2.9 3.3 3.6 6.1 2.2 1.2-.6 1.3-1.2.5-2.3-1-1.5-1.9-3-2.8-4.5-.3-1.5-1.4-2.8-.7-4.4.9-1.9-1.6-2.5-1.6-4.1v-3c-.1-.8-.1-1.9-1.2-1.8-.8.1-1.4.6-1.9 1.2-.4.7-.6 1.5-.5 2.3.1 3.2.2 6.5.6 9.7.3 1.7.8 3.3 1.5 4.7m-2.5 7.5c-.3.7-.1 1.5-.2 2.4 1.7-.8 1.7-.8 1.8-2.5-.5-.5-1.2-1-1.6.1M116 413.8c-1.3 2-2.1 4.1-2.8 6.3-2.7 7.8-6.7 15.1-11.8 21.5-4.3 5.3-9.7 8.8-16.3 10.5-4.9 1.3-9.9 1.6-14.9 1.5-1 0-2.1 0-3.4.1.3.9.4 1.4.7 1.8 2.1 3.1 4.9 5.2 8.5 6.3 3.3 1 6.7.7 10.6.5 3.9-.8 7.3-2.5 10.3-5 5.1-4.2 8.6-9.7 11.4-15.6 3.7-7.7 5.6-16 7.3-24.4.4-1.1.3-2.3.4-3.5m62.9-41.9c3.9-.5 7.8-1.2 11.7-1.7 4.5-.6 8.1 1.6 11.1 4.5 3.4 3.3 6.5 7 9.5 10.7 4.7 5.7 8.5 11.9 11.8 18.5 1.1 2.1 1.5 2.1 3.1.6 2.8-2.6 5.5-5.2 8.4-7.7 1.4-1.3 1.9-2.6 1.4-4.5-1.2-5.6-1.9-11.3-1.8-17 0-3.3.1-6.7.4-10 .3-4.8.6-9.6 1.3-14.3 2.3-16.4 4.8-32.7 7.7-49 1.9-10.5 3.9-21 5.7-31.5 1.3-7.4 2.5-14.8 3.5-22.3.7-5.8 1.2-11.7 1.3-17.6.2-7.1.1-14.2 0-21.3 0-1.6.1-3.3-.2-4.9-.6-3-.2-3.3-3.5-4.1-4.3-1-8.6-1.7-12.9-2.3-3.1-.4-4.4-1.1-4.7-4.1-.1-1-.5-2.1-.9-3.1-.2-.5-.5-1-1-1.9l-.5 5.6c-.2 2-.6 2.5-2.7 2.5-1.2 0-2.3-.2-3.5-.2-10.2 0-20.3-.2-30.4.7-2 .2-3.7-.3-4.8-2.2-.9-1.4-1.9-2.7-2.9-4-1.3-1.8-1.8-2-3.9-1.3-4.2 1.5-8.3 2.9-12.4 4.5q-7.8 3.15-14.4 8.4c-2 1.6-4.4 2.8-6.9 3.6-.7.2-1.5.2-2.7.3.4-1.4.5-2.4 1-3.2 1.4-2.2 2.9-4.4 4.4-6.5.5-.7 1-1.3 1.6-2l-.3-.5-4.3.8c-3.1.9-6.3 1.5-9.3 2.6-3.2 1.1-5.7.5-8.2-1.5-6-4.8-11.3-10.4-15.6-16.8l-2-2.8c-.2 1.1-.1 2.2.4 3.3 2.6 5.4 5.3 10.7 8.1 16 .5 1 1.4 1.9.6 3.5-6.1 1.3-12.3 2.5-18.8 5.4 1.3.8 2.1 1.3 2.8 1.9.9.7 2.4 1.2 1.9 2.6-.2.7-1.6 1-2.5 1.5.4.2.9.4 1.4.8 3.5 2.2 7 4.4 9.5 7.9 2.9 4.1 4.9 8.6 4 13.7-1.7 10-6.5 18.1-14.7 24.1-1.2.9-2.3 1.8-3.4 2.6-1.7 1.2-2.6 3.2-2.2 5.2q.3 2.1 1.2 4.2c1.8 4.2 4.7 7.5 8 10.5 1.8 1.6 3.4 3.5 4.7 5.5 1.6 2.4 1.8 5.5.5 8-.5 1.1-1.1 2.1-1.6 3.2-.6 1.3-.6 2.4.5 3.5.9.9 1.7 1.9 2.4 2.9.8 1.2 1.7 1.7 3.1 1.1 2.3-.9 4.8-.9 7.1-.1 3.4 1 6.4 2.7 9.5 4.5 2.8 1.6 5.6 3.2 8.5 4.7 1.4.7 3 1.1 4.7.6 1.5-.5 2.6.2 3.1 1.6.4 1.4-.1 2.3-1.6 3-1.5.6-2.9 1.3-4.5 1.9-2.1.7-4.3 1.6-6.7 1.6-.3-2.3 2.3-1.9 2.7-3.4-4.4-2.7-13.7-3.1-17.1-.7 1.3 2.4.7 4.5-2 6.7-2.8-2.1-.5-4.3 0-6.4-.3-.1-.6-.1-.9-.1-2.2 0-4 1.6-4.4 3.7-.3 2.2 1.4 4.6 3.8 4.8 2.3.1 4.7-.1 7-.3 1.3-.1 2.6-.6 4.2 0-2.2 2.6-5.3 2.7-7.6 4.1 0 1.1 1.5 1.8.4 2.8s-2 0-2.8-.6c-1.7-1.3-3.4-2.7-4.9-4.2-1.9-1.7-3.1-4.1-3.3-6.6-.1-1.3-.4-2.5-.9-3.7-.7-1.6-.7-2.9.7-4.1-.4-.6-.6-1.1-1-1.5-1.8-2.4-3.2-5-4.2-7.9-1.1-2.9-1-5.6 1-8.1.5-.6 1.1-1.3 1.4-2 .5-1.2.8-2.3 1-3.6.4-3.5-1.4-6.1-3.9-8.3-4-3.3-7.7-6.9-9.8-11.8-.1-.2-.5-.4-.8-.6-.2.4-.5.6-.5.8-.4 3.9-1 7.9-1.1 11.9-.3 8 1.2 15.9 3.5 23.6 2.5 8.7 6.2 17 10.4 25 5.7 10.7 11.5 21.4 17.3 32 1.2 2.1 2.8 4 4.4 5.8 4.2 4.3 9.6 5.8 15.4 5.8 4.3 0 8.6-.1 12.9-.6 6.5-.9 12.8-1.8 19-2.7M128 307.2c-1.9-.7-3.9-1.4-5.9-2-1.3 0-2.5.3-2.9 1.8 2.6 1.9 6.2 2 8.8.2m83.9-211.7c0 .7-.4 1.4-.7 2.3-2-1.2-1-3.4-2.3-4.6h-2.7c-.3 1.5-.2 3.2-1 4.3-1.4 1.8-3.3 3.3-5 4.8-.9.8-1.7.4-2.2-.5l-1-1.9c-1.4.7-2.5 1.5-3.7 2-2.5 1.1-5 2-7.5 3.1-1.8.8-1.9 1.1-1.5 3.1.3 1.6.7 3.2 1 4.8.3 1.5 1.1 2.3 2.6 2.6 5 1.1 9.9 2.5 14 5.7 1.2-2.2 1.2-2.2 3.6-3.2.6-.3 1.3-.6 2-.9 1.7-.6 2.5-.4 3.2 1.3.5 1 .9 2.1 1.4 3.4 1.3-3-.9-5.7.4-8.9 3.3 3.8 5.1 8.3 8 12.1.3-.7.5-1.4.5-2.1V115c0-.7.3-1.4.4-2.1l.7-.1c2.3 3.3 2.8 7.6 4.8 11.1.1-2.8 0-5.6-.2-8.4-.1-1 0-1.6 1.1-1.9 1.7.8 2.5 3 4.6 3.4-.6-5.9-9-24.3-17-34.9-2.4-2.7-4.3-6-7.3-8.2 0 1 .2 1.8.4 2.6.9 3.4 2 6.8 2.6 10.2.7 3 .7 5.9.8 8.8m16.5-11.1c-1.1 1.2-2 2.6-3.1 3.8-.8.9-1 1.7-.4 2.7l3.4 5.9c.6 1 1.5 1.4 2.7 1.4 1.6-.1 3.2 0 4.9 0 2.5-.1 4.6.5 5.9 2.9.1.3.4.5.9 1.1.1-1.3-.1-2.1.2-2.8.3-.9.9-2.1 1.5-2.3 1.8-.5 3.7-.5 5.5-.6.3 0 .6.4.9.6l1.5 1.4c.4-2.3-1.7-4.2-.5-6.6l2.7.9c-.6-2.6-1.5-5.2-1.5-7.8s1.1-5.2 2.5-7.7c2.3 1.3 3.4 3.3 5 5.4 3.9 5.7 7.7 11.4 10.5 17.8 3.5-1.7 5.8 1.5 8.7 1.9-.1-2.3-2.8-9.4-4.2-10.5-.6-.5-1.4-.7-2.2-.6-1.3.2-2.5.8-4.1 1.3-.5-.8-1.2-1.7-1.6-2.6-2.7-5.9-6.1-11.5-10.1-16.7-1.6-2-3.4-3.9-4.9-5.5l-8.3 6.1c-1 .7-2 .6-2.8-.4l-3.6-4.4c-.5-.6-1.1-1.3-2.1-2.3-.1 3.4 2 5.9 1.5 8.9l-7.9 1.9c2 2.7.7 4.8-1 6.8m46.2 279.9c.8-.2 1.2-.2 1.4-.4 5.6-3.4 11.1-6.9 16.7-10.3 1.2-.7 1.5-1.7 1.4-2.9-.3-2.8-.5-5.6-.7-8.4l-1.5-18.9-.6-6.6c-.2 0-.4 0-.6-.1-2.6 6.2-4.4 12.7-6.9 19.4-3.1 9.2-6.2 18.5-9.2 28.2m-68.5 123.1-.6-.4c-1.5 1.3-3.1 2.4-4.4 3.8-5.1 5.8-9.9 11.7-14.3 18.5l-.9 2.3c.8-.2 1.5-.6 2-1.2 3.7-4.1 7.5-8.1 11.1-12.2 2.2-2.6 4.2-5.4 6.1-8.2.6-.7.7-1.7 1-2.6m73.4-41.8c-.5-.4-.8-.8-1.2-.9-6.1-2.4-11.2-6.4-16.4-10.3q-5.7-4.2-10.8-9c-3.9-3.9-6.9-8.7-8.7-13.9-.4-1-1-2-1.6-3.3-5 3.8-9.6 8.1-13.9 12.6L219 429c-2.2 2.4-5 4.2-8 5.3-3.2 1.2-6.5 1.9-10 1.9-.9 0-1.9.1-3.2.3.6 1.2.9 2.1 1.4 2.8 3.2 5.2 6.4 10.3 9.6 15.4 2.9 4.7 5.9 9.3 8.5 14.2 1.5 2.7 2.2 5.7 3.3 8.6 1.6.6 3-.4 4.3-1 6.2-2.9 12.4-5.8 18.5-8.8 4.5-2.2 9.3-4 13.6-6.6 7.4-4.6 14.5-9.7 21.7-14.6.2-.1.5-.5.8-.9m20.3-62.3c-1-3.8-1.7-7.8-2.5-11.7-.2-1.1-.6-2.2-1-3.6l-3.1 1.9c-4.7 2.9-9.4 5.7-14.1 8.6-2 1.2-3.9 2.6-5.8 4-1.8 1.5-2.6 3.4-1.5 5.8 1 2.1 2 4.3 3.1 6.3 1 1.7 2.6 2.9 4.5 3.1 2.3.2 4.9.3 7.2-.3 4.6-1.1 7.9-4.4 11.3-7.6 1.9-1.5 2.6-4.1 1.9-6.5m1-239c-.5-.1-1-.3-1.6-.3-1.7-.1-2.7-1.3-2.9-2.8-.7-4.2-.1-7.6 5.3-8.7 1.8-.4 3.7-.6 5.5-.9 3.4-.5 6.7-1.1 10.1-1.4 3-.3 4.1.7 4.8 3.6.2.6.4 1.2.4 1.9.4 3.8-.2 4.8-3 6.1-.6.3-1.2.5-1.7.9s-.9.9-1.1 1.4c-.8 3.1 1.6 8.1 4.4 9.5l14.4 6.8c.5.2 1.1.3 1.6.5l.4-.6c-.3-.2-.7-.3-.9-.5-3.5-2.8-7.4-5.1-11.6-6.8-1.2-.6-2.5-1.1-3.7-1.6-1.6-.7-2.7-2.3-2.7-4.1-.1-1.8 1-3.3 2.7-4l1.3-.5c2.1-.9 2.5-1.6 2.4-4 0-.4-.1-.9-.2-1.3-1.4-6.3-2.6-12.6-4.4-18.8-4.2-15.1-10.1-29.7-17.6-43.4-7.8-14.3-17.8-27.3-29.6-38.6-7.4-7.1-15.9-13.1-25.1-17.6-6.8-3.4-14.1-5.7-21.7-7-5-.8-10.1-1.3-15.2-1.6-4.3-.2-8.6.1-12.9.7-5 .7-10 1.9-14.9 3.2-6.1 1.7-12.1 3.8-18.2 5.8-.9.3-1.6.8-2.3 1.2q.9.45 1.5.3c6.1-1.5 12.4-1.8 18.6-1.9 2.9 0 5.7.2 8.6.5 4.1.5 8.1 1 12.2 1.9 9.7 2.2 18.6 6.4 27 11.9 9.9 6.5 18.9 14.1 26.8 23 4.4 4.9 8.4 10.1 11.9 15.8 3.6 5.8 6.7 12 9.6 18.3 5.8 12.8 9.7 26.3 12.8 40 .9 3.7 1.5 7.4 2.1 11.2.4 2.2 1.4 3.6 3.6 4.1 2.6.6 4.3 2.2 4.7 5.4-.1 2.2-1.3 3.7-2.8 5.1-2.4 2.1-4.4 4.7-5.7 7.6.7-.1 1.3-.4 1.8-.8 1.7-1.8 3.5-3.7 5-5.7 1.7-2 2.6-4.5 2.8-7.1.2-1.1.5-2.1.5-3.2.2-2.5-.3-3.1-3-3.5m39 80.1c-.4-.7-.6-1.2-1-1.5-2.6-2.8-5.9-4.8-9.6-5.8-3-.9-6.1-.5-9.1-.6-4.9-.2-9.1 1.7-13 4.5-.7.6-1.3 1.4-2.2 2.5 1.9.6 3.2 1 4.9 1.4.9-.3 1.9-.6 2.8-1 6.5-2.4 13-2.5 19.3.7 2.8 1.3 5.2.8 7.9-.2m14.6-88.4c-.1-.2-.3-.4-.4-.8l-.3-.3c.1.1.2.3.2.4s-.1.1-.1.2.1.3.1.4l.4.5c.1-.1.2-.3.1-.4m.9 2.4-.5-.9-.3.2c.2.2.4.5.8.7m3.9-36.8 3.3-3.6c1.1-1.1 2-1 2.8.3.3.5.6 1.1.9 1.7 1.5 2.9 3.1 5.9 4.6 9.2l3.4 6.6.5-.2c-.9-2.3-1.5-4.7-2.9-7.1-1.2-3.9-3.6-7.4-4.4-11.6 2.9.7 7.7 7 12.1 15.6l1.2 1.6.4-.2c-.4-.9-.8-1.8-1.1-2.7-1-3.1-2.1-6.2-2.9-9.3-.5-1.8-.8-3.7.5-5.5l2.3 1.2-.6-4.4.6-.3c.5.4 1.1.8 1.4 1.3 1.6 2.3 3.1 4.7 4.6 7 .2.3.6.6.9.9-.8-4.6-4.3-8.1-4.9-13.4l3.3 2.4c.3-3.5.3-6.8.9-9.9.7-3.4-.5-6.3-1.3-9.5.5.1.8.1 1.2.5 2 2.6 3.9 5.3 5.9 7.9.4.6 1.1 1 1.5 1.9l.9 1.3.4-.3c-.5-.5-.9-1.1-1.1-1.7-2.4-3.5-4.8-6.9-7.1-10.5-4.7-6.6-7.7-10-10.3-11.1 1.9 3.5 3.3 6.7 3 10.5-.3 3.6.6 7.3-.9 11-1-.7-1.9-1.7-2.4-1.6-2.5.7-3.5-1.2-4.8-2.5-2.1-2-4.2-4-6.1-6.2l-2.2-2.4c-.2.1-.3.3-.5.4.7 1 1.5 2 2.3 3.3.9 1.4 1.8 2.7 2.6 4.1.7 1.2 1.4 2.5.7 4.4-1.7-.2-3.5-.4-5.2-.7-1.3-.2-2.2 0-2.6 1.5-.7 2.1-.8 2-3.2 1.9.4.9.8 1.7 1.2 2.5.9 1.6.6 2.9-.6 4.2-1.3 1.3-2.5 2.6-3.8 3.9-1 1.1-2.6 1.5-3.9 1-4.7-1.3-9.5-2.4-14.3-3.7-.7-.2-1.3-.9-1.8-1.5-.6-.9-1.1-1.9-1.7-2.8-.9-1.5-1.9-2.9-2.9-4.4-.3.7-.4 1.5-.3 2.2.3 2.7.6 5.4.7 8.1.1 2.1-.5 2.6-2.6 2.2-2.2-.4-4.4-.9-6.6-1.2-1.4-.3-2.8-.6-4.3.6l1.7 4.4c1.9 0 3.5-.2 5.1 0 3.8.7 7.2 2.6 9.8 5.4 1.7 1.8 3.3 3.6 5.1 5.5l.4-.1c-.1-.1-.2-.3-.2-.9.3-1.2-1.3-2.5.4-3.8.7.6 1.4 1.2 1.9 1.9 1.2 1.7 2.4 3.4 3.6 5.5l1.9 3 .5-.3c-3-6.6-6.1-13.3-9.1-19.9 1.2.1 1.8.1 2.3.3 4.1 1.5 8.2 3 12.3 4.6 1.6.6 3.1 1.3 4.7 2 .8.8 1.9.6 2.8-.5m45.1 206.9-1.5-7.7c-.8-4.4-1.6-8.8-2.4-13.6-.3-1.5-.6-3-1-4.5-2-8.4-3.8-17-6.2-25.3-4.2-14.6-8.8-29.1-13.2-43.6-3.5-11.7-6.9-23.5-10.4-35.2-1.5-4.8-3.2-9.6-4.8-14.8l-2.5-7.2c-.8-2.3-1.6-4.6-2.5-6.9s-1.8-4.5-2.7-6.7c-.2.1-.4.1-.6.2l2.1 6.1c1.7 4.9 3.4 9.9 5.1 15.2l12.4 41.6c4 13.4 7.9 26.9 11.9 40.4 2.4 8.1 5 16.3 7.3 24.4 1.5 5.5 2.7 11.1 4 17 .9 4.4 1.9 8.8 2.7 13.7.7 2.3.5 4.8 1.6 6.9zm44.5 48.3c-2.2-13.9-7-26.9-12.7-40.1-.2-.4-.3-.8-.5-1.2l-.7.5c.2.6.3 1.2.6 2.3.5 3.3 1.1 6.6 1.5 9.9.6 4.7 1.4 9.3 1.7 14 .4 7.3.6 14.7-.3 22-.8 6.7-1.3 13.5-2.5 20.2-1.9 11.2-5.2 22.1-9.8 32.4-.2.4-.2.8-.4 1.7 1-.6 1.6-.9 2.1-1.4 1.8-1.8 3.6-3.6 5.3-5.4 5.8-6.5 9.8-14.1 12.7-22.3 3.7-10.5 4.8-21.5 3-32.6\"/>", "fill": true}, "laptop": {"vb": "0 0 24 24", "body": "<path d=\"M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z\"/><path d=\"M20.054 15.987H3.946\"/>", "fill": false}, "more": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>", "fill": false}, "omp": {"vb": "0 0 64 64", "body": "<path d=\"M10 14h44v9H43v33h-9V23h-9v22h-9V23H10z\"/>", "fill": true}, "openai": {"vb": "0 0 24 24", "body": "<path d=\"M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z\"/>", "fill": true}, "pin": {"vb": "0 0 24 24", "body": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "fill": false}, "plus": {"vb": "0 0 24 24", "body": "<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>", "fill": false}, "search": {"vb": "0 0 24 24", "body": "<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>", "fill": false}, "server": {"vb": "0 0 24 24", "body": "<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>", "fill": false}, "settings": {"vb": "0 0 24 24", "body": "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "fill": false}, "sidebar-collapse": {"vb": "0 0 24 24", "body": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/><path d=\"m16 15-3-3 3-3\"/>", "fill": false}, "sparkle": {"vb": "0 0 24 24", "body": "<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/>", "fill": false}, "terminal": {"vb": "0 0 24 24", "body": "<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>", "fill": false}, "warning": {"vb": "0 0 24 24", "body": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>", "fill": false}, "worktree": {"vb": "0 0 24 24", "body": "<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>", "fill": false}, "x": {"vb": "0 0 24 24", "body": "<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>", "fill": false}};
+const PROVIDER_COLOR={claude:'var(--claude)'};
+const ic=(n,s=14,c='currentColor')=>{const d=ICONS[n];if(!d)return '';const col=PROVIDER_COLOR[n]||c;return d.fill?`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="${col}">${d.body}</svg>`:`<svg class="i" width="${s}" height="${s}" viewBox="${d.vb}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.body}</svg>`};
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- data ---------- */
+const AGENTS={
+  codex:{name:'Codex',icon:'openai',model:'gpt-5.6',ok:'yes'},
+  claude:{name:'Claude Code',short:'Claude',icon:'claude',model:'Opus 5.5',ok:'yes'},
+  cursor:{name:'Cursor',icon:'cursor',model:'auto',ok:'yes'},
+  omp:{name:'omp',icon:'omp',model:'sonnet',ok:'yes'},
+  hermes:{name:'Hermes Agent',short:'Hermes',icon:'hermes',model:'gpt-5.6',ok:'user'},
+  grok:{name:'Grok Build',short:'Grok',icon:'grok',model:'grok-5',ok:'path'},
+  antigravity:{name:'Antigravity',icon:'antigravity',model:'gemini-3.8',ok:'path'},
+  shell:{name:'Claude Code',short:'Claude',icon:'claude',model:'',ok:'typed'},
+};
+const HOSTS=[
+  {id:'devbox',name:'devbox',addr:'dev@devbox.lan',color:'#3b82f6',icon:'server',link:'online',user:'dev',home:'/home/dev',repo:'~/code/app-android',signed:true},
+  {id:'mini',name:'mac-mini',addr:'mingo@100.67.254.9',color:'#8b5cf6',icon:'laptop',link:'online',user:'mingo',home:'/Users/mingo',repo:'~/code/app-android',signed:true,samePath:true},
+  {id:'gpu',name:'gpu-box',addr:'mingo@gpu.local',color:'#10b981',icon:'server',link:'online',user:'mingo',home:'/home/mingo',repo:null,signed:true},
+  {id:'office',name:'office-linux',addr:'mingo@office.lan',color:'#f59e0b',icon:'server',link:'offline',user:'mingo',home:'/home/mingo',repo:'~/code/app-android'},
+];
+const online=()=>HOSTS.filter(h=>h.link==='online');
+const REMOTE='git@github.com:mingo023/app-android.git';
+/** What host h must already have before anything is sent. A failed check is fixed by hand on the host. */
+function checks(h){
+  const agentRuns=s.agent!=='shell';
+  const list=[h.repo
+    ?{ok:true,label:`app-android is at <span class="mono">${h.repo}</span>`}
+    :{ok:false,label:`app-android isn’t on ${h.name}`,cmd:`git clone ${REMOTE} ~/code/app-android`,fix:'repo'}];
+  if(agentRuns)list.push(h.signed
+    ?{ok:true,label:`${short()} is signed in`}
+    :{ok:false,label:`${short()} isn’t signed in on ${h.name}`,cmd:`${s.agent} login`,fix:'signed'});
+  list.push(!h.branchTaken
+    ?{ok:true,label:`<span class="mono">${BRANCH}</span> is free`}
+    :{ok:false,label:`<span class="mono">${BRANCH}</span> is already on ${h.name}`,why:'It has commits this Mac doesn’t.',cmd:`git branch -m ${BRANCH} ${BRANCH}-old`,fix:'branchTaken'});
+  return list;
+}
+const toFix=h=>checks(h).filter(c=>!c.ok);
+const S0={agent:'codex',turn:'idle',view:'chat',menu:null,palette:false,sheet:null,host:'devbox',phase:'none',step:0,sent:0,fail:null,hidden:false,toast:null,scenario:'menu',guide:true,space:'mac',branchAlt:false,checking:false};
+let s={...S0};
+const A=()=>AGENTS[s.agent];
+const short=()=>A().short||A().name;
+const H=id=>HOSTS.find(h=>h.id===(id||s.host));
+const TITLE='Fix stale terminal reveal',BRANCH='fix/restore-handoff',WT='fix-restore-handoff';
+
+/** Whether the selected agent can carry its conversation to host h, and if not, why. */
+function canResume(h){
+  const a=A();
+  if(a.ok==='yes')return {ok:true};
+  if(a.ok==='typed')return {ok:false,why:`Anywhere didn’t start this session, so it can’t read the conversation.`,hint:'Started in a terminal'};
+  if(a.ok==='user')return h.user==='mingo'?{ok:true,note:'Same user on both machines'}:{ok:false,why:`${short()} needs the same user on both machines: <b>mingo</b> here, <b>${h.user}</b> on ${h.name}.`,hint:`Different user (${h.user})`};
+  if(a.ok==='path')return h.samePath?{ok:true,note:'Same folder path on both machines'}:{ok:false,why:`${short()} needs the same folder path on both machines.`,hint:'Different folder path'};
+}
+/* ---------- steps ---------- */
+function steps(){
+  const h=H(),resume=canResume(h).ok,list=[];
+  if(s.turn==='working')list.push(['turn','Stop this turn','']);
+  list.push(['pack','Pack the code','12 files · 3 commits']);
+  list.push(['send',`Send to ${h.name}`,'1.4 MB']);
+  list.push(['tree','Make the worktree','']);
+  {
+    if(resume)list.push(['conv','Bring the conversation','38 messages']);
+    list.push(['start',`Start ${short()}`,'']);
+    if(resume)list.push(['check','Check the history','']);
+  }
+  return list;
+}
+
+/* ---------- sidebar ---------- */
+function sideCard(){
+  const a=A(),moving=s.phase==='moving',gone=s.phase==='done'&&s.choiceUsed==='resume';
+  const state=gone?`<span class="pill idle">${ic('server',10)}${H().name}</span>`:moving?`<span class="pill move"><span class="spin n" style="border-color:var(--goal-text);border-right-color:transparent;width:8px;height:8px"></span>Moving</span>`:s.turn==='working'?`<span class="pill work"><span class="spin" style="width:8px;height:8px"></span>Working</span>`:`<span class="pill idle">Idle</span>`;
+  const note=gone?`<div class="note">${ic('server',11)}Moved to ${H().name}</div>`:s.phase==='moving'?`<div class="note">${ic('server',11)}Moving to ${H().name}…</div>`:s.phase==='failed'?`<div class="note warn">${ic('warning',11)}Handoff stopped · still here</div>`:'';
+  const open=s.menu==='card';
+  return `<div class="card on${gone?' gone':''}${open?' menu-open':''}" data-act="view" data-v="chat"><div class="ln">${ic(a.icon,12,'var(--text-2)')}<span>${esc(a.name)}${a.model?' · '+a.model:''}</span><span class="when">${s.turn==='working'?'now':'4m'}</span></div><div class="tt">${TITLE}</div>${note}<div class="ft"><span class="br">${ic('worktree',11)}<span class="mono" style="font-size:11.5px">${BRANCH}</span></span><span style="margin-left:auto">${state}</span></div><button class="more"${open?' data-open':''} data-act="menu" data-v="card" aria-label="Session actions">${ic('more',14)}</button></div>`
+  +`<div class="card"><div class="ln">${ic('claude',12)}<span>Claude Code · Opus 5.5</span><span class="when">1h</span></div><div class="tt">Split restore hook into two files</div><div class="ft"><span class="br">${ic('worktree',11)}<span class="mono" style="font-size:11.5px">refactor/restore-hook</span></span><span style="margin-left:auto"><span class="pill idle">Idle</span></span></div></div>`;
+}
+function sidebar(){
+  const host=s.space!=='mac'?H(s.space):null;
+  const spaceHead=host?`<div class="space"><span class="sw-ic" style="background:${host.color};color:#fff">${ic(host.icon,13)}</span><b>${host.name}</b><span class="dot"></span><span class="h">${host.addr}</span>${ic('chevron-down',12,'var(--text-4)')}</div>`:`<div class="space"><span class="sw-ic" style="background:var(--fill-4);color:var(--text-2)">${ic('laptop',13)}</span><b>This Mac</b><span class="h"></span>${ic('chevron-down',12,'var(--text-4)')}</div>`;
+  return sidebarHtml(host,spaceHead);
+}
+function sessionCards(){
+  const host=s.space!=='mac'?H(s.space):null;
+  return host?(s.phase==='done'?`<div class="card on" data-act="view" data-v="host"><div class="ln">${ic(A().icon,12,'var(--text-2)')}<span>${esc(A().name)}${A().model?' · '+A().model:''}</span><span class="when">now</span></div><div class="tt">${s.choiceUsed==='summary'?TITLE+' (continued)':TITLE}</div><div class="ft"><span class="br">${ic('worktree',11)}<span class="mono" style="font-size:11.5px">${s.branchAlt?BRANCH+'-2':BRANCH}</span></span><span style="margin-left:auto"><span class="pill idle">Idle</span></span></div></div>`:`<div style="padding:24px 12px;color:var(--text-3);font-size:12.5px;text-align:center">No sessions in this worktree yet</div>`):sideCard();
+}
+function sidebarHtml(host,spaceHead){
+  const projects=host?`<div class="row">${'<span class="tile">A</span>'}<span class="nm">app-android</span></div><div class="row child${s.phase==='done'?' on':''}"><span class="lead">${ic('worktree',13,'var(--text-3)')}</span><span class="nm">${s.branchAlt?BRANCH+'-2':BRANCH}</span>${s.phase==='done'?'<span class="stat mono"><span class="a">+42</span><span class="d">−17</span></span>':''}</div>`
+   :`<div class="row"><span class="tile">A</span><span class="nm">app-android</span></div>
+     <div class="row child on"><span class="lead">${s.turn==='working'&&s.phase!=='done'?'<span class="spin"></span>':ic('worktree',13,'var(--text-3)')}</span><span class="nm">${BRANCH}</span><span class="stat mono"><span class="a">+42</span><span class="d">−17</span></span></div>
+     <div class="row child"><span class="lead">${ic('worktree',13,'var(--text-3)')}</span><span class="nm">refactor/restore-hook</span></div>
+     <div class="row child"><span class="lead">${ic('worktree',13,'var(--text-3)')}</span><span class="nm">feat/haptics</span><span class="stat mono"><span class="a">+84</span><span class="d">−51</span></span></div>
+     <div class="row" style="margin-top:6px"><span class="tile">I</span><span class="nm">app-ios</span></div>
+     <div class="row child"><span class="lead"><span class="sdot"></span></span><span class="nm">Local</span></div>`;
+  const sw=[`<button class="sw${s.space==='mac'?' on':''}" data-act="space" data-v="mac" data-tip="This Mac">${ic('laptop',16)}</button>`].concat(HOSTS.map(h=>`<button class="sw${s.space===h.id?' on':''}" data-act="space" data-v="${h.id}" data-tip="${h.name}">${ic(h.icon,16)}<span class="dot${h.link==='online'?'':' off'}"></span></button>`)).join('');
+  return `<aside class="side"><div class="top">${ic('bell',16)}${ic('sidebar-collapse',16)}</div>
+  <div class="search" data-act="palette">${ic('search',14)}<span>Search all machines</span><kbd>⌘K</kbd></div>
+  <div class="row nav">${ic('activity',15)}<span class="nm">Activity</span></div>
+  <div class="row nav">${ic('blocks',15)}<span class="nm">Board</span></div>
+  <div class="row nav">${ic('bolt',15)}<span class="nm">Automations</span></div>
+  ${spaceHead}
+  <div class="sh"><span>PROJECTS</span>${ic('search',13)}${ic('folder-plus',13)}</div>
+  <div class="list">${projects}</div>
+  <div class="switcher">${sw}<button class="sw">${ic('plus',15)}</button><span style="flex:1"></span><button class="sw">${ic('settings',15)}</button></div></aside>`;
+}
+
+/* ---------- main ---------- */
+function main(){
+  const a=A(),onHost=s.space!=='mac';
+  const gone=!onHost&&s.phase==='done'&&s.choiceUsed==='resume';
+  const sub=s.phase==='moving'?`${a.name} · moving to ${H().name}`:gone?`Moved to ${H().name}`:a.name;
+  const tab=`<div class="tab" data-act="tabmenu" data-tip="Right-click for actions">${ic(a.icon,15,'var(--text)')}<span class="t"><b>${onHost&&s.choiceUsed==='summary'?TITLE+' (continued)':TITLE}</b><span>${onHost?a.name+' · '+H().name:sub}</span></span></div>`;
+  let transcript=`<div class="bubble">The terminal reveal still shows stale output after a restore. Find why and fix it, then add a test.</div>
+    <div class="worked">${ic(a.icon,14,'var(--text-3)')}<span>${short()} worked for 3m 12s</span>${ic('chevron-right',12)}</div>
+    <div class="reply">The reveal reads the VT snapshot before the holder replays the bytes after it, so the first frame is old. I moved the reveal behind <code>settled</code> and added <code>restore_reveals_after_replay</code>. Tests pass.</div>`;
+  if(onHost&&s.choiceUsed==='summary')transcript=`<div class="bubble" style="max-width:600px"><div style="font-size:11.5px;color:var(--text-3);margin-bottom:4px;display:flex;gap:6px;align-items:center">${ic('laptop',11)}Summary from This Mac</div>${esc(s.summary||SUMMARY).slice(0,180)}…</div><div class="worked">${ic(a.icon,14,'var(--text-3)')}<span>${short()} worked for 18s</span>${ic('chevron-right',12)}</div><div class="reply">Picked up from the summary. The fix is in place; next I'll run the restore tests on this machine.</div>`;
+  if(onHost&&s.choiceUsed==='resume')transcript+=`<div class="worked" style="justify-content:center;font-size:12px;gap:6px">${ic('server',11)}Continued on ${H().name} · ${new Date().toTimeString().slice(0,5)}</div>`;
+  let bottom;
+  if(gone){
+    bottom=`<div class="moved">${ic('server',18,'var(--text-2)')}<div class="tx"><b>This session moved to ${H().name}</b><span>The worktree stays here.</span></div><button class="btn primary" data-act="space" data-v="${H().id}">Open on ${H().name}</button></div>`;
+  }else{
+    const locked=s.phase==='moving';
+    const right=s.phase==='moving'?`<span class="r info">Prompts wait until the handoff finishes</span>`:'';
+    bottom=`<div class="composer${locked?' locked':''}"><div class="ph">${locked?'Prompts wait until the handoff finishes':'Ask, build, / for commands, @ for files'}</div><div class="bar"><span class="m">${ic(a.icon,15,'var(--text)')}${esc(a.model||a.name)}<span>${s.agent==='codex'?'High':''}</span>${ic('chevron-down',12,'var(--text-4)')}</span><span class="grow"></span>${ic('plus',16,'var(--text-3)')}</div></div><div class="under">${ic('worktree',12)}<span class="mono" style="font-size:12px">${onHost&&s.branchAlt?BRANCH+'-2':BRANCH}</span>${right}</div>`;
+  }
+  return `<main class="main"><div class="mcol"><div class="tabs">${tab}<span class="add">${ic('plus',14)}</span></div>
+    <div class="chat"><div class="col">${transcript}</div></div>
+    <div class="composer-wrap">${bottom}</div></div>
+    ${sessionsPanel()}
+    <div class="rail">${ic('comment',16,'var(--text)')}${ic('copy',16)}${ic('branch',16)}${ic('github',16)}</div></main>`;
+}
+
+function sessionsPanel(){
+  const onHost=s.space!=='mac';
+  const title=onHost&&s.choiceUsed==='summary'?TITLE+' (continued)':TITLE;
+  return `<aside class="spanel"><div class="phd"><b>${title}</b><span>${ic('plus',16)}</span></div><div class="sq">${ic('search',15)}<span>Search sessions…</span></div><div class="cards">${sessionCards()}</div></aside>`;
+}
+
+/* ---------- menus ---------- */
+function handoffRow(isNew){
+  if(s.phase==='moving')return `<button class="mp" data-act="reopen"><span class="lead">${ic('server',14)}</span><span class="nm">Show handoff</span></button>`;
+  return `<button class="mp${isNew?' new':''}" data-act="open"><span class="lead">${ic('server',14)}</span><span class="nm">Hand off to a host…</span></button>`;
+}
+function cardMenu(){
+  const r=$('[data-v=card].more')?.getBoundingClientRect()||{right:260,bottom:200};
+  const resume=s.agent!=='shell';
+  return `<div class="menu pop" style="left:${r.right-232}px;top:${r.bottom+4}px" data-stop role="menu">
+    <button class="mp" data-act="toast" data-v="Pinned"><span class="lead">${ic('pin',14)}</span><span class="nm">Pin</span></button>
+    <button class="mp" data-act="toast" data-v="Path copied"><span class="lead">${ic('copy',14)}</span><span class="nm">Copy path</span></button>
+    ${resume?`<button class="mp" data-act="toast" data-v="Resume command copied"><span class="lead">${ic('terminal',14)}</span><span class="nm">Copy resume command</span></button>
+    <button class="mp" data-act="toast" data-v="Forked into a new session"><span class="lead">${ic('branch',14)}</span><span class="nm">Fork session</span></button>`:''}
+    ${handoffRow(true)}
+    <div class="md"></div>
+    <button class="mp danger" data-act="toast" data-v="Close session asks first"><span class="lead">${ic('x',14)}</span><span class="nm">Close session…</span></button></div>`;
+}
+function tabMenu(){
+  const r=$('.tab')?.getBoundingClientRect()||{left:300,bottom:40};
+  return `<div class="menu pop" style="left:${r.left+40}px;top:${r.bottom+2}px" data-stop role="menu">
+    <button class="mp" data-act="toast" data-v="Opens the TUI in a terminal"><span class="lead">${ic('terminal',14)}</span><span class="nm">Open in Terminal chat</span></button>
+    ${handoffRow(true)}</div>`;
+}
+function palette(){
+  const t=`Hand off “${TITLE}” to a host…`;
+  return `<div class="backdrop" data-act="close"></div><div class="palette pop" data-stop>
+    <div class="q">${ic('search',18,'var(--text-3)')}<span>hand</span><span style="width:1.5px;height:20px;background:var(--text);margin-left:-8px;animation:fade 1s steps(2) infinite"></span><span class="esc">esc</span></div>
+    <div class="grp"><div class="gl">Actions</div>
+      <button class="prow sel" data-act="open"><span class="lead">${ic('server',14)}</span><span class="tt">${esc(t)}</span><span class="dt">${short()} · app-android</span><kbd>↵</kbd></button>
+      <button class="prow" data-act="toast" data-v="Opens the hosts settings"><span class="lead">${ic('settings',14)}</span><span class="tt">Hosts settings</span><span class="dt">Settings</span></button></div>
+    <div class="grp" style="padding-top:0"><div class="gl">Sessions</div>
+      <button class="prow" data-act="close"><span class="lead">${ic('worktree',13)}</span><span class="tt">Fix stale terminal reveal</span><span class="dt">app-android · ${BRANCH} · ${short()} · ${s.turn==='working'?'Working':'Idle'}</span></button></div>
+    <div class="ft"><span>↑↓ Navigate</span><span>↵ Run</span><span class="r">esc Close</span></div></div>`;
+}
+
+/* ---------- mascot ---------- */
+const MASCOT_PARTS={"body": "<path d=\"M110 48C112 36 118 28 127 23\" stroke=\"#1a1a1e\" stroke-width=\"7\" fill=\"none\" stroke-linecap=\"round\"/><circle cx=\"131\" cy=\"19\" r=\"11\"/><path d=\"M26 130C26 78 60 46 104 46C150 46 178 80 178 128C178 152 166 166 150 162C138 159 134 148 120 150C106 152 104 168 88 168C72 168 70 152 56 154C42 156 26 156 26 130Z\"/>", "eyes": "<rect x=\"76\" y=\"76\" width=\"21\" height=\"44\" rx=\"10.5\" transform=\"rotate(8 86.5 98)\"/><rect x=\"112\" y=\"78\" width=\"21\" height=\"44\" rx=\"10.5\" transform=\"rotate(8 122.5 100)\"/>", "halo": "<circle cx=\"131\" cy=\"19\" r=\"17\"/>", "light": "<circle cx=\"131\" cy=\"19\" r=\"6.5\"/>", "sheen": "<path d=\"M40 112C42 80 66 58 98 56C78 66 60 86 54 114C52 124 40 124 40 112Z\"/>"};
+const CONFETTI=['#8ee6cc','#7a68bf','#ffb224','#3b82f6','#e5484d','#30a46c'];
+function confetti(){
+  return '<div class="confetti">'+Array.from({length:26},(_,i)=>{const a=(i/26)*Math.PI*2+(i%3)*.2,d=70+(i*37%60),x=Math.cos(a)*d*1.5,y=Math.sin(a)*d*.9+40+(i%4)*12;return `<i style="--x:${x.toFixed(0)}px;--y:${y.toFixed(0)}px;--r:${(i*67)%540-270}deg;background:${CONFETTI[i%CONFETTI.length]};animation-delay:${340+(i%5)*25}ms;${i%3?'':'border-radius:50%;'}${i%4?'':'width:4px;height:10px;'}"></i>`}).join('')+'</div>';
+}
+/** The app's mascot (welcome/view.rs colours), lit, with happy eyes. */
+function mascot(){
+  const P=MASCOT_PARTS;
+  const eyes=`<g stroke="#f4f2ee" stroke-width="10" stroke-linecap="round" fill="none"><path d="M75 104 q11 -17 22 0" transform="rotate(8 86 98)"/><path d="M111 106 q11 -17 22 0" transform="rotate(8 122 100)"/></g>`;
+  return `<div class="stage" data-act="cheer" aria-label="Celebrate again"><span class="glow"></span><span class="shadow"></span>${confetti()}
+    <svg class="bot" viewBox="0 0 200 200"><g class="halo" fill="#8ee6cc" opacity=".55">${P.halo}</g><g fill="#1a1a1e">${P.body}</g><g fill="#fff" opacity=".08">${P.sheen}</g><g class="light" fill="#8ee6cc">${P.light}</g>${eyes}</svg></div>`;
+}
+
+/* ---------- sheet ---------- */
+const SUMMARY=`We're fixing the stale terminal reveal in app-android on branch fix/restore-handoff.
+
+Found: the reveal reads the VT snapshot before the holder replays the bytes after it, so the first frame is old.
+Done: moved the reveal behind \`settled\`; added the test restore_reveals_after_replay. Tests pass on the Mac.
+Next: run the restore tests here, then check the Changes view with 1000+ files.`;
+function hostRow(h){
+  const sel=s.host===h.id,res=canResume(h);
+  const n=toFix(h).length;
+  const tag=s.checking?'<span class="tag mute"><span class="spin" style="border-color:var(--text-3);border-right-color:transparent"></span>Checking…</span>'
+    :n?'<span class="tag warn">Not ready</span>':res.ok?`<span class="tag ok">${ic('check',12)}Ready</span>`:'<span class="tag warn">Summary only</span>';
+  return `<button class="hr${sel?' sel':''}" data-act="host" data-v="${h.id}"><span class="radio"></span><span class="htile" style="background:${h.color}">${ic(h.icon,14)}<span class="dot"></span></span><span class="tx"><span class="n">${h.name}</span><span class="h">${esc(h.addr)}</span></span>${tag}</button>`;
+}
+function pickSheet(){
+  const hosts=online();
+  if(!hosts.length)return `<div class="hd"><h2>Hand off to a host</h2><button class="x" data-act="close" aria-label="Close">${ic('x',15)}</button></div>
+    <div class="box"><div style="padding:28px 20px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center">${ic('server',22,'var(--text-4)')}<b style="font-weight:600">No host is connected</b><span style="font-size:12.5px;color:var(--text-3);max-width:320px">Hosts you add in Settings show here while they’re connected.</span><button class="btn outline sm" style="margin-top:6px" data-act="toast" data-v="Opens Settings › Hosts">${ic('plus',12)}Add a host…</button></div></div>
+    <div class="foot"><span class="note"></span><button class="btn ghost lg" data-act="close">Close</button></div>`;
+  if(!hosts.find(h=>h.id===s.host))s.host=hosts[0].id;
+  const h=H(),res=canResume(h),a=A(),bad=s.checking?[]:toFix(h);
+  let block='',primary;
+  if(!res.ok){
+    block=`<div class="callout warn">${ic('warning',14)}<div><b>The conversation can’t move to ${h.name}</b><br>${res.why} A new ${short()} session starts from a summary instead.</div></div>`;
+    primary=`<button class="btn primary lg" data-act="summary">${s.agent==='shell'?'Write summary…':'Review summary…'}</button>`;
+  }else{
+    primary=`<button class="btn primary lg" data-act="go">Hand off</button>`;
+  }
+  const conv=res.ok?`<div class="mv"><span class="ic">${ic('comment',13)}</span><span class="tx">Conversation</span><span class="mt">38 messages</span></div>`:`<div class="mv off"><span class="ic">${ic('comment',13)}</span><span class="tx">Conversation</span><span class="chip">${ic('sparkle',12)}Sent as a summary</span></div>`;
+  return `<div class="hd"><h2>Hand off to a host</h2><button class="x" data-act="close" aria-label="Close">${ic('x',15)}</button></div>
+    <p class="sub">“${TITLE}” · ${esc(a.name)}</p>
+    <div class="lab">Host</div>
+    <div class="box">${hosts.map(hostRow).join('')}</div>
+    ${bad.length?fixBox(h):block}
+    <div class="lab">What moves</div><div class="box">
+      <div class="mv"><span class="ic">${ic('branch',13)}</span><span class="tx mono" style="font-size:12.5px">${BRANCH}</span><span class="mt">3 commits</span></div>
+      <div class="mv"><span class="ic">${ic('file',13)}</span><span class="tx">12 changed files</span><span class="mt stat mono"><span class="a">+42</span><span class="d">−17</span></span></div>
+      ${conv}</div>
+    <div class="foot"><span class="note"></span><button class="btn ghost lg" data-act="close">Cancel</button>${bad.length?`<button class="btn primary lg" data-act="recheck">Check again</button>`:s.checking?primary.replace('<button','<button disabled style="opacity:.4;pointer-events:none"'):primary}</div>`;
+}
+function fixBox(h){
+  const rows=checks(h).filter(c=>!c.ok).map(c=>`<div class="ck bad"><span class="st">${ic('warning',14)}</span><span class="tx"><b style="font-weight:600">${c.label}</b>${c.why?`<span class="why">${c.why}</span>`:''}
+      <span class="cmd"><code>${esc(c.cmd)}</code><button data-act="toast" data-v="Copied">${ic('copy',12)}Copy</button></span>
+      <span class="acts"><button class="btn outline sm" data-act="toast" data-v="Opens a terminal on ${h.name}">${ic('terminal',12)}Open terminal</button></span></span></div>`).join('');
+  return `<div class="lab">Fix on ${h.name}, then check again</div><div class="box checks">${rows}</div>`;
+}
+function summarySheet(){
+  const h=H();
+  return `<div class="hd"><button class="x" data-act="back" aria-label="Back" style="margin:-1px 0 0 -6px">${ic('back',15)}</button><h2>Summary for the new ${short()} session</h2><button class="x" data-act="close" aria-label="Close">${ic('x',15)}</button></div>
+    <p class="sub">${s.agent==='shell'?'What should the new session know?':'It becomes the new session’s first prompt.'}</p>
+    <textarea class="summary" id="summary" spellcheck="false" placeholder="What were you doing, what's done, what's next?">${s.agent==='shell'?'':esc(s.summary||SUMMARY)}</textarea>
+    <div class="foot"><span class="note"></span><button class="btn ghost lg" data-act="back">Back</button><button class="btn primary lg" data-act="go">Move code & start</button></div>`;
+}
+function stepMark(i,cur,failed){
+  if(failed&&i===cur)return ic('x',13,'var(--failed)');
+  if(i<cur)return ic('check',13,'var(--success)');
+  if(i===cur&&!failed)return '<span class="spin big n"></span>';
+  return '<span class="ring"></span>';
+}
+const FAILS={
+  offline:{at:'send',msg:h=>`${h.name} went offline at 0.6 of 1.4 MB.`,title:h=>`${h.name} went offline`,body:h=>`Nothing changed on this Mac. It retries when ${h.name} is back.`,act:'Retry now'},
+  history:{at:'check',msg:h=>`${short()} opened with 0 of 38 messages.`,title:h=>`The conversation didn’t open on ${h.name}`,body:h=>`${short()} opened empty there. Nothing changed on this Mac.`,act:'Retry'},
+};
+function progressSheet(){
+  const h=H(),list=steps(),f=s.fail&&FAILS[s.fail],failAt=f?list.findIndex(x=>x[0]===f.at):-1;
+  const cur=f?failAt:s.step;
+  const done=s.phase==='done';
+  const rows=list.map((x,i)=>{
+    const st=f&&i===failAt?'fail':i<cur||done?'':i===cur?'now':'todo';
+    let extra='';
+    if(x[0]==='send'&&i===cur&&!f)extra=`<div class="bar2"><i style="width:${Math.min(100,s.sent)}%"></i></div>`;
+    const sub=st==='fail'?f.msg(h):x[2];
+    return `<div class="st ${st}"><span class="mk">${done?ic('check',13,'var(--success)'):stepMark(i,cur,!!f)}</span><span class="tx"><b>${x[1]}</b>${sub?`<span>${esc(sub)}</span>`:''}${extra}</span></div>`;
+  }).join('');
+  const resume=canResume(h).ok&&s.choiceUsed==='resume';
+  if(f){
+    return `<div class="hd"><h2>${esc(f.title(h))}</h2><button class="x" data-act="close" aria-label="Close">${ic('x',15)}</button></div>
+      <div class="box"><div class="steps">${rows}</div></div>
+      <p class="sub" style="margin-top:0">${esc(f.body(h))}</p>
+      <div class="foot"><span class="note"></span><button class="btn ghost lg" data-act="close">Close</button>${f.extra?f.extra(h):''}<button class="btn primary lg" data-act="retry">${esc(f.act)}</button></div>`;
+  }
+  if(done){
+    return `<div class="hd" style="margin-bottom:-14px"><span class="grow"></span><button class="x" data-act="close" aria-label="Close">${ic('x',15)}</button></div>
+      <div class="cheer">${mascot()}
+      <h2>${resume?`${short()} made it to ${h.name}!`:`A fresh ${short()} is up on ${h.name}`}</h2>
+      <p class="lede">${resume?'It picks up where you left off. You can close this Mac.':'It starts from your summary and all the code. This session stays open here.'}</p></div>
+      <div class="foot"><span class="note"></span><button class="btn ghost lg" data-act="close">Done</button><button class="btn primary lg" data-act="space" data-v="${h.id}">Open on ${h.name}</button></div>`;
+  }
+  const cancellable=list[cur]&&!['start','check'].includes(list[cur][0]);
+  return `<div class="hd"><h2>Handing off to ${h.name}</h2><button class="x" data-act="hide" aria-label="Hide">${ic('x',15)}</button></div>
+    <div class="box"><div class="steps">${rows}</div></div>
+    <div class="safe">${ic('laptop',13,'var(--text-3)')}<span>Keep this Mac awake until it’s done.</span></div>
+    <div class="foot"><span class="note"></span>${cancellable?'<button class="btn ghost lg" data-act="cancel">Cancel handoff</button>':''}<button class="btn secondary lg" data-act="hide">Hide</button></div>`;
+}
+function sheet(){
+  if(!s.sheet)return '';
+  const body=s.sheet==='pick'?pickSheet():s.sheet==='summary'?summarySheet():progressSheet();
+  return `<div class="backdrop" data-act="${s.sheet==='progress'&&s.phase!=='failed'&&s.phase!=='done'?'hide':'close'}"></div><section class="sheet pop" role="dialog" aria-modal="true" data-stop>${body}</section>`;
+}
+
+/* ---------- guide ---------- */
+const SCEN=[
+  ['Find it',[['menu','Session menu'],['tab','Tab menu (right-click)'],['palette','Command palette']]],
+  ['Before it starts',[['checking','Checking hosts'],['norepo','Project isn’t there'],['noauth','Agent not signed in'],['branchtaken','Branch already there'],['nohost','No host connected']]],
+  ['Hand off',[['pick','Pick a host'],['working','Agent is working'],['moving','Moving'],['hidden','Hidden while moving'],['done','Done'],['after','This Mac afterwards'],['host','On the host']]],
+  ['When it stops',[['offline','Host goes offline'],['history','History didn’t open']]],
+  ['Other agents',[['hermes','Hermes · other user'],['grok','Grok · other path'],['grokok','Grok · same path'],['antigravity','Antigravity · other path'],['shell','Started in a terminal'],['summary','Summary to start with']]],
+];
+const WHY={
+  menu:['Where it lives','In the session’s menu in the sessions panel, under Fork session: both make this conversation continue somewhere else. A hint ring marks it the first time.'],
+  tab:['Same menu, other door','The session tab’s right-click menu gets the same row, under Open in Terminal chat.'],
+  palette:['Search for it','“hand”, “host” or a host’s name finds the action for the open session.'],
+  pick:['Connected hosts only','Only hosts connected right now are listed, each checked as the sheet opens: Ready or Not ready.'],
+  working:['Don’t wait for the turn','The button stays “Hand off”. A working agent stops by itself first; a quiet note says so, and the edits it made so far go along.'],
+  checking:['Checked up front','Opening the sheet checks every connected host. Nothing is sent until the host has what it needs.'],
+  norepo:['Anywhere doesn’t clone','A host without the project gets the exact command to run there. The user clones it, presses Check again, and it’s found by its remote.'],
+  noauth:['Sign in by hand','Not checked for sessions started in a terminal: Anywhere can’t start those.'],
+  branchtaken:['Never overwrite','A branch with commits the Mac lacks is left alone. Renaming it there is the user’s call.'],
+  moving:['Steps you can trust','Each step names what it touched. “You can close this Mac” only appears after the host checks the history.'],
+  hidden:['Out of the way','Hiding keeps it going: the card, tab and composer carry the state. The session menu reopens it.'],
+  done:['A small celebration','The app’s mascot drops in, lit, with happy eyes and a burst of confetti; click it to cheer again. It only appears once the host has checked all 38 messages.'],
+  after:['A trail, not a hole','The Mac keeps the worktree and a quiet card pointing at the host.'],
+  host:['Where it continues','The session sits in the host’s space with its history and a “Continued on devbox” marker.'],
+  offline:['Fail safe','Nothing on the Mac changes until the host verifies. Every stop says what happened and what is safe.'],
+  history:['Empty is a failure','Some agents open an empty session instead of failing. The check catches it and closes that session.'],
+  nohost:['Nothing to pick','Only connected hosts are listed. With none, the sheet points to Settings › Hosts.'],
+  hermes:['Honest about limits','Hermes ties a conversation to the user. On a host with another user it says so in plain words and offers what still works.'],
+  grok:['Same, for paths','Grok and Antigravity tie a conversation to the folder path. mac-mini has the same path, so it’s ready there.'],
+  grokok:['Same path, full handoff','On mac-mini the project lives at the same path, so Grok’s conversation moves as with any other agent.'],
+  antigravity:['Same rule as Grok','Antigravity needs the same folder path too.'],
+  shell:['Started outside Anywhere','A terminal-typed session can’t be read, so only code moves; the summary is yours to write.'],
+  summary:['A summary is a new start','It’s editable, shown as the first prompt on the host, and never presented as the old history.'],
+};
+function guide(){
+  const w=WHY[s.scenario];
+  return `<div class="guide pop${s.guide?'':' min'}" data-stop><div class="gh">Prototype<button data-act="theme">${document.documentElement.dataset.theme==='dark'?'Light':'Dark'}</button><button data-act="guide">${s.guide?'Hide':'Scenarios'}</button></div>
+    ${SCEN.map(([g,items])=>`<div class="gs">${g}</div>`+items.map(([id,l])=>`<button class="gi${s.scenario===id?' on':''}" data-act="scenario" data-v="${id}"><span class="grow">${l}</span></button>`).join('')).join('')}
+    ${w?`<div class="why"><b>${w[0]}</b>${w[1]}</div>`:''}</div>`;
+}
+
+/* ---------- render ---------- */
+const $=q=>document.querySelector(q);
+function render(){
+  $('#root').innerHTML=`<div class="app">${sidebar()}${main()}</div>${sheet()}${s.palette?palette():''}${s.toast?`<div class="toast pop">${ic('check',13,'var(--success)')}${esc(s.toast)}</div>`:''}${guide()}`;
+  if(s.menu)$('#root').insertAdjacentHTML('beforeend',s.menu==='card'?cardMenu():tabMenu());
+  const ta=$('#summary');if(ta)ta.oninput=e=>{s.summary=e.target.value};
+}
+
+/* ---------- motion of a handoff ---------- */
+let timer=null;
+function stop(){clearInterval(timer);timer=null}
+function run(){
+  stop();
+  const list=steps();
+  timer=setInterval(()=>{
+    const cur=list[s.step];
+    if(!cur){stop();s.phase='done';if(s.hidden){s.toast=`${short()} is running on ${H().name}`;setTimeout(()=>{s.toast=null;render()},2600)}render();return}
+    if(cur[0]==='send'&&s.sent<100){s.sent+=20;render();return}
+    if(cur[0]==='turn')s.turn='idle';
+    s.step++;render();
+  },650);
+}
+/** Prototype: checks take a moment; a recheck finds what the user fixed by hand. */
+function recheck(fixed){
+  s.checking=true;
+  setTimeout(()=>{if(fixed)toFix(H()).forEach(c=>{const h=H();if(c.fix==='repo')h.repo='~/code/app-android';else if(c.fix==='signed')h.signed=true;else h.branchTaken=false});s.checking=false;render()},900);
+}
+function startHandoff(){
+  const h=H(),res=canResume(h).ok;
+  s.choiceUsed=res?'resume':'summary';
+  s.sheet='progress';s.step=0;s.sent=0;s.fail=null;s.hidden=false;
+  s.phase='moving';
+  run();render();
+}
+
+/* ---------- scenarios ---------- */
+function scenario(id){
+  stop();s={...S0,guide:s.guide,scenario:id};
+  HOSTS.forEach(h=>{h.link=h.id==='office'?'offline':'online';h.signed=true;h.branchTaken=false;h.repo=h.id==='gpu'?null:'~/code/app-android'});
+  const at=(o)=>Object.assign(s,o);
+  const freeze=(stepKey,extra={})=>{const list=steps();s.sheet='progress';s.choiceUsed=canResume(H()).ok?'resume':'summary';s.phase=extra.phase||'moving';s.step=Math.max(0,list.findIndex(x=>x[0]===stepKey));s.sent=40;Object.assign(s,extra)};
+  switch(id){
+    case 'menu':at({menu:'card'});break;
+    case 'tab':at({menu:'tab'});break;
+    case 'palette':at({palette:true});break;
+    case 'pick':at({sheet:'pick'});break;
+    case 'working':at({sheet:'pick',turn:'working'});break;
+    case 'checking':at({sheet:'pick',checking:true});break;
+    case 'norepo':at({sheet:'pick',host:'gpu'});break;
+    case 'noauth':at({sheet:'pick',host:'mini'});HOSTS[1].signed=false;break;
+    case 'branchtaken':at({sheet:'pick'});HOSTS[0].branchTaken=true;break;
+    case 'moving':freeze('send');break;
+    case 'hidden':freeze('conv',{sheet:null,hidden:true});break;
+    case 'done':freeze('check',{phase:'done',step:99});break;
+    case 'after':freeze('check',{phase:'done',step:99,sheet:null});break;
+    case 'host':freeze('check',{phase:'done',step:99,sheet:null,space:'devbox'});break;
+    case 'offline':freeze('send',{phase:'failed',fail:'offline'});break;
+    case 'history':freeze('check',{phase:'failed',fail:'history'});break;
+    case 'nohost':at({sheet:'pick'});HOSTS.forEach(h=>h.link='offline');break;
+    case 'hermes':at({sheet:'pick',agent:'hermes'});break;
+    case 'grok':at({sheet:'pick',agent:'grok'});break;
+    case 'grokok':at({sheet:'pick',agent:'grok',host:'mini'});break;
+    case 'antigravity':at({sheet:'pick',agent:'antigravity'});break;
+    case 'shell':at({sheet:'pick',agent:'shell'});break;
+    case 'summary':at({sheet:'summary',agent:'hermes'});break;
+  }
+  render();
+}
+
+/* ---------- events ---------- */
+document.addEventListener('mousedown',e=>{
+  // A press outside an open menu shuts it (docs/DESIGN.md); a press on its trigger is handled by the click.
+  if(s.menu&&!e.target.closest('[data-stop]')&&!e.target.closest('[data-v=card].more')&&!e.target.closest('.tab')){s.menu=null;render()}
+});
+document.addEventListener('contextmenu',e=>{
+  if(e.target.closest('.tab')){e.preventDefault();s.menu=s.menu==='tab'?null:'tab';render()}
+  else if(e.target.closest('.card.on')&&s.space==='mac'){e.preventDefault();s.menu='card';render()}
+});
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');if(!el)return;
+  const act=el.dataset.act,v=el.dataset.v;
+  if(el.closest('.card')&&act==='view'&&e.target.closest('.more'))return;
+  e.stopPropagation();
+  switch(act){
+    case 'menu':s.menu=s.menu===v?null:v;break; // a second press on the trigger shuts it
+    case 'tabmenu':s.menu=s.menu==='tab'?null:'tab';break;
+    case 'palette':s.palette=true;s.menu=null;break;
+    case 'open':s.menu=null;s.palette=false;s.sheet='pick';recheck(false);break;
+    case 'reopen':s.menu=null;s.sheet='progress';s.hidden=false;break;
+    case 'host':s.host=v;break;
+    case 'recheck':recheck(true);break;
+    case 'summary':s.sheet='summary';break;
+    case 'back':s.sheet='pick';break;
+    case 'go':startHandoff();return;
+    case 'hide':s.sheet=null;s.hidden=true;break;
+    case 'cancel':stop();s.phase='none';s.sheet=null;s.menu=null;s.toast='Handoff cancelled. Nothing changed.';setTimeout(()=>{s.toast=null;render()},2200);break;
+    case 'retry':s.fail=null;s.phase='moving';run();break;
+    case 'close':if(s.sheet==='progress'&&s.phase==='moving')s.hidden=true;s.sheet=null;s.palette=false;break;
+    case 'space':s.space=v;s.sheet=null;s.menu=null;break;
+    case 'view':s.menu=null;break;
+    case 'toast':s.menu=null;s.toast=v;setTimeout(()=>{s.toast=null;render()},2000);break;
+    case 'scenario':scenario(v);return;
+    case 'cheer':{const st=el;st.classList.remove('hop');void st.offsetWidth;st.classList.add('hop');const c=st.querySelector('.confetti');c.outerHTML=confetti();return}
+    case 'guide':s.guide=!s.guide;break;
+    case 'theme':document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'':'dark';break;
+  }
+  render();
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if(s.menu)s.menu=null;else if(s.palette)s.palette=false;else if(s.sheet==='progress'&&s.phase==='moving'){s.sheet=null;s.hidden=true}else s.sheet=null;render()}
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();s.palette=true;render()}
+});
+let tipEl=null;
+document.addEventListener('mouseover',e=>{const t=e.target.closest('[data-tip]');tipEl?.remove();tipEl=null;if(!t)return;const r=t.getBoundingClientRect();tipEl=document.createElement('div');tipEl.className='tip';tipEl.textContent=t.dataset.tip;tipEl.style.left=r.left+'px';tipEl.style.top=(r.bottom+6)+'px';document.body.appendChild(tipEl)});
+if(location.search.includes('dark'))document.documentElement.dataset.theme='dark';
+scenario(location.hash.slice(1)||'menu');
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ channel = { path = "crates/channel" }
 chat = { path = "crates/chat" }
 daemon = { path = "crates/daemon" }
 git = { path = "crates/git" }
+handoff = { path = "crates/handoff" }
 hosts = { path = "crates/hosts" }
 keys = { path = "crates/keys" }
 project = { path = "crates/project" }
