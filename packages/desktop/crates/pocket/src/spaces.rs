@@ -11,6 +11,7 @@ use crate::desktop::chrome::Screen;
 use crate::status::{self, Status};
 use crate::util::{LOCAL_ICON, folder};
 use agents::hosts::Link;
+use agents::locals::is_local;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -234,28 +235,46 @@ pub(crate) struct Spaces {
     flash: Option<(String, Instant)>,
     /// The host whose name the space header is editing.
     pub(crate) rename: Option<header::HostRename>,
+    /// The session each space showed when the sidebar left it.
+    left: HashMap<Space, Spot>,
 }
+
+/// A session on screen: its project, and its tree, `None` for the project's main worktree.
+pub(crate) type Spot = (String, Option<String>);
 
 impl Spaces {
     pub(crate) fn new(saved: Option<&str>) -> Self {
-        Self { shown: Space::on(saved), menu: false, swipe: Swipe::default(), slide: None, switches: 0, flash: None, rename: None }
+        Self { shown: Space::on(saved), menu: false, swipe: Swipe::default(), slide: None, switches: 0, flash: None, rename: None, left: HashMap::new() }
     }
 
     pub(crate) fn current(&self, order: &[Space]) -> Space {
         resolve(&self.shown, order)
     }
 
-    /// Shows `to`, sliding in from the side it lies on; false when it is already shown.
-    pub(crate) fn go(&mut self, to: Space, order: &[Space], now: Instant) -> bool {
+    /// Shows `to`, sliding in from the side it lies on; false when it is already shown. Keeps `leaving` for its space; none forgets the space's.
+    pub(crate) fn go(&mut self, to: Space, order: &[Space], now: Instant, leaving: Option<Spot>) -> bool {
         let from = self.current(order);
         self.menu = false;
         if from == to {
             return false;
         }
+        match leaving {
+            Some(spot) => {
+                self.left.insert(space_of(&spot.0), spot);
+            }
+            None => {
+                self.left.remove(&from);
+            }
+        }
         self.switches += 1;
         self.slide = Some(Slide { n: self.switches, heading: heading(order, &from, &to), at: now });
         self.shown = to;
         true
+    }
+
+    /// The session `space` showed when the sidebar last left it.
+    pub(crate) fn left_in(&self, space: &Space) -> Option<&Spot> {
+        self.left.get(space)
     }
 
     /// The slide in flight: a number for each switch, so the animation restarts, and its side.
@@ -327,20 +346,36 @@ impl Desktop {
             .collect()
     }
 
-    /// Shows `to`, with the page on the project of the one before that has a twin there, else its first.
+    /// Shows `to` with the session it was left on, else the new-session page on the twin of the project before, else its first.
     pub(crate) fn switch_space(&mut self, to: Space, window: &mut Window, cx: &mut Context<Self>) {
+        self.enter_space(to, true, window, cx);
+    }
+
+    /// Shows `to` with the new-session page and its draft moved there.
+    pub(crate) fn switch_space_with_draft(&mut self, to: Space, window: &mut Window, cx: &mut Context<Self>) {
+        self.enter_space(to, false, window, cx);
+    }
+
+    fn enter_space(&mut self, to: Space, back_to_session: bool, window: &mut Window, cx: &mut Context<Self>) {
         let order = self.space_order();
         if self.screen == Screen::Settings {
             self.screen = Screen::Sessions;
         }
-        if !self.spaces.go(to.clone(), &order, Instant::now()) {
+        if !self.spaces.go(to.clone(), &order, Instant::now(), self.spot()) {
             return cx.notify();
         }
         self.remember_space(&to, cx);
-        let projects = in_space(&self.form_projects(), &to);
-        let from = self.drafted_project().or(self.project.as_deref());
-        if let Some(target) = arrival(from, &to, &projects).filter(|_| self.space_reach(&to) == Reach::Online) {
-            self.new_place(target, window, cx);
+        if self.space_reach(&to) == Reach::Online {
+            match self.spot_left_in(&to).filter(|_| back_to_session) {
+                Some((project, tree)) => self.select_tree(project, tree, cx),
+                None => {
+                    let projects = in_space(&self.form_projects(), &to);
+                    let from = self.drafted_project().or(self.project.as_deref());
+                    if let Some(target) = arrival(from, &to, &projects) {
+                        self.new_place(target, window, cx);
+                    }
+                }
+            }
         }
         self.land_draft(window, cx);
         cx.notify();
@@ -349,9 +384,25 @@ impl Desktop {
     /// Keeps the sidebar in the space of the project now shown, as a palette pick or a notification can show one anywhere.
     pub(crate) fn follow_space(&mut self, project: &str, cx: &mut Context<Self>) {
         let (order, to) = (self.space_order(), space_of(project));
-        if self.spaces.go(to.clone(), &order, Instant::now()) {
+        if self.spaces.go(to.clone(), &order, Instant::now(), self.spot()) {
             self.remember_space(&to, cx);
         }
+    }
+
+    /// The session on screen; none while the new-session page is up.
+    fn spot(&self) -> Option<Spot> {
+        Some((self.project.clone().filter(|_| !self.new_form.shown)?, self.worktree.clone()))
+    }
+
+    /// The session `space` showed when it was left, while its tree is still listed.
+    fn spot_left_in(&self, space: &Space) -> Option<Spot> {
+        let (project, tree) = self.spaces.left_in(space)?;
+        let listed = match tree {
+            None => self.space_projects(space).contains(project),
+            Some(t) if is_local(t) => self.agents.local(t).is_some_and(|l| l.project == *project),
+            Some(t) => self.listed_trees(project).is_some_and(|trees| trees.iter().any(|w| w.path == *t)),
+        };
+        listed.then(|| (project.clone(), tree.clone()))
     }
 
     fn remember_space(&mut self, to: &Space, cx: &mut Context<Self>) {
@@ -533,13 +584,26 @@ mod tests {
         let (order, now) = (spaces(), Instant::now());
         let mut s = Spaces::new(None);
         s.menu = true;
-        assert!(s.go(host("devbox"), &order, now));
+        assert!(s.go(host("devbox"), &order, now, None));
         assert!(!s.menu);
         assert_eq!(s.sliding(now), Some((1, Heading::Forward)));
         assert_eq!(s.sliding(now + SLIDE), None);
-        assert!(!s.go(host("devbox"), &order, now));
-        assert!(s.go(Space::Local, &order, now));
+        assert!(!s.go(host("devbox"), &order, now, None));
+        assert!(s.go(Space::Local, &order, now, None));
         assert_eq!(s.sliding(now), Some((2, Heading::Back)));
+    }
+
+    #[test]
+    fn coming_back_to_a_space_finds_the_session_left_there_unless_it_was_left_without_one() {
+        let (order, now) = (spaces(), Instant::now());
+        let mut s = Spaces::new(None);
+        let fix = ("/Users/me/code/api".to_string(), Some("/Users/me/wt/fix".to_string()));
+        let app = ("//devbox/code/app".to_string(), None);
+        assert!(s.go(host("devbox"), &order, now, Some(fix.clone())));
+        assert!(s.go(Space::Local, &order, now, Some(app.clone())));
+        assert_eq!([s.left_in(&Space::Local), s.left_in(&host("devbox")), s.left_in(&host("build"))], [Some(&fix), Some(&app), None]);
+        assert!(s.go(host("build"), &order, now, None));
+        assert_eq!([s.left_in(&Space::Local), s.left_in(&host("devbox"))], [None, Some(&app)]);
     }
 
     #[test]
