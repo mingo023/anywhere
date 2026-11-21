@@ -1,0 +1,16 @@
+# HEAD (before fix)
+--- FAIL: TestClosingATerminalSlowToEndAgainAfterItEndedIsNoError (0.80s)
+    pty_test.go:82: waiting for the list: {Op: Ev:error ID:ccd418c5-325a-493d-9eea-b5a824758a74 ... Error:no such terminal Ke
+    harness_test.go:197: pocketd output:
+        pocketd listening on /tmp/pk1611413709/pocketd.sock
+        Phone access needs Tailscale
+FAIL
+FAIL	pocketd/e2e	8.867s
+FAIL
+
+# Fix
+--- PASS: TestClosingATerminalSlowToEndAgainAfterItEndedIsNoError (0.70s)
+ok  	pocketd/e2e	7.873s
+--- PASS: TestUnknownTerminalIsAnError (0.00s)
+--- PASS: TestAClosingTerminalThatEndsBeforeASecondCloseIsNotAnError (0.01s)
+ok  	pocketd/internal/ops	0.623s
