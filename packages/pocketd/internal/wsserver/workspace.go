@@ -177,7 +177,7 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	}
 	c.closeTerminals(trees)
 	for _, t := range trees {
-		if err := c.removeTree(f, t, deleteBranch); err != nil {
+		if err := c.removeTree(f, t, deleteBranch, force); err != nil {
 			return err
 		}
 	}
@@ -292,12 +292,17 @@ func (c *conn) closeTerminals(trees []linkedTree) {
 	}
 }
 
-func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch bool) error {
+func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch, force bool) error {
 	path, project := t.Path, t.project
-	// Naming a worktree from its prompt renames its branch, maybe since it was read.
-	if trees, err := worktree.List(project); err == nil {
-		if i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path }); i >= 0 {
-			t.Branch = trees[i].Branch
+	// Naming a worktree from its prompt renames its branch, maybe since it was
+	// checked: follow the rename, unless the branch now holds commits that
+	// would be lost unchecked.
+	if t.Branch != "" && exec.Command("git", "-C", project, "show-ref", "--verify", "--quiet", "refs/heads/"+t.Branch).Run() != nil {
+		t.Branch = ""
+		if trees, err := worktree.List(project); err == nil {
+			if i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path }); i >= 0 && (force || worktree.LostCommits(project, trees[i].Branch) == 0) {
+				t.Branch = trees[i].Branch
+			}
 		}
 	}
 	if err := worktree.Remove(f, project, path); err != nil {
