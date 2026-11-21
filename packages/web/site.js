@@ -7,7 +7,7 @@ const stage = document.querySelector('.stage');
 document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = AW.ic(el.dataset.icon, 16); });
 
 // Reveal blocks as they scroll in; siblings stagger.
-const REVEAL = '.intro, .tour-tabs > li, .tour-cards > .card, .native-stack > .layer, .native-stats > .metric, .iphone-copy, .phone-stage, .term-window, .oss-inner > :not(.oss-bento), .oss-bento > *, .closing > :not(.butterfly)';
+const REVEAL = '.intro, .tour-tabs > li, .tour-cards > .card, .native-stack > .layer, .native-stats > .metric, .iphone-copy, .phone-stage, .term-window, .oss-inner > :not(.oss-bento), .oss-bento > *, .download-grid, .closing > :not(.butterfly)';
 const seen = new IntersectionObserver((entries) => entries.forEach((e) => {
   if (!e.isIntersecting) return;
   e.target.classList.add('in');
