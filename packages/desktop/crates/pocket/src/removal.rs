@@ -368,6 +368,11 @@ fn leftovers(folders: Vec<(String, Option<u64>)>, trees: &[String], delete_branc
     folders.into_iter().filter(|(f, _)| left(f)).map(|(f, s)| (f, Leftover { started: s.unwrap_or(0), delete_branch })).collect()
 }
 
+/// The subagents' deletions whose worktrees hold none of `shells`.
+fn unoccupied(subtrees: Vec<Removal>, shells: &[String]) -> Vec<Removal> {
+    subtrees.into_iter().filter(|r| !shells.iter().any(|s| holds(&r.tree, s))).collect()
+}
+
 /// Drops the leftovers `tree` held, once it's deleted or the user chose to keep it.
 fn settle(leftovers: &mut BTreeMap<String, Leftover>, tree: &str) {
     leftovers.retain(|f, _| !holds(tree, f));
@@ -466,15 +471,16 @@ impl Desktop {
         let place = |a: &Summary| self.session_place(a).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
         let started = |t: &str| self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(t)).map(|(_, s)| s.started);
         let (subtrees, mut on_hosts) = subagent_removals(r, &self.agents, place, &self.worktrees, &subtrees, started);
-        on_hosts.others.extend(self.host_shells());
-        (subtrees, on_hosts)
+        let shells = self.shells();
+        on_hosts.others.extend(shells.iter().filter(|f| hosts::split(f).0.is_some()).cloned());
+        (unoccupied(subtrees, &shells), on_hosts)
     }
 
-    /// The folders of hosts' live terminals no session runs in: a plain shell is someone working there too.
-    fn host_shells(&self) -> Vec<String> {
+    /// The folders of live terminals no session runs in: a plain shell is someone working there too.
+    fn shells(&self) -> Vec<String> {
         let agents = |id: &str| self.agents.list.iter().any(|a| a.terminal_id == id);
         let live = self.terminals.sessions.items.iter().filter(|s| s.exit.is_none() && !agents(&s.info.id));
-        live.map(|s| s.info.cwd.clone()).filter(|f| hosts::split(f).0.is_some()).collect()
+        live.map(|s| s.info.cwd.clone()).collect()
     }
 
     /// The tree holding `folder`, or a host's folder as itself when that host's worktrees aren't listed here.
@@ -588,6 +594,8 @@ impl Desktop {
                     None => {
                         d.store.host_leftovers.extend(leftovers);
                         d.save_soon(cx);
+                        // Its host may have come back and listed already, with nothing left to trigger a sweep.
+                        d.sweep_host_leftovers(cx);
                     }
                     Some((r, Failure::Teardown(tail))) => {
                         d.confirm = Some(Confirm::TeardownFailed { removal: removal.clone(), failed: r.tree, tail, subtrees: rest });
@@ -617,7 +625,7 @@ impl Desktop {
             return;
         }
         let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a)));
-        let others: Vec<String> = sessions.filter(|f| hosts::split(f).0.is_some()).chain(self.host_shells()).collect();
+        let others: Vec<String> = sessions.chain(self.shells()).filter(|f| hosts::split(f).0.is_some()).collect();
         let limit = Duration::from_secs(self.store.worktree.teardown_secs.into());
         let teardowns: HashMap<String, String> = self.store.repos.iter().map(|(p, r)| (p.clone(), r.teardown.clone())).collect();
         let task = cx.background_executor().spawn(async move {
@@ -712,7 +720,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, settle, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use store::Leftover;
@@ -862,6 +870,14 @@ mod tests {
         let jobs = vec![job("/wt-c"), job("//devbox/wt/kept"), job("//devbox/wt/theirs"), job("//devbox/wt/asked")];
         let trees: Vec<String> = still_theirs(jobs, &["//devbox/wt/theirs".to_string()]).into_iter().map(|(r, _)| r.tree).collect();
         assert_eq!(trees, ["/wt-c", "//devbox/wt/theirs", "//devbox/wt/asked"]);
+    }
+
+    #[test]
+    fn a_subagents_worktree_with_someone_elses_shell_in_it_stays() {
+        let removal = |tree: &str| Removal { project: "/p".into(), tree: tree.into(), branch: None, delete_branch: false, teardown: true };
+        let subtrees = vec![removal("/wt/a"), removal("/wt/b"), removal("//devbox/wt/c")];
+        let kept = unoccupied(subtrees, &["/wt/a/src".into(), "/wt/b-2".into(), "//devbox/wt/c".into()]);
+        assert_eq!(kept, [removal("/wt/b")]);
     }
 
     #[test]
