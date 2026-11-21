@@ -251,6 +251,14 @@ impl Mark {
             Mark::Moved(_) => format!("Moved to {host}"),
         }
     }
+
+    /// What its locked composer says. A stopped handoff keeps it locked, as a retry sends the code packed before.
+    pub fn composer(&self) -> &'static str {
+        match self {
+            Mark::Stopped => "Prompts wait until you retry or close the handoff",
+            _ => "Prompts wait until the handoff finishes",
+        }
+    }
 }
 
 /// How session `agent` reads, given the handoff open and the sessions that moved.
@@ -741,6 +749,7 @@ mod tests {
         assert_eq!(mark(Some(&h), &none, "a2"), None);
         h.run.as_mut().unwrap().failed = Some("offline".into());
         assert_eq!(mark(Some(&h), &none, "a1"), Some(Mark::Stopped));
+        assert_eq!(Mark::Stopped.composer(), "Prompts wait until you retry or close the handoff");
         let moved = BTreeMap::from([("a1".to_string(), store::Moved { host: "devbox".into(), agent: "devbox/b1".into() })]);
         assert_eq!(mark(None, &moved, "a1"), Some(Mark::Moved("devbox".into())));
     }

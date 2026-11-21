@@ -721,7 +721,7 @@ impl Desktop {
             return dock.child(div().w_full().max_w(px(MAX_WIDTH)).child(banner));
         }
         let ask = self.chat_ask(terminal);
-        let moving = self.handoff_mark(&agent.id).is_some();
+        let mark = self.handoff_mark(&agent.id);
         let mode = self.chat_mode(terminal);
         let c = &self.chats.composer;
         let input = self.chats.input.read(cx).focus_handle(cx);
@@ -748,7 +748,7 @@ impl Desktop {
             (Mode::Permission { answerable }, Some((ask, feedback))) => fade_in(id(format!("chat-ask:{}", ask.request_id)), self.permission_card(terminal, &ask, feedback, answerable, cx)).into_any_element(),
             (Mode::Question { answerable }, Some((ask, _))) => fade_in(id(format!("chat-ask:{}", ask.request_id)), self.question_panel(terminal, &ask, answerable, cx)).into_any_element(),
             _ => {
-                let locked = (mode == Mode::ViewOnly).then_some(if moving { "Prompts wait until the handoff finishes" } else { "View only" });
+                let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
                 self.prompt_box(terminal, agent, locked, window, cx).into_any_element()
             }
         };

@@ -28,7 +28,8 @@
 // FIXTURE_HANDOFF_HOSTS=1 adds two more real-folder hosts: mac-mini, with its own clone and Codex signed out, and gpu-box, without a clone.
 // FIXTURE_HANDOFF_OFFLINE=<ms> drops devbox once the code is being sent, and brings it back after <ms>.
 // FIXTURE_HANDOFF_WORKING=1 has the Codex session mid-turn; FIXTURE_HANDOFF_BRANCH_TAKEN=1 gives devbox's clone its own fix/restore-handoff;
-// FIXTURE_HANDOFF_NO_HISTORY=1 starts the agent there without a conversation.
+// FIXTURE_HANDOFF_NO_HISTORY=1 starts the agent there without a conversation; FIXTURE_HANDOFF_CHAT=1 opens the Codex session as a chat;
+// FIXTURE_HANDOFF_PROVIDER=<agent> runs it on that agent instead.
 // FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
@@ -184,6 +185,11 @@ for (const [key, agents] of trees) {
 }
 
 const devHome = join(dir, "devbox");
+// The Codex session handed off: 38 messages, as the design counts.
+const handoffTurns = Array.from({ length: 38 }, (_, i) => ({
+  kind: i % 2 ? "assistant" : "user",
+  text: i === 0 ? "The terminal reveal still shows stale output after a restore." : i === 37 ? "Fixed in <fix>/hooks/use-restore-preview.ts" : i % 2 ? `Step ${(i + 1) / 2} done.` : "Keep going.",
+}));
 const FIX_SESSION = "th-fix";
 type HandoffHost = { id: string; home: string; os: string; signedOut: boolean; clone: boolean };
 const handoffHosts: HandoffHost[] = [
@@ -210,7 +216,8 @@ if (process.env.FIXTURE_HANDOFF) {
   }
   const fix = treePath("app-android", "fix/restore-handoff");
   const said = (role: string, text: string) => JSON.stringify({ type: "response_item", payload: { type: "message", role, content: [{ type: "input_text", text }] } });
-  write(join(home, ".codex", "sessions", "2026", "11", "21", `rollout-2026-11-21T10-00-00-${FIX_SESSION}.jsonl`), [JSON.stringify({ type: "session_meta", payload: { id: FIX_SESSION, cwd: fix } }), said("user", "The terminal reveal still shows stale output after a restore."), said("assistant", `Fixed in ${fix}/hooks/use-restore-preview.ts`)].join("\n") + "\n");
+  const lines = handoffTurns.map((t) => said(t.kind, t.text.replace("<fix>", fix)));
+  write(join(home, ".codex", "sessions", "2026", "11", "21", `rollout-2026-11-21T10-00-00-${FIX_SESSION}.jsonl`), [JSON.stringify({ type: "session_meta", payload: { id: FIX_SESSION, cwd: fix } }), ...lines].join("\n") + "\n");
 }
 
 type Item = { id: string; kind: string; [k: string]: unknown };
@@ -257,7 +264,7 @@ const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.re
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left: Record<Provider, number> = { claude: 62, codex: 41, cursor: 77, grok: 58, opencode: 49, pi: 83, omp: 91, fx: 66, hermes: 35, antigravity: 72 };
 const summaries = scenario.agents.map((a) => ({
-  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: a.provider, model: a.model, effort: a.effort, pinned: a.pinned, chatOnly: !!process.env.FIXTURE_HOST_ONLY, status: process.env.FIXTURE_HANDOFF_WORKING && a.id === "fix" ? "working" : status(a), restore: a.restore, activity: a.activity ?? "",
+  id: a.id, terminalId: a.id, attached: true, failed: !!a.failed, title: a.title, cwd: cwd(a), provider: (a.id === "fix" && (process.env.FIXTURE_HANDOFF_PROVIDER as Provider)) || a.provider, model: a.model, effort: a.effort, pinned: a.pinned, chatOnly: !!process.env.FIXTURE_HOST_ONLY || (!!process.env.FIXTURE_HANDOFF_CHAT && a.id === "fix"), status: process.env.FIXTURE_HANDOFF_WORKING && a.id === "fix" ? "working" : status(a), restore: a.restore, activity: a.activity ?? "",
   createdAt: now - (a.ago + 30) * 60_000, updatedAt: now - a.ago * 60_000,
   tokensUsed: (100 - left[a.provider]) * 2000, contextWindow: 200_000, resets: 0,
   ...(process.env.FIXTURE_HANDOFF && a.id === "fix" && { providerSessionId: FIX_SESSION }),
@@ -275,7 +282,7 @@ const asking = (a: Agent): Item[] => {
 };
 // Only Activity's screens show a turn's prompt and steps; the others keep the one result they were reviewed with.
 const turns = name === "activity";
-const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : turns && a.waiting ? stamp(a.id, asking(a)) : [...(turns && a.failed ? [{ id: `${a.id}-user`, seq: 0, ts: now - (a.ago + 1) * 60_000, kind: "user", text: a.title }] : []), {
+const timeline = (a: Agent) => a.id === CHAT_AGENT ? stamp(a.id, firstChat) : process.env.FIXTURE_HANDOFF && a.id === "fix" ? handoffTurns.map((t, i) => ({ id: `fix-${i}`, seq: i, ts: now - (40 - i) * 60_000, kind: t.kind, text: t.text.replace("<fix>", cwd(a)) })) : turns && a.waiting ? stamp(a.id, asking(a)) : [...(turns && a.failed ? [{ id: `${a.id}-user`, seq: 0, ts: now - (a.ago + 1) * 60_000, kind: "user", text: a.title }] : []), {
   id: `${a.id}-result`, seq: 1, ts: now - a.ago * 60_000, kind: "result", ok: !a.failed, error: a.failed ? "exit 1" : "",
   usage: { inputTokens: (100 - left[a.provider]) * 2000, cacheReadTokens: 0 },
 }];
