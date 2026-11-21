@@ -16,7 +16,7 @@ func TestAnAgentListsLinkedHostsWithWhetherEachIsReachable(t *testing.T) {
 	host := Start(t, launchReady(""), asHost)
 	mac := Start(t, fakeSSH)
 	reach(t, mac, host)
-	noKeys := filepath.Join(filepath.Dir(host.Home), ".fakessh-no-keys")
+	noKeys := filepath.Join(host.UserHome(), ".fakessh-no-keys")
 	if err := os.WriteFile(noKeys, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

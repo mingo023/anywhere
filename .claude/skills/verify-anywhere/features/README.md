@@ -5,7 +5,7 @@ The maintained source for verifying what a user can do in the Anywhere desktop a
 ## Baseline preconditions
 
 - `../scripts/doctor.sh` exits 0.
-- Every run goes through `../scripts/drive.sh <scenario> <out-dir> <specs…>`, which starts its own fake pocketd and scratch `HOME`. Never point the app at the user's pocketd or `~/.coding-pocket*`.
+- Every run goes through `../scripts/drive.sh <scenario> <out-dir> <specs…>`, which starts its own fake pocketd and scratch `HOME`. Never point the app at the user's pocketd, `~/.anywhere` or `~/.coding-pocket*`.
 - Evidence goes to `.ui-review/shots/verify/<feature-id>-<YYYYmmdd-HHMMSS>/`, with `before/` and `after/` subdirs when a journey needs two runs.
 - The app launches on the Sessions screen at 1440×900 points, light theme, with no session selected. The main pane shows the New session page ("What should we build next?").
 

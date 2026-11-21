@@ -5,7 +5,7 @@ description: Drive the Anywhere desktop app (pocket-desktop, Rust/GPUI) like a u
 
 # Verify Anywhere (desktop)
 
-The primary surface is the macOS desktop app in `packages/desktop` (binary `pocket-desktop`). It is driven through its own **capture mode** (`--capture`, `crates/pocket/src/capture.rs`) against the **fake pocketd** in `.ui-review/fixture/fixture.ts`, which serves the daemon's socket and websocket, seeds git repos and agents, and answers prompts like an agent would. Nothing touches the user's real pocketd, `~/.coding-pocket*`, or `$HOME`.
+The primary surface is the macOS desktop app in `packages/desktop` (binary `pocket-desktop`). It is driven through its own **capture mode** (`--capture`, `crates/pocket/src/capture.rs`) against the **fake pocketd** in `.ui-review/fixture/fixture.ts`, which serves the daemon's socket and websocket, seeds git repos and agents, and answers prompts like an agent would. Nothing touches the user's real pocketd, `~/.anywhere`, `~/.coding-pocket*`, or `$HOME`.
 
 Not covered here: the Go daemon on its own (`packages/pocketd`, has its own e2e under `packages/pocketd/e2e`), the `anywhere` CLI (`pocketd anywhere …`), and the iOS app (`packages/ios`).
 

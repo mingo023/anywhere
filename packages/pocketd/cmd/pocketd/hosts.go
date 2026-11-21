@@ -20,7 +20,7 @@ func openHosts(ctx context.Context, home string, env func() []string, name strin
 	if err := hosts.ImportDesktop(home); err != nil {
 		log.Printf("hosts: %v; not imported", err)
 	}
-	m, err := hosts.Open(hosts.Paths{Home: home, RemoteDir: config.HomeName()}, env, versionString(), name)
+	m, err := hosts.Open(hosts.Paths{Home: home, RemoteDir: config.HomeName(), LegacyDir: config.LegacyHomeName()}, env, versionString(), name)
 	if err != nil {
 		log.Printf("hosts: %v; serving none", err)
 		return nil

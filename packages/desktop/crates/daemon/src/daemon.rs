@@ -232,10 +232,17 @@ fn sock_path_in(env: impl Fn(&str) -> Option<String>) -> PathBuf {
     if let Some(s) = env("POCKETD_SOCK") {
         return s.into();
     }
-    let home = env("POCKET_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env(HOME).unwrap_or_default()).join(channel::home_dir_name()));
+    let user = PathBuf::from(env(HOME).unwrap_or_default());
+    let legacy = user.join(channel::legacy_home_dir_name());
+    let set = env("POCKET_HOME").map(PathBuf::from).filter(|h| *h != legacy);
+    let home = set.unwrap_or_else(|| default_home(&legacy, &user.join(channel::home_dir_name())));
     home.join("pocketd.sock")
+}
+
+/// The legacy home while it still holds one, else `home`. Mirrors `config.DefaultHome` in pocketd.
+fn default_home(legacy: &Path, home: &Path) -> PathBuf {
+    let moved = std::fs::canonicalize(legacy).ok().zip(std::fs::canonicalize(home).ok()).is_some_and(|(l, h)| l == h);
+    if legacy.is_dir() && !moved { legacy.to_path_buf() } else { home.to_path_buf() }
 }
 
 fn resolve_cwd(cwd: &str, home: &str) -> String {
@@ -697,6 +704,23 @@ mod tests {
         );
         assert_eq!(sock_path_in(env(&[("POCKET_HOME", "/p"), (HOME, "/h")])), PathBuf::from("/p/pocketd.sock"));
         assert_eq!(sock_path_in(env(&[("POCKETD_SOCK", "/s.sock")])), PathBuf::from("/s.sock"));
+    }
+
+    #[test]
+    fn the_legacy_home_stays_the_home_until_pocketd_moves_it() {
+        let user = std::env::temp_dir().join(format!("pocket-default-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&user);
+        let (legacy, home) = (user.join(channel::legacy_home_dir_name()), user.join(channel::home_dir_name()));
+        std::fs::create_dir_all(&user).unwrap();
+        assert_eq!(default_home(&legacy, &home), home);
+        std::fs::create_dir(&legacy).unwrap();
+        assert_eq!(default_home(&legacy, &home), legacy);
+        std::fs::remove_dir(&legacy).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&home, &legacy).unwrap();
+        assert_eq!(default_home(&legacy, &home), home);
+        std::fs::remove_dir_all(&user).unwrap();
     }
 
     #[test]

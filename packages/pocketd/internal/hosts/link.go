@@ -208,18 +208,18 @@ func (s *supervisor) connect(ctx context.Context, tunnel int, backoff *Backoff) 
 	var found Probe
 	parsed, windows := false, h.Windows
 	if !windows {
-		out, failure := probe(probeCommand(m.paths.RemoteDir))
+		out, failure := probe(probeCommand(m.paths.dirs()))
 		if failure != "" {
 			return endFailed, failure
 		}
-		found, parsed = parseProbe(out)
+		found, parsed = parseProbe(out, m.paths.dirs())
 	}
 	if !parsed {
-		out, failure := probe(windowsProbeCommand(m.paths.RemoteDir))
+		out, failure := probe(windowsProbeCommand(m.paths.dirs()))
 		if failure != "" {
 			return endFailed, failure
 		}
-		if found, parsed = parseWindowsProbe(out); !parsed {
+		if found, parsed = parseWindowsProbe(out, m.paths.dirs()); !parsed {
 			return endFailed, FailOther
 		}
 		windows = true
@@ -235,14 +235,14 @@ func (s *supervisor) connect(ctx context.Context, tunnel int, backoff *Backoff) 
 		owner, ok := loadOwner(m.paths.Token(s.id))
 		if !ok {
 			var failure Failure
-			if owner, failure = m.pair(ctx, h); failure != "" {
+			if owner, failure = m.pair(ctx, h, found.Dir); failure != "" {
 				return endFailed, failure
 			}
 		}
 		fwd, err = tcpForward(local, int(owner.Port))
 		token, command = owner.Token, windowsTunnelCommand()
 	} else {
-		fwd, err = forward(local, found.Home, m.paths.RemoteDir)
+		fwd, err = forward(local, found.Home, found.Dir)
 		command = tunnelCommand
 	}
 	if err != nil {

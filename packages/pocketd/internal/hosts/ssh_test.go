@@ -152,22 +152,39 @@ func TestAHomeTooLongForASocketPathFailsBeforeSshRuns(t *testing.T) {
 
 func TestTheProbeReadsHomeAndWhetherPocketdRunsPastAnyLoginNoise(t *testing.T) {
 	for out, want := range map[string]Probe{
-		"Welcome!\n/home/dev\nrunning\n": {"/home/dev", true},
-		"/Users/m\nstopped\n":            {"/Users/m", false},
+		"Welcome!\n/home/dev\nrunning\n": {"/home/dev", ".cp", true},
+		"/Users/m\nstopped\n":            {"/Users/m", ".cp", false},
 	} {
-		if got, ok := parseProbe(out); !ok || got != want {
+		if got, ok := parseProbe(out, []string{".cp"}); !ok || got != want {
 			t.Errorf("%q: %+v %v", out, got, ok)
 		}
 	}
 	for _, out := range []string{"stopped\n", "Welcome\nstopped\n"} {
-		if got, ok := parseProbe(out); ok {
+		if got, ok := parseProbe(out, []string{".cp"}); ok {
 			t.Errorf("%q: %+v", out, got)
 		}
 	}
 }
 
+func TestTheProbeFindsPocketdInTheLegacyFolderOnAHostThatHasntMovedIt(t *testing.T) {
+	dirs := []string{".anywhere", ".coding-pocket"}
+	for out, want := range map[string]Probe{
+		"/home/dev\nstopped\nrunning\n": {"/home/dev", ".coding-pocket", true},
+		"/home/dev\nrunning\nrunning\n": {"/home/dev", ".anywhere", true},
+		"/home/dev\nstopped\nstopped\n": {"/home/dev", ".anywhere", false},
+	} {
+		if got, ok := parseProbe(out, dirs); !ok || got != want {
+			t.Errorf("%q: %+v %v", out, got, ok)
+		}
+	}
+	want := `printf '%s\n' "$HOME"; test -S "$HOME/.anywhere/pocketd.sock" && echo running || echo stopped; test -S "$HOME/.coding-pocket/pocketd.sock" && echo running || echo stopped`
+	if got := probeCommand(dirs); got != want {
+		t.Errorf("%s", got)
+	}
+}
+
 func TestPowershellGetsTheScriptAsUTF16SoCmdsQuotingNeverTouchesIt(t *testing.T) {
-	command := windowsProbeCommand(".it's")
+	command := windowsProbeCommand([]string{".it's"})
 	for _, b := range []byte(command) {
 		if !(b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || strings.IndexByte(" -+/=", b) >= 0) {
 			t.Fatalf("%q in %s", b, command)
@@ -184,15 +201,19 @@ func TestPowershellGetsTheScriptAsUTF16SoCmdsQuotingNeverTouchesIt(t *testing.T)
 
 func TestTheWindowsProbeWantsADriveHome(t *testing.T) {
 	for out, want := range map[string]Probe{
-		"Welcome\r\nC:\\Users\\me\r\ninstalled\r\n": {`C:\Users\me`, true},
-		"C:\\Users\\me\nmissing\n":                  {`C:\Users\me`, false},
+		"Welcome\r\nC:\\Users\\me\r\ninstalled\r\n": {`C:\Users\me`, ".cp", true},
+		"C:\\Users\\me\nmissing\n":                  {`C:\Users\me`, ".cp", false},
 	} {
-		if got, ok := parseWindowsProbe(out); !ok || got != want {
+		if got, ok := parseWindowsProbe(out, []string{".cp"}); !ok || got != want {
 			t.Errorf("%q: %+v %v", out, got, ok)
 		}
 	}
+	legacy := Probe{`C:\Users\me`, ".old", true}
+	if got, ok := parseWindowsProbe("C:\\Users\\me\nmissing\ninstalled\n", []string{".cp", ".old"}); !ok || got != legacy {
+		t.Errorf("%+v %v", got, ok)
+	}
 	for _, out := range []string{"/home/dev\nmissing\n", "C:/Users/me\nmissing\n", "'powershell' is not recognized\n"} {
-		if got, ok := parseWindowsProbe(out); ok {
+		if got, ok := parseWindowsProbe(out, []string{".cp"}); ok {
 			t.Errorf("%q: %+v", out, got)
 		}
 	}

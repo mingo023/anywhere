@@ -74,7 +74,7 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	home := filepath.Join(user, config.HomeName())
+	home := config.DefaultHome()
 	holder, running := lock.Holder(home)
 	check := installCheck{Exe: exe, Temp: tempDirs(), Home: os.Getenv("POCKET_HOME"), Sock: os.Getenv("POCKETD_SOCK"), DefaultHome: home,
 		InTerminal: running && peer.Classify(os.Getpid(), map[int]string{holder: "pocketd"}).Kind == peer.PTY}
@@ -111,7 +111,7 @@ func uninstall(force bool) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	home := filepath.Join(user, config.HomeName())
+	home := config.DefaultHome()
 	loaded, _ := launchagent.Loaded(os.Getuid())
 	if loaded && !force {
 		if n := terminals(filepath.Join(home, "pocketd.sock")); n > 0 {

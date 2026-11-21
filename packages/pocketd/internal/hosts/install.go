@@ -201,7 +201,7 @@ func bootstrapCommand(dir string, env []string, uploaded bool) string {
 
 // label names one service per app folder, so a test install never takes over the real one.
 func label(remoteDir string) string {
-	if remoteDir == config.HomeName() {
+	if remoteDir == config.HomeName() || remoteDir == config.LegacyHomeName() {
 		return config.HostLabel()
 	}
 	return config.HostLabel() + "." + strings.TrimLeft(remoteDir, ".")
@@ -273,7 +273,10 @@ func (m *Manager) platform(ctx context.Context, h Host) (Platform, error) {
 // bootstrap installs src on h and starts it, or finds pocketd running and leaves it be. With force it installs over
 // a running pocketd, which hands off to it in place; on Windows it restarts instead.
 func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool, on func(Progress)) error {
-	dir := m.paths.RemoteDir
+	dir, err := m.remoteDir(ctx, h, h.Windows)
+	if err != nil {
+		return err
+	}
 	version, url, sum := src.Version, src.URL, ""
 	if src.Archive != "" {
 		var ok bool
@@ -286,13 +289,13 @@ func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool,
 	if h.Windows {
 		script = bootstrapPs1
 	}
-	script, err := fill(script, version, url, dir, label(dir))
+	script, err = fill(script, version, url, dir, label(dir))
 	if err != nil {
 		return err
 	}
 	uploaded := src.Archive != ""
 	if uploaded {
-		if err := m.upload(ctx, h, src.Archive); err != nil {
+		if err := m.upload(ctx, h, src.Archive, dir); err != nil {
 			return err
 		}
 	}
@@ -361,12 +364,11 @@ func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool,
 	return fmt.Errorf("The install stopped before it finished: %s", lastLine([]byte(stderr.String())))
 }
 
-func (m *Manager) upload(ctx context.Context, h Host, archive string) error {
+func (m *Manager) upload(ctx context.Context, h Host, archive, dir string) error {
 	data, err := os.ReadFile(archive)
 	if err != nil {
 		return fmt.Errorf("Can't read %s: %v", archive, err)
 	}
-	dir := m.paths.RemoteDir
 	command := fmt.Sprintf(`sh -c 'umask 077; mkdir -p "$HOME/%s" && cat > "$HOME/%s/%s"'`, dir, dir, upload)
 	if h.Windows {
 		command = powershell(fmt.Sprintf("$d = Join-Path $HOME %s; New-Item -ItemType Directory -Force -Path $d | Out-Null; $f = [IO.File]::Create((Join-Path $d '%s')); try { [Console]::OpenStandardInput().CopyTo($f) } finally { $f.Close() }", psQuote(dir), uploadZip))
@@ -384,7 +386,6 @@ func (m *Manager) upload(ctx context.Context, h Host, archive string) error {
 // uninstall stops pocketd's service on the host and removes it; pocketd's files and the host's projects stay.
 // A Windows host's pocketd first forgets this machine's owner token, through the link that's still up.
 func (m *Manager) uninstall(ctx context.Context, h Host) error {
-	dir := m.paths.RemoteDir
 	// A host never reached since it was added may be Windows without this machine knowing yet.
 	windows := h.Windows
 	if !windows {
@@ -393,6 +394,10 @@ func (m *Manager) uninstall(ctx context.Context, h Host) error {
 			return err
 		}
 		windows = platform.windows()
+	}
+	dir, err := m.remoteDir(ctx, h, windows)
+	if err != nil {
+		return err
 	}
 	command := fmt.Sprintf(`sh -c 'p="$HOME/%s/bin/pocketd"; [ -x "$p" ] || exit 0; POCKET_HOME="$HOME/%s" "$p" service uninstall --label %s'`, dir, dir, label(dir))
 	if windows {
@@ -411,6 +416,28 @@ func (m *Manager) uninstall(ctx context.Context, h Host) error {
 		os.Remove(m.paths.Token(h.ID))
 	}
 	return nil
+}
+
+// remoteDir is the folder pocketd lives in on h: the legacy one until it resolves to RemoteDir, as pocketd leaves it
+// once it moved its home, else RemoteDir.
+func (m *Manager) remoteDir(ctx context.Context, h Host, windows bool) (string, error) {
+	legacy, current := m.paths.LegacyDir, m.paths.RemoteDir
+	if legacy == "" {
+		return current, nil
+	}
+	command := fmt.Sprintf(`sh -c 'if [ -d "$HOME/%[1]s" ] && [ "$(cd "$HOME/%[1]s" && pwd -P)" != "$(cd "$HOME/%[2]s" 2>/dev/null && pwd -P)" ]; then echo %[1]s; else echo %[2]s; fi'`, legacy, current)
+	if windows {
+		// pocketd never moves its home on Windows, so a legacy folder there is still the home.
+		command = powershell(fmt.Sprintf("if (Test-Path (Join-Path $HOME %s)) { %s } else { %s }", psQuote(legacy), psQuote(legacy), psQuote(current)))
+	}
+	stdout, stderr, _, err := m.run(ctx, h, command, nil)
+	if err != nil {
+		return "", err
+	}
+	if dir := lastLine(stdout); dir == legacy || dir == current {
+		return dir, nil
+	}
+	return "", fmt.Errorf("Couldn't tell where pocketd lives on %s: %s", h.Name, lastLine(stderr))
 }
 
 func lastLine(text []byte) string {

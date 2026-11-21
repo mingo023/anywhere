@@ -78,6 +78,11 @@ func serve(sock, handed string) error {
 		return err
 	}
 	defer held.Close()
+	legacy := home
+	home, moveErr := config.MoveLegacyHome(home)
+	if home != legacy && os.Getenv("POCKETD_SOCK") == "" {
+		sock = config.Sock()
+	}
 	// Read under the lock, so a start that loses it leaves the file to the one that holds it.
 	if handed == "" {
 		inherited, _ = handedDown(home, "")
@@ -90,6 +95,12 @@ func serve(sock, handed string) error {
 	defer logs.Close()
 	log.SetOutput(logs)
 	detachConsole()
+	switch {
+	case moveErr != nil:
+		log.Printf("home: moving %s to %s: %v", legacy, home, moveErr)
+	case home != legacy:
+		log.Printf("home: moved %s to %s", legacy, home)
+	}
 	started := time.Now()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -382,7 +393,7 @@ func serve(sock, handed string) error {
 			agents[a.Status]++
 		}
 		service := "none"
-		if user, _ := os.UserHomeDir(); home == filepath.Join(user, config.HomeName()) {
+		if user, _ := os.UserHomeDir(); home == config.DefaultHome() {
 			service = launchagent.Service(os.Getuid(), launchagent.Path(user))
 		}
 		h := mon.State()

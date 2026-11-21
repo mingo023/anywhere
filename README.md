@@ -116,7 +116,7 @@ The desktop and the phone both talk to pocketd. The phone connects over the tail
 
 Design decisions are in [`docs/adr`](docs/adr).
 
-Release and Dev are two apps and can run side by side. Release is `dev.mingo.anywhere`, with data in `~/.coding-pocket`. Dev is `dev.mingo.anywhere.dev`, with data in `~/.coding-pocket-dev`, and it does not update itself ([ADR 0004](docs/adr/0004-release-and-updates.md)).
+Release and Dev are two apps and can run side by side. Release is `dev.mingo.anywhere`, with data in `~/.anywhere`. Dev is `dev.mingo.anywhere.dev`, with data in `~/.anywhere/dev`, and it does not update itself ([ADR 0004](docs/adr/0004-release-and-updates.md)).
 
 ## Building from source
 

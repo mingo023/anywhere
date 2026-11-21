@@ -108,7 +108,7 @@ var phoneServerGolden = map[string]any{
 		Mime: "image/png", Data: []byte("\x89PNG\r\n\x1a\n")}),
 	"fs_read_too_large": NewFsRead(FsRead{ID: "fr", Tree: "/Users/me/dev/pocket", Path: "big.log", Kind: "tooLarge", Size: 900000000, Mtime: 1790000000000}),
 	"fs_search":         NewFsSearch("fs", []string{"src/main.rs", "src/main_test.rs"}),
-	"attach_done":       NewAttachDone("ap", "u1", "/Users/me/.pocket/attachments/u1.png"),
+	"attach_done":       NewAttachDone("ap", "u1", "/Users/me/.anywhere/attachments/u1.png"),
 }
 
 // TestEveryPhoneVerbHasAClientGolden keeps the phone's mirror and packages/protocol in step with the decoder.
