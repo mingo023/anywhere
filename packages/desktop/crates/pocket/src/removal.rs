@@ -330,6 +330,13 @@ fn remove_in_order(jobs: Vec<(Removal, String)>, limit: Duration) -> Ordered {
     (done, None)
 }
 
+/// `jobs`, subagents' then the tree asked for last, without the subagents' worktrees on hosts that aren't among those
+/// `reached` again as still theirs.
+fn still_theirs(jobs: Vec<(Removal, String)>, reached: &[String]) -> Vec<(Removal, String)> {
+    let last = jobs.len().saturating_sub(1);
+    jobs.into_iter().enumerate().filter(|(i, (r, _))| *i == last || hosts::split(&r.tree).0.is_none() || reached.contains(&r.tree)).map(|(_, j)| j).collect()
+}
+
 /// The hosts' subagent folders a delete didn't reach, with the deleted `trees`: a host offline at the sheet or since, or
 /// whose worktree changed hands, is checked again once it's back.
 fn leftovers(folders: Vec<(String, Option<u64>)>, trees: &[String], delete_branch: bool) -> Vec<(String, Leftover)> {
@@ -497,8 +504,7 @@ impl Desktop {
         let task = cx.background_executor().spawn(async move {
             // Read again: a host's worktree may have changed hands since the sheet read it.
             let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
-            let jobs = jobs.into_iter().filter(|(r, _)| hosts::split(&r.tree).0.is_none() || reached.contains(&r.tree)).collect();
-            let (done, failed) = remove_in_order(jobs, limit);
+            let (done, failed) = remove_in_order(still_theirs(jobs, &reached), limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
             ((done, failed), leftovers(on_hosts.folders, &trees, delete_branch))
         });
@@ -554,6 +560,7 @@ impl Desktop {
         }
         let others: Vec<String> = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a))).filter(|f| hosts::split(f).0.is_some()).collect();
         let limit = Duration::from_secs(self.store.worktree.teardown_secs.into());
+        let teardowns: HashMap<String, String> = self.store.repos.iter().map(|(p, r)| (p.clone(), r.teardown.clone())).collect();
         let task = cx.background_executor().spawn(async move {
             let sweep = |(f, l): (String, Leftover)| {
                 let run = hosts::runner_for(&f);
@@ -564,7 +571,10 @@ impl Desktop {
                     Found::Busy => Swept::Wait,
                     Found::Gone => Swept::Done(None),
                     Found::Theirs(r) if git::dirty_files(&run, &r.tree).is_none_or(|n| n > 0) || r.lost() > 0 => Swept::Ask(r),
-                    Found::Theirs(r) => Swept::Done(Some(remove_in_order(vec![(r, String::new())], limit))),
+                    Found::Theirs(r) => {
+                        let own = teardowns.get(&r.project).cloned().unwrap_or_default();
+                        Swept::Done(Some(remove_in_order(vec![(r, own)], limit)))
+                    }
                 };
                 (f, outcome)
             };
@@ -573,11 +583,17 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let swept = task.await;
             this.update(cx, |d, cx| {
+                let mut asked = false;
                 for (f, outcome) in swept {
                     d.removals.running.remove(&f);
                     match outcome {
                         Swept::Wait => continue,
-                        Swept::Ask(r) => d.ask_delete_worktree(r.project, r.tree, cx),
+                        // One sheet at a time; the rest are asked on a later sweep.
+                        Swept::Ask(_) if d.confirm.is_some() || asked => continue,
+                        Swept::Ask(r) => {
+                            asked = true;
+                            d.ask_delete_worktree(r.project, r.tree, cx);
+                        }
                         Swept::Done(None) => {}
                         Swept::Done(Some((done, failed))) => {
                             done.iter().for_each(|(r, _)| d.forget_tree(&r.tree, cx));
@@ -626,7 +642,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, remove_in_order, run, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -760,6 +776,14 @@ mod tests {
         let links = saved_links(&subtrees, |f| Some(f.to_string()), created);
         // A host's subagent started by the host's clock, which says nothing of a folder on this Mac.
         assert_eq!(links, [("/wt-c", "/wt"), ("//devbox/wt/notes", "/wt"), ("//devbox/wt/other", "/wt-reused")].map(|(c, p)| (c.to_string(), p.to_string())).into());
+    }
+
+    #[test]
+    fn the_tree_asked_for_goes_even_on_a_host_while_a_hosts_subagent_goes_only_if_still_theirs() {
+        let job = |tree: &str| (Removal { project: "//devbox/app".into(), tree: tree.into(), branch: None, delete_branch: false, teardown: true }, String::new());
+        let jobs = vec![job("/wt-c"), job("//devbox/wt/kept"), job("//devbox/wt/theirs"), job("//devbox/wt/asked")];
+        let trees: Vec<String> = still_theirs(jobs, &["//devbox/wt/theirs".to_string()]).into_iter().map(|(r, _)| r.tree).collect();
+        assert_eq!(trees, ["/wt-c", "//devbox/wt/theirs", "//devbox/wt/asked"]);
     }
 
     #[test]
