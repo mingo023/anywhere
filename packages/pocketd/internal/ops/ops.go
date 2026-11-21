@@ -372,7 +372,10 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 		}
 		t := s.Terminals.Get(m.ID)
 		if t == nil {
-			c.Send(Msg{Ev: "error", ID: m.ID, Error: "no such terminal"})
+			// A closing terminal is listed until it ends, so a client may close it again once it is gone.
+			if m.Op != "close" {
+				c.Send(Msg{Ev: "error", ID: m.ID, Error: "no such terminal"})
+			}
 			continue
 		}
 		switch m.Op {

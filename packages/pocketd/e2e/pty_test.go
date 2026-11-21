@@ -4,9 +4,11 @@ package e2e
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"pocketd/internal/ops"
+	"pocketd/internal/terminal"
 )
 
 func TestPromptFromOpsReachesCLI(t *testing.T) {
@@ -64,4 +66,34 @@ func TestClaudeTypedInAShellIsAnAgent(t *testing.T) {
 	phone.WaitFor("exited agent unlisted", func(m Message) bool {
 		return m.Type == "agent.list" && m.ID == "l" && len(m.Agents) == 0
 	})
+}
+
+// The desktop closes a terminal, then closes it again on each list that still
+// names it; a terminal slow to end may be gone by the time the last one lands.
+func TestClosingATerminalSlowToEndAgainAfterItEndedIsNoError(t *testing.T) {
+	h := Start(t)
+	id := h.Spawn("sh", "-c", "trap '' HUP TERM; echo trapped; sleep 30")
+	h.WaitScreen(id, "trapped")
+	c := h.Ops()
+	listed := func() bool {
+		c.Send(ops.Msg{Op: "list"})
+		for {
+			m, err := c.Recv()
+			if err != nil || m.Ev == "error" {
+				t.Fatalf("waiting for the list: %+v %v", m, err)
+			}
+			if m.Ev == "terminals" {
+				return slices.ContainsFunc(m.Items, func(i terminal.Info) bool { return i.ID == id })
+			}
+		}
+	}
+	c.Send(ops.Msg{Op: "close", ID: id})
+	if !listed() {
+		t.Fatal("a closing terminal is listed until it ends")
+	}
+	h.eventually("the terminal ends", func() bool { return !listed() })
+	c.Send(ops.Msg{Op: "close", ID: id})
+	if listed() {
+		t.Fatal("an ended terminal is listed")
+	}
 }
