@@ -233,7 +233,7 @@ fn remember(subtrees: &mut BTreeMap<String, String>, links: Vec<(String, String)
     subtrees.len() != before
 }
 
-/// `(child, parent)` for each live subagent placed in a worktree its parent isn't in.
+/// `(child, parent)` for each live subagent placed apart from its parent.
 fn subtree_links(agents: &Agents, place: impl Fn(&Summary) -> Option<String>) -> Vec<(String, String)> {
     let links = agents.list.iter().filter(|a| a.relationship == "subagent");
     links.filter_map(|a| Some((place(a)?, place(agents.get(&a.parent)?)?))).filter(|(c, p)| c != p).collect()
@@ -256,16 +256,18 @@ fn lost_together(jobs: &[Removal]) -> (usize, usize) {
 
 impl Desktop {
     pub(crate) fn subagent_removals(&self, r: &Removal) -> Vec<Removal> {
-        subagent_removals(r, &self.agents, |a| self.session_place(a), &self.worktrees, &self.store.subtrees)
+        let subtrees: BTreeMap<String, String> = self.store.subtrees.iter().filter_map(|(c, p)| Some((self.tree_of(c)?, self.tree_of(p)?))).collect();
+        subagent_removals(r, &self.agents, |a| self.session_place(a), &self.worktrees, &subtrees)
     }
 
     fn session_place(&self, a: &Summary) -> Option<String> {
         self.terminals.sessions.get(&a.terminal_id).and_then(|s| self.place_of(&s.info))
     }
 
-    /// Records each live subagent's worktree: once the sessions close, nothing else says whose it was.
+    /// Records each live subagent's folder: once the sessions close, nothing else says whose it was. Folders, not
+    /// worktrees, as a subagent's worktree may be newer than the last git refresh.
     pub(crate) fn remember_subtrees(&mut self, cx: &mut Context<Self>) {
-        let links = subtree_links(&self.agents, |a| self.session_place(a));
+        let links = subtree_links(&self.agents, |a| Some(a.cwd.clone()).filter(|c| !c.is_empty()));
         if remember(&mut self.store.subtrees, links) {
             self.save_soon(cx);
         }
@@ -351,6 +353,11 @@ impl Desktop {
     }
 
     pub(crate) fn forget_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
+        // Before the tree leaves `worktrees`, while its folders still resolve to it.
+        let gone: Vec<String> = self.store.subtrees.iter().filter(|(c, p)| [c, p].iter().any(|f| self.tree_of(f).as_deref() == Some(tree))).map(|(c, _)| c.clone()).collect();
+        for c in gone {
+            self.store.subtrees.remove(&c);
+        }
         for id in self.tree_terminals(tree) {
             self.close_pane(&id, cx);
         }
@@ -363,7 +370,6 @@ impl Desktop {
         self.prs.forget(tree);
         self.store.layouts.remove(tree);
         self.store.scopes.remove(tree);
-        self.store.subtrees.retain(|c, p| c != tree && p != tree);
         self.store.untrack(tree);
         self.store.sections.unpin_tree(tree);
         self.save_soon(cx);

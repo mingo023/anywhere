@@ -321,6 +321,33 @@ func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *tes
 	}
 }
 
+func TestACommitOnlyASubagentsDetachedHeadHoldsRefusesTheDeleteUnlessForced(t *testing.T) {
+	var b bench
+	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
+	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+		s.Workspace.SubagentTrees = func(string, func(string) string) ([]string, error) { return []string{tree("child")}, nil }
+	})
+	for _, name := range []string{"parent", "child"} {
+		if _, err := worktree.Add(b.s.Registry.Load(), b.project, name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitOut(t, tree("child"), "checkout", "-q", "--detach")
+	gitOut(t, tree("child"), "commit", "-q", "--allow-empty", "-m", "on the detached head alone")
+	helloWith(p, proto.CapWorkspace)
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `"}`)
+	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 1.0 {
+		t.Fatalf("the detached commit didn't refuse the delete: %v", m)
+	}
+	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree("parent") + `","force":true}`)
+	if m := p.reply("wf"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	if _, err := os.Stat(tree("child")); !os.IsNotExist(err) {
+		t.Fatalf("the child's folder stayed: %v", err)
+	}
+}
+
 func TestDeletingABranchWithCommitsNowhereElseIsRefusedUnlessForced(t *testing.T) {
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))

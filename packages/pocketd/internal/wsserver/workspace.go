@@ -170,18 +170,8 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 		return err
 	}
 	trees := append([]linkedTree{tree}, c.subagentTrees(f, tree.Path)...)
-	if deleteBranch && !force {
-		branches := map[string][]string{}
-		for _, t := range trees {
-			if t.Branch != "" {
-				branches[t.project] = append(branches[t.project], t.Branch)
-			}
-		}
-		n := 0
-		for project, bs := range branches {
-			n += worktree.LostCommits(project, bs...)
-		}
-		if n > 0 {
+	if !force {
+		if n := lostCommits(trees, deleteBranch); n > 0 {
 			return unpushedCommits(n)
 		}
 	}
@@ -192,6 +182,25 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 		}
 	}
 	return nil
+}
+
+// lostCommits is what deleting trees together loses: their branches' commits
+// counted as one set when those go, and what detached HEADs alone hold.
+func lostCommits(trees []linkedTree, deleteBranch bool) int {
+	branches := map[string][]string{}
+	n := 0
+	for _, t := range trees {
+		switch {
+		case t.Branch == "":
+			n += worktree.DetachedCommits(t.Path)
+		case deleteBranch:
+			branches[t.project] = append(branches[t.project], t.Branch)
+		}
+	}
+	for project, bs := range branches {
+		n += worktree.LostCommits(project, bs...)
+	}
+	return n
 }
 
 type linkedTree struct {
