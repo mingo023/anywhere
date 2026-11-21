@@ -376,6 +376,7 @@ impl Desktop {
         let host = self.host_name(h.host.as_deref().unwrap_or_default());
         let s = &h.source;
         let done = h.stage == Stage::Done;
+        let online = self.fleet.hosts.links.online(h.host.as_deref().unwrap_or_default());
         let rows = run
             .steps
             .iter()
@@ -384,6 +385,7 @@ impl Desktop {
                 let failed = run.failed.as_ref().filter(|_| i == run.at);
                 let (now, todo) = (i == run.at && !done && failed.is_none(), i > run.at && !done);
                 let detail = match (failed, step) {
+                    (Some(_), _) if !online => Some(format!("{host} went offline")),
                     (Some(e), _) => Some(e.clone()),
                     (_, Step::Pack) => Some(format!("{} · {}", plural(s.files, "file", "files"), plural(s.commits, "commit", "commits"))),
                     (_, Step::Send) => run.pack.as_ref().map(|p| megabytes(p.bundle.len())),
@@ -445,10 +447,11 @@ impl Desktop {
         let agent = h.source.agent_name.clone();
         let step = h.run.as_ref().and_then(|r| r.step());
         let mac = if h.run.as_ref().is_some_and(Run::stopped_turn) { "This session is still here; its turn stopped." } else { "Nothing changed on this Mac." };
-        let (title, body) = if !self.fleet.hosts.links.online(&id) {
-            (format!("{host} went offline"), format!("{mac} Retry when {host} is back."))
+        let online = self.fleet.hosts.links.online(&id);
+        let (title, body) = if !online {
+            (format!("{host} went offline"), format!("{mac} It retries when {host} is back."))
         } else if step == Some(Step::Check) {
-            (format!("The conversation didn’t open on {host}"), format!("{agent} didn’t confirm its history there. {mac}"))
+            (format!("The conversation didn’t open on {host}"), format!("{agent} opened empty there. {mac}"))
         } else {
             (format!("The handoff to {host} stopped"), mac.to_string())
         };
@@ -458,7 +461,7 @@ impl Desktop {
             div().text_size(px(13.5)).line_height(px(20.)).text_color(TEXT_2).child(body).into_any_element(),
             foot(vec![
                 button("handoff-cancel", Variant::Ghost, "Close").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx))),
-                button("handoff-go", Variant::Primary, "Retry").on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.retry_handoff(cx))),
+                button("handoff-go", Variant::Primary, if online { "Retry" } else { "Retry now" }).on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.retry_handoff(cx))),
             ]),
         ])
     }

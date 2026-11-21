@@ -46,6 +46,7 @@ impl Desktop {
         let (added, removed) = self.repos.get(&c.cwd).map(|r| r.totals()).unwrap_or_default();
         let id = c.id.clone();
         let pill = match c.kind {
+            _ if matches!(self.handoff_mark(&c.id), Some(crate::handoff::Mark::Moving(_))) => State::Moving,
             Kind::NotAttached => State::NotAttached,
             _ => state(c.status, added, removed),
         };

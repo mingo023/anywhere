@@ -275,6 +275,8 @@ pub enum State {
     Done(usize, usize),
     Idle(usize, usize),
     NotAttached,
+    /// Being handed off to a host.
+    Moving,
 }
 
 pub fn diffstat(added: usize, removed: usize) -> Div {
@@ -308,7 +310,7 @@ pub struct Tone {
 pub fn tone(state: State) -> Option<Tone> {
     let (glyph, mark, text, bg) = match state {
         State::NeedsYou => (Glyph::Halo, WAITING, WAITING_TEXT, WAITING_BG),
-        State::Working => (Glyph::Spinner, WORKING, ACCENT, ACCENT_TINT),
+        State::Working | State::Moving => (Glyph::Spinner, WORKING, ACCENT, ACCENT_TINT),
         State::Done(..) => (Glyph::Halo, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
         State::Failed => (Glyph::Cross, FAILED, FAILED_TEXT, FAILED_BG),
         _ => return None,
@@ -334,6 +336,7 @@ fn word(state: State) -> &'static str {
         State::Done(..) => "Done",
         State::Idle(..) => "Idle",
         State::NotAttached => "Not attached",
+        State::Moving => "Moving",
     }
 }
 
@@ -1415,5 +1418,6 @@ mod tests {
     fn working_spins_orange_and_reads_working_in_accent() {
         assert_eq!(tone(State::Working), Some(Tone { glyph: Glyph::Spinner, mark: WORKING, text: ACCENT, bg: ACCENT_TINT }));
         assert_eq!(word(State::Working), "Working");
+        assert_eq!((tone(State::Moving), word(State::Moving)), (tone(State::Working), "Moving"));
     }
 }

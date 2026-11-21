@@ -368,11 +368,14 @@ impl Desktop {
         groups.into_iter().filter(|(_, e)| !e.is_empty()).collect()
     }
 
-    /// "Hand off to a host…" for the session in the focused pane, when it can be.
+    /// Hand off the session in the focused pane, when it can be.
     fn handoff_entry(&self) -> Option<Entry> {
         let Some(Tab::Term(terminal)) = self.pane_tab(self.focused_pane()) else { return None };
         let s = self.summary(&terminal).filter(|s| self.can_hand_off(s))?;
-        Some(Entry { pick: Pick::Handoff(s.id.clone()), lead: Lead::Icon("server"), title: crate::handoff::menu_label(self.handoff.moving(&s.id)).into(), detail: s.title.clone(), keys: None })
+        let title = if self.handoff.moving(&s.id) { crate::handoff::menu_label(true).to_string() } else { format!("Hand off “{}” to a host…", s.title) };
+        let projects = self.projects();
+        let detail = format!("{} · {}", self.agent_name(&s.provider), self.repo_name(self.project_of(&s.cwd, &projects).unwrap_or(&s.cwd)));
+        Some(Entry { pick: Pick::Handoff(s.id.clone()), lead: Lead::Icon("server"), title, detail, keys: None })
     }
 
     fn activate(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {

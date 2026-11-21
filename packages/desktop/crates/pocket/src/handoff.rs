@@ -196,6 +196,11 @@ impl Handoff {
         self.probes.get(self.host.as_deref()?)
     }
 
+    /// Whether the run stopped while handing off to `host`, so it goes on once that host is back.
+    pub fn stopped_on(&self, host: &str) -> bool {
+        self.host.as_deref() == Some(host) && self.run.as_ref().is_some_and(|r| r.failed.is_some())
+    }
+
     /// Picks the first host in `online` unless the picked one still is.
     pub fn keep_host(&mut self, online: &[String]) {
         if !self.host.as_ref().is_some_and(|h| online.contains(h)) {
@@ -552,6 +557,12 @@ impl Desktop {
         }
     }
 
+    pub(crate) fn handoff_host_back(&mut self, host: &str, cx: &mut Context<Self>) {
+        if self.handoff.open.as_ref().is_some_and(|h| h.stopped_on(host)) {
+            self.retry_handoff(cx);
+        }
+    }
+
     /// Stops the handoff and takes back the worktree it made on the host, unless the host's agent started in it.
     pub(crate) fn cancel_handoff(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(h) = self.handoff.open.take() {
@@ -732,6 +743,17 @@ mod tests {
         assert_eq!(mark(Some(&h), &none, "a1"), Some(Mark::Stopped));
         let moved = BTreeMap::from([("a1".to_string(), store::Moved { host: "devbox".into(), agent: "devbox/b1".into() })]);
         assert_eq!(mark(None, &moved, "a1"), Some(Mark::Moved("devbox".into())));
+    }
+
+    #[test]
+    fn a_stopped_run_goes_on_only_when_its_own_host_is_back() {
+        let mut h = Handoff::new(Source::default());
+        h.host = Some("devbox".into());
+        h.run = Some(Run::new(false, true));
+        assert!(!h.stopped_on("devbox"), "a run still going needs no retry");
+        h.run.as_mut().unwrap().failed = Some("devbox went offline".into());
+        assert!(h.stopped_on("devbox"));
+        assert!(!h.stopped_on("mac-mini"));
     }
 
     #[test]

@@ -34,7 +34,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 300] = [
+const STEPS: [(&str, Step); 302] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -455,6 +455,15 @@ const STEPS: [(&str, Step); 300] = [
     }),
     ("tab-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Pane(Some(d.focused_pane())))),
     ("top-menu", |d, _, _| d.panels.menu = Some(workspace::Place::Top)),
+    // The focused session's right-click menus: its top tab's, and its row's.
+    ("top-actions", |d, _, _| {
+        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane()) else { return };
+        d.panels.top_actions = d.summary(&t).map(|s| (s.id.clone(), point(px(330.), px(36.))));
+    }),
+    ("session-menu", |d, _, _| {
+        let Some(workspace::Tab::Term(t)) = d.pane_tab(d.focused_pane()) else { return };
+        d.row_menu = d.summary(&t).map(|s| RowMenu::Session(s.id.clone()));
+    }),
     ("term-menu", |d, _, _| d.terminal.menu = d.terminal.focused.clone().map(|p| (p, point(px(520.), px(300.))))),
     ("browser", |d, window, cx| d.open_browser(None, window, cx)),
     ("file", |d, _, cx| {
