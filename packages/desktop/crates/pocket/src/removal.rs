@@ -282,14 +282,21 @@ enum Found {
     Busy,
     /// No worktree Anywhere made, or one made after the subagent started.
     Gone,
+    /// The host's worktrees or the worktree's make time couldn't be read.
+    Unread,
 }
 
 /// What the worktree Anywhere made among a host's `ws` that holds `folder` is to the subagent that `started` there, with
 /// `others` the folders of live sessions outside its line.
 fn host_found(ws: &[git::Worktree], folder: &str, started: Option<u64>, made_at: impl Fn(&str) -> Option<u64>, others: &[String], delete_branch: bool) -> Found {
-    let (Some(main), Some(w)) = (ws.iter().find(|w| w.main), holding(ws, folder)) else { return Found::Gone };
-    if started.is_some_and(|s| made_at(&w.path).is_none_or(|m| m > s)) {
-        return Found::Gone;
+    // Every repo lists its main worktree, so a listing without one is a failed read.
+    let Some(main) = ws.iter().find(|w| w.main) else { return Found::Unread };
+    let Some(w) = holding(ws, folder) else { return Found::Gone };
+    // Its marker was just listed, so a missing make time is a failed read.
+    match (started, made_at(&w.path)) {
+        (Some(_), None) => return Found::Unread,
+        (Some(s), Some(m)) if m > s => return Found::Gone,
+        _ => {}
     }
     if others.iter().any(|o| holds(&w.path, o)) {
         return Found::Busy;
@@ -301,13 +308,13 @@ fn host_found(ws: &[git::Worktree], folder: &str, started: Option<u64>, made_at:
 fn host_removal(ws: &[git::Worktree], folder: &str, started: Option<u64>, made_at: impl Fn(&str) -> Option<u64>, others: &[String], delete_branch: bool) -> Option<Removal> {
     match host_found(ws, folder, started, made_at, others, delete_branch) {
         Found::Theirs(r) => Some(r),
-        Found::Busy | Found::Gone => None,
+        Found::Busy | Found::Gone | Found::Unread => None,
     }
 }
 
 /// What became of a subagent's worktree left on a host, once the host is back.
 enum Swept {
-    /// Still there for a later listing: a live session works in it, or the host dropped again.
+    /// Still there for a later listing: a live session works in it, or the host dropped again or couldn't be read.
     Wait,
     /// Holds work nobody checked, so the user is asked.
     Ask(Removal),
@@ -577,7 +584,8 @@ impl Desktop {
                 // A host that dropped mid-read lists no worktrees, which isn't an answer.
                 let outcome = match found {
                     _ if !connected(&f) => Swept::Wait,
-                    Found::Busy => Swept::Wait,
+                    Found::Unread if matches!(run.stat(&f), Ok(None)) => Swept::Done(None),
+                    Found::Busy | Found::Unread => Swept::Wait,
                     Found::Gone => Swept::Done(None),
                     Found::Theirs(r) if git::dirty_files(&run, &r.tree).is_none_or(|n| n > 0) || r.lost() > 0 => Swept::Ask(r),
                     Found::Theirs(r) => {
@@ -744,6 +752,8 @@ mod tests {
         assert_eq!(found(Some(7), &["//devbox/wt/notes/docs"]), Found::Busy, "someone else works in another of its folders, for now");
         assert_eq!(host_found(&ws, "//devbox/wt/other", Some(7), made_at, &[], true), Found::Gone);
         assert_eq!(host_removal(&ws, "//devbox/wt/notes/src", Some(7), made_at, &["//devbox/wt/notes".into()], true), None);
+        assert_eq!(host_found(&[], "//devbox/wt/notes/src", Some(7), made_at, &[], true), Found::Unread, "a listing that failed");
+        assert_eq!(host_found(&ws, "//devbox/wt/notes/src", Some(7), |_: &str| None, &[], true), Found::Unread, "a marker that couldn't be read");
     }
 
     #[test]
