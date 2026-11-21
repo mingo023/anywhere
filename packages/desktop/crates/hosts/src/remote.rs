@@ -250,6 +250,14 @@ impl Client {
         self.fs("fs.remove", json!({"path": self.host_path(path), "recursive": recursive})).map(drop)
     }
 
+    /// The keys of the worktrees on the host that the subagents of the sessions in `tree` worked in, every generation
+    /// down, as its pocketd's lineage holds them, open or closed.
+    pub fn subagent_worktrees(&self, tree: &str) -> io::Result<Vec<String>> {
+        let reply = self.fs("worktree.subagents", json!({"path": self.host_path(tree)}))?;
+        let paths: Vec<String> = serde_json::from_value(reply["paths"].clone()).unwrap_or_default();
+        Ok(paths.iter().map(|p| self.key(p)).collect())
+    }
+
     /// Moves `path` to the host's trash folder; the key of where it went.
     pub fn trash(&self, path: &str) -> io::Result<String> {
         let reply = self.fs("fs.trash", json!({"path": self.host_path(path)}))?;
@@ -544,6 +552,21 @@ mod tests {
                 writeln!(writer, "{}", reply(&msg)).unwrap();
             }
         });
+    }
+
+    #[test]
+    fn a_trees_subagent_worktrees_come_back_as_keys_and_a_pocketd_without_the_op_refuses() {
+        let sock = temp_sock("subagents");
+        serve_with(&sock, |m| match (m["op"].as_str(), m["path"].as_str()) {
+            (Some("worktree.subagents"), Some("/wt")) => json!({"ev": "worktree.subagents", "id": m["id"], "paths": ["/wt-c", "/wt-g"]}),
+            (Some("worktree.subagents"), Some("/wt-c")) => json!({"ev": "worktree.subagents", "id": m["id"]}),
+            _ => json!({"ev": "error", "id": m["id"], "error": "no such terminal"}),
+        });
+        let client = Client::new("devbox", sock.clone());
+        assert_eq!(client.subagent_worktrees("//devbox/wt").unwrap(), ["//devbox/wt-c", "//devbox/wt-g"]);
+        assert_eq!(client.subagent_worktrees("//devbox/wt-c").unwrap(), Vec::<String>::new());
+        assert!(client.subagent_worktrees("//devbox/old").is_err());
+        let _ = std::fs::remove_file(sock);
     }
 
     #[test]

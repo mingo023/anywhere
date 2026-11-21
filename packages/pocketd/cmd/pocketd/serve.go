@@ -431,6 +431,8 @@ func serve(sock, handed string) error {
 		TrashDir: filepath.Join(home, "trash"),
 		Owners:   ownerTokens,
 		Accounts: l.Accounts,
+		// A desktop that deletes a worktree here itself asks which its subagents left too.
+		SubagentWorktrees: ws.SubagentWorktrees,
 	}
 	if ownerLn != nil {
 		go srv.Serve(ownerLn)

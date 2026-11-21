@@ -587,6 +587,7 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
       if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
       devboxSockets.forEach((s) => s.close());
       // FIXTURE_DEVBOX_GRANDCHILD=1: devbox's child, its close still queued, delegates once more while devbox is away; both close once it's back.
+      // =closed: that grandchild also finished and closed while devbox was away, so only devbox's lineage knows it.
       const parentTree = op.argv.find((a) => a.endsWith("delegate-host-notes"))!;
       const deeper = parentTree.replace("delegate-host-notes", "delegate-host-deeper");
       if (process.env.FIXTURE_DEVBOX_GRANDCHILD) {
@@ -599,13 +600,17 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
         if (hostsWs) setLink(hostsWs, h.id, ONLINE);
         if (!process.env.FIXTURE_DEVBOX_GRANDCHILD || !hostsWs) return;
         const child = summaries.find((s) => s.id === `devbox/${process.env.FIXTURE_SUBAGENT}-hsub`)!;
-        summaries.push({ ...child, id: `${child.id}2`, cwd: deeper, title: "Check the notes deeper", parent: child.id, createdAt: Date.now() });
+        if (process.env.FIXTURE_DEVBOX_GRANDCHILD !== "closed") summaries.push({ ...child, id: `${child.id}2`, cwd: deeper, title: "Check the notes deeper", parent: child.id, createdAt: Date.now() });
         // A host lists its sessions again once its link is back.
         hostsWs.send(JSON.stringify({ type: "agent.list", agents: summaries }));
         const ws = hostsWs;
-        setTimeout(() => [`${child.id}2`, child.id].forEach((id) => exit(ws, id)), 3000);
+        setTimeout(() => [`${child.id}2`, child.id].filter((id) => summaries.some((s) => s.id === id)).forEach((id) => exit(ws, id)), 3000);
       }, drop);
     }
+  } else if (op.op === "worktree.subagents") {
+    // As devbox's lineage holds it: the deeper worktree is its child's subagent's.
+    const deeper = op.path.replace(/delegate-host-notes$/, "delegate-host-deeper");
+    reply({ ev: "worktree.subagents", paths: deeper !== op.path && statSync(deeper, { throwIfNoEntry: false }) ? [deeper] : [] });
   } else if (op.op === "fs.stat") {
     try {
       const st = statSync(op.path);

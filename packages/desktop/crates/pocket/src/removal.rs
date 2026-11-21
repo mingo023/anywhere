@@ -743,9 +743,14 @@ impl Desktop {
         let own = self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let delete_branch = r.delete_branch;
         let task = cx.background_executor().spawn(async move {
+            // The host's lineage also holds ones that started and closed while its link was down, never listed here.
+            let host = hosts::split(&r.tree).0.and_then(hosts::remote::connected);
+            let theirs = host.and_then(|h| h.subagent_worktrees(&r.tree).ok()).unwrap_or_default();
             let (done, failed) = remove_in_order(vec![(r, own)], limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
-            ((done, failed), leftovers(on_hosts.folders, &trees, delete_branch))
+            // Saved ones last, as they know when each started.
+            let folders = theirs.into_iter().map(|t| (t, None)).chain(on_hosts.folders).collect();
+            ((done, failed), leftovers(folders, &trees, delete_branch))
         });
         cx.spawn(async move |this, cx| {
             let ((done, failed), below) = task.await;

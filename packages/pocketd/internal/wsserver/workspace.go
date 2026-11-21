@@ -260,6 +260,23 @@ func findTree(f registry.File, path string) (linkedTree, error) {
 	return linkedTree{project, trees[i]}, nil
 }
 
+// SubagentWorktrees is each worktree here that the subagents of the sessions in
+// the worktree at path worked in, every generation down, as this machine's
+// lineage holds them, closed or open.
+func (s *Server) SubagentWorktrees(path string) ([]string, error) {
+	f := s.Registry.Load()
+	tree, err := findTree(f, path)
+	if err != nil {
+		return nil, err
+	}
+	subtrees, _ := (&conn{s: s}).subagentTrees(f, tree.Path)
+	out := make([]string, 0, len(subtrees))
+	for _, t := range subtrees {
+		out = append(out, t.Path)
+	}
+	return out, nil
+}
+
 func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch.HostTree) {
 	if c.s.Workspace.SubagentTrees == nil {
 		return nil, nil
