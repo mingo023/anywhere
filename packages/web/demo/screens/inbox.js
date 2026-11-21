@@ -86,7 +86,7 @@ function shown(api) {
 }
 
 const noteRow = (n, i, on) => `<button class="ibx-note${on ? ' on' : ''}" data-act="note" data-v="${i}">
-  <span class="ibx-mark">${n.row.status === 'failed' ? `<span class="fail">${ic('x-bold', 11)}</span>` : n.status === 'done' ? '<span class="halo done"><i></i></span>' : '<span class="halo"><i></i></span>'}</span>
+  <span class="ibx-mark">${D.api.matrix(n.row.status === 'failed' ? 'failed' : n.status)}</span>
   <span class="ibx-text">
     <span class="ibx-top"><b>${esc(n.row.p.name)}</b><i>·</i><span class="prov">${agentName(n.row.agent)}</span><span class="ago">${ago(n.at)}</span></span>
     <span class="ibx-title">${esc(n.title)}</span>
@@ -162,7 +162,7 @@ function detail(api, n) {
   return `<div class="ibx-detail">
     <div class="ibx-head">
       <span class="tile">${api.letter(r.p.name)}</span><span class="pj">${esc(r.p.name)}</span><i>/</i><b>${esc(r.title)}</b>
-      ${n.status === 'needs' ? `<span class="ibx-pill"><span class="halo"><i></i></span>Needs you</span><span class="ibx-timer" data-at="${n.at}">${clock(n.at)}</span>` : ''}
+      ${n.status === 'needs' ? `<span class="ibx-pill">${D.api.matrix('needs')}Needs you</span><span class="ibx-timer" data-at="${n.at}">${clock(n.at)}</span>` : ''}
       <span class="sp"></span>
       <button class="ibx-open" data-act="open">Open session${ic('forward', 14)}</button>
     </div>
@@ -312,11 +312,10 @@ const badge = (name) => `<span class="act-badge">${esc(name[0].toUpperCase())}</
 function colGlyph(c, busy) {
   if (c === 'idle') return ic('status-todo', 14);
   if (c === 'working') return `<span class="act-ring${busy ? ' rot' : ''}">${ic('spinner-ring', 12)}</span>`;
-  if (c === 'needs') return '<span class="act-halo"><i></i></span>';
-  if (c === 'done') return '<span class="act-dot"><i></i></span>';
+  if (c === 'needs' || c === 'done') return `<span class="act-mark">${D.api.matrix(c)}</span>`;
   return ic('pull-request', 14);
 }
-const itemGlyph = (i, c) => i.status === 'failed' && c === 'needs' ? '<span class="act-halo bad"><i></i></span>' : colGlyph(c, true);
+const itemGlyph = (i, c) => i.status === 'failed' && c === 'needs' ? `<span class="act-mark">${D.api.matrix('failed')}</span>` : colGlyph(c, true);
 
 function askBox(i, cls = '') {
   const r = i.row;
