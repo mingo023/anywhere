@@ -201,9 +201,6 @@ fn doomed_branch(r: &Removal, runner: &git::Runner) -> Option<String> {
     now.filter(|b| branch_deletable(b) && git::renamed_from(runner, &r.project, b, &confirmed)).or(Some(confirmed))
 }
 
-/// The deletions that go with `r`'s: each worktree Anywhere made that holds only sessions `r.tree`'s sessions delegated to, and theirs in turn.
-/// Their branches go only if `r`'s does. `place` is the tree a session's terminal sits in. Also the folders of those on a host whose
-/// worktrees aren't listed here, for `host_removals` to read off the host.
 /// The subagents' folders on hosts, for each host to resolve to its worktree and check it's still theirs.
 #[derive(Default, Debug, PartialEq)]
 pub(crate) struct OnHosts {
@@ -213,6 +210,9 @@ pub(crate) struct OnHosts {
     pub others: Vec<String>,
 }
 
+/// The deletions that go with `r`'s: each worktree Anywhere made that holds only sessions `r.tree`'s sessions delegated to, and theirs in turn.
+/// Their branches go only if `r`'s does. `place` is the tree a session's terminal sits in. Also the folders of those on hosts, for
+/// `host_removals` to read off the host.
 fn subagent_removals(
     r: &Removal,
     agents: &Agents,
@@ -336,7 +336,7 @@ impl Desktop {
         let created = |t: &str| std::fs::metadata(t).and_then(|m| m.created()).ok();
         let subtrees: BTreeMap<String, String> = self.store.subtrees.iter().filter_map(|(c, s)| {
             let tree = self.folder_tree(c).filter(|t| there_when_seen(created(t), s.seen))?;
-            Some((tree, self.folder_tree(&s.parent)?))
+            Some((tree, self.folder_tree(&s.parent).filter(|t| there_when_seen(created(t), s.seen))?))
         }).collect();
         let place = |a: &Summary| self.session_place(a).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
         let made = |t: &str| self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(t)).and_then(|(_, s)| s.made);
@@ -374,14 +374,16 @@ impl Desktop {
                 let run = hosts::runner_for(f);
                 git::made_at(&run, &holding(&git::worktrees(&run, f), f)?.path)
             };
-            on_hosts.into_iter().filter_map(|f| Some((made_at(&f)?, f))).collect::<Vec<_>>()
+            on_hosts.into_iter().map(|f| (made_at(&f), f)).collect::<Vec<_>>()
         });
         cx.spawn(async move |this, cx| {
             let made = task.await;
             this.update(cx, |d, cx| {
                 for (at, f) in made {
-                    if let Some(s) = d.store.subtrees.get_mut(&f) {
-                        s.made = Some(at);
+                    match (at, d.store.subtrees.get_mut(&f)) {
+                        (Some(at), Some(s)) => s.made = Some(at),
+                        // Asked again on a later listing, while the subagent still works there.
+                        _ => _ = d.removals.made_asked.remove(&f),
                     }
                 }
                 d.save_soon(cx);
