@@ -29,6 +29,7 @@
 ## Blog
 
 - [Blog](https://getanywhere.dev/blog/): Guides and fair comparisons for running coding agents in parallel.
+- [Vibe Kanban alternative](https://getanywhere.dev/blog/vibe-kanban-alternative): What Vibe Kanban's shutdown changed, whether you need to switch, how Anywhere's Board starts each ticket in its own worktree, and when Vibe Kanban fits better.
 - [How to run multiple Claude Code agents in parallel](https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel): One git worktree per agent, by hand with git or in Anywhere, with status, diffs and sessions that keep running.
 - [Anywhere vs Conductor](https://getanywhere.dev/blog/conductor-alternative): An open-source Conductor alternative: license, price, platforms, agents and local sessions compared, and when Conductor fits better.
 - [Anywhere vs T3 Code](https://getanywhere.dev/blog/t3-code-alternative): A T3 Code alternative: two free MIT apps compared on platforms, agents, phone and web clients and closing the window, and when T3 Code fits better.
