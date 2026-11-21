@@ -27,6 +27,7 @@ use picker::Picker;
 use serde_json::{Value, json};
 use store::LaunchPick;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::Instant;
 use theme::*;
 
@@ -80,6 +81,10 @@ struct Draft {
     scratch: bool,
     /// The new Scratch folder is being made, so a second send would make another.
     making_scratch: bool,
+    /// The attachments are being copied to the project's host, so a second send would copy them again.
+    copying: bool,
+    /// The project whose host holds copies of the attachments, and each file's copy; kept for a resend of this draft only.
+    copied: Option<(String, Vec<(PathBuf, String)>)>,
     branches: Vec<(String, Option<i64>)>,
     /// Branches on origin with no local twin.
     remote_branches: Vec<String>,
@@ -113,6 +118,8 @@ impl Default for Draft {
             repo: None,
             scratch: false,
             making_scratch: false,
+            copying: false,
+            copied: None,
             branches: Vec::new(),
             remote_branches: Vec::new(),
             source: Source::New,
@@ -220,7 +227,12 @@ impl Draft {
             (true, Source::Branch(_)) => self.repo.is_some() && !name.is_empty(),
             (true, Source::Pr(_)) => self.repo.is_some() && parse_pr(name).is_some(),
         };
-        place && !self.reply.waiting()
+        place && !self.copying && !self.reply.waiting()
+    }
+
+    /// The copies made on `project`'s host, which its prompt names instead of the files here.
+    fn copied_for(&self, project: &str) -> &[(PathBuf, String)] {
+        self.copied.as_ref().filter(|(p, _)| p == project).map_or(&[], |(_, files)| files)
     }
 
     fn retry_local<'a>(&self, mut locals: impl Iterator<Item = &'a Local>) -> Option<String> {
@@ -495,6 +507,7 @@ impl Desktop {
         });
         if !keep {
             f.composer.draft.clear();
+            f.draft.copied = None;
         }
         f.draft.reopen(keep, worktree, self.agents.locals_offered());
         f.composer.draft.menu = None;
@@ -601,9 +614,12 @@ impl Desktop {
         if self.new_form.draft.scratch {
             return self.start_in_scratch(cx);
         }
+        let Some(project) = self.new_form.draft.repo.clone() else { return };
+        if self.copy_attachments_first(&project, window, cx) {
+            return cx.notify();
+        }
         let name = self.new_form.draft.name();
         let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
-        let Some(project) = self.new_form.draft.repo.clone() else { return };
         let local = match self.new_form.draft.target() {
             Target::NewLocal => {
                 let id = self.new_form.draft.retry_local(self.agents.locals_in(&project)).unwrap_or_else(|| self.new_local(&project));
@@ -614,7 +630,7 @@ impl Desktop {
             }
             Target::Worktree => None,
         };
-        let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt(&prompt));
+        let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt_with(&prompt, self.new_form.draft.copied_for(&project)));
         let f = &self.new_form.draft;
         let (mut spec, worktree, folder) = (f.spec(&pick, &project, local.as_deref(), &name, &sent), f.in_worktree(), f.folder(&name));
         if f.auto_names(&prompt, self.agents.names_offered()) {
@@ -636,6 +652,43 @@ impl Desktop {
         self.clear_new_form(window, cx);
         self.leave_new_session(window, cx);
         self.select_tree(project, Some(path), cx);
+    }
+
+    /// Copies the draft's attachments to `project`'s host, then starts the session again, so the agent there can read them.
+    /// False when nothing needs copying.
+    fn copy_attachments_first(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let copies = crate::composer::host_copies(&self.new_form.composer.draft, project, &self.store.home().join("attachments"), &self.host_agents.home_of(project));
+        let copies = match copies {
+            Ok(Some(copies)) if copies.files != self.new_form.draft.copied_for(project) => copies,
+            Ok(_) => return false,
+            Err(host) => {
+                self.error = Some(format!("{} isn't connected", self.host_name(&host)));
+                return true;
+            }
+        };
+        self.new_form.draft.copying = true;
+        let (project, host) = (project.to_string(), self.host_name(hosts::split(project).0.unwrap_or_default()));
+        let copied = cx.background_executor().spawn(async move { copies.make().map(|()| copies.files) });
+        cx.spawn_in(window, async move |this, cx| {
+            let copied = copied.await;
+            this.update_in(cx, |d, window, cx| {
+                d.new_form.draft.copying = false;
+                match copied {
+                    Ok(files) => {
+                        let picked = d.new_form.draft.repo.as_deref() == Some(project.as_str());
+                        d.new_form.draft.copied = Some((project, files));
+                        if picked {
+                            d.start_session(window, cx);
+                        }
+                    }
+                    Err(e) => d.new_form.draft.reply.error = Some((format!("Couldn't copy the attachments to {host}"), e.to_string())),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        true
     }
 
     /// Starts the session in the Scratch folder picked, or in a new one when no project is.
@@ -767,6 +820,7 @@ impl Desktop {
 
     fn clear_new_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_form.composer.draft.clear();
+        self.new_form.draft.copied = None;
         self.new_form.composer.prompt.update(cx, |s, cx| s.set_value("", window, cx));
     }
 

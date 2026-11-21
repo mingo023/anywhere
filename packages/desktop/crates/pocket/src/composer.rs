@@ -11,6 +11,7 @@ use crate::chat::composer::attachments::attach_button;
 use crate::chat::composer::suggest::Suggest;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
+use hosts::remote::Client;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -213,12 +214,70 @@ impl Draft {
 
     /// The prompt goes to the agent as text, so files and images go in as paths it can read.
     pub(crate) fn prompt(&self, typed: &str) -> String {
-        let block = |title: &str, paths: Vec<&Path>| (!paths.is_empty()).then(|| format!("{title}{}", paths.iter().map(|p| format!("- {}", p.display())).collect::<Vec<_>>().join("\n")));
+        self.prompt_with(typed, &[])
+    }
+
+    /// `prompt` for an agent on a host, naming each file in `copies` by its copy there.
+    pub(crate) fn prompt_with(&self, typed: &str, copies: &[(PathBuf, String)]) -> String {
+        let named = |p: &Path| copies.iter().find(|(from, _)| from == p).map_or_else(|| p.display().to_string(), |(_, to)| hosts::split(to).1.to_string());
+        let block = |title: &str, paths: Vec<&Path>| (!paths.is_empty()).then(|| format!("{title}{}", paths.iter().map(|p| format!("- {}", named(p))).collect::<Vec<_>>().join("\n")));
         let typed = typed.trim();
         let elements = (!self.elements.is_empty()).then(|| elements::block(&self.elements));
         let parts = [(!typed.is_empty()).then(|| typed.to_string()), block(FILES, self.files.iter().map(PathBuf::as_path).collect()), block(IMAGES, self.images.iter().map(|a| a.path.as_path()).collect()), elements];
         parts.into_iter().flatten().collect::<Vec<_>>().join("\n\n")
     }
+
+    /// Each attached file on this Mac, and the key of its copy in `dir`, a host's attachments folder. One already in this Mac's
+    /// attachments folder `here` keeps its name there; any other gets its path's hash in front, so two files of one name don't collide.
+    fn host_copies(&self, here: &Path, dir: &str) -> Vec<(PathBuf, String)> {
+        let on_mac = self.images.iter().map(|a| &a.path).chain(&self.files).filter(|p| hosts::split(&p.to_string_lossy()).0.is_none());
+        on_mac.map(|p| (p.clone(), format!("{dir}/{}", copy_name(p, here)))).collect()
+    }
+}
+
+fn copy_name(file: &Path, here: &Path) -> String {
+    let name = file.file_name().unwrap_or_default().to_string_lossy();
+    if file.parent() == Some(here) {
+        return name.into_owned();
+    }
+    format!("{:016x}-{name}", hashed(file))
+}
+
+fn hashed(value: impl Hash) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The files a prompt attaches from this Mac, to copy to the host whose agent reads them.
+pub(crate) struct HostCopies {
+    client: Arc<Client>,
+    /// The host's attachments folder, as its key.
+    dir: String,
+    /// Each file here and its copy's key there.
+    pub(crate) files: Vec<(PathBuf, String)>,
+}
+
+impl HostCopies {
+    /// Blocks on the host's replies.
+    pub(crate) fn make(&self) -> std::io::Result<()> {
+        self.client.mkdir(&self.dir, true)?;
+        self.files.iter().try_for_each(|(from, to)| self.client.write(to, &std::fs::read(from)?, false))
+    }
+}
+
+/// What `draft` must copy to the host holding `tree`, whose home is `home`, before an agent there can read its attachments;
+/// none when `tree` is on this Mac or nothing is attached from it. `here` is this Mac's attachments folder. Err names a host
+/// that isn't connected.
+pub(crate) fn host_copies(draft: &Draft, tree: &str, here: &Path, home: &str) -> Result<Option<HostCopies>, String> {
+    let Some(host) = hosts::split(tree).0 else { return Ok(None) };
+    let dir = hosts::place(host, &format!("{home}/{}/attachments", channel::home_dir_name()));
+    let files = draft.host_copies(here, &dir);
+    if files.is_empty() {
+        return Ok(None);
+    }
+    let client = hosts::remote::connected(host).ok_or_else(|| host.to_string())?;
+    Ok(Some(HostCopies { client, dir, files }))
 }
 
 const FILES: &str = "# Attached files\n\n";
@@ -286,9 +345,7 @@ fn attachment_path(image: &Image, dir: &Path) -> PathBuf {
 
 /// Where a long paste is kept for the agent to read, named by what it holds.
 fn pasted_path(text: &str, dir: &Path) -> PathBuf {
-    let mut hasher = DefaultHasher::new();
-    text.hash(&mut hasher);
-    dir.join(format!("{}{:016x}.txt", file_card::PASTED, hasher.finish()))
+    dir.join(format!("{}{:016x}.txt", file_card::PASTED, hashed(text)))
 }
 
 /// Owner-only, like the rest of Pocket's files: screenshots and pastes can hold secrets.
@@ -578,6 +635,7 @@ pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<
 #[cfg(test)]
 mod tests {
     use super::{Attachment, Draft, Menu, Pasted, Sent, attachment_path, copied_files, pasted, pasted_image, pasted_path, save_private, split_attachments};
+    use std::path::Path;
     use gpui_kit::{ClipboardEntry, ClipboardItem, ClipboardString, ExternalPaths, Image, ImageFormat};
     use store::LaunchPick;
 
@@ -828,5 +886,61 @@ mod tests {
         let only = Draft { elements: vec![element("https://a.dev/", "Hi", "<b>")], ..Draft::default() };
         assert_eq!(split_attachments(&only.prompt("")).elements, vec!["1 a.dev › Hi"]);
         assert_eq!(split_attachments(&only.prompt("")).text, "");
+    }
+
+    #[test]
+    fn files_attached_on_this_mac_go_to_a_host_agent_as_their_copies_there() {
+        let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
+        let mut draft = Draft { files: vec!["/Users/me/notes.md".into(), "//devbox/home/dev/code/app/README.md".into()], ..Draft::default() };
+        draft.attach(Attachment { path: "/Users/me/.pocket/attachments/42.png".into(), image: image.into() });
+        let dir = "//devbox/home/dev/.pocket/attachments";
+        let copies = draft.host_copies(Path::new("/Users/me/.pocket/attachments"), dir);
+        let named: Vec<&str> = copies.iter().map(|(_, to)| to.rsplit('/').next().unwrap()).collect();
+        assert_eq!(copies.iter().map(|(from, _)| from.to_str().unwrap()).collect::<Vec<_>>(), ["/Users/me/.pocket/attachments/42.png", "/Users/me/notes.md"]);
+        assert!(copies.iter().all(|(_, to)| to.starts_with(&format!("{dir}/"))));
+        assert_eq!(named[0], "42.png");
+        assert!(named[1].ends_with("-notes.md") && named[1].len() == "notes.md".len() + 17, "{}", named[1]);
+        let prompt = draft.prompt_with("Look", &copies);
+        assert!(prompt.contains("- /home/dev/.pocket/attachments/42.png") && prompt.contains(&format!("- /home/dev/.pocket/attachments/{}", named[1])), "{prompt}");
+        assert!(prompt.contains("- //devbox/home/dev/code/app/README.md") && !prompt.contains("/Users/me"), "{prompt}");
+        assert!(draft.prompt("Look").contains("- /Users/me/notes.md"), "a send to this Mac after a copy for devbox names devbox's path");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copies_for_a_host_are_written_into_its_attachments_folder() {
+        use base64::Engine;
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+        let root = std::env::temp_dir().join(format!("pocket-copy-test-{}", std::process::id()));
+        let here = root.join("attachments");
+        std::fs::create_dir_all(&here).unwrap();
+        std::fs::write(here.join("7.png"), [9, 8, 7]).unwrap();
+        let sock = root.join("h.sock");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let (tx, ops) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                let op: serde_json::Value = serde_json::from_str(&line).unwrap();
+                writeln!(writer, "{}", serde_json::json!({"id": op["id"], "ev": op["op"]})).unwrap();
+                tx.send(op).unwrap();
+            }
+        });
+        hosts::remote::register(std::sync::Arc::new(hosts::remote::Client::new("copybox", sock)));
+        let draft = Draft { files: vec![here.join("7.png")], ..Draft::default() };
+        let copies = super::host_copies(&draft, "//copybox/home/dev/app", &here, "/home/dev").unwrap().unwrap();
+        copies.make().unwrap();
+        hosts::remote::forget("copybox");
+        let dir = format!("/home/dev/{}/attachments", channel::home_dir_name());
+        let op = || ops.recv_timeout(std::time::Duration::from_secs(5)).expect("the host got no op");
+        let (mkdir, write) = (op(), op());
+        assert_eq!((mkdir["op"].as_str(), mkdir["path"].as_str(), mkdir["parents"].as_bool()), (Some("fs.mkdir"), Some(dir.as_str()), Some(true)));
+        assert_eq!((write["op"].as_str(), write["path"].as_str()), (Some("fs.write"), Some(format!("{dir}/7.png").as_str())));
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(write["data"].as_str().unwrap()).unwrap(), [9, 8, 7]);
+        assert!(super::host_copies(&draft, "/Users/me/app", &here, "/Users/me").unwrap().is_none());
+        assert_eq!(super::host_copies(&draft, "//gonebox/home/dev/app", &here, "/home/dev").err().as_deref(), Some("gonebox"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
