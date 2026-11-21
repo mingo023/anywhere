@@ -676,6 +676,10 @@ impl Desktop {
                 match copied {
                     Ok(files) => {
                         let picked = d.new_form.draft.repo.as_deref() == Some(project.as_str());
+                        let held = files.iter().all(|(from, _)| d.new_form.composer.draft.holds(from));
+                        if !held {
+                            return cx.notify();
+                        }
                         d.new_form.draft.copied = Some((project, files));
                         if picked {
                             d.start_session(window, cx);

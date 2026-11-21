@@ -171,6 +171,10 @@ impl Draft {
         new
     }
 
+    pub(crate) fn holds(&self, path: &Path) -> bool {
+        self.images.iter().any(|a| a.path == path) || self.files.iter().any(|f| f == path)
+    }
+
     pub(crate) fn has_attachments(&self) -> bool {
         !self.images.is_empty() || !self.files.is_empty() || !self.elements.is_empty()
     }
@@ -256,13 +260,17 @@ pub(crate) struct HostCopies {
     dir: String,
     /// Each file here and its copy's key there.
     pub(crate) files: Vec<(PathBuf, String)>,
+    /// Each image from outside this Mac's attachments folder and its copy in there under the name it has on the host, which
+    /// a sent prompt's thumbnail falls back to.
+    thumbs: Vec<(PathBuf, PathBuf)>,
 }
 
 impl HostCopies {
     /// Blocks on the host's replies.
     pub(crate) fn make(&self) -> std::io::Result<()> {
         self.client.mkdir(&self.dir, true)?;
-        self.files.iter().try_for_each(|(from, to)| self.client.write(to, &std::fs::read(from)?, false))
+        self.files.iter().try_for_each(|(from, to)| self.client.write(to, &std::fs::read(from)?, false))?;
+        self.thumbs.iter().try_for_each(|(from, to)| save_private(&std::fs::read(from)?, to))
     }
 }
 
@@ -277,7 +285,9 @@ pub(crate) fn host_copies(draft: &Draft, tree: &str, here: &Path, home: &str) ->
         return Ok(None);
     }
     let client = hosts::remote::connected(host).ok_or_else(|| host.to_string())?;
-    Ok(Some(HostCopies { client, dir, files }))
+    let outside = draft.images.iter().map(|a| &a.path).filter(|p| p.parent() != Some(here) && files.iter().any(|(from, _)| from == *p));
+    let thumbs = outside.map(|p| (p.clone(), here.join(copy_name(p, here)))).collect();
+    Ok(Some(HostCopies { client, dir, files, thumbs }))
 }
 
 const FILES: &str = "# Attached files\n\n";
@@ -929,13 +939,18 @@ mod tests {
             }
         });
         hosts::remote::register(std::sync::Arc::new(hosts::remote::Client::new("copybox", sock)));
-        let draft = Draft { files: vec![here.join("7.png")], ..Draft::default() };
+        std::fs::write(root.join("drop.png"), [6]).unwrap();
+        let mut draft = Draft { files: vec![here.join("7.png")], ..Draft::default() };
+        draft.drop_files(&[root.join("drop.png")]);
         let copies = super::host_copies(&draft, "//copybox/home/dev/app", &here, "/home/dev").unwrap().unwrap();
         copies.make().unwrap();
+        let thumb = here.join(super::copy_name(&root.join("drop.png"), &here));
+        assert_eq!(std::fs::read(&thumb).unwrap(), [6], "a dropped image's thumbnail is kept under its name on the host");
         hosts::remote::forget("copybox");
         let dir = format!("/home/dev/{}/attachments", channel::home_dir_name());
         let op = || ops.recv_timeout(std::time::Duration::from_secs(5)).expect("the host got no op");
-        let (mkdir, write) = (op(), op());
+        let (mkdir, dropped, write) = (op(), op(), op());
+        assert!(dropped["path"].as_str().unwrap().ends_with("-drop.png"), "{dropped}");
         assert_eq!((mkdir["op"].as_str(), mkdir["path"].as_str(), mkdir["parents"].as_bool()), (Some("fs.mkdir"), Some(dir.as_str()), Some(true)));
         assert_eq!((write["op"].as_str(), write["path"].as_str()), (Some("fs.write"), Some(format!("{dir}/7.png").as_str())));
         assert_eq!(base64::engine::general_purpose::STANDARD.decode(write["data"].as_str().unwrap()).unwrap(), [9, 8, 7]);

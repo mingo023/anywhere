@@ -513,10 +513,12 @@ impl Desktop {
         if busy && !caps.send_while_working {
             return;
         }
+        let steer = busy && !self.chat_stopping(a) && !queue;
         let (agent, provider, cwd, chat_only) = (a.id.clone(), a.provider.clone(), a.cwd.clone(), a.chat_only);
         self.chat_take_input(&agent, window, cx);
         let typed = self.chats.input.read(cx).value().to_string();
-        let text = self.chats.composer.draft.prompt(&typed);
+        let copied = self.chats.copied.get(&agent).cloned().unwrap_or_default();
+        let text = self.chats.composer.draft.prompt_with(&typed, &copied);
         if text.is_empty() {
             return;
         }
@@ -525,60 +527,35 @@ impl Desktop {
         if let Some((Kind::Unsupported, name, _)) = slash {
             return self.show_notice(Notice::InChat { agent, icon: "terminal", text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
-        let copies = match crate::composer::host_copies(&self.chats.composer.draft, &cwd, &self.store.home().join("attachments"), &self.host_agents.home_of(&cwd)) {
-            Ok(copies) => copies,
+        match crate::composer::host_copies(&self.chats.composer.draft, &cwd, &self.store.home().join("attachments"), &self.host_agents.home_of(&cwd)) {
+            Ok(Some(copies)) if copies.files != copied => return self.chat_copy_first(terminal, agent, &cwd, queue, copies, window, cx),
+            Ok(_) => {}
             Err(host) => {
                 self.error = Some(format!("{} isn't connected", self.host_name(&host)));
                 return cx.notify();
             }
-        };
-        let text = match &copies {
-            Some(copies) => self.chats.composer.draft.prompt_with(&typed, &copies.files),
-            None => text,
-        };
+        }
+        self.chats.copied.remove(&agent);
         self.chats.composer.draft.clear();
         self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
         if let Some((Kind::Local(local), _, arg)) = slash {
             return self.chat_local(&agent, local, &arg, window, cx);
         }
-        let slash = slash.is_some();
-        let Some(copies) = copies else { return self.chat_deliver(&agent, &typed, text, queue, slash, cx) };
-        let copied = cx.background_executor().spawn(async move { copies.make() });
-        cx.spawn(async move |this, cx| {
-            let copied = copied.await;
-            this.update(cx, |d, cx| match copied {
-                Ok(()) => d.chat_deliver(&agent, &typed, text, queue, slash, cx),
-                Err(e) => {
-                    let message = format!("Couldn't copy the attachments to {}: {e}", d.host_name(hosts::split(&cwd).0.unwrap_or_default()));
-                    d.error = Some(message.clone());
-                    d.chats.unsent = Some((message, typed));
-                    cx.notify();
-                }
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// Sends `text`, the prompt made from `typed`.
-    fn chat_deliver(&mut self, agent: &str, typed: &str, text: String, queue: bool, slash: bool, cx: &mut Context<Self>) {
-        let Some(a) = self.agents.get(agent) else { return };
-        let (steer, provider) = (self.chat_busy(a) && !self.chat_stopping(a) && !queue, a.provider.clone());
-        if let Some(entry) = self.chat_editing(agent) {
-            self.outbox.queue_edit(agent, &entry, &text);
+        if let Some(entry) = self.chat_editing(&agent) {
+            self.outbox.queue_edit(&agent, &entry, &text);
             return cx.notify();
         }
         // A command's name must lead what it sends.
-        let text = if slash { text } else { self.chats.composer.suggest.with_mcp_context(agent, &provider, &text) };
-        if chat::skips_queue(typed) {
-            self.outbox.prompt(agent, &text);
+        let text = if slash.is_some() { text } else { self.chats.composer.suggest.with_mcp_context(&agent, &provider, &text) };
+        if chat::skips_queue(&typed) {
+            self.outbox.prompt(&agent, &text);
             return cx.notify();
         }
         if !steer {
-            return self.chat_command(agent, Command::Send(text), cx);
+            return self.chat_command(&agent, Command::Send(text), cx);
         }
-        let request = self.outbox.prompt(agent, &text);
-        if let Some(v) = self.chats.views.get_mut(agent) {
+        let request = self.outbox.prompt(&agent, &text);
+        if let Some(v) = self.chats.views.get_mut(&agent) {
             let send = v.session.outgoing.steer_text(text, now_ms());
             if let Some(request) = request {
                 v.session.outgoing.sent_as(send, request);
@@ -586,6 +563,33 @@ impl Desktop {
             v.steered();
         }
         cx.notify();
+    }
+
+    /// Copies the draft's attachments to the host the agent runs on, then sends the draft as it stands, so the agent there
+    /// can read them. The draft stays, and this chat sends nothing else, until the copy is done.
+    #[allow(clippy::too_many_arguments)]
+    fn chat_copy_first(&mut self, terminal: &str, agent: String, cwd: &str, queue: bool, copies: crate::composer::HostCopies, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.chats.copying.insert(agent.clone()) {
+            return;
+        }
+        let (terminal, host) = (terminal.to_string(), self.host_name(hosts::split(cwd).0.unwrap_or_default()));
+        let copied = cx.background_executor().spawn(async move { copies.make().map(|()| copies.files) });
+        cx.spawn_in(window, async move |this, cx| {
+            let copied = copied.await;
+            this.update_in(cx, |d, window, cx| {
+                d.chats.copying.remove(&agent);
+                match copied {
+                    Ok(files) => {
+                        d.chats.copied.insert(agent, files);
+                        d.chat_send(&terminal, queue, window, cx);
+                    }
+                    Err(e) => d.error = Some(format!("Couldn't copy the attachments to {host}: {e}")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Remote Control's answer for `agent`'s chat: its link goes to the clipboard and the footer says so.
