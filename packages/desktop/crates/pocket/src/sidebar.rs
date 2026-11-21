@@ -687,7 +687,7 @@ mod tests {
     }
 
     fn tree(path: &str, main: bool) -> git::Worktree {
-        git::Worktree { path: path.into(), branch: String::new(), main, made: false }
+        git::Worktree { path: path.into(), branch: String::new(), main, made: false, created: None }
     }
 
     #[test]
@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn a_worktree_shows_its_name_over_its_branch_and_a_detached_one_its_folder() {
-        let named = git::Worktree { path: "/wt/calm-otter".into(), branch: "fix-login".into(), main: false, made: false };
+        let named = git::Worktree { path: "/wt/calm-otter".into(), branch: "fix-login".into(), main: false, made: false, created: None };
         let (mut name, none) = (Agents::default(), Agents::default());
         name.set_name("/wt/calm-otter", "Fix the login form");
         assert_eq!(tree_label(&named, &name), ("Fix the login form".into(), "fix-login".into()));

@@ -475,7 +475,8 @@ impl Desktop {
     /// `subagent_removals` for `r`, here; the host folders in it go through `host_removals`, off the UI thread.
     pub(crate) fn subagent_removals(&self, r: &Removal) -> (Vec<Removal>, OnHosts) {
         // A host's folder has no creation time here; its host checks it against `started`.
-        let created = |t: &str| std::fs::metadata(t).and_then(|m| m.created()).ok();
+        // From the last git refresh, read off the UI thread.
+        let created = |t: &str| self.worktrees.values().flatten().find(|w| w.path == t).and_then(|w| w.created);
         let subtrees = saved_links(&self.store.subtrees, |f| self.folder_tree(f), created);
         let place = |a: &Summary| self.session_place(a).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
         let started = |t: &str| self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(t)).map(|(_, s)| s.started);
@@ -759,7 +760,7 @@ mod tests {
     }
 
     fn tree(path: &str, main: bool) -> git::Worktree {
-        git::Worktree { path: path.into(), branch: String::new(), main, made: false }
+        git::Worktree { path: path.into(), branch: String::new(), main, made: false, created: None }
     }
 
     #[test]
@@ -769,8 +770,8 @@ mod tests {
         let at: std::collections::HashMap<&str, &str> =
             [("p", "/wt"), ("c", "/wt-c"), ("g", "/wt-g"), ("in-main", "/app"), ("shared", "/wt-s"), ("user", "/wt-s"), ("unmade", "/wt-u"), ("beside", "/wt")].into();
         let place = |a: &agents::Summary| at.get(a.terminal_id.as_str()).map(|t| t.to_string());
-        let made = |path: &str, branch: &str, made: bool| git::Worktree { path: path.into(), branch: branch.into(), main: false, made };
-        let main = git::Worktree { path: "/app".into(), branch: "main".into(), main: true, made: false };
+        let made = |path: &str, branch: &str, made: bool| git::Worktree { path: path.into(), branch: branch.into(), main: false, made, created: None };
+        let main = git::Worktree { path: "/app".into(), branch: "main".into(), main: true, made: false, created: None };
         let trees = vec![main, made("/wt", "feat", true), made("/wt-c", "tests", true), made("/wt-g", "detached", true), made("/wt-s", "s", true), made("/wt-u", "u", false)];
         let worktrees = [("/app".to_string(), trees)].into();
         let agents = agents::Agents { list, ..Default::default() };
@@ -786,7 +787,7 @@ mod tests {
         let theirs = agents::Summary { id: "devbox/x".into(), terminal_id: "devbox/x".into(), ..Default::default() };
         let agents = agents::Agents { list: vec![user, theirs], ..Default::default() };
         let place = |a: &agents::Summary| Some(if a.id == "user" { "/wt-busy" } else { "//devbox/home/dev/wt/notes/docs" }.to_string());
-        let made = |path: &str| git::Worktree { path: path.into(), branch: format!("b{path}"), main: false, made: true };
+        let made = |path: &str| git::Worktree { path: path.into(), branch: format!("b{path}"), main: false, made: true, created: None };
         let worktrees = [("/app".to_string(), vec![made("/wt"), made("/wt-c"), made("/wt-g"), made("/wt-busy"), made("/wt-other")]), ("//devbox/app".to_string(), vec![made("//devbox/wt-listed")])].into();
         let subtrees = [("/wt-c", "/wt"), ("/wt-g", "/wt-c"), ("/wt-busy", "/wt"), ("/wt-other", "/elsewhere"), ("//devbox/home/dev/wt/notes", "/wt-c"), ("//devbox/wt-listed", "/wt")].map(|(c, p)| (c.to_string(), p.to_string())).into();
         let parent = Removal { project: "/app".into(), tree: "/wt".into(), branch: Some("feat".into()), delete_branch: true, teardown: false };
@@ -799,7 +800,7 @@ mod tests {
 
     #[test]
     fn a_hosts_worktree_goes_only_while_its_the_one_made_then_and_nobody_else_works_in_it() {
-        let tree = |path: &str, main: bool| git::Worktree { path: path.into(), branch: "notes".into(), main, made: !main };
+        let tree = |path: &str, main: bool| git::Worktree { path: path.into(), branch: "notes".into(), main, made: !main, created: None };
         let ws = [tree("//devbox/app", true), tree("//devbox/wt/notes", false)];
         let made_at = |_: &str| Some(7);
         let found = |started: Option<u64>, others: &[&str]| {
