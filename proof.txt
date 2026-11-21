@@ -1,0 +1,12 @@
+=== RUN   TestAPocketdSetUpBeforeTheMoveMovesItsHomeAndItsOldPathsKeepWorking
+--- PASS: TestAPocketdSetUpBeforeTheMoveMovesItsHomeAndItsOldPathsKeepWorking (1.95s)
+=== RUN   TestAnUpgradeFromABuildBeforeTheMoveMovesTheHomeAndKeepsTheShell
+--- PASS: TestAnUpgradeFromABuildBeforeTheMoveMovesTheHomeAndKeepsTheShell (4.84s)
+ok  	pocketd/e2e	15.178s
+CAUGHT internal/config/migrate.go '\t\t\t\tos.Rename(filepath.Join(home, name), filepath.Join(legac'
+CAUGHT internal/config/config.go 'h != "" && filepath.Clean(h) != legacyHome()'
+CAUGHT internal/config/config.go '\tif h, err := os.Stat(home); err == nil && os.SameFile(l, h)'
+CAUGHT internal/config/migrate.go '\treturn true, os.Symlink(home, legacy)\n}'
+CAUGHT internal/hosts/install.go ' || remoteDir == config.LegacyHomeName()'
+CAUGHT internal/hosts/install.go '\tif legacy == "" {\n\t\treturn current, nil'
+CAUGHT internal/hosts/ssh.go '\t\t\treturn Probe{home, dirs[i], true}'
