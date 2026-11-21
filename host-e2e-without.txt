@@ -1,0 +1,7 @@
+    host_delegation_test.go:492: /private/tmp/pk1920732019/wt/notes stayed: <nil>
+    host_delegation_test.go:496: the host's branches "main\nsay-hello", want main alone
+    harness_test.go:197: pocketd output:
+    harness_test.go:197: pocketd output:
+FAIL
+FAIL	pocketd/e2e	10.293s
+FAIL
