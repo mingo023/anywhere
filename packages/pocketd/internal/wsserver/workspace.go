@@ -187,6 +187,8 @@ func (c *conn) removeWorktree(path string, subagents []string, deleteBranch, for
 		return worktree.ErrUnknownWorktree
 	}
 	subtrees, onHosts := c.subagentTrees(f, tree.Path)
+	line := append(slices.Clone(subagents), c.openIn(tree.Path)...)
+	subtrees = slices.DeleteFunc(subtrees, func(t linkedTree) bool { return c.othersIn(t.Path, line) })
 	trees := append(subtrees, tree)
 	if !force {
 		if n := lostCommits(trees, deleteBranch); n > 0 {
@@ -359,6 +361,25 @@ func (c *conn) othersIn(tree string, sessions []string) bool {
 		info := t.Info()
 		return info.Local == "" && inside(info.Cwd, tree) && !theirs[info.ID]
 	})
+}
+
+// openIn is the open sessions working in tree.
+func (c *conn) openIn(tree string) []string {
+	if c.s.OpenSessions == nil {
+		return nil
+	}
+	open, _ := c.s.OpenSessions()
+	var ids []string
+	for _, s := range open {
+		cwd := s.Cwd
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = real
+		}
+		if inside(cwd, tree) {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
 }
 
 func (c *conn) closeTerminals(trees []linkedTree) {
