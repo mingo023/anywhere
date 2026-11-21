@@ -21,6 +21,7 @@
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
 // FIXTURE_BACKGROUND=<image path> saves it as the background image in desktop.json.
+// FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -382,6 +383,12 @@ const usage = (session: number, week: number) => ({ session: { percent: session,
 const ACCOUNTS = [
   { id: "builtin", provider: "claude", email: "me@example.com", plan: "Max", signedIn: true, default: true, usage: usage(42, 72) },
   { id: "work", provider: "claude", label: "Work", email: "work@example.com", plan: "Team", signedIn: true, usage: usage(100, 64) },
+  ...(process.env.FIXTURE_EXPIRED
+    ? [
+        { id: "old", provider: "claude", label: "Personal", email: "old@example.com", plan: "Pro", signedIn: true, expired: true },
+        { id: "lapsed", provider: "claude", label: "Side", email: "lapsed@example.com", plan: "Pro", signedIn: true, expired: true, usage: { ...usage(30, 55), at: now - 90 * MIN, stale: true } },
+      ]
+    : []),
 ];
 
 // The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.

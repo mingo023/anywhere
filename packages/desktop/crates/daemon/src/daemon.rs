@@ -91,6 +91,8 @@ pub struct Account {
     pub default: bool,
     pub running: usize,
     pub usage: Option<Usage>,
+    /// Signed in, but its access token has lapsed, so its usage can't be read.
+    pub expired: bool,
     /// Signing in; `error` says why that failed.
     pub pending: bool,
     pub error: String,

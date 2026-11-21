@@ -29,14 +29,15 @@ func (codex) identity(s *Store, id string) (email, plan string) {
 	return claims.Email, title(claims.Auth.Plan)
 }
 
-func (codex) signedIn(s *Store, id string) bool {
-	return s.codexAuth(id).Tokens.AccessToken != ""
+func (codex) status(s *Store, id string) (bool, bool) {
+	a := s.codexAuth(id)
+	return a.Tokens.AccessToken != "", a.expired(time.Now())
 }
 
 func (codex) usage(ctx context.Context, s *Store, id string) (Usage, error) {
 	now := time.Now()
 	a := s.codexAuth(id)
-	if exp := jwtClaims(a.Tokens.AccessToken).Exp; exp > 0 && exp < now.Unix() {
+	if a.expired(now) {
 		return Usage{}, fmt.Errorf("token expired")
 	}
 	var raw struct {
@@ -78,6 +79,11 @@ type codexAuth struct {
 		AccessToken string `json:"access_token"`
 		AccountID   string `json:"account_id"`
 	} `json:"tokens"`
+}
+
+func (a codexAuth) expired(now time.Time) bool {
+	exp := jwtClaims(a.Tokens.AccessToken).Exp
+	return exp > 0 && exp < now.Unix()
 }
 
 func (s *Store) codexAuth(id string) codexAuth {

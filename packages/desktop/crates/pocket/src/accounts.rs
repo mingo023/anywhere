@@ -281,8 +281,9 @@ where
     let default = (a.default && shared).then(|| ("New agents".to_string(), Tone::Accent));
     let limited = limited(a).map(|at| (format!("Limited \u{b7} back {}", when(at, now, tz)), Tone::Bad));
     let out = (!a.signed_in && !never_signed_in(a)).then(|| ("Signed out".to_string(), Tone::Plain));
+    let expired = (a.signed_in && a.expired).then(|| ("Login expired".to_string(), Tone::Warn));
     let stale = a.usage.as_ref().filter(|u| a.signed_in && u.stale).map(|u| (format!("As of {}", when(u.at, now, tz)), Tone::Warn));
-    [built_in, same, default, limited, out, stale].into_iter().flatten().collect()
+    [built_in, same, default, limited, out, expired, stale].into_iter().flatten().collect()
 }
 
 /// The line under an account's name: its email when a label hides it, its plan and its running sessions.
@@ -639,6 +640,14 @@ mod tests {
         assert_eq!(tags(&a, false, NOW, &Utc), [("Limited \u{b7} back 09:53".to_string(), Tone::Bad)]);
         let stale = Account { usage: Some(Usage { stale: true, at: NOW - 60_000, ..a.usage.clone().unwrap() }), ..a };
         assert_eq!(tags(&stale, false, NOW, &Utc), [("As of 08:52".to_string(), Tone::Warn)]);
+    }
+
+    #[test]
+    fn an_account_whose_login_expired_says_so_beside_the_usage_it_last_read() {
+        let never = Account { expired: true, ..account("claude", "a") };
+        assert_eq!(tags(&never, false, NOW, &Utc), [("Login expired".to_string(), Tone::Warn)]);
+        let read = Account { usage: Some(Usage { session: window(30., 0), at: NOW - 60_000, stale: true, ..Default::default() }), ..never };
+        assert_eq!(tags(&read, false, NOW, &Utc), [("Login expired".to_string(), Tone::Warn), ("As of 08:52".to_string(), Tone::Warn)]);
     }
 
     #[test]

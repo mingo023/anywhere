@@ -32,7 +32,7 @@ type login interface {
 	// unset are what would sign its agent in as someone else.
 	unset() []string
 	identity(s *Store, id string) (email, plan string)
-	signedIn(s *Store, id string) bool
+	status(s *Store, id string) (signedIn, expired bool)
 	usage(ctx context.Context, s *Store, id string) (Usage, error)
 	// shared are the entries of its own folder that a managed account reads through.
 	shared() []string
@@ -52,7 +52,7 @@ type noLogin struct{}
 func (noLogin) envKey() string                           { return "" }
 func (noLogin) unset() []string                          { return nil }
 func (noLogin) identity(*Store, string) (string, string) { return "", "" }
-func (noLogin) signedIn(*Store, string) bool             { return false }
+func (noLogin) status(*Store, string) (bool, bool)       { return false, false }
 func (noLogin) usage(context.Context, *Store, string) (Usage, error) {
 	return Usage{}, ErrUnknown
 }
@@ -108,6 +108,8 @@ type Account struct {
 	// Same is the account listed before this one that signs in as the same
 	// person, as when the built-in login was later signed in as a managed one.
 	Same string `json:"same,omitempty"`
+	// Expired holds a login whose access token has lapsed: its usage can't be read until its CLI renews it or it signs in again.
+	Expired bool `json:"expired,omitempty"`
 	// Pending is signing in; Error says why that failed.
 	Pending bool   `json:"pending,omitempty"`
 	Error   string `json:"error,omitempty"`
@@ -217,7 +219,8 @@ func (s *Store) List(running func(provider, id string) int) []Account {
 			}
 		}
 		for i, e := range rows {
-			a := Account{ID: e.ID, Provider: p, Label: e.Label, Email: e.Email, Plan: e.Plan, SignedIn: s.SignedIn(p, e.ID), Default: e.ID == def, Running: running(p, e.ID)}
+			in, expired := loginOf(p).status(s, e.ID)
+			a := Account{ID: e.ID, Provider: p, Label: e.Label, Email: e.Email, Plan: e.Plan, SignedIn: in, Expired: in && expired, Default: e.ID == def, Running: running(p, e.ID)}
 			if j := slices.IndexFunc(rows[:i], func(o entry) bool { return e.Email != "" && o.Email == e.Email }); j >= 0 {
 				a.Same = rows[j].ID
 			}
@@ -417,7 +420,8 @@ func title(s string) string {
 
 // SignedIn is whether account id of provider holds a login.
 func (s *Store) SignedIn(provider, id string) bool {
-	return loginOf(provider).signedIn(s, id)
+	in, _ := loginOf(provider).status(s, id)
+	return in
 }
 
 // Keychain reads a macOS Keychain item's password with the security tool,

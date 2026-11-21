@@ -151,11 +151,14 @@ impl Desktop {
         let line = div().flex().items_center().gap(px(6.)).min_w_0().child(title).children(tags.collect::<Vec<_>>());
         let sub = div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(accounts::subline(a, provider_name(&a.provider), &self.machine_name(host)));
         let who = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(line).child(sub);
-        let side = if a.signed_in {
-            meters(a, now)
-        } else {
+        let sign_in = |label: &'static str, cx: &mut Context<Self>| {
             let key = key.clone();
-            div().w(px(228.)).flex_none().flex().justify_end().child(action(SharedString::from(format!("{id}-sign-in")), "Sign in\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx))))
+            div().flex().justify_end().child(action(SharedString::from(format!("{id}-sign-in")), label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx))))
+        };
+        let side = match (a.signed_in, a.expired) {
+            (true, false) => meters(a, now),
+            (true, true) => meters(a, now).child(sign_in("Sign in again\u{2026}", cx)),
+            (false, _) => div().w(px(228.)).flex_none().child(sign_in("Sign in\u{2026}", cx)),
         };
         let open = self.accounts.menu.as_ref() == Some(&key);
         let toggle = key.clone();
