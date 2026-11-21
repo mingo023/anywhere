@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"pocketd/internal/holder"
+	"pocketd/internal/ops"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -449,4 +450,20 @@ func TestAHostTaskCancelledWhileTheHostWasDownInterruptsTheChildThereOnceItIsBac
 	waitLink(owner, "devbox", proto.LinkOnline, "")
 
 	host.WaitScreen(child.TerminalID, "interrupt")
+}
+
+func TestClosingAParentClosesItsChildsTerminalOnALinkedHost(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"await never","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
 }
