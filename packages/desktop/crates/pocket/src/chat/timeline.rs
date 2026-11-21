@@ -32,6 +32,7 @@ const CARD_LINE: f32 = 19.;
 const CARD_LINES: usize = 3;
 const CARD_EDGE: f32 = 8.;
 const ENTER: Duration = Duration::from_millis(160);
+const SLIDE: Duration = Duration::from_millis(140);
 /// More than three lines of the card hold; the rest of a long prompt is never shaped.
 const LABEL_CHARS: usize = 400;
 
@@ -64,6 +65,42 @@ impl Pointer {
     fn release(&mut self) -> bool {
         std::mem::take(&mut self.pressed)
     }
+}
+
+/// The long tick sliding to the prompt being read, from tick position `from` to tick `to` on a rail of `ticks`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Lit {
+    from: f32,
+    to: usize,
+    ticks: usize,
+    at: Instant,
+}
+
+impl Lit {
+    /// Heads for tick `to` from wherever it is now; with nothing to slide from, a rail laid out anew, or `snap`, it's
+    /// there at once.
+    fn toward(lit: Option<Self>, to: usize, ticks: usize, now: Instant, snap: bool) -> Self {
+        match lit {
+            Some(l) if l.ticks == ticks && l.to == to => l,
+            Some(l) if l.ticks == ticks && !snap => Self { from: l.pos(now), to, ticks, at: now },
+            _ => Self { from: to as f32, to, ticks, at: now },
+        }
+    }
+
+    /// Its tick position at `now`.
+    fn pos(&self, now: Instant) -> f32 {
+        let t = (now.saturating_duration_since(self.at).as_secs_f32() / SLIDE.as_secs_f32()).min(1.);
+        self.from + (self.to as f32 - self.from) * ease_out_quint()(t)
+    }
+
+    fn moving(&self, now: Instant) -> bool {
+        self.from != self.to as f32 && now.saturating_duration_since(self.at) < SLIDE
+    }
+}
+
+/// How lit tick `tick` is with the long tick at `pos`: 1 under it, fading to 0 a tick away.
+fn glow(pos: f32, tick: usize) -> f32 {
+    (1. - (pos - tick as f32).abs()).clamp(0., 1.)
 }
 
 /// The pointer on the rail: a press glides the chat to its prompt, a drag follows the pointer at once, and letting go
@@ -133,9 +170,9 @@ fn current(prompts: &[usize], top: usize, at_end: bool) -> usize {
     prompts.iter().rposition(|&ix| ix <= top).unwrap_or(0)
 }
 
-/// A tick's width: longer for the prompt being read, and grown as the pointer nears it, `d` px away.
-fn width(active: bool, d: Option<f32>) -> f32 {
-    let base = if active { ACTIVE_W } else { BASE_W };
+/// A tick's width: longer by its `glow` from the prompt being read, and grown as the pointer nears it, `d` px away.
+fn width(glow: f32, d: Option<f32>) -> f32 {
+    let base = BASE_W + (ACTIVE_W - BASE_W) * glow;
     base + d.map_or(0., |d| MAG * (-(d / SIGMA).powi(2) / 2.).exp())
 }
 
@@ -158,7 +195,8 @@ impl Desktop {
     /// A tick per prompt down the chat's right edge, the one being read longer. Hovering shows the prompt beside it;
     /// a click, or a drag along the ticks, scrolls to it. The pointer's moves notify only the transcript's region.
     pub(super) fn chat_timeline(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
-        let view = self.chats.views.get(agent)?;
+        let (now, snap) = (Instant::now(), cx.reduce_motion() || self.capturing);
+        let view = self.chats.views.get_mut(agent)?;
         let s = &view.session;
         let prompts = prompt_rows(&s.rows);
         let viewport = view.list.viewport_bounds();
@@ -167,13 +205,20 @@ impl Desktop {
         let top = view.inset + (height - rail.height()) / 2.;
         let origin = f32::from(viewport.top()) + top;
         let active = rail.tick_of(current(&prompts, view.top_row().0, view.distance() <= 2.));
+        let lit = Lit::toward(view.lit, active, rail.ticks, now, snap);
+        view.lit = Some(lit);
+        if lit.moving(now) {
+            window.request_animation_frame();
+        }
+        let pos = lit.pos(now);
         let pointer = view.pointer.read(cx);
         let (y, entered) = (pointer.y, pointer.entered);
         let hovered = y.map(|y| rail.tick_at(y));
 
         let ticks = (0..rail.ticks).map(|tick| {
-            let colour = if hovered == Some(tick) { TEXT } else if tick == active { TEXT_3 } else { TEXT_6 };
-            div().absolute().top(px(rail.y(tick) - TICK / 2.)).right(px(TICK_RIGHT)).h(px(TICK)).w(px(width(tick == active, y.map(|y| y - rail.y(tick))))).rounded(px(TICK / 2.)).bg(colour)
+            let glow = glow(pos, tick);
+            let colour = if hovered == Some(tick) { Hsla::from(TEXT) } else { Hsla::from(TEXT_6).blend(Hsla::from(TEXT_3).opacity(glow)) };
+            div().absolute().top(px(rail.y(tick) - TICK / 2.)).right(px(TICK_RIGHT)).h(px(TICK)).w(px(width(glow, y.map(|y| y - rail.y(tick))))).rounded(px(TICK / 2.)).bg(colour)
         });
 
         let at = move |e: Point<Pixels>| f32::from(e.y) - origin;
@@ -278,8 +323,9 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CARD_EDGE, PITCH, Pointer, Rail, card_top, current, label, prompt_rows, width};
+    use super::{CARD_EDGE, Lit, PITCH, Pointer, Rail, SLIDE, card_top, current, glow, label, prompt_rows, width};
     use chat::Row;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn a_rail_needs_two_prompts_to_move_between() {
@@ -325,11 +371,41 @@ mod tests {
 
     #[test]
     fn a_tick_grows_as_the_pointer_nears_it() {
-        assert_eq!(width(false, None), 10.);
-        assert_eq!(width(true, None), 16.);
-        assert_eq!(width(false, Some(0.)), 20.);
-        assert!(width(false, Some(14.)) < width(false, Some(4.)));
-        assert!(width(false, Some(80.)) - 10. < 0.01);
+        assert_eq!(width(0., None), 10.);
+        assert_eq!(width(1., None), 16.);
+        assert_eq!(width(0., Some(0.)), 20.);
+        assert!(width(0., Some(14.)) < width(0., Some(4.)));
+        assert!(width(0., Some(80.)) - 10. < 0.01);
+    }
+
+    #[test]
+    fn the_long_tick_slides_to_the_next_prompt_and_settles_there() {
+        let now = Instant::now();
+        let lit = Lit::toward(Some(Lit::toward(None, 3, 10, now, false)), 4, 10, now, false);
+        assert!(lit.moving(now) && lit.pos(now) == 3.);
+        let mid = lit.pos(now + SLIDE / 2);
+        assert!(mid > 3.5 && mid < 4., "eases out: most of the way by halfway");
+        assert!(!lit.moving(now + SLIDE) && lit.pos(now + SLIDE) == 4.);
+        assert_eq!((glow(3.5, 3), glow(3.5, 4), glow(3.5, 5)), (0.5, 0.5, 0.));
+    }
+
+    #[test]
+    fn a_new_prompt_mid_slide_turns_the_long_tick_from_where_it_is() {
+        let now = Instant::now();
+        let lit = Lit::toward(Some(Lit::toward(None, 0, 10, now, false)), 5, 10, now, false);
+        let later = now + Duration::from_millis(30);
+        let turned = Lit::toward(Some(lit), 1, 10, later, false);
+        assert_eq!(turned.pos(later), lit.pos(later));
+        assert_eq!(Lit::toward(Some(turned), 1, 10, later + SLIDE / 2, false), turned, "the same prompt keeps its slide");
+    }
+
+    #[test]
+    fn the_long_tick_jumps_without_motion_or_on_a_rail_laid_out_anew() {
+        let now = Instant::now();
+        let lit = Lit::toward(None, 2, 10, now, false);
+        assert!(!lit.moving(now), "nothing to slide from at first");
+        assert_eq!(Lit::toward(Some(lit), 6, 10, now, true).pos(now), 6., "reduced motion");
+        assert_eq!(Lit::toward(Some(lit), 6, 11, now, false).pos(now), 6., "another prompt's tick moved the rest");
     }
 
     #[test]
