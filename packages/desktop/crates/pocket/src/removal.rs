@@ -262,12 +262,7 @@ fn subagent_removals(
     let roots: Vec<String> = agents.list.iter().filter(|a| place(a).as_deref() == Some(tree)).map(|a| a.id.clone()).collect();
     let subagents = agents.subagents_of(&roots);
     let theirs = |t: &str| agents.list.iter().filter(|a| place(a).as_deref() == Some(t)).all(|a| subagents.iter().any(|s| s.id == a.id));
-    let mut trees: Vec<String> = std::iter::once(tree.to_string()).chain(subagents.iter().filter_map(|a| place(a))).collect();
-    let mut i = 0;
-    while let Some(t) = trees.get(i).cloned() {
-        trees.extend(subtrees.iter().filter(|(c, p)| **p == t && !trees.contains(c)).map(|(c, _)| c.clone()).collect::<Vec<_>>());
-        i += 1;
-    }
+    let trees = below(std::iter::once(tree.to_string()).chain(subagents.iter().filter_map(|a| place(a))).collect(), subtrees);
     let mut out: Vec<Removal> = Vec::new();
     let mut on_hosts = OnHosts::default();
     let line = |a: &&Summary| roots.contains(&a.id) || subagents.iter().any(|s| s.id == a.id);
@@ -286,6 +281,16 @@ fn subagent_removals(
         }
     }
     (out, on_hosts)
+}
+
+/// `trees`, then the trees `links` (child to parent) hang below them, every generation down.
+fn below(mut trees: Vec<String>, links: &BTreeMap<String, String>) -> Vec<String> {
+    let mut i = 0;
+    while let Some(t) = trees.get(i).cloned() {
+        trees.extend(links.iter().filter(|(c, p)| **p == t && !trees.contains(c)).map(|(c, _)| c.clone()).collect::<Vec<_>>());
+        i += 1;
+    }
+    trees
 }
 
 /// The deletions of the worktrees Anywhere made on hosts that hold `on`'s folders, read off each host; their branches go if `delete_branch`.
@@ -347,8 +352,10 @@ enum Swept {
     Wait,
     /// Holds work nobody checked, so the user is asked.
     Ask(Removal),
-    /// Deleted, or no longer the subagent's; `None` when there was nothing to delete.
-    Done(Option<Ordered>),
+    /// No longer the subagent's, or nothing to delete.
+    Done,
+    /// The subagent's, clean, to delete.
+    Delete(Removal),
 }
 
 /// The deletions done, and the one that failed with why.
@@ -490,18 +497,27 @@ fn lost_together(jobs: &[Removal]) -> (usize, usize) {
 impl Desktop {
     /// `subagent_removals` for `r`, here; the host folders in it go through `host_removals`, off the UI thread.
     pub(crate) fn subagent_removals(&self, r: &Removal) -> (Vec<Removal>, OnHosts) {
-        // A host's folder has no creation time here; its host checks it against `started`.
-        // From the last git refresh, read off the UI thread.
-        let created = |t: &str| self.worktrees.values().flatten().find(|w| w.path == t).and_then(|w| w.created);
-        let subtrees = saved_links(&self.store.subtrees, |f| self.folder_tree(f), created);
         let place = |a: &Summary| self.session_place(a).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
-        let started = |t: &str| self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(t)).map(|(_, s)| s.started);
-        let (subtrees, mut on_hosts) = subagent_removals(r, &self.agents, place, &self.worktrees, &subtrees, started);
+        let started = |t: &str| self.saved_start(t);
+        let (subtrees, mut on_hosts) = subagent_removals(r, &self.agents, place, &self.worktrees, &self.saved_links(), started);
         let shells = self.shells();
         on_hosts.others.extend(shells.iter().filter(|f| hosts::split(f).0.is_some()).cloned());
         let unready = on_hosts.folders.iter().filter_map(|(f, _)| hosts::split(f).0).filter(|h| !self.removals.host_ready(h)).map(str::to_string).collect();
         on_hosts.unready = unready;
         (unoccupied(subtrees, &shells), on_hosts)
+    }
+
+    /// The saved subagent links, child tree to parent tree.
+    fn saved_links(&self) -> BTreeMap<String, String> {
+        // A host's folder has no creation time here; its host checks it against `started`.
+        // From the last git refresh, read off the UI thread.
+        let created = |t: &str| self.worktrees.values().flatten().find(|w| w.path == t).and_then(|w| w.created);
+        saved_links(&self.store.subtrees, |f| self.folder_tree(f), created)
+    }
+
+    /// When the subagent saved in `tree` started.
+    fn saved_start(&self, tree: &str) -> Option<u64> {
+        self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(tree)).map(|(_, s)| s.started)
     }
 
     /// The folders of live terminals no session runs in: a plain shell is someone working there too.
@@ -654,8 +670,6 @@ impl Desktop {
         }
         let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a)));
         let others: Vec<String> = sessions.chain(self.shells()).filter(|f| hosts::split(f).0.is_some()).collect();
-        let limit = Duration::from_secs(self.store.worktree.teardown_secs.into());
-        let teardowns: HashMap<String, String> = self.store.repos.iter().map(|(p, r)| (p.clone(), r.teardown.clone())).collect();
         let task = cx.background_executor().spawn(async move {
             let sweep = |(f, l): (String, Leftover)| {
                 let run = hosts::runner_for(&f);
@@ -664,14 +678,11 @@ impl Desktop {
                 // A host that dropped mid-read lists no worktrees, which isn't an answer.
                 let outcome = match found {
                     _ if !connected(&f) => Swept::Wait,
-                    Found::Unread if matches!(run.stat(&f), Ok(None)) => Swept::Done(None),
+                    Found::Unread if matches!(run.stat(&f), Ok(None)) => Swept::Done,
                     Found::Busy | Found::Unread => Swept::Wait,
-                    Found::Gone => Swept::Done(None),
+                    Found::Gone => Swept::Done,
                     Found::Theirs(r) if git::dirty_files(&run, &r.tree).is_none_or(|n| n > 0) || r.lost() > 0 => Swept::Ask(r),
-                    Found::Theirs(r) => {
-                        let own = teardowns.get(&r.project).cloned().unwrap_or_default();
-                        Swept::Done(Some(remove_in_order(vec![(r, own)], limit)))
-                    }
+                    Found::Theirs(r) => Swept::Delete(r),
                 };
                 (f, outcome)
             };
@@ -692,26 +703,64 @@ impl Desktop {
                             }
                             continue;
                         }
-                        Swept::Done(None) => {}
-                        Swept::Done(Some((done, failed))) => {
-                            done.iter().for_each(|(r, _)| d.forget_tree(&r.tree, cx));
-                            match failed {
-                                None => {}
-                                // Its sheet offers to delete it without the teardown, as for a tree the user deleted.
-                                Some((r, Failure::Teardown(tail))) if d.overlay.is_none() && d.removals.ask(&f) => {
-                                    d.confirm = Some(Confirm::TeardownFailed { failed: r.tree.clone(), removal: r, tail, subtrees: vec![] });
-                                    d.overlay = Some(Overlay::Confirm);
-                                    continue;
-                                }
-                                Some((r, Failure::Teardown(e) | Failure::Remove(e))) => {
-                                    d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree)));
-                                    d.removals.failed.insert(f);
-                                    continue;
-                                }
-                            }
+                        Swept::Done => {}
+                        Swept::Delete(r) => {
+                            d.sweep_delete(f, r, cx);
+                            continue;
                         }
                     }
                     d.store.host_leftovers.remove(&f);
+                }
+                d.save_soon(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Deletes `r`, the worktree the host leftover at `f` is in, and leaves its own subagents' on hosts to the sweep in
+    /// turn: one may have delegated while its host was away.
+    fn sweep_delete(&mut self, f: String, r: Removal, cx: &mut Context<Self>) {
+        if !self.removals.start(&f) {
+            return;
+        }
+        let (_, mut on_hosts) = self.subagent_removals(&r);
+        // Ones still closing, or whose parent left the list, are saved links only; each sweep tells whose each is.
+        for t in below(vec![r.tree.clone()], &self.saved_links()).into_iter().skip(1).filter(|t| hosts::split(t).0.is_some()) {
+            if !on_hosts.folders.iter().any(|(f, _)| *f == t) {
+                let at = self.saved_start(&t);
+                on_hosts.folders.push((t, at));
+            }
+        }
+        let limit = Duration::from_secs(self.store.worktree.teardown_secs.into());
+        let own = self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
+        let delete_branch = r.delete_branch;
+        let task = cx.background_executor().spawn(async move {
+            let (done, failed) = remove_in_order(vec![(r, own)], limit);
+            let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
+            ((done, failed), leftovers(on_hosts.folders, &trees, delete_branch))
+        });
+        cx.spawn(async move |this, cx| {
+            let ((done, failed), below) = task.await;
+            this.update(cx, |d, cx| {
+                d.removals.running.remove(&f);
+                done.iter().for_each(|(r, _)| d.forget_tree(&r.tree, cx));
+                match failed {
+                    None => {
+                        d.store.host_leftovers.remove(&f);
+                        d.store.host_leftovers.extend(below);
+                        d.sweep_host_leftovers(cx);
+                    }
+                    // Its sheet offers to delete it without the teardown, as for a tree the user deleted.
+                    Some((r, Failure::Teardown(tail))) if d.overlay.is_none() && d.removals.ask(&f) => {
+                        d.confirm = Some(Confirm::TeardownFailed { failed: r.tree.clone(), removal: r, tail, subtrees: vec![] });
+                        d.overlay = Some(Overlay::Confirm);
+                    }
+                    Some((r, Failure::Teardown(e) | Failure::Remove(e))) => {
+                        d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree)));
+                        d.removals.failed.insert(f);
+                    }
                 }
                 d.save_soon(cx);
                 cx.notify();
@@ -759,7 +808,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, below, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use store::Leftover;
@@ -1281,5 +1330,11 @@ mod tests {
         assert_eq!(nearest("//devbox/home/wt", exists).as_deref(), Some("//devbox/home/wt"));
         assert_eq!(nearest("//devbox/gone/deep", |_| Ok(false)).as_deref(), Some("//devbox/gone"));
         assert_eq!(nearest("//devbox/home/wt/src", |_| Err(std::io::Error::other("dropped"))), None);
+    }
+
+    #[test]
+    fn the_trees_below_one_are_every_generation_its_saved_links_hang_under_it() {
+        let links: BTreeMap<String, String> = [("/b", "/a"), ("/c", "/b"), ("/d", "/x")].into_iter().map(|(c, p)| (c.to_string(), p.to_string())).collect();
+        assert_eq!(below(vec!["/a".to_string()], &links), ["/a", "/b", "/c"]);
     }
 }

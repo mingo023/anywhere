@@ -586,9 +586,24 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
       devboxDown = true;
       if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
       devboxSockets.forEach((s) => s.close());
+      // FIXTURE_DEVBOX_GRANDCHILD=1: devbox's child, its close still queued, delegates once more while devbox is away; both close once it's back.
+      const parentTree = op.argv.find((a) => a.endsWith("delegate-host-notes"))!;
+      const deeper = parentTree.replace("delegate-host-notes", "delegate-host-deeper");
+      if (process.env.FIXTURE_DEVBOX_GRANDCHILD) {
+        const clone = parentTree.replace(/\.worktrees\/delegate-host-notes$/, "");
+        git(clone, "worktree", "add", "-q", "-b", "delegate/host-deeper", deeper, "HEAD");
+        writeFileSync(join(clone, ".git", "worktrees", "delegate-host-deeper", "anywhere"), "");
+      }
       setTimeout(() => {
         devboxDown = false;
         if (hostsWs) setLink(hostsWs, h.id, ONLINE);
+        if (!process.env.FIXTURE_DEVBOX_GRANDCHILD || !hostsWs) return;
+        const child = summaries.find((s) => s.id === `devbox/${process.env.FIXTURE_SUBAGENT}-hsub`)!;
+        summaries.push({ ...child, id: `${child.id}2`, cwd: deeper, title: "Check the notes deeper", parent: child.id, createdAt: Date.now() });
+        // A host lists its sessions again once its link is back.
+        hostsWs.send(JSON.stringify({ type: "agent.list", agents: summaries }));
+        const ws = hostsWs;
+        setTimeout(() => [`${child.id}2`, child.id].forEach((id) => exit(ws, id)), 3000);
       }, drop);
     }
   } else if (op.op === "fs.stat") {
@@ -1007,7 +1022,8 @@ Bun.serve({
         // FIXTURE_SUBAGENT_CLOSE_MS=<ms>: the FIXTURE_SUBAGENT session and its subagent close after that long.
         if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_CLOSE_MS) {
           setTimeout(() => {
-            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`, `devbox/${process.env.FIXTURE_SUBAGENT}-hsub`]) {
+            const hsub = process.env.FIXTURE_DEVBOX_GRANDCHILD ? [] : [`devbox/${process.env.FIXTURE_SUBAGENT}-hsub`];
+            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`, ...hsub]) {
               exit(ws, id);
               const i = sessions.findIndex((s) => s.id === id);
               if (i >= 0) sessions.splice(i, 1);
