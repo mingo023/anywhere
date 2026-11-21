@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -33,7 +34,9 @@ type WorkspaceService struct {
 	// SubagentTrees names the worktrees the subagents of the sessions in a worktree worked in, which go with it; nil names none.
 	SubagentTrees func(tree string, treeOf func(cwd string, at int64) string) (orch.Subtrees, error)
 	// HostDelete deletes a worktree on a linked host; nil deletes none there.
-	HostDelete func(ctx context.Context, host, path string, madeBefore int64, subagents []string, deleteBranch, force bool) error
+	HostDelete func(ctx context.Context, host, path string, subagents []string, deleteBranch, force bool) error
+	// Session is the store's row for a session, open or closed; nil knows none.
+	Session func(id string) (*orch.Session, error)
 }
 
 // closeWait bounds how long worktree.delete waits on a closed terminal's
@@ -154,7 +157,7 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 		return errors.New("This pocketd can't remove worktrees")
 	}
 	go func() {
-		if err := c.removeWorktree(m.Path, int64(m.MadeBefore), m.Subagents, m.DeleteBranch, m.Force); err != nil {
+		if err := c.removeWorktree(m.Path, m.Subagents, m.DeleteBranch, m.Force); err != nil {
 			c.send(workspaceError(m.ID, err))
 			return
 		}
@@ -170,19 +173,18 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 // The main worktree, branches whose commits nothing else holds, and a host
 // that refuses or is offline refuse the delete before anything here closes,
 // unless forced. A parent's Mac deleting its subagents' worktree here names
-// them, and when they closed: a worktree made since, or that someone else
-// works in, isn't theirs.
-func (c *conn) removeWorktree(path string, madeBefore int64, subagents []string, deleteBranch, force bool) error {
+// them: a worktree someone else works in, or made since they closed, isn't theirs.
+func (c *conn) removeWorktree(path string, subagents []string, deleteBranch, force bool) error {
 	f := c.s.Registry.Load()
 	tree, err := findTree(f, path)
 	if err != nil {
 		return err
 	}
-	if at := worktree.MadeAt(tree.Path); madeBefore > 0 && (at == 0 || at > madeBefore) {
-		return worktree.ErrUnknownWorktree
-	}
 	if subagents != nil && c.othersIn(tree.Path, subagents) {
 		return worktree.ErrInUse
+	}
+	if at := worktree.MadeAt(tree.Path); subagents != nil && (at == 0 || at > c.madeBy(tree.Path, subagents)) {
+		return worktree.ErrUnknownWorktree
 	}
 	subtrees, onHosts := c.subagentTrees(f, tree.Path)
 	trees := append(subtrees, tree)
@@ -194,7 +196,7 @@ func (c *conn) removeWorktree(path string, madeBefore int64, subagents []string,
 	if del := c.s.Workspace.HostDelete; del != nil {
 		for _, h := range onHosts {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			err := del(ctx, h.Host, h.Path, h.At, h.Sessions, deleteBranch, force)
+			err := del(ctx, h.Host, h.Path, h.Sessions, deleteBranch, force)
 			cancel()
 			if err != nil && !force {
 				return err
@@ -295,6 +297,37 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 		}
 	}
 	return out, found.Hosts
+}
+
+// madeBy is when the worktree at tree was made by, on this machine's clock, if
+// it's the one the sessions named worked in: when the last of them there
+// closed. None is open there and known, or there's no limit.
+func (c *conn) madeBy(tree string, sessions []string) int64 {
+	by := int64(0)
+	for _, id := range sessions {
+		var s *orch.Session
+		if c.s.Workspace.Session != nil {
+			s, _ = c.s.Workspace.Session(id)
+		}
+		if s == nil {
+			continue
+		}
+		cwd := s.Cwd
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = real
+		}
+		if !inside(cwd, tree) {
+			continue
+		}
+		if s.ClosedAt == 0 && s.Status != "closed" {
+			return math.MaxInt64
+		}
+		by = max(by, s.UpdatedAt, s.ClosedAt)
+	}
+	if by == 0 {
+		return math.MaxInt64
+	}
+	return by
 }
 
 // othersIn is whether a terminal in tree belongs to neither the open sessions

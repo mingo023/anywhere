@@ -358,10 +358,10 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 	var asked []string
 	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
 		s.Workspace.SubagentTrees = func(string, func(string, int64) string) (orch.Subtrees, error) {
-			return orch.Subtrees{Hosts: []orch.HostTree{{Host: "devbox", Path: "/home/dev/wt/notes", At: 42}}}, nil
+			return orch.Subtrees{Hosts: []orch.HostTree{{Host: "devbox", Path: "/home/dev/wt/notes", Sessions: []string{"hc"}}}}, nil
 		}
-		s.Workspace.HostDelete = func(_ context.Context, host, path string, madeBefore int64, _ []string, _, force bool) error {
-			asked = append(asked, fmt.Sprintf("%s %s %d %v", host, path, madeBefore, force))
+		s.Workspace.HostDelete = func(_ context.Context, host, path string, subagents []string, _, force bool) error {
+			asked = append(asked, fmt.Sprintf("%s %s %v %v", host, path, subagents, force))
 			return hosts.Refusal{Reply: proto.Error{Type: "error", Message: "2 commits", Code: proto.CodeUnpushedCommits, Count: 2}}
 		}
 	})
@@ -381,28 +381,34 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
-	if want := []string{"devbox /home/dev/wt/notes 42 false", "devbox /home/dev/wt/notes 42 true"}; !slices.Equal(asked, want) {
+	if want := []string{"devbox /home/dev/wt/notes [hc] false", "devbox /home/dev/wt/notes [hc] true"}; !slices.Equal(asked, want) {
 		t.Fatalf("asked the host %q, want %q", asked, want)
 	}
 }
 
-func TestAWorktreeMadeAfterTheTimeTheDeleteNamesIsSomeoneElsesAndStays(t *testing.T) {
+func TestAWorktreeMadeAfterItsSubagentClosedIsSomeoneElsesAndStays(t *testing.T) {
 	var b bench
-	_, _, p := local(t, aPhone, withWorkspace(t, &b))
+	var closed int64
+	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+		s.Workspace.Session = func(id string) (*orch.Session, error) {
+			return &orch.Session{ID: id, Cwd: filepath.Join(b.root, "pocket", "notes"), Status: "closed", ClosedAt: closed}, nil
+		}
+	})
 	tree := filepath.Join(b.root, "pocket", "notes")
 	if _, err := worktree.Add(b.s.Registry.Load(), b.project, "notes", ""); err != nil {
 		t.Fatal(err)
 	}
-	made := worktree.MadeAt(tree)
+	closed = worktree.MadeAt(tree) - 1
 	helloWith(p, proto.CapWorkspace)
-	p.send(fmt.Sprintf(`{"type":"worktree.delete","id":"wd","path":"%s","madeBefore":%d}`, tree, made-1))
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `","subagents":["sub"]}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != "unknown_worktree" {
 		t.Fatalf("a newer worktree at the path wasn't refused: %v", m)
 	}
 	if _, err := os.Stat(tree); err != nil {
 		t.Fatalf("the newer worktree went: %v", err)
 	}
-	p.send(fmt.Sprintf(`{"type":"worktree.delete","id":"wf","path":"%s","madeBefore":%d}`, tree, made))
+	closed++
+	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree + `","subagents":["sub"]}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
 	}
