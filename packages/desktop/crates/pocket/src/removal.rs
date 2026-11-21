@@ -13,8 +13,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Default)]
 pub(crate) struct Removals {
     running: HashSet<String>,
-    /// Hosts whose sessions arrived since their link last came up, so a sweep sees who works where.
+    /// Hosts whose sessions, then terminals, arrived since their link last came up, so a sweep sees who works where.
     listed: HashSet<String>,
+    terminals: HashSet<String>,
 }
 
 impl Removals {
@@ -26,8 +27,17 @@ impl Removals {
         self.listed.insert(host.to_string());
     }
 
+    pub(crate) fn host_terminals_listed(&mut self, host: &str) {
+        self.terminals.insert(host.to_string());
+    }
+
     pub(crate) fn host_dropped(&mut self, host: &str) {
         self.listed.remove(host);
+        self.terminals.remove(host);
+    }
+
+    fn host_ready(&self, host: &str) -> bool {
+        self.listed.contains(host) && self.terminals.contains(host)
     }
 
     /// Whether `tree` wasn't already being deleted.
@@ -574,13 +584,16 @@ impl Desktop {
     /// sessions.
     /// One a live session still works in waits; one holding work nobody checked asks first.
     pub(crate) fn sweep_host_leftovers(&mut self, cx: &mut Context<Self>) {
-        let ready = |f: &str| connected(f) && hosts::split(f).0.is_some_and(|h| self.removals.listed.contains(h));
+        let ready = |f: &str| connected(f) && hosts::split(f).0.is_some_and(|h| self.removals.host_ready(h));
         let back: Vec<(String, Leftover)> = self.store.host_leftovers.iter().filter(|(f, _)| ready(f)).map(|(f, l)| (f.clone(), *l)).collect();
         let back: Vec<(String, Leftover)> = back.into_iter().filter(|(f, _)| self.removals.start(f)).collect();
         if back.is_empty() {
             return;
         }
-        let others: Vec<String> = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a))).filter(|f| hosts::split(f).0.is_some()).collect();
+        // A plain shell counts as someone working there as much as a session does.
+        let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a)));
+        let shells = self.terminals.sessions.items.iter().filter(|s| s.exit.is_none()).map(|s| s.info.cwd.clone());
+        let others: Vec<String> = sessions.chain(shells).filter(|f| hosts::split(f).0.is_some()).collect();
         let limit = Duration::from_secs(self.store.worktree.teardown_secs.into());
         let teardowns: HashMap<String, String> = self.store.repos.iter().map(|(p, r)| (p.clone(), r.teardown.clone())).collect();
         let task = cx.background_executor().spawn(async move {
@@ -825,6 +838,19 @@ mod tests {
         let jobs = vec![job("/wt-c"), job("//devbox/wt/kept"), job("//devbox/wt/theirs"), job("//devbox/wt/asked")];
         let trees: Vec<String> = still_theirs(jobs, &["//devbox/wt/theirs".to_string()]).into_iter().map(|(r, _)| r.tree).collect();
         assert_eq!(trees, ["/wt-c", "//devbox/wt/theirs", "//devbox/wt/asked"]);
+    }
+
+    #[test]
+    fn a_host_is_swept_only_once_its_sessions_and_terminals_arrived_since_it_came_back() {
+        let mut r = Removals::default();
+        r.host_listed("devbox");
+        assert!(!r.host_ready("devbox"), "its shells aren't known yet");
+        r.host_terminals_listed("devbox");
+        assert!(r.host_ready("devbox"));
+        r.host_dropped("devbox");
+        assert!(!r.host_ready("devbox"));
+        r.host_terminals_listed("devbox");
+        assert!(!r.host_ready("devbox"), "its sessions aren't known yet");
     }
 
     #[test]

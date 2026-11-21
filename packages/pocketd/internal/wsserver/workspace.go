@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -305,7 +304,7 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 // it's the one the sessions named worked in: before the last of them there
 // started, as a session starts in its worktree and a newer one is made only
 // once they're gone. A store's close and update times move later; this doesn't.
-// No limit when none is known.
+// 0 when none is known, as when the host pruned them: nothing then proves it theirs.
 func (c *conn) madeBy(tree string, sessions []string) int64 {
 	by := int64(0)
 	for _, id := range sessions {
@@ -323,9 +322,6 @@ func (c *conn) madeBy(tree string, sessions []string) int64 {
 		if inside(cwd, tree) {
 			by = max(by, s.CreatedAt)
 		}
-	}
-	if by == 0 {
-		return math.MaxInt64
 	}
 	return by
 }
