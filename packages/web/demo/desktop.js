@@ -50,11 +50,13 @@ const GRADIENT = ['#8fb8ff', '#a9aafa', '#c39cf5', '#e19db7', '#ff9f7a'];
 const spinner = (size = 11) => `<span class="gspin" style="--z:${size}px">${[0, 1, 2].map((row) => [0, 1, 2].map((col) =>
   `<i style="background:${GRADIENT[row + col]};animation-delay:${-((8 - row - col) / 8) * 800}ms"></i>`).join('')).join('')}</span>`;
 
+const CROSS = [1, 0, 1, 0, 1, 0, 1, 0, 1];
+const matrix = (status, size = 11) => `<span class="mtx ${status}" style="--z:${size}px">${CROSS.map((x) =>
+  `<i${status !== 'failed' || x ? ' class="on"' : ''}></i>`).join('')}</span>`;
+
 const glyph = (r) =>
-  r.status === 'needs' ? '<span class="halo"><i></i></span>'
-  : r.status === 'working' ? spinner()
-  : r.status === 'failed' ? `<span class="fail">${ic('x-bold', 11)}</span>`
-  : r.status === 'done' ? '<span class="halo done"><i></i></span>'
+  r.status === 'working' ? spinner()
+  : ['needs', 'failed', 'done'].includes(r.status) ? matrix(r.status)
   : r.local ? `<span class="dim">${ic('laptop', 13)}</span>`
   : `<span class="dim">${ic('worktree', 13)}</span>`;
 
@@ -100,7 +102,7 @@ app.className = 'app';
 const $ = (q) => app.querySelector(q);
 
 const api = {
-  PROJECTS, all, needing, glyph, spinner, diffstat, letter, rail, tab, state, $, ic, esc, AGENTS,
+  PROJECTS, all, needing, glyph, spinner, matrix, diffstat, letter, rail, tab, state, $, ic, esc, AGENTS,
   go, draw,
   // The bell's count; the inbox replaces it with Needs you plus unseen Failed and Done.
   alerts: () => needing().length,

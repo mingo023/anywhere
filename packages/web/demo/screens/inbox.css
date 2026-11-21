@@ -90,10 +90,7 @@
 .act-ring { display: grid; color: var(--working); }
 .act-ring.rot svg { animation: act-spin 900ms linear infinite; }
 @keyframes act-spin { to { transform: rotate(360deg); } }
-.act-halo, .act-dot { display: grid; place-items: center; width: 14px; height: 14px; }
-.act-halo i { width: 8px; height: 8px; border-radius: 50%; background: var(--waiting); box-shadow: 0 0 0 3px #ffb2243d; }
-.act-halo.bad i { background: var(--failed); box-shadow: 0 0 0 3px #e5484d3d; }
-.act-dot i { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.act-mark { display: grid; place-items: center; width: 14px; height: 14px; }
 
 .act-cardw { padding: 0 8px 8px; }
 .act-cardw.first { padding-top: 4px; }

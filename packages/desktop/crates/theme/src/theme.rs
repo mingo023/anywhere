@@ -677,23 +677,36 @@ fn gradient_delay(row: usize, col: usize) -> f32 {
     (row + col) as f32 / 8.
 }
 
+fn dot_grid(size: f32) -> Div {
+    div().size(px(size)).flex_none().flex().flex_col().gap(px(size / 8.))
+}
+
+fn dot_rows(size: f32, color: impl Fn(usize, usize) -> Hsla + Copy) -> impl Iterator<Item = Div> {
+    let dot = size / 4.;
+    (0..3).map(move |row| div().flex().gap(px(dot / 2.)).children((0..3).map(move |col| div().size(px(dot)).rounded_full().bg(color(row, col)))))
+}
+
 /// A `size`-px 3×3 grid of dots tinted along the diagonal, a pulse of light sweeping over them from the top-left.
 pub fn gradient_spinner(id: impl Into<ElementId>, size: f32) -> impl IntoElement {
-    let dot = size / 4.;
-    div()
-        .size(px(size))
-        .flex_none()
-        .flex()
-        .flex_col()
-        .gap(px(dot / 2.))
+    dot_grid(size)
         // Uncapped, a repeating animation redraws the whole window every vsync; 20fps shares frames with the chat's shimmer.
         .with_animation(id, Animation::new(std::time::Duration::from_millis(800)).repeat_synced().with_max_fps(20.), move |d, t| {
-            d.children((0..3).map(|row| {
-                div().flex().gap(px(dot / 2.)).children((0..3).map(move |col| {
-                    div().size(px(dot)).rounded_full().bg(Hsla::from(rgb(GRADIENT_DIAGONALS[row + col])).opacity(gradient_opacity(t - gradient_delay(row, col))))
-                }))
-            }))
+            d.children(dot_rows(size, |row, col| Hsla::from(rgb(GRADIENT_DIAGONALS[row + col])).opacity(gradient_opacity(t - gradient_delay(row, col)))))
         })
+}
+
+/// Every dot of a `dot_matrix`, one bit per dot from the top-left, row by row.
+pub const MATRIX_FULL: u16 = 0b111_111_111;
+pub const MATRIX_CROSS: u16 = 0b101_010_101;
+
+/// The gradient spinner's grid at rest: `lit` dots in `color`, the rest at `GRADIENT_DIM`.
+pub fn dot_matrix(size: f32, color: impl Into<Hsla>, lit: u16) -> Div {
+    let color = color.into();
+    dot_grid(size).children(dot_rows(size, move |row, col| if lit_at(lit, row, col) { color } else { color.opacity(GRADIENT_DIM) }))
+}
+
+fn lit_at(lit: u16, row: usize, col: usize) -> bool {
+    lit >> (8 - row * 3 - col) & 1 == 1
 }
 
 pub const FONTS: [&[u8]; 9] = [
@@ -831,7 +844,7 @@ mod tests {
     use super::{
         ACCENT, ACCENT_LINK, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, FILL_1, FILL_2, FILL_3, FILL_4, HAIRLINE, MATERIAL, MODIFIED, PAGE, POPOVER, SEPARATOR, SEPARATOR_STRONG, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, SYN_COMMENT, SYN_FN, SYN_KEYWORD,
         ON_TEXT, SYN_STRING, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Look, Token, WAITING, WAITING_TEXT, GOAL_TEXT, WHITE, WINDOW, WINDOW_SOLID, DIFF_ADD_BG, DIFF_DEL_WORD, SYNTAX_THEMES, NAV, glass_alpha, highlight_theme_with, material, material_icon, nav_rgba,
-        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_delay, gradient_opacity,
+        ACCENT_BG, ACCENT_SWATCHES, ON_PRIMARY, PRIMARY, SELECTION, SPRING, INDIGO, WORKING, accent_rgba, gradient_delay, gradient_opacity, lit_at, MATRIX_CROSS, MATRIX_FULL,
         BRANDS, PROVIDER_NAMES, provider_glyph, provider_name, provider_svg,
     };
     use gpui_kit::component::input::HighlightStyleResolver;
@@ -1069,6 +1082,13 @@ mod tests {
         assert!(near(gradient_opacity(0.7), 0.1));
         assert!(near(gradient_opacity(0.96), 0.55));
         assert!(near(gradient_opacity(1.), 1.));
+    }
+
+    #[test]
+    fn matrix_cross_lights_the_corners_and_centre() {
+        let lit: Vec<Vec<bool>> = (0..3).map(|row| (0..3).map(|col| lit_at(MATRIX_CROSS, row, col)).collect()).collect();
+        assert_eq!(lit, [[true, false, true], [false, true, false], [true, false, true]]);
+        assert!((0..9).all(|i| lit_at(MATRIX_FULL, i / 3, i % 3)));
     }
 
     #[test]

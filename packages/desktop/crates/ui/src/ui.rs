@@ -292,8 +292,8 @@ pub fn diffstat(added: usize, removed: usize) -> Div {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Glyph {
-    Halo,
     Spinner,
+    Matrix,
     Cross,
 }
 
@@ -309,9 +309,9 @@ pub struct Tone {
 /// The one map from a status to its look. States that are not an agent's status have none.
 pub fn tone(state: State) -> Option<Tone> {
     let (glyph, mark, text, bg) = match state {
-        State::NeedsYou => (Glyph::Halo, WAITING, WAITING_TEXT, WAITING_BG),
+        State::NeedsYou => (Glyph::Matrix, WAITING, WAITING_TEXT, WAITING_BG),
         State::Working | State::Moving => (Glyph::Spinner, WORKING, ACCENT, ACCENT_TINT),
-        State::Done(..) => (Glyph::Halo, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
+        State::Done(..) => (Glyph::Matrix, SUCCESS, SUCCESS_TEXT, SUCCESS_BG),
         State::Failed => (Glyph::Cross, FAILED, FAILED_TEXT, FAILED_BG),
         _ => return None,
     };
@@ -320,9 +320,9 @@ pub fn tone(state: State) -> Option<Tone> {
 
 pub fn glyph(id: impl Into<ElementId>, t: Tone) -> AnyElement {
     match t.glyph {
-        Glyph::Halo => div().size(px(13.)).flex().flex_none().items_center().justify_center().rounded(px(6.5)).bg(t.bg).child(dot(7., t.mark)).into_any_element(),
         Glyph::Spinner => gradient_spinner(id, 11.).into_any_element(),
-        Glyph::Cross => icon("x-bold", 11., t.mark).into_any_element(),
+        Glyph::Matrix => dot_matrix(11., t.mark, MATRIX_FULL).into_any_element(),
+        Glyph::Cross => dot_matrix(11., t.mark, MATRIX_CROSS).into_any_element(),
     }
 }
 
@@ -1364,7 +1364,7 @@ pub fn value_row(id: impl Into<ElementId>, on: bool, lead: impl IntoElement, nam
 #[cfg(test)]
 mod tests {
     use super::{Glyph, MARQUEE_REST, MARQUEE_SPEED, Mark, State, Tone, count_text, lit, marquee_cycle, marquee_offset, named_keys, tone, word};
-    use theme::{ACCENT, ACCENT_TINT, WORKING};
+    use theme::{ACCENT, ACCENT_TINT, SUCCESS, SUCCESS_BG, SUCCESS_TEXT, WORKING};
 
     #[test]
     fn an_emoji_fills_more_of_its_tile_than_letters_or_a_picture_s_fallback() {
@@ -1419,5 +1419,12 @@ mod tests {
         assert_eq!(tone(State::Working), Some(Tone { glyph: Glyph::Spinner, mark: WORKING, text: ACCENT, bg: ACCENT_TINT }));
         assert_eq!(word(State::Working), "Working");
         assert_eq!((tone(State::Moving), word(State::Moving)), (tone(State::Working), "Moving"));
+    }
+
+    #[test]
+    fn finished_states_rest_as_the_working_grid() {
+        assert_eq!(tone(State::Done(0, 0)), Some(Tone { glyph: Glyph::Matrix, mark: SUCCESS, text: SUCCESS_TEXT, bg: SUCCESS_BG }));
+        assert_eq!(tone(State::NeedsYou).map(|t| t.glyph), Some(Glyph::Matrix));
+        assert_eq!(tone(State::Failed).map(|t| t.glyph), Some(Glyph::Cross));
     }
 }

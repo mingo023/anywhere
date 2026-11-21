@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.57
+
+- Done, Needs you and Failed show as a still dot grid (#330): (1ba34cd5)
+- Timeline tick slides as you scroll, PR chip loses its chevron (#329): (5264557a)
+- Pair site titles and schema with "coding agent workspace" (#327): (e0eec69f)
+- Deleting a worktree no longer shows "no such terminal" (#326): (7135870f)
+- Mention remote hosts in the README feature list (#324): (23ada1eb)
+- A failed gh run keeps the PR on screen (#325): (684f37cb)
+- Shorten the README to a short user-facing overview (#322): (6874bb54)
+- Accounts whose token expired say so instead of showing blank usage (#323): (87d9efc4)
+- Images pasted for a session on a remote host reach its agent (#320): (224a78b4)
+- Pick a background image for the New session page and chats (#318): (2edfe489)
+- Anywhere keeps all its files in ~/.anywhere (#317): (8cb9033d)
+- Landing page has a Downloads section for macOS, Linux and Windows (#319): (d1399b6e)
+- Switching hosts and back keeps the session you had selected (#316): (6723ba63)
+- Claude chats can make Artifacts (#315): (b97ec28b)
+- Site SEO fixes: clean internal links, RSS, docs JSON-LD, and the Windows download (#313): (7437dc90)
+- Blog: Vibe Kanban alternative: a local Board for coding agents (#314): (39ced313)
+- Windows release finds the WebView2 loader on Rust 1.100 (#311): (7cfc4c62)
+
 ## 0.1.56
 
 - First launch greets you with a mascot that watches your cursor (#309): (d0ddca6d)

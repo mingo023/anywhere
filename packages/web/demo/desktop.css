@@ -68,9 +68,6 @@
 .wt .stat { display: flex; gap: 6px; font: 400 11.5px var(--mono); }
 .halo { display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; background: var(--waiting-bg); }
 .halo i { width: 7px; height: 7px; border-radius: 50%; background: var(--waiting); }
-.halo.done { background: var(--success-bg); }
-.halo.done i { background: var(--success); }
-.app .fail { display: grid; color: var(--failed); }
 .app .dim { display: grid; color: var(--t4); }
 .settings { position: absolute; bottom: 10px; left: 8px; width: calc(100% - 16px) !important; }
 
@@ -78,6 +75,12 @@
 .gspin { display: grid; grid-template-columns: repeat(3, calc(var(--z) / 4)); gap: calc(var(--z) / 8); width: var(--z); height: var(--z); flex: none; }
 .gspin i { width: calc(var(--z) / 4); height: calc(var(--z) / 4); border-radius: 50%; opacity: 0.1; animation: gpulse 800ms linear infinite; }
 @keyframes gpulse { 0% { opacity: 1; } 45% { opacity: 0.1; } 92% { opacity: 0.1; } 100% { opacity: 1; } }
+.mtx { display: grid; grid-template-columns: repeat(3, calc(var(--z) / 4)); gap: calc(var(--z) / 8); width: var(--z); height: var(--z); flex: none; }
+.mtx i { width: calc(var(--z) / 4); height: calc(var(--z) / 4); border-radius: 50%; background: var(--mtx); opacity: 0.1; }
+.mtx i.on { opacity: 1; }
+.mtx.needs { --mtx: var(--waiting); }
+.mtx.done { --mtx: var(--success); }
+.mtx.failed { --mtx: var(--failed); }
 
 /* Area: a screen's content right of the sidebar. A `full` screen owns the whole window. */
 .app .area { position: relative; display: flex; flex: 1; min-width: 0; }

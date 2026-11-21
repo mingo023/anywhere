@@ -17,8 +17,8 @@ pub(super) fn col_glyph(col: Col, busy: bool) -> AnyElement {
             let ring = icon("spinner-ring", 12., WORKING).with_animation("activity-working", Animation::new(std::time::Duration::from_millis(900)).repeat_synced().with_max_fps(20.), |s, t| s.with_transformation(Transformation::rotate(percentage(t))));
             return div().size(px(14.)).flex().flex_none().items_center().justify_center().child(ring).into_any_element();
         }
-        Col::NeedsYou => return halo(WAITING_DOT),
-        Col::Done => return dot(SUCCESS),
+        Col::NeedsYou => return matrix(WAITING_DOT, MATRIX_FULL),
+        Col::Done => return matrix(SUCCESS, MATRIX_FULL),
         Col::InReview => ("pull-request", GOAL_TEXT),
     };
     icon(name, 14., color).into_any_element()
@@ -26,16 +26,11 @@ pub(super) fn col_glyph(col: Col, busy: bool) -> AnyElement {
 
 /// A session's mark: its column's, but a failed turn shows as failed.
 pub(super) fn item_glyph(item: &Item) -> AnyElement {
-    if item.failed() { halo(FAILED) } else { col_glyph(item.col(), true) }
+    if item.failed() { matrix(FAILED, MATRIX_CROSS) } else { col_glyph(item.col(), true) }
 }
 
-fn dot(color: Token) -> AnyElement {
-    div().size(px(14.)).flex().flex_none().items_center().justify_center().child(div().size(px(8.)).rounded_full().bg(color)).into_any_element()
-}
-
-fn halo(color: Token) -> AnyElement {
-    let dot = div().size(px(8.)).rounded_full().bg(color).shadow(vec![ui::ring(Hsla::from(color).opacity(0.24), 3.)]);
-    div().size(px(14.)).flex().flex_none().items_center().justify_center().child(dot).into_any_element()
+fn matrix(color: Token, lit: u16) -> AnyElement {
+    div().size(px(14.)).flex().flex_none().items_center().justify_center().child(dot_matrix(11., color, lit)).into_any_element()
 }
 
 /// A small outlined tag: a PR, a diff.
