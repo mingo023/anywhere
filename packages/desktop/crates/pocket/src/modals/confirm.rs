@@ -44,10 +44,11 @@ impl ConfirmText {
         Self { title: format!("Remove {name}?"), action: "Remove", facts, dirty: 0, lost: 0, danger: true }
     }
 
-    /// `lost` counts the commits only the tree's branch, or its detached HEAD, holds; a kept branch keeps them.
-    fn delete_worktree(r: &Removal, dirty: usize, lost: usize, terminals: usize) -> Self {
-        let facts = closes(terminals).into_iter().chain([format!("Deletes the folder {}", tilde(&r.tree))]).collect();
-        let lost = if r.branch.is_some() && !r.delete_branch { 0 } else { lost };
+    /// `lost` counts the commits only the tree's branch, or its detached HEAD, holds; a kept branch keeps them. `lost_anyway` go either way.
+    fn delete_worktree(r: &Removal, dirty: usize, lost: usize, lost_anyway: usize, terminals: usize, subtrees: usize) -> Self {
+        let others = counted(subtrees, "Deletes the worktree its subagents worked in", |n| format!("Deletes the {n} worktrees its subagents worked in"));
+        let facts = closes(terminals).into_iter().chain([format!("Deletes the folder {}", tilde(&r.tree))]).chain(others).collect();
+        let lost = if r.branch.is_some() && !r.delete_branch { 0 } else { lost } + lost_anyway;
         Self { title: format!("Delete {}?", basename(&r.tree)), action: "Delete", facts, dirty, lost, danger: true }
     }
 
@@ -203,7 +204,10 @@ impl Desktop {
         let text = match &self.confirm {
             Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
             Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() }),
-            Some(Confirm::DeleteWorktree { removal, dirty, lost }) => ConfirmText::delete_worktree(removal, *dirty, *lost, self.tree_terminals(&removal.tree).len()),
+            Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees }) => {
+                let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t).len()).sum();
+                ConfirmText::delete_worktree(removal, *dirty, *lost, *lost_anyway, terminals, subtrees.len())
+            }
             Some(Confirm::DeleteLocal(id)) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),
             Some(Confirm::DeleteScratch { path, dirty, lost }) => ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path).len()),
             Some(Confirm::TeardownFailed { removal, .. }) => ConfirmText::teardown_failed(&removal.tree),
@@ -307,10 +311,10 @@ impl Desktop {
     pub(crate) fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.confirm.take() {
             Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
-            Some(Confirm::DeleteWorktree { removal, .. }) => self.delete_worktree(removal, cx),
+            Some(Confirm::DeleteWorktree { removal, subtrees, .. }) => self.delete_worktree(removal, &subtrees, cx),
             Some(Confirm::DeleteLocal(id)) => self.delete_local(&id, cx),
             Some(Confirm::DeleteScratch { path, .. }) => self.delete_scratch(&path, cx),
-            Some(Confirm::TeardownFailed { removal, .. }) => self.delete_worktree(Removal { teardown: false, ..removal }, cx),
+            Some(Confirm::TeardownFailed { removal, subtrees, .. }) => self.delete_worktree(Removal { teardown: false, ..removal }, &subtrees, cx),
             Some(Confirm::Discard(paths)) => self.discard(paths, cx),
             Some(Confirm::SwitchAgent { agent, provider, model }) => _ = self.open_switched_chat(&agent, &provider, &model, true, cx),
             Some(Confirm::CloseSession(id)) => {
@@ -356,8 +360,8 @@ mod tests {
         assert!(!enter_confirms(&Keystroke::parse("cmd-enter").unwrap(), &delete));
         assert!(!enter_confirms(&Keystroke::parse("space").unwrap(), &delete));
         let removal = Removal { project: "/p".into(), tree: "/t".into(), branch: None, delete_branch: false, teardown: true };
-        assert!(enter_confirms(&enter, &Confirm::DeleteWorktree { removal: removal.clone(), dirty: 0, lost: 0 }));
-        let teardown = Confirm::TeardownFailed { removal, tail: String::new() };
+        assert!(enter_confirms(&enter, &Confirm::DeleteWorktree { removal: removal.clone(), dirty: 0, lost: 0, lost_anyway: 0, subtrees: vec![] }));
+        let teardown = Confirm::TeardownFailed { removal, tail: String::new(), subtrees: vec![] };
         assert!(!enter_confirms(&enter, &teardown), "a sheet that arrives on its own");
     }
 
@@ -417,22 +421,29 @@ mod tests {
 
     #[test]
     fn deleting_a_worktree_names_its_folder_and_warns_about_uncommitted_files() {
-        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 2, 0, 1);
+        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 2, 0, 0, 1, 0);
         assert_eq!(got, text("Delete feat?", "Delete", &["Closes 1 terminal", "Deletes the folder /src/feat"], 2));
-        let warnings = [0, 1, 2].map(|dirty| ConfirmText::delete_worktree(&removal(Some("feat-x"), true), dirty, 0, 0).warning());
+        let warnings = [0, 1, 2].map(|dirty| ConfirmText::delete_worktree(&removal(Some("feat-x"), true), dirty, 0, 0, 0, 0).warning());
         assert_eq!(warnings, [None, Some("1 uncommitted file will be lost.".into()), Some("2 uncommitted files will be lost.".into())]);
     }
 
     #[test]
+    fn deleting_a_worktree_names_the_worktrees_its_subagents_worked_in() {
+        let got = ConfirmText::delete_worktree(&removal(Some("feat-x"), true), 0, 0, 0, 3, 2);
+        assert_eq!(got.facts, ["Closes 3 terminals", "Deletes the folder /src/feat", "Deletes the 2 worktrees its subagents worked in"]);
+    }
+
+    #[test]
     fn commits_only_the_branch_holds_are_lost_only_while_it_goes_too() {
-        let warning = |delete_branch| ConfirmText::delete_worktree(&removal(Some("feat-x"), delete_branch), 1, 3, 0).warning();
-        assert_eq!(warning(true), Some("1 uncommitted file and 3 commits on no other branch will be lost.".into()));
-        assert_eq!(warning(false), Some("1 uncommitted file will be lost.".into()));
+        let warning = |delete_branch, anyway| ConfirmText::delete_worktree(&removal(Some("feat-x"), delete_branch), 1, 3, anyway, 0, 0).warning();
+        assert_eq!(warning(true, 0), Some("1 uncommitted file and 3 commits on no other branch will be lost.".into()));
+        assert_eq!(warning(false, 0), Some("1 uncommitted file will be lost.".into()));
+        assert_eq!(warning(false, 2), Some("1 uncommitted file and 2 commits on no other branch will be lost.".into()), "a detached subagent tree's commits go even when branches stay");
     }
 
     #[test]
     fn a_detached_worktree_loses_its_commits() {
-        let got = ConfirmText::delete_worktree(&removal(None, false), 0, 2, 0);
+        let got = ConfirmText::delete_worktree(&removal(None, false), 0, 2, 0, 0, 0);
         assert_eq!((got.warning(), got.facts), (Some("2 commits on no other branch will be lost.".into()), vec!["Deletes the folder /src/feat".to_string()]));
     }
 
