@@ -3,6 +3,7 @@ use crate::desktop::chrome::{Confirm, Overlay};
 use crate::fs::fs_for;
 use crate::util::basename;
 use agents::{Agents, Summary};
+use store::Subtree;
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -225,12 +226,18 @@ fn subagent_removals(r: &Removal, agents: &Agents, place: impl Fn(&Summary) -> O
 }
 
 /// Adds the links not known yet, keeping the parent first seen; returns whether any was added.
-fn remember(subtrees: &mut BTreeMap<String, String>, links: Vec<(String, String)>) -> bool {
+fn remember(subtrees: &mut BTreeMap<String, Subtree>, links: Vec<(String, String)>, seen: u64) -> bool {
     let before = subtrees.len();
     for (child, parent) in links {
-        subtrees.entry(child).or_insert(parent);
+        subtrees.entry(child).or_insert(Subtree { parent, seen });
     }
     subtrees.len() != before
+}
+
+/// Whether a worktree made at `created` can be the one a subagent was seen in at `seen`.
+fn there_when_seen(created: Option<SystemTime>, seen: u64) -> bool {
+    let created = created.and_then(|c| c.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
+    created.is_none_or(|c| c <= seen)
 }
 
 /// `(child, parent)` for each live subagent placed apart from its parent.
@@ -256,7 +263,11 @@ fn lost_together(jobs: &[Removal]) -> (usize, usize) {
 
 impl Desktop {
     pub(crate) fn subagent_removals(&self, r: &Removal) -> Vec<Removal> {
-        let subtrees: BTreeMap<String, String> = self.store.subtrees.iter().filter_map(|(c, p)| Some((self.tree_of(c)?, self.tree_of(p)?))).collect();
+        let created = |t: &str| std::fs::metadata(t).and_then(|m| m.created()).ok();
+        let subtrees: BTreeMap<String, String> = self.store.subtrees.iter().filter_map(|(c, s)| {
+            let tree = self.tree_of(c).filter(|t| there_when_seen(created(t), s.seen))?;
+            Some((tree, self.tree_of(&s.parent)?))
+        }).collect();
         subagent_removals(r, &self.agents, |a| self.session_place(a), &self.worktrees, &subtrees)
     }
 
@@ -268,7 +279,8 @@ impl Desktop {
     /// worktrees, as a subagent's worktree may be newer than the last git refresh.
     pub(crate) fn remember_subtrees(&mut self, cx: &mut Context<Self>) {
         let links = subtree_links(&self.agents, |a| Some(a.cwd.clone()).filter(|c| !c.is_empty()));
-        if remember(&mut self.store.subtrees, links) {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        if remember(&mut self.store.subtrees, links, now) {
             self.save_soon(cx);
         }
     }
@@ -354,7 +366,7 @@ impl Desktop {
 
     pub(crate) fn forget_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
         // Before the tree leaves `worktrees`, while its folders still resolve to it.
-        let gone: Vec<String> = self.store.subtrees.iter().filter(|(c, p)| [c, p].iter().any(|f| self.tree_of(f).as_deref() == Some(tree))).map(|(c, _)| c.clone()).collect();
+        let gone: Vec<String> = self.store.subtrees.iter().filter(|(c, s)| [*c, &s.parent].iter().any(|f| self.tree_of(f).as_deref() == Some(tree))).map(|(c, _)| c.clone()).collect();
         for c in gone {
             self.store.subtrees.remove(&c);
         }
@@ -381,7 +393,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, lost_together, run, run_script, remember, subagent_removals, subtree_links, teardown_for};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, lost_together, run, run_script, remember, subagent_removals, subtree_links, teardown_for, there_when_seen};
     use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -454,10 +466,20 @@ mod tests {
     #[test]
     fn a_subagents_worktree_keeps_the_parent_it_was_first_seen_with() {
         let link = |c: &str, p: &str| (c.to_string(), p.to_string());
-        let mut subtrees = [link("/wt-c", "/wt")].into();
-        assert!(!remember(&mut subtrees, vec![link("/wt-c", "/other")]));
-        assert!(remember(&mut subtrees, vec![link("/wt-g", "/wt-c")]));
-        assert_eq!(subtrees, [link("/wt-c", "/wt"), link("/wt-g", "/wt-c")].into());
+        let seen = |p: &str, at: u64| store::Subtree { parent: p.into(), seen: at };
+        let mut subtrees = std::collections::BTreeMap::new();
+        assert!(remember(&mut subtrees, vec![link("/wt-c", "/wt")], 1));
+        assert!(!remember(&mut subtrees, vec![link("/wt-c", "/other")], 2));
+        assert!(remember(&mut subtrees, vec![link("/wt-g", "/wt-c")], 3));
+        assert_eq!(subtrees, [("/wt-c".to_string(), seen("/wt", 1)), ("/wt-g".to_string(), seen("/wt-c", 3))].into());
+    }
+
+    #[test]
+    fn a_worktree_made_after_its_subagent_was_seen_there_is_someone_elses() {
+        let at = |ms: u64| Some(std::time::UNIX_EPOCH + Duration::from_millis(ms));
+        assert!(there_when_seen(at(10), 10));
+        assert!(!there_when_seen(at(11), 10));
+        assert!(there_when_seen(None, 10));
     }
 
     #[test]

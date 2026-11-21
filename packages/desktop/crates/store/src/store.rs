@@ -369,6 +369,15 @@ pub struct ColumnWidths {
     pub sessions: Option<f32>,
 }
 
+/// The folder of the session that delegated to a subagent, and when the subagent was first seen in its own folder,
+/// in Unix milliseconds: a worktree made there later is someone else's.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
+#[serde(default)]
+pub struct Subtree {
+    pub parent: String,
+    pub seen: u64,
+}
+
 /// What the desktop remembers across launches, in `desktop.json` next to pocketd's socket.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 #[serde(default)]
@@ -402,7 +411,7 @@ pub struct Store {
     pub scopes: BTreeMap<String, scope::Scope>,
     /// Each folder a subagent worked in, to its parent's folder. Outlives both sessions.
     #[serde(deserialize_with = "lenient")]
-    pub subtrees: BTreeMap<String, String>,
+    pub subtrees: BTreeMap<String, Subtree>,
     /// The Board shows its list rather than its columns.
     pub board_list: bool,
     #[serde(deserialize_with = "lenient")]
