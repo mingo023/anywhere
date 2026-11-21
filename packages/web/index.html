@@ -3,23 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Anywhere – run Claude Code, Codex and more agents side by side</title>
-  <meta name="description" content="Run Claude Code, Codex, Cursor and seven more coding agents side by side. See who needs you, review diffs, and work in git worktrees. Free and open source.">
+  <title>Anywhere – run many coding agents in one app (open source)</title>
+  <meta name="description" content="Anywhere is a free, open-source coding agent workspace: run Claude Code, Codex, Cursor and seven more agents side by side, and review diffs in git worktrees.">
   <link rel="canonical" href="https://getanywhere.dev/">
   <link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Anywhere">
+  <meta property="og:site_name" content="Anywhere, coding agent workspace">
   <meta property="og:locale" content="en_US">
-  <meta property="og:title" content="Anywhere – run Claude Code, Codex and more agents side by side">
-  <meta property="og:description" content="Run Claude Code, Codex, Cursor and seven more coding agents side by side. See who needs you, review diffs, and work in git worktrees. Free and open source.">
+  <meta property="og:title" content="Anywhere – run many coding agents in one app (open source)">
+  <meta property="og:description" content="Anywhere is a free, open-source coding agent workspace: run Claude Code, Codex, Cursor and seven more agents side by side, and review diffs in git worktrees.">
   <meta property="og:url" content="https://getanywhere.dev/">
   <meta property="og:image" content="https://getanywhere.dev/assets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Anywhere – run Claude Code, Codex and more agents side by side">
-  <meta name="twitter:description" content="Run Claude Code, Codex, Cursor and seven more coding agents side by side. See who needs you, review diffs, and work in git worktrees. Free and open source.">
+  <meta name="twitter:title" content="Anywhere – run many coding agents in one app (open source)">
+  <meta name="twitter:description" content="Anywhere is a free, open-source coding agent workspace: run Claude Code, Codex, Cursor and seven more agents side by side, and review diffs in git worktrees.">
   <meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
   <meta name="theme-color" content="#09090a">
   <link rel="icon" href="assets/icon.png">
@@ -91,7 +91,7 @@
           </a>
           <a class="btn ghost" href="/docs/">Read the docs</a>
         </div>
-        <p class="fine">macOS 13+, universal. Other platforms: <a href="#download">Linux and Windows</a>.</p>
+        <p class="fine">macOS 13+, universal. Also on <a href="#download">Linux</a>.</p>
       </div>
 
       <div class="agents" aria-label="Agents Anywhere runs">
@@ -262,7 +262,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
           <div class="card price">
             <h3>What Anywhere costs</h3>
             <ul>
-              <li><span>Desktop app<small>Mac, Linux, Windows</small></span><b>$0</b></li>
+              <li><span>Desktop app<small>Mac, Linux</small></span><b>$0</b></li>
               <li><span>iPhone app<small>Coming soon</small></span><b>$0</b></li>
               <li><span>Daemon and CLI</span><b>$0</b></li>
               <li><span>Push relay</span><b>$0</b></li>
@@ -333,7 +333,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
       <div class="faq-grid">
           <article class="card">
             <h3>What is Anywhere?</h3>
-            <p>A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with builds for Linux and Windows too.</p>
+            <p>A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with a build for Linux too. Windows machines can be remote hosts over SSH.</p>
           </article>
           <article class="card">
             <h3>Which coding agents does it support?</h3>
@@ -390,11 +390,33 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
   "@context": "https://schema.org",
   "@graph": [
     {
+      "@type": "Organization",
+      "@id": "https://getanywhere.dev/#organization",
+      "name": "Anywhere",
+      "alternateName": "Anywhere coding agent workspace",
+      "url": "https://getanywhere.dev",
+      "logo": "https://getanywhere.dev/assets/icon.png",
+      "sameAs": [
+        "https://github.com/mingo023/anywhere",
+        "https://x.com/immint023"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://getanywhere.dev/#website",
+      "name": "Anywhere, coding agent workspace",
+      "alternateName": "Anywhere",
+      "url": "https://getanywhere.dev",
+      "publisher": {
+        "@id": "https://getanywhere.dev/#organization"
+      }
+    },
+    {
       "@type": "SoftwareApplication",
       "name": "Anywhere",
       "url": "https://getanywhere.dev",
-      "description": "Native desktop app for watching and driving many coding agents at once.",
-      "operatingSystem": "macOS 13+, Linux, Windows",
+      "description": "Free, open-source coding agent workspace for running Claude Code, Codex, Cursor and more coding agents side by side.",
+      "operatingSystem": "macOS, Linux, iOS",
       "applicationCategory": "DeveloperApplication",
       "offers": {
         "@type": "Offer",
@@ -410,7 +432,11 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
       "softwareHelp": "https://getanywhere.dev/docs/",
       "author": {
         "@type": "Person",
-        "name": "Minh Ngo"
+        "name": "Minh Ngo",
+        "sameAs": [
+          "https://github.com/mingo023",
+          "https://x.com/immint023"
+        ]
       },
       "featureList": [
         "Runs Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity",
@@ -418,9 +444,14 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
         "Session status: Working, Needs you, Done, Failed, Idle",
         "Diffs, commits and a pull request card beside the session",
         "Board tickets, scheduled automations and delegated work over MCP",
-        "SSH hosts on Mac, Linux and Windows",
+        "Remote SSH hosts on Mac, Linux and Windows",
         "anywhere command line tool"
-      ]
+      ],
+      "@id": "https://getanywhere.dev/#app",
+      "alternateName": "Anywhere coding agent workspace",
+      "publisher": {
+        "@id": "https://getanywhere.dev/#organization"
+      }
     },
     {
       "@type": "FAQPage",
@@ -430,7 +461,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
           "name": "What is Anywhere?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with builds for Linux and Windows too."
+            "text": "A native desktop app for watching and driving many coding agents in one window. The window is Rust on GPUI, and a small Go daemon runs the agents. It runs on macOS 13 or later, with a build for Linux too. Windows machines can be remote hosts over SSH."
           }
         },
         {

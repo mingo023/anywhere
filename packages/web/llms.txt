@@ -1,6 +1,6 @@
-# Anywhere
+# Anywhere, coding agent workspace
 
-> Anywhere is a free, open source (MIT) desktop app for watching and driving many coding agents at once. It runs on macOS 13 or later, with an unsigned build for Linux (x86_64). The latest release does not include a Windows desktop build. There is no account, no cloud tier and no premium tier.
+> Anywhere (getanywhere.dev, github.com/mingo023/anywhere) is a coding agent workspace: a free, open source (MIT) desktop app for running and driving many coding agents at once in one app. It runs on macOS 13 or later, with an unsigned build for Linux (x86_64). The latest release does not include a Windows desktop build. There is no account, no cloud tier and no premium tier.
 
 - The desktop app is Rust on GPUI. A Go daemon, pocketd, owns the terminals, so agents keep running after the window closes.
 - It runs ten agent CLIs that are already installed and signed in on the machine: Claude Code (`claude`), Codex (`codex`), Cursor (`cursor-agent`), Grok Build (`grok`), OpenCode (`opencode`), Pi (`pi`), omp (`omp`), fx (`fx`), Hermes Agent (`hermes`) and Antigravity (`agy`). It does not proxy models or resell tokens.
@@ -13,7 +13,7 @@
 ## Docs
 
 - [Run your first agent](https://getanywhere.dev/docs/): Install Anywhere, start Claude Code on a project, watch its status, and review what it changed.
-- [Install](https://getanywhere.dev/docs/install): Install on macOS, Linux or Windows, and install the `anywhere` command line tool.
+- [Install](https://getanywhere.dev/docs/install): Install on macOS or Linux, and install the `anywhere` command line tool.
 - [The anywhere command](https://getanywhere.dev/docs/cli): Every subcommand, flag and exit code of the command line tool.
 - [Supported agents](https://getanywhere.dev/docs/agents): Each agent's command, install and sign-in steps, and the status it reports.
 - [Sessions and status](https://getanywhere.dev/docs/sessions): Chat and terminal sessions, access modes, and where each status shows.
