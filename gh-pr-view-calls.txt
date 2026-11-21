@@ -1,0 +1,9 @@
+gh pr view runs the Mac sent devbox (FIXTURE_HOST_GH_LIMIT=1: first answered, rest rate-limited)
+## before
+t=1795246372097 as work: gh pr view
+t=1795246403136 as work: gh pr view
+t=1795246434994 as work: gh pr view
+## after
+t=1795246214707 as work: gh pr view
+t=1795246245522 as work: gh pr view
+t=1795246277255 as work: gh pr view
