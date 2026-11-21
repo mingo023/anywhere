@@ -72,7 +72,9 @@ func pipeCmd(sock string, argv []string) (int, error) {
 // own server is local and connects well inside the cap.
 // CLAUDE_CODE_ENABLE_TODO_TOOLS gives claude -p TaskCreate and TaskUpdate,
 // which only the interactive claude has by default; the Tasks card draws them.
-var agentDefaults = []string{"CLAUDE_CODE_MCP_STARTUP_WAIT_MS=1000", "CLAUDE_CODE_ENABLE_TODO_TOOLS=1"}
+// CLAUDE_CODE_ARTIFACT gives claude -p the Artifact tools, which it hides by
+// default; a disableArtifact setting still turns them off.
+var agentDefaults = []string{"CLAUDE_CODE_MCP_STARTUP_WAIT_MS=1000", "CLAUDE_CODE_ENABLE_TODO_TOOLS=1", "CLAUDE_CODE_ARTIFACT=1"}
 
 // agentEnv is env with each of agentDefaults it doesn't set.
 func agentEnv(env []string) []string {
