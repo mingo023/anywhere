@@ -250,17 +250,21 @@ impl Client {
         self.fs("fs.remove", json!({"path": self.host_path(path), "recursive": recursive})).map(drop)
     }
 
-    /// The keys of the worktrees on the host that the subagents of the sessions in `tree` worked in, every generation
-    /// down, as its pocketd's lineage holds them, open or closed, each with when pocketd made it there.
+    /// The keys of the worktrees that the subagents of the sessions in the host's `tree` worked in, every generation
+    /// down, as its pocketd's lineage holds them, open or closed: on the host, and on the hosts it delegated to. Each
+    /// comes with the time, on the machine holding it, after which a worktree made there is a newer one.
     pub fn subagent_worktrees(&self, tree: &str) -> io::Result<Vec<(String, u64)>> {
         #[derive(serde::Deserialize)]
         struct Tree {
+            #[serde(default)]
+            host: String,
             path: String,
-            made: u64,
+            since: u64,
         }
         let reply = self.fs("worktree.subagents", json!({"path": self.host_path(tree)}))?;
         let trees: Vec<Tree> = serde_json::from_value(reply["trees"].clone()).unwrap_or_default();
-        Ok(trees.into_iter().map(|t| (self.key(&t.path), t.made)).collect())
+        let key = |t: &Tree| if t.host.is_empty() { self.key(&t.path) } else { crate::place(&t.host, &t.path) };
+        Ok(trees.iter().map(|t| (key(t), t.since)).collect())
     }
 
     /// Moves `path` to the host's trash folder; the key of where it went.
@@ -563,12 +567,12 @@ mod tests {
     fn a_trees_subagent_worktrees_come_back_as_keys_and_a_pocketd_without_the_op_refuses() {
         let sock = temp_sock("subagents");
         serve_with(&sock, |m| match (m["op"].as_str(), m["path"].as_str()) {
-            (Some("worktree.subagents"), Some("/wt")) => json!({"ev": "worktree.subagents", "id": m["id"], "trees": [{"path": "/wt-c", "made": 5}, {"path": "/wt-g", "made": 7}]}),
+            (Some("worktree.subagents"), Some("/wt")) => json!({"ev": "worktree.subagents", "id": m["id"], "trees": [{"path": "/wt-c", "since": 5}, {"host": "lab", "path": "/wt-g", "since": 7}]}),
             (Some("worktree.subagents"), Some("/wt-c")) => json!({"ev": "worktree.subagents", "id": m["id"]}),
             _ => json!({"ev": "error", "id": m["id"], "error": "no such terminal"}),
         });
         let client = Client::new("devbox", sock.clone());
-        assert_eq!(client.subagent_worktrees("//devbox/wt").unwrap(), [("//devbox/wt-c".to_string(), 5), ("//devbox/wt-g".to_string(), 7)]);
+        assert_eq!(client.subagent_worktrees("//devbox/wt").unwrap(), [("//devbox/wt-c".to_string(), 5), ("//lab/wt-g".to_string(), 7)]);
         assert_eq!(client.subagent_worktrees("//devbox/wt-c").unwrap(), vec![]);
         assert!(client.subagent_worktrees("//devbox/old").is_err());
         let _ = std::fs::remove_file(sock);

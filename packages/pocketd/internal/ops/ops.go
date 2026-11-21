@@ -20,7 +20,6 @@ import (
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/terminal"
-	"pocketd/internal/worktree"
 )
 
 type Msg struct {
@@ -80,11 +79,13 @@ type Msg struct {
 	Trees []Tree `json:"trees,omitempty"`
 }
 
-// Tree is a worktree and when pocketd made it, in Unix milliseconds: which one
-// is at that path.
+// Tree is a subagent's worktree, on this machine or, with Host, on a host it
+// links to. A worktree at Path made after Since, in Unix milliseconds on the
+// machine holding it, is a newer one.
 type Tree struct {
-	Path string `json:"path"`
-	Made int64  `json:"made"`
+	Host  string `json:"host,omitempty"`
+	Path  string `json:"path"`
+	Since int64  `json:"since"`
 }
 
 type Conn struct {
@@ -171,7 +172,7 @@ type Server struct {
 	// Accounts answers the accounts.* ops; nil refuses them.
 	Accounts func(ctx context.Context, m Msg) Msg
 	// SubagentWorktrees answers worktree.subagents; nil refuses it.
-	SubagentWorktrees func(path string) ([]string, error)
+	SubagentWorktrees func(path string) ([]Tree, error)
 }
 
 func (s *Server) asking(id string) string {
@@ -384,14 +385,10 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				continue
 			}
 			go func() {
-				paths, err := s.SubagentWorktrees(m.Path)
+				trees, err := s.SubagentWorktrees(m.Path)
 				if err != nil {
 					c.Send(Msg{Ev: "error", ID: m.ID, Error: err.Error()})
 					return
-				}
-				trees := make([]Tree, 0, len(paths))
-				for _, p := range paths {
-					trees = append(trees, Tree{p, worktree.MadeAt(p)})
 				}
 				c.Send(Msg{Ev: m.Op, ID: m.ID, Trees: trees})
 			}()

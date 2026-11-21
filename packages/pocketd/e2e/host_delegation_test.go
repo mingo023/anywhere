@@ -588,3 +588,24 @@ func TestDeletingAParentsWorktreeAfterRetentionDroppedItsSessionsStillTakesItsSu
 		}
 	}
 }
+
+func TestAWorktreesSubagentWorktreesOnALinkedHostAreListedWithTheirHost(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}})
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+
+	c := mac.Ops()
+	c.Send(ops.Msg{Op: "worktree.subagents", ID: "s", Path: p.Cwd})
+	r, err := c.Recv()
+	if err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 1 || r.Trees[0].Host != "devbox" || r.Trees[0].Path != child.Cwd || r.Trees[0].Since == 0 {
+		t.Fatalf("got %+v %v, want devbox's %s", r, err, child.Cwd)
+	}
+}

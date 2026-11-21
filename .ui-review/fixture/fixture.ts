@@ -612,7 +612,7 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
     const deeper = op.path.replace(/delegate-host-notes$/, "delegate-host-deeper");
     const marker = join(deeper.replace(/\.worktrees\/delegate-host-deeper$/, ""), ".git", "worktrees", "delegate-host-deeper", "anywhere");
     const made = deeper !== op.path && statSync(deeper, { throwIfNoEntry: false }) && statSync(marker, { throwIfNoEntry: false });
-    reply({ ev: "worktree.subagents", trees: made ? [{ path: deeper, made: Math.floor(made.mtimeMs) }] : [] });
+    reply({ ev: "worktree.subagents", trees: made ? [{ path: deeper, since: Math.floor(made.mtimeMs) }] : [] });
   } else if (op.op === "fs.stat") {
     try {
       const st = statSync(op.path);

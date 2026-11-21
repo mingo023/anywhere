@@ -151,7 +151,7 @@ func TestAWorktreesSubagentWorktreesAreListedForADesktopOnceItsSessionsClosed(t 
 
 	c := h.Ops()
 	c.Send(ops.Msg{Op: "worktree.subagents", ID: "s", Path: parentTree})
-	if r, err := c.Recv(); err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 1 || r.Trees[0].Path != childTree || r.Trees[0].Made != worktree.MadeAt(childTree) || r.Trees[0].Made == 0 {
+	if r, err := c.Recv(); err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 1 || r.Trees[0].Path != childTree || r.Trees[0].Since != worktree.MadeAt(childTree) || r.Trees[0].Since == 0 || r.Trees[0].Host != "" {
 		t.Fatalf("got %+v %v, want [%s]", r, err, childTree)
 	}
 	c.Send(ops.Msg{Op: "worktree.subagents", ID: "c", Path: childTree})

@@ -13,6 +13,7 @@ import (
 	"pocketd/internal/accounts"
 	"pocketd/internal/hosts"
 	"pocketd/internal/launch"
+	"pocketd/internal/ops"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -260,19 +261,27 @@ func findTree(f registry.File, path string) (linkedTree, error) {
 	return linkedTree{project, trees[i]}, nil
 }
 
-// SubagentWorktrees is each worktree here that the subagents of the sessions in
-// the worktree at path worked in, every generation down, as this machine's
-// lineage holds them, closed or open.
-func (s *Server) SubagentWorktrees(path string) ([]string, error) {
+// SubagentWorktrees is each worktree that the subagents of the sessions in the
+// worktree at path worked in, every generation down, as this machine's lineage
+// holds them, closed or open: here, and on the hosts it delegated to.
+func (s *Server) SubagentWorktrees(path string) ([]ops.Tree, error) {
 	f := s.Registry.Load()
 	tree, err := findTree(f, path)
 	if err != nil {
 		return nil, err
 	}
-	subtrees, _ := (&conn{s: s}).subagentTrees(f, tree.Path)
-	out := make([]string, 0, len(subtrees))
+	c := &conn{s: s}
+	subtrees, onHosts := c.subagentTrees(f, tree.Path)
+	out := make([]ops.Tree, 0, len(subtrees)+len(onHosts))
 	for _, t := range subtrees {
-		out = append(out, t.Path)
+		out = append(out, ops.Tree{Path: t.Path, Since: worktree.MadeAt(t.Path)})
+	}
+	for _, h := range onHosts {
+		ids := make([]string, len(h.Sessions))
+		for i, id := range h.Sessions {
+			ids[i] = h.Host + "/" + id
+		}
+		out = append(out, ops.Tree{Host: h.Host, Path: h.Path, Since: c.startedBy(ids)})
 	}
 	return out, nil
 }
@@ -337,6 +346,22 @@ func (c *conn) madeBy(tree string, sessions []string) int64 {
 			cwd = real
 		}
 		if inside(cwd, tree) {
+			by = max(by, s.CreatedAt)
+		}
+	}
+	return by
+}
+
+// startedBy is when the last of the sessions named started, by this machine's
+// record: a worktree made at their folder after it is a newer one. 0 when none
+// is known.
+func (c *conn) startedBy(sessions []string) int64 {
+	by := int64(0)
+	for _, id := range sessions {
+		if c.s.Workspace.Session == nil {
+			break
+		}
+		if s, _ := c.s.Workspace.Session(id); s != nil {
 			by = max(by, s.CreatedAt)
 		}
 	}

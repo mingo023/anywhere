@@ -297,10 +297,16 @@ fn sweep_one(r: Removal, own: String, limit: Duration) -> Result<Ordered, Remova
 /// The worktrees the hosts holding `trees` say their subagents worked in, as their lineage holds them, with when each
 /// was made, for the sweep to tell from a newer one at the same path. That lineage also knows the ones that started and
 /// closed while a host's link was down, never listed here. Saved links follow these, as they know when each started.
-fn host_lineage(trees: &[String]) -> Vec<(String, Option<u64>)> {
+/// Each comes with the tree whose lineage named it.
+fn host_lineage(trees: &[String]) -> Vec<(String, (String, Option<u64>))> {
     let host = |t: &String| Some((t.clone(), hosts::split(t).0.and_then(hosts::remote::connected)?));
-    let below = |(t, h): (String, std::sync::Arc<hosts::remote::Client>)| h.subagent_worktrees(&t).unwrap_or_default();
-    trees.iter().filter_map(host).flat_map(below).map(|(t, made)| (t, Some(made).filter(|m| *m > 0))).collect()
+    let below = |(t, h): (String, std::sync::Arc<hosts::remote::Client>)| h.subagent_worktrees(&t).unwrap_or_default().into_iter().map(move |f| (t.clone(), f));
+    trees.iter().filter_map(host).flat_map(below).map(|(of, (f, since))| (of, (f, Some(since).filter(|s| *s > 0)))).collect()
+}
+
+/// The ones of `lineage` that `trees` named.
+fn named_by(lineage: &[(String, (String, Option<u64>))], trees: &[String]) -> Vec<(String, Option<u64>)> {
+    lineage.iter().filter(|(of, _)| trees.contains(of)).map(|(_, f)| f.clone()).collect()
 }
 
 /// `trees`, then the trees `links` (child to parent) hang below them, every generation down.
@@ -641,11 +647,13 @@ impl Desktop {
             let theirs = host_lineage(&jobs.iter().map(|(r, _)| r.tree.clone()).collect::<Vec<_>>());
             let (done, failed) = remove_in_order(jobs, limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
-            let folders = theirs.into_iter().chain(on_hosts.folders).collect();
-            ((done, failed), leftovers(folders, &trees, delete_branch))
+            // Named only by a tree now gone: nothing could find them again once a later job fails.
+            let orphans = named_by(&theirs, &trees);
+            let folders = theirs.into_iter().map(|(_, f)| f).chain(on_hosts.folders).collect();
+            ((done, failed), leftovers(folders, &trees, delete_branch), leftovers(orphans, &trees, delete_branch))
         });
         cx.spawn(async move |this, cx| {
-            let ((done, failed), leftovers) = task.await;
+            let ((done, failed), leftovers, orphans) = task.await;
             this.update(cx, |d, cx| {
                 for t in &started {
                     d.removals.running.remove(t);
@@ -662,6 +670,11 @@ impl Desktop {
                     reparent(&mut subtrees, &r.tree, &removal.tree, |f| d.folder_tree(f));
                     d.store.subtrees = subtrees;
                     d.forget_tree(&r.tree, cx);
+                }
+                if failed.is_some() && !orphans.is_empty() {
+                    d.store.host_leftovers.extend(orphans);
+                    d.save_soon(cx);
+                    d.sweep_host_leftovers(cx);
                 }
                 match failed {
                     None => {
@@ -769,7 +782,7 @@ impl Desktop {
             let theirs = host_lineage(std::slice::from_ref(&r.tree));
             let (done, failed) = sweep_one(r, own, limit)?;
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
-            let folders = theirs.into_iter().chain(on_hosts.folders).collect();
+            let folders = theirs.into_iter().map(|(_, f)| f).chain(on_hosts.folders).collect();
             Ok(((done, failed), leftovers(folders, &trees, delete_branch)))
         });
         cx.spawn(async move |this, cx| {
@@ -857,7 +870,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, below, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, sweep_one, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, below, named_by, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, sweep_one, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use store::Leftover;
@@ -1393,6 +1406,13 @@ mod tests {
         assert_eq!(nearest("//devbox/home/wt", exists).as_deref(), Some("//devbox/home/wt"));
         assert_eq!(nearest("//devbox/gone/deep", |_| Ok(false)).as_deref(), Some("//devbox/gone"));
         assert_eq!(nearest("//devbox/home/wt/src", |_| Err(std::io::Error::other("dropped"))), None);
+    }
+
+    #[test]
+    fn a_failed_delete_keeps_what_the_lineage_of_the_trees_it_did_delete_named() {
+        let lineage = [("//devbox/a".to_string(), ("//devbox/a-c".to_string(), Some(5))), ("//devbox/b".to_string(), ("//devbox/b-c".to_string(), None))];
+        assert_eq!(named_by(&lineage, &["//devbox/a".to_string()]), [("//devbox/a-c".to_string(), Some(5))]);
+        assert_eq!(named_by(&lineage, &[]), []);
     }
 
     #[test]
