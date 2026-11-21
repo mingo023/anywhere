@@ -354,11 +354,12 @@ impl Desktop {
 
     /// Shows worktree `tree` of project `p`; `None` is the project's main worktree.
     pub fn select_tree(&mut self, p: String, tree: Option<String>, cx: &mut Context<Self>) {
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         let moved = self.project.as_ref() != Some(&p);
+        // After `set_project`, whose space switch reads whether the new-session page was up.
         if moved {
             self.set_project(Some(p), cx);
         }
+        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
         if moved || self.worktree != tree {
             self.worktree = tree;
             self.refresh_git(cx);

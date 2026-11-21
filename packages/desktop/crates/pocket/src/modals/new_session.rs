@@ -560,14 +560,14 @@ impl Desktop {
     /// The machine pill's pick: the machine is the space, so this switches it.
     pub(crate) fn pick_machine(&mut self, space: Space, window: &mut Window, cx: &mut Context<Self>) {
         self.new_form.draft.picker = None;
-        self.switch_space(space, window, cx);
+        self.switch_space_with_draft(space, window, cx);
         self.focus_prompt(window, cx);
     }
 
     /// Takes `key`, a folder just chosen as a project on This Mac or a host, as the project the page starts in.
     pub(crate) fn pick_new_project(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
         self.save_folder(&key, cx);
-        self.switch_space(spaces::space_of(&key), window, cx);
+        self.switch_space_with_draft(spaces::space_of(&key), window, cx);
         self.pick_repo(key, window, cx);
         self.focus_prompt(window, cx);
     }
