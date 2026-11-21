@@ -38,8 +38,10 @@ impl Desktop {
     }
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.overlay.take() == Some(Overlay::Handoff) {
-            self.handoff_closed(cx);
+        match self.overlay.take() {
+            Some(Overlay::Handoff) => self.handoff_closed(cx),
+            Some(Overlay::Confirm) => self.sweep_host_leftovers(cx),
+            _ => {}
         }
         self.host_finder.finder = None;
         self.refocus(window, cx);
