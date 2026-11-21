@@ -1,0 +1,7 @@
+[DEBUG-lit] active=1 pos=1.000 moving=false
+[DEBUG-lit] active=0 pos=1.000 moving=true
+[DEBUG-lit] active=0 pos=0.308 moving=true
+[DEBUG-lit] active=0 pos=0.286 moving=true
+[DEBUG-lit] active=0 pos=0.261 moving=true
+[DEBUG-lit] active=0 pos=0.236 moving=true
+[DEBUG-lit] active=0 pos=0.000 moving=true
