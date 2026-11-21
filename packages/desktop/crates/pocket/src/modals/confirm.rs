@@ -311,10 +311,10 @@ impl Desktop {
     pub(crate) fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.confirm.take() {
             Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
-            Some(Confirm::DeleteWorktree { removal, .. }) => self.delete_worktree(removal, cx),
+            Some(Confirm::DeleteWorktree { removal, subtrees, .. }) => self.delete_worktree(removal, &subtrees, cx),
             Some(Confirm::DeleteLocal(id)) => self.delete_local(&id, cx),
             Some(Confirm::DeleteScratch { path, .. }) => self.delete_scratch(&path, cx),
-            Some(Confirm::TeardownFailed { removal, .. }) => self.delete_worktree(Removal { teardown: false, ..removal }, cx),
+            Some(Confirm::TeardownFailed { removal, subtrees, .. }) => self.delete_worktree(Removal { teardown: false, ..removal }, &subtrees, cx),
             Some(Confirm::Discard(paths)) => self.discard(paths, cx),
             Some(Confirm::SwitchAgent { agent, provider, model }) => _ = self.open_switched_chat(&agent, &provider, &model, true, cx),
             Some(Confirm::CloseSession(id)) => {
@@ -361,7 +361,7 @@ mod tests {
         assert!(!enter_confirms(&Keystroke::parse("space").unwrap(), &delete));
         let removal = Removal { project: "/p".into(), tree: "/t".into(), branch: None, delete_branch: false, teardown: true };
         assert!(enter_confirms(&enter, &Confirm::DeleteWorktree { removal: removal.clone(), dirty: 0, lost: 0, lost_anyway: 0, subtrees: vec![] }));
-        let teardown = Confirm::TeardownFailed { removal, tail: String::new() };
+        let teardown = Confirm::TeardownFailed { removal, tail: String::new(), subtrees: vec![] };
         assert!(!enter_confirms(&enter, &teardown), "a sheet that arrives on its own");
     }
 

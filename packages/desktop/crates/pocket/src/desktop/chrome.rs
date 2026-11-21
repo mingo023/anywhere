@@ -71,7 +71,7 @@ pub enum Confirm {
     DeleteWorktree { removal: Removal, dirty: usize, lost: usize, lost_anyway: usize, subtrees: Vec<String> },
     DeleteLocal(String),
     DeleteScratch { path: String, dirty: usize, lost: usize },
-    TeardownFailed { removal: Removal, tail: String },
+    TeardownFailed { removal: Removal, tail: String, subtrees: Vec<String> },
     Discard(Vec<String>),
     CloseSession(String),
     CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },

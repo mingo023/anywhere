@@ -740,6 +740,7 @@ impl Desktop {
         let Some(project) = self.project.clone().filter(|_| self.deletable(tree)) else { return };
         let removal = Removal { project, tree: tree.to_string(), branch: None, delete_branch: false, teardown: true };
         let subagents = self.subagent_removals(&removal);
+        let subtrees: Vec<String> = subagents.iter().map(|r| r.tree.clone()).collect();
         let dir = removal.tree.clone();
         // Untracked files count even when Changes hides them, so this reads the trees afresh.
         let dirty = |dir: &str| git::dirty_files(&hosts::runner_for(dir), dir).is_none_or(|n| n > 0);
@@ -750,7 +751,7 @@ impl Desktop {
                 if dirty {
                     d.ask_delete_worktree(removal.project, removal.tree, cx);
                 } else {
-                    d.delete_worktree(removal, cx);
+                    d.delete_worktree(removal, &subtrees, cx);
                 }
             })
             .ok();
