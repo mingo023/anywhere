@@ -351,6 +351,11 @@ func TestABranchRenamedSinceItWasCheckedGoesOnlyWhenItLosesNothingOrIsForced(t *
 	if got := branchToDelete(b.project, wt, "notes", true); got != "say-hello" {
 		t.Fatalf("forced: %q", got)
 	}
+	gitOut(t, wt, "checkout", "-q", "-b", "unrelated")
+	gitOut(t, b.project, "branch", "-D", "say-hello")
+	if got := branchToDelete(b.project, wt, "notes", true); got != "" {
+		t.Fatalf("a branch switched to, not renamed, forced: %q", got)
+	}
 }
 
 func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *testing.T) {

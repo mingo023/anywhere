@@ -418,10 +418,20 @@ func branchToDelete(project, path, checked string, force bool) string {
 	if err != nil {
 		return ""
 	}
-	if i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path }); i >= 0 && (force || worktree.LostCommits(project, trees[i].Branch) == 0) {
-		return trees[i].Branch
+	i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path })
+	if i < 0 || !renamedFrom(project, trees[i].Branch, checked) || !force && worktree.LostCommits(project, trees[i].Branch) > 0 {
+		return ""
 	}
-	return ""
+	return trees[i].Branch
+}
+
+// renamedFrom is whether branch was once named old, per the entry `git branch -m` leaves in its reflog
+// (renamed_from in crates/git/src/git.rs).
+func renamedFrom(project, branch, old string) bool {
+	out, _ := exec.Command("git", "-C", project, "log", "-g", "--format=%gs", "refs/heads/"+branch, "--").Output()
+	return branch != "" && slices.ContainsFunc(strings.Split(string(out), "\n"), func(l string) bool {
+		return strings.HasPrefix(l, "Branch: renamed refs/heads/"+old+" to ")
+	})
 }
 
 type branchFailed struct{ stderr string }
