@@ -99,7 +99,7 @@ public final class WorkspaceStore: HostStore {
     public private(set) var automations: Automations?
     /// The Local each terminal was opened in, from terminal.list; a session belongs to its terminal's Local.
     public private(set) var localOfTerminal: [String: String] = [:]
-    /// The folders of terminals outside any Local, which keep a project's own checkout listed.
+    /// The folders of shells outside any Local, which keep their tree listed.
     public private(set) var terminalCwds: [String] = []
     /// Branches by tree, as last listed.
     public private(set) var branches: [String: BranchList] = [:]
@@ -142,7 +142,7 @@ public final class WorkspaceStore: HostStore {
         case .terminalList(let m):
             var map: [String: String] = [:]
             for t in m.terminals { if let local = t.localId { map[t.id] = local } }
-            let cwds = m.terminals.filter { $0.localId == nil }.map(\.cwd)
+            let cwds = m.terminals.filter { $0.localId == nil && $0.agentId == nil }.map(\.cwd)
             let placed = set(\.localOfTerminal, map)
             return set(\.terminalCwds, cwds) || placed
         case .worktreeProgress(let p), .agentProgress(let p):
