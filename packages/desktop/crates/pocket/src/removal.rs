@@ -283,6 +283,17 @@ fn subagent_removals(
     (out, on_hosts)
 }
 
+/// Deletes a leftover's worktree the sweep found clean, unless its branch now holds commits alone: one at a time, so
+/// each sees the branches the one before deleted. `Err` hands it back to ask about.
+fn sweep_one(r: Removal, own: String, limit: Duration) -> Result<Ordered, Removal> {
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    if r.lost() > 0 {
+        return Err(r);
+    }
+    Ok(remove_in_order(vec![(r, own)], limit))
+}
+
 /// The worktrees the hosts holding `trees` say their subagents worked in, as their lineage holds them, with when each
 /// was made, for the sweep to tell from a newer one at the same path. That lineage also knows the ones that started and
 /// closed while a host's link was down, never listed here. Saved links follow these, as they know when each started.
@@ -756,15 +767,24 @@ impl Desktop {
         let delete_branch = r.delete_branch;
         let task = cx.background_executor().spawn(async move {
             let theirs = host_lineage(std::slice::from_ref(&r.tree));
-            let (done, failed) = remove_in_order(vec![(r, own)], limit);
+            let (done, failed) = sweep_one(r, own, limit)?;
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
             let folders = theirs.into_iter().chain(on_hosts.folders).collect();
-            ((done, failed), leftovers(folders, &trees, delete_branch))
+            Ok(((done, failed), leftovers(folders, &trees, delete_branch)))
         });
         cx.spawn(async move |this, cx| {
-            let ((done, failed), below) = task.await;
+            let swept = task.await;
             this.update(cx, |d, cx| {
                 d.removals.running.remove(&f);
+                let ((done, failed), below) = match swept {
+                    Ok(swept) => swept,
+                    Err(r) => {
+                        if d.overlay.is_none() && d.removals.ask(&f) {
+                            d.ask_delete(r, Some(f), cx);
+                        }
+                        return;
+                    }
+                };
                 for (r, Removed { aside, kept }) in done {
                     if let Some(aside) = aside {
                         let trash = d.store.worktree.trash;
@@ -837,7 +857,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, below, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, below, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, sweep_one, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use store::Leftover;
@@ -1118,6 +1138,20 @@ mod tests {
         assert_eq!(lost_together(&[r.clone(), child.clone()]), (1, 0));
         let keep = |r: &Removal| Removal { delete_branch: false, ..r.clone() };
         assert_eq!(lost_together(&[keep(&r), keep(&child)]), (1, 0), "counted before the user ticks the box; the sheet hides it while branches stay");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn of_two_swept_leftovers_sharing_a_commit_only_the_first_goes_unasked() {
+        let (dir, r) = scratch("swept-shared");
+        sh(Path::new(&r.tree), &["commit", "-q", "--allow-empty", "-m", "b"]);
+        sh(Path::new(&r.project), &["branch", "feat2", "feat"]);
+        let other = dir.join("other");
+        sh(Path::new(&r.project), &["worktree", "add", "-q", other.to_str().unwrap(), "feat2"]);
+        let twin = Removal { tree: other.to_string_lossy().into_owned(), branch: Some("feat2".into()), ..r.clone() };
+        assert_eq!((r.lost(), twin.lost()), (0, 0));
+        assert!(sweep_one(r, String::new(), Duration::from_secs(5)).is_ok_and(|(_, failed)| failed.is_none()));
+        assert_eq!(sweep_one(twin.clone(), String::new(), Duration::from_secs(5)).err(), Some(twin));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
