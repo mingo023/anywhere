@@ -569,7 +569,8 @@ impl Desktop {
     }
 
     /// Copies the draft's attachments to the host the agent runs on, then sends the draft as it stands, so the agent there
-    /// can read them. The draft stays, and this chat sends nothing else, until the copy is done.
+    /// can read them. The draft stays, and this chat sends nothing else, until the copy is done; a chat left meanwhile sends
+    /// on its next Send, without copying again.
     #[allow(clippy::too_many_arguments)]
     fn chat_copy_first(&mut self, terminal: &str, agent: String, cwd: &str, queue: bool, copies: crate::composer::HostCopies, window: &mut Window, cx: &mut Context<Self>) {
         self.chats.copying.insert(agent.clone());
@@ -581,8 +582,11 @@ impl Desktop {
                 d.chats.copying.remove(&agent);
                 match copied {
                     Ok(files) => {
+                        let held = d.chats.drafts.owner() == Some(agent.as_str());
                         d.chats.copied.insert(agent, files);
-                        d.chat_send(&terminal, queue, window, cx);
+                        if held {
+                            d.chat_send(&terminal, queue, window, cx);
+                        }
                     }
                     Err(e) => d.error = Some(format!("Couldn't copy the attachments to {host}: {e}")),
                 }
