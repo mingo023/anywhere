@@ -283,6 +283,15 @@ fn subagent_removals(
     (out, on_hosts)
 }
 
+/// The worktrees the hosts holding `trees` say their subagents worked in, as their lineage holds them, with when each
+/// was made, for the sweep to tell from a newer one at the same path. That lineage also knows the ones that started and
+/// closed while a host's link was down, never listed here. Saved links follow these, as they know when each started.
+fn host_lineage(trees: &[String]) -> Vec<(String, Option<u64>)> {
+    let host = |t: &String| Some((t.clone(), hosts::split(t).0.and_then(hosts::remote::connected)?));
+    let below = |(t, h): (String, std::sync::Arc<hosts::remote::Client>)| h.subagent_worktrees(&t).unwrap_or_default();
+    trees.iter().filter_map(host).flat_map(below).map(|(t, made)| (t, Some(made).filter(|m| *m > 0))).collect()
+}
+
 /// `trees`, then the trees `links` (child to parent) hang below them, every generation down.
 fn below(mut trees: Vec<String>, links: &BTreeMap<String, String>) -> Vec<String> {
     let mut i = 0;
@@ -617,9 +626,12 @@ impl Desktop {
         let task = cx.background_executor().spawn(async move {
             // Read again: a host's worktree may have changed hands since the sheet read it.
             let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
-            let (done, failed) = remove_in_order(still_theirs(jobs, &reached), limit);
+            let jobs = still_theirs(jobs, &reached);
+            let theirs = host_lineage(&jobs.iter().map(|(r, _)| r.tree.clone()).collect::<Vec<_>>());
+            let (done, failed) = remove_in_order(jobs, limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
-            ((done, failed), leftovers(on_hosts.folders, &trees, delete_branch))
+            let folders = theirs.into_iter().chain(on_hosts.folders).collect();
+            ((done, failed), leftovers(folders, &trees, delete_branch))
         });
         cx.spawn(async move |this, cx| {
             let ((done, failed), leftovers) = task.await;
@@ -743,20 +755,26 @@ impl Desktop {
         let own = self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let delete_branch = r.delete_branch;
         let task = cx.background_executor().spawn(async move {
-            // The host's lineage also holds ones that started and closed while its link was down, never listed here.
-            let host = hosts::split(&r.tree).0.and_then(hosts::remote::connected);
-            let theirs = host.and_then(|h| h.subagent_worktrees(&r.tree).ok()).unwrap_or_default();
+            let theirs = host_lineage(std::slice::from_ref(&r.tree));
             let (done, failed) = remove_in_order(vec![(r, own)], limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
-            // Saved ones last, as they know when each started.
-            let folders = theirs.into_iter().map(|t| (t, None)).chain(on_hosts.folders).collect();
+            let folders = theirs.into_iter().chain(on_hosts.folders).collect();
             ((done, failed), leftovers(folders, &trees, delete_branch))
         });
         cx.spawn(async move |this, cx| {
             let ((done, failed), below) = task.await;
             this.update(cx, |d, cx| {
                 d.removals.running.remove(&f);
-                done.iter().for_each(|(r, _)| d.forget_tree(&r.tree, cx));
+                for (r, Removed { aside, kept }) in done {
+                    if let Some(aside) = aside {
+                        let trash = d.store.worktree.trash;
+                        cx.background_executor().spawn(async move { dispose(&aside, trash) }).detach();
+                    }
+                    if let Some((branch, e)) = kept {
+                        d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
+                    }
+                    d.forget_tree(&r.tree, cx);
+                }
                 match failed {
                     None => {
                         d.store.host_leftovers.remove(&f);

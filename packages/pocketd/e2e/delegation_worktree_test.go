@@ -10,6 +10,7 @@ import (
 
 	"pocketd/internal/ops"
 	"pocketd/internal/proto"
+	"pocketd/internal/worktree"
 )
 
 func TestAWorktreeChildStartsFromTheParentsHeadAndTheResultSaysTheParentIsDirty(t *testing.T) {
@@ -150,11 +151,11 @@ func TestAWorktreesSubagentWorktreesAreListedForADesktopOnceItsSessionsClosed(t 
 
 	c := h.Ops()
 	c.Send(ops.Msg{Op: "worktree.subagents", ID: "s", Path: parentTree})
-	if r, err := c.Recv(); err != nil || r.Ev != "worktree.subagents" || len(r.Paths) != 1 || r.Paths[0] != childTree {
+	if r, err := c.Recv(); err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 1 || r.Trees[0].Path != childTree || r.Trees[0].Made != worktree.MadeAt(childTree) || r.Trees[0].Made == 0 {
 		t.Fatalf("got %+v %v, want [%s]", r, err, childTree)
 	}
 	c.Send(ops.Msg{Op: "worktree.subagents", ID: "c", Path: childTree})
-	if r, err := c.Recv(); err != nil || r.Ev != "worktree.subagents" || len(r.Paths) != 0 {
+	if r, err := c.Recv(); err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 0 {
 		t.Fatalf("got %+v %v, want none below the child's", r, err)
 	}
 }

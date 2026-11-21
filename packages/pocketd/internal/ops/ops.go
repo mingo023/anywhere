@@ -20,6 +20,7 @@ import (
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
 	"pocketd/internal/terminal"
+	"pocketd/internal/worktree"
 )
 
 type Msg struct {
@@ -75,8 +76,15 @@ type Msg struct {
 	Accounts []accounts.Account `json:"accounts,omitempty"`
 	// AutoSwitch is whether an agent at its account's limit moves to another, on an accounts reply.
 	AutoSwitch *bool `json:"autoSwitch,omitempty"`
-	// Paths answers worktree.subagents.
-	Paths []string `json:"paths,omitempty"`
+	// Trees answers worktree.subagents.
+	Trees []Tree `json:"trees,omitempty"`
+}
+
+// Tree is a worktree and when pocketd made it, in Unix milliseconds: which one
+// is at that path.
+type Tree struct {
+	Path string `json:"path"`
+	Made int64  `json:"made"`
 }
 
 type Conn struct {
@@ -381,7 +389,11 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 					c.Send(Msg{Ev: "error", ID: m.ID, Error: err.Error()})
 					return
 				}
-				c.Send(Msg{Ev: m.Op, ID: m.ID, Paths: paths})
+				trees := make([]Tree, 0, len(paths))
+				for _, p := range paths {
+					trees = append(trees, Tree{p, worktree.MadeAt(p)})
+				}
+				c.Send(Msg{Ev: m.Op, ID: m.ID, Trees: trees})
 			}()
 			continue
 		case "exec", "fs.list", "fs.stat", "fs.read", "fs.write", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
