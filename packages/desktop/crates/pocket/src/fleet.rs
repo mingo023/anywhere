@@ -401,7 +401,10 @@ impl Desktop {
         for turn in turns {
             match turn {
                 Turn::Online(id) => self.host_online(&id, window, cx),
-                Turn::Offline(id) => hosts::remote::forget(&id),
+                Turn::Offline(id) => {
+                    hosts::remote::forget(&id);
+                    self.removals.host_dropped(&id);
+                }
                 Turn::Gone(id) => self.forget_host(&id, cx),
             }
         }

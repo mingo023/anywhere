@@ -567,6 +567,8 @@ const handoffState = (tree: string) => {
 let dropped = false;
 // FIXTURE_DEVBOX_DROP_MS=n: devbox goes offline for n ms once a delete sheet has read its subagent's worktree twice (FIXTURE_SUBAGENT_HOST).
 let subagentReads = 0;
+// devbox's agent websockets, which a real link drop closes.
+const devboxSockets = new Set<{ close(): void }>();
 const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
   const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
   const fail = (e: unknown) => reply({ ev: "error", error: String((e as Error).message ?? e) });
@@ -579,7 +581,10 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
     reply({ ev: "exec", code: r.exitCode, stdout: b64(r.stdout), stderr: b64(r.stderr) });
     const drop = Number(process.env.FIXTURE_DEVBOX_DROP_MS ?? 0);
     if (drop && op.argv.includes("worktree") && op.argv.includes("list") && op.argv.some((a) => a.endsWith("delegate-host-notes")) && ++subagentReads === 2) {
-      setTimeout(() => hostsWs && setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" }), 100);
+      setTimeout(() => {
+        if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
+        devboxSockets.forEach((s) => s.close());
+      }, 100);
       setTimeout(() => hostsWs && setLink(hostsWs, h.id, ONLINE), drop);
     }
   } else if (op.op === "fs.stat") {
@@ -683,6 +688,8 @@ if (process.env.FIXTURE_HOST_AGENTS) {
     port: port + 1,
     fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("devbox")),
     websocket: {
+      open: (ws) => void devboxSockets.add(ws),
+      close: (ws) => void devboxSockets.delete(ws),
       message(ws, raw) {
         const f = JSON.parse(raw.toString());
         if (log) appendFileSync(log, raw + "\n");
