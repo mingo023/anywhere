@@ -13,11 +13,21 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Default)]
 pub(crate) struct Removals {
     running: HashSet<String>,
+    /// Hosts whose sessions arrived since their link last came up, so a sweep sees who works where.
+    listed: HashSet<String>,
 }
 
 impl Removals {
     pub(crate) fn running(&self, tree: &str) -> bool {
         self.running.contains(tree)
+    }
+
+    pub(crate) fn host_listed(&mut self, host: &str) {
+        self.listed.insert(host.to_string());
+    }
+
+    pub(crate) fn host_dropped(&mut self, host: &str) {
+        self.listed.remove(host);
     }
 
     /// Whether `tree` wasn't already being deleted.
@@ -320,6 +330,21 @@ fn remove_in_order(jobs: Vec<(Removal, String)>, limit: Duration) -> Ordered {
     (done, None)
 }
 
+/// The hosts' subagent folders a delete didn't reach, with the deleted `trees`: a host offline at the sheet or since, or
+/// whose worktree changed hands, is checked again once it's back.
+fn leftovers(folders: Vec<(String, Option<u64>)>, trees: &[String], delete_branch: bool) -> Vec<(String, Leftover)> {
+    let left = |f: &str| !trees.iter().any(|t| holds(t, f));
+    folders.into_iter().filter(|(f, _)| left(f)).map(|(f, s)| (f, Leftover { started: s.unwrap_or(0), delete_branch })).collect()
+}
+
+/// Moves the links of `tree`'s own subagents onto `root`, so they stay reachable from it once `tree` is forgotten and a
+/// delete that stopped part way can carry on.
+fn reparent(subtrees: &mut BTreeMap<String, Subtree>, tree: &str, root: &str, tree_of: impl Fn(&str) -> Option<String>) {
+    for s in subtrees.values_mut().filter(|s| tree_of(&s.parent).as_deref() == Some(tree)) {
+        s.parent = root.to_string();
+    }
+}
+
 /// Whether `folder` is on a host whose link is up.
 fn connected(folder: &str) -> bool {
     hosts::split(folder).0.is_some_and(|h| hosts::remote::connected(h).is_some())
@@ -472,13 +497,13 @@ impl Desktop {
         let task = cx.background_executor().spawn(async move {
             // Read again: a host's worktree may have changed hands since the sheet read it.
             let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
-            let leftover = |s: Option<u64>| Leftover { started: s.unwrap_or(0), delete_branch };
-            let offline: Vec<(String, Leftover)> = on_hosts.folders.into_iter().filter(|(f, _)| !connected(f)).map(|(f, s)| (f, leftover(s))).collect();
             let jobs = jobs.into_iter().filter(|(r, _)| hosts::split(&r.tree).0.is_none() || reached.contains(&r.tree)).collect();
-            (remove_in_order(jobs, limit), offline)
+            let (done, failed) = remove_in_order(jobs, limit);
+            let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
+            ((done, failed), leftovers(on_hosts.folders, &trees, delete_branch))
         });
         cx.spawn(async move |this, cx| {
-            let ((done, failed), offline) = task.await;
+            let ((done, failed), leftovers) = task.await;
             this.update(cx, |d, cx| {
                 for t in &started {
                     d.removals.running.remove(t);
@@ -491,11 +516,14 @@ impl Desktop {
                     if let Some((branch, e)) = kept {
                         d.error = Some(format!("Deleted the worktree; kept branch {branch}: {e}"));
                     }
+                    let mut subtrees = std::mem::take(&mut d.store.subtrees);
+                    reparent(&mut subtrees, &r.tree, &removal.tree, |f| d.folder_tree(f));
+                    d.store.subtrees = subtrees;
                     d.forget_tree(&r.tree, cx);
                 }
                 match failed {
                     None => {
-                        d.store.host_leftovers.extend(offline);
+                        d.store.host_leftovers.extend(leftovers);
                         d.save_soon(cx);
                     }
                     Some((r, Failure::Teardown(tail))) => {
@@ -514,10 +542,12 @@ impl Desktop {
         cx.notify();
     }
 
-    /// Deletes the worktrees subagents left on hosts that were offline when their parent's went, once each host is back.
+    /// Deletes the worktrees subagents left on hosts when their parent's went, once each host is back and has listed its
+    /// sessions.
     /// One a live session still works in waits; one holding work nobody checked asks first.
     pub(crate) fn sweep_host_leftovers(&mut self, cx: &mut Context<Self>) {
-        let back: Vec<(String, Leftover)> = self.store.host_leftovers.iter().filter(|(f, _)| connected(f)).map(|(f, l)| (f.clone(), *l)).collect();
+        let ready = |f: &str| connected(f) && hosts::split(f).0.is_some_and(|h| self.removals.listed.contains(h));
+        let back: Vec<(String, Leftover)> = self.store.host_leftovers.iter().filter(|(f, _)| ready(f)).map(|(f, l)| (f.clone(), *l)).collect();
         let back: Vec<(String, Leftover)> = back.into_iter().filter(|(f, _)| self.removals.start(f)).collect();
         if back.is_empty() {
             return;
@@ -596,7 +626,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, lost_together, remove_in_order, run, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, remove_in_order, run, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -733,6 +763,25 @@ mod tests {
     }
 
     #[test]
+    fn a_hosts_subagent_folder_the_delete_didnt_reach_waits_for_its_host() {
+        let folders = vec![("//devbox/wt/notes".to_string(), Some(7)), ("//devbox/wt/gone".to_string(), Some(8)), ("//box/wt/x".to_string(), None)];
+        let left = leftovers(folders, &["//devbox/wt/gone".to_string()], true);
+        let wait = |f: &str, started: u64| (f.to_string(), store::Leftover { started, delete_branch: true });
+        assert_eq!(left, [wait("//devbox/wt/notes", 7), wait("//box/wt/x", 0)]);
+    }
+
+    #[test]
+    fn a_deleted_subagents_own_subagents_stay_reachable_from_the_parent() {
+        let link = |p: &str| store::Subtree { parent: p.into(), started: 1 };
+        let mut subtrees: std::collections::BTreeMap<String, store::Subtree> = [("/wt-c", link("/wt")), ("/wt-g", link("/wt-c/src")), ("/wt-o", link("/other"))].map(|(c, l)| (c.to_string(), l)).into();
+        let tree_of = |f: &str| Some(f.trim_end_matches("/src").to_string());
+        reparent(&mut subtrees, "/wt-c", "/wt", tree_of);
+        assert_eq!(subtrees["/wt-g"].parent, "/wt");
+        assert_eq!(subtrees["/wt-o"].parent, "/other");
+        assert_eq!(saved_links(&subtrees, tree_of, |_| None).get("/wt-g").map(String::as_str), Some("/wt"));
+    }
+
+    #[test]
     fn subagents_go_before_their_parent_and_a_failure_keeps_the_parent() {
         let (dir, parent) = scratch("order");
         let sub = |name: &str| {
@@ -757,14 +806,14 @@ mod tests {
 
     #[test]
     fn a_worktree_being_deleted_leaves_the_sidebar() {
-        let removals = Removals { running: ["/wt".to_string()].into() };
+        let removals = Removals { running: ["/wt".to_string()].into(), ..Default::default() };
         let shown = removals.hide(vec![tree("/p", true), tree("/wt", false), tree("/wt2", false)]);
         assert_eq!(shown, [tree("/p", true), tree("/wt2", false)]);
     }
 
     #[test]
     fn the_toast_names_the_worktree_being_deleted_or_counts_them() {
-        let labels = [&[][..], &["/src/feat"], &["/src/feat", "/src/fix"]].map(|trees| Removals { running: trees.iter().map(|t| t.to_string()).collect() }.label());
+        let labels = [&[][..], &["/src/feat"], &["/src/feat", "/src/fix"]].map(|trees| Removals { running: trees.iter().map(|t| t.to_string()).collect(), ..Default::default() }.label());
         assert_eq!(labels, [None, Some("Deleting feat…".into()), Some("Deleting 2 worktrees…".into())]);
     }
 

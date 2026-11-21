@@ -165,6 +165,9 @@ impl Desktop {
         if listed.is_some() {
             self.delegated_listed();
             self.remember_subtrees(cx);
+            if let Some(host) = host {
+                self.removals.host_listed(host);
+            }
             self.sweep_host_leftovers(cx);
         }
         if let Some(parent) = delegating {
