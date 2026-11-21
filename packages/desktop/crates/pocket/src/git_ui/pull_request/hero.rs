@@ -50,7 +50,6 @@ impl Desktop {
     /// The PR at a glance: its title, where it stands and the next step, its branches, people and labels, and what the agent is doing for it.
     pub(crate) fn pr_hero(&self, tree: &str, pr: &Pr, repo: &Repo, cx: &mut Context<Self>) -> Div {
         let (fg, said) = self.pr_verdict(tree, pr);
-        let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), tree);
         let num = format!("#{}", pr.number);
         let title = StyledText::new(format!("{} {num}", pr.title)).with_highlights([(pr.title.len() + 1..pr.title.len() + 1 + num.len(), HighlightStyle { color: Some(TEXT_3.into()), font_weight: Some(FontWeight::MEDIUM), ..Default::default() })]);
         let chip = div()
@@ -70,7 +69,6 @@ impl Desktop {
             .text_color(fg)
             .child(chip_glyph(fg, pr))
             .child(div().min_w_0().truncate().child(lead(&said).to_string()))
-            .children(busy.is_none().then(|| div().flex_none().opacity(0.7).child(icon("chevron-down", 12., fg))))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.pr.track.tab = PrTab::Checks;
                 cx.notify();
