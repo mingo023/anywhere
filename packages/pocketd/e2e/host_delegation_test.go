@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"pocketd/internal/holder"
 	"pocketd/internal/ops"
@@ -494,5 +495,42 @@ func TestDeletingTheParentsWorktreeFromThePhoneTakesItsSubagentsWorktreeOnALinke
 	}
 	if branches := gitOut(t, host.Repo, "branch", "--format=%(refname:short)"); branches != "main" {
 		t.Errorf("the host's branches %q, want main alone", branches)
+	}
+}
+
+func TestDeletingTheWorktreeOfAParentThatClosedTakesItsSubagentsWorktreeOnALinkedHost(t *testing.T) {
+	deleteAfterTheChildClosed(t, false)
+}
+
+func TestAWorktreeMadeAtAClosedSubagentsFolderOnALinkedHostSinceStays(t *testing.T) {
+	deleteAfterTheChildClosed(t, true)
+}
+
+func deleteAfterTheChildClosed(t *testing.T, replaced bool) {
+	mac, host := linkedHost(t)
+	phone, parent := chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}})
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+	if replaced {
+		time.Sleep(50 * time.Millisecond)
+		gitOut(t, host.Repo, "worktree", "remove", "--force", child.Cwd)
+		gitOut(t, host.Repo, "worktree", "add", "-q", "-b", "someone-elses", child.Cwd)
+		os.WriteFile(filepath.Join(host.Repo, ".git", "worktrees", filepath.Base(child.Cwd), "anywhere"), nil, 0o644)
+	}
+
+	workspace := mac.Owner(proto.CapWorkspace)
+	workspace.Send(map[string]any{"type": "worktree.delete", "id": "wd", "path": p.Cwd, "deleteBranch": true, "force": true})
+	if m := workspace.WaitFor("the delete's answer", func(m Message) bool { return m.ID == "wd" }); m.Type != "ack" {
+		t.Fatalf("got %s", m.Raw)
+	}
+	if _, err := os.Stat(child.Cwd); os.IsNotExist(err) != !replaced {
+		t.Errorf("the worktree at the closed child's folder on the host, replaced %v: %v", replaced, err)
 	}
 }

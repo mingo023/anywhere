@@ -300,8 +300,10 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 }
 
 // madeBy is when the worktree at tree was made by, on this machine's clock, if
-// it's the one the sessions named worked in: when the last of them there
-// closed. None is open there and known, or there's no limit.
+// it's the one the sessions named worked in: before the last of them there
+// started, as a session starts in its worktree and a newer one is made only
+// once they're gone. A store's close and update times move later; this doesn't.
+// No limit when none is known.
 func (c *conn) madeBy(tree string, sessions []string) int64 {
 	by := int64(0)
 	for _, id := range sessions {
@@ -316,13 +318,9 @@ func (c *conn) madeBy(tree string, sessions []string) int64 {
 		if real, err := filepath.EvalSymlinks(cwd); err == nil {
 			cwd = real
 		}
-		if !inside(cwd, tree) {
-			continue
+		if inside(cwd, tree) {
+			by = max(by, s.CreatedAt)
 		}
-		if s.ClosedAt == 0 && s.Status != "closed" {
-			return math.MaxInt64
-		}
-		by = max(by, s.UpdatedAt, s.ClosedAt)
 	}
 	if by == 0 {
 		return math.MaxInt64
