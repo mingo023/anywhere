@@ -467,6 +467,12 @@ impl Desktop {
                     spec["fork"] = session.into();
                 }
                 self.store.agents.launch(&mut spec, &self.agents, &self.efforts_on(&source.provider, &source.model));
+                // pocketd starts sessions only in projects it was told of; a clone made by following a fix isn't yet.
+                let project = hosts::place(&host, &placed.project);
+                if !self.store.projects.contains(&project) {
+                    self.store.projects.push(project);
+                    self.store.save();
+                }
                 if self.send_create(spec).is_none() {
                     let name = self.host_name(&host);
                     return self.step_failed(generation, format!("{name} went offline"), cx);
@@ -554,6 +560,10 @@ impl Desktop {
 
     fn undo_handoff(&mut self, h: Handoff, cx: &mut Context<Self>) {
         let (Some(host), Some(run)) = (h.host, h.run) else { return };
+        // An agent that started too late to be seen may be working in the worktree.
+        if run.failed.is_some() && run.step() == Some(Step::Start) {
+            return;
+        }
         let Some(placed) = run.placed else { return };
         if let Some(agent) = &run.started {
             // A started agent is taken back only when its check failed: it opened without the history.

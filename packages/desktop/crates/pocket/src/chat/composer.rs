@@ -15,7 +15,6 @@ use suggest::Prompt;
 use crate::composer::{Draft, Menu};
 use crate::composer::model_menu::focus_search;
 use crate::desktop::Desktop;
-use crate::handoff::Mark;
 use crate::renames;
 use crate::desktop::chrome::id;
 use crate::explorer::toast::Notice;
@@ -420,6 +419,10 @@ impl Desktop {
     }
 
     fn chat_mode(&self, terminal: &str) -> Mode {
+        // A prompt sent once a handoff began would miss the code and conversation the host gets.
+        if self.summary(terminal).is_some_and(|a| self.handoff_mark(&a.id).is_some()) {
+            return Mode::ViewOnly;
+        }
         composer_mode(self.agents.observe_only(), self.chat_ask(terminal).as_ref().map(|(a, _)| a))
     }
 
@@ -718,9 +721,8 @@ impl Desktop {
             return dock.child(div().w_full().max_w(px(MAX_WIDTH)).child(banner));
         }
         let ask = self.chat_ask(terminal);
-        // A prompt sent while the handoff is underway would miss the conversation the host gets.
-        let moving = matches!(self.handoff_mark(&agent.id), Some(Mark::Moving(_)));
-        let mode = if moving { Mode::ViewOnly } else { composer_mode(self.agents.observe_only(), ask.as_ref().map(|(a, _)| a)) };
+        let moving = self.handoff_mark(&agent.id).is_some();
+        let mode = self.chat_mode(terminal);
         let c = &self.chats.composer;
         let input = self.chats.input.read(cx).focus_handle(cx);
         let handoff = match mode {
