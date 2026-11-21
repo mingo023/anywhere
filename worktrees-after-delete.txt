@@ -1,0 +1,14 @@
+main (HEAD) after deleting chore-migrate-hooks:
+code/app-android.worktrees/chore-rn-081
+code/app-android.worktrees/delegate-write-the-migration-tests
+code/app-android.worktrees/feat-haptics
+code/app-android.worktrees/fix-ota-resume
+code/app-android.worktrees/fix-restore-handoff
+code/app-android.worktrees/refactor-restore-hook
+
+this PR after deleting chore-migrate-hooks:
+code/app-android.worktrees/chore-rn-081
+code/app-android.worktrees/feat-haptics
+code/app-android.worktrees/fix-ota-resume
+code/app-android.worktrees/fix-restore-handoff
+code/app-android.worktrees/refactor-restore-hook
