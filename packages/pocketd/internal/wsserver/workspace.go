@@ -13,6 +13,7 @@ import (
 	"pocketd/internal/accounts"
 	"pocketd/internal/launch"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
 	"pocketd/internal/workspace"
 	"pocketd/internal/worktree"
 )
@@ -26,6 +27,8 @@ type WorkspaceService struct {
 	Accounts *workspace.AccountList
 	// Switch moves a chat-only agent to another account once its turn ends; nil switches none.
 	Switch func(agentID, account string) error
+	// SubagentTrees names the worktrees the subagents of the sessions in a worktree worked in, which go with it; nil names none.
+	SubagentTrees func(tree string, treeOf func(cwd string) string) ([]string, error)
 }
 
 // closeWait bounds how long worktree.delete waits on a closed terminal's
@@ -156,19 +159,55 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 }
 
 // removeWorktree closes the terminals opened in the worktree at path, removes
-// its folder and its name, and its branch when asked. The main worktree, and
-// a branch whose commits nothing else holds unless forced, are refused before
+// its folder and its name, and its branch when asked; then the same for each
+// worktree Anywhere made for its sessions' subagents. The main worktree, and
+// branches whose commits nothing else holds unless forced, are refused before
 // anything closes.
 func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	f := c.s.Registry.Load()
+	tree, err := findTree(f, path)
+	if err != nil {
+		return err
+	}
+	trees := append([]linkedTree{tree}, c.subagentTrees(f, tree.Path)...)
+	if deleteBranch && !force {
+		branches := map[string][]string{}
+		for _, t := range trees {
+			if t.Branch != "" {
+				branches[t.project] = append(branches[t.project], t.Branch)
+			}
+		}
+		n := 0
+		for project, bs := range branches {
+			n += worktree.LostCommits(project, bs...)
+		}
+		if n > 0 {
+			return unpushedCommits(n)
+		}
+	}
+	c.closeTerminals(trees)
+	for _, t := range trees {
+		if err := c.removeTree(f, t, deleteBranch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type linkedTree struct {
+	project string
+	worktree.Worktree
+}
+
+func findTree(f registry.File, path string) (linkedTree, error) {
 	path = filepath.Clean(path)
 	project, ok := worktree.Containing(f, path)
 	if !ok || !filepath.IsAbs(path) {
-		return worktree.ErrUnknownWorktree
+		return linkedTree{}, worktree.ErrUnknownWorktree
 	}
 	trees, err := worktree.List(project)
 	if err != nil {
-		return worktree.ErrUnknownProject
+		return linkedTree{}, worktree.ErrUnknownProject
 	}
 	if real, err := filepath.EvalSymlinks(path); err == nil {
 		path = real
@@ -176,29 +215,77 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path })
 	switch {
 	case i < 0:
-		return worktree.ErrUnknownWorktree
+		return linkedTree{}, worktree.ErrUnknownWorktree
 	case trees[i].Main:
-		return worktree.ErrMain
+		return linkedTree{}, worktree.ErrMain
 	}
-	if branch := trees[i].Branch; deleteBranch && branch != "" && !force {
-		if n := worktree.LostCommits(project, branch); n > 0 {
-			return unpushedCommits(n)
+	return linkedTree{project, trees[i]}, nil
+}
+
+func (c *conn) subagentTrees(f registry.File, path string) []linkedTree {
+	if c.s.Workspace.SubagentTrees == nil {
+		return nil
+	}
+	listed := map[string][]worktree.Worktree{}
+	treeOf := func(cwd string) string {
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = real
 		}
-	}
-	if c.s.Terminals != nil {
-		var closing []<-chan struct{}
-		for _, t := range c.s.Terminals.All() {
-			if info := t.Info(); info.Local == "" && inside(info.Cwd, path) {
-				t.Close()
-				closing = append(closing, t.Done())
+		project, ok := worktree.Containing(f, cwd)
+		if !ok {
+			return ""
+		}
+		if _, ok := listed[project]; !ok {
+			listed[project], _ = worktree.List(project)
+		}
+		best := ""
+		for _, w := range listed[project] {
+			if inside(cwd, w.Path) && len(w.Path) > len(best) {
+				best = w.Path
 			}
 		}
-		deadline := time.After(closeWait)
-		for _, done := range closing {
-			select {
-			case <-done:
-			case <-deadline:
-			}
+		return best
+	}
+	paths, err := c.s.Workspace.SubagentTrees(path, treeOf)
+	if err != nil {
+		return nil
+	}
+	var out []linkedTree
+	for _, p := range paths {
+		if t, err := findTree(f, p); err == nil && t.Made && !slices.ContainsFunc(out, func(o linkedTree) bool { return o.Path == t.Path }) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func (c *conn) closeTerminals(trees []linkedTree) {
+	if c.s.Terminals == nil {
+		return
+	}
+	var closing []<-chan struct{}
+	for _, t := range c.s.Terminals.All() {
+		info := t.Info()
+		if info.Local == "" && slices.ContainsFunc(trees, func(w linkedTree) bool { return inside(info.Cwd, w.Path) }) {
+			t.Close()
+			closing = append(closing, t.Done())
+		}
+	}
+	deadline := time.After(closeWait)
+	for _, done := range closing {
+		select {
+		case <-done:
+		case <-deadline:
+		}
+	}
+}
+
+func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch bool) error {
+	path, project := t.Path, t.project
+	// Naming a worktree from its prompt renames its branch, maybe since it was read.
+	if trees, err := worktree.List(project); err == nil {
+		if i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path }); i >= 0 {
+			t.Branch = trees[i].Branch
 		}
 	}
 	if err := worktree.Remove(f, project, path); err != nil {
@@ -210,7 +297,7 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	if p := c.s.Workspace.Projects; p != nil {
 		defer p.Scan()
 	}
-	if branch := trees[i].Branch; deleteBranch && branch != "" {
+	if branch := t.Branch; deleteBranch && branch != "" {
 		if out, err := exec.Command("git", "-C", project, "branch", "-D", "--", branch).CombinedOutput(); err != nil {
 			return branchFailed{strings.TrimSpace(string(out))}
 		}

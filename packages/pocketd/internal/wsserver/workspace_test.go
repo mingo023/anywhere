@@ -272,6 +272,55 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 	}
 }
 
+func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *testing.T) {
+	var b bench
+	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
+	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+		s.Workspace.SubagentTrees = func(parent string, treeOf func(string) string) ([]string, error) {
+			if parent != tree("parent") || treeOf(filepath.Join(tree("child"), "src")) != tree("child") || treeOf(b.project) != b.project {
+				t.Error("the parent's worktree or treeOf is wrong")
+			}
+			return []string{tree("child"), tree("unmade"), tree("gone"), b.project}, nil
+		}
+	})
+	for _, name := range []string{"parent", "child"} {
+		if _, err := worktree.Add(b.s.Registry.Load(), b.project, name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "unmade", tree("unmade"))
+	gitOut(t, tree("child"), "commit", "-q", "--allow-empty", "-m", "the child's own")
+	in, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree("child")})
+	helloWith(p, proto.CapWorkspace)
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `","deleteBranch":true}`)
+	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 1.0 {
+		t.Fatalf("the child's commit didn't refuse the delete: %v", m)
+	}
+	if _, err := os.Stat(tree("parent")); err != nil {
+		t.Fatalf("the parent's folder went: %v", err)
+	}
+	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree("parent") + `","deleteBranch":true,"force":true}`)
+	if m := p.reply("wf"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	for _, name := range []string{"parent", "child"} {
+		if _, err := os.Stat(tree(name)); !os.IsNotExist(err) {
+			t.Errorf("%s's folder stayed: %v", name, err)
+		}
+		if gitOut(t, b.project, "branch", "--list", name) != "" {
+			t.Errorf("%s's branch stayed", name)
+		}
+	}
+	select {
+	case <-in.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the child's terminal is still open")
+	}
+	if _, err := os.Stat(tree("unmade")); err != nil {
+		t.Fatalf("a worktree Anywhere didn't make went: %v", err)
+	}
+}
+
 func TestDeletingABranchWithCommitsNowhereElseIsRefusedUnlessForced(t *testing.T) {
 	var b bench
 	_, _, p := local(t, aPhone, withWorkspace(t, &b))

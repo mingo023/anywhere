@@ -2,6 +2,7 @@ package orch
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 )
 
@@ -26,6 +27,48 @@ func (s *Store) Restorable() (map[string][]byte, error) {
 
 func (s *Store) OpenSessions() ([]Session, error) {
 	return s.Sessions(`closed_at = 0 AND archived = 0 AND status != 'closed' AND instr(id, '/') = 0 ORDER BY created_at, id`)
+}
+
+// SubagentTrees is each worktree the subagents of tree's sessions worked in,
+// every generation down, open or closed, except one an open session outside
+// that line works in. treeOf is the worktree holding a folder, "" for none.
+func (s *Store) SubagentTrees(tree string, treeOf func(cwd string) string) ([]string, error) {
+	all, err := s.Sessions(`instr(id, '/') = 0 ORDER BY created_at, id`)
+	if err != nil {
+		return nil, err
+	}
+	trees := make(map[string]string, len(all))
+	line := map[string]bool{}
+	var parents []string
+	for _, x := range all {
+		if trees[x.ID] = treeOf(x.Cwd); trees[x.ID] == tree {
+			parents = append(parents, x.ID)
+		}
+	}
+	for len(parents) > 0 {
+		p := parents[len(parents)-1]
+		parents = parents[:len(parents)-1]
+		for _, x := range all {
+			if x.ParentID == p && x.Relationship == "subagent" && !line[x.ID] {
+				line[x.ID] = true
+				parents = append(parents, x.ID)
+			}
+		}
+	}
+	var out []string
+	for _, x := range all {
+		w := trees[x.ID]
+		if !line[x.ID] || w == "" || w == tree || slices.Contains(out, w) {
+			continue
+		}
+		outsider := func(o Session) bool {
+			return trees[o.ID] == w && !line[o.ID] && o.ClosedAt == 0 && o.Status != "closed"
+		}
+		if !slices.ContainsFunc(all, outsider) {
+			out = append(out, w)
+		}
+	}
+	return out, nil
 }
 
 // CloseAbsent closes each open session that isn't running: after a start,

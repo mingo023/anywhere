@@ -2,6 +2,8 @@ package orch
 
 import (
 	"maps"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +22,27 @@ func TestWhatARestartBringsBackIsTheLastSetSaved(t *testing.T) {
 	}
 	if b, _ := s.Session("b"); b == nil || b.CreatedAt != 7 {
 		t.Fatalf("session b = %+v", b)
+	}
+}
+
+func TestAWorktreesSubagentTreesReachEveryGenerationButNotOnesSomeoneElseWorksIn(t *testing.T) {
+	s := openTest(t)
+	execAll(t, s,
+		`INSERT INTO sessions (id, status, cwd, parent_id, relationship, closed_at) VALUES
+			('p', 'closed', '/wt/src', '', '', 5),
+			('c', 'closed', '/wt-c', 'p', 'subagent', 5),
+			('g', 'closed', '/wt-g', 'c', 'subagent', 5),
+			('shared', 'idle', '/wt', 'p', 'subagent', 0),
+			('fork', 'idle', '/wt-f', 'p', 'fork', 0),
+			('busy', 'idle', '/wt-b', 'p', 'subagent', 0),
+			('user', 'idle', '/wt-b', '', '', 0),
+			('was', 'closed', '/wt-c', '', '', 5),
+			('host/x', 'idle', '/wt-h', 'p', 'subagent', 0)`,
+	)
+	treeOf := func(cwd string) string { return strings.TrimSuffix(cwd, "/src") }
+	got, err := s.SubagentTrees("/wt", treeOf)
+	if err != nil || !slices.Equal(got, []string{"/wt-c", "/wt-g"}) {
+		t.Fatalf("trees %q, %v", got, err)
 	}
 }
 

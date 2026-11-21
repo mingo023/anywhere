@@ -235,6 +235,11 @@ func (o *orchestrator) openSessions() ([]orch.Session, error) {
 	return o.store.OpenSessions()
 }
 
+func (o *orchestrator) subagentTrees(tree string, treeOf func(cwd string) string) ([]string, error) {
+	o.sink.Flush()
+	return o.store.SubagentTrees(tree, treeOf)
+}
+
 // closeAbsent closes each session the store keeps open that this start
 // brought back neither restored nor handed down, as a close does: through
 // the engine's close hook, which revokes its MCP token.

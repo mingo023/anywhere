@@ -283,7 +283,7 @@ func serve(sock, handed string) error {
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
-	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}
+	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch, SubagentTrees: o.subagentTrees}
 	gh := github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
 	ws.GitHub, o.host.PRs = gh, gh.Cached
 	boardScheduler.Merged = func(ctx context.Context, tree string) bool {
