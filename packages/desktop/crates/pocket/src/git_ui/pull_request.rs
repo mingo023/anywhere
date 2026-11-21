@@ -739,9 +739,11 @@ impl Desktop {
     pub(crate) fn delete_merged(&mut self, tree: &str, cx: &mut Context<Self>) {
         let Some(project) = self.project.clone().filter(|_| self.deletable(tree)) else { return };
         let removal = Removal { project, tree: tree.to_string(), branch: None, delete_branch: false, teardown: true };
-        let dirs: Vec<String> = std::iter::once(removal.tree.clone()).chain(self.subagent_removals(&removal).into_iter().map(|r| r.tree)).collect();
+        let subagents = self.subagent_removals(&removal);
+        let dir = removal.tree.clone();
         // Untracked files count even when Changes hides them, so this reads the trees afresh.
-        let task = cx.background_executor().spawn(async move { dirs.iter().any(|dir| git::dirty_files(&hosts::runner_for(dir), dir).is_none_or(|n| n > 0)) });
+        let dirty = |dir: &str| git::dirty_files(&hosts::runner_for(dir), dir).is_none_or(|n| n > 0);
+        let task = cx.background_executor().spawn(async move { dirty(&dir) || subagents.iter().any(|r| dirty(&r.tree) || r.lost() > 0) });
         cx.spawn(async move |this, cx| {
             let dirty = task.await;
             this.update(cx, |d, cx| {

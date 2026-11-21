@@ -51,7 +51,7 @@ pub(crate) struct Removal {
 
 impl Removal {
     /// Commits only this deletion loses: a detached tree's, or its branch's when that goes too.
-    fn lost(&self) -> usize {
+    pub(crate) fn lost(&self) -> usize {
         match (&self.branch, self.delete_branch) {
             (None, _) => git::lost_commits(&hosts::runner_for(&self.tree), &self.tree, None),
             (Some(b), true) => git::lost_commits(&hosts::runner_for(&self.project), &self.project, Some(b)),
@@ -235,12 +235,16 @@ impl Desktop {
         let subtrees: Vec<String> = subagents.iter().map(|r| r.tree.clone()).collect();
         let jobs: Vec<Removal> = std::iter::once(removal.clone()).chain(subagents).collect();
         let task = cx.background_executor().spawn(async move {
-            jobs.iter().fold((0, 0), |(dirty, lost), job| (dirty + git::dirty_files(&hosts::runner_for(&job.tree), &job.tree).unwrap_or(0), lost + job.lost()))
+            jobs.iter().enumerate().fold((0, 0, 0), |(dirty, lost, anyway), (i, job)| {
+                let dirty = dirty + git::dirty_files(&hosts::runner_for(&job.tree), &job.tree).unwrap_or(0);
+                let n = job.lost();
+                if i > 0 && job.branch.is_none() { (dirty, lost, anyway + n) } else { (dirty, lost + n, anyway) }
+            })
         });
         cx.spawn(async move |this, cx| {
-            let (dirty, lost) = task.await;
+            let (dirty, lost, lost_anyway) = task.await;
             this.update(cx, |d, cx| {
-                d.confirm = Some(Confirm::DeleteWorktree { removal, dirty, lost, subtrees });
+                d.confirm = Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees });
                 d.overlay = Some(Overlay::Confirm);
                 cx.notify();
             })

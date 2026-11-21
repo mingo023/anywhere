@@ -910,7 +910,7 @@ const STEPS: [(&str, Step); 302] = [
     ("delete-worktree", |d, _, cx| {
         let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
         let removal = crate::removal::Removal { project, tree: w.path, branch: Some(w.branch), delete_branch: true, teardown: true };
-        d.confirm = Some(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, subtrees: vec![] });
+        d.confirm = Some(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![] });
         d.overlay = Some(Overlay::Confirm);
         cx.notify();
     }),
