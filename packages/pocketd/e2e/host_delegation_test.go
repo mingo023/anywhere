@@ -534,3 +534,57 @@ func deleteAfterTheChildClosed(t *testing.T, replaced bool) {
 		t.Errorf("the worktree at the closed child's folder on the host, replaced %v: %v", replaced, err)
 	}
 }
+
+func TestDeletingAParentsWorktreeAfterRetentionDroppedItsSessionsStillTakesItsSubagentsWorktreeOnALinkedHost(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}})
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+
+	// Both stores, as long past retention: each pocketd prunes as it starts.
+	old := time.Now().Add(-orch.ClosedKept - time.Hour).UnixMilli()
+	for _, h := range []*Harness{mac, host} {
+		h.Shutdown()
+		store, err := orch.Open(h.Home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.DB().Exec(`UPDATE sessions SET status = 'closed', closed_at = ?`, old); err != nil {
+			t.Fatal(err)
+		}
+		store.Close()
+	}
+	host.up()
+	mac.up()
+	waitLink(mac.Owner(proto.CapHosts), "devbox", proto.LinkOnline, "")
+	for _, h := range []*Harness{mac, host} {
+		h.eventually("retention to drop the sessions", func() bool {
+			store, err := orch.Open(h.Home)
+			if err != nil {
+				return false
+			}
+			defer store.Close()
+			var n int
+			store.DB().QueryRow(`SELECT COUNT(*) FROM sessions WHERE closed_at = ?`, old).Scan(&n)
+			return n == 0
+		})
+	}
+
+	workspace := mac.Owner(proto.CapWorkspace)
+	workspace.Send(map[string]any{"type": "worktree.delete", "id": "wd", "path": p.Cwd, "deleteBranch": true, "force": true})
+	if m := workspace.WaitFor("the delete's answer", func(m Message) bool { return m.ID == "wd" }); m.Type != "ack" {
+		t.Fatalf("got %s", m.Raw)
+	}
+	for _, dir := range []string{p.Cwd, child.Cwd} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("%s stayed: %v", dir, err)
+		}
+	}
+}

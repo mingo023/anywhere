@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWhatARestartBringsBackIsTheLastSetSaved(t *testing.T) {
@@ -54,6 +55,53 @@ func TestAWorktreesSubagentTreesReachEveryGenerationButNotOnesSomeoneElseWorksIn
 	got, err := s.SubagentTrees("/wt", treeOf)
 	if err != nil || !slices.Equal(got.Local, []string{"/wt-c", "/wt-g"}) || !reflect.DeepEqual(got.Hosts, []HostTree{{"devbox", "/home/wt-hc", []string{"hc", "shared"}}}) {
 		t.Fatalf("trees %+v, %v", got, err)
+	}
+}
+
+func TestASubagentsWorktreeIsStillFoundAfterRetentionDropsItsSessionsAndForgottenOnceItsGone(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	long := itoa(now.Add(-ClosedKept - time.Hour).UnixMilli())
+	execAll(t, s,
+		`INSERT INTO sessions (id, status, cwd, parent_id, relationship, created_at, closed_at) VALUES
+			('p', 'closed', '/wt/src', '', '', 1, `+long+`),
+			('c', 'closed', '/wt-c', 'p', 'subagent', 2, `+long+`),
+			('devbox/hc', 'closed', '/home/wt-hc', 'c', 'subagent', 3, `+long+`),
+			('alone', 'closed', '/wt-a', '', '', 4, `+long+`),
+			('m', 'closed', '/main', '', '', 5, `+long+`),
+			('devbox/mc', 'closed', '/home/mc', 'm', 'subagent', 6, `+long+`)`,
+		`INSERT INTO delegations (task_id, parent_id, child_id, isolation, created_at) VALUES ('t1', 'c', 'devbox/hc', 'worktree', 1)`,
+	)
+	there := map[string]bool{"/wt/src": true, "/wt-c": true, "/wt-a": true}
+	kept := func(cwd string) bool { return there[cwd] }
+	treeOf := func(cwd string, _ int64) string { return strings.TrimSuffix(cwd, "/src") }
+	prune := func() {
+		t.Helper()
+		if err := s.Archive(now, kept); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Prune(now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prune()
+	if n := countRows(s, `SELECT COUNT(*) FROM sessions`); n != 0 {
+		t.Fatalf("retention kept %d sessions", n)
+	}
+	got, err := s.SubagentTrees("/wt", treeOf)
+	if err != nil || !slices.Equal(got.Local, []string{"/wt-c"}) || !reflect.DeepEqual(got.Hosts, []HostTree{{"devbox", "/home/wt-hc", []string{"hc"}}}) {
+		t.Fatalf("trees %+v, %v", got, err)
+	}
+	if c, _ := s.Archived("c"); c == nil || c.CreatedAt != 2 {
+		t.Fatalf("archived c = %+v", c)
+	}
+	if n := countRows(s, `SELECT COUNT(*) FROM lineage`); n != 4 {
+		t.Fatalf("lineage holds %d, want p, c, devbox/hc and alone, those in worktrees still there", n)
+	}
+	delete(there, "/wt-c")
+	prune()
+	if n := countRows(s, `SELECT COUNT(*) FROM lineage WHERE id IN ('c', 'devbox/hc')`); n != 0 {
+		t.Fatalf("lineage holds %d of c's line once its worktree is gone", n)
 	}
 }
 

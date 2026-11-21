@@ -150,6 +150,24 @@ func TestAClaimedWorktreeIsAsOldAsItsCheckout(t *testing.T) {
 	}
 }
 
+func TestAFolderIsInAMadeWorktreeOnlyWhileThatWorktreeIsThere(t *testing.T) {
+	p := repo(t)
+	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: filepath.Join(p, "..", "trees")}}
+	c, err := Add(f, p, "made", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !InMade(filepath.Join(c.Path, "src", "deep")) || InMade(p) {
+		t.Fatal("InMade is wrong while the worktree is there")
+	}
+	if err := Remove(f, p, c.Path); err != nil {
+		t.Fatal(err)
+	}
+	if InMade(filepath.Join(c.Path, "src")) {
+		t.Fatal("a deleted worktree's folder is still in one")
+	}
+}
+
 func TestAMarkGoesWithItsWorktree(t *testing.T) {
 	p := repo(t)
 	f := registry.File{Projects: []string{p}, Worktree: registry.Worktree{Root: filepath.Join(p, "..", "trees")}}

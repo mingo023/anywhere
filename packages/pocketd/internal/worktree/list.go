@@ -48,6 +48,18 @@ func MadeAt(tree string) int64 {
 	return info.ModTime().UnixMilli()
 }
 
+// InMade is whether path is in a Worktree Anywhere made that's still there.
+func InMade(path string) bool {
+	for d := filepath.Clean(path); ; d = filepath.Dir(d) {
+		if MadeAt(d) > 0 {
+			return true
+		}
+		if d == filepath.Dir(d) {
+			return false
+		}
+	}
+}
+
 func mark(tree string) {
 	if err := os.WriteFile(markerPath(tree), nil, 0o644); err != nil {
 		log.Printf("worktree: marking %s: %v", tree, err)

@@ -47,6 +47,97 @@ type HostTree struct {
 	Sessions   []string
 }
 
+// Archive keeps in lineage, past the retention Prune applies, each closed
+// session whose folder kept says still holds a worktree Anywhere made, and the
+// host subagents of those it keeps; it drops the rest. Run before Prune.
+func (s *Store) Archive(now time.Time, kept func(cwd string) bool) error {
+	cut := now.UnixMilli() - ClosedKept.Milliseconds()
+	gone, err := s.Sessions(`closed_at > 0 AND closed_at < ?`, cut)
+	if err != nil {
+		return err
+	}
+	live, err := s.Sessions(`NOT (closed_at > 0 AND closed_at < ?)`, cut)
+	if err != nil {
+		return err
+	}
+	old, isolated, err := s.archived()
+	if err != nil {
+		return err
+	}
+	for _, x := range gone {
+		var n int
+		if s.db.QueryRow(`SELECT COUNT(*) FROM delegations WHERE child_id = ? AND isolation = 'worktree'`, x.ID).Scan(&n) == nil && n > 0 {
+			isolated[x.ID] = true
+		}
+	}
+	stay := map[string]Session{}
+	for _, x := range append(old, gone...) {
+		stay[x.ID] = x
+	}
+	present := func(id string) bool {
+		_, ok := stay[id]
+		return ok || slices.ContainsFunc(live, func(l Session) bool { return l.ID == id })
+	}
+	for dropped := true; dropped; {
+		dropped = false
+		for id, x := range stay {
+			ok := kept(x.Cwd)
+			if strings.Contains(id, "/") {
+				ok = x.Relationship == "subagent" && present(x.ParentID)
+			}
+			if !ok {
+				delete(stay, id)
+				dropped = true
+			}
+		}
+	}
+	return s.Tx(func(tx *Tx) error {
+		if _, err := tx.Exec(`DELETE FROM lineage`); err != nil {
+			return err
+		}
+		for _, x := range stay {
+			if _, err := tx.Exec(`INSERT INTO lineage (id, parent_id, relationship, cwd, created_at, isolated) VALUES (?, ?, ?, ?, ?, ?)`,
+				x.ID, x.ParentID, x.Relationship, x.Cwd, x.CreatedAt, isolated[x.ID]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// archived is lineage's sessions, closed, and which of them were given worktrees of their own.
+func (s *Store) archived() ([]Session, map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT id, parent_id, relationship, cwd, created_at, isolated FROM lineage`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var out []Session
+	isolated := map[string]bool{}
+	for rows.Next() {
+		x := Session{Status: "closed", ClosedAt: 1}
+		var iso bool
+		if err := rows.Scan(&x.ID, &x.ParentID, &x.Relationship, &x.Cwd, &x.CreatedAt, &iso); err != nil {
+			return nil, nil, err
+		}
+		out = append(out, x)
+		isolated[x.ID] = iso
+	}
+	return out, isolated, rows.Err()
+}
+
+// Archived is the session lineage keeps for id, past retention; nil for none.
+func (s *Store) Archived(id string) (*Session, error) {
+	all, _, err := s.archived()
+	if err != nil {
+		return nil, err
+	}
+	if i := slices.IndexFunc(all, func(x Session) bool { return x.ID == id }); i >= 0 {
+		return &all[i], nil
+	}
+	return nil, nil
+}
+
 // SubagentTrees is each worktree the subagents of tree's sessions worked in,
 // open or closed, except one an open session outside that line works in.
 // treeOf is the worktree holding a folder that was there at a time in Unix
@@ -57,7 +148,15 @@ func (s *Store) SubagentTrees(tree string, treeOf func(cwd string, at int64) str
 	if err != nil {
 		return Subtrees{}, err
 	}
-	isolated := map[string]bool{}
+	old, isolated, err := s.archived()
+	if err != nil {
+		return Subtrees{}, err
+	}
+	for _, x := range old {
+		if !slices.ContainsFunc(all, func(a Session) bool { return a.ID == x.ID }) {
+			all = append(all, x)
+		}
+	}
 	rows, err := s.db.Query(`SELECT child_id FROM delegations WHERE isolation = 'worktree' AND instr(child_id, '/') > 0`)
 	if err != nil {
 		return Subtrees{}, err
