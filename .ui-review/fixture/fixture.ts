@@ -578,7 +578,7 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
   } else if (op.op === "fs.stat") {
     try {
       const st = statSync(op.path);
-      reply({ exists: true, dir: st.isDirectory(), size: st.size, mtime: Math.round(st.mtimeMs) });
+      reply({ exists: true, dir: st.isDirectory(), size: st.size, mtime: Math.floor(st.mtimeMs) });
     } catch {
       reply({ exists: false });
     }
@@ -870,13 +870,14 @@ const childCheckout = (parentId: string, parentCwd: string, title: string) => {
   return { cwd: tree, local: "" };
 };
 // FIXTURE_SUBAGENT=<agent id>: that session already delegated "Write the migration tests"; its child sits in a worktree made for it, with one untracked file.
+// Each child starts once its worktree is made, as pocketd's do.
 if (process.env.FIXTURE_SUBAGENT) {
   const parent = summaries.find((s) => s.id === process.env.FIXTURE_SUBAGENT)!;
   const id = `${parent.id}-sub`;
   const { cwd } = childCheckout(parent.id, parent.cwd, "Write the migration tests");
   write(join(cwd, "notes.md"), "draft\n");
   sessions.push({ id, cmd: "codex", args: [], cwd });
-  summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent" } as (typeof summaries)[number]);
+  summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
 }
 // FIXTURE_SUBAGENT_HOST=1 (with FIXTURE_SUBAGENT and FIXTURE_HANDOFF): that session also delegated to devbox, whose child sits in a worktree made
 // for it in devbox's clone, listed as this Mac's pocketd lists a host's child: by devbox's own path. devbox-worktrees.txt, next to FIXTURE_LOG,
@@ -887,7 +888,7 @@ if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_HOST) {
   const tree = `${clone}.worktrees/delegate-host-notes`;
   git(clone, "worktree", "add", "-q", "-b", "delegate/host-notes", tree, "HEAD");
   writeFileSync(join(clone, ".git", "worktrees", "delegate-host-notes", "anywhere"), "");
-  summaries.push({ ...parent, id: `devbox/${parent.id}-hsub`, terminalId: "", cwd: tree, title: "Read the notes on devbox", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent" } as (typeof summaries)[number]);
+  summaries.push({ ...parent, id: `devbox/${parent.id}-hsub`, terminalId: "", cwd: tree, title: "Read the notes on devbox", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
   if (process.env.FIXTURE_LOG) {
     const out = join(dirname(process.env.FIXTURE_LOG), "devbox-worktrees.txt");
     setInterval(() => writeFileSync(out, Bun.spawnSync(["git", "-C", clone, "worktree", "list"]).stdout.toString().replaceAll(dir, "<scratch>")), 300);
