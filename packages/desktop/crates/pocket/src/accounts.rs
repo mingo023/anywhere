@@ -281,11 +281,12 @@ where
     let default = (a.default && shared).then(|| ("New agents".to_string(), Tone::Accent));
     let limited = limited(a).map(|at| (format!("Limited \u{b7} back {}", when(at, now, tz)), Tone::Bad));
     let out = (!a.signed_in && !never_signed_in(a)).then(|| ("Signed out".to_string(), Tone::Plain));
+    let expired = (a.signed_in && a.expired).then(|| ("Token expired".to_string(), Tone::Warn));
     let stale = a.usage.as_ref().filter(|u| a.signed_in && u.stale).map(|u| (format!("As of {}", when(u.at, now, tz)), Tone::Warn));
-    [built_in, same, default, limited, out, stale].into_iter().flatten().collect()
+    [built_in, same, default, limited, out, expired, stale].into_iter().flatten().collect()
 }
 
-/// The line under an account's name: its email when a label hides it, its plan and its running sessions.
+/// The line under an account's name: its email when a label hides it, its plan, its running sessions, and when an expired token renews.
 pub(crate) fn subline(a: &Account, provider: &str, host: &str) -> String {
     if never_signed_in(a) {
         return format!("{provider} isn't signed in on {host}");
@@ -297,7 +298,8 @@ pub(crate) fn subline(a: &Account, provider: &str, host: &str) -> String {
         1 => Some("1 session open".to_string()),
         n => Some(format!("{n} sessions open")),
     };
-    [email, plan, running].into_iter().flatten().collect::<Vec<_>>().join(" \u{b7} ")
+    let renews = (a.signed_in && a.expired).then(|| "Usage returns after its next session".to_string());
+    [email, plan, running, renews].into_iter().flatten().collect::<Vec<_>>().join(" \u{b7} ")
 }
 
 /// A usage window's whole percent, how full it reads, and when it resets: "back 14:05" once it's full.
@@ -639,6 +641,15 @@ mod tests {
         assert_eq!(tags(&a, false, NOW, &Utc), [("Limited \u{b7} back 09:53".to_string(), Tone::Bad)]);
         let stale = Account { usage: Some(Usage { stale: true, at: NOW - 60_000, ..a.usage.clone().unwrap() }), ..a };
         assert_eq!(tags(&stale, false, NOW, &Utc), [("As of 08:52".to_string(), Tone::Warn)]);
+    }
+
+    #[test]
+    fn an_account_whose_token_expired_says_so_beside_the_usage_it_last_read() {
+        let never = Account { expired: true, ..account("claude", "a") };
+        assert_eq!(tags(&never, false, NOW, &Utc), [("Token expired".to_string(), Tone::Warn)]);
+        let read = Account { usage: Some(Usage { session: window(30., 0), at: NOW - 60_000, stale: true, ..Default::default() }), ..never };
+        assert_eq!(tags(&read, false, NOW, &Utc), [("Token expired".to_string(), Tone::Warn), ("As of 08:52".to_string(), Tone::Warn)]);
+        assert_eq!(subline(&read, "Claude Code", "This Mac"), "Usage returns after its next session");
     }
 
     #[test]

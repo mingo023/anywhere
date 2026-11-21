@@ -268,6 +268,35 @@ func TestUsageReadsBothProvidersLimits(t *testing.T) {
 	}
 }
 
+func TestAnAccountWhoseTokenExpiredSaysSoUntilItIsRenewed(t *testing.T) {
+	s := store(t)
+	claude := add(t, s, "claude", "a@x.com")
+	codex := add(t, s, "codex", "b@x.com")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"five_hour":{"utilization":42}}`))
+	}))
+	defer srv.Close()
+	t.Cleanup(func(was string) func() { return func() { ClaudeUsageURL = was } }(ClaudeUsageURL))
+	ClaudeUsageURL = srv.URL
+	s.Refresh(context.Background(), claude)
+
+	write(t, filepath.Join(s.Dir("claude", claude), ".credentials.json"), map[string]any{"claudeAiOauth": map[string]any{"accessToken": "old", "expiresAt": time.Now().Add(-time.Minute).UnixMilli()}})
+	write(t, filepath.Join(s.Dir("codex", codex), "auth.json"), map[string]any{"tokens": map[string]any{"access_token": jwt(map[string]any{"exp": time.Now().Add(-time.Minute).Unix()})}})
+	s.Refresh(context.Background(), "")
+	list := s.List(none)
+	if a, _ := find(list, claude); !a.SignedIn || !a.Expired || a.Usage == nil || !a.Usage.Stale || a.Usage.Session.Percent != 42 {
+		t.Fatalf("an expired account with usage read before: %+v %+v", a, a.Usage)
+	}
+	if b, _ := find(list, codex); !b.SignedIn || !b.Expired || b.Usage != nil {
+		t.Fatalf("an expired account never read: %+v", b)
+	}
+
+	signInClaude(t, s, claude, "a@x.com")
+	if a, _ := find(s.List(none), claude); a.Expired {
+		t.Fatal("a renewed token still reads as expired")
+	}
+}
+
 func TestOnlyClaudeAndCodexHaveAccounts(t *testing.T) {
 	if !reflect.DeepEqual(Providers, []string{"claude", "codex"}) {
 		t.Fatal(Providers)

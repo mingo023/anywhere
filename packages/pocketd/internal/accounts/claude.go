@@ -41,14 +41,15 @@ func (claude) identity(s *Store, id string) (email, plan string) {
 	return cfg.OAuth.Email, title(strings.TrimPrefix(cfg.OAuth.Org, "claude_"))
 }
 
-func (claude) signedIn(s *Store, id string) bool {
-	return s.claudeToken(id).AccessToken != ""
+func (claude) status(s *Store, id string) (bool, bool) {
+	t := s.claudeToken(id)
+	return t.AccessToken != "", t.expired(time.Now())
 }
 
 func (claude) usage(ctx context.Context, s *Store, id string) (Usage, error) {
 	now := time.Now()
 	t := s.claudeToken(id)
-	if t.ExpiresAt > 0 && t.ExpiresAt < now.UnixMilli() {
+	if t.expired(now) {
 		return Usage{}, fmt.Errorf("token expired")
 	}
 	var raw struct {
@@ -87,6 +88,10 @@ func (w *claudeWindow) window() *Window {
 type claudeOAuth struct {
 	AccessToken string `json:"accessToken"`
 	ExpiresAt   int64  `json:"expiresAt"`
+}
+
+func (t claudeOAuth) expired(now time.Time) bool {
+	return t.ExpiresAt > 0 && t.ExpiresAt < now.UnixMilli()
 }
 
 // claudeToken is Claude Code's OAuth token for account id: in the Keychain
