@@ -15,6 +15,7 @@ import (
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
+	"pocketd/internal/terminal"
 	"pocketd/internal/workspace"
 	"pocketd/internal/worktree"
 )
@@ -31,7 +32,7 @@ type WorkspaceService struct {
 	// SubagentTrees names the worktrees the subagents of the sessions in a worktree worked in, which go with it; nil names none.
 	SubagentTrees func(tree string, treeOf func(cwd string, at int64) string) (orch.Subtrees, error)
 	// HostDelete deletes a worktree on a linked host; nil deletes none there.
-	HostDelete func(ctx context.Context, host, path string, deleteBranch, force bool) error
+	HostDelete func(ctx context.Context, host, path string, madeBefore int64, subagents []string, deleteBranch, force bool) error
 }
 
 // closeWait bounds how long worktree.delete waits on a closed terminal's
@@ -152,7 +153,7 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 		return errors.New("This pocketd can't remove worktrees")
 	}
 	go func() {
-		if err := c.removeWorktree(m.Path, m.DeleteBranch, m.Force); err != nil {
+		if err := c.removeWorktree(m.Path, int64(m.MadeBefore), m.Subagents, m.DeleteBranch, m.Force); err != nil {
 			c.send(workspaceError(m.ID, err))
 			return
 		}
@@ -167,12 +168,20 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 // hosts before that, so a failure leaves the worktree at path to retry from.
 // The main worktree, branches whose commits nothing else holds, and a host
 // that refuses or is offline refuse the delete before anything here closes,
-// unless forced.
-func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
+// unless forced. A parent's Mac deleting its subagents' worktree here names
+// them, and when they closed: a worktree made since, or that someone else
+// works in, isn't theirs.
+func (c *conn) removeWorktree(path string, madeBefore int64, subagents []string, deleteBranch, force bool) error {
 	f := c.s.Registry.Load()
 	tree, err := findTree(f, path)
 	if err != nil {
 		return err
+	}
+	if at := worktree.MadeAt(tree.Path); madeBefore > 0 && (at == 0 || at > madeBefore) {
+		return worktree.ErrUnknownWorktree
+	}
+	if subagents != nil && c.othersIn(tree.Path, subagents) {
+		return worktree.ErrInUse
 	}
 	subtrees, onHosts := c.subagentTrees(f, tree.Path)
 	trees := append(subtrees, tree)
@@ -184,7 +193,7 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	if del := c.s.Workspace.HostDelete; del != nil {
 		for _, h := range onHosts {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			err := del(ctx, h.Host, h.Path, deleteBranch, force)
+			err := del(ctx, h.Host, h.Path, h.At, h.Sessions, deleteBranch, force)
 			cancel()
 			if err != nil && !force {
 				return err
@@ -285,6 +294,39 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 		}
 	}
 	return out, found.Hosts
+}
+
+// othersIn is whether a terminal in tree belongs to neither the open sessions
+// named nor their subagents.
+func (c *conn) othersIn(tree string, sessions []string) bool {
+	if c.s.Terminals == nil {
+		return false
+	}
+	ours := map[string]bool{}
+	for _, id := range sessions {
+		ours[id] = true
+	}
+	theirs := map[string]bool{}
+	if c.s.OpenSessions != nil {
+		open, _ := c.s.OpenSessions()
+		for grew := true; grew; {
+			grew = false
+			for _, s := range open {
+				if !ours[s.ID] && ours[s.ParentID] && s.Relationship == "subagent" {
+					ours[s.ID], grew = true, true
+				}
+			}
+		}
+		for _, s := range open {
+			if ours[s.ID] && s.Terminal != "" {
+				theirs[s.Terminal] = true
+			}
+		}
+	}
+	return slices.ContainsFunc(c.s.Terminals.All(), func(t *terminal.Terminal) bool {
+		info := t.Info()
+		return info.Local == "" && inside(info.Cwd, tree) && !theirs[info.ID]
+	})
 }
 
 func (c *conn) closeTerminals(trees []linkedTree) {
