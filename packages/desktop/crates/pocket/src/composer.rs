@@ -274,17 +274,18 @@ impl HostCopies {
     }
 }
 
-/// What `draft` must copy to the host holding `tree`, whose home is `home`, before an agent there can read its attachments;
-/// none when `tree` is on this Mac or nothing is attached from it. `here` is this Mac's attachments folder. Err names a host
-/// that isn't connected.
-pub(crate) fn host_copies(draft: &Draft, tree: &str, here: &Path, home: &str) -> Result<Option<HostCopies>, String> {
+/// What `draft` must copy to the host holding `tree` before an agent there can read its attachments: into the attachments
+/// folder of pocketd's own folder there. None when `tree` is on this Mac or nothing is attached from it. `here` is this
+/// Mac's attachments folder. Err names a host that isn't connected.
+pub(crate) fn host_copies(draft: &Draft, tree: &str, here: &Path) -> Result<Option<HostCopies>, String> {
     let Some(host) = hosts::split(tree).0 else { return Ok(None) };
-    let dir = hosts::place(host, &format!("{home}/{}/attachments", channel::home_dir_name()));
-    let files = draft.host_copies(here, &dir);
+    let client = hosts::remote::connected(host);
+    let dir = client.as_ref().and_then(|c| c.pocket_dir()).map(|pocket| hosts::place(host, &format!("{pocket}/attachments")));
+    let files = draft.host_copies(here, dir.as_deref().unwrap_or_default());
     if files.is_empty() {
         return Ok(None);
     }
-    let client = hosts::remote::connected(host).ok_or_else(|| host.to_string())?;
+    let (Some(client), Some(dir)) = (client, dir) else { return Err(host.to_string()) };
     let outside = draft.images.iter().map(|a| &a.path).filter(|p| p.parent() != Some(here) && files.iter().any(|(from, _)| from == *p));
     let thumbs = outside.map(|p| (p.clone(), here.join(copy_name(p, here)))).collect();
     Ok(Some(HostCopies { client, dir, files, thumbs }))
@@ -930,32 +931,44 @@ mod tests {
         let listener = UnixListener::bind(&sock).unwrap();
         let (tx, ops) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut writer = stream.try_clone().unwrap();
-            for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                let op: serde_json::Value = serde_json::from_str(&line).unwrap();
-                writeln!(writer, "{}", serde_json::json!({"id": op["id"], "ev": op["op"]})).unwrap();
-                tx.send(op).unwrap();
+            for stream in listener.incoming().map_while(Result::ok) {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let mut writer = stream.try_clone().unwrap();
+                    for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                        let op: serde_json::Value = serde_json::from_str(&line).unwrap();
+                        if op["op"] == "status" {
+                            // A host whose pocketd hasn't moved to ~/.anywhere yet names its old folder.
+                            writeln!(writer, "{}", serde_json::json!({"ev": "status", "status": {"userHome": "/home/dev", "home": "/home/dev/.coding-pocket"}})).unwrap();
+                            continue;
+                        }
+                        writeln!(writer, "{}", serde_json::json!({"id": op["id"], "ev": op["op"]})).unwrap();
+                        tx.send(op).unwrap();
+                    }
+                });
             }
         });
-        hosts::remote::register(std::sync::Arc::new(hosts::remote::Client::new("copybox", sock)));
+        let client = std::sync::Arc::new(hosts::remote::Client::new("copybox", sock));
+        client.status().unwrap();
+        hosts::remote::register(client);
         std::fs::write(root.join("drop.png"), [6]).unwrap();
         let mut draft = Draft { files: vec![here.join("7.png")], ..Draft::default() };
         draft.drop_files(&[root.join("drop.png")]);
-        let copies = super::host_copies(&draft, "//copybox/home/dev/app", &here, "/home/dev").unwrap().unwrap();
+        let copies = super::host_copies(&draft, "//copybox/home/dev/app", &here).unwrap().unwrap();
         copies.make().unwrap();
         let thumb = here.join(super::copy_name(&root.join("drop.png"), &here));
         assert_eq!(std::fs::read(&thumb).unwrap(), [6], "a dropped image's thumbnail is kept under its name on the host");
         hosts::remote::forget("copybox");
-        let dir = format!("/home/dev/{}/attachments", channel::home_dir_name());
+        let dir = "/home/dev/.coding-pocket/attachments";
         let op = || ops.recv_timeout(std::time::Duration::from_secs(5)).expect("the host got no op");
         let (mkdir, dropped, write) = (op(), op(), op());
         assert!(dropped["path"].as_str().unwrap().ends_with("-drop.png"), "{dropped}");
-        assert_eq!((mkdir["op"].as_str(), mkdir["path"].as_str(), mkdir["parents"].as_bool()), (Some("fs.mkdir"), Some(dir.as_str()), Some(true)));
+        assert_eq!((mkdir["op"].as_str(), mkdir["path"].as_str(), mkdir["parents"].as_bool()), (Some("fs.mkdir"), Some(dir), Some(true)));
         assert_eq!((write["op"].as_str(), write["path"].as_str()), (Some("fs.write"), Some(format!("{dir}/7.png").as_str())));
         assert_eq!(base64::engine::general_purpose::STANDARD.decode(write["data"].as_str().unwrap()).unwrap(), [9, 8, 7]);
-        assert!(super::host_copies(&draft, "/Users/me/app", &here, "/Users/me").unwrap().is_none());
-        assert_eq!(super::host_copies(&draft, "//gonebox/home/dev/app", &here, "/home/dev").err().as_deref(), Some("gonebox"));
+        assert!(super::host_copies(&draft, "/Users/me/app", &here).unwrap().is_none());
+        assert_eq!(super::host_copies(&draft, "//gonebox/home/dev/app", &here).err().as_deref(), Some("gonebox"));
+        assert!(super::host_copies(&Draft::default(), "//gonebox/home/dev/app", &here).unwrap().is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

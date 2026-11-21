@@ -95,6 +95,8 @@ pub struct Client {
     /// An exec's cwd when it names none; `/` isn't absolute on Windows, so there it's the home `status` gave.
     root: OnceLock<String>,
     home: OnceLock<String>,
+    /// pocketd's own folder, as the first `status` gave it.
+    pocket: OnceLock<String>,
     /// Connections a failed write retired, left open until the calls already sent on them are answered or give up.
     retired: Mutex<Vec<Conn>>,
     /// Held across `sync_registry`'s read and write, so two creates don't drop each other's projects.
@@ -107,7 +109,7 @@ impl Client {
     }
 
     pub fn to(id: &str, endpoint: Endpoint) -> Self {
-        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), retired: Mutex::default(), registry: Mutex::default() }
+        Self { id: id.into(), endpoint, conn: Mutex::new(None), next: AtomicU64::new(1), root: OnceLock::new(), home: OnceLock::new(), pocket: OnceLock::new(), retired: Mutex::default(), registry: Mutex::default() }
     }
 
     pub fn id(&self) -> &str {
@@ -200,6 +202,7 @@ impl Client {
                         }
                         let _ = self.home.set(home);
                     }
+                    let _ = self.pocket.set(pocket_dir(&info));
                     return Ok(info);
                 }
                 Some("error") => return Err(io::Error::other(reply["error"].as_str().unwrap_or("host refused").to_string())),
@@ -215,6 +218,11 @@ impl Client {
             Some(home) => Ok(home.clone()),
             None => Ok(self.status()?.user_home.replace('\\', "/")),
         }
+    }
+
+    /// pocketd's own folder on the host with `/` separators, once a `status` gave it.
+    pub fn pocket_dir(&self) -> Option<String> {
+        self.pocket.get().cloned()
     }
 
     pub fn list(&self, dir: &str) -> io::Result<Vec<Entry>> {
@@ -267,9 +275,14 @@ impl Client {
 
 /// The `desktop.json` the host's pocketd reads, in its own folder there.
 fn registry_path(info: &HostInfo) -> String {
+    format!("{}/desktop.json", pocket_dir(info))
+}
+
+/// pocketd's own folder: the one `status` names, else where this channel keeps it under the user's home.
+fn pocket_dir(info: &HostInfo) -> String {
     match info.home.as_str() {
-        "" => format!("{}/{}/desktop.json", info.user_home, channel::home_dir_name()),
-        home => format!("{}/desktop.json", home.replace('\\', "/")),
+        "" => format!("{}/{}", info.user_home, channel::home_dir_name()),
+        home => home.replace('\\', "/"),
     }
 }
 
@@ -431,6 +444,13 @@ mod tests {
         assert_eq!(info.user_home, "/home/dev");
         assert!(info.serves_projects());
         let _ = std::fs::remove_file(sock);
+    }
+
+    #[test]
+    fn pockets_own_folder_is_the_one_status_names_else_this_channels_under_the_users_home() {
+        let info = |home: &str, user_home: &str| HostInfo { home: home.into(), user_home: user_home.into(), ..HostInfo::default() };
+        assert_eq!(pocket_dir(&info("", "/home/dev")), format!("/home/dev/{}", channel::home_dir_name()));
+        assert_eq!(pocket_dir(&info("C:\\Users\\dev\\.coding-pocket", "C:/Users/dev")), "C:/Users/dev/.coding-pocket");
     }
 
     #[test]

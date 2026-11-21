@@ -657,7 +657,7 @@ impl Desktop {
     /// Copies the draft's attachments to `project`'s host, then starts the session again, so the agent there can read them.
     /// False when nothing needs copying.
     fn copy_attachments_first(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let copies = crate::composer::host_copies(&self.new_form.composer.draft, project, &self.store.home().join("attachments"), &self.host_agents.home_of(project));
+        let copies = crate::composer::host_copies(&self.new_form.composer.draft, project, &self.store.home().join("attachments"));
         let copies = match copies {
             Ok(Some(copies)) if copies.files != self.new_form.draft.copied_for(project) => copies,
             Ok(_) => return false,

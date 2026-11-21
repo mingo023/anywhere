@@ -530,7 +530,7 @@ impl Desktop {
         if let Some((Kind::Unsupported, name, _)) = slash {
             return self.show_notice(Notice::InChat { agent, icon: "terminal", text: terminal_only_said(&format!("/{name}"), &provider, chat_only) }, cx);
         }
-        match crate::composer::host_copies(&self.chats.composer.draft, &cwd, &self.store.home().join("attachments"), &self.host_agents.home_of(&cwd)) {
+        match crate::composer::host_copies(&self.chats.composer.draft, &cwd, &self.store.home().join("attachments")) {
             Ok(Some(copies)) if copies.files != copied => return self.chat_copy_first(terminal, agent, &cwd, queue, copies, window, cx),
             Ok(_) => {}
             Err(host) => {
