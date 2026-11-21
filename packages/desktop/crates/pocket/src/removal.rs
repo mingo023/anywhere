@@ -233,6 +233,15 @@ pub(crate) struct OnHosts {
     pub folders: Vec<(String, Option<u64>)>,
     /// Hosts' folders live sessions outside the line work in: a worktree holding one stays.
     pub others: Vec<String>,
+    /// Hosts back but not yet relisted, whose `others` may be stale: their folders wait for the leftover sweep.
+    pub unready: Vec<String>,
+}
+
+impl OnHosts {
+    /// The folders to read off their hosts now.
+    fn ready(&self) -> impl Iterator<Item = &(String, Option<u64>)> {
+        self.folders.iter().filter(|(f, _)| hosts::split(f).0.is_none_or(|h| !self.unready.iter().any(|u| u == h)))
+    }
 }
 
 /// The deletions that go with `r`'s: each worktree Anywhere made that holds only sessions `r.tree`'s sessions delegated to, and theirs in turn.
@@ -279,7 +288,7 @@ fn subagent_removals(
 /// The deletions of the worktrees Anywhere made on hosts that hold `on`'s folders, read off each host; their branches go if `delete_branch`.
 pub(crate) fn host_removals(on: &OnHosts, delete_branch: bool) -> Vec<Removal> {
     let mut out: Vec<Removal> = Vec::new();
-    for (f, made) in &on.folders {
+    for (f, made) in on.ready() {
         let run = hosts::runner_for(f);
         let ws = git::worktrees(&run, f);
         let removal = host_removal(&ws, f, *made, |t| git::made_at(&run, t), &on.others, delete_branch);
@@ -473,6 +482,8 @@ impl Desktop {
         let (subtrees, mut on_hosts) = subagent_removals(r, &self.agents, place, &self.worktrees, &subtrees, started);
         let shells = self.shells();
         on_hosts.others.extend(shells.iter().filter(|f| hosts::split(f).0.is_some()).cloned());
+        let unready = on_hosts.folders.iter().filter_map(|(f, _)| hosts::split(f).0).filter(|h| !self.removals.host_ready(h)).map(str::to_string).collect();
+        on_hosts.unready = unready;
         (unoccupied(subtrees, &shells), on_hosts)
     }
 
@@ -720,7 +731,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use store::Leftover;
@@ -878,6 +889,12 @@ mod tests {
         let subtrees = vec![removal("/wt/a"), removal("/wt/b"), removal("//devbox/wt/c")];
         let kept = unoccupied(subtrees, &["/wt/a/src".into(), "/wt/b-2".into(), "//devbox/wt/c".into()]);
         assert_eq!(kept, [removal("/wt/b")]);
+    }
+
+    #[test]
+    fn a_host_not_yet_relisted_has_its_folders_wait() {
+        let on = OnHosts { folders: vec![("//devbox/wt/a".into(), Some(1)), ("//box2/wt/b".into(), None)], unready: vec!["devbox".into()], ..OnHosts::default() };
+        assert_eq!(on.ready().map(|(f, _)| f.as_str()).collect::<Vec<_>>(), ["//box2/wt/b"]);
     }
 
     #[test]
