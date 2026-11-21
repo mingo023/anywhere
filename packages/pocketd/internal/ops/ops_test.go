@@ -111,6 +111,28 @@ func TestUnknownTerminalIsAnError(t *testing.T) {
 	}
 }
 
+func TestAClosingTerminalThatEndsBeforeASecondCloseIsNotAnError(t *testing.T) {
+	old := terminal.CloseGrace
+	terminal.CloseGrace = 300 * time.Millisecond
+	t.Cleanup(func() { terminal.CloseGrace = old })
+	c := start(t, &Server{Terminals: terminal.NewManager()})
+	c.Send(Msg{Op: "spawn", Cmd: "sh", Args: []string{"-c", "trap '' HUP; sleep 5"}})
+	id := recv(t, c, "spawned").ID
+	c.Send(Msg{Op: "attach", ID: id})
+	recv(t, c, "snapshot")
+	c.Send(Msg{Op: "close", ID: id})
+	c.Send(Msg{Op: "list"})
+	if items := recv(t, c, "terminals").Items; len(items) != 1 {
+		t.Fatalf("a closing terminal is listed until it ends, items = %+v", items)
+	}
+	recv(t, c, "exit")
+	c.Send(Msg{Op: "close", ID: id})
+	c.Send(Msg{Op: "list"})
+	if m, err := c.Recv(); err != nil || m.Ev != "terminals" {
+		t.Fatalf("second close answered %+v, %v", m, err)
+	}
+}
+
 func TestHookBlocksUntilAnswered(t *testing.T) {
 	answer := make(chan []byte)
 	c := start(t, &Server{Terminals: terminal.NewManager(), Hook: func(_ context.Context, who peer.Principal, m Msg) ([]byte, error) {
