@@ -401,6 +401,9 @@ func TestAWorktreeMadeAfterItsSubagentStartedIsSomeoneElsesAndStays(t *testing.T
 	var started int64
 	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
 		s.Workspace.Session = func(id string) (*orch.Session, error) {
+			if id != "sub" {
+				return nil, nil
+			}
 			// Its close came after the newer worktree, as a restart closing what it didn't bring back stamps it.
 			return &orch.Session{ID: id, Cwd: filepath.Join(b.root, "pocket", "notes"), Status: "closed", CreatedAt: started, ClosedAt: started + 1e6}, nil
 		}
@@ -419,6 +422,10 @@ func TestAWorktreeMadeAfterItsSubagentStartedIsSomeoneElsesAndStays(t *testing.T
 		t.Fatalf("the newer worktree went: %v", err)
 	}
 	started++
+	p.send(`{"type":"worktree.delete","id":"wp","path":"` + tree + `","subagents":["pruned"]}`)
+	if m := p.reply("wp"); m["type"] != "error" || m["code"] != "unknown_worktree" {
+		t.Fatalf("a session the host no longer knows proved it theirs: %v", m)
+	}
 	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree + `","subagents":["sub"]}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)
@@ -434,6 +441,12 @@ func TestASubagentsWorktreeSomeoneElseWorksInStaysWhenItsParentsMacDeletesIt(t *
 	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
 		s.OpenSessions = func() ([]orch.Session, error) {
 			return []orch.Session{{ID: "sub"}, {ID: "grand", ParentID: "sub", Relationship: "subagent", Terminal: mine}}, nil
+		}
+		s.Workspace.Session = func(id string) (*orch.Session, error) {
+			if id != "sub" {
+				return nil, nil
+			}
+			return &orch.Session{ID: id, Cwd: filepath.Join(b.root, "pocket", "notes"), CreatedAt: time.Now().Add(time.Hour).UnixMilli()}, nil
 		}
 	})
 	tree := filepath.Join(b.root, "pocket", "notes")
