@@ -20,6 +20,7 @@ Watch and drive many coding agents (Claude Code, Codex, Cursor, Grok Build, Open
 - Review diffs next to the session that made the change.
 - Create a worktree from a branch or a pull request and start an agent in it.
 - Sessions keep running after you close the window.
+- Connect another Mac, Linux, or Windows machine; its projects and sessions show up in the same sidebar. See [hosts docs](https://getanywhere.dev/docs/hosts).
 - The `anywhere` CLI starts sessions, sends prompts and manages work from a shell. See [CLI docs](https://getanywhere.dev/docs/cli).
 - Answer agents from your iPhone. See [iPhone docs](https://getanywhere.dev/docs/iphone) for pairing.
 
