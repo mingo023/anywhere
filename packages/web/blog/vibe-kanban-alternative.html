@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Vibe Kanban alternative: a local Board for coding agents · Anywhere blog</title>
+	<meta name="description" content="Vibe Kanban is now community maintained and still runs locally. If you want a free, MIT desktop app whose Board starts each ticket in its own git worktree, compare Anywhere.">
+	<meta name="author" content="Minh Ngo">
+	<link rel="canonical" href="https://getanywhere.dev/blog/vibe-kanban-alternative">
+	<meta property="og:type" content="article">
+	<meta property="og:site_name" content="Anywhere">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Vibe Kanban alternative: a local Board for coding agents">
+	<meta property="og:description" content="Vibe Kanban is now community maintained and still runs locally. If you want a free, MIT desktop app whose Board starts each ticket in its own git worktree, compare Anywhere.">
+	<meta property="og:url" content="https://getanywhere.dev/blog/vibe-kanban-alternative">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta property="article:published_time" content="2026-11-21">
+	<meta property="article:modified_time" content="2026-11-21">
+	<meta property="article:author" content="Minh Ngo">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Vibe Kanban alternative: a local Board for coding agents">
+	<meta name="twitter:description" content="Vibe Kanban is now community maintained and still runs locally. If you want a free, MIT desktop app whose Board starts each ticket in its own git worktree, compare Anywhere.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="/assets/icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="/docs/docs.css">
+	<link rel="stylesheet" href="/blog/blog.css">
+	<script src="/docs/docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "BlogPosting",
+			"@id": "https://getanywhere.dev/blog/vibe-kanban-alternative#article",
+			"headline": "Vibe Kanban alternative: a local Board for coding agents",
+			"description": "Vibe Kanban is now community maintained and still runs locally. If you want a free, MIT desktop app whose Board starts each ticket in its own git worktree, compare Anywhere.",
+			"datePublished": "2026-11-21",
+			"dateModified": "2026-11-21",
+			"inLanguage": "en",
+			"keywords": "vibe kanban alternative, vibe kanban sunset, vibe kanban replacement, kanban for coding agents, anywhere vs vibe kanban",
+			"author": { "@type": "Person", "name": "Minh Ngo" },
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/vibe-kanban-alternative" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "FAQPage",
+			"mainEntity": [
+				{ "@type": "Question", "name": "What is a good Vibe Kanban alternative?", "acceptedAnswer": { "@type": "Answer", "text": "First check whether you need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working. If you want a native desktop app instead, Anywhere is a free, MIT-licensed option with a Board where each started ticket gets its own git worktree and agent session. It has no web UI, inline diff comments or preview browser." } },
+				{ "@type": "Question", "name": "Is Vibe Kanban still maintained?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, by its community. bloop, the company behind it, shut down on 10 April 2026 and said the project will live on, open source and community maintained. Remote services such as kanban issues, comments, projects and organisations were removed after 30 days, and local workspaces keep working. Version 0.1.46 was published on GitHub on 15 November 2026." } },
+				{ "@type": "Question", "name": "Does Anywhere have a kanban board for coding agents?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The Board holds tickets for every project. A ticket has a title, a prompt, an agent, a project and a base branch, and optionally a priority and a label. A started ticket waits in Queued until a slot is free, then gets its own worktree and session. It runs up to 4 tickets at once by default, adjustable from 1 to 8." } },
+				{ "@type": "Question", "name": "Which agents does Anywhere support?", "acceptedAnswer": { "@type": "Answer", "text": "Ten agent CLIs that you install and sign in to yourself: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. A ticket can use any of them." } },
+				{ "@type": "Question", "name": "Is Anywhere free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Anywhere is MIT licensed, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use." } }
+			]
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "Vibe Kanban alternative: a local Board for coding agents", "item": "https://getanywhere.dev/blog/vibe-kanban-alternative" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="/assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="post-layout">
+		<main id="main">
+			<article>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
+				<h1>Vibe Kanban alternative: a local Board for coding agents</h1>
+				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-21">21 November 2026</time> · Updated <time datetime="2026-11-21">21 November 2026</time></div>
+				<p class="lede">You may not need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working after the company behind it shut down. If you want a native desktop app instead, Anywhere is one option: free, MIT licensed, no account, with a Board where each started ticket gets its own git worktree and agent session. It lacks some things Vibe Kanban has, such as a web UI, inline diff comments and a preview browser.</p>
+				<div class="callout">
+					<p><span class="callout-title">Disclosure</span>The Anywhere team wrote this. Vibe Kanban facts come from its <a href="https://github.com/BloopAI/vibe-kanban">GitHub README</a>, <a href="https://github.com/BloopAI/vibe-kanban/releases">releases</a>, <a href="https://vibekanban.com/docs/getting-started">docs</a> and <a href="https://vibekanban.com/blog/shutdown">shutdown post</a>, checked on 21 November 2026. If something here is out of date, <a href="https://github.com/mingo023/anywhere/issues">open an issue</a>.</p>
+				</div>
+
+				<h2 id="what-happened">What happened to Vibe Kanban?</h2>
+				<p>On 10 April 2026, Louis Knight-Webb wrote in <a href="https://vibekanban.com/blog/shutdown">Goodbye bloop</a>: "Today we're shutting down bloop, the company behind Vibe Kanban. The Vibe Kanban project will live on, open source and community maintained." The post says the vast majority of users were free users and the team couldn't find a business model it could get excited about.</p>
+				<p>The same post set out what changed. Remote services stayed up for 30 days and were then removed, after which Vibe Kanban moves to "a fully local architecture". The services named are "kanban issues, comments, projects and organisations". The latest version at the time added a data export. And: "For the avoidance of doubt, local workspaces will continue to function." The <a href="https://github.com/BloopAI/vibe-kanban">README</a> now opens with "Vibe Kanban is sunsetting." and a link to that post.</p>
+
+				<h2 id="do-you-need-to-switch">Do you need to switch?</h2>
+				<p>Not necessarily. The project is still shipping. <a href="https://github.com/BloopAI/vibe-kanban/releases/tag/v0.1.46.1794744340">v0.1.46</a> was published on GitHub on 15 November 2026, with community contributors, and includes work such as installing and running agents from the ACP registry and turning off usage analytics and crash reports. The repository is Apache-2.0. If your local workspaces still do what you need, keep using them.</p>
+				<p>The case for looking elsewhere is narrower: you relied on the hosted parts the shutdown post lists, such as kanban issues and organisations, or you would rather run a desktop app than a local server in a browser tab. Vibe Kanban's own <a href="https://vibekanban.com/docs/getting-started">Get Started page</a> says that without signing in, "the kanban board, issues, and team features will be unavailable", so if the board is the part you use, check how it behaves in the release you run.</p>
+
+				<h2 id="what-a-replacement-needs">What should a replacement have?</h2>
+				<p>Vibe Kanban's model is plan, run, review. A replacement worth the move covers the same three steps:</p>
+				<ul>
+					<li><strong>A board.</strong> Tickets you write ahead of time, with the agent and the branch chosen per ticket, and columns that show which ones are running and which need you.</li>
+					<li><strong>Isolation.</strong> Each piece of work in its own git worktree and branch, so agents don't edit the same checkout. Vibe Kanban <a href="https://vibekanban.com/docs/workspaces/creating-workspaces">creates a git worktree</a> per workspace; a replacement should do no less.</li>
+					<li><strong>Review.</strong> The diff next to the session that made it, and a path to a pull request and a merge.</li>
+				</ul>
+
+				<h2 id="anywhere-board">How does Anywhere's Board work?</h2>
+				<p>Anywhere is a desktop app for running many coding agents at once. A background service, pocketd, owns the terminals and sessions, and it runs the Board. The <a href="/docs/board">Board</a> holds tickets for every project in one place.</p>
+
+				<h3>Write a ticket</h3>
+				<p>Click <strong>Board</strong> in the sidebar, then the composer, or press <kbd>N</kbd>. The first line you type becomes the title and the whole text becomes the prompt. Chips set the project, the agent, the base branch, and optionally a priority and a label. Only git repositories can hold tickets.</p>
+
+				<h3>Start it</h3>
+				<p>Click <strong>Start</strong> on the card, press <kbd>⌘↩</kbd> in the composer to add and start at once, or drag the card to Working. A started ticket goes to Queued first. When a slot is free, pocketd creates the ticket's worktree from its base branch and starts its session there. Board sessions start with the agent's own permission settings.</p>
+
+				<h3>Limit how many run at once</h3>
+				<p><strong>Work on at once</strong>, in the Board's Display menu, caps how many tickets are starting, working or waiting on you. It is 4 by default and goes from 1 to 8. The Working column's header shows how many slots are in use.</p>
+
+				<h3>Follow the columns</h3>
+				<p>Once a ticket has a session, its card follows the session's status through eight columns: <strong>To do</strong>, <strong>Queued</strong>, <strong>Working</strong>, <strong>Needs you</strong> (waiting for an answer, failed or stopped), <strong>Done</strong> (turn ended, not seen yet), <strong>In review</strong> (idle), <strong>Merged</strong> and <strong>Closed</strong>. A merged pull request closes the ticket and puts it in Merged. Closing a ticket by hand keeps its worktree and session, and <strong>Restore</strong> brings it back.</p>
+				<p>Review happens beside the session: <a href="/docs/review">Changes</a> shows the diff, can compare the worktree with its base branch as a pull request would, and commits, pushes and opens the pull request. The pull request card shows checks, reviews and merge state, and its <strong>Send</strong> buttons hand a failed check or a GitHub review comment to the agent.</p>
+
+				<h2 id="cli">Can you add tickets from the command line?</h2>
+				<p>Yes. The <a href="/docs/cli"><code>anywhere</code> command</a> adds, reads, edits and deletes Board tickets:</p>
+				<pre><code>anywhere ticket create --project app --provider codex --base main --start "Fix the flaky login test"
+anywhere ticket list
+anywhere ticket read &lt;id&gt;
+anywhere ticket update --prompt "Also cover the logout path" &lt;id&gt;
+anywhere ticket delete &lt;id&gt;</code></pre>
+				<p><code>--start</code> starts the ticket at once; it waits in Queued until a slot is free. Pass <code>-</code> as the prompt to read it from standard input. The command has no flags for priority or label; set those on the Board. On the Mac, install the command from <strong>Settings › General</strong>. For scripting sessions as well as tickets, see <a href="/blog/script-claude-code-codex-from-cli">Script coding agents from your shell</a>.</p>
+
+				<h2 id="side-by-side">How do Vibe Kanban and Anywhere compare?</h2>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th></th><th>Anywhere</th><th>Vibe Kanban</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>Install</td><td>Download the macOS app (macOS 13 or later). Linux and Windows builds exist. Install and sign in to each agent CLI yourself</td><td><code>npx vibe-kanban</code>, after signing in to your coding agent</td></tr>
+						<tr><td>Interface</td><td>Native desktop app. No web UI</td><td>Web UI in your browser</td></tr>
+						<tr><td>License and price</td><td>MIT, $0, no account</td><td>Apache-2.0. Community maintained since April 2026</td></tr>
+						<tr><td>Board</td><td>Tickets across projects, eight status columns, 1 to 8 running at once</td><td>Kanban issues in the README; the shutdown post lists kanban issues among the removed remote services</td></tr>
+						<tr><td>Isolation</td><td>Own git worktree and session per started ticket</td><td>Git worktree and branch per workspace</td></tr>
+						<tr><td>Several repos in one task</td><td>No. One project per ticket</td><td>Yes, a workspace can hold several repositories</td></tr>
+						<tr><td>Agents</td><td>Ten: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent, Antigravity</td><td>10+: Claude Code, Codex, Gemini CLI, GitHub Copilot, Amp, Cursor, OpenCode, Droid, CCR, Qwen Code, and agents from the ACP registry</td></tr>
+						<tr><td>Diff review</td><td>Yes, beside the session, including against a branch</td><td>Yes, unified or side by side</td></tr>
+						<tr><td>Inline diff comments</td><td>No. GitHub review comments can be sent to the agent from the pull request card</td><td>Yes, collected and sent to the agent</td></tr>
+						<tr><td>Preview browser</td><td>No</td><td>Yes, with devtools, inspect mode and device modes</td></tr>
+						<tr><td>Pull request and merge</td><td>Yes, through <code>gh</code>. A merged pull request closes the ticket</td><td>Yes, with AI-generated descriptions</td></tr>
+						<tr><td>Team or cloud features</td><td>No</td><td>Hosted services removed; a self-hosting guide for Vibe Kanban Cloud</td></tr>
+						<tr><td>Remote access</td><td>No access from another device's browser. Agents can run on another Mac, Linux or Windows machine over SSH</td><td>Documented: pair a host and open its workspaces from another device</td></tr>
+					</tbody>
+				</table>
+				</div>
+
+				<div class="cta">
+					<p>Read the source, then try the Board on your own repository.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download for Mac</a>
+				</div>
+
+				<h2 id="when-vibe-kanban-may-fit-better">When may Vibe Kanban fit better?</h2>
+				<div class="callout">
+					<p><span class="callout-title">Vibe Kanban is the better pick if you want</span></p>
+					<ul>
+						<li>One command, <code>npx vibe-kanban</code>, and a UI in the browser, with no app to install.</li>
+						<li><a href="https://vibekanban.com/docs/reviewing-code">Inline comments on diff lines</a> sent back to the agent.</li>
+						<li>A <a href="https://vibekanban.com/docs/browser-testing">built-in preview browser</a> with devtools and device modes.</li>
+						<li>Workspaces that span <a href="https://vibekanban.com/docs/workspaces">several repositories</a>.</li>
+						<li>Agents Anywhere doesn't run, such as Gemini CLI, GitHub Copilot, Amp, Droid or Qwen Code (<a href="https://vibekanban.com/docs/supported-coding-agents">supported agents</a>).</li>
+						<li><a href="https://vibekanban.com/docs/remote-access">Remote access</a> from another device, or a <a href="https://vibekanban.com/docs/self-hosting/deploy-docker">self-hosted</a> instance.</li>
+						<li>To keep a setup that already works. Its local workspaces still run.</li>
+					</ul>
+				</div>
+
+				<h2 id="moving-over">How do you move a workflow over?</h2>
+				<ol>
+					<li>Install and sign in to your agent CLIs, for example <code>claude auth login</code> or <code>codex login</code>. The full list is in <a href="/docs/agents">Supported agents</a>.</li>
+					<li>Install Anywhere and add each repository as a project.</li>
+					<li>Move setup scripts, such as <code>npm install</code>, into <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code>, so new <a href="/docs/worktrees">worktrees</a> are ready before the agent starts.</li>
+					<li>Recreate open issues as tickets. There is no importer, so add them on the Board or with <code>anywhere ticket create</code>.</li>
+				</ol>
+				<p>For the wider field, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a> and <a href="/blog/conductor-alternative">Anywhere vs Conductor</a>.</p>
+
+				<section class="faq" aria-labelledby="faq">
+					<h2 id="faq">FAQ</h2>
+					<h3>What is a good Vibe Kanban alternative?</h3>
+					<p>First check whether you need one: Vibe Kanban is open source, community maintained and still released, and its local workspaces keep working. If you want a native desktop app instead, Anywhere is a free, MIT-licensed option with a Board where each started ticket gets its own git worktree and agent session. It has no web UI, inline diff comments or preview browser.</p>
+					<h3>Is Vibe Kanban still maintained?</h3>
+					<p>Yes, by its community. bloop, the company behind it, shut down on 10 April 2026 and said the project will live on, open source and community maintained. Remote services such as kanban issues, comments, projects and organisations were removed after 30 days, and local workspaces keep working. Version 0.1.46 was published on GitHub on 15 November 2026.</p>
+					<h3>Does Anywhere have a kanban board for coding agents?</h3>
+					<p>Yes. The Board holds tickets for every project. A ticket has a title, a prompt, an agent, a project and a base branch, and optionally a priority and a label. A started ticket waits in Queued until a slot is free, then gets its own worktree and session. It runs up to 4 tickets at once by default, adjustable from 1 to 8.</p>
+					<h3>Which agents does Anywhere support?</h3>
+					<p>Ten agent CLIs that you install and sign in to yourself: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. A ticket can use any of them.</p>
+					<h3>Is Anywhere free?</h3>
+					<p>Yes. Anywhere is MIT licensed, with no account, no cloud tier and no premium tier. It runs the agent CLIs you already use.</p>
+				</section>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/blog/clean-up-coding-agent-worktrees"><span>Previous</span>Clean up agent worktrees</a>
+				<a class="next" href="/blog/"><span>Back to</span>All posts</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+	<footer class="site-footer">
+		<span>Anywhere · MIT licensed. Free forever.</span>
+		<nav aria-label="Footer">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
+		</nav>
+	</footer>
+</body>
+</html>
