@@ -14,6 +14,7 @@ use handoff::pack::Pack;
 use handoff::place::Placed;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use store::LaunchPick;
 
@@ -168,6 +169,11 @@ pub(crate) enum Stage {
     Done,
 }
 
+fn next_generation() -> u64 {
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    LAST.fetch_add(1, Ordering::Relaxed) + 1
+}
+
 /// One handoff, from the sheet opening to its last step.
 pub(crate) struct Handoff {
     pub source: Source,
@@ -175,7 +181,7 @@ pub(crate) struct Handoff {
     pub probes: HashMap<String, Probe>,
     pub stage: Stage,
     pub run: Option<Run>,
-    /// Bumped by each check, step, retry and cancel, so a result for an older one is dropped.
+    /// Set anew by each check and step, so a result for an older one, of this handoff or another, is dropped.
     pub generation: u64,
     /// Each click on the mascot cheers again.
     pub cheers: usize,
@@ -291,7 +297,8 @@ impl Desktop {
 
     /// Opens the sheet for agent `id`, or brings back the handoff of it underway.
     pub(crate) fn open_handoff(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if self.handoff.open.as_ref().is_some_and(|h| h.source.agent == id && h.run.is_some()) {
+        // One handoff runs at a time: a session's menu brings back the one underway rather than dropping it.
+        if self.handoff.open.as_ref().is_some_and(|h| h.run.is_some() && (h.source.agent == id || h.stage == Stage::Moving)) {
             return self.open(Overlay::Handoff, window, cx);
         }
         let Some(s) = self.agents.get(id).filter(|s| self.can_hand_off(s)) else { return };
@@ -335,7 +342,7 @@ impl Desktop {
         let Some(h) = self.handoff.open.as_mut() else { return };
         h.keep_host(&online);
         h.probes.clear();
-        h.generation += 1;
+        h.generation = next_generation();
         let generation = h.generation;
         let source = h.source.clone();
         for id in online {
@@ -384,7 +391,7 @@ impl Desktop {
     fn next_step(&mut self, cx: &mut Context<Self>) {
         let Some(h) = self.handoff.open.as_mut() else { return };
         let (Some(host), Some(run)) = (h.host.clone(), h.run.as_ref()) else { return };
-        h.generation += 1;
+        h.generation = next_generation();
         let generation = h.generation;
         let Some(step) = run.step() else {
             h.stage = Stage::Done;
@@ -417,7 +424,21 @@ impl Desktop {
             Step::Worktree => {
                 let (Some(pack), Some(bundle), Some(project)) = (run.pack.clone(), run.bundle.clone(), h.probe().and_then(|p| p.project.clone())) else { return };
                 let name = basename(&source.cwd);
-                self.in_background(generation, move || handoff::place::worktree(&*client, &project, &source.repo, &name, &bundle, &pack).map(Landed::Placed), cx);
+                let task = cx.background_executor().spawn({
+                    let client = client.clone();
+                    async move { handoff::place::worktree(&*client, &project, &source.repo, &name, &bundle, &pack) }
+                });
+                cx.spawn(async move |this, cx| {
+                    let placed = task.await;
+                    this.update(cx, |d, cx| match placed {
+                        Ok(p) if d.handoff.open.as_ref().is_some_and(|h| h.generation == generation) => d.step_landed(generation, Landed::Placed(p), cx),
+                        // Cancelled while the worktree was being made: take it back.
+                        Ok(p) => cx.background_executor().spawn(async move { handoff::place::undo(&*client, &p) }).detach(),
+                        Err(e) => d.step_failed(generation, e, cx),
+                    })
+                    .ok();
+                })
+                .detach();
             }
             Step::Conversation => {
                 let (Some(placed), Some(session)) = (run.placed.clone(), source.session.clone()) else { return };

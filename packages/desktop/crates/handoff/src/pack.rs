@@ -48,8 +48,8 @@ fn snapshot(cwd: &str, scratch: &Path) -> Result<(String, String, Option<String>
     Ok((branch, tip, Some(wip)))
 }
 
-/// Packs the worktree at `cwd` for handoff `id`. The bundle leaves out what origin already has; when that is
-/// everything, it holds the last commit alone.
+/// Packs the worktree at `cwd` for handoff `id`. The bundle leaves out what origin already has, but always holds
+/// the branch's last commit.
 pub fn pack(cwd: &str, id: &str) -> Result<Pack, String> {
     let scratch = std::env::temp_dir().join(format!("anywhere-handoff-{id}"));
     std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
@@ -65,7 +65,11 @@ fn bundle(cwd: &str, id: &str, scratch: &Path) -> Result<Pack, String> {
     let file = scratch.join("bundle");
     let path = file.to_str().unwrap_or_default();
     let head = format!("refs/heads/{branch}");
-    let made = git(cwd, &[], &["bundle", "create", "-q", path, &head, &carry, "--not", "--remotes"]).or_else(|_| git(cwd, &[], &["bundle", "create", "-q", path, &head, &carry, "--max-count=1"]));
+    // Git drops a ref the exclusions reach from the bundle, so a tip origin already has keeps its own commit and
+    // leaves out only its parents. Other remotes may hold commits the host's clone of origin lacks.
+    let on_origin = git(cwd, &[], &["rev-list", "--count", &tip, "--not", "--remotes=origin"]).is_ok_and(|n| n == "0");
+    let leave_out = if on_origin { format!("{tip}^@") } else { "--remotes=origin".to_string() };
+    let made = git(cwd, &[], &["bundle", "create", "-q", path, &head, &carry, "--not", &leave_out]);
     _ = git(cwd, &[], &["update-ref", "-d", &carry]);
     made?;
     let bundle = std::fs::read(&file).map_err(|e| e.to_string())?;
@@ -130,6 +134,18 @@ mod tests {
         let (_root, mac, _) = repos("pushed", "feat");
         git(Path::new(&mac), &["push", "-q", "origin", "feat"]);
         assert!(!pack(&mac, "p1").unwrap().bundle.is_empty());
+    }
+
+    #[test]
+    fn a_pushed_branch_with_uncommitted_changes_still_carries_its_branch() {
+        let (root, mac, _) = repos("pushed-dirty", "feat");
+        let dir = Path::new(&mac);
+        git(dir, &["push", "-q", "origin", "feat"]);
+        std::fs::write(dir.join("a.txt"), "three\n").unwrap();
+        let file = root.join("pd1.bundle");
+        std::fs::write(&file, pack(&mac, "pd1").unwrap().bundle).unwrap();
+        let heads = git(dir, &["bundle", "list-heads", file.to_str().unwrap()]);
+        assert!(heads.contains("refs/heads/feat"), "{heads}");
     }
 
     #[test]
