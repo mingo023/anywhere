@@ -356,13 +356,15 @@ impl Desktop {
     /// worktrees, as a subagent's worktree may be newer than the last git refresh.
     pub(crate) fn remember_subtrees(&mut self, cx: &mut Context<Self>) {
         let links = subtree_links(&self.agents, folder);
+        let live: Vec<String> = links.iter().map(|(c, _)| c.clone()).collect();
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
         if remember(&mut self.store.subtrees, links, now) {
             self.save_soon(cx);
         }
-        // A host's subagent can be listed before its host's link is up, so this waits for the link.
+        // Read while the subagent works there, so it's its worktree; its host's link may come up after it's listed.
         let connected = |f: &str| hosts::split(f).0.is_some_and(|h| hosts::remote::connected(h).is_some());
-        let on_hosts: Vec<String> = self.store.subtrees.iter().filter(|(f, s)| s.made.is_none() && connected(f)).map(|(f, _)| f.clone()).collect();
+        let unread = |f: &&String| self.store.subtrees.get(*f).is_some_and(|s| s.made.is_none()) && connected(f);
+        let on_hosts: Vec<String> = live.iter().filter(unread).cloned().collect();
         let on_hosts: Vec<String> = on_hosts.into_iter().filter(|f| self.removals.made_asked.insert(f.clone())).collect();
         if on_hosts.is_empty() {
             return;

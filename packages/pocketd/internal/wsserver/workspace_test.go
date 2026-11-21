@@ -386,19 +386,20 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 	}
 }
 
-func TestAWorktreeMadeAfterItsSubagentClosedIsSomeoneElsesAndStays(t *testing.T) {
+func TestAWorktreeMadeAfterItsSubagentStartedIsSomeoneElsesAndStays(t *testing.T) {
 	var b bench
-	var closed int64
+	var started int64
 	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
 		s.Workspace.Session = func(id string) (*orch.Session, error) {
-			return &orch.Session{ID: id, Cwd: filepath.Join(b.root, "pocket", "notes"), Status: "closed", ClosedAt: closed}, nil
+			// Its close came after the newer worktree, as a restart closing what it didn't bring back stamps it.
+			return &orch.Session{ID: id, Cwd: filepath.Join(b.root, "pocket", "notes"), Status: "closed", CreatedAt: started, ClosedAt: started + 1e6}, nil
 		}
 	})
 	tree := filepath.Join(b.root, "pocket", "notes")
 	if _, err := worktree.Add(b.s.Registry.Load(), b.project, "notes", ""); err != nil {
 		t.Fatal(err)
 	}
-	closed = worktree.MadeAt(tree) - 1
+	started = worktree.MadeAt(tree) - 1
 	helloWith(p, proto.CapWorkspace)
 	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `","subagents":["sub"]}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != "unknown_worktree" {
@@ -407,7 +408,7 @@ func TestAWorktreeMadeAfterItsSubagentClosedIsSomeoneElsesAndStays(t *testing.T)
 	if _, err := os.Stat(tree); err != nil {
 		t.Fatalf("the newer worktree went: %v", err)
 	}
-	closed++
+	started++
 	p.send(`{"type":"worktree.delete","id":"wf","path":"` + tree + `","subagents":["sub"]}`)
 	if m := p.reply("wf"); m["type"] != "ack" {
 		t.Fatalf("%v", m)

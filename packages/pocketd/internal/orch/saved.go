@@ -73,9 +73,11 @@ func (s *Store) SubagentTrees(tree string, treeOf func(cwd string, at int64) str
 	line := map[string]bool{}
 	var parents []string
 	for _, x := range all {
+		// A session starts in its worktree, and a newer one there is made once it's gone; its close time can move
+		// later, as when a restart closes what it didn't bring back.
 		at := int64(math.MaxInt64)
-		if x.ClosedAt != 0 {
-			at = max(x.UpdatedAt, x.ClosedAt)
+		if x.ClosedAt != 0 || x.Status == "closed" {
+			at = x.CreatedAt
 		}
 		if strings.Contains(x.ID, "/") {
 			continue

@@ -41,9 +41,9 @@ func TestAWorktreesSubagentTreesReachEveryGenerationButNotOnesSomeoneElseWorksIn
 			('host/x', 'idle', '/wt-h', 'p', 'subagent', 0),
 			('devbox/hc', 'closed', '/home/wt-hc', 'c', 'subagent', 5),
 			('devbox/shared', 'idle', '/home/app', 'p', 'subagent', 0),
-			('old', 'closed', '/wt-n', 'p', 'subagent', 5)`,
+			('old', 'closed', '/wt-n', 'p', 'subagent', 20)`,
 	)
-	// /wt-n was made again at 10, after its old session closed.
+	// /wt-n was made again at 10, after its old session started; a restart stamped that session closed at 20.
 	execAll(t, s, `INSERT INTO delegations (task_id, parent_id, child_id, isolation, created_at) VALUES ('t1', 'c', 'devbox/hc', 'worktree', 1), ('t2', 'p', 'devbox/shared', 'shared', 1)`)
 	treeOf := func(cwd string, at int64) string {
 		if cwd == "/wt-n" && at < 10 {
