@@ -908,6 +908,12 @@ if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_HOST) {
   writeFileSync(join(clone, ".git", "worktrees", "delegate-host-notes", "anywhere"), "");
   // FIXTURE_DEVBOX_DIRTY=1: devbox's child left a file behind, so deleting its worktree asks first.
   if (process.env.FIXTURE_DEVBOX_DIRTY) writeFileSync(join(tree, "notes.md"), "draft\n");
+  // FIXTURE_DEVBOX_TEARDOWN_FAILS=1: its project's teardown script fails there, ignored by git so the worktree stays clean.
+  if (process.env.FIXTURE_DEVBOX_TEARDOWN_FAILS) {
+    mkdirSync(join(tree, ".anywhere"), { recursive: true });
+    writeFileSync(join(tree, ".anywhere", "teardown.sh"), "echo teardown broke; exit 3\n", { mode: 0o755 });
+    appendFileSync(join(clone, ".git", "info", "exclude"), ".anywhere/\n");
+  }
   summaries.push({ ...parent, id: `devbox/${parent.id}-hsub`, terminalId: "", cwd: tree, title: "Read the notes on devbox", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
   if (process.env.FIXTURE_LOG) {
     const out = join(dirname(process.env.FIXTURE_LOG), "devbox-worktrees.txt");

@@ -18,6 +18,8 @@ pub(crate) struct Removals {
     terminals: HashSet<String>,
     /// The host leftover whose sheet is being read for or shown; one at a time.
     asking: Option<String>,
+    /// Host leftovers whose delete failed, left until their host comes back again rather than retried each sweep.
+    failed: HashSet<String>,
 }
 
 impl Removals {
@@ -36,6 +38,7 @@ impl Removals {
     pub(crate) fn host_dropped(&mut self, host: &str) {
         self.listed.remove(host);
         self.terminals.remove(host);
+        self.failed.retain(|f| hosts::split(f).0 != Some(host));
     }
 
     /// Reserves the sheet for `folder`'s leftover; false while another's is pending.
@@ -630,7 +633,7 @@ impl Desktop {
     /// One a live session still works in waits; one holding work nobody checked asks first.
     pub(crate) fn sweep_host_leftovers(&mut self, cx: &mut Context<Self>) {
         let ready = |f: &str| connected(f) && hosts::split(f).0.is_some_and(|h| self.removals.host_ready(h));
-        let asked = |f: &str| self.removals.asking.as_deref() == Some(f);
+        let asked = |f: &str| self.removals.asking.as_deref() == Some(f) || self.removals.failed.contains(f);
         let back: Vec<(String, Leftover)> = self.store.host_leftovers.iter().filter(|(f, _)| ready(f) && !asked(f)).map(|(f, l)| (f.clone(), *l)).collect();
         let back: Vec<(String, Leftover)> = back.into_iter().filter(|(f, _)| self.removals.start(f)).collect();
         if back.is_empty() {
@@ -678,9 +681,19 @@ impl Desktop {
                         Swept::Done(None) => {}
                         Swept::Done(Some((done, failed))) => {
                             done.iter().for_each(|(r, _)| d.forget_tree(&r.tree, cx));
-                            if let Some((r, Failure::Teardown(e) | Failure::Remove(e))) = failed {
-                                d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree)));
-                                continue;
+                            match failed {
+                                None => {}
+                                // Its sheet offers to delete it without the teardown, as for a tree the user deleted.
+                                Some((r, Failure::Teardown(tail))) if d.overlay.is_none() && d.removals.ask(&f) => {
+                                    d.confirm = Some(Confirm::TeardownFailed { failed: r.tree.clone(), removal: r, tail, subtrees: vec![] });
+                                    d.overlay = Some(Overlay::Confirm);
+                                    continue;
+                                }
+                                Some((r, Failure::Teardown(e) | Failure::Remove(e))) => {
+                                    d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree)));
+                                    d.removals.failed.insert(f);
+                                    continue;
+                                }
                             }
                         }
                     }
@@ -697,7 +710,7 @@ impl Desktop {
     /// A sheet closed. Still holding a delete, the user cancelled it: a host leftover it asked about stays.
     pub(crate) fn sheet_closed(&mut self) {
         self.removals.asking = None;
-        if let Some(Confirm::DeleteWorktree { removal, .. }) = &self.confirm {
+        if let Some(Confirm::DeleteWorktree { removal, .. } | Confirm::TeardownFailed { removal, .. }) = &self.confirm {
             settle(&mut self.store.host_leftovers, &removal.tree);
         }
     }
@@ -890,6 +903,15 @@ mod tests {
         let subtrees = vec![removal("/wt/a"), removal("/wt/b"), removal("//devbox/wt/c")];
         let kept = unoccupied(subtrees, &["/wt/a/src".into(), "/wt/b-2".into(), "//devbox/wt/c".into()]);
         assert_eq!(kept, [removal("/wt/b")]);
+    }
+
+    #[test]
+    fn a_hosts_leftover_that_failed_to_go_waits_for_its_host_to_come_back() {
+        let mut r = Removals::default();
+        r.failed.insert("//devbox/wt/a".into());
+        r.failed.insert("//box2/wt/b".into());
+        r.host_dropped("devbox");
+        assert_eq!(r.failed, ["//box2/wt/b".to_string()].into());
     }
 
     #[test]
