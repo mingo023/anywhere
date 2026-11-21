@@ -1,0 +1,16 @@
+# confirm leftover sheet:
+2026-11-21T18:00:44.647Z link=online
+<scratch>/devbox/code/app-android                               2bf91f1 [main]
+<scratch>/devbox/code/app-android.worktrees/delegate-host-notes 2bf91f1 [delegate/host-notes]
+branches: + delegate/host-notes
+
+2026-11-21T18:02:02.276Z link=online
+<scratch>/devbox/code/app-android 2bf91f1 [main]
+branches: none
+
+# cancel leftover sheet (no further ask, worktree stays):
+2026-11-21T18:02:20.110Z link=online
+<scratch>/devbox/code/app-android                               21d9144 [main]
+<scratch>/devbox/code/app-android.worktrees/delegate-host-notes 21d9144 [delegate/host-notes]
+branches: + delegate/host-notes
+

@@ -1,0 +1,9 @@
+2026-11-21T19:36:19.833Z link=online
+<scratch>/devbox/code/app-android                               6ea758c [main]
+<scratch>/devbox/code/app-android.worktrees/delegate-host-notes 6ea758c [delegate/host-notes]
+branches: + delegate/host-notes
+
+2026-11-21T19:37:20.223Z link=online
+<scratch>/devbox/code/app-android 6ea758c [main]
+branches: none
+
