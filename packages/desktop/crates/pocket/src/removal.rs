@@ -388,12 +388,18 @@ fn folder(a: &Summary) -> Option<String> {
 }
 
 /// Adds the links not known yet, keeping the parent first seen; returns whether any was added.
+/// A folder keeps the parent it was first seen with while that subagent lives. Once it's gone, a subagent started
+/// there since is a new delegation, likely in a new worktree at the same path, and takes the folder over.
 fn remember(subtrees: &mut BTreeMap<String, Subtree>, links: Vec<(String, Subtree)>) -> bool {
-    let before = subtrees.len();
-    for (child, link) in links {
-        subtrees.entry(child).or_insert(link);
+    let mut changed = false;
+    for (child, link) in &links {
+        let live = |s: &Subtree| links.iter().any(|(c, l)| c == child && l.started == s.started);
+        if subtrees.get(child).is_none_or(|saved| link.started > saved.started && !live(saved)) {
+            subtrees.insert(child.clone(), link.clone());
+            changed = true;
+        }
     }
-    subtrees.len() != before
+    changed
 }
 
 /// Whether a worktree made at `created` can be the one a subagent that started at `started` worked in: one made
@@ -767,14 +773,18 @@ mod tests {
     }
 
     #[test]
-    fn a_subagents_worktree_keeps_the_parent_it_was_first_seen_with() {
+    fn a_subagents_folder_keeps_its_first_parent_while_that_subagent_lives() {
         let seen = |p: &str, at: u64| store::Subtree { parent: p.into(), started: at };
         let link = |c: &str, p: &str, at: u64| (c.to_string(), seen(p, at));
         let mut subtrees = std::collections::BTreeMap::new();
         assert!(remember(&mut subtrees, vec![link("/wt-c", "/wt", 1)]));
-        assert!(!remember(&mut subtrees, vec![link("/wt-c", "/other", 2)]));
+        assert!(!remember(&mut subtrees, vec![link("/wt-c", "/wt", 1), link("/wt-c", "/other", 2)]));
         assert!(remember(&mut subtrees, vec![link("/wt-g", "/wt-c", 3)]));
+        assert!(!remember(&mut subtrees, vec![link("/wt-g", "/wt-c", 3)]));
         assert_eq!(subtrees, [("/wt-c".to_string(), seen("/wt", 1)), ("/wt-g".to_string(), seen("/wt-c", 3))].into());
+        assert!(remember(&mut subtrees, vec![link("/wt-c", "/new", 5)]), "a new delegation at a path its first subagent left");
+        assert!(!remember(&mut subtrees, vec![link("/wt-c", "/older", 4)]));
+        assert_eq!(subtrees["/wt-c"], seen("/new", 5));
     }
 
     #[test]

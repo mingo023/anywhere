@@ -280,7 +280,11 @@ func TestDeletingAWorktreeClosesItsTerminalsForgetsItsNameAndMayDeleteItsBranch(
 func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *testing.T) {
 	var b bench
 	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
+	var childTerm string
 	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+		s.OpenSessions = func() ([]orch.Session, error) {
+			return []orch.Session{{ID: "p", Cwd: tree("parent")}, {ID: "c", ParentID: "p", Relationship: "subagent", Cwd: tree("child"), Terminal: childTerm}}, nil
+		}
 		s.Workspace.SubagentTrees = func(parent string, treeOf func(string, int64) string) (orch.Subtrees, error) {
 			now := time.Now().UnixMilli()
 			if parent != tree("parent") || treeOf(filepath.Join(tree("child"), "src"), now) != tree("child") || treeOf(b.project, 0) != b.project {
@@ -300,6 +304,7 @@ func TestDeletingAWorktreeTakesTheOnesAnywhereMadeForItsSessionsSubagents(t *tes
 	gitOut(t, b.project, "worktree", "add", "-q", "-b", "unmade", tree("unmade"))
 	gitOut(t, tree("child"), "commit", "-q", "--allow-empty", "-m", "the child's own")
 	in, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree("child")})
+	childTerm = in.Info().ID
 	helloWith(p, proto.CapWorkspace)
 	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `","deleteBranch":true}`)
 	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 1.0 {
@@ -454,6 +459,44 @@ func TestASubagentsWorktreeSomeoneElseWorksInStaysWhenItsParentsMacDeletesIt(t *
 	}
 	if _, err := os.Stat(tree); !os.IsNotExist(err) {
 		t.Fatalf("the worktree stayed: %v", err)
+	}
+}
+
+func TestASubagentsWorktreeWithSomeoneElsesShellStaysWhenItsParentsGoes(t *testing.T) {
+	var b bench
+	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
+	var childTerm string
+	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+		s.Workspace.SubagentTrees = func(string, func(string, int64) string) (orch.Subtrees, error) {
+			return orch.Subtrees{Local: []string{tree("shared"), tree("child")}}, nil
+		}
+		s.OpenSessions = func() ([]orch.Session, error) {
+			return []orch.Session{{ID: "p", Cwd: tree("parent")}, {ID: "c", ParentID: "p", Relationship: "subagent", Cwd: tree("child"), Terminal: childTerm}}, nil
+		}
+	})
+	for _, name := range []string{"parent", "shared", "child"} {
+		if _, err := worktree.Add(b.s.Registry.Load(), b.project, name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shell, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree("shared")})
+	agent, _ := b.terms.Spawn(terminal.Spec{Cmd: "sleep", Args: []string{"30"}, Cwd: tree("child")})
+	childTerm = agent.Info().ID
+	helloWith(p, proto.CapWorkspace)
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree("parent") + `"}`)
+	if m := p.reply("wd"); m["type"] != "ack" {
+		t.Fatalf("%v", m)
+	}
+	if _, err := os.Stat(tree("shared")); err != nil {
+		t.Fatalf("the worktree someone else's shell is in went: %v", err)
+	}
+	if _, err := os.Stat(tree("child")); !os.IsNotExist(err) {
+		t.Fatalf("the subagent's own worktree stayed: %v", err)
+	}
+	select {
+	case <-shell.Done():
+		t.Fatal("someone else's shell was closed")
+	default:
 	}
 }
 
