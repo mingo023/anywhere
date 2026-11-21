@@ -954,6 +954,17 @@ Bun.serve({
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
         if (!process.env.FIXTURE_NO_HOSTS) ws.send(JSON.stringify({ type: "host.list", hosts }));
         hostsWs = ws;
+        // FIXTURE_SUBAGENT_CLOSE_MS=<ms>: the FIXTURE_SUBAGENT session and its subagent close after that long.
+        if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_CLOSE_MS) {
+          setTimeout(() => {
+            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`]) {
+              exit(ws, id);
+              const i = sessions.findIndex((s) => s.id === id);
+              if (i >= 0) sessions.splice(i, 1);
+            }
+            announce();
+          }, Number(process.env.FIXTURE_SUBAGENT_CLOSE_MS));
+        }
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }
