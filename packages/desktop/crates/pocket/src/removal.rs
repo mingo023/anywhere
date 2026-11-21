@@ -16,6 +16,8 @@ pub(crate) struct Removals {
     /// Hosts whose sessions, then terminals, arrived since their link last came up, so a sweep sees who works where.
     listed: HashSet<String>,
     terminals: HashSet<String>,
+    /// The host leftover whose sheet is being read for or shown; one at a time.
+    asking: Option<String>,
 }
 
 impl Removals {
@@ -34,6 +36,11 @@ impl Removals {
     pub(crate) fn host_dropped(&mut self, host: &str) {
         self.listed.remove(host);
         self.terminals.remove(host);
+    }
+
+    /// Reserves the sheet for `folder`'s leftover; false while another's is pending.
+    fn ask(&mut self, folder: &str) -> bool {
+        self.asking.get_or_insert_with(|| folder.to_string()) == folder
     }
 
     fn host_ready(&self, host: &str) -> bool {
@@ -458,7 +465,16 @@ impl Desktop {
         let subtrees = saved_links(&self.store.subtrees, |f| self.folder_tree(f), created);
         let place = |a: &Summary| self.session_place(a).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
         let started = |t: &str| self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(t)).map(|(_, s)| s.started);
-        subagent_removals(r, &self.agents, place, &self.worktrees, &subtrees, started)
+        let (subtrees, mut on_hosts) = subagent_removals(r, &self.agents, place, &self.worktrees, &subtrees, started);
+        on_hosts.others.extend(self.host_shells());
+        (subtrees, on_hosts)
+    }
+
+    /// The folders of hosts' live terminals no session runs in: a plain shell is someone working there too.
+    fn host_shells(&self) -> Vec<String> {
+        let agents = |id: &str| self.agents.list.iter().any(|a| a.terminal_id == id);
+        let live = self.terminals.sessions.items.iter().filter(|s| s.exit.is_none() && !agents(&s.info.id));
+        live.map(|s| s.info.cwd.clone()).filter(|f| hosts::split(f).0.is_some()).collect()
     }
 
     /// The tree holding `folder`, or a host's folder as itself when that host's worktrees aren't listed here.
@@ -485,10 +501,11 @@ impl Desktop {
         }
         let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b));
         let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
-        self.ask_delete(removal, true, cx);
+        self.ask_delete(removal, None, cx);
     }
 
-    fn ask_delete(&mut self, removal: Removal, requested: bool, cx: &mut Context<Self>) {
+    /// `leftover` is the host folder the sweep asks about, for a sheet the user didn't ask for.
+    fn ask_delete(&mut self, removal: Removal, leftover: Option<String>, cx: &mut Context<Self>) {
         let (mut subtrees, on_hosts) = self.subagent_removals(&removal);
         let main = removal.clone();
         let task = cx.background_executor().spawn(async move {
@@ -501,6 +518,14 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let (dirty, lost, lost_anyway, subtrees) = task.await;
             this.update(cx, |d, cx| {
+                // Another sheet came up meanwhile, or this one's reservation went: a later sweep asks again.
+                if let Some(f) = &leftover
+                    && (d.overlay.is_some() || d.removals.asking.as_ref() != Some(f))
+                {
+                    d.removals.asking.take_if(|a| a == f);
+                    return;
+                }
+                let requested = leftover.is_none();
                 d.confirm = Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, requested });
                 d.overlay = Some(Overlay::Confirm);
                 cx.notify();
@@ -585,15 +610,14 @@ impl Desktop {
     /// One a live session still works in waits; one holding work nobody checked asks first.
     pub(crate) fn sweep_host_leftovers(&mut self, cx: &mut Context<Self>) {
         let ready = |f: &str| connected(f) && hosts::split(f).0.is_some_and(|h| self.removals.host_ready(h));
-        let back: Vec<(String, Leftover)> = self.store.host_leftovers.iter().filter(|(f, _)| ready(f)).map(|(f, l)| (f.clone(), *l)).collect();
+        let asked = |f: &str| self.removals.asking.as_deref() == Some(f);
+        let back: Vec<(String, Leftover)> = self.store.host_leftovers.iter().filter(|(f, _)| ready(f) && !asked(f)).map(|(f, l)| (f.clone(), *l)).collect();
         let back: Vec<(String, Leftover)> = back.into_iter().filter(|(f, _)| self.removals.start(f)).collect();
         if back.is_empty() {
             return;
         }
-        // A plain shell counts as someone working there as much as a session does.
         let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a)));
-        let shells = self.terminals.sessions.items.iter().filter(|s| s.exit.is_none()).map(|s| s.info.cwd.clone());
-        let others: Vec<String> = sessions.chain(shells).filter(|f| hosts::split(f).0.is_some()).collect();
+        let others: Vec<String> = sessions.filter(|f| hosts::split(f).0.is_some()).chain(self.host_shells()).collect();
         let limit = Duration::from_secs(self.store.worktree.teardown_secs.into());
         let teardowns: HashMap<String, String> = self.store.repos.iter().map(|(p, r)| (p.clone(), r.teardown.clone())).collect();
         let task = cx.background_executor().spawn(async move {
@@ -619,17 +643,16 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let swept = task.await;
             this.update(cx, |d, cx| {
-                let mut asked = false;
                 for (f, outcome) in swept {
                     d.removals.running.remove(&f);
                     match outcome {
                         Swept::Wait => continue,
-                        // One sheet at a time; the rest are asked once it closes.
-                        Swept::Ask(_) if d.overlay == Some(Overlay::Confirm) || asked => continue,
-                        // Kept until it's deleted or the user keeps it: the host may drop again before then.
+                        // Kept until it's deleted or the user keeps it: the host may drop again before then. One sheet at
+                        // a time; the rest are asked once it closes.
                         Swept::Ask(r) => {
-                            asked = true;
-                            d.ask_delete(r, false, cx);
+                            if d.overlay.is_none() && d.removals.ask(&f) {
+                                d.ask_delete(r, Some(f), cx);
+                            }
                             continue;
                         }
                         Swept::Done(None) => {}
@@ -651,8 +674,9 @@ impl Desktop {
         .detach();
     }
 
-    /// The user cancelled a delete sheet: a host leftover it asked about stays.
-    pub(crate) fn delete_declined(&mut self) {
+    /// A sheet closed. Still holding a delete, the user cancelled it: a host leftover it asked about stays.
+    pub(crate) fn sheet_closed(&mut self) {
+        self.removals.asking = None;
         if let Some(Confirm::DeleteWorktree { removal, .. }) = &self.confirm {
             settle(&mut self.store.host_leftovers, &removal.tree);
         }
@@ -838,6 +862,15 @@ mod tests {
         let jobs = vec![job("/wt-c"), job("//devbox/wt/kept"), job("//devbox/wt/theirs"), job("//devbox/wt/asked")];
         let trees: Vec<String> = still_theirs(jobs, &["//devbox/wt/theirs".to_string()]).into_iter().map(|(r, _)| r.tree).collect();
         assert_eq!(trees, ["/wt-c", "//devbox/wt/theirs", "//devbox/wt/asked"]);
+    }
+
+    #[test]
+    fn a_hosts_leftovers_are_asked_about_one_sheet_at_a_time() {
+        let mut r = Removals::default();
+        assert!(r.ask("//devbox/wt/a"));
+        assert!(!r.ask("//devbox/wt/b"), "a's sheet is still pending");
+        r.asking = None;
+        assert!(r.ask("//devbox/wt/b"));
     }
 
     #[test]

@@ -41,7 +41,7 @@ impl Desktop {
         match self.overlay.take() {
             Some(Overlay::Handoff) => self.handoff_closed(cx),
             Some(Overlay::Confirm) => {
-                self.delete_declined();
+                self.sheet_closed();
                 self.sweep_host_leftovers(cx);
             }
             _ => {}
