@@ -224,7 +224,8 @@ fn subagent_removals(r: &Removal, agents: &Agents, place: impl Fn(&Summary) -> O
 fn lost_together(jobs: &[Removal]) -> (usize, usize) {
     let Some((tree, subagents)) = jobs.split_first() else { return (0, 0) };
     let mut doomed: HashMap<&str, Vec<&str>> = HashMap::new();
-    for j in jobs {
+    // A detached tree has no branch to delete, so its subagents' branches stay with it.
+    for j in jobs.iter().filter(|_| tree.branch.is_some()) {
         doomed.entry(&j.project).or_default().extend(j.branch.as_deref());
     }
     let branches: usize = doomed.iter().map(|(project, bs)| git::lost_branch_commits(&hosts::runner_for(project), project, bs)).sum();
@@ -430,6 +431,19 @@ mod tests {
         assert_eq!(lost_together(&[r.clone(), child.clone()]), (1, 0));
         let keep = |r: &Removal| Removal { delete_branch: false, ..r.clone() };
         assert_eq!(lost_together(&[keep(&r), keep(&child)]), (1, 0), "counted before the user ticks the box; the sheet hides it while branches stay");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_detached_tree_keeps_its_subagents_branches_so_their_commits_are_not_lost() {
+        let (dir, r) = scratch("lost-detached");
+        sh(Path::new(&r.project), &["branch", "child", "feat"]);
+        let other = dir.join("child");
+        sh(Path::new(&r.project), &["worktree", "add", "-q", other.to_str().unwrap(), "child"]);
+        sh(&other, &["commit", "-q", "--allow-empty", "-m", "c"]);
+        let tree = Removal { branch: None, delete_branch: false, ..r.clone() };
+        let child = Removal { tree: other.to_string_lossy().into_owned(), branch: Some("child".into()), delete_branch: false, ..r.clone() };
+        assert_eq!(lost_together(&[tree, child]), (0, 0));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

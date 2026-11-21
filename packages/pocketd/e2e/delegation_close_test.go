@@ -21,13 +21,19 @@ func TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo(t *testing.T) {
 		return m.Type == "agent.update" && m.Agent.Parent == parent && m.Agent.ID != finished.ID && m.Agent.Status == "working"
 	}).Agent
 
+	phone.Prompt(finished.ID, `mcp delegate_task {"task":"await never","title":"Grandchild"}`)
+	grandchild := phone.WaitFor("the grandchild working", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.Parent == finished.ID && m.Agent.Status == "working"
+	}).Agent
+
 	h.Ops().Send(ops.Msg{Op: "close", ID: term})
 
 	phone.WaitStatus(parent, "closed")
 	phone.WaitStatus(finished.ID, "closed")
 	phone.WaitStatus(held.ID, "closed")
-	h.eventually("the children's terminals to end", func() bool {
-		return !h.lists(finished.TerminalID) && !h.lists(held.TerminalID)
+	phone.WaitStatus(grandchild.ID, "closed")
+	h.eventually("the children's and the grandchild's terminals to end", func() bool {
+		return !h.lists(finished.TerminalID) && !h.lists(held.TerminalID) && !h.lists(grandchild.TerminalID)
 	})
 }
 
