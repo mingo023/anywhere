@@ -86,9 +86,9 @@
 					<li>On Linux it is a systemd user service.</li>
 					<li>On Windows it is a scheduled task.</li>
 				</ul>
-				<p>pocketd keeps its data in <code>~/.coding-pocket</code>. It listens in three places, all on your machine or your tailnet:</p>
+				<p>pocketd keeps its data in <code>~/.anywhere</code>. It listens in three places, all on your machine or your tailnet:</p>
 				<ul>
-					<li>A Unix socket, <code>~/.coding-pocket/pocketd.sock</code>, for the desktop app and the <code>anywhere</code> command. On Windows, also <code>127.0.0.1</code> port 4519.</li>
+					<li>A Unix socket, <code>~/.anywhere/pocketd.sock</code>, for the desktop app and the <code>anywhere</code> command. On Windows, also <code>127.0.0.1</code> port 4519.</li>
 					<li>Port 4517 on <code>127.0.0.1</code> and on the machine's Tailscale addresses, for phones. Set <code>listen</code> to <code>loopback</code> to keep it off the tailnet.</li>
 					<li>A port on <code>127.0.0.1</code> for the orchestrator's MCP server, which chat agents use to <a href="delegation.html">delegate work</a>.</li>
 				</ul>

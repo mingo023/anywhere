@@ -48,7 +48,7 @@ func asHost(h *Harness) {
 
 func reach(t *testing.T, mac, host *Harness) {
 	t.Helper()
-	if err := os.Symlink(filepath.Dir(host.Home), filepath.Join(mac.Home, "remote")); err != nil {
+	if err := os.Symlink(host.UserHome(), filepath.Join(mac.Home, "remote")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -231,7 +231,7 @@ func TestASignInPasswordIsNeverLoggedStoredOrSentToAClient(t *testing.T) {
 	mac := Start(t, fakeSSH)
 	reach(t, mac, host)
 	right, wrong := "right-horse-battery-7f3a", "wrong-staple-91c2"
-	if err := os.WriteFile(filepath.Join(filepath.Dir(host.Home), ".fakessh-password"), []byte(right), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(host.UserHome(), ".fakessh-password"), []byte(right), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	phone := mac.Paired(proto.CapHosts)
@@ -248,7 +248,7 @@ func TestASignInPasswordIsNeverLoggedStoredOrSentToAClient(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 	key, err := os.ReadFile(filepath.Join(mac.Home, "hosts", "devbox.key.pub"))
-	authorized, _ := os.ReadFile(filepath.Join(filepath.Dir(host.Home), ".ssh", "authorized_keys"))
+	authorized, _ := os.ReadFile(filepath.Join(host.UserHome(), ".ssh", "authorized_keys"))
 	if err != nil || !strings.Contains(string(authorized), strings.TrimSpace(string(key))) {
 		t.Fatalf("the host's authorized_keys %q lacks the app's key %q %v", authorized, key, err)
 	}

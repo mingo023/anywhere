@@ -75,6 +75,16 @@ type Harness struct {
 	exe       string
 }
 
+func (h *Harness) UserHome() string {
+	home := ""
+	for _, kv := range h.Env {
+		if v, ok := strings.CutPrefix(kv, "HOME="); ok {
+			home = v
+		}
+	}
+	return home
+}
+
 func freePort(t *testing.T) int {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

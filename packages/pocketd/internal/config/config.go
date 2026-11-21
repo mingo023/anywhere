@@ -23,7 +23,16 @@ var channel string
 
 func Release() bool { return channel == "release" }
 
+// HomeName is a path hosts' shells read too, so its separator is always /.
 func HomeName() string {
+	if Release() {
+		return ".anywhere"
+	}
+	return ".anywhere/dev"
+}
+
+// LegacyHomeName is the home before ~/.anywhere; MoveLegacyHome empties it.
+func LegacyHomeName() string {
 	if Release() {
 		return ".coding-pocket"
 	}
@@ -61,12 +70,31 @@ func DefaultOwnerPort() int {
 	return 4520
 }
 
+// Home is POCKET_HOME, else DefaultHome. POCKET_HOME naming the legacy home counts as unset: host services set it.
 func Home() string {
-	if h := os.Getenv("POCKET_HOME"); h != "" {
+	if h := os.Getenv("POCKET_HOME"); h != "" && filepath.Clean(h) != legacyHome() {
 		return h
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, HomeName())
+	return DefaultHome()
+}
+
+// DefaultHome is the legacy home while it still holds one, else HomeName.
+func DefaultHome() string {
+	user, _ := os.UserHomeDir()
+	home := filepath.Join(user, HomeName())
+	l, err := os.Stat(legacyHome())
+	if err != nil || !l.IsDir() {
+		return home
+	}
+	if h, err := os.Stat(home); err == nil && os.SameFile(l, h) {
+		return home
+	}
+	return legacyHome()
+}
+
+func legacyHome() string {
+	user, _ := os.UserHomeDir()
+	return filepath.Join(user, LegacyHomeName())
 }
 
 func Sock() string {

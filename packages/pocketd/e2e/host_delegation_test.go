@@ -92,7 +92,7 @@ func TestADelegationToALinkedHostCompletesWithTheDesktopDisconnected(t *testing.
 
 func withProject(name string) func(*Harness) {
 	return func(h *Harness) {
-		user := filepath.Dir(h.Home)
+		user := h.UserHome()
 		dir := filepath.Join(user, name)
 		os.MkdirAll(dir, 0o755)
 		dir, _ = filepath.EvalSymlinks(dir)
@@ -132,7 +132,7 @@ func TestATaskOnAHostUsesTheProjectNamedLikeTheParentsOrTheOneGiven(t *testing.T
 	phone.Prompt(parent, `mcp delegate_task {"task":"in other","target":{"environmentId":"devbox","projectId":"other"},"isolation":"shared"}`)
 	given := hostTask(mac, phone, parent, 2, "completed")
 
-	other, _ := filepath.EvalSymlinks(filepath.Join(filepath.Dir(host.Home), "other"))
+	other, _ := filepath.EvalSymlinks(filepath.Join(host.UserHome(), "other"))
 	for child, want := range map[string]string{named.ChildID: host.Repo, given.ChildID: other} {
 		if a, ok := hostAgent(t, host, child); !ok || a.Cwd != want {
 			t.Errorf("%s runs in %q (listed %v), want %s", child, a.Cwd, ok, want)
@@ -163,7 +163,7 @@ func TestARestartMidHostDelegationResumesAndSettles(t *testing.T) {
 	hostTask(mac, phone, parent, 1, "working")
 
 	mac.Restart()
-	if err := os.WriteFile(filepath.Join(filepath.Dir(host.Home), "released"), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(host.UserHome(), "released"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +177,7 @@ func TestADelegationToAHostThatIsNotOnlineIsRefusedWithItsLink(t *testing.T) {
 	host := Start(t, launchReady(""), asHost)
 	mac := Start(t, fakeSSH)
 	reach(t, mac, host)
-	if err := os.WriteFile(filepath.Join(filepath.Dir(host.Home), ".fakessh-no-keys"), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(host.UserHome(), ".fakessh-no-keys"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	owner := mac.Owner(proto.CapHosts)
@@ -279,7 +279,7 @@ func TestAHostChildIdleWithoutAResultSettlesCompletedWithItsLastReply(t *testing
 func dropLink(t *testing.T, mac, host *Harness) (back func()) {
 	t.Helper()
 	owner := mac.Owner(proto.CapHosts)
-	keys := filepath.Join(filepath.Dir(host.Home), ".fakessh-no-keys")
+	keys := filepath.Join(host.UserHome(), ".fakessh-no-keys")
 	if err := os.WriteFile(keys, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestAHostTaskCancelledWhileTheHostWasDownInterruptsTheChildThereOnceItIsBac
 	hostTask(mac, phone, parent, 1, "cancelled")
 
 	mac.Restart()
-	os.Remove(filepath.Join(filepath.Dir(host.Home), ".fakessh-no-keys"))
+	os.Remove(filepath.Join(host.UserHome(), ".fakessh-no-keys"))
 	owner := mac.Owner(proto.CapHosts)
 	owner.Send(map[string]any{"type": "host.retry", "id": "back", "hostId": "devbox"})
 	waitLink(owner, "devbox", proto.LinkOnline, "")

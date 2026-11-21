@@ -66,8 +66,8 @@ func pairCommand(homeDirName, name string) string {
 }
 
 // pair has the host's pocketd mint a token for this machine, and keeps it beside the host's other files here.
-func (m *Manager) pair(ctx context.Context, h Host) (Owner, Failure) {
-	stdout, _, _, err := m.run(ctx, h, pairCommand(m.paths.RemoteDir, m.name), nil)
+func (m *Manager) pair(ctx context.Context, h Host, dir string) (Owner, Failure) {
+	stdout, _, _, err := m.run(ctx, h, pairCommand(dir, m.name), nil)
 	if err != nil {
 		return Owner{}, failureOf(err)
 	}

@@ -30,6 +30,8 @@ const REPLY_SLACK: Duration = Duration::from_secs(5);
 #[serde(default, rename_all = "camelCase")]
 pub struct HostInfo {
     pub host_id: String,
+    /// pocketd's own folder on the host, which may still be the legacy one there.
+    pub home: String,
     pub os: String,
     pub arch: String,
     pub user_home: String,
@@ -250,7 +252,7 @@ impl Client {
     pub fn sync_registry(&self, ours: &Value) -> io::Result<()> {
         use git::Exec;
         let _held = self.registry.lock().unwrap();
-        let path = format!("{}/{}/desktop.json", self.status()?.user_home, channel::home_dir_name());
+        let path = registry_path(&self.status()?);
         let theirs = match self.stat(&path)? {
             Some(_) => serde_json::from_slice(&self.read(&path, REGISTRY_MAX)?).map_err(io::Error::other)?,
             None => json!({}),
@@ -260,6 +262,14 @@ impl Client {
             self.write(&path, &serde_json::to_vec_pretty(&merged)?, false)?;
         }
         Ok(())
+    }
+}
+
+/// The `desktop.json` the host's pocketd reads, in its own folder there.
+fn registry_path(info: &HostInfo) -> String {
+    match info.home.as_str() {
+        "" => format!("{}/{}/desktop.json", info.user_home, channel::home_dir_name()),
+        home => format!("{}/desktop.json", home.replace('\\', "/")),
     }
 }
 
@@ -403,6 +413,14 @@ mod tests {
                 });
             }
         });
+    }
+
+    #[test]
+    fn a_hosts_projects_go_in_the_folder_its_pocketd_reports_even_before_it_moves_home() {
+        let info = |home: &str, user_home: &str| HostInfo { home: home.into(), user_home: user_home.into(), ..Default::default() };
+        assert_eq!(registry_path(&info("/home/dev/.coding-pocket", "/home/dev")), "/home/dev/.coding-pocket/desktop.json");
+        assert_eq!(registry_path(&info(r"C:\Users\me\.coding-pocket", "C:/Users/me")), "C:/Users/me/.coding-pocket/desktop.json");
+        assert_eq!(registry_path(&info("", "/home/dev")), format!("/home/dev/{}/desktop.json", channel::home_dir_name()));
     }
 
     #[test]

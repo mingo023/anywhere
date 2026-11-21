@@ -21,8 +21,10 @@ Linux and Windows get an unsigned archive on the same release, `Anywhere-<os>-am
 | Name | Anywhere | Anywhere Dev |
 | Daemon label | `dev.mingo.anywhere.pocketd` | `dev.mingo.anywhere.dev.pocketd` |
 | Host service label | `dev.mingo.anywhere.host.pocketd` | `dev.mingo.anywhere.dev.host.pocketd` |
-| Home | `~/.coding-pocket` | `~/.coding-pocket-dev` |
+| Home | `~/.anywhere` | `~/.anywhere/dev` |
 | Updates | Sparkle feed | none |
+
+Builds before the move kept the home in `~/.coding-pocket` and `~/.coding-pocket-dev`. On macOS and Linux, pocketd moves the old home's files into the new one on its first start, holding the lock, and leaves a symlink at the old path, because running agents, holders and host services still use paths under it. Until the move is done, the old home stays the home everywhere. Windows keeps the old home: a symlink needs Developer Mode there, and the open lock file can't be renamed.
 
 ## Update flow
 

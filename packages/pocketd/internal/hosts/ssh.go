@@ -121,14 +121,30 @@ func classify(stderr string) Failure {
 	return FailOther
 }
 
-// probeCommand prints the host's $HOME, then whether pocketd's socket is there; the forward needs an absolute path.
-func probeCommand(homeDirName string) string {
-	return fmt.Sprintf(`printf '%%s\n' "$HOME"; test -S "$HOME/%s/pocketd.sock" && echo running || echo stopped`, homeDirName)
+// probeCommand prints the host's $HOME, then whether pocketd's socket is in each of dirs; the forward needs an absolute path.
+func probeCommand(dirs []string) string {
+	command := `printf '%s\n' "$HOME"`
+	for _, dir := range dirs {
+		command += fmt.Sprintf(`; test -S "$HOME/%s/pocketd.sock" && echo running || echo stopped`, dir)
+	}
+	return command
 }
 
+// Probe is the host's home, and Dir, the first of the probed dirs where pocketd runs, or else the first.
 type Probe struct {
 	Home    string
+	Dir     string
 	Running bool
+}
+
+// probed reads the answers to a probe of dirs: one line each, where yes means pocketd is there.
+func probed(home string, dirs, answers []string, yes string) Probe {
+	for i, a := range answers {
+		if a == yes {
+			return Probe{home, dirs[i], true}
+		}
+	}
+	return Probe{home, dirs[0], false}
 }
 
 func lastLines(out string, n int) ([]string, bool) {
@@ -144,12 +160,12 @@ func lastLines(out string, n int) ([]string, bool) {
 	return lines[len(lines)-n:], true
 }
 
-func parseProbe(stdout string) (Probe, bool) {
-	lines, ok := lastLines(stdout, 2)
+func parseProbe(stdout string, dirs []string) (Probe, bool) {
+	lines, ok := lastLines(stdout, 1+len(dirs))
 	if !ok || !strings.HasPrefix(lines[0], "/") {
 		return Probe{}, false
 	}
-	return Probe{lines[0], lines[1] == "running"}, true
+	return probed(lines[0], dirs, lines[1:], "running"), true
 }
 
 // args puts app options first, because ssh keeps the first value it reads for an option.
@@ -260,14 +276,17 @@ func powershell(script string) string {
 
 func psQuote(text string) string { return "'" + strings.ReplaceAll(text, "'", "''") + "'" }
 
-func windowsProbeCommand(homeDirName string) string {
-	shim := psQuote(homeDirName + `\bin\pocketd.cmd`)
-	return powershell(fmt.Sprintf("Write-Output $HOME; if (Test-Path (Join-Path $HOME %s)) { 'installed' } else { 'missing' }", shim))
+func windowsProbeCommand(dirs []string) string {
+	script := "Write-Output $HOME"
+	for _, dir := range dirs {
+		script += fmt.Sprintf("; if (Test-Path (Join-Path $HOME %s)) { 'installed' } else { 'missing' }", psQuote(dir+`\bin\pocketd.cmd`))
+	}
+	return powershell(script)
 }
 
 // parseWindowsProbe is the Windows probe's answer; a home that isn't X:\… means this wasn't Windows.
-func parseWindowsProbe(stdout string) (Probe, bool) {
-	lines, ok := lastLines(stdout, 2)
+func parseWindowsProbe(stdout string, dirs []string) (Probe, bool) {
+	lines, ok := lastLines(stdout, 1+len(dirs))
 	if !ok {
 		return Probe{}, false
 	}
@@ -275,7 +294,7 @@ func parseWindowsProbe(stdout string) (Probe, bool) {
 	if len(home) < 3 || home[0]|0x20 < 'a' || home[0]|0x20 > 'z' || home[1] != ':' || home[2] != '\\' {
 		return Probe{}, false
 	}
-	return Probe{home, lines[1] == "installed"}, true
+	return probed(home, dirs, lines[1:], "installed"), true
 }
 
 // windowsTunnelCommand is tunnelCommand for Windows, where nothing like cat holds stdin.
