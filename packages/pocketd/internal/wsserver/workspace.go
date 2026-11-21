@@ -28,7 +28,7 @@ type WorkspaceService struct {
 	// Switch moves a chat-only agent to another account once its turn ends; nil switches none.
 	Switch func(agentID, account string) error
 	// SubagentTrees names the worktrees the subagents of the sessions in a worktree worked in, which go with it; nil names none.
-	SubagentTrees func(tree string, treeOf func(cwd string) string) ([]string, error)
+	SubagentTrees func(tree string, treeOf func(cwd string, at int64) string) ([]string, error)
 }
 
 // closeWait bounds how long worktree.delete waits on a closed terminal's
@@ -236,7 +236,7 @@ func (c *conn) subagentTrees(f registry.File, path string) []linkedTree {
 		return nil
 	}
 	listed := map[string][]worktree.Worktree{}
-	treeOf := func(cwd string) string {
+	treeOf := func(cwd string, at int64) string {
 		if real, err := filepath.EvalSymlinks(cwd); err == nil {
 			cwd = real
 		}
@@ -252,6 +252,9 @@ func (c *conn) subagentTrees(f registry.File, path string) []linkedTree {
 			if inside(cwd, w.Path) && len(w.Path) > len(best) {
 				best = w.Path
 			}
+		}
+		if worktree.MadeAt(best) > at {
+			return ""
 		}
 		return best
 	}

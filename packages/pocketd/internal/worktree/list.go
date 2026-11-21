@@ -38,6 +38,16 @@ func markerPath(tree string) string {
 	return filepath.Join(dir, Marker)
 }
 
+// MadeAt is when Anywhere made the Worktree at tree, in Unix milliseconds; 0
+// when it didn't.
+func MadeAt(tree string) int64 {
+	info, err := os.Stat(markerPath(tree))
+	if err != nil {
+		return 0
+	}
+	return info.ModTime().UnixMilli()
+}
+
 func mark(tree string) {
 	if err := os.WriteFile(markerPath(tree), nil, 0o644); err != nil {
 		log.Printf("worktree: marking %s: %v", tree, err)
