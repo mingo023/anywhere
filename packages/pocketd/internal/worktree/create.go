@@ -27,6 +27,7 @@ var (
 	ErrExists          = coded("worktree_exists", "A worktree or branch with this name already exists")
 	ErrInvalidName     = coded("invalid_name", "Use letters, digits, - _ or .")
 	ErrMain            = coded("main_worktree", "The main worktree can't be removed")
+	ErrInUse           = coded("worktree_in_use", "Someone else works in this worktree")
 )
 
 // Code is err's wire code, or "" when it has none.
