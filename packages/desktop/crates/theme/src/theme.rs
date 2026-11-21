@@ -31,6 +31,8 @@ static THEME_ACCENT: AtomicU32 = AtomicU32::new(0);
 static THEMED: [AtomicU64; KEYS.len()] = [const { AtomicU64::new(0) }; KEYS.len()];
 /// The dark window's alpha, out of 0xff.
 static GLASS_ALPHA: AtomicU32 = AtomicU32::new(WINDOW.pick(true) & 0xff);
+/// Whether the user's background image is set, which prompt boxes and menus veil themselves against.
+static IMAGE_BEHIND: AtomicBool = AtomicBool::new(false);
 /// The interface and code fonts the user picked; `None` is `SANS` and `MONO`.
 static CHOSEN_FONTS: RwLock<(Option<SharedString>, Option<SharedString>)> = RwLock::new((None, None));
 
@@ -789,6 +791,14 @@ fn sync_kit(cx: &mut App) {
 /// Makes the dark window's glass this percent opaque from the next frame.
 pub fn set_glass(percent: u32) {
     GLASS_ALPHA.store(glass_alpha(percent), Ordering::Relaxed);
+}
+
+pub fn set_image_behind(on: bool) {
+    IMAGE_BEHIND.store(on, Ordering::Relaxed);
+}
+
+pub fn image_behind() -> bool {
+    IMAGE_BEHIND.load(Ordering::Relaxed)
 }
 
 fn glass_alpha(percent: u32) -> u32 {

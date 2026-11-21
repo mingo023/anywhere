@@ -237,7 +237,7 @@ pub(crate) fn frame(typing: bool) -> Div {
         .flex()
         .flex_col()
         .rounded(px(RADIUS))
-        .bg(SURFACE)
+        .bg(if image_behind() { crate::field::veil() } else { SURFACE.into() })
         // A border, not a ring: a shadow fills beneath the box, and dark SURFACE is translucent.
         .border_1()
         .border_color(ring)

@@ -25,6 +25,11 @@ const GLASS: Setting = Setting::custom("glass", "Theme", "Window opacity", glass
     .resets(|s| format!("{}%", s.appearance.glass()), |s, d| s.appearance.glass = d.appearance.glass)
     .effect(apply_glass);
 
+const BACKGROUND: Setting = Setting::custom("background-image", "Theme", "Background image", background_row)
+    .hint("Shown behind the New session page and chats")
+    .resets(background_name, |s, d| s.appearance.background = d.appearance.background.clone())
+    .effect(apply_background);
+
 pub(super) const ROWS: &[Setting] = &[
     themes::THEME,
     themes::DAY,
@@ -35,6 +40,7 @@ pub(super) const ROWS: &[Setting] = &[
         .resets(accent_name, |s, d| s.appearance.accent = d.appearance.accent)
         .effect(apply_accent),
     GLASS,
+    BACKGROUND,
     Setting::choice("reduce-motion", "Theme", "Reduce motion", &["System", "On", "Off"], Look::Segmented, |s| MOTION.iter().position(|m| *m == s.appearance.reduce_motion).unwrap_or(0), |s, i| {
         s.appearance.reduce_motion = MOTION[i]
     })
@@ -154,6 +160,51 @@ fn glass_row(d: &mut Desktop, setting: &'static Setting, _: &mut Context<Desktop
     let dark = theme::is_dark();
     let slider = Slider::new(&d.settings.glass).disabled(!dark).w(px(180.));
     row(setting.label, setting.hint, div().flex().items_center().gap(px(10.)).when(!dark, |d| d.opacity(0.45)).child(slider).child(percent))
+}
+
+fn apply_background(d: &mut Desktop, _: &mut Context<Desktop>) {
+    theme::set_image_behind(d.store.appearance.background.is_some());
+}
+
+fn background_name(s: &Store) -> String {
+    s.appearance.background.as_deref().map_or("None".into(), |p| store::backgrounds::original_name(p).to_string())
+}
+
+fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
+    let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
+    cx.spawn(async move |this, cx| {
+        let Ok(Ok(Some(paths))) = rx.await else { return };
+        let Some(from) = paths.into_iter().next() else { return };
+        let home = std::path::PathBuf::from(crate::modals::form::home());
+        let kept = match store::backgrounds::is_image(&from) {
+            true => cx.background_executor().spawn(async move { store::backgrounds::keep(&home, &from) }).await.map_err(|e| format!("Couldn't use the image: {e}")),
+            false => Err("Pick a PNG, JPEG, WebP or GIF image.".into()),
+        };
+        this.update(cx, |d, cx| match kept {
+            Ok(to) => {
+                d.store.appearance.background = Some(to.to_string_lossy().into_owned());
+                d.changed(setting, cx);
+            }
+            Err(why) => {
+                d.error = Some(why);
+                cx.notify();
+            }
+        })
+        .ok();
+    })
+    .detach();
+}
+
+fn background_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
+    let set = d.store.appearance.background.is_some();
+    let choose = action("background-choose", if set { background_name(&d.store) } else { "Choose…".into() }).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| choose_background(setting, cx)));
+    let remove = set.then(|| {
+        action("background-remove", "Remove").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.store.appearance.background = None;
+            this.changed(setting, cx);
+        }))
+    });
+    row(setting.label, setting.hint, div().flex().items_center().gap(px(6.)).child(choose).children(remove))
 }
 
 fn accent_name(s: &Store) -> String {
@@ -346,6 +397,16 @@ mod tests {
         assert_eq!(row.value(&store).as_deref(), Some("Added #8E4EC6, removed from theme"));
         super::super::catalog::reset(super::ROWS, &mut store);
         assert_eq!((store.appearance.added, store.appearance.removed), (None, None));
+    }
+
+    #[test]
+    fn the_background_row_names_the_image_until_reset() {
+        let mut store = store::Store::default();
+        assert_eq!(super::BACKGROUND.value(&store).as_deref(), Some("None"));
+        store.appearance.background = Some("/home/backgrounds/1-sky.png".into());
+        assert_eq!(super::BACKGROUND.value(&store).as_deref(), Some("sky.png"));
+        super::super::catalog::reset(super::ROWS, &mut store);
+        assert_eq!(store.appearance.background, None);
     }
 
     #[test]

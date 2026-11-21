@@ -12,7 +12,7 @@ use crate::composer::{self, Composer};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
-use crate::field::Field;
+use crate::field::{self, Field};
 use crate::fs::fs_for;
 use crate::modals::form::default_base;
 use crate::spaces::{self, Reach, Space};
@@ -841,6 +841,9 @@ impl Desktop {
         let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, typing, pill.into_iter().collect(), trailing, send, cx);
         let composer = self.suggest_keys(Prompt::Launch, composer, cx);
         let composer = self.rich_keys(Prompt::Launch, composer, cx).children(self.suggest_list(Prompt::Launch, cx));
+        let image = self.store.appearance.background.is_some();
+        let veiled = |pill: Div| if image { div().rounded(px(8.)).bg(field::veil()).child(pill) } else { pill };
+        let (machine, project, checkout, branch) = (veiled(machine), veiled(project), checkout.map(veiled), branch.map(veiled));
         let error = f.reply.error.clone().map(|(message, detail)| ui::failure(message, detail).w_full().max_w(px(600.)).mt(px(10.)));
         let footer = div()
             .w_full()

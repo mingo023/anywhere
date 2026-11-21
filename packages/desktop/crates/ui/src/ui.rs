@@ -55,10 +55,17 @@ pub fn side<E: Styled>(e: E) -> E {
     e.bg(SIDE).border_r(px(0.5)).border_color(SEPARATOR)
 }
 
+/// How opaque a menu is over the user's background image: the faint glass tint would leave the picture under its text.
+const POPOVER_OVER_IMAGE: f32 = 0.65;
+
 /// Floating menus and sheets.
 pub fn pop<E: Styled>(e: E) -> E {
     // Only the Metal renderer blurs; elsewhere the faint glass tint would leave the menu see-through.
-    let e = if is_dark() && cfg!(target_os = "macos") { e.bg(POPOVER_GLASS).backdrop_blur(px(POPOVER_BLUR)) } else { e.bg(POPOVER) };
+    let e = match (cfg!(target_os = "macos"), image_behind(), is_dark()) {
+        (true, true, _) => e.bg(Hsla::from(POPOVER).opacity(POPOVER_OVER_IMAGE)).backdrop_blur(px(POPOVER_BLUR)),
+        (true, false, true) => e.bg(POPOVER_GLASS).backdrop_blur(px(POPOVER_BLUR)),
+        _ => e.bg(POPOVER),
+    };
     e.rounded(px(R_POPOVER)).shadow(vec![ring(SEPARATOR, 0.5), highlight(HIGHLIGHT), shadow(SHADOW, 18., 50.), shadow(rgba(0x0000000f), 2., 6.)])
 }
 
