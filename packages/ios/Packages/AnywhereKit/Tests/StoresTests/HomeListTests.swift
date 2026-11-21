@@ -82,6 +82,9 @@ struct HomeListTests {
         let shell = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:],
                                    sessions: [session("chat", anywhere), session("child", otter, parent: "chat")], terminalCwds: [otter])
         #expect(shell.sections[0].trees.contains { $0.id == otter }, "a shell open in it keeps it listed")
+        let open = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:],
+                                  sessions: [session("chat", anywhere), session("child", otter, parent: "chat")], open: otter)
+        #expect(open.sections[0].trees.contains { $0.id == otter }, "the one the phone has open stays while it does")
     }
 
     @Test("a folder inside a project but outside its worktrees goes to the project's own checkout")
