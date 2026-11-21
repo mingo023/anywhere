@@ -27,6 +27,31 @@
 	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="docs.css">
 	<script src="docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/#article",
+			"headline": "Run your first agent in Anywhere",
+			"description": "Install Anywhere, start Claude Code on a project, watch its status, and review what it changed.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" }
+			]
+		}
+	]
+}
+	</script>
 </head>
 <body>
 	<a class="skip" href="#main">Skip to content</a>
@@ -34,11 +59,11 @@
 		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
 		</button>
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="index.html">Docs</a>
-			<a href="../blog/index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -47,28 +72,28 @@
 		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
 			<p class="nav-group">Get started</p>
 			<ul>
-				<li><a href="index.html">Run your first agent</a></li>
-				<li><a href="install.html">Install Anywhere</a></li>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
 			</ul>
 			<p class="nav-group">Use Anywhere</p>
 			<ul>
-				<li><a href="sessions.html">Sessions and status</a></li>
-				<li><a href="worktrees.html">Work in worktrees</a></li>
-				<li><a href="review.html">Review and commit changes</a></li>
-				<li><a href="board.html">Plan work on the Board</a></li>
-				<li><a href="automations.html">Schedule automations</a></li>
-				<li><a href="delegation.html">Delegate work from a chat</a></li>
-				<li><a href="hosts.html">Run agents on another machine</a></li>
-				<li><a href="iphone.html">Pair an iPhone</a></li>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
 			</ul>
 			<p class="nav-group">Reference</p>
 			<ul>
-				<li><a href="agents.html">Supported agents</a></li>
-				<li><a href="cli.html">The anywhere command</a></li>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
 			</ul>
 			<p class="nav-group">Explanation</p>
 			<ul>
-				<li><a href="architecture.html">How Anywhere runs</a></li>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
 			</ul>
 		</nav>
 		<main id="main">
@@ -76,7 +101,7 @@
 				<p class="eyebrow">Tutorial</p>
 				<h1>Run your first agent in Anywhere</h1>
 				<p class="lede">In this tutorial, we install Anywhere on a Mac, start Claude Code on one of your git repositories, watch it work, and review and commit the change it makes.</p>
-				<p>You need a Mac with macOS 13 or later and a git repository on it. On Linux or Windows, follow <a href="install.html">Install Anywhere</a> for the first step, then continue here.</p>
+				<p>You need a Mac with macOS 13 or later and a git repository on it. On Linux or Windows, follow <a href="/docs/install">Install Anywhere</a> for the first step, then continue here.</p>
 
 				<h2 id="install-anywhere">Install Anywhere</h2>
 				<ol>
@@ -96,7 +121,7 @@
 				</ol>
 				<p>The Anywhere window opens with the sidebar on the left. On first launch, the app registers its background service, pocketd, as a login item. pocketd runs the agents, so they keep working after you close the window.</p>
 				<p>To confirm that Anywhere found Claude Code, open Settings with <kbd>⌘,</kbd> and select <strong>Agents</strong>. Claude Code is in the <strong>Providers</strong> list. If you see <code>Claude Code not found</code> instead, check that <code>claude</code> runs in a new Terminal window, then restart Anywhere.</p>
-				<p>To use another agent, see <a href="agents.html">Supported agents</a>.</p>
+				<p>To use another agent, see <a href="/docs/agents">Supported agents</a>.</p>
 
 				<h2 id="add-a-project">Add a project</h2>
 				<ol>
@@ -115,13 +140,13 @@
 					</li>
 					<li>Press <kbd>Return</kbd>.</li>
 				</ol>
-				<p>The session opens as a chat, and Claude Code starts on the request. It works in your project's own checkout, on your current branch. To give an agent its own branch instead, see <a href="worktrees.html">Start an agent in a new worktree</a>.</p>
+				<p>The session opens as a chat, and Claude Code starts on the request. It works in your project's own checkout, on your current branch. To give an agent its own branch instead, see <a href="/docs/worktrees">Start an agent in a new worktree</a>.</p>
 
 				<h2 id="watch-its-status">Watch its status</h2>
 				<p>The session's row in the sidebar shows its status. While Claude Code runs a turn, the row shows a spinner. That status is <span class="status working">Working</span>.</p>
 				<p>If Claude Code asks for permission, for example to run a command, the status changes to <span class="status needs-you">Needs you</span>. The row shows an amber dot, and the session goes into the Inbox. Answer in the chat to let it continue.</p>
 				<p>Now switch to another app and wait for the turn to end. When it ends, Anywhere shows a banner, and the row shows a green dot and its title in bold. That status is <span class="status done">Done</span>. It means that a turn ended and nobody has seen it yet. If you watch the chat while the turn ends, the session goes straight to Idle instead.</p>
-				<p>Click the bell at the top of the sidebar to open the <strong>Inbox</strong>. It lists the sessions that need you, and the Done and Failed ones you haven't seen. For every status and where it shows, see <a href="sessions.html">Sessions and status</a>.</p>
+				<p>Click the bell at the top of the sidebar to open the <strong>Inbox</strong>. It lists the sessions that need you, and the Done and Failed ones you haven't seen. For every status and where it shows, see <a href="/docs/sessions">Sessions and status</a>.</p>
 
 				<h2 id="review-its-changes">Review its changes</h2>
 				<ol>
@@ -135,15 +160,15 @@
 
 				<h2 id="next-steps">Next steps</h2>
 				<ul>
-					<li><a href="worktrees.html">Start an agent in a new worktree</a>, so several agents work at once without touching your branch.</li>
-					<li><a href="review.html">Review and commit an agent's changes</a>, including pull requests.</li>
-					<li><a href="install.html#install-the-anywhere-command">Install the <code>anywhere</code> command</a> to start sessions from scripts.</li>
-					<li><a href="architecture.html">About how Anywhere runs on your machines</a>.</li>
+					<li><a href="/docs/worktrees">Start an agent in a new worktree</a>, so several agents work at once without touching your branch.</li>
+					<li><a href="/docs/review">Review and commit an agent's changes</a>, including pull requests.</li>
+					<li><a href="/docs/install#install-the-anywhere-command">Install the <code>anywhere</code> command</a> to start sessions from scripts.</li>
+					<li><a href="/docs/architecture">About how Anywhere runs on your machines</a>.</li>
 				</ul>
-				<p>Longer guides are on the blog: <a href="../blog/run-multiple-claude-code-agents-in-parallel.html">run several Claude Code agents in parallel</a>, <a href="../blog/run-multiple-codex-agents-git-worktrees.html">run several Codex agents in git worktrees</a>, and <a href="../blog/script-claude-code-codex-from-cli.html">script agents from your shell</a>.</p>
+				<p>Longer guides are on the blog: <a href="/blog/run-multiple-claude-code-agents-in-parallel">run several Claude Code agents in parallel</a>, <a href="/blog/run-multiple-codex-agents-git-worktrees">run several Codex agents in git worktrees</a>, and <a href="/blog/script-claude-code-codex-from-cli">script agents from your shell</a>.</p>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="next" href="install.html"><span>Next</span>Install Anywhere</a>
+				<a class="next" href="/docs/install"><span>Next</span>Install Anywhere</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>

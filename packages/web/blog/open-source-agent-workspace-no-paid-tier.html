@@ -7,6 +7,7 @@
 	<meta name="description" content="What free means across open-source agent workspaces like Paradev, Synara and T3 Code, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -75,11 +76,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -87,7 +88,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Comparison</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
 				<h1>A free, open-source agent workspace with no paid tier</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">Anywhere is a free, MIT-licensed app for running coding agents in parallel that has no account, no cloud tier and no premium tier. Automations, a ticket Board, SSH hosts and the <code>anywhere</code> CLI are all included at no cost, and it runs the Claude Code, Codex and other agent CLIs you already use.</p>
@@ -117,12 +118,12 @@
 				<h2 id="whats-included">What's included in Anywhere at $0</h2>
 				<p>Everything in the app, with no plan, no seat, and no account:</p>
 				<ul>
-					<li><strong><a href="../docs/automations.html">Automations</a>.</strong> A prompt pocketd starts on chosen weekdays at a time, or every few minutes. Runs keep firing while the desktop app is closed.</li>
-					<li><strong><a href="../docs/board.html">The Board</a>.</strong> Tickets across projects. A started ticket gets its own worktree and session, with a limit on how many run at once.</li>
-					<li><strong><a href="../docs/hosts.html">SSH hosts</a>.</strong> Add a Mac, Linux, or Windows machine. Anywhere installs pocketd there and runs that host's agents on it.</li>
-					<li><strong><a href="../docs/cli.html">The <code>anywhere</code> command</a> and agent skill.</strong> Start sessions, send prompts, wait for results, and manage tickets from any shell. The skill tells Claude Code and Codex how to use it.</li>
-					<li><strong><a href="../docs/delegation.html">Delegated work</a>.</strong> A chat hands parts of its work to other sessions through pocketd's orchestrator over MCP.</li>
-					<li><strong>A phone path, documented.</strong> A native SwiftUI iPhone and iPad app pairs with the Mac over Tailscale, with code and agents staying on the Mac. It is built and documented in <a href="../docs/iphone.html">Pair an iPhone</a>; the site still lists it as coming soon. The one hosted piece is an optional push relay, which stores no device tokens.</li>
+					<li><strong><a href="/docs/automations">Automations</a>.</strong> A prompt pocketd starts on chosen weekdays at a time, or every few minutes. Runs keep firing while the desktop app is closed.</li>
+					<li><strong><a href="/docs/board">The Board</a>.</strong> Tickets across projects. A started ticket gets its own worktree and session, with a limit on how many run at once.</li>
+					<li><strong><a href="/docs/hosts">SSH hosts</a>.</strong> Add a Mac, Linux, or Windows machine. Anywhere installs pocketd there and runs that host's agents on it.</li>
+					<li><strong><a href="/docs/cli">The <code>anywhere</code> command</a> and agent skill.</strong> Start sessions, send prompts, wait for results, and manage tickets from any shell. The skill tells Claude Code and Codex how to use it.</li>
+					<li><strong><a href="/docs/delegation">Delegated work</a>.</strong> A chat hands parts of its work to other sessions through pocketd's orchestrator over MCP.</li>
+					<li><strong>A phone path, documented.</strong> A native SwiftUI iPhone and iPad app pairs with the Mac over Tailscale, with code and agents staying on the Mac. It is built and documented in <a href="/docs/iphone">Pair an iPhone</a>; the site still lists it as coming soon. The one hosted piece is an optional push relay, which stores no device tokens.</li>
 					<li><strong>Linux and Windows builds.</strong> Unsigned and without an updater, next to the signed, notarized Mac app.</li>
 				</ul>
 
@@ -133,8 +134,8 @@
 				</div>
 
 				<h2 id="the-promise">No account, no cloud tier, no premium tier: the public promise</h2>
-				<p>The <a href="../index.html#open-source">Anywhere site</a> puts it in writing: "There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be."</p>
-				<p>Its pricing table lists the desktop app, the iPhone app, the daemon and CLI, and the push relay at $0, and two rows as "Never": cloud tier and premium tier. The <a href="../docs/architecture.html">architecture page</a> backs that up with things you can check in the source:</p>
+				<p>The <a href="/#open-source">Anywhere site</a> puts it in writing: "There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be."</p>
+				<p>Its pricing table lists the desktop app, the iPhone app, the daemon and CLI, and the push relay at $0, and two rows as "Never": cloud tier and premium tier. The <a href="/docs/architecture">architecture page</a> backs that up with things you can check in the source:</p>
 				<ul>
 					<li>All of it is in one MIT-licensed repository, and there is no license check in the code.</li>
 					<li>There is no Anywhere account and no Anywhere server your sessions pass through. "Your code, your terminals and your agents stay on your Mac or the hosts you add."</li>
@@ -168,8 +169,8 @@
 						<li>Remote and iPhone access today, as a clearly priced add-on.</li>
 					</ul>
 				</div>
-				<p>T3 Code is the better pick if you want shipping iOS, Android, and web clients, first-class Windows and Linux builds, any ACP agent, or a built-in remote that doesn't need Tailscale. See <a href="t3-code-alternative.html">Anywhere vs T3 Code</a>.</p>
-				<p>For all eight tools in one table, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>.</p>
+				<p>T3 Code is the better pick if you want shipping iOS, Android, and web clients, first-class Windows and Linux builds, any ACP agent, or a built-in remote that doesn't need Tailscale. See <a href="/blog/t3-code-alternative">Anywhere vs T3 Code</a>.</p>
+				<p>For all eight tools in one table, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -184,8 +185,8 @@
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="coding-agents-keep-running-after-closing-window.html"><span>Previous</span>Keep agents running after you close the window</a>
-				<a class="next" href="native-mac-app-coding-agents-rust-gpui.html"><span>Next</span>Native, not Electron</a>
+				<a class="prev" href="/blog/coding-agents-keep-running-after-closing-window"><span>Previous</span>Keep agents running after you close the window</a>
+				<a class="next" href="/blog/native-mac-app-coding-agents-rust-gpui"><span>Next</span>Native, not Electron</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -193,13 +194,13 @@
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

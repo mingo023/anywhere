@@ -27,6 +27,32 @@
 	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="docs.css">
 	<script src="docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/cli#article",
+			"headline": "The anywhere command",
+			"description": "Reference for the anywhere command line tool: every subcommand, flag, and exit code.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/cli" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "The anywhere command", "item": "https://getanywhere.dev/docs/cli" }
+			]
+		}
+	]
+}
+	</script>
 </head>
 <body>
 	<a class="skip" href="#main">Skip to content</a>
@@ -34,11 +60,11 @@
 		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
 		</button>
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="index.html">Docs</a>
-			<a href="../blog/index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -47,28 +73,28 @@
 		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
 			<p class="nav-group">Get started</p>
 			<ul>
-				<li><a href="index.html">Run your first agent</a></li>
-				<li><a href="install.html">Install Anywhere</a></li>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
 			</ul>
 			<p class="nav-group">Use Anywhere</p>
 			<ul>
-				<li><a href="sessions.html">Sessions and status</a></li>
-				<li><a href="worktrees.html">Work in worktrees</a></li>
-				<li><a href="review.html">Review and commit changes</a></li>
-				<li><a href="board.html">Plan work on the Board</a></li>
-				<li><a href="automations.html">Schedule automations</a></li>
-				<li><a href="delegation.html">Delegate work from a chat</a></li>
-				<li><a href="hosts.html">Run agents on another machine</a></li>
-				<li><a href="iphone.html">Pair an iPhone</a></li>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
 			</ul>
 			<p class="nav-group">Reference</p>
 			<ul>
-				<li><a href="agents.html">Supported agents</a></li>
-				<li><a href="cli.html">The anywhere command</a></li>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
 			</ul>
 			<p class="nav-group">Explanation</p>
 			<ul>
-				<li><a href="architecture.html">How Anywhere runs</a></li>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
 			</ul>
 		</nav>
 		<main id="main">
@@ -76,7 +102,7 @@
 				<p class="eyebrow">Reference</p>
 				<h1>The anywhere command</h1>
 				<p class="lede"><code>anywhere</code> is pocketd run under the name <code>anywhere</code>. It starts sessions, sends prompts, reads replies, and edits Board tickets. The sessions it starts show in the desktop app like any other.</p>
-				<p>To install the command, see <a href="install.html#install-the-anywhere-command">Install the anywhere command</a>.</p>
+				<p>To install the command, see <a href="/docs/install#install-the-anywhere-command">Install the anywhere command</a>.</p>
 
 				<h2 id="synopsis">Synopsis</h2>
 				<pre><code>anywhere project list [--json]
@@ -95,7 +121,7 @@ anywhere ticket delete &lt;id&gt;</code></pre>
 				<h2 id="conventions">Conventions</h2>
 				<ul>
 					<li>Flags go before or after the positional arguments.</li>
-					<li><code>&lt;agent&gt;</code> is one of <code>claude</code>, <code>codex</code>, <code>cursor</code>, <code>grok</code>, <code>opencode</code>, <code>pi</code>, <code>omp</code>, <code>fx</code>, <code>hermes</code>, or <code>antigravity</code>. Left out, it is <code>claude</code>. See <a href="agents.html">Supported agents</a>.</li>
+					<li><code>&lt;agent&gt;</code> is one of <code>claude</code>, <code>codex</code>, <code>cursor</code>, <code>grok</code>, <code>opencode</code>, <code>pi</code>, <code>omp</code>, <code>fx</code>, <code>hermes</code>, or <code>antigravity</code>. Left out, it is <code>claude</code>. See <a href="/docs/agents">Supported agents</a>.</li>
 					<li>A text argument of <code>-</code> reads the text from standard input.</li>
 					<li><code>--json</code> prints indented JSON instead of a table.</li>
 					<li><code>--project</code> takes a project's name or its path. Without it, the command uses the project whose main checkout or worktree holds the current directory.</li>
@@ -124,7 +150,7 @@ anywhere ticket delete &lt;id&gt;</code></pre>
 						<tr><td><code>--new-worktree [&lt;name&gt;]</code></td><td>Off</td><td>Creates a new worktree for the session. Without a name and with <code>--prompt</code>, pocketd names the branch from the prompt. Can't be used with <code>--worktree</code>.</td></tr>
 						<tr><td><code>--base &lt;branch&gt;</code></td><td>The project's default</td><td>The branch the new worktree starts from. Only with <code>--new-worktree</code>.</td></tr>
 						<tr><td><code>--provider &lt;agent&gt;</code></td><td><code>claude</code></td><td>The agent to run.</td></tr>
-						<tr><td><code>--access &lt;mode&gt;</code></td><td><code>settings</code></td><td>The access mode: <code>settings</code>, <code>ask</code>, <code>edits</code>, <code>auto</code>, or <code>full</code>. <code>settings</code> uses the agent's own permission settings. See <a href="sessions.html#access-modes">Access modes</a>.</td></tr>
+						<tr><td><code>--access &lt;mode&gt;</code></td><td><code>settings</code></td><td>The access mode: <code>settings</code>, <code>ask</code>, <code>edits</code>, <code>auto</code>, or <code>full</code>. <code>settings</code> uses the agent's own permission settings. See <a href="/docs/sessions#access-modes">Access modes</a>.</td></tr>
 						<tr><td><code>--prompt &lt;text&gt;</code></td><td>None</td><td>The first prompt.</td></tr>
 					</tbody>
 				</table>
@@ -259,8 +285,8 @@ anywhere ticket delete &lt;id&gt;</code></pre>
 				</div>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="agents.html"><span>Previous</span>Supported agents</a>
-				<a class="next" href="architecture.html"><span>Next</span>How Anywhere runs</a>
+				<a class="prev" href="/docs/agents"><span>Previous</span>Supported agents</a>
+				<a class="next" href="/docs/architecture"><span>Next</span>How Anywhere runs</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>

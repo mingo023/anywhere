@@ -7,6 +7,7 @@
 	<meta name="description" content="Find, measure and remove the worktrees Claude Code, Codex and Cursor leave on disk, what each tool cleans up on its own, and how Anywhere deletes them.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/clean-up-coding-agent-worktrees">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -88,11 +89,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -100,11 +101,11 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Guide</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Guide</p>
 				<h1>How to clean up the git worktrees your coding agents leave behind</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-19">19 November 2026</time> · Updated <time datetime="2026-11-19">19 November 2026</time></div>
 				<p class="lede">List every worktree with <code>git worktree list</code>, measure each one with <code>du -sh</code>, and remove the finished ones with <code>git worktree remove &lt;path&gt;</code>, then delete their merged branches. <code>git worktree prune</code> only clears git's records of folders that are already gone; it deletes nothing on disk. Claude Code, Codex and Cursor each sweep only their own worktrees, each by its own rule, so the rest is up to you.</p>
-				<p>Running agents in parallel means one worktree per agent. If you followed <a href="run-multiple-claude-code-agents-in-parallel.html">How to run multiple Claude Code agents in parallel</a> or <a href="run-multiple-codex-agents-git-worktrees.html">Run multiple Codex CLI agents in git worktrees</a>, you have made a lot of them. This post is about getting rid of them.</p>
+				<p>Running agents in parallel means one worktree per agent. If you followed <a href="/blog/run-multiple-claude-code-agents-in-parallel">How to run multiple Claude Code agents in parallel</a> or <a href="/blog/run-multiple-codex-agents-git-worktrees">Run multiple Codex CLI agents in git worktrees</a>, you have made a lot of them. This post is about getting rid of them.</p>
 
 				<h2 id="why-now">Why this keeps happening</h2>
 				<p>Agents make worktrees faster than people delete them. Through October and November 2026, developers kept posting about disks filled by forgotten agent worktrees. One found six old Claude Code worktrees, most of their size in <code>node_modules</code>, with most of their branches <a href="https://x.com/marcos_placona/status/2122985418610364838">already merged</a>. Another counted 41 worktrees across Claude Code, Codex and T3 Code <a href="https://x.com/stretchcloud/status/2115754013857910980">taking tens of gigabytes</a>. A third had a Mac running out of space, with dozens of worktrees each holding <a href="https://x.com/mattt/status/2122297434709868722">its own dependencies and build output</a>. A thread on <a href="https://www.reddit.com/r/ClaudeCode/comments/1xatfdg/running_multiple_claude_agents_in_parallel_how_do/">r/ClaudeCode</a> asks the same question, and people have built one-off cleaners for it, such as <a href="https://news.ycombinator.com/item?id=50110204">Lopper</a> and <a href="https://news.ycombinator.com/item?id=50343931">Repobs</a>.</p>
@@ -129,7 +130,7 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 						<tr><td>Claude Code</td><td><code>.claude/worktrees/&lt;name&gt;</code> inside the repository (<a href="https://code.claude.com/docs/en/worktrees">docs</a>)</td></tr>
 						<tr><td>Codex</td><td><code>$CODEX_HOME/worktrees</code> (<a href="https://learn.chatgpt.com/docs/environments/git-worktrees">docs</a>)</td></tr>
 						<tr><td>Cursor</td><td>Its own worktree root; the <a href="https://cursor.com/docs/configuration/worktrees">docs</a> don't name the path, but <code>git worktree list</code> shows it</td></tr>
-						<tr><td>Anywhere</td><td><code>~/.anywhere/worktrees/&lt;project&gt;/&lt;name&gt;</code> (<a href="../docs/worktrees.html#choose-where-worktrees-go">docs</a>)</td></tr>
+						<tr><td>Anywhere</td><td><code>~/.anywhere/worktrees/&lt;project&gt;/&lt;name&gt;</code> (<a href="/docs/worktrees#choose-where-worktrees-go">docs</a>)</td></tr>
 					</tbody>
 				</table>
 				</div>
@@ -175,7 +176,7 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 						<tr><td><a href="https://code.claude.com/docs/en/worktrees">Claude Code</a></td><td>On exit of an interactive <code>--worktree</code> session: a clean unnamed worktree goes, with its branch; a named one prompts; one with work asks keep or remove. A periodic sweep removes subagent and background-session worktrees older than <code>cleanupPeriodDays</code>.</td><td>The sweep skips worktrees with changes, untracked files or unpushed commits, and worktrees you made with <code>git worktree add</code>. <code>-p</code> runs get no exit prompt and are never cleaned up; their lock stays until a later session's stale-lock sweep.</td></tr>
 						<tr><td><a href="https://learn.chatgpt.com/docs/environments/git-worktrees">Codex app</a></td><td>When you archive a chat, or when there are more than the 15 most recent Codex-managed worktrees (the default; change it or turn it off in settings).</td><td>Never while a pinned chat uses the worktree or a chat is in progress. Permanent worktrees stay. It saves a snapshot first and offers to restore it when you reopen the chat. Its worktrees are on a detached HEAD, with no branch.</td></tr>
 						<tr><td><a href="https://cursor.com/docs/configuration/worktrees">Cursor 3.5+</a></td><td>Every <code>cursor.worktreeCleanupIntervalHours</code> (default 6), keeping the newest up to <code>cursor.worktreeMaxCount</code> (default 25) per machine, across all workspaces.</td><td>Only the newest worktrees up to the cap. Worktrees in its root that it didn't make, for example with <code>git worktree add</code>, count and can be removed too.</td></tr>
-						<tr><td><a href="../docs/worktrees.html#delete-a-worktree">Anywhere</a></td><td>Only when you delete one: from the sidebar, or after merging its pull request. No sweep by age or count.</td><td>The confirm tells you what you'd lose. Details below.</td></tr>
+						<tr><td><a href="/docs/worktrees#delete-a-worktree">Anywhere</a></td><td>Only when you delete one: from the sidebar, or after merging its pull request. No sweep by age or count.</td><td>The confirm tells you what you'd lose. Details below.</td></tr>
 						<tr><td><a href="https://git-scm.com/docs/git-worktree">Plain git</a></td><td>Never. Worktree folders stay until you remove them.</td><td><code>git worktree remove</code> refuses unclean or locked worktrees without <code>--force</code>.</td></tr>
 					</tbody>
 				</table>
@@ -212,7 +213,7 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 	"teardown": ["docker compose down"]
 }</code></pre>
 				<p>Anywhere's own repository uses a <a href="https://github.com/mingo023/anywhere/blob/main/.anywhere/setup.sh"><code>.anywhere/setup.sh</code></a> that clones <code>target/</code> with APFS copy-on-write (<code>cp -c</code>) and symlinks the gitignored <code>third_party/</code>, so a new worktree doesn't rebuild every dependency.</p>
-				<p>What Anywhere doesn't do: it doesn't measure disk use, and it doesn't delete worktrees by age or count. For that, use the commands above. The full reference is <a href="../docs/worktrees.html">Start an agent in a new worktree</a>.</p>
+				<p>What Anywhere doesn't do: it doesn't measure disk use, and it doesn't delete worktrees by age or count. For that, use the commands above. The full reference is <a href="/docs/worktrees">Start an agent in a new worktree</a>.</p>
 
 				<div class="cta">
 					<p>Anywhere is free and MIT licensed, and runs the Claude Code and Codex you already have.</p>
@@ -235,8 +236,8 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="script-claude-code-codex-from-cli.html"><span>Previous</span>Script coding agents from your shell</a>
-				<a class="next" href="index.html"><span>Back to</span>All posts</a>
+				<a class="prev" href="/blog/script-claude-code-codex-from-cli"><span>Previous</span>Script coding agents from your shell</a>
+				<a class="next" href="/blog/"><span>Back to</span>All posts</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -244,13 +245,13 @@ git worktree list --porcelain   # one field per line, with branch and lock state
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

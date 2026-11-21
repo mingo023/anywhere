@@ -42,7 +42,7 @@ Download [Anywhere.dmg](https://github.com/mingo023/anywhere/releases/latest/dow
 
 Requires macOS 13 or later. The app is a universal binary (arm64 and x86_64), signed and notarized. Updates install through Sparkle. On first launch the app registers pocketd as a login item.
 
-On Linux (x86_64) or Windows (x64), unpack [Anywhere-linux-amd64.tar.gz](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-linux-amd64.tar.gz) or [Anywhere-windows-amd64.zip](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-windows-amd64.zip) and run `pocket-desktop`. Those archives are unsigned and have no updater. On first launch, pocketd installs itself as a systemd user service or a Windows scheduled task.
+On Linux (x86_64), unpack [Anywhere-linux-amd64.tar.gz](https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-linux-amd64.tar.gz) and run `pocket-desktop`. The archive is unsigned and has no updater. The latest release doesn't include a Windows desktop archive; check [Releases](https://github.com/mingo023/anywhere/releases) for a newer one. On first launch, pocketd installs itself as a systemd user service or a Windows scheduled task.
 
 ## Agents
 

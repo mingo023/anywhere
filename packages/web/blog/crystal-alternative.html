@@ -7,6 +7,7 @@
 	<meta name="description" content="Crystal was deprecated in February 2026 and replaced by Nimbalyst. Your options, including Anywhere, a free MIT app for parallel agents in git worktrees.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/crystal-alternative">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -75,11 +76,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -87,7 +88,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Comparison</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
 				<h1>Crystal is now Nimbalyst: options for parallel Claude Code and Codex sessions</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">Crystal, the MIT app for running Claude Code and Codex sessions in parallel git worktrees, was deprecated in February 2026 and replaced by Nimbalyst. If you want another open-source option, Anywhere is a free MIT Mac app that runs Claude Code, Codex and eight more agents in separate worktrees, with status and diff review.</p>
@@ -116,9 +117,9 @@
 				<p>Anywhere is a desktop app for macOS 13 or later, with unsigned Linux and Windows builds. It is MIT licensed and costs nothing, with no account, no cloud tier, and no premium tier. For a Crystal user, the parts that matter:</p>
 				<ul>
 					<li><strong>Claude Code and Codex, side by side.</strong> Both run in a real terminal or as a chat, and report their status from either. Eight more agents run as a chat: Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent, and Antigravity.</li>
-					<li><strong>A worktree per session.</strong> Create it from a branch or a pull request. Setup commands in <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code> run before the agent starts. See <a href="../docs/worktrees.html">worktrees</a>.</li>
+					<li><strong>A worktree per session.</strong> Create it from a branch or a pull request. Setup commands in <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code> run before the agent starts. See <a href="/docs/worktrees">worktrees</a>.</li>
 					<li><strong>Status.</strong> Working, Needs you, Done, Failed, or Idle, in the sidebar, the Inbox, the Dock badge, and notifications.</li>
-					<li><strong>Review.</strong> Diffs and commits beside the session, a compare against the base branch, and a pull request card. See <a href="../docs/review.html">review</a>.</li>
+					<li><strong>Review.</strong> Diffs and commits beside the session, a compare against the base branch, and a pull request card. See <a href="/docs/review">review</a>.</li>
 					<li><strong>Sessions that survive.</strong> A Go daemon, pocketd, owns the terminals, so agents keep running after the window closes.</li>
 					<li><strong>Native.</strong> The window is Rust on GPUI, with no Electron or Tauri.</li>
 				</ul>
@@ -139,7 +140,7 @@
 					</tbody>
 				</table>
 				</div>
-				<p>Git worktrees you already made outside Anywhere show up in the project's menu as <strong>Import <var>n</var> worktrees</strong>, which adds them to the sidebar. For the full walkthrough, see <a href="run-multiple-claude-code-agents-in-parallel.html">How to run multiple Claude Code agents in parallel</a>.</p>
+				<p>Git worktrees you already made outside Anywhere show up in the project's menu as <strong>Import <var>n</var> worktrees</strong>, which adds them to the sidebar. For the full walkthrough, see <a href="/blog/run-multiple-claude-code-agents-in-parallel">How to run multiple Claude Code agents in parallel</a>.</p>
 
 				<div class="cta">
 					<p>Anywhere is MIT licensed, with no account and no paid tier.</p>
@@ -156,7 +157,7 @@
 					<li><a href="https://zeron.sh/">Zeron</a>: "The agent workspace that can become anything." Native Rust on GPUI, with desktop builds for macOS, Windows, and Linux, mobile apps, and a headless server.</li>
 					<li><a href="https://www.usemono.dev/">MonoCode</a>: "A GUI for your coding agents." Eleven agent CLIs, including Devin, with macOS, Windows, and Linux apps.</li>
 				</ul>
-				<p>The <a href="best-tools-run-multiple-coding-agents.html">roundup of seven tools</a> compares them in one table.</p>
+				<p>The <a href="/blog/best-tools-run-multiple-coding-agents">roundup of seven tools</a> compares them in one table.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -171,8 +172,8 @@
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="t3-code-alternative.html"><span>Previous</span>Anywhere vs T3 Code</a>
-				<a class="next" href="best-tools-run-multiple-coding-agents.html"><span>Next</span>Best tools to run multiple coding agents</a>
+				<a class="prev" href="/blog/t3-code-alternative"><span>Previous</span>Anywhere vs T3 Code</a>
+				<a class="next" href="/blog/best-tools-run-multiple-coding-agents"><span>Next</span>Best tools to run multiple coding agents</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -180,13 +181,13 @@
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

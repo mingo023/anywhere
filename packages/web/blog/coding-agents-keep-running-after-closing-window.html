@@ -7,6 +7,7 @@
 	<meta name="description" content="Why agents stop when a window closes, and how Anywhere's daemon, pocketd, keeps Claude Code, Codex and other sessions and automations running.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -75,11 +76,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -87,7 +88,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Explanation</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Explanation</p>
 				<h1>Keep coding agents running after you close the window</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">In Anywhere, agents keep running after you close the window because a small Go daemon, pocketd, owns the terminals and sessions, not the window itself. Scheduled automations keep firing too. When you return, sessions that need you, failed, or finished show up in the inbox, the Dock badge and macOS notifications.</p>
@@ -98,7 +99,7 @@
 				<p>For a quick question, that's fine. For an agent halfway through a refactor, it means a lost turn, and sometimes a working tree left half edited. A terminal multiplexer such as tmux keeps the process alive, but then you are back to checking each pane to see which agent is done and which one is waiting on you.</p>
 
 				<h2 id="how-anywhere-splits-them">How Anywhere splits the window from the work</h2>
-				<p>Anywhere is two programs. The window, <code>pocket-desktop</code>, is Rust on GPUI. The work is done by <a href="../docs/architecture.html">pocketd</a>, a Go program that owns the terminals, the sessions, the Board, the automations, and the connection to the phone. The desktop app only shows what pocketd runs. It doesn't run agents itself.</p>
+				<p>Anywhere is two programs. The window, <code>pocket-desktop</code>, is Rust on GPUI. The work is done by <a href="/docs/architecture">pocketd</a>, a Go program that owns the terminals, the sessions, the Board, the automations, and the connection to the phone. The desktop app only shows what pocketd runs. It doesn't run agents itself.</p>
 				<p>pocketd starts at login as a background service and outlives the app:</p>
 				<ul>
 					<li>On macOS it ships inside the app and is registered as a login item.</li>
@@ -125,30 +126,30 @@
 					<li><span class="status failed">Failed</span>: a turn ended with an error.</li>
 					<li><span class="status done">Done</span>: a turn ended and nobody has seen it yet.</li>
 				</ul>
-				<p>Those show in the sidebar, the Inbox (the bell at the top of the sidebar), the Dock badge, and macOS banners. <strong>Up next</strong> puts them in the order to handle them: Needs you, then Failed, then Done, each oldest first, and <kbd>⌘⇧J</kbd> jumps to the first. <strong>Activity</strong> lays out every session across projects in columns, including an <strong>In review</strong> column for idle sessions whose branch has an open pull request. Claude Code and Codex report status from a terminal or a chat. The other eight agents report it from a chat. Details are in <a href="../docs/sessions.html">Sessions and status</a>.</p>
+				<p>Those show in the sidebar, the Inbox (the bell at the top of the sidebar), the Dock badge, and macOS banners. <strong>Up next</strong> puts them in the order to handle them: Needs you, then Failed, then Done, each oldest first, and <kbd>⌘⇧J</kbd> jumps to the first. <strong>Activity</strong> lays out every session across projects in columns, including an <strong>In review</strong> column for idle sessions whose branch has an open pull request. Claude Code and Codex report status from a terminal or a chat. The other eight agents report it from a chat. Details are in <a href="/docs/sessions">Sessions and status</a>.</p>
 
 				<h2 id="automations">Automations that run while the app is closed</h2>
-				<p>Because pocketd runs on its own, it can also start work on a schedule. An <a href="../docs/automations.html">automation</a> is a prompt, an agent, and a project, with a trigger:</p>
+				<p>Because pocketd runs on its own, it can also start work on a schedule. An <a href="/docs/automations">automation</a> is a prompt, an agent, and a project, with a trigger:</p>
 				<ul>
 					<li><strong>Days and time</strong>: chosen weekdays at a time in 24-hour <code>HH:MM</code>.</li>
 					<li><strong>Repeat</strong>: every so many minutes, from 5 minutes to 7 days.</li>
 				</ul>
 				<p>Each run is an ordinary session, in the project's checkout or in a new worktree off a branch you pick. New automations use <strong>Edits</strong> access by default. A run that asks for permission becomes Needs you and waits, like any other session, and the next scheduled run is skipped until you answer.</p>
 				<p>One limit to know: pocketd fires runs only while it is running and the machine is awake. A run that comes due while the Mac sleeps starts when it wakes, if it is late by less than the grace window, 12 hours by default. Otherwise it is marked Skipped.</p>
-				<p>If you would rather drive runs from cron or CI, the <code>anywhere</code> command can start a session and wait for it. See <a href="script-claude-code-codex-from-cli.html">Script coding agents from your shell</a>.</p>
+				<p>If you would rather drive runs from cron or CI, the <code>anywhere</code> command can start a session and wait for it. See <a href="/blog/script-claude-code-codex-from-cli">Script coding agents from your shell</a>.</p>
 
 				<h2 id="other-ways">Other ways people solve this</h2>
 				<p>A daemon on your own machine is one answer. It isn't the only one, and it can't help when that machine is asleep or off. Other tools in this space take different routes:</p>
 				<ul>
 					<li><strong>A cloud workspace.</strong> Conductor's docs say "Local workspace sessions run on your Mac. If you close the app or shut down your Mac, those sessions end." For runs that continue, <a href="https://www.conductor.build/docs/cloud/faq">Conductor Cloud</a> runs workspaces in a sandbox. That fits when you want agents working while your laptop is closed.</li>
-					<li><strong>A background service you install.</strong> <a href="https://t3.codes/">T3 Code</a>'s <a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/remote-access.md">remote-access docs</a> say "Closing the desktop app's last window stops its local server." To keep a host available without the window, T3 Code has <code>t3 up</code> and <code>t3 service</code>, which keep a <a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/background-service.md">background service</a> running, and its desktop, web, and phone clients connect to that host. Anywhere's pocketd is the same idea, on by default: it starts at login without a separate setup step. See <a href="t3-code-alternative.html">Anywhere vs T3 Code</a>.</li>
+					<li><strong>A background service you install.</strong> <a href="https://t3.codes/">T3 Code</a>'s <a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/remote-access.md">remote-access docs</a> say "Closing the desktop app's last window stops its local server." To keep a host available without the window, T3 Code has <code>t3 up</code> and <code>t3 service</code>, which keep a <a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/background-service.md">background service</a> running, and its desktop, web, and phone clients connect to that host. Anywhere's pocketd is the same idea, on by default: it starts at login without a separate setup step. See <a href="/blog/t3-code-alternative">Anywhere vs T3 Code</a>.</li>
 					<li><strong>A headless server.</strong> <a href="https://zeron.sh/">Zeron</a> documents a headless Linux engine that runs as a background service and survives reboots. <a href="https://orca.dev/">Orca</a> can run agents on a remote server or a per-worktree cloud VM in a cloud account you control.</li>
 					<li><strong>A remote host.</strong> <a href="https://www.usemono.dev/">MonoCode</a>'s experimental remote sessions run on a host over SSH, and the host keeps them going when the desktop closes.</li>
 				</ul>
 
 				<h3>Running agents on another machine with Anywhere's SSH hosts</h3>
 				<p>Anywhere's version of the last route is a host. In Settings › <strong>Hosts</strong>, add a Mac, Linux, or Windows machine you can reach with <code>ssh</code>. Anywhere installs pocketd there as a per-user service, and the host's projects show in your sidebar with their agents running on the host. Close your laptop and the host's agents keep going.</p>
-				<p>Two things to know. On Linux, if lingering is off, pocketd stops when you log out of the host, and Anywhere gives you the <code>loginctl enable-linger</code> command to fix it. On a Windows host, updating pocketd restarts it and closes that host's terminals. See <a href="../docs/hosts.html">Run agents on another machine over SSH</a>.</p>
+				<p>Two things to know. On Linux, if lingering is off, pocketd stops when you log out of the host, and Anywhere gives you the <code>loginctl enable-linger</code> command to fix it. On a Windows host, updating pocketd restarts it and closes that host's terminals. See <a href="/docs/hosts">Run agents on another machine over SSH</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -163,8 +164,8 @@
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="best-tools-run-multiple-coding-agents.html"><span>Previous</span>Best tools to run multiple coding agents</a>
-				<a class="next" href="open-source-agent-workspace-no-paid-tier.html"><span>Next</span>An agent workspace with no paid tier</a>
+				<a class="prev" href="/blog/best-tools-run-multiple-coding-agents"><span>Previous</span>Best tools to run multiple coding agents</a>
+				<a class="next" href="/blog/open-source-agent-workspace-no-paid-tier"><span>Next</span>An agent workspace with no paid tier</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -172,13 +173,13 @@
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

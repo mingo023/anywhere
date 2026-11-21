@@ -1,23 +1,21 @@
 (function () {
 	"use strict";
 
-	function currentFile() {
-		var path = window.location.pathname;
-		var file = path.substring(path.lastIndexOf("/") + 1);
-		return file === "" ? "index.html" : file;
+	function currentPath() {
+		return window.location.pathname.replace(/\.html$/, "").replace(/\/index$/, "/");
 	}
 
 	function markCurrent() {
-		var file = currentFile();
+		var path = currentPath();
 		var links = document.querySelectorAll(".sidebar a");
 		for (var i = 0; i < links.length; i++) {
-			if (links[i].getAttribute("href") === file) {
+			if (links[i].getAttribute("href") === path) {
 				links[i].setAttribute("aria-current", "page");
 			}
 		}
-		var docs = document.querySelector('.top-links a[href="index.html"]');
-		if (docs) {
-			docs.setAttribute("aria-current", "page");
+		var section = document.querySelector('.top-links a[href="/' + path.split("/")[1] + '/"]');
+		if (section) {
+			section.setAttribute("aria-current", "page");
 		}
 	}
 
