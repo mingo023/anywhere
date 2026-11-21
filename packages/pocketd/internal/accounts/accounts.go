@@ -108,7 +108,7 @@ type Account struct {
 	// Same is the account listed before this one that signs in as the same
 	// person, as when the built-in login was later signed in as a managed one.
 	Same string `json:"same,omitempty"`
-	// Expired holds a login whose access token has lapsed: its usage can't be read until its CLI renews it or it signs in again.
+	// Expired holds a login whose access token has lapsed: its usage can't be read until its CLI renews it on its next run, or it signs in again.
 	Expired bool `json:"expired,omitempty"`
 	// Pending is signing in; Error says why that failed.
 	Pending bool   `json:"pending,omitempty"`
