@@ -261,6 +261,10 @@ func defaultBase(project string) string {
 // those no other branch, remote or tag holds (lost_branch_commits in
 // crates/git/src/git.rs).
 func LostCommits(project string, branches ...string) int {
+	// A branch already gone loses nothing, and would fail the count for the rest.
+	branches = slices.DeleteFunc(slices.Clone(branches), func(b string) bool {
+		return exec.Command("git", "-C", project, "show-ref", "--verify", "--quiet", "refs/heads/"+b).Run() != nil
+	})
 	if len(branches) == 0 {
 		return 0
 	}
