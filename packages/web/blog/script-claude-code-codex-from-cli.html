@@ -7,6 +7,7 @@
 	<meta name="description" content="Start Claude Code or Codex in a new git worktree from a script, send a prompt, and branch on the exit code of anywhere session wait. Copy-paste recipes.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/script-claude-code-codex-from-cli">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -84,11 +85,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -96,11 +97,11 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Guide</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Guide</p>
 				<h1>Script coding agents from your shell with anywhere session wait</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">Anywhere's <code>anywhere</code> command lets you script coding agents from any shell. It can create a session in a new git worktree, send a prompt, read replies and wait for a result. <code>anywhere session wait</code> exits 0 when the agent is done, 3 when it failed, 4 when it needs you, 5 on timeout, and 6 if the session closed.</p>
-				<p>This post is a set of recipes. Every flag and exit code here is in the <a href="../docs/cli.html">command reference</a>.</p>
+				<p>This post is a set of recipes. Every flag and exit code here is in the <a href="/docs/cli">command reference</a>.</p>
 
 				<h2 id="install">Install the <code>anywhere</code> command</h2>
 				<p><code>anywhere</code> is pocketd, Anywhere's background service, run under another name. Sessions it starts show in the desktop app like any other.</p>
@@ -181,14 +182,14 @@ anywhere session wait --timeout 1h "$b"; rb=$?
 echo "claude: $ra, codex: $rb"</code></pre>
 
 				<h2 id="tickets">Tickets from the CLI</h2>
-				<p>The <a href="../docs/board.html">Board</a> is the queue version of the same idea. A ticket is a prompt, an agent, a project, and a base branch. A started ticket waits in Queued until a slot is free, then gets its own worktree and session. The Board runs four at once by default.</p>
+				<p>The <a href="/docs/board">Board</a> is the queue version of the same idea. A ticket is a prompt, an agent, a project, and a base branch. A started ticket waits in Queued until a slot is free, then gets its own worktree and session. The Board runs four at once by default.</p>
 				<pre><code>anywhere ticket create --project app --provider codex --start "Fix the flaky login test"
 cat tasks/search.md | anywhere ticket create --title "Search index" --start -
 anywhere ticket list</code></pre>
 				<p><code>ticket list</code> shows each ticket's state, which for a started ticket is its session's status. <code>ticket read</code>, <code>ticket update</code>, and <code>ticket delete</code> do the rest. Use tickets when you want to queue more work than should run at once; use <code>session create</code> when you want to wait on a result in the same script.</p>
 
 				<h2 id="automations-vs-cron">Scheduled automations vs your own cron</h2>
-				<p>For a prompt on a schedule, Anywhere has <a href="../docs/automations.html">automations</a> built in: chosen weekdays at a time, or a repeat from every 5 minutes to every 7 days. pocketd starts each run as an ordinary session, keeps firing while the desktop app is closed, keeps a run history, and handles a run that needs you like any other session. No script needed.</p>
+				<p>For a prompt on a schedule, Anywhere has <a href="/docs/automations">automations</a> built in: chosen weekdays at a time, or a repeat from every 5 minutes to every 7 days. pocketd starts each run as an ordinary session, keeps firing while the desktop app is closed, keeps a run history, and handles a run that needs you like any other session. No script needed.</p>
 				<p>Reach for cron, or a CI runner on a machine where Anywhere runs, when you want logic around the run: chain steps, act on the exit code, or post the reply somewhere else. A weekday morning job could look like this:</p>
 				<pre><code>0 9 * * 1-5  cd ~/code/app &amp;&amp; /usr/local/bin/anywhere session create --new-worktree --prompt "Update dependencies and run the tests" &gt;&gt; ~/agents.log 2&gt;&amp;1</code></pre>
 				<p>Three things to keep in mind:</p>
@@ -197,7 +198,7 @@ anywhere ticket list</code></pre>
 					<li>pocketd must be running on that machine, because the command talks to its socket.</li>
 					<li>Run it from outside Anywhere. A process inside an Anywhere terminal can only read: <code>project list</code>, <code>session list</code>, <code>session read</code>, and <code>session wait</code> work there, and every other command fails.</li>
 				</ul>
-				<p>Because pocketd owns the sessions, none of this needs the window open. See <a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a>. For agents that hand work to each other from a chat, see <a href="../docs/delegation.html">delegation</a>.</p>
+				<p>Because pocketd owns the sessions, none of this needs the window open. See <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a>. For agents that hand work to each other from a chat, see <a href="/docs/delegation">delegation</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -210,8 +211,8 @@ anywhere ticket list</code></pre>
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="run-multiple-codex-agents-git-worktrees.html"><span>Previous</span>Run multiple Codex agents in git worktrees</a>
-				<a class="next" href="clean-up-coding-agent-worktrees.html"><span>Next</span>Clean up agent worktrees</a>
+				<a class="prev" href="/blog/run-multiple-codex-agents-git-worktrees"><span>Previous</span>Run multiple Codex agents in git worktrees</a>
+				<a class="next" href="/blog/clean-up-coding-agent-worktrees"><span>Next</span>Clean up agent worktrees</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -219,13 +220,13 @@ anywhere ticket list</code></pre>
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

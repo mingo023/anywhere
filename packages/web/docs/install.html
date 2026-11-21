@@ -27,6 +27,32 @@
 	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="docs.css">
 	<script src="docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/install#article",
+			"headline": "Install Anywhere",
+			"description": "Install Anywhere on macOS, Linux, or Windows, and install the anywhere command line tool.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/install" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Install Anywhere", "item": "https://getanywhere.dev/docs/install" }
+			]
+		}
+	]
+}
+	</script>
 </head>
 <body>
 	<a class="skip" href="#main">Skip to content</a>
@@ -34,11 +60,11 @@
 		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
 		</button>
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="index.html">Docs</a>
-			<a href="../blog/index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -47,28 +73,28 @@
 		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
 			<p class="nav-group">Get started</p>
 			<ul>
-				<li><a href="index.html">Run your first agent</a></li>
-				<li><a href="install.html">Install Anywhere</a></li>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
 			</ul>
 			<p class="nav-group">Use Anywhere</p>
 			<ul>
-				<li><a href="sessions.html">Sessions and status</a></li>
-				<li><a href="worktrees.html">Work in worktrees</a></li>
-				<li><a href="review.html">Review and commit changes</a></li>
-				<li><a href="board.html">Plan work on the Board</a></li>
-				<li><a href="automations.html">Schedule automations</a></li>
-				<li><a href="delegation.html">Delegate work from a chat</a></li>
-				<li><a href="hosts.html">Run agents on another machine</a></li>
-				<li><a href="iphone.html">Pair an iPhone</a></li>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
 			</ul>
 			<p class="nav-group">Reference</p>
 			<ul>
-				<li><a href="agents.html">Supported agents</a></li>
-				<li><a href="cli.html">The anywhere command</a></li>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
 			</ul>
 			<p class="nav-group">Explanation</p>
 			<ul>
-				<li><a href="architecture.html">How Anywhere runs</a></li>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
 			</ul>
 		</nav>
 		<main id="main">
@@ -89,12 +115,12 @@
 				<p>Updates install through Sparkle. To check for one, open Settings with <kbd>⌘,</kbd>, select <strong>General</strong>, and click <strong>Check now</strong> under <strong>Software update</strong>. When an update is ready, click <strong>Restart to update</strong>. Agents and terminals keep running through an update.</p>
 
 				<h2 id="install-on-linux-or-windows">Install on Linux or Windows</h2>
-				<p>Anywhere publishes builds for Linux on x86_64 and Windows on x64. These archives are unsigned and have no updater. To update, download the new archive.</p>
+				<p>Anywhere publishes a build for Linux on x86_64. It is unsigned and has no updater. To update, download the new archive.</p>
+				<p>The latest release doesn't include a Windows desktop archive. Check the <a href="https://github.com/mingo023/anywhere/releases">releases page</a> for a newer one. Windows machines can still be <a href="/docs/hosts">hosts</a>.</p>
 				<ol>
 					<li>Download the archive for your system:
 						<ul>
 							<li>Linux: <a href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-linux-amd64.tar.gz">Anywhere-linux-amd64.tar.gz</a></li>
-							<li>Windows: <a href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-windows-amd64.zip">Anywhere-windows-amd64.zip</a></li>
 						</ul>
 					</li>
 					<li>Unpack it. You get an <code>Anywhere</code> folder that holds <code>pocket-desktop</code> and <code>pocketd</code>.</li>
@@ -103,7 +129,7 @@
 				<p>On first launch, pocketd installs itself as a background service. On Linux it is a systemd user service. On Windows it is a scheduled task.</p>
 
 				<h2 id="install-an-agent">Install an agent</h2>
-				<p>Anywhere doesn't include any agent. It runs the agent command line tools it finds on your login <code>PATH</code>. Install at least one and sign in to it. The commands for each agent are in <a href="agents.html">Supported agents</a>.</p>
+				<p>Anywhere doesn't include any agent. It runs the agent command line tools it finds on your login <code>PATH</code>. Install at least one and sign in to it. The commands for each agent are in <a href="/docs/agents">Supported agents</a>.</p>
 				<p>If you install an agent while Anywhere is open, restart Anywhere so it finds the agent.</p>
 
 				<h2 id="install-the-anywhere-command">Install the anywhere command</h2>
@@ -133,7 +159,7 @@
 				<h3>Check the command</h3>
 				<p>Open a new terminal outside Anywhere and list your projects:</p>
 				<pre><code>anywhere project list</code></pre>
-				<p>The command prints each project's name and path. For every subcommand, see <a href="cli.html">The anywhere command</a>.</p>
+				<p>The command prints each project's name and path. For every subcommand, see <a href="/docs/cli">The anywhere command</a>.</p>
 
 				<h2 id="choose-what-closing-the-window-does">Choose what closing the window does</h2>
 				<p>On macOS, closing the window leaves Anywhere running in the background by default, so the Dock badge and notifications stay. Agents keep running either way, because pocketd runs them.</p>
@@ -144,8 +170,8 @@
 				<p>To open Anywhere when you log in, turn on <strong>Open at login</strong> under <strong>Startup &amp; background</strong>.</p>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="index.html"><span>Previous</span>Run your first agent</a>
-				<a class="next" href="sessions.html"><span>Next</span>Sessions and status</a>
+				<a class="prev" href="/docs/"><span>Previous</span>Run your first agent</a>
+				<a class="next" href="/docs/sessions"><span>Next</span>Sessions and status</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>

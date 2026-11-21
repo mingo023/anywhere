@@ -7,6 +7,7 @@
 	<meta name="description" content="Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -75,11 +76,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -87,7 +88,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Engineering</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Engineering</p>
 				<h1>Native, not Electron: a Rust/GPUI app for your coding agents</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">Anywhere's desktop app is written in Rust on GPUI, with a Go daemon called pocketd that owns the terminals and keeps agents running after the window closes. It uses no Electron or Tauri: there is no bundled Chromium and no Node runtime.</p>
@@ -119,7 +120,7 @@
 				</table>
 				</div>
 				<p>What is not in the box: Chromium and Node.js. The only web view is the built-in browser, for pages you open in it.</p>
-				<p>The split between window and daemon is the part you feel most. The window is a client. pocketd runs every agent, so closing the window or updating the app doesn't stop one. When an update replaces pocketd, it hands its live terminals and agents to the new program inside the same process. More in <a href="../docs/architecture.html">About how Anywhere runs on your machines</a> and <a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a>.</p>
+				<p>The split between window and daemon is the part you feel most. The window is a client. pocketd runs every agent, so closing the window or updating the app doesn't stop one. When an update replaces pocketd, it hands its live terminals and agents to the new program inside the same process. More in <a href="/docs/architecture">About how Anywhere runs on your machines</a> and <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a>.</p>
 				<p>On macOS, the app is a universal binary (arm64 and x86_64), signed, notarized, and updated through Sparkle. Linux and Windows builds exist too, unsigned and without an updater.</p>
 
 				<div class="cta">
@@ -139,7 +140,7 @@
 					<li><a href="https://www.usemono.dev/"><strong>MonoCode</strong></a> ships an experimental "Monocode Native preview" in Rust and GPUI for macOS, Linux, and Windows. Its production app is React and Tauri, and the preview shares the same database.</li>
 				</ul>
 				<p><a href="https://orca.dev/">Orca</a>, <a href="https://paradev.com/">Paradev</a>, and <a href="https://www.trysynara.com/">Synara</a> are Electron apps, per their public repositories. Orca's site highlights a GPU-rendered terminal with splits.</p>
-				<p><a href="https://t3.codes/">T3 Code</a> is Electron too: the desktop <code>package.json</code> in its public repository depends on <code>electron</code>, <code>electron-builder</code>, and <code>electron-updater</code>, and the app is written in TypeScript. It ships first-class desktop builds for macOS, Windows, and Linux with an updater, a web client, and iOS and Android apps in the stores. See <a href="t3-code-alternative.html">Anywhere vs T3 Code</a>.</p>
+				<p><a href="https://t3.codes/">T3 Code</a> is Electron too: the desktop <code>package.json</code> in its public repository depends on <code>electron</code>, <code>electron-builder</code>, and <code>electron-updater</code>, and the app is written in TypeScript. It ships first-class desktop builds for macOS, Windows, and Linux with an updater, a web client, and iOS and Android apps in the stores. See <a href="/blog/t3-code-alternative">Anywhere vs T3 Code</a>.</p>
 
 				<h2 id="when-electron-may-fit-better">When an Electron app may fit better</h2>
 				<div class="callout">
@@ -151,7 +152,7 @@
 						<li><strong>Windows and Linux first.</strong> Orca, Synara, and T3 Code ship them as first-class release targets.</li>
 					</ul>
 				</div>
-				<p>For the full comparison, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>.</p>
+				<p>For the full comparison, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -166,8 +167,8 @@
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="open-source-agent-workspace-no-paid-tier.html"><span>Previous</span>An agent workspace with no paid tier</a>
-				<a class="next" href="run-multiple-codex-agents-git-worktrees.html"><span>Next</span>Run multiple Codex agents in git worktrees</a>
+				<a class="prev" href="/blog/open-source-agent-workspace-no-paid-tier"><span>Previous</span>An agent workspace with no paid tier</a>
+				<a class="next" href="/blog/run-multiple-codex-agents-git-worktrees"><span>Next</span>Run multiple Codex agents in git worktrees</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -175,13 +176,13 @@
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

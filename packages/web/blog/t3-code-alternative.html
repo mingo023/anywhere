@@ -7,6 +7,7 @@
 	<meta name="description" content="Anywhere vs T3 Code, two free MIT apps for coding agents: platforms, agents, phone apps, what happens when you close the window, and when T3 Code fits better.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/t3-code-alternative">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -77,11 +78,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -89,7 +90,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Comparison</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
 				<h1>T3 Code alternative: Anywhere vs T3 Code</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">T3 Code is a free, MIT-licensed control plane for the coding agents you already use, with desktop, web and phone clients. Anywhere is also free and MIT licensed. Its window is native Rust on GPUI, and its daemon, pocketd, keeps local sessions running after you close the window. It needs no account and promises no premium tier, ever.</p>
@@ -136,22 +137,22 @@
 				<p>Both apps are free and MIT licensed, and both run the agent CLIs you already pay for. The differences are in how they are built and what they promise.</p>
 
 				<h3>A native window on GPUI</h3>
-				<p>Anywhere's window is Rust on <a href="https://www.gpui.rs">GPUI</a>, and the site's architecture line is "No Electron. No Tauri. Native all the way down." T3 Code's desktop app is Electron, written in TypeScript, per the <code>package.json</code> in its public repository. That is a toolkit choice, not a verdict: we don't publish benchmarks against other apps. If the window matters to you, open your largest repository in each and watch it while a few agents work. Why we went native is in <a href="native-mac-app-coding-agents-rust-gpui.html">Native, not Electron</a>.</p>
+				<p>Anywhere's window is Rust on <a href="https://www.gpui.rs">GPUI</a>, and the site's architecture line is "No Electron. No Tauri. Native all the way down." T3 Code's desktop app is Electron, written in TypeScript, per the <code>package.json</code> in its public repository. That is a toolkit choice, not a verdict: we don't publish benchmarks against other apps. If the window matters to you, open your largest repository in each and watch it while a few agents work. Why we went native is in <a href="/blog/native-mac-app-coding-agents-rust-gpui">Native, not Electron</a>.</p>
 
 				<h3>Local sessions outlive the window, with nothing to set up</h3>
-				<p>T3 Code's remote-access docs say: "Closing the desktop app's last window stops its local server." T3 Code does have a way to keep a host up without the window: <code>t3 up</code> or <code>t3 service</code>, which keep a background service running. In Anywhere, that separation is the default. pocketd is the background service, it starts at login, and the window is only a client, so closing it doesn't stop an agent or a scheduled automation. On macOS the app also stays in the background by default. See <a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a>.</p>
+				<p>T3 Code's remote-access docs say: "Closing the desktop app's last window stops its local server." T3 Code does have a way to keep a host up without the window: <code>t3 up</code> or <code>t3 service</code>, which keep a background service running. In Anywhere, that separation is the default. pocketd is the background service, it starts at login, and the window is only a client, so closing it doesn't stop an agent or a scheduled automation. On macOS the app also stays in the background by default. See <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a>.</p>
 
 				<h3>No product account</h3>
-				<p>There is no Anywhere account for the desktop app, the daemon, or the CLI. The documented phone path pairs the iPhone app with the Mac over your own Tailscale network. T3 Code also works over LAN or Tailscale without T3 Connect; T3 Connect is the path that needs a T3 Connect account. See <a href="../docs/iphone.html">Pair an iPhone</a>.</p>
+				<p>There is no Anywhere account for the desktop app, the daemon, or the CLI. The documented phone path pairs the iPhone app with the Mac over your own Tailscale network. T3 Code also works over LAN or Tailscale without T3 Connect; T3 Connect is the path that needs a T3 Connect account. See <a href="/docs/iphone">Pair an iPhone</a>.</p>
 
 				<h3>A public promise of no premium tier, ever</h3>
-				<p>Anywhere's site says: "There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be." Its pricing table lists the cloud tier and premium tier as "Never". T3 Code's app is free too, and T3 Connect is free "for now", with a machine cap. Its FAQ is candid about the trade-off: "We don't want to charge for this, but if the bill gets unacceptable we may have to change course. If you hit limits or have issues, you can always fork it, self host, or use Tailscale." Anywhere sidesteps the question: the only service the project runs is an optional push relay, and the phone reaches the Mac over your own tailnet. More in <a href="open-source-agent-workspace-no-paid-tier.html">A free, open-source agent workspace with no paid tier</a>.</p>
+				<p>Anywhere's site says: "There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be." Its pricing table lists the cloud tier and premium tier as "Never". T3 Code's app is free too, and T3 Connect is free "for now", with a machine cap. Its FAQ is candid about the trade-off: "We don't want to charge for this, but if the bill gets unacceptable we may have to change course. If you hit limits or have issues, you can always fork it, self host, or use Tailscale." Anywhere sidesteps the question: the only service the project runs is an optional push relay, and the phone reaches the Mac over your own tailnet. More in <a href="/blog/open-source-agent-workspace-no-paid-tier">A free, open-source agent workspace with no paid tier</a>.</p>
 
 				<h3>Automations, Board, and SSH hosts in the same app</h3>
 				<ul>
-					<li><a href="../docs/automations.html">Automations</a> start a prompt on chosen weekdays at a time, or every few minutes, and keep firing while the desktop app is closed.</li>
-					<li>The <a href="../docs/board.html">Board</a> holds tickets across projects. A started ticket gets its own worktree and session.</li>
-					<li><a href="../docs/hosts.html">SSH hosts</a> add a Mac, Linux, or Windows machine. Anywhere installs pocketd there and runs that host's agents on it.</li>
+					<li><a href="/docs/automations">Automations</a> start a prompt on chosen weekdays at a time, or every few minutes, and keep firing while the desktop app is closed.</li>
+					<li>The <a href="/docs/board">Board</a> holds tickets across projects. A started ticket gets its own worktree and session.</li>
+					<li><a href="/docs/hosts">SSH hosts</a> add a Mac, Linux, or Windows machine. Anywhere installs pocketd there and runs that host's agents on it.</li>
 				</ul>
 
 				<h2 id="when-t3-code-may-fit-better">When T3 Code may fit better</h2>
@@ -174,7 +175,7 @@
 					<li>Press <kbd>⌘⇧N</kbd> to start a session in a new worktree, from a branch or from a pull request number.</li>
 					<li>Review in <strong>Changes</strong> and merge from the pull request card.</li>
 				</ol>
-				<p>The step-by-step version is <a href="run-multiple-claude-code-agents-in-parallel.html">How to run multiple Claude Code agents in parallel</a>. For the wider field, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>, and for a macOS-only comparison, <a href="conductor-alternative.html">Anywhere vs Conductor</a>.</p>
+				<p>The step-by-step version is <a href="/blog/run-multiple-claude-code-agents-in-parallel">How to run multiple Claude Code agents in parallel</a>. For the wider field, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a>, and for a macOS-only comparison, <a href="/blog/conductor-alternative">Anywhere vs Conductor</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -193,8 +194,8 @@
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="conductor-alternative.html"><span>Previous</span>Anywhere vs Conductor</a>
-				<a class="next" href="crystal-alternative.html"><span>Next</span>Crystal is now Nimbalyst</a>
+				<a class="prev" href="/blog/conductor-alternative"><span>Previous</span>Anywhere vs Conductor</a>
+				<a class="next" href="/blog/crystal-alternative"><span>Next</span>Crystal is now Nimbalyst</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -202,13 +203,13 @@
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

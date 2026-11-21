@@ -7,6 +7,7 @@
 	<meta name="description" content="Run several Codex CLI agents on one repository without collisions: one git worktree per agent, by hand or in Anywhere, side by side with Claude Code.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -84,11 +85,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -96,11 +97,11 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Guide</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Guide</p>
 				<h1>Run multiple Codex CLI agents in git worktrees</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">To run multiple Codex CLI agents safely, start each one in its own git worktree so their edits stay on separate branches. Anywhere, a free MIT Mac app, creates the worktree from a branch or pull request, runs Codex in a terminal or as a chat, and flags each session as Working, Needs you, Done or Failed.</p>
-				<p>This is the Codex version of <a href="run-multiple-claude-code-agents-in-parallel.html">How to run multiple Claude Code agents in parallel</a>. The method is the same; the Codex-specific parts are below.</p>
+				<p>This is the Codex version of <a href="/blog/run-multiple-claude-code-agents-in-parallel">How to run multiple Claude Code agents in parallel</a>. The method is the same; the Codex-specific parts are below.</p>
 
 				<h2 id="why-one-worktree-per-agent">Why one worktree per Codex agent</h2>
 				<p>Two <code>codex</code> sessions in the same folder share one working tree and one branch. Each sees the other's half-written files in its builds and tests, a commit from one can sweep up the other's edits, and the final diff mixes both tasks. A git worktree gives each agent its own checkout on its own branch, from the same repository, without a second clone.</p>
@@ -135,13 +136,13 @@ cd ~/code/app-flaky-tests &amp;&amp; codex</code></pre>
 				<p>One caveat from the docs: a <code>codex</code> that runs without its app-server isn't attached, and then Anywhere shows only its terminal activity, never Needs you or Done.</p>
 
 				<h3>A worktree per session, from a branch or a pull request</h3>
-				<p>Press <kbd>⌘⇧N</kbd> and the new session page opens with <strong>Worktree</strong> picked. Pick the base branch on the branch chip, or click the pull request button and enter <code>123</code>, <code>#123</code>, or a pull request URL to start from that pull request. Setup commands in <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code> run in the new worktree before Codex starts. Worktrees go in <code>~/.anywhere/worktrees</code> by default. See <a href="../docs/worktrees.html">Start an agent in a new worktree</a>.</p>
+				<p>Press <kbd>⌘⇧N</kbd> and the new session page opens with <strong>Worktree</strong> picked. Pick the base branch on the branch chip, or click the pull request button and enter <code>123</code>, <code>#123</code>, or a pull request URL to start from that pull request. Setup commands in <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code> run in the new worktree before Codex starts. Worktrees go in <code>~/.anywhere/worktrees</code> by default. See <a href="/docs/worktrees">Start an agent in a new worktree</a>.</p>
 				<p>From a shell, the same thing is one command:</p>
 				<pre><code>anywhere session create --new-worktree --base main --provider codex --prompt "Fix the flaky login test"</code></pre>
 
 				<h3>Status, review, and access</h3>
 				<ul>
-					<li>Each session is <span class="status working">Working</span>, <span class="status needs-you">Needs you</span>, <span class="status done">Done</span>, <span class="status failed">Failed</span>, or <span class="status">Idle</span>. Needs you, Failed, and Done reach the sidebar, the Inbox, the Dock badge, and banners. <kbd>⌘J</kbd> jumps to the next session that needs you. See <a href="../docs/sessions.html">Sessions and status</a>.</li>
+					<li>Each session is <span class="status working">Working</span>, <span class="status needs-you">Needs you</span>, <span class="status done">Done</span>, <span class="status failed">Failed</span>, or <span class="status">Idle</span>. Needs you, Failed, and Done reach the sidebar, the Inbox, the Dock badge, and banners. <kbd>⌘J</kbd> jumps to the next session that needs you. See <a href="/docs/sessions">Sessions and status</a>.</li>
 					<li>The <strong>Changes</strong> panel shows each worktree's diff beside its session, and can compare it with the base branch. The pull request card's <strong>Send</strong> hands a failed check's log or a review comment back to Codex.</li>
 					<li>The access chip sets what Codex can do without asking: <strong>Ask</strong>, <strong>Edits</strong>, <strong>Auto</strong>, or <strong>Full</strong>, or Codex's own settings. Codex doesn't start in plan mode.</li>
 				</ul>
@@ -156,10 +157,10 @@ cd ~/code/app-flaky-tests &amp;&amp; codex</code></pre>
 				<p>Codex and Claude Code are the two agents that report their status from a terminal as well as from a chat. Mixing them on one project works the same as running two of either:</p>
 				<ul>
 					<li><strong>Separate worktrees.</strong> Start a Codex session in one worktree and a Claude Code session in another. Both sit under the same project in the sidebar, in tabs and splits.</li>
-					<li><strong>Delegation.</strong> A Claude Code or Codex chat can hand work to sessions of another agent through pocketd's orchestrator. Ask in plain words, for example "Split this into three parts and delegate each one to its own session. Use Codex for the tests." Each delegated session runs in a new worktree made from the parent's latest commit, with the parent's access. See <a href="../docs/delegation.html">Let a chat delegate work to other sessions</a>.</li>
-					<li><strong>The Board.</strong> Write tickets and give each its own agent. A started ticket gets its own worktree and session, and the Board runs up to four at once by default. See <a href="../docs/board.html">Plan work on the Board</a>.</li>
+					<li><strong>Delegation.</strong> A Claude Code or Codex chat can hand work to sessions of another agent through pocketd's orchestrator. Ask in plain words, for example "Split this into three parts and delegate each one to its own session. Use Codex for the tests." Each delegated session runs in a new worktree made from the parent's latest commit, with the parent's access. See <a href="/docs/delegation">Let a chat delegate work to other sessions</a>.</li>
+					<li><strong>The Board.</strong> Write tickets and give each its own agent. A started ticket gets its own worktree and session, and the Board runs up to four at once by default. See <a href="/docs/board">Plan work on the Board</a>.</li>
 				</ul>
-				<p>The other eight agents Anywhere supports run as a chat. The full list, with install and sign-in commands, is on <a href="../docs/agents.html">Supported agents</a>. To drive all of this from scripts, see <a href="script-claude-code-codex-from-cli.html">Script coding agents from your shell</a>.</p>
+				<p>The other eight agents Anywhere supports run as a chat. The full list, with install and sign-in commands, is on <a href="/docs/agents">Supported agents</a>. To drive all of this from scripts, see <a href="/blog/script-claude-code-codex-from-cli">Script coding agents from your shell</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -172,8 +173,8 @@ cd ~/code/app-flaky-tests &amp;&amp; codex</code></pre>
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="native-mac-app-coding-agents-rust-gpui.html"><span>Previous</span>Native, not Electron</a>
-				<a class="next" href="script-claude-code-codex-from-cli.html"><span>Next</span>Script coding agents from your shell</a>
+				<a class="prev" href="/blog/native-mac-app-coding-agents-rust-gpui"><span>Previous</span>Native, not Electron</a>
+				<a class="next" href="/blog/script-claude-code-codex-from-cli"><span>Next</span>Script coding agents from your shell</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -181,13 +182,13 @@ cd ~/code/app-flaky-tests &amp;&amp; codex</code></pre>
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

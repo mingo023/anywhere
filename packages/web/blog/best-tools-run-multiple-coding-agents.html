@@ -7,6 +7,7 @@
 	<meta name="description" content="Eight desktop apps for running coding agents in parallel, compared from their own sites: Anywhere, Conductor, Paradev, Synara, Orca, Zeron, MonoCode and T3 Code.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -76,11 +77,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -88,7 +89,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Comparison</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
 				<h1>Best tools to run multiple coding agents in parallel on Mac (2026), compared fairly</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">The main desktop apps for running coding agents in parallel are Conductor, Paradev, Synara, Orca, Zeron, MonoCode, T3 Code and Anywhere. All use git worktrees or isolated workspaces and in-app diff review. Anywhere is a native Mac app, MIT licensed, with no paid tier, ten supported agent CLIs, and sessions that survive closing the window.</p>
@@ -136,12 +137,12 @@
 				<h3>Anywhere</h3>
 				<p><strong>In its words:</strong> "Watch and drive many coding agents at once, from a native macOS app and from your phone."</p>
 				<p><strong>Best for:</strong> developers who want a free, MIT, native Mac app with a daemon that keeps sessions alive and no paid tier.</p>
-				<p>The window is Rust on GPUI. A Go daemon, pocketd, owns the terminals, so agents keep running after the window closes. Automations, the Board, SSH hosts, and the <code>anywhere</code> CLI are in the free app, and the site says there will never be a cloud or premium tier. The limits are real too: ten agent CLIs rather than any CLI, Linux and Windows builds that are unsigned with no updater, and an iPhone app that is documented but not yet public. Start with <a href="run-multiple-claude-code-agents-in-parallel.html">the parallel Claude Code guide</a>.</p>
+				<p>The window is Rust on GPUI. A Go daemon, pocketd, owns the terminals, so agents keep running after the window closes. Automations, the Board, SSH hosts, and the <code>anywhere</code> CLI are in the free app, and the site says there will never be a cloud or premium tier. The limits are real too: ten agent CLIs rather than any CLI, Linux and Windows builds that are unsigned with no updater, and an iPhone app that is documented but not yet public. Start with <a href="/blog/run-multiple-claude-code-agents-in-parallel">the parallel Claude Code guide</a>.</p>
 
 				<h3>Conductor</h3>
 				<p><strong>In its words:</strong> "Run parallel coding agents on your Mac." (<a href="https://www.conductor.build/">conductor.build</a>)</p>
 				<p><strong>Best for:</strong> Mac developers on Claude Code, Codex, Cursor, or OpenCode who want a polished review and merge loop, with Cloud and iOS when they need them.</p>
-				<p>Three of its four harnesses come bundled, so setup is short. It has a long-shipped review and merge workflow, Conductor Cloud with an API, and an iOS app. See <a href="conductor-alternative.html">Anywhere vs Conductor</a> for the detail.</p>
+				<p>Three of its four harnesses come bundled, so setup is short. It has a long-shipped review and merge workflow, Conductor Cloud with an API, and an iOS app. See <a href="/blog/conductor-alternative">Anywhere vs Conductor</a> for the detail.</p>
 
 				<h3>Paradev</h3>
 				<p><strong>In its words:</strong> "Run an Army of Coding Agents." "The open-source workspace for Claude Code, Codex, and any coding agent." (<a href="https://paradev.com/">paradev.com</a>, formerly Superset)</p>
@@ -171,7 +172,7 @@
 				<h3>T3 Code</h3>
 				<p><strong>In its words:</strong> "The open-source control plane for coding agents." "Orchestrate Claude Code, Codex, Antigravity, OpenCode, Cursor, and Grok from one surface. Bring your own subscription. Fork the whole thing." (<a href="https://t3.codes/">t3.codes</a>)</p>
 				<p><strong>Best for:</strong> developers who already pay for agent subscriptions, often across several machines, and want one interface on desktop, web, and phone to drive them.</p>
-				<p>Built by Theo and the T3 Tools team. One server feeds desktop, web, and phone clients that show the same threads. It runs a named list of agents plus any ACP agent, can switch models mid-thread and hand a task from Claude to Codex, and has one button to commit, push, and open a PR, including stacked PRs. Desktop builds are first-class on macOS, Windows, and Linux, and the iOS and Android apps are in the stores. Remote access goes over LAN, Tailscale, or T3 Connect. See <a href="t3-code-alternative.html">Anywhere vs T3 Code</a> for the detail.</p>
+				<p>Built by Theo and the T3 Tools team. One server feeds desktop, web, and phone clients that show the same threads. It runs a named list of agents plus any ACP agent, can switch models mid-thread and hand a task from Claude to Codex, and has one button to commit, push, and open a PR, including stacked PRs. Desktop builds are first-class on macOS, Windows, and Linux, and the iOS and Android apps are in the stores. Remote access goes over LAN, Tailscale, or T3 Connect. See <a href="/blog/t3-code-alternative">Anywhere vs T3 Code</a> for the detail.</p>
 
 				<div class="cta">
 					<p>Missing a tool, or got a fact wrong? Open an issue and we will update the table.</p>
@@ -185,9 +186,9 @@
 					<li><strong>You need cloud workspaces or team plans.</strong> Conductor or Paradev.</li>
 					<li><strong>You want to answer agents from your phone today.</strong> Zeron, Orca, Paradev, Synara, Conductor, or T3 Code all have a mobile app now, and T3 Code adds a web client.</li>
 					<li><strong>You work on Windows or Linux first.</strong> Synara, Orca, Zeron, MonoCode, or T3 Code.</li>
-					<li><strong>You want it free, native, with no account, and sessions a daemon keeps alive.</strong> Anywhere. Automations, SSH hosts, and the CLI are included, and there is no paid tier to grow into. See also <a href="open-source-agent-workspace-no-paid-tier.html">what "free" means across these tools</a> and <a href="native-mac-app-coding-agents-rust-gpui.html">why the window is native</a>.</li>
+					<li><strong>You want it free, native, with no account, and sessions a daemon keeps alive.</strong> Anywhere. Automations, SSH hosts, and the CLI are included, and there is no paid tier to grow into. See also <a href="/blog/open-source-agent-workspace-no-paid-tier">what "free" means across these tools</a> and <a href="/blog/native-mac-app-coding-agents-rust-gpui">why the window is native</a>.</li>
 				</ul>
-				<p>If you are leaving a tool, <a href="conductor-alternative.html">Anywhere vs Conductor</a>, <a href="t3-code-alternative.html">Anywhere vs T3 Code</a>, and <a href="crystal-alternative.html">Crystal is now Nimbalyst</a> cover the move. Anywhere's agent list is on the <a href="../docs/agents.html">supported agents</a> page.</p>
+				<p>If you are leaving a tool, <a href="/blog/conductor-alternative">Anywhere vs Conductor</a>, <a href="/blog/t3-code-alternative">Anywhere vs T3 Code</a>, and <a href="/blog/crystal-alternative">Crystal is now Nimbalyst</a> cover the move. Anywhere's agent list is on the <a href="/docs/agents">supported agents</a> page.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -204,8 +205,8 @@
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="crystal-alternative.html"><span>Previous</span>Crystal is now Nimbalyst</a>
-				<a class="next" href="coding-agents-keep-running-after-closing-window.html"><span>Next</span>Keep agents running after you close the window</a>
+				<a class="prev" href="/blog/crystal-alternative"><span>Previous</span>Crystal is now Nimbalyst</a>
+				<a class="next" href="/blog/coding-agents-keep-running-after-closing-window"><span>Next</span>Keep agents running after you close the window</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -213,13 +214,13 @@
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

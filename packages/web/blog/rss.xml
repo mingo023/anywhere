@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+	<channel>
+		<title>Anywhere blog</title>
+		<link>https://getanywhere.dev/blog/</link>
+		<description>Guides and fair comparisons for running Claude Code, Codex and other coding agents in parallel, from the people who build Anywhere.</description>
+		<language>en-us</language>
+		<atom:link href="https://getanywhere.dev/blog/rss.xml" rel="self" type="application/rss+xml"/>
+		<item>
+			<title>How to clean up the git worktrees your coding agents leave behind</title>
+			<link>https://getanywhere.dev/blog/clean-up-coding-agent-worktrees</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/clean-up-coding-agent-worktrees</guid>
+			<pubDate>Thu, 19 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Find, measure and remove the worktrees Claude Code, Codex and Cursor leave on disk, what each tool cleans up on its own, and how Anywhere deletes them.</description>
+		</item>
+		<item>
+			<title>How to run multiple Claude Code agents in parallel</title>
+			<link>https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Run several Claude Code agents on one repo without collisions: one git worktree per agent, by hand or in Anywhere, with status, diffs and sessions that keep running.</description>
+		</item>
+		<item>
+			<title>Open-source Conductor alternative: Anywhere vs Conductor</title>
+			<link>https://getanywhere.dev/blog/conductor-alternative</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/conductor-alternative</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Anywhere vs Conductor for parallel coding agents: license, price, platforms, supported agents, and what happens to local sessions when you close the app.</description>
+		</item>
+		<item>
+			<title>T3 Code alternative: Anywhere vs T3 Code</title>
+			<link>https://getanywhere.dev/blog/t3-code-alternative</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/t3-code-alternative</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Anywhere vs T3 Code, two free MIT apps for coding agents: platforms, agents, phone apps, what happens when you close the window, and when T3 Code fits better.</description>
+		</item>
+		<item>
+			<title>Crystal is now Nimbalyst: options for parallel Claude Code and Codex sessions</title>
+			<link>https://getanywhere.dev/blog/crystal-alternative</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/crystal-alternative</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Crystal was deprecated in February 2026 and replaced by Nimbalyst. Your options, including Anywhere, a free MIT app for parallel agents in git worktrees.</description>
+		</item>
+		<item>
+			<title>Best tools to run multiple coding agents in parallel on Mac (2026), compared fairly</title>
+			<link>https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/best-tools-run-multiple-coding-agents</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Eight desktop apps for running coding agents in parallel, compared from their own sites: Anywhere, Conductor, Paradev, Synara, Orca, Zeron, MonoCode and T3 Code.</description>
+		</item>
+		<item>
+			<title>Keep coding agents running after you close the window</title>
+			<link>https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/coding-agents-keep-running-after-closing-window</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Why agents stop when a window closes, and how Anywhere's daemon, pocketd, keeps Claude Code, Codex and other sessions and automations running.</description>
+		</item>
+		<item>
+			<title>A free, open-source agent workspace with no paid tier</title>
+			<link>https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/open-source-agent-workspace-no-paid-tier</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>What free means across open-source agent workspaces like Paradev, Synara and T3 Code, and what Anywhere includes at $0: automations, Board, SSH hosts and the CLI.</description>
+		</item>
+		<item>
+			<title>Native, not Electron: a Rust/GPUI app for your coding agents</title>
+			<link>https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare.</description>
+		</item>
+		<item>
+			<title>Run multiple Codex CLI agents in git worktrees</title>
+			<link>https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/run-multiple-codex-agents-git-worktrees</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Run several Codex CLI agents on one repository without collisions: one git worktree per agent, by hand or in Anywhere, side by side with Claude Code.</description>
+		</item>
+		<item>
+			<title>Script coding agents from your shell with anywhere session wait</title>
+			<link>https://getanywhere.dev/blog/script-claude-code-codex-from-cli</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/script-claude-code-codex-from-cli</guid>
+			<pubDate>Wed, 18 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Start Claude Code or Codex in a new git worktree from a script, send a prompt, and branch on the exit code of anywhere session wait. Copy-paste recipes.</description>
+		</item>
+	</channel>
+</rss>

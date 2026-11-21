@@ -1,6 +1,6 @@
 # Anywhere
 
-> Anywhere is a free, open source (MIT) desktop app for watching and driving many coding agents at once. It runs on macOS 13 or later, with unsigned builds for Linux (x86_64) and Windows (x64). There is no account, no cloud tier and no premium tier.
+> Anywhere is a free, open source (MIT) desktop app for watching and driving many coding agents at once. It runs on macOS 13 or later, with an unsigned build for Linux (x86_64). The latest release does not include a Windows desktop build. There is no account, no cloud tier and no premium tier.
 
 - The desktop app is Rust on GPUI. A Go daemon, pocketd, owns the terminals, so agents keep running after the window closes.
 - It runs ten agent CLIs that are already installed and signed in on the machine: Claude Code (`claude`), Codex (`codex`), Cursor (`cursor-agent`), Grok Build (`grok`), OpenCode (`opencode`), Pi (`pi`), omp (`omp`), fx (`fx`), Hermes Agent (`hermes`) and Antigravity (`agy`). It does not proxy models or resell tokens.

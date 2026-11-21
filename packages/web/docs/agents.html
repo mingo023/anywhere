@@ -27,6 +27,32 @@
 	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="docs.css">
 	<script src="docs.js" defer></script>
+	<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/agents#article",
+			"headline": "Supported agents",
+			"description": "Each coding agent Anywhere runs: its command, install and sign-in commands, and what status it reports.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/agents" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Supported agents", "item": "https://getanywhere.dev/docs/agents" }
+			]
+		}
+	]
+}
+	</script>
 </head>
 <body>
 	<a class="skip" href="#main">Skip to content</a>
@@ -34,11 +60,11 @@
 		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
 		</button>
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="index.html">Docs</a>
-			<a href="../blog/index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -47,28 +73,28 @@
 		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
 			<p class="nav-group">Get started</p>
 			<ul>
-				<li><a href="index.html">Run your first agent</a></li>
-				<li><a href="install.html">Install Anywhere</a></li>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
 			</ul>
 			<p class="nav-group">Use Anywhere</p>
 			<ul>
-				<li><a href="sessions.html">Sessions and status</a></li>
-				<li><a href="worktrees.html">Work in worktrees</a></li>
-				<li><a href="review.html">Review and commit changes</a></li>
-				<li><a href="board.html">Plan work on the Board</a></li>
-				<li><a href="automations.html">Schedule automations</a></li>
-				<li><a href="delegation.html">Delegate work from a chat</a></li>
-				<li><a href="hosts.html">Run agents on another machine</a></li>
-				<li><a href="iphone.html">Pair an iPhone</a></li>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
 			</ul>
 			<p class="nav-group">Reference</p>
 			<ul>
-				<li><a href="agents.html">Supported agents</a></li>
-				<li><a href="cli.html">The anywhere command</a></li>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
 			</ul>
 			<p class="nav-group">Explanation</p>
 			<ul>
-				<li><a href="architecture.html">How Anywhere runs</a></li>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
 			</ul>
 		</nav>
 		<main id="main">
@@ -101,7 +127,7 @@
 				<p>Settings › <strong>Accounts</strong> can hold more than one account each for Claude Code and Codex, and shows their usage.</p>
 
 				<h2 id="chat-terminal-and-status">Chat, terminal, and status</h2>
-				<p>Every agent runs as a chat or in a terminal. In a chat, pocketd drives the agent through the protocol in the last column. Whether the agent reports its status from a terminal decides whether it is <a href="sessions.html#attached-agents">attached</a> there.</p>
+				<p>Every agent runs as a chat or in a terminal. In a chat, pocketd drives the agent through the protocol in the last column. Whether the agent reports its status from a terminal decides whether it is <a href="/docs/sessions#attached-agents">attached</a> there.</p>
 				<div class="table-wrap">
 				<table>
 					<thead>
@@ -121,14 +147,14 @@
 					</tbody>
 				</table>
 				</div>
-				<p>Where an agent reports its status, it shows all five: <span class="status needs-you">Needs you</span>, <span class="status failed">Failed</span>, <span class="status done">Done</span>, <span class="status working">Working</span>, and <span class="status">Idle</span>. In a terminal, an agent that doesn't report its status shows only terminal activity. The <code>&lt;agent&gt;</code> id is the value for <code>--provider</code> in <a href="cli.html">the anywhere command</a>.</p>
+				<p>Where an agent reports its status, it shows all five: <span class="status needs-you">Needs you</span>, <span class="status failed">Failed</span>, <span class="status done">Done</span>, <span class="status working">Working</span>, and <span class="status">Idle</span>. In a terminal, an agent that doesn't report its status shows only terminal activity. The <code>&lt;agent&gt;</code> id is the value for <code>--provider</code> in <a href="/docs/cli">the anywhere command</a>.</p>
 				<p>The new session page starts Claude Code and Codex as a chat when Settings › <strong>Agents</strong> › <strong>Start as a chat</strong> is on, and in a terminal when it is off. It always starts the other agents as a chat. Every agent can run in a terminal from a tab's <strong>+</strong> menu.</p>
 
 				<h2 id="access-and-delegation">Access and delegation</h2>
 				<ul>
 					<li>Pi and omp never ask before they use a tool, so their sessions always run with <strong>Full</strong> access.</li>
 					<li>Codex doesn't start in plan mode. The other agents can.</li>
-					<li>Claude Code and Codex chats can <a href="delegation.html">delegate work to other sessions</a>. Cursor, Grok Build, OpenCode, fx, Hermes Agent, and Antigravity chats can when the agent supports MCP servers over HTTP. Pi and omp can't.</li>
+					<li>Claude Code and Codex chats can <a href="/docs/delegation">delegate work to other sessions</a>. Cursor, Grok Build, OpenCode, fx, Hermes Agent, and Antigravity chats can when the agent supports MCP servers over HTTP. Pi and omp can't.</li>
 				</ul>
 
 				<h2 id="agent-settings">Agent settings</h2>
@@ -142,8 +168,8 @@
 				<p>pocketd also takes the command as a setting: <code>pocketd config set &lt;agent&gt;.command &lt;command&gt;</code>.</p>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="iphone.html"><span>Previous</span>Pair an iPhone</a>
-				<a class="next" href="cli.html"><span>Next</span>The anywhere command</a>
+				<a class="prev" href="/docs/iphone"><span>Previous</span>Pair an iPhone</a>
+				<a class="next" href="/docs/cli"><span>Next</span>The anywhere command</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>

@@ -7,6 +7,7 @@
 	<meta name="description" content="Anywhere vs Conductor for parallel coding agents: license, price, platforms, supported agents, and what happens to local sessions when you close the app.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/conductor-alternative">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -76,11 +77,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -88,7 +89,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Comparison</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
 				<h1>Open-source Conductor alternative: Anywhere vs Conductor</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">Anywhere is a free, MIT-licensed alternative to Conductor for running coding agents in parallel git worktrees with diff review. It supports ten agent CLIs, keeps local sessions running after you close the window, publishes Linux and Windows builds, and includes automations, a ticket Board and a CLI, with no paid tier.</p>
@@ -135,19 +136,19 @@
 				<p>Anywhere's site says it plainly: "There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be." The pricing table lists the desktop app, the daemon and CLI, and the push relay at $0, and the cloud tier and premium tier as "Never". The architecture page adds that there is no license check in the code. You can read every line, build it yourself, and fork it.</p>
 
 				<h3>Ten agent CLIs, including Grok Build, Pi, omp, fx, Hermes Agent, and Antigravity</h3>
-				<p>Anywhere doesn't bundle agents. It runs the CLIs it finds on your login <code>PATH</code>, signed in to your own accounts, and never proxies a model or resells a token. That is one more install step than a bundle, and in return you choose the version, and you can use six agents beyond the four Conductor supports. Claude Code and Codex run in a real terminal or as a chat and report their status from both. The other eight run as a chat. The commands and sign-in steps are in <a href="../docs/agents.html">Supported agents</a>.</p>
+				<p>Anywhere doesn't bundle agents. It runs the CLIs it finds on your login <code>PATH</code>, signed in to your own accounts, and never proxies a model or resells a token. That is one more install step than a bundle, and in return you choose the version, and you can use six agents beyond the four Conductor supports. Claude Code and Codex run in a real terminal or as a chat and report their status from both. The other eight run as a chat. The commands and sign-in steps are in <a href="/docs/agents">Supported agents</a>.</p>
 
 				<h3>Local sessions that outlive the window</h3>
-				<p>Conductor's Cloud FAQ is clear about its local workspaces: "Local workspace sessions run on your Mac. If you close the app or shut down your Mac, those sessions end." Its answer for long runs is Cloud. Anywhere's answer is a local daemon. pocketd runs every session and starts at login, so closing the window doesn't stop an agent, and on macOS the app itself stays in the background by default. See <a href="../docs/sessions.html">Sessions and status</a> and <a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a>.</p>
+				<p>Conductor's Cloud FAQ is clear about its local workspaces: "Local workspace sessions run on your Mac. If you close the app or shut down your Mac, those sessions end." Its answer for long runs is Cloud. Anywhere's answer is a local daemon. pocketd runs every session and starts at login, so closing the window doesn't stop an agent, and on macOS the app itself stays in the background by default. See <a href="/docs/sessions">Sessions and status</a> and <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a>.</p>
 
 				<h3>Linux and Windows builds, and SSH hosts</h3>
-				<p>Anywhere publishes Linux and Windows archives next to the Mac app. To be straight about them: they are unsigned and have no updater, and you run <code>pocket-desktop</code> from the unpacked folder. You can also add a Mac, Linux, or Windows machine as a host over SSH. Anywhere installs pocketd there, and that host's projects show in your sidebar while their agents run on the host. See <a href="../docs/hosts.html">Run agents on another machine over SSH</a>.</p>
+				<p>Anywhere publishes Linux and Windows archives next to the Mac app. To be straight about them: they are unsigned and have no updater, and you run <code>pocket-desktop</code> from the unpacked folder. You can also add a Mac, Linux, or Windows machine as a host over SSH. Anywhere installs pocketd there, and that host's projects show in your sidebar while their agents run on the host. See <a href="/docs/hosts">Run agents on another machine over SSH</a>.</p>
 
 				<h3>Automations, Board, and the <code>anywhere</code> CLI are included</h3>
 				<ul>
-					<li><a href="../docs/automations.html">Automations</a> start a prompt on chosen weekdays at a time, or every few minutes, and keep firing while the desktop app is closed.</li>
-					<li>The <a href="../docs/board.html">Board</a> holds tickets across projects. A started ticket gets its own worktree and session.</li>
-					<li>The <a href="../docs/cli.html"><code>anywhere</code> command</a> starts sessions, sends prompts, waits for results, and edits tickets from any shell.</li>
+					<li><a href="/docs/automations">Automations</a> start a prompt on chosen weekdays at a time, or every few minutes, and keep firing while the desktop app is closed.</li>
+					<li>The <a href="/docs/board">Board</a> holds tickets across projects. A started ticket gets its own worktree and session.</li>
+					<li>The <a href="/docs/cli"><code>anywhere</code> command</a> starts sessions, sends prompts, waits for results, and edits tickets from any shell.</li>
 				</ul>
 
 				<h2 id="when-conductor-may-fit-better">When Conductor may fit better</h2>
@@ -171,7 +172,7 @@
 					<li>Press <kbd>⌘⇧N</kbd> to start a session in a new worktree, from a branch or from a pull request number.</li>
 					<li>Review in <strong>Changes</strong> and merge from the pull request card.</li>
 				</ol>
-				<p>The step-by-step version is <a href="run-multiple-claude-code-agents-in-parallel.html">How to run multiple Claude Code agents in parallel</a>. For the wider field, see <a href="best-tools-run-multiple-coding-agents.html">the best tools to run multiple coding agents in parallel</a>.</p>
+				<p>The step-by-step version is <a href="/blog/run-multiple-claude-code-agents-in-parallel">How to run multiple Claude Code agents in parallel</a>. For the wider field, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a>.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -188,8 +189,8 @@
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="run-multiple-claude-code-agents-in-parallel.html"><span>Previous</span>Run multiple Claude Code agents in parallel</a>
-				<a class="next" href="t3-code-alternative.html"><span>Next</span>Anywhere vs T3 Code</a>
+				<a class="prev" href="/blog/run-multiple-claude-code-agents-in-parallel"><span>Previous</span>Run multiple Claude Code agents in parallel</a>
+				<a class="next" href="/blog/t3-code-alternative"><span>Next</span>Anywhere vs T3 Code</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -197,13 +198,13 @@
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>

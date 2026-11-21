@@ -7,6 +7,7 @@
 	<meta name="description" content="Run several Claude Code agents on one repo without collisions: one git worktree per agent, by hand or in Anywhere, with status, diffs and sessions that keep running.">
 	<meta name="author" content="Minh Ngo">
 	<link rel="canonical" href="https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel">
+	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
 	<meta property="og:type" content="article">
 	<meta property="og:site_name" content="Anywhere">
 	<meta property="og:locale" content="en_US">
@@ -86,11 +87,11 @@
 <body>
 	<a class="skip" href="#main">Skip to content</a>
 	<header class="topbar">
-		<a class="brand" href="../index.html" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
 		<nav class="top-links" aria-label="Site">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 		</nav>
 		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
@@ -98,7 +99,7 @@
 	<div class="post-layout">
 		<main id="main">
 			<article>
-				<p class="eyebrow"><a href="index.html">Blog</a> · Guide</p>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Guide</p>
 				<h1>How to run multiple Claude Code agents in parallel</h1>
 				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
 				<p class="lede">To run multiple Claude Code agents in parallel, give each agent its own git worktree so they edit separate checkouts on separate branches. You can do this by hand with <code>git worktree add</code>, or use Anywhere, a free MIT Mac app that creates the worktree, starts the session, and shows which agent needs you.</p>
@@ -148,7 +149,7 @@ cd ~/code/app-search-index &amp;&amp; claude</code></pre>
 				</div>
 
 				<h2 id="doing-it-in-anywhere">Doing it in Anywhere</h2>
-				<p>Anywhere is a desktop app for macOS 13 or later, with unsigned builds for Linux and Windows. It runs the Claude Code you already installed and signed in to, with the same worktree-per-agent method. The steps below are covered in more detail in <a href="../docs/worktrees.html">Start an agent in a new worktree</a>.</p>
+				<p>Anywhere is a desktop app for macOS 13 or later, with unsigned builds for Linux and Windows. It runs the Claude Code you already installed and signed in to, with the same worktree-per-agent method. The steps below are covered in more detail in <a href="/docs/worktrees">Start an agent in a new worktree</a>.</p>
 
 				<h3>Create a worktree from a branch or a pull request</h3>
 				<ol>
@@ -174,13 +175,13 @@ cd ~/code/app-search-index &amp;&amp; claude</code></pre>
 					<li>A banner for a permission request has <strong>Allow</strong> and <strong>Deny and stop</strong>, so you can answer without switching sessions.</li>
 					<li><kbd>⌘J</kbd> goes to the next session that needs you. <strong>Activity</strong> lists every session across projects by status.</li>
 				</ul>
-				<p>The full table is in <a href="../docs/sessions.html">Sessions and status</a>.</p>
+				<p>The full table is in <a href="/docs/sessions">Sessions and status</a>.</p>
 
 				<h3>Review the diff and commit beside the session</h3>
-				<p>The <strong>Changes</strong> panel shows the worktree's diff next to the session that made it. Switch its scope from <strong>Uncommitted</strong> to a branch to see everything the worktree changed, as a pull request would. Commit, or use <strong>Commit, push and create PR</strong>. Once a pull request exists, its card shows checks, review, and merge. A failed check has <strong>Send</strong>, which hands its log to the agent. See <a href="../docs/review.html">Review and commit an agent's changes</a>.</p>
+				<p>The <strong>Changes</strong> panel shows the worktree's diff next to the session that made it. Switch its scope from <strong>Uncommitted</strong> to a branch to see everything the worktree changed, as a pull request would. Commit, or use <strong>Commit, push and create PR</strong>. Once a pull request exists, its card shows checks, review, and merge. A failed check has <strong>Send</strong>, which hands its log to the agent. See <a href="/docs/review">Review and commit an agent's changes</a>.</p>
 
 				<h3>Close the window, agents keep running</h3>
-				<p>A Go background service, pocketd, owns the terminals and sessions. The window only shows them. Close it and every agent keeps working. On macOS, closing the window leaves Anywhere running in the background by default, so the Dock badge and banners still tell you when to come back. More in <a href="coding-agents-keep-running-after-closing-window.html">Keep coding agents running after you close the window</a>.</p>
+				<p>A Go background service, pocketd, owns the terminals and sessions. The window only shows them. Close it and every agent keeps working. On macOS, closing the window leaves Anywhere running in the background by default, so the Dock badge and banners still tell you when to come back. More in <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a>.</p>
 
 				<div class="cta">
 					<p>The desktop app, the daemon and the CLI are all in one public repository.</p>
@@ -188,9 +189,9 @@ cd ~/code/app-search-index &amp;&amp; claude</code></pre>
 				</div>
 
 				<h2 id="mixing-agents">Mixing Claude Code with Codex and other agents</h2>
-				<p>The same project can hold sessions of different agents, each in its own worktree. Anywhere runs ten agent CLIs: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent, and Antigravity. Claude Code and Codex run in a real terminal or as a chat and report their status from both. The other eight report it from a chat. The <a href="../docs/agents.html">supported agents</a> page lists each command and its sign-in step.</p>
-				<p>A Claude Code chat can also hand work to other sessions through pocketd's orchestrator, for example: "Split this into three parts and delegate each one to its own session. Use Codex for the tests." Each delegated session runs in its own new worktree by default. See <a href="../docs/delegation.html">Let a chat delegate work to other sessions</a>, and the Codex version of this guide, <a href="run-multiple-codex-agents-git-worktrees.html">Run multiple Codex CLI agents in git worktrees</a>.</p>
-				<p>If you are comparing apps for this, <a href="conductor-alternative.html">Anywhere vs Conductor</a> and <a href="best-tools-run-multiple-coding-agents.html">the roundup of seven tools</a> lay out the differences.</p>
+				<p>The same project can hold sessions of different agents, each in its own worktree. Anywhere runs ten agent CLIs: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent, and Antigravity. Claude Code and Codex run in a real terminal or as a chat and report their status from both. The other eight report it from a chat. The <a href="/docs/agents">supported agents</a> page lists each command and its sign-in step.</p>
+				<p>A Claude Code chat can also hand work to other sessions through pocketd's orchestrator, for example: "Split this into three parts and delegate each one to its own session. Use Codex for the tests." Each delegated session runs in its own new worktree by default. See <a href="/docs/delegation">Let a chat delegate work to other sessions</a>, and the Codex version of this guide, <a href="/blog/run-multiple-codex-agents-git-worktrees">Run multiple Codex CLI agents in git worktrees</a>.</p>
+				<p>If you are comparing apps for this, <a href="/blog/conductor-alternative">Anywhere vs Conductor</a> and <a href="/blog/best-tools-run-multiple-coding-agents">the roundup of seven tools</a> lay out the differences.</p>
 
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
@@ -207,8 +208,8 @@ cd ~/code/app-search-index &amp;&amp; claude</code></pre>
 				</section>
 			</article>
 			<nav class="pager" aria-label="Previous and next">
-				<a class="prev" href="index.html"><span>Back to</span>All posts</a>
-				<a class="next" href="conductor-alternative.html"><span>Next</span>Anywhere vs Conductor</a>
+				<a class="prev" href="/blog/"><span>Back to</span>All posts</a>
+				<a class="next" href="/blog/conductor-alternative"><span>Next</span>Anywhere vs Conductor</a>
 			</nav>
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
@@ -216,13 +217,13 @@ cd ~/code/app-search-index &amp;&amp; claude</code></pre>
 	<footer class="site-footer">
 		<span>Anywhere · MIT licensed. Free forever.</span>
 		<nav aria-label="Footer">
-			<a href="../index.html">Home</a>
-			<a href="../docs/index.html">Docs</a>
-			<a href="index.html">Blog</a>
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
 			<a href="https://github.com/mingo023/anywhere">GitHub</a>
 			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="../privacy.html">Privacy</a>
-			<a href="../support.html">Support</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
 		</nav>
 	</footer>
 </body>
