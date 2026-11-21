@@ -5,11 +5,11 @@ import Testing
 import Wire
 @testable import Stores
 
-private func session(_ id: String, _ cwd: String, status: Status = .idle, created: Int = 0, pinned: Bool = false, terminal: String? = nil)
-    -> HomeList.Session
-{
+private func session(
+    _ id: String, _ cwd: String, status: Status = .idle, created: Int = 0, pinned: Bool = false, terminal: String? = nil, parent: String? = nil
+) -> HomeList.Session {
     HomeList.Session(card: .init(id: id, title: "Session \(id)", status: status, createdAt: created, updatedAt: created, pinned: pinned),
-                     cwd: cwd, terminalId: terminal ?? "t-\(id)")
+                     cwd: cwd, terminalId: terminal ?? "t-\(id)", parent: parent)
 }
 
 private func build(_ sessions: [HomeList.Session], query: String = "", localOfTerminal: [String: String] = [:]) -> HomeList.Built {
@@ -64,6 +64,24 @@ struct HomeListTests {
         #expect(trees[anywhere] == ["own"])
         #expect(trees["review"] == ["in-local"])
         #expect(built.elsewhere == ["lost"])
+    }
+
+    @Test("a delegated session shows only in its chat, and a worktree made for delegated sessions alone isn't listed")
+    func delegated() {
+        let login = "/Users/mingo/.worktrees/anywhere/fix-login"
+        let built = build([
+            session("chat", anywhere), session("child", otter, parent: "chat"), session("helper", login, parent: "chat"),
+            session("mine", login), session("orphan", "/Users/mingo/dev/website", parent: "gone"),
+        ], query: "")
+        let trees = Dictionary(uniqueKeysWithValues: built.sections.flatMap(\.trees).map { ($0.id, $0.sessions) })
+        #expect(trees[otter] == nil)
+        #expect(trees[login] == ["mine"])
+        #expect(trees[anywhere] == ["chat"])
+        #expect(trees["/Users/mingo/dev/website"] == ["orphan"], "a child whose chat isn't listed stays reachable")
+        #expect(build([session("chat", anywhere), session("child", otter, parent: "chat")], query: "child").matches.isEmpty)
+        let shell = HomeList.build(projects: Sample.projects, names: [:], locals: [], localOfTerminal: [:],
+                                   sessions: [session("chat", anywhere), session("child", otter, parent: "chat")], terminalCwds: [otter])
+        #expect(shell.sections[0].trees.contains { $0.id == otter }, "a shell open in it keeps it listed")
     }
 
     @Test("a folder inside a project but outside its worktrees goes to the project's own checkout")
