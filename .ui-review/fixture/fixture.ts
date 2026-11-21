@@ -565,6 +565,8 @@ const handoffState = (tree: string) => {
 };
 // devbox as a real folder: what pocketd's exec and fs ops do there, with its agents' sign-in faked. False for an op it leaves to the rest.
 let dropped = false;
+// FIXTURE_DEVBOX_DROP_MS=n: devbox goes offline for n ms once a delete sheet has read its subagent's worktree twice (FIXTURE_SUBAGENT_HOST).
+let subagentReads = 0;
 const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
   const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
   const fail = (e: unknown) => reply({ ev: "error", error: String((e as Error).message ?? e) });
@@ -575,6 +577,11 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
   } else if (op.op === "exec") {
     const r = Bun.spawnSync(op.argv, { cwd: op.cwd, env: { ...process.env, HOME: h.home, GIT_CONFIG_NOSYSTEM: "1" } });
     reply({ ev: "exec", code: r.exitCode, stdout: b64(r.stdout), stderr: b64(r.stderr) });
+    const drop = Number(process.env.FIXTURE_DEVBOX_DROP_MS ?? 0);
+    if (drop && op.argv.includes("worktree") && op.argv.includes("list") && op.argv.some((a) => a.endsWith("delegate-host-notes")) && ++subagentReads === 2) {
+      setTimeout(() => hostsWs && setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" }), 100);
+      setTimeout(() => hostsWs && setLink(hostsWs, h.id, ONLINE), drop);
+    }
   } else if (op.op === "fs.stat") {
     try {
       const st = statSync(op.path);
@@ -891,7 +898,14 @@ if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_HOST) {
   summaries.push({ ...parent, id: `devbox/${parent.id}-hsub`, terminalId: "", cwd: tree, title: "Read the notes on devbox", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
   if (process.env.FIXTURE_LOG) {
     const out = join(dirname(process.env.FIXTURE_LOG), "devbox-worktrees.txt");
-    setInterval(() => writeFileSync(out, Bun.spawnSync(["git", "-C", clone, "worktree", "list"]).stdout.toString().replaceAll(dir, "<scratch>")), 300);
+    // devbox-worktrees-log.txt adds each change, with when devbox's link was up, to show what went while it was offline.
+    let last = "";
+    setInterval(() => {
+      const now = Bun.spawnSync(["git", "-C", clone, "worktree", "list"]).stdout.toString().replaceAll(dir, "<scratch>");
+      writeFileSync(out, now);
+      if (now !== last) appendFileSync(join(dirname(process.env.FIXTURE_LOG!), "devbox-worktrees-log.txt"), `${new Date().toISOString()} link=${hosts[0].link.state}\n${now}\n`);
+      last = now;
+    }, 300);
   }
 }
 // A child with two turns of several paragraphs each, for screens of a delegated chat scrolled under its breadcrumb.

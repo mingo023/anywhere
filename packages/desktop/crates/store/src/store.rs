@@ -369,6 +369,15 @@ pub struct ColumnWidths {
     pub sessions: Option<f32>,
 }
 
+/// A subagent's folder on a host whose worktree waits on that host: when the subagent started there, and whether its
+/// branch goes too.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Copy)]
+#[serde(default)]
+pub struct Leftover {
+    pub started: u64,
+    pub delete_branch: bool,
+}
+
 /// The folder of the session that delegated to a subagent, and when the subagent's session started, in Unix
 /// milliseconds on the clock of the machine holding its folder: a worktree made there later is someone else's.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
@@ -415,7 +424,7 @@ pub struct Store {
     /// Subagents' folders on hosts that were offline when their parent's worktree went, to when each subagent started:
     /// their worktrees go once the host is back.
     #[serde(deserialize_with = "lenient")]
-    pub host_leftovers: BTreeMap<String, u64>,
+    pub host_leftovers: BTreeMap<String, Leftover>,
     /// The Board shows its list rather than its columns.
     pub board_list: bool,
     #[serde(deserialize_with = "lenient")]

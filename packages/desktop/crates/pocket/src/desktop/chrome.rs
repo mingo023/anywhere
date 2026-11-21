@@ -71,7 +71,8 @@ pub enum Confirm {
     DeleteWorktree { removal: Removal, dirty: usize, lost: usize, lost_anyway: usize, subtrees: Vec<Removal> },
     DeleteLocal(String),
     DeleteScratch { path: String, dirty: usize, lost: usize },
-    TeardownFailed { removal: Removal, tail: String, subtrees: Vec<Removal> },
+    /// `failed`'s teardown failed; deleting anyway carries on with `removal` and `subtrees`, skipping only that teardown.
+    TeardownFailed { removal: Removal, failed: String, tail: String, subtrees: Vec<Removal> },
     Discard(Vec<String>),
     CloseSession(String),
     CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },

@@ -456,6 +456,7 @@ impl Desktop {
                 hosts::remote::register(client);
                 d.finder_host_back(&id, window, cx);
                 d.handoff_host_back(&id, cx);
+                d.sweep_host_leftovers(cx);
                 d.fetch_clone_home(window, cx);
                 d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 d.check_accounts(Some(id.clone()), true, cx);
