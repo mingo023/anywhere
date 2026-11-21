@@ -507,6 +507,12 @@ impl Desktop {
         (unoccupied(subtrees, &shells), on_hosts)
     }
 
+    /// The host folders live sessions and shells work in.
+    fn host_occupants(&self) -> Vec<String> {
+        let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a)));
+        sessions.chain(self.shells()).filter(|f| hosts::split(f).0.is_some()).collect()
+    }
+
     /// The saved subagent links, child tree to parent tree.
     fn saved_links(&self) -> BTreeMap<String, String> {
         // A host's folder has no creation time here; its host checks it against `started`.
@@ -668,8 +674,7 @@ impl Desktop {
         if back.is_empty() {
             return;
         }
-        let sessions = self.agents.list.iter().filter_map(|a| self.session_place(a).or_else(|| folder(a)));
-        let others: Vec<String> = sessions.chain(self.shells()).filter(|f| hosts::split(f).0.is_some()).collect();
+        let others = self.host_occupants();
         let task = cx.background_executor().spawn(async move {
             let sweep = |(f, l): (String, Leftover)| {
                 let run = hosts::runner_for(&f);
@@ -722,7 +727,8 @@ impl Desktop {
     /// Deletes `r`, the worktree the host leftover at `f` is in, and leaves its own subagents' on hosts to the sweep in
     /// turn: one may have delegated while its host was away.
     fn sweep_delete(&mut self, f: String, r: Removal, cx: &mut Context<Self>) {
-        if !self.removals.start(&f) {
+        // Someone may have started working there while the sweep read the host; a later sweep sees.
+        if self.host_occupants().iter().any(|o| holds(&r.tree, o)) || !self.removals.start(&f) {
             return;
         }
         let (_, mut on_hosts) = self.subagent_removals(&r);
