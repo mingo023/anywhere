@@ -400,6 +400,9 @@ pub struct Store {
     /// Each worktree's Changes scope, keyed by the worktree's path.
     #[serde(deserialize_with = "lenient")]
     pub scopes: BTreeMap<String, scope::Scope>,
+    /// Each worktree a subagent worked in, to its parent's worktree. Outlives both sessions.
+    #[serde(deserialize_with = "lenient")]
+    pub subtrees: BTreeMap<String, String>,
     /// The Board shows its list rather than its columns.
     pub board_list: bool,
     #[serde(deserialize_with = "lenient")]

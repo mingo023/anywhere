@@ -4,7 +4,7 @@ use crate::fs::fs_for;
 use crate::util::basename;
 use agents::{Agents, Summary};
 use gpui_kit::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -200,13 +200,19 @@ fn doomed_branch(r: &Removal, runner: &git::Runner) -> Option<String> {
 
 /// The deletions that go with `r`'s: each worktree Anywhere made that holds only sessions `r.tree`'s sessions delegated to, and theirs in turn.
 /// Their branches go only if `r`'s does. `place` is the tree a session's terminal sits in.
-fn subagent_removals(r: &Removal, agents: &Agents, place: impl Fn(&Summary) -> Option<String>, worktrees: &project::Worktrees) -> Vec<Removal> {
+fn subagent_removals(r: &Removal, agents: &Agents, place: impl Fn(&Summary) -> Option<String>, worktrees: &project::Worktrees, subtrees: &BTreeMap<String, String>) -> Vec<Removal> {
     let tree = r.tree.as_str();
     let roots: Vec<String> = agents.list.iter().filter(|a| place(a).as_deref() == Some(tree)).map(|a| a.id.clone()).collect();
     let subagents = agents.subagents_of(&roots);
     let theirs = |t: &str| agents.list.iter().filter(|a| place(a).as_deref() == Some(t)).all(|a| subagents.iter().any(|s| s.id == a.id));
+    let mut trees: Vec<String> = std::iter::once(tree.to_string()).chain(subagents.iter().filter_map(|a| place(a))).collect();
+    let mut i = 0;
+    while let Some(t) = trees.get(i).cloned() {
+        trees.extend(subtrees.iter().filter(|(c, p)| **p == t && !trees.contains(c)).map(|(c, _)| c.clone()).collect::<Vec<_>>());
+        i += 1;
+    }
     let mut out: Vec<Removal> = Vec::new();
-    for t in subagents.iter().filter_map(|a| place(a)) {
+    for t in trees.into_iter().skip(1) {
         if t == tree || out.iter().any(|o| o.tree == t) || !theirs(&t) {
             continue;
         }
@@ -216,6 +222,21 @@ fn subagent_removals(r: &Removal, agents: &Agents, place: impl Fn(&Summary) -> O
         }
     }
     out
+}
+
+/// Adds the links not known yet, keeping the parent first seen; returns whether any was added.
+fn remember(subtrees: &mut BTreeMap<String, String>, links: Vec<(String, String)>) -> bool {
+    let before = subtrees.len();
+    for (child, parent) in links {
+        subtrees.entry(child).or_insert(parent);
+    }
+    subtrees.len() != before
+}
+
+/// `(child, parent)` for each live subagent placed in a worktree its parent isn't in.
+fn subtree_links(agents: &Agents, place: impl Fn(&Summary) -> Option<String>) -> Vec<(String, String)> {
+    let links = agents.list.iter().filter(|a| a.relationship == "subagent");
+    links.filter_map(|a| Some((place(a)?, place(agents.get(&a.parent)?)?))).filter(|(c, p)| c != p).collect()
 }
 
 /// The commits deleting `jobs` together loses, a tree first and then its subagents': `(lost, lost_anyway)`.
@@ -235,8 +256,19 @@ fn lost_together(jobs: &[Removal]) -> (usize, usize) {
 
 impl Desktop {
     pub(crate) fn subagent_removals(&self, r: &Removal) -> Vec<Removal> {
-        let place = |a: &Summary| self.terminals.sessions.get(&a.terminal_id).and_then(|s| self.place_of(&s.info));
-        subagent_removals(r, &self.agents, place, &self.worktrees)
+        subagent_removals(r, &self.agents, |a| self.session_place(a), &self.worktrees, &self.store.subtrees)
+    }
+
+    fn session_place(&self, a: &Summary) -> Option<String> {
+        self.terminals.sessions.get(&a.terminal_id).and_then(|s| self.place_of(&s.info))
+    }
+
+    /// Records each live subagent's worktree: once the sessions close, nothing else says whose it was.
+    pub(crate) fn remember_subtrees(&mut self, cx: &mut Context<Self>) {
+        let links = subtree_links(&self.agents, |a| self.session_place(a));
+        if remember(&mut self.store.subtrees, links) {
+            self.save_soon(cx);
+        }
     }
 
     /// Asks first, offering to delete the tree's branch too and warning about the work that would go.
@@ -331,6 +363,7 @@ impl Desktop {
         self.prs.forget(tree);
         self.store.layouts.remove(tree);
         self.store.scopes.remove(tree);
+        self.store.subtrees.retain(|c, p| c != tree && p != tree);
         self.store.untrack(tree);
         self.store.sections.unpin_tree(tree);
         self.save_soon(cx);
@@ -342,7 +375,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, lost_together, run, run_script, subagent_removals, teardown_for};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, lost_together, run, run_script, remember, subagent_removals, subtree_links, teardown_for};
     use std::time::Duration;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -385,8 +418,40 @@ mod tests {
         let agents = agents::Agents { list, ..Default::default() };
         let parent = |delete_branch| Removal { project: "/app".into(), tree: "/wt".into(), branch: Some("feat".into()), delete_branch, teardown: false };
         let child = |tree: &str, branch: Option<&str>, delete_branch| Removal { project: "/app".into(), tree: tree.into(), branch: branch.map(String::from), delete_branch, teardown: true };
-        assert_eq!(subagent_removals(&parent(true), &agents, place, &worktrees), [child("/wt-c", Some("tests"), true), child("/wt-g", None, false)]);
-        assert_eq!(subagent_removals(&parent(false), &agents, place, &worktrees), [child("/wt-c", Some("tests"), false), child("/wt-g", None, false)]);
+        assert_eq!(subagent_removals(&parent(true), &agents, place, &worktrees, &Default::default()), [child("/wt-c", Some("tests"), true), child("/wt-g", None, false)]);
+        assert_eq!(subagent_removals(&parent(false), &agents, place, &worktrees, &Default::default()), [child("/wt-c", Some("tests"), false), child("/wt-g", None, false)]);
+    }
+
+    #[test]
+    fn a_worktree_takes_its_subagents_worktrees_after_their_sessions_closed() {
+        let user = agents::Summary { id: "user".into(), terminal_id: "user".into(), ..Default::default() };
+        let agents = agents::Agents { list: vec![user], ..Default::default() };
+        let place = |a: &agents::Summary| (a.id == "user").then(|| "/wt-busy".to_string());
+        let made = |path: &str| git::Worktree { path: path.into(), branch: format!("b{path}"), main: false, made: true };
+        let worktrees = [("/app".to_string(), vec![made("/wt"), made("/wt-c"), made("/wt-g"), made("/wt-busy"), made("/wt-other")])].into();
+        let subtrees = [("/wt-c", "/wt"), ("/wt-g", "/wt-c"), ("/wt-busy", "/wt"), ("/wt-other", "/elsewhere")].map(|(c, p)| (c.to_string(), p.to_string())).into();
+        let parent = Removal { project: "/app".into(), tree: "/wt".into(), branch: Some("feat".into()), delete_branch: true, teardown: false };
+        let trees: Vec<String> = subagent_removals(&parent, &agents, place, &worktrees, &subtrees).into_iter().map(|r| r.tree).collect();
+        assert_eq!(trees, ["/wt-c", "/wt-g"]);
+    }
+
+    #[test]
+    fn a_subagent_is_remembered_by_the_worktree_it_works_in_apart_from_its_parent() {
+        let agent = |id: &str, parent: &str, relationship: &str| agents::Summary { id: id.into(), terminal_id: id.into(), parent: parent.into(), relationship: relationship.into(), ..Default::default() };
+        let list = vec![agent("p", "", ""), agent("c", "p", "subagent"), agent("shared", "p", "subagent"), agent("fork", "p", "fork"), agent("orphan", "gone", "subagent")];
+        let at: std::collections::HashMap<&str, &str> = [("p", "/wt"), ("c", "/wt-c"), ("shared", "/wt"), ("fork", "/wt-f"), ("orphan", "/wt-o")].into();
+        let place = |a: &agents::Summary| at.get(a.id.as_str()).map(|t| t.to_string());
+        let links = subtree_links(&agents::Agents { list, ..Default::default() }, place);
+        assert_eq!(links, [("/wt-c".to_string(), "/wt".to_string())]);
+    }
+
+    #[test]
+    fn a_subagents_worktree_keeps_the_parent_it_was_first_seen_with() {
+        let link = |c: &str, p: &str| (c.to_string(), p.to_string());
+        let mut subtrees = [link("/wt-c", "/wt")].into();
+        assert!(!remember(&mut subtrees, vec![link("/wt-c", "/other")]));
+        assert!(remember(&mut subtrees, vec![link("/wt-g", "/wt-c")]));
+        assert_eq!(subtrees, [link("/wt-c", "/wt"), link("/wt-g", "/wt-c")].into());
     }
 
     #[test]
