@@ -1,9 +1,8 @@
-e2e TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo, 10 runs each
+e2e TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo
 
-main:
+children only, 10 runs each. main:
    3     delegation_close_test.go:28: waiting for status closed: failed to get reader: context deadline exceeded
    7     delegation_close_test.go:29: timed out waiting for the children's terminals to end
-
 this PR:
    1     delegation_close_test.go:28: waiting for status closed: failed to get reader: context deadline exceeded
    1 --- FAIL: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (11.94s)
@@ -13,3 +12,12 @@ this PR:
    1 --- PASS: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (1.97s)
    1 --- PASS: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (1.99s)
    1 --- PASS: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (2.63s)
+
+with a grandchild. this PR (3 runs), then main (2 runs):
+--- PASS: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (4.28s)
+--- PASS: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (2.73s)
+--- PASS: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (2.70s)
+    delegation_close_test.go:35: timed out waiting for the children's and the grandchild's terminals to end
+--- FAIL: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (13.67s)
+    delegation_close_test.go:35: timed out waiting for the children's and the grandchild's terminals to end
+--- FAIL: TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo (12.85s)
