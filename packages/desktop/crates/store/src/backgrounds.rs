@@ -9,15 +9,16 @@ pub fn is_image(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
-/// Copies `from` into `~/.anywhere/backgrounds/` (`home` is the user's home) under a fresh name and drops the copies before it.
+/// Copies `from` into `~/.anywhere/backgrounds/` (`home` is the user's home) under a fresh name and deletes `replaced`, the copy it takes over from.
 /// The fresh name keeps a re-pick of the current copy from truncating itself, and the image cache, keyed by path, from showing the old picture.
-pub fn keep(home: &Path, from: &Path) -> io::Result<PathBuf> {
+/// Only `replaced` goes: Anywhere and Anywhere Dev share the folder, each with its own copy.
+pub fn keep(home: &Path, from: &Path, replaced: Option<&Path>) -> io::Result<PathBuf> {
     let dir = home.join(".anywhere/backgrounds");
     std::fs::create_dir_all(&dir)?;
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
     let to = dir.join(format!("{stamp}-{}", from.file_name().unwrap_or_default().to_string_lossy()));
     std::fs::copy(from, &to)?;
-    for old in std::fs::read_dir(&dir)?.flatten().map(|e| e.path()).filter(|p| *p != to) {
+    if let Some(old) = replaced.filter(|old| *old != to) {
         let _ = std::fs::remove_file(old);
     }
     Ok(to)
@@ -47,19 +48,21 @@ mod tests {
     }
 
     #[test]
-    fn keeping_an_image_copies_it_and_drops_the_one_before_even_when_re_picked() {
+    fn keeping_an_image_copies_it_and_deletes_only_the_copy_it_replaces_even_when_re_picked() {
         let dir = std::env::temp_dir().join(format!("pocket-backgrounds-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("sky.png"), b"sky").unwrap();
         let home = dir.join("home");
-        let first = keep(&home, &dir.join("sky.png")).unwrap();
+        let other_app = keep(&home, &dir.join("sky.png"), None).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let second = keep(&home, &first).unwrap();
+        let first = keep(&home, &dir.join("sky.png"), None).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let second = keep(&home, &first, Some(&first)).unwrap();
         assert_ne!(first, second);
         assert_eq!(std::fs::read(&second).unwrap(), b"sky");
         assert!(second.starts_with(home.join(".anywhere/backgrounds")));
-        assert_eq!(std::fs::read_dir(home.join(".anywhere/backgrounds")).unwrap().count(), 1);
+        assert!(!first.exists() && other_app.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

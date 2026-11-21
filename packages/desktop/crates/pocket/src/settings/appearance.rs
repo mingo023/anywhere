@@ -189,13 +189,17 @@ fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
     cx.spawn(async move |this, cx| {
         let Ok(Ok(Some(paths))) = rx.await else { return };
         let Some(from) = paths.into_iter().next() else { return };
+        let Ok(before) = this.read_with(cx, |d, _| d.store.appearance.background.clone()) else { return };
+        let replaced = before.clone().map(PathBuf::from);
         let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).filter(|h| !h.is_empty()).map(PathBuf::from);
         let kept = match (store::backgrounds::is_image(&from), home) {
             (false, _) => Err("Pick a PNG, JPEG, WebP or GIF image.".into()),
             (true, None) => Err("Couldn't find your home folder to keep the image in.".into()),
-            (true, Some(home)) => cx.background_executor().spawn(async move { store::backgrounds::keep(&home, &from) }).await.map_err(|e| format!("Couldn't use the image: {e}")),
+            (true, Some(home)) => cx.background_executor().spawn(async move { store::backgrounds::keep(&home, &from, replaced.as_deref()) }).await.map_err(|e| format!("Couldn't use the image: {e}")),
         };
         this.update(cx, |d, cx| match kept {
+            // A Remove or Reset while the copy ran wins over it.
+            Ok(_) if d.store.appearance.background != before => {}
             Ok(to) => set_background(d, Some(to.to_string_lossy().into_owned()), setting, cx),
             Err(why) => {
                 d.error = Some(why);
