@@ -2,6 +2,9 @@ package orch
 
 import (
 	"encoding/json"
+	"math"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -26,6 +29,99 @@ func (s *Store) Restorable() (map[string][]byte, error) {
 
 func (s *Store) OpenSessions() ([]Session, error) {
 	return s.Sessions(`closed_at = 0 AND archived = 0 AND status != 'closed' AND instr(id, '/') = 0 ORDER BY created_at, id`)
+}
+
+// Subtrees are the worktrees the subagents of a tree's sessions worked in.
+type Subtrees struct {
+	// Local are this Mac's, every generation down.
+	Local []string
+	// Hosts are the folders of the subagents on linked hosts given worktrees
+	// of their own there; each host deletes its own subagents' with them.
+	Hosts []HostTree
+}
+
+// HostTree's Sessions are the line's on that host, untagged, for the host to
+// tell its subagents' worktree from one someone else works in or made since.
+type HostTree struct {
+	Host, Path string
+	Sessions   []string
+}
+
+// SubagentTrees is each worktree the subagents of tree's sessions worked in,
+// open or closed, except one an open session outside that line works in.
+// treeOf is the worktree holding a folder that was there at a time in Unix
+// milliseconds, "" for none: a closed session's folder may hold a newer
+// worktree at the same path by now.
+func (s *Store) SubagentTrees(tree string, treeOf func(cwd string, at int64) string) (Subtrees, error) {
+	all, err := s.Sessions(`1 = 1 ORDER BY created_at, id`)
+	if err != nil {
+		return Subtrees{}, err
+	}
+	isolated := map[string]bool{}
+	rows, err := s.db.Query(`SELECT child_id FROM delegations WHERE isolation = 'worktree' AND instr(child_id, '/') > 0`)
+	if err != nil {
+		return Subtrees{}, err
+	}
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			isolated[id] = true
+		}
+	}
+	rows.Close()
+	trees := make(map[string]string, len(all))
+	line := map[string]bool{}
+	var parents []string
+	for _, x := range all {
+		// A session starts in its worktree, and a newer one there is made once it's gone; its close time can move
+		// later, as when a restart closes what it didn't bring back.
+		at := int64(math.MaxInt64)
+		if x.ClosedAt != 0 || x.Status == "closed" {
+			at = x.CreatedAt
+		}
+		if strings.Contains(x.ID, "/") {
+			continue
+		}
+		if trees[x.ID] = treeOf(x.Cwd, at); trees[x.ID] == tree {
+			parents = append(parents, x.ID)
+		}
+	}
+	for len(parents) > 0 {
+		p := parents[len(parents)-1]
+		parents = parents[:len(parents)-1]
+		for _, x := range all {
+			if x.ParentID == p && x.Relationship == "subagent" && !line[x.ID] {
+				line[x.ID] = true
+				parents = append(parents, x.ID)
+			}
+		}
+	}
+	onHost := map[string][]string{}
+	for _, x := range all {
+		if host, id, tagged := strings.Cut(x.ID, "/"); tagged && line[x.ID] {
+			onHost[host] = append(onHost[host], id)
+		}
+	}
+	var out Subtrees
+	for _, x := range all {
+		if host, _, tagged := strings.Cut(x.ID, "/"); tagged {
+			if line[x.ID] && isolated[x.ID] && x.Cwd != "" {
+				out.Hosts = append(out.Hosts, HostTree{host, x.Cwd, onHost[host]})
+			}
+			continue
+		}
+		w := trees[x.ID]
+		if !line[x.ID] || w == "" || w == tree || slices.Contains(out.Local, w) {
+			continue
+		}
+		outsider := func(o Session) bool {
+			return trees[o.ID] == w && !line[o.ID] && o.ClosedAt == 0 && o.Status != "closed"
+		}
+		if !slices.ContainsFunc(all, outsider) {
+			out.Local = append(out.Local, w)
+		}
+	}
+	return out, nil
 }
 
 // CloseAbsent closes each open session that isn't running: after a start,

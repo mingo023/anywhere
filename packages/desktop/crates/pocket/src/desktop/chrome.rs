@@ -67,11 +67,13 @@ pub enum Overlay {
 pub enum Confirm {
     RemoveProject(String),
     /// `subtrees` are the worktrees its sessions' subagents worked in, which go with it; `lost_anyway` counts the commits
-    /// their detached HEADs alone hold, which go whether or not branches stay.
-    DeleteWorktree { removal: Removal, dirty: usize, lost: usize, lost_anyway: usize, subtrees: Vec<Removal> },
+    /// their detached HEADs alone hold, which go whether or not branches stay. `requested` is false for a sheet that arrives
+    /// on its own, for a host's leftover.
+    DeleteWorktree { removal: Removal, dirty: usize, lost: usize, lost_anyway: usize, subtrees: Vec<Removal>, requested: bool },
     DeleteLocal(String),
     DeleteScratch { path: String, dirty: usize, lost: usize },
-    TeardownFailed { removal: Removal, tail: String, subtrees: Vec<Removal> },
+    /// `failed`'s teardown failed; deleting anyway carries on with `removal` and `subtrees`, skipping only that teardown.
+    TeardownFailed { removal: Removal, failed: String, tail: String, subtrees: Vec<Removal> },
     Discard(Vec<String>),
     CloseSession(String),
     CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod compare;
 pub mod github;
@@ -214,6 +214,8 @@ pub struct Worktree {
     pub main: bool,
     /// Anywhere made it, whatever folder it is in.
     pub made: bool,
+    /// When its folder was made, if known.
+    pub created: Option<SystemTime>,
 }
 
 fn parse_worktrees(out: &str) -> Vec<Worktree> {
@@ -230,7 +232,7 @@ fn parse_worktrees(out: &str) -> Vec<Worktree> {
                     branch = "detached".into();
                 }
             }
-            Some(Worktree { path: path?, branch, main: false, made: false })
+            Some(Worktree { path: path?, branch, main: false, made: false, created: None })
         })
         .enumerate()
         .map(|(i, w)| Worktree { main: i == 0, ..w })
@@ -243,18 +245,29 @@ pub fn worktrees(run: &Runner, cwd: &str) -> Vec<Worktree> {
     for w in &mut out {
         w.path = run.place(&w.path);
         w.made = !w.main && marked(run, &w.path);
+        w.created = run.stat(&w.path).ok().flatten().and_then(|s| s.created);
     }
-    out.sort_by_cached_key(|w| (!w.main, run.stat(&w.path).ok().flatten().and_then(|s| s.created)));
+    out.sort_by_key(|w| (!w.main, w.created));
     out
 }
 
 /// Whether pocketd left its marker in `tree`'s git folder, as it does for each worktree it makes (`worktree.Marker`).
 fn marked(run: &Runner, tree: &str) -> bool {
-    let Ok(pointer) = run.read(&format!("{tree}/.git"), 4096) else { return false };
+    marker(run, tree).is_some()
+}
+
+/// When pocketd made the worktree at `tree`, in Unix milliseconds on the machine holding it: its marker is written once.
+pub fn made_at(run: &Runner, tree: &str) -> Option<u64> {
+    let made = marker(run, tree)?.modified?.duration_since(UNIX_EPOCH).ok()?;
+    Some(made.as_millis() as u64)
+}
+
+fn marker(run: &Runner, tree: &str) -> Option<Stat> {
+    let pointer = run.read(&format!("{tree}/.git"), 4096).ok()?;
     let pointer = String::from_utf8_lossy(&pointer);
-    let Some(dir) = pointer.trim().strip_prefix("gitdir: ") else { return false };
+    let dir = pointer.trim().strip_prefix("gitdir: ")?;
     let dir = if dir.starts_with('.') { format!("{tree}/{dir}") } else { run.place(dir) };
-    matches!(run.stat(&format!("{dir}/anywhere")), Ok(Some(_)))
+    run.stat(&format!("{dir}/anywhere")).ok().flatten()
 }
 
 /// Local branches, most recently committed first.
@@ -562,6 +575,10 @@ mod tests {
         std::fs::write(repo.join(".git/worktrees/ours/anywhere"), "").unwrap();
         let made: Vec<bool> = worktrees(&Runner::Local, r).iter().map(|w| w.made).collect();
         assert_eq!(made, [false, true, false]);
+        let marker = std::fs::metadata(repo.join(".git/worktrees/ours/anywhere")).unwrap().modified().unwrap();
+        let ms = marker.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        assert_eq!(made_at(&Runner::Local, dir.join("ours").to_str().unwrap()), Some(ms));
+        assert_eq!(made_at(&Runner::Local, dir.join("theirs").to_str().unwrap()), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -610,7 +627,7 @@ mod tests {
             self.0.get(path).map(|f| f.as_bytes().to_vec()).ok_or_else(|| std::io::ErrorKind::NotFound.into())
         }
         fn stat(&self, path: &str) -> std::io::Result<Option<Stat>> {
-            Ok(self.0.contains_key(path).then_some(Stat { dir: false, size: 0, created: None }))
+            Ok(self.0.contains_key(path).then_some(Stat { dir: false, size: 0, created: None, modified: None }))
         }
         fn place(&self, path: &str) -> String {
             format!("//box{path}")

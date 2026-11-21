@@ -38,6 +38,16 @@ func markerPath(tree string) string {
 	return filepath.Join(dir, Marker)
 }
 
+// MadeAt is when Anywhere made the Worktree at tree, in Unix milliseconds; 0
+// when it didn't.
+func MadeAt(tree string) int64 {
+	info, err := os.Stat(markerPath(tree))
+	if err != nil {
+		return 0
+	}
+	return info.ModTime().UnixMilli()
+}
+
 func mark(tree string) {
 	if err := os.WriteFile(markerPath(tree), nil, 0o644); err != nil {
 		log.Printf("worktree: marking %s: %v", tree, err)
@@ -59,9 +69,22 @@ func Claim(f registry.File, used []string) {
 		for _, w := range ws {
 			holds := func(u string) bool { return u == w.Path || strings.HasPrefix(u, w.Path+"/") }
 			if !w.Main && !w.Made && strings.HasPrefix(resolved(w.Path), dir) && slices.ContainsFunc(used, holds) {
-				mark(w.Path)
+				claim(w.Path)
 			}
 		}
+	}
+}
+
+// claim marks tree dated when git made it, so MadeAt still tells it from a
+// Worktree made at its folder since.
+func claim(tree string) {
+	mark(tree)
+	made, err := os.Stat(filepath.Join(filepath.Dir(markerPath(tree)), "commondir"))
+	if err != nil {
+		return
+	}
+	if err := os.Chtimes(markerPath(tree), made.ModTime(), made.ModTime()); err != nil {
+		log.Printf("worktree: dating %s: %v", tree, err)
 	}
 }
 

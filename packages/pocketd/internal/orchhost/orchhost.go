@@ -55,6 +55,8 @@ type Host struct {
 	Envs  mcp.Environments
 	// PRs is the pull request of each tree's branch, as gh last told; nil tells none.
 	PRs func(ctx context.Context, tree string) *proto.PR
+	// CloseTerminal ends a terminal here and its processes; nil leaves terminals be.
+	CloseTerminal func(id string)
 
 	engine *orch.Engine
 	models sync.Map // kind -> func() listing
@@ -127,6 +129,10 @@ func (h *Host) Run(ctx context.Context, e orch.Effect) (map[string]any, error) {
 		return nil, nil
 	case orch.EffClose:
 		a.Driver().Close()
+		// Its terminal would fall back to a bare shell. A host closes its own the same way when the Mac forwards the close.
+		if h.CloseTerminal != nil {
+			h.CloseTerminal(a.Summary().TerminalID)
+		}
 		return nil, nil
 	case orch.EffRename:
 		var p orch.TitlePayload

@@ -298,7 +298,7 @@ const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
 const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbox", target: { kind: "alias", name: "devbox" } }] : [];
-const hostProjects = process.env.FIXTURE_HANDOFF ? handoffHosts.filter((h) => h.clone).map((h) => `//${h.id}${h.home}/code/app-android`) : process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
+const hostProjects = process.env.FIXTURE_HANDOFF_UNLISTED ? [] : process.env.FIXTURE_HANDOFF ? handoffHosts.filter((h) => h.clone).map((h) => `//${h.id}${h.home}/code/app-android`) : process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
 if (process.env.FIXTURE_HOST_GH) tracked.push("//devbox/home/dev/code/app-ios-login");
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: process.env.FIXTURE_HOST_GH ? { "//devbox/home/dev/code/app-ios": { gh_account: "work" } } : {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined, appearance: process.env.FIXTURE_BACKGROUND ? { background: process.env.FIXTURE_BACKGROUND } : undefined }));
 
@@ -565,20 +565,36 @@ const handoffState = (tree: string) => {
 };
 // devbox as a real folder: what pocketd's exec and fs ops do there, with its agents' sign-in faked. False for an op it leaves to the rest.
 let dropped = false;
+// FIXTURE_DEVBOX_DROP_MS=n: devbox goes offline for n ms once a delete sheet has read its subagent's worktree twice (FIXTURE_SUBAGENT_HOST).
+let subagentReads = 0;
+let devboxDown = false;
+// devbox's agent websockets, which a real link drop closes.
+const devboxSockets = new Set<{ close(): void }>();
 const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
   const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
   const fail = (e: unknown) => reply({ ev: "error", error: String((e as Error).message ?? e) });
-  if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1"] } });
+  if (devboxDown) reply({ ev: "error", error: "host offline" });
+  else if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1"] } });
   else if (op.op === "exec" && ["codex", "claude"].includes(op.argv[0])) {
     const out = op.argv[0] === "claude" ? JSON.stringify({ loggedIn: true, projectsDirectory: join(h.home, ".claude", "projects") }) : "Logged in using ChatGPT";
     reply(h.signedOut ? { ev: "exec", code: 1, stderr: b64("Not logged in\n") } : { ev: "exec", stdout: b64(out) });
   } else if (op.op === "exec") {
     const r = Bun.spawnSync(op.argv, { cwd: op.cwd, env: { ...process.env, HOME: h.home, GIT_CONFIG_NOSYSTEM: "1" } });
     reply({ ev: "exec", code: r.exitCode, stdout: b64(r.stdout), stderr: b64(r.stderr) });
+    const drop = Number(process.env.FIXTURE_DEVBOX_DROP_MS ?? 0);
+    if (drop && op.argv.includes("worktree") && op.argv.includes("list") && op.argv.some((a) => a.endsWith("delegate-host-notes")) && ++subagentReads === 2) {
+      devboxDown = true;
+      if (hostsWs) setLink(hostsWs, h.id, { state: "retrying", failure: "dropped" });
+      devboxSockets.forEach((s) => s.close());
+      setTimeout(() => {
+        devboxDown = false;
+        if (hostsWs) setLink(hostsWs, h.id, ONLINE);
+      }, drop);
+    }
   } else if (op.op === "fs.stat") {
     try {
       const st = statSync(op.path);
-      reply({ exists: true, dir: st.isDirectory(), size: st.size });
+      reply({ exists: true, dir: st.isDirectory(), size: st.size, mtime: Math.floor(st.mtimeMs) });
     } catch {
       reply({ exists: false });
     }
@@ -676,6 +692,8 @@ if (process.env.FIXTURE_HOST_AGENTS) {
     port: port + 1,
     fetch: (req, server) => (server.upgrade(req) ? undefined : new Response("devbox")),
     websocket: {
+      open: (ws) => void devboxSockets.add(ws),
+      close: (ws) => void devboxSockets.delete(ws),
       message(ws, raw) {
         const f = JSON.parse(raw.toString());
         if (log) appendFileSync(log, raw + "\n");
@@ -870,13 +888,45 @@ const childCheckout = (parentId: string, parentCwd: string, title: string) => {
   return { cwd: tree, local: "" };
 };
 // FIXTURE_SUBAGENT=<agent id>: that session already delegated "Write the migration tests"; its child sits in a worktree made for it, with one untracked file.
+// Each child starts once its worktree is made, as pocketd's do.
 if (process.env.FIXTURE_SUBAGENT) {
   const parent = summaries.find((s) => s.id === process.env.FIXTURE_SUBAGENT)!;
   const id = `${parent.id}-sub`;
   const { cwd } = childCheckout(parent.id, parent.cwd, "Write the migration tests");
   write(join(cwd, "notes.md"), "draft\n");
   sessions.push({ id, cmd: "codex", args: [], cwd });
-  summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent" } as (typeof summaries)[number]);
+  summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
+}
+// FIXTURE_SUBAGENT_HOST=1 (with FIXTURE_SUBAGENT and FIXTURE_HANDOFF): that session also delegated to devbox, whose child sits in a worktree made
+// for it in devbox's clone, listed as this Mac's pocketd lists a host's child: by devbox's own path. devbox-worktrees.txt, next to FIXTURE_LOG,
+// holds that clone's worktrees as they stand. FIXTURE_HANDOFF_UNLISTED=1 leaves devbox's projects out of the desktop's.
+if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_HOST) {
+  const parent = summaries.find((s) => s.id === process.env.FIXTURE_SUBAGENT)!;
+  const clone = join(devHome, "code", "app-android");
+  const tree = `${clone}.worktrees/delegate-host-notes`;
+  git(clone, "worktree", "add", "-q", "-b", "delegate/host-notes", tree, "HEAD");
+  writeFileSync(join(clone, ".git", "worktrees", "delegate-host-notes", "anywhere"), "");
+  // FIXTURE_DEVBOX_DIRTY=1: devbox's child left a file behind, so deleting its worktree asks first.
+  if (process.env.FIXTURE_DEVBOX_DIRTY) writeFileSync(join(tree, "notes.md"), "draft\n");
+  // FIXTURE_DEVBOX_TEARDOWN_FAILS=1: its project's teardown script fails there, ignored by git so the worktree stays clean.
+  if (process.env.FIXTURE_DEVBOX_TEARDOWN_FAILS) {
+    mkdirSync(join(tree, ".anywhere"), { recursive: true });
+    writeFileSync(join(tree, ".anywhere", "teardown.sh"), "echo teardown broke; exit 3\n", { mode: 0o755 });
+    appendFileSync(join(clone, ".git", "info", "exclude"), ".anywhere/\n");
+  }
+  summaries.push({ ...parent, id: `devbox/${parent.id}-hsub`, terminalId: "", cwd: tree, title: "Read the notes on devbox", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
+  if (process.env.FIXTURE_LOG) {
+    const out = join(dirname(process.env.FIXTURE_LOG), "devbox-worktrees.txt");
+    // devbox-worktrees-log.txt adds each change, with when devbox's link was up, to show what went while it was offline.
+    let last = "";
+    setInterval(() => {
+      const branches = Bun.spawnSync(["git", "-C", clone, "branch", "--list", "delegate/*"]).stdout.toString();
+      const now = (Bun.spawnSync(["git", "-C", clone, "worktree", "list"]).stdout.toString() + `branches: ${branches.trim() || "none"}\n`).replaceAll(dir, "<scratch>");
+      writeFileSync(out, now);
+      if (now !== last) appendFileSync(join(dirname(process.env.FIXTURE_LOG!), "devbox-worktrees-log.txt"), `${new Date().toISOString()} link=${hosts[0].link.state}\n${now}\n`);
+      last = now;
+    }, 300);
+  }
 }
 // A child with two turns of several paragraphs each, for screens of a delegated chat scrolled under its breadcrumb.
 const longChild = (id: string): Item[] => {
@@ -954,6 +1004,17 @@ Bun.serve({
         ws.send(JSON.stringify({ type: "board", tickets: TICKETS, limit: 4 }));
         if (!process.env.FIXTURE_NO_HOSTS) ws.send(JSON.stringify({ type: "host.list", hosts }));
         hostsWs = ws;
+        // FIXTURE_SUBAGENT_CLOSE_MS=<ms>: the FIXTURE_SUBAGENT session and its subagent close after that long.
+        if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_CLOSE_MS) {
+          setTimeout(() => {
+            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`, `devbox/${process.env.FIXTURE_SUBAGENT}-hsub`]) {
+              exit(ws, id);
+              const i = sessions.findIndex((s) => s.id === id);
+              if (i >= 0) sessions.splice(i, 1);
+            }
+            announce();
+          }, Number(process.env.FIXTURE_SUBAGENT_CLOSE_MS));
+        }
         for (const a of scenario.agents.filter((a) => a.waiting)) {
           ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `ask-${a.id}`, agentId: a.id, toolName: "Bash", detail: { kind: "shell", command: a.waiting } } }));
         }

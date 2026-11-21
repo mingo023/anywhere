@@ -11,8 +11,12 @@ import (
 	"time"
 
 	"pocketd/internal/accounts"
+	"pocketd/internal/hosts"
 	"pocketd/internal/launch"
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
+	"pocketd/internal/registry"
+	"pocketd/internal/terminal"
 	"pocketd/internal/workspace"
 	"pocketd/internal/worktree"
 )
@@ -26,6 +30,12 @@ type WorkspaceService struct {
 	Accounts *workspace.AccountList
 	// Switch moves a chat-only agent to another account once its turn ends; nil switches none.
 	Switch func(agentID, account string) error
+	// SubagentTrees names the worktrees the subagents of the sessions in a worktree worked in, which go with it; nil names none.
+	SubagentTrees func(tree string, treeOf func(cwd string, at int64) string) (orch.Subtrees, error)
+	// HostDelete deletes a worktree on a linked host; nil deletes none there.
+	HostDelete func(ctx context.Context, host, path string, subagents []string, deleteBranch, force bool) error
+	// Session is the store's row for a session, open or closed; nil knows none.
+	Session func(id string) (*orch.Session, error)
 }
 
 // closeWait bounds how long worktree.delete waits on a closed terminal's
@@ -146,7 +156,7 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 		return errors.New("This pocketd can't remove worktrees")
 	}
 	go func() {
-		if err := c.removeWorktree(m.Path, m.DeleteBranch, m.Force); err != nil {
+		if err := c.removeWorktree(m.Path, m.Subagents, m.DeleteBranch, m.Force); err != nil {
 			c.send(workspaceError(m.ID, err))
 			return
 		}
@@ -156,19 +166,86 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 }
 
 // removeWorktree closes the terminals opened in the worktree at path, removes
-// its folder and its name, and its branch when asked. The main worktree, and
-// a branch whose commits nothing else holds unless forced, are refused before
-// anything closes.
-func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
+// its folder and its name, and its branch when asked; the same for each
+// worktree Anywhere made for its sessions' subagents, here first and on linked
+// hosts before that, so a failure leaves the worktree at path to retry from.
+// The main worktree, branches whose commits nothing else holds, and a host
+// that refuses or is offline refuse the delete before anything here closes,
+// unless forced. A parent's Mac deleting its subagents' worktree here names
+// them: a worktree someone else works in, or made since they closed, isn't theirs.
+func (c *conn) removeWorktree(path string, subagents []string, deleteBranch, force bool) error {
 	f := c.s.Registry.Load()
+	tree, err := findTree(f, path)
+	if err != nil {
+		return err
+	}
+	if subagents != nil && c.othersIn(tree.Path, subagents) {
+		return worktree.ErrInUse
+	}
+	if at := worktree.MadeAt(tree.Path); subagents != nil && (at == 0 || at > c.madeBy(tree.Path, subagents)) {
+		return worktree.ErrUnknownWorktree
+	}
+	subtrees, onHosts := c.subagentTrees(f, tree.Path)
+	line := append(slices.Clone(subagents), c.openIn(tree.Path)...)
+	subtrees = slices.DeleteFunc(subtrees, func(t linkedTree) bool { return c.othersIn(t.Path, line) })
+	trees := append(subtrees, tree)
+	if !force {
+		if n := lostCommits(trees, deleteBranch); n > 0 {
+			return unpushedCommits(n)
+		}
+	}
+	if del := c.s.Workspace.HostDelete; del != nil {
+		for _, h := range onHosts {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := del(ctx, h.Host, h.Path, h.Sessions, deleteBranch, force)
+			cancel()
+			if err != nil && !force {
+				return err
+			}
+		}
+	}
+	c.closeTerminals(trees)
+	for _, t := range trees {
+		if err := c.removeTree(f, t, deleteBranch, force); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lostCommits is what deleting trees together loses: their branches' commits
+// counted as one set when those go, and what detached HEADs alone hold.
+func lostCommits(trees []linkedTree, deleteBranch bool) int {
+	branches := map[string][]string{}
+	n := 0
+	for _, t := range trees {
+		switch {
+		case t.Branch == "":
+			n += worktree.DetachedCommits(t.Path)
+		case deleteBranch:
+			branches[t.project] = append(branches[t.project], t.Branch)
+		}
+	}
+	for project, bs := range branches {
+		n += worktree.LostCommits(project, bs...)
+	}
+	return n
+}
+
+type linkedTree struct {
+	project string
+	worktree.Worktree
+}
+
+func findTree(f registry.File, path string) (linkedTree, error) {
 	path = filepath.Clean(path)
 	project, ok := worktree.Containing(f, path)
 	if !ok || !filepath.IsAbs(path) {
-		return worktree.ErrUnknownWorktree
+		return linkedTree{}, worktree.ErrUnknownWorktree
 	}
 	trees, err := worktree.List(project)
 	if err != nil {
-		return worktree.ErrUnknownProject
+		return linkedTree{}, worktree.ErrUnknownProject
 	}
 	if real, err := filepath.EvalSymlinks(path); err == nil {
 		path = real
@@ -176,33 +253,161 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path })
 	switch {
 	case i < 0:
-		return worktree.ErrUnknownWorktree
+		return linkedTree{}, worktree.ErrUnknownWorktree
 	case trees[i].Main:
-		return worktree.ErrMain
+		return linkedTree{}, worktree.ErrMain
 	}
-	if branch := trees[i].Branch; deleteBranch && branch != "" && !force {
-		if n := worktree.LostCommits(project, branch); n > 0 {
-			return unpushedCommits(n)
+	return linkedTree{project, trees[i]}, nil
+}
+
+func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch.HostTree) {
+	if c.s.Workspace.SubagentTrees == nil {
+		return nil, nil
+	}
+	listed := map[string][]worktree.Worktree{}
+	treeOf := func(cwd string, at int64) string {
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = real
 		}
-	}
-	if c.s.Terminals != nil {
-		var closing []<-chan struct{}
-		for _, t := range c.s.Terminals.All() {
-			if info := t.Info(); info.Local == "" && inside(info.Cwd, path) {
-				t.Close()
-				closing = append(closing, t.Done())
+		project, ok := worktree.Containing(f, cwd)
+		if !ok {
+			return ""
+		}
+		if _, ok := listed[project]; !ok {
+			listed[project], _ = worktree.List(project)
+		}
+		best := ""
+		for _, w := range listed[project] {
+			if inside(cwd, w.Path) && len(w.Path) > len(best) {
+				best = w.Path
 			}
 		}
-		deadline := time.After(closeWait)
-		for _, done := range closing {
-			select {
-			case <-done:
-			case <-deadline:
+		if worktree.MadeAt(best) > at {
+			return ""
+		}
+		return best
+	}
+	found, err := c.s.Workspace.SubagentTrees(path, treeOf)
+	if err != nil {
+		return nil, nil
+	}
+	var out []linkedTree
+	for _, p := range found.Local {
+		if t, err := findTree(f, p); err == nil && t.Made && !slices.ContainsFunc(out, func(o linkedTree) bool { return o.Path == t.Path }) {
+			out = append(out, t)
+		}
+	}
+	return out, found.Hosts
+}
+
+// madeBy is when the worktree at tree was made by, on this machine's clock, if
+// it's the one the sessions named worked in: before the last of them there
+// started, as a session starts in its worktree and a newer one is made only
+// once they're gone. A store's close and update times move later; this doesn't.
+// 0 when none is known, as when the host pruned them: nothing then proves it theirs.
+func (c *conn) madeBy(tree string, sessions []string) int64 {
+	by := int64(0)
+	for _, id := range sessions {
+		var s *orch.Session
+		if c.s.Workspace.Session != nil {
+			s, _ = c.s.Workspace.Session(id)
+		}
+		if s == nil {
+			continue
+		}
+		cwd := s.Cwd
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = real
+		}
+		if inside(cwd, tree) {
+			by = max(by, s.CreatedAt)
+		}
+	}
+	return by
+}
+
+// othersIn is whether a terminal in tree belongs to neither the open sessions
+// named nor their subagents.
+func (c *conn) othersIn(tree string, sessions []string) bool {
+	if c.s.Terminals == nil {
+		return false
+	}
+	ours := map[string]bool{}
+	for _, id := range sessions {
+		ours[id] = true
+	}
+	theirs := map[string]bool{}
+	if c.s.OpenSessions != nil {
+		open, _ := c.s.OpenSessions()
+		for grew := true; grew; {
+			grew = false
+			for _, s := range open {
+				if !ours[s.ID] && ours[s.ParentID] && s.Relationship == "subagent" {
+					ours[s.ID], grew = true, true
+				}
+			}
+		}
+		for _, s := range open {
+			if ours[s.ID] && s.Terminal != "" {
+				theirs[s.Terminal] = true
 			}
 		}
 	}
+	return slices.ContainsFunc(c.s.Terminals.All(), func(t *terminal.Terminal) bool {
+		info := t.Info()
+		return info.Local == "" && inside(info.Cwd, tree) && !theirs[info.ID]
+	})
+}
+
+// openIn is the open sessions working in tree.
+func (c *conn) openIn(tree string) []string {
+	if c.s.OpenSessions == nil {
+		return nil
+	}
+	open, _ := c.s.OpenSessions()
+	var ids []string
+	for _, s := range open {
+		cwd := s.Cwd
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = real
+		}
+		if inside(cwd, tree) {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
+}
+
+func (c *conn) closeTerminals(trees []linkedTree) {
+	if c.s.Terminals == nil {
+		return
+	}
+	var closing []<-chan struct{}
+	for _, t := range c.s.Terminals.All() {
+		info := t.Info()
+		if info.Local == "" && slices.ContainsFunc(trees, func(w linkedTree) bool { return inside(info.Cwd, w.Path) }) {
+			t.Close()
+			closing = append(closing, t.Done())
+		}
+	}
+	deadline := time.After(closeWait)
+	for _, done := range closing {
+		select {
+		case <-done:
+		case <-deadline:
+		}
+	}
+}
+
+func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch, force bool) error {
+	path, project := t.Path, t.project
+	t.Branch = branchToDelete(project, path, t.Branch, force)
 	if err := worktree.Remove(f, project, path); err != nil {
-		return err
+		// Naming it from its prompt may be writing its branch's lock into the git folder git is deleting.
+		time.Sleep(time.Second)
+		if err := worktree.Remove(f, project, path); err != nil {
+			return err
+		}
 	}
 	if c.s.Names != nil {
 		c.s.Names.Forget(path)
@@ -210,12 +415,40 @@ func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	if p := c.s.Workspace.Projects; p != nil {
 		defer p.Scan()
 	}
-	if branch := trees[i].Branch; deleteBranch && branch != "" {
+	if branch := t.Branch; deleteBranch && branch != "" {
 		if out, err := exec.Command("git", "-C", project, "branch", "-D", "--", branch).CombinedOutput(); err != nil {
 			return branchFailed{strings.TrimSpace(string(out))}
 		}
 	}
 	return nil
+}
+
+// branchToDelete is the branch that goes with the worktree at path, whose
+// branch was checked as checked. Naming a worktree from its prompt renames its
+// branch, maybe since: follow the rename, unless forced only when it loses
+// nothing unchecked.
+func branchToDelete(project, path, checked string, force bool) string {
+	if checked == "" || exec.Command("git", "-C", project, "show-ref", "--verify", "--quiet", "refs/heads/"+checked).Run() == nil {
+		return checked
+	}
+	trees, err := worktree.List(project)
+	if err != nil {
+		return ""
+	}
+	i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path })
+	if i < 0 || !renamedFrom(project, trees[i].Branch, checked) || !force && worktree.LostCommits(project, trees[i].Branch) > 0 {
+		return ""
+	}
+	return trees[i].Branch
+}
+
+// renamedFrom is whether branch was once named old, per the entry `git branch -m` leaves in its reflog
+// (renamed_from in crates/git/src/git.rs).
+func renamedFrom(project, branch, old string) bool {
+	out, _ := exec.Command("git", "-C", project, "log", "-g", "--format=%gs", "refs/heads/"+branch, "--").Output()
+	return branch != "" && slices.ContainsFunc(strings.Split(string(out), "\n"), func(l string) bool {
+		return strings.HasPrefix(l, "Branch: renamed refs/heads/"+old+" to ")
+	})
 }
 
 type branchFailed struct{ stderr string }
@@ -236,6 +469,10 @@ func (n unpushedCommits) Error() string {
 }
 
 func workspaceError(id string, err error) proto.Error {
+	if r, ok := errors.AsType[hosts.Refusal](err); ok {
+		r.Reply.ID = id
+		return r.Reply
+	}
 	if n, ok := errors.AsType[unpushedCommits](err); ok {
 		e := proto.NewErrorCode(id, proto.CodeUnpushedCommits, n.Error())
 		e.Count = int(n)

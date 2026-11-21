@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     fn trees(project: &str, paths: &[&str]) -> Worktrees {
-        let list = paths.iter().enumerate().map(|(i, p)| Worktree { path: p.to_string(), branch: format!("b{i}"), main: i == 0, made: false }).collect();
+        let list = paths.iter().enumerate().map(|(i, p)| Worktree { path: p.to_string(), branch: format!("b{i}"), main: i == 0, made: false, created: None }).collect();
         HashMap::from([(project.to_string(), list)])
     }
 

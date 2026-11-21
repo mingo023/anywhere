@@ -328,3 +328,13 @@ func TestFetchLeavesABaseThatIsNotALocalBranchAlone(t *testing.T) {
 		t.Fatalf("HEAD %s, repo at %s", head, at)
 	}
 }
+
+func TestABranchAlreadyGoneLeavesTheOthersLostCommitsCounted(t *testing.T) {
+	p := repo(t)
+	git(t, p, "switch", "-q", "-c", "work")
+	git(t, p, "commit", "-q", "--allow-empty", "-m", "unpushed")
+	git(t, p, "switch", "-q", "main")
+	if got := LostCommits(p, "gone", "work"); got != 1 {
+		t.Fatalf("LostCommits = %d, want 1", got)
+	}
+}
