@@ -412,6 +412,19 @@ fn holds(tree: &str, folder: &str) -> bool {
     folder == tree || folder.starts_with(&format!("{tree}/"))
 }
 
+/// The deepest of `folder` and its parents that exists, so a deleted subfolder still leads to its worktree. `None` when one
+/// couldn't be read.
+fn nearest(folder: &str, exists: impl Fn(&str) -> std::io::Result<bool>) -> Option<String> {
+    let mut at = folder;
+    while !exists(at).ok()? {
+        match at.rsplit_once('/') {
+            Some((up, _)) if matches!(hosts::split(up), (Some(_), p) if p.len() > 1) => at = up,
+            _ => break,
+        }
+    }
+    Some(at.to_string())
+}
+
 /// A subagent's folder as the desktop keys it: a host's session listed by this Mac's pocketd carries the host's own path.
 fn folder(a: &Summary) -> Option<String> {
     match hosts::session::untag(&a.id).0 {
@@ -646,7 +659,8 @@ impl Desktop {
         let task = cx.background_executor().spawn(async move {
             let sweep = |(f, l): (String, Leftover)| {
                 let run = hosts::runner_for(&f);
-                let found = host_found(&git::worktrees(&run, &f), &f, Some(l.started).filter(|s| *s > 0), |t| git::made_at(&run, t), &others, l.delete_branch);
+                let Some(at) = nearest(&f, |p| run.stat(p).map(|s| s.is_some())) else { return (f, Swept::Wait) };
+                let found = host_found(&git::worktrees(&run, &at), &f, Some(l.started).filter(|s| *s > 0), |t| git::made_at(&run, t), &others, l.delete_branch);
                 // A host that dropped mid-read lists no worktrees, which isn't an answer.
                 let outcome = match found {
                     _ if !connected(&f) => Swept::Wait,
@@ -745,7 +759,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use store::Leftover;
@@ -1257,5 +1271,15 @@ mod tests {
         let mut leftovers: BTreeMap<String, Leftover> = ["//devbox/w/a", "//devbox/w/a/src", "//devbox/w/a-2", "//devbox/w/b"].into_iter().map(|f| (f.to_string(), left)).collect();
         settle(&mut leftovers, "//devbox/w/a");
         assert_eq!(leftovers.keys().collect::<Vec<_>>(), ["//devbox/w/a-2", "//devbox/w/b"]);
+    }
+
+    #[test]
+    fn a_deleted_subfolder_still_leads_to_the_worktree_holding_it() {
+        let there = ["//devbox/home/wt", "//devbox/home"];
+        let exists = |p: &str| Ok(there.contains(&p));
+        assert_eq!(nearest("//devbox/home/wt/notes/src", exists).as_deref(), Some("//devbox/home/wt"));
+        assert_eq!(nearest("//devbox/home/wt", exists).as_deref(), Some("//devbox/home/wt"));
+        assert_eq!(nearest("//devbox/gone/deep", |_| Ok(false)).as_deref(), Some("//devbox/gone"));
+        assert_eq!(nearest("//devbox/home/wt/src", |_| Err(std::io::Error::other("dropped"))), None);
     }
 }
