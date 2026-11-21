@@ -18,6 +18,8 @@ pub(crate) struct PullRequests {
     running: Option<(String, Instant)>,
     /// Why `gh` can't be asked, on this Mac (`None`) or a host, and since when.
     problems: HashMap<Option<String>, (GhProblem, Instant)>,
+    /// When `gh` last failed for a tree, which then waits its turn as if it had answered.
+    failed: HashMap<String, Instant>,
     /// What the last Settings check of `gh` found; `Some(None)` while it runs.
     pub(crate) gh: Option<Option<GhStatus>>,
 }
@@ -38,7 +40,8 @@ impl PullRequests {
             return None;
         }
         let blocked = |t: &str| self.problem(t).is_some_and(|(_, at)| now.duration_since(at) < OTHERS_EVERY);
-        let stale = |t: &str, every: Duration| !blocked(t) && self.by_tree.get(t).is_none_or(|(at, _)| now.duration_since(*at) >= every);
+        let asked = |t: &str| self.by_tree.get(t).map(|(at, _)| *at).max(self.failed.get(t).copied());
+        let stale = |t: &str, every: Duration| !blocked(t) && asked(t).is_none_or(|at| now.duration_since(at) >= every);
         selected
             .filter(|s| trees.iter().any(|t| t == s) && stale(s, every))
             .map(str::to_string)
@@ -65,8 +68,14 @@ impl PullRequests {
         }
         self.running = None;
         match result {
+            Err(GhProblem::Failed) => {
+                let changed = self.problems.remove(&machine(&tree)).is_some();
+                self.failed.insert(tree, now);
+                changed
+            }
             Err(p) => self.problems.insert(machine(&tree), (p, now)).map(|(old, _)| old) != Some(p),
             Ok(pr) => {
+                self.failed.remove(&tree);
                 let changed = self.problems.remove(&machine(&tree)).is_some() || self.by_tree.get(&tree).is_none_or(|(_, old)| *old != pr);
                 self.by_tree.insert(tree, (now, pr));
                 changed
@@ -95,13 +104,14 @@ impl PullRequests {
         match self.problem(tree).map(|(p, _)| p) {
             Some(GhProblem::Missing) => Some(PrItem::Hint("Install gh to see PRs")),
             Some(GhProblem::LoggedOut) => Some(PrItem::Hint("Run gh auth login to see PRs")),
-            None => (self.by_tree.contains_key(tree) && base.is_some_and(|b| github::base_branch(b) != branch)).then_some(PrItem::Create),
+            Some(GhProblem::Failed) | None => (self.by_tree.contains_key(tree) && base.is_some_and(|b| github::base_branch(b) != branch)).then_some(PrItem::Create),
         }
     }
 
     /// Forgets `tree`'s PR, and drops the answer of any run in flight for it, so the next poll asks `gh` again.
     pub(crate) fn forget(&mut self, tree: &str) {
         self.by_tree.remove(tree);
+        self.failed.remove(tree);
         self.drop_run(tree);
     }
 
@@ -128,6 +138,7 @@ impl PullRequests {
         if let Some((at, _)) = self.by_tree.get_mut(tree) {
             *at = now.checked_sub(OTHERS_EVERY).unwrap_or(*at);
         }
+        self.failed.remove(tree);
         self.drop_run(tree);
     }
 
@@ -297,7 +308,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Duration, GhProblem, GhStatus, Instant, Pr, PrItem, PullRequests, detail, glyph, tone};
+    use super::{Duration, GhProblem, GhStatus, Instant, OTHERS_EVERY, Pr, PrItem, PullRequests, detail, glyph, tone};
     use git::github::{Checks, PrState};
     use theme::{FAILED_TEXT, MERGED, SUCCESS_TEXT, TEXT_3, TEXT_4, WAITING_TEXT};
 
@@ -381,6 +392,38 @@ mod tests {
         assert!(answer(&mut prs, "/a", Ok(Some(failing)), now));
         assert!(answer(&mut prs, "/a", Err(GhProblem::Missing), now));
         assert!(!answer(&mut prs, "/a", Err(GhProblem::Missing), now));
+    }
+
+    #[test]
+    fn a_shown_pr_survives_a_failed_gh_run() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now());
+        let only_a = vec!["/a".to_string()];
+        answer(&mut prs, "/a", Ok(Some(pr(1))), now);
+        let later = now + EVERY;
+        assert!(!answer(&mut prs, "/a", Err(GhProblem::Failed), later));
+        assert!(prs.running.is_none());
+        assert_eq!(prs.get("/a"), Some(&pr(1)));
+        assert_eq!(prs.item("/a", "fix", Some("main")), Some(PrItem::Open("https://github.com/acme/app/pull/1")));
+        assert_eq!(prs.due(Some("/a"), EVERY, &only_a, later), None);
+        assert_eq!(prs.due(Some("/a"), EVERY, &only_a, later + EVERY).as_deref(), Some("/a"));
+    }
+
+    #[test]
+    fn a_first_gh_run_that_fails_offers_nothing_and_waits_its_turn() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now());
+        assert!(!answer(&mut prs, "/a", Err(GhProblem::Failed), now));
+        assert_eq!(prs.get("/a"), None);
+        assert_eq!(prs.item("/a", "fix", Some("main")), None);
+        assert_eq!(prs.due(Some("/a"), EVERY, &trees(), now).as_deref(), Some("/b"));
+        assert_eq!(prs.due(Some("/a"), EVERY, &trees(), now + EVERY).as_deref(), Some("/a"));
+    }
+
+    #[test]
+    fn a_gh_that_fails_otherwise_no_longer_says_to_log_in() {
+        let (mut prs, now) = (PullRequests::default(), Instant::now());
+        answer(&mut prs, "/a", Err(GhProblem::LoggedOut), now);
+        assert!(answer(&mut prs, "/a", Err(GhProblem::Failed), now + OTHERS_EVERY));
+        assert_eq!(prs.item("/a", "fix", Some("main")), None);
     }
 
     #[test]
