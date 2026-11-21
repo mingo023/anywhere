@@ -156,11 +156,13 @@ pub struct Comment {
     pub hunk: String,
 }
 
-/// Why `gh` can't be asked at all, as opposed to a branch having no PR.
+/// Why `gh` gave no answer, as opposed to a branch having no PR.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GhProblem {
     Missing,
     LoggedOut,
+    /// Any other failure, such as a rate limit or a network error, which the next poll may not hit.
+    Failed,
 }
 
 /// The PR for the branch checked out in the working directory.
@@ -468,14 +470,15 @@ pub fn best<'a>(ranks: &[(&'a str, u8)], active: &str) -> Option<&'a str> {
     ranks.iter().filter(|(_, r)| *r > 0).max_by_key(|(login, r)| (*r, *login == active)).map(|(login, _)| *login)
 }
 
-/// Reads what [`VIEW`] returned through `daemon::run_login`. No PR, or any other failure, is `Ok(None)`.
+/// Reads what [`VIEW`] returned through `daemon::run_login`: `Ok(None)` only when `gh` found no PR for the branch.
 pub fn view_result(out: Result<String, String>) -> Result<Option<Pr>, GhProblem> {
     match out {
-        Ok(json) => Ok(parse(&json)),
+        Ok(json) => parse(&json).map(Some).ok_or(GhProblem::Failed),
         // The login shell reports a missing command: zsh and bash say "command not found", fish "Unknown command".
         Err(e) if e.contains("command not found") || e.contains("Unknown command") => Err(GhProblem::Missing),
         Err(e) if e.contains("gh auth login") => Err(GhProblem::LoggedOut),
-        Err(_) => Ok(None),
+        Err(e) if e.contains("no pull requests found") => Ok(None),
+        Err(_) => Err(GhProblem::Failed),
     }
 }
 
@@ -854,10 +857,12 @@ mod tests {
     }
 
     #[test]
-    fn a_branch_without_a_pr_or_a_failing_gh_has_none() {
+    fn only_gh_finding_no_pr_means_the_branch_has_none() {
         assert_eq!(view_result(Err("no pull requests found for branch \"fix/restore-handoff\"".into())), Ok(None));
-        assert_eq!(view_result(Err("fatal: not a git repository (or any of the parent directories): .git".into())), Ok(None));
-        assert_eq!(view_result(Ok("not json".into())), Ok(None));
+        for failure in ["GraphQL: API rate limit already exceeded for user ID 1234.", "fatal: not a git repository (or any of the parent directories): .git", "error connecting to api.github.com"] {
+            assert_eq!(view_result(Err(failure.into())), Err(GhProblem::Failed), "{failure}");
+        }
+        assert_eq!(view_result(Ok("not json".into())), Err(GhProblem::Failed));
     }
 
     #[test]

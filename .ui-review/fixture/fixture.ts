@@ -20,6 +20,7 @@
 // FIXTURE_HOST_WRITE_FAILS=1 refuses each file written to devbox's attachments folder.
 // FIXTURE_HOST_GH=1 (with FIXTURE_HOST_FILES) gives devbox's app-ios a worktree, app-ios-login on fix/login, whose PR #42 only devbox's
 // `gh` account `work` can see, and app-ios has `work` chosen; its active account, `me`, can't see acme/app-ios.
+// FIXTURE_HOST_GH_LIMIT=n (with FIXTURE_HOST_GH) answers devbox's first n `gh pr view` runs, then refuses each as a spent GraphQL rate limit.
 // FIXTURE_HANDOFF=1 (sets FIXTURE_HOST_FILES and FIXTURE_HOST_AGENTS) makes devbox a real folder, <dir>/devbox, for handing "Fix stale terminal reveal"
 // off to: app-android gets an origin that devbox has cloned, the Codex session a conversation on disk, and devbox's exec and files run for real there
 // (its `codex login status` and `claude auth status` say signed in). A create there starts the agent in its worktree with a conversation of its own.
@@ -504,11 +505,15 @@ const hostGit = ([, , dir, ...args]: string[]) => {
   if (run.startsWith("for-each-ref") && run.endsWith(" refs/heads")) return run.includes("committerdate:unix") ? `${at} main\n${at - 86_400} develop\n` : "main\ndevelop\n";
   return "";
 };
+let prViews = 0;
 const hostGhAs = (login: string, cwd: string, args: string[]) => {
   const hidden = { code: 1, stderr: "GraphQL: Could not resolve to a Repository with the name 'acme/app-ios'. (repository)\n" };
   const run = args.join(" ");
   if (run === "--version") return { stdout: "gh version 2.81.0 (2026-01-01)\n" };
   if (run.startsWith("repo view")) return login === "work" ? { stdout: '{"viewerPermission":"WRITE"}' } : hidden;
+  if (run.startsWith("pr view") && cwd === HOST_LOGIN && login === "work" && process.env.FIXTURE_HOST_GH_LIMIT && prViews++ >= Number(process.env.FIXTURE_HOST_GH_LIMIT)) {
+    return { code: 1, stderr: "GraphQL: API rate limit already exceeded for user ID 1.\n" };
+  }
   if (run.startsWith("pr view") && cwd === HOST_LOGIN) {
     const pr = { number: 42, title: "Fix login on devbox", url: "https://github.com/acme/app-ios/pull/42", state: "OPEN", isDraft: false, statusCheckRollup: [], headRefOid: "1".repeat(40), baseRefName: "main" };
     return login === "work" ? { stdout: JSON.stringify(pr) } : hidden;
