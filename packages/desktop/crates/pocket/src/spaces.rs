@@ -398,7 +398,7 @@ impl Desktop {
     fn spot_left_in(&self, space: &Space) -> Option<Spot> {
         let (project, tree) = self.spaces.left_in(space)?;
         let listed = match tree {
-            None => self.space_projects(space).contains(project),
+            None => self.projects().contains(project),
             Some(t) if is_local(t) => self.agents.local(t).is_some_and(|l| l.project == *project),
             Some(t) => self.listed_trees(project).is_some_and(|trees| trees.iter().any(|w| w.path == *t)),
         };
