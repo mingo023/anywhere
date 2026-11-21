@@ -64,15 +64,29 @@ func (s *Store) Archive(now time.Time, kept func(cwd string) bool) error {
 	if err != nil {
 		return err
 	}
-	for _, x := range gone {
-		var n int
-		if s.db.QueryRow(`SELECT COUNT(*) FROM delegations WHERE child_id = ? AND isolation = 'worktree'`, x.ID).Scan(&n) == nil && n > 0 {
-			isolated[x.ID] = true
+	// Prune drops a delegation with either end, so a younger child loses its isolation with its parent's.
+	rows, err := s.db.Query(`SELECT child_id FROM delegations WHERE isolation = 'worktree'
+		AND (child_id IN (SELECT id FROM sessions WHERE closed_at > 0 AND closed_at < ?1) OR parent_id IN (SELECT id FROM sessions WHERE closed_at > 0 AND closed_at < ?1))`, cut)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			isolated[id] = true
 		}
 	}
+	rows.Close()
 	stay := map[string]Session{}
 	for _, x := range append(old, gone...) {
 		stay[x.ID] = x
+	}
+	for _, x := range live {
+		if isolated[x.ID] {
+			if _, ok := stay[x.ID]; !ok {
+				stay[x.ID] = x
+			}
+		}
 	}
 	present := func(id string) bool {
 		_, ok := stay[id]

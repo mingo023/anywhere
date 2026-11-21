@@ -105,6 +105,31 @@ func TestASubagentsWorktreeIsStillFoundAfterRetentionDropsItsSessionsAndForgotte
 	}
 }
 
+func TestAYoungerHostSubagentsWorktreeIsStillFoundOnceRetentionDropsItsParent(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	execAll(t, s,
+		`INSERT INTO sessions (id, status, cwd, parent_id, relationship, created_at, closed_at) VALUES
+			('p', 'closed', '/wt/src', '', '', 1, `+itoa(now.Add(-ClosedKept-time.Hour).UnixMilli())+`),
+			('devbox/hc', 'closed', '/home/wt-hc', 'p', 'subagent', 2, `+itoa(now.Add(-time.Hour).UnixMilli())+`)`,
+		`INSERT INTO delegations (task_id, parent_id, child_id, isolation, created_at) VALUES ('t1', 'p', 'devbox/hc', 'worktree', 1)`,
+	)
+	kept := func(cwd string) bool { return cwd == "/wt/src" }
+	treeOf := func(cwd string, _ int64) string { return strings.TrimSuffix(cwd, "/src") }
+	want := []HostTree{{"devbox", "/home/wt-hc", []string{"hc"}}}
+	for _, at := range []time.Time{now, now.Add(ClosedKept)} {
+		if err := s.Archive(at, kept); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Prune(at); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.SubagentTrees("/wt", treeOf); err != nil || !reflect.DeepEqual(got.Hosts, want) {
+			t.Fatalf("at +%v: trees %+v, %v", at.Sub(now), got, err)
+		}
+	}
+}
+
 func TestAStartClosesTheSessionsItBroughtBackNeitherRestoredNorHandedDown(t *testing.T) {
 	s := openTest(t)
 	execAll(t, s,
