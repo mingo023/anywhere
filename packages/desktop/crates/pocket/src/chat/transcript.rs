@@ -70,6 +70,8 @@ pub(crate) struct View {
     pub(crate) sticky_open: Option<String>,
     /// Where the pointer is on the prompt timeline; its moves redraw only the transcript.
     pub(super) pointer: Entity<timeline::Pointer>,
+    /// Where the prompt timeline's long tick is sliding.
+    pub(super) lit: Option<timeline::Lit>,
     /// Whether the chat has shown what it opened with; text after that streams in.
     primed: bool,
     /// Which deliveries arrived after it did.
@@ -102,7 +104,7 @@ impl View {
                 view.remeasure_under_pin();
             }
         });
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, inset: 0., pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, primed: false, arrivals: Default::default() }
+        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, inset: 0., pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, lit: None, primed: false, arrivals: Default::default() }
     }
 
     /// How far the list sits above its end.
