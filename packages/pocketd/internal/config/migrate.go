@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"time"
 )
 
 /**
@@ -70,14 +71,22 @@ func migrate(legacy, home string) (moved bool, err error) {
 		}
 		done = append(done, e.Name())
 	}
-	// A client that resolved legacy as the home may have written a file since it was listed.
+	return true, replace(legacy, home)
+}
+
+// replace swaps the emptied legacy folder for a symlink to home. A client that resolved legacy as the home may
+// have written there since it was listed.
+func replace(legacy, home string) error {
 	if late, err := os.ReadDir(legacy); err == nil {
 		for _, e := range late {
 			os.Rename(filepath.Join(legacy, e.Name()), filepath.Join(home, e.Name()))
 		}
 	}
 	if err := os.Remove(legacy); err != nil {
-		return true, err
+		// Keep what wouldn't move inside home: a legacy folder left in place would stay the home.
+		if err := os.Rename(legacy, filepath.Join(home, fmt.Sprintf("legacy-%d", time.Now().UnixNano()))); err != nil {
+			return err
+		}
 	}
-	return true, os.Symlink(home, legacy)
+	return os.Symlink(home, legacy)
 }

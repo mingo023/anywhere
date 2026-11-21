@@ -149,6 +149,19 @@ func TestAFileTheDesktopWroteToTheLegacyHomeAfterACrashWins(t *testing.T) {
 	}
 }
 
+func TestALegacyFolderThatWontEmptyIsKeptInsideTheNewHome(t *testing.T) {
+	legacy, home := homes(t)
+	write(t, home, "state/a=1")
+	write(t, legacy, "state/b=late")
+	if err := replace(legacy, home); err != nil {
+		t.Fatal(err)
+	}
+	linked(t, legacy, home)
+	if kept, _ := filepath.Glob(filepath.Join(home, "legacy-*", "state", "b")); len(kept) != 1 {
+		t.Fatal(tree(t, home))
+	}
+}
+
 func TestAHoldersSocketStillAnswersAtBothPathsAfterTheMove(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("pocketd keeps its legacy home on Windows")

@@ -418,13 +418,14 @@ func (m *Manager) uninstall(ctx context.Context, h Host) error {
 	return nil
 }
 
-// remoteDir is the folder pocketd lives in on h: the legacy one while it's still a real folder there, else RemoteDir.
+// remoteDir is the folder pocketd lives in on h: the legacy one until it resolves to RemoteDir, as pocketd leaves it
+// once it moved its home, else RemoteDir.
 func (m *Manager) remoteDir(ctx context.Context, h Host, windows bool) (string, error) {
 	legacy, current := m.paths.LegacyDir, m.paths.RemoteDir
 	if legacy == "" {
 		return current, nil
 	}
-	command := fmt.Sprintf(`sh -c 'if [ -d "$HOME/%[1]s" ] && [ ! -L "$HOME/%[1]s" ]; then echo %[1]s; else echo %[2]s; fi'`, legacy, current)
+	command := fmt.Sprintf(`sh -c 'if [ -d "$HOME/%[1]s" ] && [ "$(cd "$HOME/%[1]s" && pwd -P)" != "$(cd "$HOME/%[2]s" 2>/dev/null && pwd -P)" ]; then echo %[1]s; else echo %[2]s; fi'`, legacy, current)
 	if windows {
 		// pocketd never moves its home on Windows, so a legacy folder there is still the home.
 		command = powershell(fmt.Sprintf("if (Test-Path (Join-Path $HOME %s)) { %s } else { %s }", psQuote(legacy), psQuote(legacy), psQuote(current)))

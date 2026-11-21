@@ -236,6 +236,13 @@ func TestAHostKeepsUsingTheLegacyFolderUntilItsPocketdMovesIt(t *testing.T) {
 	if got := dir(); got != ".anywhere" {
 		t.Errorf("a host that has moved: %s", got)
 	}
+	elsewhere := filepath.Join(home, "disk")
+	os.Mkdir(elsewhere, 0o700)
+	os.Remove(legacy)
+	os.Symlink(elsewhere, legacy)
+	if got := dir(); got != ".coding-pocket" {
+		t.Errorf("a legacy home the user linked to another disk: %s", got)
+	}
 }
 
 func TestAnUploadedArchiveIsCheckedThenRemovedWhateverTheLoginShell(t *testing.T) {
