@@ -72,7 +72,8 @@ func TestClaudeTypedInAShellIsAnAgent(t *testing.T) {
 // names it; a terminal slow to end may be gone by the time the last one lands.
 func TestClosingATerminalSlowToEndAgainAfterItEndedIsNoError(t *testing.T) {
 	h := Start(t)
-	id := h.Spawn("sh", "-c", "trap '' HUP; sleep 30")
+	id := h.Spawn("sh", "-c", "trap '' HUP TERM; echo trapped; sleep 30")
+	h.WaitScreen(id, "trapped")
 	c := h.Ops()
 	listed := func() bool {
 		c.Send(ops.Msg{Op: "list"})

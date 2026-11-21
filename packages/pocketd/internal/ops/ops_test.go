@@ -116,10 +116,13 @@ func TestAClosingTerminalThatEndsBeforeASecondCloseIsNotAnError(t *testing.T) {
 	terminal.CloseGrace = 300 * time.Millisecond
 	t.Cleanup(func() { terminal.CloseGrace = old })
 	c := start(t, &Server{Terminals: terminal.NewManager()})
-	c.Send(Msg{Op: "spawn", Cmd: "sh", Args: []string{"-c", "trap '' HUP; sleep 5"}})
+	c.Send(Msg{Op: "spawn", Cmd: "sh", Args: []string{"-c", "trap '' HUP TERM; echo trapped; sleep 5"}})
 	id := recv(t, c, "spawned").ID
 	c.Send(Msg{Op: "attach", ID: id})
 	recv(t, c, "snapshot")
+	for c.Send(Msg{Op: "screen", ID: id}); !strings.Contains(recv(t, c, "screen").Text, "trapped"); c.Send(Msg{Op: "screen", ID: id}) {
+		time.Sleep(20 * time.Millisecond)
+	}
 	c.Send(Msg{Op: "close", ID: id})
 	c.Send(Msg{Op: "list"})
 	if items := recv(t, c, "terminals").Items; len(items) != 1 {
