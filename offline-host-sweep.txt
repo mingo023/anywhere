@@ -1,0 +1,11 @@
+# desktop with devbox dropped right after the delete sheet read it, back 7s later (FIXTURE_DEVBOX_DROP_MS=7000)
+# devbox's agent websocket hellos (reconnect lists its sessions again): 2
+# devbox's worktrees, at each change:
+2026-11-21T17:16:49.647Z link=online
+<scratch>/devbox/code/app-android                               52fab8b [main]
+<scratch>/devbox/code/app-android.worktrees/delegate-host-notes 52fab8b [delegate/host-notes]
+
+2026-11-21T17:17:36.340Z link=online
+<scratch>/devbox/code/app-android 52fab8b [main]
+
+# this Mac's worktrees named for the parent or its subagent, after: 0

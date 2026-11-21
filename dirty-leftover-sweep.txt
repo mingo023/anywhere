@@ -1,0 +1,12 @@
+# devbox offline right after the parent's delete read its subagent's worktree, which holds an uncommitted file (FIXTURE_DEVBOX_DIRTY=1); back 7s later
+# on reconnect the desktop asks (leftover-asked.png: branch delegate/host-notes kept on the sheet); confirming deletes it
+# devbox's worktrees and delegate/* branches, at each change:
+2026-11-21T17:43:16.772Z link=online
+<scratch>/devbox/code/app-android                               8db29eb [main]
+<scratch>/devbox/code/app-android.worktrees/delegate-host-notes 8db29eb [delegate/host-notes]
+branches: + delegate/host-notes
+
+2026-11-21T17:44:19.148Z link=online
+<scratch>/devbox/code/app-android 8db29eb [main]
+branches: none
+
