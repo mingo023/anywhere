@@ -344,6 +344,11 @@ fn leftovers(folders: Vec<(String, Option<u64>)>, trees: &[String], delete_branc
     folders.into_iter().filter(|(f, _)| left(f)).map(|(f, s)| (f, Leftover { started: s.unwrap_or(0), delete_branch })).collect()
 }
 
+/// Drops the leftovers `tree` held, once it's deleted or the user chose to keep it.
+fn settle(leftovers: &mut BTreeMap<String, Leftover>, tree: &str) {
+    leftovers.retain(|f, _| !holds(tree, f));
+}
+
 /// Moves the links of `tree`'s own subagents onto `root`, so they stay reachable from it once `tree` is forgotten and a
 /// delete that stopped part way can carry on.
 fn reparent(subtrees: &mut BTreeMap<String, Subtree>, tree: &str, root: &str, tree_of: impl Fn(&str) -> Option<String>) {
@@ -594,9 +599,11 @@ impl Desktop {
                         Swept::Wait => continue,
                         // One sheet at a time; the rest are asked once it closes.
                         Swept::Ask(_) if d.overlay == Some(Overlay::Confirm) || asked => continue,
+                        // Kept until it's deleted or the user keeps it: the host may drop again before then.
                         Swept::Ask(r) => {
                             asked = true;
                             d.ask_delete(r, cx);
+                            continue;
                         }
                         Swept::Done(None) => {}
                         Swept::Done(Some((done, failed))) => {
@@ -617,7 +624,15 @@ impl Desktop {
         .detach();
     }
 
+    /// The user cancelled a delete sheet: a host leftover it asked about stays.
+    pub(crate) fn delete_declined(&mut self) {
+        if let Some(Confirm::DeleteWorktree { removal, .. }) = &self.confirm {
+            settle(&mut self.store.host_leftovers, &removal.tree);
+        }
+    }
+
     pub(crate) fn forget_tree(&mut self, tree: &str, cx: &mut Context<Self>) {
+        settle(&mut self.store.host_leftovers, tree);
         // Before the tree leaves `worktrees`, while its folders still resolve to it.
         let gone: Vec<String> = self.store.subtrees.iter().filter(|(c, s)| [*c, &s.parent].iter().any(|f| self.folder_tree(f).as_deref() == Some(tree))).map(|(c, _)| c.clone()).collect();
         for c in gone {
@@ -646,8 +661,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, host_found, host_removal, leftovers, lost_together, reparent, still_theirs, remove_in_order, run, settle, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use std::collections::BTreeMap;
     use std::time::Duration;
+    use store::Leftover;
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -1097,5 +1114,13 @@ mod tests {
         assert_eq!(run(&Removal { delete_branch: false, ..r.clone() }, "exit 1", LIMIT), Ok(Removed { aside: None, kept: None }));
         assert_eq!(git::worktrees(&git::Runner::Local, &r.project).len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_hosts_leftover_settles_with_the_tree_that_held_it() {
+        let left = Leftover { started: 1, delete_branch: true };
+        let mut leftovers: BTreeMap<String, Leftover> = ["//devbox/w/a", "//devbox/w/a/src", "//devbox/w/a-2", "//devbox/w/b"].into_iter().map(|f| (f.to_string(), left)).collect();
+        settle(&mut leftovers, "//devbox/w/a");
+        assert_eq!(leftovers.keys().collect::<Vec<_>>(), ["//devbox/w/a-2", "//devbox/w/b"]);
     }
 }
