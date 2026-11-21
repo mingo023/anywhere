@@ -81,8 +81,8 @@ impl Lit {
     /// there at once.
     fn toward(lit: Option<Self>, to: usize, ticks: usize, now: Instant, snap: bool) -> Self {
         match lit {
-            Some(l) if l.ticks == ticks && l.to == to => l,
-            Some(l) if l.ticks == ticks && !snap => Self { from: l.pos(now), to, ticks, at: now },
+            Some(l) if !snap && l.ticks == ticks && l.to == to => l,
+            Some(l) if !snap && l.ticks == ticks => Self { from: l.pos(now), to, ticks, at: now },
             _ => Self { from: to as f32, to, ticks, at: now },
         }
     }
@@ -405,6 +405,9 @@ mod tests {
         let lit = Lit::toward(None, 2, 10, now, false);
         assert!(!lit.moving(now), "nothing to slide from at first");
         assert_eq!(Lit::toward(Some(lit), 6, 10, now, true).pos(now), 6., "reduced motion");
+        let sliding = Lit::toward(Some(lit), 6, 10, now, false);
+        let held = Lit::toward(Some(sliding), 6, 10, now + SLIDE / 2, true);
+        assert!(held.pos(now + SLIDE / 2) == 6. && !held.moving(now + SLIDE / 2), "reduced motion turned on mid-slide");
         assert_eq!(Lit::toward(Some(lit), 6, 11, now, false).pos(now), 6., "another prompt's tick moved the rest");
     }
 
