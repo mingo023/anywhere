@@ -298,7 +298,7 @@ const port = 45000 + Math.floor(Math.random() * 5000);
 write(join(pocket, "config.json"), JSON.stringify({ token: "fixture", port }));
 const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [string, string])));
 const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbox", target: { kind: "alias", name: "devbox" } }] : [];
-const hostProjects = process.env.FIXTURE_HANDOFF ? handoffHosts.filter((h) => h.clone).map((h) => `//${h.id}${h.home}/code/app-android`) : process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
+const hostProjects = process.env.FIXTURE_HANDOFF_UNLISTED ? [] : process.env.FIXTURE_HANDOFF ? handoffHosts.filter((h) => h.clone).map((h) => `//${h.id}${h.home}/code/app-android`) : process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
 if (process.env.FIXTURE_HOST_GH) tracked.push("//devbox/home/dev/code/app-ios-login");
 write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: process.env.FIXTURE_HOST_GH ? { "//devbox/home/dev/code/app-ios": { gh_account: "work" } } : {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined, appearance: process.env.FIXTURE_BACKGROUND ? { background: process.env.FIXTURE_BACKGROUND } : undefined }));
 
@@ -878,6 +878,21 @@ if (process.env.FIXTURE_SUBAGENT) {
   sessions.push({ id, cmd: "codex", args: [], cwd });
   summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent" } as (typeof summaries)[number]);
 }
+// FIXTURE_SUBAGENT_HOST=1 (with FIXTURE_SUBAGENT and FIXTURE_HANDOFF): that session also delegated to devbox, whose child sits in a worktree made
+// for it in devbox's clone, listed as this Mac's pocketd lists a host's child: by devbox's own path. devbox-worktrees.txt, next to FIXTURE_LOG,
+// holds that clone's worktrees as they stand. FIXTURE_HANDOFF_UNLISTED=1 leaves devbox's projects out of the desktop's.
+if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_HOST) {
+  const parent = summaries.find((s) => s.id === process.env.FIXTURE_SUBAGENT)!;
+  const clone = join(devHome, "code", "app-android");
+  const tree = `${clone}.worktrees/delegate-host-notes`;
+  git(clone, "worktree", "add", "-q", "-b", "delegate/host-notes", tree, "HEAD");
+  writeFileSync(join(clone, ".git", "worktrees", "delegate-host-notes", "anywhere"), "");
+  summaries.push({ ...parent, id: `devbox/${parent.id}-hsub`, terminalId: "", cwd: tree, title: "Read the notes on devbox", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent" } as (typeof summaries)[number]);
+  if (process.env.FIXTURE_LOG) {
+    const out = join(dirname(process.env.FIXTURE_LOG), "devbox-worktrees.txt");
+    setInterval(() => writeFileSync(out, Bun.spawnSync(["git", "-C", clone, "worktree", "list"]).stdout.toString().replaceAll(dir, "<scratch>")), 300);
+  }
+}
 // A child with two turns of several paragraphs each, for screens of a delegated chat scrolled under its breadcrumb.
 const longChild = (id: string): Item[] => {
   const say = (turn: string, n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: `${id}-${turn}${i}`, kind: "assistant", text: `Paragraph ${i + 1}: read the redirect helper, traced where next is parsed, and checked each caller for an unvalidated target.` }) as Item);
@@ -957,7 +972,7 @@ Bun.serve({
         // FIXTURE_SUBAGENT_CLOSE_MS=<ms>: the FIXTURE_SUBAGENT session and its subagent close after that long.
         if (process.env.FIXTURE_SUBAGENT && process.env.FIXTURE_SUBAGENT_CLOSE_MS) {
           setTimeout(() => {
-            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`]) {
+            for (const id of [process.env.FIXTURE_SUBAGENT!, `${process.env.FIXTURE_SUBAGENT}-sub`, `devbox/${process.env.FIXTURE_SUBAGENT}-hsub`]) {
               exit(ws, id);
               const i = sessions.findIndex((s) => s.id === id);
               if (i >= 0) sessions.splice(i, 1);

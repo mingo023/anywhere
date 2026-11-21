@@ -38,9 +38,12 @@ func TestAWorktreesSubagentTreesReachEveryGenerationButNotOnesSomeoneElseWorksIn
 			('user', 'idle', '/wt-b', '', '', 0),
 			('was', 'closed', '/wt-c', '', '', 5),
 			('host/x', 'idle', '/wt-h', 'p', 'subagent', 0),
+			('devbox/hc', 'closed', '/home/wt-hc', 'c', 'subagent', 5),
+			('devbox/shared', 'idle', '/home/app', 'p', 'subagent', 0),
 			('old', 'closed', '/wt-n', 'p', 'subagent', 5)`,
 	)
 	// /wt-n was made again at 10, after its old session closed.
+	execAll(t, s, `INSERT INTO delegations (task_id, parent_id, child_id, isolation, created_at) VALUES ('t1', 'c', 'devbox/hc', 'worktree', 1), ('t2', 'p', 'devbox/shared', 'shared', 1)`)
 	treeOf := func(cwd string, at int64) string {
 		if cwd == "/wt-n" && at < 10 {
 			return ""
@@ -48,8 +51,8 @@ func TestAWorktreesSubagentTreesReachEveryGenerationButNotOnesSomeoneElseWorksIn
 		return strings.TrimSuffix(cwd, "/src")
 	}
 	got, err := s.SubagentTrees("/wt", treeOf)
-	if err != nil || !slices.Equal(got, []string{"/wt-c", "/wt-g"}) {
-		t.Fatalf("trees %q, %v", got, err)
+	if err != nil || !slices.Equal(got.Local, []string{"/wt-c", "/wt-g"}) || !slices.Equal(got.Hosts, []HostTree{{"devbox", "/home/wt-hc"}}) {
+		t.Fatalf("trees %+v, %v", got, err)
 	}
 }
 

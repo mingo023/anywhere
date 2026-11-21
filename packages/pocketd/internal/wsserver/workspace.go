@@ -12,6 +12,7 @@ import (
 
 	"pocketd/internal/accounts"
 	"pocketd/internal/launch"
+	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
 	"pocketd/internal/workspace"
@@ -28,7 +29,9 @@ type WorkspaceService struct {
 	// Switch moves a chat-only agent to another account once its turn ends; nil switches none.
 	Switch func(agentID, account string) error
 	// SubagentTrees names the worktrees the subagents of the sessions in a worktree worked in, which go with it; nil names none.
-	SubagentTrees func(tree string, treeOf func(cwd string, at int64) string) ([]string, error)
+	SubagentTrees func(tree string, treeOf func(cwd string, at int64) string) (orch.Subtrees, error)
+	// HostDelete deletes a worktree on a linked host; nil deletes none there.
+	HostDelete func(ctx context.Context, host, path string, deleteBranch, force bool) error
 }
 
 // closeWait bounds how long worktree.delete waits on a closed terminal's
@@ -159,20 +162,33 @@ func (c *conn) worktreeDelete(m proto.ClientMessage) error {
 }
 
 // removeWorktree closes the terminals opened in the worktree at path, removes
-// its folder and its name, and its branch when asked; then the same for each
-// worktree Anywhere made for its sessions' subagents. The main worktree, and
-// branches whose commits nothing else holds unless forced, are refused before
-// anything closes.
+// its folder and its name, and its branch when asked; the same for each
+// worktree Anywhere made for its sessions' subagents, here first and on linked
+// hosts before that, so a failure leaves the worktree at path to retry from.
+// The main worktree, branches whose commits nothing else holds, and a host
+// that refuses or is offline refuse the delete before anything here closes,
+// unless forced.
 func (c *conn) removeWorktree(path string, deleteBranch, force bool) error {
 	f := c.s.Registry.Load()
 	tree, err := findTree(f, path)
 	if err != nil {
 		return err
 	}
-	trees := append([]linkedTree{tree}, c.subagentTrees(f, tree.Path)...)
+	subtrees, onHosts := c.subagentTrees(f, tree.Path)
+	trees := append(subtrees, tree)
 	if !force {
 		if n := lostCommits(trees, deleteBranch); n > 0 {
 			return unpushedCommits(n)
+		}
+	}
+	if del := c.s.Workspace.HostDelete; del != nil {
+		for _, h := range onHosts {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := del(ctx, h.Host, h.Path, deleteBranch, force)
+			cancel()
+			if err != nil && !force {
+				return err
+			}
 		}
 	}
 	c.closeTerminals(trees)
@@ -231,9 +247,9 @@ func findTree(f registry.File, path string) (linkedTree, error) {
 	return linkedTree{project, trees[i]}, nil
 }
 
-func (c *conn) subagentTrees(f registry.File, path string) []linkedTree {
+func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch.HostTree) {
 	if c.s.Workspace.SubagentTrees == nil {
-		return nil
+		return nil, nil
 	}
 	listed := map[string][]worktree.Worktree{}
 	treeOf := func(cwd string, at int64) string {
@@ -258,17 +274,17 @@ func (c *conn) subagentTrees(f registry.File, path string) []linkedTree {
 		}
 		return best
 	}
-	paths, err := c.s.Workspace.SubagentTrees(path, treeOf)
+	found, err := c.s.Workspace.SubagentTrees(path, treeOf)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	var out []linkedTree
-	for _, p := range paths {
+	for _, p := range found.Local {
 		if t, err := findTree(f, p); err == nil && t.Made && !slices.ContainsFunc(out, func(o linkedTree) bool { return o.Path == t.Path }) {
 			out = append(out, t)
 		}
 	}
-	return out
+	return out, found.Hosts
 }
 
 func (c *conn) closeTerminals(trees []linkedTree) {
@@ -294,19 +310,13 @@ func (c *conn) closeTerminals(trees []linkedTree) {
 
 func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch, force bool) error {
 	path, project := t.Path, t.project
-	// Naming a worktree from its prompt renames its branch, maybe since it was
-	// checked: follow the rename, unless the branch now holds commits that
-	// would be lost unchecked.
-	if t.Branch != "" && exec.Command("git", "-C", project, "show-ref", "--verify", "--quiet", "refs/heads/"+t.Branch).Run() != nil {
-		t.Branch = ""
-		if trees, err := worktree.List(project); err == nil {
-			if i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path }); i >= 0 && (force || worktree.LostCommits(project, trees[i].Branch) == 0) {
-				t.Branch = trees[i].Branch
-			}
-		}
-	}
+	t.Branch = branchToDelete(project, path, t.Branch, force)
 	if err := worktree.Remove(f, project, path); err != nil {
-		return err
+		// Naming it from its prompt may be writing its branch's lock into the git folder git is deleting.
+		time.Sleep(time.Second)
+		if err := worktree.Remove(f, project, path); err != nil {
+			return err
+		}
 	}
 	if c.s.Names != nil {
 		c.s.Names.Forget(path)
@@ -320,6 +330,24 @@ func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch, force boo
 		}
 	}
 	return nil
+}
+
+// branchToDelete is the branch that goes with the worktree at path, whose
+// branch was checked as checked. Naming a worktree from its prompt renames its
+// branch, maybe since: follow the rename, unless forced only when it loses
+// nothing unchecked.
+func branchToDelete(project, path, checked string, force bool) string {
+	if checked == "" || exec.Command("git", "-C", project, "show-ref", "--verify", "--quiet", "refs/heads/"+checked).Run() == nil {
+		return checked
+	}
+	trees, err := worktree.List(project)
+	if err != nil {
+		return ""
+	}
+	if i := slices.IndexFunc(trees, func(w worktree.Worktree) bool { return w.Path == path }); i >= 0 && (force || worktree.LostCommits(project, trees[i].Branch) == 0) {
+		return trees[i].Branch
+	}
+	return ""
 }
 
 type branchFailed struct{ stderr string }

@@ -439,6 +439,27 @@ func (m *Manager) Send(ctx context.Context, id string, msg map[string]any) error
 	return err
 }
 
+// DeleteWorktree deletes the worktree at path on host id as a phone's worktree.delete does, which takes its
+// subagents' there too. One already gone counts as deleted.
+func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, deleteBranch, force bool) error {
+	if _, err := m.connected(ctx, id); err != nil {
+		return err
+	}
+	socket, token, _ := m.Endpoint(id)
+	// Over a conn of its own: workspace.v1 would also subscribe the link to every project.list.
+	c, err := Dial(ctx, socket, token, func(string, []byte) {}, proto.CapWorkspace)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	raw, err := c.Call(ctx, "ack", map[string]any{"type": "worktree.delete", "path": path, "deleteBranch": deleteBranch, "force": force})
+	var e proto.Error
+	if err != nil && json.Unmarshal(raw, &e) == nil && e.Code == "unknown_worktree" {
+		return nil
+	}
+	return err
+}
+
 func (m *Manager) Projects(ctx context.Context, id string) ([]proto.Project, error) {
 	r, err := m.connected(ctx, id)
 	if err != nil {
