@@ -16,14 +16,21 @@ import (
  * Call it holding home's lock. It leaves a symlink at the legacy path, since running agents, holders and host
  * services hold paths under it. If moving fails it puts back what it moved and returns home with the error; once
  * everything has moved it returns the new home, with any error from replacing the legacy folder by the symlink.
+ * Called with the new home, it makes the symlink a crash left unmade.
  * Windows keeps its legacy home: a symlink needs Developer Mode, and the held lock file can't be renamed.
  */
 func MoveLegacyHome(home string) (string, error) {
-	if runtime.GOOS == "windows" || filepath.Clean(home) != legacyHome() {
-		return home, nil
-	}
 	user, _ := os.UserHomeDir()
 	to := filepath.Join(user, HomeName())
+	if runtime.GOOS == "windows" {
+		return home, nil
+	}
+	if filepath.Clean(home) == to {
+		return home, relink(legacyHome(), to)
+	}
+	if filepath.Clean(home) != legacyHome() {
+		return home, nil
+	}
 	moved, err := migrate(home, to)
 	if !moved {
 		return home, err
@@ -45,10 +52,14 @@ func migrate(legacy, home string) (moved bool, err error) {
 		if err := os.MkdirAll(filepath.Dir(home), 0o700); err != nil {
 			return false, err
 		}
-		if err := os.Rename(legacy, home); err != nil {
+		if err := os.WriteFile(filepath.Join(legacy, moving), nil, 0o600); err != nil {
 			return false, err
 		}
-		return true, os.Symlink(home, legacy)
+		if err := os.Rename(legacy, home); err != nil {
+			os.Remove(filepath.Join(legacy, moving))
+			return false, err
+		}
+		return true, link(legacy, home)
 	}
 	// Stale: its listener died with the process that bound it, and the next one binds at the new path.
 	os.Remove(filepath.Join(legacy, "pocketd.sock"))
@@ -61,12 +72,19 @@ func migrate(legacy, home string) (moved bool, err error) {
 			return false, fmt.Errorf("%s is in both %s and %s", e.Name(), legacy, home)
 		}
 	}
+	// Clients read these and a second pocketd takes the lock at the legacy path until it's a symlink.
+	last := []string{"desktop.json", "config.json", "pocketd.lock"}
+	slices.SortStableFunc(list, func(a, b fs.DirEntry) int { return slices.Index(last, a.Name()) - slices.Index(last, b.Name()) })
+	if err := os.WriteFile(filepath.Join(home, moving), nil, 0o600); err != nil {
+		return false, err
+	}
 	var done []string
 	for _, e := range list {
 		if err := os.Rename(filepath.Join(legacy, e.Name()), filepath.Join(home, e.Name())); err != nil {
 			for _, name := range slices.Backward(done) {
 				os.Rename(filepath.Join(home, name), filepath.Join(legacy, name))
 			}
+			os.Remove(filepath.Join(home, moving))
 			return false, err
 		}
 		done = append(done, e.Name())
@@ -88,5 +106,29 @@ func replace(legacy, home string) error {
 			return err
 		}
 	}
-	return os.Symlink(home, legacy)
+	return link(legacy, home)
+}
+
+// moving marks a home whose legacy folder is gone but may not be a symlink yet.
+const moving = ".moving-from-legacy"
+
+func link(legacy, home string) error {
+	if err := os.Symlink(home, legacy); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(home, moving)); !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// relink finishes a move that stopped between taking legacy's folder away and putting the symlink there.
+func relink(legacy, home string) error {
+	if _, err := os.Stat(filepath.Join(home, moving)); err != nil {
+		return nil
+	}
+	if _, err := os.Lstat(legacy); errors.Is(err, fs.ErrNotExist) {
+		return link(legacy, home)
+	}
+	return os.Remove(filepath.Join(home, moving))
 }

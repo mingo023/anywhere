@@ -162,6 +162,32 @@ func TestALegacyFolderThatWontEmptyIsKeptInsideTheNewHome(t *testing.T) {
 	}
 }
 
+func TestTheNextStartMakesTheLinkACrashLeftUnmade(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pocketd keeps its legacy home on Windows")
+	}
+	user := t.TempDir()
+	t.Setenv("HOME", user)
+	legacy, home := filepath.Join(user, LegacyHomeName()), filepath.Join(user, HomeName())
+	write(t, legacy, "config.json={}", moving+"=")
+	os.MkdirAll(filepath.Dir(home), 0o700)
+	os.Rename(legacy, home)
+	if got, err := MoveLegacyHome(DefaultHome()); got != home || err != nil {
+		t.Fatal(got, err)
+	}
+	linked(t, legacy, home)
+	if got := tree(t, home); !slices.Equal(got, []string{"config.json={}"}) {
+		t.Fatal(got)
+	}
+	os.Remove(legacy)
+	if _, err := MoveLegacyHome(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(legacy); err == nil {
+		t.Fatal("a home that never moved got a legacy link")
+	}
+}
+
 func TestAHoldersSocketStillAnswersAtBothPathsAfterTheMove(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("pocketd keeps its legacy home on Windows")
