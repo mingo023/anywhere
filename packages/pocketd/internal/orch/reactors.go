@@ -32,9 +32,8 @@ func (e *Engine) OnTurn(c TurnChange) {
 	}
 }
 
-// dropChildren cancels a closed session's unsettled tasks and closes the sessions it delegated to, and their
-// terminals, as nothing is left to read them: a closed agent's terminal would fall back to a bare shell.
-// A stopping or starting pocketd skips it: its sessions end with it and come back on restore.
+// dropChildren cancels a closed session's unsettled tasks and closes the sessions it delegated to, as nothing is
+// left to read them. A stopping or starting pocketd skips it: its sessions end with it and come back on restore.
 func (e *Engine) dropChildren(parent string) {
 	e.mu.Lock()
 	stopped := e.stopped
@@ -55,9 +54,6 @@ func (e *Engine) dropChildren(parent string) {
 	}
 	for _, k := range kids {
 		e.dispatch(Command{Kind: CmdSessionClose, Session: k.ID})
-		if e.CloseTerminal != nil && k.Terminal != "" {
-			e.CloseTerminal(k.Terminal)
-		}
 	}
 }
 
