@@ -74,3 +74,47 @@ func TestTwoWorktreeChildrenWithTheSameTitleGetBranchesOfTheirOwn(t *testing.T) 
 		t.Fatalf("branches %v, want the repo's and one for each child", branches)
 	}
 }
+
+func TestDeletingTheParentsWorktreeFromThePhoneTakesTheOneItsSubagentWorkedIn(t *testing.T) {
+	h := Start(t, launchReady(""))
+	phone := h.Owner()
+	create(phone, "r1", inRepo(h, map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}}))
+	done := reply(phone, "agent.created", "error")
+	if done.Type != "agent.created" {
+		t.Fatalf("got %s", done.Raw)
+	}
+	h.WaitScreen(done.TerminalID, "fake claude ready")
+	phone.Prompt(done.AgentID, `mcp delegate_task {"task":"hello","title":"Notes"}`)
+	phone.WaitFor("the child done", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.Parent == done.AgentID && m.Agent.Status == "done"
+	})
+	var parentTree, childTree string
+	for _, line := range strings.Split(gitOut(t, h.Repo, "worktree", "list", "--porcelain"), "\n") {
+		path, ok := strings.CutPrefix(line, "worktree ")
+		switch {
+		case !ok || path == h.Repo:
+		case strings.HasSuffix(path, "calm-otter"):
+			parentTree = path
+		default:
+			childTree = path
+		}
+	}
+	if parentTree == "" || childTree == "" {
+		t.Fatalf("worktrees %q and %q, want the parent's and the child's", parentTree, childTree)
+	}
+
+	workspace := h.Owner(proto.CapWorkspace)
+	workspace.Send(map[string]any{"type": "worktree.delete", "id": "wd", "path": parentTree, "deleteBranch": true, "force": true})
+	if m := workspace.WaitFor("the delete's answer", func(m Message) bool { return m.ID == "wd" }); m.Type != "ack" {
+		t.Fatalf("got %s", m.Raw)
+	}
+	for _, tree := range []string{parentTree, childTree} {
+		if _, err := os.Stat(tree); !os.IsNotExist(err) {
+			t.Errorf("%s stayed: %v", tree, err)
+		}
+	}
+	// The child's branch may have been renamed from its prompt by now.
+	if branches := gitOut(t, h.Repo, "branch", "--format=%(refname:short)"); branches != "main" {
+		t.Errorf("branches %q, want main alone", branches)
+	}
+}
