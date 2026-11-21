@@ -463,10 +463,12 @@ impl Desktop {
                 let prompt = if source.conversation() { String::new() } else { self.handoff.summary.read(cx).value().trim().to_string() };
                 let pick = LaunchPick { provider: source.provider.clone(), model: source.model.clone(), effort: source.effort.clone(), account: crate::accounts::BUILT_IN.into(), ..LaunchPick::default() };
                 let mut spec = pick.spec(&hosts::place(&host, &placed.project), json!({"worktree": hosts::place(&host, &placed.path)}), &prompt);
+                self.store.agents.launch(&mut spec, &self.agents, &self.efforts_on(&source.provider, &source.model));
                 if let Some(session) = source.session.clone().filter(|_| source.conversation()) {
                     spec["fork"] = session.into();
+                    // A moved conversation carries on rather than plans anew; pocketd refuses a Codex fork that plans first.
+                    spec["plan"] = false.into();
                 }
-                self.store.agents.launch(&mut spec, &self.agents, &self.efforts_on(&source.provider, &source.model));
                 // pocketd starts sessions only in projects it was told of; a clone made by following a fix isn't yet.
                 let project = hosts::place(&host, &placed.project);
                 if !self.store.projects.contains(&project) {
