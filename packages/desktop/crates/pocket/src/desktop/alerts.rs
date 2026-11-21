@@ -164,6 +164,7 @@ impl Desktop {
         self.agents.apply_from(host, ev);
         if listed.is_some() {
             self.delegated_listed();
+            self.remember_subtrees(cx);
         }
         if let Some(parent) = delegating {
             self.delegated_changed(&parent, cx);

@@ -280,6 +280,17 @@ func LostCommits(project string, branches ...string) int {
 	return n
 }
 
+// DetachedCommits is how many commits deleting the detached Worktree at tree
+// would lose: those on its HEAD no branch, remote or tag holds.
+func DetachedCommits(tree string) int {
+	out, err := exec.Command("git", "-C", tree, "rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags").Output()
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return n
+}
+
 // Remove deletes a linked Worktree's folder, uncommitted changes included, as
 // the desktop does; its branch stays.
 func Remove(f registry.File, project, path string) error {
