@@ -23,7 +23,7 @@ pub(crate) mod ssh_hosts;
 mod terminal;
 mod themes;
 
-pub(crate) use appearance::reduce_motion;
+pub(crate) use appearance::{reduce_motion, show_background};
 
 use ::agents::providers;
 use crate::actions::OpenSettings;

@@ -20,6 +20,7 @@
 // FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
+// FIXTURE_BACKGROUND=<image path> saves it as the background image in desktop.json.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -247,7 +248,7 @@ const tracked = [...trees.keys()].map((key) => treePath(...(key.split("\t") as [
 const legacyHosts = process.env.FIXTURE_NO_HOSTS ? [{ id: "devbox", name: "devbox", target: { kind: "alias", name: "devbox" } }] : [];
 const hostProjects = process.env.FIXTURE_HOST_FILES ? ["//devbox/home/dev/code/app-ios", "//10-0-4-12/home/dev/api"] : [];
 if (process.env.FIXTURE_HOST_GH) tracked.push("//devbox/home/dev/code/app-ios-login");
-write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: process.env.FIXTURE_HOST_GH ? { "//devbox/home/dev/code/app-ios": { gh_account: "work" } } : {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined }));
+write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repos.map(repoPath), ...hostProjects], children: children.map((c) => [c.id, c.parent]), repos: process.env.FIXTURE_HOST_GH ? { "//devbox/home/dev/code/app-ios": { gh_account: "work" } } : {}, tracked, hosts: legacyHosts, first_launch: process.env.FIXTURE_FIRST_LAUNCH ? Number(process.env.FIXTURE_FIRST_LAUNCH) : undefined, appearance: process.env.FIXTURE_BACKGROUND ? { background: process.env.FIXTURE_BACKGROUND } : undefined }));
 
 type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
 type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };

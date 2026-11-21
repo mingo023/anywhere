@@ -1,6 +1,7 @@
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 use theme::*;
@@ -91,6 +92,29 @@ impl Field {
     }
 }
 
+/// How much of the page's colour lies over the image: little where only dots and one prompt box sit on it, more under a transcript's text.
+pub(crate) const PROMPT_PAGE_TINT: f32 = 0.25;
+pub(crate) const CHAT_TINT: f32 = 0.7;
+
+pub(crate) fn veil() -> Hsla {
+    page_fill().opacity(if is_dark() { 0.6 } else { 0.7 })
+}
+
+/// The page's own colour, which `backdrop` dissolves into: dark pages are glass, so the solid window colour stands in.
+fn page_fill() -> Hsla {
+    if is_dark() { WINDOW_SOLID.into() } else { PAGE.into() }
+}
+
+pub(crate) fn backdrop(path: String, tint: f32) -> impl IntoElement {
+    let page = page_fill();
+    div()
+        .absolute()
+        .inset_0()
+        .child(img(PathBuf::from(path)).size_full().object_fit(ObjectFit::Cover))
+        .child(div().absolute().inset_0().bg(page.opacity(tint)))
+        .child(div().absolute().inset_0().bg(linear_gradient(180., linear_color_stop(page.opacity(0.), 0.45), linear_color_stop(page, 1.))))
+}
+
 impl Desktop {
     /// A prompt page: `content`, a column at most 600px wide, centred over `field`, which fades around it.
     pub(crate) fn with_field(&mut self, field: fn(&mut Desktop) -> &mut Field, id: &'static str, content: Div, cx: &mut Context<Self>) -> Div {
@@ -118,6 +142,7 @@ impl Desktop {
                     cx.notify();
                 }
             }))
+            .children(self.store.appearance.background.clone().map(|path| backdrop(path, PROMPT_PAGE_TINT)))
             .child(field(self).view(bounds, moving))
             // Measured before the field paints, so its dots clear the content.
             .child(content.relative().w_full().max_w(px(600.)).child(canvas(move |b, _, _| measured.set(Some(b)), |_, _, _, _| {}).absolute().inset_0()));

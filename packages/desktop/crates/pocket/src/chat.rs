@@ -201,7 +201,8 @@ impl Desktop {
             None => (shown, None),
         };
         let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
-        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().child(stage).child(composer).children(files).children(drop);
+        let backdrop = self.store.appearance.background.clone().map(|path| crate::field::backdrop(path, crate::field::CHAT_TINT));
+        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().children(backdrop).child(stage).child(composer).children(files).children(drop);
         div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
     }
 

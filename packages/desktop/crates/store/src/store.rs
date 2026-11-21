@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use workspace::Workspace;
 
+pub mod backgrounds;
 pub mod prefs;
 pub mod scope;
 pub mod sections;
@@ -244,6 +245,9 @@ pub struct Appearance {
     /// Percent opaque the dark window's glass is; read it through `glass()`.
     #[serde(deserialize_with = "lenient")]
     pub glass: Option<u32>,
+    /// The image behind the New session page and chats: a copy in `~/.anywhere/backgrounds/`.
+    #[serde(deserialize_with = "lenient")]
+    pub background: Option<String>,
 }
 
 impl Appearance {
@@ -975,6 +979,7 @@ mod tests {
             code_size: Some(14),
             zoom: Some(125),
             glass: Some(60),
+            background: Some("/home/backgrounds/sky.png".into()),
         };
         s.sounds.all = false;
         s.worktree.root = "/wt".into();
