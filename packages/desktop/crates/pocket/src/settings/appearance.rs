@@ -8,6 +8,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::rc::Rc;
 use store::{Appearance, DiffColors, Store, SyntaxTheme};
 use theme::*;
@@ -163,8 +164,20 @@ fn glass_row(d: &mut Desktop, setting: &'static Setting, _: &mut Context<Desktop
     row(setting.label, setting.hint, div().flex().items_center().gap(px(10.)).when(!dark, |d| d.opacity(0.45)).child(slider).child(percent))
 }
 
-fn apply_background(d: &mut Desktop, _: &mut Context<Desktop>) {
-    theme::set_image_behind(d.store.appearance.background.is_some());
+fn apply_background(d: &mut Desktop, cx: &mut Context<Desktop>) {
+    show_background(d.store.appearance.background.as_deref(), cx);
+}
+
+/// The background on screen. Every pick is a new path, so the picture it replaces would stay decoded in GPUI's image cache until quit.
+static SHOWN: Mutex<Option<String>> = Mutex::new(None);
+
+pub(crate) fn show_background(path: Option<&str>, cx: &mut App) {
+    theme::set_image_behind(path.is_some());
+    let mut shown = SHOWN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(old) = shown.take().filter(|old| Some(old.as_str()) != path) {
+        ImageSource::from(PathBuf::from(old)).remove_asset(cx);
+    }
+    *shown = path.map(str::to_string);
 }
 
 fn background_name(s: &Store) -> String {
@@ -194,11 +207,8 @@ fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
     .detach();
 }
 
-/// Every pick is a new path, so the picture it replaces would stay decoded in GPUI's image cache until quit.
 fn set_background(d: &mut Desktop, path: Option<String>, setting: &'static Setting, cx: &mut Context<Desktop>) {
-    if let Some(old) = std::mem::replace(&mut d.store.appearance.background, path) {
-        ImageSource::from(PathBuf::from(old)).remove_asset(cx);
-    }
+    d.store.appearance.background = path;
     d.changed(setting, cx);
 }
 
