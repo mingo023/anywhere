@@ -515,6 +515,9 @@ impl Desktop {
         }
         let steer = busy && !self.chat_stopping(a) && !queue;
         let (agent, provider, cwd, chat_only) = (a.id.clone(), a.provider.clone(), a.cwd.clone(), a.chat_only);
+        if self.chats.copying.contains(&agent) {
+            return;
+        }
         self.chat_take_input(&agent, window, cx);
         let typed = self.chats.input.read(cx).value().to_string();
         let copied = self.chats.copied.get(&agent).cloned().unwrap_or_default();
@@ -569,9 +572,7 @@ impl Desktop {
     /// can read them. The draft stays, and this chat sends nothing else, until the copy is done.
     #[allow(clippy::too_many_arguments)]
     fn chat_copy_first(&mut self, terminal: &str, agent: String, cwd: &str, queue: bool, copies: crate::composer::HostCopies, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.chats.copying.insert(agent.clone()) {
-            return;
-        }
+        self.chats.copying.insert(agent.clone());
         let (terminal, host) = (terminal.to_string(), self.host_name(hosts::split(cwd).0.unwrap_or_default()));
         let copied = cx.background_executor().spawn(async move { copies.make().map(|()| copies.files) });
         cx.spawn_in(window, async move |this, cx| {
