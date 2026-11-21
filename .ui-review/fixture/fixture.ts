@@ -578,7 +578,7 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
   } else if (op.op === "fs.stat") {
     try {
       const st = statSync(op.path);
-      reply({ exists: true, dir: st.isDirectory(), size: st.size });
+      reply({ exists: true, dir: st.isDirectory(), size: st.size, mtime: Math.round(st.mtimeMs) });
     } catch {
       reply({ exists: false });
     }

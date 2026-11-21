@@ -3,7 +3,6 @@ package wsserver
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"pocketd/internal/config"
 	"pocketd/internal/daemon"
 	"pocketd/internal/devices"
+	"pocketd/internal/hosts"
 	"pocketd/internal/launch"
 	"pocketd/internal/locals"
 	"pocketd/internal/names"
@@ -362,7 +362,7 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 		}
 		s.Workspace.HostDelete = func(_ context.Context, host, path string, madeBefore int64, _ []string, _, force bool) error {
 			asked = append(asked, fmt.Sprintf("%s %s %d %v", host, path, madeBefore, force))
-			return errors.New("devbox isn't online")
+			return hosts.Refusal{Reply: proto.Error{Type: "error", Message: "2 commits", Code: proto.CodeUnpushedCommits, Count: 2}}
 		}
 	})
 	tree := filepath.Join(b.root, "pocket", "parent")
@@ -371,8 +371,8 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 	}
 	helloWith(p, proto.CapWorkspace)
 	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `"}`)
-	if m := p.reply("wd"); m["type"] != "error" {
-		t.Fatalf("an offline host didn't refuse the delete: %v", m)
+	if m := p.reply("wd"); m["type"] != "error" || m["code"] != proto.CodeUnpushedCommits || m["count"] != 2.0 {
+		t.Fatalf("the host's refusal didn't reach the phone whole: %v", m)
 	}
 	if _, err := os.Stat(tree); err != nil {
 		t.Fatalf("the parent's folder went: %v", err)

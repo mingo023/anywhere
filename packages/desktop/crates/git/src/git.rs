@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 pub mod compare;
 pub mod github;
@@ -250,11 +250,21 @@ pub fn worktrees(run: &Runner, cwd: &str) -> Vec<Worktree> {
 
 /// Whether pocketd left its marker in `tree`'s git folder, as it does for each worktree it makes (`worktree.Marker`).
 fn marked(run: &Runner, tree: &str) -> bool {
-    let Ok(pointer) = run.read(&format!("{tree}/.git"), 4096) else { return false };
+    marker(run, tree).is_some()
+}
+
+/// When pocketd made the worktree at `tree`, in Unix milliseconds on the machine holding it: its marker is written once.
+pub fn made_at(run: &Runner, tree: &str) -> Option<u64> {
+    let made = marker(run, tree)?.modified?.duration_since(UNIX_EPOCH).ok()?;
+    Some(made.as_millis() as u64)
+}
+
+fn marker(run: &Runner, tree: &str) -> Option<Stat> {
+    let pointer = run.read(&format!("{tree}/.git"), 4096).ok()?;
     let pointer = String::from_utf8_lossy(&pointer);
-    let Some(dir) = pointer.trim().strip_prefix("gitdir: ") else { return false };
+    let dir = pointer.trim().strip_prefix("gitdir: ")?;
     let dir = if dir.starts_with('.') { format!("{tree}/{dir}") } else { run.place(dir) };
-    matches!(run.stat(&format!("{dir}/anywhere")), Ok(Some(_)))
+    run.stat(&format!("{dir}/anywhere")).ok().flatten()
 }
 
 /// Local branches, most recently committed first.
@@ -562,6 +572,10 @@ mod tests {
         std::fs::write(repo.join(".git/worktrees/ours/anywhere"), "").unwrap();
         let made: Vec<bool> = worktrees(&Runner::Local, r).iter().map(|w| w.made).collect();
         assert_eq!(made, [false, true, false]);
+        let marker = std::fs::metadata(repo.join(".git/worktrees/ours/anywhere")).unwrap().modified().unwrap();
+        let ms = marker.duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        assert_eq!(made_at(&Runner::Local, dir.join("ours").to_str().unwrap()), Some(ms));
+        assert_eq!(made_at(&Runner::Local, dir.join("theirs").to_str().unwrap()), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -610,7 +624,7 @@ mod tests {
             self.0.get(path).map(|f| f.as_bytes().to_vec()).ok_or_else(|| std::io::ErrorKind::NotFound.into())
         }
         fn stat(&self, path: &str) -> std::io::Result<Option<Stat>> {
-            Ok(self.0.contains_key(path).then_some(Stat { dir: false, size: 0, created: None }))
+            Ok(self.0.contains_key(path).then_some(Stat { dir: false, size: 0, created: None, modified: None }))
         }
         fn place(&self, path: &str) -> String {
             format!("//box{path}")

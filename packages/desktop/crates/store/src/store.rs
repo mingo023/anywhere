@@ -370,12 +370,14 @@ pub struct ColumnWidths {
 }
 
 /// The folder of the session that delegated to a subagent, and when the subagent was first seen in its own folder,
-/// in Unix milliseconds: a worktree made there later is someone else's.
+/// in Unix milliseconds: a worktree made there later is someone else's. On a host, whose clock may differ, `made` is
+/// instead when the host made the worktree holding that folder, read off the host once seen.
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone)]
 #[serde(default)]
 pub struct Subtree {
     pub parent: String,
     pub seen: u64,
+    pub made: Option<u64>,
 }
 
 /// What the desktop remembers across launches, in `desktop.json` next to pocketd's socket.

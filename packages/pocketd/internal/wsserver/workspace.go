@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"pocketd/internal/accounts"
+	"pocketd/internal/hosts"
 	"pocketd/internal/launch"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
@@ -410,6 +411,10 @@ func (n unpushedCommits) Error() string {
 }
 
 func workspaceError(id string, err error) proto.Error {
+	if r, ok := errors.AsType[hosts.Refusal](err); ok {
+		r.Reply.ID = id
+		return r.Reply
+	}
 	if n, ok := errors.AsType[unpushedCommits](err); ok {
 		e := proto.NewErrorCode(id, proto.CodeUnpushedCommits, n.Error())
 		e.Count = int(n)

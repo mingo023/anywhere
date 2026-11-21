@@ -22,6 +22,7 @@ pub struct Stat {
     pub dir: bool,
     pub size: u64,
     pub created: Option<SystemTime>,
+    pub modified: Option<SystemTime>,
 }
 
 /// Runs commands and reads files on another machine; every path is that machine's.
@@ -68,7 +69,7 @@ impl Runner {
     pub fn stat(&self, path: &str) -> io::Result<Option<Stat>> {
         match self {
             Runner::Local => match std::fs::metadata(path) {
-                Ok(m) => Ok(Some(Stat { dir: m.is_dir(), size: m.len(), created: m.created().ok() })),
+                Ok(m) => Ok(Some(Stat { dir: m.is_dir(), size: m.len(), created: m.created().ok(), modified: m.modified().ok() })),
                 Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
                 Err(e) => Err(e),
             },
