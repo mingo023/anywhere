@@ -469,10 +469,10 @@ impl Desktop {
         }
         let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b));
         let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
-        self.ask_delete(removal, cx);
+        self.ask_delete(removal, true, cx);
     }
 
-    fn ask_delete(&mut self, removal: Removal, cx: &mut Context<Self>) {
+    fn ask_delete(&mut self, removal: Removal, requested: bool, cx: &mut Context<Self>) {
         let (mut subtrees, on_hosts) = self.subagent_removals(&removal);
         let main = removal.clone();
         let task = cx.background_executor().spawn(async move {
@@ -485,7 +485,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             let (dirty, lost, lost_anyway, subtrees) = task.await;
             this.update(cx, |d, cx| {
-                d.confirm = Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees });
+                d.confirm = Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, requested });
                 d.overlay = Some(Overlay::Confirm);
                 cx.notify();
             })
@@ -610,7 +610,7 @@ impl Desktop {
                         // Kept until it's deleted or the user keeps it: the host may drop again before then.
                         Swept::Ask(r) => {
                             asked = true;
-                            d.ask_delete(r, cx);
+                            d.ask_delete(r, false, cx);
                             continue;
                         }
                         Swept::Done(None) => {}
