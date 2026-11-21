@@ -205,7 +205,7 @@ impl Desktop {
             Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
             Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(&self.repo_name(p), Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() }),
             Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees }) => {
-                let terminals = std::iter::once(&removal.tree).chain(subtrees).map(|t| self.tree_terminals(t).len()).sum();
+                let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t).len()).sum();
                 ConfirmText::delete_worktree(removal, *dirty, *lost, *lost_anyway, terminals, subtrees.len())
             }
             Some(Confirm::DeleteLocal(id)) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),

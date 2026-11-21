@@ -68,10 +68,10 @@ pub enum Confirm {
     RemoveProject(String),
     /// `subtrees` are the worktrees its sessions' subagents worked in, which go with it; `lost_anyway` counts the commits
     /// their detached HEADs alone hold, which go whether or not branches stay.
-    DeleteWorktree { removal: Removal, dirty: usize, lost: usize, lost_anyway: usize, subtrees: Vec<String> },
+    DeleteWorktree { removal: Removal, dirty: usize, lost: usize, lost_anyway: usize, subtrees: Vec<Removal> },
     DeleteLocal(String),
     DeleteScratch { path: String, dirty: usize, lost: usize },
-    TeardownFailed { removal: Removal, tail: String, subtrees: Vec<String> },
+    TeardownFailed { removal: Removal, tail: String, subtrees: Vec<Removal> },
     Discard(Vec<String>),
     CloseSession(String),
     CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },

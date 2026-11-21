@@ -219,11 +219,12 @@ fn subagent_removals(r: &Removal, agents: &Agents, place: impl Fn(&Summary) -> O
 }
 
 /// The commits deleting `jobs` together loses, a tree first and then its subagents': `(lost, lost_anyway)`.
-/// The branches that go count as one set. `lost_anyway` is what the subagents' detached HEADs alone hold, which goes even if branches stay.
+/// `lost` counts the branches as if they all go, as one set, so it holds whichever way the user ticks the box.
+/// `lost_anyway` is what the subagents' detached HEADs alone hold, which goes even if branches stay.
 fn lost_together(jobs: &[Removal]) -> (usize, usize) {
     let Some((tree, subagents)) = jobs.split_first() else { return (0, 0) };
     let mut doomed: HashMap<&str, Vec<&str>> = HashMap::new();
-    for j in jobs.iter().filter(|j| j.delete_branch) {
+    for j in jobs {
         doomed.entry(&j.project).or_default().extend(j.branch.as_deref());
     }
     let branches: usize = doomed.iter().map(|(project, bs)| git::lost_branch_commits(&hosts::runner_for(project), project, bs)).sum();
@@ -244,9 +245,8 @@ impl Desktop {
         }
         let branch = self.worktrees.get(&project).into_iter().flatten().find(|w| w.path == tree).map(|w| w.branch.clone()).filter(|b| branch_deletable(b));
         let removal = Removal { project, tree, delete_branch: branch.is_some() && self.store.worktree.delete_branch, branch, teardown: true };
-        let subagents = self.subagent_removals(&removal);
-        let subtrees: Vec<String> = subagents.iter().map(|r| r.tree.clone()).collect();
-        let jobs: Vec<Removal> = std::iter::once(removal.clone()).chain(subagents).collect();
+        let subtrees = self.subagent_removals(&removal);
+        let jobs: Vec<Removal> = std::iter::once(removal.clone()).chain(subtrees.clone()).collect();
         let task = cx.background_executor().spawn(async move {
             let dirty: usize = jobs.iter().map(|j| git::dirty_files(&hosts::runner_for(&j.tree), &j.tree).unwrap_or(0)).sum();
             let (lost, anyway) = lost_together(&jobs);
@@ -264,8 +264,9 @@ impl Desktop {
         .detach();
     }
 
-    /// Deletes `removal`'s tree, then those of its subagents that are in `subtrees`, the ones the user was shown and whose work was checked.
-    pub(crate) fn delete_worktree(&mut self, removal: Removal, subtrees: &[String], cx: &mut Context<Self>) {
+    /// Deletes `removal`'s tree, then the `confirmed` subagent deletions, the ones the user was shown and whose work was checked,
+    /// that are still its subagents'. Their branches go only if `removal`'s does.
+    pub(crate) fn delete_worktree(&mut self, removal: Removal, confirmed: &[Removal], cx: &mut Context<Self>) {
         if !self.removals.start(&removal.tree) {
             return;
         }
@@ -273,7 +274,12 @@ impl Desktop {
             self.select_tree(removal.project.clone(), None, cx);
         }
         // Read now: once its sessions close, pocketd closes their subagents and the lineage is gone.
-        let subagents: Vec<Removal> = self.subagent_removals(&removal).into_iter().filter(|r| subtrees.contains(&r.tree)).collect();
+        let still = self.subagent_removals(&removal);
+        let subagents: Vec<Removal> = confirmed
+            .iter()
+            .filter(|c| still.iter().any(|s| s.tree == c.tree))
+            .map(|c| Removal { delete_branch: removal.delete_branch && c.branch.is_some(), ..c.clone() })
+            .collect();
         let teardown = self.store.repos.get(&removal.project).map(|r| r.teardown.clone()).unwrap_or_default();
         let (limit, trash) = (Duration::from_secs(self.store.worktree.teardown_secs.into()), self.store.worktree.trash);
         let job = removal.clone();
@@ -284,8 +290,7 @@ impl Desktop {
                 d.removals.running.remove(&removal.tree);
                 match res {
                     Err(Failure::Teardown(tail)) => {
-                        let subtrees = subagents.into_iter().map(|r| r.tree).collect();
-                        d.confirm = Some(Confirm::TeardownFailed { removal, tail, subtrees });
+                        d.confirm = Some(Confirm::TeardownFailed { removal, tail, subtrees: subagents });
                         d.overlay = Some(Overlay::Confirm);
                     }
                     Err(Failure::Remove(e)) => d.error = Some(e),
@@ -424,7 +429,7 @@ mod tests {
         let child = Removal { tree: "/elsewhere".into(), branch: Some("child".into()), ..r.clone() };
         assert_eq!(lost_together(&[r.clone(), child.clone()]), (1, 0));
         let keep = |r: &Removal| Removal { delete_branch: false, ..r.clone() };
-        assert_eq!(lost_together(&[keep(&r), keep(&child)]), (0, 0));
+        assert_eq!(lost_together(&[keep(&r), keep(&child)]), (1, 0), "counted before the user ticks the box; the sheet hides it while branches stay");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
