@@ -52,7 +52,7 @@ func TestAWorktreesSubagentTreesReachEveryGenerationButNotOnesSomeoneElseWorksIn
 		return strings.TrimSuffix(cwd, "/src")
 	}
 	got, err := s.SubagentTrees("/wt", treeOf)
-	if err != nil || !slices.Equal(got.Local, []string{"/wt-c", "/wt-g"}) || !reflect.DeepEqual(got.Hosts, []HostTree{{"devbox", "/home/wt-hc", 5, []string{"hc", "shared"}}}) {
+	if err != nil || !slices.Equal(got.Local, []string{"/wt-c", "/wt-g"}) || !reflect.DeepEqual(got.Hosts, []HostTree{{"devbox", "/home/wt-hc", []string{"hc", "shared"}}}) {
 		t.Fatalf("trees %+v, %v", got, err)
 	}
 }

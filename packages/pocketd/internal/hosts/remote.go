@@ -440,9 +440,9 @@ func (m *Manager) Send(ctx context.Context, id string, msg map[string]any) error
 }
 
 // DeleteWorktree deletes the worktree at path on host id as a phone's worktree.delete does, which takes its
-// subagents' there too, for the subagents named. One already gone, made after madeBefore when that isn't 0, or
-// that someone else works in counts as deleted.
-func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, madeBefore int64, subagents []string, deleteBranch, force bool) error {
+// subagents' there too, for the subagents named. One already gone, made since they closed, or that someone else
+// works in counts as deleted.
+func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, subagents []string, deleteBranch, force bool) error {
 	if _, err := m.connected(ctx, id); err != nil {
 		return err
 	}
@@ -453,11 +453,7 @@ func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, madeBefor
 		return err
 	}
 	defer c.Close()
-	msg := map[string]any{"type": "worktree.delete", "path": path, "deleteBranch": deleteBranch, "force": force, "subagents": subagents}
-	if madeBefore > 0 {
-		msg["madeBefore"] = madeBefore
-	}
-	raw, err := c.Call(ctx, "ack", msg)
+	raw, err := c.Call(ctx, "ack", map[string]any{"type": "worktree.delete", "path": path, "deleteBranch": deleteBranch, "force": force, "subagents": subagents})
 	var e proto.Error
 	if err == nil || json.Unmarshal(raw, &e) != nil || e.Code == "" {
 		return err

@@ -204,7 +204,7 @@ fn doomed_branch(r: &Removal, runner: &git::Runner) -> Option<String> {
 /// The deletions that go with `r`'s: each worktree Anywhere made that holds only sessions `r.tree`'s sessions delegated to, and theirs in turn.
 /// Their branches go only if `r`'s does. `place` is the tree a session's terminal sits in. Also the folders of those on a host whose
 /// worktrees aren't listed here, for `host_removals` to read off the host.
-/// The subagents' folders on hosts whose worktrees aren't listed here, for each host to resolve to its worktree.
+/// The subagents' folders on hosts, for each host to resolve to its worktree and check it's still theirs.
 #[derive(Default, Debug, PartialEq)]
 pub(crate) struct OnHosts {
     /// Each folder, and when its host made the worktree holding it, if that was read once the subagent was seen there.
@@ -239,13 +239,12 @@ fn subagent_removals(
         if t == tree || out.iter().any(|o| o.tree == t) || on_hosts.folders.iter().any(|(f, _)| *f == t) || !theirs(&t) {
             continue;
         }
-        let listed = worktrees.values().flatten().any(|w| w.path == t);
-        if let Some((project, w)) = worktrees.iter().find_map(|(p, ws)| Some((p, ws.iter().find(|w| w.path == t && w.made && !w.main)?))) {
-            let branch = Some(w.branch.clone()).filter(|b| branch_deletable(b));
-            out.push(Removal { project: project.clone(), tree: t, delete_branch: r.delete_branch && branch.is_some(), branch, teardown: true });
-        } else if !listed && hosts::split(&t).0.is_some() {
+        if hosts::split(&t).0.is_some() {
             let at = made(&t);
             on_hosts.folders.push((t, at));
+        } else if let Some((project, w)) = worktrees.iter().find_map(|(p, ws)| Some((p, ws.iter().find(|w| w.path == t && w.made && !w.main)?))) {
+            let branch = Some(w.branch.clone()).filter(|b| branch_deletable(b));
+            out.push(Removal { project: project.clone(), tree: t, delete_branch: r.delete_branch && branch.is_some(), branch, teardown: true });
         }
     }
     (out, on_hosts)
@@ -340,7 +339,7 @@ impl Desktop {
             Some((tree, self.folder_tree(&s.parent)?))
         }).collect();
         let place = |a: &Summary| self.session_place(a).or_else(|| folder(a).filter(|f| hosts::split(f).0.is_some()));
-        let made = |f: &str| self.store.subtrees.get(f).and_then(|s| s.made);
+        let made = |t: &str| self.store.subtrees.iter().find(|(c, _)| self.folder_tree(c).as_deref() == Some(t)).and_then(|(_, s)| s.made);
         subagent_removals(r, &self.agents, place, &self.worktrees, &subtrees, made)
     }
 
@@ -437,9 +436,14 @@ impl Desktop {
         let teardown = self.store.repos.get(&removal.project).map(|r| r.teardown.clone()).unwrap_or_default();
         let (limit, trash) = (Duration::from_secs(self.store.worktree.teardown_secs.into()), self.store.worktree.trash);
         let job = removal.clone();
-        let task = cx.background_executor().spawn(async move { run(&job, &teardown_for(&job, teardown), limit) });
+        let task = cx.background_executor().spawn(async move {
+            // Read again: a host's worktree may have changed hands since the sheet read it.
+            let on_hosts: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
+            (run(&job, &teardown_for(&job, teardown), limit), on_hosts)
+        });
         cx.spawn(async move |this, cx| {
-            let res = task.await;
+            let (res, on_hosts) = task.await;
+            let subagents: Vec<Removal> = subagents.into_iter().filter(|s| hosts::split(&s.tree).0.is_none() || on_hosts.contains(&s.tree)).collect();
             this.update(cx, |d, cx| {
                 d.removals.running.remove(&removal.tree);
                 match res {
@@ -554,13 +558,13 @@ mod tests {
         let agents = agents::Agents { list: vec![user, theirs], ..Default::default() };
         let place = |a: &agents::Summary| Some(if a.id == "user" { "/wt-busy" } else { "//devbox/home/dev/wt/notes/docs" }.to_string());
         let made = |path: &str| git::Worktree { path: path.into(), branch: format!("b{path}"), main: false, made: true };
-        let worktrees = [("/app".to_string(), vec![made("/wt"), made("/wt-c"), made("/wt-g"), made("/wt-busy"), made("/wt-other")])].into();
-        let subtrees = [("/wt-c", "/wt"), ("/wt-g", "/wt-c"), ("/wt-busy", "/wt"), ("/wt-other", "/elsewhere"), ("//devbox/home/dev/wt/notes", "/wt-c")].map(|(c, p)| (c.to_string(), p.to_string())).into();
+        let worktrees = [("/app".to_string(), vec![made("/wt"), made("/wt-c"), made("/wt-g"), made("/wt-busy"), made("/wt-other")]), ("//devbox/app".to_string(), vec![made("//devbox/wt-listed")])].into();
+        let subtrees = [("/wt-c", "/wt"), ("/wt-g", "/wt-c"), ("/wt-busy", "/wt"), ("/wt-other", "/elsewhere"), ("//devbox/home/dev/wt/notes", "/wt-c"), ("//devbox/wt-listed", "/wt")].map(|(c, p)| (c.to_string(), p.to_string())).into();
         let parent = Removal { project: "/app".into(), tree: "/wt".into(), branch: Some("feat".into()), delete_branch: true, teardown: false };
         let made = |f: &str| (f == "//devbox/home/dev/wt/notes").then_some(7);
         let (removals, on_hosts) = subagent_removals(&parent, &agents, place, &worktrees, &subtrees, made);
         assert_eq!(removals.into_iter().map(|r| r.tree).collect::<Vec<_>>(), ["/wt-c", "/wt-g"]);
-        assert_eq!(on_hosts.folders, [("//devbox/home/dev/wt/notes".to_string(), Some(7))]);
+        assert_eq!(on_hosts.folders, [("//devbox/wt-listed".to_string(), None), ("//devbox/home/dev/wt/notes".to_string(), Some(7))], "a host's worktree, listed here or not, is checked on its host");
         assert_eq!(on_hosts.others, ["//devbox/home/dev/wt/notes/docs"]);
     }
 

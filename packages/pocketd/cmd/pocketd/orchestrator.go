@@ -235,6 +235,11 @@ func (o *orchestrator) openSessions() ([]orch.Session, error) {
 	return o.store.OpenSessions()
 }
 
+func (o *orchestrator) session(id string) (*orch.Session, error) {
+	o.sink.Flush()
+	return o.store.Session(id)
+}
+
 func (o *orchestrator) subagentTrees(tree string, treeOf func(cwd string, at int64) string) (orch.Subtrees, error) {
 	o.sink.Flush()
 	return o.store.SubagentTrees(tree, treeOf)

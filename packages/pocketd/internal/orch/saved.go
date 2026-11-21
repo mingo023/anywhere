@@ -40,13 +40,10 @@ type Subtrees struct {
 	Hosts []HostTree
 }
 
-// HostTree's At is when its session closed, in Unix milliseconds, 0 while
-// open: a worktree the host made at Path since then is someone else's.
-// Sessions are the line's on that host, untagged: a terminal there of anyone
-// else keeps the worktree.
+// HostTree's Sessions are the line's on that host, untagged, for the host to
+// tell its subagents' worktree from one someone else works in or made since.
 type HostTree struct {
 	Host, Path string
-	At         int64
 	Sessions   []string
 }
 
@@ -107,11 +104,7 @@ func (s *Store) SubagentTrees(tree string, treeOf func(cwd string, at int64) str
 	for _, x := range all {
 		if host, _, tagged := strings.Cut(x.ID, "/"); tagged {
 			if line[x.ID] && isolated[x.ID] && x.Cwd != "" {
-				t := HostTree{Host: host, Path: x.Cwd, Sessions: onHost[host]}
-				if x.ClosedAt != 0 {
-					t.At = max(x.UpdatedAt, x.ClosedAt)
-				}
-				out.Hosts = append(out.Hosts, t)
+				out.Hosts = append(out.Hosts, HostTree{host, x.Cwd, onHost[host]})
 			}
 			continue
 		}

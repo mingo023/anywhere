@@ -68,7 +68,6 @@ type ClientMessage struct {
 	Setup            *bool
 	DeleteBranch     bool
 	Force            bool     // worktree.delete: delete a branch whose commits are nowhere else
-	MadeBefore       int      // worktree.delete: Unix ms the worktree must have been made by
 	Subagents        []string // worktree.delete: whose terminals alone may be in it
 	Tree             string
 	Trees            []string
