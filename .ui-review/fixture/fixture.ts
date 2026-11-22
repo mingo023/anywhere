@@ -427,6 +427,7 @@ const CODEX = [
 ];
 const ROWS = 37;
 const screen = (id: string) => {
+  if (id.startsWith("sh")) return "dev@fixture ~ % ";
   const body = scenario.agents.find((a) => a.id === id)?.term === "codex" ? CODEX : [];
   return `${ESC}?25l` + [...Array(ROWS - body.length).fill(""), ...body].join("\r\n");
 };
@@ -485,6 +486,7 @@ const ACCOUNTS = [
 
 // The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.
 const conns = new Set<Socket>();
+let spawned = 0;
 // This Mac's pocketd's lineage: the worktrees each tree's subagents worked in.
 const macLineage = new Map<string, string[]>();
 const ops = (c: Socket, first: Buffer) => {
@@ -507,6 +509,16 @@ const ops = (c: Socket, first: Buffer) => {
         reply({ ev: "spawned", id, text: op.id || "added" });
         announce();
       }
+      if (process.env.FIXTURE_LOG && ["input", "resize", "spawn", "close"].includes(op.op))
+        appendFileSync(process.env.FIXTURE_LOG.replace(/\.jsonl$/, "-terminals.jsonl"), JSON.stringify({ ...op, ...(op.data && { data: Buffer.from(op.data, "base64").toString("latin1") }) }) + "\n");
+      // A new terminal (a split, a new tab) is a shell with a prompt; input is echoed back as output.
+      if (op.op === "spawn") {
+        const id = `sh${++spawned}`;
+        sessions.push({ id, cmd: "/bin/zsh", args: ["-l"], cwd: op.cwd ?? "/" });
+        reply({ ev: "spawned", id });
+        announce();
+      }
+      if (op.op === "input") reply({ ev: "output", id: op.id, data: op.data });
     }
   };
   read(first);
