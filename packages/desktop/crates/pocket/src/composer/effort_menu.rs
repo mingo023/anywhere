@@ -1,7 +1,6 @@
 use super::model_menu::{GAP, PAD, check, row};
 use super::{Draft, launch};
 use crate::desktop::Desktop;
-use crate::models::effort_label;
 use gpui_kit::*;
 use theme::*;
 
@@ -43,14 +42,8 @@ pub(crate) struct Effort {
     pub(super) list: Option<Div>,
 }
 
-/// A row headed `word`, the agent's name for effort, naming the level in use, `on` unless `menu` holds a newer one, that
-/// opens `levels` beside the panel. Picking one hands it to `pick`.
-pub(crate) fn effort_menu(id: &'static str, word: &'static str, (levels, on): (&[String], Option<&String>), menu: &EffortMenu, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, pick: launch::Pick, cx: &mut Context<Desktop>) -> Effort {
-    let levels: Vec<(String, String)> = levels.iter().map(|l| (l.clone(), effort_label(l))).collect();
-    choice_menu(id, word.into(), (&levels, on), menu, draft, pick, cx)
-}
-
-/// `effort_menu` for any of a model's settings: `levels` are each value it takes and what the list calls it.
+/// A row headed `word`, a model's setting, naming the value in use, `on` unless `menu` holds a newer one, that opens
+/// `levels`, each value it takes and what the list calls it, beside the panel. Picking one hands it to `pick`.
 pub(crate) fn choice_menu(id: impl Into<ElementId>, word: SharedString, (levels, on): (&[(String, String)], Option<&String>), menu: &EffortMenu, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, pick: launch::Pick, cx: &mut Context<Desktop>) -> Effort {
     let at = menu.shown(&word, levels, on);
     let name = at.map_or_else(|| "Default".to_string(), |i| levels[i].1.clone());

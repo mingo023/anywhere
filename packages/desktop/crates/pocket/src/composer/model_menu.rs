@@ -1,4 +1,5 @@
-use super::effort_menu::{Effort, choice_menu, effort_menu};
+use super::effort_menu::{Effort, choice_menu};
+use super::effort_slider::{self, effort_slider};
 use super::{Composer, Draft, Menu, Slot, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
@@ -21,12 +22,12 @@ pub(crate) const ROW: f32 = 34.;
 pub(crate) const GAP: f32 = 2.;
 pub(crate) const PAD: f32 = 5.;
 const PANEL_WIDTH: f32 = 340.;
-/// The list's height over one effort row; it takes whatever room the panel has left.
+/// The list's height over the effort slider; it takes whatever room the panel has left.
 const LIST_HEIGHT: f32 = 264.;
 const SEARCH_HEIGHT: f32 = 44.;
 /// One height whatever the panel shows: it hangs above the pill, so growing would slide the rail under a still pointer
 /// and point it at another agent.
-const PANEL_HEIGHT: f32 = SEARCH_HEIGHT + LIST_HEIGHT + 2. * PAD + ROW;
+const PANEL_HEIGHT: f32 = SEARCH_HEIGHT + LIST_HEIGHT + effort_slider::HEIGHT;
 const TAB: f32 = 36.;
 const TAB_GAP: f32 = 4.;
 const RAIL_PAD: f32 = 6.;
@@ -102,14 +103,14 @@ pub(crate) type KeptList = Memo<Listed>;
 /// Picks the model of a line that was clicked.
 pub(crate) type Choose = Rc<dyn Fn(&mut Desktop, &Entry, &mut Context<Desktop>)>;
 
-/// The panel the model pill opens: `rail` beside a search, the models, a `note` on them and a row for the effort and
+/// The panel the model pill opens: `rail` beside a search, the models, a `note` on them, the effort slider and a row
 /// for each of the model's settings.
-pub(crate) fn panel(rail: Div, search: &Entity<InputState>, list: Div, note: Option<String>, settings: Vec<Effort>) -> Div {
+pub(crate) fn panel(rail: Div, search: &Entity<InputState>, list: Div, note: Option<String>, effort: Option<Stateful<Div>>, settings: Vec<Effort>) -> Div {
     let (rows, lists): (Vec<_>, Vec<_>) = settings.into_iter().map(|e| (e.row, e.list)).unzip();
     let levels = lists.into_iter().flatten().next();
     let row = (!rows.is_empty()).then(|| div().flex_none().p(px(PAD)).flex().flex_col().gap(px(GAP)).border_t(px(0.5)).border_color(SEPARATOR).children(rows));
     let note = note.map(|n| div().flex_none().px(px(PAD + 10.)).pb(px(10.)).text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(n));
-    let column = div().flex_1().min_w_0().flex().flex_col().child(menu_input("search", search)).child(list).children(note).children(row);
+    let column = div().flex_1().min_w_0().flex().flex_col().child(menu_input("search", search)).child(list).children(note).children(effort).children(row);
     let panel = ui::pop(div()).w(px(PANEL_WIDTH)).h(px(PANEL_HEIGHT)).flex_none().flex().overflow_hidden().child(rail).child(column);
     // The list sits inside this box, not over its edge: a press outside the box closes the menu, and the box keeps the list on screen.
     div().flex().items_end().gap(px(6.)).child(panel).children(levels)
@@ -468,7 +469,7 @@ impl Desktop {
             let (current, project) = (pick.clone(), project.clone());
             let choose: launch::Pick = Rc::new(move |this, effort, cx| this.adjust_launch(slot, project.clone(), LaunchPick { effort, ..current.clone() }, cx));
             let on = effort_shown(pick, &self.store.agents.provider(&pick.provider), levels, names).cloned();
-            effort_menu("composer-effort", providers::known(&pick.provider).effort_word, (levels, on.as_ref()), &c.draft.effort, move |d: &mut Desktop| &mut slot(d).draft, choose, cx)
+            effort_slider("composer-effort", providers::known(&pick.provider).effort_word, (levels, on.as_ref()), &c.draft.slider, choose, cx)
         });
         let settings = if own { self.launch_settings(&pick.provider, &pick.model) } else { &[] };
         let settings = settings.iter().enumerate().map(|(i, s)| {
@@ -477,8 +478,7 @@ impl Desktop {
             let on = pick.options.get(&s.id).unwrap_or(&s.default);
             choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &c.draft.effort, move |d: &mut Desktop| &mut slot(d).draft, choose, cx)
         });
-        let rows: Vec<Effort> = effort.into_iter().chain(settings.collect::<Vec<_>>()).collect();
-        panel(rail, &c.search, list, self.models_note(viewed), rows)
+        panel(rail, &c.search, list, self.models_note(viewed), effort, settings.collect())
     }
 }
 
