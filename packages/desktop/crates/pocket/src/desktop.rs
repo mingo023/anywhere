@@ -12,7 +12,7 @@ pub(crate) mod sounds;
 pub(crate) mod toast;
 
 use crate::accounts::Accounts;
-use crate::activity::ActivityState;
+use crate::activity::Activity;
 use crate::add_to_chat::ChatComposer;
 use crate::automations::AutomationsState;
 use crate::board::BoardState;
@@ -114,7 +114,7 @@ pub struct Desktop {
     pub(crate) git_run: u64,
     pub(crate) git_done: u64,
     pub(crate) inbox: Entity<Inbox>,
-    pub(crate) activity: ActivityState,
+    pub(crate) activity: Entity<Activity>,
     pub(crate) handoff: Entity<crate::handoff::HandoffState>,
     pub(crate) automations: AutomationsState,
     pub(crate) board: BoardState,
@@ -173,7 +173,8 @@ impl Desktop {
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
         let (board, board_subs) = BoardState::new(window, cx);
-        let (activity, activity_subs) = ActivityState::new(window, cx);
+        let activity = cx.new(|cx| Activity::new(window, cx));
+        let activity_subs = cx.subscribe_in(&activity, window, Self::on_activity_event);
         let handoff = cx.new(|cx| crate::handoff::HandoffState::new(window, cx));
         let handoff_subs = cx.subscribe_in(&handoff, window, Self::on_handoff_event);
         let notch = Notch::new(window, cx);
@@ -240,7 +241,7 @@ impl Desktop {
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
         _subs.extend(board_subs);
-        _subs.extend(activity_subs);
+        _subs.push(activity_subs);
         _subs.push(handoff_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
         let graph = GraphState::new(store.graph_share, &store.diff);
@@ -545,7 +546,7 @@ impl Desktop {
             || self.chats.files.is_some()
             || self.chats.select.menu_open()
             || self.open_in.read(cx).menu.is_some()
-            || self.activity.menu.is_some()
+            || self.activity.read(cx).menu.is_some()
     }
 
     /// Returns whether a menu was open.
@@ -562,7 +563,7 @@ impl Desktop {
         self.spaces.menu = false;
         self.automations.menu = None;
         self.board.menu = None;
-        self.activity.menu = None;
+        self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
         self.clone_form.machine_menu = false;
         self.explorer.close_menu();

@@ -1,14 +1,14 @@
-use super::Menu;
 use super::logic::values;
-use crate::desktop::Desktop;
+use super::{Activity, ActivityEvent, Menu};
+use crate::desktop::chrome::popup_closing;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 use ui::value_row;
 
-impl Desktop {
-    pub(super) fn activity_filters(&self, cx: &mut Context<Self>) -> Div {
+impl Activity {
+    pub(crate) fn filters(&self, cx: &mut Context<Self>) -> Div {
         let search = div()
             .w(px(220.))
             .h(px(26.))
@@ -19,7 +19,7 @@ impl Desktop {
             .rounded(px(7.))
             .bg(FILL_1)
             .child(icon("search", 12., TEXT_3))
-            .child(div().flex_1().min_w_0().text_size(px(12.5)).child(Input::new(&self.activity.search).appearance(false).p_0()));
+            .child(div().flex_1().min_w_0().text_size(px(12.5)).child(Input::new(&self.search).appearance(false).p_0()));
         div()
             .flex()
             .items_center()
@@ -30,8 +30,8 @@ impl Desktop {
     }
 
     fn activity_filter_chip(&self, menu: Menu, cx: &mut Context<Self>) -> Div {
-        let open = self.activity.menu == Some(menu);
-        let picked = self.activity.filters.picks(menu).len();
+        let open = self.menu == Some(menu);
+        let picked = self.filters.picks(menu).len();
         let text = if picked == 0 { menu.label().to_string() } else { format!("{} · {picked}", menu.label()) };
         let chip = ui::popover_trigger(
             div()
@@ -52,32 +52,34 @@ impl Desktop {
                 .child(text)
                 .child(icon("chevron-down", 11., TEXT_3)),
             open,
-            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                this.close_menus(cx);
-                this.activity.menu = Some(menu);
-                cx.notify();
-            }),
+            cx.listener(move |_, _: &MouseDownEvent, _, cx| cx.emit(ActivityEvent::OpenMenu(menu))),
         );
         div().relative().child(chip).when(open, |d| d.child(self.activity_filter_menu(menu, cx)))
     }
 
     fn activity_filter_menu(&self, menu: Menu, cx: &mut Context<Self>) -> Div {
-        let rows: Vec<_> = values(&self.activity.grouped.items, menu)
+        let rows: Vec<_> = values(&self.grouped.items, menu)
             .into_iter()
             .enumerate()
             .map(|(i, (value, count))| {
-                let on = self.activity.filters.picks(menu).contains(&value);
+                let on = self.filters.picks(menu).contains(&value);
                 let (lead, name) = match menu {
-                    Menu::Project => (icon("folder", 13., TEXT_3).into_any_element(), self.repo_name(&value)),
-                    Menu::Agent => (theme::provider_icon(&value, 12., TEXT_2).into_any_element(), self.agent_name(&value)),
+                    Menu::Project => (icon("folder", 13., TEXT_3).into_any_element(), self.name_of(&value)),
+                    Menu::Agent => (theme::provider_icon(&value, 12., TEXT_2).into_any_element(), self.name_of(&value)),
                 };
                 value_row(("activity-filter", i), on, lead, &name, count).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.activity.filters.toggle(menu, &value);
-                    this.activity_changed();
+                    this.filters.toggle(menu, &value);
+                    cx.emit(ActivityEvent::Changed);
                     cx.notify();
                 }))
             })
             .collect();
-        ui::dropdown_right(30., ui::menu_in("activity-filter-in", self.popup("activity-filter-menu", 260., cx).children(rows)))
+        let popup = popup_closing("activity-filter-menu", 260., cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(ActivityEvent::CloseMenus)));
+        ui::dropdown_right(30., ui::menu_in("activity-filter-in", popup.children(rows)))
+    }
+
+    /// The name `Desktop` handed down for a menu's value.
+    fn name_of(&self, value: &str) -> String {
+        self.side.names.get(value).cloned().unwrap_or_else(|| value.to_string())
     }
 }

@@ -515,10 +515,10 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("activity-filtered", |d, _, cx| {
         if let Some(p) = d.project.clone() {
-            d.activity.filters.toggle(crate::activity::Menu::Project, &p);
+            d.activity.update(cx, |a, _| a.pick(crate::activity::Menu::Project, &p));
         }
-        d.activity.menu = Some(crate::activity::Menu::Project);
-        d.activity_changed();
+        d.activity.update(cx, |a, cx| a.show(crate::activity::Menu::Project, cx));
+        d.activity_changed(cx);
         cx.notify();
     }),
     ("chat-only-done", |d, _, _| {
@@ -988,7 +988,7 @@ const STEPS: [(&str, Step); 302] = [
         d._subs.push(sub);
         d.welcome = Some(welcome);
     }),
-    ("prs", |d, _, _| {
+    ("prs", |d, _, cx| {
         let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         let now = Instant::now();
@@ -1012,7 +1012,7 @@ const STEPS: [(&str, Step); 302] = [
             d.prs.start(&tree, now);
             d.prs.apply(tree, now, Ok(Some(pr)), now);
         }
-        d.activity_changed();
+        d.activity_changed(cx);
     }),
     ("pr-loop", |d, _, _| {
         let Some(tree) = d.cwd() else { return };

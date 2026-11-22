@@ -306,7 +306,7 @@ impl Desktop {
                 if d.prs.apply(tree.clone(), started, result, Instant::now()) {
                     d.fetch_avatars(&tree, cx);
                     d.refresh_pr_diffs(cx);
-                    d.activity_changed();
+                    d.activity_changed(cx);
                     cx.notify();
                 }
             })

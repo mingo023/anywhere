@@ -301,13 +301,22 @@ pub fn pill(id: impl Into<ElementId>, v: ui::Variant, icon_name: Option<&str>, l
     ui::button(id, v, icon_name, label.to_string()).h(px(28.)).px(px(12.)).rounded(px(14.)).font_weight(FontWeight::MEDIUM)
 }
 
+/// A floating menu of `width` that `on_out` hears a press outside of.
+pub(crate) fn popup_closing(id: &'static str, width: f32, on_out: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
+    ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(on_out)
+}
+
 impl Desktop {
     /// A floating menu of `width` that a click outside closes.
     pub(crate) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.close_menus(cx);
-            cx.notify();
-        }))
+        popup_closing(
+            id,
+            width,
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.close_menus(cx);
+                cx.notify();
+            }),
+        )
     }
 
     pub(crate) fn detail_bar(&self, crumb: Div, right: impl IntoElement, cx: &mut Context<Self>) -> Div {

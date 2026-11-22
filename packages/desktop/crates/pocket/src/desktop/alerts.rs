@@ -15,6 +15,18 @@ pub const ALLOW: &str = "allow";
 pub const DENY: &str = "deny";
 const LINE_MAX: usize = 240;
 
+/// Deny and Allow once buttons, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`, each with the decision its click makes.
+pub(crate) fn answer_row(scope: &str, id: &str) -> [(Stateful<Div>, Decision); 2] {
+    let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
+    [
+        (ui::quick_button(button("deny"), None, "Deny"), Decision::Deny),
+        (
+            ui::quick_button(button("allow"), None, "Allow once").bg(theme::PRIMARY).text_color(theme::ON_PRIMARY).hover(|s| s.bg(theme::PRIMARY).opacity(0.9)),
+            Decision::Allow,
+        ),
+    ]
+}
+
 /// Whether `n` lets a banner show for an agent entering `status`.
 pub fn wants_banner(n: Notifications, status: Status) -> bool {
     n.banners
@@ -225,7 +237,7 @@ impl Desktop {
         if board {
             self.board_changed(cx);
         }
-        self.activity_changed();
+        self.activity_changed(cx);
         self.sync_alerts(cx);
         if !self.capturing {
             self.badge.show(&self.agents.list, self.store.notifications.badge);
@@ -345,29 +357,20 @@ impl Desktop {
 
     /// Deny and Allow once for a card's permission ask, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`.
     pub(crate) fn answer_buttons(&self, scope: &str, id: &str, request: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
-        let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
-        let answer = |row: Stateful<Div>, decision: Decision, cx: &mut Context<Self>| {
-            let request = request.to_string();
-            row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.answer_pending(&request, decision, cx);
-            }))
-        };
-        vec![
-            answer(ui::quick_button(button("deny"), None, "Deny"), Decision::Deny, cx),
-            answer(
-                ui::quick_button(button("allow"), None, "Allow once")
-                    .bg(theme::PRIMARY)
-                    .text_color(theme::ON_PRIMARY)
-                    .hover(|s| s.bg(theme::PRIMARY).opacity(0.9)),
-                Decision::Allow,
-                cx,
-            ),
-        ]
+        answer_row(scope, id)
+            .into_iter()
+            .map(|(row, decision)| {
+                let request = request.to_string();
+                row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.answer_pending(&request, decision, cx);
+                }))
+            })
+            .collect()
     }
 
     /// Answers the ask the button was drawn for, never one that has replaced it since.
-    fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
+    pub(crate) fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
         if self.agents.pending.iter().any(|p| p.request_id == request) {
             self.outbox.resolve(request, decision);
         }

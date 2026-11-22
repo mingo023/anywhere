@@ -1,6 +1,7 @@
 use super::logic::{Col, Item, Quick, quick};
-use crate::desktop::Desktop;
-use crate::git_ui::pull_requests::glyph as pr_glyph;
+use super::side::Extra;
+use super::{Activity, ActivityEvent};
+use crate::desktop::alerts::answer_row;
 use crate::util::{ago, now_ms};
 use agents::Permission;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -84,18 +85,10 @@ pub(super) fn ask_lines(p: &Permission, size: f32) -> Div {
     div().flex().flex_col().items_start().text_size(px(size)).line_height(px(size * 1.45)).text_color(TEXT).child(lead).child(code)
 }
 
-impl Desktop {
+impl Activity {
     /// The project's lettered tile, as the sidebar shows it.
-    pub(super) fn activity_badge(&self, item: &Item) -> Div {
-        ui::repo_tile(
-            &self.project_mark(&item.project, item.project_name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()),
-            16.,
-            false,
-            None,
-        )
-        .bg(rgb(0x555555))
-        .text_color(WHITE)
-        .shadow(Vec::new())
+    pub(super) fn activity_badge(&self, mark: &ui::Mark) -> Div {
+        ui::repo_tile(mark, 16., false, None).bg(rgb(0x555555)).text_color(WHITE).shadow(Vec::new())
     }
 
     /// The agent's logo and id.
@@ -104,9 +97,11 @@ impl Desktop {
     }
 
     pub(super) fn activity_card(&self, col: Col, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(item) = self.activity.grouped.shown(col, ix) else { return div().into_any_element() };
-        let (motion, id) = (self.activity.motion.clone(), item.id.clone());
-        let card = self.activity_card_body(item, cx).opacity(motion.borrow().opacity(&id, Instant::now()));
+        let Some((item, extra)) = self.grouped.shown(col, ix).and_then(|item| Some((item, self.side.extras.get(&item.id)?))) else {
+            return div().into_any_element();
+        };
+        let (motion, id) = (self.motion.clone(), item.id.clone());
+        let card = self.activity_card_body(item, extra, cx).opacity(motion.borrow().opacity(&id, Instant::now()));
         // The list clips at its top edge, which would cut the first card's hover ring.
         div()
             .w_full()
@@ -125,7 +120,7 @@ impl Desktop {
     }
 
     /// A card on its own, for its place in a column or its copy in flight.
-    pub(super) fn activity_card_body(&self, item: &Item, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn activity_card_body(&self, item: &Item, extra: &Extra, cx: &mut Context<Self>) -> Stateful<Div> {
         let (col, id) = (item.col(), item.id.clone());
         let top = div()
             .flex()
@@ -136,7 +131,7 @@ impl Desktop {
             .text_size(px(11.))
             .text_color(TEXT_3)
             .whitespace_nowrap()
-            .child(self.activity_badge(item))
+            .child(self.activity_badge(&extra.mark))
             .child(div().min_w_0().truncate().child(item.project_name.clone()))
             .child(self.activity_agent(&item.provider))
             .child(div().flex_none().ml_auto().child(ago(item.at, now_ms())));
@@ -156,15 +151,15 @@ impl Desktop {
                 .child(icon("branch", 11., TEXT_3))
                 .child(div().min_w_0().truncate().child(item.branch.clone()))
         });
-        let ask = self.activity_ask_box(item, 12., cx).map(|b| b.mt(px(8.)).px(px(10.)).py(px(8.)).gap(px(7.)));
+        let ask = self.activity_ask_box(item, extra, 12., cx).map(|b| b.mt(px(8.)).px(px(10.)).py(px(8.)).gap(px(7.)));
         let note = (ask.is_none() && !item.note.is_empty())
             .then(|| div().mt(px(6.)).text_size(px(12.)).line_height(px(16.8)).text_color(TEXT_3).line_clamp(2).child(item.note.clone()));
-        let pills = self.activity_pills(item);
-        let quick = self.activity_quick(item, cx);
+        let pills = self.activity_pills(extra);
+        let quick = self.activity_quick(item, extra, cx);
         let meta = (!pills.is_empty() || quick.is_some()).then(|| {
             div().mt(px(8.)).h(px(20.)).flex().items_center().gap(px(6.)).children(pills).children(quick.map(|q| q.ml_auto().my(px(-2.)).mr(px(-4.))))
         });
-        let previewed = self.activity.previewed.as_deref() == Some(item.id.as_str());
+        let previewed = self.previewed.as_deref() == Some(item.id.as_str());
         let rest = vec![ui::ring(SEPARATOR_STRONG, 0.5)];
         div()
             .id(SharedString::from(format!("activity-{id}")))
@@ -181,15 +176,15 @@ impl Desktop {
             .children(ask)
             .children(note)
             .children(meta)
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 // The columns close the drawer on a click; this one opens it instead.
                 cx.stop_propagation();
-                this.preview_session(&id, window, cx);
+                cx.emit(ActivityEvent::Preview(id.clone()));
             }))
     }
 
     /// The tinted box a session that needs you shows: its permission ask with Deny and Allow once, its question, or its failed turn.
-    pub(super) fn activity_ask_box(&self, item: &Item, size: f32, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn activity_ask_box(&self, item: &Item, extra: &Extra, size: f32, cx: &mut Context<Self>) -> Option<Div> {
         if item.col() != Col::NeedsYou {
             return None;
         }
@@ -204,31 +199,30 @@ impl Desktop {
                 .gap(px(4.))
                 .child(div().font_weight(FontWeight::SEMIBOLD).text_color(FAILED_TEXT).child("Turn failed."))
                 .children((!item.note.is_empty()).then(|| item.note.clone()));
-            let again = self.activity_last_prompt(&id).map(|_| {
+            let again = extra.retry.then(|| {
                 let id = id.clone();
-                sm_button(format!("activity-retry-{id}").into(), None, "Retry", true).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                sm_button(format!("activity-retry-{id}").into(), None, "Retry", true).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
-                    this.retry_turn(&id, cx);
+                    cx.emit(ActivityEvent::Retry(id.clone()));
                 }))
             });
-            let dismiss =
-                sm_button(format!("activity-dismiss-{id}").into(), None, "Dismiss", false).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.mark_seen(&id, cx);
-                }));
+            let dismiss = sm_button(format!("activity-dismiss-{id}").into(), None, "Dismiss", false).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                cx.emit(ActivityEvent::Seen(id.clone()));
+            }));
             return Some(tinted(FAILED_BG).child(says).child(row().children(again).child(dismiss)));
         }
-        let p = self.agents.pending.iter().find(|p| p.agent_id == item.id)?;
+        let p = extra.ask.as_ref()?;
         let questions = p.questions();
         let (ask, answers) = match questions.as_slice() {
-            [] => (ask_lines(p, size), self.activity_answers(&id, cx).map(|a| a.p(px(8.)).into_any_element())),
-            [q] if !q.multi_select && !q.options.is_empty() && !self.agents.observe_only() => {
+            [] => (ask_lines(p, size), self.activity_answers(&id, p, cx).map(|a| a.p(px(8.)).into_any_element())),
+            [q] if !q.multi_select && !q.options.is_empty() && !self.side.observe_only => {
                 let options = q.options.iter().enumerate().map(|(i, o)| {
                     let (request, question, label) = (p.request_id.clone(), q.question.clone(), o.label.clone());
                     sm_button(format!("activity-option-{id}-{i}").into(), None, o.label.clone(), i == 0).on_click(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
+                        move |_, _: &ClickEvent, _, cx| {
                             cx.stop_propagation();
-                            this.answer_question(&request, &question, &label, cx);
+                            cx.emit(ActivityEvent::AnswerQuestion { request: request.clone(), question: question.clone(), label: label.clone() });
                         },
                     ))
                 });
@@ -241,45 +235,48 @@ impl Desktop {
     }
 
     /// Seen on a turn that ended unseen, Create PR for a branch's changes.
-    fn activity_quick(&self, item: &Item, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let changed = self.repos.get(&item.tree).is_some_and(|r| !r.files.is_empty());
+    fn activity_quick(&self, item: &Item, extra: &Extra, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let id = item.id.clone();
-        Some(match quick(item.col(), &item.branch, changed, self.prs.get(&item.tree).is_some())? {
+        Some(match quick(item.col(), &item.branch, extra.diff.is_some(), extra.pr.is_some())? {
             Quick::Seen => sm_button(format!("activity-seen-{id}").into(), Some(icon("check", 11., TEXT)), "Seen", false).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
+                move |_, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
-                    this.mark_seen(&id, cx);
+                    cx.emit(ActivityEvent::Seen(id.clone()));
                 },
             )),
             Quick::CreatePr => sm_button(format!("activity-pr-{id}").into(), Some(icon("pull-request", 12., TEXT)), "Create PR", false).on_click(cx.listener(
-                move |this, _: &ClickEvent, window, cx| {
+                move |_, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
-                    this.create_pr_for(&id, window, cx);
+                    cx.emit(ActivityEvent::CreatePr(id.clone()));
                 },
             )),
         })
     }
 
-    /// Deny and Allow once for the session's permission ask; `None` for a question, which needs its dialog.
-    pub(super) fn activity_answers(&self, id: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let ask = self.card_ask(id)?;
-        let buttons = self
-            .answer_buttons("activity", id, &ask.request_id, cx)
-            .into_iter()
-            .map(|b| b.h(px(24.)).px(px(9.)).rounded(px(7.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD));
+    /// Deny and Allow once for the session's permission ask; `None` while observing, which answers nothing.
+    fn activity_answers(&self, id: &str, ask: &Permission, cx: &mut Context<Self>) -> Option<Div> {
+        if self.side.observe_only {
+            return None;
+        }
+        let buttons = answer_row("activity", id).into_iter().map(|(b, decision)| {
+            let request = ask.request_id.clone();
+            b.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                cx.emit(ActivityEvent::Answer { request: request.clone(), decision });
+            }))
+            .h(px(24.))
+            .px(px(9.))
+            .rounded(px(7.))
+            .text_size(px(12.))
+            .font_weight(FontWeight::SEMIBOLD)
+        });
         Some(div().flex().flex_none().items_center().gap(px(6.)).children(buttons))
     }
 
     /// Its PR and its uncommitted diff, when it has them.
-    fn activity_pills(&self, item: &Item) -> Vec<Div> {
-        let pr = self.prs.get(&item.tree).map(|pr| {
-            let (name, color) = pr_glyph(pr);
-            pill().child(icon(name, 12., color)).child(format!("#{}", pr.number))
-        });
-        let diff = self.repos.get(&item.tree).filter(|r| !r.files.is_empty()).map(|r| {
-            let (added, removed) = r.totals();
-            pill().font_family(MONO).child(ui::meta_diff(added, removed, 11.))
-        });
+    fn activity_pills(&self, extra: &Extra) -> Vec<Div> {
+        let pr = extra.pr.map(|((name, color), number)| pill().child(icon(name, 12., color)).child(format!("#{number}")));
+        let diff = extra.diff.map(|(added, removed)| pill().font_family(MONO).child(ui::meta_diff(added, removed, 11.)));
         [pr, diff].into_iter().flatten().collect()
     }
 }

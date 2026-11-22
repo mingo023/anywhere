@@ -688,7 +688,7 @@ impl Desktop {
         hosts::remote::forget(id);
         let left = self.terminals.lists.forget(id);
         self.terminals.listed(left);
-        self.activity_changed();
+        self.activity_changed(cx);
         cx.notify();
     }
 }
