@@ -602,7 +602,7 @@ impl Desktop {
     /// Copies the draft's attachments to the host the agent runs on, then sends the draft as it stands, so the agent there
     /// can read them. The draft stays, and this chat sends nothing else, until the copy is done; a chat left meanwhile sends
     /// on its next Send, without copying again.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "the send it holds back needs every input a send takes")]
     fn chat_copy_first(
         &mut self,
         terminal: &str,

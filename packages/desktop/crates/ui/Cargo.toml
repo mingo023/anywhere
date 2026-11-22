@@ -10,3 +10,6 @@ path = "src/ui.rs"
 [dependencies]
 gpui-kit.workspace = true
 theme.workspace = true
+
+[lints]
+workspace = true

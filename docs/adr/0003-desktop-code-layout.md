@@ -27,6 +27,10 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `web` | the WKWebView page of a browser tab, address and link parsing; `web/pick` the element picker's script and the element it posts |
 | `chat` | an agent's chat as plain data: the transcript (turns, messages, tool calls, sub-agents) folded from the timeline, `chat/adapter` the `Backend` each agent provides and its capabilities (`adapter/claude`, `adapter/codex`, `adapter/acp` for the six pocketd drives over ACP, `adapter/pi` for pi and omp, `adapter/other` for a provider this build doesn't know), `chat/rows` the transcript's rows, `chat/session` one pane's transcript, rows and folds kept in step, `chat/spawned` the sub-agents the agent map shows, `chat/outgoing` sends, the queue and their settling, `chat/commands` the slash commands an agent offers and what the chat does with each, `chat/mcp` the MCP servers a draft tags and what picking one does, `chat/handoff` what a new chat is told when it takes over from another agent's, `chat/rich` a prompt's markdown as it is typed: what to style, and the edits that keep a list going, format a selection and read a paste |
 | `ui`, `theme` | widgets, colours, icons, and each provider's brand (name, colour, glyph); `theme/themes` a theme file and the built-in presets |
+| `channel` | Release or Dev, fixed at build time: the home folder, bundle id and version each build uses (ADR 0004) |
+| `keys` | the terminal's key bindings and what each key sends to the VT |
+| `storybook` | a window that shows the `ui` widgets in each state, for working on them alone |
+| `conventions` | tests that check this layout: model crates never depend on a crate that draws, no `mod.rs`, every crate in this map, `Desktop` gets no new fields |
 
 | `pocket` module | Owns |
 |---|---|

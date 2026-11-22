@@ -179,7 +179,7 @@ fn thumb(path: &str) -> Div {
 
 /// A prompt floating over the top of the chat as a pill: an arrow back to it, its first images, the prompt folded to
 /// one line and the time it was sent. A chevron opens a prompt too long for the line.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 fn card(
     id: &str,
     text: &str,

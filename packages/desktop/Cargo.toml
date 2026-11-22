@@ -8,6 +8,14 @@ default-members = ["crates/pocket"]
 edition = "2024"
 publish = false
 
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+print_stdout = "warn"
+
 [workspace.dependencies]
 agents = { path = "crates/agents" }
 channel = { path = "crates/channel" }

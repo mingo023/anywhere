@@ -20,3 +20,6 @@ objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["block2", "NSEvent", "NSImage", "NSTrackingArea", "NSView", "NSWindow"] }
 objc2-foundation = { workspace = true, features = ["NSBundle", "NSData", "NSError", "NSGeometry"] }
 objc2-web-kit = { workspace = true, features = ["block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
+
+[lints]
+workspace = true

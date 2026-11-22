@@ -1690,6 +1690,7 @@ impl Capture {
                 settle(cx, window, &desktop, 300).await;
                 let path = self.dir.join(format!("impl-{name}.png"));
                 match cx.update_window(window, |_, window, cx| shoot(window, cx, &path)) {
+                    #[expect(clippy::print_stdout, reason = "drive.sh reads each screenshot path from stdout")]
                     Ok(Ok(())) => println!("{}", path.display()),
                     Ok(Err(e)) => eprintln!("{name}: {e}"),
                     Err(e) => eprintln!("{name}: {e}"),

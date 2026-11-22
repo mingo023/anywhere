@@ -10,3 +10,6 @@ path = "src/keys.rs"
 [dependencies]
 gpui-kit.workspace = true
 term.workspace = true
+
+[lints]
+workspace = true

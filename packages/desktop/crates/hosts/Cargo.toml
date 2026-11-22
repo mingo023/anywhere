@@ -21,3 +21,6 @@ futures.workspace = true
 
 [target.'cfg(windows)'.dev-dependencies]
 uds_windows.workspace = true
+
+[lints]
+workspace = true

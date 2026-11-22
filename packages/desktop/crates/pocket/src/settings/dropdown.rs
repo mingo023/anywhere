@@ -54,7 +54,7 @@ pub(crate) fn pick_row(id: impl Into<ElementId>, checked: bool) -> Stateful<Div>
 
 /// `trigger` opening a menu while `settings.menu` is `id`; `pick` gets the chosen value. An agent can list hundreds of
 /// models, so `rows` are made only once the menu is open and again when `from` changes, and only those in view are built.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
 pub(crate) fn dropdown(
     id: &'static str,
     trigger: Stateful<Div>,

@@ -10,3 +10,6 @@ path = "src/theme.rs"
 [dependencies]
 gpui-kit.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

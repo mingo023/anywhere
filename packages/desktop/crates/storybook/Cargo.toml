@@ -8,3 +8,6 @@ publish.workspace = true
 gpui-kit.workspace = true
 theme.workspace = true
 ui.workspace = true
+
+[lints]
+workspace = true

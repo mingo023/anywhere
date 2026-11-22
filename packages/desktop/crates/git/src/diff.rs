@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::single_range_in_vec_init)]
+    #[expect(clippy::single_range_in_vec_init, reason = "a list of one range, not a range of items")]
     fn diffs_word_by_word() {
         assert_eq!(words("let a = 1;", "let b = 1;"), (vec![4..5], vec![4..5]));
         assert_eq!(words("foo(bar)", "foo(bar, baz)"), (vec![], vec![7..12]));
