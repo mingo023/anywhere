@@ -25,7 +25,7 @@ impl Desktop {
         if !may_open(o, &self.agents) {
             return;
         }
-        self.close_menus();
+        self.close_menus(cx);
         self.overlay = Some(o);
         match o {
             Overlay::Palette => self.open_palette(window, cx),

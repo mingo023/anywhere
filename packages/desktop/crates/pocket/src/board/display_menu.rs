@@ -53,7 +53,7 @@ impl Desktop {
                         this.board.layout = l;
                         this.store.board_list = l == Layout::List;
                         this.store.save();
-                        this.board_changed();
+                        this.board_changed(cx);
                         cx.notify();
                     }))
             })
@@ -64,7 +64,7 @@ impl Desktop {
             .map(|(i, (o, label))| {
                 choice(("board-order", i), label, self.board.order == o).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.board.order = o;
-                    this.board_changed();
+                    this.board_changed(cx);
                     cx.notify();
                 }))
             })
@@ -93,7 +93,7 @@ impl Desktop {
         let closed = div().id("board-show-closed").cursor_pointer().child(ui::toggle("board-show-closed-switch", self.board.show_closed)).on_click(
             cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.board.show_closed = !this.board.show_closed;
-                this.board_changed();
+                this.board_changed(cx);
                 cx.notify();
             }),
         );

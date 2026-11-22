@@ -484,7 +484,7 @@ fn more_in_advanced(id: impl Into<ElementId>, n: usize) -> Stateful<Div> {
 
 impl Desktop {
     pub fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         if self.overlay.is_some() {
             self.close_overlay(window, cx);
         }

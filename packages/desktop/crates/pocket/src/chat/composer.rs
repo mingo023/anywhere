@@ -457,7 +457,7 @@ impl Desktop {
     /// Text typed while nothing holds the keys goes to the focused pane's chat, as in Discord. Returns whether it did.
     pub(crate) fn type_into_chat(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(text) = typed_text(key) else { return false };
-        if !self.keys_free(window) || !self.panes_on_screen() {
+        if !self.keys_free(window) || !self.panes_on_screen(cx) {
             return false;
         }
         let Some(t) = self.focused_chat().filter(|t| self.chat_mode(t) == Mode::Prompt) else { return false };
@@ -479,7 +479,7 @@ impl Desktop {
             return;
         }
         let mode = self.chat_mode(&t);
-        if self.keys_free(window) && self.panes_on_screen() && mode == Mode::Prompt {
+        if self.keys_free(window) && self.panes_on_screen(cx) && mode == Mode::Prompt {
             return;
         }
         let c = &self.chats.composer;

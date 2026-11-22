@@ -35,30 +35,43 @@ impl Flyouts {
     }
 }
 
+pub(crate) enum OpenInEvent {
+    /// The chevron was pressed: the other menus shut, then `show` opens this one.
+    Open,
+    Picked(&'static str),
+    CopyPath,
+    Failed(&'static str),
+}
+
 /// The apps a worktree can open in, and the button's menu.
 #[derive(Default)]
 pub(crate) struct OpenIn {
     apps: Installed,
     icons: HashMap<&'static str, PathBuf>,
     pub(crate) menu: Option<Flyouts>,
+    /// The folder the button opens and the app remembered, handed down by `Desktop` each time it draws the button.
+    folder: Option<String>,
+    choice: String,
 }
+
+impl EventEmitter<OpenInEvent> for OpenIn {}
 
 impl OpenIn {
     /// Finder until the background probe says what else this Mac has.
-    pub(crate) fn new(home: &Path, cx: &mut Context<Desktop>) -> Self {
+    pub(crate) fn new(home: &Path, cx: &mut Context<Self>) -> Self {
         if cfg!(target_os = "macos") {
             let cache = home.join("app-icons");
             cx.spawn(async move |this, cx| {
                 let apps = cx.background_spawn(async { installed_apps() }).await;
                 let bundles = apps.clone();
-                this.update(cx, |d, cx| {
-                    d.open_in.apps = apps;
+                this.update(cx, |o, cx| {
+                    o.apps = apps;
                     cx.notify();
                 })
                 .ok();
                 let icons = cx.background_spawn(async move { icon_pngs(&bundles, &cache) }).await;
-                this.update(cx, |d, cx| {
-                    d.open_in.icons = icons;
+                this.update(cx, |o, cx| {
+                    o.icons = icons;
                     cx.notify();
                 })
                 .ok();
@@ -66,6 +79,16 @@ impl OpenIn {
             .detach();
         }
         Self { apps: open_in::installed(&[], |_| false), ..Self::default() }
+    }
+
+    pub(crate) fn set(&mut self, folder: String, choice: String) {
+        self.folder = Some(folder);
+        self.choice = choice;
+    }
+
+    pub(crate) fn show(&mut self, cx: &mut Context<Self>) {
+        self.menu = Some(Flyouts::default());
+        cx.notify();
     }
 
     /// True when it changed which submenus show.
@@ -114,70 +137,10 @@ fn flyout(id: &'static str, rows: Vec<Stateful<Div>>) -> Stateful<Div> {
     ui::pop(div().id(id)).w(px(SUB_W)).p(px(6.)).flex().flex_col().children(rows)
 }
 
-impl Desktop {
-    fn selected_opener(&self) -> &'static Opener {
-        open_in::selected(&self.store.general.open_in, &self.open_in.apps)
-    }
-
-    fn open_folder_in(&self, app: &'static Opener, cx: &mut Context<Self>) {
-        let (Some(folder), Some(bundle)) = (self.local_explore_root(), self.open_in.apps.get(app.id)) else { return };
-        let launch = open_in::launch(app, bundle, &folder);
-        cx.spawn(async move |this, cx| {
-            if cx.background_spawn(async move { run(&launch).is_some() }).await {
-                return;
-            }
-            this.update(cx, |d, cx| {
-                d.error = Some(format!("Couldn't open this folder in {}", app.label));
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn pick_opener(&mut self, app: &'static Opener, cx: &mut Context<Self>) {
-        self.store.general.open_in = app.id.to_string();
-        self.open_in.menu = None;
-        self.open_folder_in(app, cx);
-        self.save_soon(cx);
-        cx.notify();
-    }
-
-    pub(crate) fn copy_worktree_path(&mut self, _: &CopyWorktreePath, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(folder) = self.local_explore_root().filter(|_| self.screen == Screen::Sessions) else { return };
-        cx.write_to_clipboard(ClipboardItem::new_string(folder.clone()));
-        self.open_in.menu = None;
-        self.show_notice(Notice::Copied(folder), cx);
-    }
-
-    fn show_open_in(&mut self, cx: &mut Context<Self>) {
-        self.close_menus();
-        self.open_in.menu = Some(Flyouts::default());
-        cx.notify();
-    }
-
-    fn hover_open_in(to: Flyouts, cx: &mut Context<Self>) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
-        cx.listener(move |this, hovered: &bool, _, cx| {
-            if *hovered && this.open_in.hover(to) {
-                cx.notify();
-            }
-        })
-    }
-
-    fn opener_icon(&self, app: &Opener, size: f32) -> AnyElement {
-        match self.open_in.icons.get(app.id) {
-            Some(png) => img(png.clone()).size(px(size)).flex_none().into_any_element(),
-            None => icon(app.generic_icon, size, TEXT_2).into_any_element(),
-        }
-    }
-
-    /// The top bar's button: the icon opens the selected tree's folder in the last app picked, the chevron opens the menu. `None` for a tree on a host or off macOS.
-    pub(crate) fn open_in_button(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if !cfg!(target_os = "macos") {
-            return None;
-        }
-        self.local_explore_root()?;
-        let flyouts = self.open_in.menu;
+impl Render for OpenIn {
+    /// The top bar's button: the icon opens the selected tree's folder in the last app picked, the chevron opens the menu.
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let flyouts = self.menu;
         let open = div()
             .id("open-in-launch")
             .size(px(28.))
@@ -205,28 +168,67 @@ impl Desktop {
                 .when(flyouts.is_some(), |d| d.bg(FILL_2))
                 .child(icon("chevron-down", 12., TEXT_3)),
             flyouts.is_some(),
-            cx.listener(|this, _: &MouseDownEvent, _, cx| this.show_open_in(cx)),
+            cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(OpenInEvent::Open)),
         );
-        Some(
-            div()
-                .relative()
-                .flex_none()
-                .flex()
-                .items_center()
-                // Else the bar's drag_area takes the press and moves the window.
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(open)
-                .child(chevron)
-                .when_some(flyouts, |d, flyouts| d.child(self.open_in_menu(flyouts, cx))),
-        )
+        div()
+            .relative()
+            .flex_none()
+            .flex()
+            .items_center()
+            // Else the bar's drag_area takes the press and moves the window.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(open)
+            .child(chevron)
+            .when_some(flyouts, |d, flyouts| d.child(self.open_in_menu(flyouts, cx)))
+    }
+}
+
+impl OpenIn {
+    fn selected_opener(&self) -> &'static Opener {
+        open_in::selected(&self.choice, &self.apps)
+    }
+
+    fn open_folder_in(&self, app: &'static Opener, cx: &mut Context<Self>) {
+        let (Some(folder), Some(bundle)) = (self.folder.as_deref(), self.apps.get(app.id)) else { return };
+        let launch = open_in::launch(app, bundle, folder);
+        cx.spawn(async move |this, cx| {
+            if cx.background_spawn(async move { run(&launch).is_some() }).await {
+                return;
+            }
+            this.update(cx, |_, cx| cx.emit(OpenInEvent::Failed(app.label))).ok();
+        })
+        .detach();
+    }
+
+    fn pick_opener(&mut self, app: &'static Opener, cx: &mut Context<Self>) {
+        self.choice = app.id.to_string();
+        self.menu = None;
+        self.open_folder_in(app, cx);
+        cx.emit(OpenInEvent::Picked(app.id));
+        cx.notify();
+    }
+
+    fn hover_open_in(to: Flyouts, cx: &mut Context<Self>) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
+        cx.listener(move |this, hovered: &bool, _, cx| {
+            if *hovered && this.hover(to) {
+                cx.notify();
+            }
+        })
+    }
+
+    fn opener_icon(&self, app: &Opener, size: f32) -> AnyElement {
+        match self.icons.get(app.id) {
+            Some(png) => img(png.clone()).size(px(size)).flex_none().into_any_element(),
+            None => icon(app.generic_icon, size, TEXT_2).into_any_element(),
+        }
     }
 
     fn open_in_menu(&self, flyouts: Flyouts, cx: &mut Context<Self>) -> Div {
-        let groups = open_in::menu(&self.open_in.apps);
+        let groups = open_in::menu(&self.apps);
         let (group, editions) = flyouts.shown(&groups);
         let copy = ui::menu_row("open-in-copy", "copy", "Copy path", Some("⌘⇧C"))
             .on_hover(Self::hover_open_in(Flyouts::default(), cx))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.copy_worktree_path(&CopyWorktreePath, window, cx)));
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(OpenInEvent::CopyPath)));
         let main = ui::pop(div().id("open-in-menu"))
             .w(px(MENU_W))
             .p(px(6.))
@@ -239,7 +241,7 @@ impl Desktop {
         let panel = group.map(|g| flyout("open-in-group", g.entries.iter().map(|e| self.entry_row(e, g.id, flyouts, cx)).collect()));
         let nested = editions.map(|apps| flyout("open-in-editions", apps.iter().map(|app| self.opener_row(app, flyouts, cx)).collect()));
         let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            if this.open_in.press_outside() {
+            if this.press_outside() {
                 cx.notify();
             }
         });
@@ -287,6 +289,45 @@ impl Desktop {
                 Self::submenu_row(format!("open-in-{id}"), self.opener_icon(apps[0], 14.), label, flyouts.sub == Some(*id), to(Some(*id)), cx)
             }
         }
+    }
+}
+
+impl Desktop {
+    pub(crate) fn on_open_in_event(&mut self, _: &Entity<OpenIn>, ev: &OpenInEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            OpenInEvent::Open => {
+                self.close_menus(cx);
+                self.open_in.update(cx, |o, cx| o.show(cx));
+            }
+            OpenInEvent::Picked(id) => {
+                self.store.general.open_in = id.to_string();
+                self.save_soon(cx);
+                cx.notify();
+            }
+            OpenInEvent::CopyPath => self.copy_worktree_path(&CopyWorktreePath, window, cx),
+            OpenInEvent::Failed(label) => {
+                self.error = Some(format!("Couldn't open this folder in {label}"));
+                cx.notify();
+            }
+        }
+    }
+
+    pub(crate) fn copy_worktree_path(&mut self, _: &CopyWorktreePath, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(folder) = self.local_explore_root().filter(|_| self.screen == Screen::Sessions) else { return };
+        cx.write_to_clipboard(ClipboardItem::new_string(folder.clone()));
+        self.open_in.update(cx, |o, _| o.menu = None);
+        self.show_notice(Notice::Copied(folder), cx);
+    }
+
+    /// The top bar's button, handed the folder and the app it opens in. `None` for a tree on a host or off macOS.
+    pub(crate) fn open_in_button(&self, cx: &mut Context<Self>) -> Option<Entity<OpenIn>> {
+        if !cfg!(target_os = "macos") {
+            return None;
+        }
+        let folder = self.local_explore_root()?;
+        let choice = self.store.general.open_in.clone();
+        self.open_in.update(cx, |o, _| o.set(folder, choice));
+        Some(self.open_in.clone())
     }
 }
 

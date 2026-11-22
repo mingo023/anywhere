@@ -20,7 +20,7 @@ impl Desktop {
         };
         let hide = ui::icon_button_sized(("board-hide", col as usize), "minus", 22., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             set_away(col, true, &mut this.board.tucked, &mut this.board.show_closed);
-            this.board_changed();
+            this.board_changed(cx);
             cx.notify();
         }));
         let add = (col == Col::Todo).then(|| self.add_ticket_button("board-todo-add", cx));

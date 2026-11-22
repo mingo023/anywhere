@@ -198,7 +198,7 @@ impl Desktop {
                 d.on_mouse_down(
                     MouseButton::Right,
                     cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                        this.close_menus();
+                        this.close_menus(cx);
                         this.panels.top_actions = Some((agent.clone(), e.position));
                         cx.notify();
                     }),

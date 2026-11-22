@@ -108,7 +108,7 @@ pub struct Desktop {
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
     pub(crate) panels: Panels,
-    pub(crate) open_in: OpenIn,
+    pub(crate) open_in: Entity<OpenIn>,
     pub(crate) browsers: Browsers,
     pub(crate) explorer: ExplorerState,
     pub(crate) git_run: u64,
@@ -185,7 +185,9 @@ impl Desktop {
         let updates = Updates::new(&mut store, cx);
         let star = cx.new(|_| Star::new(&mut store, &updates.update, crate::star::unix_now()));
         let star_subs = cx.subscribe_in(&star, window, Self::on_star_event);
-        let open_in = OpenIn::new(store.home(), cx);
+        let home = store.home().to_path_buf();
+        let open_in = cx.new(|cx| OpenIn::new(&home, cx));
+        let open_in_subs = cx.subscribe_in(&open_in, window, Self::on_open_in_event);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
         window.focus(&root, cx);
@@ -215,6 +217,7 @@ impl Desktop {
         _subs.extend(welcome_subs);
         _subs.push(palette_subs);
         _subs.push(star_subs);
+        _subs.push(open_in_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
         _subs.extend(fleet_subs);
@@ -511,7 +514,7 @@ impl Desktop {
         }
     }
 
-    pub(crate) fn menu_open(&self) -> bool {
+    pub(crate) fn menu_open(&self, cx: &App) -> bool {
         self.board.menu.is_some()
             || self.panels.menu.is_some()
             || self.panels.actions.is_some()
@@ -534,13 +537,13 @@ impl Desktop {
             || self.clone_form.machine_menu
             || self.chats.files.is_some()
             || self.chats.select.menu_open()
-            || self.open_in.menu.is_some()
+            || self.open_in.read(cx).menu.is_some()
             || self.activity.menu.is_some()
     }
 
     /// Returns whether a menu was open.
-    pub(crate) fn close_menus(&mut self) -> bool {
-        let open = self.menu_open();
+    pub(crate) fn close_menus(&mut self, cx: &mut App) -> bool {
+        let open = self.menu_open(cx);
         (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) =
             (None, None, None, None, false, false);
         self.compare.menu = false;
@@ -559,13 +562,13 @@ impl Desktop {
         self.terminal.menu = None;
         self.chats.files = None;
         self.chats.select.close_menu();
-        self.open_in.menu = None;
+        self.open_in.update(cx, |o, _| o.menu = None);
         open
     }
 
     /// Whether the main view shows panes with no overlay, menu or creating page over them.
-    pub(crate) fn panes_on_screen(&self) -> bool {
-        self.session_tree().is_some() && self.shown_create().is_none() && self.overlay.is_none() && !self.menu_open()
+    pub(crate) fn panes_on_screen(&self, cx: &App) -> bool {
+        self.session_tree().is_some() && self.shown_create().is_none() && self.overlay.is_none() && !self.menu_open(cx)
     }
 
     /// The worktree whose panes the main view shows.
@@ -759,7 +762,7 @@ impl Render for Desktop {
         self.sync_code(window, cx);
         self.sync_view(window, cx);
         self.sync_cursor(window, cx);
-        self.sync_browser(window);
+        self.sync_browser(window, cx);
         let welcome = self.welcome_view(now, reduce_motion, window, cx);
         // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.
         let shown = !self.welcome.as_ref().is_some_and(|w| w.read(cx).covers());
@@ -807,7 +810,7 @@ impl Render for Desktop {
                     || this.spaces.rename.take().is_some()
                     || this.close_picker()
                     || this.escape_composer_menu()
-                    || this.close_menus()
+                    || this.close_menus(cx)
                     || this.chat_escape_dock(window, cx)
                     || this.delegated_escape(window, cx)
                 {

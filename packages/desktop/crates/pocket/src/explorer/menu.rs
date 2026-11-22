@@ -314,7 +314,7 @@ impl Desktop {
             this.commit_edit(false, cx);
             // The menu's key equivalents bind on the window; a focused terminal or page would take the keys first.
             window.focus(&this.root, cx);
-            this.close_menus();
+            this.close_menus(cx);
             this.explorer.leaving = None;
             let local = this.local_explore_root().is_some();
             this.explorer.menu = Some(TreeMenu::new(target.clone(), e.position, window.modifiers().alt, local, window.viewport_size().width));

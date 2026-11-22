@@ -73,7 +73,7 @@ impl Desktop {
         let Some(view) = self.store.board_views.get(index) else { return };
         self.board.filters = filters_of(view, std::mem::take(&mut self.board.filters.query));
         self.board.tab = Tab::All;
-        self.board_changed();
+        self.board_changed(cx);
         self.aim_board_composer(cx);
         cx.notify();
     }

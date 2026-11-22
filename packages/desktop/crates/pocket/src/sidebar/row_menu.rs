@@ -83,7 +83,7 @@ fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, 
 impl Desktop {
     pub(super) fn open_row_menu(menu: RowMenu, cx: &mut Context<Self>) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-            this.close_menus();
+            this.close_menus(cx);
             this.row_menu = Some(menu.clone());
             this.sidebar.menu_at = Some(e.position);
             cx.notify();

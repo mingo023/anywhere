@@ -81,7 +81,7 @@ impl Desktop {
 
     /// Settings › Hosts with the add form open.
     pub(crate) fn add_host_from_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.show_hosts(window, cx);
         self.open_add_host(None, window, cx);
     }

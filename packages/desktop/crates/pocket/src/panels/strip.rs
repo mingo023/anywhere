@@ -354,7 +354,7 @@ impl Desktop {
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                            this.close_menus();
+                            this.close_menus(cx);
                             this.panels.actions = Some((p, menu_tab.clone(), e.position));
                             cx.notify();
                         }),

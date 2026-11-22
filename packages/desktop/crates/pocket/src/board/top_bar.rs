@@ -49,7 +49,7 @@ impl Desktop {
         } else {
             self.board.filters.query.clear();
             self.board.search.update(cx, |s, cx| s.set_value("", window, cx));
-            self.board_changed();
+            self.board_changed(cx);
             window.focus(&self.root, cx);
         }
         cx.notify();

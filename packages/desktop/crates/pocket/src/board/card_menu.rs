@@ -37,7 +37,7 @@ fn action_row(a: Action) -> Option<(&'static str, &'static str, bool)> {
 
 impl Desktop {
     /// Saves a change to each ticket, a started one taking only its priority and labels.
-    fn set_tickets_props(&mut self, ids: &[String], change: impl Fn(&mut Values)) {
+    fn set_tickets_props(&mut self, ids: &[String], change: impl Fn(&mut Values), cx: &mut App) {
         for id in ids {
             let Some(t) = self.agents.board.tickets.iter_mut().find(|t| t.id == *id) else { continue };
             let mut v = Values::of(t);
@@ -47,7 +47,7 @@ impl Desktop {
             (t.priority, t.labels, t.provider, t.folder, t.base) = (v.priority, v.labels, v.provider, v.folder, v.base);
             self.outbox.local.board_save(draft, false);
         }
-        self.board_changed();
+        self.board_changed(cx);
     }
 
     /// The choices for `field`, applied to every one of `ids`; a choice shows as made when all of them have it.
@@ -57,7 +57,7 @@ impl Desktop {
         let all = |has: &dyn Fn(&Ticket) -> bool| !tickets.is_empty() && tickets.iter().all(|t| has(t));
         let ids = Rc::new(ids);
         let settle = |this: &mut Self, cx: &mut Context<Self>| {
-            this.close_menus();
+            this.close_menus(cx);
             cx.notify();
         };
         match field {
@@ -68,7 +68,7 @@ impl Desktop {
                     let ids = ids.clone();
                     ui::menu_pick(("board-priority", i), priority_glyph(p), priority_name(p), all(&|t| t.priority == p))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.set_tickets_props(&ids, |v| v.priority = p);
+                            this.set_tickets_props(&ids, |v| v.priority = p, cx);
                             settle(this, cx);
                         }))
                         .into_any_element()
@@ -82,7 +82,7 @@ impl Desktop {
                     let on = all(&|t| t.labels.iter().any(|l| l == label));
                     ui::menu_pick(("board-label", i), label_dot(label), label, on)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.set_tickets_props(&ids, |v| v.set_label(label, !on));
+                            this.set_tickets_props(&ids, |v| v.set_label(label, !on), cx);
                             cx.notify();
                         }))
                         .into_any_element()
@@ -103,7 +103,7 @@ impl Desktop {
                         ),
                     )
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.set_tickets_props(&ids, |v| v.provider = provider.to_string());
+                        this.set_tickets_props(&ids, |v| v.provider = provider.to_string(), cx);
                         settle(this, cx);
                     }))
                     .into_any_element()
@@ -118,7 +118,7 @@ impl Desktop {
                     let chosen = all(&|t| t.folder == folder);
                     let row = ui::menu_pick(("board-project", i), self.repo_tile_for(&folder, 14.), &self.repo_name(&folder), chosen);
                     row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.set_tickets_props(&ids, |v| v.set_folder(folder.clone()));
+                        this.set_tickets_props(&ids, |v| v.set_folder(folder.clone()), cx);
                         settle(this, cx);
                     }))
                     .into_any_element()

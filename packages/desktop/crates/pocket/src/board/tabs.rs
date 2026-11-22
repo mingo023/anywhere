@@ -39,7 +39,7 @@ impl Desktop {
                             this.board.filters = Filters { query: std::mem::take(&mut this.board.filters.query), ..Default::default() };
                         }
                         this.board.tab = tab;
-                        this.board_changed();
+                        this.board_changed(cx);
                         cx.notify();
                     }))
             })

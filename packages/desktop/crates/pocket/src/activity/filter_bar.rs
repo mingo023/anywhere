@@ -53,7 +53,7 @@ impl Desktop {
                 .child(icon("chevron-down", 11., TEXT_3)),
             open,
             cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                this.close_menus();
+                this.close_menus(cx);
                 this.activity.menu = Some(menu);
                 cx.notify();
             }),

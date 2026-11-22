@@ -221,7 +221,7 @@ impl Desktop {
             self.automations_changed();
         }
         if board {
-            self.board_changed();
+            self.board_changed(cx);
         }
         self.activity_changed();
         self.sync_alerts(cx);

@@ -144,13 +144,13 @@ impl Desktop {
         self.browsers.page(id)
     }
 
-    pub(crate) fn sync_browser(&mut self, window: &mut Window) {
+    pub(crate) fn sync_browser(&mut self, window: &mut Window, cx: &App) {
         if self.browsers.tabs.is_empty() {
             return;
         }
         let covered = self.overlay.is_some()
             || self.host_finder.finder.is_some()
-            || self.menu_open()
+            || self.menu_open(cx)
             || self.sidebar.menu_at.is_some()
             || self.shown_create().is_some()
             || self.panels.parks_pages();
@@ -282,7 +282,7 @@ impl Desktop {
     }
 
     pub(crate) fn new_browser(&mut self, _: &NewBrowser, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.open_browser(None, window, cx);
     }
 

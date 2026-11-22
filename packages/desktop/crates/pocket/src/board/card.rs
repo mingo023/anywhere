@@ -67,7 +67,7 @@ impl Desktop {
     }
 
     pub(super) fn open_card_menu(&mut self, id: &str, at: Point<Pixels>, sub: Option<Field>, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.board.menu = Some(Menu::Card { id: id.to_string(), at, sub });
         cx.notify();
     }
@@ -128,7 +128,7 @@ impl Desktop {
             .child(status_glyph(slot.col, t.status))
             .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                this.close_menus();
+                this.close_menus(cx);
                 this.board.menu = Some(Menu::Status { id: id.clone(), at: e.position() });
                 cx.notify();
             }))

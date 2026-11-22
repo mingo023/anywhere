@@ -80,7 +80,7 @@ impl Desktop {
         match action_field(action) {
             Some(field) => self.open_card_menu(&id, at, Some(field), cx),
             None => {
-                self.close_menus();
+                self.close_menus(cx);
                 self.board.menu = Some(Menu::Status { id, at });
                 cx.notify();
             }

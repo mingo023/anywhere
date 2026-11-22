@@ -49,7 +49,7 @@ impl Desktop {
 
     fn pick_project(&mut self, surface: Surface, project: String, cx: &mut Context<Self>) {
         self.picks_mut(surface).values.set_folder(project.clone());
-        self.close_menus();
+        self.close_menus(cx);
         self.load_ticket_branches(surface, project, cx);
         self.picked(surface, cx);
     }
@@ -57,7 +57,7 @@ impl Desktop {
     fn field_rows(&self, surface: Surface, field: Field, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
         let p = self.picks(surface);
         let pick = move |this: &mut Self, cx: &mut Context<Self>| {
-            this.close_menus();
+            this.close_menus(cx);
             this.picked(surface, cx);
         };
         match field {

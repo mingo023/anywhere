@@ -58,7 +58,7 @@ impl Desktop {
         f.picks = Picks::new(Values::of(&t));
         f.title.update(cx, |s, cx| s.set_value(t.title.clone(), window, cx));
         f.prompt.update(cx, |s, cx| s.set_value(t.prompt.clone(), window, cx));
-        self.close_menus();
+        self.close_menus(cx);
         window.focus(&self.root, cx);
         self.load_ticket_branches(Surface::Page, t.folder, cx);
         cx.notify();
@@ -131,7 +131,7 @@ impl Desktop {
         self.save_ticket_page(cx);
         self.board.page = None;
         window.focus(&self.root, cx);
-        self.board_changed();
+        self.board_changed(cx);
         cx.notify();
     }
 
@@ -151,7 +151,7 @@ impl Desktop {
         self.outbox.local.board_save(self.board.form.draft(cx), true);
         self.board.page = None;
         window.focus(&self.root, cx);
-        self.board_changed();
+        self.board_changed(cx);
         cx.notify();
     }
 

@@ -81,7 +81,7 @@ impl ActivityState {
 
 impl Desktop {
     pub(crate) fn open_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         if self.overlay.is_some() {
             self.close_overlay(window, cx);
         }

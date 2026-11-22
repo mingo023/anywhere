@@ -237,7 +237,7 @@ impl Desktop {
             icon_button_sized("aside-add", "folder-plus", 22., TEXT_3).rounded(px(6.)),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus();
+                this.close_menus(cx);
                 this.sidebar.add_menu = true;
                 cx.notify();
             }),

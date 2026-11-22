@@ -24,7 +24,7 @@ impl Desktop {
             .when(unfolds, |d| {
                 d.cursor_pointer().hover(|s| s.bg(FILL_2)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     set_away(col, false, &mut this.board.tucked, &mut this.board.show_closed);
-                    this.board_changed();
+                    this.board_changed(cx);
                     cx.notify();
                 }))
             })
@@ -33,7 +33,7 @@ impl Desktop {
                 this.drop_ticket(&d.id, d.from, col, None, cx);
                 if col.takes(d.from) && this.board.tucked[col as usize] {
                     set_away(col, false, &mut this.board.tucked, &mut this.board.show_closed);
-                    this.board_changed();
+                    this.board_changed(cx);
                 }
             }))
             .child(status_glyph(col, Status::None))

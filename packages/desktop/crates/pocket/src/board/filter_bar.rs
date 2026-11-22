@@ -33,13 +33,13 @@ fn filter_pop(id: &'static str) -> Stateful<Div> {
 impl Desktop {
     pub(super) fn toggle_board_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
         let was = self.board.menu.clone();
-        self.close_menus();
+        self.close_menus(cx);
         self.board.menu = (was != Some(menu.clone())).then_some(menu);
         cx.notify();
     }
 
     pub(super) fn open_filter_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.board.menu = Some(Menu::Filter);
         self.focus_filter_search(window, cx);
     }
@@ -90,7 +90,7 @@ impl Desktop {
     ) -> Stateful<Div> {
         row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             field(&mut this.board.filters).toggle(value.clone());
-            this.board_changed();
+            this.board_changed(cx);
             this.aim_board_composer(cx);
             cx.notify();
         }))
@@ -220,7 +220,7 @@ impl Desktop {
         };
         // The panes share one outside: a click on the other is not a click away.
         let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.close_menus();
+            this.close_menus(cx);
             cx.notify();
         });
         ui::dropdown_right(30., ui::menu_in("board-filter-in", div().flex().items_start().gap(px(4.)).children(side).child(main).on_mouse_down_out(close)))
@@ -312,7 +312,7 @@ impl Desktop {
         let flip = cell("board-token-verb").child(verb).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             let not = this.board.filters.is_not(cat);
             this.board.filters.set_not(cat, !not);
-            this.board_changed();
+            this.board_changed(cx);
             cx.notify();
         }));
         let value = ui::popover_trigger(
@@ -325,7 +325,7 @@ impl Desktop {
         );
         let remove = cell("board-token-x").child(icon("x", 11., TEXT_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.board.filters.clear(cat);
-            this.board_changed();
+            this.board_changed(cx);
             cx.notify();
         }));
         div()
@@ -391,7 +391,7 @@ impl Desktop {
     pub(super) fn clear_board_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.board.filters = Filters::default();
         self.board.search.update(cx, |s, cx| s.set_value("", window, cx));
-        self.board_changed();
+        self.board_changed(cx);
         cx.notify();
     }
 }

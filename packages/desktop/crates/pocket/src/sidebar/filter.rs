@@ -112,7 +112,7 @@ impl Desktop {
     }
 
     pub(crate) fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.sidebar.filter.open = true;
         self.sidebar.filter.input.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();

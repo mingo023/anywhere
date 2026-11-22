@@ -63,7 +63,7 @@ The desktop follows Zed's split. Model crates hold domain logic with no renderin
 | `host_agents` | each host's pocketd agent channel, opened once the host serves projects |
 | `handoff` | the Hand off sheet and its run of steps, the mascot that cheers it done (`handoff/cheer`), and how a session handed off reads on this Mac |
 | `fs` | where a tree's files are read and changed: this Mac or a host |
-| `open_in` | the top bar's button and chevron menu opening the selected worktree's folder in Finder, an IDE or a terminal, and Copy path |
+| `open_in` | the top bar's button and chevron menu, as its own `Entity`, opening the selected worktree's folder in Finder, an IDE or a terminal, and Copy path; `Desktop` hands it the folder and the remembered app, and acts on its events (the chevron, a pick, Copy path, a failed launch) |
 | `star` | the sidebar's "Star on GitHub" card as its own `Entity`: whether it asks, its rise in and out and its card; it emits `StarEvent`, and `Desktop` opens the repo, saves the answer and times the thanks (Settings' Star row calls the same) |
 | `welcome` | the first-launch screen as its own `Entity`: the mascot's motion (`Welcome`, a plain value with its tests), its draw and Return; `welcome/view` is its render and `Desktop`'s glue, which steps it each frame, hides the app while it covers it and saves when it is taken; `terminals/updating` and `handoff/cheer` draw the same mascot |
 | `notch` | the island that grows out of the notch to answer permission asks: which asks it offers, and the `anywhere-notch` helper that draws it (a SwiftPM package in `packages/desktop/notch`), spoken to in JSON lines |

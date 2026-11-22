@@ -843,7 +843,7 @@ impl Desktop {
         if !may_start(&self.agents) {
             return;
         }
-        self.close_menus();
+        self.close_menus(cx);
         (self.screen, self.new_form.shown) = (Screen::Sessions, true);
         self.reset_new_form(prompt, worktree, window, cx);
         cx.notify();

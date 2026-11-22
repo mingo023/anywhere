@@ -15,7 +15,7 @@ impl Desktop {
         let glyph = if self.board.folded[col as usize] { "chevron-right" } else { "chevron-down" };
         let fold = ui::icon_button_sized(("board-fold", col as usize), glyph, 18., TEXT_4).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.board.folded[col as usize] = !this.board.folded[col as usize];
-            this.board_changed();
+            this.board_changed(cx);
             cx.notify();
         }));
         div()

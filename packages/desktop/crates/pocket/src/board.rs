@@ -97,7 +97,7 @@ impl BoardState {
         subs.extend(composer_subs);
         subs.push(cx.subscribe(&search, |this: &mut Desktop, s, _: &InputEvent, cx| {
             this.board.filters.query = s.read(cx).value().to_string();
-            this.board_changed();
+            this.board_changed(cx);
             cx.notify();
         }));
         subs.push(cx.subscribe(&filter_search, |_: &mut Desktop, _, _: &InputEvent, cx| cx.notify()));
@@ -183,7 +183,7 @@ impl Desktop {
         if !self.agents.board_offered() {
             return;
         }
-        self.close_menus();
+        self.close_menus(cx);
         if self.overlay.is_some() {
             self.close_overlay(window, cx);
         }
@@ -193,21 +193,21 @@ impl Desktop {
         if self.board.page.is_some() {
             self.leave_ticket_page(window, cx);
         }
-        self.board_changed();
+        self.board_changed(cx);
         window.focus(&self.root, cx);
         cx.notify();
     }
 
     /// Off the screen nothing reads the columns; opening it regroups.
-    pub(crate) fn board_changed(&mut self) {
+    pub(crate) fn board_changed(&mut self, cx: &mut App) {
         if self.screen == Screen::Board {
             self.board.regroup(&self.agents.board);
-            self.drop_stale_ticket_page();
+            self.drop_stale_ticket_page(cx);
         }
     }
 
     /// Keeps the open page's steps current; a ticket that started or went away has no page left to show.
-    fn drop_stale_ticket_page(&mut self) {
+    fn drop_stale_ticket_page(&mut self, cx: &mut App) {
         if self.board.page.is_none() {
             return;
         }
@@ -220,7 +220,7 @@ impl Desktop {
         if let Some(draft) = t.and_then(|t| values::late_save(v, t)) {
             self.outbox.local.board_save(draft, false);
         }
-        self.close_menus();
+        self.close_menus(cx);
         self.board.page = None;
     }
 
@@ -323,7 +323,7 @@ impl Desktop {
             cx.notify();
             return;
         }
-        self.close_menus();
+        self.close_menus(cx);
         let Some(t) = self.ticket(id).cloned() else { return };
         match action {
             Action::Start | Action::StartAgain => self.outbox.local.board_start(id),

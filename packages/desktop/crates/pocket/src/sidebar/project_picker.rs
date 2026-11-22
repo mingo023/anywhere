@@ -116,7 +116,7 @@ impl Desktop {
 
     pub(crate) fn toggle_project_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let open = !self.sidebar.picker.open;
-        self.close_menus();
+        self.close_menus(cx);
         self.sidebar.picker.open = open;
         if open {
             self.sidebar.picker.highlight = 0;

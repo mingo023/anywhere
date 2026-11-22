@@ -39,7 +39,7 @@ impl Desktop {
                         for id in this.bulk_ids(action) {
                             this.outbox.local.board_move(&id, state, None);
                         }
-                        this.close_menus();
+                        this.close_menus(cx);
                         cx.notify();
                     }))
                     .into_any_element()
@@ -80,7 +80,7 @@ impl Desktop {
             .map(|(action, label)| {
                 bulk_button(SharedString::from(format!("board-bulk-{label}")), field_lead(action), label).on_click(cx.listener(
                     move |this, e: &ClickEvent, _, cx| {
-                        this.close_menus();
+                        this.close_menus(cx);
                         this.board.menu = Some(Menu::Bulk { action, at: e.position() });
                         cx.notify();
                     },

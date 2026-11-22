@@ -305,7 +305,7 @@ impl Desktop {
     /// A floating menu of `width` that a click outside closes.
     pub(crate) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.close_menus();
+            this.close_menus(cx);
             cx.notify();
         }))
     }
@@ -337,7 +337,7 @@ impl Desktop {
     }
 
     pub(crate) fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.layout = sidebar_toggled(self.layout);
         self.save_soon(cx);
         cx.notify();
@@ -363,7 +363,7 @@ impl Desktop {
     }
 
     pub(crate) fn toggle_focus(&mut self, _: &ToggleFocus, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus();
+        self.close_menus(cx);
         self.layout = match self.layout {
             Layout::Sidebars => Layout::Compact,
             Layout::Compact => Layout::Focus,

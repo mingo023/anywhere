@@ -74,7 +74,7 @@ impl Desktop {
         self.board.tab = tab_for_new(self.board.tab, start);
         self.board.filters = Default::default();
         self.board.search.update(cx, |s, cx| s.set_value("", window, cx));
-        self.board_changed();
+        self.board_changed(cx);
         cx.notify();
     }
 

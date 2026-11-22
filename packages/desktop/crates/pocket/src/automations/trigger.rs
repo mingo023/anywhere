@@ -82,7 +82,7 @@ impl Desktop {
             .children(next.map(|t| div().text_size(px(12.5)).text_color(TEXT_3).child(t)))
             .child(div().ml_auto().child(icon_button_sized("trigger-remove", "x", 24., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.automations.form.v.scheduled = false;
-                this.close_menus();
+                this.close_menus(cx);
                 cx.notify();
             }))));
         let mode = segmented(
@@ -154,7 +154,7 @@ impl Desktop {
                 .rounded(px(12.))
                 .child(ui::menu_row("trigger-schedule", "clock", "Schedule", None).h(px(30.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.automations.form.v.add_schedule(&this.store.automations);
-                    this.close_menus();
+                    this.close_menus(cx);
                     cx.notify();
                 })))
                 .child(ui::menu_divider())

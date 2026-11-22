@@ -73,7 +73,7 @@ impl Desktop {
             )))
             .child(item("tab-menu-browser".into(), icon("globe", 14., TEXT_2).into_any_element(), "New browser".into(), None, Some("⌘⇧B")).on_click(
                 cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.close_menus();
+                    this.close_menus(cx);
                     this.open_browser_at(place, None, window, cx);
                 }),
             ))

@@ -97,7 +97,7 @@ impl Desktop {
                     .child(icon("chevron-down", 12., TEXT_4)),
                 open,
                 cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                    this.close_menus();
+                    this.close_menus(cx);
                     this.spaces.menu = true;
                     cx.notify();
                 }),

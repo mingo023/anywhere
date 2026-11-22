@@ -541,25 +541,25 @@ const STEPS: [(&str, Step); 302] = [
             .map(|(n, t)| agents::tickets::Ticket { id: format!("{}-{n}", t.id), ..t })
             .collect();
         d.agents.board.tickets.extend(more);
-        d.board_changed();
+        d.board_changed(cx);
         d.board.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) });
         cx.notify();
     }),
     ("board-closed", |d, _, cx| {
         d.board.show_closed = true;
-        d.board_changed();
+        d.board_changed(cx);
         cx.notify();
     }),
     ("board-new", |d, window, cx| d.focus_board_composer(window, cx)),
     ("board-empty", |d, _, cx| {
         d.agents.board.tickets.clear();
-        d.board_changed();
+        d.board_changed(cx);
         cx.notify();
     }),
     ("board-ticket", |d, window, cx| d.edit_ticket("t1", window, cx)),
     ("board-nomatch", |d, _, cx| {
         d.board.filters.query = "nothing is called this".into();
-        d.board_changed();
+        d.board_changed(cx);
         cx.notify();
     }),
     ("board-card-menu", |d, _, cx| {
@@ -578,7 +578,7 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("board-filtered", |d, _, cx| {
         d.board.filters.priority.toggle(1);
-        d.board_changed();
+        d.board_changed(cx);
         cx.notify();
     }),
     ("automations", |d, window, cx| d.open_automations(window, cx)),

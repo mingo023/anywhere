@@ -205,7 +205,7 @@ impl Desktop {
             icon_button_sized("aside-organize", "arrow-down-wide-narrow", 22., TEXT_3).rounded(px(6.)),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus();
+                this.close_menus(cx);
                 this.sidebar.organize.menu = true;
                 cx.notify();
             }),
