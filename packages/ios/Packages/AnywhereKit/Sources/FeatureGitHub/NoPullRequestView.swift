@@ -44,20 +44,17 @@ struct NoPullRequestView: View {
         #endif
     }
 
+    /// GitHub's compare bar: the base the branch would go into, from the branch.
     private var route: some View {
         Section {
-            fact("Branch", newPr.branch, systemImage: "branch")
-            fact("Into", newPr.base.map(PullRequestText.baseBranch), systemImage: "arrow.triangle.merge")
+            HStack(spacing: Space.s) {
+                Image(systemName: "arrow.triangle.pull").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.text3.color)
+                BranchRoute(base: newPr.base ?? "", head: newPr.branch)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, Space.xxs)
         }
         .listRowBackground(Palette.surface.color)
-    }
-
-    private func fact(_ title: String, _ value: String?, systemImage: String) -> some View {
-        LabeledContent {
-            Text(value ?? "").font(Typography.codeSmall).lineLimit(1).truncationMode(.middle)
-        } label: {
-            Label { Text(title) } icon: { Image.named(systemImage, size: 17) }
-        }
     }
 
     private var commits: some View {

@@ -137,6 +137,14 @@ struct PullRequestTextTests {
         #expect(PullRequestText.glyph(state: "CLOSED", draft: false).tone == .failed)
     }
 
+    @Test("a PR's badge names its state as GitHub's does, a draft only while open")
+    func stateLabel() {
+        #expect(PullRequestText.stateLabel(state: "OPEN", draft: false) == "Open")
+        #expect(PullRequestText.stateLabel(state: "OPEN", draft: true) == "Draft")
+        #expect(PullRequestText.stateLabel(state: "MERGED", draft: true) == "Merged")
+        #expect(PullRequestText.stateLabel(state: "CLOSED", draft: false) == "Closed")
+    }
+
     @Test("without an agent the PR is titled by its first commit and lists them all")
     func fromCommits() {
         #expect(PullRequestText.fromCommits([CommitRef(sha: "a", subject: "Fix the race")]) == ("Fix the race", ""))
