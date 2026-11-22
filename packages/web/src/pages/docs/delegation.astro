@@ -1,0 +1,85 @@
+---
+import Docs from "../../layouts/Docs.astro";
+---
+<Docs title="Delegate work to other sessions – Anywhere, coding agent workspace" description="How a chat session hands work to other sessions through Anywhere's orchestrator over MCP." path="/docs/delegation">
+	<script is:inline slot="head" type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/delegation#article",
+			"headline": "Let a chat delegate work to other sessions",
+			"description": "How a chat session hands work to other sessions through Anywhere's orchestrator over MCP.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/delegation" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Let a chat delegate work to other sessions", "item": "https://getanywhere.dev/docs/delegation" }
+			]
+		}
+	]
+}
+	</script>
+			<article>
+				<p class="eyebrow">How-to guide</p>
+				<h1>Let a chat delegate work to other sessions</h1>
+				<p class="lede">A chat session can hand part of its work to other sessions. pocketd runs an orchestrator that gives each chat a set of tools over MCP. The agent uses them to start delegated sessions, wait for them, and read their results.</p>
+				<p>You don't turn the orchestrator on. Every chat session of a supported agent gets its tools when it starts.</p>
+
+				<h2 id="check-that-the-agent-can-delegate">Check that the agent can delegate</h2>
+				<ul>
+					<li>The session must be a chat. Sessions in a terminal don't get the tools.</li>
+					<li>Claude Code and Codex chats can delegate.</li>
+					<li>Cursor, Grok Build, OpenCode, fx, Hermes Agent, and Antigravity chats can delegate when the agent supports MCP servers over HTTP.</li>
+					<li>Pi and omp can't delegate.</li>
+				</ul>
+				<p>Claude Code chats are allowed to call the tools without asking. Codex chats approve them by default.</p>
+
+				<h2 id="ask-for-delegated-work">Ask for delegated work</h2>
+				<p>Ask the agent in plain words. For example:</p>
+				<pre><code>Split this into three parts and delegate each one to its own session. Use Codex for the tests.</code></pre>
+				<p>The agent calls the <code>anywhere</code> MCP server's tools. It starts with <code>orchestrator_capabilities</code>, then uses <code>delegate_task</code> to start each delegated session and <code>task_status</code> to read results. <code>tool_search</code> loads the server's other tools.</p>
+				<p>Each delegated session:</p>
+				<ul>
+					<li>Is an ordinary session of the agent it names, which can differ from the parent's agent.</li>
+					<li>Runs in a new worktree, made from the parent's latest commit, unless the agent asks to share the parent's checkout. Uncommitted changes in the parent's checkout aren't in the new worktree. Without a git repository, the session shares the parent's folder.</li>
+					<li>Runs with the parent's access. If the target agent doesn't offer that access, it gets the closest narrower one.</li>
+					<li>Starts in plan mode if the parent is in plan mode.</li>
+				</ul>
+
+				<h2 id="follow-delegated-sessions">Follow delegated sessions</h2>
+				<p>The parent chat shows a <strong>Delegated</strong> panel with a row for each delegated session and its status. Open a row to read that session's chat, which says <strong>Delegated by</strong> and the parent agent. The sidebar, Activity, and the command palette don't list a delegated session while its parent is listed.</p>
+				<p>When a delegated session settles, pocketd queues a message for the parent. The message names the task and tells the agent to read the result with <code>task_status</code>. If the parent is in a turn, the message waits until the turn ends. Sessions that settle before the message is sent share one message.</p>
+				<p>A delegated session's Done doesn't alert you or join Up next, because the parent reads the result. Its Needs you and Failed alert you like any session's. If a delegated session asks a question, the parent is told. Permission requests always come to you.</p>
+
+				<h2 id="change-the-limits">Change the limits</h2>
+				<p>pocketd limits how deep delegation goes and how many delegated sessions run at once. Tasks over a limit wait in a queue and start when a running one settles.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Key</th><th>Default</th><th>Range</th><th>Limits</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>orchestrator.depth</code></td><td>3</td><td>1 to 5</td><td>Levels of delegation below a session you opened.</td></tr>
+						<tr><td><code>orchestrator.perSession</code></td><td>6</td><td>1 to 20</td><td>Delegated sessions of one session running at once.</td></tr>
+						<tr><td><code>orchestrator.perMac</code></td><td>12</td><td>1 to 50</td><td>Sessions that agents started, running at once on the machine.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>The desktop app has no control for these. Set one with <code>pocketd config set</code>, for example:</p>
+				<pre><code>pocketd config set orchestrator.perSession 4</code></pre>
+				<p>On macOS, the <code>pocketd</code> binary is inside the app at <code>Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd</code>.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/docs/automations"><span>Previous</span>Schedule automations</a>
+				<a class="next" href="/docs/hosts"><span>Next</span>Run agents on another machine</a>
+			</nav>
+</Docs>

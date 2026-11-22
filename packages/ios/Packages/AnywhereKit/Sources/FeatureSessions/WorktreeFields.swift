@@ -10,6 +10,8 @@ import Wire
 struct WorktreeFields: View {
     @Binding var draft: NewSessionDraft
     let branches: BranchList?
+    var branchError: String?
+    var retryBranches: () -> Void = {}
     let canChooseSource: Bool
     let taken: Set<String>
 
@@ -27,14 +29,14 @@ struct WorktreeFields: View {
             TextField("Name", text: $draft.name, prompt: Text(namePlaceholder)).plainEntry()
             if canChooseSource {
                 NavigationLink {
-                    BranchPicker(title: "Base", branches: branches, allowDefault: true, selection: $draft.base)
+                    BranchPicker(title: "Base", branches: branches, error: branchError, retry: retryBranches, allowDefault: true, selection: $draft.base)
                 } label: {
                     LabeledContent("Base", value: draft.base ?? "Default")
                 }
             }
         case .branch(let branch):
             NavigationLink {
-                BranchPicker(title: "Branch", branches: openable, allowDefault: false, selection: Binding(
+                BranchPicker(title: "Branch", branches: openable, error: branchError, retry: retryBranches, allowDefault: false, selection: Binding(
                     get: { branch.isEmpty ? nil : branch }, set: { draft.source = .branch($0 ?? "") }))
             } label: {
                 LabeledContent("Branch", value: branch.isEmpty ? "Choose" : branch)

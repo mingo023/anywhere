@@ -339,25 +339,6 @@ impl Desktop {
             };
             let body = section_body("aside-pinned-fold", open, rows);
             out.push(Self::drops_into(ui::group_box().id("aside-pinned-box").gap_0().child(head).child(body), Section::Pinned, cx).into_any_element());
-        } else if !filtering && cx.has_active_drag() {
-            let zone = div()
-                .id("aside-pin-drop")
-                .mb(px(8.))
-                .h(px(36.))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .gap(px(6.))
-                .rounded(px(10.))
-                .border(px(1.))
-                .border_dashed()
-                .border_color(TEXT_5)
-                .text_size(px(12.5))
-                .text_color(TEXT_3)
-                .child(icon("pin", 13., TEXT_3))
-                .child("Drop to pin");
-            out.push(Self::drops_into(zone, Section::Pinned, cx).into_any_element());
         }
         for (id, blocks) in &listed.groups {
             let Some(group) = sections.group(*id) else { continue };

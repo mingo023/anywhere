@@ -13,7 +13,7 @@ public enum ErrorText {
         case DaemonError.offline: "Not connected to \(mac)"
         case DaemonError.timedOut: "\(mac) didn't answer in time"
         case DaemonError.closed: "The connection to \(mac) dropped"
-        case DaemonError.cancelled: nil
+        case DaemonError.cancelled, is CancellationError: nil
         case DaemonError.encoding: "\(mac) sent a reply this app can't read"
         default: "Something went wrong"
         }

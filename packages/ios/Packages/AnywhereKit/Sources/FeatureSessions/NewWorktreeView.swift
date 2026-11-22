@@ -35,7 +35,9 @@ struct NewWorktreeView: View {
                 }
             } else {
                 Section {
-                    WorktreeFields(draft: $draft, branches: workspace.branches[mainTree], canChooseSource: true, taken: taken)
+                    WorktreeFields(
+                        draft: $draft, branches: workspace.branches[mainTree], branchError: workspace.branchErrors[mainTree],
+                        retryBranches: { Task { await loadBranches() } }, canChooseSource: true, taken: taken)
                 } footer: {
                     if let problem { Text(problem).foregroundStyle(Palette.failedText.color) }
                 }
@@ -62,7 +64,12 @@ struct NewWorktreeView: View {
                 Button("Create", action: create).disabled(requestId != nil || problem != nil)
             }
         }
-        .task { _ = try? await workspace.loadBranches(tree: mainTree) }
+        .task { await loadBranches() }
+    }
+
+    /// A failure lands in `branchErrors`, which the branch pickers show.
+    private func loadBranches() async {
+        _ = try? await workspace.loadBranches(tree: mainTree)
     }
 
     private func create() {

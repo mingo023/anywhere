@@ -50,7 +50,7 @@ public enum ChatGallery {
             Entry(name: "chat-open-errors", make: { opened(store(Sample.chat("errors"))) }),
             Entry(name: "chat-open-background-agents", make: { opened(store(Sample.chat("background-agents"))) }),
             Entry(name: "chat-composer-context-full", make: { store(Sample.chat("code-blocks"), tokens: 184_000, window: 200_000) }),
-            Entry(name: "chat-composer-offline", make: {
+            Entry(name: "chat-composer-offline", host: { HostModel.offline(hello: Sample.hello, messages: [], droppedFor: 60) }, make: {
                 let s = store(Sample.chat("streaming-live"), status: .working)
                 s.follow(online: false, mac: "Mingo's MacBook Pro")
                 s.draft.text = "Also keep sub-agents as their own rows"
@@ -80,7 +80,7 @@ public enum ChatGallery {
         let chats = (transcripts + composer).flatMap { scene in
             [false, true].map { dark in
                 GalleryScene(dark ? "\(scene.name)-dark" : scene.name, dark: dark) {
-                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", openLink: { _ in }, live: false) })
+                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", host: scene.host?() ?? HostModel.offline(hello: Sample.hello, messages: []), openLink: { _ in }, live: false) })
                 }
             }
         }
@@ -101,6 +101,8 @@ public enum ChatGallery {
 
     struct Entry {
         let name: String
+        /// Connected unless given.
+        var host: (@MainActor () -> HostModel)?
         let make: @MainActor () -> ChatStore
     }
 

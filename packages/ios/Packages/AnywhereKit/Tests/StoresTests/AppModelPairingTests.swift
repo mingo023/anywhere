@@ -1,4 +1,5 @@
 import Client
+import Domain
 import Fixtures
 import Foundation
 import Testing
@@ -122,6 +123,34 @@ struct ReachabilityTests {
         #expect(Reachability.nextChange(offlineFor: 1) == 3)
         #expect(Reachability.nextChange(offlineFor: 10) == 20)
         #expect(Reachability.nextChange(offlineFor: 31) == nil)
+    }
+
+    @Test("a link reads up, trying, lost or off at a glance")
+    func tones() {
+        #expect(Reachability.online.tone == .up)
+        #expect(Reachability.connecting.tone == .trying)
+        #expect(Reachability.reconnecting.tone == .trying)
+        #expect(Reachability.unreachable.tone == .lost)
+        #expect(Reachability.revoked.tone == .lost)
+        #expect(Reachability.updatePhone.tone == .lost)
+        #expect(Reachability.stopped.tone == .off)
+    }
+
+    @Test("what a host shows is stale once a Mac it has heard from is gone past a blip, as of when it went")
+    func staleAsOf() {
+        var clock = Date(timeIntervalSince1970: 1000)
+        let host = HostModel(
+            credentials: Credentials(host: "127.0.0.1:9", deviceToken: "t", deviceId: "d1", macName: "Mac", clientId: "c"), now: { clock })
+        #expect(host.staleAsOf(at: clock.addingTimeInterval(60)) == nil, "nothing to be stale before the first hello")
+        host.apply([.connected(Sample.hello)])
+        #expect(host.staleAsOf(at: clock) == nil)
+        clock = clock.addingTimeInterval(60)
+        host.apply([.closed(.retrying(seconds: 0.25))])
+        #expect(host.staleAsOf(at: clock.addingTimeInterval(3.9)) == nil, "a blip shows nothing")
+        #expect(host.staleAsOf(at: clock.addingTimeInterval(4)) == 1_060_000)
+        #expect(host.staleAsOf(at: clock.addingTimeInterval(40)) == 1_060_000)
+        host.apply([.connected(Sample.hello)])
+        #expect(host.staleAsOf(at: clock.addingTimeInterval(40)) == nil)
     }
 
     @Test("a host is offline from its first dial and from each drop until hello.ok")

@@ -11,11 +11,12 @@ enum SessionText {
 
     /// The line under a session's title: what failed, else what it is doing, else its status, else its model. Working
     /// shows as the glyph's spin, so it isn't spelled out; the other statuses are, as their dots differ by colour alone.
-    static func detail(_ s: AgentSummary, _ status: Status) -> String? {
+    static func detail(_ s: AgentSummary, _ status: Status, model: Bool = true) -> String? {
         if s.compacting == true { return "Compacting…" }
         if status == .failed, let error = s.error, !error.isEmpty { return error }
         if let doing = s.activity, !doing.isEmpty { return doing }
         if status != .working, let label = status.label { return label }
+        guard model else { return nil }
         return s.model.map(modelName).flatMap { $0.isEmpty ? nil : $0 }
     }
 

@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn a_projects_main_tree_stays_listed_when_only_delegated_sessions_run_in_it() {
-        let tree = |path: &str, main: bool| git::Worktree { path: path.into(), branch: String::new(), main, made: false };
+        let tree = |path: &str, main: bool| git::Worktree { path: path.into(), branch: String::new(), main, made: false, created: None };
         let terminals = [at("a", Some("/w"), true), at("b", Some("/w/tests"), true), at("c", Some("/w/docs"), false)];
         let left = without_child_only(vec![tree("/w", true), tree("/w/tests", false), tree("/w/docs", false)], &terminals);
         assert_eq!(left.iter().map(|w| w.path.as_str()).collect::<Vec<_>>(), ["/w", "/w/docs"]);

@@ -35,10 +35,10 @@ public struct Placeholder: View {
 
     public var body: some View {
         VStack(spacing: Space.m) {
-            Image(systemName: systemImage).font(.system(size: 34, weight: .light)).foregroundStyle(Palette.text4.color)
+            Image(systemName: systemImage).font(.system(size: 28)).foregroundStyle(Palette.text3.color)
             Text(title).font(Typography.headline).foregroundStyle(Palette.text.color)
             if let detail {
-                Text(detail).font(Typography.subheadline).foregroundStyle(Palette.text3.color).multilineTextAlignment(.center)
+                Text(detail).font(Typography.subheadline).foregroundStyle(Palette.text2.color).multilineTextAlignment(.center)
             }
             if let action {
                 Button(actionTitle, action: action).buttonStyle(.bordered).controlSize(.large).padding(.top, Space.xs)
@@ -107,7 +107,7 @@ public struct SearchField: View {
                 .font(Typography.body)
                 .autocorrectionDisabled()
             if !text.isEmpty {
-                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.text4.color) }
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.text4.color).hitTarget() }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear")
             }
@@ -129,9 +129,9 @@ public struct SearchBox<Content: View>: View {
             Image(systemName: "magnifyingglass").foregroundStyle(Palette.text3.color)
             content
         }
-        .padding(.horizontal, Space.m)
-        .frame(minHeight: 38)
-        .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 14)
+        .frame(minHeight: HitTarget.minimum)
+        .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.float, style: .continuous))
     }
 }
 
@@ -187,7 +187,7 @@ extension EnvironmentValues {
 extension View {
     /// A section's title as the lists set them: sentence case, quieter than the rows.
     public func sectionTitle() -> some View {
-        font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text2.color).textCase(nil)
+        font(Typography.footnote.weight(.medium)).foregroundStyle(Palette.text2.color).textCase(nil)
     }
 }
 

@@ -235,12 +235,21 @@ struct CheckRow: View {
         }
     }
 
+    /// A tick or a cross, as the desktop marks checks; the session grid is for agents.
+    @ViewBuilder private var mark: some View {
+        switch Self.status(run.outcome) {
+        case .done: Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.success.color).frame(width: 16, height: 16)
+        case .failed: Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.failed.color).frame(width: 16, height: 16)
+        case let status: StatusGlyph(status)
+        }
+    }
+
     var body: some View {
         Button {
             if let url = run.url.flatMap(URL.init(string:)) { openURL(url) }
         } label: {
             HStack(spacing: Space.m) {
-                StatusGlyph(Self.status(run.outcome))
+                mark
                 Text(run.name).font(Typography.code).foregroundStyle(Palette.text.color).lineLimit(1)
                 Spacer(minLength: 0)
                 if run.outcome == "pending" { Text("Running").font(Typography.footnote).foregroundStyle(Palette.text3.color) }

@@ -123,12 +123,12 @@ public struct CodeBlockView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Rectangle().fill(Palette.separator.color).frame(height: 1)
+            Rectangle().fill(Palette.hairline.color).frame(height: 1)
             content
         }
-        .background(Palette.fill1.color, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.separator.color, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Palette.well.color, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.hairline.color, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .task(id: RunKey(code: code, language: language, dark: dark)) { await highlight() }
     }
 

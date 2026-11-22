@@ -103,6 +103,8 @@ public final class WorkspaceStore: HostStore {
     public private(set) var terminalCwds: [String] = []
     /// Branches by tree, as last listed.
     public private(set) var branches: [String: BranchList] = [:]
+    /// Why a tree's branches couldn't be listed, until a listing is asked for again.
+    public private(set) var branchErrors: [String: String] = [:]
     /// Accounts by provider, as last listed.
     public private(set) var accounts: [String: [Account]] = [:]
     public private(set) var providers: AgentProviders?
@@ -205,9 +207,15 @@ public final class WorkspaceStore: HostStore {
 
     @discardableResult
     public func loadBranches(tree: String) async throws -> BranchList {
-        guard case .branchList(let list) = try await request(.branchList(.init(tree: tree))) else { throw DaemonError.closed }
-        if branches[tree] != list { branches[tree] = list }
-        return list
+        branchErrors[tree] = nil
+        do {
+            guard case .branchList(let list) = try await request(.branchList(.init(tree: tree))) else { throw DaemonError.closed }
+            if branches[tree] != list { branches[tree] = list }
+            return list
+        } catch {
+            branchErrors[tree] = failure(error)?.message
+            throw error
+        }
     }
 
     @discardableResult

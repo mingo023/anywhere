@@ -15,6 +15,13 @@ extension View {
         #endif
     }
 
+    /// A solid card floating over content, as toasts, banners and bottom bars sit: a hairline edge and a soft shadow.
+    public func raised<S: InsettableShape>(in shape: S, fill: Token = Palette.popover) -> some View {
+        background(fill.color, in: shape)
+            .overlay(shape.strokeBorder(Palette.hairline.color, lineWidth: 0.5))
+            .shadow(color: Palette.shadow.color, radius: 16, y: 4)
+    }
+
     /// A solid band behind the navigation bar, so content scrolling under it never meets the bar's words; it fades out over
     /// `fade` points below the bar.
     public func solidBar(_ color: Color, fade: CGFloat = 0) -> some View {

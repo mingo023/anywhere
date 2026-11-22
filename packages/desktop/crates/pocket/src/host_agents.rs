@@ -62,5 +62,7 @@ impl Desktop {
         self.host_agents.homes.remove(id);
         self.outbox.remove(id);
         self.agents.forget(id);
+        // Its leftovers wait for its next listing: until then nothing says who works in them.
+        self.removals.host_dropped(id);
     }
 }

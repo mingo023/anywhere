@@ -8,6 +8,8 @@ import Wire
 struct BranchPicker: View {
     let title: String
     let branches: BranchList?
+    let error: String?
+    let retry: () -> Void
     /// Offers "Default", which leaves the pick to pocketd.
     let allowDefault: Bool
     @Binding var selection: String?
@@ -25,7 +27,9 @@ struct BranchPicker: View {
             }
         }
         .overlay {
-            if branches == nil {
+            if branches == nil, let error {
+                Placeholder("Couldn't load branches", systemImage: "exclamationmark.triangle", detail: error, action: retry)
+            } else if branches == nil {
                 ProgressView()
             } else if listed.isEmpty && !search.isEmpty {
                 ContentUnavailableView.search(text: search)

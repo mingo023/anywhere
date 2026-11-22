@@ -1,0 +1,132 @@
+---
+import Blog from "../../layouts/Blog.astro";
+---
+<Blog title="Native, not Electron – Anywhere, coding agent workspace" description="Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare." path="/blog/native-mac-app-coding-agents-rust-gpui" article={{author: "Minh Ngo", published: "2026-11-18", modified: "2026-11-18"}}>
+	<script is:inline slot="head" type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "BlogPosting",
+			"@id": "https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui#article",
+			"headline": "Native, not Electron: a Rust/GPUI app for your coding agents",
+			"description": "Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare.",
+			"datePublished": "2026-11-18",
+			"dateModified": "2026-11-18",
+			"inLanguage": "en",
+			"keywords": "native mac app for coding agents, rust gpui coding agent app, zeron alternative, monocode alternative, orca alternative, claude code app no electron",
+			"author": { "@type": "Person", "name": "Minh Ngo" },
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "FAQPage",
+			"mainEntity": [
+				{ "@type": "Question", "name": "Is Anywhere built on Electron?", "acceptedAnswer": { "@type": "Answer", "text": "Anywhere's desktop app is written in Rust on GPUI, with a Go daemon called pocketd that owns the terminals and keeps agents running after the window closes. It uses no Electron or Tauri: there is no bundled Chromium and no Node runtime." } },
+				{ "@type": "Question", "name": "What is GPUI?", "acceptedAnswer": { "@type": "Answer", "text": "GPUI is the Rust UI framework Anywhere's desktop window is built with. It draws the interface on the GPU. Its home page is gpui.rs." } },
+				{ "@type": "Question", "name": "Are there other native apps for running coding agents?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Zeron is also built with Rust and GPUI, with desktop builds for macOS, Windows and Linux. MonoCode ships an experimental Rust and GPUI preview next to its React/Tauri production app. Orca, Paradev, Synara and T3 Code are Electron apps." } },
+				{ "@type": "Question", "name": "Does Anywhere run on Linux and Windows?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Anywhere publishes builds for Linux on x86_64 and Windows on x64 next to the macOS app. They are unsigned and have no updater, and you run pocket-desktop from the unpacked folder. pocketd installs itself as a systemd user service on Linux and a scheduled task on Windows." } }
+			]
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "Native, not Electron: a Rust/GPUI app for your coding agents", "item": "https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui" }
+			]
+		}
+	]
+}
+	</script>
+	<div class="post-layout">
+		<main id="main">
+			<article>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Engineering</p>
+				<h1>Native, not Electron: a Rust/GPUI app for your coding agents</h1>
+				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
+				<p class="lede">Anywhere's desktop app is written in Rust on GPUI, with a Go daemon called pocketd that owns the terminals and keeps agents running after the window closes. It uses no Electron or Tauri: there is no bundled Chromium and no Node runtime.</p>
+				<p>The site's architecture line is "No Electron. No Tauri. Native all the way down." This post explains what that means in practice, why we built it that way, and who else in this space made a similar choice.</p>
+
+				<h2 id="why-the-window-matters">Why the window matters when you run ten agents</h2>
+				<p>An app for one chat can get away with a lot. An app for many agents can't, because of what it has to show at once:</p>
+				<ul>
+					<li>Several live terminals, each streaming output.</li>
+					<li>Long chat timelines that you scroll back through to see what an agent did an hour ago.</li>
+					<li>Diffs of worktrees with many changed files.</li>
+					<li>Status changes arriving from every session, while you type into one of them.</li>
+				</ul>
+				<p>And it stays open all day. That is the case Anywhere is built for: the window should keep up with the agents, not the other way round.</p>
+
+				<h2 id="the-stack">Anywhere's stack</h2>
+				<p>Anywhere is a few native programs that each do one job. All of them are in one <a href="https://github.com/mingo023/anywhere">MIT-licensed repository</a>.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Piece</th><th>Language</th><th>What it does</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>The window, <code>pocket-desktop</code></td><td>Rust, on <a href="https://www.gpui.rs">GPUI</a></td><td>Draws the sidebar, chats, terminals, diffs, and the pull request card, on the GPU. Reads git itself and calls <code>gh</code> for pull requests.</td></tr>
+						<tr><td>The daemon, <code>pocketd</code></td><td>Go</td><td>Owns the terminals, sessions, Board, automations, and the phone connection. Starts at login and outlives the window.</td></tr>
+						<tr><td>The phone app</td><td>SwiftUI</td><td>Native iPhone and iPad app that talks to pocketd over Tailscale. Documented; the site lists it as coming soon.</td></tr>
+						<tr><td>The protocol</td><td>TypeScript schema</td><td>One WebSocket protocol for the window, the phone, and the <code>anywhere</code> command, kept in step with pocketd's Go types and the app's Swift types.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>What is not in the box: Chromium and Node.js. The only web view is the built-in browser, for pages you open in it.</p>
+				<p>The split between window and daemon is the part you feel most. The window is a client. pocketd runs every agent, so closing the window or updating the app doesn't stop one. When an update replaces pocketd, it hands its live terminals and agents to the new program inside the same process. More in <a href="/docs/architecture">About how Anywhere runs on your machines</a> and <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a>.</p>
+				<p>On macOS, the app is a universal binary (arm64 and x86_64), signed, notarized, and updated through Sparkle. Linux and Windows builds exist too, unsigned and without an updater.</p>
+
+				<div class="cta">
+					<p>Read the Rust and Go source.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest">Download for Mac</a>
+				</div>
+
+				<h2 id="judge-it-yourself">Judge it yourself</h2>
+				<p>We don't publish benchmarks against other apps, and this post quotes none. Frame times depend on your machine, your repository, and how many agents you run. The honest test is your own: open your largest repository, start a few agents, and watch the window while they work.</p>
+				<p>If you want to go further, build it from source. The README lists what you need (Rust, Go, and Zig). Build the pinned libghostty that pocketd links with <code>scripts/build-ghostty.sh</code>, then <code>make run</code> builds the desktop app in release mode and runs it in place.</p>
+
+				<h2 id="other-native-tools">Other native-minded tools</h2>
+				<p>Anywhere isn't the only agent app that skipped the browser engine for its window.</p>
+				<ul>
+					<li><a href="https://zeron.sh/"><strong>Zeron</strong></a> is also Rust on GPUI, MIT licensed, and describes itself as "one native, open source app" for Claude Code, Codex, Cursor and other agents. It has auto-updating desktop builds for macOS, Windows, and Linux, store apps for iOS and Android, plugins and themes, and a headless Linux engine.</li>
+					<li><a href="https://www.usemono.dev/"><strong>MonoCode</strong></a> ships an experimental "Monocode Native preview" in Rust and GPUI for macOS, Linux, and Windows. Its production app is React and Tauri, and the preview shares the same database.</li>
+				</ul>
+				<p><a href="https://orca.dev/">Orca</a>, <a href="https://paradev.com/">Paradev</a>, and <a href="https://www.trysynara.com/">Synara</a> are Electron apps, per their public repositories. Orca's site highlights a GPU-rendered terminal with splits.</p>
+				<p><a href="https://t3.codes/">T3 Code</a> is Electron too: the desktop <code>package.json</code> in its public repository depends on <code>electron</code>, <code>electron-builder</code>, and <code>electron-updater</code>, and the app is written in TypeScript. It ships first-class desktop builds for macOS, Windows, and Linux with an updater, a web client, and iOS and Android apps in the stores. See <a href="/blog/t3-code-alternative">Anywhere vs T3 Code</a>.</p>
+
+				<h2 id="when-electron-may-fit-better">When an Electron app may fit better</h2>
+				<div class="callout">
+					<p><span class="callout-title">Pick on features, not on the toolkit</span>A native window is one reason to choose a tool. The Electron apps here do more in several areas:</p>
+					<ul>
+						<li><strong>Any CLI agent.</strong> Orca and Paradev run any agent that works in a terminal, and T3 Code runs any ACP agent. Anywhere supports a fixed list of ten.</li>
+						<li><strong>A browser in the workspace.</strong> Orca and Paradev have an in-app browser with Design mode, and Synara has browser verification.</li>
+						<li><strong>More surfaces.</strong> Orca adds mobile emulators, Computer Use, and a plugin catalog. Paradev adds Pages, a TypeScript SDK, and an MCP server. T3 Code adds a web client and iOS and Android apps.</li>
+						<li><strong>Windows and Linux first.</strong> Orca, Synara, and T3 Code ship them as first-class release targets.</li>
+					</ul>
+				</div>
+				<p>For the full comparison, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a>.</p>
+
+				<section class="faq" aria-labelledby="faq">
+					<h2 id="faq">FAQ</h2>
+					<h3>Is Anywhere built on Electron?</h3>
+					<p>Anywhere's desktop app is written in Rust on GPUI, with a Go daemon called pocketd that owns the terminals and keeps agents running after the window closes. It uses no Electron or Tauri: there is no bundled Chromium and no Node runtime.</p>
+					<h3>What is GPUI?</h3>
+					<p>GPUI is the Rust UI framework Anywhere's desktop window is built with. It draws the interface on the GPU. Its home page is gpui.rs.</p>
+					<h3>Are there other native apps for running coding agents?</h3>
+					<p>Yes. Zeron is also built with Rust and GPUI, with desktop builds for macOS, Windows and Linux. MonoCode ships an experimental Rust and GPUI preview next to its React/Tauri production app. Orca, Paradev, Synara and T3 Code are Electron apps.</p>
+					<h3>Does Anywhere run on Linux and Windows?</h3>
+					<p>Yes. Anywhere publishes builds for Linux on x86_64 and Windows on x64 next to the macOS app. They are unsigned and have no updater, and you run pocket-desktop from the unpacked folder. pocketd installs itself as a systemd user service on Linux and a scheduled task on Windows.</p>
+				</section>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/blog/open-source-agent-workspace-no-paid-tier"><span>Previous</span>An agent workspace with no paid tier</a>
+				<a class="next" href="/blog/run-multiple-codex-agents-git-worktrees"><span>Next</span>Run multiple Codex agents in git worktrees</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</Blog>

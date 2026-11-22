@@ -24,6 +24,11 @@ const WIDTH: f32 = 0.78;
 /// A mention's `@` and the gap after it, which its icon covers; two narrow spaces, as one leaves the icon touching the name.
 const SLOT: &str = "@\u{202F}\u{202F}";
 const ICON: f32 = 15.;
+/// A skill's `/` and the room for its icon, and the room after its name, inside the pill the composer showed it as;
+/// figure spaces, since narrow ones render almost zero-wide.
+const PILL_HEAD: &str = "/\u{2007}\u{2007}";
+const PILL_TAIL: &str = "\u{202F}\u{202F}";
+const PILL_ICON: f32 = 11.;
 
 /// What a bubble shows of a prompt.
 #[derive(Default)]
@@ -32,29 +37,43 @@ struct Shown {
     highlights: Vec<(Range<usize>, HighlightStyle)>,
     /// Where each mention shows, and its path.
     mentions: Vec<(Range<usize>, String)>,
+    /// Where each skill's pill shows.
+    pills: Vec<Range<usize>>,
     /// Where each link shows, and where it goes.
     links: Vec<(Range<usize>, String)>,
     /// Where each code span shows, and whether it's a fenced block.
     code: Vec<(Range<usize>, bool)>,
 }
 
-/// `text` as the composer showed it while typed: its commands tinted, each mention as its icon and name, its markdown
+/// `text` as the composer showed it while typed: each command as its pill, each mention as its icon and name, its markdown
 /// styled and its code set apart.
 fn shown(text: &str) -> Shown {
     let (marks, code) = chat::marks_outside_code(text);
     let mut out = Shown::default();
-    // A mention changes the text's length, so what follows it moves: each mention's place in the prompt, and in the bubble.
+    // A mention or pill changes the text's length, so what follows it moves: each one's place in the prompt, and in the bubble.
     let mut moved: Vec<(Range<usize>, Range<usize>)> = Vec::new();
     let mut copied = 0;
-    for m in marks.mentions {
+    let mut found: Vec<(Range<usize>, bool)> = marks.mentions.into_iter().map(|r| (r, true)).chain(marks.commands.into_iter().map(|r| (r, false))).collect();
+    found.sort_by_key(|(r, _)| r.start);
+    for (m, mention) in found {
         out.text.push_str(&text[copied..m.start]);
-        let path = &text[m.start + 1..m.end];
         let start = out.text.len();
-        out.text.push_str(SLOT);
-        out.text.push_str(chat::mention_name(path));
-        out.highlights.push((start..start + SLOT.len(), hidden()));
-        out.highlights.push((start + SLOT.len()..out.text.len(), tint(MENTION)));
-        out.mentions.push((start..out.text.len(), path.to_string()));
+        if mention {
+            let path = &text[m.start + 1..m.end];
+            out.text.push_str(SLOT);
+            out.text.push_str(chat::mention_name(path));
+            out.highlights.push((start..start + SLOT.len(), hidden()));
+            out.highlights.push((start + SLOT.len()..out.text.len(), tint(MENTION)));
+            out.mentions.push((start..out.text.len(), path.to_string()));
+        } else {
+            out.text.push_str(PILL_HEAD);
+            // Non-breaking hyphens keep a pill on one line, as the composer's is.
+            out.text.push_str(&text[m.start + 1..m.end].replace('-', "\u{2011}"));
+            out.highlights.push((start..start + PILL_HEAD.len(), hidden()));
+            out.highlights.push((start + PILL_HEAD.len()..out.text.len(), tint(COMMAND)));
+            out.text.push_str(PILL_TAIL);
+            out.pills.push(start..out.text.len());
+        }
         moved.push((m.clone(), start..out.text.len()));
         copied = m.end;
     }
@@ -65,7 +84,6 @@ fn shown(text: &str) -> Shown {
         None => at,
     };
     let placed = |r: &Range<usize>| place(r.start)..place(r.end);
-    out.highlights.extend(marks.commands.iter().map(|r| (placed(r), tint(COMMAND))));
     for c in &code {
         match c {
             chat::Code::Inline(r) => out.highlights.extend([(place(r.start)..place(r.start) + 1, hidden()), (place(r.end) - 1..place(r.end), hidden())]),
@@ -79,10 +97,10 @@ fn shown(text: &str) -> Shown {
     out
 }
 
-/// The prompt's text, its mentions' icons and its code's shades painted over it, its mentions' paths on hover and its
+/// The prompt's text, its pills, its mentions' icons and its code's shades painted over it, its mentions' paths on hover and its
 /// links opening on a click.
 pub(super) fn styled(id: &str, text: &str) -> Div {
-    let Shown { text, highlights, mentions, links, code } = shown(text);
+    let Shown { text, highlights, mentions, pills, links, code } = shown(text);
     let text = SharedString::from(text);
     let styled = StyledText::new(text.clone()).with_highlights(highlights);
     let layout = styled.layout().clone();
@@ -92,6 +110,9 @@ pub(super) fn styled(id: &str, text: &str) -> Div {
         move |within, _, window, cx| {
             let line = layout.line_height();
             let span = |r: &Range<usize>| Some(Bounds::from_corners(layout.position_for_index(r.start)?, layout.position_for_index(r.end)? + point(px(0.), line)));
+            for pill in pills.iter().filter_map(&span) {
+                paint_pill(pill, line, window, cx);
+            }
             for shade in code.iter().filter_map(|(r, block)| if *block { span(r).map(|s| block_shade(s.top(), s.bottom(), within)) } else { span(r).and_then(code_shade) }) {
                 window.paint_quad(shade);
             }
@@ -108,6 +129,20 @@ pub(super) fn styled(id: &str, text: &str) -> Div {
     let interactive = InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip).on_click(ranges, move |ix, _, cx| cx.open_url(&targets[ix]));
     let shown = selectable(SharedString::from(format!("{id}-select")), text, layout.clone(), interactive);
     div().relative().child(shown).child(marks)
+}
+
+/// A skill's pill over `span`, sized as the composer's 20px pill on its 22px line.
+fn paint_pill(span: Bounds<Pixels>, line: Pixels, window: &mut Window, cx: &mut App) {
+    if span.size.height > line {
+        return;
+    }
+    let ink = Hsla::from(COMMAND);
+    let height = line * (20. / 22.);
+    let pill = Bounds::new(point(span.left(), span.center().y - height / 2.), size(span.size.width, height));
+    window.paint_quad(quad(pill, height * 0.3, ink.opacity(0.1), px(1.), ink.opacity(0.2), BorderStyle::Solid));
+    let side = px(PILL_ICON) * (line / px(LINE_HEIGHT));
+    let glyph = Bounds::new(point(pill.left() + side * 0.55, pill.center().y - side / 2.), size(side, side));
+    window.paint_svg(glyph, "icons/package.svg".into(), None, TransformationMatrix::unit(), ink, cx).ok();
 }
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.
@@ -312,17 +347,17 @@ mod tests {
 
     #[test]
     fn a_bubble_shows_each_mention_as_its_name_and_keeps_its_path() {
-        let s = shown("/review then @src/parser.rs and @docs/");
-        assert_eq!(s.text, "/review then @\u{202F}\u{202F}parser.rs and @\u{202F}\u{202F}docs/");
+        let s = shown("then @src/parser.rs and @docs/");
+        assert_eq!(s.text, "then @\u{202F}\u{202F}parser.rs and @\u{202F}\u{202F}docs/");
         let mentions: Vec<(&str, &str)> = s.mentions.iter().map(|(r, path)| (&s.text[r.clone()], path.as_str())).collect();
         assert_eq!(mentions, [("@\u{202F}\u{202F}parser.rs", "src/parser.rs"), ("@\u{202F}\u{202F}docs/", "docs/")]);
     }
 
     #[test]
-    fn a_bubble_tints_each_skill_where_it_shows_after_a_mention() {
+    fn a_bubble_tints_each_skill_name_where_it_shows_after_a_mention() {
         let s = shown("/prototype @src/parser.rs with /apple-design");
         let tinted: Vec<&str> = s.highlights.iter().filter(|(_, h)| h.color.is_some()).map(|(r, _)| &s.text[r.clone()]).collect();
-        assert_eq!(tinted, ["/prototype", "parser.rs", "/apple-design"]);
+        assert_eq!(tinted, ["prototype", "parser.rs", "apple\u{2011}design"]);
     }
 
     #[test]
@@ -341,6 +376,19 @@ mod tests {
         assert_eq!(code, [("`/review @a.rs`", false), ("```\n- **b**\n```", true)]);
         assert!(s.mentions.is_empty() && s.links.is_empty());
         assert!(s.highlights.iter().all(|(_, h)| h.font_weight.is_none()));
+    }
+
+    #[test]
+    fn a_bubble_shows_each_skill_as_a_pill_and_keeps_what_follows_in_place() {
+        let s = shown("/a @x.rs /b **bold** [l](https://u.dev) `code`");
+        let pills: Vec<&str> = s.pills.iter().map(|r| &s.text[r.clone()]).collect();
+        assert_eq!(pills, ["/\u{2007}\u{2007}a\u{202F}\u{202F}", "/\u{2007}\u{2007}b\u{202F}\u{202F}"]);
+        let links: Vec<&str> = s.links.iter().map(|(r, _)| &s.text[r.clone()]).collect();
+        assert_eq!(links, ["l"]);
+        let bold: Vec<&str> = s.highlights.iter().filter(|(_, h)| h.font_weight.is_some()).map(|(r, _)| &s.text[r.clone()]).collect();
+        assert_eq!(bold, ["bold"]);
+        let code: Vec<&str> = s.code.iter().map(|(r, _)| &s.text[r.clone()]).collect();
+        assert_eq!(code, ["`code`"]);
     }
 
     #[test]

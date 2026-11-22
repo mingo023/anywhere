@@ -79,7 +79,7 @@ struct BubbleText: View {
     var body: some View {
         Self.styled(text)
             .font(ChatFont.bubble)
-            .lineSpacing(Bubble.lineHeight - 17.5)
+            .lineSpacing(Bubble.lineHeight - Bubble.textSize * 1.19)
             .foregroundStyle(Palette.text.color)
             .textSelection(.enabled)
     }

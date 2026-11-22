@@ -1,0 +1,96 @@
+---
+import Docs from "../../layouts/Docs.astro";
+---
+<Docs title="Plan work on the Board – Anywhere, coding agent workspace" description="Write tickets on the Board, start them in their own worktrees, and limit how many run at once." path="/docs/board">
+	<script is:inline slot="head" type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/board#article",
+			"headline": "Plan work on the Board",
+			"description": "Write tickets on the Board, start them in their own worktrees, and limit how many run at once.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/board" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Plan work on the Board", "item": "https://getanywhere.dev/docs/board" }
+			]
+		}
+	]
+}
+	</script>
+			<article>
+				<p class="eyebrow">How-to guide</p>
+				<h1>Plan work on the Board</h1>
+				<p class="lede">The Board holds tickets for every project in one place. A ticket is a piece of work for an agent: a title, a prompt, an agent, a project, and the branch it starts from. A started ticket gets its own worktree and session.</p>
+				<p>To open the Board, click <strong>Board</strong> in the sidebar, or choose <strong>Go to Board</strong> in the command palette (<kbd>⌘K</kbd>).</p>
+
+				<h2 id="write-a-ticket">Write a ticket</h2>
+				<ol>
+					<li>Click the Board's composer, or press <kbd>N</kbd>.</li>
+					<li>Type the work. The first line becomes the title, and the whole text becomes the prompt.</li>
+					<li>Set the chips: the project, the agent, the base branch, and optionally a priority and a label.</li>
+					<li>Click <strong>Add to To do</strong>, or press <kbd>Return</kbd>.</li>
+				</ol>
+				<p>The ticket goes into <strong>To do</strong>. Open it to change its title, prompt, agent, project, or base branch.</p>
+				<p>Only git repositories can hold tickets.</p>
+
+				<h2 id="start-a-ticket">Start a ticket</h2>
+				<p>Do one of these:</p>
+				<ul>
+					<li>Click <strong>Start</strong> on the ticket's card.</li>
+					<li>In the composer, press <kbd>⌘↩</kbd> to add the ticket and start it at once.</li>
+					<li>Drag the ticket to <strong>Working</strong>.</li>
+				</ul>
+				<p>A started ticket goes to <strong>Queued</strong> first. When a slot is free, pocketd creates the ticket's worktree from its base branch and starts its session there. From then on, the card sits in the column that its session's status says. Board sessions start with the agent's own permission settings.</p>
+
+				<h3>Limit how many tickets run at once</h3>
+				<p>pocketd starts the next queued ticket while fewer tickets than the limit are starting, working, or need you. The limit is 4 by default and can be from 1 to 8.</p>
+				<ol>
+					<li>Open the Board's <strong>Display</strong> menu.</li>
+					<li>Change <strong>Work on at once</strong> with the minus and plus buttons.</li>
+				</ol>
+				<p>The <strong>Working</strong> column's header shows how many slots are in use.</p>
+
+				<h2 id="follow-tickets-through-the-columns">Follow tickets through the columns</h2>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Column</th><th>Holds</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><strong>To do</strong></td><td>Tickets not started.</td></tr>
+						<tr><td><strong>Queued</strong></td><td>Started tickets waiting for a slot.</td></tr>
+						<tr><td><strong>Working</strong></td><td>Tickets whose session is starting or whose agent is running a turn.</td></tr>
+						<tr><td><strong>Needs you</strong></td><td>Tickets whose agent is waiting for an answer, failed, or was stopped.</td></tr>
+						<tr><td><strong>Done</strong></td><td>Tickets whose turn ended and that nobody has seen yet.</td></tr>
+						<tr><td><strong>In review</strong></td><td>Idle tickets.</td></tr>
+						<tr><td><strong>Merged</strong></td><td>Tickets closed because their pull request was merged.</td></tr>
+						<tr><td><strong>Closed</strong></td><td>Other closed tickets. Hidden unless <strong>Show closed tickets</strong> is on in the <strong>Display</strong> menu.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>You can drag a card only while it has no session: from <strong>To do</strong> to <strong>Queued</strong> or <strong>Working</strong>, and from <strong>Queued</strong> back to <strong>To do</strong>.</p>
+
+				<h2 id="close-a-ticket">Close a ticket</h2>
+				<p>Open the ticket's menu and click <strong>Close ticket</strong>. The ticket's worktree and session stay. A merged pull request or a deleted worktree also closes the ticket. To bring a closed ticket back, click <strong>Restore</strong>.</p>
+
+				<h2 id="manage-tickets-from-the-command-line">Manage tickets from the command line</h2>
+				<p>The <code>anywhere</code> command adds, reads, edits, and deletes tickets. For example, to add a ticket and start it:</p>
+				<pre><code>anywhere ticket create --project app --start "Fix the flaky login test"</code></pre>
+				<p>See <a href="/docs/cli#ticket-create">ticket create</a> and the other ticket commands.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/docs/review"><span>Previous</span>Review and commit changes</a>
+				<a class="next" href="/docs/automations"><span>Next</span>Schedule automations</a>
+			</nav>
+</Docs>

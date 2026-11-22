@@ -1,4 +1,5 @@
 import Client
+import Domain
 import Foundation
 
 /// How a Mac's link reads to the user, as the RN app's banners did: quiet for 4 s, then "Reconnecting…", then after 30 s
@@ -37,6 +38,15 @@ public enum Reachability: Hashable, Sendable {
         }
     }
 
+    public var tone: LinkTone {
+        switch self {
+        case .online: .up
+        case .connecting, .reconnecting: .trying
+        case .unreachable, .revoked, .updateMac, .updatePhone: .lost
+        case .stopped: .off
+        }
+    }
+
     /// For the Macs list.
     public var label: String {
         switch self {
@@ -68,6 +78,13 @@ extension HostModel {
     public var reachabilityMarks: [Date] {
         guard let since = offlineSince else { return [] }
         return [since, since + Reachability.reconnectingAfter, since + Reachability.unreachableAfter]
+    }
+
+    /// When the Mac went, in ms, once what this host shows from it is stale: it has answered before, and it has been gone
+    /// longer than a blip. Nil otherwise.
+    public func staleAsOf(at now: Date) -> Int? {
+        guard link != .online, hello != nil, let since = offlineSince, now.timeIntervalSince(since) >= Reachability.reconnectingAfter else { return nil }
+        return Int(since.timeIntervalSince1970 * 1000)
     }
 
     /// The id routes and deep links name this Mac by: its serverId once known, else the device id pairing gave.

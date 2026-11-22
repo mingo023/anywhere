@@ -67,7 +67,8 @@ type ClientMessage struct {
 	Number           int // a PR's
 	Setup            *bool
 	DeleteBranch     bool
-	Force            bool // worktree.delete: delete a branch whose commits are nowhere else
+	Force            bool     // worktree.delete: delete a branch whose commits are nowhere else
+	Subagents        []string // worktree.delete: whose terminals alone may be in it
 	Tree             string
 	Trees            []string
 	Provider         string

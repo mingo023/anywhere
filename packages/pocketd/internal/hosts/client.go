@@ -33,8 +33,9 @@ type waiter struct {
 	reply chan []byte
 }
 
-// Dial says hello to the pocketd at socket, with token when a Windows host's wants one; on must not block.
-func Dial(ctx context.Context, socket, token string, on func(kind string, raw []byte)) (*Client, error) {
+// Dial says hello to the pocketd at socket, with token when a Windows host's wants one, asking for caps or else
+// launch.v1 alone; on must not block.
+func Dial(ctx context.Context, socket, token string, on func(kind string, raw []byte), caps ...string) (*Client, error) {
 	unix := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}}
@@ -44,7 +45,10 @@ func Dial(ctx context.Context, socket, token string, on func(kind string, raw []
 	}
 	// agent.list and a timeline page can be far over the 32KB default.
 	ws.SetReadLimit(-1)
-	hello := map[string]any{"type": "hello", "id": "hello", "clientId": "pocketd-host-link", "protocolVersion": proto.MaxVersion, "caps": []string{proto.CapLaunch}}
+	if caps == nil {
+		caps = []string{proto.CapLaunch}
+	}
+	hello := map[string]any{"type": "hello", "id": "hello", "clientId": "pocketd-host-link", "protocolVersion": proto.MaxVersion, "caps": caps}
 	if token != "" {
 		hello["ownerToken"] = token
 	}

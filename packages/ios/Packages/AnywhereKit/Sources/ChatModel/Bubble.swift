@@ -1,8 +1,8 @@
 /// The user's prompt as its bubble shows it.
 public enum Bubble {
     public static let collapsedLines = 5
-    public static let lineHeight: Double = 22
-    public static let textSize: Double = 14.5
+    public static let lineHeight: Double = 24
+    public static let textSize: Double = 16
     /// A bubble's widest, of the reading width.
     public static let width = 0.78
 

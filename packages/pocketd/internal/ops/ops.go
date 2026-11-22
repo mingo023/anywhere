@@ -75,6 +75,17 @@ type Msg struct {
 	Accounts []accounts.Account `json:"accounts,omitempty"`
 	// AutoSwitch is whether an agent at its account's limit moves to another, on an accounts reply.
 	AutoSwitch *bool `json:"autoSwitch,omitempty"`
+	// Trees answers worktree.subagents.
+	Trees []Tree `json:"trees,omitempty"`
+}
+
+// Tree is a subagent's worktree, on this machine or, with Host, on a host it
+// links to. A worktree at Path made after Since, in Unix milliseconds on the
+// machine holding it, is a newer one.
+type Tree struct {
+	Host  string `json:"host,omitempty"`
+	Path  string `json:"path"`
+	Since int64  `json:"since"`
 }
 
 type Conn struct {
@@ -160,6 +171,8 @@ type Server struct {
 	Owners *owners.Store
 	// Accounts answers the accounts.* ops; nil refuses them.
 	Accounts func(ctx context.Context, m Msg) Msg
+	// SubagentWorktrees answers worktree.subagents; nil refuses it.
+	SubagentWorktrees func(path string) ([]Tree, error)
 }
 
 func (s *Server) asking(id string) string {
@@ -366,6 +379,20 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 			}
 			c.Send(Msg{Ev: "ok"})
 			return
+		case "worktree.subagents":
+			if s.SubagentWorktrees == nil {
+				c.Send(Msg{Ev: "error", ID: m.ID, Error: "worktree.subagents unsupported"})
+				continue
+			}
+			go func() {
+				trees, err := s.SubagentWorktrees(m.Path)
+				if err != nil {
+					c.Send(Msg{Ev: "error", ID: m.ID, Error: err.Error()})
+					return
+				}
+				c.Send(Msg{Ev: m.Op, ID: m.ID, Trees: trees})
+			}()
+			continue
 		case "exec", "fs.list", "fs.stat", "fs.read", "fs.write", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
 			go func() { c.Send(s.hostOp(ctx, m)) }()
 			continue

@@ -21,7 +21,7 @@ struct ActiveRow: View {
         let status = session.status
         HStack(alignment: .top, spacing: Space.m) {
             StatusGlyph(status).padding(.top, 3)
-            VStack(alignment: .leading, spacing: Space.xxs) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(titled ? SessionText.title(s) : SessionText.headline(s, status, requests: session.requests))
                     .font(Typography.body.weight(.semibold))
                     .foregroundStyle(Palette.text.color)
@@ -43,7 +43,7 @@ struct ActiveRow: View {
             Spacer(minLength: Space.s)
             Elapsed(updatedAt: s.updatedAt, ticking: false).padding(.top, 2)
         }
-        .padding(.vertical, Space.xxs)
+        .padding(.vertical, Space.xs)
         .opacity(stale == nil ? 1 : 0.55)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -61,9 +61,9 @@ struct WorkingRow: View {
         let s = session.summary
         HStack(alignment: .top, spacing: Space.m) {
             StatusGlyph(.working).padding(.top, 3)
-            VStack(alignment: .leading, spacing: Space.xxs) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 HStack(spacing: Space.xs) {
-                    Text(place?.project ?? SessionText.title(s)).font(Typography.subheadline.weight(.medium)).foregroundStyle(Palette.text.color)
+                    Text(place?.project ?? SessionText.title(s)).font(Typography.body.weight(.medium)).foregroundStyle(Palette.text.color)
                     if let tree = place?.tree {
                         Text("·").foregroundStyle(Palette.text4.color)
                         Text(tree).font(Typography.codeSmall).foregroundStyle(Palette.text3.color)
@@ -78,7 +78,7 @@ struct WorkingRow: View {
             Spacer(minLength: Space.s)
             Elapsed(updatedAt: s.updatedAt, ticking: stale == nil).padding(.top, 2)
         }
-        .padding(.vertical, Space.xxs)
+        .padding(.vertical, Space.xs)
         .opacity(stale == nil ? 1 : 0.55)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

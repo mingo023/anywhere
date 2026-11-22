@@ -14,7 +14,7 @@ extension View {
     }
 }
 
-/// Its own view and glass: a status read redraws only this, and the transcript scrolling under stays off the words.
+/// Its own view: a status read redraws only this. The chat's solid bar keeps the transcript off the words.
 @MainActor
 private struct BarTitle: View {
     let title: String
@@ -29,7 +29,6 @@ private struct BarTitle: View {
         .lineLimit(1)
         .padding(.horizontal, Space.l)
         .frame(minHeight: HitTarget.minimum)
-        .glass(in: Capsule())
         .accessibilityElement(children: .combine)
     }
 

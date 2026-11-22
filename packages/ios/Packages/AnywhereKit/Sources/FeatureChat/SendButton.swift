@@ -2,7 +2,7 @@ import ChatModel
 import DesignSystem
 import SwiftUI
 
-/// The 34 pt send button: Send, Steer, Queue, Stop or Stopping, dimmed where the agent can't take the action. Armed,
+/// The 36 pt send button: Send, Steer, Queue, Stop or Stopping, dimmed where the agent can't take the action. Armed,
 /// it turns while images upload and a tap disarms it. With `queue`, a long press offers queueing for after the turn.
 @MainActor
 struct SendButton: View {
@@ -56,16 +56,16 @@ struct SendButton: View {
                 RingSpinner(size: 26, tint: Palette.onText)
                 Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(Palette.onText.color)
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 36, height: 36)
         case .send, .steer:
             Image(systemName: "arrow.up")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle((empty ? Palette.text4 : Palette.onText).color)
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
                 .background((empty ? Palette.fill3 : Palette.text).color, in: Circle())
         case .queue:
             Text("Queue").font(ChatFont.small.weight(.semibold)).foregroundStyle(Palette.onText.color)
-                .padding(.horizontal, 12).frame(height: 34).background(Palette.text.color, in: Capsule())
+                .padding(.horizontal, 14).frame(height: 36).background(Palette.text.color, in: Capsule())
         case .stop, .stopping:
             ZStack {
                 Circle().fill(Palette.text.color)
@@ -74,7 +74,7 @@ struct SendButton: View {
                 }
                 RoundedRectangle(cornerRadius: 2).fill(Palette.onText.color).frame(width: 10, height: 10)
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 36, height: 36)
             .opacity(action == .stopping ? 0.5 : 1)
         }
     }
@@ -102,7 +102,7 @@ struct GhostStop: View {
             stop()
         } label: {
             RoundedRectangle(cornerRadius: 2).fill(Palette.text2.color).frame(width: 10, height: 10)
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
                 .overlay(Circle().strokeBorder(Palette.separatorStrong.color))
                 .hitTarget()
         }

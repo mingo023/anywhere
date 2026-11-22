@@ -130,6 +130,7 @@ var Needs = map[string]Scope{
 	"ops:fs.rename":           Own,
 	"ops:fs.remove":           Own,
 	"ops:fs.trash":            Own,
+	"ops:worktree.subagents":  Own,
 	"ops:owner.revokeSelf":    Own,
 	"ops:accounts":            Own,
 	"ops:accounts.usage":      Own,

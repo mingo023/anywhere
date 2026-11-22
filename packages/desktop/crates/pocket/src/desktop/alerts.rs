@@ -164,9 +164,16 @@ impl Desktop {
         self.agents.apply_from(host, ev);
         if listed.is_some() {
             self.delegated_listed();
+            self.remember_subtrees(cx);
+            if let Some(host) = host {
+                self.removals.host_listed(host);
+            }
+            self.sweep_host_leftovers(cx);
         }
         if let Some(parent) = delegating {
             self.delegated_changed(&parent, cx);
+            // A host's child may be listed before its delegation names its parent.
+            self.remember_subtrees(cx);
         }
         if let Some((feed, before)) = named {
             let trees = &self.worktrees;

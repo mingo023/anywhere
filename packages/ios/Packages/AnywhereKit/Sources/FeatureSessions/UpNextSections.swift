@@ -51,9 +51,10 @@ struct UpNextSections: View {
             let ask = session.requests.first.flatMap { SessionText.answersInPlace($0) && host.canApprove ? $0 : nil }
             PushRow(value: Route.chat(mac: mac, agentId: id)) { ActiveRow(session: session, place: places[id]?.line, whole: ask != nil) }
                 .modifier(SessionActions(host: host, session: session, action: $action))
-                .listRowBackground(Palette.surface.color)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Palette.separator.color)
                 .listRowSeparator(ask == nil ? .automatic : .hidden, edges: .bottom)
-            if let ask { AnswerRow(host: host, request: ask).listRowBackground(Palette.surface.color) }
+            if let ask { AnswerRow(host: host, request: ask).listRowBackground(Color.clear).listRowSeparatorTint(Palette.separator.color) }
         }
     }
 }

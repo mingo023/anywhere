@@ -1,5 +1,5 @@
-/// The desktop's colours (packages/desktop/crates/theme/src/theme.rs), by the same names.
-/// Where the desktop relies on its translucent window, the phone takes the solid colour it reads as.
+/// The desktop's colours (packages/desktop/crates/theme/src/theme.rs), by the same names. The phone's canvas and surfaces
+/// are its own: true black or white, with surfaces a step off it, so content sits on depth rather than grey.
 public enum Palette {
     public static let text = Token(0x111113ff, 0xebebebff)
     public static let textBody = Token(0x3f3f46ff, 0xbcbcbcff)
@@ -13,24 +13,26 @@ public enum Palette {
     /// Text and glyphs on a `text` fill.
     public static let onText = Token(0xffffffff, 0x171717ff)
 
-    /// The screen behind grouped content. The desktop's dark window is glass over the desktop; the phone's is solid.
-    public static let background = Token(0xf4f4f5ff, 0x111111ff)
+    /// The screen behind grouped content.
+    public static let background = Token(0xffffffff, 0x000000ff)
     /// Grouped rows and cards.
-    public static let surface = Token(0xffffffff, 0x1f1f21ff)
-    public static let surfaceRaised = Token(0xffffffff, 0x2a2a2cff)
+    public static let surface = Token(0xf7f7f7ff, 0x181818ff)
+    public static let surfaceRaised = Token(0xffffffff, 0x242424ff)
     /// A recessed block inside a page: tables, code blocks.
-    public static let well = Token(0xf4f4f5ff, 0xebebeb0d)
-    public static let popover = Token(0xffffffff, 0x232323ff)
+    public static let well = Token(0xf5f5f5ff, 0x141414ff)
+    /// A floating card's shadow: soft in light mode, none on black, where it would read as nothing.
+    public static let shadow = Token(0x0000000f, 0x00000000)
+    public static let popover = Token(0xffffffff, 0x202020ff)
 
-    public static let fill1 = Token(0x11111308, 0xebebeb0d)
-    public static let fill2 = Token(0x1111130b, 0xebebeb14)
-    public static let fill3 = Token(0x1111130e, 0xebebeb1a)
-    public static let fill4 = Token(0x11111311, 0xebebeb1f)
-    public static let hairline = Token(0x11111312, 0xebebeb12)
-    public static let separator = Token(0x11111317, 0xebebeb14)
-    public static let separatorStrong = Token(0x1111131f, 0xebebeb24)
+    public static let fill1 = Token(0x00000005, 0xffffff08)
+    public static let fill2 = Token(0x00000008, 0xffffff0d)
+    public static let fill3 = Token(0x0000000d, 0xffffff14)
+    public static let fill4 = Token(0x00000014, 0xffffff1f)
+    public static let hairline = Token(0x0000000f, 0xffffff14)
+    public static let separator = Token(0x00000014, 0xffffff1a)
+    public static let separatorStrong = Token(0x00000024, 0xffffff2e)
     public static let selection = Token(0x11111324, 0xebebeb33)
-    public static let rowSelected = Token(0x11111312, 0xebebeb1a)
+    public static let rowSelected = Token(0x00000008, 0xffffff14)
 
     /// No hue: the accent is ink, so links and focus read as weight rather than colour.
     public static let accent = Token(0x3f3f46ff, 0xd4d4d4ff)
@@ -58,8 +60,8 @@ public enum Palette {
     public static let teal = Token(0x0e7c86ff, 0x0bd8b6ff)
 
     /// A chat's work rail: the line a reply's steps hang from.
-    public static let rail = Token(0xdcdcdeff, 0x323237ff)
-    public static let bubble = Token(0xf1f1f2ff, 0x2c2c30ff)
+    public static let rail = Token(0xe0e0e0ff, 0x282828ff)
+    public static let bubble = Token(0xf2f2f2ff, 0x242424ff)
     public static let mention = Token(0x0284c7ff, 0x5bb8f0ff)
     /// A prompt's opening `/command`.
     public static let command = Token(0x5b5bd6ff, 0xb1a9ffff)
@@ -82,9 +84,9 @@ public enum Palette {
     public static let markdownText = Token(0x000000d9, 0xffffffd9)
     public static let markdownText2 = Token(0x00000080, 0xffffff8c)
     public static let markdownGrid = Token(0x0000001a, 0xffffff1a)
-    public static let markdownAside = Token(0xf5f5f7ff, 0x323232ff)
-    public static let markdownCodeBackground = Token(0xf9f9f9ff, 0x262626ff)
-    public static let markdownCodeBorder = Token(0xf0f0f0ff, 0x323232ff)
+    public static let markdownAside = Token(0xf5f5f5ff, 0x181818ff)
+    public static let markdownCodeBackground = Token(0xf5f5f5ff, 0x141414ff)
+    public static let markdownCodeBorder = Token(0xe5e5e5ff, 0x282828ff)
 
     public static let syntaxKeyword = Token(0x8e4ec6ff, 0xd19dffff)
     public static let syntaxFunction = Token(0x3e63ddff, 0x9eb1ffff)

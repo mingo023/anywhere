@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Sizes of one markdown style, in points, scaled for the reader's text size
-/// (desktop `pocket/chat/markdown.rs style()`: body 14/24, H1 19/27, H2 16/24, H3 15/22, H4–6 14/22).
+/// Sizes of one markdown style, in points, scaled for the reader's text size. The desktop's chat sets body 14/24
+/// (`pocket/chat/markdown.rs style()`); the phone's reads larger, as a phone chat does, with its code at 12.5/18 as before.
 struct Metrics: Equatable, Sendable {
     var body: CGFloat
     var line: CGFloat
@@ -24,7 +24,7 @@ struct Metrics: Equatable, Sendable {
         let m: Metrics
         switch style {
         case .chat:
-            m = Metrics(body: 14, line: 24, headings: [(19, 27), (16, 24), (15, 22), (14, 22)], gap: 16, itemGap: 8, indent: 14 * 1.9, codeSize: 12.5, codeLine: 18)
+            m = Metrics(body: 17, line: 26, headings: [(24, 32), (21, 29), (19, 27), (17, 26)], gap: 16, itemGap: 8, indent: 17 * 1.9, codeSize: 12.5, codeLine: 18)
         case .compact:
             m = Metrics(body: 13, line: 20, headings: [(16, 22), (14.5, 21), (13.5, 20), (13, 20)], gap: 10, itemGap: 6, indent: 13 * 1.9, codeSize: 12, codeLine: 17)
         case .document:

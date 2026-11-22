@@ -1,4 +1,3 @@
-import DesignSystem
 import Stores
 import Testing
 import Wire
@@ -30,12 +29,5 @@ struct FeatureSettingsTests {
         #expect(Appearance.system.colorScheme == nil)
         #expect(Appearance.dark.colorScheme == .dark)
         #expect(Appearance(rawValue: "light")?.colorScheme == .light)
-    }
-
-    @Test("a Mac's dot is green online, amber while redialing, red when it can't be used")
-    func dots() {
-        #expect(MacRow.dot(.online) == Palette.success)
-        #expect(MacRow.dot(.reconnecting) == Palette.waitingDot)
-        #expect(MacRow.dot(.revoked) == Palette.failed)
     }
 }

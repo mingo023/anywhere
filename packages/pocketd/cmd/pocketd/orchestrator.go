@@ -30,6 +30,7 @@ import (
 	"pocketd/internal/orchhost"
 	"pocketd/internal/proto"
 	"pocketd/internal/state"
+	"pocketd/internal/worktree"
 	"pocketd/internal/wsserver"
 )
 
@@ -152,7 +153,11 @@ func (o *orchestrator) run(ctx context.Context) {
 	prune := time.NewTicker(time.Hour)
 	defer prune.Stop()
 	for {
-		if err := o.store.Prune(time.Now()); err != nil {
+		now := time.Now()
+		// What Prune drops unarchived, no lineage would hold again.
+		if err := o.store.Archive(now, worktree.InMade); err != nil {
+			log.Printf("orch: archive: %v", err)
+		} else if err := o.store.Prune(now); err != nil {
 			log.Printf("orch: prune: %v", err)
 		}
 		select {
@@ -233,6 +238,21 @@ func (o *orchestrator) takeIn(entries []state.Terminal) {
 func (o *orchestrator) openSessions() ([]orch.Session, error) {
 	o.sink.Flush()
 	return o.store.OpenSessions()
+}
+
+// session is id's, or what lineage keeps of it past retention.
+func (o *orchestrator) session(id string) (*orch.Session, error) {
+	o.sink.Flush()
+	x, err := o.store.Session(id)
+	if x == nil && err == nil {
+		return o.store.Archived(id)
+	}
+	return x, err
+}
+
+func (o *orchestrator) subagentTrees(tree string, treeOf func(cwd string, at int64) string) (orch.Subtrees, error) {
+	o.sink.Flush()
+	return o.store.SubagentTrees(tree, treeOf)
 }
 
 // closeAbsent closes each session the store keeps open that this start

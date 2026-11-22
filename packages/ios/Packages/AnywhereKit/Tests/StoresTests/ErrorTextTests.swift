@@ -24,6 +24,7 @@ struct ErrorTextTests {
     @Test("a cancelled request has no message")
     func cancelled() {
         #expect(ErrorText.describe(DaemonError.cancelled, mac: "Studio") == nil)
+        #expect(ErrorText.describe(CancellationError(), mac: "Studio") == nil)
     }
 
     @Test("an error from anywhere else never shows its Swift name")

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.58
+
+- Add favicon.ico and use absolute icon links on the site (#334): (6f4cdac0)
+- Deleting a worktree cleans up its subagents' leftovers on every path (#332): (0a09fb9a)
+- Deleting a worktree also deletes what its subagents left behind (#331): (f242f1dd)
+- iOS hides worktrees made for delegated sessions (#333): (56055da1)
+- Hand off a session to a connected host, code and conversation (#328): (044b3ceb)
+
 ## 0.1.57
 
 - Done, Needs you and Failed show as a still dot grid (#330): (1ba34cd5)

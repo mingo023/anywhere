@@ -35,5 +35,9 @@ public enum Radius {
     public static let chip: CGFloat = 5
     public static let small: CGFloat = 8
     public static let card: CGFloat = 14
-    public static let sheet: CGFloat = 22
+    /// Toasts, banners and other cards floating over content.
+    public static let float: CGFloat = 18
+    /// The composer and the bars at a screen's foot.
+    public static let composer: CGFloat = 24
+    public static let sheet: CGFloat = 24
 }
