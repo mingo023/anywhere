@@ -1,3 +1,4 @@
+import AttachUI
 import ChatModel
 import DesignSystem
 import SwiftUI

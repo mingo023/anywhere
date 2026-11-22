@@ -1,3 +1,4 @@
+import AttachUI
 import DesignSystem
 import Domain
 import Stores
@@ -15,6 +16,7 @@ struct NewSessionView: View {
     @State private var confirmingFull = false
     @State private var confirmingStart = false
     @State private var draft: NewSessionDraft
+    @State private var images: LaunchImages
     @State private var requestId: String?
     @State private var worktreeOptions = false
     @State private var providersError: String?
@@ -23,13 +25,14 @@ struct NewSessionView: View {
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
-    init(host: HostModel, mac: String, project: String?, place: NewSessionDraft.Place?, prompt: String = "") {
+    init(host: HostModel, mac: String, project: String?, place: NewSessionDraft.Place?, prompt: String = "", images: LaunchImages? = nil) {
         self.host = host
         self.mac = mac
         var draft = NewSessionDraft(project: project ?? host.workspace.projects.first?.path ?? "", place: place ?? .newWorktree)
         draft.seed = Int.random(in: 0..<1_000_000)
         draft.prompt = prompt
         _draft = State(initialValue: draft)
+        _images = State(initialValue: images ?? LaunchImages(files: host.files, macName: host.name))
     }
 
     private var workspace: WorkspaceStore { host.workspace }
@@ -158,18 +161,24 @@ struct NewSessionView: View {
                 Spacer(minLength: Space.s)
                 Button { Task { await load() } } label: { Text("Try Again").hitTarget() }.font(Typography.footnote.weight(.semibold))
             }
-        } else if let problem {
+        } else if let problem = problem ?? images.notice {
             Text(problem).font(Typography.footnote).foregroundStyle(Palette.failedText.color).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: Space.s) {
+            if !images.list.isEmpty {
+                AttachmentStrip(images: images.list, locked: false, detach: { images.detach($0) }, retry: { images.retry($0) })
+            }
             TextField("Prompt", text: $draft.prompt, prompt: Text("Describe the task…"), axis: .vertical)
                 .lineLimit(1...8)
                 .font(Typography.body)
                 .textFieldStyle(.plain)
                 .focused($focused)
+                #if os(iOS)
+                    .pastesImages(attach)
+                #endif
                 .padding(.horizontal, 4)
                 .padding(.top, 4)
             HStack(spacing: Space.xs) {
@@ -177,6 +186,7 @@ struct NewSessionView: View {
                 modelMenu
                 accessMenu
                 Spacer(minLength: Space.s)
+                AttachMenu(enabled: true, attach: attach, unreadable: { images.unreadable() })
                 startButton
             }
             Palette.hairline.color.frame(height: 1)
@@ -186,8 +196,12 @@ struct NewSessionView: View {
         .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
     }
 
+    private func attach(_ data: Data, _ name: String, _ thumbnail: Data?) {
+        images.attach(data, name: name, thumbnail: thumbnail)
+    }
+
     private var startButton: some View {
-        let blocked = requestId != nil || !online || providers == nil || problem != nil
+        let blocked = requestId != nil || !online || providers == nil || problem != nil || images.blocksStart
         return Button {
             if draft.confirmsStart(neverAsks: neverAsks) {
                 Haptics.warning()
@@ -362,7 +376,8 @@ struct NewSessionView: View {
     private func start() {
         let id = WorkspaceStore.newRequestId()
         let plan = draft.plan(
-            taken: taken, localId: Sidebar.newLocalId(), localName: workspace.nextLocalName(project: draft.project), neverAsks: neverAsks)
+            taken: taken, localId: Sidebar.newLocalId(), localName: workspace.nextLocalName(project: draft.project), neverAsks: neverAsks,
+            images: images.list.paths)
         workspace.add(plan, requestId: id, title: Self.title(draft.prompt), place: Self.key(plan.spec.checkout, makesWorktree: plan.worktree != nil))
         requestId = id
         workspace.runKept(id)

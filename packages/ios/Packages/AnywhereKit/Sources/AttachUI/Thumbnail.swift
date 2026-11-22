@@ -3,11 +3,11 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// The small JPEG an attachment tile shows and a saved draft keeps, so neither decodes the whole photo.
-enum Thumbnail {
-    static let side = 112
+public enum Thumbnail {
+    public static let side = 112
 
     /// `data`'s image scaled to `side` px on its long edge, upright; nil for data that isn't an image.
-    nonisolated static func make(_ data: Data, side: Int = side) -> Data? {
+    public nonisolated static func make(_ data: Data, side: Int = side) -> Data? {
         let options = [
             kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: side,

@@ -5,13 +5,20 @@ import SwiftUI
 /// The draft's images as 56 pt tiles, each with a × to remove; one still uploading turns, one that failed is red and
 /// says why under the tiles, with Retry and Remove. `locked` while an armed send waits on them.
 @MainActor
-struct AttachmentStrip: View {
+public struct AttachmentStrip: View {
     let images: [ChatStore.Attachment]
     let locked: Bool
     let detach: (String) -> Void
     let retry: (String) -> Void
 
-    var body: some View {
+    public init(images: [ChatStore.Attachment], locked: Bool, detach: @escaping (String) -> Void, retry: @escaping (String) -> Void) {
+        self.images = images
+        self.locked = locked
+        self.detach = detach
+        self.retry = retry
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -54,7 +61,7 @@ struct AttachmentStrip: View {
             Button { retry(image.id) } label: { Text("Retry").hitTarget() }
             if !locked { Button { detach(image.id) } label: { Text("Remove").hitTarget() } }
         }
-        .font(ChatFont.caption)
+        .font(.system(size: 12))
         .buttonStyle(.plain)
         .foregroundStyle(Palette.text.color)
     }

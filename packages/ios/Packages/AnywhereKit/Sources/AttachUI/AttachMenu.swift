@@ -8,13 +8,13 @@ import SwiftUI
 /// The composer's +: an image from Photos, the camera, Files or the clipboard. `attach` takes its data, a file name,
 /// and a thumbnail; reading, encoding and the thumbnail happen off the main actor.
 @MainActor
-struct AttachMenu: View {
-    typealias Attach = (_ data: Data, _ name: String, _ thumbnail: Data?) -> Void
+public struct AttachMenu: View {
+    public typealias Attach = (_ data: Data, _ name: String, _ thumbnail: Data?) -> Void
 
     let enabled: Bool
     let attach: Attach
     /// A picked image whose bytes couldn't be read, as a photo still in iCloud while offline.
-    var unreadable: () -> Void = {}
+    let unreadable: () -> Void
     #if os(iOS)
         @State private var photos: [PhotosPickerItem] = []
         @State private var choosingPhotos = false
@@ -22,7 +22,13 @@ struct AttachMenu: View {
         @State private var choosingFiles = false
     #endif
 
-    var body: some View {
+    public init(enabled: Bool, attach: @escaping Attach, unreadable: @escaping () -> Void = {}) {
+        self.enabled = enabled
+        self.attach = attach
+        self.unreadable = unreadable
+    }
+
+    public var body: some View {
         #if os(iOS)
             Menu {
                 Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }

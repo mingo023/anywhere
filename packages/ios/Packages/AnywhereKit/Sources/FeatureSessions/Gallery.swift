@@ -11,6 +11,12 @@ public enum SessionsGallery {
             ("sessions-up-next", { AnyView(UpNextList(host: $0)) }),
             ("sessions-tree", { AnyView(TreeView(host: $0, mac: Sample.mac, key: "/Users/mingo/.worktrees/anywhere/calm-otter")) }),
             ("sessions-new", { AnyView(NewSessionView(host: $0, mac: Sample.mac, project: nil, place: nil)) }),
+            ("sessions-new-images", { host in
+                let images = LaunchImages(
+                    files: nil, macName: Sample.mac,
+                    list: [.init(id: "a", name: "login.png", path: "/att/login.png"), .init(id: "b", name: "trace.png")])
+                return AnyView(NewSessionView(host: host, mac: Sample.mac, project: nil, place: nil, prompt: "Match the login screen to this", images: images))
+            }),
             ("sessions-new-worktree", { AnyView(NewWorktreeView(host: $0, project: Sample.projects[0].path)) }),
             ("sessions-automations", { AnyView(AutomationsView(host: $0, mac: Sample.mac)) }),
             ("sessions-launch", { AnyView(launch($0, steps: ["prepare", "verify", "fetch"])) }),
