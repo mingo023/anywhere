@@ -27,9 +27,6 @@ type GitHubService interface {
 	Resolve(ctx context.Context, tree, thread string, resolved bool) error
 }
 
-// ghConn is a conn's state for this area.
-type ghConn struct{}
-
 func (c *conn) ghServed() bool { return c.s.GitHub != nil && slices.Contains(c.caps, proto.CapGitHub) }
 
 // helloGitHub has the poller tell this conn when a tree it watches has a new PR result.

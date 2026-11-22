@@ -95,7 +95,6 @@ type Session struct {
 	// startedOn is the access whose _meta session/new took, which the session keeps.
 	startedOn string
 	options   []configOption
-	model     string // the model the agent says it is on
 	// queue holds the prompts sent before the session opened, while a turn runs or while it compacts, which ACP has no place for.
 	queue    []string
 	running  bool

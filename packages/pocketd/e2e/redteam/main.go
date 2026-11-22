@@ -232,6 +232,7 @@ func tiocsti() string {
 	}
 	defer tty.Close()
 	c := byte('#')
+	//lint:ignore SA1019 TIOCSTI takes a byte pointer, which x/sys has no wrapper for.
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, tty.Fd(), unix.TIOCSTI, uintptr(unsafe.Pointer(&c))); errno != 0 {
 		return "refused"
 	}

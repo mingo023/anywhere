@@ -332,9 +332,9 @@ func TestLiveActivityUpdatesCoalesceButNeedsYouGoesAtOnce(t *testing.T) {
 	for _, a := range agents {
 		a.Working()
 	}
-	sent := r.relay.await("act-", 2, 0)
+	r.relay.await("act-", 2, 0)
 	agents[0].NeedsYou()
-	sent = r.relay.await("act-", 3, quiet)
+	sent := r.relay.await("act-", 3, quiet)
 	type state struct {
 		Aps struct {
 			Event        string `json:"event"`
