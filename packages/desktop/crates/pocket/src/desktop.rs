@@ -145,7 +145,7 @@ pub struct Desktop {
     pub(crate) repo_form: add_project::RepoForm,
     pub(crate) host_finder: crate::modals::host_finder::HostFinder,
     pub(crate) clone_form: clone_project::CloneForm,
-    pub(crate) pair: PairPhone,
+    pub(crate) pair: Entity<PairPhone>,
     pub(crate) capturing: bool,
     pub(crate) geometry: Geometry,
     pub(crate) _subs: Vec<Subscription>,
@@ -179,6 +179,8 @@ impl Desktop {
         let activity_subs = cx.subscribe_in(&activity, window, Self::on_activity_event);
         let handoff = cx.new(|cx| crate::handoff::HandoffState::new(window, cx));
         let handoff_subs = cx.subscribe_in(&handoff, window, Self::on_handoff_event);
+        let pair = cx.new(|_| PairPhone::default());
+        let pair_subs = cx.subscribe_in(&pair, window, Self::on_pair_event);
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         // Read before updates and the star record this launch.
@@ -246,6 +248,7 @@ impl Desktop {
         _subs.push(board_subs);
         _subs.push(activity_subs);
         _subs.push(handoff_subs);
+        _subs.push(pair_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
         let graph = GraphState::new(store.graph_share, &store.diff);
         let diff = DiffState::new(&store.diff);
@@ -321,7 +324,7 @@ impl Desktop {
             repo_form,
             host_finder,
             clone_form,
-            pair: PairPhone::default(),
+            pair,
             capturing: false,
             geometry,
             _subs,

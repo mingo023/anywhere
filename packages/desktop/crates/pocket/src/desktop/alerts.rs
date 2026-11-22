@@ -164,7 +164,7 @@ impl Desktop {
                 .detach();
             }
             cx.notify();
-            self.pair.lost();
+            self.pair.update(cx, |p, _| p.lost());
             self.outbox.local.providers();
         }
         if let (Event::Connected { .. }, Some(ids)) = (&ev, &self.alerts.viewing) {

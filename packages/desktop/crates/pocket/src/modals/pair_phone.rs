@@ -34,14 +34,15 @@ fn countdown(left: Duration) -> String {
     format!("Expires in {}:{:02}", s / 60, s % 60)
 }
 
+/// The Pair phone sheet as its own `Entity`: the code on offer, its countdown and the sheet's clicks.
 pub struct PairPhone {
     stage: Stage,
-    ticking: Option<Task<()>>,
+    _ticking: Option<Task<()>>,
 }
 
 impl Default for PairPhone {
     fn default() -> Self {
-        Self { stage: Stage::Waiting, ticking: None }
+        Self { stage: Stage::Waiting, _ticking: None }
     }
 }
 
@@ -90,58 +91,29 @@ impl PairPhone {
     }
 }
 
-impl Desktop {
-    pub(crate) fn begin_pairing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.pair = PairPhone::default();
-        self.outbox.local.pair_begin();
-        self.pair.ticking = Some(cx.spawn_in(window, async move |this, cx| {
-            loop {
-                cx.background_executor().timer(Duration::from_secs(1)).await;
-                let open = this.update_in(cx, |d, window, cx| {
-                    if d.pair.closes(Instant::now()) {
-                        d.close_overlay(window, cx);
-                    }
-                    cx.notify();
-                    d.overlay == Some(Overlay::PairPhone)
-                });
-                if !matches!(open, Ok(true)) {
-                    break;
-                }
-            }
-        }));
-    }
+/// What the sheet asks of `Desktop`, which owns the overlay and talks to pocketd.
+pub(crate) enum PairEvent {
+    Close,
+    NewCode,
+}
 
-    pub(crate) fn on_pair(&mut self, ev: Event, cx: &mut Context<Self>) {
-        if self.overlay != Some(Overlay::PairPhone) {
-            return;
-        }
-        let now = Instant::now();
-        match ev {
-            Event::PairCode { url, code, expires_at } => self.pair.offered(&url, code, expires_at, now_ms(), now),
-            Event::Paired(_) => {
-                self.pair.paired(now);
-                self.load_host(cx);
-            }
-            Event::PairFailed(message) => self.pair.failed(message),
-            _ => return,
-        }
-        cx.notify();
-    }
+impl EventEmitter<PairEvent> for PairPhone {}
 
-    pub(super) fn pair_view(&mut self, cx: &mut Context<Self>) -> Div {
+impl Render for PairPhone {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let note = |text: String| div().text_size(px(13.5)).text_color(TEXT_2).child(text).into_any_element();
         let card = |inner: AnyElement| div().flex().justify_center().child(div().p(px(16.)).rounded(px(12.)).bg(WHITE).child(inner)).into_any_element();
         let blank = || div().size(px(qr::SIDE)).into_any_element();
         let new_code = || {
             ui::large(ui::button("pair-new", Variant::Secondary, None, "New code"))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.begin_pairing(window, cx)))
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PairEvent::NewCode)))
                 .into_any_element()
         };
-        let body = match self.pair.text(Instant::now()) {
+        let body = match self.text(Instant::now()) {
             PairText::Waiting => vec![note("Scan with the iPhone Camera".into()), card(blank())],
             PairText::Code { code, left } => vec![
                 note("Scan with the iPhone Camera".into()),
-                card(self.pair.qr().map_or_else(blank, |q| qr::view(q).into_any_element())),
+                card(self.qr().map_or_else(blank, |q| qr::view(q).into_any_element())),
                 div()
                     .flex()
                     .items_baseline()
@@ -157,8 +129,58 @@ impl Desktop {
             PairText::Paired => vec![note("Paired".into())],
             PairText::Failed(message) => vec![note(message), div().child(new_code()).into_any_element()],
         };
-        let close = ui::icon_button("pair-close", "x").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let close = ui::icon_button("pair-close", "x").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(PairEvent::Close)));
         ui::modal("Pair phone", 440., 160., close, body)
+    }
+}
+
+impl Desktop {
+    pub(crate) fn begin_pairing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.outbox.local.pair_begin();
+        let ticking = cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let open = this.update_in(cx, |d, window, cx| {
+                    if d.pair.read(cx).closes(Instant::now()) {
+                        d.close_overlay(window, cx);
+                    }
+                    cx.notify();
+                    d.overlay == Some(Overlay::PairPhone)
+                });
+                if !matches!(open, Ok(true)) {
+                    break;
+                }
+            }
+        });
+        self.pair.update(cx, |p, _| *p = PairPhone { _ticking: Some(ticking), ..PairPhone::default() });
+    }
+
+    pub(crate) fn on_pair(&mut self, ev: Event, cx: &mut Context<Self>) {
+        if self.overlay != Some(Overlay::PairPhone) {
+            return;
+        }
+        let now = Instant::now();
+        match ev {
+            Event::PairCode { url, code, expires_at } => self.pair.update(cx, |p, _| p.offered(&url, code, expires_at, now_ms(), now)),
+            Event::Paired(_) => {
+                self.pair.update(cx, |p, _| p.paired(now));
+                self.load_host(cx);
+            }
+            Event::PairFailed(message) => self.pair.update(cx, |p, _| p.failed(message)),
+            _ => return,
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn on_pair_event(&mut self, _: &Entity<PairPhone>, ev: &PairEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            PairEvent::Close => self.close_overlay(window, cx),
+            PairEvent::NewCode => self.begin_pairing(window, cx),
+        }
+    }
+
+    pub(super) fn pair_view(&self) -> Div {
+        div().absolute().inset_0().child(self.pair.clone())
     }
 }
 

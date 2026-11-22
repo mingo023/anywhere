@@ -68,7 +68,7 @@ impl Desktop {
             Overlay::Clone => (self.clone_view(window, cx), 0x40, Some((200, 8.))),
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
-            Overlay::PairPhone => (self.pair_view(cx), 0x2e, Some((200, 8.))),
+            Overlay::PairPhone => (self.pair_view(), 0x2e, Some((200, 8.))),
             Overlay::Handoff => (self.handoff_view(cx), 0x2e, Some((200, 8.))),
         };
         let backdrop = ui::backdrop("backdrop", alpha).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
