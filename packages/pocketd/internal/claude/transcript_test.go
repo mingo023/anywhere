@@ -204,6 +204,31 @@ func TestACommandClaudeRunsItselfAnswersWithItsOutputAndOneThatAsksTheModelDoesN
 	}
 }
 
+func TestAPromptStartingWithACommandClaudeDoesNotKnowShowsAsSent(t *testing.T) {
+	for _, content := range []string{
+		`"/gial /brainless fix the composer"`,
+		`[{"type":"text","text":"/gial /brainless fix the composer"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":""}}]`,
+	} {
+		var turns Turns
+		var got []timeline.Event
+		for _, l := range []string{
+			`{"type":"user","entrypoint":"sdk-cli","promptId":"p1","message":{"role":"user","content":` + content + `}}`,
+			`{"type":"attachment","entrypoint":"sdk-cli","attachment":{"type":"deferred_tools_delta"}}`,
+			`{"type":"attachment","entrypoint":"sdk-cli","attachment":{"type":"output_style"}}`,
+			`{"type":"attachment","entrypoint":"sdk-cli","attachment":{"type":"unknown_command_fallback","commandName":"gial"}}`,
+			`{"type":"assistant","entrypoint":"sdk-cli","message":{"content":[{"type":"text","text":"On it."}]}}`,
+		} {
+			got = append(got, turns.Map([]byte(l))...)
+		}
+		if want := []string{"user", "assistant_text"}; !reflect.DeepEqual(kinds(got), want) {
+			t.Fatalf("%s: got %v want %v", content, kinds(got), want)
+		}
+		if got[0].Text != "/gial /brainless fix the composer" {
+			t.Fatalf("%s: prompt %+v", content, got[0])
+		}
+	}
+}
+
 func TestACommandClaudeCantRunWithoutItsTerminalSaysSo(t *testing.T) {
 	var turns Turns
 	var got []timeline.Event

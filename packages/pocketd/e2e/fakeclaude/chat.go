@@ -186,6 +186,10 @@ func (c *chatter) turn(text string) {
 		// A reply whose turn writes no stop_hook_summary, so its timeline holds no result.
 		c.reply(model, strings.TrimPrefix(text, "quiet "))
 		quiet = true
+	case strings.HasPrefix(text, "/"):
+		// Claude answers a command it doesn't know as a prompt.
+		c.s.write(map[string]any{"type": "attachment", "attachment": map[string]any{"type": "unknown_command_fallback", "commandName": strings.Fields(text)[0][1:]}})
+		c.reply(model, text)
 	case text == "hang":
 		<-c.stop
 		c.s.write(user("[Request interrupted by user]"))

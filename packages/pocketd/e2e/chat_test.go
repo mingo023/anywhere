@@ -49,6 +49,16 @@ func TestAChatAgentAnswersInItsTranscriptAndEndsItsTurn(t *testing.T) {
 	)
 }
 
+func TestAPromptStartingWithACommandClaudeDoesNotKnowShowsAsSent(t *testing.T) {
+	_, phone, _, id := chatClaude(t)
+	phone.Prompt(id, "/gial fix the composer")
+	phone.WaitAll("the turn",
+		streamOf(id, "user", "/gial fix the composer"),
+		streamOf(id, "assistant", "echo: /gial fix the composer"),
+		statusOf(id, "done"),
+	)
+}
+
 func TestAForkedChatShowsTheConversationItForkedBeforeItsFirstPrompt(t *testing.T) {
 	h, phone, _, parent := chatClaude(t)
 	phone.Prompt(parent, "hello")
