@@ -43,7 +43,7 @@ use crate::modals::{add_project, clone_project, new_session};
 use crate::models::Models;
 use crate::notch::Notch;
 use crate::open_in::OpenIn;
-use crate::palette::PaletteState;
+use crate::palette::Palette;
 use crate::panels::Panels;
 use crate::region::Regions;
 use crate::removal::Removals;
@@ -120,7 +120,7 @@ pub struct Desktop {
     pub(crate) board: BoardState,
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
-    pub(crate) palette: PaletteState,
+    pub(crate) palette: Entity<Palette>,
     pub(crate) sidebar: SidebarState,
     pub(crate) spaces: Spaces,
     pub(crate) regions: Regions,
@@ -153,7 +153,8 @@ pub struct Desktop {
 
 impl Desktop {
     pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, themes: Themes, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let (palette, palette_subs) = PaletteState::new(window, cx);
+        let palette = cx.new(|cx| Palette::new(window, cx));
+        let palette_subs = cx.subscribe_in(&palette, window, Self::on_palette_event);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let spaces = Spaces::new(store.sidebar.space.as_deref());
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
@@ -208,7 +209,7 @@ impl Desktop {
         ];
         _subs.push(Self::confirm_on_enter(cx));
         _subs.push(Self::welcome_on_enter(cx));
-        _subs.extend(palette_subs);
+        _subs.push(palette_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
         _subs.extend(fleet_subs);

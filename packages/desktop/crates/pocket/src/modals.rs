@@ -63,7 +63,7 @@ impl Desktop {
         let o = self.overlay?;
         // Entrance as (ms, rise). The palette opens from a shortcut many times a day; motion would only slow it.
         let (body, alpha, entrance) = match o {
-            Overlay::Palette => (self.palette(cx), 0x1f, None),
+            Overlay::Palette => (self.palette_view(cx), 0x1f, None),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40, Some((200, 8.))),
             Overlay::Clone => (self.clone_view(window, cx), 0x40, Some((200, 8.))),
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
