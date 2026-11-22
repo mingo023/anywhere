@@ -1,12 +1,11 @@
 mod pick;
 pub(crate) mod view;
 
-use crate::actions::{Back, FocusAddress, Forward, NewBrowser, PageEdit, Reload};
+use crate::actions::NewBrowser;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
-use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -40,8 +39,8 @@ impl Browser {
 pub struct Browsers {
     pub(crate) tabs: HashMap<u64, Browser>,
     next: u64,
-    /// Each pane's address bar, built the first time it shows a tab, with the subscription that browses from it.
-    addresses: HashMap<PaneId, (Entity<InputState>, Subscription)>,
+    /// Each pane's view of its tab, built the first time it shows one.
+    panes: HashMap<PaneId, view::Slot>,
     /// Held while the page has the keys, so GPUI's keymap still sees ⌘-keys in the "Browser" context.
     pub(crate) focus: FocusHandle,
     /// The tabs whose pages may be placed: a page draws over GPUI, so it is parked under any menu or sheet.
@@ -82,24 +81,7 @@ impl Browsers {
             }
         })
         .detach();
-        Self { tabs: HashMap::new(), next: 0, addresses: HashMap::new(), focus: cx.focus_handle(), shown: HashSet::new(), events, shots }
-    }
-
-    fn address(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Desktop>) -> Entity<InputState> {
-        let (address, _) = self.addresses.entry(pane).or_insert_with(|| {
-            let address = cx.new(|cx| InputState::new(window, cx).placeholder("Search or enter address"));
-            let sub = cx.subscribe_in(&address, window, move |this, address, ev: &InputEvent, window, cx| {
-                let text = address.read(cx).value();
-                if let InputEvent::PressEnter { secondary: false, .. } = ev
-                    && !text.trim().is_empty()
-                    && let Some(id) = this.web_tab(pane, cx)
-                {
-                    this.browse(id, web::resolve(&text, this.store.browser.search_url()), window, cx);
-                }
-            });
-            (address, sub)
-        });
-        address.clone()
+        Self { tabs: HashMap::new(), next: 0, panes: HashMap::new(), focus: cx.focus_handle(), shown: HashSet::new(), events, shots }
     }
 
     fn open(&mut self) -> u64 {
@@ -124,9 +106,9 @@ impl Browsers {
         self.tabs.get(&id).filter(|_| self.shown.contains(&id))?.page.as_deref()
     }
 
-    /// Drops the address bars of panes that closed.
+    /// Drops the views of panes that closed.
     pub fn retain_panes(&mut self, panes: &[PaneId]) {
-        self.addresses.retain(|p, _| panes.contains(p));
+        self.panes.retain(|p, _| panes.contains(p));
     }
 }
 
@@ -206,7 +188,7 @@ impl Desktop {
         self.new_form.update(cx, |f, _| f.shown = false);
         match url {
             Some(url) => self.browse(id, url, window, cx),
-            None => self.focus_address(&FocusAddress, window, cx),
+            None => self.focus_address(window, cx),
         }
         self.save_soon(cx);
         cx.notify();
@@ -287,42 +269,14 @@ impl Desktop {
         self.open_browser(None, window, cx);
     }
 
-    fn focus_address(&mut self, _: &FocusAddress, window: &mut Window, cx: &mut Context<Self>) {
+    fn focus_address(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pane = self.focused_pane();
         let Some(b) = self.web_tab(pane, cx).and_then(|id| self.browsers.tabs.get(&id)) else { return };
         if let Some(page) = &b.page {
             page.give_keys();
         }
         let url = b.url.clone();
-        self.browsers.address(pane, window, cx).update(cx, |s, cx| {
-            s.set_value(url, window, cx);
-            s.focus(window, cx);
-            s.select_all(window, cx);
-        });
-    }
-
-    fn reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(page) = self.focused_page(cx) {
-            page.reload();
-        }
-    }
-
-    fn back(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(page) = self.focused_page(cx) {
-            page.back();
-        }
-    }
-
-    fn forward(&mut self, _: &Forward, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(page) = self.focused_page(cx) {
-            page.forward();
-        }
-    }
-
-    fn page_edit(&mut self, edit: &PageEdit, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(page) = self.focused_page(cx) {
-            page.edit(edit.0);
-        }
+        self.browser_entity(pane, window, cx).update(cx, |p, cx| p.focus_address(url, window, cx));
     }
 }
 
