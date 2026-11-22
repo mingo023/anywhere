@@ -9,7 +9,7 @@ use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::explorer::menu::{Arrow, TreeMenu};
 use crate::explorer::toast::Notice;
 use crate::git_ui::diff::At;
-use crate::git_ui::graph::GraphState;
+use crate::git_ui::graph::Graph;
 use crate::git_ui::pull_request::PrTab;
 use crate::modals::new_session::picker::Picker;
 use crate::settings::Section;
@@ -463,14 +463,14 @@ const STEPS: [(&str, Step); 302] = [
             d.open_compare_file(path, false, cx);
         }
     }),
-    ("graph-expand", |d, _, cx| d.toggle_commit(0, cx)),
+    ("graph-expand", |d, _, cx| d.graph.update(cx, |g, cx| g.toggle_commit(0, cx))),
     ("graph-file", |d, _, cx| {
-        if let Some(doc) = d.graph.file_doc(0, 0) {
+        if let Some(doc) = d.graph.read(cx).file_doc(0, 0) {
             d.open_doc(doc, false, cx);
         }
     }),
     ("graph-commit", |d, _, cx| {
-        if let Some(sha) = d.graph.commits.first().map(|c| c.sha.clone()) {
+        if let Some(sha) = d.graph.read(cx).commits.first().map(|c| c.sha.clone()) {
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
@@ -1766,7 +1766,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     }
     d.workspaces.clear();
     d.creates.update(cx, |c, _| c.list.clear());
-    d.graph = GraphState::default();
+    d.graph.update(cx, |g, _| *g = Graph::default());
     d.pr.track.tab = PrTab::default();
     d.pr.track.all = false;
     d.agents.names.clear();
@@ -1792,7 +1792,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
 async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Desktop>, ms: u64) {
     cx.background_executor().timer(Duration::from_millis(ms)).await;
     for _ in 0..50 {
-        if desktop.read_with(cx, |d, _| d.git_done == d.git_run && !d.graph.busy()) {
+        if desktop.read_with(cx, |d, cx| d.git_done == d.git_run && !d.graph.read(cx).busy()) {
             break;
         }
         cx.background_executor().timer(Duration::from_millis(100)).await;

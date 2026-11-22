@@ -33,7 +33,7 @@ use crate::git_ui::commit::Commits;
 use crate::git_ui::compare::CompareState;
 use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
-use crate::git_ui::graph::GraphState;
+use crate::git_ui::graph::Graph;
 use crate::git_ui::pull_request::PullRequest;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::host_agents::HostAgents;
@@ -104,7 +104,7 @@ pub struct Desktop {
     pub(crate) prs: PullRequests,
     pub(crate) gh_accounts: GhAccounts,
     pub(crate) pr: PullRequest,
-    pub(crate) graph: GraphState,
+    pub(crate) graph: Entity<Graph>,
     pub(crate) commit: Commits,
     pub(crate) terminal: TerminalViewState,
     pub(crate) panels: Panels,
@@ -155,6 +155,8 @@ impl Desktop {
     pub(crate) fn new(daemon: Daemons, outbox: Outboxes, mut store: Store, themes: Themes, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let palette = cx.new(|cx| Palette::new(window, cx));
         let palette_subs = cx.subscribe_in(&palette, window, Self::on_palette_event);
+        let graph = cx.new(|_| Graph::new(store.graph_share, &store.diff));
+        let graph_subs = cx.subscribe_in(&graph, window, Self::on_graph_event);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let spaces = Spaces::new(store.sidebar.space.as_deref());
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
@@ -227,6 +229,7 @@ impl Desktop {
         _subs.push(Self::confirm_on_enter(cx));
         _subs.extend(welcome_subs);
         _subs.push(palette_subs);
+        _subs.push(graph_subs);
         _subs.push(star_subs);
         _subs.push(open_in_subs);
         _subs.push(inbox_subs);
@@ -251,7 +254,6 @@ impl Desktop {
         _subs.push(handoff_subs);
         _subs.push(pair_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
-        let graph = GraphState::new(store.graph_share, &store.diff);
         let diff = DiffState::new(&store.diff);
         let registry = crate::registry::Registry::new(&store);
         Self {

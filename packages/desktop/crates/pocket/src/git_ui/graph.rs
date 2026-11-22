@@ -2,8 +2,8 @@ mod lanes;
 mod row;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{SEAM, Side, empty};
-use crate::git_ui::diff::changed;
+use crate::desktop::chrome::{SEAM, Side, empty, seam_handle};
+use crate::git_ui::diff::{At, changed};
 use git::graph::{GraphRow, Lanes};
 use git::{CommitFile, GraphCommit, Tips};
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -57,7 +57,7 @@ fn read_page(cwd: String, tips: Tips, skip: usize, n: usize) -> Page {
     Page { cwd, tips, skip, n, commits }
 }
 
-pub struct GraphState {
+pub struct Graph {
     pub(crate) open: bool,
     /// The open graph's dragged share of the height it splits with the Changes list; `None` splits it evenly.
     pub(crate) share: Option<f32>,
@@ -79,9 +79,25 @@ pub struct GraphState {
     files: HashMap<String, Vec<CommitFile>>,
     items: Vec<Item>,
     reveal: Option<(String, Option<Instant>)>,
+    /// The worktree on screen, which the graph shown must match.
+    here: Option<String>,
+    /// Whether the Changes panel is the side on show.
+    active: bool,
+    /// Whether the seam may take presses: not under an overlay.
+    seamed: bool,
+    /// The commit and file the focused pane's diff shows.
+    viewing: Option<(String, String)>,
 }
 
-impl Default for GraphState {
+pub enum GraphEvent {
+    /// The dragged share changed, `None` for an even split.
+    Share(Option<f32>),
+    Open(Doc, bool),
+}
+
+impl EventEmitter<GraphEvent> for Graph {}
+
+impl Default for Graph {
     fn default() -> Self {
         Self {
             open: true,
@@ -102,11 +118,15 @@ impl Default for GraphState {
             files: HashMap::new(),
             items: Vec::new(),
             reveal: None,
+            here: None,
+            active: false,
+            seamed: true,
+            viewing: None,
         }
     }
 }
 
-impl GraphState {
+impl Graph {
     /// Starts with the `share` saved last launch, dropping one outside (0, 1) that would break the split.
     pub fn new(share: Option<f32>, diff: &store::prefs::diff::Diff) -> Self {
         Self { share: share.filter(|s| *s > 0. && *s < 1.), page: diff.page, all_branches: diff.all_branches, ..Self::default() }
@@ -220,16 +240,31 @@ impl GraphState {
     }
 }
 
-impl Desktop {
-    /// Reads the graph again when the worktree on screen moved its branch tips; a graph already shown keeps its length.
-    pub(crate) fn refresh_graph(&mut self, cx: &mut Context<Self>) {
-        if self.side != Side::Changes || !self.graph.open || self.graph.refreshing {
+impl Graph {
+    /// What the graph needs of `Desktop` to draw: the worktree on screen, whether the seam takes presses, and the file the focused pane's diff shows.
+    pub fn show(&mut self, here: Option<String>, active: bool, seamed: bool, viewing: Option<(String, String)>) {
+        (self.here, self.active, self.seamed, self.viewing) = (here, active, seamed, viewing);
+    }
+
+    /// Whether the open graph holds a dragged share, which sets a floor on the list above it.
+    pub fn splits(&self) -> bool {
+        self.open && self.share.is_some()
+    }
+
+    /// Reads the graph again for worktree `here` when it moved its branch tips; a graph already shown keeps its length.
+    pub fn refresh(&mut self, here: Option<String>, active: bool, cx: &mut Context<Self>) {
+        (self.here, self.active) = (here, active);
+        self.reload(cx);
+    }
+
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        if !self.active || !self.open || self.refreshing {
             return;
         }
-        let Some(cwd) = self.cwd() else { return };
-        let (shown, n) = self.graph.reread(&cwd);
-        let all = self.graph.all_branches;
-        self.graph.refreshing = true;
+        let Some(cwd) = self.here.clone() else { return };
+        let (shown, n) = self.reread(&cwd);
+        let all = self.all_branches;
+        self.refreshing = true;
         let task = cx.background_executor().spawn({
             let cwd = cwd.clone();
             async move {
@@ -239,11 +274,11 @@ impl Desktop {
         });
         cx.spawn(async move |this, cx| {
             let page = task.await;
-            this.update(cx, |d, cx| {
-                d.graph.refreshing = false;
-                if d.cwd().as_ref() != Some(&cwd) {
-                    d.refresh_graph(cx);
-                } else if page.is_some_and(|p| d.graph.apply(p)) {
+            this.update(cx, |g, cx| {
+                g.refreshing = false;
+                if g.here.as_ref() != Some(&cwd) {
+                    g.reload(cx);
+                } else if page.is_some_and(|p| g.apply(p)) {
                     cx.notify();
                 }
             })
@@ -252,19 +287,19 @@ impl Desktop {
         .detach();
     }
 
-    fn load_graph_page(&mut self, cx: &mut Context<Self>) {
-        if !self.graph.more || self.graph.busy() {
+    fn load_page(&mut self, cx: &mut Context<Self>) {
+        if !self.more || self.busy() {
             return;
         }
-        let Some(cwd) = self.graph.cwd.clone() else { return };
-        let (tips, skip, n) = (self.graph.tips.clone(), self.graph.commits.len(), self.graph.page);
-        self.graph.loading = true;
+        let Some(cwd) = self.cwd.clone() else { return };
+        let (tips, skip, n) = (self.tips.clone(), self.commits.len(), self.page);
+        self.loading = true;
         let task = cx.background_executor().spawn(async move { read_page(cwd, tips, skip, n) });
         cx.spawn(async move |this, cx| {
             let page = task.await;
-            this.update(cx, |d, cx| {
-                d.graph.loading = false;
-                if d.graph.apply(page) {
+            this.update(cx, |g, cx| {
+                g.loading = false;
+                if g.apply(page) {
                     cx.notify();
                 }
             })
@@ -274,10 +309,10 @@ impl Desktop {
     }
 
     pub(crate) fn toggle_commit(&mut self, i: usize, cx: &mut Context<Self>) {
-        if self.graph.toggle(i)
-            && let Some(cwd) = self.graph.cwd.clone()
+        if self.toggle(i)
+            && let Some(cwd) = self.cwd.clone()
         {
-            let commit = &self.graph.commits[i];
+            let commit = &self.commits[i];
             let (sha, parent) = (commit.sha.clone(), commit.parents.first().cloned());
             let task = cx.background_executor().spawn({
                 let (cwd, sha) = (cwd.clone(), sha.clone());
@@ -285,8 +320,8 @@ impl Desktop {
             });
             cx.spawn(async move |this, cx| {
                 let files = task.await;
-                this.update(cx, |d, cx| {
-                    if d.graph.set_files(&cwd, sha, files) {
+                this.update(cx, |g, cx| {
+                    if g.set_files(&cwd, sha, files) {
                         cx.notify();
                     }
                 })
@@ -297,29 +332,67 @@ impl Desktop {
         cx.notify();
     }
 
-    /// `changes` above the collapsible graph, splitting the height between them while it's open; drag the seam between to resize.
-    pub(crate) fn with_graph(&mut self, changes: Div, cx: &mut Context<Self>) -> Div {
-        // A share dragged in a taller window would squeeze the list below its floor once the window shrinks.
-        let changes = if self.graph.open && self.graph.share.is_some() { changes.min_h(px(MIN_CHANGES)) } else { changes };
-        div().flex_1().min_h_0().flex().flex_col().child(changes).child(self.graph_section(cx)).on_drag_move(cx.listener(
-            |this, e: &DragMoveEvent<GraphSeam>, _, cx| {
-                let grab = this.graph.pressed - e.drag(cx).edge.get();
-                let graph_height = f32::from(e.bounds.bottom() - e.event.position.y) + grab;
-                // A drag move comes every frame, moved or not; notifying on each would redraw forever.
-                if this.graph.drag(graph_height, f32::from(e.bounds.size.height)) {
-                    this.save_soon(cx);
-                    cx.notify();
-                }
-            },
-        ))
+    /// Drags the seam: `edge` is where the drag started, `below` the cursor's distance above the section's bottom, `height` the space it splits.
+    fn drag_seam(&mut self, edge: f32, below: f32, height: f32, cx: &mut Context<Self>) {
+        let grab = self.pressed - edge;
+        if self.drag(below + grab, height) {
+            cx.emit(GraphEvent::Share(self.share));
+            cx.notify();
+        }
     }
 
-    fn graph_section(&mut self, cx: &mut Context<Self>) -> Div {
-        let fresh = self.graph.cwd.is_some() && self.graph.cwd == self.cwd();
-        if self.graph.open && !fresh {
-            self.refresh_graph(cx);
+    /// The seam on the open graph's top edge: drag it to resize, double-click it to split evenly again.
+    fn graph_seam(&self, cx: &mut Context<Self>) -> Option<Deferred> {
+        if !self.seamed {
+            return None;
         }
-        let open = self.graph.open;
+        let reset = |this: &mut Self, cx: &mut Context<Self>| {
+            this.share = None;
+            cx.emit(GraphEvent::Share(None));
+            cx.notify();
+        };
+        let handle = seam_handle("graph-seam", Axis::Column, reset, cx)
+            .top(px(-SEAM / 2.))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &MouseDownEvent, _, _| this.pressed = f32::from(e.position.y)))
+            .on_drag(GraphSeam { edge: Cell::new(0.) }, |seam, offset, window, cx| {
+                // GPUI starts the drag on a move past the press, with `offset` from the handle's top, half a seam above the edge.
+                seam.edge.set(f32::from(window.mouse_position().y - offset.y) + SEAM / 2.);
+                cx.stop_propagation();
+                cx.new(|_| EmptyView)
+            });
+        // Deferred so the handle straddles the edge above the section.
+        Some(deferred(handle))
+    }
+
+    fn graph_item(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        match self.items.get(ix).copied() {
+            Some(Item::Commit(i)) => self.commit_row(i, cx).into_any_element(),
+            Some(Item::File(i, j)) => {
+                let row = self.file_row(ix, i, j, cx);
+                let grown = if cx.reduce_motion() { 1. } else { self.grown(&self.commits[i].sha, Instant::now()) };
+                if grown < 1. {
+                    window.request_animation_frame();
+                    div().h(px(lanes::H * ease_out_quint()(grown))).overflow_hidden().child(row).into_any_element()
+                } else {
+                    row.into_any_element()
+                }
+            }
+            Some(Item::More) => {
+                self.load_page(cx);
+                self.more_row(cx).into_any_element()
+            }
+            None => Empty.into_any_element(),
+        }
+    }
+}
+
+impl Render for Graph {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let fresh = self.cwd.is_some() && self.cwd == self.here;
+        if self.open && !fresh {
+            self.reload(cx);
+        }
+        let open = self.open;
         let header = div()
             .id("graph-header")
             .h(px(HEADER))
@@ -334,8 +407,8 @@ impl Desktop {
             .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
             .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child("Graph"))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.graph.open = !this.graph.open;
-                this.refresh_graph(cx);
+                this.open = !this.open;
+                this.reload(cx);
                 cx.notify();
             }));
         let section = div().flex().flex_col().border_t(px(0.5)).border_color(SEPARATOR).pt(px(4.)).child(div().px(px(8.)).child(header));
@@ -344,65 +417,64 @@ impl Desktop {
         }
         let body = if !fresh {
             div()
-        } else if self.graph.items.is_empty() && !self.graph.busy() {
+        } else if self.items.is_empty() && !self.busy() {
             empty("No commits.")
         } else {
-            let rows = list(self.graph.list.clone(), cx.processor(|this, ix, window, cx| this.graph_item(ix, window, cx))).size_full().pb(px(8.));
-            div().relative().flex_1().min_h_0().px(px(8.)).child(rows).vertical_scrollbar(&self.graph.list)
+            let rows = list(self.list.clone(), cx.processor(|this, ix, window, cx| this.graph_item(ix, window, cx))).size_full().pb(px(8.));
+            div().relative().flex_1().min_h_0().px(px(8.)).child(rows).vertical_scrollbar(&self.list)
         };
         let section = section.flex_1().min_h_0().relative().child(body).children(self.graph_seam(cx));
-        match self.graph.share {
+        match self.share {
             Some(share) => section.flex_grow(share / (1. - share)),
             None => section,
         }
     }
+}
 
-    /// The seam on the open graph's top edge: drag it to resize, double-click it to split evenly again.
-    fn graph_seam(&self, cx: &mut Context<Self>) -> Option<Deferred> {
-        let reset = |this: &mut Self, cx: &mut Context<Self>| {
-            this.graph.share = None;
-            this.save_soon(cx);
-            cx.notify();
-        };
-        let handle = self
-            .seam("graph-seam", Axis::Column, reset, cx)?
-            .top(px(-SEAM / 2.))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &MouseDownEvent, _, _| this.graph.pressed = f32::from(e.position.y)))
-            .on_drag(GraphSeam { edge: Cell::new(0.) }, |seam, offset, window, cx| {
-                // GPUI starts the drag on a move past the press, with `offset` from the handle's top, half a seam above the edge.
-                seam.edge.set(f32::from(window.mouse_position().y - offset.y) + SEAM / 2.);
-                cx.stop_propagation();
-                cx.new(|_| EmptyView)
-            });
-        // Deferred so the handle straddles the edge above the section.
-        Some(deferred(handle))
+impl Desktop {
+    pub(crate) fn refresh_graph(&mut self, cx: &mut Context<Self>) {
+        let (cwd, active) = (self.cwd(), self.side == Side::Changes);
+        self.graph.update(cx, |g, cx| g.refresh(cwd, active, cx));
     }
 
-    fn graph_item(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        match self.graph.items.get(ix).copied() {
-            Some(Item::Commit(i)) => self.commit_row(i, cx).into_any_element(),
-            Some(Item::File(i, j)) => {
-                let row = self.file_row(ix, i, j, cx);
-                let grown = if cx.reduce_motion() { 1. } else { self.graph.grown(&self.graph.commits[i].sha, Instant::now()) };
-                if grown < 1. {
-                    window.request_animation_frame();
-                    div().h(px(lanes::H * ease_out_quint()(grown))).overflow_hidden().child(row).into_any_element()
-                } else {
-                    row.into_any_element()
-                }
+    pub(crate) fn on_graph_event(&mut self, _: &Entity<Graph>, ev: &GraphEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            GraphEvent::Share(share) => {
+                self.store.graph_share = *share;
+                self.save_soon(cx);
+                cx.notify();
             }
-            Some(Item::More) => {
-                self.load_graph_page(cx);
-                self.more_row(cx).into_any_element()
-            }
-            None => Empty.into_any_element(),
+            GraphEvent::Open(doc, pin) => self.open_doc(doc.clone(), *pin, cx),
         }
+    }
+
+    /// The commit and path of the file the focused pane's diff shows, if it is a commit's.
+    fn viewing_commit_file(&self) -> Option<(String, String)> {
+        let v = self.diff.view(self.focused_pane())?;
+        let At::Commit(sha) = &v.at else { return None };
+        Some((sha.clone(), v.file.clone()?))
+    }
+
+    /// `changes` above the collapsible graph, splitting the height between them while it's open; drag the seam between to resize.
+    pub(crate) fn with_graph(&mut self, changes: Div, cx: &mut Context<Self>) -> Div {
+        let (cwd, active, seamed, viewing) = (self.cwd(), self.side == Side::Changes, self.overlay.is_none(), self.viewing_commit_file());
+        self.graph.update(cx, |g, _| g.show(cwd, active, seamed, viewing));
+        // A share dragged in a taller window would squeeze the list below its floor once the window shrinks.
+        let changes = if self.graph.read(cx).splits() { changes.min_h(px(MIN_CHANGES)) } else { changes };
+        let graph = self.graph.clone();
+        div().flex_1().min_h_0().flex().flex_col().child(changes).child(graph.clone()).on_drag_move(cx.listener(
+            move |_, e: &DragMoveEvent<GraphSeam>, _, cx| {
+                let (edge, below, height) = (e.drag(cx).edge.get(), f32::from(e.bounds.bottom() - e.event.position.y), f32::from(e.bounds.size.height));
+                // A drag move comes every frame, moved or not; the graph only notifies when the share moved.
+                graph.update(cx, |g, cx| g.drag_seam(edge, below, height, cx));
+            },
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{GraphState, Item, MIN_CHANGES, MIN_GRAPH, PAGE, Page, REVEAL, graph_share};
+    use super::{Graph, Item, MIN_CHANGES, MIN_GRAPH, PAGE, Page, REVEAL, graph_share};
     use git::graph::Lanes;
     use git::{CommitFile, GraphCommit, Tips};
     use gpui_kit::{ListOffset, px};
@@ -428,7 +500,7 @@ mod tests {
     #[test]
     fn lanes_pushed_page_by_page_match_lanes_pushed_at_once() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         assert!(g.apply(page(0, 2, &h[..2])));
         assert!(g.apply(page(2, 2, &h[2..])));
         let (mut lanes, t) = (Lanes::default(), tips("m"));
@@ -439,7 +511,7 @@ mod tests {
     #[test]
     fn a_page_read_for_an_older_history_is_dropped() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         g.apply(page(0, 2, &h[..2]));
         assert!(!g.apply(page(3, 2, &h[2..])));
         assert!(!g.apply(Page { tips: tips("x"), ..page(2, 2, &h[2..]) }));
@@ -450,7 +522,7 @@ mod tests {
     #[test]
     fn a_short_page_ends_the_history() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         g.apply(page(0, 2, &h[..2]));
         assert_eq!(g.items.last(), Some(&Item::More));
         g.apply(page(2, 3, &h[2..]));
@@ -460,7 +532,7 @@ mod tests {
     #[test]
     fn an_expanded_commit_lists_its_files_under_it() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         g.apply(page(0, 5, &h));
         let file = |p: &str| CommitFile { path: p.into(), old_path: None, status: 'M' };
         assert!(g.toggle(1));
@@ -477,7 +549,7 @@ mod tests {
     #[test]
     fn a_refresh_rereads_as_many_commits_as_are_shown() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         assert_eq!(g.reread("/r"), (None, PAGE));
         g.apply(page(0, 2, &h[..2]));
         assert_eq!(g.reread("/r"), (Some(tips("m")), PAGE));
@@ -492,7 +564,7 @@ mod tests {
     #[test]
     fn another_worktree_starts_at_the_top() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         g.apply(page(0, 5, &h));
         g.list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(0.) });
         g.apply(page(0, 5, &h));
@@ -504,7 +576,7 @@ mod tests {
     #[test]
     fn an_expanded_commits_files_grow_in_from_when_they_are_listed() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         g.apply(page(0, 5, &h));
         g.toggle(1);
         let read = Instant::now();
@@ -520,7 +592,7 @@ mod tests {
     #[test]
     fn a_file_row_opens_that_file_at_its_commit() {
         let h = history();
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         g.apply(page(0, 5, &h));
         g.toggle(1);
         g.set_files("/r", "b".into(), vec![CommitFile { path: "src/x".into(), old_path: None, status: 'M' }]);
@@ -537,19 +609,19 @@ mod tests {
 
     #[test]
     fn a_graph_too_short_to_split_ignores_the_drag() {
-        let mut g = GraphState::new(Some(0.3), &Default::default());
+        let mut g = Graph::new(Some(0.3), &Default::default());
         assert!(!g.drag(100., MIN_GRAPH + MIN_CHANGES - 1.));
         assert_eq!(g.share, Some(0.3));
     }
 
     #[test]
     fn a_drag_to_where_the_graph_already_is_changes_nothing() {
-        let mut g = GraphState::default();
+        let mut g = Graph::default();
         assert_eq!((g.drag(200., 800.), g.drag(200., 800.)), (true, false));
     }
 
     #[test]
     fn a_saved_share_that_would_break_the_split_is_dropped() {
-        assert_eq!([0., 1., -0.2, 0.4].map(|s| GraphState::new(Some(s), &Default::default()).share), [None, None, None, Some(0.4)]);
+        assert_eq!([0., 1., -0.2, 0.4].map(|s| Graph::new(Some(s), &Default::default()).share), [None, None, None, Some(0.4)]);
     }
 }
