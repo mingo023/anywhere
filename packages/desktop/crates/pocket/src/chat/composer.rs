@@ -524,7 +524,7 @@ impl Desktop {
             window.is_window_active(),
             self.screen,
             self.session_tree().is_some(),
-            self.shown_create().is_some(),
+            self.shown_create(cx).is_some(),
             self.overlay.is_some(),
             c.replying.is_some(),
         );

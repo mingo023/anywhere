@@ -81,7 +81,7 @@ pub struct Desktop {
     pub(crate) chime: Chime,
     pub(crate) badge: Badge,
     pub(crate) terminals: Terminals,
-    pub(crate) creates: Creates,
+    pub(crate) creates: Entity<Creates>,
     pub(crate) removals: Removals,
     pub(crate) renames: Renames,
     pub(crate) agents: Agents,
@@ -188,6 +188,8 @@ impl Desktop {
         let home = store.home().to_path_buf();
         let open_in = cx.new(|cx| OpenIn::new(&home, cx));
         let open_in_subs = cx.subscribe_in(&open_in, window, Self::on_open_in_event);
+        let creates = cx.new(|_| Creates::default());
+        let creates_subs = cx.subscribe_in(&creates, window, Self::on_creates_event);
         let inbox = cx.new(Inbox::new);
         let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
@@ -221,6 +223,7 @@ impl Desktop {
         _subs.push(star_subs);
         _subs.push(open_in_subs);
         _subs.push(inbox_subs);
+        _subs.push(creates_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
         _subs.extend(fleet_subs);
@@ -251,7 +254,7 @@ impl Desktop {
             badge: Badge::default(),
             terminals,
             themes,
-            creates: Creates::default(),
+            creates,
             removals: Removals::default(),
             renames: Renames::default(),
             agents: Agents::default(),
@@ -571,7 +574,7 @@ impl Desktop {
 
     /// Whether the main view shows panes with no overlay, menu or creating page over them.
     pub(crate) fn panes_on_screen(&self, cx: &App) -> bool {
-        self.session_tree().is_some() && self.shown_create().is_none() && self.overlay.is_none() && !self.menu_open(cx)
+        self.session_tree().is_some() && self.shown_create(cx).is_none() && self.overlay.is_none() && !self.menu_open(cx)
     }
 
     /// The worktree whose panes the main view shows.
@@ -605,7 +608,7 @@ impl Desktop {
             window.request_animation_frame();
         }
         let body = match self.session_tree() {
-            _ if self.shown_create().is_some() => self.creating_page(window, cx),
+            _ if self.shown_create(cx).is_some() => self.creating_page(window, cx),
             Some(_) if self.idle_main() => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
@@ -751,7 +754,7 @@ fn replaced_on_disk(cx: &App) -> Task<bool> {
 
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_panels();
+        self.sync_panels(cx);
         // A capture draws one frame a step, which would catch a glide midway.
         let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.

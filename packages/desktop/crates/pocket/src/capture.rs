@@ -942,7 +942,7 @@ const STEPS: [(&str, Step); 302] = [
         d.diff.relayout(true);
     }),
     ("code-font-menu", |d, _, _| d.settings.menu = Some("code-font")),
-    ("creating", |d, _, _| {
+    ("creating", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
         let spec = serde_json::json!({"project": p, "checkout": {"new": {"name": "fix-flaky-snapshot", "base": "main", "copy": true, "setup": true}}, "prompt": "Fix the flaky snapshot"});
@@ -958,12 +958,14 @@ const STEPS: [(&str, Step); 302] = [
             c.reach(step, note, now - Duration::from_secs_f32(ago));
         }
         d.worktree = Some(c.path.clone());
-        d.creates.list.push(c);
+        d.creates.update(cx, |cs, _| cs.list.push(c));
     }),
-    ("fail", |d, _, _| {
-        if let Some(c) = d.creates.list.first_mut() {
-            c.fail("Setup exited 1".into(), "npm ERR! missing script: setup".into(), Instant::now());
-        }
+    ("fail", |d, _, cx| {
+        d.creates.update(cx, |cs, _| {
+            if let Some(c) = cs.list.first_mut() {
+                c.fail("Setup exited 1".into(), "npm ERR! missing script: setup".into(), Instant::now());
+            }
+        });
     }),
     ("deleting", |d, _, _| {
         let Some(tree) = d.project.as_ref().and_then(|p| d.listed_trees(p)).and_then(|w| w.into_iter().find(|w| !w.main)).map(|w| w.path) else { return };
@@ -1763,7 +1765,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
         c.sha = None;
     }
     d.workspaces.clear();
-    d.creates.list.clear();
+    d.creates.update(cx, |c, _| c.list.clear());
     d.graph = GraphState::default();
     d.pr.track.tab = PrTab::default();
     d.pr.track.all = false;

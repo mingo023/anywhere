@@ -152,7 +152,7 @@ impl Desktop {
             || self.host_finder.finder.is_some()
             || self.menu_open(cx)
             || self.sidebar.menu_at.is_some()
-            || self.shown_create().is_some()
+            || self.shown_create(cx).is_some()
             || self.panels.parks_pages();
         let shown: Vec<u64> = match self.session_tree().and_then(|t| self.workspaces.get(&t)) {
             Some(w) if !covered => w.shown().into_iter().filter_map(|(_, t)| web(t)).collect(),

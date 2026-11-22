@@ -198,7 +198,7 @@ impl Desktop {
         for (agent, who) in listed.map(|before| gone(&before, &self.agents.list)).unwrap_or_default() {
             self.chat_closed(&agent, &who, window, cx);
         }
-        self.hand_off_creates();
+        self.hand_off_creates(cx);
         self.focus_arrived_chat(window, cx);
         self.refresh_chats();
         if let Some(term) = exited.filter(|t| self.workspaces.values().any(|w| w.holds_term(t))) {

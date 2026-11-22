@@ -78,7 +78,7 @@ impl Desktop {
     /// Empty while the query is.
     fn filter_hits(&self, cx: &App) -> Vec<Hit> {
         let query = self.sidebar.filter.query(cx);
-        if query.is_empty() { vec![] } else { hits(&self.listed(&query)) }
+        if query.is_empty() { vec![] } else { hits(&self.listed(&query, cx)) }
     }
 
     /// The filter's field, close button inside, growing leftwards out of the search button.

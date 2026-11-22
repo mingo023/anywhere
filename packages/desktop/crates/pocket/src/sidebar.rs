@@ -499,7 +499,7 @@ impl Desktop {
                 if d.project != project {
                     return;
                 }
-                let keys = this.tree_rows(&project, &this.trees_shown(&project).unwrap_or_default()).into_iter().map(|r| r.key).collect();
+                let keys = this.tree_rows(&project, &this.trees_shown(&project, cx).unwrap_or_default()).into_iter().map(|r| r.key).collect();
                 this.store.sections.move_tree(&project, keys, &d.key, &to);
                 this.store.save();
                 cx.notify();
@@ -535,8 +535,8 @@ impl Desktop {
     /// Returns its height once its fold settles, so a section around it can spring to it.
     fn project_block(&self, i: usize, p: &str, only: Option<&[String]>, section: Section, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
-        let trees = self.trees_shown(p);
-        let setups = self.creates.setups(&self.terminals.setups);
+        let trees = self.trees_shown(p, cx);
+        let setups = self.creates.read(cx).setups(&self.terminals.setups);
         let fold = ProjectRow::new(trees.as_deref(), only.is_none() && self.store.collapsed.contains(p), &setups);
         let selected = fold.selected(current.as_deref());
         let ProjectRow { git, open, setting_up } = fold;
@@ -632,7 +632,7 @@ impl Desktop {
         let (tree, title, tip) = (&row.key, &row.label, &row.tip);
         let menu = RowMenu::Tree { project: p.to_string(), tree: tree.clone() };
         let selected = current == Some(tree.as_str());
-        let (failed, setting) = (self.creates.failed(tree), self::setting_up(setups, tree));
+        let (failed, setting) = (self.creates.read(cx).failed(tree), self::setting_up(setups, tree));
         let state = self.calm(p, rolled_state(&self.tree_cards(p, tree)).filter(|_| !failed && !setting));
         let mark = if failed {
             ui::indicator(id(format!("aside-failed:{tree}")), Some(ui::State::Failed))
@@ -671,7 +671,7 @@ impl Desktop {
                 if ev.click_count() > 1 && this.agents.names_offered() {
                     return this.start_rename(path.clone(), window, cx);
                 }
-                this.creates.show_progress(&path);
+                this.creates.update(cx, |c, _| c.show_progress(&path));
                 this.select_tree(target.clone(), Some(path.clone()), cx);
             }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));

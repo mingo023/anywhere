@@ -577,11 +577,11 @@ impl Desktop {
         let (id, agent) = (agent.id.clone(), agent.clone());
         let inset = self.delegated_inset(&id);
         let items = self.agents.timelines.get(&id).map_or(&[][..], Vec::as_slice);
-        let creates = &self.creates;
+        let creates = self.creates.clone();
         let view = self.chats.views.entry(id.clone()).or_insert_with(|| {
             let mut v = View::new(&id, cx);
             // A chat opened from its create shows the prompt pocketd sent before the transcript holds it.
-            if let Some(prompt) = creates.unsent(&id, terminal, Instant::now()) {
+            if let Some(prompt) = creates.read(cx).unsent(&id, terminal, Instant::now()) {
                 v.session.outgoing.push(prompt.to_string(), false, now_ms());
             }
             v
