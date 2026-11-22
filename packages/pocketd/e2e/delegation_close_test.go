@@ -3,9 +3,11 @@
 package e2e
 
 import (
+	"slices"
 	"testing"
 
 	"pocketd/internal/ops"
+	"pocketd/internal/terminal"
 )
 
 func TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo(t *testing.T) {
@@ -19,9 +21,26 @@ func TestClosingAParentsTerminalClosesTheSessionsItDelegatedTo(t *testing.T) {
 		return m.Type == "agent.update" && m.Agent.Parent == parent && m.Agent.ID != finished.ID && m.Agent.Status == "working"
 	}).Agent
 
+	phone.Prompt(finished.ID, `mcp delegate_task {"task":"await never","title":"Grandchild"}`)
+	grandchild := phone.WaitFor("the grandchild working", func(m Message) bool {
+		return m.Type == "agent.update" && m.Agent.Parent == finished.ID && m.Agent.Status == "working"
+	}).Agent
+
 	h.Ops().Send(ops.Msg{Op: "close", ID: term})
 
-	phone.WaitStatus(parent, "closed")
-	phone.WaitStatus(finished.ID, "closed")
-	phone.WaitStatus(held.ID, "closed")
+	phone.WaitAll("all four closed", statusOf(parent, "closed"), statusOf(finished.ID, "closed"), statusOf(held.ID, "closed"), statusOf(grandchild.ID, "closed"))
+	h.eventually("the children's and the grandchild's terminals to end", func() bool {
+		return !h.lists(finished.TerminalID) && !h.lists(held.TerminalID) && !h.lists(grandchild.TerminalID)
+	})
+}
+
+func (h *Harness) lists(id string) bool {
+	c := h.Ops()
+	defer c.Close()
+	c.Send(ops.Msg{Op: "list"})
+	m, err := c.Recv()
+	if err != nil {
+		h.t.Fatalf("list: %v", err)
+	}
+	return slices.ContainsFunc(m.Items, func(i terminal.Info) bool { return i.ID == id })
 }

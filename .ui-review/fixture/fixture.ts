@@ -866,8 +866,18 @@ const childCheckout = (parentId: string, parentCwd: string, title: string) => {
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const tree = join(`${repo}.worktrees`, `delegate-${slug}`);
   git(repo, "worktree", "add", "-q", "-b", `delegate/${slug}`, tree, "HEAD");
+  writeFileSync(join(common, "worktrees", `delegate-${slug}`, "anywhere"), "");
   return { cwd: tree, local: "" };
 };
+// FIXTURE_SUBAGENT=<agent id>: that session already delegated "Write the migration tests"; its child sits in a worktree made for it, with one untracked file.
+if (process.env.FIXTURE_SUBAGENT) {
+  const parent = summaries.find((s) => s.id === process.env.FIXTURE_SUBAGENT)!;
+  const id = `${parent.id}-sub`;
+  const { cwd } = childCheckout(parent.id, parent.cwd, "Write the migration tests");
+  write(join(cwd, "notes.md"), "draft\n");
+  sessions.push({ id, cmd: "codex", args: [], cwd });
+  summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent" } as (typeof summaries)[number]);
+}
 // A child with two turns of several paragraphs each, for screens of a delegated chat scrolled under its breadcrumb.
 const longChild = (id: string): Item[] => {
   const say = (turn: string, n: number): Item[] => Array.from({ length: n }, (_, i) => ({ id: `${id}-${turn}${i}`, kind: "assistant", text: `Paragraph ${i + 1}: read the redirect helper, traced where next is parsed, and checked each caller for an unvalidated target.` }) as Item);

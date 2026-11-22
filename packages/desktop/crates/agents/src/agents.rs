@@ -81,6 +81,21 @@ impl Agents {
         self.list.iter().find(|a| a.terminal_id == terminal)
     }
 
+    /// The sessions `roots` delegated to, and theirs in turn, all the way down; forks are the user's own and stay out.
+    pub fn subagents_of(&self, roots: &[String]) -> Vec<&Summary> {
+        let mut found: Vec<&Summary> = Vec::new();
+        let mut parents: Vec<&str> = roots.iter().map(String::as_str).collect();
+        while let Some(parent) = parents.pop() {
+            for a in self.list.iter().filter(|a| a.parent == parent && a.relationship == "subagent") {
+                if !roots.contains(&a.id) && !found.iter().any(|f| f.id == a.id) {
+                    found.push(a);
+                    parents.push(&a.id);
+                }
+            }
+        }
+        found
+    }
+
     /// pocketd's word on provider `id`, else what this build knows.
     pub fn provider_info(&self, id: &str) -> &ProviderInfo {
         self.providers.iter().find(|p| p.id == id).unwrap_or_else(|| providers::builtin_info(id))
@@ -410,6 +425,17 @@ mod tests {
         a.apply(Event::Agent(Box::new(agent("a", "closed"))));
         a.apply(Event::Agent(Box::new(agent("c", "closed"))));
         assert_eq!(a.list, vec![agent("b", "working")]);
+    }
+
+    #[test]
+    fn a_sessions_subagents_reach_down_every_generation_but_leave_forks_out() {
+        let agent = |id: &str, parent: &str, relationship: &str| Summary { id: id.into(), parent: parent.into(), relationship: relationship.into(), ..Default::default() };
+        let list = vec![agent("p", "", ""), agent("c", "p", "subagent"), agent("g", "c", "subagent"), agent("f", "p", "fork"), agent("o", "", "")];
+        let a = Agents { list, ..Default::default() };
+        let ids = |roots: &[&str]| a.subagents_of(&roots.iter().map(|r| r.to_string()).collect::<Vec<_>>()).into_iter().map(|s| s.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(ids(&["p"]), ["c", "g"]);
+        assert_eq!(ids(&["p", "c"]), ["g"]);
+        assert!(ids(&["o"]).is_empty());
     }
 
     #[test]

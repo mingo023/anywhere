@@ -296,13 +296,24 @@ pub fn remove_worktree(run: &Runner, repo: &str, path: &str) -> Result<(), Strin
 
 /// Commits that deleting `branch` would lose, or with no branch the detached HEAD of `cwd`: those no other branch, remote or tag holds.
 pub fn lost_commits(run: &Runner, cwd: &str, branch: Option<&str>) -> usize {
-    let (tip, exclude) = match branch {
-        // `--exclude` matches the names `--branches` lists, which lack `refs/heads/`.
-        Some(b) => (format!("refs/heads/{b}"), Some(format!("--exclude={b}"))),
-        None => ("HEAD".to_string(), None),
-    };
-    let mut args = vec!["rev-list", "--count", tip.as_str(), "--not"];
-    args.extend(exclude.as_deref());
+    match branch {
+        Some(b) => lost_branch_commits(run, cwd, &[b]),
+        None => git(run, cwd, &["rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags"]).and_then(|n| n.trim().parse().ok()).unwrap_or(0),
+    }
+}
+
+/// The commits only `branches` hold, taken as one set: a commit two of them share counts once, and neither keeps it for the other.
+pub fn lost_branch_commits(run: &Runner, cwd: &str, branches: &[&str]) -> usize {
+    if branches.is_empty() {
+        return 0;
+    }
+    let tips: Vec<String> = branches.iter().map(|b| format!("refs/heads/{b}")).collect();
+    // `--exclude` matches the names `--branches` lists, which lack `refs/heads/`.
+    let excludes: Vec<String> = branches.iter().map(|b| format!("--exclude={b}")).collect();
+    let mut args = vec!["rev-list", "--count"];
+    args.extend(tips.iter().map(String::as_str));
+    args.push("--not");
+    args.extend(excludes.iter().map(String::as_str));
     args.extend(["--branches", "--remotes", "--tags"]);
     git(run, cwd, &args).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
 }
@@ -1051,6 +1062,23 @@ mod tests {
         sh(&repo, &["update-ref", "-d", "refs/remotes/origin/fix/a"]);
         sh(&repo, &["merge", "-q", "--ff-only", "fix/a"]);
         assert_eq!(lost_commits(&Runner::Local, r, Some("fix/a")), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_commit_two_doomed_branches_share_is_lost_with_both() {
+        let dir = scratch_repo("lost-set");
+        let repo = dir.join("repo");
+        let r = repo.to_str().unwrap();
+        committer(&repo);
+        sh(&repo, &["branch", "-M", "main"]);
+        let tree = dir.join("feat");
+        add_worktree(r, tree.to_str().unwrap(), "feat", "HEAD").unwrap();
+        commit_file(&tree, "b");
+        sh(&repo, &["branch", "child", "feat"]);
+        assert_eq!([lost_commits(&Runner::Local, r, Some("feat")), lost_commits(&Runner::Local, r, Some("child"))], [0, 0]);
+        assert_eq!(lost_branch_commits(&Runner::Local, r, &["feat", "child"]), 1);
+        assert_eq!(lost_branch_commits(&Runner::Local, r, &[]), 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
