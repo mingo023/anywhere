@@ -541,7 +541,7 @@ impl Desktop {
                 generation: h.generation,
                 source: h.source.clone(),
                 caps: h.caps.get(&host).cloned().unwrap_or_default(),
-                pack: run.pack.clone().filter(|_| needs_pack),
+                pack: run.pack.as_ref().filter(|_| needs_pack).cloned(),
                 bundle: run.bundle.clone(),
                 placed: run.placed.clone(),
                 started: run.started.clone(),
