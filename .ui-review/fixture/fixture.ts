@@ -185,7 +185,8 @@ for (const [key, agents] of trees) {
     git(w, "add", "-A");
     git(w, "commit", "-q", "-m", `Start ${b}`);
   }
-  for (const [f, added, removed] of agents.flatMap((a) => a.diff ?? [])) write(join(w, f), lines("next", added) + lines("base", removed + 10).split("\n").slice(removed).join("\n"));
+  // FIXTURE_DIFF_LINES=n makes the first worktree's first changed file n added lines, a big single-file diff.
+  for (const [f, added0, removed] of agents.flatMap((a) => a.diff ?? [])) write(join(w, f), lines("next", process.env.FIXTURE_DIFF_LINES && f === RESTORE[0][0] ? Number(process.env.FIXTURE_DIFF_LINES) : added0) + lines("base", removed + 10).split("\n").slice(removed).join("\n"));
   if (CHANGED && r === scenario.repos[0] && trees.keys().next().value === key) for (let i = 0; i < CHANGED; i++) write(join(w, changedFile(i)), lines("next", 2) + lines("base", 6));
 }
 

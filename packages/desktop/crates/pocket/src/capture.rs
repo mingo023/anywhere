@@ -35,7 +35,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 302] = [
+const STEPS: [(&str, Step); 303] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -472,6 +472,11 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("graph-commit", |d, _, cx| {
         if let Some(sha) = d.graph.read(cx).commits.first().map(|c| c.sha.clone()) {
+            d.open_doc(Doc::Commit(sha), false, cx);
+        }
+    }),
+    ("graph-commit-root", |d, _, cx| {
+        if let Some(sha) = d.graph.read(cx).commits.last().map(|c| c.sha.clone()) {
             d.open_doc(Doc::Commit(sha), false, cx);
         }
     }),
