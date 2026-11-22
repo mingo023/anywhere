@@ -2,7 +2,7 @@ import Client
 import Domain
 import Fixtures
 import Foundation
-import Stores
+@testable import Stores
 import Testing
 import Wire
 @testable import FeatureSessions
@@ -284,6 +284,22 @@ struct UpNextTextTests {
         #expect(SessionText.pullRequestState(draft) == "Draft")
         let merged = PrItem(tree: "/t", number: 7, title: "", state: "MERGED", draft: false, gate: .ready, checks: .init(passed: 1, failed: 0, pending: 0))
         #expect(SessionText.pullRequestState(merged) == "Merged · 1 of 1 checks")
+    }
+
+    @Test("a launch says where it starts: the new branch and its base, a worktree's folder, or the project's Local")
+    func launchWhere() {
+        func plan(_ checkout: Checkout, worktree: ClientMessage.WorktreeCreate? = nil) -> LaunchPlan {
+            var p = LaunchPlan(spec: LaunchSpec(project: "/p/app", checkout: checkout, provider: .claude, access: .edits, plan: false))
+            p.worktree = worktree
+            return p
+        }
+        #expect(SessionText.launchWhere(plan(.worktree("/p/app"), worktree: .init(requestId: "", project: "/p/app", name: "fix-it", base: "main")), project: "app") == "fix-it from main")
+        #expect(SessionText.launchWhere(plan(.worktree("/p/app"), worktree: .init(requestId: "", project: "/p/app", name: "", pr: 42)), project: "app") == "PR #42")
+        #expect(SessionText.launchWhere(plan(.new(.init(name: "otter"))), project: "app") == "otter")
+        #expect(SessionText.launchWhere(plan(.new(.init(name: ""))), project: "app") == "New worktree")
+        #expect(SessionText.launchWhere(plan(.worktree("/p/app.worktrees/calm-otter")), project: "app") == "calm-otter")
+        #expect(SessionText.launchWhere(plan(.local("l1")), project: "app") == "app · Local")
+        #expect(SessionText.launchWhere(plan(.local("l1")), project: nil) == "Local")
     }
 
     @Test("the steps still to come are those after the last one reported")

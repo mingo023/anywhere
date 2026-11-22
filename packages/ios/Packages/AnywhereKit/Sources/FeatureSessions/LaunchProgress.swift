@@ -3,8 +3,8 @@ import Domain
 import Stores
 import SwiftUI
 
-/// A launch in its sheet: the mascot signalling while it waits, a bar for how far along it is, and its steps. Hide, or
-/// a swipe down, leaves it running as a row under its project; if it starts while shown, its chat opens.
+/// A launch in its sheet, as the desktop's creating page. Hide, or a swipe down, leaves it running as a row under its
+/// project; if it starts while shown, its chat opens.
 @MainActor
 struct LaunchProgress: View {
     let host: HostModel
@@ -12,36 +12,37 @@ struct LaunchProgress: View {
     let requestId: String
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    var shown: Creation?
     /// The launch as it started its agent, kept while the sheet closes on it once the store has let it go.
     @State private var started: Creation?
 
     private var workspace: WorkspaceStore { host.workspace }
 
     var body: some View {
-        let creation = workspace.creations[requestId] ?? started
+        let creation = shown ?? workspace.creations[requestId] ?? started
         let rows = LaunchRow.rows(creation)
-        let failed = creation?.error != nil
+        let error = creation?.error
         GeometryReader { screen in
         ScrollView {
             VStack(spacing: Space.xl) {
-                VStack(spacing: Space.m) {
-                    Mascot(failed ? .stuck : creation?.agentId != nil ? .happy : .waiting, size: 112)
+                VStack(spacing: Space.l) {
+                    LaunchStage(mood: error != nil ? .stuck : creation?.agentId != nil ? .happy : .waiting)
                     VStack(spacing: Space.xs) {
-                        Text(creation?.error?.message ?? "Starting session").font(Typography.title).foregroundStyle(Palette.text.color)
-                        if let place { Text(place).font(Typography.subheadline).foregroundStyle(Palette.text3.color) }
+                        Text(error == nil ? "Starting session" : "Couldn't start the session").font(Typography.title).foregroundStyle(Palette.text.color)
+                        if let plan = creation?.plan {
+                            Label(SessionText.launchWhere(plan, project: workspace.project(plan.spec.project)?.name), systemImage: Self.isLocal(plan) ? "folder" : "arrow.triangle.branch")
+                                .font(Typography.codeSmall)
+                                .foregroundStyle(Palette.text3.color)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
                     .multilineTextAlignment(.center)
                 }
-                if !rows.isEmpty { LaunchMeter(rows: rows, progress: LaunchRow.progress(creation), failed: failed) }
-                if let detail = creation?.error?.detail {
-                    Text(detail)
-                        .font(Typography.codeSmall)
-                        .foregroundStyle(Palette.text3.color)
-                        .padding(Space.m)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                if !rows.isEmpty {
+                    LaunchSteps(rows: rows, progress: LaunchRow.progress(creation), started: creation?.started, ended: creation?.ended)
                 }
-                if !rows.isEmpty { LaunchSteps(rows: rows) }
+                if let error { LaunchError(message: error.message, detail: error.detail) }
             }
             .padding(.vertical, Space.l)
             // Centred while it fits, scrolling on a small phone or at a large text size.
@@ -51,7 +52,7 @@ struct LaunchProgress: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Group {
-                if failed {
+                if error != nil {
                     HStack(spacing: Space.s) {
                         Button { dismissFailed() } label: { Text("Dismiss").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle(primary: false))
                         Button { workspace.runKept(requestId) } label: { Text("Try Again").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle())
@@ -83,16 +84,13 @@ struct LaunchProgress: View {
         }
     }
 
+    private static func isLocal(_ plan: LaunchPlan) -> Bool {
+        if case .local = plan.spec.checkout { true } else { false }
+    }
+
     private func dismissFailed() {
         workspace.forget(creation: requestId)
         dismiss()
-    }
-
-    /// "anywhere · Worktree": what's being started, and where.
-    private var place: String? {
-        guard let plan = workspace.creations[requestId]?.plan else { return nil }
-        let name = workspace.project(plan.spec.project)?.name
-        return [name, plan.worktree != nil ? "Worktree" : nil].compactMap(\.self).joined(separator: " · ")
     }
 }
 
@@ -103,6 +101,7 @@ struct LaunchRow: Hashable {
     let label: String
     var note: String?
     let mark: Mark
+    var took: TimeInterval?
 
     /// Done ones, the running one, and those still to come in pocketd's order.
     nonisolated static func rows(_ creation: Creation?) -> [LaunchRow] {
@@ -113,7 +112,7 @@ struct LaunchRow: Hashable {
         if steps.isEmpty && !failed && !waiting { rows.append(LaunchRow(label: "Asking your Mac", mark: .running)) }
         for (i, step) in steps.enumerated() {
             let mark: Mark = i < steps.count - 1 || creation?.done == true ? .done : failed ? .failed : waiting ? .done : .running
-            rows.append(LaunchRow(label: SessionText.step(step.step), note: step.note, mark: mark))
+            rows.append(LaunchRow(label: SessionText.step(step.step), note: step.note, mark: mark, took: creation?.took(i)))
         }
         if let creation, waiting { rows.append(LaunchRow(label: SessionText.creating(creation), mark: .running)) }
         return rows + SessionText.stepsLeft(after: steps.last?.step, order: order(creation)).map { LaunchRow(label: SessionText.step($0), mark: .later) }
@@ -138,84 +137,113 @@ struct LaunchRow: Hashable {
     }
 }
 
-/// The launch's bar: the step under way, how many of all, and how far that is.
+/// The mascot on a lit disc: its body is near black, so on a dark screen it needs a light behind it to read.
 @MainActor
-private struct LaunchMeter: View {
-    let rows: [LaunchRow]
-    let progress: Double
-    let failed: Bool
+private struct LaunchStage: View {
+    let mood: Mascot.Mood
+
+    private static let centre = Token(0xffffffff, 0x3a3a40ff)
+    private static let edge = Token(0xf0f0f2ff, 0x161618ff)
 
     var body: some View {
+        Mascot(mood, size: 92)
+            .offset(y: -4)
+            .frame(width: 144, height: 144)
+            .background {
+                Circle()
+                    .fill(RadialGradient(colors: [Self.centre.color, Self.edge.color], center: UnitPoint(x: 0.5, y: 0.62), startRadius: 0, endRadius: 80))
+                    .overlay(Circle().strokeBorder(Palette.hairline.color, lineWidth: 0.5))
+            }
+    }
+}
+
+@MainActor
+private struct LaunchSteps: View {
+    let rows: [LaunchRow]
+    let progress: Double
+    let started: Date?
+    let ended: Date?
+
+    var body: some View {
+        let card = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
         let at = rows.firstIndex { $0.mark == .running || $0.mark == .failed } ?? rows.lastIndex { $0.mark == .done }
-        VStack(spacing: Space.s) {
-            HStack {
-                Text(at.map { rows[$0].label } ?? "").foregroundStyle(Palette.text2.color).lineLimit(1)
-                Spacer(minLength: Space.s)
-                if let at, rows.count > 1 { Text("\(at + 1) of \(rows.count)").font(Typography.digits).foregroundStyle(Palette.text4.color) }
-            }
-            .font(Typography.footnote)
+        VStack(spacing: 0) {
             GeometryReader { g in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Palette.fill3.color)
-                    Capsule().fill((failed ? Palette.failed : Palette.teal).color).frame(width: max(g.size.width * progress, progress > 0 ? 6 : 0))
-                }
+                Rectangle().fill((ended != nil ? Palette.failed : Palette.success).color).frame(width: g.size.width * progress)
             }
-            .frame(height: 6)
+            .frame(height: 3)
+            .background(Palette.fill2.color)
             .accessibilityElement()
             .accessibilityLabel("Progress")
             .accessibilityValue("\(Int(progress * 100))%")
+            HStack {
+                if let at, rows.count > 1 { Text("Step \(at + 1) of \(rows.count)") }
+                Spacer(minLength: Space.s)
+                if let started {
+                    TimelineView(.periodic(from: started, by: 1)) { context in
+                        Text(TimeText.stopwatch(seconds: Int((ended ?? context.date).timeIntervalSince(started))))
+                    }
+                    .fontDesign(.monospaced)
+                }
+            }
+            .font(Typography.digits)
+            .foregroundStyle(Palette.text3.color)
+            .padding(.horizontal, Space.l)
+            .padding(.top, Space.m)
+            .padding(.bottom, Space.xs)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                LaunchStepRow(row: row)
+            }
+        }
+        .padding(.bottom, Space.s)
+        .background(Palette.surface.color)
+        .clipShape(card)
+        .overlay(card.strokeBorder(Palette.hairline.color, lineWidth: 0.5))
+    }
+}
+
+@MainActor
+private struct LaunchStepRow: View {
+    let row: LaunchRow
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+            mark.frame(width: 16, height: 16).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.label).font(Typography.subheadline).foregroundStyle((row.mark == .later ? Palette.text4 : row.mark == .failed ? Palette.failedText : Palette.text).color)
+                if let note = row.note { Text(note).font(Typography.caption).foregroundStyle(Palette.text3.color) }
+            }
+            Spacer(minLength: Space.s)
+            if let took = row.took { Text(TimeText.took(seconds: took)).font(Typography.caption).fontDesign(.monospaced).foregroundStyle(Palette.text4.color) }
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.vertical, 7)
+    }
+
+    @ViewBuilder
+    private var mark: some View {
+        switch row.mark {
+        case .done: Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Palette.success.color)
+        case .running: GradientSpinner(size: 14)
+        case .failed: Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Palette.failed.color)
+        case .later: Circle().fill(Palette.text5.color).frame(width: 6, height: 6)
         }
     }
 }
 
-/// A launch's steps down a rail: done ones ticked, the running one turning, and those still to come.
 @MainActor
-private struct LaunchSteps: View {
-    let rows: [LaunchRow]
+private struct LaunchError: View {
+    let message: String
+    let detail: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
-                HStack(alignment: .top, spacing: Space.m) {
-                    VStack(spacing: Space.xxs) {
-                        mark(row.mark).frame(width: 20, height: 20)
-                        if i < rows.count - 1 {
-                            Capsule().fill((row.mark == .done ? Palette.teal : Palette.separator).color).frame(width: 2).frame(maxHeight: .infinity)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: Space.xxs) {
-                        Text(row.label).font(row.mark == .running ? Typography.body.weight(.semibold) : Typography.body).foregroundStyle(tint(row.mark).color)
-                        if let note = row.note { Text(note).font(Typography.footnote).foregroundStyle(Palette.text3.color) }
-                    }
-                    .padding(.top, 1)
-                    .padding(.bottom, i < rows.count - 1 ? Space.m : 0)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            }
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text(message).font(Typography.subheadline).foregroundStyle(Palette.failedText.color)
+            if let detail, !detail.isEmpty { Text(detail).font(Typography.codeSmall).foregroundStyle(Palette.text2.color) }
         }
-        .padding(Space.l)
+        .padding(.horizontal, Space.m)
+        .padding(.vertical, Space.m - 2)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-    }
-
-    private func tint(_ mark: LaunchRow.Mark) -> Token {
-        switch mark {
-        case .done: Palette.text2
-        case .running: Palette.text
-        case .failed: Palette.failedText
-        case .later: Palette.text4
-        }
-    }
-
-    @ViewBuilder
-    private func mark(_ mark: LaunchRow.Mark) -> some View {
-        switch mark {
-        case .done:
-            Image(systemName: "checkmark").font(.system(size: 10, weight: .heavy)).foregroundStyle(Palette.onText.color)
-                .frame(width: 18, height: 18).background(Palette.teal.color, in: Circle())
-        case .running: GradientSpinner(size: 14)
-        case .failed: StatusGlyph(.failed)
-        case .later: Circle().strokeBorder(Palette.text5.color, lineWidth: 1.5).frame(width: 14, height: 14)
-        }
+        .background(Palette.failedBackground.color, in: RoundedRectangle(cornerRadius: Radius.small + 2, style: .continuous))
     }
 }

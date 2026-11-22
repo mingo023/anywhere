@@ -1,3 +1,4 @@
+import Foundation
 import Client
 import Fixtures
 import Testing
@@ -112,6 +113,21 @@ struct WorkspaceStoreTests {
         c.answered(ServerError(message: "Setup failed"))
         #expect(c.requestId != id)
         #expect(c.agentCreate(requestId: "x")?.spec.checkout == .worktree("/w/calm-otter"))
+    }
+
+    @Test("a failed launch stops its clock, and trying again starts its clock and steps afresh")
+    func again() {
+        var c = Creation(kind: .session, steps: [.init(step: "prepare"), .init(step: "setup")], started: Date(timeIntervalSince1970: 0))
+        #expect(c.ended == nil)
+        c.error = ServerError(message: "Setup exited 1")
+        let ended = c.ended
+        #expect(ended != nil)
+        c.error = ServerError(message: "Still failing")
+        #expect(c.ended == ended, "a second error keeps the first stop")
+        c.again()
+        #expect(c.error == nil && c.ended == nil)
+        #expect(c.steps.isEmpty)
+        #expect(c.started > Date(timeIntervalSince1970: 0))
     }
 
     @Test("an agent on the terminal a launch opened is the agent it started, even when its reply was lost")

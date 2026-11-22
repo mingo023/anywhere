@@ -13,6 +13,16 @@ struct TimeTextTests {
         #expect(TimeText.elapsed(seconds: 97_200) == "1d 3h")
     }
 
+    @Test("the launch clock reads minutes and padded seconds, and a step's time tenths of a second under a minute")
+    func stopwatch() {
+        #expect(TimeText.stopwatch(seconds: -3) == "0:00")
+        #expect(TimeText.stopwatch(seconds: 9) == "0:09")
+        #expect(TimeText.stopwatch(seconds: 750) == "12:30")
+        #expect(TimeText.took(seconds: 0.44) == "0.4s")
+        #expect(TimeText.took(seconds: 59.9) == "59.9s")
+        #expect(TimeText.took(seconds: 75) == "1:15")
+    }
+
     @Test("ago reads now, minutes, hours, yesterday, then days, and nothing for no time")
     func ago() {
         let now = 10 * 86_400_000

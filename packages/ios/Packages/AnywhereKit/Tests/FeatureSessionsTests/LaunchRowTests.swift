@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import Wire
 @testable import FeatureSessions
@@ -36,5 +37,15 @@ struct LaunchRowTests {
         #expect(LaunchRow.order(Creation(kind: .session, plan: into)) == ["prepare", "agent"])
         #expect(LaunchRow.order(Creation(kind: .session, plan: new)) == ["prepare", "verify", "fetch", "worktree", "copy", "agent"])
         #expect(LaunchRow.rows(Creation(kind: .session, steps: [.init(step: "prepare")], plan: into)).map(\.label) == ["Preparing", "Starting agent"])
+    }
+
+    @Test("a done step reads how long it took, up to when the next began; the running one has no time yet")
+    func took() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let c = Creation(kind: .session, steps: [.init(step: "prepare", at: t0), .init(step: "verify", at: t0 + 0.5), .init(step: "fetch", at: t0 + 2.75)])
+        #expect(c.took(0) == 0.5)
+        #expect(c.took(1) == 2.25)
+        #expect(c.took(2) == nil)
+        #expect(LaunchRow.rows(c).prefix(3).map(\.took) == [0.5, 2.25, nil])
     }
 }
