@@ -10,7 +10,6 @@ mod row_menu;
 mod scratch;
 pub(crate) mod sections;
 pub(crate) mod sessions;
-mod star_card;
 mod tree_card;
 mod update;
 mod usage;
@@ -365,7 +364,7 @@ impl Desktop {
             .children(self.scratch_section(cx))
             .child(header)
             .child(body)
-            .children(self.update_card(cx).or_else(|| self.star_card(cx)))
+            .children(self.update_card(cx).or_else(|| self.star.read(cx).visible().then(|| self.star.clone().into_any_element())))
             .child(switcher)
             .on_scroll(cx.listener(|this, e: &ScrollEvent, window, cx| this.swipe_spaces(e, window, cx)));
         self.resizable(aside, Column::Projects, cx)

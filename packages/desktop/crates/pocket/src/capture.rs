@@ -979,8 +979,8 @@ const STEPS: [(&str, Step); 302] = [
     ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),
     ("update-ready", |d, _, _| d.updates.update = Update::Ready { version: "0.2.0".into() }),
     ("whats-new", |d, _, _| d.updates.update = Update::WhatsNew { version: "0.2.0".into() }),
-    ("star", |d, _, _| d.star.shown = true),
-    ("star-thanked", |d, _, _| (d.star.shown, d.star.thanked) = (true, true)),
+    ("star", |d, _, cx| d.star.update(cx, |s, _| s.shown = true)),
+    ("star-thanked", |d, _, cx| d.star.update(cx, |s, _| (s.shown, s.thanked) = (true, true))),
     ("welcome", |d, _, _| d.welcome = Some(crate::welcome::Welcome::new())),
     ("prs", |d, _, _| {
         let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };

@@ -130,7 +130,7 @@ pub struct Desktop {
     pub(crate) registry: crate::registry::Registry,
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
-    pub(crate) star: Star,
+    pub(crate) star: Entity<Star>,
     pub(crate) welcome: Option<Welcome>,
     pub(crate) chips: Chips,
     pub(crate) delegated: crate::delegated::DelegatedState,
@@ -180,7 +180,8 @@ impl Desktop {
         // Read before updates and the star record this launch.
         let welcome = crate::welcome::greets(&store).then(Welcome::new);
         let updates = Updates::new(&mut store, cx);
-        let star = Star::new(&mut store, &updates.update, crate::star::unix_now());
+        let star = cx.new(|_| Star::new(&mut store, &updates.update, crate::star::unix_now()));
+        let star_subs = cx.subscribe_in(&star, window, Self::on_star_event);
         let open_in = OpenIn::new(store.home(), cx);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
@@ -210,6 +211,7 @@ impl Desktop {
         _subs.push(Self::confirm_on_enter(cx));
         _subs.push(Self::welcome_on_enter(cx));
         _subs.push(palette_subs);
+        _subs.push(star_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
         _subs.extend(fleet_subs);
@@ -742,11 +744,11 @@ impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_panels();
         // A capture draws one frame a step, which would catch a glide midway.
-        let (now, reduce_motion) = (Instant::now(), cx.reduce_motion() || self.capturing);
+        let (now, capturing, reduce_motion) = (Instant::now(), self.capturing, cx.reduce_motion() || self.capturing);
         // Not `||`: each steps every frame.
         if self.sidebar.tick(self.layout, now, reduce_motion)
             | self.panels.tick(now, reduce_motion)
-            | self.star.tick(now, self.capturing)
+            | self.star.update(cx, |s, _| s.tick(now, capturing))
             | self.chats.dock.tick(now, reduce_motion)
         {
             window.request_animation_frame();
