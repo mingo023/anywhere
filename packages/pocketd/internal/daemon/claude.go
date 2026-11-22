@@ -556,10 +556,15 @@ func (d *Daemon) tailWithin(pr *presence, path, hookModel string, resumed bool, 
 		}
 		subagents := make(chan struct{})
 		kick := make(chan struct{}, 1)
-		go func() {
-			defer close(subagents)
-			subs.Tail(ctx, kick, record)
-		}()
+		// What a fork inherits stops where it forked, its sub-agents too: Spawned reads them once.
+		if s.upTo == 0 {
+			go func() {
+				defer close(subagents)
+				subs.Tail(ctx, kick, record)
+			}()
+		} else {
+			close(subagents)
+		}
 		defer func() { <-subagents }()
 		keys := map[string]string{}
 		var read int64
