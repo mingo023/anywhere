@@ -20,7 +20,7 @@ fn pill_token(t: &InlineTokenContext) -> Div {
         .border_color(ink.opacity(if t.is_selected() { 0.5 } else { 0.2 }))
         .text_size(px(12.5))
         .text_color(ink)
-        .child(icon("sparkle", 11., ink))
+        .child(icon("package", 11., ink))
         .child(t.token().label().clone())
         .child(div().w(px(PILL_REMOVE - 2.)).flex().justify_center().child(icon("x", 9., ink.opacity(0.7))))
 }

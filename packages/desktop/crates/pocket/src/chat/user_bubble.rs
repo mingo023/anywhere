@@ -24,11 +24,11 @@ const WIDTH: f32 = 0.78;
 /// A mention's `@` and the gap after it, which its icon covers; two narrow spaces, as one leaves the icon touching the name.
 const SLOT: &str = "@\u{202F}\u{202F}";
 const ICON: f32 = 15.;
-/// A skill's `/` and the room for its sparkle, and the room after its name, inside the pill the composer showed it as;
+/// A skill's `/` and the room for its icon, and the room after its name, inside the pill the composer showed it as;
 /// figure spaces, since narrow ones render almost zero-wide.
 const PILL_HEAD: &str = "/\u{2007}\u{2007}";
 const PILL_TAIL: &str = "\u{202F}\u{202F}";
-const SPARKLE: f32 = 11.;
+const PILL_ICON: f32 = 11.;
 
 /// What a bubble shows of a prompt.
 #[derive(Default)]
@@ -140,9 +140,9 @@ fn paint_pill(span: Bounds<Pixels>, line: Pixels, window: &mut Window, cx: &mut 
     let height = line * (20. / 22.);
     let pill = Bounds::new(point(span.left(), span.center().y - height / 2.), size(span.size.width, height));
     window.paint_quad(quad(pill, height * 0.3, ink.opacity(0.1), px(1.), ink.opacity(0.2), BorderStyle::Solid));
-    let side = px(SPARKLE) * (line / px(LINE_HEIGHT));
-    let sparkle = Bounds::new(point(pill.left() + side * 0.55, pill.center().y - side / 2.), size(side, side));
-    window.paint_svg(sparkle, "icons/sparkle.svg".into(), None, TransformationMatrix::unit(), ink, cx).ok();
+    let side = px(PILL_ICON) * (line / px(LINE_HEIGHT));
+    let glyph = Bounds::new(point(pill.left() + side * 0.55, pill.center().y - side / 2.), size(side, side));
+    window.paint_svg(glyph, "icons/package.svg".into(), None, TransformationMatrix::unit(), ink, cx).ok();
 }
 
 /// The lines `text` wraps to in a bubble at most `width * 0.78` wide.
