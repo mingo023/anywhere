@@ -387,7 +387,6 @@ impl Desktop {
         }
     }
 
-    /// Shows `to`, shutting the space menu. False when it is already shown.
     fn go_space(&mut self, to: &Space, cx: &mut Context<Self>) -> bool {
         let order = self.space_order();
         self.sidebar.space_header.update(cx, |h, _| h.shut());

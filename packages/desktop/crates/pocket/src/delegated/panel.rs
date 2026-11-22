@@ -117,7 +117,6 @@ impl Panel {
         (self.leaving, self.collapse) = (true, None);
     }
 
-    /// Takes what the chat's delegations are now: opens for news, or has the panel shut soon after the last ends.
     /// Returns whether to start the timer that shuts it.
     fn changed(&mut self, c: Counts) -> bool {
         match self.watch.observe(c) {
@@ -249,20 +248,16 @@ fn glyph(id: &str, p: Phase) -> AnyElement {
     }
 }
 
-/// A session of the panel's list, with the host it runs on while that host's link is down.
 pub(super) struct Entry {
     delegation: Delegation,
     down: Option<String>,
 }
 
 pub(crate) enum PanelEvent {
-    /// Open the delegated session by agent id.
     Open(String),
-    /// The panel faded out after a Clear.
     Gone,
 }
 
-/// One chat's panel of the sessions it delegated to, over its chat; `Desktop` hands it the list each time it draws it.
 pub(crate) struct PanelView {
     panel: Panel,
     entries: Vec<Entry>,

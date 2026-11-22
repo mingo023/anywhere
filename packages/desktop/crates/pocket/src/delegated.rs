@@ -19,7 +19,6 @@ use hosts::Host;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-/// A chat's panel and what keeps its events coming.
 struct Slot {
     view: Entity<panel::PanelView>,
     _sub: Subscription,

@@ -167,7 +167,6 @@ struct DragTree {
 
 pub struct SidebarState {
     pub(crate) search: Entity<InputState>,
-    /// The aside's space header and its menu.
     pub(crate) space_header: Entity<SpaceHeader>,
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,

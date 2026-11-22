@@ -16,51 +16,32 @@ struct HostRename {
     _sub: Subscription,
 }
 
-/// What `Desktop` hands the header each time it draws it: the space on screen, as the header shows it.
 pub(crate) struct Head {
     pub(crate) space: Space,
     pub(crate) name: String,
     pub(crate) glyph: &'static str,
     pub(crate) tint: Option<u32>,
-    /// A host's address, empty for This Mac.
     pub(crate) address: String,
-    /// A host's link dot; none for This Mac.
     pub(crate) dot: Option<Token>,
     pub(crate) reach: Reach,
-    /// Whether Open terminal has a project to open in.
     pub(crate) terminal: bool,
 }
 
 pub(crate) enum HeaderEvent {
-    /// The menu's trigger was pressed: `Desktop` shuts the other menus, then opens this one.
     OpenMenu,
     OpenTerminal,
     HostSettings,
     Reconnect(String),
-    /// A host's name was edited to `text`; empty or the name pocketd lists it under keeps that.
-    Rename {
-        id: String,
-        text: String,
-    },
-    Icon {
-        id: String,
-        icon: &'static str,
-    },
-    Colour {
-        id: String,
-        colour: u32,
-    },
-    Remove {
-        id: String,
-        name: String,
-    },
+    Rename { id: String, text: String },
+    Icon { id: String, icon: &'static str },
+    Colour { id: String, colour: u32 },
+    Remove { id: String, name: String },
 }
 
 /// Above Projects: the space on screen, its link and address, opening the space menu.
 pub(crate) struct SpaceHeader {
     head: Head,
     menu: bool,
-    /// The host whose name the header is editing.
     rename: Option<HostRename>,
 }
 
@@ -110,7 +91,6 @@ impl SpaceHeader {
         self.menu = false;
     }
 
-    /// Drops the host name being edited. Whether there was one.
     pub(crate) fn cancel_rename(&mut self) -> bool {
         self.rename.take().is_some()
     }
@@ -119,7 +99,6 @@ impl SpaceHeader {
         (self.menu, self.rename) = (false, None);
     }
 
-    /// Edits the host's name in the header, starting from the one shown.
     fn start_rename(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let (input, sub) = rename_field(self.head.name.clone(), window, cx, Self::save_rename);
         self.menu = false;
@@ -283,7 +262,6 @@ impl Desktop {
         glyph(space, &self.store.sidebar.space_icons)
     }
 
-    /// Hands the header the space on screen.
     pub(crate) fn space_header_set(&self, space: &Space, order: &[Space], cx: &mut Context<Self>) {
         let host = space.host().and_then(|id| self.fleet.hosts.list.iter().find(|h| h.id == id));
         let link = space.host().and_then(|id| self.fleet.hosts.links.get(id));
