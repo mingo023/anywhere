@@ -726,9 +726,10 @@ impl Desktop {
             _ if self.focused_chat().as_deref() != Some(terminal) => None,
             Mode::Prompt => {
                 let mut from = vec![c.ask_focus.clone(), c.answer.read(cx).focus_handle(cx)];
-                // The search takes the keys while the model panel is open; closing it would leave them nowhere.
+                // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
                 if c.draft.menu != Some(Menu::Model) {
                     from.push(c.search.read(cx).focus_handle(cx));
+                    from.extend(c.draft.slider.borrow().focus.clone());
                 }
                 Some(hand_focus(from, input))
             }

@@ -1,6 +1,7 @@
 use super::{close_menu, hang};
 use crate::composer::{self, Menu, launch};
-use crate::composer::effort_menu::{Effort, choice_menu, effort_menu};
+use crate::composer::effort_menu::{Effort, choice_menu};
+use crate::composer::effort_slider::{self, effort_slider};
 use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
 use crate::pick_menu::{Line, checked};
 use crate::desktop::Desktop;
@@ -81,10 +82,11 @@ impl Desktop {
             let project = self.chat_project(agent);
             let rail = self.model_rail(viewed, &agent.provider, project.as_deref(), &self.chats.composer.draft.rail, |d: &mut Desktop| &mut d.chats.composer.draft, cx);
             let own = viewed == agent.provider;
-            let effort = (own && !levels.is_empty()).then(|| self.chat_effort_menu(agent, &levels, default, cx));
+            let effort = (own && !levels.is_empty()).then(|| self.chat_effort_slider(agent, &levels, default, cx));
             let settings = if own { self.chat_setting_menus(agent, cx) } else { Vec::new() };
-            let rows = effort.into_iter().chain(settings).collect();
-            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), rows), cx)
+            let hidden = effort.is_none().then(|| effort_slider::hand_back(&self.chats.composer.draft.slider, self.chats.composer.search.read(cx).focus_handle(cx))).flatten();
+            let panel = panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort, settings);
+            hang("chat-model-menu", panel.children(hidden), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
@@ -134,11 +136,11 @@ impl Desktop {
     }
 
     /// The model's efforts, naming the one it runs on, else `default`; picking one switches it.
-    fn chat_effort_menu(&self, agent: &Summary, levels: &[String], default: Option<&str>, cx: &mut Context<Self>) -> Effort {
+    fn chat_effort_slider(&self, agent: &Summary, levels: &[String], default: Option<&str>, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = agent.id.clone();
         let pick: launch::Pick = Rc::new(move |this, effort, _| this.outbox.settings(&id, "", &effort));
         let on = running_effort(agent, levels, default).map(String::from);
-        effort_menu("chat-effort", agents::providers::known(&agent.provider).effort_word, (levels, on.as_ref()), &self.chats.composer.draft.effort, |d: &mut Desktop| &mut d.chats.composer.draft, pick, cx)
+        effort_slider("chat-effort", agents::providers::known(&agent.provider).effort_word, (levels, on.as_ref()), &self.chats.composer.draft.slider, pick, cx)
     }
 
     /// The running model's own settings, each naming the value it's on, else the model's default; picking one switches it.

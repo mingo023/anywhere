@@ -31,11 +31,15 @@ impl Glide {
 
     /// Steps toward `to` by the time since the last step; true while it still moves.
     pub(crate) fn tick(&mut self, to: f32, now: Instant, reduce_motion: bool) -> bool {
+        self.tick_on(self.config.unwrap_or(SPRING), to, now, reduce_motion)
+    }
+
+    /// `tick` on `spring` instead of its own, so one value can be dragged on one spring and settle on another.
+    pub(crate) fn tick_on(&mut self, spring: SpringConfig, to: f32, now: Instant, reduce_motion: bool) -> bool {
         let rest = SpringState { position: to, velocity: 0. };
         let was = self.spring.filter(|_| !reduce_motion).unwrap_or(rest);
         // Capped, so a slow frame doesn't skip the motion.
         let dt = self.stepped.map_or(0., |t| now.duration_since(t).as_secs_f32().min(0.064));
-        let spring = self.config.unwrap_or(SPRING);
         let next = spring.step(was, to, dt);
         let moving = !spring.is_settled(next, to, SETTLED);
         self.spring = Some(if moving { next } else { rest });

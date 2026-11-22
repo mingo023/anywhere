@@ -1,4 +1,5 @@
 pub(crate) mod effort_menu;
+pub(crate) mod effort_slider;
 pub(crate) mod element_card;
 pub(crate) mod elements;
 pub(crate) mod file_card;
@@ -16,6 +17,7 @@ use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use launch::Pick;
+use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -75,6 +77,7 @@ pub(crate) struct Draft {
     /// What the model menu lists.
     pub(crate) listed: model_menu::KeptList,
     pub(crate) effort: effort_menu::EffortMenu,
+    pub(crate) slider: Rc<RefCell<effort_slider::EffortSlider>>,
     revealed: Vec<String>,
     pub(crate) images: Vec<Attachment>,
     /// The dropped files and long pastes, which the agent reads where they lie.
@@ -118,6 +121,10 @@ impl Draft {
         self.viewing = None;
         (self.scroll, self.rail) = Default::default();
         self.effort = Default::default();
+        // The slider may hold the keys: its handle outlives the reset so the prompt's handoff can still take them back.
+        let focus = self.slider.borrow_mut().focus.take();
+        self.slider = Default::default();
+        self.slider.borrow_mut().focus = focus;
         self.menu.is_some()
     }
 
@@ -149,7 +156,7 @@ impl Draft {
         true
     }
 
-    /// Esc on the model panel closes its list of efforts, else the panel. False while it isn't open.
+    /// Esc on the model panel closes a setting's list of values, else the panel. False while it isn't open.
     pub(crate) fn escape_model(&mut self) -> bool {
         let open = self.menu == Some(Menu::Model);
         if open && !self.effort.fold() {
@@ -547,8 +554,11 @@ impl Desktop {
             .children(trailing)
             .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
             .child(send);
-        // The search takes the keys while the model panel is open; closing it would leave them nowhere.
-        let handoff = (c.draft.menu != Some(Menu::Model)).then(|| hand_focus(vec![c.search.read(cx).focus_handle(cx)], c.prompt.read(cx).focus_handle(cx)));
+        // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
+        let handoff = (c.draft.menu != Some(Menu::Model)).then(|| {
+            let from = std::iter::once(c.search.read(cx).focus_handle(cx)).chain(c.draft.slider.borrow().focus.clone()).collect();
+            hand_focus(from, c.prompt.read(cx).focus_handle(cx))
+        });
         frame(typing)
             .children(handoff)
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))
