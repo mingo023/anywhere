@@ -15,6 +15,7 @@ var hostsServerGolden = map[string]any{
 		Target: HostTarget{Kind: "address", Addr: "10.0.4.12", Port: 2222, User: "dev"}, Link: HostLinkState{State: LinkFailed, Failure: "auth"}}),
 	"host_progress_step":  NewHostProgress("devbox", true, InstallProgress{Kind: "step", Step: "download"}),
 	"host_progress_error": NewHostProgress("devbox", false, InstallProgress{Kind: "error", Text: "No release for linux/arm"}),
+	"host_progress_app":   NewHostProgress("devbox", true, InstallProgress{Kind: "app", Text: "/Applications/Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd"}),
 	"error_host_ssh":      NewCodedError("h6", CodeHostSSH, "Wrong password.", "auth"),
 	"delegation_update_remote": NewDelegationUpdate("a1", Delegation{TaskID: "task1", ParentID: "a1", ChildID: "devbox/a2", Title: "Write the tests", Agent: "codex",
 		Status: "working", EnvironmentID: "devbox", CreatedAt: 1}),

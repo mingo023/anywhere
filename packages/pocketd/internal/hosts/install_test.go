@@ -27,13 +27,14 @@ func TestBootstrapsLinesBecomeProgressAndTheRestIsLog(t *testing.T) {
 		"ANYWHERE warn":                                   {Kind: ProgressWarn},
 		"ANYWHERE error checksum mismatch: got a, want b": {Kind: ProgressError, Text: "checksum mismatch: got a, want b"},
 		"ANYWHERE running":                                {Kind: ProgressRunning},
+		"ANYWHERE app /Applications/A.app/pocketd":        {Kind: ProgressApp, Text: "/Applications/A.app/pocketd"},
 		"ANYWHERE done":                                   {Kind: ProgressDone},
 	} {
 		if got, ok := parseProgress(line); !ok || got != want {
 			t.Errorf("%q: %+v %v", line, got, ok)
 		}
 	}
-	for _, log := range []string{`{"label":"x","installed":true}`, "ANYWHERE step teleport", "ANYWHERE done now", "ANYWHERE running fast", "ANYWHERE"} {
+	for _, log := range []string{`{"label":"x","installed":true}`, "ANYWHERE step teleport", "ANYWHERE done now", "ANYWHERE running fast", "ANYWHERE app", "ANYWHERE"} {
 		if got, ok := parseProgress(log); ok {
 			t.Errorf("%q: %+v", log, got)
 		}
@@ -285,7 +286,7 @@ func TestAnUpdateLeavesThePocketdAnAnywhereAppRunsThereAlone(t *testing.T) {
 		}
 		return
 	}
-	if linked || !strings.Contains(out, "ANYWHERE error pocketd here runs from "+app+", which an update can't replace") {
+	if linked || !strings.Contains(out, "ANYWHERE app "+app+"\n") || strings.Contains(out, "ANYWHERE step link") {
 		t.Errorf("linked %v:\n%s", linked, out)
 	}
 }

@@ -1,0 +1,9 @@
+{
+  "type": "host.progress",
+  "hostId": "devbox",
+  "update": true,
+  "progress": {
+    "kind": "app",
+    "text": "/Applications/Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd"
+  }
+}

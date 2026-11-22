@@ -85,7 +85,7 @@ func TestTheInstallStepsAndProgressKindsAreTheWordsOnTheWire(t *testing.T) {
 	if len(words) != len(steps) {
 		t.Errorf("the wire names %d steps, the package %d", len(words), len(steps))
 	}
-	kinds := map[ProgressKind]string{ProgressStep: "step", ProgressWarn: "warn", ProgressRunning: "running", ProgressDone: "done", ProgressError: "error"}
+	kinds := map[ProgressKind]string{ProgressStep: "step", ProgressWarn: "warn", ProgressRunning: "running", ProgressApp: "app", ProgressDone: "done", ProgressError: "error"}
 	for kind, want := range kinds {
 		if string(kind) != want {
 			t.Errorf("kind %q, wire %q", kind, want)
