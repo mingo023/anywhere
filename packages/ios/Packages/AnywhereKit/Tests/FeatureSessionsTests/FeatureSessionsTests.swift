@@ -1,3 +1,4 @@
+import Client
 import Domain
 import Fixtures
 import Foundation
@@ -24,6 +25,8 @@ struct SessionTextTests {
         #expect(SessionText.detail(working, .working) == "Opus 5.5")
         let idle = Sample.agents.first { $0.id == "a-chat" }!
         #expect(SessionText.detail(idle, .idle) == "Sonnet 5")
+        #expect(SessionText.detail(idle, .idle, model: false) == nil, "a row that names its model on its own line")
+        #expect(SessionText.detail(needs, .needsYou, model: false) == "Approve Bash: rm -rf build")
     }
 
     @Test("pocketd's steps read as what is happening, and an unknown one as itself")
@@ -84,6 +87,15 @@ struct RowActionsTests {
         #expect(RowActions.lostTitle(3, branch: "fix-login") == "Delete fix-login and its 3 unpushed commits?")
         #expect(RowActions.lostMessage(1) == "That commit is on no other branch, remote or tag, so it will be lost.")
         #expect(RowActions.lostMessage(3) == "Those 3 commits are on no other branch, remote or tag, so they will be lost.")
+    }
+
+    @Test("a pull to refresh that failed says why, but not while offline or once cancelled")
+    func refreshNote() {
+        #expect(HomeView.refreshNote(DaemonError.timedOut, mac: "Studio", online: true) == "Couldn't refresh · Studio didn't answer in time")
+        #expect(HomeView.refreshNote(DaemonError.offline, mac: "Studio", online: false) == nil)
+        #expect(HomeView.refreshNote(DaemonError.cancelled, mac: "Studio", online: true) == nil)
+        #expect(HomeView.refreshNote(CancellationError(), mac: "Studio", online: true) == nil)
+        #expect(HomeView.refreshNote(nil, mac: "Studio", online: true) == nil)
     }
 }
 
@@ -184,6 +196,22 @@ struct WorkspacesTests {
         #expect(TreeHeader.branchLine(branch: nil, head: head) == nil)
         #expect(TreeHeader.branchLine(branch: "fix", head: nil) == "fix")
         #expect(TreeHeader.branchLine(branch: "fix", head: head) == "fix from main · 4 ahead")
+    }
+
+    @Test("the first load waits while the banner says reconnecting, and says why once it says it can't reach the Mac")
+    func firstLoad() {
+        #expect(FirstLoad.waits(.connecting))
+        #expect(FirstLoad.waits(.reconnecting))
+        #expect(!FirstLoad.waits(.unreachable))
+    }
+
+    @Test("a tree with no pull request says what one would hold, and nothing when it holds nothing or git hasn't answered")
+    func unopened() {
+        var head = GitHead(Sample.gitStatus(files: 1))
+        #expect(TreeLinks.unopened(head) == "4 ahead of main")
+        head.ahead = 0
+        #expect(TreeLinks.unopened(head) == nil)
+        #expect(TreeLinks.unopened(nil) == nil)
     }
 }
 

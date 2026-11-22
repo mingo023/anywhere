@@ -50,7 +50,7 @@ struct CommitComposer: View {
                 .disabled(busy != nil)
             }
             .padding(Space.xs)
-            .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
         }
         .padding(.horizontal, Space.m)
         .padding(.bottom, Space.xs)

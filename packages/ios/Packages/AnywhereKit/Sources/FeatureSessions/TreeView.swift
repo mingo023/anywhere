@@ -29,7 +29,8 @@ struct TreeView: View {
                         TreeHeader(section: section, tree: tree, head: host.git.changes(checkout(tree, project: section.id)).head)
                     }
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: Space.s, trailing: Space.xs))
+                    // Clear of the row's rounded corner, which clips what sits in it.
+                    .listRowInsets(EdgeInsets(top: Space.l, leading: Space.xs, bottom: Space.s, trailing: Space.xs))
                     .listRowSeparator(.hidden)
                     TreeLinks(host: host, mac: mac, project: section.id, tree: checkout(tree, project: section.id), open: open)
                     Section {
@@ -55,6 +56,9 @@ struct TreeView: View {
                         }
                     }
                 }
+                #if os(iOS)
+                    .listSectionSpacing(.compact)
+                #endif
                 .scrollContentBackground(.hidden)
                 .screenBackground()
                 .navigationTitle(tree.label)
@@ -114,8 +118,8 @@ struct TreeHeader: View {
         let column = showInDetail != nil
         VStack(alignment: .leading, spacing: Space.xs) {
             Text("\(section.name) · \(tree.kind == .worktree ? "worktree" : "Local")").font(Typography.footnote).foregroundStyle(Palette.text3.color)
-            Text(tree.label).font(column ? .system(size: 18, weight: .semibold) : Typography.largeTitle).foregroundStyle(Palette.text.color)
-                .lineLimit(column ? 2 : 1).minimumScaleFactor(column ? 1 : 0.7)
+            Text(tree.label).font(column ? .system(size: 18, weight: .semibold) : .system(.title, weight: .bold)).foregroundStyle(Palette.text.color)
+                .lineLimit(2)
             if let line = Self.branchLine(branch: tree.branch, head: head) {
                 Text(line).font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.middle)
             }

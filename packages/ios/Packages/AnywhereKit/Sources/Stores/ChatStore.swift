@@ -827,6 +827,11 @@ public final class ChatStore: HostStore {
         upload(id)
     }
 
+    /// An image picked to attach that couldn't be read says so under the box.
+    public func attachUnreadable() {
+        notice = Composer.unreadableImage
+    }
+
     /// Sends a failed image again.
     public func retryUpload(_ id: String) {
         guard uploadData[id] != nil else { return }

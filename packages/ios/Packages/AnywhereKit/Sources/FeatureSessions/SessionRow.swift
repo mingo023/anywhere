@@ -28,7 +28,7 @@ struct SessionRow: View {
                     Spacer(minLength: Space.s)
                     Elapsed(updatedAt: s.updatedAt, ticking: status == .working && stale == nil)
                 }
-                if let detail = SessionText.detail(s, status) {
+                if let detail = SessionText.detail(s, status, model: false) {
                     Text(detail).font(Typography.codeSmall).foregroundStyle((status == .failed ? Palette.failedText : Palette.text3).color).lineLimit(1)
                         .shimmer(status == .working && s.activity != nil && stale == nil)
                 }

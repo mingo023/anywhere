@@ -64,7 +64,9 @@ struct NewSessionView: View {
         .sheet(isPresented: $worktreeOptions) {
             NavigationStack {
                 Form {
-                    WorktreeFields(draft: $draft, branches: workspace.branches[mainTree], canChooseSource: workspace.canManage, taken: taken)
+                    WorktreeFields(
+                        draft: $draft, branches: workspace.branches[mainTree], branchError: workspace.branchErrors[mainTree],
+                        retryBranches: { Task { await loadBranches() } }, canChooseSource: workspace.canManage, taken: taken)
                 }
                 .navigationTitle("New Worktree")
                 #if os(iOS)
@@ -76,7 +78,11 @@ struct NewSessionView: View {
         }
         .task { await load() }
         .onChange(of: online) { _, online in
-            if online && providers == nil { Task { await load() } }
+            if online && providers == nil {
+                Task { await load() }
+            } else if online && workspace.branchErrors[mainTree] != nil {
+                Task { await loadBranches() }
+            }
         }
         .onAppear { focused = true }
         .onChange(of: draft.provider) { _, provider in Task { try? await workspace.loadAccounts(provider: provider.rawValue) } }
@@ -118,7 +124,7 @@ struct NewSessionView: View {
     private var headline: some View {
         VStack(spacing: Space.xs) {
             Text("What should we build next?")
-                .font(Typography.title)
+                .font(.system(.title, weight: .semibold))
                 .foregroundStyle(Palette.text.color)
             if let name = project?.name {
                 Text(name).font(Typography.subheadline).foregroundStyle(Palette.text3.color)
@@ -173,12 +179,11 @@ struct NewSessionView: View {
                 Spacer(minLength: Space.s)
                 startButton
             }
-            Palette.separator.color.frame(height: 1)
+            Palette.hairline.color.frame(height: 1)
             where_
         }
         .padding(Space.s)
-        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Palette.separator.color))
+        .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
     }
 
     private var startButton: some View {
@@ -194,7 +199,7 @@ struct NewSessionView: View {
             Image(systemName: "arrow.up")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle((blocked ? Palette.text4 : Palette.onText).color)
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
                 .background((blocked ? Palette.fill3 : Palette.text).color, in: Circle())
                 .hitTarget()
         }
@@ -410,7 +415,7 @@ private struct ComposerPill<Icon: View>: View {
         .foregroundStyle(Palette.text2.color)
         .padding(.horizontal, 8)
         .frame(minHeight: filled ? 30 : 28)
-        .background(filled ? Palette.fill2.color : Color.clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+        .background(filled ? Palette.fill2.color : Color.clear, in: Capsule())
         .frame(minHeight: HitTarget.minimum)
         .contentShape(Rectangle())
     }

@@ -15,9 +15,9 @@ struct PillLabel<Content: View>: View {
         }
         .font(ChatFont.caption.weight(.medium))
         .lineLimit(1)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .frame(height: 30)
-        .background((fill ?? .fixed(0)).color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background((fill ?? Palette.fill2).color, in: Capsule())
         .hitTarget()
     }
 }

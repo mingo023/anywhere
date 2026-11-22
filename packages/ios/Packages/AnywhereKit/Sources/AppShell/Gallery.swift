@@ -25,6 +25,11 @@ public enum AppShellGallery {
                         navigator.open(.agent(mac: app.hosts[1].mac, agentId: "a1"), macs: [MacRef(id: app.hosts[1].id, serverId: app.hosts[1].mac, online: false)])
                     })
                 },
+                GalleryScene("root-phone-reconnecting-pushed\(suffix)", size: phone, dark: dark) {
+                    AnyView(root(.phone, tab: .sessions, mac: 1) { navigator, app in
+                        navigator.sessionsPath = [.project(mac: app.hosts[1].mac, path: "/Users/mingo/code/anywhere")]
+                    })
+                },
                 GalleryScene("root-phone-ended-pushed\(suffix)", size: phone, dark: dark) {
                     AnyView(root(.phone, tab: .sessions, mac: 2) { navigator, app in
                         navigator.sessionsPath = [.project(mac: app.hosts[2].mac, path: "/Users/mingo/code/anywhere")]

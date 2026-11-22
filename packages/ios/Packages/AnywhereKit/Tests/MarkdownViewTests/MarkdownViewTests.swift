@@ -161,13 +161,14 @@ import Testing
         #expect(DataImages.image("https://x.dev/a.png") == nil)
     }
 
-    @Test("the styles keep the desktop's sizes and grow with the reader's text size")
+    @Test("a chat reads at a phone's size with the desktop's code, and grows with the reader's text size")
     func metrics() {
         let chat = Metrics.of(.chat)
-        #expect((chat.body, chat.line) == (14, 24))
-        #expect(abs(chat.indent - 26.6) < 0.001)
-        #expect(chat.headings.map(\.size) == [19, 16, 15, 14])
-        #expect(chat.heading(6).line == 22)
+        #expect((chat.body, chat.line) == (17, 26))
+        #expect(abs(chat.indent - 32.3) < 0.001)
+        #expect(chat.headings.map(\.size) == [24, 21, 19, 17])
+        #expect(chat.heading(6).line == 26)
+        #expect((chat.codeSize, chat.codeLine) == (12.5, 18))
         #expect(Metrics.of(.chat, scale: Metrics.scale(.accessibility1)).body > 20)
     }
 }

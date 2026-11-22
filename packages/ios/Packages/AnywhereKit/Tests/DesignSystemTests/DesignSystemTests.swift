@@ -140,6 +140,22 @@ struct DesignSystemTests {
         #expect(Set(colours).count == Status.allCases.count)
     }
 
+    @Test("a cross lights the corners and the centre of the matrix, a full one every dot")
+    func matrix() {
+        let lit = (0..<3).map { row in (0..<3).map { col in DotMatrix.isLit(DotMatrix.cross, row: row, col: col) } }
+        #expect(lit == [[true, false, true], [false, true, false], [true, false, true]])
+        #expect((0..<9).allSatisfy { DotMatrix.isLit(DotMatrix.full, row: $0 / 3, col: $0 % 3) })
+        #expect(DotMatrix.isLit(0b100_000_000, row: 0, col: 0) && !DotMatrix.isLit(0b100_000_000, row: 2, col: 2), "read from the top-left")
+    }
+
+    @Test("a Mac's dot is green online, amber while redialing, red when it can't be used, grey once stopped")
+    func linkDots() {
+        #expect(LinkDot.color(.up) == Palette.success)
+        #expect(LinkDot.color(.trying) == Palette.waitingDot)
+        #expect(LinkDot.color(.lost) == Palette.failed)
+        #expect(LinkDot.color(.off) == Palette.text4)
+    }
+
     @Test("an offline Mac's strip says when its data is from, or that the link is reconnecting")
     func staleStrip() {
         let utc = TimeZone(identifier: "UTC")!

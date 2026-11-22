@@ -21,8 +21,7 @@ struct HeldLinkRow: View {
         }
         .padding(.leading, Space.l)
         .padding(.trailing, Space.xs)
-        .glass(in: Capsule())
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+        .raised(in: RoundedRectangle(cornerRadius: Radius.float, style: .continuous))
         .padding(.horizontal, Space.l)
         .padding(.top, Space.xs)
         .transition(.move(edge: .top).combined(with: .opacity))
