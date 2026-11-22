@@ -185,9 +185,9 @@ impl Desktop {
                 let this = cx.weak_entity();
                 move |_, grab, window, cx| {
                     let pointer = f32::from(window.mouse_position().x);
-                    this.update(cx, |this, _| {
+                    this.update(cx, |this, cx| {
                         this.panels.top_drag = Some(TabDrag::new(i, grab.x.into(), pointer));
-                        this.freeze_pages(window);
+                        this.freeze_pages(window, cx);
                     })
                     .ok();
                     cx.new(|_| EmptyView)

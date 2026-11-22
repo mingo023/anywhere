@@ -132,7 +132,7 @@ pub(crate) fn head(t: &Tree<Tab>, pane: PaneId) -> Head {
 impl Desktop {
     /// Points keys at the focused pane's terminal, and forgets what closed panes held.
     pub(crate) fn sync_panels(&mut self, cx: &App) {
-        let Some(tree) = self.session_tree() else {
+        let Some(tree) = self.session_tree(cx) else {
             self.panels.drag = None;
             return;
         };
@@ -429,7 +429,7 @@ impl Desktop {
         if t.focused == p {
             return;
         }
-        self.release_page();
+        self.release_page(cx);
         let t = &mut self.workspace(&tree).tree;
         t.focus(p);
         match t.focused().active().cloned() {

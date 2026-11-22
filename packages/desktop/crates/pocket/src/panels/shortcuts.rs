@@ -7,7 +7,7 @@ use workspace::tree::Edge;
 impl Desktop {
     /// The worktree whose panels a shortcut acts on; none behind a modal or the page of a worktree being created, while pocketd is unreachable, or on the Inbox.
     fn panel_tree(&self, cx: &App) -> Option<String> {
-        self.session_tree().filter(|_| self.overlay.is_none() && self.shown_create(cx).is_none())
+        self.session_tree(cx).filter(|_| self.overlay.is_none() && self.shown_create(cx).is_none())
     }
 
     pub(crate) fn split_right(&mut self, _: &SplitRight, _: &mut Window, cx: &mut Context<Self>) {
@@ -24,7 +24,7 @@ impl Desktop {
         let t = &self.workspace(&tree).tree;
         let pane = t.focused;
         if t.can_split(pane, edge, bounds) {
-            self.release_page();
+            self.release_page(cx);
             self.open_tab(Place::Split(pane, edge), cx);
         }
     }

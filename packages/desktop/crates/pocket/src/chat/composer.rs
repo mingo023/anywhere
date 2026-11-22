@@ -175,7 +175,7 @@ impl ComposerState {
                 }
                 _ => {}
             }),
-            cx.subscribe_in(input, window, |this, _, ev: &InputEditsEvent, window, cx| this.rich_typed(Prompt::Chat, ev, window, cx)),
+            cx.subscribe_in(input, window, |this, _, ev: &InputEditsEvent, window, cx| crate::composer::rich::rich_typed(&this.chats.input, ev, window, cx)),
             cx.subscribe_in(&answer, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, .. } => this.chat_answer_enter(window, cx),
                 InputEvent::Change => cx.notify(),
@@ -523,7 +523,7 @@ impl Desktop {
             key.key,
             window.is_window_active(),
             self.screen,
-            self.session_tree().is_some(),
+            self.session_tree(cx).is_some(),
             self.shown_create(cx).is_some(),
             self.overlay.is_some(),
             c.replying.is_some(),
@@ -917,7 +917,15 @@ impl Desktop {
                 .on_mouse_up_out(MouseButton::Left, released())
                 .when(!blocked, |b| b.on_click(press(terminal)))
         });
-        let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), Held::Chat, cx));
+        let attach = (!view_only).then(|| {
+            attachments::attach_button(
+                id(format!("chat-attach:{terminal}")),
+                cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    attachments::attach_files(this, Held::Chat, window, cx);
+                }),
+            )
+        });
         let strip = draft.and_then(|d| attachments::strip(d, cx));
         let input = if let Some(why) = locked {
             div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child(why).into_any_element()
@@ -954,9 +962,9 @@ impl Desktop {
             .child(div().flex_1())
             .children(attach)
             .children(send);
-        let suggestions = (!view_only && held).then(|| self.suggest_list(Prompt::Chat, cx)).flatten();
+        let suggestions = (!view_only && held).then(|| self.suggest_list(cx)).flatten();
         let keyed = self.suggest_keys(Prompt::Chat, frame(typing), cx);
-        self.rich_keys(Prompt::Chat, keyed, cx)
+        crate::composer::rich::rich_keys(&self.chats.input, keyed, cx)
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)))
             .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
                 if e.keystroke.key == "escape" {

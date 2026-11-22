@@ -50,7 +50,7 @@ pub(crate) fn show(cx: &App) {
 
 impl Desktop {
     pub fn close_active_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
-        let tab = self.session_tree().and_then(|tree| {
+        let tab = self.session_tree(cx).and_then(|tree| {
             let p = self.workspace(&tree).tree.focused();
             p.active().map(|_| (p.id, p.active))
         });

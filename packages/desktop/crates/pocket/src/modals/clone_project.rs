@@ -442,7 +442,7 @@ impl Desktop {
         self.open(Overlay::Clone, window, cx);
     }
 
-    fn machine_of(&self, space: &Space) -> Machine {
+    pub(crate) fn machine_of(&self, space: &Space) -> Machine {
         Machine {
             glyph: self.space_glyph(space),
             name: self.space_name(space),

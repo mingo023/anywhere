@@ -3,10 +3,10 @@ use gpui_kit::*;
 use theme::*;
 
 impl Desktop {
-    pub(crate) fn added_toast(&self) -> Option<impl IntoElement> {
+    pub(crate) fn added_toast(&self, cx: &App) -> Option<impl IntoElement> {
         let (provider, _) = self.chat.added.as_ref()?;
         let toast = self
-            .float(ui::pop(div()), 16.)
+            .float(ui::pop(div()), 16., cx)
             .h(px(32.))
             .px(px(12.))
             .flex()

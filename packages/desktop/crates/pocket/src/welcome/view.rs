@@ -102,7 +102,7 @@ impl Desktop {
         }
         if done {
             self.welcome = None;
-            if self.new_form.shown {
+            if self.new_form.read(cx).shown {
                 self.focus_prompt(window, cx);
             }
             return None;

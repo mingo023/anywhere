@@ -508,11 +508,6 @@ pub(crate) fn model_rail<V: 'static>(viewed: &str, tabs: &[RailTab], scroll: &Sc
 
 impl Desktop {
     /// The agent, model and effort a session starts with, and the panel that picks them.
-    pub(crate) fn model_pill(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let launch = self.launch(c, pick, project, cx);
-        c.update(cx, |c, cx| c.model_pill(&launch, cx))
-    }
-
     pub(crate) fn launch(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &App) -> Launch {
         let names = self.offered_models(&pick.provider);
         let levels = self.launch_efforts(&pick.provider, &pick.model);
@@ -528,8 +523,8 @@ impl Desktop {
         listed_agents(&self.offered_in(project), &[current]).into_iter().map(|p| RailTab { id: p, name: self.agent_name(p), dim: !self.installed(p) }).collect()
     }
 
-    /// What a composer's events ask of the app; the owner answers `Opened` itself.
-    pub(crate) fn composer_event(&mut self, c: &Entity<Composer>, event: &ComposerEvent, cx: &mut Context<Self>) {
+    /// What a composer's events ask of the app; the owner answers `Opened` and `Unsaved` itself.
+    pub(crate) fn composer_event(&mut self, c: &Entity<Composer>, event: &ComposerEvent, window: &mut Window, cx: &mut Context<Self>) {
         let held = Held::Composer(c.clone());
         match event {
             ComposerEvent::Opened => {}
@@ -545,6 +540,16 @@ impl Desktop {
                 cx.notify();
             }
             ComposerEvent::Starred { provider, model } => self.star_model(provider, model, cx),
+            ComposerEvent::Attach => {
+                let c = c.clone();
+                self.pick_path(false, window, cx, move |_, paths, _, cx| {
+                    c.update(cx, |c, cx| {
+                        c.draft.drop_files(&paths);
+                        cx.notify();
+                    })
+                });
+            }
+            ComposerEvent::Unsaved(..) => {}
         }
     }
 

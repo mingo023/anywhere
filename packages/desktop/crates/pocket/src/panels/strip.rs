@@ -345,7 +345,7 @@ impl Desktop {
                             this.update(cx, |this, cx| {
                                 this.select_tab(p, i, window, cx);
                                 this.panels.drag = Some((p, TabDrag::new(i, grab.x.into(), pointer)));
-                                this.freeze_pages(window);
+                                this.freeze_pages(window, cx);
                             })
                             .ok();
                             cx.new(|_| EmptyView)

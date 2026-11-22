@@ -367,9 +367,9 @@ impl Desktop {
             match self.spot_left_in(&to).filter(|_| back_to_session) {
                 Some((project, tree)) => self.select_tree(project, tree, cx),
                 None => {
-                    let projects = in_space(&self.form_projects(), &to);
-                    let from = self.drafted_project().or(self.project.as_deref());
-                    if let Some(target) = arrival(from, &to, &projects) {
+                    let projects = in_space(&self.form_projects(cx), &to);
+                    let from = self.drafted_project(cx).or_else(|| self.project.clone());
+                    if let Some(target) = arrival(from.as_deref(), &to, &projects) {
                         self.new_place(target, window, cx);
                     }
                 }
@@ -390,12 +390,12 @@ impl Desktop {
     fn go_space(&mut self, to: &Space, cx: &mut Context<Self>) -> bool {
         let order = self.space_order();
         self.sidebar.space_header.update(cx, |h, _| h.shut());
-        self.spaces.go(to.clone(), &order, Instant::now(), self.spot())
+        self.spaces.go(to.clone(), &order, Instant::now(), self.spot(cx))
     }
 
     /// The session on screen; none while the new-session page is up.
-    fn spot(&self) -> Option<Spot> {
-        Some((self.project.clone().filter(|_| !self.new_form.shown)?, self.worktree.clone()))
+    fn spot(&self, cx: &App) -> Option<Spot> {
+        Some((self.project.clone().filter(|_| !self.new_form.read(cx).shown)?, self.worktree.clone()))
     }
 
     /// The session `space` showed when it was left, while its tree is still listed.

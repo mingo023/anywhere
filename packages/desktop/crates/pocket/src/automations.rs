@@ -11,7 +11,7 @@ mod runs;
 mod side;
 mod trigger;
 
-use crate::composer::ComposerEvent;
+use crate::composer::{Chips, ComposerEvent};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen, popup_closing};
 use crate::modals::new_session::default_first;
@@ -20,7 +20,7 @@ use agents::automations::{Automation, Automations as Snapshot, Run};
 use agents::{Decision, Permission};
 use gpui_kit::*;
 use logic::{Entry, Folds, Row, Tab, after_escape, entries, keep_only, opening_selection, reachable, reselect, run_rows};
-pub(crate) use side::{Chips, Project, Side};
+pub(crate) use side::{Project, Side};
 use std::sync::Arc;
 
 /// The popups the Automations screen opens, one at a time.
@@ -306,8 +306,7 @@ impl Desktop {
     /// The editor's chips need the model lists and settings only `Desktop` holds.
     fn automations_chips(&self, cx: &App) -> Option<Chips> {
         let (c, pick, project) = self.automations.read(cx).chip_inputs(cx)?;
-        let (launch, access) = self.composer_chips(&c, &pick, project, cx);
-        Some(Chips { launch, access })
+        Some(self.composer_chips(&c, &pick, project, cx))
     }
 
     pub(crate) fn automations_column(&mut self, cx: &mut Context<Self>) -> Div {
@@ -355,7 +354,7 @@ impl Desktop {
         vec![
             cx.subscribe_in(automations, window, Self::on_automations_event),
             cx.observe(automations, |_, _, cx| cx.notify()),
-            cx.subscribe_in(&composer, window, |this, c, ev: &ComposerEvent, _, cx| this.composer_event(c, ev, cx)),
+            cx.subscribe_in(&composer, window, |this, c, ev: &ComposerEvent, window, cx| this.composer_event(c, ev, window, cx)),
             cx.observe(&composer, |_, _, cx| cx.notify()),
         ]
     }

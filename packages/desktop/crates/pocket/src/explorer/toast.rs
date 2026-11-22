@@ -148,7 +148,7 @@ impl Desktop {
     pub(crate) fn tree_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (notice, _) = self.explorer.notice.as_ref()?;
         let toast = self
-            .float(ui::pop(div().id("tree-toast")), 16.)
+            .float(ui::pop(div().id("tree-toast")), 16., cx)
             .h(px(32.))
             .px(px(12.))
             .flex()

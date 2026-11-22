@@ -92,7 +92,7 @@ impl Browsers {
                 let text = address.read(cx).value();
                 if let InputEvent::PressEnter { secondary: false, .. } = ev
                     && !text.trim().is_empty()
-                    && let Some(id) = this.web_tab(pane)
+                    && let Some(id) = this.web_tab(pane, cx)
                 {
                     this.browse(id, web::resolve(&text, this.store.browser.search_url()), window, cx);
                 }
@@ -131,16 +131,16 @@ impl Browsers {
 }
 
 impl Desktop {
-    pub(crate) fn web_tab(&mut self, pane: PaneId) -> Option<u64> {
-        self.session_tree()?;
+    pub(crate) fn web_tab(&mut self, pane: PaneId, cx: &App) -> Option<u64> {
+        self.session_tree(cx)?;
         match self.pane_tab(pane)? {
             Tab::Web(id) => Some(id),
             _ => None,
         }
     }
 
-    fn focused_page(&mut self) -> Option<&web::Page> {
-        let id = self.web_tab(self.focused_pane())?;
+    fn focused_page(&mut self, cx: &App) -> Option<&web::Page> {
+        let id = self.web_tab(self.focused_pane(), cx)?;
         self.browsers.page(id)
     }
 
@@ -154,7 +154,7 @@ impl Desktop {
             || self.sidebar.menu_at.is_some()
             || self.shown_create(cx).is_some()
             || self.panels.parks_pages();
-        let shown: Vec<u64> = match self.session_tree().and_then(|t| self.workspaces.get(&t)) {
+        let shown: Vec<u64> = match self.session_tree(cx).and_then(|t| self.workspaces.get(&t)) {
             Some(w) if !covered => w.shown().into_iter().filter_map(|(_, t)| web(t)).collect(),
             _ => Vec::new(),
         };
@@ -167,15 +167,15 @@ impl Desktop {
     }
 
     /// Takes the keys back from the focused pane's page, which a move to the pane beside it leaves placed and so first responder.
-    pub(crate) fn release_page(&mut self) {
-        if let Some(page) = self.focused_page() {
+    pub(crate) fn release_page(&mut self, cx: &App) {
+        if let Some(page) = self.focused_page(cx) {
             page.give_keys();
         }
     }
 
     /// Asks each shown page for a picture of itself, to draw while a held tab parks the pages.
-    pub(crate) fn freeze_pages(&mut self, window: &mut Window) {
-        let Some(w) = self.session_tree().and_then(|t| self.workspaces.get(&t)) else { return };
+    pub(crate) fn freeze_pages(&mut self, window: &mut Window, cx: &App) {
+        let Some(w) = self.session_tree(cx).and_then(|t| self.workspaces.get(&t)) else { return };
         let shown: Vec<u64> = w.shown().into_iter().filter_map(|(_, t)| web(t)).collect();
         for id in shown {
             let Some(b) = self.browsers.tabs.get_mut(&id) else { continue };
@@ -202,7 +202,8 @@ impl Desktop {
         let url = url.or_else(|| self.store.browser.home_page(dev_url).map(|u| web::resolve(&u, self.store.browser.search_url())));
         let id = self.browsers.open();
         self.workspace(&tree).open_web(id, place);
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
+        self.screen = Screen::Sessions;
+        self.new_form.update(cx, |f, _| f.shown = false);
         match url {
             Some(url) => self.browse(id, url, window, cx),
             None => self.focus_address(&FocusAddress, window, cx),
@@ -288,7 +289,7 @@ impl Desktop {
 
     fn focus_address(&mut self, _: &FocusAddress, window: &mut Window, cx: &mut Context<Self>) {
         let pane = self.focused_pane();
-        let Some(b) = self.web_tab(pane).and_then(|id| self.browsers.tabs.get(&id)) else { return };
+        let Some(b) = self.web_tab(pane, cx).and_then(|id| self.browsers.tabs.get(&id)) else { return };
         if let Some(page) = &b.page {
             page.give_keys();
         }
@@ -300,26 +301,26 @@ impl Desktop {
         });
     }
 
-    fn reload(&mut self, _: &Reload, _: &mut Window, _: &mut Context<Self>) {
-        if let Some(page) = self.focused_page() {
+    fn reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(page) = self.focused_page(cx) {
             page.reload();
         }
     }
 
-    fn back(&mut self, _: &Back, _: &mut Window, _: &mut Context<Self>) {
-        if let Some(page) = self.focused_page() {
+    fn back(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(page) = self.focused_page(cx) {
             page.back();
         }
     }
 
-    fn forward(&mut self, _: &Forward, _: &mut Window, _: &mut Context<Self>) {
-        if let Some(page) = self.focused_page() {
+    fn forward(&mut self, _: &Forward, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(page) = self.focused_page(cx) {
             page.forward();
         }
     }
 
-    fn page_edit(&mut self, edit: &PageEdit, _: &mut Window, _: &mut Context<Self>) {
-        if let Some(page) = self.focused_page() {
+    fn page_edit(&mut self, edit: &PageEdit, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(page) = self.focused_page(cx) {
             page.edit(edit.0);
         }
     }

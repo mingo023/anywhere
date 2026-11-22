@@ -141,7 +141,7 @@ pub struct Desktop {
     pub(crate) confirm: Option<Confirm>,
     pub(crate) row_menu: Option<RowMenu>,
     pub(crate) preview: PreviewState,
-    pub(crate) new_form: new_session::NewForm,
+    pub(crate) new_form: Entity<new_session::NewForm>,
     pub(crate) repo_form: add_project::RepoForm,
     pub(crate) host_finder: crate::modals::host_finder::HostFinder,
     pub(crate) clone_form: Entity<clone_project::CloneForm>,
@@ -168,7 +168,8 @@ impl Desktop {
         let (changes, changes_subs) = ChangesState::new(window, cx);
         let (compare, compare_subs) = CompareState::new(window, cx);
         let (pr, pr_subs) = PullRequest::new(window, cx);
-        let (new_form, new_subs) = new_session::NewForm::new(window, cx);
+        let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
+        let new_subs = Self::watch_new_form(&new_form, window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let host_finder = crate::modals::host_finder::HostFinder::new(cx);
         let clone_form = cx.new(|cx| clone_project::CloneForm::new(window, cx));
@@ -364,7 +365,8 @@ impl Desktop {
             self.follow_space(&p, cx);
             self.project = Some(p);
         }
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
+        self.screen = Screen::Sessions;
+        self.new_form.update(cx, |f, _| f.shown = false);
         self.worktree = Some(tree.to_string());
     }
 
@@ -395,7 +397,8 @@ impl Desktop {
         if moved {
             self.set_project(Some(p), cx);
         }
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
+        self.screen = Screen::Sessions;
+        self.new_form.update(cx, |f, _| f.shown = false);
         if moved || self.worktree != tree {
             self.worktree = tree;
             self.refresh_git(cx);
@@ -451,7 +454,8 @@ impl Desktop {
     /// With no pane holding docs it opens in a new pane right of the focused one, or in the focused one when that has no room to split.
     pub fn open_doc(&mut self, doc: Doc, pin: bool, cx: &mut Context<Self>) {
         let Some(tree) = self.place() else { return };
-        (self.screen, self.new_form.shown) = (Screen::Sessions, false);
+        self.screen = Screen::Sessions;
+        self.new_form.update(cx, |f, _| f.shown = false);
         let bounds = self.panels.bounds;
         let files = &self.store.files;
         let (pin, next) = (pin || !files.preview_tabs, files.new_tabs == store::prefs::files::NewTabs::AfterCurrent);
@@ -586,12 +590,16 @@ impl Desktop {
 
     /// Whether the main view shows panes with no overlay, menu or creating page over them.
     pub(crate) fn panes_on_screen(&self, cx: &App) -> bool {
-        self.session_tree().is_some() && self.shown_create(cx).is_none() && self.overlay.is_none() && !self.menu_open(cx)
+        self.session_tree(cx).is_some() && self.shown_create(cx).is_none() && self.overlay.is_none() && !self.menu_open(cx)
     }
 
     /// The worktree whose panes the main view shows.
-    pub(crate) fn session_tree(&self) -> Option<String> {
-        if self.terminals.link.is_down() || self.terminals.link.update(Instant::now()).is_some() || self.screen != Screen::Sessions || self.new_form.shown {
+    pub(crate) fn session_tree(&self, cx: &App) -> Option<String> {
+        if self.terminals.link.is_down()
+            || self.terminals.link.update(Instant::now()).is_some()
+            || self.screen != Screen::Sessions
+            || self.new_form.read(cx).shown
+        {
             return None;
         }
         self.place()
@@ -619,12 +627,12 @@ impl Desktop {
         if matches!(self.terminals.link.update(now), Some(Update::Back(_))) {
             window.request_animation_frame();
         }
-        let body = match self.session_tree() {
+        let body = match self.session_tree(cx) {
             _ if self.shown_create(cx).is_some() => self.creating_page(window, cx),
             Some(_) if self.idle_main() => {
                 // Every way onto the main checkout ends here, and opening the page needs the window; re-checked since the frame may be stale by then.
                 cx.defer_in(window, |this, window, cx| {
-                    if let Some(p) = this.project.clone().filter(|_| this.idle_main() && !this.new_form.shown && this.overlay.is_none()) {
+                    if let Some(p) = this.project.clone().filter(|_| this.idle_main() && !this.new_form.read(cx).shown && this.overlay.is_none()) {
                         this.new_place(p, window, cx);
                     }
                 });
@@ -632,7 +640,7 @@ impl Desktop {
             }
             Some(tree) => self.panels_view(&tree, window, cx),
             None if self.terminals.link.is_down() || self.terminals.link.update(now).is_some() => self.link_page(now, window, cx),
-            None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(window, cx),
+            None if self.new_form.read(cx).shown && self.screen == Screen::Sessions => self.new_session_page(cx),
             None => match self.screen_view(window, cx) {
                 Some(page) => page,
                 None => self.blank_page(cx),
@@ -648,8 +656,8 @@ impl Desktop {
             .overflow_hidden()
             .child(body)
             .children(self.error_toast(cx))
-            .children(self.deleting_toast())
-            .children(self.added_toast())
+            .children(self.deleting_toast(cx))
+            .children(self.added_toast(cx))
             .children(self.tree_toast(cx))
             .children(self.pr_notice(cx))
     }
@@ -826,7 +834,7 @@ impl Render for Desktop {
                     || this.explorer.cancel_edit()
                     || this.sidebar.cancel_rename()
                     || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
-                    || this.close_picker(cx)
+                    || this.new_form.update(cx, |f, cx| f.close_picker(cx))
                     || this.escape_composer_menu()
                     || this.close_menus(cx)
                     || this.chat_escape_dock(window, cx)
@@ -835,7 +843,7 @@ impl Render for Desktop {
                     cx.notify();
                 } else if this.overlay.is_some_and(|o| o != Overlay::Palette) {
                     this.close_overlay(window, cx);
-                } else if this.overlay.is_none() && this.new_form.shown && this.screen == Screen::Sessions && !this.idle_main() {
+                } else if this.overlay.is_none() && this.new_form.read(cx).shown && this.screen == Screen::Sessions && !this.idle_main() {
                     this.leave_new_session(window, cx);
                 } else if this.overlay.is_some() || !this.escape_screen(window, cx) {
                     return;

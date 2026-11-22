@@ -662,7 +662,7 @@ const STEPS: [(&str, Step); 302] = [
         d.switch_space(Space::Host("devbox".into()), window, cx);
     }),
     // The new-session page's machine pill, with devbox's app-ios the twin of this Mac's (FIXTURE_HOST_FILES=1).
-    ("form-machine", |d, _, cx| d.toggle_picker(Picker::Machine, cx)),
+    ("form-machine", |d, _, cx| d.new_form.update(cx, |f, cx| f.toggle_picker(Picker::Machine, cx))),
     ("form-app-ios", |d, window, cx| {
         if let Some(p) = d.projects().into_iter().find(|p| p.ends_with("/code/app-ios") && !p.starts_with("//")) {
             d.new_place(p, window, cx);
@@ -807,7 +807,8 @@ const STEPS: [(&str, Step); 302] = [
             ..Default::default()
         };
         let repo = d.project.clone();
-        d.new_form.composer.update(cx, |c, _| c.draft.choose(repo, pick));
+        let composer = d.new_form.read(cx).composer.clone();
+        composer.update(cx, |c, _| c.draft.choose(repo, pick));
         cx.notify();
     }),
     // Hermes still listing its models, and this Mac's agents: the others say how to install them.
@@ -840,12 +841,12 @@ const STEPS: [(&str, Step); 302] = [
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("new-scratch", |d, window, cx| d.new_session_without_project(window, cx)),
     ("form-model", |d, window, cx| {
-        let (pick, repo) = (d.new_form_pick(cx), d.new_form.project().map(str::to_string));
-        let composer = d.new_form.composer.clone();
+        let (pick, repo) = (d.new_form_pick(cx), d.new_form.read(cx).project().map(str::to_string));
+        let composer = d.new_form.read(cx).composer.clone();
         composer.update(cx, |c, cx| c.toggle_model(&pick.provider, repo.as_deref(), window, cx));
     }),
     ("form-access", |d, _, cx| {
-        let composer = d.new_form.composer.clone();
+        let composer = d.new_form.read(cx).composer.clone();
         composer.update(cx, |c, cx| _ = c.toggle(Menu::Access, cx))
     }),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
@@ -1155,8 +1156,8 @@ const STEPS: [(&str, Step); 302] = [
     ("local-menu", |d, _, _| d.row_menu = d.project.clone().map(|project| RowMenu::Local { project, local: "local-review".into() })),
     ("rename-local", |d, window, cx| d.start_rename("local-review".into(), window, cx)),
     ("delete-local", |d, _, cx| d.ask_delete_local("local-review".into(), cx)),
-    ("form-checkout", |d, _, cx| d.toggle_picker(Picker::Checkout, cx)),
-    ("form-project", |d, _, cx| d.toggle_picker(Picker::Project, cx)),
+    ("form-checkout", |d, _, cx| d.new_form.update(cx, |f, cx| f.toggle_picker(Picker::Checkout, cx))),
+    ("form-project", |d, _, cx| d.new_form.update(cx, |f, cx| f.toggle_picker(Picker::Project, cx))),
     ("new-place", |d, window, cx| {
         if let Some(p) = d.project.clone() {
             d.new_place(p, window, cx);
@@ -1407,7 +1408,7 @@ fn point_arg(s: &str) -> Option<Point<Pixels>> {
 /// Lists `entry`'s models in whichever model panel is open, its tab in the rail's view.
 fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) {
     let tab = d.offered().iter().position(|p| *p == entry).map_or(0, |at| at + 1);
-    let homes = [Held::Composer(d.new_form.composer.clone()), Held::Chat, Held::Composer(d.automations.read(cx).form.composer.clone())];
+    let homes = [Held::Composer(d.new_form.read(cx).composer.clone()), Held::Chat, Held::Composer(d.automations.read(cx).form.composer.clone())];
     for held in homes {
         if held.edit(d, cx, |draft| draft.menu == Some(Menu::Model)) {
             held.edit(d, cx, |draft| {

@@ -8,8 +8,8 @@ const STRIP: f32 = 40.;
 
 impl Desktop {
     /// Floats `toast` `offset` in from the main area's bottom-right corner, or from its top-right under the pane strip while a chat shows, clear of the chat's composer.
-    pub(crate) fn float<E: Styled>(&self, toast: E, offset: f32) -> E {
-        let shown = self.session_tree().and_then(|t| self.workspaces.get(&t)).map(|w| w.shown()).unwrap_or_default();
+    pub(crate) fn float<E: Styled>(&self, toast: E, offset: f32, cx: &App) -> E {
+        let shown = self.session_tree(cx).and_then(|t| self.workspaces.get(&t)).map(|w| w.shown()).unwrap_or_default();
         let toast = toast.absolute().right(px(16.));
         if over_chat(shown.iter().map(|(_, t)| *t), |t| self.chat_shown(t)) { toast.top(px(STRIP + offset)) } else { toast.bottom(px(offset)) }
     }
@@ -43,7 +43,7 @@ impl Desktop {
             }))
         });
         let toast = self
-            .float(ui::pop(div()).id("error-toast"), if self.removals.label().is_some() { 56. } else { 16. })
+            .float(ui::pop(div()).id("error-toast"), if self.removals.label().is_some() { 56. } else { 16. }, cx)
             .w(px(300.))
             .pl(px(12.))
             .pr(px(10.))
@@ -60,10 +60,10 @@ impl Desktop {
     }
 
     /// Worktrees being deleted, floated under the error toast until their folders are gone from git.
-    pub(crate) fn deleting_toast(&self) -> Option<impl IntoElement> {
+    pub(crate) fn deleting_toast(&self, cx: &App) -> Option<impl IntoElement> {
         let label = self.removals.label()?;
         let toast = self
-            .float(ui::pop(div()), 16.)
+            .float(ui::pop(div()), 16., cx)
             .h(px(32.))
             .px(px(12.))
             .flex()

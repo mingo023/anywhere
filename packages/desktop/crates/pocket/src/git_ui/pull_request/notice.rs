@@ -9,7 +9,7 @@ impl Desktop {
         let raised = self.removals.label().is_some() || self.chat.added.is_some();
         let undo = notice.undo.is_some().then(|| ui::link("pr-undo", "Undo").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.undo_pr(cx))));
         let toast = self
-            .float(ui::pop(div()), if raised { 56. } else { 16. })
+            .float(ui::pop(div()), if raised { 56. } else { 16. }, cx)
             .h(px(32.))
             .px(px(12.))
             .flex()

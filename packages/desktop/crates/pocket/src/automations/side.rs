@@ -1,5 +1,3 @@
-use crate::composer::AccessChip;
-use crate::composer::model_menu::Launch;
 use agents::Permission;
 use std::collections::HashMap;
 use store::prefs::Automations as Defaults;
@@ -24,10 +22,4 @@ pub(crate) struct Side {
     pub(crate) folder: String,
     /// Left padding of the list's header, past the window's lights.
     pub(crate) lead: f32,
-}
-
-/// What the editor's model pill and access chip draw from.
-pub(crate) struct Chips {
-    pub(crate) launch: Launch,
-    pub(crate) access: AccessChip,
 }

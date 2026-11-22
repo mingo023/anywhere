@@ -38,7 +38,7 @@ impl Desktop {
             let at = window.mouse_position();
             this.update(cx, |this, cx| {
                 this.panels.pane_drag = Some(Held { from: Source::Pane(p), aim: None, at: (at.x.into(), at.y.into()) });
-                this.freeze_pages(window);
+                this.freeze_pages(window, cx);
                 cx.notify();
             })
             .ok();

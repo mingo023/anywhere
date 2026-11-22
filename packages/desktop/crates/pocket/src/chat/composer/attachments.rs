@@ -7,7 +7,7 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use theme::*;
 
-pub(crate) fn attach_button(id: impl Into<ElementId>, held: Held, cx: &mut Context<Desktop>) -> Stateful<Div> {
+pub(crate) fn attach_button(id: impl Into<ElementId>, press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
     div()
         .id(id)
         .size(px(32.))
@@ -21,13 +21,10 @@ pub(crate) fn attach_button(id: impl Into<ElementId>, held: Held, cx: &mut Conte
         .active(|s| s.bg(FILL_4))
         .child(icon("plus", 17., TEXT_2))
         .tooltip(|window, cx| Tooltip::new("Attach files").build(window, cx))
-        .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-            cx.stop_propagation();
-            attach_files(this, held.clone(), window, cx);
-        }))
+        .capture_any_mouse_down(press)
 }
 
-fn attach_files(d: &mut Desktop, held: Held, window: &mut Window, cx: &mut Context<Desktop>) {
+pub(crate) fn attach_files(d: &mut Desktop, held: Held, window: &mut Window, cx: &mut Context<Desktop>) {
     held.edit(d, cx, |draft| draft.menu = None);
     d.pick_path(false, window, cx, move |d, paths, _, cx| {
         held.edit(d, cx, |draft| draft.drop_files(&paths));

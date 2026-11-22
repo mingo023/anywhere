@@ -216,7 +216,8 @@ impl Desktop {
             self.close_pane(&term, cx);
         }
         if connected && host.is_none() {
-            self.new_form.offer_locals(self.agents.locals_offered());
+            let offered = self.agents.locals_offered();
+            self.new_form.update(cx, |f, _| f.offer_locals(offered));
             self.leave_unoffered_automations();
             self.leave_unoffered_board();
         }
@@ -285,7 +286,8 @@ impl Desktop {
                 self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
             }
             Event::Skills { provider, account, project, commands } => {
-                self.new_form.suggest.listed(crate::chat::composer::suggest::launch_key(&provider, &account, &project), commands);
+                let key = crate::chat::composer::suggest::launch_key(&provider, &account, &project);
+                self.new_form.update(cx, |f, _| f.suggest.listed(key, commands));
                 self.suggest(crate::chat::composer::suggest::Prompt::Launch, cx);
             }
             Event::Mcp { agent, servers, auth_url, acted } => {
