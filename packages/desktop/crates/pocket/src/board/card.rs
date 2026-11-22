@@ -230,8 +230,11 @@ impl Board {
         .on_mouse_down(MouseButton::Right, cx.listener(move |this, e: &MouseDownEvent, _, cx| this.open_card_menu(&menu_id, e.position, None, cx)))
     }
 
-    pub(super) fn ticket_card(&self, slot: Slot, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn ticket_card(&self, slot: Slot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(t) = self.shown_ticket(slot.col, slot.index) else { return div().into_any_element() };
+        if !self.has_extra(t, window) {
+            return div().into_any_element();
+        }
         let col = slot.col;
         let (picked, at_cursor) = (self.selection.picked.contains(&t.id), self.selection.cursor.as_ref() == Some(&t.id));
         let hoverable = opens(t, self.extra(t).reach).is_some() && !picked;

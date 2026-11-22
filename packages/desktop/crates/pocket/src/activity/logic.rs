@@ -1,7 +1,6 @@
 use crate::status::Status;
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap};
-use std::ops::Range;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Col {
@@ -160,14 +159,6 @@ impl Grouped {
     }
 }
 
-pub(crate) fn drawn_cards(top: usize, viewport: f32, overdraw: f32, min_card: f32, len: usize) -> Range<usize> {
-    if viewport <= 0. {
-        return 0..len;
-    }
-    let reach = ((viewport + 2. * overdraw) / min_card).ceil() as usize + 1;
-    top.saturating_sub(reach / 2).min(len)..(top + reach).min(len)
-}
-
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct Filters {
     pub query: String,
@@ -285,15 +276,6 @@ mod tests {
 
     fn ids(items: &[Item], columns: &Columns, col: Col) -> Vec<String> {
         columns[col as usize].iter().map(|&i| items[i].id.clone()).collect()
-    }
-
-    #[test]
-    fn a_column_draws_only_the_cards_near_its_viewport() {
-        assert_eq!(drawn_cards(0, 0., 400., 50., 500), 0..500);
-        assert_eq!(drawn_cards(0, 800., 400., 50., 500), 0..33);
-        assert_eq!(drawn_cards(100, 800., 400., 50., 500), 84..133);
-        assert_eq!(drawn_cards(490, 800., 400., 50., 500), 474..500);
-        assert_eq!(drawn_cards(0, 800., 400., 50., 0), 0..0);
     }
 
     #[test]

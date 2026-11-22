@@ -85,8 +85,11 @@ impl Board {
             }))
     }
 
-    fn ticket_row(&self, slot: Slot, cx: &mut Context<Self>) -> AnyElement {
+    fn ticket_row(&self, slot: Slot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(t) = self.shown_ticket(slot.col, slot.index) else { return div().into_any_element() };
+        if !self.has_extra(t, window) {
+            return div().into_any_element();
+        }
         let col = slot.col;
         let props = self.props;
         let title = div()
@@ -155,9 +158,9 @@ impl Board {
     pub(super) fn board_list(&mut self, cx: &mut Context<Self>) -> Div {
         let rows = list(
             self.rows_list.clone(),
-            cx.processor(|this, ix, _, cx| match this.rows.get(ix).copied() {
+            cx.processor(|this, ix, window, cx| match this.rows.get(ix).copied() {
                 Some(Row::Head(col)) => this.section_head(col, ix == 0, cx),
-                Some(Row::Ticket(slot)) => this.ticket_row(slot, cx),
+                Some(Row::Ticket(slot)) => this.ticket_row(slot, window, cx),
                 None => div().into_any_element(),
             }),
         )

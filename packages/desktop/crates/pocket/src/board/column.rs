@@ -31,9 +31,9 @@ impl Board {
         let empty = self.columns[col as usize].is_empty().then(|| empty_hint(col.hint()));
         let cards = list(
             self.lists[col as usize].clone(),
-            cx.processor(move |this, ix, _, cx| {
+            cx.processor(move |this, ix, window, cx| {
                 let index = this.columns[col as usize].get(ix).copied();
-                index.map_or_else(|| div().into_any_element(), |index| this.ticket_card(Slot { col, pos: ix, index }, cx))
+                index.map_or_else(|| div().into_any_element(), |index| this.ticket_card(Slot { col, pos: ix, index }, window, cx))
             }),
         )
         .flex_1()

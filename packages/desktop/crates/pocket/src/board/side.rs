@@ -25,7 +25,7 @@ pub(crate) struct Project {
 
 #[derive(Default)]
 pub(crate) struct Side {
-    pub(crate) extras: HashMap<usize, Extra>,
+    pub(crate) extras: HashMap<String, Extra>,
     pub(crate) pickable: Vec<String>,
     pub(crate) projects: HashMap<String, Project>,
     pub(crate) labels: HashMap<String, String>,

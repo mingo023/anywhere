@@ -25,6 +25,7 @@ mod views;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen, popup_closing};
 use crate::git_ui::pull_requests::glyph as pr_glyph;
+use crate::util::drawn_cards;
 use agents::tickets::{Board as Snapshot, State, Ticket, TicketDraft};
 use agents::{Decision, Outbox};
 pub(crate) use card_menu::PropChange;
@@ -32,13 +33,18 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use logic::{
     Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Opens, Order, Props, Row, Slot, Surface, Tab, arrange, board_cols, board_key,
-    closed_note, column, escape, hidden_by, opens, page_ids, rows, tab_count, ticket_key,
+    closed_note, column, drawn_rows, escape, hidden_by, opens, page_ids, rows, tab_count, ticket_key,
 };
 use selection::{Selection, walk};
 use side::{Extra, Pr, Project, Side};
 use std::collections::HashSet;
 use std::sync::Arc;
 use toast::Toast;
+
+const OVERDRAW: f32 = 400.;
+/// Lower bounds on a card's and a list row's height, so the drawn range errs wide.
+const MIN_CARD_HEIGHT: f32 = 40.;
+const MIN_ROW_HEIGHT: f32 = 32.;
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub(crate) enum Layout {
@@ -173,9 +179,9 @@ impl Board {
             props: Props::default(),
             searching: false,
             page: None,
-            lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(),
+            lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(OVERDRAW))).collect(),
             rows: Vec::new(),
-            rows_list: ListState::new(0, ListAlignment::Top, px(400.)),
+            rows_list: ListState::new(0, ListAlignment::Top, px(OVERDRAW)),
             columns_scroll: ScrollHandle::new(),
             selection: Selection::default(),
             menu: None,
@@ -274,15 +280,33 @@ impl Board {
     }
 
     fn extra(&self, t: &Ticket) -> &Extra {
-        let index = self.tickets.tickets.iter().position(|x| x.id == t.id);
-        index.and_then(|i| self.side.extras.get(&i)).unwrap_or(&side::NO_EXTRA)
+        self.side.extras.get(&t.id).unwrap_or(&side::NO_EXTRA)
     }
 
+    /// Whether the ticket was asked for last frame; scrolled past what was, it asks for another.
+    fn has_extra(&self, t: &Ticket, window: &mut Window) -> bool {
+        let found = self.side.extras.contains_key(&t.id);
+        if !found {
+            window.request_animation_frame();
+        }
+        found
+    }
+
+    /// The tickets the frame builds: those near each list's viewport, and the ones a menu or the page names.
     fn wanted(&self) -> Vec<usize> {
+        let near = |list: &ListState, min: f32, len: usize| {
+            drawn_cards(list.logical_scroll_top().item_ix, f32::from(list.viewport_bounds().size.height), OVERDRAW, min, len)
+        };
         let drawn: Vec<usize> = if self.layout == Layout::List {
-            self.rows.iter().filter_map(|r| if let Row::Ticket(slot) = r { Some(slot.index) } else { None }).collect()
+            drawn_rows(&self.rows, near(&self.rows_list, MIN_ROW_HEIGHT, self.rows.len()))
         } else {
-            self.shown.iter().flat_map(|&col| self.columns[col as usize].iter().copied()).collect()
+            self.shown
+                .iter()
+                .flat_map(|&col| {
+                    let line = &self.columns[col as usize];
+                    line[near(&self.lists[col as usize], MIN_CARD_HEIGHT, line.len())].iter().copied()
+                })
+                .collect()
         };
         let menu = match &self.menu {
             Some(Menu::Card { id, .. } | Menu::Status { id, .. }) => Some(id.as_str()),
@@ -647,8 +671,8 @@ impl Desktop {
         let folders = b.named(&wanted);
         let extras = wanted
             .iter()
-            .filter_map(|&i| b.tickets.tickets.get(i).map(|t| (i, t)))
-            .map(|(i, t)| {
+            .filter_map(|&i| b.tickets.tickets.get(i))
+            .map(|t| {
                 let ask = self.agents.pending.iter().find(|p| p.agent_id == t.agent_id);
                 let extra = Extra {
                     reach: self.ticket_reach(t),
@@ -663,7 +687,7 @@ impl Desktop {
                     }),
                     diff: self.repos.get(&t.worktree).filter(|r| !r.files.is_empty()).map(|r| r.totals()),
                 };
-                (i, extra)
+                (t.id.clone(), extra)
             })
             .collect();
         let pickable = self.board_projects();

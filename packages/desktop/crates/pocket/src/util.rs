@@ -1,6 +1,7 @@
 use crate::fs::fs_at;
 use agents::locals::is_local;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use store::ProjectIcon;
 
@@ -151,9 +152,18 @@ pub fn first_line(s: &str) -> String {
     s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string()
 }
 
+/// The items of a virtualized list worth building: those near its viewport, or all of `len` before it has measured one.
+pub fn drawn_cards(top: usize, viewport: f32, overdraw: f32, min_card: f32, len: usize) -> Range<usize> {
+    if viewport <= 0. {
+        return 0..len;
+    }
+    let reach = ((viewport + 2. * overdraw) / min_card).ceil() as usize + 1;
+    top.saturating_sub(reach / 2).min(len)..(top + reach).min(len)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ago, ago_long, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
+    use super::{ago, ago_long, drawn_cards, first_line, folder, initials, list_dir, mark, tilde, tilde_in, tree_icon, untilde_in};
     use store::ProjectIcon;
     use store::prefs::files::Files;
 
@@ -240,5 +250,14 @@ mod tests {
     fn first_line_skips_blank_lines() {
         assert_eq!(first_line("\n  Tagged, changelog updated\nmore"), "Tagged, changelog updated");
         assert_eq!(first_line(""), "");
+    }
+
+    #[test]
+    fn a_column_draws_only_the_cards_near_its_viewport() {
+        assert_eq!(drawn_cards(0, 0., 400., 50., 500), 0..500);
+        assert_eq!(drawn_cards(0, 800., 400., 50., 500), 0..33);
+        assert_eq!(drawn_cards(100, 800., 400., 50., 500), 84..133);
+        assert_eq!(drawn_cards(490, 800., 400., 50., 500), 474..500);
+        assert_eq!(drawn_cards(0, 800., 400., 50., 0), 0..0);
     }
 }
