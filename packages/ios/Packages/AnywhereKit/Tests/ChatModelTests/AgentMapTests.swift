@@ -85,6 +85,9 @@ func theChipCountsTheAgents() {
     let all = Transcript(turns: [turn([agent("a", .running), agent("b", .running)], false)])
     #expect(AgentMap.chipLabel(spawned(all)) == (true, "2 agents"))
     #expect(AgentMap.summary(spawned(t)) == "3 agents · 2 working")
+    #expect(AgentMap.chipCount(spawned(t)) == "2/3")
+    #expect(AgentMap.chipCount(spawned(done)) == "1")
+    #expect(AgentMap.chipCount(spawned(all)) == "2")
 }
 
 @Test("the main agent hands off to the agents its turn ends with")

@@ -104,11 +104,26 @@ enum SessionText {
         return (["#\(item.number)"] + (item.draft ? ["Draft"] : []) + checks).joined(separator: " · ")
     }
 
-    /// The steps of a launch still to come after `last`, in pocketd's order.
-    static func stepsLeft(after last: String?) -> [String] {
-        let order = ["prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"]
+    /// Every step of a launch that makes a worktree, in pocketd's order.
+    static let launchSteps = ["prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"]
+
+    /// The steps of a launch still to come after `last`, in `order`.
+    static func stepsLeft(after last: String?, order: [String] = launchSteps) -> [String] {
         guard let last, let at = order.firstIndex(of: last) else { return [] }
         return Array(order[(at + 1)...])
+    }
+
+    static func launchWhere(_ plan: LaunchPlan, project: String?) -> String {
+        func branch(_ names: String?..., base: String?) -> String {
+            let name = names.compactMap { $0?.isEmpty == false ? $0 : nil }.first ?? "New worktree"
+            return base.flatMap { $0.isEmpty ? nil : "\(name) from \($0)" } ?? name
+        }
+        if let w = plan.worktree { return branch(w.branch, w.name, w.pr.map { "PR #\($0)" }, base: w.base) }
+        switch plan.spec.checkout {
+        case .new(let new): return branch(new.branch, new.name, base: new.base)
+        case .worktree(let path): return path.split(separator: "/").last.map(String.init) ?? path
+        case .local: return [project, "Local"].compactMap(\.self).joined(separator: " · ")
+        }
     }
 
     /// A launch step as the desktop labels it (`Step::label` in `pocket/src/creating.rs`).

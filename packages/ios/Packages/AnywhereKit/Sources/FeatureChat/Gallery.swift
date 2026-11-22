@@ -84,6 +84,14 @@ public enum ChatGallery {
                 }
             }
         }
+        // iPad split view and Display Zoom leave the bar too narrow for every pill.
+        let narrow = [false, true].map { dark in
+            GalleryScene(dark ? "chat-composer-pills-narrow-dark" : "chat-composer-pills-narrow", size: CGSize(width: 320, height: 568), dark: dark) {
+                let s = store(Sample.chat("long-markdown"), goal: Goal(objective: "every golden test passes", status: "active"), chatOnly: true, access: "full")
+                s.draft.text = "Keep the lanes stable across refreshes"
+                return AnyView(NavigationStack { ChatScreen(store: s, machine: "Mingo's MacBook Pro", host: HostModel.offline(hello: Sample.hello, messages: []), openLink: { _ in }, live: false) })
+            }
+        }
         let subAgents = [
             ("chat-subagent-working", "background-agents", "tu-a1"), ("chat-subagent-report", "subagent-brief-report", "tu-t1"),
             ("chat-subagent-gone", "background-agents", "tu-none"),
@@ -96,7 +104,7 @@ public enum ChatGallery {
                 }
             }
         }
-        return chats + subAgents
+        return chats + narrow + subAgents
     }
 
     struct Entry {

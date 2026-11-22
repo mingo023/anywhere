@@ -3,21 +3,21 @@ import FileIcons
 import SwiftUI
 import Wire
 
-/// A file's status as one tinted letter, as the desktop's Changes list marks it.
+/// A file's status as GitHub's tinted square marks it.
 @MainActor
-struct StatusLetter: View {
+struct FileStatusMark: View {
     let status: FileStatus
 
     var body: some View {
-        Text(GitText.letter(status))
-            .font(.system(.caption, design: .monospaced, weight: .bold))
+        Image(systemName: GitText.glyph(status))
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(GitText.tint(status).color)
             .frame(width: 16)
             .accessibilityLabel(GitText.status(status))
     }
 }
 
-/// One changed file: its letter, icon, name and folder, and its line counts.
+/// One changed file: its status mark, icon, name and folder, and its line counts.
 @MainActor
 struct FileRow: View, Equatable {
     let path: String
@@ -34,7 +34,7 @@ struct FileRow: View, Equatable {
         let _ = BodyCount.hit("FileRow")
         let (name, dir) = GitText.split(path)
         HStack(spacing: Space.s) {
-            StatusLetter(status: status)
+            FileStatusMark(status: status)
             MaterialIcon(path)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
@@ -57,7 +57,7 @@ struct FileRow: View, Equatable {
     }
 }
 
-/// A file's added and removed lines in their diff colours, or that it's binary.
+/// A file's added and removed lines in their diff colours and GitHub's diffstat blocks, or that it's binary.
 @MainActor
 struct LineCounts: View, Equatable {
     let added: Int?
@@ -71,9 +71,32 @@ struct LineCounts: View, Equatable {
             } else {
                 if let added, added > 0 { Text("+\(added)").foregroundStyle(Palette.diffAddText.color) }
                 if let removed, removed > 0 { Text("−\(removed)").foregroundStyle(Palette.diffDelText.color) }
+                if (added ?? 0) + (removed ?? 0) > 0 { Diffstat(added: added ?? 0, removed: removed ?? 0) }
             }
         }
         .font(Typography.digits)
+    }
+}
+
+/// GitHub's five diffstat blocks.
+@MainActor
+private struct Diffstat: View {
+    let added: Int
+    let removed: Int
+
+    var body: some View {
+        let blocks = GitText.diffstat(added: added, removed: removed)
+        HStack(spacing: 1.5) {
+            ForEach(0..<5, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1.5).fill(tint(i, blocks).color).frame(width: 7, height: 7)
+            }
+        }
+        .padding(.leading, Space.xxs)
+        .accessibilityHidden(true)
+    }
+
+    private func tint(_ i: Int, _ blocks: (added: Int, removed: Int, neutral: Int)) -> Token {
+        i < blocks.added ? Palette.diffAddText : i < blocks.added + blocks.removed ? Palette.diffDelText : Palette.fill4
     }
 }
 

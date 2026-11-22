@@ -116,7 +116,27 @@ enum GitText {
         }
     }
 
-    nonisolated static func letter(_ s: FileStatus) -> String { s == .untracked ? "U" : s == .conflict ? "!" : s.rawValue }
+    /// GitHub's file-status octicon, as an SF Symbol: a square holding +, −, an arrow or a dot.
+    nonisolated static func glyph(_ s: FileStatus) -> String {
+        switch s {
+        case .added, .untracked: "plus.square"
+        case .deleted: "minus.square"
+        case .renamed: "arrow.right.square"
+        case .conflict: "exclamationmark.square"
+        default: "dot.square"
+        }
+    }
+
+    /// GitHub's diffstat: five blocks, green for added lines and red for removed in proportion, grey for the rest; a
+    /// change under five lines shows a block a line, and either side that has any keeps a block.
+    nonisolated static func diffstat(added: Int, removed: Int) -> (added: Int, removed: Int, neutral: Int) {
+        let total = added + removed
+        guard total > 5 else { return (added, removed, 5 - total) }
+        var green = Int((Double(added) / Double(total) * 5).rounded())
+        if added > 0 { green = max(green, 1) }
+        if removed > 0 { green = min(green, 4) }
+        return (green, 5 - green, 0)
+    }
 
     nonisolated static func tint(_ s: FileStatus) -> Token {
         switch s {

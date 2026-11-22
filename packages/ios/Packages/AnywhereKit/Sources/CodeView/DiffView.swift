@@ -310,8 +310,15 @@ struct DiffBlock: View {
         let (i, part) = index(row)
         let line = lines[i]
         if line.kind == .hunk { return [Cell(fill: DiffRow.fill(.hunk, dark: dark), text: texts.hunk(line), inset: Space.xs + Space.m)] }
-        let cell = Cell(fill: DiffRow.fill(line.kind, dark: dark), text: texts.row(line, gutter, part: part), inset: Space.xs)
-        return isPicked(i) ? [Cell(fill: selection), cell] : [cell]
+        // The selection goes over the line's tints, which are opaque in light mode.
+        let tints = [Cell(fill: DiffRow.fill(line.kind, dark: dark)), numbersCell(line.kind, gutter, x: 0)] + (isPicked(i) ? [Cell(fill: selection)] : [])
+        return tints + [Cell(text: texts.row(line, gutter, part: part), inset: Space.xs)]
+    }
+
+    /// GitHub's stronger tint behind an added or deleted line's numbers.
+    private func numbersCell(_ kind: UnifiedLine.Kind, _ gutter: CodeStyle.Gutter, x: CGFloat) -> Cell {
+        let columns = (gutter == .both ? 2 : 1) * (digits + 1)
+        return Cell(x: x, width: Space.xs + (CGFloat(columns) - 0.5) * DrawnText.advance(size), fill: DiffRow.gutterFill(kind, dark: dark))
     }
 
     /// Where code starts in a unified row, past its numbers and sign.
@@ -331,8 +338,8 @@ struct DiffBlock: View {
         let line = lines[i]
         let fill = DiffRow.fill(line.kind, dark: dark)
         guard line.kind != .hunk else { return [Cell(fill: fill)] }
-        let numbers = Cell(fill: fill, text: texts.numbers(line, gutter), inset: Space.xs)
-        return isPicked(i) ? [Cell(fill: selection), numbers] : [numbers]
+        let tints = [Cell(fill: fill), numbersCell(line.kind, gutter, x: 0)] + (isPicked(i) ? [Cell(fill: selection)] : [])
+        return tints + [Cell(text: texts.numbers(line, gutter), inset: Space.xs)]
     }
 
     private func pair(_ pair: SplitRow, _ texts: DiffTexts) -> [Cell] {
@@ -342,8 +349,8 @@ struct DiffBlock: View {
         func half(_ index: Int?, _ side: CodeStyle.Gutter, x: CGFloat) -> [Cell] {
             guard let index else { return [Cell(x: x, width: column, fill: DrawnText.cgColor(Palette.fill1.rgba(dark: dark)))] }
             let line = lines[index]
-            let cell = Cell(x: x, width: column, fill: DiffRow.fill(line.kind, dark: dark), text: texts.row(line, side), inset: Space.xs)
-            return isPicked(index) ? [Cell(x: x, width: column, fill: selection), cell] : [cell]
+            let tints = [Cell(x: x, width: column, fill: DiffRow.fill(line.kind, dark: dark)), numbersCell(line.kind, side, x: x)]
+            return tints + (isPicked(index) ? [Cell(x: x, width: column, fill: selection)] : []) + [Cell(x: x, width: column, text: texts.row(line, side), inset: Space.xs)]
         }
         return half(pair.left, .old, x: 0) + [Cell(x: column, width: 1, fill: DrawnText.cgColor(Palette.separator.rgba(dark: dark)))]
             + half(pair.right, .new, x: column + 1)
@@ -379,7 +386,7 @@ private struct DiffTexts {
         spans.texts.text(DiffRowKey(row: line.id, gutter: .both, dark: dark, size: hunkSize), coloured: true) {
             var runs = LineRuns()
             runs.append(line.text)
-            return DrawnText(runs, size: hunkSize, color: Palette.text3.rgba(dark: dark))
+            return DrawnText(runs, size: hunkSize, color: Palette.diffHunkText.rgba(dark: dark))
         }
     }
 }
@@ -401,8 +408,18 @@ enum DiffRow {
             switch kind {
             case .added: Palette.diffAddBackground
             case .deleted: Palette.diffDelBackground
-            case .hunk: Palette.fill2
+            case .hunk: Palette.diffHunkBackground
             case .context: nil
+            }
+        return token.map { DrawnText.cgColor($0.rgba(dark: dark)) }
+    }
+
+    nonisolated static func gutterFill(_ kind: UnifiedLine.Kind, dark: Bool) -> CGColor? {
+        let token: Token? =
+            switch kind {
+            case .added: Palette.diffAddGutter
+            case .deleted: Palette.diffDelGutter
+            default: nil
             }
         return token.map { DrawnText.cgColor($0.rgba(dark: dark)) }
     }

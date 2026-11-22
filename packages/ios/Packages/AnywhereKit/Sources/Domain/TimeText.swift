@@ -12,6 +12,18 @@ public enum TimeText {
         }
     }
 
+    /// "0:09", "12:30": a running clock, as the desktop's creating page.
+    public static func stopwatch(seconds: Int) -> String {
+        let s = max(seconds, 0)
+        return "\(s / 60):" + String(format: "%02d", s % 60)
+    }
+
+    /// "0.4s" under a minute, else the stopwatch, as the desktop's `took`.
+    public static func took(seconds: Double) -> String {
+        let tenths = (max(seconds, 0) * 10).rounded() / 10
+        return tenths < 60 ? String(format: "%.1fs", tenths) : stopwatch(seconds: Int(tenths))
+    }
+
     /// "now", "12m", "3h", "yesterday", "4d", as the desktop's `util::ago`; empty for no time.
     public static func ago(ms: Int, now: Int) -> String {
         guard ms > 0 else { return "" }

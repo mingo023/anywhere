@@ -100,6 +100,15 @@ public enum PullRequestText {
         }
     }
 
+    /// The state GitHub's badge names: Open, Draft, Merged or Closed.
+    public static func stateLabel(state: String, draft: Bool) -> String {
+        switch state {
+        case "MERGED": "Merged"
+        case "CLOSED": "Closed"
+        default: draft ? "Draft" : "Open"
+        }
+    }
+
     /// "5 passed · 1 skipped", leaving out what is none.
     public static func tally(_ parts: [(Int, String)]) -> String {
         parts.filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }.joined(separator: " · ")

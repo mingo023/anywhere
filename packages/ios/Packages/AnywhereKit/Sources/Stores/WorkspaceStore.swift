@@ -10,6 +10,8 @@ public struct Creation: Hashable, Sendable {
     public struct Step: Hashable, Sendable {
         public var step: String
         public var note: String?
+        /// When it began, as the phone heard of it.
+        public var at = Date()
     }
 
     public var kind: Kind
@@ -19,7 +21,9 @@ public struct Creation: Hashable, Sendable {
     public var cwd: String?
     /// The request id it goes out with when not its own, after pocketd answered the first with an error.
     public var requestId: String?
-    public var error: ServerError?
+    public var error: ServerError? {
+        didSet { ended = error == nil ? nil : ended ?? Date() }
+    }
     public var done = false
     /// The Local and worktree a launch made before a later step failed, so trying again starts there.
     public var madeLocal: String?
@@ -36,10 +40,20 @@ public struct Creation: Hashable, Sendable {
     public var agentId: String?
     /// A progress sheet shows it, and opens its chat when it starts.
     public var watched = false
+    public var started = Date()
+    /// When it failed, which stops its clock.
+    public var ended: Date?
+    /// It was tried again in the worktree it made, so pocketd runs only the agent's steps.
+    public private(set) var agentOnly = false
 
     /// The step running now, or the last one.
     public var current: String? { steps.last?.step }
     public var project: String? { plan?.spec.project }
+
+    /// How long step `i` took, once the next one began.
+    public func took(_ i: Int) -> TimeInterval? {
+        steps.indices.contains(i + 1) ? steps[i + 1].at.timeIntervalSince(steps[i].at) : nil
+    }
 
     /// The agent.create it sends: the same spec under the same request id each time, as pocketd joins or replays a
     /// request it has seen only when the spec matches.
@@ -47,6 +61,21 @@ public struct Creation: Hashable, Sendable {
         guard var spec = plan?.spec else { return nil }
         if let madeTree { spec.checkout = .worktree(madeTree) }
         return .init(requestId: requestId, spec: spec)
+    }
+
+    /// pocketd sends a step again with a note, and a launch that makes its worktree first sends Preparing again for its
+    /// agent; as the desktop's `Create::reach`, a step already listed only takes the note.
+    mutating func reach(_ step: String, note: String?) {
+        guard let i = steps.firstIndex(where: { $0.step == step }) else { return steps.append(Step(step: step, note: note)) }
+        if let note, !note.isEmpty { steps[i].note = note }
+    }
+
+    /// Trying again after a failure runs it from the start under a new request id, so its steps and clock start again.
+    mutating func again() {
+        agentOnly = madeTree != nil
+        steps = []
+        started = Date()
+        error = nil
     }
 
     /// pocketd answered with an error, and would give the same answer to the same request id for 10 minutes; trying
@@ -149,7 +178,7 @@ public final class WorkspaceStore: HostStore {
             return set(\.terminalCwds, cwds) || placed
         case .worktreeProgress(let p), .agentProgress(let p):
             guard let id = creation(sentAs: p.requestId) else { return false }
-            creations[id]?.steps.append(.init(step: p.step, note: p.note))
+            creations[id]?.reach(p.step, note: p.note)
             return true
         case .agentCreating(let m):
             guard let id = creation(sentAs: m.requestId) else { return false }
@@ -328,7 +357,7 @@ public final class WorkspaceStore: HostStore {
     /// the first. Trying again does the same, under a new request id when pocketd answered with an error.
     public func run(_ id: String) async {
         guard var c = creations[id], let plan = c.plan, !c.done else { return }
-        c.error = nil
+        if c.error != nil { c.again() }
         c.waiting = false
         creations[id] = c
         let requestId = c.requestId ?? id

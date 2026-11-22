@@ -133,6 +133,12 @@ public enum AgentMap {
         }
     }
 
+    /// The chip's words short of room: "1/2", or the count while none or all run.
+    public static func chipCount(_ map: [Spawned]) -> String {
+        let running = map.filter { $0.call.status == .running }.count
+        return running == 0 || running == map.count ? "\(map.count)" : "\(running)/\(map.count)"
+    }
+
     /// "4 agents · 2 working · 1 failed".
     public static func summary(_ map: [Spawned]) -> String {
         let working = map.filter { $0.call.status == .running }.count

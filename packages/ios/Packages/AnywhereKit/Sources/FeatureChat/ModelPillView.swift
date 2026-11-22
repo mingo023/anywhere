@@ -4,12 +4,14 @@ import Domain
 import SwiftUI
 import Wire
 
-/// The model and its effort, "Opus 4.5 High"; a menu of both once pocketd takes `agent.settings`.
+/// The model and its effort, "Opus 4.5 High", shortened to what `fit` leaves room for; a menu of both once pocketd takes
+/// `agent.settings`.
 @MainActor
 struct ModelPillView: View {
     let agent: AgentSummary
     let efforts: [String]
     let editable: Bool
+    var fit = PillFit.full
     let pick: (_ model: String?, _ effort: String?) -> Void
 
     var body: some View {
@@ -31,9 +33,10 @@ struct ModelPillView: View {
         let (model, effort) = ModelPill.label(agent)
         return PillLabel(opens: editable) {
             BrandMark(agent.provider, size: 13)
-            Text(model).foregroundStyle(Palette.text.color)
-            if let effort { Text(effort).fontWeight(.regular).foregroundStyle(Palette.text3.color) }
+            if fit < .icons { Text(model).foregroundStyle(Palette.text.color) }
+            if fit == .full, let effort { Text(effort).fontWeight(.regular).foregroundStyle(Palette.text3.color) }
         }
+        .accessibilityLabel([model, effort].compactMap(\.self).joined(separator: " "))
     }
 }
 

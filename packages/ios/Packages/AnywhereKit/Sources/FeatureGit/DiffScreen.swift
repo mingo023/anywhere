@@ -312,7 +312,7 @@ struct DiffScreen: View {
     }
 }
 
-/// The file's letter, icon, path or rename, and its counts above its diff.
+/// The file's status mark, icon, path or rename, and its counts above its diff.
 @MainActor
 private struct DiffHeader: View {
     let path: String
@@ -321,7 +321,7 @@ private struct DiffHeader: View {
 
     var body: some View {
         HStack(spacing: Space.s) {
-            if let status { StatusLetter(status: status) }
+            if let status { FileStatusMark(status: status) }
             MaterialIcon(path)
             Text(doc?.oldPath.map { "\($0) → \(path)" } ?? path)
                 .font(Typography.codeSmall)

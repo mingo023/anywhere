@@ -214,3 +214,25 @@ import Wire
     #expect(HistoryScreen.labels("u", tips: tips, head: head).map(\.name) == ["origin/calm-otter"])
     #expect(HistoryScreen.labels("x", tips: tips, head: head).isEmpty)
 }
+
+@Suite("GitHub marks")
+struct GitHubMarksTests {
+    @Test("a diffstat is five blocks: a block a line under five, else in proportion with each side that has any kept")
+    func diffstat() {
+        #expect(GitText.diffstat(added: 0, removed: 0) == (0, 0, 5))
+        #expect(GitText.diffstat(added: 3, removed: 2) == (3, 2, 0))
+        #expect(GitText.diffstat(added: 1, removed: 1) == (1, 1, 3))
+        #expect(GitText.diffstat(added: 69, removed: 1) == (4, 1, 0))
+        #expect(GitText.diffstat(added: 1, removed: 99) == (1, 4, 0))
+        #expect(GitText.diffstat(added: 50, removed: 0) == (5, 0, 0))
+    }
+
+    @Test("a file's status shows as GitHub's square: plus, minus, arrow, or a dot for a change")
+    func glyph() {
+        #expect(GitText.glyph(.added) == "plus.square")
+        #expect(GitText.glyph(.untracked) == "plus.square")
+        #expect(GitText.glyph(.deleted) == "minus.square")
+        #expect(GitText.glyph(.renamed) == "arrow.right.square")
+        #expect(GitText.glyph(.modified) == "dot.square")
+    }
+}

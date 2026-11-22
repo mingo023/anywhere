@@ -92,16 +92,21 @@ struct PullRequestCard: View {
         }
     }
 
+    /// GitHub's header: the title and number, the state badge and where the branch goes (`pr.head` is only a commit, so
+    /// the tree's own branch names it), then the verdict while open.
     private var header: some View {
         Section {
             VStack(alignment: .leading, spacing: Space.s) {
+                (Text(pr.title).foregroundStyle(Palette.text.color) + Text(" #\(pr.number)").fontWeight(.regular).foregroundStyle(Palette.text3.color))
+                    .font(Typography.title)
                 HStack(spacing: Space.s) {
+                    PrStateBadge(state: pr.state, draft: pr.draft)
+                    BranchRoute(base: pr.base, head: newPr.branch, commits: commits)
+                }
+                if pr.state == "OPEN", model.busy != nil || pr.gate != .draft {
                     let (tone, text) = PullRequestText.verdict(pr, busy: model.busy)
                     PrPill(text: text, tone: tone, systemImage: model.busy == nil ? nil : "hourglass", dot: model.busy == nil)
-                    Text("#\(pr.number)").font(Typography.subheadline).foregroundStyle(Palette.text3.color)
                 }
-                Text(pr.title).font(Typography.title).foregroundStyle(Palette.text.color)
-                Text(line).font(Typography.codeSmall).foregroundStyle(Palette.text3.color).lineLimit(1).truncationMode(.middle)
             }
             .padding(.vertical, Space.xs)
         }
@@ -109,9 +114,12 @@ struct PullRequestCard: View {
         .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: 0, trailing: Space.xs))
     }
 
-    /// The branch into its base; `pr.head` is only a commit, so the tree's own branch names it.
-    private var line: String {
-        newPr.branch.map { PullRequestText.headLine(branch: $0, base: pr.base, ahead: newPr.ahead) } ?? "into \(pr.base)"
+    /// The branch's commits ahead, which are the PR's only while it is open into the base they were counted from.
+    private var commits: Int? {
+        guard pr.state == "OPEN", newPr.branch != nil, let base = newPr.base,
+            PullRequestText.baseBranch(base) == PullRequestText.baseBranch(pr.base)
+        else { return nil }
+        return newPr.ahead
     }
 
     private var threads: some View {

@@ -69,12 +69,18 @@ public enum Palette {
     public static let agentOmp = Token.fixed(0x9362f4ff)
     public static let agentAntigravity = Token.fixed(0x3186ffff)
 
-    public static let diffAddBackground = Token.fixed(0x30a46c1c)
-    public static let diffAddText = Token(0x18794eff, 0x3dd68cff)
-    public static let diffDelBackground = Token.fixed(0xe5484d17)
-    public static let diffDelText = Token(0xcd2b31ff, 0xff9592ff)
-    public static let diffAddWord = Token.fixed(0x30a46c40)
-    public static let diffDelWord = Token.fixed(0xe5484d38)
+    /// GitHub's diff colours (Primer's `diffBlob-*`): a line's tint, its numbers' stronger one, its changed words', and
+    /// the hunk header's blue.
+    public static let diffAddBackground = Token(0xdafbe1ff, 0x2ea04326)
+    public static let diffAddGutter = Token(0xaceebbff, 0x3fb9504d)
+    public static let diffAddText = Token(0x1a7f37ff, 0x3fb950ff)
+    public static let diffDelBackground = Token(0xffebe9ff, 0xf851491a)
+    public static let diffDelGutter = Token(0xffcecbff, 0xf851494d)
+    public static let diffDelText = Token(0xd1242fff, 0xf85149ff)
+    public static let diffAddWord = Token(0x2da44e40, 0x2ea04366)
+    public static let diffDelWord = Token(0xff818266, 0xf8514966)
+    public static let diffHunkBackground = Token(0xddf4ffff, 0x388bfd1a)
+    public static let diffHunkText = Token(0x59636eff, 0x9198a1ff)
 
     public static let graphHead = Token(0x1a5cffff, 0x57a3f8ff)
     public static let graphUpstream = Token(0x652d90ff, 0xad80d7ff)

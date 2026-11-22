@@ -190,3 +190,14 @@ struct DesignSystemTests {
         #expect(opened == chat)
     }
 }
+
+@Suite("Mascot")
+struct MascotTests {
+    @Test("rings rise off the antenna, then the mascot rests and blinks before the next beat")
+    func beat() {
+        #expect(MascotLook.waiting(0).rings[0] == .init(scale: 0.27, opacity: 0.75))
+        #expect(MascotLook.waiting(0.4) == MascotLook.still)
+        #expect(abs(MascotLook.waiting(0.9725).lid - 0.1) < 1e-3, "eyes shut mid-blink")
+        #expect(MascotLook.waiting(0.999).lid == 1)
+    }
+}
