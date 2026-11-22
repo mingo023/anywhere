@@ -215,7 +215,9 @@ impl Desktop {
         let agents = &self.agents;
         self.terminals.setups.retain(|term, _| !agents.list.iter().any(|a| &a.terminal_id == term));
         if self.screen == Screen::Inbox {
-            (self.inbox.selected, self.terminal.focused) = inbox::reselect(&self.shown_notes(), self.terminal.focused.as_deref(), self.inbox.selected);
+            let (selected, focused) = inbox::reselect(&self.shown_notes(cx), self.terminal.focused.as_deref(), self.inbox.read(cx).selected);
+            self.inbox.update(cx, |i, cx| i.select(selected, cx));
+            self.terminal.focused = focused;
         }
         if automations {
             self.automations_changed();

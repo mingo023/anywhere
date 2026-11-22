@@ -3,7 +3,7 @@ mod list;
 
 use crate::actions::OpenSession;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::Screen;
+use crate::desktop::chrome::{Screen, past_lights};
 use crate::status::Status;
 use crate::util::{basename, first_line};
 use agents::{Agents, Summary};
@@ -111,35 +111,116 @@ fn step(key: &str, selected: usize) -> Option<usize> {
     }
 }
 
-pub struct InboxState {
+/// A note as the list draws it: `Desktop` hands over the names it looked up.
+pub(crate) struct Row {
+    pub(crate) note: Note,
+    pub(crate) project: String,
+    pub(crate) provider: String,
+    /// The heading this row opens, when the list is in urgent order.
+    pub(crate) heading: Option<(String, usize)>,
+}
+
+pub(crate) enum InboxEvent {
+    /// A key or a filter pick moved the selection to this note; `Desktop` clamps it and focuses its terminal.
+    Select(usize),
+    MarkAllSeen,
+    Open {
+        agent: String,
+        mark_seen: bool,
+    },
+}
+
+pub struct Inbox {
     pub(crate) selected: usize,
     pub(crate) focus: FocusHandle,
     pub(crate) filter: InboxFilter,
-    pub(crate) filter_open: bool,
+    filter_open: bool,
+    rows: Vec<Row>,
+    /// What `Desktop` hands down each time it draws the list: the left padding past the window's lights and the column's width.
+    lead: f32,
+    width: f32,
 }
 
-impl InboxState {
-    pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { selected: 0, focus: cx.focus_handle(), filter: InboxFilter::All, filter_open: false }
+impl EventEmitter<InboxEvent> for Inbox {}
+
+impl Inbox {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        Self { selected: 0, focus: cx.focus_handle(), filter: InboxFilter::All, filter_open: false, rows: Vec::new(), lead: 0., width: 0. }
+    }
+
+    pub(crate) fn set(&mut self, rows: Vec<Row>, lead: f32, width: f32) {
+        (self.rows, self.lead, self.width) = (rows, lead, width);
+    }
+
+    pub(crate) fn open(&mut self, filter: InboxFilter) {
+        (self.filter, self.filter_open) = (filter, false);
+    }
+
+    pub(crate) fn select(&mut self, i: usize, cx: &mut Context<Self>) {
+        self.selected = i;
+        cx.notify();
     }
 }
 
 impl Desktop {
     pub fn open_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.screen = Screen::Inbox;
-        (self.inbox.filter, self.inbox.filter_open) = (self.store.sidebar.inbox_filter, false);
+        let filter = self.store.sidebar.inbox_filter;
+        self.inbox.update(cx, |i, _| i.open(filter));
         self.select_note(0, cx);
-        window.focus(&self.inbox.focus, cx);
+        let focus = self.inbox.read(cx).focus.clone();
+        window.focus(&focus, cx);
     }
 
     fn select_note(&mut self, i: usize, cx: &mut Context<Self>) {
-        (self.inbox.selected, self.terminal.focused) = select(&self.shown_notes(), i);
+        let (i, terminal) = select(&self.shown_notes(cx), i);
+        self.inbox.update(cx, |ib, cx| ib.select(i, cx));
+        self.terminal.focused = terminal;
         cx.notify();
     }
 
     /// The notes the inbox lists, as the filter and Sort inbox by say.
-    pub(crate) fn shown_notes(&self) -> Vec<Note> {
-        arrange(notes(&self.agents), self.store.sidebar.inbox_sort, self.inbox.filter)
+    pub(crate) fn shown_notes(&self, cx: &App) -> Vec<Note> {
+        arrange(notes(&self.agents), self.store.sidebar.inbox_sort, self.inbox.read(cx).filter)
+    }
+
+    /// The list left of the page, handed its notes and the column's width.
+    pub(crate) fn inbox_list(&self, width: f32, cx: &mut Context<Self>) -> Entity<Inbox> {
+        let notes = self.shown_notes(cx);
+        let urgent = self.store.sidebar.inbox_sort == InboxSort::Urgent;
+        let headings: Vec<_> = (0..notes.len()).map(|i| heading(&notes, i).filter(|_| urgent)).collect();
+        let rows = notes
+            .into_iter()
+            .zip(headings)
+            .map(|(note, heading)| Row {
+                project: self.project_name(&note.agent),
+                provider: self.agents.get(&note.agent).map_or_else(|| "Shell".into(), |a| self.agent_name(&a.provider)),
+                note,
+                heading,
+            })
+            .collect();
+        let lead = past_lights(self.store.appearance.zoom_factor(), self.lead_width(), 16.);
+        self.inbox.update(cx, |i, _| i.set(rows, lead, width));
+        self.inbox.clone()
+    }
+
+    pub(crate) fn on_inbox_event(&mut self, _: &Entity<Inbox>, ev: &InboxEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            InboxEvent::Select(i) => self.select_note(*i, cx),
+            InboxEvent::MarkAllSeen => {
+                let ids = readable(notes(&self.agents));
+                if !ids.is_empty() {
+                    self.outbox.seen(&ids);
+                }
+                self.select_note(0, cx);
+            }
+            InboxEvent::Open { agent, mark_seen } => {
+                if *mark_seen {
+                    self.outbox.seen(std::slice::from_ref(agent));
+                }
+                self.focus_agent(agent, window, cx);
+            }
+        }
     }
 
     fn project_name(&self, agent: &str) -> String {
@@ -157,7 +238,7 @@ impl Desktop {
         if self.screen != Screen::Inbox {
             return;
         }
-        if let Some(n) = self.shown_notes().into_iter().nth(self.inbox.selected) {
+        if let Some(n) = self.shown_notes(cx).into_iter().nth(self.inbox.read(cx).selected) {
             self.focus_agent(&n.agent, window, cx);
         }
     }

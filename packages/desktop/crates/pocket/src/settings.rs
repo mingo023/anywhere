@@ -524,7 +524,8 @@ impl Desktop {
     pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.screen = self.settings.back.0;
         if self.screen == Screen::Inbox {
-            window.focus(&self.inbox.focus, cx);
+            let focus = self.inbox.read(cx).focus.clone();
+            window.focus(&focus, cx);
         }
         cx.notify();
     }

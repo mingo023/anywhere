@@ -10,7 +10,7 @@ use ui::{self, State, Variant, kbd};
 
 impl Desktop {
     pub fn inbox_detail(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let Some(n) = self.shown_notes().into_iter().nth(self.inbox.selected) else {
+        let Some(n) = self.shown_notes(cx).into_iter().nth(self.inbox.read(cx).selected) else {
             return drag_area(div()).flex_1().flex().items_center().justify_center().text_size(px(14.)).text_color(TEXT_3).child("You're all caught up.");
         };
         let path = self.project_path(&n.agent);

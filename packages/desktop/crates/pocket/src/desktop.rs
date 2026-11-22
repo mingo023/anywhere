@@ -37,7 +37,7 @@ use crate::git_ui::graph::GraphState;
 use crate::git_ui::pull_request::PullRequest;
 use crate::git_ui::pull_requests::PullRequests;
 use crate::host_agents::HostAgents;
-use crate::inbox::InboxState;
+use crate::inbox::Inbox;
 use crate::modals::pair_phone::PairPhone;
 use crate::modals::{add_project, clone_project, new_session};
 use crate::models::Models;
@@ -113,7 +113,7 @@ pub struct Desktop {
     pub(crate) explorer: ExplorerState,
     pub(crate) git_run: u64,
     pub(crate) git_done: u64,
-    pub(crate) inbox: InboxState,
+    pub(crate) inbox: Entity<Inbox>,
     pub(crate) activity: ActivityState,
     pub(crate) handoff: crate::handoff::HandoffState,
     pub(crate) automations: AutomationsState,
@@ -188,6 +188,8 @@ impl Desktop {
         let home = store.home().to_path_buf();
         let open_in = cx.new(|cx| OpenIn::new(&home, cx));
         let open_in_subs = cx.subscribe_in(&open_in, window, Self::on_open_in_event);
+        let inbox = cx.new(Inbox::new);
+        let inbox_subs = cx.subscribe_in(&inbox, window, Self::on_inbox_event);
         let terminals = Terminals::new(crate::terminals::sessions::config(&store.terminal));
         let root = cx.focus_handle();
         window.focus(&root, cx);
@@ -218,6 +220,7 @@ impl Desktop {
         _subs.push(palette_subs);
         _subs.push(star_subs);
         _subs.push(open_in_subs);
+        _subs.push(inbox_subs);
         _subs.extend(sidebar_subs);
         _subs.extend(settings_subs);
         _subs.extend(fleet_subs);
@@ -281,7 +284,7 @@ impl Desktop {
             panels: Panels::default(),
             open_in,
             browsers,
-            inbox: InboxState::new(cx),
+            inbox,
             activity,
             handoff,
             automations,

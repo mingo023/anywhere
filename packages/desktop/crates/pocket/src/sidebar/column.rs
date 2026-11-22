@@ -23,8 +23,12 @@ pub(crate) fn changes_badge(n: usize) -> Div {
 impl Desktop {
     /// The inbox or Automations list left of the page.
     pub(crate) fn column_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let list = if self.screen == Screen::Automations { self.automations_column(cx) } else { self.inbox_list(cx) };
-        let list = list.w(px(self.width(Column::Sessions, 348.)));
+        let width = self.width(Column::Sessions, 348.);
+        let list = if self.screen == Screen::Automations {
+            self.automations_column(cx).w(px(width))
+        } else {
+            div().h_full().flex_none().child(self.inbox_list(width, cx))
+        };
         self.resizable(list, Column::Sessions, cx)
     }
 
