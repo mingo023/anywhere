@@ -16,7 +16,7 @@ const GLOW: f32 = 300.;
 pub(crate) const BODY: u32 = 0x1a1a1e;
 pub(crate) const EYES: u32 = 0xf4f2ee;
 pub(crate) const LIGHT_ON: u32 = 0x8ee6cc;
-const LIGHT_OFF: u32 = 0x24302c;
+pub(crate) const LIGHT_OFF: u32 = 0x24302c;
 pub(crate) const GLOW_COLOR: u32 = 0x7a68bf;
 
 impl Desktop {
