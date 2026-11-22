@@ -426,9 +426,9 @@ public final class ChatStore: HostStore {
 
     public var action: Action { ChatModel.action(working: busy, stopping: stopping, empty: draft.isEmpty) }
 
-    public var uploading: Bool { draft.images.contains { $0.path == nil && !$0.failed } }
+    public var uploading: Bool { draft.images.uploading }
 
-    public var uploadFailed: Bool { draft.images.contains(where: \.failed) }
+    public var uploadFailed: Bool { draft.images.failed }
 
     public func hasCap(_ cap: String) -> Bool { caps.contains(cap) }
 
@@ -889,8 +889,7 @@ public final class ChatStore: HostStore {
     }
 
     func mark(_ id: String, _ change: (inout Attachment) -> Void) {
-        guard let at = draft.images.firstIndex(where: { $0.id == id }) else { return }
-        change(&draft.images[at])
+        draft.images.mark(id, change)
     }
 
     // MARK: Rows

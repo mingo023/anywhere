@@ -32,3 +32,18 @@ public enum Attachments {
     /// An upload id pocketd takes: 1 to 64 of A-Z a-z 0-9 _ -.
     public static func newId() -> String { UUID().uuidString.lowercased() }
 }
+
+extension [ChatStore.Attachment] {
+    /// An image is still on its way to the Mac.
+    public var uploading: Bool { contains { $0.path == nil && !$0.failed } }
+
+    public var failed: Bool { contains(where: \.failed) }
+
+    /// Where the landed images are on the Mac.
+    public var paths: [String] { compactMap(\.path) }
+
+    mutating func mark(_ id: String, _ change: (inout ChatStore.Attachment) -> Void) {
+        guard let at = firstIndex(where: { $0.id == id }) else { return }
+        change(&self[at])
+    }
+}

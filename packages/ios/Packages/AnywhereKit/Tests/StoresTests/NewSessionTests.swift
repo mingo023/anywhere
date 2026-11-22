@@ -1,4 +1,5 @@
 import Domain
+import Foundation
 import Testing
 import Wire
 @testable import Stores
@@ -118,5 +119,41 @@ struct NewSessionTests {
         draft.place = .newLocal
         draft.pick(project: "/a")
         #expect(draft.place == .newLocal)
+    }
+
+    @Test("attached images go in the first prompt as paths, after what was typed, or alone")
+    func imagesGoInThePrompt() {
+        let typed = draft(.tree("/w")) { $0.prompt = "match this" }.plan(taken: [], localId: "", localName: "", neverAsks: false, images: ["/att/a.png", "/att/b.png"])
+        #expect(typed.spec.prompt == "match this\n\n# Attached images\n\n- /att/a.png\n- /att/b.png")
+        let alone = draft(.newWorktree).plan(taken: [], localId: "", localName: "", neverAsks: false, images: ["/att/a.png"])
+        #expect(alone.spec.prompt == "# Attached images\n\n- /att/a.png")
+        #expect(draft(.tree("/w")).plan(taken: [], localId: "", localName: "", neverAsks: false).spec.prompt == nil)
+    }
+
+    @Test("an image still uploading, or one that failed, holds Start until it lands or goes")
+    @MainActor
+    func startWaitsOnImages() {
+        let images = LaunchImages(files: nil, macName: "Studio")
+        #expect(!images.blocksStart)
+        images.attach(Data([1]), name: "a.png")
+        #expect(images.list.first?.reason == "Not connected to Studio")
+        #expect(images.blocksStart)
+        let id = images.list[0].id
+        images.detach(id)
+        #expect(!images.blocksStart)
+        let uploading = LaunchImages(files: nil, macName: "Studio", list: [.init(id: "x", name: "b.png")])
+        #expect(uploading.blocksStart)
+        uploading.landed("x", "/att/b.png")
+        #expect(!uploading.blocksStart && uploading.list.paths == ["/att/b.png"])
+    }
+
+    @Test("an image that couldn't be read says so until the next one is picked")
+    @MainActor
+    func unreadableImage() {
+        let images = LaunchImages(files: nil, macName: "Studio")
+        images.unreadable()
+        #expect(images.notice == "Couldn't read that image")
+        images.attach(Data([1]), name: "a.png")
+        #expect(images.notice == nil)
     }
 }

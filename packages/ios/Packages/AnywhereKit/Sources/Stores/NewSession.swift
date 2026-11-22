@@ -1,3 +1,4 @@
+import ChatModel
 import Domain
 import Wire
 
@@ -88,12 +89,13 @@ public struct NewSessionDraft: Hashable, Sendable {
         AccessPill.confirms(access(neverAsks: neverAsks).rawValue, from: access.rawValue)
     }
 
-    /// The plan that starts this draft. `localId` names a new Local; `localName` is what it's called.
-    public func plan(taken: Set<String>, localId: String, localName: String, neverAsks: Bool) -> LaunchPlan {
-        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// The plan that starts this draft. `localId` names a new Local; `localName` is what it's called. `images` are where the
+    /// attached ones landed on the Mac, which the first prompt names as a chat's does.
+    public func plan(taken: Set<String>, localId: String, localName: String, neverAsks: Bool, images: [String] = []) -> LaunchPlan {
+        let text = ChatModel.prompt(prompt, images: images)
         var spec = LaunchSpec(
             project: project, checkout: .worktree(project), provider: provider, model: model.flatMap { $0.isEmpty ? nil : $0 },
-            effort: effort.flatMap { $0.isEmpty ? nil : $0 }, access: access(neverAsks: neverAsks), plan: plan, prompt: trimmed.isEmpty ? nil : trimmed,
+            effort: effort.flatMap { $0.isEmpty ? nil : $0 }, access: access(neverAsks: neverAsks), plan: plan, prompt: text.isEmpty ? nil : text,
             account: account.flatMap { $0.isEmpty ? nil : $0 }, chat: chat ? true : nil)
         var plan = LaunchPlan(spec: spec)
         switch place {

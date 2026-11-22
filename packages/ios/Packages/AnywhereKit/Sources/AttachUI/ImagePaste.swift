@@ -4,7 +4,7 @@
     extension View {
         /// Adds pasting an image to the edit menu of the text field this is on, where the system offers Paste only for text.
         /// `pasteDestination` needs iOS 27.
-        func pastesImages(_ attach: @escaping AttachMenu.Attach) -> some View {
+        public func pastesImages(_ attach: @escaping AttachMenu.Attach) -> some View {
             background(ImagePasteHook(attach: attach))
         }
     }
