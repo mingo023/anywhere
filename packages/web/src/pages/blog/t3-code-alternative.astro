@@ -1,0 +1,159 @@
+---
+import Blog from "../../layouts/Blog.astro";
+---
+<Blog title="T3 Code alternative – Anywhere, coding agent workspace" description="Anywhere vs T3 Code, two free MIT apps for coding agents: platforms, agents, phone apps, what happens when you close the window, and when T3 Code fits better." path="/blog/t3-code-alternative" article={{author: "Minh Ngo", published: "2026-11-18", modified: "2026-11-18"}}>
+	<script is:inline slot="head" type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "BlogPosting",
+			"@id": "https://getanywhere.dev/blog/t3-code-alternative#article",
+			"headline": "T3 Code alternative: Anywhere vs T3 Code",
+			"description": "Anywhere vs T3 Code, two free MIT apps for coding agents: platforms, agents, phone apps, what happens when you close the window, and when T3 Code fits better.",
+			"datePublished": "2026-11-18",
+			"dateModified": "2026-11-18",
+			"inLanguage": "en",
+			"keywords": "t3 code alternative, t3.codes alternative, anywhere vs t3 code, t3 code vs anywhere, control plane for coding agents, native app for coding agents",
+			"author": { "@type": "Person", "name": "Minh Ngo" },
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/blog/t3-code-alternative" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "FAQPage",
+			"mainEntity": [
+				{ "@type": "Question", "name": "What is a good T3 Code alternative?", "acceptedAnswer": { "@type": "Answer", "text": "T3 Code is a free, MIT-licensed control plane for the coding agents you already use, with desktop, web and phone clients. Anywhere is also free and MIT licensed. Its window is native Rust on GPUI, and its daemon, pocketd, keeps local sessions running after you close the window. It needs no account and promises no premium tier, ever." } },
+				{ "@type": "Question", "name": "Is T3 Code open source?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. T3 Code is MIT licensed, its source is in the pingdotgg/t3code repository, and its FAQ says there is no way to pay to use it. Anywhere is MIT licensed too, so open source is not what separates them." } },
+				{ "@type": "Question", "name": "Do agents keep running when I close the window?", "acceptedAnswer": { "@type": "Answer", "text": "In Anywhere, yes, by default. pocketd starts at login and owns the terminals and sessions, so closing the window doesn't stop an agent. T3 Code's remote-access docs say closing the desktop app's last window stops its local server. To keep a T3 Code host available without the window, you run t3 up or t3 service, which keep a background service running." } },
+				{ "@type": "Question", "name": "Which agents do T3 Code and Anywhere support?", "acceptedAnswer": { "@type": "Answer", "text": "T3 Code names Claude Code, Codex, Cursor, OpenCode, Grok Build, Antigravity, Kiro, Pi, Muse Code and fx, and says it runs any ACP agent. Anywhere runs a fixed list of ten CLIs: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity." } },
+				{ "@type": "Question", "name": "Do T3 Code and Anywhere have phone apps?", "acceptedAnswer": { "@type": "Answer", "text": "T3 Code has an iOS app on the App Store, an Android app on Google Play, and a web client at app.t3.codes. Anywhere's native iPhone and iPad app pairs with the Mac over Tailscale and is built and documented, but the site still lists it as coming soon. Anywhere has no Android or web client." } },
+				{ "@type": "Question", "name": "Is T3 Connect free?", "acceptedAnswer": { "@type": "Answer", "text": "T3 Code's FAQ says T3 Connect is free too, for now. Each T3 Connect account can link up to 3 machines, and a linked paid T3 Chat account raises that limit. LAN pairing and Tailscale work without T3 Connect. Anywhere has no hosted remote service: its phone app pairs over your own Tailscale network." } }
+			]
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Blog", "item": "https://getanywhere.dev/blog/" },
+				{ "@type": "ListItem", "position": 3, "name": "T3 Code alternative: Anywhere vs T3 Code", "item": "https://getanywhere.dev/blog/t3-code-alternative" }
+			]
+		}
+	]
+}
+	</script>
+	<div class="post-layout">
+		<main id="main">
+			<article>
+				<p class="eyebrow"><a href="/blog/">Blog</a> · Comparison</p>
+				<h1>T3 Code alternative: Anywhere vs T3 Code</h1>
+				<div class="post-meta">By Minh Ngo · Published <time datetime="2026-11-18">18 November 2026</time> · Updated <time datetime="2026-11-18">18 November 2026</time></div>
+				<p class="lede">T3 Code is a free, MIT-licensed control plane for the coding agents you already use, with desktop, web and phone clients. Anywhere is also free and MIT licensed. Its window is native Rust on GPUI, and its daemon, pocketd, keeps local sessions running after you close the window. It needs no account and promises no premium tier, ever.</p>
+				<div class="callout">
+					<p><span class="callout-title">Disclosure</span>The Anywhere team wrote this. T3 Code facts come from <a href="https://t3.codes/">t3.codes</a>, its <a href="https://t3.codes/download">download page</a>, and the README and user docs in <a href="https://github.com/pingdotgg/t3code">pingdotgg/t3code</a>, checked on 18 November 2026. Both projects ship often, so check the dates. If something here is out of date, <a href="https://github.com/mingo023/anywhere/issues">open an issue</a>.</p>
+				</div>
+
+				<h2 id="t3-code">T3 Code in one paragraph</h2>
+				<p>T3 Code is built by Theo and the T3 Tools team, in the <code>pingdotgg/t3code</code> repository. Its site calls it "The open-source control plane for coding agents" and goes on: "Orchestrate Claude Code, Codex, Antigravity, OpenCode, Cursor, and Grok from one surface. Bring your own subscription. Fork the whole thing." The README puts it this way: "T3 Code runs the coding agents on your machine and gives them one fast interface. Start a thread at your desk, then approve the next step from your phone." Its FAQ is clear that it sits on top of your agents: "It is not a harness, and it does not work without one." One server feeds desktop, web, and phone clients that show the same threads. The app is MIT licensed, and the FAQ says "There's no way to pay us to use T3 Code. You bring your own sub."</p>
+
+				<h2 id="anywhere">Anywhere in one paragraph</h2>
+				<p>Anywhere is a desktop app for watching and driving many coding agents at once. The window is Rust on GPUI. A Go background service, pocketd, owns the terminals and sessions. It runs the agent CLIs you already installed and signed in to, puts each session under a project and a git worktree, tells you which one needs you, and keeps the diff and the pull request beside the session. The desktop app, daemon, iPhone app, and push relay are all in one MIT-licensed repository.</p>
+
+				<h2 id="side-by-side">Side by side</h2>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th></th><th>Anywhere</th><th>T3 Code</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>License</td><td>MIT, public repository</td><td>MIT, public repository</td></tr>
+						<tr><td>Price of the app</td><td>$0</td><td>$0. "There's no way to pay us to use T3 Code"</td></tr>
+						<tr><td>Hosted services</td><td>None, apart from an optional push relay. The site lists cloud tier and premium tier as "Never"</td><td>T3 Connect, "free too, for now": up to 3 machines per account. A linked paid T3 Chat account raises the limit</td></tr>
+						<tr><td>Account</td><td>None</td><td>T3 Connect uses a T3 Connect account. LAN and Tailscale work without it</td></tr>
+						<tr><td>Desktop platforms</td><td>macOS 13 or later, universal, signed and notarized. Linux x86_64 and Windows x64 builds, unsigned, no updater</td><td>macOS on Apple Silicon and Intel, Windows 10 and 11, Linux (<code>.deb</code>, AppImage for x86_64 and arm64), with an updater. Homebrew, winget, Scoop, Arch, and Nix packages</td></tr>
+						<tr><td>Desktop stack</td><td>Rust on GPUI, with a Go daemon</td><td>Electron, in TypeScript</td></tr>
+						<tr><td>Agents</td><td>Ten CLIs you install: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent, Antigravity</td><td>Claude Code, Codex, Cursor, OpenCode, Grok Build, Antigravity, Kiro, Pi, Muse Code, fx, "and any ACP agent". Models can change mid-thread</td></tr>
+						<tr><td>Git</td><td>A worktree per session. Diffs, commits, and a pull request card</td><td>A worktree per thread. Inline diffs, then one button to commit, push, and open a PR. Draft, stack, and amend PRs</td></tr>
+						<tr><td>Closing the desktop window</td><td>Agents keep running. pocketd starts at login and owns the terminals</td><td>"Closing the desktop app's last window stops its local server." <code>t3 up</code> or <code>t3 service</code> keep a background service running</td></tr>
+						<tr><td>Phone and web</td><td>Native iPhone and iPad app that pairs over Tailscale, documented. The site still lists it as coming soon. No Android or web client</td><td>iOS on the App Store, Android on Google Play, and a web client at <code>app.t3.codes</code>. The phone is a remote; the computer stays on</td></tr>
+						<tr><td>Other machines</td><td>Mac, Linux, or Windows hosts over SSH</td><td>Any machine running T3 Code, over the local network, Tailscale, or T3 Connect</td></tr>
+						<tr><td>Scripting</td><td><code>anywhere</code> command and an agent skill</td><td><code>t3</code> command: <code>t3</code>, <code>t3 up</code>, <code>t3 service</code>, <code>t3 connect</code></td></tr>
+					</tbody>
+				</table>
+				</div>
+
+				<div class="cta">
+					<p>Read the source, then try it on your own repository.</p>
+					<a class="button primary" href="https://github.com/mingo023/anywhere">Star Anywhere on GitHub</a>
+					<a class="button" href="https://github.com/mingo023/anywhere/releases/latest">Download for Mac</a>
+				</div>
+
+				<h2 id="where-anywhere-is-different">Where Anywhere is different</h2>
+				<p>Both apps are free and MIT licensed, and both run the agent CLIs you already pay for. The differences are in how they are built and what they promise.</p>
+
+				<h3>A native window on GPUI</h3>
+				<p>Anywhere's window is Rust on <a href="https://www.gpui.rs">GPUI</a>, and the site's architecture line is "No Electron. No Tauri. Native all the way down." T3 Code's desktop app is Electron, written in TypeScript, per the <code>package.json</code> in its public repository. That is a toolkit choice, not a verdict: we don't publish benchmarks against other apps. If the window matters to you, open your largest repository in each and watch it while a few agents work. Why we went native is in <a href="/blog/native-mac-app-coding-agents-rust-gpui">Native, not Electron</a>.</p>
+
+				<h3>Local sessions outlive the window, with nothing to set up</h3>
+				<p>T3 Code's remote-access docs say: "Closing the desktop app's last window stops its local server." T3 Code does have a way to keep a host up without the window: <code>t3 up</code> or <code>t3 service</code>, which keep a background service running. In Anywhere, that separation is the default. pocketd is the background service, it starts at login, and the window is only a client, so closing it doesn't stop an agent or a scheduled automation. On macOS the app also stays in the background by default. See <a href="/blog/coding-agents-keep-running-after-closing-window">Keep coding agents running after you close the window</a>.</p>
+
+				<h3>No product account</h3>
+				<p>There is no Anywhere account for the desktop app, the daemon, or the CLI. The documented phone path pairs the iPhone app with the Mac over your own Tailscale network. T3 Code also works over LAN or Tailscale without T3 Connect; T3 Connect is the path that needs a T3 Connect account. See <a href="/docs/iphone">Pair an iPhone</a>.</p>
+
+				<h3>A public promise of no premium tier, ever</h3>
+				<p>Anywhere's site says: "There is no account to make, no seat to buy and no feature held back for a paid plan. There never will be." Its pricing table lists the cloud tier and premium tier as "Never". T3 Code's app is free too, and T3 Connect is free "for now", with a machine cap. Its FAQ is candid about the trade-off: "We don't want to charge for this, but if the bill gets unacceptable we may have to change course. If you hit limits or have issues, you can always fork it, self host, or use Tailscale." Anywhere sidesteps the question: the only service the project runs is an optional push relay, and the phone reaches the Mac over your own tailnet. More in <a href="/blog/open-source-agent-workspace-no-paid-tier">A free, open-source agent workspace with no paid tier</a>.</p>
+
+				<h3>Automations, Board, and SSH hosts in the same app</h3>
+				<ul>
+					<li><a href="/docs/automations">Automations</a> start a prompt on chosen weekdays at a time, or every few minutes, and keep firing while the desktop app is closed.</li>
+					<li>The <a href="/docs/board">Board</a> holds tickets across projects. A started ticket gets its own worktree and session.</li>
+					<li><a href="/docs/hosts">SSH hosts</a> add a Mac, Linux, or Windows machine. Anywhere installs pocketd there and runs that host's agents on it.</li>
+				</ul>
+
+				<h2 id="when-t3-code-may-fit-better">When T3 Code may fit better</h2>
+				<div class="callout">
+					<p><span class="callout-title">T3 Code is the better pick if you want</span></p>
+					<ul>
+						<li>Phone and browser clients you can use today: iOS on the App Store, Android on Google Play, and the web client at <code>app.t3.codes</code>. Anywhere's iPhone app is documented but not yet public, and it has no Android or web client.</li>
+						<li>Windows and Linux as first-class targets, with package managers (winget, Scoop, Arch, Nix, <code>.deb</code>) and an updater. Anywhere's Linux and Windows builds are unsigned archives with no updater.</li>
+						<li>A wider agent policy: a longer named list that includes Kiro and Muse Code, plus any ACP agent, with model switching mid-thread and handing a task from one agent to another, such as Claude to Codex. Anywhere supports a fixed list of ten CLIs.</li>
+						<li>A built-in remote, T3 Connect, that doesn't need Tailscale, with LAN and Tailscale also supported. Anywhere's phone path needs Tailscale.</li>
+						<li>One button to commit, push, and open a GitHub pull request with a generated title and body, including draft, stacked, and amended PRs.</li>
+					</ul>
+				</div>
+
+				<h2 id="using-both">Trying both</h2>
+				<p>Neither app proxies your models, so switching costs little. Eight agents are on both named lists: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, fx, and Antigravity. Both run the CLIs installed and signed in on your machine, so there is no new model account to set up.</p>
+				<ol>
+					<li>Install Anywhere and add your repository as a project.</li>
+					<li>Move per-worktree setup into <code>.anywhere/config.json</code> or <code>.anywhere/setup.sh</code>, so new worktrees install dependencies before the agent starts.</li>
+					<li>Press <kbd>⌘⇧N</kbd> to start a session in a new worktree, from a branch or from a pull request number.</li>
+					<li>Review in <strong>Changes</strong> and merge from the pull request card.</li>
+				</ol>
+				<p>The step-by-step version is <a href="/blog/run-multiple-claude-code-agents-in-parallel">How to run multiple Claude Code agents in parallel</a>. For the wider field, see <a href="/blog/best-tools-run-multiple-coding-agents">the best tools to run multiple coding agents in parallel</a>, and for a macOS-only comparison, <a href="/blog/conductor-alternative">Anywhere vs Conductor</a>.</p>
+
+				<section class="faq" aria-labelledby="faq">
+					<h2 id="faq">FAQ</h2>
+					<h3>What is a good T3 Code alternative?</h3>
+					<p>T3 Code is a free, MIT-licensed control plane for the coding agents you already use, with desktop, web and phone clients. Anywhere is also free and MIT licensed. Its window is native Rust on GPUI, and its daemon, pocketd, keeps local sessions running after you close the window. It needs no account and promises no premium tier, ever.</p>
+					<h3>Is T3 Code open source?</h3>
+					<p>Yes. T3 Code is MIT licensed, its source is in the pingdotgg/t3code repository, and its FAQ says there is no way to pay to use it. Anywhere is MIT licensed too, so open source is not what separates them.</p>
+					<h3>Do agents keep running when I close the window?</h3>
+					<p>In Anywhere, yes, by default. pocketd starts at login and owns the terminals and sessions, so closing the window doesn't stop an agent. T3 Code's remote-access docs say closing the desktop app's last window stops its local server. To keep a T3 Code host available without the window, you run t3 up or t3 service, which keep a background service running.</p>
+					<h3>Which agents do T3 Code and Anywhere support?</h3>
+					<p>T3 Code names Claude Code, Codex, Cursor, OpenCode, Grok Build, Antigravity, Kiro, Pi, Muse Code and fx, and says it runs any ACP agent. Anywhere runs a fixed list of ten CLIs: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity.</p>
+					<h3>Do T3 Code and Anywhere have phone apps?</h3>
+					<p>T3 Code has an iOS app on the App Store, an Android app on Google Play, and a web client at app.t3.codes. Anywhere's native iPhone and iPad app pairs with the Mac over Tailscale and is built and documented, but the site still lists it as coming soon. Anywhere has no Android or web client.</p>
+					<h3>Is T3 Connect free?</h3>
+					<p>T3 Code's FAQ says T3 Connect is free too, for now. Each T3 Connect account can link up to 3 machines, and a linked paid T3 Chat account raises that limit. LAN pairing and Tailscale work without T3 Connect. Anywhere has no hosted remote service: its phone app pairs over your own Tailscale network.</p>
+				</section>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/blog/conductor-alternative"><span>Previous</span>Anywhere vs Conductor</a>
+				<a class="next" href="/blog/crystal-alternative"><span>Next</span>Crystal is now Nimbalyst</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</Blog>

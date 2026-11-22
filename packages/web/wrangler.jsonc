@@ -1,0 +1,10 @@
+// Workers Builds settings live in the Cloudflare dashboard: root directory packages/web,
+// SKIP_DEPENDENCY_INSTALL=1, build command `pnpm install --frozen-lockfile && pnpm build`, deploy command `npx wrangler deploy`.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "anywhere",
+	"compatibility_date": "2026-11-22",
+	"assets": {
+		"directory": "./dist"
+	}
+}
