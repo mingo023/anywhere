@@ -1,0 +1,69 @@
+---
+import Head from "../components/Head.astro";
+import type { Faq } from "../data/alternatives";
+
+type Props = {
+	title: string;
+	description: string;
+	path: string;
+	graph: object;
+	faq: Faq;
+};
+
+const { graph, faq, ...head } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+<head>
+	<Head {...head} themeColor="#0a0a0b" fonts="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+		<link slot="icons" rel="apple-touch-icon" href="/assets/icon.png">
+		<link rel="stylesheet" href="/docs/docs.css">
+		<link rel="stylesheet" href="/blog/blog.css">
+		<link rel="stylesheet" href="/alternatives/alternatives.css">
+		<script is:inline src="/docs/docs.js" defer></script>
+		<script is:inline type="application/ld+json" set:html={JSON.stringify(graph, null, "\t")}></script>
+	</Head>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="/assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<main id="main" class="alt-main">
+		<article>
+			<slot />
+			<section class="faq" aria-labelledby="faq">
+				<h2 id="faq">FAQ</h2>
+				{faq.map(({ q, a }) => <><h3>{q}</h3><p>{a}</p></>)}
+			</section>
+			<div class="cta">
+				<p><slot name="cta" /></p>
+				<a class="button primary" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download for Mac</a>
+				<a class="button" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere-linux-amd64.tar.gz">Download for Linux</a>
+				<a class="button" href="https://github.com/mingo023/anywhere">Star on GitHub</a>
+			</div>
+			<slot name="after-cta" />
+		</article>
+	</main>
+	<footer class="site-footer">
+		<span>Anywhere · MIT licensed. Free forever.</span>
+		<nav aria-label="Footer">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="/alternatives/">Alternatives</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
+		</nav>
+	</footer>
+</body>
+</html>

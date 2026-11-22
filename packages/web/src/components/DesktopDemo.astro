@@ -1,0 +1,25 @@
+---
+/**
+ * The landing page's interactive desktop window (public/demo), scaled to the content width.
+ * One per page: demo/desktop.js mounts into the first `.window.desktop`.
+ * The inline script builds the window before the deferred demo scripts run; without JS only the og.png fallback shows.
+ */
+type Props = { screen: string; alt: string };
+
+const { screen, alt } = Astro.props;
+const css = ["desktop", "screens/inbox", "screens/review", "screens/worktrees", "screens/board", "screens/automations", "screens/delegated", "screens/hosts", "screens/palette"];
+const js = ["icons", "kit", "desktop", "screens/sessions", "screens/inbox", "screens/review", "screens/worktrees", "screens/board", "screens/automations", "screens/delegated", "screens/hosts", "screens/palette"];
+---
+{css.map((f) => <link rel="stylesheet" href={`/demo/${f}.css`}>)}
+<div class="aw-desktop" data-screen={screen}>
+	<noscript><img class="aw-fallback" src="/assets/og.png" alt={alt} width="1200" height="630"></noscript>
+</div>
+<script is:inline>
+(() => {
+const host = document.currentScript.previousElementSibling;
+host.innerHTML = `<div class="desktop-frame" role="region" aria-label="Interactive preview of the Anywhere desktop app" tabindex="0">
+  <figure class="window desktop" data-screen="${host.dataset.screen}" aria-label="Anywhere desktop app"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span></figure>
+</div>`;
+})();
+</script>
+{js.map((f) => <script is:inline src={`/demo/${f}.js`} defer></script>)}

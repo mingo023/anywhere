@@ -1,0 +1,267 @@
+/* Comparison pages load docs.css and blog.css first; this adds the page layout and the embedded desktop window. */
+
+.alt-main {
+	max-width: 1040px;
+	margin: 0 auto;
+}
+
+.alt-main article > :not(.aw-embed, .table-wrap, .alt-list, .alt-others) {
+	max-width: 72ch;
+}
+
+.alt-main article {
+	max-width: none;
+	font-size: 17px;
+	line-height: 1.75;
+	color: #c8c8c8;
+}
+
+.crumbs ol {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 0 0 20px;
+	padding: 0;
+	list-style: none;
+	font-size: 13px;
+	color: var(--muted);
+}
+
+.crumbs li {
+	margin: 0;
+}
+
+.crumbs li + li::before {
+	content: "›";
+	margin-right: 6px;
+}
+
+.crumbs a {
+	color: var(--secondary);
+}
+
+.alt-main h1 {
+	font-size: clamp(30px, 4.4vw, 44px);
+	line-height: 1.12;
+	letter-spacing: -0.025em;
+}
+
+.alt-main article h2 {
+	margin-top: 56px;
+	padding-top: 28px;
+	font-size: 26px;
+	letter-spacing: -0.02em;
+}
+
+.alt-main .lede {
+	font-size: 19px;
+	color: var(--text);
+}
+
+.checked {
+	margin: 0 0 24px;
+	font-size: 14px;
+	color: var(--muted);
+}
+
+.alt-main article :is(p, li, td) a {
+	text-decoration: underline;
+	text-decoration-color: rgba(65, 156, 255, 0.4);
+	text-underline-offset: 3px;
+}
+
+.alt-main .table-wrap {
+	margin: 28px 0;
+	border-color: var(--hairline);
+	border-radius: 12px;
+}
+
+.alt-main table {
+	font-size: 15px;
+}
+
+.alt-main td:first-child {
+	min-width: 150px;
+	color: var(--text);
+	overflow-wrap: normal;
+}
+
+.alt-main th:not(:first-child),
+.alt-main td:not(:first-child) {
+	width: 42%;
+}
+
+.alt-main .cta {
+	margin: 48px 0;
+	padding: 24px;
+	border-radius: 16px;
+	background: linear-gradient(135deg, rgba(124, 133, 227, 0.1), var(--panel) 60%);
+}
+
+.alt-main .cta p {
+	color: var(--text);
+}
+
+/* The hub's list of comparisons, and the cross-links at the foot of each page. */
+
+.alt-list,
+.alt-others ul {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+	gap: 12px;
+	margin: 24px 0;
+	padding: 0;
+	list-style: none;
+}
+
+.alt-list li,
+.alt-others li {
+	margin: 0;
+}
+
+.alt-list a,
+.alt-others a {
+	display: block;
+	height: 100%;
+	padding: 16px 18px;
+	border: 1px solid var(--hairline);
+	border-radius: 12px;
+	background: var(--panel);
+	color: var(--body);
+	text-decoration: none;
+}
+
+.alt-list a:hover,
+.alt-others a:hover {
+	border-color: var(--separator);
+	text-decoration: none;
+}
+
+.alt-list b,
+.alt-others b {
+	display: block;
+	margin-bottom: 4px;
+	color: var(--text);
+	font-weight: 600;
+}
+
+.alt-list span {
+	font-size: 15px;
+	line-height: 1.6;
+}
+
+.alt-others a {
+	padding: 12px 16px;
+	font-size: 15px;
+}
+
+/* The desktop window from the landing page (demo/), built by DesktopDemo.astro. */
+
+.aw-embed {
+	margin: 36px 0 8px;
+}
+
+.aw-desktop {
+	position: relative;
+}
+
+.aw-desktop::before {
+	content: "";
+	position: absolute;
+	inset: 8% 5% 10%;
+	z-index: -1;
+	border-radius: 50%;
+	background: radial-gradient(closest-side, rgba(247, 107, 21, 0.18), rgba(163, 113, 247, 0.1) 55%, transparent);
+	filter: blur(50px);
+	pointer-events: none;
+}
+
+.aw-desktop .desktop-frame {
+	position: relative;
+	overflow: hidden;
+	border: 1px solid var(--separator);
+	border-radius: 12px;
+}
+
+/* Copied from style.css, which these pages don't load. */
+.aw-desktop .window {
+	position: relative;
+	margin: 0;
+	border-radius: 12px;
+	container-type: inline-size;
+	overflow: hidden;
+	background: #121212;
+	color: #ebebeb;
+	line-height: 1.55;
+	overflow-wrap: normal;
+}
+
+.aw-desktop .lights {
+	position: absolute;
+	top: calc(14 / 1440 * 100cqw);
+	left: calc(14 / 1440 * 100cqw);
+	z-index: 3;
+	display: flex;
+	gap: calc(8 / 1440 * 100cqw);
+}
+
+.aw-desktop .lights i {
+	width: calc(12 / 1440 * 100cqw);
+	height: calc(12 / 1440 * 100cqw);
+	border-radius: 50%;
+	background: #ff5f57;
+	box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+}
+
+.aw-desktop .lights i:nth-child(2) {
+	background: #febc2e;
+}
+
+.aw-desktop .lights i:nth-child(3) {
+	background: #28c840;
+}
+
+/* docs.css styles bare elements; inside the window, put back the browser defaults the demo was drawn against.
+   The repeated :is() lifts specificity above docs.css's element rules and keeps it below the demo's class rules. */
+:where(.aw-desktop .window) :is(h1, h2, h3, h4, h5, p, ul, ol, li, pre, code, kbd, strong):is(h1, h2, h3, h4, h5, p, ul, ol, li, pre, code, kbd, strong):is(h1, h2, h3, h4, h5, p, ul, ol, li, pre, code, kbd, strong) {
+	all: revert;
+}
+
+:where(.aw-desktop .window) :is(h1, h2, h3):is(h1, h2, h3):is(h1, h2, h3):is(h1, h2, h3) {
+	margin: 0;
+	font-weight: 600;
+	letter-spacing: -0.025em;
+}
+
+:where(.aw-desktop .window) code:is(code):is(code):is(code) {
+	font: 500 0.92em "Geist Mono", ui-monospace, monospace;
+	color: #ebebeb;
+}
+
+.aw-fallback {
+	display: block;
+	width: 100%;
+	border-radius: 12px;
+}
+
+.aw-embed figcaption {
+	margin-top: 12px;
+	font-size: 14px;
+	line-height: 1.6;
+	color: var(--muted);
+	text-align: center;
+}
+
+@media (max-width: 860px) {
+	.alt-main article {
+		font-size: 16px;
+	}
+
+	.alt-main article h2 {
+		font-size: 22px;
+	}
+
+	.alt-main .lede {
+		font-size: 17px;
+	}
+}
