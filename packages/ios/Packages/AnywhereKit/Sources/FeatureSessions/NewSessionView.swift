@@ -182,7 +182,7 @@ struct NewSessionView: View {
             Palette.hairline.color.frame(height: 1)
             where_
         }
-        .padding(10)
+        .padding(Space.s)
         .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
     }
 
@@ -413,7 +413,7 @@ private struct ComposerPill<Icon: View>: View {
             if chevron { Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.text4.color) }
         }
         .foregroundStyle(Palette.text2.color)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .frame(minHeight: filled ? 30 : 28)
         .background(filled ? Palette.fill2.color : Color.clear, in: Capsule())
         .frame(minHeight: HitTarget.minimum)
