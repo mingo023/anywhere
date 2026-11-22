@@ -29,6 +29,7 @@ struct WorkspaceStoreTests {
     func terminals() {
         let s = store([.terminalList(.init(terminals: Sample.terminals))])
         #expect(s.localOfTerminal == ["t-review": "review"])
+        #expect(s.terminalCwds == ["/Users/mingo/dev/anywhere", "/Users/mingo/dev/website"], "an agent's terminal is its session's, not a shell's")
     }
 
     @Test("rows are named as the sidebar names them")

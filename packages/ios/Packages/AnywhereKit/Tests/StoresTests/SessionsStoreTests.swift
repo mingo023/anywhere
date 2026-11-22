@@ -29,6 +29,16 @@ struct SessionsStoreTests {
         #expect(s.session("a-detached")?.status == .idle)
     }
 
+    @Test("a session delegated to by a chat is listed under that chat; a fork isn't")
+    func delegated() {
+        var child = agent("child", .idle, updated: 1), fork = agent("fork", .idle, updated: 1)
+        (child.parent, child.relationship) = ("chat", "subagent")
+        (fork.parent, fork.relationship) = ("chat", "fork")
+        let s = store([.agentList(.init(agents: [child, fork]))])
+        #expect(s.session("child")?.listing.parent == "chat")
+        #expect(s.session("fork")?.listing.parent == nil)
+    }
+
     @Test("Up next counts those asking the user, not the failed or done")
     func needsYouCount() {
         #expect(store([.agentList(.init(agents: Sample.agents))]).needsYouCount == 2)
