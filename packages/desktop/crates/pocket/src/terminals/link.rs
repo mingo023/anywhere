@@ -49,6 +49,7 @@ pub(crate) struct Link {
 impl Link {
     pub(crate) fn down(&mut self, now: Instant) {
         self.down_since.get_or_insert(now);
+        self.back = None;
         self.dropped |= self.stale_since.is_some();
     }
 
@@ -184,6 +185,8 @@ mod tests {
         l.connected("0.2.0", "0.2.0", true, t + Duration::from_secs(6));
         l.down(t + Duration::from_secs(6));
         assert_eq!(l.update(t + Duration::from_secs(6)), None, "a pocketd gone again isn't updated");
+        l.up();
+        assert_eq!(l.update(t + Duration::from_secs(6)), None, "nor once it answers again");
     }
 
     #[test]

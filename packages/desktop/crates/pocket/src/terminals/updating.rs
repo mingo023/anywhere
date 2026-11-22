@@ -109,11 +109,15 @@ fn hand_back_opacity(t: f32) -> f32 {
 
 impl Desktop {
     /// The page for `update`; `stale` is the build pocketd still runs and `tip` what to try when it doesn't come back.
-    pub(crate) fn updating_page(&self, update: Update, stale: &str, tip: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn updating_page(&self, update: Update, stale: &str, tip: Vec<AnyElement>, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let reduce = cx.reduce_motion();
         let since = if let Update::Waiting(s) = update { Some(s) } else { None };
-        let rising = |el: Div, part: Part| match since.and_then(|s| rise(s, part, reduce)) {
-            Some(r) => r.on(el),
+        let mut moving = false;
+        let mut rising = |el: Div, part: Part| match since.and_then(|s| rise(s, part, reduce)) {
+            Some(r) => {
+                moving = true;
+                r.on(el)
+            }
             None => el,
         };
         let face = match update {
@@ -151,14 +155,11 @@ impl Desktop {
             .gap(px(12.))
             .child(rising(div().text_size(px(15.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(title), TITLE_IN))
             .child(div().flex().flex_col().gap(px(9.)).children(steps.into_iter().enumerate().map(|(i, s)| rising(s, (STEP_IN.0 + STAGGER * i as f32, STEP_IN.1)))));
-        div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_center()
-            .pb(px(40.))
-            .opacity(opacity)
-            .child(div().flex().items_start().gap(px(22.)).child(rising(div().mt(px(-4.)).child(face), MASCOT_IN)).child(text))
+        let face = rising(div().mt(px(-4.)).child(face), MASCOT_IN);
+        if moving {
+            window.request_animation_frame();
+        }
+        div().flex_1().flex().items_center().justify_center().pb(px(40.)).opacity(opacity).child(div().flex().items_start().gap(px(22.)).child(face).child(text))
     }
 }
 
