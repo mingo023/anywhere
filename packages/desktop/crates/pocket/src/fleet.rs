@@ -65,7 +65,7 @@ pub(crate) enum UpdateTo {
 pub(crate) fn update_to(link: Option<&Link>, app: &str) -> Option<UpdateTo> {
     match link {
         _ if needs_update(link, app) => Some(UpdateTo::ThisMac),
-        Some(Link::Online { .. }) => Some(UpdateTo::Latest),
+        Some(Link::Online { version, .. }) if !version.is_empty() => Some(UpdateTo::Latest),
         _ => None,
     }
 }
@@ -827,7 +827,7 @@ mod tests {
         assert_eq!(update_to(Some(&online("1.4.2")), "1.5.0"), Some(UpdateTo::ThisMac));
         assert_eq!(update_to(Some(&online("1.5.0")), "1.5.0"), Some(UpdateTo::Latest));
         assert_eq!(update_to(Some(&online("1.6.0")), "1.5.0"), Some(UpdateTo::Latest));
-        assert_eq!(update_to(Some(&online("")), "1.5.0"), Some(UpdateTo::Latest));
+        assert_eq!(update_to(Some(&online("")), "1.5.0"), None, "an old pocketd that didn't say");
         assert_eq!(update_to(Some(&Link::Connecting), "1.5.0"), None);
         assert_eq!(update_to(None, "1.5.0"), None);
     }

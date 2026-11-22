@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -229,6 +230,31 @@ func newest(ctx context.Context, url string) (string, error) {
 	return tag, nil
 }
 
+// newer is whether release comes after running. A pre-release comes before its release, and a version that isn't
+// numbers, as a dev build's, only has to differ.
+func newer(release, running string) bool {
+	numbers := func(v string) ([]int, bool) {
+		var ns []int
+		for _, part := range strings.Split(strings.SplitN(v, "-", 2)[0], ".") {
+			n, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, false
+			}
+			ns = append(ns, n)
+		}
+		return ns, true
+	}
+	r, okR := numbers(release)
+	h, okH := numbers(running)
+	if !okR || !okH {
+		return release != running
+	}
+	if c := slices.Compare(r, h); c != 0 {
+		return c > 0
+	}
+	return strings.Contains(running, "-") && !strings.Contains(release, "-")
+}
+
 // fill refuses values holding anything but safe characters rather than escape them: the placeholders sit in quoted literals.
 func fill(script, version, url, dir, label string) (string, error) {
 	safe := func(v string) bool {
@@ -261,16 +287,23 @@ func installPlan(h Host, platform Platform, version, dist string) (Host, Source,
 }
 
 func (m *Manager) install(ctx context.Context, h Host, update, latest bool, dist string, on func(Progress)) error {
-	platform, err := m.platform(ctx, h)
-	if err != nil {
-		return err
-	}
 	version := m.version
 	if latest {
+		var err error
 		if version, err = newest(ctx, latestRelease); err != nil {
 			return err
 		}
+		m.mu.Lock()
+		running := m.links[h.ID].Version
+		m.mu.Unlock()
+		if !newer(version, running) {
+			return fmt.Errorf("%s already runs %s, the newest release is %s", h.Name, running, version)
+		}
 		dist = ""
+	}
+	platform, err := m.platform(ctx, h)
+	if err != nil {
+		return err
 	}
 	h, src, err := installPlan(h, platform, version, dist)
 	if err != nil {

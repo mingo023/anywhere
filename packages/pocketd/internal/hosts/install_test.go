@@ -129,6 +129,25 @@ func TestTheNewestReleaseIsTheTagGitHubRedirectsTo(t *testing.T) {
 	}
 }
 
+func TestOnlyANewerReleaseIsAnUpgrade(t *testing.T) {
+	for _, c := range []struct {
+		release, running string
+		want             bool
+	}{
+		{"0.1.59", "0.1.58", true},
+		{"0.1.10", "0.1.9", true},
+		{"0.1.58", "0.1.58-rc.1", true},
+		{"0.1.58", "dev", true},
+		{"0.1.58", "0.1.58", false},
+		{"0.1.58", "0.1.59", false},
+		{"0.1.58-rc.1", "0.1.58", false},
+	} {
+		if got := newer(c.release, c.running); got != c.want {
+			t.Errorf("newer(%q, %q) = %v", c.release, c.running, got)
+		}
+	}
+}
+
 func TestADevBuildWithoutAnArchiveSaysHowToMakeOne(t *testing.T) {
 	_, err := source(Platform{"linux", "amd64"}, "dev", "")
 	if err == nil || !strings.Contains(err.Error(), "scripts/package-pocketd.sh dev linux-amd64") || !strings.Contains(err.Error(), "in packages/pocketd/dist.") {
