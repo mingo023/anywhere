@@ -45,6 +45,26 @@ pub struct Msg {
     /// Whether an agent at its account's limit moves to another; absent from a pocketd too old to.
     #[serde(rename = "autoSwitch")]
     pub auto_switch: Option<bool>,
+    pub trees: Vec<Tree>,
+}
+
+/// A subagent's worktree from pocketd's lineage: on this Mac, or on `host`. One made at `path` after `since`, in Unix
+/// milliseconds on the machine holding it, is a newer one.
+#[derive(Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct Tree {
+    pub host: String,
+    pub path: String,
+    pub since: u64,
+}
+
+/// The worktrees this Mac's pocketd's lineage says the subagents of the sessions in `tree` worked in, every generation
+/// down, open or closed. A pocketd from before the op keeps no lineage to name any by. Blocks; call it off the UI thread.
+pub fn subagent_worktrees(tree: &str) -> Result<Vec<Tree>, String> {
+    match request(&json!({"op": "worktree.subagents", "path": tree})) {
+        Err(e) if ["is not a known verb", "no such terminal"].iter().any(|s| e.contains(s)) => Ok(vec![]),
+        reply => reply.map(|m| m.trees),
+    }
 }
 
 /// The part of pocketd's `status` reply Settings reads.

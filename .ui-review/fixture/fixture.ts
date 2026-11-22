@@ -446,6 +446,8 @@ const ACCOUNTS = [
 
 // The sockets of the desktop's line-JSON channel, to tell of terminals that appear while it runs.
 const conns = new Set<Socket>();
+// This Mac's pocketd's lineage: the worktrees each tree's subagents worked in.
+const macLineage = new Map<string, string[]>();
 const ops = (c: Socket, first: Buffer) => {
   conns.add(c);
   c.on("close", () => conns.delete(c));
@@ -457,6 +459,7 @@ const ops = (c: Socket, first: Buffer) => {
       const op = JSON.parse(line);
       const reply = (msg: object) => c.write(JSON.stringify(msg) + "\n");
       if (op.op === "list") reply({ ev: "terminals", items: sessions });
+      if (op.op === "worktree.subagents") reply({ ev: "worktree.subagents", trees: (macLineage.get(op.path) ?? []).map((path) => ({ path, since: 0 })) });
       if (op.op === "accounts" || op.op === "accounts.usage") reply({ ev: "accounts", accounts: ACCOUNTS, autoSwitch: true });
       if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
     }
@@ -918,8 +921,10 @@ if (process.env.FIXTURE_SUBAGENT) {
   const id = `${parent.id}-sub`;
   const { cwd } = childCheckout(parent.id, parent.cwd, "Write the migration tests");
   write(join(cwd, "notes.md"), "draft\n");
-  sessions.push({ id, cmd: "codex", args: [], cwd });
-  summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
+  macLineage.set(parent.cwd, [cwd]);
+  // FIXTURE_SUBAGENT_UNSEEN=1: that child also closed before the desktop ever listed it, so only pocketd's lineage knows it.
+  if (!process.env.FIXTURE_SUBAGENT_UNSEEN) sessions.push({ id, cmd: "codex", args: [], cwd });
+  if (!process.env.FIXTURE_SUBAGENT_UNSEEN) summaries.push({ ...parent, id, terminalId: id, cwd, title: "Write the migration tests", provider: "codex", status: "idle", chatOnly: true, parent: parent.id, relationship: "subagent", createdAt: Date.now() } as (typeof summaries)[number]);
 }
 // FIXTURE_SUBAGENT_HOST=1 (with FIXTURE_SUBAGENT and FIXTURE_HANDOFF): that session also delegated to devbox, whose child sits in a worktree made
 // for it in devbox's clone, listed as this Mac's pocketd lists a host's child: by devbox's own path. devbox-worktrees.txt, next to FIXTURE_LOG,

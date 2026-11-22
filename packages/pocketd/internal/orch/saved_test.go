@@ -105,6 +105,29 @@ func TestASubagentsWorktreeIsStillFoundAfterRetentionDropsItsSessionsAndForgotte
 	}
 }
 
+func TestASubagentBetweenTwoWorktreesStillThereKeepsTheLineFromOneToTheOtherOnceItsOwnIsGone(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	long := itoa(now.Add(-ClosedKept - time.Hour).UnixMilli())
+	execAll(t, s,
+		`INSERT INTO sessions (id, status, cwd, parent_id, relationship, created_at, closed_at) VALUES
+			('p', 'closed', '/wt', '', '', 1, `+long+`),
+			('c', 'closed', '/wt-c', 'p', 'subagent', 2, `+long+`),
+			('g', 'closed', '/wt-g', 'c', 'subagent', 3, `+long+`)`,
+	)
+	kept := func(cwd string) bool { return cwd != "/wt-c" }
+	if err := s.Archive(now, kept); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Prune(now); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.SubagentTrees("/wt", func(cwd string, _ int64) string { return cwd })
+	if err != nil || !slices.Contains(got.Local, "/wt-g") {
+		t.Fatalf("trees %+v, %v; want /wt-g still reached through c", got, err)
+	}
+}
+
 func TestAYoungerHostSubagentsWorktreeIsStillFoundOnceRetentionDropsItsParent(t *testing.T) {
 	s := openTest(t)
 	now := time.Now()

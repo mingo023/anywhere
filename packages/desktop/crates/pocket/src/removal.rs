@@ -297,16 +297,41 @@ fn sweep_one(r: Removal, own: String, limit: Duration) -> Result<Ordered, Remova
 /// The worktrees the hosts holding `trees` say their subagents worked in, as their lineage holds them, with when each
 /// was made, for the sweep to tell from a newer one at the same path. That lineage also knows the ones that started and
 /// closed while a host's link was down, never listed here. Saved links follow these, as they know when each started.
-/// Each comes with the tree whose lineage named it. A host that couldn't say fails the lot: once the tree goes, nothing
-/// would name them again.
-fn host_lineage(trees: &[String]) -> Result<Vec<Named>, String> {
+/// Each comes with the tree whose lineage named it: this Mac's pocketd's for its own trees, a host's for its. A pocketd
+/// that couldn't say fails the lot: once the tree goes, nothing would name them again.
+fn lineage(trees: &[String]) -> Result<Vec<Named>, String> {
     let mut out = Vec::new();
     for t in trees {
-        let Some(host) = hosts::split(t).0.and_then(hosts::remote::connected) else { continue };
-        let below = host.subagent_worktrees(t).map_err(|e| format!("Kept {}, as its subagents there couldn't be read: {e}", basename(t)))?;
+        let below = match hosts::split(t).0 {
+            None => daemon::subagent_worktrees(t).map(|ts| ts.into_iter().map(|x| (if x.host.is_empty() { x.path } else { hosts::place(&x.host, &x.path) }, x.since)).collect()),
+            Some(id) => match hosts::remote::connected(id) {
+                Some(host) => host.subagent_worktrees(t).map_err(|e| e.to_string()),
+                None => continue,
+            },
+        };
+        let below: Vec<(String, u64)> = below.map_err(|e| format!("Kept {}, as its subagents couldn't be read: {e}", basename(t)))?;
         out.extend(below.into_iter().map(|(f, since)| (t.clone(), (f, Some(since).filter(|s| *s > 0)))));
     }
     Ok(out)
+}
+
+/// The deletions of the worktrees on this Mac that `named` holds, each Anywhere made and none the main checkout.
+fn local_removals(named: &[Named], delete_branch: bool) -> Vec<Removal> {
+    let mut out: Vec<Removal> = Vec::new();
+    for (_, (t, _)) in named.iter().filter(|(_, (t, _))| hosts::split(t).0.is_none()) {
+        let ws = git::worktrees(&git::Runner::Local, t);
+        let (Some(main), Some(w)) = (ws.iter().find(|w| w.main), ws.iter().find(|w| w.path == *t && w.made && !w.main)) else { continue };
+        let branch = Some(w.branch.clone()).filter(|b| branch_deletable(b));
+        if !out.iter().any(|o| o.tree == *t) {
+            out.push(Removal { project: main.path.clone(), tree: t.clone(), delete_branch: delete_branch && branch.is_some(), branch, teardown: true });
+        }
+    }
+    out
+}
+
+/// What `named` holds on hosts, for the sweep.
+fn hosted(named: Vec<Named>) -> impl Iterator<Item = (String, Option<u64>)> {
+    named.into_iter().map(|(_, f)| f).filter(|(f, _)| hosts::split(f).0.is_some())
 }
 
 /// A folder a tree's lineage named, with that tree: `(tree, (folder, since))`.
@@ -607,6 +632,15 @@ impl Desktop {
         let (mut subtrees, on_hosts) = self.subagent_removals(&removal);
         let main = removal.clone();
         let task = cx.background_executor().spawn(async move {
+            // A delete that can't read it refuses; the sheet shows what it can.
+            let named = lineage(std::slice::from_ref(&main.tree)).unwrap_or_default();
+            let mut on_hosts = on_hosts;
+            on_hosts.folders.extend(hosted(named.clone()).filter(|(f, _)| !on_hosts.folders.iter().any(|(o, _)| o == f)).collect::<Vec<_>>());
+            for r in local_removals(&named, main.delete_branch) {
+                if r.tree != main.tree && !subtrees.iter().any(|s| s.tree == r.tree) {
+                    subtrees.push(r);
+                }
+            }
             subtrees.extend(host_removals(&on_hosts, main.delete_branch));
             let jobs: Vec<Removal> = std::iter::once(main).chain(subtrees.clone()).collect();
             let dirty: usize = jobs.iter().map(|j| git::dirty_files(&hosts::runner_for(&j.tree), &j.tree).unwrap_or(0)).sum();
@@ -645,30 +679,35 @@ impl Desktop {
         }
         // Read now: once its sessions close, pocketd closes their subagents and the lineage is gone.
         let (still, on_hosts) = self.subagent_removals(&removal);
-        let subagents: Vec<Removal> = confirmed
-            .iter()
-            .filter(|c| still.iter().any(|s| s.tree == c.tree) || on_hosts.folders.iter().any(|(f, _)| holds(&c.tree, f)))
-            .map(|c| Removal { delete_branch: removal.delete_branch && c.branch.is_some(), ..c.clone() })
-            .filter(|c| self.removals.start(&c.tree))
-            .collect();
-        let started: Vec<String> = subagents.iter().map(|s| s.tree.clone()).chain(std::iter::once(removal.tree.clone())).collect();
+        let known = |c: &Removal| still.iter().any(|s| s.tree == c.tree) || on_hosts.folders.iter().any(|(f, _)| holds(&c.tree, f));
+        let confirmed: Vec<Removal> = confirmed.iter().map(|c| Removal { delete_branch: removal.delete_branch && c.branch.is_some(), ..c.clone() }).collect();
+        // The rest of this Mac's go if its pocketd's lineage still names them, read off the UI thread.
+        let (subagents, unsure): (Vec<Removal>, Vec<Removal>) = confirmed.into_iter().filter(|c| known(c) || hosts::split(&c.tree).0.is_none()).partition(known);
+        let subagents: Vec<Removal> = subagents.into_iter().filter(|c| self.removals.start(&c.tree)).collect();
+        let unsure: Vec<Removal> = unsure.into_iter().filter(|c| self.removals.start(&c.tree)).collect();
+        let started: Vec<String> = subagents.iter().chain(&unsure).map(|s| s.tree.clone()).chain(std::iter::once(removal.tree.clone())).collect();
         let teardown = |r: &Removal| self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
-        let jobs: Vec<(Removal, String)> = subagents.iter().chain(std::iter::once(&removal)).map(|r| (r.clone(), teardown(r))).collect();
+        let jobs: Vec<(Removal, String)> = subagents.iter().map(|r| (r.clone(), teardown(r))).collect();
+        let unsure: Vec<(Removal, String)> = unsure.into_iter().map(|r| { let t = teardown(&r); (r, t) }).collect();
+        let main = (removal.clone(), teardown(&removal));
         let (limit, trash) = (Duration::from_secs(self.store.worktree.teardown_secs.into()), self.store.worktree.trash);
         let delete_branch = removal.delete_branch;
         let task = cx.background_executor().spawn(async move {
             // Read again: a host's worktree may have changed hands since the sheet read it.
             let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
-            let jobs = still_theirs(jobs, &reached);
-            let theirs = match host_lineage(&jobs.iter().map(|(r, _)| r.tree.clone()).collect::<Vec<_>>()) {
+            let trees: Vec<String> = jobs.iter().chain(&unsure).chain(std::iter::once(&main)).map(|(r, _)| r.tree.clone()).collect();
+            let theirs = match lineage(&trees) {
                 Ok(theirs) => theirs,
-                Err(e) => return ((vec![], jobs.last().map(|(r, _)| (r.clone(), Failure::Remove(e)))), vec![], vec![]),
+                Err(e) => return ((vec![], Some((main.0, Failure::Remove(e)))), vec![], vec![]),
             };
+            let named = |r: &Removal| theirs.iter().any(|(_, (f, _))| *f == r.tree);
+            let jobs: Vec<(Removal, String)> = jobs.into_iter().chain(unsure.into_iter().filter(|(r, _)| named(r))).chain(std::iter::once(main)).collect();
+            let jobs = still_theirs(jobs, &reached);
             let (done, failed) = remove_in_order(jobs, limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
             // Named only by a tree now gone: nothing could find them again once a later job fails.
-            let orphans = named_by(&theirs, &trees);
-            let folders = theirs.into_iter().map(|(_, f)| f).chain(on_hosts.folders).collect();
+            let orphans: Vec<(String, Option<u64>)> = named_by(&theirs, &trees).into_iter().filter(|(f, _)| hosts::split(f).0.is_some()).collect();
+            let folders = hosted(theirs).chain(on_hosts.folders).collect();
             ((done, failed), leftovers(folders, &trees, delete_branch), leftovers(orphans, &trees, delete_branch))
         });
         cx.spawn(async move |this, cx| {
@@ -798,10 +837,10 @@ impl Desktop {
         let own = self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let delete_branch = r.delete_branch;
         let task = cx.background_executor().spawn(async move {
-            let theirs = host_lineage(std::slice::from_ref(&r.tree)).map_err(Held::Unread)?;
+            let theirs = lineage(std::slice::from_ref(&r.tree)).map_err(Held::Unread)?;
             let (done, failed) = sweep_one(r, own, limit).map_err(Held::Ask)?;
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
-            let folders = theirs.into_iter().map(|(_, f)| f).chain(on_hosts.folders).collect();
+            let folders = hosted(theirs).chain(on_hosts.folders).collect();
             Ok(((done, failed), leftovers(folders, &trees, delete_branch)))
         });
         cx.spawn(async move |this, cx| {

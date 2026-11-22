@@ -77,31 +77,40 @@ func (s *Store) Archive(now time.Time, kept func(cwd string) bool) error {
 		}
 	}
 	rows.Close()
-	stay := map[string]Session{}
+	all := map[string]Session{}
 	for _, x := range append(old, gone...) {
-		stay[x.ID] = x
+		all[x.ID] = x
 	}
 	for _, x := range live {
-		if isolated[x.ID] {
-			if _, ok := stay[x.ID]; !ok {
-				stay[x.ID] = x
+		if _, ok := all[x.ID]; !ok && isolated[x.ID] {
+			all[x.ID] = x
+		}
+	}
+	// One whose worktree is still there stays, with each between it and its
+	// root: one gone from the middle would cut what's below off its parent.
+	stay := map[string]Session{}
+	for id, x := range all {
+		if strings.Contains(id, "/") || !kept(x.Cwd) {
+			continue
+		}
+		for ok := true; ok; x, ok = all[x.ParentID] {
+			if _, seen := stay[x.ID]; seen {
+				break
 			}
+			stay[x.ID] = x
 		}
 	}
 	present := func(id string) bool {
 		_, ok := stay[id]
 		return ok || slices.ContainsFunc(live, func(l Session) bool { return l.ID == id })
 	}
-	for dropped := true; dropped; {
-		dropped = false
-		for id, x := range stay {
-			ok := kept(x.Cwd)
-			if strings.Contains(id, "/") {
-				ok = x.Relationship == "subagent" && present(x.ParentID)
-			}
-			if !ok {
-				delete(stay, id)
-				dropped = true
+	// A host's subagent stays while what reaches it does.
+	for added := true; added; {
+		added = false
+		for id, x := range all {
+			if _, in := stay[id]; !in && strings.Contains(id, "/") && x.Relationship == "subagent" && present(x.ParentID) {
+				stay[id] = x
+				added = true
 			}
 		}
 	}
