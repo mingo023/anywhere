@@ -401,7 +401,10 @@ impl Desktop {
         for turn in turns {
             match turn {
                 Turn::Online(id) => self.host_online(&id, window, cx),
-                Turn::Offline(id) => hosts::remote::forget(&id),
+                Turn::Offline(id) => {
+                    hosts::remote::forget(&id);
+                    self.removals.host_dropped(&id);
+                }
                 Turn::Gone(id) => self.forget_host(&id, cx),
             }
         }
@@ -456,6 +459,7 @@ impl Desktop {
                 hosts::remote::register(client);
                 d.finder_host_back(&id, window, cx);
                 d.handoff_host_back(&id, cx);
+                d.sweep_host_leftovers(cx);
                 d.fetch_clone_home(window, cx);
                 d.open_host_agents(&id, &endpoint, info.user_home, window, cx);
                 d.check_accounts(Some(id.clone()), true, cx);

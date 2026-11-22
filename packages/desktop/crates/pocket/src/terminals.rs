@@ -250,6 +250,10 @@ impl Desktop {
                 for id in self.terminals.listed(items) {
                     self.daemon.send(json!({"op": "attach", "id": id}));
                 }
+                if let Some(h) = host {
+                    self.removals.host_terminals_listed(h);
+                    self.sweep_host_leftovers(cx);
+                }
                 self.activity_changed();
                 let restoring = !self.panels.restored;
                 match host {

@@ -28,7 +28,7 @@ var workspaceVerbs = map[string]verbDecoder{
 		return set <= 1 && (m.Name != "" || m.Branch != "" || m.Number != 0)
 	},
 	"worktree.delete": func(f fields, m *ClientMessage) bool {
-		return f.text("path", &m.Path) && f.optionalBool("deleteBranch", &m.DeleteBranch) && f.optionalBool("force", &m.Force)
+		return f.text("path", &m.Path) && f.optionalBool("deleteBranch", &m.DeleteBranch) && f.optionalBool("force", &m.Force) && f.optionalList("subagents", &m.Subagents)
 	},
 	"branch.list": func(f fields, m *ClientMessage) bool { return f.text("tree", &m.Tree) },
 	"account.list": func(f fields, m *ClientMessage) bool {

@@ -222,7 +222,7 @@ func serve(sock, handed string) error {
 	l.Names = worktreeNames
 	o.host.Broker, o.host.Launcher, o.host.LoginEnv, o.host.Projects, o.host.Planning = d.Broker, l, d.LoginEnv, reg, d.Planning
 	l.MCPFlags = o.host.ClaudeFlags
-	o.engine.CloseTerminal = func(id string) {
+	o.host.CloseTerminal = func(id string) {
 		if t := d.Terminals.Get(id); t != nil {
 			t.Close()
 		}
@@ -283,7 +283,10 @@ func serve(sock, handed string) error {
 	d.OnEnv = func() { go ws.PublishProviders() }
 	projectList := workspace.NewProjects(reg)
 	go projectList.Run(ctx)
-	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch}
+	ws.Workspace = wsserver.WorkspaceService{Projects: projectList, Accounts: &workspace.AccountList{Store: d.Accounts, Running: d.Running}, Switch: d.Switch, SubagentTrees: o.subagentTrees, Session: o.session}
+	if ws.Hosts != nil {
+		ws.Workspace.HostDelete = ws.Hosts.Manager.DeleteWorktree
+	}
 	gh := github.New(func(dir string) []string { return d.GhEnv(d.LoginEnv(), dir) }, reg)
 	ws.GitHub, o.host.PRs = gh, gh.Cached
 	boardScheduler.Merged = func(ctx context.Context, tree string) bool {
@@ -428,6 +431,8 @@ func serve(sock, handed string) error {
 		TrashDir: filepath.Join(home, "trash"),
 		Owners:   ownerTokens,
 		Accounts: l.Accounts,
+		// A desktop that deletes a worktree here itself asks which its subagents left too.
+		SubagentWorktrees: ws.SubagentWorktrees,
 	}
 	if ownerLn != nil {
 		go srv.Serve(ownerLn)

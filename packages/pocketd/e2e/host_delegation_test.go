@@ -12,8 +12,10 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"pocketd/internal/holder"
+	"pocketd/internal/ops"
 	"pocketd/internal/orch"
 	"pocketd/internal/proto"
 	"pocketd/internal/registry"
@@ -449,4 +451,161 @@ func TestAHostTaskCancelledWhileTheHostWasDownInterruptsTheChildThereOnceItIsBac
 	waitLink(owner, "devbox", proto.LinkOnline, "")
 
 	host.WaitScreen(child.TerminalID, "interrupt")
+}
+
+func TestClosingAParentClosesItsChildsTerminalOnALinkedHost(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := phoneChat(t, mac)
+	phone.Prompt(parent, `mcp delegate_task {"task":"await never","target":{"environmentId":"devbox"},"isolation":"shared"}`)
+	task := hostTask(mac, phone, parent, 1, "working")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+}
+
+func TestDeletingTheParentsWorktreeFromThePhoneTakesItsSubagentsWorktreeOnALinkedHost(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}})
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	if !strings.Contains(gitOut(t, host.Repo, "worktree", "list"), child.Cwd) {
+		t.Fatalf("the child's folder %s isn't a worktree on the host", child.Cwd)
+	}
+	p, _ := mac.listed(parent)
+
+	workspace := mac.Owner(proto.CapWorkspace)
+	workspace.Send(map[string]any{"type": "worktree.delete", "id": "wd", "path": p.Cwd, "deleteBranch": true, "force": true})
+	if m := workspace.WaitFor("the delete's answer", func(m Message) bool { return m.ID == "wd" }); m.Type != "ack" {
+		t.Fatalf("got %s", m.Raw)
+	}
+	for _, tree := range []string{p.Cwd, child.Cwd} {
+		if _, err := os.Stat(tree); !os.IsNotExist(err) {
+			t.Errorf("%s stayed: %v", tree, err)
+		}
+	}
+	if branches := gitOut(t, host.Repo, "branch", "--format=%(refname:short)"); branches != "main" {
+		t.Errorf("the host's branches %q, want main alone", branches)
+	}
+}
+
+func TestDeletingTheWorktreeOfAParentThatClosedTakesItsSubagentsWorktreeOnALinkedHost(t *testing.T) {
+	deleteAfterTheChildClosed(t, false)
+}
+
+func TestAWorktreeMadeAtAClosedSubagentsFolderOnALinkedHostSinceStays(t *testing.T) {
+	deleteAfterTheChildClosed(t, true)
+}
+
+func deleteAfterTheChildClosed(t *testing.T, replaced bool) {
+	mac, host := linkedHost(t)
+	phone, parent := chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}})
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+	if replaced {
+		time.Sleep(50 * time.Millisecond)
+		gitOut(t, host.Repo, "worktree", "remove", "--force", child.Cwd)
+		gitOut(t, host.Repo, "worktree", "add", "-q", "-b", "someone-elses", child.Cwd)
+		os.WriteFile(filepath.Join(host.Repo, ".git", "worktrees", filepath.Base(child.Cwd), "anywhere"), nil, 0o644)
+	}
+
+	workspace := mac.Owner(proto.CapWorkspace)
+	workspace.Send(map[string]any{"type": "worktree.delete", "id": "wd", "path": p.Cwd, "deleteBranch": true, "force": true})
+	if m := workspace.WaitFor("the delete's answer", func(m Message) bool { return m.ID == "wd" }); m.Type != "ack" {
+		t.Fatalf("got %s", m.Raw)
+	}
+	if _, err := os.Stat(child.Cwd); os.IsNotExist(err) != !replaced {
+		t.Errorf("the worktree at the closed child's folder on the host, replaced %v: %v", replaced, err)
+	}
+}
+
+func TestDeletingAParentsWorktreeAfterRetentionDroppedItsSessionsStillTakesItsSubagentsWorktreeOnALinkedHost(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}})
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+
+	// Both stores, as long past retention: each pocketd prunes as it starts.
+	old := time.Now().Add(-orch.ClosedKept - time.Hour).UnixMilli()
+	for _, h := range []*Harness{mac, host} {
+		h.Shutdown()
+		store, err := orch.Open(h.Home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.DB().Exec(`UPDATE sessions SET status = 'closed', closed_at = ?`, old); err != nil {
+			t.Fatal(err)
+		}
+		store.Close()
+	}
+	host.up()
+	mac.up()
+	waitLink(mac.Owner(proto.CapHosts), "devbox", proto.LinkOnline, "")
+	for _, h := range []*Harness{mac, host} {
+		h.eventually("retention to drop the sessions", func() bool {
+			store, err := orch.Open(h.Home)
+			if err != nil {
+				return false
+			}
+			defer store.Close()
+			var n int
+			store.DB().QueryRow(`SELECT COUNT(*) FROM sessions WHERE closed_at = ?`, old).Scan(&n)
+			return n == 0
+		})
+	}
+
+	workspace := mac.Owner(proto.CapWorkspace)
+	workspace.Send(map[string]any{"type": "worktree.delete", "id": "wd", "path": p.Cwd, "deleteBranch": true, "force": true})
+	if m := workspace.WaitFor("the delete's answer", func(m Message) bool { return m.ID == "wd" }); m.Type != "ack" {
+		t.Fatalf("got %s", m.Raw)
+	}
+	for _, dir := range []string{p.Cwd, child.Cwd} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("%s stayed: %v", dir, err)
+		}
+	}
+}
+
+func TestAWorktreesSubagentWorktreesOnALinkedHostAreListedWithTheirHost(t *testing.T) {
+	mac, host := linkedHost(t)
+	phone, parent := chatOn(t, mac, mac.Paired(proto.CapLaunch, proto.CapOrchestrator), map[string]any{"chat": true, "checkout": map[string]any{"new": map[string]any{"name": "calm-otter"}}})
+	phone.Prompt(parent, `mcp delegate_task {"task":"hello","title":"Notes","target":{"environmentId":"devbox"}}`)
+	task := hostTask(mac, phone, parent, 1, "completed")
+	child, ok := hostAgent(t, host, task.ChildID)
+	if !ok {
+		t.Fatalf("the host doesn't list %s", task.ChildID)
+	}
+	p, _ := mac.listed(parent)
+	mac.Ops().Send(ops.Msg{Op: "close", ID: p.TerminalID})
+	host.eventually("the child's terminal on the host to end", func() bool { return !host.lists(child.TerminalID) })
+
+	c := mac.Ops()
+	c.Send(ops.Msg{Op: "worktree.subagents", ID: "s", Path: p.Cwd})
+	r, err := c.Recv()
+	if err != nil || r.Ev != "worktree.subagents" || len(r.Trees) != 1 || r.Trees[0].Host != "devbox" || r.Trees[0].Path != child.Cwd || r.Trees[0].Since == 0 {
+		t.Fatalf("got %+v %v, want devbox's %s", r, err, child.Cwd)
+	}
 }

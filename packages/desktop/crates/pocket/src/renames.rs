@@ -132,7 +132,7 @@ mod tests {
     }
 
     fn tree(path: &str, branch: &str) -> git::Worktree {
-        git::Worktree { path: path.into(), branch: branch.into(), main: false, made: false }
+        git::Worktree { path: path.into(), branch: branch.into(), main: false, made: false, created: None }
     }
 
     fn unnamed(path: &str) -> Option<String> {

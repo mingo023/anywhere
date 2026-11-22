@@ -27,6 +27,7 @@ var (
 	ErrExists          = coded("worktree_exists", "A worktree or branch with this name already exists")
 	ErrInvalidName     = coded("invalid_name", "Use letters, digits, - _ or .")
 	ErrMain            = coded("main_worktree", "The main worktree can't be removed")
+	ErrInUse           = coded("worktree_in_use", "Someone else works in this worktree")
 )
 
 // Code is err's wire code, or "" when it has none.
@@ -256,12 +257,38 @@ func defaultBase(project string) string {
 	return "HEAD"
 }
 
-// LostCommits is how many commits deleting branch would lose: those no other
-// branch, remote or tag holds (lost_commits in crates/git/src/git.rs).
-func LostCommits(project, branch string) int {
+// LostCommits is how many commits deleting branches together would lose:
+// those no other branch, remote or tag holds (lost_branch_commits in
+// crates/git/src/git.rs).
+func LostCommits(project string, branches ...string) int {
+	// A branch already gone loses nothing, and would fail the count for the rest.
+	branches = slices.DeleteFunc(slices.Clone(branches), func(b string) bool {
+		return exec.Command("git", "-C", project, "show-ref", "--verify", "--quiet", "refs/heads/"+b).Run() != nil
+	})
+	if len(branches) == 0 {
+		return 0
+	}
+	args := []string{"-C", project, "rev-list", "--count"}
+	for _, b := range branches {
+		args = append(args, "refs/heads/"+b)
+	}
+	args = append(args, "--not")
 	// --exclude matches the names --branches lists, which lack refs/heads/.
-	out, err := exec.Command("git", "-C", project, "rev-list", "--count", "refs/heads/"+branch, "--not",
-		"--exclude="+branch, "--branches", "--remotes", "--tags").Output()
+	for _, b := range branches {
+		args = append(args, "--exclude="+b)
+	}
+	out, err := exec.Command("git", append(args, "--branches", "--remotes", "--tags")...).Output()
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return n
+}
+
+// DetachedCommits is how many commits deleting the detached Worktree at tree
+// would lose: those on its HEAD no branch, remote or tag holds.
+func DetachedCommits(tree string) int {
+	out, err := exec.Command("git", "-C", tree, "rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags").Output()
 	if err != nil {
 		return 0
 	}

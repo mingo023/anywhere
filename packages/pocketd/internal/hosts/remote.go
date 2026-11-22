@@ -439,6 +439,36 @@ func (m *Manager) Send(ctx context.Context, id string, msg map[string]any) error
 	return err
 }
 
+// DeleteWorktree deletes the worktree at path on host id as a phone's worktree.delete does, which takes its
+// subagents' there too, for the subagents named. One already gone, made since they closed, or that someone else
+// works in counts as deleted.
+func (m *Manager) DeleteWorktree(ctx context.Context, id, path string, subagents []string, deleteBranch, force bool) error {
+	if _, err := m.connected(ctx, id); err != nil {
+		return err
+	}
+	socket, token, _ := m.Endpoint(id)
+	// Over a conn of its own: workspace.v1 would also subscribe the link to every project.list.
+	c, err := Dial(ctx, socket, token, func(string, []byte) {}, proto.CapWorkspace)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	raw, err := c.Call(ctx, "ack", map[string]any{"type": "worktree.delete", "path": path, "deleteBranch": deleteBranch, "force": force, "subagents": subagents})
+	var e proto.Error
+	if err == nil || json.Unmarshal(raw, &e) != nil || e.Code == "" {
+		return err
+	}
+	if e.Code == "unknown_worktree" || e.Code == "worktree_in_use" {
+		return nil
+	}
+	return Refusal{e}
+}
+
+// Refusal is a host's coded error, kept whole so a phone can act on it.
+type Refusal struct{ Reply proto.Error }
+
+func (r Refusal) Error() string { return r.Reply.Message }
+
 func (m *Manager) Projects(ctx context.Context, id string) ([]proto.Project, error) {
 	r, err := m.connected(ctx, id)
 	if err != nil {
