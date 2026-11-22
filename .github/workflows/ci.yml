@@ -126,7 +126,7 @@ jobs:
 
       - name: Test
         working-directory: packages/protocol
-        run: node_modules/.bin/tsc -b && node --test test/
+        run: node_modules/.bin/tsc -b && node --test test/*.test.mjs
 
   ios:
     needs: changes
