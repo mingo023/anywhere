@@ -3,8 +3,8 @@ use crate::desktop::chrome::{RowMenu, Screen, id};
 use crate::sidebar::filter::FIELD_H;
 use crate::sidebar::fold::{self, Fold};
 use crate::sidebar::rename::rename_field;
-use crate::spaces::space_of;
 use crate::sidebar::{DragProject, tree_label, tree_place};
+use crate::spaces::space_of;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -151,7 +151,12 @@ impl Desktop {
             let only = if query.is_empty() {
                 None
             } else {
-                let trees: Vec<(String, String)> = self.tree_rows(p, &self.trees_shown(p).unwrap_or_default()).into_iter().filter(|r| !self.tree_pinned(p, &r.key)).map(|r| (r.key, r.label)).collect();
+                let trees: Vec<(String, String)> = self
+                    .tree_rows(p, &self.trees_shown(p).unwrap_or_default())
+                    .into_iter()
+                    .filter(|r| !self.tree_pinned(p, &r.key))
+                    .map(|r| (r.key, r.label))
+                    .collect();
                 Some(shown(query, &self.repo_name(p), &trees)?)
             };
             Some(Block { ix, project: p.clone(), only, named: !query.is_empty() && matches(&self.repo_name(p), query) })
@@ -185,12 +190,12 @@ impl Desktop {
         let header = if self.sidebar.filter.open {
             header.child(self.filter_field(cx))
         } else {
-            let search = icon_button_sized("aside-filter", "search", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_filter(window, cx)));
+            let search = icon_button_sized("aside-filter", "search", 22., TEXT_3)
+                .rounded(px(6.))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_filter(window, cx)));
             header.pl(px(6.)).child(div().flex_1().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(TEXT_3).child("PROJECTS")).child(search)
         };
-        header
-            .child(self.organize_menu(cx))
-            .child(self.add_menu(cx))
+        header.child(self.organize_menu(cx)).child(self.add_menu(cx))
     }
 
     /// The header's sort button and its menu: new group, the sort, folding every project.
@@ -212,12 +217,14 @@ impl Desktop {
             }));
             let sort = self.store.sections.sort;
             let sorts = [(Sort::Manual, "Manual"), (Sort::Name, "Name"), (Sort::Recent, "Recent activity")].map(|(s, label)| {
-                ui::menu_pick(SharedString::from(format!("aside-sort-{label}")), div(), label, s == sort).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.sidebar.organize.menu = false;
-                    this.store.sections.sort = s;
-                    this.store.save();
-                    cx.notify();
-                }))
+                ui::menu_pick(SharedString::from(format!("aside-sort-{label}")), div(), label, s == sort).on_click(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
+                        this.sidebar.organize.menu = false;
+                        this.store.sections.sort = s;
+                        this.store.save();
+                        cx.notify();
+                    },
+                ))
             });
             let fold = |id: &'static str, label: &'static str, fold: bool| {
                 ui::menu_row(id, if fold { "chevron-right" } else { "chevron-down" }, label, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -313,14 +320,15 @@ impl Desktop {
         let mut out = Vec::new();
         if !listed.pinned.is_empty() {
             let open = filtering || !sections.pins_folded;
-            let head = ui::section_head("aside-pinned", icon("pin", 14., TEXT), "Pinned", open, None, false).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.store.sections.pins_folded = !this.store.sections.pins_folded;
-                if this.store.sections.pins_folded {
-                    this.sidebar.closing.start(Fold::Pinned);
-                }
-                this.store.save();
-                cx.notify();
-            }));
+            let head =
+                ui::section_head("aside-pinned", icon("pin", 14., TEXT), "Pinned", open, None, false).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.store.sections.pins_folded = !this.store.sections.pins_folded;
+                    if this.store.sections.pins_folded {
+                        this.sidebar.closing.start(Fold::Pinned);
+                    }
+                    this.store.save();
+                    cx.notify();
+                }));
             let rows: Vec<(AnyElement, f32)> = if self.sidebar.closing.drawn(&Fold::Pinned, open) {
                 listed
                     .pinned
@@ -354,41 +362,86 @@ impl Desktop {
             };
             let menu = RowMenu::Group(id);
             let more = self.row_menu_button(&format!("group:{id}"), menu.clone(), cx);
-            let head = ui::section_head(("aside-group", id as usize), div().children(group_mark(group)), name, open, Some(more), self.row_menu.as_ref() == Some(&menu))
-                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                    if this.sidebar.organize.rename.as_ref().is_some_and(|r| r.group == id) {
-                        return;
-                    }
-                    // A double-click's second click undoes the fold its first made.
-                    this.store.sections.toggle_group(id);
-                    if this.store.sections.group(id).is_some_and(|g| g.folded) {
-                        this.sidebar.closing.start(Fold::Group(id));
-                    }
-                    this.store.save();
-                    if ev.click_count() > 1 {
-                        return this.start_group_rename(id, window, cx);
-                    }
-                    cx.notify();
-                }))
-                .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
+            let head = ui::section_head(
+                ("aside-group", id as usize),
+                div().children(group_mark(group)),
+                name,
+                open,
+                Some(more),
+                self.row_menu.as_ref() == Some(&menu),
+            )
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                if this.sidebar.organize.rename.as_ref().is_some_and(|r| r.group == id) {
+                    return;
+                }
+                // A double-click's second click undoes the fold its first made.
+                this.store.sections.toggle_group(id);
+                if this.store.sections.group(id).is_some_and(|g| g.folded) {
+                    this.sidebar.closing.start(Fold::Group(id));
+                }
+                this.store.save();
+                if ev.click_count() > 1 {
+                    return this.start_group_rename(id, window, cx);
+                }
+                cx.notify();
+            }))
+            .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx));
             let rows: Vec<(AnyElement, f32)> = match (self.sidebar.closing.drawn(&Fold::Group(id), open), blocks.is_empty()) {
                 (false, _) => vec![],
-                (true, true) => vec![(div().h(px(ui::SIDEBAR_ROW_H)).px(px(10.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_4).child("Drag projects here").into_any_element(), ui::SIDEBAR_ROW_H)],
+                (true, true) => vec![(
+                    div()
+                        .h(px(ui::SIDEBAR_ROW_H))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .text_size(px(12.5))
+                        .text_color(TEXT_4)
+                        .child("Drag projects here")
+                        .into_any_element(),
+                    ui::SIDEBAR_ROW_H,
+                )],
                 (true, false) => blocks.iter().map(|b| self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Group(id), cx)).collect(),
             };
             let body = section_body(("aside-group-fold", id as usize), open, rows);
-            out.push(Self::drops_into(ui::group_box().id(("aside-group-box", id as usize)).gap_0().child(head).child(body), Section::Group(id), cx).into_any_element());
+            out.push(
+                Self::drops_into(ui::group_box().id(("aside-group-box", id as usize)).gap_0().child(head).child(body), Section::Group(id), cx)
+                    .into_any_element(),
+            );
         }
         if filtering && listed.other.is_empty() {
             if out.is_empty() {
-                out.push(div().px(px(10.)).py(px(12.)).text_size(px(12.5)).text_color(TEXT_3).child(format!("No projects or worktrees match “{}”.", self.sidebar.filter.input.read(cx).value().trim())).into_any_element());
+                out.push(
+                    div()
+                        .px(px(10.))
+                        .py(px(12.))
+                        .text_size(px(12.5))
+                        .text_color(TEXT_3)
+                        .child(format!("No projects or worktrees match “{}”.", self.sidebar.filter.input.read(cx).value().trim()))
+                        .into_any_element(),
+                );
             }
             return out;
         }
         let rows: Vec<AnyElement> = listed.other.iter().map(|b| self.project_block(b.ix, &b.project, b.only.as_deref(), Section::Other, cx).0).collect();
-        let other = div().id("aside-other").flex().flex_col().gap(px(1.)).when((!out.is_empty() || !listed.groups.is_empty()) && (!rows.is_empty() || cx.has_active_drag()), |d| {
-            d.child(div().h(px(28.)).px(px(10.)).flex().flex_none().items_center().gap(px(8.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child("Other").child(ui::group_count(rows.len())))
-        });
+        let other = div().id("aside-other").flex().flex_col().gap(px(1.)).when(
+            (!out.is_empty() || !listed.groups.is_empty()) && (!rows.is_empty() || cx.has_active_drag()),
+            |d| {
+                d.child(
+                    div()
+                        .h(px(28.))
+                        .px(px(10.))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(8.))
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(TEXT_3)
+                        .child("Other")
+                        .child(ui::group_count(rows.len())),
+                )
+            },
+        );
         out.push(Self::drops_into(other.children(rows), Section::Other, cx).into_any_element());
         out
     }

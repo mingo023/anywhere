@@ -1,14 +1,14 @@
-use ::agents::providers;
 use super::agents::{status_source, toggle_enabled};
 use super::catalog::Setting;
 use super::dropdown::dropdown;
 use super::dropdown::picks;
 use super::models::{effort_options, model_rows};
-use crate::models::{effort_label, model_or_default, not_found};
 use super::{Section, action, card, field_box, row};
 use crate::composer::model_menu::listed_name;
 use crate::desktop::Desktop;
+use crate::models::{effort_label, model_or_default, not_found};
 use crate::util::tilde;
+use ::agents::providers;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -39,19 +39,34 @@ pub(crate) fn model_menu(i: usize) -> &'static str {
 
 const fn rows<const P: usize>() -> [Setting; 9] {
     [
-        Setting::custom("enabled", ENABLED, "Enabled", |d, _, cx| d.enabled_row(P, cx))
-            .resets(|s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(), |s, _| s.agents.enable(LaunchPick::PROVIDERS[P])),
-        Setting::text(ROW_IDS[P][0], DEFAULTS, "Label", PROVIDER_NAMES[P], |s| s.agents.provider(LaunchPick::PROVIDERS[P]).label, |s, v| {
-            s.agents.provider_mut(LaunchPick::PROVIDERS[P]).label = v
-        })
+        Setting::custom("enabled", ENABLED, "Enabled", |d, _, cx| d.enabled_row(P, cx)).resets(
+            |s| if s.agents.disabled.contains(LaunchPick::PROVIDERS[P]) { "Off" } else { "On" }.into(),
+            |s, _| s.agents.enable(LaunchPick::PROVIDERS[P]),
+        ),
+        Setting::text(
+            ROW_IDS[P][0],
+            DEFAULTS,
+            "Label",
+            PROVIDER_NAMES[P],
+            |s| s.agents.provider(LaunchPick::PROVIDERS[P]).label,
+            |s, v| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).label = v,
+        )
         .hint("Replaces the built-in name everywhere in the app"),
         Setting::custom("model", DEFAULTS, "Model", |d, s, cx| d.model_row(P, s, cx))
-            .resets(|s| model_or_default(&s.agents.provider(LaunchPick::PROVIDERS[P]).model), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear())
+            .resets(
+                |s| model_or_default(&s.agents.provider(LaunchPick::PROVIDERS[P]).model),
+                |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).model.clear(),
+            )
             .hint("The list comes from the CLI"),
-        Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx))
-            .resets(|s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear()),
+        Setting::custom("effort", DEFAULTS, "Effort", |d, s, cx| d.effort_row(P, s, cx)).resets(
+            |s| effort_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).effort),
+            |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).effort.clear(),
+        ),
         Setting::custom("command", LAUNCH, "Command", |d, s, _| d.launch_row(P, Launch::Command, s))
-            .resets(|s| command_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).command), |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).command.clear())
+            .resets(
+                |s| command_label(&s.agents.provider(LaunchPick::PROVIDERS[P]).command),
+                |s, _| s.agents.provider_mut(LaunchPick::PROVIDERS[P]).command.clear(),
+            )
             .effect(|d, cx| d.send_launch(P, Launch::Command, cx))
             .hint("Binary name or path. Found on PATH by default"),
         args_row::<P, 0>().hint("Added only when launching with a prompt, e.g. --, --prompt, -i"),
@@ -67,7 +82,10 @@ const fn rows<const P: usize>() -> [Setting; 9] {
 const fn args_row<const P: usize, const A: usize>() -> Setting {
     let (id, label) = [("prompt-args", "Prompt-only args"), ("resume-args", "Resume args"), ("fork-args", "Fork args")][A];
     Setting::custom(id, LAUNCH, label, |d, s, _| d.launch_row(P, Launch::Args(Args::ALL[A]), s))
-        .resets(|s| args_label(&s.agents.args(LaunchPick::PROVIDERS[P], Args::ALL[A])), |s, _| *s.agents.provider_mut(LaunchPick::PROVIDERS[P]).args_mut(Args::ALL[A]) = None)
+        .resets(
+            |s| args_label(&s.agents.args(LaunchPick::PROVIDERS[P], Args::ALL[A])),
+            |s, _| *s.agents.provider_mut(LaunchPick::PROVIDERS[P]).args_mut(Args::ALL[A]) = None,
+        )
         .effect(|d, cx| d.send_launch(P, Launch::Args(Args::ALL[A]), cx))
 }
 
@@ -200,7 +218,8 @@ impl Desktop {
         cx.notify();
         let (key, sent) = (f.key(p), text.clone());
         cx.spawn_in(window, async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { daemon::request(&serde_json::json!({"op": "config-set", "key": key, "text": sent})) }).await;
+            let result =
+                cx.background_executor().spawn(async move { daemon::request(&serde_json::json!({"op": "config-set", "key": key, "text": sent})) }).await;
             this.update_in(cx, |d, window, cx| {
                 if let Err(e) = result {
                     d.error = Some(format!("Anywhere kept the {} {}: {e}", d.agent_name(p), f.noun()));
@@ -246,13 +265,19 @@ impl Desktop {
             }))
         });
         let toggle = installed.then(|| {
-            div().id("provider-enabled").flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                toggle_enabled(&mut this.store.agents, p, &this.agents);
-                this.save_soon(cx);
-                cx.notify();
-            }))
+            div().id("provider-enabled").flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    toggle_enabled(&mut this.store.agents, p, &this.agents);
+                    this.save_soon(cx);
+                    cx.notify();
+                },
+            ))
         });
-        let (title, line) = if installed { (ENABLED, "Shows up in Default agent, New session, Automations and AI commit messages".to_string()) } else { ("Not installed", not_found(p)) };
+        let (title, line) = if installed {
+            (ENABLED, "Shows up in Default agent, New session, Automations and AI commit messages".to_string())
+        } else {
+            ("Not installed", not_found(p))
+        };
         let text = div()
             .flex_1()
             .min_w_0()
@@ -269,7 +294,16 @@ impl Desktop {
         let model = self.store.agents.provider(p).model;
         let (id, offered) = (ROW_IDS[i][1], self.offered_models(p));
         let trigger = action(id, "").child(listed_name(&model, offered)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown(id, trigger, (self.models.revision, self.installed(p), &model), || model_rows(p, offered, &model), &model, self, move |d, v, _| d.store.agents.provider_mut(p).model = v, cx);
+        let menu = dropdown(
+            id,
+            trigger,
+            (self.models.revision, self.installed(p), &model),
+            || model_rows(p, offered, &model),
+            &model,
+            self,
+            move |d, v, _| d.store.agents.provider_mut(p).model = v,
+            cx,
+        );
         row(setting.label, setting.hint, menu)
     }
 
@@ -282,7 +316,16 @@ impl Desktop {
         let effort = self.store.agents.provider(p).effort;
         let id = ROW_IDS[i][2];
         let trigger = action(id, "").child(effort_label(&effort)).gap(px(6.)).child(icon("chevron-down", 12., TEXT_3));
-        let menu = dropdown(id, trigger, &levels, || picks(effort_options(&levels, "Agent default")), &effort, self, move |d, v, _| d.store.agents.provider_mut(p).effort = v, cx);
+        let menu = dropdown(
+            id,
+            trigger,
+            &levels,
+            || picks(effort_options(&levels, "Agent default")),
+            &effort,
+            self,
+            move |d, v, _| d.store.agents.provider_mut(p).effort = v,
+            cx,
+        );
         row(providers::known(p).effort_word, setting.hint, menu)
     }
 
@@ -316,7 +359,15 @@ impl Desktop {
             .flex_col()
             .gap(px(2.))
             .child(div().text_size(px(20.)).line_height(px(26.)).font_weight(FontWeight::BOLD).text_color(TEXT).child(self.agent_name(p)))
-            .child(div().flex().text_size(px(12.5)).line_height(px(17.)).text_color(TEXT_2).child(lead).child(div().when(mono, |d| d.font_family(MONO).text_size(px(12.))).child(path)));
+            .child(
+                div()
+                    .flex()
+                    .text_size(px(12.5))
+                    .line_height(px(17.))
+                    .text_color(TEXT_2)
+                    .child(lead)
+                    .child(div().when(mono, |d| d.font_family(MONO).text_size(px(12.))).child(path)),
+            );
         let header = div().mb(px(4.)).flex().items_center().gap(px(14.)).child(tile).child(text);
         let enabled = card(vec![self.enabled_row(i, cx)]);
         let groups: Vec<Div> = [DEFAULTS, LAUNCH, STATUS].into_iter().filter_map(|g| self.setting_group(section, g, cx)).collect();
@@ -365,7 +416,8 @@ mod tests {
         store.agents.disable("claude", &agents::Agents::default());
         for p in ["claude", "codex"] {
             let own = store.agents.provider_mut(p);
-            (own.model, own.effort, own.command, own.label, own.fork_args) = ("opus".into(), "high".into(), "/opt/agent".into(), "Mine".into(), Some(String::new()));
+            (own.model, own.effort, own.command, own.label, own.fork_args) =
+                ("opus".into(), "high".into(), "/opt/agent".into(), "Mine".into(), Some(String::new()));
         }
         let labels: Vec<_> = changed(PAGES[0], &store).into_iter().map(|c| (c.label, c.from, c.to)).collect();
         assert_eq!(

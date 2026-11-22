@@ -65,7 +65,11 @@ fn code(t: &Thread) -> Option<Div> {
 
 fn path_line(t: &Thread) -> Div {
     let cut = t.path.rfind('/').map_or(0, |i| i + 1);
-    div().min_w_0().flex().child(div().min_w_0().truncate().child(t.path[..cut].to_string())).child(div().flex_none().text_color(TEXT_2).child(t.path[cut..].to_string()))
+    div()
+        .min_w_0()
+        .flex()
+        .child(div().min_w_0().truncate().child(t.path[..cut].to_string()))
+        .child(div().flex_none().text_color(TEXT_2).child(t.path[cut..].to_string()))
 }
 
 /// The replies a long thread folds away: all between its opening and its last `LATEST_SHOWN`, once that is at least two. `None` when it shows whole.
@@ -148,21 +152,38 @@ impl Desktop {
             .when(t.outdated, |d| d.child(pill("Outdated", FILL_3, TEXT_3)))
             .child(div().flex_1());
         let comment = |c: &Comment| {
-            let name = div().flex().items_center().gap(px(6.)).text_size(px(12.)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(c.author.clone())).child(div().text_color(TEXT_4).child(ago(c.at as i64, now)));
+            let name = div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(12.))
+                .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(c.author.clone()))
+                .child(div().text_color(TEXT_4).child(ago(c.at as i64, now)));
             div()
                 .flex()
                 .items_start()
                 .gap(px(8.))
                 .child(self.face(&c.author, 20.))
-                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(name).child(div().text_size(px(12.5)).text_color(TEXT_BODY).child(comment_text(t, c))))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(name)
+                        .child(div().text_size(px(12.5)).text_color(TEXT_BODY).child(comment_text(t, c))),
+                )
                 .into_any_element()
         };
         let said: Vec<AnyElement> = match folded_replies(t.comments.len(), whole) {
             None => t.comments.iter().map(comment).collect(),
             Some(hidden) => {
-                let faces = authors(&t.comments[hidden.clone()]).into_iter().take(3).enumerate().map(|(k, a)| {
-                    self.face(a, 16.).shadow(vec![ui::ring(SURFACE, 1.5)]).when(k > 0, |d| d.ml(px(-3.)))
-                });
+                let faces = authors(&t.comments[hidden.clone()])
+                    .into_iter()
+                    .take(3)
+                    .enumerate()
+                    .map(|(k, a)| self.face(a, 16.).shadow(vec![ui::ring(SURFACE, 1.5)]).when(k > 0, |d| d.ml(px(-3.))));
                 let more = div()
                     .id(("pr-more", i))
                     .ml(px(28.))
@@ -182,42 +203,65 @@ impl Desktop {
                     .child(div().flex().children(faces))
                     .child(format!("{} more replies", hidden.len()))
                     .on_click(toggle(t.id.clone()));
-                t.comments.first().map(comment).into_iter().chain([div().flex().child(more).into_any_element()]).chain(t.comments[hidden.end..].iter().map(comment)).collect()
+                t.comments
+                    .first()
+                    .map(comment)
+                    .into_iter()
+                    .chain([div().flex().child(more).into_any_element()])
+                    .chain(t.comments[hidden.end..].iter().map(comment))
+                    .collect()
             }
         };
         let id = t.id.clone();
         let foot = if self.pr.replying.as_deref() == Some(t.id.as_str()) {
-            let field = div().px(px(10.)).py(px(7.)).rounded(px(9.)).bg(SURFACE).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).text_size(px(12.5)).child(Textarea::new(&self.pr.reply).appearance(false));
+            let field = div()
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(px(9.))
+                .bg(SURFACE)
+                .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
+                .text_size(px(12.5))
+                .child(Textarea::new(&self.pr.reply).appearance(false));
             let ready = !self.pr.reply.read(cx).value().trim().is_empty();
-            let send = small("pr-reply-send", Variant::Primary, "Reply").when(!ready, |d| d.opacity(0.5).cursor_default()).when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send_reply(window, cx))));
+            let send = small("pr-reply-send", Variant::Primary, "Reply")
+                .when(!ready, |d| d.opacity(0.5).cursor_default())
+                .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send_reply(window, cx))));
             let actions = div()
                 .flex()
                 .items_center()
                 .gap(px(4.))
                 .child(div().flex_1().text_size(px(11.5)).text_color(TEXT_4).child(format!("Posts to GitHub as you · {}", ui::os_keys("⌘↩"))))
-                .child(small("pr-reply-cancel", Variant::Secondary, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_reply(window, cx))))
+                .child(
+                    small("pr-reply-cancel", Variant::Secondary, "Cancel")
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_reply(window, cx))),
+                )
                 .child(send);
             div().flex().flex_col().gap(px(6.)).child(field).child(actions)
         } else {
             let reply = {
                 let id = id.clone();
-                small(("pr-reply", i), Variant::Secondary, "Reply").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_reply(id.clone(), window, cx)))
+                small(("pr-reply", i), Variant::Secondary, "Reply")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_reply(id.clone(), window, cx)))
             };
             let resolve = |v: Variant, resolved: bool| {
                 let id = id.clone();
-                small(("pr-resolve", i), v, if resolved { "Resolve" } else { "Unresolve" }).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resolve_thread(id.clone(), resolved, true, cx)))
+                small(("pr-resolve", i), v, if resolved { "Resolve" } else { "Unresolve" })
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resolve_thread(id.clone(), resolved, true, cx)))
             };
             let actions: Vec<Stateful<Div>> = match state {
                 ThreadState::Open => {
                     let send = can_send.then(|| {
                         let id = id.clone();
-                        small(("pr-thread-send", i), Variant::Primary, format!("Send to {agent}")).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&[], std::slice::from_ref(&id), cx)))
+                        small(("pr-thread-send", i), Variant::Primary, format!("Send to {agent}"))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&[], std::slice::from_ref(&id), cx)))
                     });
                     send.into_iter().chain([reply, resolve(Variant::Secondary, true)]).collect()
                 }
                 ThreadState::Sent => vec![reply],
                 ThreadState::Replied => vec![resolve(Variant::Primary, true), reply],
-                ThreadState::Resolved => vec![resolve(Variant::Secondary, false), small(("pr-collapse", i), Variant::Ghost, "Collapse").on_click(toggle(id.clone()))],
+                ThreadState::Resolved => {
+                    vec![resolve(Variant::Secondary, false), small(("pr-collapse", i), Variant::Ghost, "Collapse").on_click(toggle(id.clone()))]
+                }
             };
             div().flex().flex_wrap().gap(px(4.)).children(actions)
         };
@@ -281,7 +325,12 @@ impl Desktop {
             .children(thread_chip(state))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.view_thread(&view, cx)));
         let said = |c: &Comment| {
-            let name = div().flex().items_center().gap(px(6.)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(c.author.clone())).child(div().text_size(px(11.5)).text_color(TEXT_4).child(ago(c.at as i64, now)));
+            let name = div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(div().font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(c.author.clone()))
+                .child(div().text_size(px(11.5)).text_color(TEXT_4).child(ago(c.at as i64, now)));
             div()
                 .pt(px(9.))
                 .px(px(10.))
@@ -314,7 +363,9 @@ impl Desktop {
         let id = t.id.clone();
         let foot = if self.pr.replying.as_deref() == Some(t.id.as_str()) {
             let ready = !self.pr.reply.read(cx).value().trim().is_empty();
-            let send = small("pr-reply-send", Variant::Primary, "Reply").when(!ready, |d| d.opacity(0.5).cursor_default()).when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send_reply(window, cx))));
+            let send = small("pr-reply-send", Variant::Primary, "Reply")
+                .when(!ready, |d| d.opacity(0.5).cursor_default())
+                .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send_reply(window, cx))));
             let actions = div()
                 .px(px(6.))
                 .pt(px(4.))
@@ -323,24 +374,44 @@ impl Desktop {
                 .items_center()
                 .gap(px(4.))
                 .child(div().flex_1().pl(px(4.)).text_size(px(11.)).text_color(TEXT_4).child(ui::os_keys("⌘↩")))
-                .child(small("pr-reply-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_reply(window, cx))))
+                .child(
+                    small("pr-reply-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_reply(window, cx))),
+                )
                 .child(send);
             let field = div().px(px(10.)).pt(px(8.)).text_size(px(12.5)).child(Textarea::new(&self.pr.reply).appearance(false));
-            div().mt(px(8.)).mr(px(8.)).mb(px(8.)).ml(px(36.)).rounded(px(8.)).bg(FILL_2).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(field).child(actions)
+            div()
+                .mt(px(8.))
+                .mr(px(8.))
+                .mb(px(8.))
+                .ml(px(36.))
+                .rounded(px(8.))
+                .bg(FILL_2)
+                .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
+                .child(field)
+                .child(actions)
         } else {
             let reply = {
                 let id = id.clone();
-                small_with(("pr-reply", i), Variant::Ghost, "reply", "Reply").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_reply(id.clone(), window, cx)))
+                small_with(("pr-reply", i), Variant::Ghost, "reply", "Reply")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_reply(id.clone(), window, cx)))
             };
             let send = (can_send && state == ThreadState::Open).then(|| {
                 let id = id.clone();
-                small(("pr-thread-send", i), Variant::Secondary, format!("Send to {agent}")).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&[], std::slice::from_ref(&id), cx)))
+                small(("pr-thread-send", i), Variant::Secondary, format!("Send to {agent}"))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(&[], std::slice::from_ref(&id), cx)))
             });
             let resolved = state == ThreadState::Resolved;
-            let resolve = small(("pr-resolve", i), Variant::Ghost, if resolved { "Reopen" } else { "Resolve" }).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resolve_thread(id.clone(), !resolved, true, cx)));
+            let resolve = small(("pr-resolve", i), Variant::Ghost, if resolved { "Reopen" } else { "Resolve" })
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resolve_thread(id.clone(), !resolved, true, cx)));
             div().pt(px(8.)).pr(px(8.)).pb(px(8.)).pl(px(36.)).flex().gap(px(4.)).child(reply).children(send).child(div().flex_1()).child(resolve)
         };
-        frame(div().id(("pr-thread", i))).when(state == ThreadState::Resolved, |d| d.opacity(0.72)).child(head).children(code(t)).children(rows).child(foot).into_any_element()
+        frame(div().id(("pr-thread", i)))
+            .when(state == ThreadState::Resolved, |d| d.opacity(0.72))
+            .child(head)
+            .children(code(t))
+            .children(rows)
+            .child(foot)
+            .into_any_element()
     }
 }
 

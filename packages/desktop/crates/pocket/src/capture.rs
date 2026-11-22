@@ -1,28 +1,28 @@
 use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
-use crate::spaces::{Space, space_of};
 use crate::add_to_chat::Quote;
 use crate::chat::composer::suggest::Prompt;
 use crate::chat::tool_row::{self, Tools};
 use crate::composer::Menu;
 use crate::creating::Create;
 use crate::desktop::Desktop;
+use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::explorer::menu::{Arrow, TreeMenu};
 use crate::explorer::toast::Notice;
-use crate::modals::new_session::picker::Picker;
-use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
 use crate::git_ui::diff::At;
 use crate::git_ui::graph::GraphState;
 use crate::git_ui::pull_request::PrTab;
+use crate::modals::new_session::picker::Picker;
 use crate::settings::Section;
+use crate::spaces::{Space, space_of};
 use crate::status::Status;
 use crate::updates::Update;
 use agents::providers;
 use chat::{Block, Command, Row, ToolKind};
 use git::Kind;
-use serde_json::json;
 use git::github::{Check, Checks, Comment, Label, Mergeable, Note, Outcome, Pr, PrCommit, PrFile, PrState, Review, Submitted, Thread};
 use gpui_kit::component::Root;
 use gpui_kit::*;
+use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use workspace::{Doc, Tab};
@@ -78,7 +78,10 @@ const STEPS: [(&str, Step); 302] = [
         let Some(agent) = d.session().map(str::to_string) else { return };
         let Some(view) = d.chats.views.get(&agent) else { return };
         let s = &view.session;
-        let Some(ix) = s.rows.iter().position(|r| matches!(r, Row::Fold { turn } if !chat::at_work_on(&s.transcript, chat::folded(&s.transcript, *turn)))) else { return };
+        let Some(ix) = s.rows.iter().position(|r| matches!(r, Row::Fold { turn } if !chat::at_work_on(&s.transcript, chat::folded(&s.transcript, *turn))))
+        else {
+            return;
+        };
         let id = s.ids[ix].clone();
         view.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
         d.chat_toggle(&agent, &id, false, cx);
@@ -99,7 +102,13 @@ const STEPS: [(&str, Step); 302] = [
         let Some(agent) = d.session().map(str::to_string) else { return };
         let Some(v) = d.chats.views.get(&agent) else { return };
         let s = &v.session;
-        let shut: Vec<String> = s.rows.iter().zip(&s.ids).filter(|(r, id)| matches!(r, Row::Fold { .. } | Row::Phase { .. }) && !s.open(id, false)).map(|(_, id)| id.clone()).collect();
+        let shut: Vec<String> = s
+            .rows
+            .iter()
+            .zip(&s.ids)
+            .filter(|(r, id)| matches!(r, Row::Fold { .. } | Row::Phase { .. }) && !s.open(id, false))
+            .map(|(_, id)| id.clone())
+            .collect();
         let calls: Vec<_> = s.transcript.turns.iter().flat_map(|t| &t.blocks).filter(|b| opens(b)).cloned().collect();
         let tools = v.tools.clone();
         for id in shut {
@@ -214,7 +223,9 @@ const STEPS: [(&str, Step); 302] = [
     ("chat-typed", |d, window, cx| d.set_chat_text("Refactor the parser", window, cx)),
     ("chat-pills", |d, window, cx| {
         let text = "Use /apple-design on `composer.rs`, then:\n```rust\nfn quiet() {}\n```";
-        let content = gpui_kit::component::input::InputContent::new(text).with_token(4..17, crate::composer::pills::command_token("apple-design")).expect("the pill's text");
+        let content = gpui_kit::component::input::InputContent::new(text)
+            .with_token(4..17, crate::composer::pills::command_token("apple-design"))
+            .expect("the pill's text");
         d.chats.input.update(cx, |s, cx| s.set_value(content, window, cx));
         cx.notify();
     }),
@@ -257,7 +268,11 @@ const STEPS: [(&str, Step); 302] = [
     ("chat-marked", |d, window, cx| d.set_chat_text("/review 482 then check @src/fold.rs and @docs/", window, cx)),
     ("chat-marked-sent", |d, _, cx| {
         if let Some(agent) = d.session().map(str::to_string) {
-            d.chat_command(&agent, Command::Send("Look at @src/parser.rs and @docs/adr/0003-desktop-code-layout.md, then fold the tool runs. Mail dev@pocket.app".into()), cx);
+            d.chat_command(
+                &agent,
+                Command::Send("Look at @src/parser.rs and @docs/adr/0003-desktop-code-layout.md, then fold the tool runs. Mail dev@pocket.app".into()),
+                cx,
+            );
         }
     }),
     ("chat-command-sent", |d, _, cx| {
@@ -266,7 +281,12 @@ const STEPS: [(&str, Step); 302] = [
         }
     }),
     ("chat-goal", |d, _, cx| {
-        let goal = agents::Goal { objective: "Every parser test passes and the CI lint job is green".into(), status: agents::GoalStatus::Active, tokens_used: 16510, token_budget: 50000 };
+        let goal = agents::Goal {
+            objective: "Every parser test passes and the CI lint job is green".into(),
+            status: agents::GoalStatus::Active,
+            tokens_used: 16510,
+            token_budget: 50000,
+        };
         if let Some(a) = d.session().map(str::to_string).and_then(|id| d.agents.list.iter_mut().find(|a| a.id == id)) {
             a.goal = Some(goal);
         }
@@ -365,7 +385,8 @@ const STEPS: [(&str, Step); 302] = [
     // Another agent's chat: one already open, else the first other agent's.
     ("chat-other", |d, window, cx| {
         let here = d.session().map(str::to_string);
-        let others: Vec<(String, String)> = d.agents.list.iter().filter(|a| Some(&a.id) != here.as_ref()).map(|a| (a.id.clone(), a.terminal_id.clone())).collect();
+        let others: Vec<(String, String)> =
+            d.agents.list.iter().filter(|a| Some(&a.id) != here.as_ref()).map(|a| (a.id.clone(), a.terminal_id.clone())).collect();
         let Some((agent, terminal)) = others.iter().find(|(_, t)| d.store.chats.contains(t)).or(others.first()).cloned() else { return };
         d.store.chats.insert(terminal.clone());
         d.focus_agent(&agent, window, cx);
@@ -515,7 +536,10 @@ const STEPS: [(&str, Step); 302] = [
         cx.notify();
     }),
     ("board-list-scrolled", |d, _, cx| {
-        let more: Vec<_> = (0..3).flat_map(|n| d.agents.board.tickets.iter().map(move |t| (n, t.clone()))).map(|(n, t)| agents::tickets::Ticket { id: format!("{}-{n}", t.id), ..t }).collect();
+        let more: Vec<_> = (0..3)
+            .flat_map(|n| d.agents.board.tickets.iter().map(move |t| (n, t.clone())))
+            .map(|(n, t)| agents::tickets::Ticket { id: format!("{}-{n}", t.id), ..t })
+            .collect();
         d.agents.board.tickets.extend(more);
         d.board_changed();
         d.board.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) });
@@ -579,7 +603,8 @@ const STEPS: [(&str, Step); 302] = [
     ("settings-hosts", |d, _, _| d.settings.section = Section::Hosts),
     // The real host the remote hosts e2e runs against; see `.ui-review/remote-hosts/`.
     ("vm", |d, _, _| {
-        let target = hosts::Target::Address { addr: "127.0.0.1".into(), port: 2222, user: "mingo".into(), key_file: Some("/tmp/anywhere-e2e/id_ed25519".into()) };
+        let target =
+            hosts::Target::Address { addr: "127.0.0.1".into(), port: 2222, user: "mingo".into(), key_file: Some("/tmp/anywhere-e2e/id_ed25519".into()) };
         if !d.fleet.hosts.list.iter().any(|h| h.target == target) {
             d.outbox.local.host_add(&target);
         }
@@ -649,7 +674,9 @@ const STEPS: [(&str, Step); 302] = [
         d.switch_space(Space::Host("10-0-4-12".into()), window, cx);
         d.new_session(None, true, window, cx);
     }),
-    ("form-host-folder", |d, window, cx| d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::NewSession, window, cx)),
+    ("form-host-folder", |d, window, cx| {
+        d.open_host_finder("devbox".into(), Some("/home/dev/code".into()), crate::modals::host_finder::Opener::NewSession, window, cx)
+    }),
     ("finder-choose", |d, window, cx| d.finder_choose(window, cx)),
     ("vm-open", |d, window, cx| d.open_browsed(window, cx)),
     ("vm-save", |d, window, cx| d.save_repo(window, cx)),
@@ -687,7 +714,11 @@ const STEPS: [(&str, Step); 302] = [
     ("hosts-spaces", |d, _, _| d.settings.section = Section::Hosts),
     ("hosts-installed", |d, window, cx| {
         d.settings.section = Section::Hosts;
-        for progress in [agents::hosts::Progress::Step(agents::hosts::Step::Detect), agents::hosts::Progress::Step(agents::hosts::Step::Start), agents::hosts::Progress::Done] {
+        for progress in [
+            agents::hosts::Progress::Step(agents::hosts::Step::Detect),
+            agents::hosts::Progress::Step(agents::hosts::Step::Start),
+            agents::hosts::Progress::Done,
+        ] {
             d.on_hosts(agents::Event::HostProgress { host: "devbox".into(), update: false, progress }, window, cx);
         }
     }),
@@ -709,7 +740,11 @@ const STEPS: [(&str, Step); 302] = [
         let id = "fx-signin".to_string();
         let mut term = term::Term::new(100, 30);
         term.write(b"Opening browser to sign in\xe2\x80\xa6\r\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&scope=user%3Ainference&state=Nwd_oVnDKfPnpygUrKjXPJ00\r\nPaste code here if prompted > ");
-        d.terminals.sessions.items.push(crate::terminals::sessions::Session { info: daemon::Info { id: id.clone(), ..Default::default() }, term: Some(term), exit: None });
+        d.terminals.sessions.items.push(crate::terminals::sessions::Session {
+            info: daemon::Info { id: id.clone(), ..Default::default() },
+            term: Some(term),
+            exit: None,
+        });
         let mut signin = d.new_sign_in(crate::accounts::Key { host: None, provider: "claude".into(), id: String::new() }, window, cx);
         (signin.terminal, signin.output_open) = (Some(id), true);
         d.accounts.signins.push(signin);
@@ -737,11 +772,13 @@ const STEPS: [(&str, Step); 302] = [
             d.store.repos.entry(p).or_default().accounts.insert("claude".into(), "work".into());
         }
     }),
-    ("model-menu", |d, _, _| d.settings.menu = Some(match (d.overlay, d.settings.section) {
-        (_, Section::Git) => "ai-model",
-        (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
-        _ => crate::settings::provider::model_menu(0),
-    })),
+    ("model-menu", |d, _, _| {
+        d.settings.menu = Some(match (d.overlay, d.settings.section) {
+            (_, Section::Git) => "ai-model",
+            (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
+            _ => crate::settings::provider::model_menu(0),
+        })
+    }),
     ("model-favorites", |d, _, cx| view_models(d, crate::composer::model_menu::FAVORITES, cx)),
     ("models-sample", |d, _, _| models_sample(d)),
     // One starred model, and four picked lately: the starred one among them, and one of Codex's.
@@ -761,8 +798,15 @@ const STEPS: [(&str, Step); 302] = [
         }
         let reply = r#"{"jsonrpc":"2.0","id":2,"result":{"models":[{"value":"composer-2.5","name":"Composer 2.5","configOptions":[]},{"value":"gpt-5.4","name":"GPT-5.4","configOptions":[{"id":"reasoning","name":"Reasoning","category":"thought_level","type":"select","currentValue":"medium","options":[{"value":"low","name":"Low"},{"value":"medium","name":"Medium"},{"value":"high","name":"High"}]},{"id":"fast","name":"Fast","category":"model_config","type":"select","currentValue":"false","options":[{"value":"false","name":"Off"},{"value":"true","name":"On"}]}]}]}}"#;
         d.models.set("cursor", providers::known("cursor").models.read(reply).ok());
-        let pick = store::LaunchPick { provider: "cursor".into(), model: "gpt-5.4".into(), access: "ask".into(), options: [("fast".to_string(), "true".to_string())].into(), ..Default::default() };
-        let repo = d.project.clone(); crate::modals::new_session::slot(d).draft.choose(repo, pick);
+        let pick = store::LaunchPick {
+            provider: "cursor".into(),
+            model: "gpt-5.4".into(),
+            access: "ask".into(),
+            options: [("fast".to_string(), "true".to_string())].into(),
+            ..Default::default()
+        };
+        let repo = d.project.clone();
+        crate::modals::new_session::slot(d).draft.choose(repo, pick);
         cx.notify();
     }),
     // Hermes still listing its models, and this Mac's agents: the others say how to install them.
@@ -800,7 +844,9 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
-    ("prompt", |d, window, cx| d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)),
+    ("prompt", |d, window, cx| {
+        d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)
+    }),
     ("add-repo", |d, window, cx| d.edit_project(d.projects().into_iter().next(), window, cx)),
     ("clone", |d, window, cx| {
         d.clone_project(window, cx);
@@ -827,11 +873,21 @@ const STEPS: [(&str, Step); 302] = [
     ("pair-phone", |d, window, cx| d.open(Overlay::PairPhone, window, cx)),
     ("owner", |d, _, _| {
         let strings = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
-        d.agents.apply(agents::Event::Connected { scopes: strings(&["observe", "drive", "approve", "spawn", "owner"]), caps: strings(&["pair.v1", "scopes.v1"]), version: String::new() });
+        d.agents.apply(agents::Event::Connected {
+            scopes: strings(&["observe", "drive", "approve", "spawn", "owner"]),
+            caps: strings(&["pair.v1", "scopes.v1"]),
+            version: String::new(),
+        });
     }),
     ("phones", |d, _, _| {
         let hour = 3_600_000;
-        let phone = |id: &str, name: &str, platform: &str, ago: i64| daemon::Device { id: id.into(), name: name.into(), platform: platform.into(), last_seen_at: crate::util::now_ms() - ago, legacy: false };
+        let phone = |id: &str, name: &str, platform: &str, ago: i64| daemon::Device {
+            id: id.into(),
+            name: name.into(),
+            platform: platform.into(),
+            last_seen_at: crate::util::now_ms() - ago,
+            legacy: false,
+        };
         d.settings.host.devices = Some(vec![phone("p1", "Minh's iPhone 16 Pro", "iOS 26.1", 0), phone("p2", "iPad Air", "iPadOS 26.0", 72 * hour)]);
     }),
     ("no-phones", |d, _, _| d.settings.host.devices = Some(Vec::new())),
@@ -891,7 +947,14 @@ const STEPS: [(&str, Step); 302] = [
         let now = Instant::now();
         let spec = serde_json::json!({"project": p, "checkout": {"new": {"name": "fix-flaky-snapshot", "base": "main", "copy": true, "setup": true}}, "prompt": "Fix the flaky snapshot"});
         let mut c = Create::new("capture".into(), format!("{p}.worktrees/fix-flaky-snapshot"), spec, now - Duration::from_secs(9));
-        for (step, note, ago) in [("verify", "", 8.6), ("fetch", "", 8.3), ("fetch", "Couldn't fetch, using local main", 0.), ("worktree", "", 6.1), ("copy", "", 5.6), ("setup", "", 5.5)] {
+        for (step, note, ago) in [
+            ("verify", "", 8.6),
+            ("fetch", "", 8.3),
+            ("fetch", "Couldn't fetch, using local main", 0.),
+            ("worktree", "", 6.1),
+            ("copy", "", 5.6),
+            ("setup", "", 5.5),
+        ] {
             c.reach(step, note, now - Duration::from_secs_f32(ago));
         }
         d.worktree = Some(c.path.clone());
@@ -923,11 +986,23 @@ const STEPS: [(&str, Step); 302] = [
         let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();
         let now = Instant::now();
-        let checks = [Checks { passed: 4, ..Checks::default() }, Checks { passed: 2, failed: 1, ..Checks::default() }, Checks { passed: 1, pending: 2, ..Checks::default() }, Checks { passed: 5, ..Checks::default() }];
+        let checks = [
+            Checks { passed: 4, ..Checks::default() },
+            Checks { passed: 2, failed: 1, ..Checks::default() },
+            Checks { passed: 1, pending: 2, ..Checks::default() },
+            Checks { passed: 5, ..Checks::default() },
+        ];
         for (i, tree) in trees.into_iter().enumerate() {
             let number = 120 + i as u32;
             let state = if i == 3 { PrState::Merged } else { PrState::Open };
-            let pr = Pr { number, title: format!("Capture PR {number}"), url: format!("https://github.com/acme/app/pull/{number}"), state, checks: checks[i % 4], ..Pr::default() };
+            let pr = Pr {
+                number,
+                title: format!("Capture PR {number}"),
+                url: format!("https://github.com/acme/app/pull/{number}"),
+                state,
+                checks: checks[i % 4],
+                ..Pr::default()
+            };
             d.prs.start(&tree, now);
             d.prs.apply(tree, now, Ok(Some(pr)), now);
         }
@@ -942,7 +1017,13 @@ const STEPS: [(&str, Step); 302] = [
             comments[0].review = Some(review.into());
             Thread { id: id.into(), path: "hooks/use-restore-preview.ts".into(), line: Some(line), resolved, comments, ..Thread::default() }
         };
-        let review = |id: &str, author: &str, verdict: Review, body: &str, mins: u64| Submitted { id: id.into(), author: author.into(), verdict, body: body.into(), at: ago(mins) };
+        let review = |id: &str, author: &str, verdict: Review, body: &str, mins: u64| Submitted {
+            id: id.into(),
+            author: author.into(),
+            verdict,
+            body: body.into(),
+            at: ago(mins),
+        };
         let commit = |oid: &str, subject: &str, mins: u64| PrCommit { oid: oid.into(), subject: subject.into(), author: "minhngo".into(), at: ago(mins) };
         let file = |path: &str, additions: u32, deletions: u32| PrFile { path: path.into(), additions, deletions };
         let run = |name: &str, outcome: Outcome| Check { name: name.into(), outcome, url: "https://github.com/acme/app/actions/runs/1".into() };
@@ -992,7 +1073,12 @@ const STEPS: [(&str, Step); 302] = [
             ("Minh Ngo", "Yes, a 3s fallback, logged.", 13),
         ];
         if let Some(t) = pr.threads.iter_mut().find(|t| t.id == "t2") {
-            let said = replies.iter().map(|(author, body, mins)| Comment { author: author.to_string(), body: body.to_string(), at: at - mins * 60_000, ..Comment::default() });
+            let said = replies.iter().map(|(author, body, mins)| Comment {
+                author: author.to_string(),
+                body: body.to_string(),
+                at: at - mins * 60_000,
+                ..Comment::default()
+            });
             t.comments.splice(1..1, said);
         }
         let now = Instant::now();
@@ -1106,7 +1192,10 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         window.defer(cx, move |window, cx| {
             let modifiers = Modifiers::default();
             window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
-            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }),
+                cx,
+            );
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1 }), cx);
         });
     }),
@@ -1133,7 +1222,10 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         window.defer(cx, move |window, cx| {
             let modifiers = Modifiers::default();
             window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
-            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: at, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: at, modifiers, click_count: 1, first_mouse: false }),
+                cx,
+            );
             draw(window, cx);
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Right, position: at, modifiers, click_count: 1 }), cx);
         });
@@ -1145,7 +1237,10 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         window.defer(cx, move |window, cx| {
             let modifiers = Modifiers::default();
             window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
-            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }),
+                cx,
+            );
             draw(window, cx);
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1 }), cx);
         });
@@ -1156,7 +1251,10 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         window.defer(cx, move |window, cx| {
             let (modifiers, to) = (Modifiers::default(), at + point(px(2.), px(1.)));
             window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
-            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1, first_mouse: false }),
+                cx,
+            );
             window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: to, pressed_button: Some(MouseButton::Left), modifiers }), cx);
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: to, modifiers, click_count: 1 }), cx);
         });
@@ -1175,14 +1273,19 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         let Some((at, file)) = arg.rsplit_once(',').and_then(|(at, file)| Some((point_arg(at)?, PathBuf::from(file)))) else { return };
         window.defer(cx, move |window, cx| {
             window.dispatch_event(PlatformInput::FileDrop(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file].into()) }), cx);
-            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1 }), cx);
+            window.dispatch_event(
+                PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1 }),
+                cx,
+            );
         });
     }),
     // A Finder drag held over a point, not yet dropped.
     ("drag", |_, window, cx| {
         let Some(arg) = next_arg("CAPTURE_DRAGS", ';') else { return };
         let Some((at, file)) = arg.rsplit_once(',').and_then(|(at, file)| Some((point_arg(at)?, PathBuf::from(file)))) else { return };
-        window.defer(cx, move |window, cx| _ = window.dispatch_event(PlatformInput::FileDrop(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file].into()) }), cx));
+        window.defer(cx, move |window, cx| {
+            _ = window.dispatch_event(PlatformInput::FileDrop(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file].into()) }), cx)
+        });
     }),
     // Pastes the PNG with cmd-v, then puts back what the clipboard held.
     ("paste-image", |_, window, cx| {
@@ -1204,7 +1307,10 @@ const INPUT_STEPS: [(&str, Step); 19] = [
         window.defer(cx, move |window, cx| {
             let (modifiers, left) = (Modifiers::default(), Some(MouseButton::Left));
             window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: from, pressed_button: None, modifiers }), cx);
-            window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(
+                PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }),
+                cx,
+            );
             for step in 1..=4 {
                 let position = from + by * (step as f32 / 4.);
                 window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: left, modifiers }), cx);
@@ -1222,7 +1328,16 @@ const INPUT_STEPS: [(&str, Step); 19] = [
             let phases = [TouchPhase::Started, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Moved, TouchPhase::Ended];
             for (i, touch_phase) in phases.into_iter().enumerate() {
                 let delta = if i == 4 { point(px(0.), px(0.)) } else { by * 0.25 };
-                window.dispatch_event(PlatformInput::Scroll(ScrollEvent { position: at, delta: ScrollDelta::Pixels(delta), modifiers, touch_phase, source: ScrollSource::Pointer }), cx);
+                window.dispatch_event(
+                    PlatformInput::Scroll(ScrollEvent {
+                        position: at,
+                        delta: ScrollDelta::Pixels(delta),
+                        modifiers,
+                        touch_phase,
+                        source: ScrollSource::Pointer,
+                    }),
+                    cx,
+                );
             }
         });
     }),
@@ -1245,7 +1360,11 @@ const INPUT_STEPS: [(&str, Step); 19] = [
     ("pause", |_, _, _| {}),
     // The fixture's clock override: the shown chat's sends age past their two minutes.
     ("chat-age-sends", |d, _, cx| {
-        let Some((id, working)) = d.session().and_then(|a| d.agents.get(a)).map(|a| (a.id.clone(), crate::status::Status::of(a) == Some(crate::status::Status::Working))) else { return };
+        let Some((id, working)) =
+            d.session().and_then(|a| d.agents.get(a)).map(|a| (a.id.clone(), crate::status::Status::of(a) == Some(crate::status::Status::Working)))
+        else {
+            return;
+        };
         if let Some(v) = d.chats.views.get_mut(&id) {
             v.session.outgoing.settle(&v.session.transcript, working, crate::util::now_ms() + 121_000);
             cx.notify();
@@ -1324,13 +1443,45 @@ fn provider_step(name: &str) -> Option<Step> {
 /// parser the app runs: one written out by hand would hide what the parser makes of it.
 fn models_sample(d: &mut Desktop) {
     const OPENCODE: [&str; 22] = [
-        "opencode/big-pickle", "opencode/glm-5", "opencode/kimi-k2.5", "opencode/minimax-m2.5", "opencode/qwen-3.5", "anthropic/claude-haiku-4-5", "anthropic/claude-opus-4-7", "anthropic/claude-sonnet-4-6",
-        "openai/gpt-5.2-codex", "openai/gpt-5.4", "openai/gpt-5.4-mini", "github-copilot/claude-sonnet-4-5", "github-copilot/gemini-3-pro", "github-copilot/gpt-5.4", "openrouter/deepseek-v4-flash", "openrouter/grok-4.5",
-        "openrouter/llama-4-maverick", "openrouter/mistral-large-3", "zai/glm-4.7", "zai/glm-4.7-flash", "zai/glm-5.2", "zai/glm-5.2-fast",
+        "opencode/big-pickle",
+        "opencode/glm-5",
+        "opencode/kimi-k2.5",
+        "opencode/minimax-m2.5",
+        "opencode/qwen-3.5",
+        "anthropic/claude-haiku-4-5",
+        "anthropic/claude-opus-4-7",
+        "anthropic/claude-sonnet-4-6",
+        "openai/gpt-5.2-codex",
+        "openai/gpt-5.4",
+        "openai/gpt-5.4-mini",
+        "github-copilot/claude-sonnet-4-5",
+        "github-copilot/gemini-3-pro",
+        "github-copilot/gpt-5.4",
+        "openrouter/deepseek-v4-flash",
+        "openrouter/grok-4.5",
+        "openrouter/llama-4-maverick",
+        "openrouter/mistral-large-3",
+        "zai/glm-4.7",
+        "zai/glm-4.7-flash",
+        "zai/glm-5.2",
+        "zai/glm-5.2-fast",
     ];
     const PI: [&str; 15] = [
-        "anthropic/claude-haiku-4-5", "anthropic/claude-opus-4-7", "anthropic/claude-sonnet-4-6", "amazon-bedrock/claude-opus-4-7", "openai-codex/gpt-5.2-codex", "openai-codex/gpt-5.4", "openai-codex/gpt-5.4-mini",
-        "google/gemini-3-flash", "google/gemini-3-pro", "xai/grok-4.5", "xai/grok-4.6", "zai/glm-5.2", "groq/kimi-k2.5", "openrouter/deepseek-v4-flash", "openrouter/qwen-3.5",
+        "anthropic/claude-haiku-4-5",
+        "anthropic/claude-opus-4-7",
+        "anthropic/claude-sonnet-4-6",
+        "amazon-bedrock/claude-opus-4-7",
+        "openai-codex/gpt-5.2-codex",
+        "openai-codex/gpt-5.4",
+        "openai-codex/gpt-5.4-mini",
+        "google/gemini-3-flash",
+        "google/gemini-3-pro",
+        "xai/grok-4.5",
+        "xai/grok-4.6",
+        "zai/glm-5.2",
+        "groq/kimi-k2.5",
+        "openrouter/deepseek-v4-flash",
+        "openrouter/qwen-3.5",
     ];
     // Hermes 0.22's own answer on a Mac signed in to ChatGPT and DeepSeek: each id, and who it names before it.
     const HERMES: [(&str, &str); 18] = [
@@ -1353,15 +1504,23 @@ fn models_sample(d: &mut Desktop) {
         ("deepseek:deepseek-flash", "DeepSeek"),
         ("deepseek:deepseek-v4-pro", "DeepSeek"),
     ];
-    let opencode: Vec<_> = OPENCODE.iter().map(|slug| json!({"value": slug, "name": slug.split_once('/').map_or(slug.to_string(), |(who, id)| format!("{who}/{}", agents::model_name(id)))})).collect();
+    let opencode: Vec<_> = OPENCODE
+        .iter()
+        .map(|slug| json!({"value": slug, "name": slug.split_once('/').map_or(slug.to_string(), |(who, id)| format!("{who}/{}", agents::model_name(id)))}))
+        .collect();
     let efforts: Vec<_> = ["low", "medium", "high", "default"].iter().map(|e| json!({"value": e, "name": e})).collect();
     let opencode = json!({"jsonrpc": "2.0", "id": 2, "result": {"configOptions": [
         {"id": "model", "category": "model", "type": "select", "currentValue": OPENCODE[0], "options": opencode},
         {"id": "effort", "category": "thought_level", "type": "select", "currentValue": "default", "options": efforts},
     ]}});
-    let pi: Vec<_> = PI.iter().filter_map(|slug| slug.split_once('/')).map(|(provider, id)| json!({"id": id, "provider": provider, "name": agents::model_name(id), "reasoning": true})).collect();
+    let pi: Vec<_> = PI
+        .iter()
+        .filter_map(|slug| slug.split_once('/'))
+        .map(|(provider, id)| json!({"id": id, "provider": provider, "name": agents::model_name(id), "reasoning": true}))
+        .collect();
     let pi = json!({"type": "response", "command": "get_available_models", "success": true, "data": {"models": pi}});
-    let hermes: Vec<_> = HERMES.iter().map(|(id, who)| json!({"modelId": id, "name": format!("{who} \u{b7} {}", id.split_once(':').map_or(*id, |(_, model)| model))})).collect();
+    let hermes: Vec<_> =
+        HERMES.iter().map(|(id, who)| json!({"modelId": id, "name": format!("{who} \u{b7} {}", id.split_once(':').map_or(*id, |(_, model)| model))})).collect();
     let hermes = json!({"jsonrpc": "2.0", "id": 2, "result": {"models": {"availableModels": hermes, "currentModelId": "openai-codex:gpt-6-sol"}}});
     for (provider, printed) in [("opencode", opencode.to_string()), ("pi", pi.to_string()), ("hermes", hermes.to_string())] {
         d.models.set(provider, providers::known(provider).models.read(&printed).ok());
@@ -1458,7 +1617,14 @@ pub struct Capture {
 fn accounts_sample() -> Vec<daemon::Account> {
     use daemon::{Account, Usage, Window};
     let now = crate::util::now_ms();
-    let usage = |session: f64, week: f64| Some(Usage { session: Some(Window { percent: session, resets_at: now + 2 * 3_600_000 }), week: Some(Window { percent: week, resets_at: now + 4 * 86_400_000 }), at: now, stale: false });
+    let usage = |session: f64, week: f64| {
+        Some(Usage {
+            session: Some(Window { percent: session, resets_at: now + 2 * 3_600_000 }),
+            week: Some(Window { percent: week, resets_at: now + 4 * 86_400_000 }),
+            at: now,
+            stale: false,
+        })
+    };
     let claude = |id: &str| Account { id: id.into(), provider: "claude".into(), signed_in: true, ..Default::default() };
     vec![
         Account { email: "me@example.com".into(), plan: "Max".into(), default: true, usage: usage(42., 81.), ..claude("builtin") },

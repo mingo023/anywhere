@@ -16,7 +16,17 @@ pub(crate) fn primary_pill() -> Div {
 
 /// The primary button with a chevron beside it that opens `menu`; it looks pressable only when `ready`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn split_button(id: &'static str, lead: impl IntoElement, label: impl IntoElement, ready: bool, open: bool, main: Act, on_open: Act, menu: Stateful<Div>, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn split_button(
+    id: &'static str,
+    lead: impl IntoElement,
+    label: impl IntoElement,
+    ready: bool,
+    open: bool,
+    main: Act,
+    on_open: Act,
+    menu: Stateful<Div>,
+    cx: &mut Context<Desktop>,
+) -> Div {
     let wash = Token::new(0xffffff1a, 0x1717171a);
     let primary = div()
         .id(id)
@@ -99,18 +109,31 @@ impl Desktop {
         let commit_all = self.store.git.commit_all;
         let label = commit_label(&repo.files, self.changes.busy, commit_all);
         let ready = commit_ready(&repo.files, &self.changes.input.read(cx).value(), self.changes.busy.is_some(), commit_all);
-        let lead = if self.changes.busy.is_some() { spinner("commit-busy", 13., ON_PRIMARY).into_any_element() } else { icon("check", 14., ON_PRIMARY).into_any_element() };
+        let lead = if self.changes.busy.is_some() {
+            spinner("commit-busy", 13., ON_PRIMARY).into_any_element()
+        } else {
+            icon("check", 14., ON_PRIMARY).into_any_element()
+        };
         let menu = div()
             .id("commit-menu")
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.changes.commit_menu = false;
                 cx.notify();
             }))
-            .child(ui::menu_row("commit-push", "arrow-up", "Commit & Push", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Push, window, cx))))
+            .child(
+                ui::menu_row("commit-push", "arrow-up", "Commit & Push", None)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Push, window, cx))),
+            )
             .when(item == Some(PrItem::Create), |d| {
-                d.child(ui::menu_row("commit-ship", "pull-request", "Commit, push and create PR", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Ship, window, cx))))
+                d.child(
+                    ui::menu_row("commit-ship", "pull-request", "Commit, push and create PR", None)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Ship, window, cx))),
+                )
             })
-            .child(ui::menu_row("commit-amend", "compose", "Amend Last Commit", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Amend, window, cx))))
+            .child(
+                ui::menu_row("commit-amend", "compose", "Amend Last Commit", None)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.commit(CommitKind::Amend, window, cx))),
+            )
             .child(ui::menu_divider())
             .child(self.drafts_row(cx));
         let button = split_button(
@@ -154,7 +177,10 @@ impl Desktop {
         let (line, lead, label, menu): (Div, AnyElement, String, Stateful<Div>) = match ship {
             Ship::Push { commits: n, create } => {
                 let newest = repo.commits.first().map(|c| c.subject.clone()).unwrap_or_default();
-                let line = line.child(div().flex_none().child(format!("{} to push", commits(n)))).child("·").child(div().min_w_0().truncate().text_color(TEXT_2).child(newest));
+                let line = line
+                    .child(div().flex_none().child(format!("{} to push", commits(n))))
+                    .child("·")
+                    .child(div().min_w_0().truncate().text_color(TEXT_2).child(newest));
                 let label = busy.map_or_else(|| format!("Push {}", commits(n)), str::to_string);
                 let menu = div()
                     .id("ship-menu")
@@ -162,13 +188,21 @@ impl Desktop {
                         this.pr.ship_menu = false;
                         this.push(cx);
                     })))
-                    .when(create, |d| d.child(ui::menu_row("ship-push-pr", "pull-request", "Push and create PR", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx)))));
+                    .when(create, |d| {
+                        d.child(
+                            ui::menu_row("ship-push-pr", "pull-request", "Push and create PR", None)
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx))),
+                        )
+                    });
                 (line, icon("arrow-up", 14., ON_PRIMARY).into_any_element(), label, menu)
             }
             _ => {
                 let upstream = format!("{}/{}", self.store.git.remote, repo.branch);
                 let line = line.child(icon("check", 13., SUCCESS)).child(div().min_w_0().truncate().child(format!("Up to date with {upstream}")));
-                let menu = div().id("ship-menu").child(ui::menu_row("ship-create", "pull-request", "Create pull request", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx))));
+                let menu = div().id("ship-menu").child(
+                    ui::menu_row("ship-create", "pull-request", "Create pull request", None)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx))),
+                );
                 (line, icon("pull-request", 14., ON_PRIMARY).into_any_element(), "Create Pull Request".into(), menu)
             }
         };
@@ -205,10 +239,12 @@ impl Desktop {
     }
 
     fn drafts_row(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        ui::menu_row("pr-drafts", "pull-request", "Create PRs as drafts", None).child(ui::checkbox(self.store.git.draft)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.store.git.draft = !this.store.git.draft;
-            this.save_soon(cx);
-            cx.notify();
-        }))
+        ui::menu_row("pr-drafts", "pull-request", "Create PRs as drafts", None).child(ui::checkbox(self.store.git.draft)).on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
+                this.store.git.draft = !this.store.git.draft;
+                this.save_soon(cx);
+                cx.notify();
+            },
+        ))
     }
 }

@@ -1,13 +1,13 @@
 use super::Menu;
 use super::logic::{Action, Col, Field, Quick, Slot, Tone, column, note, opens, quick, ticket_key};
 use super::parts::{label_dot, priority_glyph, prop_chip, status_glyph};
-use ui::{CARD_RADIUS, agent_avatar, card_pill as pill, quick_button};
 use crate::desktop::Desktop;
 use crate::git_ui::pull_requests::glyph as pr_glyph;
 use agents::tickets::{ClosedWhy, Ticket};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
+use ui::{CARD_RADIUS, agent_avatar, card_pill as pill, quick_button};
 
 #[derive(Clone)]
 pub(super) struct DragTicket {
@@ -18,7 +18,16 @@ pub(super) struct DragTicket {
 
 impl Render for DragTicket {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        ui::pop(div()).w(px(264.)).p(px(10.)).rounded(px(CARD_RADIUS)).text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).line_clamp(2).child(self.title.clone())
+        ui::pop(div())
+            .w(px(264.))
+            .p(px(10.))
+            .rounded(px(CARD_RADIUS))
+            .text_size(px(13.))
+            .line_height(px(18.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(TEXT)
+            .line_clamp(2)
+            .child(self.title.clone())
     }
 }
 
@@ -42,12 +51,15 @@ impl Desktop {
     pub(super) fn ticket_note(&self, t: &Ticket, slot: Slot) -> Option<(String, Token)> {
         let activity = self.agents.get(&t.agent_id).map(|a| a.activity.as_str());
         let (text, tone) = note(t, slot, activity, self.pending_ask(t).map(|p| p.ask()))?;
-        Some((text, match tone {
-            Tone::Dim => TEXT_4,
-            Tone::Asking => WAITING_TEXT,
-            Tone::Failed => FAILED_TEXT,
-            Tone::Quiet => TEXT_3,
-        }))
+        Some((
+            text,
+            match tone {
+                Tone::Dim => TEXT_4,
+                Tone::Asking => WAITING_TEXT,
+                Tone::Failed => FAILED_TEXT,
+                Tone::Quiet => TEXT_3,
+            },
+        ))
     }
 
     pub(super) fn ticket_labels(&self, t: &Ticket) -> Vec<Div> {
@@ -103,33 +115,87 @@ impl Desktop {
 
     pub(super) fn ticket_status(&self, t: &Ticket, slot: Slot, cx: &mut Context<Self>) -> AnyElement {
         let id = t.id.clone();
-        div().id(SharedString::from(format!("ticket-status-{id}"))).size(px(20.)).flex().flex_none().items_center().justify_center().rounded(px(5.)).cursor_pointer().hover(|s| s.bg(FILL_3)).child(status_glyph(slot.col, t.status)).on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-            cx.stop_propagation();
-            this.close_menus();
-            this.board.menu = Some(Menu::Status { id: id.clone(), at: e.position() });
-            cx.notify();
-        })).into_any_element()
+        div()
+            .id(SharedString::from(format!("ticket-status-{id}")))
+            .size(px(20.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(5.))
+            .cursor_pointer()
+            .hover(|s| s.bg(FILL_3))
+            .child(status_glyph(slot.col, t.status))
+            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.close_menus();
+                this.board.menu = Some(Menu::Status { id: id.clone(), at: e.position() });
+                cx.notify();
+            }))
+            .into_any_element()
     }
 
     pub(super) fn ticket_priority(&self, t: &Ticket, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = t.id.clone();
-        div().id(SharedString::from(format!("ticket-priority-{id}"))).size(px(20.)).flex().flex_none().items_center().justify_center().rounded(px(5.)).when(!column(t).finished(), |d| d.cursor_pointer().hover(|s| s.bg(FILL_3))).child(priority_glyph(t.priority)).when(!column(t).finished(), |d| {
-            d.on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                this.open_card_menu(&id, e.position(), Some(Field::Priority), cx);
-            }))
-        })
+        div()
+            .id(SharedString::from(format!("ticket-priority-{id}")))
+            .size(px(20.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(5.))
+            .when(!column(t).finished(), |d| d.cursor_pointer().hover(|s| s.bg(FILL_3)))
+            .child(priority_glyph(t.priority))
+            .when(!column(t).finished(), |d| {
+                d.on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.open_card_menu(&id, e.position(), Some(Field::Priority), cx);
+                }))
+            })
     }
 
     fn ticket_body(&self, t: &Ticket, slot: Slot, cx: &mut Context<Self>) -> Div {
         let props = self.board.props;
-        let title = div().min_w_0().flex_1().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(if slot.col.finished() { TEXT_3 } else { TEXT }).line_clamp(2).child(t.title.clone());
-        let top = div().flex().items_center().min_h(px(20.)).text_size(px(12.)).text_color(TEXT_3).children(self.ticket_key(t).filter(|_| props.id)).child(div().flex_1()).children(props.agent.then(|| agent_avatar(SharedString::from(format!("ticket-agent-{}", t.id)), &t.provider, self.agent_name(&t.provider))));
-        let head = div().flex().items_start().min_h(px(20.)).gap(px(7.)).child(div().flex_none().h(px(18.)).flex().items_center().child(self.ticket_status(t, slot, cx))).child(title);
+        let title = div()
+            .min_w_0()
+            .flex_1()
+            .text_size(px(13.))
+            .line_height(px(18.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if slot.col.finished() { TEXT_3 } else { TEXT })
+            .line_clamp(2)
+            .child(t.title.clone());
+        let top = div()
+            .flex()
+            .items_center()
+            .min_h(px(20.))
+            .text_size(px(12.))
+            .text_color(TEXT_3)
+            .children(self.ticket_key(t).filter(|_| props.id))
+            .child(div().flex_1())
+            .children(props.agent.then(|| agent_avatar(SharedString::from(format!("ticket-agent-{}", t.id)), &t.provider, self.agent_name(&t.provider))));
+        let head = div()
+            .flex()
+            .items_start()
+            .min_h(px(20.))
+            .gap(px(7.))
+            .child(div().flex_none().h(px(18.)).flex().items_center().child(self.ticket_status(t, slot, cx)))
+            .child(title);
         let note = self.ticket_note(t, slot).map(|(text, color)| div().text_size(px(12.)).line_height(px(16.)).text_color(color).line_clamp(2).child(text));
         let labels = self.ticket_labels(t);
         let project = props.project.then(|| div().min_w_0().truncate().text_size(px(12.)).text_color(TEXT_3).child(self.repo_name(&t.folder)));
-        let meta = div().flex().flex_wrap().items_center().gap(px(6.)).min_h(px(20.)).children(props.priority.then(|| self.ticket_priority(t, cx))).children(labels).children(project).children(self.ticket_pills(t, slot)).children(self.ticket_quick(t, slot, cx).map(|q| q.ml_auto()));
+        let meta = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(6.))
+            .min_h(px(20.))
+            .children(props.priority.then(|| self.ticket_priority(t, cx)))
+            .children(labels)
+            .children(project)
+            .children(self.ticket_pills(t, slot))
+            .children(self.ticket_quick(t, slot, cx).map(|q| q.ml_auto()));
         div().flex().flex_col().gap(px(6.)).child(top).child(head).children(note).child(meta)
     }
 
@@ -145,10 +211,10 @@ impl Desktop {
                 cx.notify();
             }
         }));
-        row.when(opens(t, self.ticket_reach(t)).is_some(), |d| d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_ticket(&id, window, cx)))).on_mouse_down(
-            MouseButton::Right,
-            cx.listener(move |this, e: &MouseDownEvent, _, cx| this.open_card_menu(&menu_id, e.position, None, cx)),
-        )
+        row.when(opens(t, self.ticket_reach(t)).is_some(), |d| {
+            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_ticket(&id, window, cx)))
+        })
+        .on_mouse_down(MouseButton::Right, cx.listener(move |this, e: &MouseDownEvent, _, cx| this.open_card_menu(&menu_id, e.position, None, cx)))
     }
 
     pub(super) fn ticket_card(&self, slot: Slot, cx: &mut Context<Self>) -> AnyElement {
@@ -156,13 +222,20 @@ impl Desktop {
         let col = slot.col;
         let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
         let hoverable = opens(t, self.ticket_reach(t)).is_some() && !picked;
-        let card = ui::card(SharedString::from(format!("ticket-{}", t.id))).when(col.finished(), |d| d.opacity(0.6)).when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])).when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)).shadow(vec![ui::ring(Hsla::from(INDIGO).opacity(0.5), 1.)])).when(hoverable, |d| d.hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))).child(self.ticket_body(t, slot, cx));
+        let card = ui::card(SharedString::from(format!("ticket-{}", t.id)))
+            .when(col.finished(), |d| d.opacity(0.6))
+            .when(at_cursor, |d| d.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)]))
+            .when(picked, |d| d.bg(Hsla::from(INDIGO).opacity(0.12)).shadow(vec![ui::ring(Hsla::from(INDIGO).opacity(0.5), 1.)]))
+            .when(hoverable, |d| d.hover(|s| s.shadow(vec![ui::ring(SEPARATOR_STRONG, 1.)])))
+            .child(self.ticket_body(t, slot, cx));
         let card = self.ticket_shell(card, t, cx).when(col.lifts(), |d| {
             let before = t.id.clone();
-            d.on_drag(DragTicket { id: t.id.clone(), from: col, title: t.title.clone() }, |d, _, _, cx| cx.new(|_| d.clone())).on_drop(cx.listener(move |this, d: &DragTicket, _, cx| {
-                cx.stop_propagation();
-                this.drop_ticket(&d.id, d.from, col, Some(&before), cx);
-            }))
+            d.on_drag(DragTicket { id: t.id.clone(), from: col, title: t.title.clone() }, |d, _, _, cx| cx.new(|_| d.clone())).on_drop(cx.listener(
+                move |this, d: &DragTicket, _, cx| {
+                    cx.stop_propagation();
+                    this.drop_ticket(&d.id, d.from, col, Some(&before), cx);
+                },
+            ))
         });
         div().w_full().px(px(8.)).pb(px(6.)).child(card).into_any_element()
     }

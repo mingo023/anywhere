@@ -11,21 +11,25 @@ use crate::desktop::chrome::{Overlay, Side, id};
 use crate::fs::fs_for;
 use crate::util::{list_dir, list_dirs};
 use git::FileStat;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use gpui_kit::component::scroll::ScrollableElement as _;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use theme::*;
 use std::time::{Duration, Instant};
+use theme::*;
 use workspace::Doc;
 
 /// How long a row just made, renamed or put back stays ringed.
 const FLASH: Duration = Duration::from_millis(900);
 
 /// Fresh listings for the folders still open, so a folder opened or closed while they were read keeps its new state.
-pub fn merge_tree(fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>, open: &HashMap<PathBuf, Vec<(bool, PathBuf)>>, root: Option<&Path>) -> HashMap<PathBuf, Vec<(bool, PathBuf)>> {
+pub fn merge_tree(
+    fresh: HashMap<PathBuf, Vec<(bool, PathBuf)>>,
+    open: &HashMap<PathBuf, Vec<(bool, PathBuf)>>,
+    root: Option<&Path>,
+) -> HashMap<PathBuf, Vec<(bool, PathBuf)>> {
     let mut tree: HashMap<_, _> = fresh.into_iter().filter(|(dir, _)| open.contains_key(dir) || root == Some(dir.as_path())).collect();
     for (dir, listing) in open {
         tree.entry(dir.clone()).or_insert_with(|| listing.clone());
@@ -73,7 +77,17 @@ pub struct Row {
 
 impl ExplorerState {
     pub fn new() -> Self {
-        Self { tree: HashMap::new(), menu: None, leaving: None, edit: None, notice: None, undo: None, flash: None, scroll: UniformListScrollHandle::new(), seek: false }
+        Self {
+            tree: HashMap::new(),
+            menu: None,
+            leaving: None,
+            edit: None,
+            notice: None,
+            undo: None,
+            flash: None,
+            scroll: UniformListScrollHandle::new(),
+            seek: false,
+        }
     }
 
     /// The tree under `root` top to bottom, descending into open folders only.
@@ -306,7 +320,8 @@ impl Desktop {
             ui::tree_row(id(format!("tree-{key}")), label, false, false, depth, selected, touched, git)
                 .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.open_file(key.clone(), ev.click_count() > 1, cx)))
         } else {
-            ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, self.folder_status(&key)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
+            ui::tree_row(id(format!("tree-{key}")), label, true, open, depth, false, false, self.folder_status(&key))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_folder(path.clone(), cx)))
         };
         let row = row.on_mouse_down(MouseButton::Right, menu).when(targeted, |d| d.shadow(outline(ACCENT)));
         let Some(flash) = flash else { return row.into_any_element() };
@@ -338,10 +353,10 @@ fn outline(color: impl Into<Hsla>) -> Vec<BoxShadow> {
 #[cfg(test)]
 mod tests {
     use super::{ExplorerState, Row, folder_status, list_dir, list_dirs, merge_tree, seek, status_of};
-    use store::prefs::files::Files;
     use git::FileStat;
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
+    use store::prefs::files::Files;
 
     fn stat(path: &str, status: char) -> FileStat {
         FileStat { path: path.into(), added: 0, removed: 0, staged: false, unstaged: true, status, old_path: None }

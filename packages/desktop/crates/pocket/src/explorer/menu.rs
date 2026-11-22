@@ -1,6 +1,6 @@
+use super::ExplorerState;
 use super::edit::Naming;
 use super::toast::Notice;
-use super::ExplorerState;
 use crate::actions::{TreeMenuArrow, TreeMenuChoose, TreeMenuItem};
 use crate::add_to_chat::Choice;
 use crate::chat::Route;
@@ -170,7 +170,21 @@ impl TreeMenu {
     pub(crate) fn new(target: Option<(PathBuf, bool)>, at: Point<Pixels>, alt: bool, local: bool, width: Pixels) -> Self {
         let flip = f32::from(at.x) + MENU_W + GAP + SUB_W + 8. > f32::from(width);
         let now = Instant::now();
-        Self { target, at, flip, alt, local, chats_open: false, highlighted: None, chat_highlighted: None, typed: String::new(), typed_at: now, opened: now, pressing: true, chosen: None }
+        Self {
+            target,
+            at,
+            flip,
+            alt,
+            local,
+            chats_open: false,
+            highlighted: None,
+            chat_highlighted: None,
+            typed: String::new(),
+            typed_at: now,
+            opened: now,
+            pressing: true,
+            chosen: None,
+        }
     }
 
     /// The items that can be chosen, top to bottom.
@@ -396,7 +410,9 @@ impl Desktop {
                     Plan::Off => return,
                 }
             }
-            (Item::NewFile | Item::NewFolder, target) => self.start_edit(Naming::New { parent: new_parent(target.as_ref(), &root), folder: item == Item::NewFolder }, window, cx),
+            (Item::NewFile | Item::NewFolder, target) => {
+                self.start_edit(Naming::New { parent: new_parent(target.as_ref(), &root), folder: item == Item::NewFolder }, window, cx)
+            }
             (Item::Copy | Item::CopyRelative, target) => {
                 let path = target.map_or(root.clone(), |(p, _)| p);
                 let text = if item == Item::Copy { path.to_string_lossy().to_string() } else { relative(&path, &root) };
@@ -461,7 +477,14 @@ impl Desktop {
         let main = ui::pop(div().id("tree-menu")).w(px(MENU_W)).p(px(6.)).flex().flex_col().children(rows);
         let chats = (menu.chats_open && !reach.off()).then(|| self.chat_list(&reach, menu, open, cx));
         let x = if menu.flip && chats.is_some() { menu.at.x - px(SUB_W + GAP) } else { menu.at.x };
-        let body = div().id(if open { "tree-menu-box" } else { "tree-menu-leaving" }).flex().items_start().gap(px(GAP)).when(menu.flip, |d| d.flex_row_reverse()).child(main).children(chats);
+        let body = div()
+            .id(if open { "tree-menu-box" } else { "tree-menu-leaving" })
+            .flex()
+            .items_start()
+            .gap(px(GAP))
+            .when(menu.flip, |d| d.flex_row_reverse())
+            .child(main)
+            .children(chats);
         let body = if open {
             let close = cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.explorer.close_menu();
@@ -472,7 +495,11 @@ impl Desktop {
                     menu.pressing = false;
                 }
             };
-            let body = body.occlude().on_mouse_down_out(close).on_mouse_up(MouseButton::Right, cx.listener(let_go)).on_mouse_up_out(MouseButton::Right, cx.listener(let_go));
+            let body = body
+                .occlude()
+                .on_mouse_down_out(close)
+                .on_mouse_up(MouseButton::Right, cx.listener(let_go))
+                .on_mouse_up_out(MouseButton::Right, cx.listener(let_go));
             ui::menu_in("tree-menu-in", body).into_any_element()
         } else {
             body.with_animation("tree-menu-out", Animation::new(LEAVE), |d, t| d.opacity(1. - t)).into_any_element()
@@ -507,7 +534,10 @@ impl Desktop {
         }
         row.when(lit, |d| d.bg(bg))
             .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.hover_tree_menu(|m| m.hover(item, *hovered), cx)))
-            .on_mouse_up(MouseButton::Right, cx.listener(move |this, e: &MouseUpEvent, window, cx| this.let_go_tree_menu(Pick::Item(item), e.position, window, cx)))
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(move |this, e: &MouseUpEvent, window, cx| this.let_go_tree_menu(Pick::Item(item), e.position, window, cx)),
+            )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.choose_in_tree_menu(Pick::Item(item), window, cx)))
             .into_any_element()
     }
@@ -542,7 +572,10 @@ impl Desktop {
             row.cursor_pointer()
                 .when(menu.chat_highlighted == Some(i), |d| d.bg(FILL_2))
                 .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.hover_tree_menu(|m| m.hover_chat(i, *hovered), cx)))
-                .on_mouse_up(MouseButton::Right, cx.listener(move |this, e: &MouseUpEvent, window, cx| this.let_go_tree_menu(Pick::Chat(i), e.position, window, cx)))
+                .on_mouse_up(
+                    MouseButton::Right,
+                    cx.listener(move |this, e: &MouseUpEvent, window, cx| this.let_go_tree_menu(Pick::Chat(i), e.position, window, cx)),
+                )
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.choose_in_tree_menu(Pick::Chat(i), window, cx)))
                 .into_any_element()
         });

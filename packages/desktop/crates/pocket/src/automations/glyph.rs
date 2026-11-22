@@ -33,7 +33,14 @@ pub fn glyph(status: RunStatus, size: f32, id: impl Into<ElementId>) -> AnyEleme
         RunStatus::Waiting => {
             let dot = (size * 0.57).round();
             let halo = (size >= 14.).then(|| ui::ring(WAITING_BG, 2.5));
-            div().size(px(size)).flex_none().flex().items_center().justify_center().child(ui::dot(dot, color).shadow(halo.into_iter().collect::<Vec<_>>())).into_any_element()
+            div()
+                .size(px(size))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(ui::dot(dot, color).shadow(halo.into_iter().collect::<Vec<_>>()))
+                .into_any_element()
         }
         RunStatus::Running | RunStatus::Pending => gradient_spinner(id, size).into_any_element(),
         RunStatus::Succeeded => icon("check", size, color).into_any_element(),
@@ -59,5 +66,19 @@ pub fn status_pill(status: RunStatus, id: impl Into<ElementId>) -> Div {
         _ => glyph(status, 11., id),
     };
     let text = if status == RunStatus::Pending { "Starting" } else { label(status) };
-    div().h(px(22.)).pl(px(8.)).pr(px(9.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(11.)).bg(bg).text_color(fg).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(mark).child(text)
+    div()
+        .h(px(22.))
+        .pl(px(8.))
+        .pr(px(9.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.))
+        .rounded(px(11.))
+        .bg(bg)
+        .text_color(fg)
+        .text_size(px(12.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(mark)
+        .child(text)
 }

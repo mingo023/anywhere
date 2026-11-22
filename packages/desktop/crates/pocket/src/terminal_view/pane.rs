@@ -1,8 +1,8 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id as element_id;
 use crate::status;
-use crate::terminal_view::{cursor, scroll};
 use crate::terminal_view::surface::{self, Metrics};
+use crate::terminal_view::{cursor, scroll};
 use crate::terminals::sessions::Session;
 use crate::util::basename;
 use agents::Summary;
@@ -80,11 +80,27 @@ impl Desktop {
         let known = self.terminals.sessions.get(id).is_some();
         let banner = self.summary(id).map(|a| (a.id.clone(), status::banner(a)));
         let banner = banner.and_then(|(agent, banner)| Some((self.terminal.dismissed.shown(&agent, banner)?, agent))).map(|(text, agent)| {
-            let close = icon_button_sized(element_id(format!("banner-close:{id}")), "x", 20., TEXT_3).rounded(px(5.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.terminal.dismissed.dismiss(&agent, text);
-                cx.notify();
-            }));
-            div().flex_none().flex().items_center().gap(px(8.)).pl(px(16.)).pr(px(8.)).py(px(4.)).border_b(px(0.5)).border_color(SEPARATOR).bg(FILL_2).text_size(px(12.)).text_color(TEXT_2).child(div().flex_1().min_w_0().child(text)).child(close)
+            let close = icon_button_sized(element_id(format!("banner-close:{id}")), "x", 20., TEXT_3).rounded(px(5.)).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.terminal.dismissed.dismiss(&agent, text);
+                    cx.notify();
+                },
+            ));
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .pl(px(16.))
+                .pr(px(8.))
+                .py(px(4.))
+                .border_b(px(0.5))
+                .border_color(SEPARATOR)
+                .bg(FILL_2)
+                .text_size(px(12.))
+                .text_color(TEXT_2)
+                .child(div().flex_1().min_w_0().child(text))
+                .child(close)
         });
         let typing = focused && self.terminal.keyboard;
         let blink_on = self.terminal.blink_on;
@@ -187,7 +203,8 @@ mod tests {
     fn login_shells_show_as_their_name() {
         let info = Info { cmd: "/bin/zsh".into(), args: vec!["-l".into()], ..Default::default() };
         assert_eq!(command_line(&info), "zsh");
-        let info = Info { cmd: "/opt/homebrew/bin/fish".into(), args: ["-l", "-c", "$argv; exec fish -l", "claude"].map(String::from).to_vec(), ..Default::default() };
+        let info =
+            Info { cmd: "/opt/homebrew/bin/fish".into(), args: ["-l", "-c", "$argv; exec fish -l", "claude"].map(String::from).to_vec(), ..Default::default() };
         assert_eq!(command_line(&info), "fish");
         let info = Info { cmd: "pnpm".into(), args: vec!["dev".into(), "--port".into(), "8081".into()], ..Default::default() };
         assert_eq!(command_line(&info), "pnpm dev --port 8081");

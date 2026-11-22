@@ -10,7 +10,10 @@ pub(crate) enum Live {
     Stopping,
     Thinking,
     /// `background`: sub-agents and commands still running after the turn that began them ended.
-    Working { secs: i64, background: usize },
+    Working {
+        secs: i64,
+        background: usize,
+    },
     Approval,
     Answer,
 }

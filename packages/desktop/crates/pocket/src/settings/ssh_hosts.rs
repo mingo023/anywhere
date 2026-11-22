@@ -67,8 +67,23 @@ pub(crate) fn link_color(link: Option<&Link>) -> Token {
 }
 
 fn host_row(i: usize, tile: Div, name: String, line: String, dot: Token) -> Div {
-    let line = div().flex().items_start().gap(px(6.)).text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(div().pt(px(4.5)).child(ui::dot(7., dot))).child(div().flex_1().min_w_0().child(line));
-    let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(div().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name)).child(line);
+    let line = div()
+        .flex()
+        .items_start()
+        .gap(px(6.))
+        .text_size(px(12.))
+        .line_height(px(16.))
+        .text_color(TEXT_3)
+        .child(div().pt(px(4.5)).child(ui::dot(7., dot)))
+        .child(div().flex_1().min_w_0().child(line));
+    let text = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap(px(1.))
+        .child(div().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name))
+        .child(line);
     div().px(px(14.)).py(px(9.)).flex().items_center().gap(px(12.)).when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR)).child(tile).child(text)
 }
 
@@ -80,11 +95,20 @@ fn field(label: &'static str, input: &Entity<InputState>) -> Div {
 impl Desktop {
     fn host_rows(&mut self, cx: &mut Context<Self>) -> Div {
         let connected = !self.terminals.link.is_down();
-        let here = host_row(0, tile(LOCAL_ICON, None, 28.), "This Mac".into(), service_line(connected, self.settings.host.status.as_ref()), if connected { SUCCESS } else { TEXT_4 })
-            .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
+        let here = host_row(
+            0,
+            tile(LOCAL_ICON, None, 28.),
+            "This Mac".into(),
+            service_line(connected, self.settings.host.status.as_ref()),
+            if connected { SUCCESS } else { TEXT_4 },
+        )
+        .child(div().flex_none().text_size(px(12.5)).text_color(TEXT_3).child("Here"));
         if self.hosts_read_only() {
             // The hosts the desktop linked itself before pocketd did, named as it saved them.
-            let saved = self.store.hosts.iter().enumerate().map(|(i, h)| host_row(i + 1, tile("server", None, 28.), h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4));
+            let saved =
+                self.store.hosts.iter().enumerate().map(|(i, h)| {
+                    host_row(i + 1, tile("server", None, 28.), h["name"].as_str().unwrap_or_default().to_string(), UPDATE_SERVICE.into(), TEXT_4)
+                });
             return div().flex().flex_col().child(here).children(saved.collect::<Vec<_>>());
         }
         let order = self.space_order();
@@ -94,7 +118,8 @@ impl Desktop {
             let shown = self.host_name(&h.id);
             let open = matches!(link, Some(Link::Online { .. })).then(|| {
                 let space = space.clone();
-                super::action(("host-open", i), "Open").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_space(space.clone(), window, cx)))
+                super::action(("host-open", i), "Open")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_space(space.clone(), window, cx)))
             });
             let list = self.fleet.installs.get(&h.id);
             let line = self.fleet.notices.get(&h.id).cloned().unwrap_or_else(|| host_line(&h, &shown, link));
@@ -118,14 +143,22 @@ impl Desktop {
             });
             let password = (link == Some(&Link::Failed(Failure::Auth)) && !typing).then(|| {
                 let id = h.id.clone();
-                super::action(("host-password", i), "Use password").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_password(id.clone(), window, cx)))
+                super::action(("host-password", i), "Use password")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_password(id.clone(), window, cx)))
             });
             let (id, name) = (h.id.clone(), shown.clone());
-            let remove = ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
-                cx.notify();
-            }));
-            let row = host_row(i + 1, tile(self.space_glyph(&space), self.space_colour(&space, &order), 28.), shown, line, link_color(link)).children(password).children(install).children(update).children(reconnect).children(open).child(remove);
+            let remove =
+                ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
+                    cx.notify();
+                }));
+            let row = host_row(i + 1, tile(self.space_glyph(&space), self.space_colour(&space, &order), 28.), shown, line, link_color(link))
+                .children(password)
+                .children(install)
+                .children(update)
+                .children(reconnect)
+                .children(open)
+                .child(remove);
             let panel = list.cloned().map(|list| self.checklist_panel(i, &h.id, &list, cx));
             div().flex().flex_col().child(row).when(typing, |d| d.child(self.password_form(&h.name, cx))).children(panel)
         });
@@ -158,14 +191,22 @@ impl Desktop {
         };
         let (id, update) = (id.to_string(), list.update);
         let (open, button) = match &list.outcome {
-            Some(Outcome::Failed(_)) => (None, Some(super::action(("host-install-retry", i), "Retry").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx))))),
+            Some(Outcome::Failed(_)) => (
+                None,
+                Some(
+                    super::action(("host-install-retry", i), "Retry")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx))),
+                ),
+            ),
             Some(_) => {
                 let (space, done_id) = (Space::Host(id.clone()), id.clone());
                 let open = (!update).then(|| {
-                    ui::button(("host-install-open", i), ui::Variant::Primary, None, format!("Open {name}")).h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.fleet.installs.remove(&id);
-                        this.switch_space(space.clone(), window, cx);
-                    }))
+                    ui::button(("host-install-open", i), ui::Variant::Primary, None, format!("Open {name}")).h(px(26.)).on_click(cx.listener(
+                        move |this, _: &ClickEvent, window, cx| {
+                            this.fleet.installs.remove(&id);
+                            this.switch_space(space.clone(), window, cx);
+                        },
+                    ))
                 });
                 let done = super::action(("host-install-done", i), "Done").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.fleet.installs.remove(&done_id);
@@ -175,18 +216,42 @@ impl Desktop {
             }
             None => (None, None),
         };
-        let head = div().flex().items_center().gap(px(6.)).child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title)).children(open).children(button);
-        div().ml(px(54.)).mr(px(14.)).mb(px(10.)).px(px(12.)).py(px(8.)).flex().flex_col().gap(px(4.)).rounded(px(8.)).bg(FILL_2).child(head).children(rows.collect::<Vec<_>>()).children(warnings).children(error)
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(div().flex_1().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(title))
+            .children(open)
+            .children(button);
+        div()
+            .ml(px(54.))
+            .mr(px(14.))
+            .mb(px(10.))
+            .px(px(12.))
+            .py(px(8.))
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .rounded(px(8.))
+            .bg(FILL_2)
+            .child(head)
+            .children(rows.collect::<Vec<_>>())
+            .children(warnings)
+            .children(error)
     }
 
     /// Signs in once with a password to put the app's own key on a host that refused the user's keys.
     fn password_form(&self, name: &str, cx: &mut Context<Self>) -> Div {
         let form = &self.fleet.password;
         let input = field_box().child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(&form.input).appearance(false).p_0().text_size(px(12.))));
-        let cancel = ui::button("host-password-cancel", ui::Variant::Secondary, None, "Cancel").h(px(26.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_password(window, cx)));
+        let cancel = ui::button("host-password-cancel", ui::Variant::Secondary, None, "Cancel")
+            .h(px(26.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_password(window, cx)));
         let sign_in = match form.signing_in {
             true => ui::button("host-sign-in", ui::Variant::Primary, None, "Signing in\u{2026}").h(px(26.)).opacity(0.6),
-            false => ui::button("host-sign-in", ui::Variant::Primary, None, "Sign in").h(px(26.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.sign_in_with_password(window, cx))),
+            false => ui::button("host-sign-in", ui::Variant::Primary, None, "Sign in")
+                .h(px(26.))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.sign_in_with_password(window, cx))),
         };
         let note = format!("Used once to add a key for this app to {name}\u{2019}s ~/.ssh/authorized_keys. The password isn\u{2019}t saved.");
         let error = form.error.clone().map(|e| div().text_size(px(12.)).text_color(FAILED_TEXT).child(e));
@@ -209,7 +274,9 @@ impl Desktop {
             return row(setting.label, Some(UPDATE_SERVICE), div());
         }
         if !form.open {
-            let add = ui::button("host-add", ui::Variant::Primary, Some("plus"), "Add host").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_add_host(None, window, cx)));
+            let add = ui::button("host-add", ui::Variant::Primary, Some("plus"), "Add host")
+                .h(px(28.))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_add_host(None, window, cx)));
             return row(setting.label, setting.hint, add);
         }
         let chips = form.suggestions.iter().enumerate().map(|(i, alias)| {
@@ -231,7 +298,13 @@ impl Desktop {
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.suggest_host(picked.clone(), window, cx)))
         });
         let suggested = (!form.suggestions.is_empty()).then(|| {
-            div().flex().flex_wrap().items_center().gap(px(6.)).child(div().mr(px(4.)).text_size(px(12.)).text_color(TEXT_3).child("Suggested")).children(chips.collect::<Vec<_>>())
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(6.))
+                .child(div().mr(px(4.)).text_size(px(12.)).text_color(TEXT_3).child("Suggested"))
+                .children(chips.collect::<Vec<_>>())
         });
         let key = match &form.key_file {
             Some(path) => div()
@@ -254,12 +327,26 @@ impl Desktop {
                 .text_size(px(12.))
                 .text_color(TEXT_3)
                 .child("Signs in with your SSH keys and ~/.ssh/config.")
-                .child(ui::link("host-key-file", "Use a key file\u{2026}").text_size(px(12.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_key_file(window, cx)))),
+                .child(
+                    ui::link("host-key-file", "Use a key file\u{2026}")
+                        .text_size(px(12.))
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_key_file(window, cx))),
+                ),
         };
         let error = form.error.clone().map(|e| div().text_size(px(12.)).text_color(FAILED_TEXT).child(e));
-        let cancel = ui::button("host-cancel", ui::Variant::Secondary, None, "Cancel").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_add_host(window, cx)));
-        let connect = ui::button("host-connect", ui::Variant::Primary, None, "Connect").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.add_host(cx)));
-        let foot = div().pt(px(2.)).flex().items_center().gap(px(8.)).child(div().flex_1().text_size(px(12.)).text_color(TEXT_3).child("Nothing is changed in your ~/.ssh")).child(cancel).child(connect);
+        let cancel = ui::button("host-cancel", ui::Variant::Secondary, None, "Cancel")
+            .h(px(28.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_add_host(window, cx)));
+        let connect =
+            ui::button("host-connect", ui::Variant::Primary, None, "Connect").h(px(28.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.add_host(cx)));
+        let foot = div()
+            .pt(px(2.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(div().flex_1().text_size(px(12.)).text_color(TEXT_3).child("Nothing is changed in your ~/.ssh"))
+            .child(cancel)
+            .child(connect);
         div()
             .px(px(14.))
             .py(px(12.))
@@ -269,9 +356,11 @@ impl Desktop {
             .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(setting.label))
             .children(suggested)
             .map(|d| match form.picked {
-                Some(_) => d.child(div().flex().gap(px(10.)).child(field("Host", &form.address).flex_1()).child(field("Password", &form.password).flex_1())).child(
-                    div().text_size(px(12.)).text_color(TEXT_3).child("From your ~/.ssh/config: its user, port, key and jump host are used as they are."),
-                ),
+                Some(_) => {
+                    d.child(div().flex().gap(px(10.)).child(field("Host", &form.address).flex_1()).child(field("Password", &form.password).flex_1())).child(
+                        div().text_size(px(12.)).text_color(TEXT_3).child("From your ~/.ssh/config: its user, port, key and jump host are used as they are."),
+                    )
+                }
                 None => d
                     .child(div().flex().gap(px(10.)).child(field("Address", &form.address).flex_1()).child(field("Port", &form.port).w(px(80.))))
                     .child(div().flex().gap(px(10.)).child(field("Username", &form.user).flex_1()).child(field("Password", &form.password).flex_1()))

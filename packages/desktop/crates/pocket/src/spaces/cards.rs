@@ -16,13 +16,12 @@ impl Desktop {
         let target = id.to_string();
         let reconnect = (reach == Reach::Offline).then(|| {
             div().flex().child(
-                ui::button("space-offline-reconnect", ui::Variant::Secondary, Some("reload"), "Reconnect")
-                    .h(px(26.))
-                    .text_size(px(12.5))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                ui::button("space-offline-reconnect", ui::Variant::Secondary, Some("reload"), "Reconnect").h(px(26.)).text_size(px(12.5)).on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.retry_host(&target);
                         cx.notify();
-                    })),
+                    }),
+                ),
             )
         });
         Some(
@@ -38,7 +37,17 @@ impl Desktop {
                 .bg(FILL_2)
                 .text_size(px(12.))
                 .text_color(TEXT_3)
-                .child(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(icon(self.space_glyph(space), 13., TEXT_3)).child(offline_title(reach, &name)))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .text_size(px(12.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(TEXT)
+                        .child(icon(self.space_glyph(space), 13., TEXT_3))
+                        .child(offline_title(reach, &name)),
+                )
                 .child(offline_note(link, &self.added_name(id)))
                 .children(reconnect)
                 .into_any_element(),
@@ -51,8 +60,14 @@ impl Desktop {
             return None;
         }
         let name = self.space_name(space);
-        let open = ui::button("space-empty-open", ui::Variant::Secondary, None, "Open folder\u{2026}").h(px(26.)).text_size(px(12.5)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
-        let clone = ui::button("space-empty-clone", ui::Variant::Secondary, None, "Clone\u{2026}").h(px(26.)).text_size(px(12.5)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
+        let open = ui::button("space-empty-open", ui::Variant::Secondary, None, "Open folder\u{2026}")
+            .h(px(26.))
+            .text_size(px(12.5))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::Sidebar, window, cx)));
+        let clone = ui::button("space-empty-clone", ui::Variant::Secondary, None, "Clone\u{2026}")
+            .h(px(26.))
+            .text_size(px(12.5))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
         Some(
             div()
                 .mx(px(8.))

@@ -176,23 +176,121 @@ const CHAT_ONLY_DEFAULTS: Builtin = Builtin {
 
 /// OpenCode 1.19's TUI commands; its ACP server lists only skills, `init` and `review`.
 const OPENCODE_TUI_ONLY: &[&str] = &[
-    "agents", "clear", "compact", "connect", "continue", "copy", "debug", "diff", "editor", "exit", "export", "fork", "help", "mcps", "mo", "models", "move", "org",
-    "orgs", "q", "quit", "redo", "rename", "resume", "sessions", "skills", "slash", "status", "summarize", "switch-org", "themes", "thinking", "timeline",
-    "timestamps", "toggle-thinking", "toggle-timestamps", "undo", "update", "variants", "warp", "workspaces",
+    "agents",
+    "clear",
+    "compact",
+    "connect",
+    "continue",
+    "copy",
+    "debug",
+    "diff",
+    "editor",
+    "exit",
+    "export",
+    "fork",
+    "help",
+    "mcps",
+    "mo",
+    "models",
+    "move",
+    "org",
+    "orgs",
+    "q",
+    "quit",
+    "redo",
+    "rename",
+    "resume",
+    "sessions",
+    "skills",
+    "slash",
+    "status",
+    "summarize",
+    "switch-org",
+    "themes",
+    "thinking",
+    "timeline",
+    "timestamps",
+    "toggle-thinking",
+    "toggle-timestamps",
+    "undo",
+    "update",
+    "variants",
+    "warp",
+    "workspaces",
 ];
 
 /// Pi 1.1's built-in commands but the ones a chat runs itself (`BUILTIN_SLASH_COMMANDS`), and `llama`, which its own
 /// extension answers only in its TUI. omp has none: it lists what its RPC runs.
 const PI_TUI_ONLY: &[&str] = &[
-    "settings", "tree", "scoped-models", "export", "import", "share", "bug", "copy", "name", "session", "changelog", "hotkeys", "fork", "clone", "trust", "login",
-    "logout", "resume", "reload", "quit", "llama",
+    "settings",
+    "tree",
+    "scoped-models",
+    "export",
+    "import",
+    "share",
+    "bug",
+    "copy",
+    "name",
+    "session",
+    "changelog",
+    "hotkeys",
+    "fork",
+    "clone",
+    "trust",
+    "login",
+    "logout",
+    "resume",
+    "reload",
+    "quit",
+    "llama",
 ];
 
 /// The commands Hermes marks `cli_only`, but `tools`, which its ACP server answers.
 const HERMES_TUI_ONLY: &[&str] = &[
-    "clear", "redraw", "history", "prompt", "compose", "handoff", "worktree", "snapshot", "snap", "export", "import", "journey", "learning", "memory-graph",
-    "config", "statusbar", "sb", "battery", "timestamps", "ts", "verbose", "focus", "skin", "indicator", "wake", "toolsets", "skills", "pet", "hatch",
-    "generate-pet", "cron", "reload", "browser", "plugins", "palette", "subscription", "upgrade", "platforms", "gateway", "copy", "paste", "image", "quit", "exit",
+    "clear",
+    "redraw",
+    "history",
+    "prompt",
+    "compose",
+    "handoff",
+    "worktree",
+    "snapshot",
+    "snap",
+    "export",
+    "import",
+    "journey",
+    "learning",
+    "memory-graph",
+    "config",
+    "statusbar",
+    "sb",
+    "battery",
+    "timestamps",
+    "ts",
+    "verbose",
+    "focus",
+    "skin",
+    "indicator",
+    "wake",
+    "toolsets",
+    "skills",
+    "pet",
+    "hatch",
+    "generate-pet",
+    "cron",
+    "reload",
+    "browser",
+    "plugins",
+    "palette",
+    "subscription",
+    "upgrade",
+    "platforms",
+    "gateway",
+    "copy",
+    "paste",
+    "image",
+    "quit",
+    "exit",
 ];
 
 pub const ALL: [Builtin; 10] = [
@@ -204,7 +302,17 @@ pub const ALL: [Builtin; 10] = [
         plan: true,
         // Asks without a prompt, so it costs no tokens; no hooks, so the user's don't take it for a session.
         models: Catalog {
-            args: &["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--settings", r#"{"disableAllHooks":true}"#],
+            args: &[
+                "-p",
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--no-session-persistence",
+                "--settings",
+                r#"{"disableAllHooks":true}"#,
+            ],
             input: r#"{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"#,
             parse: catalogs::claude,
             fallback: &["haiku", "sonnet", "opus"],
@@ -252,7 +360,13 @@ pub const ALL: [Builtin; 10] = [
     Builtin {
         id: "cursor",
         command: "cursor-agent",
-        models: Catalog { args: &["acp"], input: CURSOR_INPUT, answer: Some(catalogs::acp_answered), parse: catalogs::cursor, fallback: &["composer-2.5", "gpt-5.4", "claude-sonnet-4-6", "grok-4.6"] },
+        models: Catalog {
+            args: &["acp"],
+            input: CURSOR_INPUT,
+            answer: Some(catalogs::acp_answered),
+            parse: catalogs::cursor,
+            fallback: &["composer-2.5", "gpt-5.4", "claude-sonnet-4-6", "grok-4.6"],
+        },
         plan: true,
         resume_args: "--resume",
         install: Install { command: "curl https://cursor.com/install -fsS | bash", ..Install::NONE },
@@ -377,7 +491,16 @@ pub fn known(id: &str) -> &'static Builtin {
 }
 
 static BUILTIN: LazyLock<Vec<ProviderInfo>> = LazyLock::new(|| {
-    ALL.iter().map(|b| ProviderInfo { id: b.id.into(), available: b.assumed_installed, efforts: b.efforts.iter().map(|e| e.to_string()).collect(), plan: b.plan, chat: None, never_asks: None }).collect()
+    ALL.iter()
+        .map(|b| ProviderInfo {
+            id: b.id.into(),
+            available: b.assumed_installed,
+            efforts: b.efforts.iter().map(|e| e.to_string()).collect(),
+            plan: b.plan,
+            chat: None,
+            never_asks: None,
+        })
+        .collect()
 });
 static OTHER: LazyLock<ProviderInfo> = LazyLock::new(ProviderInfo::default);
 
@@ -518,7 +641,8 @@ mod tests {
         let servers: Vec<&str> = ALL.iter().filter(|b| b.models.answer.is_some()).map(|b| b.id).collect();
         assert_eq!(servers, ["cursor", "opencode", "pi", "omp", "hermes", "antigravity"]);
         let models = &known("pi").models;
-        let answer = r#"{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"m","name":"M","provider":"p","reasoning":false}]}}"#;
+        let answer =
+            r#"{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"m","name":"M","provider":"p","reasoning":false}]}}"#;
         assert!(models.answer.unwrap()(answer));
         assert_eq!((models.parse)(answer)[0].value, "p/m");
         assert_eq!(known("omp").models.args, ["--mode", "rpc", "--no-session", "--no-extensions"]);

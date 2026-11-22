@@ -102,7 +102,17 @@ fn step_view(block: &Block, next: Option<i64>, live: bool, shared: bool, picks: 
 /// sub-agent still running does. A sub-agent always shows under a title, which counts the sub-agents and names the
 /// model they share. A click on a sub-agent goes to `picks`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool, open: bool, on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, picks: &sub_agent::Picks, tools: &Entity<Tools>, cx: &mut App) -> Div {
+pub(super) fn phase(
+    id: &str,
+    blocks: &[Block],
+    next_at: Option<i64>,
+    live: bool,
+    open: bool,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    picks: &sub_agent::Picks,
+    tools: &Entity<Tools>,
+    cx: &mut App,
+) -> Div {
     let steps = steps(blocks);
     let at = |i: usize| blocks.get(i).and_then(super::transcript::block_at);
     let next = |i: usize| (i + 1..blocks.len()).find_map(at).or(next_at);
@@ -110,7 +120,15 @@ pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool
         && !matches!(b, Block::Tool(c) if matches!(c.kind, ToolKind::Agent(_)))
     {
         let icon_name = kind_icon(blocks);
-        return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(b, next(i), live, false, picks, tools, cx)));
+        return div().flex().gap(px(6.)).child(div().mt(px(7.)).child(icon(icon_name, 14., TEXT_4))).child(div().flex_1().min_w_0().child(step_view(
+            b,
+            next(i),
+            live,
+            false,
+            picks,
+            tools,
+            cx,
+        )));
     }
     let open = live || open || blocks.iter().any(chat::running_agent);
     let head_icon = if open && !live { "chevron-down" } else { kind_icon(blocks) };
@@ -134,7 +152,10 @@ pub(super) fn phase(id: &str, blocks: &[Block], next_at: Option<i64>, live: bool
     let body = open.then(|| {
         let skip = if live { steps.len().saturating_sub(LIVE_STEPS) } else { 0 };
         let n = steps.len();
-        div().flex().flex_col().children(steps.iter().enumerate().skip(skip).map(|(k, &(i, b))| step(k + 1 == n, step_view(b, next(i), live, shared, picks, tools, cx))))
+        div()
+            .flex()
+            .flex_col()
+            .children(steps.iter().enumerate().skip(skip).map(|(k, &(i, b))| step(k + 1 == n, step_view(b, next(i), live, shared, picks, tools, cx))))
     });
     div().flex().flex_col().child(head).children(body)
 }
@@ -150,7 +171,10 @@ mod tests {
 
     #[test]
     fn a_phase_is_headed_by_the_kind_of_its_first_step() {
-        assert_eq!(kind_icon(&[tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into(), description: String::new() })]), "search");
+        assert_eq!(
+            kind_icon(&[tool(ToolKind::Read { path: "a".into() }), tool(ToolKind::Shell { command: "ls".into(), description: String::new() })]),
+            "search"
+        );
         assert_eq!(kind_icon(&[tool(ToolKind::Edit { path: "a".into(), diff: None })]), "pencil");
         assert_eq!(kind_icon(&[tool(ToolKind::Shell { command: "ls".into(), description: String::new() })]), "terminal");
         assert_eq!(kind_icon(&[Block::Thinking(Message::default())]), "bulb");

@@ -94,11 +94,13 @@ mod tests {
     use super::{Theme, presets};
     use crate::contrast::{over, ratio};
     use crate::{
-        ACCENT, ACCENT_LINK, CANVAS, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, GOAL_TEXT, INDIGO, KEYS, MODIFIED, ON_PRIMARY, ON_TEXT, PAGE, POPOVER, PRIMARY, SELECTION, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE,
-        SURFACE_SUNKEN, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW, WINDOW_SOLID, WORKING,
+        ACCENT, ACCENT_LINK, CANVAS, DIFF_ADD_TEXT, DIFF_DEL_TEXT, FAILED, FAILED_TEXT, GOAL_TEXT, INDIGO, KEYS, MODIFIED, ON_PRIMARY, ON_TEXT, PAGE, POPOVER,
+        PRIMARY, SELECTION, SIDE, SUCCESS, SUCCESS_TEXT, SURFACE, SURFACE_SUNKEN, TEXT, TEXT_2, TEXT_3, TEXT_BODY, Token, WAITING, WAITING_TEXT, WHITE, WINDOW,
+        WINDOW_SOLID, WORKING,
     };
 
-    const GRAPHITE_FILES: [(bool, &str); 2] = [(false, include_str!("../../../themes/graphite-light.json")), (true, include_str!("../../../themes/graphite-dark.json"))];
+    const GRAPHITE_FILES: [(bool, &str); 2] =
+        [(false, include_str!("../../../themes/graphite-light.json")), (true, include_str!("../../../themes/graphite-dark.json"))];
 
     fn theme(colors: &str) -> Result<Theme, String> {
         Theme::parse(&format!(r#"{{ "name": "Mine", "appearance": "dark", {colors} }}"#))
@@ -132,7 +134,10 @@ mod tests {
         assert_eq!(said(r#"{ "name": "Mine", "appearance": "night" }"#), "\"appearance\" must be \"light\" or \"dark\"");
         assert_eq!(theme(r#""colors": []"#).unwrap_err(), "\"colors\" must be an object of colors");
         for bad in ["\"#zzz\"", "\"#12345\"", "\"#1234567\"", "\"1a2b3c\"", "\"#+a2b3c\"", "12"] {
-            assert_eq!(theme(&format!(r#""colors": {{ "text": {bad} }}"#)).unwrap_err(), format!("\"colors.text\" is {bad}, not a color like \"#1a2b3c\" or \"#1a2b3c80\""));
+            assert_eq!(
+                theme(&format!(r#""colors": {{ "text": {bad} }}"#)).unwrap_err(),
+                format!("\"colors.text\" is {bad}, not a color like \"#1a2b3c\" or \"#1a2b3c80\"")
+            );
         }
         assert_eq!(theme(r#""accent": "blue""#).unwrap_err(), "\"accent\" is \"blue\", not a color like \"#1a2b3c\" or \"#1a2b3c80\"");
     }
@@ -166,7 +171,10 @@ mod tests {
         let ids: std::collections::HashSet<&str> = presets().iter().map(|p| p.id).collect();
         assert_eq!((ids.len(), presets().len()), (8, 8));
         assert_eq!(presets().iter().filter(|p| !p.theme.dark).count(), 3);
-        assert_eq!(presets().iter().map(|p| p.theme.name.as_str()).collect::<Vec<_>>(), ["Graphite Light", "GitHub Light", "Solarized Light", "Graphite Dark", "One Dark", "Rosé Pine", "Tokyo Night", "Dracula"]);
+        assert_eq!(
+            presets().iter().map(|p| p.theme.name.as_str()).collect::<Vec<_>>(),
+            ["Graphite Light", "GitHub Light", "Solarized Light", "Graphite Dark", "One Dark", "Rosé Pine", "Tokyo Night", "Dracula"]
+        );
     }
 
     const TEXT_ROLES: [(&str, Token); 12] = [
@@ -183,17 +191,28 @@ mod tests {
         ("diff.removed.text", DIFF_DEL_TEXT),
         ("modified", MODIFIED),
     ];
-    const GLYPHS: [(&str, Token); 7] = [("waiting", WAITING), ("success", SUCCESS), ("failed", FAILED), ("accent.text", ACCENT), ("working", WORKING), ("text.3", TEXT_3), ("action", INDIGO)];
+    const GLYPHS: [(&str, Token); 7] =
+        [("waiting", WAITING), ("success", SUCCESS), ("failed", FAILED), ("accent.text", ACCENT), ("working", WORKING), ("text.3", TEXT_3), ("action", INDIGO)];
 
     /// The pairs of a theme that fall short of the contrast Graphite is held to.
     fn low(t: &Theme) -> Vec<String> {
         let window = t.color(WINDOW_SOLID);
-        let surfaces = [("window", WINDOW_SOLID), ("surface", SURFACE), ("surface.sunken", SURFACE_SUNKEN), ("page", PAGE), ("popover", POPOVER), ("side", SIDE)].map(|(name, s)| (name, over(t.color(s), window)));
+        let surfaces =
+            [("window", WINDOW_SOLID), ("surface", SURFACE), ("surface.sunken", SURFACE_SUNKEN), ("page", PAGE), ("popover", POPOVER), ("side", SIDE)]
+                .map(|(name, s)| (name, over(t.color(s), window)));
         let below = |roles: &[(&str, Token)], least: f32| -> Vec<String> {
-            surfaces.iter().flat_map(|(on, bg)| roles.iter().filter(move |(_, role)| ratio(t.color(*role), *bg) < least).map(move |(role, _)| format!("{role} on {on}"))).collect()
+            surfaces
+                .iter()
+                .flat_map(|(on, bg)| roles.iter().filter(move |(_, role)| ratio(t.color(*role), *bg) < least).map(move |(role, _)| format!("{role} on {on}")))
+                .collect()
         };
         let mut low = [below(&TEXT_ROLES, 4.5), below(&GLYPHS, 3.)].concat();
-        low.extend([("failed", FAILED), ("waiting", WAITING)].into_iter().filter(|(_, fill)| ratio(WHITE.pick(t.dark), t.color(*fill)) < 4.5).map(|(fill, _)| format!("white on {fill}")));
+        low.extend(
+            [("failed", FAILED), ("waiting", WAITING)]
+                .into_iter()
+                .filter(|(_, fill)| ratio(WHITE.pick(t.dark), t.color(*fill)) < 4.5)
+                .map(|(fill, _)| format!("white on {fill}")),
+        );
         if ratio(t.color(ON_TEXT), t.color(ACCENT)) < 4.5 {
             low.push("text.on on accent.text".into());
         }

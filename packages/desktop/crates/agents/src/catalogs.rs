@@ -1,5 +1,5 @@
-use crate::{ListedModel, ModelSetting};
 use crate::providers::{GROK_EFFORTS, THINKING};
+use crate::{ListedModel, ModelSetting};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -133,7 +133,13 @@ pub fn claude(output: &str) -> Vec<ListedModel> {
             init.models
                 .into_iter()
                 .filter(|m| m.value != "default")
-                .map(|m| ListedModel { value: m.value, name: m.display_name, resolved: m.resolved_model, efforts: m.supported_effort_levels, ..ListedModel::default() })
+                .map(|m| ListedModel {
+                    value: m.value,
+                    name: m.display_name,
+                    resolved: m.resolved_model,
+                    efforts: m.supported_effort_levels,
+                    ..ListedModel::default()
+                })
                 .collect()
         })
 }
@@ -206,7 +212,12 @@ pub fn pi(output: &str) -> Vec<ListedModel> {
     let models = items(&reply["data"]["models"]).iter().filter_map(|m| {
         let (id, provider) = (text(m, &["id"]), text(m, &["provider"]));
         let offered = !id.is_empty() && !provider.is_empty() && !(provider == "github-copilot" && copilot_hides(id));
-        offered.then(|| served_by(provider, listed(&format!("{provider}/{id}"), text(m, &["name", "id"]), if m["reasoning"] == true { owned(THINKING) } else { Vec::new() })))
+        offered.then(|| {
+            served_by(
+                provider,
+                listed(&format!("{provider}/{id}"), text(m, &["name", "id"]), if m["reasoning"] == true { owned(THINKING) } else { Vec::new() }),
+            )
+        })
     });
     by_name(unique(models.collect()))
 }
@@ -214,13 +225,20 @@ pub fn pi(output: &str) -> Vec<ListedModel> {
 /// omp's models, each with its "Fast": the priority tier of who serves the model. Its list doesn't say which models
 /// have one, so every model offers it and omp says when one can't.
 pub fn omp(output: &str) -> Vec<ListedModel> {
-    let fast = ModelSetting { id: "fast".into(), name: "Fast".into(), choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())], default: "false".into() };
+    let fast = ModelSetting {
+        id: "fast".into(),
+        name: "Fast".into(),
+        choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())],
+        default: "false".into(),
+    };
     pi(output).into_iter().map(|m| ListedModel { settings: vec![fast.clone()], ..m }).collect()
 }
 
 /// Copilot lists models that only its own tools run, and dated twins of the ones it offers.
 fn copilot_hides(id: &str) -> bool {
-    let dated = |prefix: &str| id.strip_prefix(prefix).is_some_and(|rest| rest.len() > 4 && rest.as_bytes()[4] == b'-' && rest[..4].bytes().all(|b| b.is_ascii_digit()));
+    let dated = |prefix: &str| {
+        id.strip_prefix(prefix).is_some_and(|rest| rest.len() > 4 && rest.as_bytes()[4] == b'-' && rest[..4].bytes().all(|b| b.is_ascii_digit()))
+    };
     ["exec-agent-", "copilot-search-", "gpt-3.5-turbo", "gpt-4o-mini"].iter().any(|p| id.starts_with(p))
         || ["trajectory-compaction", "gpt-4", "gpt-4-0613", "gpt-4-o-preview"].contains(&id)
         || dated("gpt-4o-")
@@ -247,21 +265,35 @@ fn acp_model(m: &Value) -> ListedModel {
 
 /// A config option's choices, with the ones it groups.
 fn choices(option: &Value) -> Vec<(&str, &str)> {
-    items(&option["options"]).iter().flat_map(|c| if c["options"].is_array() { choices(c) } else { vec![(text(c, &["value"]), text(c, &["name", "label", "value"]))] }).filter(|(value, _)| !value.is_empty()).collect()
+    items(&option["options"])
+        .iter()
+        .flat_map(|c| if c["options"].is_array() { choices(c) } else { vec![(text(c, &["value"]), text(c, &["name", "label", "value"]))] })
+        .filter(|(value, _)| !value.is_empty())
+        .collect()
 }
 
 /// A config option as a setting, when it has a choice to make.
 fn setting(option: &Value) -> Option<ModelSetting> {
     let id = text(option, &["id"]);
     let choices: Vec<(String, String)> = choices(option).into_iter().map(|(value, name)| (value.to_string(), name.to_string())).collect();
-    (!id.is_empty() && choices.len() > 1).then(|| ModelSetting { id: id.into(), name: text(option, &["name", "id"]).into(), default: text(option, &["currentValue"]).into(), choices })
+    (!id.is_empty() && choices.len() > 1).then(|| ModelSetting {
+        id: id.into(),
+        name: text(option, &["name", "id"]).into(),
+        default: text(option, &["currentValue"]).into(),
+        choices,
+    })
 }
 
 /// A boolean config option, as Antigravity's, as an On/Off setting.
 fn switch(option: &Value) -> Option<ModelSetting> {
     let (id, on) = (text(option, &["id"]), option["currentValue"].as_bool());
     let choices = vec![("false".into(), "Off".into()), ("true".into(), "On".into())];
-    (!id.is_empty() && (option["type"] == "boolean" || on.is_some())).then(|| ModelSetting { id: id.into(), name: text(option, &["name", "id"]).into(), choices, default: on.unwrap_or_default().to_string() })
+    (!id.is_empty() && (option["type"] == "boolean" || on.is_some())).then(|| ModelSetting {
+        id: id.into(),
+        name: text(option, &["name", "id"]).into(),
+        choices,
+        default: on.unwrap_or_default().to_string(),
+    })
 }
 
 /// The models an ACP agent's reply to `session/new` offers: its model option's choices, each taking the thought levels
@@ -273,7 +305,12 @@ pub fn acp(output: &str) -> Vec<ListedModel> {
     let switches: Vec<ModelSetting> = options.iter().filter_map(switch).collect();
     let picks = |o: &&Value| switch(o).is_none() && (o["id"] == "model" || (o["category"] == "model" && o["id"] != "provider"));
     let model = options.iter().find(|o| picks(o) && o["id"] == "model").or_else(|| options.iter().find(picks));
-    let efforts: Vec<String> = options.iter().filter(|o| o["category"] == "thought_level").map(|o| choices(o).into_iter().map(|(v, _)| v.to_string()).collect()).find(|e: &Vec<String>| e.len() > 1).unwrap_or_default();
+    let efforts: Vec<String> = options
+        .iter()
+        .filter(|o| o["category"] == "thought_level")
+        .map(|o| choices(o).into_iter().map(|(v, _)| v.to_string()).collect())
+        .find(|e: &Vec<String>| e.len() > 1)
+        .unwrap_or_default();
     let switched = |models: Vec<ListedModel>| models.into_iter().map(|m| ListedModel { settings: switches.clone(), ..m }).collect();
     let offered: Vec<ListedModel> = model.map(choices).unwrap_or_default().into_iter().map(|(value, name)| listed(value, name, efforts.clone())).collect();
     if !offered.is_empty() {
@@ -296,7 +333,14 @@ pub fn fx(output: &str) -> Vec<ListedModel> {
     let models = items(list).iter().filter_map(|m| {
         let id = m.as_str().map(str::trim).unwrap_or_else(|| text(m, &["id", "modelId", "model_id", "model", "value"]));
         let name = name_of(m, &["name", "displayName", "title"], id);
-        let efforts: Vec<String> = ["effortOptions", "effort_options", "efforts", "supportedEffort"].iter().find_map(|k| m[*k].as_array()).into_iter().flatten().map(|e| e.as_str().unwrap_or_else(|| text(e, &["value"])).to_string()).filter(|e| !e.is_empty()).collect();
+        let efforts: Vec<String> = ["effortOptions", "effort_options", "efforts", "supportedEffort"]
+            .iter()
+            .find_map(|k| m[*k].as_array())
+            .into_iter()
+            .flatten()
+            .map(|e| e.as_str().unwrap_or_else(|| text(e, &["value"])).to_string())
+            .filter(|e| !e.is_empty())
+            .collect();
         (!id.is_empty()).then(|| listed(id, &name, if efforts.len() > 1 { efforts } else { Vec::new() }))
     });
     unique(models.collect())
@@ -315,7 +359,13 @@ mod tests {
         let json = r#"{"models":[{"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list","default_reasoning_level":"ultra","supported_reasoning_levels":[{"effort":"low","description":"Fast"},{"effort":"ultra","description":"Most"}]},{"slug":"gpt-reserve","display_name":"GPT-Reserve","visibility":"hide"},{"slug":"gpt-5.6-luna","visibility":"list"}]}"#;
         let listed: Vec<_> = codex(json).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts, m.default_effort)).collect();
         let s = |v: &str| v.to_string();
-        assert_eq!(listed, [(s("gpt-6-sol"), s("GPT-6-Sol"), s("gpt-6-sol"), vec![s("low"), s("ultra")], s("ultra")), (s("gpt-5.6-luna"), s("gpt-5.6-luna"), s("gpt-5.6-luna"), vec![], s(""))]);
+        assert_eq!(
+            listed,
+            [
+                (s("gpt-6-sol"), s("GPT-6-Sol"), s("gpt-6-sol"), vec![s("low"), s("ultra")], s("ultra")),
+                (s("gpt-5.6-luna"), s("gpt-5.6-luna"), s("gpt-5.6-luna"), vec![], s(""))
+            ]
+        );
         assert!(codex("error: not logged in").is_empty());
     }
 
@@ -325,7 +375,13 @@ mod tests {
 {"type":"control_response","response":{"subtype":"success","request_id":"m","response":{"commands":[],"models":[{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","supportedEffortLevels":["low"]},{"value":"fable","resolvedModel":"claude-fable-5-1","displayName":"Fable 5.1","supportsEffort":true,"supportedEffortLevels":["low","max"]},{"value":"claude-haiku-4-5-20251001","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5"}]}}}"#;
         let listed: Vec<_> = claude(out).into_iter().map(|m| (m.value, m.name, m.resolved, m.efforts)).collect();
         let s = |v: &str| v.to_string();
-        assert_eq!(listed, [(s("fable"), s("Fable 5.1"), s("claude-fable-5-1"), vec![s("low"), s("max")]), (s("claude-haiku-4-5-20251001"), s("Haiku 4.5"), s("claude-haiku-4-5-20251001"), vec![])]);
+        assert_eq!(
+            listed,
+            [
+                (s("fable"), s("Fable 5.1"), s("claude-fable-5-1"), vec![s("low"), s("max")]),
+                (s("claude-haiku-4-5-20251001"), s("Haiku 4.5"), s("claude-haiku-4-5-20251001"), vec![])
+            ]
+        );
         assert!(claude("Error: not logged in").is_empty());
     }
 
@@ -363,7 +419,10 @@ mod tests {
                 ("bare", "bare", vec![]),
             ]
         );
-        assert_eq!(acp(out).iter().map(|m| m.upstream.as_str()).collect::<Vec<_>>(), ["ChatGPT or Codex Subscription", "Mixture of Agents", "ChatGPT or Codex Subscription", ""]);
+        assert_eq!(
+            acp(out).iter().map(|m| m.upstream.as_str()).collect::<Vec<_>>(),
+            ["ChatGPT or Codex Subscription", "Mixture of Agents", "ChatGPT or Codex Subscription", ""]
+        );
         assert!(acp(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required"}}"#).is_empty());
     }
 
@@ -380,7 +439,12 @@ mod tests {
         assert_eq!(shown(&acp(opencode)), [("opencode/beam-free", "OpenCode/Beam Free", vec![]), ("opencode/big-pickle", "OpenCode/Big Pickle", vec![])]);
         let antigravity = r#"{"jsonrpc":"2.0","id":2,"result":{"configOptions":[{"id":"fast","category":"model","type":"boolean","currentValue":false},{"id":"provider","category":"model","options":[{"value":"google","name":"Google"}]},{"id":"llm","category":"model","options":[{"group":"provider","options":[{"value":"m1","name":"Model One"},{"value":"m2"}]}]},{"id":"depth","category":"thought_level","currentValue":"high","options":[{"value":"only","name":"Only"}]},{"id":"thinking","category":"thought_level","currentValue":"high","options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]}],"models":{"availableModels":[{"modelId":"legacy","name":"Legacy"}]}}}"#;
         assert_eq!(shown(&acp(antigravity)), [("m1", "Model One", vec!["low", "high"]), ("m2", "m2", vec!["low", "high"])]);
-        let fast = ModelSetting { id: "fast".into(), name: "fast".into(), choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())], default: "false".into() };
+        let fast = ModelSetting {
+            id: "fast".into(),
+            name: "fast".into(),
+            choices: vec![("false".into(), "Off".into()), ("true".into(), "On".into())],
+            default: "false".into(),
+        };
         assert!(acp(antigravity).iter().all(|m| m.settings == [fast.clone()]), "its boolean option, as an On/Off setting");
     }
 
@@ -409,7 +473,11 @@ mod tests {
     type Shown<'a> = (&'a str, &'a str, &'a str, Vec<(&'a str, &'a str)>);
 
     fn settings(model: &ListedModel) -> Vec<Shown<'_>> {
-        model.settings.iter().map(|s| (s.id.as_str(), s.name.as_str(), s.default.as_str(), s.choices.iter().map(|(v, n)| (v.as_str(), n.as_str())).collect())).collect()
+        model
+            .settings
+            .iter()
+            .map(|s| (s.id.as_str(), s.name.as_str(), s.default.as_str(), s.choices.iter().map(|(v, n)| (v.as_str(), n.as_str())).collect()))
+            .collect()
     }
 
     #[test]
@@ -419,7 +487,14 @@ mod tests {
         let models = cursor(out);
         assert_eq!(shown(&models), [("composer-2.5", "Composer 2.5", vec![]), ("gpt-5.4", "GPT-5.4", vec![]), ("unnamed", "Unnamed", vec![])]);
         assert_eq!(settings(&models[0]), []);
-        assert_eq!(settings(&models[1]), [("reasoning", "Reasoning", "medium", vec![("low", "Low"), ("medium", "Medium"), ("high", "High")]), ("fast", "Fast", "false", vec![("false", "Off"), ("true", "On")])], "a setting with one value is no choice");
+        assert_eq!(
+            settings(&models[1]),
+            [
+                ("reasoning", "Reasoning", "medium", vec![("low", "Low"), ("medium", "Medium"), ("high", "High")]),
+                ("fast", "Fast", "false", vec![("false", "Off"), ("true", "On")])
+            ],
+            "a setting with one value is no choice"
+        );
         assert!(cursor("auto - Auto (default)\n").is_empty());
     }
 
@@ -435,7 +510,8 @@ mod tests {
     #[test]
     fn opencode_models_run_as_any_agent_its_session_mode_lists_but_plan() {
         assert!(opencode(OPENCODE_SESSION)[0].settings.is_empty(), "build alone leaves nothing to pick");
-        let with_docs_writer = OPENCODE_SESSION.replace(r#"{"value":"plan","name":"plan"}"#, r#"{"value":"plan","name":"plan"},{"value":"docs-writer","name":"docs-writer"}"#);
+        let with_docs_writer =
+            OPENCODE_SESSION.replace(r#"{"value":"plan","name":"plan"}"#, r#"{"value":"plan","name":"plan"},{"value":"docs-writer","name":"docs-writer"}"#);
         assert_eq!(settings(&opencode(&with_docs_writer)[0]), [("mode", "Agent", "build", vec![("build", "Build"), ("docs-writer", "Docs Writer")])]);
         let on_docs_writer = with_docs_writer.replace(r#""currentValue":"build""#, r#""currentValue":"docs-writer""#);
         assert_eq!(opencode(&on_docs_writer)[0].settings[0].default, "docs-writer", "the agent OpenCode starts a session as");
@@ -455,11 +531,17 @@ mod tests {
 
     #[test]
     fn fx_lists_ids_objects_or_lines() {
-        assert_eq!(shown(&fx(r#"{"kind":"models","count":2,"ids":["zai/glm-5.2-fast","openai/gpt-5.2"]}"#)), [("zai/glm-5.2-fast", "GLM 5.2 Fast", vec![]), ("openai/gpt-5.2", "GPT 5.2", vec![])]);
+        assert_eq!(
+            shown(&fx(r#"{"kind":"models","count":2,"ids":["zai/glm-5.2-fast","openai/gpt-5.2"]}"#)),
+            [("zai/glm-5.2-fast", "GLM 5.2 Fast", vec![]), ("openai/gpt-5.2", "GPT 5.2", vec![])]
+        );
         let objects = r#"warming up
 {"models":[{"id":"zai/glm-5.2-fast","name":"GLM 5.2 Fast","contextWindow":202752,"efforts":["low",{"value":"high"}]},{"id":"zai/glm-4.7","effortOptions":["auto"]},{"name":"No id"}]}"#;
         assert_eq!(shown(&fx(objects)), [("zai/glm-5.2-fast", "GLM 5.2 Fast", vec!["low", "high"]), ("zai/glm-4.7", "GLM 4.7", vec![])]);
-        assert_eq!(shown(&fx("zai/glm-5.2-fast - GLM 5.2 Fast (default)\nopenai/gpt-5.4 - GPT-5.4\n")), [("zai/glm-5.2-fast", "GLM 5.2 Fast", vec![]), ("openai/gpt-5.4", "GPT-5.4", vec![])]);
+        assert_eq!(
+            shown(&fx("zai/glm-5.2-fast - GLM 5.2 Fast (default)\nopenai/gpt-5.4 - GPT-5.4\n")),
+            [("zai/glm-5.2-fast", "GLM 5.2 Fast", vec![]), ("openai/gpt-5.4", "GPT-5.4", vec![])]
+        );
         assert!(fx("").is_empty());
     }
 

@@ -10,12 +10,21 @@ impl Desktop {
     pub(super) fn finder_host_switch(&self, name: &str, online: bool, cx: &mut Context<Self>) -> Div {
         let open = self.host_finder.host_menu;
         let glyph = self.host_finder.finder.as_ref().map_or("server", |f| self.space_glyph(&Space::Host(f.host.clone())));
-        let button = ui::button("finder-host", Variant::Secondary, Some(glyph), div().flex().items_center().gap(px(6.)).child(name.to_string()).child(ui::dot(6., if online { SUCCESS } else { TEXT_5 })).child(icon("chevron-down", 12., TEXT_3)))
-            .h(px(28.))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.host_finder.host_menu = !this.host_finder.host_menu;
-                cx.notify();
-            }));
+        let button = ui::button(
+            "finder-host",
+            Variant::Secondary,
+            Some(glyph),
+            div().flex().items_center().gap(px(6.)).child(name.to_string()).child(ui::dot(6., if online { SUCCESS } else { TEXT_5 })).child(icon(
+                "chevron-down",
+                12.,
+                TEXT_3,
+            )),
+        )
+        .h(px(28.))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.host_finder.host_menu = !this.host_finder.host_menu;
+            cx.notify();
+        }));
         let picked = self.host_finder.finder.as_ref().map(|f| f.host.clone());
         let opener = self.host_finder.opener;
         let menu = open.then(|| {

@@ -1,8 +1,8 @@
 use super::{Primary, Run, Stage, Tag, primary, tag};
 use crate::desktop::Desktop;
 use crate::spaces::Space;
-use crate::util::plural;
 use crate::spaces::header::tile;
+use crate::util::plural;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -24,11 +24,28 @@ fn sheet(children: impl IntoIterator<Item = AnyElement>) -> Div {
 }
 
 fn x_button(id: &'static str, name: &str) -> Stateful<Div> {
-    div().id(id).size(px(28.)).mt(px(-1.)).flex().flex_none().items_center().justify_center().rounded(px(14.)).cursor_pointer().hover(|s| s.bg(FILL_3)).child(icon(name, 15., TEXT_3))
+    div()
+        .id(id)
+        .size(px(28.))
+        .mt(px(-1.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(14.))
+        .cursor_pointer()
+        .hover(|s| s.bg(FILL_3))
+        .child(icon(name, 15., TEXT_3))
 }
 
 fn header(title: String, close: Stateful<Div>) -> AnyElement {
-    div().flex().items_start().gap(px(12.)).child(div().flex_1().text_size(px(20.)).line_height(px(26.)).font_weight(FontWeight::BOLD).child(title)).child(close.mr(px(-4.))).into_any_element()
+    div()
+        .flex()
+        .items_start()
+        .gap(px(12.))
+        .child(div().flex_1().text_size(px(20.)).line_height(px(26.)).font_weight(FontWeight::BOLD).child(title))
+        .child(close.mr(px(-4.)))
+        .into_any_element()
 }
 
 fn sub(text: String) -> AnyElement {
@@ -123,10 +140,12 @@ impl Desktop {
                 .child(icon("server", 22., TEXT_4))
                 .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child("No host is connected"))
                 .child(div().max_w(px(320.)).text_size(px(12.5)).text_color(TEXT_3).child("Hosts you add in Settings show here while they’re connected."))
-                .child(ui::button("handoff-add-host", Variant::Secondary, Some("plus"), "Add a host…").mt(px(6.)).on_click(cx.listener(|d, _: &ClickEvent, window, cx| {
-                    d.close_overlay(window, cx);
-                    d.show_hosts(window, cx);
-                })));
+                .child(ui::button("handoff-add-host", Variant::Secondary, Some("plus"), "Add a host…").mt(px(6.)).on_click(cx.listener(
+                    |d, _: &ClickEvent, window, cx| {
+                        d.close_overlay(window, cx);
+                        d.show_hosts(window, cx);
+                    },
+                )));
             let close = button("handoff-cancel", Variant::Ghost, "Close").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx)));
             return sheet([title, boxed(vec![empty.into_any_element()]), foot(vec![close])]);
         }
@@ -391,7 +410,12 @@ impl Desktop {
                             .flex()
                             .flex_col()
                             .gap(px(2.))
-                            .child(div().when(now, |d| d.font_weight(FontWeight::MEDIUM)).when(failed.is_some(), |d| d.text_color(FAILED_TEXT)).child(step.label(&host, &s.agent_name)))
+                            .child(
+                                div()
+                                    .when(now, |d| d.font_weight(FontWeight::MEDIUM))
+                                    .when(failed.is_some(), |d| d.text_color(FAILED_TEXT))
+                                    .child(step.label(&host, &s.agent_name)),
+                            )
                             .children(detail.map(|t| div().text_size(px(12.)).text_color(if todo { TEXT_5 } else { TEXT_3 }).child(t)))
                             .children(bar),
                     )
@@ -406,13 +430,27 @@ impl Desktop {
         let host = self.host_name(h.host.as_deref().unwrap_or_default());
         let cancellable = h.run.as_ref().is_some_and(|r| r.cancellable());
         let hide = |d: &mut Desktop, _: &ClickEvent, window: &mut Window, cx: &mut Context<Desktop>| d.close_overlay(window, cx);
-        let safe = div().flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_2).child(icon("laptop", 13., TEXT_3)).child("Keep this Mac awake until it’s done.");
+        let safe = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .text_size(px(12.5))
+            .text_color(TEXT_2)
+            .child(icon("laptop", 13., TEXT_3))
+            .child("Keep this Mac awake until it’s done.");
         let mut buttons = vec![];
         if cancellable {
-            buttons.push(button("handoff-cancel", Variant::Ghost, "Cancel handoff").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.cancel_handoff(window, cx))));
+            buttons.push(
+                button("handoff-cancel", Variant::Ghost, "Cancel handoff").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.cancel_handoff(window, cx))),
+            );
         }
         buttons.push(button("handoff-hide", Variant::Secondary, "Hide").on_click(cx.listener(hide)));
-        sheet([header(format!("Handing off to {host}"), x_button("handoff-close", "x").on_click(cx.listener(hide))), self.steps_box(), safe.into_any_element(), foot(buttons)])
+        sheet([
+            header(format!("Handing off to {host}"), x_button("handoff-close", "x").on_click(cx.listener(hide))),
+            self.steps_box(),
+            safe.into_any_element(),
+            foot(buttons),
+        ])
     }
 
     fn failed_sheet(&mut self, cx: &mut Context<Self>) -> Div {
@@ -436,7 +474,8 @@ impl Desktop {
             div().text_size(px(13.5)).line_height(px(20.)).text_color(TEXT_2).child(body).into_any_element(),
             foot(vec![
                 button("handoff-cancel", Variant::Ghost, "Close").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx))),
-                button("handoff-go", Variant::Primary, if online { "Retry" } else { "Retry now" }).on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.retry_handoff(cx))),
+                button("handoff-go", Variant::Primary, if online { "Retry" } else { "Retry now" })
+                    .on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.retry_handoff(cx))),
             ]),
         ])
     }
@@ -474,7 +513,8 @@ impl Desktop {
             cheer.into_any_element(),
             foot(vec![
                 button("handoff-cancel", Variant::Ghost, "Done").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx))),
-                button("handoff-go", Variant::Primary, format!("Open on {host}")).on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.open_handed_off(window, cx))),
+                button("handoff-go", Variant::Primary, format!("Open on {host}"))
+                    .on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.open_handed_off(window, cx))),
             ]),
         ])
     }

@@ -90,7 +90,10 @@ pub(super) fn track(wiring: Wiring, frame: Frame, style: EffortStyle) -> impl In
             window.paint_quad(fill(geo.pill(geo.left, geo.left + geo.width), style.rail).corner_radii(px(TRACK / 2.)));
             if frame.shown.is_some() {
                 let filled = geo.pill(geo.left, thumb + TRACK / 2.);
-                window.paint_quad(fill(filled, linear_gradient(90., linear_color_stop(style.track, 0.), linear_color_stop(mix(style.track, style.light, 0.18), 1.))).corner_radii(px(TRACK / 2.)));
+                window.paint_quad(
+                    fill(filled, linear_gradient(90., linear_color_stop(style.track, 0.), linear_color_stop(mix(style.track, style.light, 0.18), 1.)))
+                        .corner_radii(px(TRACK / 2.)),
+                );
                 for light in frame.lights.iter().flatten() {
                     glow(window, &geo, filled, thumb, light, style.light);
                 }
@@ -124,8 +127,12 @@ fn glow(window: &mut Window, geo: &Geometry, filled: Bounds<Pixels>, thumb: f32,
         // A gradient stays at its end colours past its stops, so this lights only the stretch behind the thumb.
         let reach = reach.max(1.);
         let c = color.opacity(alpha);
-        window.paint_quad(fill(filled, linear_gradient(90., linear_color_stop(c.opacity(0.), stop(thumb - reach)), linear_color_stop(c, stop(thumb)))).corner_radii(px(TRACK / 2.)));
-        let core = Bounds::from_corners(point(px((thumb - reach * 0.5).max(left + 2.)), px(geo.cy() - TRACK / 4.)), point(filled.right(), px(geo.cy() + TRACK / 4.)));
+        window.paint_quad(
+            fill(filled, linear_gradient(90., linear_color_stop(c.opacity(0.), stop(thumb - reach)), linear_color_stop(c, stop(thumb))))
+                .corner_radii(px(TRACK / 2.)),
+        );
+        let core =
+            Bounds::from_corners(point(px((thumb - reach * 0.5).max(left + 2.)), px(geo.cy() - TRACK / 4.)), point(filled.right(), px(geo.cy() + TRACK / 4.)));
         let at = (thumb - f32::from(core.left())) / f32::from(core.size.width).max(1.);
         window.paint_quad(fill(core, linear_gradient(90., linear_color_stop(c.opacity(0.), 0.), linear_color_stop(c, at))).corner_radii(px(TRACK / 4.)));
     }
@@ -155,7 +162,10 @@ fn band(window: &mut Window, filled: Bounds<Pixels>, centre: f32, color: Hsla) {
             continue;
         }
         window.with_content_mask(Some(ContentMask { bounds: cut }), |window| {
-            window.paint_quad(fill(filled, linear_gradient(90., linear_color_stop(color.opacity(a), stop(from)), linear_color_stop(color.opacity(b), stop(to)))).corner_radii(px(TRACK / 2.)));
+            window.paint_quad(
+                fill(filled, linear_gradient(90., linear_color_stop(color.opacity(a), stop(from)), linear_color_stop(color.opacity(b), stop(to))))
+                    .corner_radii(px(TRACK / 2.)),
+            );
         });
     }
 }
@@ -197,7 +207,9 @@ fn knob(window: &mut Window, geo: &Geometry, thumb: f32, frame: &Frame, focused:
     window.paint_quad(fill(knob, shade).border_widths(px(0.5)).border_color(edge).corner_radii(px(d / 2.)));
     if focused && frame.keyed {
         let r = d / 2. + 3.;
-        window.paint_quad(fill(circle((thumb, geo.cy()), r), transparent_black()).border_widths(px(2.)).border_color(style.track.opacity(0.6)).corner_radii(px(r)));
+        window.paint_quad(
+            fill(circle((thumb, geo.cy()), r), transparent_black()).border_widths(px(2.)).border_color(style.track.opacity(0.6)).corner_radii(px(r)),
+        );
     }
 }
 
@@ -212,8 +224,15 @@ fn labels(window: &mut Window, cx: &mut App, geo: &Geometry, bounds: Bounds<Pixe
         .iter()
         .enumerate()
         .map(|(i, text)| {
-            let lit = if Some(i) == frame.shown { frame.label } else if Some(i) == frame.was { 1. - frame.label } else { 0. };
-            let run = TextRun { len: text.len(), font: font.clone(), color: mix(dim, bright, lit), background_color: None, underline: None, strikethrough: None };
+            let lit = if Some(i) == frame.shown {
+                frame.label
+            } else if Some(i) == frame.was {
+                1. - frame.label
+            } else {
+                0.
+            };
+            let run =
+                TextRun { len: text.len(), font: font.clone(), color: mix(dim, bright, lit), background_color: None, underline: None, strikethrough: None };
             let line = window.text_system().shape_line(text.clone(), px(LABEL_SIZE), &[run], None);
             let w = f32::from(line.width);
             let left = (geo.x(intensity(i, n)) - w / 2.).clamp(f32::from(bounds.left()), (f32::from(bounds.right()) - w).max(f32::from(bounds.left())));

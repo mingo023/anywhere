@@ -307,7 +307,8 @@ mod tests {
     }
 
     fn pocketd(installed: &[(&str, bool)]) -> agents::Agents {
-        let providers = installed.iter().map(|(id, available)| providers::ProviderInfo { id: id.to_string(), available: *available, ..Default::default() }).collect();
+        let providers =
+            installed.iter().map(|(id, available)| providers::ProviderInfo { id: id.to_string(), available: *available, ..Default::default() }).collect();
         agents::Agents { providers, ..Default::default() }
     }
 
@@ -434,7 +435,10 @@ mod tests {
         assert_eq!((a.args("claude", Args::Resume), a.args("codex", Args::Resume)), ("--resume".to_string(), "resume".to_string()));
         assert_eq!(a.args("codex", Args::Fork), "fork {sessionId}");
         assert_eq!(["claude", "opencode", "hermes", "cursor"].map(|p| a.args(p, Args::Prompt)), ["--", "--prompt", "-q", ""]);
-        assert_eq!((a.args("pi", Args::Resume), a.args("pi", Args::Fork), a.args("hermes", Args::Resume), a.args("hermes", Args::Fork)), ("--session".to_string(), "--fork {sessionId}".to_string(), "chat --resume".to_string(), String::new()));
+        assert_eq!(
+            (a.args("pi", Args::Resume), a.args("pi", Args::Fork), a.args("hermes", Args::Resume), a.args("hermes", Args::Fork)),
+            ("--session".to_string(), "--fork {sessionId}".to_string(), "chat --resume".to_string(), String::new())
+        );
         a.provider_mut("claude").resume_args = Some(String::new());
         assert_eq!(a.args("claude", Args::Resume), "");
     }
@@ -474,7 +478,10 @@ mod tests {
             a.launch(&mut unnamed, &live, &[]);
             assert_eq!((&carried["access"], &unnamed["access"]), (&json!("full"), &json!("full")), "{provider}");
         }
-        let said = |never_asks| agents::Agents { providers: vec![providers::ProviderInfo { id: "cursor".into(), never_asks, ..Default::default() }], ..Default::default() };
+        let said = |never_asks| agents::Agents {
+            providers: vec![providers::ProviderInfo { id: "cursor".into(), never_asks, ..Default::default() }],
+            ..Default::default()
+        };
         let (mut unasked, mut asked) = (json!({"provider": "cursor", "access": "edits"}), json!({"provider": "cursor", "access": "edits"}));
         a.launch(&mut unasked, &said(Some(true)), &[]);
         a.launch(&mut asked, &said(None), &[]);
@@ -500,7 +507,10 @@ mod tests {
             a.launch(&mut spec, &agents::Agents::default(), &[]);
             (spec["chat"] == true, a.starts_as_chat(provider))
         });
-        assert_eq!(chats, [(false, false), (false, false), (true, true), (true, true), (true, true), (true, true), (true, true), (true, true), (true, true), (true, true)]);
+        assert_eq!(
+            chats,
+            [(false, false), (false, false), (true, true), (true, true), (true, true), (true, true), (true, true), (true, true), (true, true), (true, true)]
+        );
         let mut tui = json!({"provider": "hermes", "chat": false});
         a.launch(&mut tui, &agents::Agents::default(), &[]);
         assert_eq!(tui["chat"], true);

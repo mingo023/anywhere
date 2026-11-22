@@ -156,7 +156,16 @@ impl Element for Below {
         self.child.prepaint(window, cx);
     }
 
-    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), _: &mut (), window: &mut Window, cx: &mut App) {
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         let shown = Bounds::from_corners(point(bounds.left(), (bounds.top() + self.top).min(bounds.bottom())), bounds.bottom_right());
         window.with_content_mask(Some(ContentMask { bounds: shown }), |window| self.child.paint(window, cx));
     }
@@ -189,7 +198,8 @@ fn card(
     on_more: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
     let knob = || div().size(px(KNOB)).flex_none().rounded_full().flex().items_center().justify_center();
-    let arrow = knob().bg(ink(0.07)).group_hover("sticky", |s| s.bg(ink(0.12))).child(icon("arrow-up", 12., TEXT_2).group_hover("sticky", |s| s.text_color(TEXT)));
+    let arrow =
+        knob().bg(ink(0.07)).group_hover("sticky", |s| s.bg(ink(0.12))).child(icon("arrow-up", 12., TEXT_2).group_hover("sticky", |s| s.text_color(TEXT)));
     // A prompt of only attachments counts them in its label instead.
     let rest = if text.is_empty() { 0 } else { images.len().saturating_sub(THUMBS) };
     let thumbs = (!images.is_empty()).then(|| {
@@ -199,12 +209,25 @@ fn card(
     let body = if text.is_empty() {
         div().flex_none().text_color(TEXT_2).child(attached_count(images.len(), files, elements)).into_any_element()
     } else if open {
-        let text = div().id(SharedString::from(format!("sticky-text-{id}"))).max_h(px(OPEN_MAX_HEIGHT)).overflow_y_scroll().child(user_bubble::styled(&format!("sticky-{id}"), text));
+        let text = div()
+            .id(SharedString::from(format!("sticky-text-{id}")))
+            .max_h(px(OPEN_MAX_HEIGHT))
+            .overflow_y_scroll()
+            .child(user_bubble::styled(&format!("sticky-{id}"), text));
         div().flex_1().min_w_0().pt(px(1.)).text_color(TEXT_BODY).child(text).into_any_element()
     } else {
         div().min_w_0().truncate().child(user_bubble::styled(&format!("sticky-{id}"), &one_line(text))).into_any_element()
     };
-    let time = time.map(|time| div().flex().flex_none().gap(px(GAP)).text_size(px(TIME_SIZE)).line_height(px(KNOB)).child(div().text_color(TEXT_5).child("·")).child(div().text_color(TEXT_3).child(time)));
+    let time = time.map(|time| {
+        div()
+            .flex()
+            .flex_none()
+            .gap(px(GAP))
+            .text_size(px(TIME_SIZE))
+            .line_height(px(KNOB))
+            .child(div().text_color(TEXT_5).child("·"))
+            .child(div().text_color(TEXT_3).child(time))
+    });
     let chevron = long.then(|| {
         knob()
             .id(SharedString::from(format!("sticky-more-{id}")))
@@ -294,7 +317,8 @@ impl Desktop {
         } else {
             let shown = images.len().min(THUMBS);
             let rest = images.len() - shown;
-            let thumbs = (shown > 0).then(|| shown as f32 * (THUMB + THUMB_GAP) - THUMB_GAP + if rest > 0 { THUMB_GAP + 4. + measure(&format!("+{rest}"), 11.) } else { 0. });
+            let thumbs = (shown > 0)
+                .then(|| shown as f32 * (THUMB + THUMB_GAP) - THUMB_GAP + if rest > 0 { THUMB_GAP + 4. + measure(&format!("+{rest}"), 11.) } else { 0. });
             let time = time.as_ref().map(|t| measure("·", TIME_SIZE) + GAP + measure(t, TIME_SIZE));
             let beside: Vec<f32> = [Some(KNOB), thumbs, time, Some(KNOB)].into_iter().flatten().collect();
             user_bubble::wrapped_lines(text, SIZE, text_width(max, &beside), window)
@@ -320,7 +344,10 @@ impl Desktop {
             cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_toggle_sticky(&agent, &row, cx))
         };
         let cover = covered(view.inset, bottom, shift);
-        Some((card(&id, text, &images, files.len(), elements.len(), time, long, open, max, view.inset, shift, cover, !cx.reduce_motion(), on_jump, on_more), cover))
+        Some((
+            card(&id, text, &images, files.len(), elements.len(), time, long, open, max, view.inset, shift, cover, !cx.reduce_motion(), on_jump, on_more),
+            cover,
+        ))
     }
 
     fn chat_toggle_sticky(&mut self, agent: &str, row: &str, cx: &mut Context<Self>) {
@@ -332,7 +359,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{HEIGHT, KNOB, MARGIN_TOP, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, attached_count, height, lift, bubble_shows_below, next_prompt, one_line, pushed, stuck, top_at_end, card_top, covered};
+    use super::{
+        HEIGHT, KNOB, MARGIN_TOP, OPEN_BOTTOM, OPEN_MAX_HEIGHT, OPEN_TOP, attached_count, bubble_shows_below, card_top, covered, height, lift, next_prompt,
+        one_line, pushed, stuck, top_at_end,
+    };
     use chat::Row;
 
     fn rows() -> Vec<Row> {

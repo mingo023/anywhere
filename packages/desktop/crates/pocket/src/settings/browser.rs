@@ -20,17 +20,50 @@ fn dev_urls(s: &Store) -> String {
 }
 
 pub(super) const ROWS: &[Setting] = &[
-    Setting::choice("search-engine", "General", "Search engine", &["Google", "DuckDuckGo", "Bing", "Kagi", "Custom…"], Look::Dropdown, |s| s.browser.engine as usize, |s, i| s.browser.engine = ENGINES[i]),
-    Setting::text("custom-search", "General", "Search URL", "https://example.com/search?q=%s", |s| s.browser.custom_search.clone(), |s, v| s.browser.custom_search = v)
-        .hint("%s stands for what you type")
-        .note(|s| search_problem(&s.browser.custom_search).map(Into::into))
-        .under(|s| s.browser.engine == Engine::Custom),
-    Setting::choice("home-page", "General", "Home page", &["Dev server", "Blank", "Custom"], Look::Segmented, |s| s.browser.home as usize, |s, i| s.browser.home = HOMES[i])
-        .hint("Project dev server opens the URL below for the focused project"),
-    Setting::text("custom-home", "General", "Custom home page", "https://", |s| s.browser.custom_home.clone(), |s, v| s.browser.custom_home = v).under(|s| s.browser.home == Home::Custom),
-    Setting::choice("link-browser", "General", "Open links in", &["In-app browser", "System browser"], Look::Segmented, |s| s.terminal.system_browser as usize, |s, i| s.terminal.system_browser = i == 1)
-        .hint("Links clicked in terminals and chats"),
-    Setting::custom("dev-servers", "Dev servers", "Dev servers", |d, _, _| d.dev_servers()).resets(dev_urls, |s, _| s.repos.values_mut().for_each(|r| r.dev_url.clear())),
+    Setting::choice(
+        "search-engine",
+        "General",
+        "Search engine",
+        &["Google", "DuckDuckGo", "Bing", "Kagi", "Custom…"],
+        Look::Dropdown,
+        |s| s.browser.engine as usize,
+        |s, i| s.browser.engine = ENGINES[i],
+    ),
+    Setting::text(
+        "custom-search",
+        "General",
+        "Search URL",
+        "https://example.com/search?q=%s",
+        |s| s.browser.custom_search.clone(),
+        |s, v| s.browser.custom_search = v,
+    )
+    .hint("%s stands for what you type")
+    .note(|s| search_problem(&s.browser.custom_search).map(Into::into))
+    .under(|s| s.browser.engine == Engine::Custom),
+    Setting::choice(
+        "home-page",
+        "General",
+        "Home page",
+        &["Dev server", "Blank", "Custom"],
+        Look::Segmented,
+        |s| s.browser.home as usize,
+        |s, i| s.browser.home = HOMES[i],
+    )
+    .hint("Project dev server opens the URL below for the focused project"),
+    Setting::text("custom-home", "General", "Custom home page", "https://", |s| s.browser.custom_home.clone(), |s, v| s.browser.custom_home = v)
+        .under(|s| s.browser.home == Home::Custom),
+    Setting::choice(
+        "link-browser",
+        "General",
+        "Open links in",
+        &["In-app browser", "System browser"],
+        Look::Segmented,
+        |s| s.terminal.system_browser as usize,
+        |s, i| s.terminal.system_browser = i == 1,
+    )
+    .hint("Links clicked in terminals and chats"),
+    Setting::custom("dev-servers", "Dev servers", "Dev servers", |d, _, _| d.dev_servers())
+        .resets(dev_urls, |s, _| s.repos.values_mut().for_each(|r| r.dev_url.clear())),
 ];
 
 impl Desktop {
@@ -52,10 +85,12 @@ impl Desktop {
     }
 
     fn dev_servers(&mut self) -> Div {
-        let caption = div().px(px(14.)).py(px(9.)).border_b(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child("One URL per project.");
+        let caption =
+            div().px(px(14.)).py(px(9.)).border_b(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child("One URL per project.");
         let rows = self.store.projects.iter().filter_map(|p| {
             let (field, _) = self.settings.dev_urls.get(p)?;
-            let input = field_box().w(px(180.)).child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.))));
+            let input =
+                field_box().w(px(180.)).child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.))));
             Some(
                 div()
                     .px(px(14.))
@@ -76,8 +111,8 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::ROWS;
     use super::super::catalog::Control;
+    use super::ROWS;
     use store::Store;
 
     #[test]

@@ -205,7 +205,12 @@ mod tests {
         }
 
         fn ask(&self, c: &Confirm) -> Ask {
-            Ask { request_id: c.0.into(), tool: ToolKind::Shell { command: c.1.into(), description: String::new() }, tool_name: "run_shell_command".into(), questions: vec![] }
+            Ask {
+                request_id: c.0.into(),
+                tool: ToolKind::Shell { command: c.1.into(), description: String::new() },
+                tool_name: "run_shell_command".into(),
+                questions: vec![],
+            }
         }
     }
 
@@ -224,7 +229,11 @@ mod tests {
 
         items[2] = Line::Shell("make", Some(true));
         items.push(Line::Done);
-        assert_eq!(s.update(backend, 3, &items, false, 0), Some((3..4, 4..5, 1)), "the finished phase is measured afresh and the end takes the live line's place");
+        assert_eq!(
+            s.update(backend, 3, &items, false, 0),
+            Some((3..4, 4..5, 1)),
+            "the finished phase is measured afresh and the end takes the live line's place"
+        );
         assert_eq!(s.ids, ["g0", "g0#fold", "g0#0.0", "g0#p1", "g0#end"]);
         assert!(matches!(&s.transcript.turns[0].blocks[1], Block::Tool(c) if c.status == ToolStatus::Ok));
 

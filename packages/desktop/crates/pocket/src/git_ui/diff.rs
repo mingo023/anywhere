@@ -1,21 +1,21 @@
 mod row;
 pub(crate) use row::{code, hunk};
 
-use git::github::Thread;
-use git::{self, Kind, Line};
-use theme::*;
-use ui::{self, Segment};
 use crate::add_to_chat::{Body, Quote};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Side, doc_bar, empty};
 use crate::explorer::preview::image_format;
 use crate::syntax::{Spans, language_for, line_spans};
 use crate::util::{ago_long, now_ms};
+use git::github::Thread;
+use git::{self, Kind, Line};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
+use theme::*;
+use ui::{self, Segment};
 use workspace::Doc;
 use workspace::tree::PaneId;
 
@@ -311,7 +311,17 @@ impl Pick {
         let text = lines[range]
             .iter()
             .filter(|l| l.kind != Kind::Hunk)
-            .map(|l| format!("{}{}", match l.kind { Kind::Add => '+', Kind::Del => '-', _ => ' ' }, l.text))
+            .map(|l| {
+                format!(
+                    "{}{}",
+                    match l.kind {
+                        Kind::Add => '+',
+                        Kind::Del => '-',
+                        _ => ' ',
+                    },
+                    l.text
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         Some(Quote { path: path.to_string(), body: Body::Diff { lines: (lo, hi), removed, text } })
@@ -428,7 +438,12 @@ impl DiffState {
     /// Shows `load` in `pane` unless another file, fold state, diff option or appearance was picked while it ran.
     pub fn apply(&mut self, pane: PaneId, load: DiffLoad) -> bool {
         let Some(v) = self.panes.get_mut(&pane) else { return false };
-        if v.file.as_ref() != Some(&load.path) || v.at != load.at || load.open != v.open || load.options != self.options || load.colors.is_some() && load.dark != theme::is_dark() {
+        if v.file.as_ref() != Some(&load.path)
+            || v.at != load.at
+            || load.open != v.open
+            || load.options != self.options
+            || load.colors.is_some() && load.dark != theme::is_dark()
+        {
             return false;
         }
         v.source = load.source;
@@ -530,16 +545,12 @@ impl DiffState {
 /// An image changed: each side that exists, labelled Before and After when both do.
 fn image_sides((old, new): Images) -> Div {
     let both = old.is_some() && new.is_some();
-    let side = |label: &'static str, image: Arc<Image>| {
-        div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .when(both, |d| d.child(div().text_size(px(11.5)).text_color(TEXT_3).child(label)))
-            .child(div().flex_1().min_h_0().flex().items_center().justify_center().child(img(image).max_w_full().max_h_full().object_fit(ObjectFit::Contain)))
-    };
+    let side =
+        |label: &'static str, image: Arc<Image>| {
+            div().flex_1().min_w_0().flex().flex_col().gap(px(8.)).when(both, |d| d.child(div().text_size(px(11.5)).text_color(TEXT_3).child(label))).child(
+                div().flex_1().min_h_0().flex().items_center().justify_center().child(img(image).max_w_full().max_h_full().object_fit(ObjectFit::Contain)),
+            )
+        };
     div()
         .flex_1()
         .min_h_0()
@@ -564,21 +575,26 @@ impl Desktop {
             .flex()
             .items_center()
             .gap(px(8.))
-            .when(!image, |d| d.child(div().id("diff-mode").child(ui::segmented(
-                vec![Segment { icon: None, value: false, label: "Unified".into(), badge: None }, Segment { icon: None, value: true, label: "Split".into(), badge: None }],
-                self.diff.split,
-                true,
-                false,
-                |this, v, cx| {
-                    this.store.diff.split = v;
-                    this.apply_diff_style();
-                    this.save_soon(cx);
-                    cx.notify();
-                },
-                cx,
-            ))))
+            .when(!image, |d| {
+                d.child(div().id("diff-mode").child(ui::segmented(
+                    vec![
+                        Segment { icon: None, value: false, label: "Unified".into(), badge: None },
+                        Segment { icon: None, value: true, label: "Split".into(), badge: None },
+                    ],
+                    self.diff.split,
+                    true,
+                    false,
+                    |this, v, cx| {
+                        this.store.diff.split = v;
+                        this.apply_diff_style();
+                        this.save_soon(cx);
+                        cx.notify();
+                    },
+                    cx,
+                )))
+            })
             .child(ui::icon_group([
-                ui::group_button("diff-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx))),
+                ui::group_button("diff-more", "more").on_click(cx.listener(|this, e: &ClickEvent, window, cx| this.open_more(e.position(), window, cx)))
             ]));
         let mut meta = Vec::new();
         if let At::Commit(sha) = &at {
@@ -608,13 +624,7 @@ impl Desktop {
             At::Compare(_) => "Compare".to_string(),
         };
         let crumbs = std::iter::once(first).chain(dir).chain([name]).collect();
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(doc_bar(crumbs, meta, right))
-            .child(self.diff_box(pane, cx))
+        div().flex_1().min_h_0().flex().flex_col().child(doc_bar(crumbs, meta, right)).child(self.diff_box(pane, cx))
     }
 
     pub fn diff_box(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
@@ -669,7 +679,9 @@ impl Desktop {
     }
 
     fn read_diff_in_background(&mut self, pane: PaneId, shown: Vec<Line>, cx: &mut Context<Self>) {
-        let Some((cwd, (path, at, open))) = self.cwd().zip(self.diff.view(pane).and_then(|v| Some((v.file.clone()?, v.at.clone(), v.open.clone())))) else { return };
+        let Some((cwd, (path, at, open))) = self.cwd().zip(self.diff.view(pane).and_then(|v| Some((v.file.clone()?, v.at.clone(), v.open.clone())))) else {
+            return;
+        };
         let options = self.diff.options;
         let task = cx.background_executor().spawn(async move { read_diff(&cwd, path, at, open, options, &shown) });
         cx.spawn(async move |this, cx| {
@@ -733,9 +745,9 @@ impl Desktop {
 #[cfg(test)]
 mod tests {
     use super::{At, DiffLoad, DiffState, Pick, Pin, ROW, Row, changed, code_line, highlights, pins, remap, rows};
-    use git::github::Thread;
     use crate::add_to_chat::{Body, Quote};
     use crate::desktop::MAIN;
+    use git::github::Thread;
     use git::parse;
     use gpui_kit::{HighlightStyle, Image, ImageFormat};
     use std::collections::HashSet;
@@ -884,7 +896,10 @@ mod tests {
     fn places_the_composer_under_its_line() {
         let l = parse(DIFF);
         assert_eq!(rows(&l, false, Some(3), &[]), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Unified(3), Row::Composer, Row::Unified(4)]);
-        assert_eq!(rows(&l, true, Some(2), &[]), vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]);
+        assert_eq!(
+            rows(&l, true, Some(2), &[]),
+            vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Composer, Row::Split(None, Some(4))]
+        );
         assert_eq!(rows(&l, false, None, &[]).len(), 5);
     }
 
@@ -896,10 +911,20 @@ mod tests {
     fn a_thread_sits_under_the_line_it_was_left_on_in_either_layout() {
         let l = parse(DIFF);
         let pins = [pin("on-d", 3, false), pin("on-b", 2, true)];
-        assert_eq!(rows(&l, false, None, &pins), vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Thread(1), Row::Unified(3), Row::Unified(4), Row::Thread(0)]);
+        assert_eq!(
+            rows(&l, false, None, &pins),
+            vec![Row::Unified(0), Row::Unified(1), Row::Unified(2), Row::Thread(1), Row::Unified(3), Row::Unified(4), Row::Thread(0)]
+        );
         assert_eq!(
             rows(&l, true, None, &pins),
-            vec![Row::Split(Some(0), Some(0)), Row::Split(Some(1), Some(1)), Row::Split(Some(2), Some(3)), Row::Thread(1), Row::Split(None, Some(4)), Row::Thread(0)]
+            vec![
+                Row::Split(Some(0), Some(0)),
+                Row::Split(Some(1), Some(1)),
+                Row::Split(Some(2), Some(3)),
+                Row::Thread(1),
+                Row::Split(None, Some(4)),
+                Row::Thread(0)
+            ]
         );
     }
 
@@ -919,7 +944,8 @@ mod tests {
     #[test]
     fn only_the_files_threads_on_lines_of_the_head_are_pinned() {
         let t = |id: &str, path: &str, line: Option<u32>, outdated: bool| Thread { id: id.into(), path: path.into(), line, outdated, ..Thread::default() };
-        let threads = [t("here", "a.rs", Some(3), false), t("elsewhere", "b.rs", Some(3), false), t("gone", "a.rs", Some(7), true), t("unplaced", "a.rs", None, false)];
+        let threads =
+            [t("here", "a.rs", Some(3), false), t("elsewhere", "b.rs", Some(3), false), t("gone", "a.rs", Some(7), true), t("unplaced", "a.rs", None, false)];
         assert_eq!(pins("a.rs", &threads), vec![pin("here", 3, false)]);
     }
 
@@ -1018,7 +1044,17 @@ mod tests {
     }
 
     fn load(path: &str, text: &str) -> DiffLoad {
-        DiffLoad { path: path.into(), at: At::Working, open: HashSet::new(), options: git::Options::default(), lines: parse(text), source: Default::default(), colors: None, dark: false, images: None }
+        DiffLoad {
+            path: path.into(),
+            at: At::Working,
+            open: HashSet::new(),
+            options: git::Options::default(),
+            lines: parse(text),
+            source: Default::default(),
+            colors: None,
+            dark: false,
+            images: None,
+        }
     }
 
     fn showing(panes: &[(PaneId, &str)]) -> DiffState {

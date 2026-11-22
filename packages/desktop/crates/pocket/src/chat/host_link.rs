@@ -18,7 +18,11 @@ pub(super) enum Linked {
 /// What `hint` names, an id, a name or an address, matched against the current host list: so a card settles by what the list says, whatever happened to the link attempt it asked for.
 pub(super) fn linked(hint: &str, list: &[Host], links: &Links) -> Linked {
     let hint = hint.trim();
-    let Some(host) = list.iter().find(|h| !hint.is_empty() && [h.id.as_str(), h.name.as_str(), h.address().as_str()].iter().any(|n| n.eq_ignore_ascii_case(hint))) else { return Linked::No };
+    let Some(host) =
+        list.iter().find(|h| !hint.is_empty() && [h.id.as_str(), h.name.as_str(), h.address().as_str()].iter().any(|n| n.eq_ignore_ascii_case(hint)))
+    else {
+        return Linked::No;
+    };
     let name = host.name.clone();
     match links.get(&host.id) {
         Some(Link::Online { .. }) => Linked::Online(name),
@@ -47,11 +51,31 @@ pub(super) fn card(id: &str, hint: &str, reason: &str, linked: Linked, cx: &mut 
         .children((!reason.is_empty()).then(|| div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(reason.to_string())));
     let hint = hint.to_string();
     let action = match linked {
-        Linked::No => Some(ui::button(SharedString::from(format!("host-link-{id}")), ui::Variant::Secondary, None, "Add host\u{2026}").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.link_host(hint.clone(), window, cx)))),
-        Linked::Trouble(_) => Some(ui::button(SharedString::from(format!("host-link-{id}")), ui::Variant::Secondary, None, "Hosts\u{2026}").h(px(26.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.show_hosts(window, cx)))),
+        Linked::No => Some(
+            ui::button(SharedString::from(format!("host-link-{id}")), ui::Variant::Secondary, None, "Add host\u{2026}")
+                .h(px(26.))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.link_host(hint.clone(), window, cx))),
+        ),
+        Linked::Trouble(_) => Some(
+            ui::button(SharedString::from(format!("host-link-{id}")), ui::Variant::Secondary, None, "Hosts\u{2026}")
+                .h(px(26.))
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.show_hosts(window, cx))),
+        ),
         Linked::Connecting(_) | Linked::Online(_) => None,
     };
-    div().w_full().px(px(12.)).py(px(10.)).flex().items_center().gap(px(12.)).rounded(px(10.)).border_1().border_color(SEPARATOR).child(tile).child(text).children(action)
+    div()
+        .w_full()
+        .px(px(12.))
+        .py(px(10.))
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .rounded(px(10.))
+        .border_1()
+        .border_color(SEPARATOR)
+        .child(tile)
+        .child(text)
+        .children(action)
 }
 
 #[cfg(test)]

@@ -2,15 +2,22 @@ use super::card::{card, list_head, list_row};
 use crate::desktop::Desktop;
 use crate::util::{ago, now_ms};
 use git::github::{Pr, base_branch};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use gpui_kit::component::scroll::ScrollableElement as _;
 use std::ops::Range;
 use theme::*;
 use workspace::Doc;
 
 fn size(additions: u32, deletions: u32) -> Div {
-    div().flex().flex_none().gap(px(5.)).font_family(MONO).text_size(px(11.5)).child(div().text_color(SUCCESS_TEXT).child(format!("+{additions}"))).child(div().text_color(FAILED_TEXT).child(format!("−{deletions}")))
+    div()
+        .flex()
+        .flex_none()
+        .gap(px(5.))
+        .font_family(MONO)
+        .text_size(px(11.5))
+        .child(div().text_color(SUCCESS_TEXT).child(format!("+{additions}")))
+        .child(div().text_color(FAILED_TEXT).child(format!("−{deletions}")))
 }
 
 /// The card's `overflow_hidden` clips to a rectangle, so the end rows round their own hover.
@@ -27,7 +34,11 @@ fn list_card(id: &'static str, rows: usize, list: impl IntoElement, scroll: &Uni
 impl Desktop {
     /// Oldest first, as GitHub lists them.
     pub(crate) fn pr_commits(&self, pr: &Pr, cx: &mut Context<Self>) -> Div {
-        let branches = div().font_family(MONO).text_size(px(11.5)).child(format!("{} ← {}", base_branch(&pr.base), self.repo().map(|r| r.branch.clone()).unwrap_or_default()));
+        let branches = div().font_family(MONO).text_size(px(11.5)).child(format!(
+            "{} ← {}",
+            base_branch(&pr.base),
+            self.repo().map(|r| r.branch.clone()).unwrap_or_default()
+        ));
         let list = uniform_list(
             "pr-commits",
             pr.commits.len(),
@@ -51,14 +62,12 @@ impl Desktop {
         )
         .track_scroll(&self.pr.commits_scroll)
         .size_full();
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .pt(px(4.))
-            .child(list_head(format!("{} commits", pr.commits.len()), branches))
-            .child(list_card("pr-commits-list", pr.commits.len(), list, &self.pr.commits_scroll))
+        div().flex_1().min_h_0().flex().flex_col().pt(px(4.)).child(list_head(format!("{} commits", pr.commits.len()), branches)).child(list_card(
+            "pr-commits-list",
+            pr.commits.len(),
+            list,
+            &self.pr.commits_scroll,
+        ))
     }
 
     pub(crate) fn pr_files(&self, pr: &Pr, cx: &mut Context<Self>) -> Div {
@@ -82,7 +91,18 @@ impl Desktop {
                             .child(div().min_w_0().truncate().text_color(TEXT_4).child(f.path[..cut].to_string()))
                             .child(div().flex_none().text_color(TEXT).child(f.path[cut..].to_string()));
                         let threads = pr.threads.iter().filter(|t| t.path == f.path).count();
-                        let said = (threads > 0).then(|| div().flex().flex_none().items_center().gap(px(3.)).font_family(MONO).text_size(px(11.)).text_color(TEXT_3).child(icon("comment", 11., TEXT_3)).child(threads.to_string()));
+                        let said = (threads > 0).then(|| {
+                            div()
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .gap(px(3.))
+                                .font_family(MONO)
+                                .text_size(px(11.))
+                                .text_color(TEXT_3)
+                                .child(icon("comment", 11., TEXT_3))
+                                .child(threads.to_string())
+                        });
                         row(("pr-file", i), i, pr.files.len())
                             .child(icon("file", 13., TEXT_3))
                             .child(path)

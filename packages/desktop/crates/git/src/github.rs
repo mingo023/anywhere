@@ -390,9 +390,15 @@ impl Thread {
 #[derive(Clone, Debug, PartialEq)]
 pub enum GhStatus {
     Missing,
-    SignedOut { version: String },
+    SignedOut {
+        version: String,
+    },
     /// `login` is the active one of `accounts`.
-    Ready { version: String, login: String, accounts: Vec<String> },
+    Ready {
+        version: String,
+        login: String,
+        accounts: Vec<String>,
+    },
 }
 
 /// `gh --version`, then `gh auth status` with stderr merged into its output.
@@ -516,7 +522,12 @@ fn parse(json: &str) -> Option<Pr> {
         runs,
         review: verdict(v["reviewDecision"].as_str().unwrap_or("")),
         reviews: v["latestReviews"].as_array().into_iter().flatten().map(|r| (author(&r["author"]), verdict(r["state"].as_str().unwrap_or("")))).collect(),
-        requested: v["reviewRequests"].as_array().into_iter().flatten().filter_map(|r| r["login"].as_str().or(r["slug"].as_str()).or(r["name"].as_str()).map(str::to_string)).collect(),
+        requested: v["reviewRequests"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r["login"].as_str().or(r["slug"].as_str()).or(r["name"].as_str()).map(str::to_string))
+            .collect(),
         mergeable: match v["mergeable"].as_str() {
             Some("MERGEABLE") => Mergeable::Clean,
             Some("CONFLICTING") => Mergeable::Conflicting,
@@ -529,16 +540,31 @@ fn parse(json: &str) -> Option<Pr> {
         body: str(&v["body"]),
         author: author(&v["author"]),
         opened: stamp(&v["createdAt"]),
-        labels: list(&v["labels"]).map(|l| Label { name: str(&l["name"]), color: u32::from_str_radix(l["color"].as_str().unwrap_or(""), 16).unwrap_or(0x8b8b94) }).collect(),
+        labels: list(&v["labels"])
+            .map(|l| Label { name: str(&l["name"]), color: u32::from_str_radix(l["color"].as_str().unwrap_or(""), 16).unwrap_or(0x8b8b94) })
+            .collect(),
         additions: count(&v["additions"]),
         deletions: count(&v["deletions"]),
         commits: list(&v["commits"])
-            .map(|c| PrCommit { oid: str(&c["oid"]), subject: str(&c["messageHeadline"]), author: c["authors"][0]["login"].as_str().or(c["authors"][0]["name"].as_str()).unwrap_or("").to_string(), at: stamp(&c["authoredDate"]) })
+            .map(|c| PrCommit {
+                oid: str(&c["oid"]),
+                subject: str(&c["messageHeadline"]),
+                author: c["authors"][0]["login"].as_str().or(c["authors"][0]["name"].as_str()).unwrap_or("").to_string(),
+                at: stamp(&c["authoredDate"]),
+            })
             .collect(),
         files: list(&v["files"]).map(|f| PrFile { path: str(&f["path"]), additions: count(&f["additions"]), deletions: count(&f["deletions"]) }).collect(),
-        notes: list(&v["comments"]).map(|c| Note { id: str(&c["id"]), author: author(&c["author"]), body: str(&c["body"]), at: stamp(&c["createdAt"]), url: str(&c["url"]) }).collect(),
+        notes: list(&v["comments"])
+            .map(|c| Note { id: str(&c["id"]), author: author(&c["author"]), body: str(&c["body"]), at: stamp(&c["createdAt"]), url: str(&c["url"]) })
+            .collect(),
         submitted: list(&v["reviews"])
-            .map(|r| Submitted { id: str(&r["id"]), author: author(&r["author"]), verdict: verdict(r["state"].as_str().unwrap_or("")), body: str(&r["body"]), at: stamp(&r["submittedAt"]) })
+            .map(|r| Submitted {
+                id: str(&r["id"]),
+                author: author(&r["author"]),
+                verdict: verdict(r["state"].as_str().unwrap_or("")),
+                body: str(&r["body"]),
+                at: stamp(&r["submittedAt"]),
+            })
             .collect(),
     })
 }
@@ -686,7 +712,10 @@ mod tests {
     #[test]
     fn an_open_pr_counts_its_checks_by_outcome() {
         let pr = view_result(Ok(OPEN.into())).unwrap().unwrap();
-        assert_eq!((pr.number, pr.title.as_str(), pr.url.as_str(), pr.state, pr.draft), (42, "Fix the flaky snapshot", "https://github.com/acme/app/pull/42", PrState::Open, false));
+        assert_eq!(
+            (pr.number, pr.title.as_str(), pr.url.as_str(), pr.state, pr.draft),
+            (42, "Fix the flaky snapshot", "https://github.com/acme/app/pull/42", PrState::Open, false)
+        );
         assert_eq!(pr.checks, Checks { passed: 3, failed: 3, pending: 2 });
         let outcomes: Vec<_> = pr.runs.iter().map(|r| (r.name.as_str(), r.outcome)).collect();
         assert_eq!(outcomes[..3], [("build", Outcome::Passed), ("label", Outcome::Skipped), ("test", Outcome::Failed)]);
@@ -775,7 +804,10 @@ mod tests {
     #[test]
     fn review_threads_fall_back_to_their_original_line() {
         let threads = threads_result(THREADS_OUT).unwrap();
-        assert_eq!((threads[0].id.as_str(), threads[0].path.as_str(), threads[0].line, threads[0].left, threads[0].resolved), ("PRRT_a", "src/sync.rs", Some(42), false, false));
+        assert_eq!(
+            (threads[0].id.as_str(), threads[0].path.as_str(), threads[0].line, threads[0].left, threads[0].resolved),
+            ("PRRT_a", "src/sync.rs", Some(42), false, false)
+        );
         let first = Comment {
             id: "PRRC_1".into(),
             url: "https://github.com/acme/app/pull/7#discussion_r1".into(),
@@ -809,7 +841,10 @@ mod tests {
         assert!(pr.body.ends_with("## Summary"));
         assert_eq!(pr.labels, [Label { name: "enhancement".into(), color: 0xa2eeef }, Label { name: "odd".into(), color: 0x8b8b94 }]);
         let commit = &pr.commits[0];
-        assert_eq!((commit.oid.as_str(), commit.subject.as_str(), commit.author.as_str(), commit.at), ("4be67a7009cd25fb24704b462e8a7f5dabba13f0", "fix(eventstream): split a buffered line after a skipped LF", "babakks", 1_794_936_158_000));
+        assert_eq!(
+            (commit.oid.as_str(), commit.subject.as_str(), commit.author.as_str(), commit.at),
+            ("4be67a7009cd25fb24704b462e8a7f5dabba13f0", "fix(eventstream): split a buffered line after a skipped LF", "babakks", 1_794_936_158_000)
+        );
         assert_eq!(pr.files, [PrFile { path: "evals/src/commands.test.ts".into(), additions: 10, deletions: 1 }]);
     }
 
@@ -817,9 +852,18 @@ mod tests {
     fn a_pr_reads_its_comments_and_every_submitted_review() {
         let pr = view_result(Ok(DETAIL.into())).unwrap().unwrap();
         let note = &pr.notes[0];
-        assert_eq!((note.id.as_str(), note.author.as_str(), note.url.as_str()), ("IC_kwDODKw3uc8AAAABnrngRg", "babakks", "https://github.com/cli/cli/pull/15083#issuecomment-6957948998"));
+        assert_eq!(
+            (note.id.as_str(), note.author.as_str(), note.url.as_str()),
+            ("IC_kwDODKw3uc8AAAABnrngRg", "babakks", "https://github.com/cli/cli/pull/15083#issuecomment-6957948998")
+        );
         let verdicts: Vec<_> = pr.submitted.iter().map(|r| (r.id.as_str(), r.author.as_str(), r.verdict, r.body.as_str())).collect();
-        assert_eq!(verdicts, [("PRR_kwDODKw3uc8AAAABYkanbw", "copilot-pull-request-reviewer", Review::None, "Changes recommended"), ("PRR_kwDODKw3uc8AAAABYlVB6Q", "BagToad", Review::Approved, "")]);
+        assert_eq!(
+            verdicts,
+            [
+                ("PRR_kwDODKw3uc8AAAABYkanbw", "copilot-pull-request-reviewer", Review::None, "Changes recommended"),
+                ("PRR_kwDODKw3uc8AAAABYlVB6Q", "BagToad", Review::Approved, "")
+            ]
+        );
     }
 
     #[test]
@@ -837,7 +881,10 @@ mod tests {
     fn a_thread_reads_as_replied_once_someone_else_answers() {
         let threads = threads_result(THREADS_OUT).unwrap();
         let alone = Thread { comments: threads[0].comments[..1].to_vec(), ..threads[0].clone() };
-        assert_eq!([alone.state(false), threads[0].state(false), alone.state(true), threads[1].state(true)], [ThreadState::Open, ThreadState::Replied, ThreadState::Sent, ThreadState::Resolved]);
+        assert_eq!(
+            [alone.state(false), threads[0].state(false), alone.state(true), threads[1].state(true)],
+            [ThreadState::Open, ThreadState::Replied, ThreadState::Sent, ThreadState::Resolved]
+        );
     }
 
     #[test]
@@ -862,7 +909,11 @@ mod tests {
     #[test]
     fn only_gh_finding_no_pr_means_the_branch_has_none() {
         assert_eq!(view_result(Err("no pull requests found for branch \"fix/restore-handoff\"".into())), Ok(None));
-        for failure in ["GraphQL: API rate limit already exceeded for user ID 1234.", "fatal: not a git repository (or any of the parent directories): .git", "error connecting to api.github.com"] {
+        for failure in [
+            "GraphQL: API rate limit already exceeded for user ID 1234.",
+            "fatal: not a git repository (or any of the parent directories): .git",
+            "error connecting to api.github.com",
+        ] {
             assert_eq!(view_result(Err(failure.into())), Err(GhProblem::Failed), "{failure}");
         }
         assert_eq!(view_result(Ok("not json".into())), Err(GhProblem::Failed));
@@ -887,7 +938,10 @@ mod tests {
 
     #[test]
     fn an_agent_s_reply_splits_into_a_title_and_a_body() {
-        assert_eq!(split_message("\n# Cap sync retries\n\nRetries stop after 5.\n- Adds a test\n"), ("Cap sync retries".into(), "Retries stop after 5.\n- Adds a test".into()));
+        assert_eq!(
+            split_message("\n# Cap sync retries\n\nRetries stop after 5.\n- Adds a test\n"),
+            ("Cap sync retries".into(), "Retries stop after 5.\n- Adds a test".into())
+        );
         assert_eq!(split_message("Only a title"), ("Only a title".into(), String::new()));
     }
 
@@ -965,7 +1019,14 @@ mod tests {
         let run = |login: &str| {
             let argv = as_account(login, &["sh", "-c", "printf '%s|%s|' \"$GH_TOKEN\" \"$1\"; cat", "-", "it's \"quoted\""]);
             let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
-            let mut child = Command::new(&argv[0]).args(&argv[1..]).env("PATH", path).env_remove("GH_TOKEN").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+            let mut child = Command::new(&argv[0])
+                .args(&argv[1..])
+                .env("PATH", path)
+                .env_remove("GH_TOKEN")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
             std::io::Write::write_all(&mut child.stdin.take().unwrap(), b"body").unwrap();
             String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
         };

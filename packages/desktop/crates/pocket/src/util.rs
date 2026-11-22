@@ -215,7 +215,9 @@ mod tests {
         for f in ["a.log", "main.rs", "src/b.log", "src/lib.rs"] {
             std::fs::write(dir.join(f), "").unwrap();
         }
-        let names = |d: &str, files: &Files| list_dir(&dir.join(d), files).unwrap().into_iter().map(|(_, p)| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let names = |d: &str, files: &Files| {
+            list_dir(&dir.join(d), files).unwrap().into_iter().map(|(_, p)| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>()
+        };
         let shown = Files { hide_ignored: false, ..Files::default() };
         assert_eq!(names("", &Files::default()), ["src", ".gitignore", "main.rs"]);
         assert_eq!(names("src", &Files::default()), ["lib.rs"]);

@@ -580,12 +580,15 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Accounts, BUILT_IN, Tone, alias, back_at, checked, choices, default_of, device_code, on_page, in_use, meter, name, peak, project_picks, screen_lines, session_label, shared, sign_in_link, subline, tags, tone, until};
-    use std::collections::BTreeMap;
+    use super::{
+        Accounts, BUILT_IN, Tone, alias, back_at, checked, choices, default_of, device_code, in_use, meter, name, on_page, peak, project_picks, screen_lines,
+        session_label, shared, sign_in_link, subline, tags, tone, until,
+    };
     use chrono::Utc;
     use daemon::Account;
-    use serde_json::json;
     use daemon::{Usage, Window};
+    use serde_json::json;
+    use std::collections::BTreeMap;
 
     const NOW: i64 = 1_760_000_000_000;
 
@@ -719,7 +722,11 @@ mod tests {
 
     #[test]
     fn a_session_shows_the_account_it_runs_on_even_signed_out_with_its_fuller_window() {
-        let home = Account { signed_in: false, usage: Some(Usage { session: window(42.4, 0), week: window(81., 0), ..Default::default() }), ..account("claude", BUILT_IN) };
+        let home = Account {
+            signed_in: false,
+            usage: Some(Usage { session: window(42.4, 0), week: window(81., 0), ..Default::default() }),
+            ..account("claude", BUILT_IN)
+        };
         let list = [home, account("claude", "work")];
         let shown = in_use(&list, "claude", "").unwrap();
         assert_eq!((shown.id.as_str(), peak(shown)), (BUILT_IN, Some(81)));

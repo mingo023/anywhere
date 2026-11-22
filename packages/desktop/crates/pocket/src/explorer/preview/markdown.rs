@@ -82,8 +82,7 @@ pub(super) fn markdown_pane(views: &Views, path: &str) -> Div {
         None => text,
     };
     frame().bg(MD_PAGE).child(
-        text
-            .markdown_extensions(extensions(&views.diagrams))
+        text.markdown_extensions(extensions(&views.diagrams))
             .shared_code_block_highlighter(code_highlighter())
             .selectable(true)
             .scrollable(true)

@@ -40,8 +40,21 @@ fn label(text: &str) -> Div {
 
 /// The trigger an agent set up on a webhook: shown, with nothing to edit.
 fn webhook_trigger() -> Div {
-    let head = div().flex().items_center().gap(px(8.)).child(icon("bolt", 16., TEXT_2)).child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child("Webhook"));
-    card().pt(px(12.)).px(px(16.)).pb(px(14.)).flex().flex_col().gap(px(6.)).child(head).child(div().text_size(px(12.5)).text_color(TEXT_3).child("Runs when its webhook is called. Its address is on the automation's page."))
+    let head = div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(icon("bolt", 16., TEXT_2))
+        .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child("Webhook"));
+    card()
+        .pt(px(12.))
+        .px(px(16.))
+        .pb(px(14.))
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .child(head)
+        .child(div().text_size(px(12.5)).text_color(TEXT_3).child("Runs when its webhook is called. Its address is on the automation's page."))
 }
 
 impl Desktop {
@@ -60,32 +73,80 @@ impl Desktop {
             .items_center()
             .gap(px(8.))
             .child(icon("clock", 16., TEXT_2))
-            .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(v.valid_schedule().as_ref().map_or_else(|| "Schedule".to_string(), when_label)))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(v.valid_schedule().as_ref().map_or_else(|| "Schedule".to_string(), when_label)),
+            )
             .children(next.map(|t| div().text_size(px(12.5)).text_color(TEXT_3).child(t)))
             .child(div().ml_auto().child(icon_button_sized("trigger-remove", "x", 24., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.automations.form.v.scheduled = false;
                 this.close_menus();
                 cx.notify();
             }))));
-        let mode = segmented("trigger-mode", &["Days and time", "Repeat"], v.repeat as usize, true, |this, i, cx| {
-            this.automations.form.v.repeat = i == 1;
-            cx.notify();
-        }, cx);
+        let mode = segmented(
+            "trigger-mode",
+            &["Days and time", "Repeat"],
+            v.repeat as usize,
+            true,
+            |this, i, cx| {
+                this.automations.form.v.repeat = i == 1;
+                cx.notify();
+            },
+            cx,
+        );
         let f = &self.automations.form;
         let body = if v.repeat { self.repeat_fields(v, f, cx) } else { self.day_fields(v, f, cx) };
-        card().pt(px(12.)).px(px(16.)).pb(px(16.)).flex().flex_col().gap(px(14.)).child(head).child(div().flex().child(mode)).child(body).children(v.field_error().map(|e| div().text_size(px(12.)).text_color(FAILED).child(e)))
+        card()
+            .pt(px(12.))
+            .px(px(16.))
+            .pb(px(16.))
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .child(head)
+            .child(div().flex().child(mode))
+            .child(body)
+            .children(v.field_error().map(|e| div().text_size(px(12.)).text_color(FAILED).child(e)))
     }
 
     fn add_trigger(&self, cx: &mut Context<Self>) -> Div {
         let open = self.automations.menu == Some(Menu::Add);
         let button = self.menu_toggle(
-            div().id("trigger-add").h(px(48.)).w_full().flex().items_center().justify_center().gap(px(8.)).rounded(px(8.)).cursor_pointer().text_size(px(14.)).font_weight(FontWeight::MEDIUM).text_color(TEXT_2).hover(|s| s.bg(FILL_2)).child(icon("plus", 16., TEXT_2)).child("Add trigger"),
+            div()
+                .id("trigger-add")
+                .h(px(48.))
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(8.))
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_size(px(14.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(TEXT_2)
+                .hover(|s| s.bg(FILL_2))
+                .child(icon("plus", 16., TEXT_2))
+                .child("Add trigger"),
             Menu::Add,
             open,
             cx,
         );
         let events = ["Pull request opened", "Issue created", "Check failed"].into_iter().enumerate().map(|(i, name)| {
-            div().id(("trigger-event", i)).h(px(30.)).px(px(8.)).flex().items_center().gap(px(8.)).text_size(px(13.)).text_color(TEXT_4).child(icon("bolt", 15., TEXT_4)).child(div().flex_1().child(name)).child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child("Soon"))
+            div()
+                .id(("trigger-event", i))
+                .h(px(30.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .text_size(px(13.))
+                .text_color(TEXT_4)
+                .child(icon("bolt", 15., TEXT_4))
+                .child(div().flex_1().child(name))
+                .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child("Soon"))
         });
         let menu = ui::menu_in(
             "trigger-menu-in",
@@ -97,7 +158,9 @@ impl Desktop {
                     cx.notify();
                 })))
                 .child(ui::menu_divider())
-                .child(div().h(px(26.)).px(px(8.)).flex().items_center().text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child("Events"))
+                .child(
+                    div().h(px(26.)).px(px(8.)).flex().items_center().text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child("Events"),
+                )
                 .children(events),
         );
         card().relative().p(px(4.)).child(button).when(open, |d| d.child(ui::dropdown(54., menu)))
@@ -131,7 +194,17 @@ impl Desktop {
                 cx.notify();
             }))
         });
-        let time = div().w(px(112.)).h(px(36.)).px(px(12.)).flex().items_center().rounded(px(10.)).bg(FILL_2).font_family(MONO).text_size(px(14.)).child(Input::new(&f.time).appearance(false).p_0());
+        let time = div()
+            .w(px(112.))
+            .h(px(36.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .rounded(px(10.))
+            .bg(FILL_2)
+            .font_family(MONO)
+            .text_size(px(14.))
+            .child(Input::new(&f.time).appearance(false).p_0());
         div()
             .flex()
             .flex_col()
@@ -150,12 +223,29 @@ impl Desktop {
                 cx.notify();
             }))
         });
-        let input = div().w(px(96.)).h(px(36.)).px(px(12.)).flex().items_center().rounded(px(10.)).bg(FILL_2).font_family(MONO).text_size(px(14.)).child(Input::new(&f.every).appearance(false).p_0());
+        let input = div()
+            .w(px(96.))
+            .h(px(36.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .rounded(px(10.))
+            .bg(FILL_2)
+            .font_family(MONO)
+            .text_size(px(14.))
+            .child(Input::new(&f.every).appearance(false).p_0());
         div()
             .flex()
             .flex_col()
             .gap(px(14.))
-            .child(div().flex().flex_col().gap(px(6.)).child(label("Repeat every")).child(div().flex().items_center().gap(px(8.)).child(input).child(div().text_size(px(13.)).text_color(TEXT_2).child("minutes"))))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(label("Repeat every"))
+                    .child(div().flex().items_center().gap(px(8.)).child(input).child(div().text_size(px(13.)).text_color(TEXT_2).child("minutes"))),
+            )
             .child(div().flex().gap(px(6.)).children(presets))
     }
 }

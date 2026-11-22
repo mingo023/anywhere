@@ -12,9 +12,11 @@ use theme::*;
 use ui::Segment;
 
 /// Only here so Reset puts every shortcut back; the page draws its own rows.
-pub(super) const ROWS: &[Setting] = &[Setting::custom("shortcuts", "Shortcuts", "Changed shortcuts", |d, _, _| row("Changed shortcuts", None, div().text_size(px(12.5)).text_color(TEXT_2).child(changed(&d.store))))
-    .resets(changed, |s, _| s.keys.clear())
-    .effect(|d, cx| actions::rebind(&d.store.keys, cx))];
+pub(super) const ROWS: &[Setting] = &[Setting::custom("shortcuts", "Shortcuts", "Changed shortcuts", |d, _, _| {
+    row("Changed shortcuts", None, div().text_size(px(12.5)).text_color(TEXT_2).child(changed(&d.store)))
+})
+.resets(changed, |s, _| s.keys.clear())
+.effect(|d, cx| actions::rebind(&d.store.keys, cx))];
 
 fn changed(s: &store::Store) -> String {
     match s.keys.len() {
@@ -33,7 +35,8 @@ enum Topic {
     App,
 }
 
-const TOPICS: [(Topic, &str); 5] = [(Topic::Sessions, "Sessions"), (Topic::Navigation, "Navigation"), (Topic::Panels, "Panels & tabs"), (Topic::Browser, "Browser"), (Topic::App, "App")];
+const TOPICS: [(Topic, &str); 5] =
+    [(Topic::Sessions, "Sessions"), (Topic::Navigation, "Navigation"), (Topic::Panels, "Panels & tabs"), (Topic::Browser, "Browser"), (Topic::App, "App")];
 
 /// Keys handled outside the keymap, so no binding lists them.
 const FIXED: [(&str, &[&str]); 5] = [
@@ -230,7 +233,10 @@ fn takes(k: &Keystroke) -> bool {
 
 /// Each matching shortcut's action, and its place and keys as the Keyboard page shows them, for Settings search.
 pub(super) fn search(words: &[String], custom: &BTreeMap<String, String>) -> Vec<(&'static str, Div)> {
-    find(&SHORTCUTS, custom, words).into_iter().map(|r| (r.label, div().flex().items_center().gap(px(8.)).children(r.place.map(ui::tag)).child(shortcuts(&r.keys_in(custom))))).collect()
+    find(&SHORTCUTS, custom, words)
+        .into_iter()
+        .map(|r| (r.label, div().flex().items_center().gap(px(8.)).children(r.place.map(ui::tag)).child(shortcuts(&r.keys_in(custom)))))
+        .collect()
 }
 
 /// The Keyboard page's filter, and the row taking new keys.
@@ -271,10 +277,12 @@ fn shortcuts<S: AsRef<str>>(keys: &[S]) -> Div {
     let keys: Vec<String> = keys.iter().map(|k| shown(k.as_ref())).collect();
     let shown: Vec<&String> = if keys.len() > 4 { vec![&keys[0], &keys[keys.len() - 1]] } else { keys.iter().collect() };
     let sep = if keys.len() > 4 { "–" } else { "or" };
-    div().flex().flex_none().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_3).when(keys.is_empty(), |d| d.child("None")).children(shown.into_iter().enumerate().flat_map(|(i, k)| {
-        let sep = (i > 0).then(|| div().child(sep).into_any_element());
-        sep.into_iter().chain([keycaps(k).into_any_element()])
-    }))
+    div().flex().flex_none().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_3).when(keys.is_empty(), |d| d.child("None")).children(
+        shown.into_iter().enumerate().flat_map(|(i, k)| {
+            let sep = (i > 0).then(|| div().child(sep).into_any_element());
+            sep.into_iter().chain([keycaps(k).into_any_element()])
+        }),
+    )
 }
 
 /// One cap per space-separated glyph, so "⌘ K" is ⌘ and K.
@@ -298,7 +306,15 @@ fn keycaps(keys: &str) -> Div {
 }
 
 fn shortcut_row(label: impl IntoElement, control: impl IntoElement) -> Div {
-    div().min_h(px(40.)).px(px(14.)).py(px(7.)).flex().items_center().gap(px(10.)).child(div().flex_1().flex().items_center().gap(px(8.)).text_size(px(13.)).text_color(TEXT).child(label)).child(control)
+    div()
+        .min_h(px(40.))
+        .px(px(14.))
+        .py(px(7.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .child(div().flex_1().flex().items_center().gap(px(8.)).text_size(px(13.)).text_color(TEXT).child(label))
+        .child(control)
 }
 
 impl Desktop {
@@ -352,12 +368,8 @@ impl Desktop {
             .child(r.label);
         let keys = r.keys_in(custom);
         let control = match &recording {
-            Some(pressed) => div()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .child(div().text_size(px(12.)).text_color(TEXT_3).child("Press a shortcut · Esc cancels"))
-                .child(
+            Some(pressed) => {
+                div().flex().items_center().gap(px(10.)).child(div().text_size(px(12.)).text_color(TEXT_3).child("Press a shortcut · Esc cancels")).child(
                     div()
                         .min_w(px(72.))
                         .h(px(28.))
@@ -369,7 +381,8 @@ impl Desktop {
                         .border_1()
                         .border_color(if pressed.is_some() { FAILED } else { ACCENT })
                         .children(pressed.as_deref().map(|k| keycaps(&shown(k)))),
-                ),
+                )
+            }
             None => {
                 let id = r.id.clone();
                 let reset = changed.then(|| {
@@ -379,15 +392,23 @@ impl Desktop {
                         .items_center()
                         .gap(px(6.))
                         .child(div().text_size(px(12.)).text_color(TEXT_4).child(format!("Default {}", shown(&r.keys[0]).replace(' ', ""))))
-                        .child(ui::icon_button_sized(SharedString::from(format!("key-reset-{id}")), "discard", 22., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.store.keys.remove(&id);
-                            this.shortcuts_changed(cx);
-                        })))
+                        .child(ui::icon_button_sized(SharedString::from(format!("key-reset-{id}")), "discard", 22., TEXT_3).on_click(cx.listener(
+                            move |this, _: &ClickEvent, _, cx| {
+                                this.store.keys.remove(&id);
+                                this.shortcuts_changed(cx);
+                            },
+                        )))
                 });
-                let keys = div().id(SharedString::from(format!("key-{id}"))).rounded(px(6.)).cursor_pointer().hover(|d| d.bg(FILL_2)).child(shortcuts(&keys)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.settings.keyboard.recording = Some((id.clone(), None));
-                    cx.notify();
-                }));
+                let keys = div()
+                    .id(SharedString::from(format!("key-{id}")))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(FILL_2))
+                    .child(shortcuts(&keys))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.settings.keyboard.recording = Some((id.clone(), None));
+                        cx.notify();
+                    }));
                 div().flex().items_center().gap(px(8.)).children(reset).children(r.place.map(ui::tag)).child(keys)
             }
         };
@@ -398,7 +419,8 @@ impl Desktop {
             this.settings.keyboard.stop();
             cx.notify();
         }));
-        let replace = ui::button("key-replace", ui::Variant::Primary, None, "Replace").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.replace_shortcut(cx)));
+        let replace =
+            ui::button("key-replace", ui::Variant::Primary, None, "Replace").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.replace_shortcut(cx)));
         let banner = div()
             .mx(px(10.))
             .mb(px(10.))
@@ -410,7 +432,11 @@ impl Desktop {
             .rounded(px(8.))
             .bg(FAILED_BG)
             .child(icon("warning", 14., FAILED))
-            .child(div().flex_1().min_w_0().text_size(px(12.5)).line_height(px(17.)).text_color(TEXT).child(clash_text(&pressed, other.label, other.editable())))
+            .child(div().flex_1().min_w_0().text_size(px(12.5)).line_height(px(17.)).text_color(TEXT).child(clash_text(
+                &pressed,
+                other.label,
+                other.editable(),
+            )))
             .child(div().flex_none().flex().gap(px(6.)).child(cancel).when(other.editable(), |d| d.child(replace)));
         div().flex().flex_col().child(line).child(banner)
     }
@@ -429,7 +455,10 @@ impl Desktop {
             .child(icon("search", 13., TEXT_3))
             .child(div().flex_1().min_w_0().child(Input::new(&self.settings.keyboard.search).appearance(false).p_0().text_size(px(12.5))));
         let filter = ui::segmented(
-            vec![Segment { icon: None, value: false, label: "All".into(), badge: None }, Segment { icon: None, value: true, label: format!("Customized · {n}").into(), badge: None }],
+            vec![
+                Segment { icon: None, value: false, label: "All".into(), badge: None },
+                Segment { icon: None, value: true, label: format!("Customized · {n}").into(), badge: None },
+            ],
             self.settings.keyboard.customized,
             true,
             false,
@@ -439,25 +468,44 @@ impl Desktop {
             },
             cx,
         );
-        let reset = super::action("keys-reset-all", "").gap(px(6.)).child(icon("discard", 12., TEXT_2)).child("Reset all…").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            (this.confirm, this.overlay) = (Some(Confirm::ResetSection(Section::Keyboard)), Some(Overlay::Confirm));
-            cx.notify();
-        }));
+        let reset = super::action("keys-reset-all", "").gap(px(6.)).child(icon("discard", 12., TEXT_2)).child("Reset all…").on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
+                (this.confirm, this.overlay) = (Some(Confirm::ResetSection(Section::Keyboard)), Some(Overlay::Confirm));
+                cx.notify();
+            },
+        ));
         div().flex().items_center().gap(px(8.)).child(search).child(filter).child(reset)
     }
 
     pub(crate) fn keybinding_settings(&self, cx: &mut Context<Self>) -> Div {
         let words = super::catalog::words(&self.settings.keyboard.search.read(cx).value());
         let customized = self.settings.keyboard.customized;
-        let shown: Vec<&'static Shortcut> = find(&SHORTCUTS, &self.store.keys, &words).into_iter().filter(|r| !customized || self.store.keys.contains_key(&r.id)).collect();
+        let shown: Vec<&'static Shortcut> =
+            find(&SHORTCUTS, &self.store.keys, &words).into_iter().filter(|r| !customized || self.store.keys.contains_key(&r.id)).collect();
         let groups: Vec<Div> = TOPICS
             .iter()
             .filter_map(|&(topic, title)| {
-                let rows: Vec<Div> = shown.iter().filter(|r| r.topic == topic).map(|r| if r.editable() { self.shortcut_line(r, cx) } else { shortcut_row(r.label, div().flex().items_center().gap(px(8.)).children(r.place.map(ui::tag)).child(shortcuts(&r.keys))) }).collect();
+                let rows: Vec<Div> = shown
+                    .iter()
+                    .filter(|r| r.topic == topic)
+                    .map(|r| {
+                        if r.editable() {
+                            self.shortcut_line(r, cx)
+                        } else {
+                            shortcut_row(r.label, div().flex().items_center().gap(px(8.)).children(r.place.map(ui::tag)).child(shortcuts(&r.keys)))
+                        }
+                    })
+                    .collect();
                 (!rows.is_empty()).then(|| group(title, rows))
             })
             .collect();
-        let empty = groups.is_empty().then(|| div().py(px(24.)).flex().justify_center().text_size(px(13.)).text_color(TEXT_3).child(if customized && words.is_empty() { "No shortcut is changed yet." } else { "No shortcut matches." }));
+        let empty = groups.is_empty().then(|| {
+            div().py(px(24.)).flex().justify_center().text_size(px(13.)).text_color(TEXT_3).child(if customized && words.is_empty() {
+                "No shortcut is changed yet."
+            } else {
+                "No shortcut matches."
+            })
+        });
         let open = self.settings.fixed_open;
         let fixed_title = div()
             .id("settings-fixed-keys")
@@ -533,7 +581,10 @@ mod tests {
     #[test]
     fn shortcuts_off_macos_print_their_modifiers_by_name() {
         let g = |k: &str| glyphs_on(&Keystroke::parse_with_os(k, keys::OS).unwrap(), false);
-        assert_eq!([g("ctrl-shift-j"), g("ctrl-alt-left"), g("ctrl-shift-tab"), g("ctrl-enter")], ["Ctrl Shift J", "Ctrl Alt ←", "Ctrl Shift Tab", "Ctrl Enter"]);
+        assert_eq!(
+            [g("ctrl-shift-j"), g("ctrl-alt-left"), g("ctrl-shift-tab"), g("ctrl-enter")],
+            ["Ctrl Shift J", "Ctrl Alt ←", "Ctrl Shift Tab", "Ctrl Enter"]
+        );
     }
 
     #[test]

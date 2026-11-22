@@ -37,11 +37,19 @@ pub(super) const ROWS: &[Setting] = &[
     Setting::switch("ignore-whitespace", "Diff", "Ignore whitespace changes", |s| s.diff.ignore_whitespace, |s, on| s.diff.ignore_whitespace = on)
         .effect(reread),
     Setting::custom("preview", "Diff", "Preview", |d, s, _| d.diff_preview(s)),
-    Setting::choice("graph-from", "Graph", "Show commits from", &["Base branch only", "All branches"], Look::Segmented, |s| usize::from(s.diff.all_branches), |s, i| s.diff.all_branches = i == 1)
-        .effect(|d, cx| {
-            d.graph.all_branches = d.store.diff.all_branches;
-            d.refresh_graph(cx);
-        }),
+    Setting::choice(
+        "graph-from",
+        "Graph",
+        "Show commits from",
+        &["Base branch only", "All branches"],
+        Look::Segmented,
+        |s| usize::from(s.diff.all_branches),
+        |s, i| s.diff.all_branches = i == 1,
+    )
+    .effect(|d, cx| {
+        d.graph.all_branches = d.store.diff.all_branches;
+        d.refresh_graph(cx);
+    }),
     Setting::stepper("graph-page", "Graph", "Commits per page", (20, 500, 10), "", |s| s.diff.page as i32, |s, n| s.diff.page = n as usize)
         .advanced()
         .effect(|d, _| d.graph.page = d.store.diff.page),
@@ -76,7 +84,9 @@ impl Desktop {
                 })
                 .collect()
         } else {
-            (0..lines.len()).map(|i| if lines[i].kind == Kind::Hunk { hunk(&lines, i) } else { code(&lines[i], None, vec![lines[i].new.or(lines[i].old)], false) }).collect()
+            (0..lines.len())
+                .map(|i| if lines[i].kind == Kind::Hunk { hunk(&lines, i) } else { code(&lines[i], None, vec![lines[i].new.or(lines[i].old)], false) })
+                .collect()
         };
         div()
             .px(px(14.))
@@ -85,7 +95,14 @@ impl Desktop {
             .flex_col()
             .gap(px(8.))
             .child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(setting.label))
-            .child(crate::git_ui::diff::code_text(div(), self.store.appearance.code_size()).py(px(4.)).rounded(px(8.)).overflow_hidden().bg(WINDOW_SOLID).children(rows))
+            .child(
+                crate::git_ui::diff::code_text(div(), self.store.appearance.code_size())
+                    .py(px(4.))
+                    .rounded(px(8.))
+                    .overflow_hidden()
+                    .bg(WINDOW_SOLID)
+                    .children(rows),
+            )
     }
 }
 

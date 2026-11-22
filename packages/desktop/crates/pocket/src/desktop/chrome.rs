@@ -3,11 +3,11 @@ use crate::actions::{ResetZoom, ToggleFocus, ToggleRail, ToggleSidebar, ZoomIn, 
 use crate::desktop::Desktop;
 use crate::removal::Removal;
 use crate::settings::Section;
+use crate::sidebar::column::{changes_dot, has_changes};
 use crate::status::Status;
 use crate::terminals::close::Busy;
-use crate::sidebar::column::{changes_dot, has_changes};
-use gpui_kit::*;
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
 use theme::*;
 use ui::{self, State, icon_button_sized};
 use workspace::tree::Axis;
@@ -69,15 +69,38 @@ pub enum Confirm {
     /// `subtrees` are the worktrees its sessions' subagents worked in, which go with it; `lost_anyway` counts the commits
     /// their detached HEADs alone hold, which go whether or not branches stay. `requested` is false for a sheet that arrives
     /// on its own, for a host's leftover.
-    DeleteWorktree { removal: Removal, dirty: usize, lost: usize, lost_anyway: usize, subtrees: Vec<Removal>, requested: bool },
+    DeleteWorktree {
+        removal: Removal,
+        dirty: usize,
+        lost: usize,
+        lost_anyway: usize,
+        subtrees: Vec<Removal>,
+        requested: bool,
+    },
     DeleteLocal(String),
-    DeleteScratch { path: String, dirty: usize, lost: usize },
+    DeleteScratch {
+        path: String,
+        dirty: usize,
+        lost: usize,
+    },
     /// `failed`'s teardown failed; deleting anyway carries on with `removal` and `subtrees`, skipping only that teardown.
-    TeardownFailed { removal: Removal, failed: String, tail: String, subtrees: Vec<Removal> },
+    TeardownFailed {
+        removal: Removal,
+        failed: String,
+        tail: String,
+        subtrees: Vec<Removal>,
+    },
     Discard(Vec<String>),
     CloseSession(String),
-    CloseTerminals { ids: Vec<String>, busy: Busy, worktree: String },
-    Paste { pane: String, text: String },
+    CloseTerminals {
+        ids: Vec<String>,
+        busy: Busy,
+        worktree: String,
+    },
+    Paste {
+        pane: String,
+        text: String,
+    },
     CloseFile(String),
     Quit(usize),
     Relaunch(usize),
@@ -85,22 +108,48 @@ pub enum Confirm {
     DeleteAutomation(String),
     DeleteTicket(String),
     ResetSection(Section),
-    RevokeDevice { id: String, name: String },
-    RemoveHost { id: String, name: String },
-    UpdateHost { id: String, name: String, windows: bool },
-    RemoveAccount { key: Key, name: String },
-    SignOutAccount { key: Key, name: String },
+    RevokeDevice {
+        id: String,
+        name: String,
+    },
+    RemoveHost {
+        id: String,
+        name: String,
+    },
+    UpdateHost {
+        id: String,
+        name: String,
+        windows: bool,
+    },
+    RemoveAccount {
+        key: Key,
+        name: String,
+    },
+    SignOutAccount {
+        key: Key,
+        name: String,
+    },
     /// A model from another provider, picked in the chat `agent`.
-    SwitchAgent { agent: String, provider: String, model: String },
+    SwitchAgent {
+        agent: String,
+        provider: String,
+        model: String,
+    },
 }
 
 /// The sidebar row whose `⋯` menu is open.
 #[derive(Clone, PartialEq)]
 pub enum RowMenu {
     Project(String),
-    Tree { project: String, tree: String },
+    Tree {
+        project: String,
+        tree: String,
+    },
     /// The project's own Local, by its main worktree's path, or one the user added, by its id.
-    Local { project: String, local: String },
+    Local {
+        project: String,
+        local: String,
+    },
     Scratch(String),
     Session(String),
     Group(u32),
@@ -332,7 +381,13 @@ impl Desktop {
 
     /// A `SEAM`-thick handle for the caller to place across an edge between cells laid out along `axis`, its line lit on
     /// hover; double-clicking it calls `reset`. `None` while an overlay is open.
-    pub(crate) fn seam(&self, id: impl Into<ElementId>, axis: Axis, reset: impl Fn(&mut Self, &mut Context<Self>) + 'static, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+    pub(crate) fn seam(
+        &self,
+        id: impl Into<ElementId>,
+        axis: Axis,
+        reset: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> Option<Stateful<Div>> {
         // The deferred handle paints above overlays, so it would steal their clicks.
         if self.overlay.is_some() {
             return None;
@@ -359,12 +414,10 @@ impl Desktop {
         let Some(handle) = self.seam(("resize-column", col as usize), Axis::Row, move |this, cx| this.reset_width(col, cx), cx) else {
             return d;
         };
-        let handle = handle
-            .right(px(-SEAM / 2.))
-            .on_drag(col, |_, _, _, cx| {
-                cx.stop_propagation();
-                cx.new(|_| EmptyView)
-            });
+        let handle = handle.right(px(-SEAM / 2.)).on_drag(col, |_, _, _, cx| {
+            cx.stop_propagation();
+            cx.new(|_| EmptyView)
+        });
         // Deferred so the handle straddles the edge: `column()` clips its children.
         d.relative().child(deferred(handle)).on_drag_move(cx.listener(move |this, e: &DragMoveEvent<Column>, _, cx| {
             if *e.drag(cx) == col {
@@ -392,7 +445,8 @@ impl Desktop {
     /// A top bar's left padding, `pad` unless the traffic lights overhang it, and the sidebar toggle it starts with.
     pub(crate) fn bar_start(&self, pad: f32, cx: &mut Context<Self>) -> (f32, Option<Stateful<Div>>) {
         let toggle = |name: &str, cx: &mut Context<Self>| {
-            icon_button_sized("focus-toggle", name, 28., TEXT_2).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
+            icon_button_sized("focus-toggle", name, 28., TEXT_2)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_focus(&crate::actions::ToggleFocus, window, cx)))
         };
         let pad = bar_pad(self.layout, self.screen, self.lead_width(), pad, self.store.appearance.zoom_factor());
         let toggle = (self.layout == Layout::Focus).then(|| toggle("sidebar-expand", cx).relative().when(has_changes(self.repo()), |d| d.child(changes_dot())));
@@ -441,13 +495,15 @@ mod tests {
 
     #[test]
     fn compact_bars_clear_the_traffic_lights_only_where_nothing_sits_between_them_and_the_rail() {
-        let got = [(Layout::Compact, Screen::Sessions, RAIL), (Layout::Compact, Screen::Inbox, RAIL), (Layout::Sidebars, Screen::Sessions, 272.)].map(|(l, s, lead)| bar_pad(l, s, lead, 10., 1.));
+        let got = [(Layout::Compact, Screen::Sessions, RAIL), (Layout::Compact, Screen::Inbox, RAIL), (Layout::Sidebars, Screen::Sessions, 272.)]
+            .map(|(l, s, lead)| bar_pad(l, s, lead, 10., 1.));
         assert_eq!(got, [35., 10., 10.]);
     }
 
     #[test]
     fn a_bar_keeps_clear_of_the_traffic_lights_as_the_lead_column_moves_under_them() {
-        let got = [(Layout::Focus, 0.), (Layout::Focus, 28.), (Layout::Sidebars, 28.), (Layout::Sidebars, 164.)].map(|(l, lead)| bar_pad(l, Screen::Sessions, lead, 10., 1.));
+        let got = [(Layout::Focus, 0.), (Layout::Focus, 28.), (Layout::Sidebars, 28.), (Layout::Sidebars, 164.)]
+            .map(|(l, lead)| bar_pad(l, Screen::Sessions, lead, 10., 1.));
         assert_eq!(got, [91., 63., 63., 10.]);
     }
 

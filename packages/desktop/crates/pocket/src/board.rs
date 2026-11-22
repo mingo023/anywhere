@@ -1,5 +1,5 @@
-mod card;
 mod bulk_bar;
+mod card;
 mod card_menu;
 mod column;
 mod composer;
@@ -26,7 +26,10 @@ use crate::desktop::chrome::{Confirm, Overlay, Screen};
 use agents::tickets::{Board, Ticket};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use logic::{Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Landing, Opens, Order, Props, Reach, Row, Slot, Surface, Tab, action_field, arrange, board_cols, board_key, closed_note, column, escape, hidden_by, landing, opens, page_ids, reorders_nothing, rows, tab_count};
+use logic::{
+    Action, COLS, Col, Columns, Escape, Field, FilterCat, Filters, Key, Landing, Opens, Order, Props, Reach, Row, Slot, Surface, Tab, action_field, arrange,
+    board_cols, board_key, closed_note, column, escape, hidden_by, landing, opens, page_ids, reorders_nothing, rows, tab_count,
+};
 use selection::{Selection, walk};
 use std::collections::HashSet;
 use toast::Toast;
@@ -146,7 +149,9 @@ impl BoardState {
         self.rows_list.reset(self.rows.len());
         self.rows_list.scroll_to(top);
         let slots = self.walk_slots();
-        let ids = |finished: bool| -> HashSet<&str> { slots.iter().filter(|s| finished || !s.col.finished()).filter_map(|s| board.tickets.get(s.index)).map(|t| t.id.as_str()).collect() };
+        let ids = |finished: bool| -> HashSet<&str> {
+            slots.iter().filter(|s| finished || !s.col.finished()).filter_map(|s| board.tickets.get(s.index)).map(|t| t.id.as_str()).collect()
+        };
         self.selection.keep(&ids(true), &ids(false));
     }
 
@@ -226,7 +231,12 @@ impl Desktop {
     }
 
     pub(crate) fn escape_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (composer, title, prompt, search) = (self.board.composer.text.focus_handle(cx), self.board.form.title.focus_handle(cx), self.board.form.prompt.focus_handle(cx), self.board.search.focus_handle(cx));
+        let (composer, title, prompt, search) = (
+            self.board.composer.text.focus_handle(cx),
+            self.board.form.title.focus_handle(cx),
+            self.board.form.prompt.focus_handle(cx),
+            self.board.search.focus_handle(cx),
+        );
         let typing = [composer, title, prompt, search].iter().any(|field| field.is_focused(window));
         match escape(self.board.page.is_some(), self.board.searching, typing, !self.board.selection.picked.is_empty()) {
             Escape::LeavePage => self.leave_ticket_page(window, cx),
@@ -255,7 +265,8 @@ impl Desktop {
     pub(crate) fn board_key(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let command = key.modifiers == Modifiers::command();
         // A field keeps the keyboard's focus after what held it closes: the filter menu's search, a ticket page that went away.
-        let stranded = self.board.page.is_none() && (self.board.form.title.focus_handle(cx).is_focused(window) || self.board.form.prompt.focus_handle(cx).is_focused(window));
+        let stranded = self.board.page.is_none()
+            && (self.board.form.title.focus_handle(cx).is_focused(window) || self.board.form.prompt.focus_handle(cx).is_focused(window));
         let free = stranded || self.root.is_focused(window) || self.board.filter_search.focus_handle(cx).is_focused(window);
         if self.screen != Screen::Board || self.overlay.is_some() || self.board.menu.is_some() || (!command && key.modifiers.modified()) || !free {
             return false;

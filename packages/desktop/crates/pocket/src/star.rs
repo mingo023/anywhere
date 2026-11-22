@@ -147,7 +147,11 @@ mod tests {
         for starred in [true, false] {
             let mut store = started();
             let mut star = Star::new(&mut store, &Update::Idle, later);
-            if starred { star.thank(&mut store) } else { star.close(&mut store) }
+            if starred {
+                star.thank(&mut store)
+            } else {
+                star.close(&mut store)
+            }
             assert!(!launch(&mut store, later + 1), "starred: {starred}");
         }
     }

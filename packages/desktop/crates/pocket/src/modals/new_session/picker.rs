@@ -4,8 +4,8 @@ use crate::composer::launch::access_row;
 use crate::desktop::Desktop;
 use crate::modals::host_finder::Opener;
 use crate::settings::ssh_hosts::link_color;
-use agents::hosts::Link;
 use crate::spaces::{Reach, Space, in_space, on_host};
+use agents::hosts::Link;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -59,7 +59,13 @@ fn machine_row(id: impl Into<ElementId>, space: &Space, glyph: &str, name: &str,
 }
 
 /// A row per space in the switcher's order, `chosen` checked. Only a reachable one takes a click, which calls `pick`.
-pub(crate) fn machine_rows(desktop: &Desktop, id: &'static str, chosen: &Space, pick: fn(&mut Desktop, Space, &mut Window, &mut Context<Desktop>), cx: &mut Context<Desktop>) -> Vec<AnyElement> {
+pub(crate) fn machine_rows(
+    desktop: &Desktop,
+    id: &'static str,
+    chosen: &Space,
+    pick: fn(&mut Desktop, Space, &mut Window, &mut Context<Desktop>),
+    cx: &mut Context<Desktop>,
+) -> Vec<AnyElement> {
     desktop
         .space_order()
         .into_iter()
@@ -67,8 +73,10 @@ pub(crate) fn machine_rows(desktop: &Desktop, id: &'static str, chosen: &Space, 
         .map(|(i, space)| {
             let link = space.host().and_then(|id| desktop.fleet.hosts.links.get(id));
             let reach = desktop.space_reach(&space);
-            let row = machine_row((id, i), &space, desktop.space_glyph(&space), &desktop.space_name(&space), link, reach, space == *chosen).when(reach != Reach::Online, |d| d.opacity(0.5));
-            row.when(reach == Reach::Online, |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| pick(this, space.clone(), window, cx)))).into_any_element()
+            let row = machine_row((id, i), &space, desktop.space_glyph(&space), &desktop.space_name(&space), link, reach, space == *chosen)
+                .when(reach != Reach::Online, |d| d.opacity(0.5));
+            row.when(reach == Reach::Online, |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| pick(this, space.clone(), window, cx))))
+                .into_any_element()
         })
         .collect()
 }
@@ -116,15 +124,20 @@ impl Desktop {
 
     fn checkout_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
-        let rows: Vec<AnyElement> = f.targets().into_iter().enumerate().map(|(i, target)| {
-            let Checkout { glyph, label, hint } = checkout_choice(target);
-            access_row(("checkout", i), f.target() == target, Some(glyph), label, hint, TEXT)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.new_form.draft.pick_checkout(target);
-                    cx.notify();
-                }))
-                .into_any_element()
-        }).collect();
+        let rows: Vec<AnyElement> = f
+            .targets()
+            .into_iter()
+            .enumerate()
+            .map(|(i, target)| {
+                let Checkout { glyph, label, hint } = checkout_choice(target);
+                access_row(("checkout", i), f.target() == target, Some(glyph), label, hint, TEXT)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.new_form.draft.pick_checkout(target);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect();
         picker_menu("checkout-menu", 300., rows, cx).gap(px(2.))
     }
 
@@ -154,58 +167,73 @@ impl Desktop {
             let open = opens.then(|| {
                 let branch = branch.clone();
                 div()
-                .id(("branch-open", n))
-                .absolute()
-                .top(px(5.))
-                .right(px(6.))
-                .h(px(24.))
-                .px(px(9.))
-                .flex()
-                .items_center()
-                .rounded(px(6.))
-                .bg(POPOVER)
-                .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
-                .text_size(px(12.))
-                .font_weight(FontWeight::MEDIUM)
-                .cursor_pointer()
-                .active(|s| s.opacity(0.6))
-                .invisible()
-                .group_hover(BRANCH_ROW, |s| s.visible())
-                .child("Open worktree")
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    cx.stop_propagation();
-                    this.new_form.draft.open_branch(branch.clone());
-                    this.focus_prompt(window, cx);
-                }))
+                    .id(("branch-open", n))
+                    .absolute()
+                    .top(px(5.))
+                    .right(px(6.))
+                    .h(px(24.))
+                    .px(px(9.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.))
+                    .bg(POPOVER)
+                    .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)])
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .active(|s| s.opacity(0.6))
+                    .invisible()
+                    .group_hover(BRANCH_ROW, |s| s.visible())
+                    .child("Open worktree")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.new_form.draft.open_branch(branch.clone());
+                        this.focus_prompt(window, cx);
+                    }))
             });
-            let row = ui::pick_row(("branch", n), f.is_picked(local_ix, name), Some(icon("branch", 13., TEXT_3)), div().font_family(MONO).text_size(px(12.5)).child(label), meta)
-                .group(BRANCH_ROW)
-                .relative()
-                .children(open)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    match local_ix {
-                        Some(i) => this.new_form.draft.pick_base(i),
-                        None => this.new_form.draft.open_branch(branch.clone()),
-                    }
-                    this.focus_prompt(window, cx);
-                }));
+            let row = ui::pick_row(
+                ("branch", n),
+                f.is_picked(local_ix, name),
+                Some(icon("branch", 13., TEXT_3)),
+                div().font_family(MONO).text_size(px(12.5)).child(label),
+                meta,
+            )
+            .group(BRANCH_ROW)
+            .relative()
+            .children(open)
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                match local_ix {
+                    Some(i) => this.new_form.draft.pick_base(i),
+                    None => this.new_form.draft.open_branch(branch.clone()),
+                }
+                this.focus_prompt(window, cx);
+            }));
             rows.push(row.into_any_element());
         }
         let empty = div().h(px(36.)).px(px(10.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("No branches found");
-        let list = div().id("branch-list").max_h(px(316.)).overflow_y_scroll().p(px(5.)).flex().flex_col().when(rows.is_empty(), |d| d.child(empty)).children(rows);
+        let list =
+            div().id("branch-list").max_h(px(316.)).overflow_y_scroll().p(px(5.)).flex().flex_col().when(rows.is_empty(), |d| d.child(empty)).children(rows);
         menu_frame("branch-menu", 340., cx).overflow_hidden().child(menu_input("search", &self.new_form.search)).child(list)
     }
 
     fn pr_picker(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let typed = self.new_form.pr.read(cx).value().trim().to_string();
         let bad = !typed.is_empty() && parse_pr(&typed).is_none();
-        let note = div().px(px(14.)).py(px(10.)).text_size(px(12.)).text_color(if bad { FAILED } else { TEXT_4 }).child(if bad { "Use 123, #123 or a PR URL" } else { "Press ↵ to link the pull request" });
+        let note = div().px(px(14.)).py(px(10.)).text_size(px(12.)).text_color(if bad { FAILED } else { TEXT_4 }).child(if bad {
+            "Use 123, #123 or a PR URL"
+        } else {
+            "Press ↵ to link the pull request"
+        });
         menu_frame("pr-menu", 300., cx).overflow_hidden().child(menu_input("pull-request", &self.new_form.pr)).child(note)
     }
 
     pub(super) fn pr_select(&self, cx: &mut Context<Self>) -> Div {
         let open = self.new_form.draft.picker == Some(Picker::Pr);
-        let button = ui::popover_trigger(ui::icon_button_sized("form-pr", "pull-request", 32., TEXT_3), open, cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_search(Picker::Pr, this.new_form.pr.clone(), window, cx)));
+        let button = ui::popover_trigger(
+            ui::icon_button_sized("form-pr", "pull-request", 32., TEXT_3),
+            open,
+            cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_search(Picker::Pr, this.new_form.pr.clone(), window, cx)),
+        );
         let menu = open.then(|| ui::dropdown_right(38., ui::menu_in("pr-menu-in", self.pr_picker(cx))));
         div().relative().child(button).children(menu)
     }
@@ -219,11 +247,15 @@ impl Desktop {
     /// Run on: This Mac and the SSH hosts; one that can't be reached is dimmed and can't be picked.
     fn machine_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let rows = machine_rows(self, "machine", &self.space(), Self::pick_machine, cx);
-        let add = ui::menu_pick("machine-add", icon("plus", 14., TEXT_3), "Add a host\u{2026}", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.new_form.draft.picker = None;
-            this.add_host_from_sidebar(window, cx);
-        }));
-        let rows: Vec<AnyElement> = std::iter::once(ui::menu_label("Run on").into_any_element()).chain(rows).chain([ui::menu_divider().into_any_element(), add.into_any_element()]).collect();
+        let add =
+            ui::menu_pick("machine-add", icon("plus", 14., TEXT_3), "Add a host\u{2026}", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.new_form.draft.picker = None;
+                this.add_host_from_sidebar(window, cx);
+            }));
+        let rows: Vec<AnyElement> = std::iter::once(ui::menu_label("Run on").into_any_element())
+            .chain(rows)
+            .chain([ui::menu_divider().into_any_element(), add.into_any_element()])
+            .collect();
         picker_menu("machine-menu", 260., rows, cx).gap(px(2.))
     }
 
@@ -236,7 +268,11 @@ impl Desktop {
             .child(div().font_weight(FontWeight::MEDIUM).child(self.space_name(&space)))
             .when(space.host().is_some(), |d| d.child(ui::dot(6., link_color(link))))
             .child(icon("chevron-down", 12., TEXT_4));
-        let chip = ui::popover_trigger(chip, f.picker == Some(Picker::Machine), cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Machine, cx)));
+        let chip = ui::popover_trigger(
+            chip,
+            f.picker == Some(Picker::Machine),
+            cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Machine, cx)),
+        );
         let menu = (f.picker == Some(Picker::Machine)).then(|| ui::dropdown(36., ui::menu_in("machine-menu-in", self.machine_menu(cx))));
         div().relative().child(chip).children(menu)
     }
@@ -272,10 +308,11 @@ impl Desktop {
     fn form_project_menu(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let f = &self.new_form.draft;
         let (space, repo) = (self.space(), f.repo.as_deref());
-        let none = ui::menu_pick("project-none", icon("folder", 14., TEXT_3), NO_PROJECT, f.no_project()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.new_form.draft.pick_no_project();
-            this.focus_prompt(window, cx);
-        }));
+        let none =
+            ui::menu_pick("project-none", icon("folder", 14., TEXT_3), NO_PROJECT, f.no_project()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.new_form.draft.pick_no_project();
+                this.focus_prompt(window, cx);
+            }));
         let rows = in_space(&self.form_projects(), &space).into_iter().enumerate().map(|(i, p)| {
             let (name, tile) = (self.repo_name(&p), self.repo_tile_for(&p, 14.));
             let chosen = repo == Some(p.as_str());
@@ -288,12 +325,18 @@ impl Desktop {
                 .into_any_element()
         });
         let host = self.space_host_name(&space);
-        let open = ui::menu_pick("project-open", icon("folder-plus", 14., TEXT_3), &on_host("Open folder", host.as_deref()), false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::NewSession, window, cx)));
-        let clone = ui::menu_pick("project-clone", icon("branch", 14., TEXT_3), "Clone from URL\u{2026}", false).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-            this.new_form.draft.picker = None;
-            this.clone_project(window, cx);
-        }));
-        let rows: Vec<AnyElement> = std::iter::once(none.into_any_element()).chain(rows).chain([ui::menu_divider().into_any_element(), open.into_any_element(), clone.into_any_element()]).collect();
+        let open = ui::menu_pick("project-open", icon("folder-plus", 14., TEXT_3), &on_host("Open folder", host.as_deref()), false)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_folder(Opener::NewSession, window, cx)));
+        let clone = ui::menu_pick("project-clone", icon("branch", 14., TEXT_3), "Clone from URL\u{2026}", false).on_click(cx.listener(
+            |this, _: &ClickEvent, window, cx| {
+                this.new_form.draft.picker = None;
+                this.clone_project(window, cx);
+            },
+        ));
+        let rows: Vec<AnyElement> = std::iter::once(none.into_any_element())
+            .chain(rows)
+            .chain([ui::menu_divider().into_any_element(), open.into_any_element(), clone.into_any_element()])
+            .collect();
         picker_menu("project-menu", 260., rows, cx).gap(px(2.))
     }
 
@@ -312,7 +355,11 @@ impl Desktop {
             .child(div().font_weight(FontWeight::MEDIUM).when(missing.is_some(), |d| d.text_color(TEXT_3)).child(name))
             .when_some(missing, |d, tip| d.child(icon("warning", 13., WAITING_TEXT)).tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)))
             .child(icon("chevron-down", 12., TEXT_4));
-        let chip = ui::popover_trigger(chip, f.picker == Some(Picker::Project), cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Project, cx)));
+        let chip = ui::popover_trigger(
+            chip,
+            f.picker == Some(Picker::Project),
+            cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Project, cx)),
+        );
         let menu = (f.picker == Some(Picker::Project)).then(|| ui::dropdown(36., ui::menu_in("project-menu-in", self.form_project_menu(cx))));
         div().relative().child(chip).children(menu)
     }
@@ -327,7 +374,11 @@ impl Desktop {
         let checkout = if f.linked_pr().is_some() || self.draft_blocker().is_some() {
             checkout.opacity(0.5).cursor_default()
         } else {
-            ui::popover_trigger(checkout, f.picker == Some(Picker::Checkout), cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Checkout, cx)))
+            ui::popover_trigger(
+                checkout,
+                f.picker == Some(Picker::Checkout),
+                cx.listener(|this, _: &MouseDownEvent, _, cx| this.toggle_picker(Picker::Checkout, cx)),
+            )
         };
         let menu = (f.picker == Some(Picker::Checkout)).then(|| ui::dropdown(36., ui::menu_in("checkout-menu-in", self.checkout_picker(cx))));
         div().relative().child(checkout).children(menu)
@@ -347,7 +398,11 @@ impl Desktop {
         let branch = if self.draft_blocker().is_some() {
             branch.opacity(0.5).cursor_default()
         } else {
-            ui::popover_trigger(branch, f.picker == Some(Picker::Branch), cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_search(Picker::Branch, this.new_form.search.clone(), window, cx)))
+            ui::popover_trigger(
+                branch,
+                f.picker == Some(Picker::Branch),
+                cx.listener(|this, _: &MouseDownEvent, window, cx| this.toggle_search(Picker::Branch, this.new_form.search.clone(), window, cx)),
+            )
         };
         let branch_menu = (f.picker == Some(Picker::Branch)).then(|| ui::dropdown(36., ui::menu_in("branch-menu-in", self.branch_picker(cx))));
         div().relative().child(branch).children(branch_menu)

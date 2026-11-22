@@ -81,16 +81,7 @@ impl Desktop {
             .cursor_pointer()
             .hover(|st| st.bg(FILL_1))
             .child(icon(if open { "chevron-down" } else { "chevron-right" }, 12., TEXT_4))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(TEXT_3)
-                    .child(label),
-            )
+            .child(div().flex_1().min_w_0().truncate().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child(label))
             .child(div().flex().gap(px(2.)).opacity(0.).group_hover(SECTION_GROUP, |st| st.opacity(1.)).children(actions))
             .child(count_pill(count))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

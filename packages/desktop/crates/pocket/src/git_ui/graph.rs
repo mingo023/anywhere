@@ -128,11 +128,7 @@ impl GraphState {
 
     /// What a refresh for worktree `cwd` reads: the tips already shown, which skip the read when unchanged, and how many commits.
     pub fn reread(&self, cwd: &str) -> (Option<Tips>, usize) {
-        if self.cwd.as_deref() == Some(cwd) {
-            (Some(self.tips.clone()), self.commits.len().max(self.page))
-        } else {
-            (None, self.page)
-        }
+        if self.cwd.as_deref() == Some(cwd) { (Some(self.tips.clone()), self.commits.len().max(self.page)) } else { (None, self.page) }
     }
 
     /// Shows `page`: one read from the top replaces the graph, a later one extends it unless the worktree, tips or length moved on since.

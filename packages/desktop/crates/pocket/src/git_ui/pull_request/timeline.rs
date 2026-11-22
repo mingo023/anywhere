@@ -4,7 +4,10 @@ use git::github::{Pr, Review, Thread};
 #[derive(Debug, PartialEq)]
 pub(crate) enum Entry {
     /// A review, with the threads it opened that are shown.
-    Review { at: usize, threads: Vec<usize> },
+    Review {
+        at: usize,
+        threads: Vec<usize>,
+    },
     Note(usize),
     /// A thread whose review isn't among those fetched.
     Thread(usize),
@@ -66,7 +69,10 @@ mod tests {
 
     #[test]
     fn reviews_and_comments_run_in_time_with_threads_under_the_review_that_opened_them() {
-        assert_eq!(timeline(&pr(), true), [Entry::Thread(2), Entry::Review { at: 0, threads: vec![0] }, Entry::Note(0), Entry::Review { at: 1, threads: vec![1] }]);
+        assert_eq!(
+            timeline(&pr(), true),
+            [Entry::Thread(2), Entry::Review { at: 0, threads: vec![0] }, Entry::Note(0), Entry::Review { at: 1, threads: vec![1] }]
+        );
     }
 
     #[test]

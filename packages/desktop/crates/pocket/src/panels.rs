@@ -14,10 +14,10 @@ use crate::desktop::Desktop;
 use crate::desktop::chrome::{Overlay, id, observe_banner};
 use crate::glide::Glide;
 use drop::Aim;
-use pane_drag::{DragPane, Source};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use pane_drag::{DragPane, Source};
 use std::collections::HashMap;
 use std::time::Instant;
 use theme::*;
@@ -209,20 +209,15 @@ impl Desktop {
             .flex_col()
             .bg(SURFACE_SUNKEN)
             .child(self.top_bar(tree, window, cx).child(measure_bar))
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .child(measure)
-                    .child(body)
-                    .children(self.drop_marks(tree)),
-            )
+            .child(div().relative().flex_1().min_h_0().flex().child(measure).child(body).children(self.drop_marks(tree)))
             .when(observe, |d| d.child(observe_banner()))
             .children(self.pane_marks(tree))
-            .on_drag_move(cx.listener(|this, e: &DragMoveEvent<strip::DragTab>, _, cx| this.aim_tab((e.event.position.x.into(), e.event.position.y.into()), cx)))
-            .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<DragPane>, _, cx| this.aim_pane(&drag_tree, (e.event.position.x.into(), e.event.position.y.into()), cx)))
+            .on_drag_move(
+                cx.listener(|this, e: &DragMoveEvent<strip::DragTab>, _, cx| this.aim_tab((e.event.position.x.into(), e.event.position.y.into()), cx)),
+            )
+            .on_drag_move(cx.listener(move |this, e: &DragMoveEvent<DragPane>, _, cx| {
+                this.aim_pane(&drag_tree, (e.event.position.x.into(), e.event.position.y.into()), cx)
+            }))
             .on_drop(cx.listener(|this, d: &DragPane, window, cx| this.drop_pane(d.0, window, cx)))
     }
 
@@ -315,7 +310,18 @@ impl Desktop {
     /// A pane's tabs, with a grip to drag it by when it shares the tree, and its + menu.
     fn tabs_head(&mut self, tree: &str, pane: &Pane<Tab>, split: bool, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let p = pane.id;
-        let grip = div().id("pane-grip").w(px(20.)).h(px(30.)).flex_none().flex().items_center().justify_center().rounded(px(6.)).cursor_grab().hover(|s| s.bg(FILL_1)).child(icon("grip", 14., TEXT_4));
+        let grip = div()
+            .id("pane-grip")
+            .w(px(20.))
+            .h(px(30.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(6.))
+            .cursor_grab()
+            .hover(|s| s.bg(FILL_1))
+            .child(icon("grip", 14., TEXT_4));
         let filler = div().id("pane-filler").flex_1().min_w(px(16.)).self_stretch();
         let filler = if split { self.pane_handle(filler, p, cx) } else { filler };
         div()
@@ -401,7 +407,9 @@ impl Desktop {
                 self.term_body(&id, focused, cx)
             }
             Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
-            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => self.diff_view(p, cx),
+            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => {
+                self.diff_view(p, cx)
+            }
             Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc) => self.commit_view(p, cx),
             Some(Tab::Web(id)) => self.browser_view(p, id, window, cx),
             Some(Tab::Doc(_)) => div().flex_1(),

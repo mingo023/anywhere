@@ -13,9 +13,9 @@ use gpui_kit::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use store::prefs::sidebar::SessionSort;
 use theme::*;
 use ui::State;
-use store::prefs::sidebar::SessionSort;
 use workspace::Workspace;
 
 /// A terminal, the tree it is placed in if any, and whether it is hidden: a delegated session's or a sign-in's.
@@ -189,10 +189,9 @@ impl Desktop {
 
     /// Each listed session's card, with the project it sits in.
     fn placed_cards<'a>(&'a self, projects: &'a [String]) -> impl Iterator<Item = (&'a String, Card)> + 'a {
-        status::listed(&self.agents.list)
-            .into_iter()
-            .filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?)))
-            .filter_map(|(a, s)| Some((self.agent_project(a, &s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) })))
+        status::listed(&self.agents.list).into_iter().filter_map(|a| Some((a, self.terminals.sessions.get(&a.terminal_id)?))).filter_map(|(a, s)| {
+            Some((self.agent_project(a, &s.info.cwd, projects)?, status::Card { local: s.info.local.clone(), ..status::card(a, &s.info.cwd) }))
+        })
     }
 
     /// Runs `f` with `projects` and `cards` answered from one pass over the sessions. Every sidebar row asks for its
@@ -283,31 +282,52 @@ impl Desktop {
         let cwds = self.git_cwds();
         let projects = self.store.projects.clone();
         let shown = self.store.files.clone();
-        let files: Vec<_> = self.preview.panes.iter().filter_map(|(p, f)| {
-            let f = f.file.clone()?;
-            let changed = self.file_status(&f).is_some();
-            Some((*p, f, changed))
-        }).collect();
+        let files: Vec<_> = self
+            .preview
+            .panes
+            .iter()
+            .filter_map(|(p, f)| {
+                let f = f.file.clone()?;
+                let changed = self.file_status(&f).is_some();
+                Some((*p, f, changed))
+            })
+            .collect();
         let root = self.cwd();
-        let known: BTreeSet<String> = self.store.tracked.iter().chain(&self.store.scratch).cloned().chain(self.worktrees.values().flatten().filter(|w| !w.main).map(|w| w.path.clone())).collect();
+        let known: BTreeSet<String> = self
+            .store
+            .tracked
+            .iter()
+            .chain(&self.store.scratch)
+            .cloned()
+            .chain(self.worktrees.values().flatten().filter(|w| !w.main).map(|w| w.path.clone()))
+            .collect();
         let (untracked, options) = (self.store.git.untracked, self.diff.options);
-        let diffs: Vec<_> = self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
+        let diffs: Vec<_> =
+            self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
         dirs.extend(self.explore_root().map(PathBuf::from));
         self.git_run += 1;
         let run = self.git_run;
         let task = cx.background_executor().spawn(async move {
-            let repos: Vec<(String, Option<Repo>)> = cwds.into_iter().map(|c| {
-                let r = git::read(&hosts::runner_for(&c), &c, untracked);
-                (c, r)
-            }).collect();
-            let diffs: Vec<_> = root.map(|cwd| diffs.into_iter().map(|(p, path, at, open, shown)| (p, diff::read_diff(&cwd, path, at, open, options, &shown))).collect()).unwrap_or_default();
+            let repos: Vec<(String, Option<Repo>)> = cwds
+                .into_iter()
+                .map(|c| {
+                    let r = git::read(&hosts::runner_for(&c), &c, untracked);
+                    (c, r)
+                })
+                .collect();
+            let diffs: Vec<_> = root
+                .map(|cwd| diffs.into_iter().map(|(p, path, at, open, shown)| (p, diff::read_diff(&cwd, path, at, open, options, &shown))).collect())
+                .unwrap_or_default();
             let tree = util::list_dirs(dirs, &shown);
             let (projects, unread): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| readable(p));
-            let worktrees: HashMap<String, Vec<git::Worktree>> = projects.into_iter().map(|p| {
-                let w = git::worktrees(&hosts::runner_for(&p), &p);
-                (p, w)
-            }).collect();
+            let worktrees: HashMap<String, Vec<git::Worktree>> = projects
+                .into_iter()
+                .map(|p| {
+                    let w = git::worktrees(&hosts::runner_for(&p), &p);
+                    (p, w)
+                })
+                .collect();
             let files: Vec<_> = files.into_iter().map(|(p, f, changed)| (p, preview::load(&f, changed))).collect();
             let gone = project::vanished(known, &worktrees, |t| fs_for(t).exists(Path::new(t)));
             (repos, diffs, tree, worktrees, unread, files, gone)
@@ -520,7 +540,13 @@ mod tests {
 
     #[test]
     fn a_delegated_session_is_held_by_no_tree_so_it_gets_no_tab() {
-        let terminals = [at("mine", Some("/w"), false), at("other", Some("/v"), false), at("child", Some("/w"), true), at("lost-child", None, true), at("unplaced", None, false)];
+        let terminals = [
+            at("mine", Some("/w"), false),
+            at("other", Some("/v"), false),
+            at("child", Some("/w"), true),
+            at("lost-child", None, true),
+            at("unplaced", None, false),
+        ];
         assert_eq!(held("/w", &terminals), (vec!["mine".to_string()], vec!["other".to_string(), "child".to_string(), "lost-child".to_string()]));
     }
 
@@ -534,13 +560,18 @@ mod tests {
 
     #[test]
     fn a_tree_holding_only_delegated_sessions_exists_for_their_sake() {
-        let terminals = [at("a", Some("/w/tests"), true), at("b", Some("/w/docs"), true), at("c", Some("/w/docs"), false), at("d", Some("/w"), false), at("e", None, true)];
+        let terminals =
+            [at("a", Some("/w/tests"), true), at("b", Some("/w/docs"), true), at("c", Some("/w/docs"), false), at("d", Some("/w"), false), at("e", None, true)];
         assert_eq!(child_only(&terminals).into_iter().collect::<Vec<_>>(), ["/w/tests"]);
     }
 
     #[test]
     fn a_sign_in_terminal_is_hidden_but_a_shell_in_the_same_folder_is_not() {
-        let session = |id: &str, signin: bool| crate::terminals::sessions::Session { info: daemon::Info { id: id.into(), cwd: "/Users/me".into(), signin, ..Default::default() }, term: None, exit: None };
+        let session = |id: &str, signin: bool| crate::terminals::sessions::Session {
+            info: daemon::Info { id: id.into(), cwd: "/Users/me".into(), signin, ..Default::default() },
+            term: None,
+            exit: None,
+        };
         let sessions = [session("login", true), session("shell", false)];
         assert_eq!(hidden_terminals(&[], &sessions).into_iter().collect::<Vec<_>>(), ["login"]);
     }

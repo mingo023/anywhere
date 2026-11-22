@@ -4,32 +4,70 @@ use std::ops::Range;
 /// One list row; ids are stable across refreshes so the list keeps measured heights.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Row {
-    Prompt { turn: usize },
+    Prompt {
+        turn: usize,
+    },
     /// The line heading a reply: who worked and for how long. It opens the reply's phases.
-    Fold { turn: usize },
+    Fold {
+        turn: usize,
+    },
     /// A run of work: thinking and tool calls.
-    Phase { turn: usize, blocks: Range<usize> },
+    Phase {
+        turn: usize,
+        blocks: Range<usize>,
+    },
     /// Sub-agents and commands that finished in the background, heading the turn the agent began itself to report on them.
-    Notice { turn: usize },
+    Notice {
+        turn: usize,
+    },
     /// A `Block::Notice`: why the agent went on, heading the turn it set going, or an error it went on after, in place.
-    Note { turn: usize, block: usize },
+    Note {
+        turn: usize,
+        block: usize,
+    },
     /// A `Block::Delivered`: what pocketd told the chat of the sessions it delegated to.
-    Delivery { turn: usize, block: usize },
+    Delivery {
+        turn: usize,
+        block: usize,
+    },
     /// The turns the agent spent taking in its delegated sessions' reports, as one row. When `closes`, the last of them
     /// sums the reports up and lays out after the row as a reply of its own.
-    Reports { turns: Range<usize>, closes: bool },
+    Reports {
+        turns: Range<usize>,
+        closes: bool,
+    },
     /// A `Block::HostLink`: a card asking the user to add a host.
-    HostLink { turn: usize, block: usize },
+    HostLink {
+        turn: usize,
+        block: usize,
+    },
     /// The turn's latest todo list, as a card after its work.
-    Tasks { turn: usize, block: usize },
+    Tasks {
+        turn: usize,
+        block: usize,
+    },
     /// One markdown block (`range` into the message text) of a Text or Plan block.
-    Text { turn: usize, block: usize, range: Range<usize> },
+    Text {
+        turn: usize,
+        block: usize,
+        range: Range<usize>,
+    },
     /// An AskUserQuestion call: a marker that ends the phase before it.
-    Question { turn: usize, block: usize },
-    Compacted { turn: usize, block: usize },
-    End { turn: usize },
+    Question {
+        turn: usize,
+        block: usize,
+    },
+    Compacted {
+        turn: usize,
+        block: usize,
+    },
+    End {
+        turn: usize,
+    },
     /// What the agent is doing, under the reply it's at work on (`turn` holds its fold). Rebuilt with the trailer.
-    Live { turn: usize },
+    Live {
+        turn: usize,
+    },
     /// "Sending…", while a send is on its way.
     Working,
     /// An outgoing message not yet in the transcript.
@@ -47,7 +85,12 @@ impl Row {
             Row::Fold { turn: ix } => format!("{}#fold", turn(*ix)),
             Row::Phase { turn: ix, blocks } => format!("{}#p{}", turn(*ix), blocks.start),
             Row::Text { turn: ix, block, range } => format!("{}#{block}.{}", turn(*ix), range.start),
-            Row::Tasks { turn: ix, block } | Row::Question { turn: ix, block } | Row::Compacted { turn: ix, block } | Row::Note { turn: ix, block } | Row::Delivery { turn: ix, block } | Row::HostLink { turn: ix, block } => {
+            Row::Tasks { turn: ix, block }
+            | Row::Question { turn: ix, block }
+            | Row::Compacted { turn: ix, block }
+            | Row::Note { turn: ix, block }
+            | Row::Delivery { turn: ix, block }
+            | Row::HostLink { turn: ix, block } => {
                 format!("{}#{block}", turn(*ix))
             }
             Row::End { turn: ix } => format!("{}#end", turn(*ix)),
@@ -412,7 +455,16 @@ pub fn top_gap(prev: Option<&Row>, row: &Row) -> f32 {
         (Row::Text { turn: a, block: x, .. }, Row::Text { turn: b, block: y, .. }) if (a, x) == (b, y) => 10.,
         (_, Row::Tasks { .. }) => 12.,
         (Row::Delivery { .. }, Row::Delivery { .. }) => 2.,
-        (_, Row::Question { .. } | Row::Compacted { .. } | Row::Notice { .. } | Row::Note { .. } | Row::Delivery { .. } | Row::Reports { .. } | Row::HostLink { .. }) => 8.,
+        (
+            _,
+            Row::Question { .. }
+            | Row::Compacted { .. }
+            | Row::Notice { .. }
+            | Row::Note { .. }
+            | Row::Delivery { .. }
+            | Row::Reports { .. }
+            | Row::HostLink { .. },
+        ) => 8.,
         _ => 6.,
     }
 }
@@ -603,7 +655,13 @@ mod tests {
         let t = one(vec![think(), shell(), shell(), text("Done.")]);
         assert_eq!(
             rows(&t, 0, false),
-            vec![Row::Prompt { turn: 0 }, Row::Fold { turn: 0 }, Row::Phase { turn: 0, blocks: 0..3 }, Row::Text { turn: 0, block: 3, range: 0..5 }, Row::End { turn: 0 }]
+            vec![
+                Row::Prompt { turn: 0 },
+                Row::Fold { turn: 0 },
+                Row::Phase { turn: 0, blocks: 0..3 },
+                Row::Text { turn: 0, block: 3, range: 0..5 },
+                Row::End { turn: 0 }
+            ]
         );
     }
 
@@ -676,7 +734,10 @@ mod tests {
         let edit = |p: &str| call(ToolKind::Edit { path: p.into(), diff: None }, ToolStatus::Ok);
         let read = call(ToolKind::Read { path: "a".into() }, ToolStatus::Ok);
         assert_eq!(phase_title(&[edit("src/a.rs"), edit("src/a.rs"), shell()], false), "Edited a.rs · Ran a command");
-        assert_eq!(phase_title(&[read.clone(), edit("a"), edit("b"), shell(), shell()], true), "Editing 2 files · Exploring the project · Executing 2 commands");
+        assert_eq!(
+            phase_title(&[read.clone(), edit("a"), edit("b"), shell(), shell()], true),
+            "Editing 2 files · Exploring the project · Executing 2 commands"
+        );
         assert_eq!(phase_title(&[think()], false), "Thought");
         assert_eq!(phase_title(&[call(ToolKind::Other { input: String::new(), description: String::new() }, ToolStatus::Ok)], false), "Working");
         let sub = |status| call(ToolKind::Agent(SubAgent::default()), status);
@@ -709,7 +770,8 @@ mod tests {
 
     #[test]
     fn row_ids_stay_the_same_when_a_tool_finishes() {
-        let running = Transcript { turns: vec![turn("u1", vec![call(ToolKind::Shell { command: "ls".into(), description: String::new() }, ToolStatus::Running)], None)] };
+        let running =
+            Transcript { turns: vec![turn("u1", vec![call(ToolKind::Shell { command: "ls".into(), description: String::new() }, ToolStatus::Running)], None)] };
         let finished = Transcript { turns: vec![turn("u1", vec![shell(), text("done")], None)] };
         let (before, after) = (ids(&running, 0), ids(&finished, 0));
         assert_eq!(before, vec!["u1", "u1#fold", "u1#p0", "u1#live"]);
@@ -743,7 +805,8 @@ mod tests {
         assert_eq!(rows(&ended, 0, false).last(), Some(&Row::End { turn: 0 }));
         assert_eq!(rows(&ended, 1, true)[4..], [Row::Pending(0), Row::Working]);
         assert_eq!(rows(&ended, 1, false)[4..], [Row::Pending(0)], "a send not delivered waits on no one");
-        let compacted = Transcript { turns: vec![Turn { id: "c".into(), prompt: None, blocks: vec![Block::Compacted { id: "c".into(), auto: true }], end: None }] };
+        let compacted =
+            Transcript { turns: vec![Turn { id: "c".into(), prompt: None, blocks: vec![Block::Compacted { id: "c".into(), auto: true }], end: None }] };
         assert_eq!(rows(&compacted, 0, false), vec![Row::Compacted { turn: 0, block: 0 }]);
     }
 
@@ -752,7 +815,10 @@ mod tests {
         let own = Turn { prompt: None, ..turn("n1", vec![shell()], None) };
         let t = Transcript { turns: vec![turn("u1", vec![agent()], done()), turn("u2", vec![shell()], done()), own] };
         assert_eq!(live_tail(&t), Some(2), "the turn the agent began itself heads its own reply");
-        assert!(rows(&t, 1, true).ends_with(&[Row::Phase { turn: 2, blocks: 0..1 }, Row::Pending(0), Row::Working, Row::Live { turn: 2 }]), "a send waits above the live line");
+        assert!(
+            rows(&t, 1, true).ends_with(&[Row::Phase { turn: 2, blocks: 0..1 }, Row::Pending(0), Row::Working, Row::Live { turn: 2 }]),
+            "a send waits above the live line"
+        );
         assert_eq!(live_tail(&one(vec![shell()])), None);
         assert_eq!(live_tail(&Transcript::default()), None);
     }
@@ -819,8 +885,27 @@ mod tests {
 
     #[test]
     fn a_turn_the_agent_begins_after_a_background_sub_agent_finished_reports_it() {
-        let sub = |at, ms| Block::Tool(ToolCall { duration_ms: Some(ms), at, ..ToolCall { id: "a".into(), name: String::new(), kind: ToolKind::Agent(SubAgent::default()), status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 } });
-        let own = Turn { id: "n1".into(), prompt: None, blocks: vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "It found two.".into() })], end: done() };
+        let sub = |at, ms| {
+            Block::Tool(ToolCall {
+                duration_ms: Some(ms),
+                at,
+                ..ToolCall {
+                    id: "a".into(),
+                    name: String::new(),
+                    kind: ToolKind::Agent(SubAgent::default()),
+                    status: ToolStatus::Ok,
+                    output: None,
+                    duration_ms: None,
+                    at: 0,
+                }
+            })
+        };
+        let own = Turn {
+            id: "n1".into(),
+            prompt: None,
+            blocks: vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "It found two.".into() })],
+            end: done(),
+        };
         let ended = |blocks| Turn { end: Some(End::Done { duration_ms: 1_000, usage: None }), ..turn("u1", blocks, None) };
         let t = Transcript { turns: vec![ended(vec![sub(100, 10_000)]), own.clone()] };
         assert_eq!(reported(&t, 1).len(), 1);
@@ -837,7 +922,8 @@ mod tests {
             ..turn(id, vec![text("a sub-agent reported")], Some(End::Done { duration_ms: ms, usage: Some(Usage { input, output: 1, cache_read: 0 }) }))
         };
         let compact = Turn { prompt: None, ..turn("c", vec![Block::Compacted { id: "c".into(), auto: true }], done()) };
-        let t = Transcript { turns: vec![turn("u1", vec![agent()], done()), own("n1", 5_000, 10), own("n2", 7_000, 20), compact, turn("u2", vec![shell()], None)] };
+        let t =
+            Transcript { turns: vec![turn("u1", vec![agent()], done()), own("n1", 5_000, 10), own("n2", 7_000, 20), compact, turn("u2", vec![shell()], None)] };
         assert_eq!((reply(&t, 0), reply(&t, 1), reply(&t, 2)), (Some(0..1), Some(1..2), Some(2..3)), "a footer under each");
         assert_eq!(reply(&t, 3), Some(3..4));
         assert_eq!(worked(&t, 2..3), Some((7_000, Some(Usage { input: 20, output: 1, cache_read: 0 }))));
@@ -847,14 +933,22 @@ mod tests {
     #[test]
     fn what_set_the_agent_going_heads_its_turn_and_an_error_it_went_on_after_stands_in_place() {
         let notice = |text: &str, error| Block::Notice { message: msg(text), error };
-        let own = Turn { prompt: None, ..turn("n1", vec![notice("Stop hook: run the tests", false), shell(), notice("API Error", true), shell(), text("Done.")], done()) };
+        let own = Turn {
+            prompt: None,
+            ..turn("n1", vec![notice("Stop hook: run the tests", false), shell(), notice("API Error", true), shell(), text("Done.")], done())
+        };
         let t = Transcript { turns: vec![turn("u1", vec![text("Hi.")], done()), own] };
         assert_eq!(ids_of(&t)[4..], ["n1#0", "n1#fold", "n1#p1", "n1#2", "n1#p3", "n1#4.0", "n1#end"]);
         assert_eq!(rows(&t, 0, false)[4], Row::Note { turn: 1, block: 0 });
     }
 
     fn delivered(id: &str) -> Block {
-        Block::Delivered(Delivered { id: id.into(), outcome: Outcome::Done, question: String::new(), children: vec![Child { id: "a2".into(), title: "Write the tests".into(), agent: "codex".into() }] })
+        Block::Delivered(Delivered {
+            id: id.into(),
+            outcome: Outcome::Done,
+            question: String::new(),
+            children: vec![Child { id: "a2".into(), title: "Write the tests".into(), agent: "codex".into() }],
+        })
     }
 
     #[test]
@@ -905,7 +999,13 @@ mod tests {
 
     #[test]
     fn reports_while_a_session_still_runs_all_stay_in_the_row() {
-        let t = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One is back.")], done()), report("r2", vec![said(250, "Two are back.")], None)] };
+        let t = Transcript {
+            turns: vec![
+                turn("u1", vec![text("Split.")], done()),
+                report("r1", vec![said(150, "One is back.")], done()),
+                report("r2", vec![said(250, "Two are back.")], None),
+            ],
+        };
         let mut rows = Vec::new();
         rows_from(&mut rows, &t, 0, 0, false, &THREE);
         assert_eq!(rows[4..], [Row::Reports { turns: 1..3, closes: false }, Row::Live { turn: 2 }]);
@@ -947,7 +1047,13 @@ mod tests {
     #[test]
     fn of_reports_that_all_came_after_every_session_settled_only_the_last_sums_up() {
         let both = [span(10, 100), span(10, 120)];
-        let t = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One is back.")], done()), report("r2", vec![said(250, "Both are back.")], done())] };
+        let t = Transcript {
+            turns: vec![
+                turn("u1", vec![text("Split.")], done()),
+                report("r1", vec![said(150, "One is back.")], done()),
+                report("r2", vec![said(250, "Both are back.")], done()),
+            ],
+        };
         let mut rows = Vec::new();
         rows_from(&mut rows, &t, 0, 0, false, &both);
         assert!(rows.contains(&Row::Reports { turns: 1..3, closes: true }));
@@ -958,7 +1064,9 @@ mod tests {
 
     #[test]
     fn laying_out_from_a_report_joining_a_group_starts_again_at_the_groups_first_turn() {
-        let t = Transcript { turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One.")], done()), report("r2", vec![said(250, "Two.")], done())] };
+        let t = Transcript {
+            turns: vec![turn("u1", vec![text("Split.")], done()), report("r1", vec![said(150, "One.")], done()), report("r2", vec![said(250, "Two.")], done())],
+        };
         assert_eq!(group_start(&t, 2, &THREE), 1);
         assert_eq!(group_start(&t, 1, &THREE), 1);
         let mut tail = Vec::new();
@@ -988,7 +1096,15 @@ mod tests {
 
     #[test]
     fn a_command_that_finished_in_the_background_is_reported_like_a_sub_agent() {
-        let cmd = Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() }, status: ToolStatus::Failed, output: None, duration_ms: Some(10_000), at: 100 });
+        let cmd = Block::Tool(ToolCall {
+            id: "b".into(),
+            name: String::new(),
+            kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() },
+            status: ToolStatus::Failed,
+            output: None,
+            duration_ms: Some(10_000),
+            at: 100,
+        });
         let own = Turn { prompt: None, ..turn("n1", vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "It failed.".into() })], done()) };
         let t = Transcript { turns: vec![turn("u1", vec![cmd], Some(End::Done { duration_ms: 1_000, usage: None })), own] };
         assert_eq!(reported(&t, 1).len(), 1);
@@ -996,7 +1112,17 @@ mod tests {
 
     #[test]
     fn a_call_that_finished_after_its_turn_failed_is_reported_by_the_turn_it_set_going() {
-        let cmd = |ms| Block::Tool(ToolCall { id: "b".into(), name: String::new(), kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() }, status: ToolStatus::Ok, output: None, duration_ms: Some(ms), at: 100 });
+        let cmd = |ms| {
+            Block::Tool(ToolCall {
+                id: "b".into(),
+                name: String::new(),
+                kind: ToolKind::Shell { command: "cargo test".into(), description: String::new() },
+                status: ToolStatus::Ok,
+                output: None,
+                duration_ms: Some(ms),
+                at: 100,
+            })
+        };
         let failed = |blocks| turn("u1", blocks, Some(End::Failed { error: "API Error: Connection lost".into(), duration_ms: 1_000 }));
         let own = Turn { prompt: None, ..turn("n1", vec![Block::Text(Message { id: "r".into(), at: 10_500, text: "Tests pass.".into() })], done()) };
         assert_eq!(reported(&Transcript { turns: vec![failed(vec![cmd(10_000)]), own.clone()] }, 1).len(), 1);

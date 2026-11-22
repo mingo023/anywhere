@@ -328,12 +328,14 @@ impl Filters {
 
     fn keeper(&self) -> impl Fn(&Ticket) -> bool + '_ {
         let query = self.query.trim().to_lowercase();
-        move |t| self.status.keeps(|c| *c == column(t))
-            && self.agent.keeps(|a| *a == t.provider)
-            && self.project.keeps(|p| *p == t.folder)
-            && self.priority.keeps(|p| *p == t.priority)
-            && self.label.keeps(|l| t.labels.contains(l))
-            && (query.is_empty() || t.title.to_lowercase().contains(&query) || crate::util::basename(&t.worktree).to_lowercase().contains(&query))
+        move |t| {
+            self.status.keeps(|c| *c == column(t))
+                && self.agent.keeps(|a| *a == t.provider)
+                && self.project.keeps(|p| *p == t.folder)
+                && self.priority.keeps(|p| *p == t.priority)
+                && self.label.keeps(|l| t.labels.contains(l))
+                && (query.is_empty() || t.title.to_lowercase().contains(&query) || crate::util::basename(&t.worktree).to_lowercase().contains(&query))
+        }
     }
 }
 
@@ -351,7 +353,8 @@ pub(crate) fn tab_count(tickets: &[Ticket], tab: Tab, show_closed: bool) -> usiz
 /// The columns the Board draws, then those it lists as hidden: what was folded away, Closed unless shown, and Queued and Merged while empty. Only All tickets lists them.
 pub(crate) fn board_cols(columns: &Columns, tab: Tab, show_closed: bool, tucked: &[bool; COLS.len()]) -> (Vec<Col>, Vec<Col>) {
     let vacant = |c: Col| matches!(c, Col::Queued | Col::Merged) && columns[c as usize].is_empty();
-    let (shown, away): (Vec<Col>, Vec<Col>) = COLS.into_iter().filter(|c| tab.shows(*c)).partition(|c| (show_closed || *c != Col::Closed) && !tucked[*c as usize] && !vacant(*c));
+    let (shown, away): (Vec<Col>, Vec<Col>) =
+        COLS.into_iter().filter(|c| tab.shows(*c)).partition(|c| (show_closed || *c != Col::Closed) && !tucked[*c as usize] && !vacant(*c));
     (shown, if tab == Tab::All { away } else { away.into_iter().filter(|c| tucked[*c as usize]).collect() })
 }
 
@@ -880,7 +883,15 @@ mod tests {
 
     #[test]
     fn only_live_tickets_with_work_in_hand_count_against_the_limit() {
-        let tickets = [live(Status::Working), live(Status::NeedsYou), live(Status::Starting), live(Status::Done), live(Status::Idle), ticket("q", State::Queued, Status::None), ticket("c", State::Closed, Status::Working)];
+        let tickets = [
+            live(Status::Working),
+            live(Status::NeedsYou),
+            live(Status::Starting),
+            live(Status::Done),
+            live(Status::Idle),
+            ticket("q", State::Queued, Status::None),
+            ticket("c", State::Closed, Status::Working),
+        ];
         assert_eq!(busy(&tickets), 3);
     }
 
@@ -944,7 +955,10 @@ mod tests {
         assert_eq!(note(&live(Status::Working), slot(Col::Working, 0), Some("Reading a file"), None), Some(("Reading a file".to_string(), Tone::Dim)));
         assert_eq!(note(&live(Status::Working), slot(Col::Working, 0), Some(""), None), None);
         assert_eq!(note(&ticket("q", State::Queued, Status::None), slot(Col::Queued, 1), None, None), Some(("2nd in line".to_string(), Tone::Dim)));
-        assert_eq!(note(&live(Status::NeedsYou), slot(Col::NeedsYou, 0), None, Some("Wants to run ls".into())), Some(("Wants to run ls".to_string(), Tone::Asking)));
+        assert_eq!(
+            note(&live(Status::NeedsYou), slot(Col::NeedsYou, 0), None, Some("Wants to run ls".into())),
+            Some(("Wants to run ls".to_string(), Tone::Asking))
+        );
         let failed = Ticket { why: "Tests failed".into(), ..live(Status::Failed) };
         assert_eq!(note(&failed, slot(Col::NeedsYou, 0), None, None), Some(("Tests failed".to_string(), Tone::Failed)));
         let stopped = Ticket { why: "Session closed".into(), ..live(Status::Stopped) };
@@ -1027,11 +1041,13 @@ mod tests {
 
     #[test]
     fn a_finished_column_keeps_only_the_latest_fifty() {
-        let tickets: Vec<_> = (0..60).map(|n| {
-            let mut t = ticket("c", State::Closed, Status::Idle);
-            t.closed_at = n + 1;
-            t
-        }).collect();
+        let tickets: Vec<_> = (0..60)
+            .map(|n| {
+                let mut t = ticket("c", State::Closed, Status::Idle);
+                t.closed_at = n + 1;
+                t
+            })
+            .collect();
         let closed = arrange(&tickets, &Filters::default(), Order::Name)[Col::Closed as usize].clone();
         assert_eq!(closed.len(), 50);
         assert!(closed.iter().all(|&i| i >= 10));
@@ -1280,7 +1296,8 @@ mod tests {
 
     #[test]
     fn the_hidden_count_is_what_the_filters_take_off_this_page() {
-        let (a, mut b, c) = (ticket("login", State::Todo, Status::None), ticket("other", State::Todo, Status::None), ticket("gone", State::Closed, Status::Idle));
+        let (a, mut b, c) =
+            (ticket("login", State::Todo, Status::None), ticket("other", State::Todo, Status::None), ticket("gone", State::Closed, Status::Idle));
         b.provider = "codex".into();
         let tickets = [a, b, c];
         let codex = Filters { agent: any_of("codex".to_string()), ..Default::default() };

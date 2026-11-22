@@ -35,7 +35,13 @@ impl Element for Selectable {
         None
     }
 
-    fn request_layout(&mut self, id: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, TextSelectionHandle) {
+    fn request_layout(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, TextSelectionHandle) {
         let handle = window.with_element_state(id.expect("Selectable has an id"), |handle: Option<TextSelectionHandle>, window| {
             let handle = handle.unwrap_or_else(|| {
                 let handle = TextSelectionHandle::new(self.text.clone(), cx);
@@ -47,14 +53,35 @@ impl Element for Selectable {
         (self.child.request_layout(window, cx), handle)
     }
 
-    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, handle: &mut TextSelectionHandle, window: &mut Window, cx: &mut App) -> Hitbox {
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        handle: &mut TextSelectionHandle,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Hitbox {
         self.child.prepaint(window, cx);
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-        handle.register(TextSelectionRegistration::new(hitbox.clone(), bounds).with_text_bounds(vec![bounds]).with_rendered_element(handle, window, cx), window, cx);
+        handle.register(
+            TextSelectionRegistration::new(hitbox.clone(), bounds).with_text_bounds(vec![bounds]).with_rendered_element(handle, window, cx),
+            window,
+            cx,
+        );
         hitbox
     }
 
-    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, handle: &mut TextSelectionHandle, hitbox: &mut Hitbox, window: &mut Window, cx: &mut App) {
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        handle: &mut TextSelectionHandle,
+        hitbox: &mut Hitbox,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         window.set_cursor_style(CursorStyle::IBeam, hitbox);
         let projection = handle.update_runs(&[TextSelectionRun::new(self.text.clone(), self.layout.clone(), bounds)], cx);
         let line = self.layout.line_height();

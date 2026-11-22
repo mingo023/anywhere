@@ -7,10 +7,10 @@ use std::io::{BufRead, BufReader, Read, Write};
 pub use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-#[cfg(windows)]
-pub use uds_windows::UnixStream;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+#[cfg(windows)]
+pub use uds_windows::UnixStream;
 
 pub mod cli;
 pub mod service;
@@ -452,11 +452,7 @@ fn run_in(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, inp
     std::thread::spawn(move || stdin.write_all(input.as_bytes()));
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
-    if out.status.success() {
-        Ok(text(&out.stdout))
-    } else {
-        Err(Some(text(&out.stderr)).filter(|e| !e.is_empty()).unwrap_or_else(|| text(&out.stdout)))
-    }
+    if out.status.success() { Ok(text(&out.stdout)) } else { Err(Some(text(&out.stderr)).filter(|e| !e.is_empty()).unwrap_or_else(|| text(&out.stdout))) }
 }
 
 /// [`run_login`] for a server: it answers on stdout and runs on, and may quit unanswered if stdin closes first. So stdin gets
@@ -466,11 +462,20 @@ pub fn run_login_until(argv: &[&str], cwd: &str, input: &str, answer: impl Fn(&s
     run_until(login_shell(), terminal_env(), argv, cwd, input, answer, timeout)
 }
 
-fn run_until(shell: &str, env: Vec<(String, String)>, argv: &[&str], cwd: &str, input: &str, answer: impl Fn(&str) -> bool, timeout: Duration) -> Result<String, String> {
+fn run_until(
+    shell: &str,
+    env: Vec<(String, String)>,
+    argv: &[&str],
+    cwd: &str,
+    input: &str,
+    answer: impl Fn(&str) -> bool,
+    timeout: Duration,
+) -> Result<String, String> {
     let mut cmd = login_command(shell, argv);
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-    let mut child = cmd.current_dir(cwd).env_clear().envs(env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    let mut child =
+        cmd.current_dir(cwd).env_clear().envs(env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
     let mut stdin = child.stdin.take().expect("stdin is piped");
     let stdout = child.stdout.take().expect("stdout is piped");
     let input = format!("{input}\n");
@@ -719,9 +724,7 @@ mod tests {
 
     #[test]
     fn empty_env_vars_count_as_unset() {
-        let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
-        };
+        let env = |pairs: &'static [(&'static str, &'static str)]| move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string());
         assert_eq!(
             sock_path_in(env(&[("POCKETD_SOCK", ""), ("POCKET_HOME", ""), (HOME, "/h")])),
             PathBuf::from("/h").join(channel::home_dir_name()).join("pocketd.sock")
@@ -813,8 +816,14 @@ mod tests {
     #[cfg(unix)]
     fn a_server_that_never_answers_times_out_and_one_that_exits_says_so() {
         let never = |_: &str| false;
-        assert_eq!(run_until("/bin/sh", bare_env(), &["sh", "-c", "echo hello; sleep 30"], "/", "", never, Duration::from_millis(300)), Err("Timed out after 300ms".to_string()));
-        assert_eq!(run_until("/bin/sh", bare_env(), &["sh", "-c", "echo hello"], "/", "", never, Duration::from_secs(10)), Err("Exited without an answer".to_string()));
+        assert_eq!(
+            run_until("/bin/sh", bare_env(), &["sh", "-c", "echo hello; sleep 30"], "/", "", never, Duration::from_millis(300)),
+            Err("Timed out after 300ms".to_string())
+        );
+        assert_eq!(
+            run_until("/bin/sh", bare_env(), &["sh", "-c", "echo hello"], "/", "", never, Duration::from_secs(10)),
+            Err("Exited without an answer".to_string())
+        );
     }
 
     #[cfg(unix)]

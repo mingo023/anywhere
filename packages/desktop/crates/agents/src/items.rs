@@ -134,7 +134,10 @@ mod tests {
         assert_eq!(f.item.unwrap().parent_tool_use_id.as_deref(), Some("t4"));
         let f: Frame = serde_json::from_str(include_str!("../../../../pocketd/internal/proto/testdata/golden/server/timeline_subagents.json")).unwrap();
         let parents: Vec<_> = f.items.iter().map(|i| i.parent_tool_use_id.as_deref()).collect();
-        assert_eq!(parents, [None, None, None, Some("toolu_list"), Some("toolu_list"), Some("toolu_list"), Some("toolu_count"), Some("toolu_count"), None, None]);
+        assert_eq!(
+            parents,
+            [None, None, None, Some("toolu_list"), Some("toolu_list"), Some("toolu_list"), Some("toolu_count"), Some("toolu_count"), None, None]
+        );
     }
 
     #[test]

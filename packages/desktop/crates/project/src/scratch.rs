@@ -48,7 +48,9 @@ pub fn create_on(run: &Runner, root: &str, seed: usize, make: impl Fn(&str, bool
 
 /// Whether `path` is a folder directly in `root`, the only kind deleting a scratch folder may remove.
 pub fn holds(root: &str, path: &str) -> bool {
-    path.strip_prefix(root).and_then(|rest| rest.strip_prefix('/')).is_some_and(|name| !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != "..")
+    path.strip_prefix(root)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(|name| !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != "..")
 }
 
 /// The folder's uncommitted files and the commits made since `create`'s own; `None` when git can't read it.
@@ -103,7 +105,13 @@ mod tests {
         };
         let made = create_on(&Runner::Local, &root, 7, make, |_| {}).unwrap();
         assert_ne!(made, taken);
-        let refused = create_on(&Runner::Local, &format!("{root}/x"), 7, |p, parents| if parents { std::fs::create_dir_all(p) } else { Err(std::io::Error::other("permission denied")) }, |_| {});
+        let refused = create_on(
+            &Runner::Local,
+            &format!("{root}/x"),
+            7,
+            |p, parents| if parents { std::fs::create_dir_all(p) } else { Err(std::io::Error::other("permission denied")) },
+            |_| {},
+        );
         assert_eq!(refused, Err("permission denied".into()));
         std::fs::remove_dir_all(&root).ok();
     }
@@ -117,7 +125,11 @@ mod tests {
     }
 
     fn git_in(dir: &str, args: &[&str]) {
-        let out = std::process::Command::new("git").args(["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
+        let out = std::process::Command::new("git")
+            .args(["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     }
 
@@ -147,7 +159,17 @@ mod tests {
         let root = "/home/me/.anywhere/sessions";
         assert!(holds(root, "/home/me/.anywhere/sessions/calm-river"));
         let windows = [r"/home/me/.anywhere/sessions/..\..", "/home/me/.anywhere/sessions/C:"];
-        for path in [root, "/home/me/.anywhere/sessions/", "/home/me/.anywhere/sessions/a/b", "/home/me/.anywhere/sessions/..", "/home/me/.anywhere/sessions-other/a", "/home/me"].into_iter().chain(windows) {
+        for path in [
+            root,
+            "/home/me/.anywhere/sessions/",
+            "/home/me/.anywhere/sessions/a/b",
+            "/home/me/.anywhere/sessions/..",
+            "/home/me/.anywhere/sessions-other/a",
+            "/home/me",
+        ]
+        .into_iter()
+        .chain(windows)
+        {
             assert!(!holds(root, path), "{path}");
         }
     }

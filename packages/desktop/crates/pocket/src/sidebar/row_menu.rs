@@ -10,8 +10,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde_json::{Value, json};
 use store::LaunchPick;
-use store::sections::Pin;
 use store::prefs::agents::{Agents, Args};
+use store::sections::Pin;
 use theme::*;
 use ui::{self, icon_button_sized};
 use workspace::Place;
@@ -35,12 +35,17 @@ fn quoted(s: &str) -> String {
 /// The args are shell words as typed, the way pocketd splits them.
 fn resume_command(prefs: &Agents, provider: &str, session_id: &str, cwd: &str) -> Option<String> {
     let args = prefs.args(provider, Args::Resume);
-    (LaunchPick::PROVIDERS.contains(&provider) && !args.is_empty()).then(|| format!("cd {} && {} {args} {}", quoted(cwd), quoted(&prefs.command(provider)), quoted(session_id)))
+    (LaunchPick::PROVIDERS.contains(&provider) && !args.is_empty())
+        .then(|| format!("cd {} && {} {args} {}", quoted(cwd), quoted(&prefs.command(provider)), quoted(session_id)))
 }
 
 /// Whether `s` can be forked: pocketd takes a fork (`offered`), and its agent has a session and fork args to copy it with.
 fn offers_fork(s: &Summary, observe: bool, prefs: &Agents, offered: bool) -> bool {
-    offered && !observe && s.provider_session_id.is_some() && LaunchPick::PROVIDERS.contains(&s.provider.as_str()) && !prefs.args(&s.provider, Args::Fork).is_empty()
+    offered
+        && !observe
+        && s.provider_session_id.is_some()
+        && LaunchPick::PROVIDERS.contains(&s.provider.as_str())
+        && !prefs.args(&s.provider, Args::Fork).is_empty()
 }
 
 /// `fork` is whether pocketd takes a fork; `handoff`, whether it can be handed off and whether that is underway.
@@ -49,14 +54,23 @@ fn session_items(s: &Summary, observe: bool, prefs: &Agents, fork: bool, handoff
     let fork = offers_fork(s, observe, prefs, fork);
     let pin = (!observe).then_some(SessionItem::Pin(!s.pinned));
     let close = (!observe).then_some(SessionItem::Close);
-    [pin, Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), fork.then_some(SessionItem::Fork), handoff.map(SessionItem::Handoff), close].into_iter().flatten().collect()
+    [pin, Some(SessionItem::CopyPath), resume.map(SessionItem::CopyResume), fork.then_some(SessionItem::Fork), handoff.map(SessionItem::Handoff), close]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 /// A create that starts a copy of `s` in its folder, with its model, effort and account.
 /// `efforts` are what the session's model takes; `in_terminal` runs the copy in its agent's TUI even where Settings would start a chat.
 fn fork_spec(s: &Summary, project: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String], in_terminal: bool) -> Option<Value> {
     let account = if s.account.is_empty() { accounts::BUILT_IN.into() } else { s.account.clone() };
-    let pick = LaunchPick { provider: s.provider.clone(), model: s.model.clone().unwrap_or_default(), effort: s.effort.clone().unwrap_or_default(), account, ..LaunchPick::default() };
+    let pick = LaunchPick {
+        provider: s.provider.clone(),
+        model: s.model.clone().unwrap_or_default(),
+        effort: s.effort.clone().unwrap_or_default(),
+        account,
+        ..LaunchPick::default()
+    };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), "");
     spec["fork"] = s.provider_session_id.clone()?.into();
     prefs.launch(&mut spec, live, efforts);
@@ -88,7 +102,11 @@ impl Desktop {
         }
         let projects = self.projects();
         let Some(s) = self.agents.get(id) else { return };
-        let Some(spec) = self.agent_project(s, &s.cwd, &projects).and_then(|p| fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), terminal.is_some())) else { return };
+        let Some(spec) = self.agent_project(s, &s.cwd, &projects).and_then(|p| {
+            fork_spec(s, p, &self.store.agents, &self.agents, &self.efforts_on(&s.provider, s.model.as_deref().unwrap_or_default()), terminal.is_some())
+        }) else {
+            return;
+        };
         if let (Some(request), Some(place)) = (self.send_create(spec), terminal) {
             self.terminals.tab_terms.insert(request, place);
         }
@@ -123,7 +141,11 @@ impl Desktop {
     pub(super) fn row_menu_pop(&self, menu: &RowMenu, cx: &mut Context<Self>) -> AnyElement {
         let pop = ui::menu_in(
             "aside-menu-in",
-            ui::pop(div().id("aside-menu")).w(px(210.)).p(px(6.)).flex().flex_col()
+            ui::pop(div().id("aside-menu"))
+                .w(px(210.))
+                .p(px(6.))
+                .flex()
+                .flex_col()
                 .occlude()
                 .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                     this.row_menu = None;
@@ -184,7 +206,8 @@ impl Desktop {
     /// A group's rename, icons and delete.
     fn group_menu_items(&self, id: u32, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let Some(group) = self.store.sections.group(id) else { return vec![] };
-        let rename = ui::menu_row("aside-menu-rename", "compose", "Rename…", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_group_rename(id, window, cx)));
+        let rename = ui::menu_row("aside-menu-rename", "compose", "Rename…", None)
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_group_rename(id, window, cx)));
         let icons = EMOJI.iter().enumerate().map(|(i, &e)| {
             div()
                 .id(("aside-menu-icon", i))
@@ -358,11 +381,13 @@ impl Desktop {
                     let row = match item {
                         SessionItem::Pin(pin) => {
                             let id = id.clone();
-                            ui::menu_row("aside-menu-pin", "pin", if pin { "Pin" } else { "Unpin" }, None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.row_menu = None;
-                                this.outbox.pin(&id, pin);
-                                cx.notify();
-                            }))
+                            ui::menu_row("aside-menu-pin", "pin", if pin { "Pin" } else { "Unpin" }, None).on_click(cx.listener(
+                                move |this, _: &ClickEvent, _, cx| {
+                                    this.row_menu = None;
+                                    this.outbox.pin(&id, pin);
+                                    cx.notify();
+                                },
+                            ))
                         }
                         SessionItem::CopyPath => {
                             let cwd = s.cwd.clone();
@@ -388,10 +413,12 @@ impl Desktop {
                         }
                         SessionItem::Handoff(moving) => {
                             let id = id.clone();
-                            ui::menu_row("aside-menu-handoff", "server", crate::handoff::menu_label(moving), None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                this.row_menu = None;
-                                this.open_handoff(&id, window, cx);
-                            }))
+                            ui::menu_row("aside-menu-handoff", "server", crate::handoff::menu_label(moving), None).on_click(cx.listener(
+                                move |this, _: &ClickEvent, window, cx| {
+                                    this.row_menu = None;
+                                    this.open_handoff(&id, window, cx);
+                                },
+                            ))
                         }
                         SessionItem::Close => {
                             rows.push(ui::menu_divider().into_any_element());
@@ -459,7 +486,13 @@ mod tests {
         let resumable = Summary { provider_session_id: Some("s1".into()), ..fresh };
         assert_eq!(
             session_items(&resumable, false, &Agents::default(), true, None),
-            [SessionItem::Pin(true), SessionItem::CopyPath, SessionItem::CopyResume("cd '/w' && 'claude' --resume 's1'".into()), SessionItem::Fork, SessionItem::Close]
+            [
+                SessionItem::Pin(true),
+                SessionItem::CopyPath,
+                SessionItem::CopyResume("cd '/w' && 'claude' --resume 's1'".into()),
+                SessionItem::Fork,
+                SessionItem::Close
+            ]
         );
     }
 
@@ -477,7 +510,14 @@ mod tests {
 
     #[test]
     fn a_fork_starts_in_the_session_s_folder_with_its_model_and_effort() {
-        let s = Summary { provider: "claude".into(), cwd: "/w/tree".into(), provider_session_id: Some("s1".into()), model: Some("opus".into()), effort: Some("high".into()), ..Default::default() };
+        let s = Summary {
+            provider: "claude".into(),
+            cwd: "/w/tree".into(),
+            provider_session_id: Some("s1".into()),
+            model: Some("opus".into()),
+            effort: Some("high".into()),
+            ..Default::default()
+        };
         let claude = agents::providers::builtin_info("claude");
         let live = agents::Agents::default();
         let spec = fork_spec(&s, "/w", &Agents::default(), &live, &claude.efforts, false).unwrap();

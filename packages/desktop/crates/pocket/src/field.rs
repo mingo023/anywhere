@@ -73,7 +73,8 @@ impl Field {
                                 }
                                 Mark::Glyph { glyph, shade, alpha } => {
                                     let color = mix(soft, strong, shade).opacity(alpha);
-                                    let run = TextRun { len: glyph.len(), font: mono.clone(), color, background_color: None, underline: None, strikethrough: None };
+                                    let run =
+                                        TextRun { len: glyph.len(), font: mono.clone(), color, background_color: None, underline: None, strikethrough: None };
                                     let shaped = window.text_system().shape_line(glyph.into(), px(12.), &[run], None);
                                     let origin = point(px(x) - shaped.width / 2., px(y - CELL_H / 2.));
                                     shaped.paint(origin, px(CELL_H), TextAlign::Left, None, window, cx).ok();
@@ -154,9 +155,15 @@ impl Desktop {
 #[derive(Debug, PartialEq)]
 enum Mark {
     Hidden,
-    Dot { alpha: f32 },
+    Dot {
+        alpha: f32,
+    },
     /// `shade` runs from the soft colour (0) to the strong one (1).
-    Glyph { glyph: &'static str, shade: f32, alpha: f32 },
+    Glyph {
+        glyph: &'static str,
+        shade: f32,
+        alpha: f32,
+    },
 }
 
 /// The mark for a cell at map `level`, lit `glow` by the lens, and `mask` from 0 at the content to 1 clear of it.

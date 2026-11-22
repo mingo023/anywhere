@@ -3,8 +3,8 @@ mod paint;
 mod style;
 
 use super::launch;
-use crate::desktop::Desktop;
 use crate::chat::composer::hand_focus;
+use crate::desktop::Desktop;
 use crate::glide::Glide;
 use crate::models::effort_label;
 use effects::{EffortAnimation, Light};
@@ -201,7 +201,17 @@ impl EffortSlider {
         let since = self.was.map_or(f32::INFINITY, |(_, at)| now.saturating_duration_since(at).as_secs_f32() * 1000.);
         let was = self.was.and_then(|(w, _)| w);
         moving |= since < LABEL_MS;
-        Frame { thumb: self.thumb.at().clamp(0., 1.), lift: self.lift.at(), shown: self.shown, was, label: ease((since / LABEL_MS).min(1.)), lights, keyed: self.keyed, still: reduce_motion, moving }
+        Frame {
+            thumb: self.thumb.at().clamp(0., 1.),
+            lift: self.lift.at(),
+            shown: self.shown,
+            was,
+            label: ease((since / LABEL_MS).min(1.)),
+            lights,
+            keyed: self.keyed,
+            still: reduce_motion,
+            moving,
+        }
     }
 }
 
@@ -229,7 +239,14 @@ fn describe(level: &str) -> &'static str {
 
 /// The slider for `levels`, at `on` unless one was picked here, headed `word`, the agent's name for effort. Letting go
 /// of a drag, clicking a label, or a key hands the new level to `pick`; nothing is sent while a drag moves.
-pub(crate) fn effort_slider(id: &'static str, word: &'static str, (levels, on): (&[String], Option<&String>), slider: &Rc<RefCell<EffortSlider>>, pick: launch::Pick, cx: &mut Context<Desktop>) -> Stateful<Div> {
+pub(crate) fn effort_slider(
+    id: &'static str,
+    word: &'static str,
+    (levels, on): (&[String], Option<&String>),
+    slider: &Rc<RefCell<EffortSlider>>,
+    pick: launch::Pick,
+    cx: &mut Context<Desktop>,
+) -> Stateful<Div> {
     let now = Instant::now();
     let (frame, focus, about) = {
         let mut s = slider.borrow_mut();

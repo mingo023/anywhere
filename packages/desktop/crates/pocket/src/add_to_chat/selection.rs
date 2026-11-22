@@ -94,7 +94,9 @@ impl Desktop {
                 this.chat.pill = None;
                 cx.notify();
             }));
-        Some(deferred(anchored().position(at + point(px(0.), px(8.))).snap_to_window_with_margin(px(8.)).child(ui::pop(pill).rounded(px(12.)))).with_priority(2))
+        Some(
+            deferred(anchored().position(at + point(px(0.), px(8.))).snap_to_window_with_margin(px(8.)).child(ui::pop(pill).rounded(px(12.)))).with_priority(2),
+        )
     }
 
     pub(crate) fn chat_popover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {

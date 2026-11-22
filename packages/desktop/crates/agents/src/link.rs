@@ -1,6 +1,6 @@
+use crate::caps::CAPS;
 use crate::event::{Frame, automation_event, board_event, delegation_event, host_event, launch_event, names_event, registry_event};
 use crate::ids::PAIR;
-use crate::caps::CAPS;
 use crate::{Event, Outbox, hosts, queue};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use serde_json::{Value, json};
@@ -57,7 +57,15 @@ fn hello(token: Option<&str>) -> Value {
     hello
 }
 
-fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Receiver<Value>, unanswered: &mut Vec<Value>, requests: &mut Requests, stall: Duration) -> Option<()> {
+fn run(
+    sock: &Path,
+    token: Option<&str>,
+    tx: &UnboundedSender<Event>,
+    queue: &Receiver<Value>,
+    unanswered: &mut Vec<Value>,
+    requests: &mut Requests,
+    stall: Duration,
+) -> Option<()> {
     let stream = UnixStream::connect(sock).ok()?;
     stream.set_read_timeout(Some(stall)).ok()?;
     stream.set_write_timeout(Some(stall)).ok()?;
@@ -94,7 +102,17 @@ fn run(sock: &Path, token: Option<&str>, tx: &UnboundedSender<Event>, queue: &Re
         if !matches!(f.kind.as_str(), "agent.creating" | "agent.progress") {
             unanswered.retain(|m| m["id"] != f.id.as_str());
         }
-        if let Some(ev) = requests.answer(&f).or_else(|| launch_event(&f)).or_else(|| names_event(&f)).or_else(|| automation_event(&f)).or_else(|| board_event(&f)).or_else(|| registry_event(&f, &raw)).or_else(|| hosts::decode(&f.kind, &raw)).or_else(|| delegation_event(&f.kind, &raw)).or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries })) {
+        if let Some(ev) = requests
+            .answer(&f)
+            .or_else(|| launch_event(&f))
+            .or_else(|| names_event(&f))
+            .or_else(|| automation_event(&f))
+            .or_else(|| board_event(&f))
+            .or_else(|| registry_event(&f, &raw))
+            .or_else(|| hosts::decode(&f.kind, &raw))
+            .or_else(|| delegation_event(&f.kind, &raw))
+            .or_else(|| queue::decode(&f.kind, &raw).map(|(agent, entries)| Event::Queue { agent, entries }))
+        {
             tx.unbounded_send(ev).ok()?;
             continue;
         }
@@ -205,9 +223,9 @@ mod tests {
     use crate::Local;
     #[cfg(unix)]
     use std::os::unix::net::UnixListener;
+    use std::path::PathBuf;
     #[cfg(windows)]
     use uds_windows::UnixListener;
-    use std::path::PathBuf;
 
     type Ws = tungstenite::WebSocket<UnixStream>;
 
@@ -457,7 +475,8 @@ mod tests {
         requests.sent(&json!({"type": "agent.interrupt", "id": "interrupt-1", "agentId": "a1"}));
         requests.sent(&json!({"type": "agent.interrupt", "id": "interrupt-2", "agentId": "a2"}));
         assert!(requests.answer(&frame(json!({"type": "ack", "id": "interrupt-1"}))).is_none());
-        let refused = requests.answer(&frame(json!({"type": "error", "id": "interrupt-2", "code": "agent_resuming", "message": "This session is still resuming"})));
+        let refused =
+            requests.answer(&frame(json!({"type": "error", "id": "interrupt-2", "code": "agent_resuming", "message": "This session is still resuming"})));
         assert!(matches!(refused, Some(Event::InterruptFailed { agent, reason }) if agent == "a2" && reason == "This session is still resuming"));
     }
 
@@ -475,11 +494,16 @@ mod tests {
         sent.iter().for_each(|m| requests.sent(m));
         let refuse = |requests: &mut Requests, m: &Value| requests.answer(&frame(json!({"type": "error", "id": m["id"], "message": "No such entry"})));
         let got: Vec<_> = sent.iter().map(|m| refuse(&mut requests, m)).collect();
-        assert!(matches!(&got[0], Some(Event::QueueFailed { agent, reason, text }) if agent == "a1" && reason == "No such entry" && text.as_deref() == Some("fix lint too")));
+        assert!(
+            matches!(&got[0], Some(Event::QueueFailed { agent, reason, text }) if agent == "a1" && reason == "No such entry" && text.as_deref() == Some("fix lint too"))
+        );
         assert!(matches!(&got[1], Some(Event::QueueFailed { agent, text: None, .. }) if agent == "a1"));
         assert!(matches!(&got[2], Some(Event::QueueFailed { text: None, .. })));
         assert!(matches!(&got[3], Some(Event::QueueFailed { text: None, .. })));
-        assert!(matches!(&got[4], Some(Event::QueueFailed { agent, text, .. }) if agent == "a2" && text.as_deref() == Some("after this")), "{queued} is a queued send, not a prompt of the transcript");
+        assert!(
+            matches!(&got[4], Some(Event::QueueFailed { agent, text, .. }) if agent == "a2" && text.as_deref() == Some("after this")),
+            "{queued} is a queued send, not a prompt of the transcript"
+        );
     }
 
     #[test]

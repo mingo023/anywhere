@@ -79,7 +79,13 @@ pub fn marks(row: &GraphRow, commit: &GraphCommit, dot: Dot, expanded: bool) -> 
                 out.push(vline(x(i), 0., H, 1., lane.color));
             } else {
                 let (from, to) = (x(i), x(o));
-                let steps = vec![Step::Line(from, MID - CURVE), Step::Arc(CURVE, true, from - CURVE, MID), Step::Line(to + CURVE, MID), Step::Arc(CURVE, false, to, MID + CURVE), Step::Line(to, H)];
+                let steps = vec![
+                    Step::Line(from, MID - CURVE),
+                    Step::Arc(CURVE, true, from - CURVE, MID),
+                    Step::Line(to + CURVE, MID),
+                    Step::Arc(CURVE, false, to, MID + CURVE),
+                    Step::Line(to, H),
+                ];
                 out.push(Mark::Curve { from: (from, 0.), steps, color: lane.color });
             }
             o += 1;

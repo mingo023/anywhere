@@ -88,7 +88,14 @@ mod tests {
     #[test]
     fn a_project_the_space_lacks_blocks_the_send_and_no_project_starts_on_any_space() {
         assert_eq!(blocker(Some("/me/app-android"), &host("devbox"), Reach::Online), Some(Blocker::Elsewhere));
-        assert_eq!([blocker(Some("//devbox/code/api"), &host("devbox"), Reach::Online), blocker(None, &Space::Local, Reach::Online), blocker(None, &host("devbox"), Reach::Online)], [None, None, None]);
+        assert_eq!(
+            [
+                blocker(Some("//devbox/code/api"), &host("devbox"), Reach::Online),
+                blocker(None, &Space::Local, Reach::Online),
+                blocker(None, &host("devbox"), Reach::Online)
+            ],
+            [None, None, None]
+        );
     }
 
     #[test]

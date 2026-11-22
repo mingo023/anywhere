@@ -43,7 +43,13 @@ impl Desktop {
                 .border_1()
                 .border_color(SEPARATOR)
                 .text_color(TEXT_2)
-                .map(|d| if prose { d.text_size(px(12.5)).line_height(px(18.)) } else { d.font_family(MONO).text_size(px(11.5)).line_height(px(16.)).whitespace_nowrap() })
+                .map(|d| {
+                    if prose {
+                        d.text_size(px(12.5)).line_height(px(18.))
+                    } else {
+                        d.font_family(MONO).text_size(px(11.5)).line_height(px(16.)).whitespace_nowrap()
+                    }
+                })
                 .child(quote.excerpt())
         });
         let field = div().px(px(16.)).py(px(10.)).text_size(px(14.5)).line_height(px(21.75)).child(Textarea::new(&self.chat.input).appearance(false));
@@ -52,7 +58,8 @@ impl Desktop {
             .child(ui::button_kbd("⌘↵"))
             .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_to_input(window, cx))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
-        let cancel = ui::button("chat-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_chat(window, cx)));
+        let cancel = ui::button("chat-cancel", Variant::Secondary, None, "Cancel")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel_chat(window, cx)));
         let foot = div()
             .px(px(12.))
             .pt(px(10.))

@@ -1,10 +1,10 @@
 use super::catalog::{Look, Setting};
 use super::models::count_line;
-use crate::models::not_found;
-use agents::providers;
 use crate::desktop::Desktop;
+use crate::models::not_found;
 use crate::status::Status;
 use crate::util::tilde;
+use agents::providers;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::LaunchPick;
@@ -23,28 +23,66 @@ pub(super) const ROWS: &[Setting] = &[
     .hint("Starts in a project that hasn't picked one, and in new agent tabs")
     .offers(offered_provider)
     .shows(|s, live| index_of(s.agents.default_agent(live))),
-    Setting::choice("permission-mode", NEW, "Permission mode", &["Agent's settings", "Ask", "Edits", "Auto", "Full"], Look::Segmented, |s| access_index(s.agents.access()), |s, i| {
-        s.agents.access = ACCESSES[i].into()
-    })
+    Setting::choice(
+        "permission-mode",
+        NEW,
+        "Permission mode",
+        &["Agent's settings", "Ask", "Edits", "Auto", "Full"],
+        Look::Segmented,
+        |s| access_index(s.agents.access()),
+        |s, i| s.agents.access = ACCESSES[i].into(),
+    )
     .hint("Agent's settings uses the agent's own config. Full skips every approval"),
     Setting::switch("plan-mode", NEW, "Start in plan mode", |s| s.agents.plan, |s, on| s.agents.plan = on).hint("For providers that support plan mode"),
     Setting::switch("start-as-chat", NEW, "Start as a chat", |s| s.agents.start_as_chat, |s, on| s.agents.start_as_chat = on)
         .hint("Experimental. New chat in a tab's + menu always starts one"),
-    Setting::choice("runs-in", NEW, "Runs in", &["Local", "Worktree"], Look::Segmented, |s| s.agents.new_worktree as usize, |s, i| s.agents.new_worktree = i == 1)
-        .hint("A new worktree keeps the agent's edits off your branch"),
-    Setting::choice("agent-exits", "Tabs", "When an agent exits", &["Return to shell", "Close tab"], Look::Segmented, |s| s.agents.close_on_exit as usize, |s, i| {
-        s.agents.close_on_exit = i == 1
-    }),
-    Setting::choice("new-tabs-open", "Tabs", "New tabs and splits open", &["Shell", "Default agent"], Look::Segmented, |s| s.agents.tabs_open_agent as usize, |s, i| {
-        s.agents.tabs_open_agent = i == 1
-    }),
-    Setting::choice("add-to-chat", "Composer", "\u{201c}Add to chat\u{201d}", &["Send now", "Paste only"], Look::Segmented, |s| (!s.agents.send_now) as usize, |s, i| {
-        s.agents.send_now = i == 0
-    })
+    Setting::choice(
+        "runs-in",
+        NEW,
+        "Runs in",
+        &["Local", "Worktree"],
+        Look::Segmented,
+        |s| s.agents.new_worktree as usize,
+        |s, i| s.agents.new_worktree = i == 1,
+    )
+    .hint("A new worktree keeps the agent's edits off your branch"),
+    Setting::choice(
+        "agent-exits",
+        "Tabs",
+        "When an agent exits",
+        &["Return to shell", "Close tab"],
+        Look::Segmented,
+        |s| s.agents.close_on_exit as usize,
+        |s, i| s.agents.close_on_exit = i == 1,
+    ),
+    Setting::choice(
+        "new-tabs-open",
+        "Tabs",
+        "New tabs and splits open",
+        &["Shell", "Default agent"],
+        Look::Segmented,
+        |s| s.agents.tabs_open_agent as usize,
+        |s, i| s.agents.tabs_open_agent = i == 1,
+    ),
+    Setting::choice(
+        "add-to-chat",
+        "Composer",
+        "\u{201c}Add to chat\u{201d}",
+        &["Send now", "Paste only"],
+        Look::Segmented,
+        |s| (!s.agents.send_now) as usize,
+        |s, i| s.agents.send_now = i == 0,
+    )
     .hint("Paste only lets you edit before sending"),
-    Setting::choice("add-to-chat-to", "Composer", "Send \u{201c}Add to chat\u{201d} to", &["Focused session", "Most recent agent", "Ask each time"], Look::Dropdown, |s| chat_to_index(s.agents.chat_to()), |s, i| {
-        s.agents.chat_to = CHAT_TO[i].into()
-    })
+    Setting::choice(
+        "add-to-chat-to",
+        "Composer",
+        "Send \u{201c}Add to chat\u{201d} to",
+        &["Focused session", "Most recent agent", "Ask each time"],
+        Look::Dropdown,
+        |s| chat_to_index(s.agents.chat_to()),
+        |s, i| s.agents.chat_to = CHAT_TO[i].into(),
+    )
     .advanced(),
 ];
 
@@ -123,7 +161,16 @@ impl Desktop {
         let (default, listed) = (self.store.agents.default_agent(&self.agents), listed_providers(&self.agents));
         let rows = LaunchPick::PROVIDERS.into_iter().enumerate().filter(|(_, p)| listed.contains(p)).enumerate().map(|(row, (i, p))| {
             let (on, installed) = (!self.store.agents.disabled.contains(p), self.installed(p));
-            let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(p, 15., TEXT)).when(!installed, |d| d.opacity(0.5));
+            let tile = div()
+                .size(px(28.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(7.))
+                .bg(FILL_2)
+                .child(provider_icon(p, 15., TEXT))
+                .when(!installed, |d| d.opacity(0.5));
             let name = div()
                 .flex()
                 .items_center()
@@ -135,14 +182,23 @@ impl Desktop {
                 .when(p == default, |d| d.child(div().px(px(5.)).rounded(px(4.)).bg(FILL_3).text_size(px(10.5)).text_color(TEXT_2).child("Default")));
             let models = Some(self.models_of(p).len()).filter(|n| *n > 0);
             let line = provider_line(p, installed, models, self.settings.host.status.as_ref().and_then(|s| s.providers.get(p)).map(String::as_str));
-            let text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(name).child(div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(line));
+            let text = div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .child(name)
+                .child(div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(line));
             let toggle = installed.then(|| {
-                div().id(("provider-enabled", i)).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    toggle_enabled(&mut this.store.agents, p, &this.agents);
-                    this.save_soon(cx);
-                    cx.notify();
-                }))
+                div().id(("provider-enabled", i)).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        toggle_enabled(&mut this.store.agents, p, &this.agents);
+                        this.save_soon(cx);
+                        cx.notify();
+                    },
+                ))
             });
             div()
                 .id(("provider", i))
@@ -188,14 +244,21 @@ mod tests {
     }
 
     fn pocketd(named: &[(&str, bool)]) -> agents::Agents {
-        agents::Agents { providers: named.iter().map(|(id, available)| ProviderInfo { id: (*id).into(), available: *available, ..Default::default() }).collect(), ..Default::default() }
+        agents::Agents {
+            providers: named.iter().map(|(id, available)| ProviderInfo { id: (*id).into(), available: *available, ..Default::default() }).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn settings_list_an_agent_only_when_pocketd_named_it() {
         assert_eq!(listed_providers(&agents::Agents::default()), ["claude", "codex"], "a pocketd that names none, as one older than the other agents");
         assert_eq!(listed_providers(&pocketd(&[("claude", true)])), ["claude", "codex"]);
-        assert_eq!(listed_providers(&pocketd(&[("claude", true), ("codex", false), ("pi", false), ("hermes", true)])), ["claude", "codex", "pi", "hermes"], "found or not");
+        assert_eq!(
+            listed_providers(&pocketd(&[("claude", true), ("codex", false), ("pi", false), ("hermes", true)])),
+            ["claude", "codex", "pi", "hermes"],
+            "found or not"
+        );
     }
 
     #[test]
@@ -226,7 +289,10 @@ mod tests {
 
     #[test]
     fn a_provider_that_is_not_installed_says_how_to_install_it() {
-        assert_eq!(provider_line("grok", false, Some(2), Some("")), "Grok Build not found (curl -fsSL https://x.ai/cli/install.sh | bash). Install it, or restart Anywhere if it is already installed.");
+        assert_eq!(
+            provider_line("grok", false, Some(2), Some("")),
+            "Grok Build not found (curl -fsSL https://x.ai/cli/install.sh | bash). Install it, or restart Anywhere if it is already installed."
+        );
     }
 
     #[test]

@@ -15,7 +15,14 @@ pub(crate) fn recap(items: &[Item]) -> Recap {
     let own: Vec<&Item> = items.iter().filter(|i| i.parent_tool_use_id.is_none()).collect();
     let from = own.iter().rposition(|i| i.is_prompt()).unwrap_or(0);
     let turn = &own[from.min(own.len())..];
-    let paths = |kinds: &[&str]| turn.iter().filter_map(|i| i.call.as_ref()).filter(|c| kinds.contains(&c.detail.kind.as_str())).map(|c| c.detail.path.as_str()).collect::<BTreeSet<_>>().len();
+    let paths = |kinds: &[&str]| {
+        turn.iter()
+            .filter_map(|i| i.call.as_ref())
+            .filter(|c| kinds.contains(&c.detail.kind.as_str()))
+            .map(|c| c.detail.path.as_str())
+            .collect::<BTreeSet<_>>()
+            .len()
+    };
     Recap {
         asked: turn.first().filter(|i| i.kind == "user").map(|i| i.text.clone()).unwrap_or_default(),
         read: paths(&["read"]),
@@ -34,7 +41,11 @@ mod tests {
     }
 
     fn tool(kind: &str, path: &str) -> Item {
-        Item { kind: "tool".into(), call: Some(Call { detail: Detail { kind: kind.into(), path: path.into(), ..Detail::default() }, ..Call::default() }), ..Item::default() }
+        Item {
+            kind: "tool".into(),
+            call: Some(Call { detail: Detail { kind: kind.into(), path: path.into(), ..Detail::default() }, ..Call::default() }),
+            ..Item::default()
+        }
     }
 
     #[test]
@@ -46,7 +57,19 @@ mod tests {
 
     #[test]
     fn a_recap_tells_only_the_last_turn() {
-        let items = [said("user", "old"), tool("read", "a.rs"), said("assistant", "old answer"), said("user", "fix it"), tool("read", "b.rs"), tool("read", "b.rs"), tool("read", "c.rs"), tool("edit", "b.rs"), tool("write", "d.rs"), said("assistant", "thinking"), said("assistant", "Fixed.")];
+        let items = [
+            said("user", "old"),
+            tool("read", "a.rs"),
+            said("assistant", "old answer"),
+            said("user", "fix it"),
+            tool("read", "b.rs"),
+            tool("read", "b.rs"),
+            tool("read", "c.rs"),
+            tool("edit", "b.rs"),
+            tool("write", "d.rs"),
+            said("assistant", "thinking"),
+            said("assistant", "Fixed."),
+        ];
         assert_eq!(recap(&items), Recap { asked: "fix it".into(), read: 2, edited: 2, said: "Fixed.".into() });
     }
 

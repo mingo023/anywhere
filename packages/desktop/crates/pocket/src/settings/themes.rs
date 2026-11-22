@@ -58,7 +58,8 @@ pub(super) const NIGHT: Setting = Setting::custom("theme-night", "Theme", "Night
     .under(follows_macos)
     .resets(|s| name(&[], s.appearance.night.as_deref().unwrap_or(GRAPHITE_DARK)), |s, d| s.appearance.night = d.appearance.night.clone())
     .effect(apply);
-pub(super) const CUSTOM: Setting = Setting::custom("custom-themes", "Theme", "Custom themes", custom_themes).hint("Import a theme file, or start from one on GitHub");
+pub(super) const CUSTOM: Setting =
+    Setting::custom("custom-themes", "Theme", "Custom themes", custom_themes).hint("Import a theme file, or start from one on GitHub");
 
 fn follows_macos(s: &Store) -> bool {
     chosen(&s.appearance) == SYSTEM
@@ -71,9 +72,11 @@ fn apply(d: &mut Desktop, cx: &mut Context<Desktop>) {
 /// The menu's rows: System where either appearance will do, then the built-in and the imported themes under their groups.
 fn menu(custom: &[Custom], only: Option<bool>) -> Vec<Row> {
     let wanted = |dark: bool| only.is_none_or(|only| only == dark);
-    let built_in = |dark: bool| presets().iter().filter(|p| p.theme.dark == dark).map(|p| Choice { value: p.id.into(), label: p.theme.name.clone() }).collect::<Vec<_>>();
+    let built_in =
+        |dark: bool| presets().iter().filter(|p| p.theme.dark == dark).map(|p| Choice { value: p.id.into(), label: p.theme.name.clone() }).collect::<Vec<_>>();
     let system = only.is_none().then(|| (None, vec![Choice { value: SYSTEM.into(), label: "System".into() }]));
-    let groups = [("Light", false), ("Dark", true)].into_iter().filter(|(_, dark)| wanted(*dark)).map(|(group, dark)| (Some(group.to_string()), built_in(dark)));
+    let groups =
+        [("Light", false), ("Dark", true)].into_iter().filter(|(_, dark)| wanted(*dark)).map(|(group, dark)| (Some(group.to_string()), built_in(dark)));
     let imported: Vec<Choice> = custom.iter().filter(|c| wanted(c.theme.dark)).map(|c| Choice { value: c.id(), label: c.theme.name.clone() }).collect();
     grouped(system.into_iter().chain(groups).chain((!imported.is_empty()).then(|| (Some("Custom".to_string()), imported))))
 }
@@ -99,7 +102,8 @@ fn chip(t: &Theme) -> Div {
 
 /// System drawn small: the day theme's window beside the night theme's.
 fn system_chip(a: &Appearance, custom: &[Custom]) -> Div {
-    let half = |dark: bool| div().flex_1().h_full().children(find(custom, system_theme(a, custom, dark)).map(|t| div().size_full().bg(rgba(t.color(WINDOW_SOLID)))));
+    let half =
+        |dark: bool| div().flex_1().h_full().children(find(custom, system_theme(a, custom, dark)).map(|t| div().size_full().bg(rgba(t.color(WINDOW_SOLID)))));
     div().size(px(18.)).flex_none().flex().rounded(px(5.)).overflow_hidden().shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(half(false)).child(half(true))
 }
 
@@ -156,10 +160,18 @@ fn custom_themes(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<De
                 .child(div().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(c.theme.name.clone()))
                 .child(div().flex_1().text_size(px(12.)).text_color(TEXT_3).child(if c.theme.dark { "Dark" } else { "Light" }))
                 .when(in_use(a, custom, &c.id()), |d| d.child(ui::tag("In use")))
-                .child(ui::icon_button_sized(("theme-remove", i), "trash", 24., TEXT_3).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_theme(&slug, cx))))
+                .child(
+                    ui::icon_button_sized(("theme-remove", i), "trash", 24., TEXT_3)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_theme(&slug, cx))),
+                )
         })
         .collect();
-    div().flex().flex_col().child(row(setting.label, setting.hint, div().flex().items_center().gap(px(6.)).child(starter).child(import))).children(error).children(imported)
+    div()
+        .flex()
+        .flex_col()
+        .child(row(setting.label, setting.hint, div().flex().items_center().gap(px(6.)).child(starter).child(import)))
+        .children(error)
+        .children(imported)
 }
 
 #[cfg(test)]
@@ -198,7 +210,10 @@ mod tests {
     #[test]
     fn day_and_night_offer_only_themes_of_their_appearance() {
         let mine = [custom("Sun", false), custom("Moon", true)];
-        assert_eq!(lines(&menu(&mine, Holds::Day.only())), ["# Light", "Graphite Light = graphite-light", "GitHub Light = github-light", "Solarized Light = solarized-light", "# Custom", "Sun = custom/sun"]);
+        assert_eq!(
+            lines(&menu(&mine, Holds::Day.only())),
+            ["# Light", "Graphite Light = graphite-light", "GitHub Light = github-light", "Solarized Light = solarized-light", "# Custom", "Sun = custom/sun"]
+        );
         let night = lines(&menu(&mine, Holds::Night.only()));
         assert_eq!((night[0].as_str(), night.len(), night.last().unwrap().as_str()), ("# Dark", 8, "Moon = custom/moon"));
     }
@@ -229,7 +244,13 @@ mod tests {
         let mut store = Store::default();
         let values = |store: &Store| ROWS[..3].iter().map(|r| r.value(store).unwrap()).collect::<Vec<_>>();
         assert_eq!(values(&store), ["System", "Graphite Light", "Graphite Dark"]);
-        store.appearance = Appearance { mode: Mode::Dark, theme: Some("custom/mine".into()), day: Some("solarized-light".into()), night: Some("dracula".into()), ..Appearance::default() };
+        store.appearance = Appearance {
+            mode: Mode::Dark,
+            theme: Some("custom/mine".into()),
+            day: Some("solarized-light".into()),
+            night: Some("dracula".into()),
+            ..Appearance::default()
+        };
         assert_eq!(values(&store), ["mine", "Solarized Light", "Dracula"]);
         crate::settings::catalog::reset(ROWS, &mut store);
         assert_eq!(values(&store), ["System", "Graphite Light", "Graphite Dark"]);

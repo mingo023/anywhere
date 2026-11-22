@@ -41,12 +41,8 @@ impl Fs {
     /// One folder's entries on a host, `(is_dir, key)`, filtered and sorted as `files` asks.
     pub fn list(&self, dir: &Path, files: &store::prefs::files::Files) -> io::Result<Vec<(bool, PathBuf)>> {
         let Fs::Remote(c) = self else { return Err(not_connected()) };
-        let mut entries: Vec<(bool, PathBuf)> = c
-            .list(&text(dir))?
-            .into_iter()
-            .filter(|e| files.shows(&e.name) && !(files.hide_ignored && e.ignored))
-            .map(|e| (e.dir, dir.join(e.name)))
-            .collect();
+        let mut entries: Vec<(bool, PathBuf)> =
+            c.list(&text(dir))?.into_iter().filter(|e| files.shows(&e.name) && !(files.hide_ignored && e.ignored)).map(|e| (e.dir, dir.join(e.name))).collect();
         files.sort(&mut entries);
         Ok(entries)
     }

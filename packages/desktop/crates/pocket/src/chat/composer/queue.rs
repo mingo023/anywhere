@@ -21,7 +21,18 @@ pub(super) fn waiting(sends: &[Pending]) -> Vec<&Pending> {
 
 /// The place in the order it goes.
 fn number(n: usize) -> Div {
-    div().size(px(18.)).flex_none().flex().items_center().justify_center().rounded_full().bg(FILL_4).text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_3).child((n + 1).to_string())
+    div()
+        .size(px(18.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(FILL_4)
+        .text_size(px(10.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(TEXT_3)
+        .child((n + 1).to_string())
 }
 
 fn header_note(paused: bool, held: bool) -> &'static str {
@@ -145,10 +156,22 @@ impl Desktop {
                 .gap(px(8.))
                 .text_size(px(13.))
                 .child(number(n))
-                .child(div().flex_1().min_w_0().truncate().text_color(if e.origin == "user" { TEXT_BODY } else { TEXT_3 }).child(e.text.lines().next().unwrap_or_default().to_string()))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(if e.origin == "user" { TEXT_BODY } else { TEXT_3 })
+                        .child(e.text.lines().next().unwrap_or_default().to_string()),
+                )
                 .children(controls)
         };
-        Some(surface().child(header).children(entries.iter().enumerate().map(entry_row)).children(rows.iter().enumerate().map(|(n, p)| row((entries.len() + n, p)))))
+        Some(
+            surface()
+                .child(header)
+                .children(entries.iter().enumerate().map(entry_row))
+                .children(rows.iter().enumerate().map(|(n, p)| row((entries.len() + n, p)))),
+        )
     }
 
     fn entry_do(&mut self, agent: &str, entry: &str, send: impl FnOnce(&Self)) {

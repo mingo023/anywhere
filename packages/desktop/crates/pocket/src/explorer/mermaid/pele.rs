@@ -92,7 +92,12 @@ fn measure(font: &str, text: &str) -> f64 {
     let mono = font.contains("monospace");
     let mut families: Vec<Family> = if mono { &MONO[..] } else { &SANS[..] }.iter().map(|n| Family::Name(n)).collect();
     families.push(if mono { Family::Monospace } else { Family::SansSerif });
-    let query = Query { families: &families, weight: if font.contains("bold") { Weight::BOLD } else { Weight::NORMAL }, style: if font.contains("italic") { Style::Italic } else { Style::Normal }, ..Query::default() };
+    let query = Query {
+        families: &families,
+        weight: if font.contains("bold") { Weight::BOLD } else { Weight::NORMAL },
+        style: if font.contains("italic") { Style::Italic } else { Style::Normal },
+        ..Query::default()
+    };
     let db = &super::USVG.fontdb;
     let width = db.query(&query).and_then(|id| {
         db.with_face_data(id, |data, index| {
@@ -190,7 +195,8 @@ pub(super) fn resolve(svg: &str, canvas: u32, dark: bool) -> String {
     let aliases: Vec<(&str, &str)> = root_style(&svg).split(';').filter_map(|d| d.split_once(':')).filter(|(n, _)| n.starts_with("--_")).collect();
     let svg = substitute(&svg, |name| aliases.iter().find(|(n, _)| *n == name).map(|(_, v)| v.to_string()));
     // resvg misreads the root's font, falling back to serif; nothing else in that style is read once resolved.
-    let svg = svg.replacen(&format!("style=\"{}\"", root_style(&svg)), &format!("font-family=\"{}\" font-size=\"{FONT_SIZE}\"", family(&SANS, "sans-serif")), 1);
+    let svg =
+        svg.replacen(&format!("style=\"{}\"", root_style(&svg)), &format!("font-family=\"{}\" font-size=\"{FONT_SIZE}\"", family(&SANS, "sans-serif")), 1);
     // Pele leaves the background to the page; the raster carries it.
     let body = svg.find('>').map_or(0, |i| i + 1);
     format!("{}<rect width=\"100%\" height=\"100%\" fill=\"{}\"/>{}", &svg[..body], css(rgb(canvas)), &svg[body..])

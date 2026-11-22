@@ -102,6 +102,9 @@ mod tests {
         assert_eq!(custom(" https://search.brave.com/search?q=%s ").search_url(), "https://search.brave.com/search?q=%s");
         assert_eq!(custom("https://search.brave.com/search?q=").search_url(), Engine::Google.template());
         assert_eq!(custom("search.brave.com/?q=%s").search_url(), Engine::Google.template());
-        assert_eq!(Browser { engine: Engine::Kagi, custom_search: "https://x.com/?q=%s".into(), ..Browser::default() }.search_url(), "https://kagi.com/search?q=%s");
+        assert_eq!(
+            Browser { engine: Engine::Kagi, custom_search: "https://x.com/?q=%s".into(), ..Browser::default() }.search_url(),
+            "https://kagi.com/search?q=%s"
+        );
     }
 }

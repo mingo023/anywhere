@@ -21,7 +21,19 @@ pub(crate) fn tag(label: String, tone: Tone) -> Div {
         Tone::Warn => (WAITING_BG, WAITING_TEXT),
         Tone::Bad => (FAILED_BG, FAILED_TEXT),
     };
-    div().h(px(18.)).px(px(6.)).flex().flex_none().items_center().rounded(px(5.)).bg(bg).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(ink).whitespace_nowrap().child(label)
+    div()
+        .h(px(18.))
+        .px(px(6.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .rounded(px(5.))
+        .bg(bg)
+        .text_size(px(11.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(ink)
+        .whitespace_nowrap()
+        .child(label)
 }
 
 fn meter(label: &'static str, w: &daemon::Window, stale: bool, now: i64) -> Div {
@@ -32,7 +44,8 @@ fn meter(label: &'static str, w: &daemon::Window, stale: bool, now: i64) -> Div 
         Tone::Warn => (WAITING, WAITING_TEXT),
         _ => (TEXT_3, TEXT_2),
     };
-    let track = div().flex_1().h(px(5.)).rounded(px(3.)).bg(FILL_4).overflow_hidden().child(div().h_full().w(relative(percent as f32 / 100.)).rounded(px(3.)).bg(fill));
+    let track =
+        div().flex_1().h(px(5.)).rounded(px(3.)).bg(FILL_4).overflow_hidden().child(div().h_full().w(relative(percent as f32 / 100.)).rounded(px(3.)).bg(fill));
     div()
         .flex()
         .items_center()
@@ -49,7 +62,8 @@ fn meter(label: &'static str, w: &daemon::Window, stale: bool, now: i64) -> Div 
 fn meters(a: &Account, now: i64) -> Div {
     let usage = a.usage.as_ref();
     let stale = usage.is_some_and(|u| u.stale);
-    let windows = usage.into_iter().flat_map(|u| [("5h", &u.session), ("Week", &u.week)]).filter_map(|(label, w)| w.as_ref().map(|w| meter(label, w, stale, now)));
+    let windows =
+        usage.into_iter().flat_map(|u| [("5h", &u.session), ("Week", &u.week)]).filter_map(|(label, w)| w.as_ref().map(|w| meter(label, w, stale, now)));
     div().w(px(228.)).flex_none().flex().flex_col().gap(px(5.)).children(windows.collect::<Vec<_>>())
 }
 
@@ -64,10 +78,20 @@ impl Desktop {
         let reload = if checking {
             div().size(px(26.)).flex().items_center().justify_center().child(spinner("accounts-checking", 14., TEXT_3)).into_any_element()
         } else {
-            ui::icon_button_sized("accounts-reload", "reload", 26., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_accounts(cx))).into_any_element()
+            ui::icon_button_sized("accounts-reload", "reload", 26., TEXT_3)
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_accounts(cx)))
+                .into_any_element()
         };
-        let toolbar = div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_3).child(accounts::checked(checking, self.accounts.checked_at, now)).child(reload);
-        let machines: Vec<Host> = std::iter::once(None).chain(self.fleet.hosts.list.iter().map(|h| Some(h.id.clone()))).filter(|h| self.accounts.lists.contains_key(h)).collect();
+        let toolbar = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .text_size(px(12.))
+            .text_color(TEXT_3)
+            .child(accounts::checked(checking, self.accounts.checked_at, now))
+            .child(reload);
+        let machines: Vec<Host> =
+            std::iter::once(None).chain(self.fleet.hosts.list.iter().map(|h| Some(h.id.clone()))).filter(|h| self.accounts.lists.contains_key(h)).collect();
         let groups = machines.into_iter().map(|host| {
             let title = host.as_deref().map_or_else(|| "This Mac".into(), |id| self.host_name(id));
             let auto = self.accounts.auto_switch.contains_key(&host).then(|| self.auto_switch_row(&host, cx));
@@ -86,12 +110,19 @@ impl Desktop {
         let list = self.accounts.list(host);
         let many = LaunchPick::PROVIDERS.into_iter().any(|p| accounts::shared(list, p));
         let on = many && self.accounts.auto_switch.get(host) == Some(&true);
-        let hint = if many { "A session that hits its limit resumes on the account with the most left" } else { "Add a second account of the same agent to switch between them" };
+        let hint = if many {
+            "A session that hits its limit resumes on the account with the most left"
+        } else {
+            "Add a second account of the same agent to switch between them"
+        };
         let id = SharedString::from(format!("accounts-auto-{}", host.as_deref().unwrap_or_default()));
         let host = host.clone();
-        let toggle = div().id(id).flex_none().child(ui::toggle("switch", on)).when(!many, |d| d.opacity(0.45)).when(many, |d| {
-            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_auto_switch(host.clone(), !on, cx)))
-        });
+        let toggle = div()
+            .id(id)
+            .flex_none()
+            .child(ui::toggle("switch", on))
+            .when(!many, |d| d.opacity(0.45))
+            .when(many, |d| d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_auto_switch(host.clone(), !on, cx))));
         row("Switch accounts at a limit", Some(hint), toggle)
     }
 
@@ -106,9 +137,9 @@ impl Desktop {
             }
             let key = Key { host: host.clone(), provider: provider.into(), id: String::new() };
             let signing = self.accounts.signins.iter().position(|s| s.on(host, provider));
-            let add = action(SharedString::from(format!("account-add-{}-{provider}", host.as_deref().unwrap_or_default())), "Add account").when(signing.is_some(), |d| d.opacity(0.45).cursor_default()).when(signing.is_none(), |d| {
-                d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx)))
-            });
+            let add = action(SharedString::from(format!("account-add-{}-{provider}", host.as_deref().unwrap_or_default())), "Add account")
+                .when(signing.is_some(), |d| d.opacity(0.45).cursor_default())
+                .when(signing.is_none(), |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx))));
             rows.push(
                 div()
                     .px(px(14.))
@@ -149,13 +180,17 @@ impl Desktop {
         };
         let tags = accounts::tags(a, shared, now, &Local).into_iter().map(|(label, tone)| tag(label, tone));
         let line = div().flex().items_center().gap(px(6.)).min_w_0().child(title).children(tags.collect::<Vec<_>>());
-        let sub = div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(accounts::subline(a, provider_name(&a.provider), &self.machine_name(host)));
+        let sub =
+            div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(accounts::subline(a, provider_name(&a.provider), &self.machine_name(host)));
         let who = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(line).child(sub);
         let side = if a.signed_in {
             meters(a, now)
         } else {
             let key = key.clone();
-            div().w(px(228.)).flex_none().flex().justify_end().child(action(SharedString::from(format!("{id}-sign-in")), "Sign in\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx))))
+            div().w(px(228.)).flex_none().flex().justify_end().child(
+                action(SharedString::from(format!("{id}-sign-in")), "Sign in\u{2026}")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx))),
+            )
         };
         let open = self.accounts.menu.as_ref() == Some(&key);
         let toggle = key.clone();
@@ -169,10 +204,24 @@ impl Desktop {
         );
         let menu = open.then(|| self.account_menu(&id, key.clone(), a, name, cx));
         let can_default = !a.default && a.signed_in;
-        let radio = div().id(SharedString::from(format!("{id}-default"))).flex_none().child(ui::radio(a.default)).when(!a.signed_in, |d| d.opacity(0.35)).when(can_default, |d| {
-            d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.account_op(key.host.clone(), key.op("accounts.default"), cx)))
-        });
-        div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(16.)).child(radio).child(who).child(side).child(div().relative().flex_none().child(more).children(menu.map(|m| ui::dropdown_right(30., m))))
+        let radio = div()
+            .id(SharedString::from(format!("{id}-default")))
+            .flex_none()
+            .child(ui::radio(a.default))
+            .when(!a.signed_in, |d| d.opacity(0.35))
+            .when(can_default, |d| {
+                d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.account_op(key.host.clone(), key.op("accounts.default"), cx)))
+            });
+        div()
+            .px(px(14.))
+            .py(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(16.))
+            .child(radio)
+            .child(who)
+            .child(side)
+            .child(div().relative().flex_none().child(more).children(menu.map(|m| ui::dropdown_right(30., m))))
     }
 
     fn account_menu(&mut self, id: &SharedString, key: Key, a: &Account, name: String, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -190,7 +239,8 @@ impl Desktop {
             }))
         } else {
             let key = key.clone();
-            ui::menu_row(SharedString::from(format!("{id}-sign-in-menu")), "arrow-right", "Sign in\u{2026}", None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx)))
+            ui::menu_row(SharedString::from(format!("{id}-sign-in-menu")), "arrow-right", "Sign in\u{2026}", None)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx)))
         };
         let why = match a.running {
             _ if a.id == BUILT_IN => Some("The built-in login stays. Sign out instead.".to_string()),
@@ -200,11 +250,13 @@ impl Desktop {
         };
         let remove = match why {
             Some(_) => menu_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}", false),
-            None => ui::danger_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.accounts.menu = None;
-                (this.confirm, this.overlay) = (Some(Confirm::RemoveAccount { key: key.clone(), name: name.clone() }), Some(Overlay::Confirm));
-                cx.notify();
-            })),
+            None => ui::danger_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}").on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.accounts.menu = None;
+                    (this.confirm, this.overlay) = (Some(Confirm::RemoveAccount { key: key.clone(), name: name.clone() }), Some(Overlay::Confirm));
+                    cx.notify();
+                },
+            )),
         };
         let why = why.map(|w| div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child(w));
         let rows = div().children(rename).when(a.id != BUILT_IN, |d| d.child(ui::menu_divider())).child(sign).child(remove).children(why);
@@ -219,12 +271,16 @@ impl Desktop {
     fn pending_row(&mut self, host: &Host, a: &Account, cx: &mut Context<Self>) -> Div {
         let row = div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(10.)).text_size(px(12.5));
         if a.error.is_empty() {
-            return row.child(spinner(SharedString::from(format!("account-pending-{}", a.id)), 13., TEXT_3)).child(div().text_color(TEXT_2).child("Signing in\u{2026}"));
+            return row
+                .child(spinner(SharedString::from(format!("account-pending-{}", a.id)), 13., TEXT_3))
+                .child(div().text_color(TEXT_2).child("Signing in\u{2026}"));
         }
         let key = Key::of(host, a);
         let again = Key { id: String::new(), ..key.clone() };
-        let retry = action(SharedString::from(format!("account-retry-{}", a.id)), "Try again").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(again.clone(), window, cx)));
-        let dismiss = action(SharedString::from(format!("account-dismiss-{}", a.id)), "Dismiss").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.account_op(key.host.clone(), key.op("accounts.remove"), cx)));
+        let retry = action(SharedString::from(format!("account-retry-{}", a.id)), "Try again")
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(again.clone(), window, cx)));
+        let dismiss = action(SharedString::from(format!("account-dismiss-{}", a.id)), "Dismiss")
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.account_op(key.host.clone(), key.op("accounts.remove"), cx)));
         row.child(icon("warning", 13., FAILED)).child(div().flex_1().min_w_0().text_color(FAILED_TEXT).child(a.error.clone())).child(retry).child(dismiss)
     }
 
@@ -233,10 +289,16 @@ impl Desktop {
         let s = &self.accounts.signins[i];
         let (host, provider) = (s.key.host.clone(), s.key.provider.clone());
         let (code_input, output_open) = (s.code.clone(), s.output_open);
-        let lines = s.terminal.clone().and_then(|id| self.terminals.sessions.term(&id).map(|t| {
-            let (f, cells) = t.frame();
-            accounts::screen_lines(cells, f.cols)
-        })).unwrap_or_default();
+        let lines = s
+            .terminal
+            .clone()
+            .and_then(|id| {
+                self.terminals.sessions.term(&id).map(|t| {
+                    let (f, cells) = t.frame();
+                    accounts::screen_lines(cells, f.cols)
+                })
+            })
+            .unwrap_or_default();
         let (link, device) = (accounts::sign_in_link(&lines), accounts::device_code(&lines));
         let id = |part: &str| SharedString::from(format!("signin-{}-{provider}-{part}", host.as_deref().unwrap_or_default()));
         let waiting = match &device {
@@ -260,17 +322,23 @@ impl Desktop {
                 .items_center()
                 .gap(px(10.))
                 .child(div().font_family(MONO).text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(code))
-                .child(action(id("copy-code"), "Copy code").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))))
+                .child(
+                    action(id("copy-code"), "Copy code")
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))),
+                )
         });
         let links = link.map(|link| {
             let copy = link.clone();
             [
                 action(id("open"), "Open again").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&link))),
-                action(id("copy"), "Copy link").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))),
+                action(id("copy"), "Copy link")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))),
             ]
         });
         // Codex signs in with a code typed into the browser, so only Claude can be handed one back.
-        let paste = agents::providers::get(&provider).is_some_and(|b| b.pastes_code).then(|| field_box().w(px(230.)).child(div().flex_1().min_w_0().child(Input::new(&code_input).appearance(false).p_0().font_family(MONO).text_size(px(12.)))));
+        let paste = agents::providers::get(&provider).is_some_and(|b| b.pastes_code).then(|| {
+            field_box().w(px(230.)).child(div().flex_1().min_w_0().child(Input::new(&code_input).appearance(false).p_0().font_family(MONO).text_size(px(12.))))
+        });
         let cancel = {
             let (host, provider) = (host.clone(), provider.clone());
             action(id("cancel"), "Cancel").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.cancel_sign_in(&host, &provider, cx)))
@@ -304,6 +372,17 @@ impl Desktop {
                 .text_color(TEXT_BODY)
                 .children(lines.into_iter().map(|l| div().min_h(px(18.)).child(l)))
         });
-        div().pl(px(46.)).pr(px(14.)).py(px(12.)).flex().flex_col().gap(px(10.)).child(status).children(device).child(actions).child(div().flex().child(toggle)).children(output)
+        div()
+            .pl(px(46.))
+            .pr(px(14.))
+            .py(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(status)
+            .children(device)
+            .child(actions)
+            .child(div().flex().child(toggle))
+            .children(output)
     }
 }

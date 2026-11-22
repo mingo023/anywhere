@@ -38,7 +38,10 @@ pub struct Entry {
 #[serde(from = "LinkWire")]
 pub enum Link {
     Connecting,
-    Online { version: String, uptime: u64 },
+    Online {
+        version: String,
+        uptime: u64,
+    },
     Retrying(Failure),
     Failed(Failure),
     /// A state a newer pocketd reports, or one missing its failure.
@@ -198,7 +201,10 @@ mod tests {
     fn host_frames_become_host_events() {
         let Some(Event::Hosts(list)) = event(golden_text!("server/host_list.json")) else { panic!("no list") };
         assert_eq!(list.len(), 1);
-        assert_eq!((list[0].id.as_str(), &list[0].target, list[0].socket.as_str()), ("devbox", &Target::Alias { name: "devbox".into() }, "/Users/me/.coding-pocket/hosts/devbox.sock"));
+        assert_eq!(
+            (list[0].id.as_str(), &list[0].target, list[0].socket.as_str()),
+            ("devbox", &Target::Alias { name: "devbox".into() }, "/Users/me/.coding-pocket/hosts/devbox.sock")
+        );
         assert_eq!(list[0].link, Link::Online { version: "1.4.2".into(), uptime: 259_200 });
         assert!(matches!(event(golden_text!("server/host_list_push.json")), Some(Event::Hosts(list)) if list.is_empty()));
         let Some(Event::HostUpdate { request, host }) = event(golden_text!("server/host_update_added.json")) else { panic!("no add") };
@@ -216,7 +222,8 @@ mod tests {
 
     #[test]
     fn a_host_in_a_state_this_app_does_not_know_is_listed_with_the_rest() {
-        let entry = |id: &str, link: Value| json!({"id": id, "name": id, "target": {"kind": "alias", "name": id}, "socket": format!("/h/{id}.sock"), "link": link});
+        let entry =
+            |id: &str, link: Value| json!({"id": id, "name": id, "target": {"kind": "alias", "name": id}, "socket": format!("/h/{id}.sock"), "link": link});
         let frame = json!({"type": "host.list", "id": "h1", "hosts": [entry("a", json!({"state": "connecting"})), entry("b", json!({"state": "hibernating"})), entry("c", json!({"state": "retrying"}))]}).to_string();
         let Some(Event::Hosts(list)) = event(&frame) else { panic!("the list was dropped") };
         assert_eq!(list.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
@@ -258,7 +265,10 @@ mod tests {
         let retry: Value = rx.try_recv().unwrap();
         assert!(retry["id"].as_str().unwrap().starts_with(HOST));
         assert_eq!(json!({"type": retry["type"], "hostId": retry["hostId"]}), json!({"type": "host.retry", "hostId": "devbox"}));
-        assert_eq!(sent(out.host_install("devbox", true, Some("/Users/me/src/anywhere/packages/pocketd/dist"))), golden(golden_text!("client/host_install_update.json")));
+        assert_eq!(
+            sent(out.host_install("devbox", true, Some("/Users/me/src/anywhere/packages/pocketd/dist"))),
+            golden(golden_text!("client/host_install_update.json"))
+        );
         assert_eq!(sent(out.host_sign_in("10-0-4-12", "hunter2")), golden(golden_text!("client/host_sign_in.json")));
     }
 }

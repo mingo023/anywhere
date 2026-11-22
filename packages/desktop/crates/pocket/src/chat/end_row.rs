@@ -14,7 +14,8 @@ pub(super) fn interrupted_notice(who: &str) -> Div {
 pub(super) fn error(id: &str, message: String, copied: bool, on_copy: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Div {
     let failed = Hsla::from(FAILED);
     let muted = Hsla::from(FAILED_TEXT).opacity(0.8);
-    let tile = div().size(px(20.)).flex_none().flex().items_center().justify_center().rounded(px(6.)).bg(failed.opacity(0.12)).child(icon("warning", 12., muted));
+    let tile =
+        div().size(px(20.)).flex_none().flex().items_center().justify_center().rounded(px(6.)).bg(failed.opacity(0.12)).child(icon("warning", 12., muted));
     let copy = div()
         .id(SharedString::from(format!("copy-{id}")))
         .size(px(20.))
@@ -26,7 +27,14 @@ pub(super) fn error(id: &str, message: String, copied: bool, on_copy: impl Fn(&C
         .hover(|d| d.bg(failed.opacity(0.12)))
         .on_click(on_copy)
         .child(icon(if copied { "check" } else { "copy" }, 12., muted));
-    let header = div().flex().items_center().gap(px(8.)).child(tile).child(div().font_weight(FontWeight::MEDIUM).text_color(muted).child("Error")).child(div().flex_1()).child(copy);
+    let header = div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(tile)
+        .child(div().font_weight(FontWeight::MEDIUM).text_color(muted).child("Error"))
+        .child(div().flex_1())
+        .child(copy);
     let frame = div()
         .w_full()
         .overflow_hidden()
@@ -56,7 +64,14 @@ pub(super) fn note(text: &str, error: bool) -> Div {
 pub(super) fn compacted(auto: bool) -> Div {
     let rule = || div().flex_1().h(px(1.)).bg(SEPARATOR_STRONG);
     let label = if auto { "Context compacted automatically" } else { "Context compacted" };
-    div().py(px(14.)).flex().items_center().gap(px(10.)).child(rule()).child(div().text_size(px(12.)).text_color(Hsla::from(TEXT_2).opacity(0.7)).child(label)).child(rule())
+    div()
+        .py(px(14.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .child(rule())
+        .child(div().text_size(px(12.)).text_color(Hsla::from(TEXT_2).opacity(0.7)).child(label))
+        .child(rule())
 }
 
 #[cfg(test)]

@@ -73,6 +73,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Format
+        working-directory: packages/desktop
+        run: cargo fmt --all --check
+
       - name: Rust version
         id: rust
         run: echo "rustc=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"

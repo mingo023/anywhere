@@ -1,8 +1,8 @@
 use super::card::DragTicket;
 use super::logic::{Col, set_away};
 use super::parts::status_glyph;
-use agents::tickets::Status;
 use crate::desktop::Desktop;
+use agents::tickets::Status;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -45,7 +45,25 @@ impl Desktop {
         let away = &self.board.away;
         (!away.is_empty()).then(|| {
             let rows: Vec<_> = away.iter().map(|c| self.hidden_row(*c, cx)).collect();
-            div().w(px(200.)).flex().flex_none().flex_col().px(px(4.)).pt(px(2.)).child(div().h(px(30.)).px(px(8.)).flex().items_center().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child("Hidden columns")).children(rows)
+            div()
+                .w(px(200.))
+                .flex()
+                .flex_none()
+                .flex_col()
+                .px(px(4.))
+                .pt(px(2.))
+                .child(
+                    div()
+                        .h(px(30.))
+                        .px(px(8.))
+                        .flex()
+                        .items_center()
+                        .text_size(px(11.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(TEXT_3)
+                        .child("Hidden columns"),
+                )
+                .children(rows)
         })
     }
 }

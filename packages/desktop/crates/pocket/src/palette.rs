@@ -5,8 +5,8 @@ use crate::desktop::sounds::Cue;
 use crate::modals::may_open;
 use crate::status::{self, Card, Status};
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, basename, folder};
-use agents::locals::Local;
 use agents::Agents;
+use agents::locals::Local;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 use std::cmp::Reverse;
@@ -15,8 +15,8 @@ use std::ops::Range;
 use store::Sounds;
 use theme::*;
 use ui::{self, dot};
-use workspace::{Place, Tab};
 use workspace::tree::Edge;
+use workspace::{Place, Tab};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pick {
@@ -26,7 +26,10 @@ pub enum Pick {
     Split,
     Next,
     /// `tree` is `None` for the project's main worktree.
-    Tree { project: String, tree: Option<String> },
+    Tree {
+        project: String,
+        tree: Option<String>,
+    },
     UpNext,
     Browser,
     Go(Screen),
@@ -108,7 +111,8 @@ pub(crate) fn runs(text: &str, words: &[String]) -> Vec<Range<usize>> {
 }
 
 pub(crate) fn marked(text: String, words: &[String]) -> StyledText {
-    let marks: Vec<(Range<usize>, HighlightStyle)> = runs(&text, words).into_iter().map(|r| (r, HighlightStyle { color: Some(ACCENT.into()), ..Default::default() })).collect();
+    let marks: Vec<(Range<usize>, HighlightStyle)> =
+        runs(&text, words).into_iter().map(|r| (r, HighlightStyle { color: Some(ACCENT.into()), ..Default::default() })).collect();
     StyledText::new(text).with_highlights(marks)
 }
 
@@ -166,7 +170,11 @@ fn session_entry((project, branch, c): SessionCard) -> Entry {
             Status::Idle => Lead::Provider(c.provider.clone()),
             s => Lead::Status(s),
         },
-        detail: [Some(project.as_str()), branch.as_deref(), Some(provider_name(&c.provider)), Some(c.status.label())].into_iter().flatten().collect::<Vec<_>>().join(" · "),
+        detail: [Some(project.as_str()), branch.as_deref(), Some(provider_name(&c.provider)), Some(c.status.label())]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · "),
         title: c.title,
         keys: None,
         pick: Pick::Session(c.id),
@@ -184,12 +192,7 @@ fn session_entries(words: &[String], cards: Vec<SessionCard>) -> Vec<Entry> {
 fn up_next_entries(words: &[String], cards: &[SessionCard]) -> Vec<Entry> {
     let matched: Vec<&SessionCard> = cards.iter().filter(|s| session_matches(words, s)).collect();
     let plain: Vec<Card> = matched.iter().map(|(_, _, c)| c.clone()).collect();
-    status::up_next(&plain)
-        .into_iter()
-        .take(5)
-        .filter_map(|c| matched.iter().find(|(_, _, m)| m.id == c.id))
-        .map(|s| session_entry((*s).clone()))
-        .collect()
+    status::up_next(&plain).into_iter().take(5).filter_map(|c| matched.iter().find(|(_, _, m)| m.id == c.id)).map(|s| session_entry((*s).clone())).collect()
 }
 
 /// `trees` holds each worktree with its project's path and name. Only a query lists worktrees.
@@ -226,7 +229,13 @@ fn local_entries(words: &[String], locals: Vec<(String, Local)>) -> Vec<Entry> {
     locals
         .into_iter()
         .filter(|(project_name, l)| matches(words, &[&l.name, project_name]))
-        .map(|(project_name, l)| Entry { pick: Pick::Tree { project: l.project, tree: Some(l.id) }, lead: Lead::Icon(LOCAL_ICON), title: l.name, detail: project_name, keys: None })
+        .map(|(project_name, l)| Entry {
+            pick: Pick::Tree { project: l.project, tree: Some(l.id) },
+            lead: Lead::Icon(LOCAL_ICON),
+            title: l.name,
+            detail: project_name,
+            keys: None,
+        })
         .take(5)
         .collect()
 }
@@ -260,7 +269,13 @@ fn action_entries(words: &[String], project: &str, sounds: &Sounds, agents: &Age
         detail: String::new(),
         keys: None,
     };
-    let pages = pages::offered(agents).map(|p| Entry { pick: Pick::Go(p.screen), lead: Lead::Icon(p.icon), title: p.title.into(), detail: String::new(), keys: p.keys });
+    let pages = pages::offered(agents).map(|p| Entry {
+        pick: Pick::Go(p.screen),
+        lead: Lead::Icon(p.icon),
+        title: p.title.into(),
+        detail: String::new(),
+        keys: p.keys,
+    });
     [
         Entry { pick: Pick::New, lead: Lead::Icon("sparkle"), title: format!("New session in {project}"), detail: String::new(), keys: Some("⌘ N") },
         Entry { pick: Pick::Split, lead: Lead::Icon("split-right"), title: "Open selected in a split".into(), detail: String::new(), keys: None },
@@ -441,7 +456,8 @@ impl Desktop {
         let q = query(&self.palette.filter.read(cx).value());
         let words = q.words();
         let mut n = 0;
-        let mut body = div().id("palette-results").max_h(px(460.)).overflow_y_scroll().track_scroll(&self.palette.scroll).px(px(8.)).pb(px(8.)).flex().flex_col();
+        let mut body =
+            div().id("palette-results").max_h(px(460.)).overflow_y_scroll().track_scroll(&self.palette.scroll).px(px(8.)).pb(px(8.)).flex().flex_col();
         for (label, entries) in sections {
             body = body.child(div().pt(px(12.)).pb(px(6.)).px(px(12.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(label));
             for e in entries {
@@ -523,7 +539,10 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, Lead, Local, Nav, Pick, Query, action_entries, file_entries, local_entries, matches, nav, query, row_child, runs, session_entries, tree_entries, up_next_entries};
+    use super::{
+        Entry, Lead, Local, Nav, Pick, Query, action_entries, file_entries, local_entries, matches, nav, query, row_child, runs, session_entries, tree_entries,
+        up_next_entries,
+    };
     use crate::desktop::chrome::Screen;
     use crate::desktop::sounds::Cue;
     use crate::status::{Card, Kind, Status};
@@ -531,7 +550,22 @@ mod tests {
     use store::Sounds;
 
     fn card(id: &str, title: &str, status: Status, at: i64) -> (String, Option<String>, Card) {
-        let c = Card { id: id.into(), provider: "claude".into(), model: String::new(), title: title.into(), cwd: String::new(), local: String::new(), at, created: at, status, kind: Kind::Agent, notice: None, pinned: false, account: String::new(), child: false };
+        let c = Card {
+            id: id.into(),
+            provider: "claude".into(),
+            model: String::new(),
+            title: title.into(),
+            cwd: String::new(),
+            local: String::new(),
+            at,
+            created: at,
+            status,
+            kind: Kind::Agent,
+            notice: None,
+            pinned: false,
+            account: String::new(),
+            child: false,
+        };
         ("app".into(), Some("main".into()), c)
     }
 
@@ -625,7 +659,13 @@ mod tests {
         detached.1 = None;
         let got = session_entries(
             &[],
-            vec![card("a1", "Fix CI", Status::NeedsYou, 3), card("a2", "Docs", Status::Working, 2), detached, card("a4", "Build", Status::Failed, 0), card("a5", "Docs2", Status::Idle, -1)],
+            vec![
+                card("a1", "Fix CI", Status::NeedsYou, 3),
+                card("a2", "Docs", Status::Working, 2),
+                detached,
+                card("a4", "Build", Status::Failed, 0),
+                card("a5", "Docs2", Status::Idle, -1),
+            ],
         );
         let got: Vec<_> = got.into_iter().map(|e| (e.pick, e.lead, e.detail)).collect();
         assert_eq!(
@@ -660,7 +700,10 @@ mod tests {
         agents.set_name("/w/app", "Hotfix");
         agents.set_name("/w/app-login", "Sign in");
         let titles = |q| tree_entries(&strings(&[q]), trees.clone(), &agents).into_iter().map(|e| e.title).collect::<Vec<_>>();
-        assert_eq!((titles("hot"), titles("sign"), titles("app-login")), (vec!["Hotfix".to_string()], vec!["Sign in".to_string()], vec!["Sign in".to_string()]));
+        assert_eq!(
+            (titles("hot"), titles("sign"), titles("app-login")),
+            (vec!["Hotfix".to_string()], vec!["Sign in".to_string()], vec!["Sign in".to_string()])
+        );
     }
 
     #[test]
@@ -700,7 +743,8 @@ mod tests {
     #[test]
     fn a_query_searches_every_file_and_lists_changed_ones_first() {
         let files = strings(&["Main.rs", "src/app.rs", "src/main.rs", "docs/main.md", "notes.txt", "a/main.c", "b/main.h", "c/main.py"]);
-        let got: Vec<_> = file_entries(&strings(&["main"]), "/w", &strings(&["src/main.rs", "notes.txt"]), &files).into_iter().map(|e| (e.title, e.detail)).collect();
+        let got: Vec<_> =
+            file_entries(&strings(&["main"]), "/w", &strings(&["src/main.rs", "notes.txt"]), &files).into_iter().map(|e| (e.title, e.detail)).collect();
         let want = [("main.rs", "src · modified"), ("Main.rs", ""), ("main.md", "docs"), ("main.c", "a"), ("main.h", "b"), ("main.py", "c")];
         assert_eq!(got, want.map(|(t, d)| (t.to_string(), d.to_string())));
     }
@@ -743,13 +787,36 @@ mod tests {
     fn pair_phone_is_offered_only_to_the_owner() {
         let picks = |scopes: &[&str]| {
             let mut a = Agents::default();
-            a.apply(Event::Connected { scopes: scopes.iter().map(|s| s.to_string()).collect(), caps: vec!["pair.v1".into(), "automations.v1".into()], version: String::new() });
+            a.apply(Event::Connected {
+                scopes: scopes.iter().map(|s| s.to_string()).collect(),
+                caps: vec!["pair.v1".into(), "automations.v1".into()],
+                version: String::new(),
+            });
             action_entries(&[], "app", &Sounds::default(), &a).into_iter().map(|e| e.pick).filter(|p| !matches!(p, Pick::Sound(_))).collect::<Vec<_>>()
         };
         let owner = ["observe", "drive", "approve", "spawn", "owner"];
-        assert_eq!(picks(&owner), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::PairPhone, Pick::HostFolder]);
-        assert_eq!(picks(&["observe"]), vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::HostFolder]);
-        assert_eq!(picks(&[]), vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::HostFolder]);
+        assert_eq!(
+            picks(&owner),
+            vec![
+                Pick::New,
+                Pick::Split,
+                Pick::Next,
+                Pick::UpNext,
+                Pick::Browser,
+                Pick::Go(Screen::Activity),
+                Pick::Go(Screen::Automations),
+                Pick::PairPhone,
+                Pick::HostFolder
+            ]
+        );
+        assert_eq!(
+            picks(&["observe"]),
+            vec![Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::HostFolder]
+        );
+        assert_eq!(
+            picks(&[]),
+            vec![Pick::New, Pick::Split, Pick::Next, Pick::UpNext, Pick::Browser, Pick::Go(Screen::Activity), Pick::Go(Screen::Automations), Pick::HostFolder]
+        );
     }
 
     #[test]

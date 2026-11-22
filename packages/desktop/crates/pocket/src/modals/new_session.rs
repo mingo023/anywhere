@@ -1,9 +1,6 @@
 pub(crate) mod machine;
 pub(crate) mod picker;
 
-use agents::locals::Local;
-use agents::{Agents, CreateReply, Event};
-use chat::Action;
 use crate::chat::composer::send_button::send_button;
 use crate::chat::composer::suggest::Prompt;
 use crate::chat::composer::{MAX_ROWS, MIN_ROWS, PLACEHOLDER, drop_zone};
@@ -18,6 +15,9 @@ use crate::modals::form::default_base;
 use crate::spaces::{self, Reach, Space};
 use crate::terminals::link;
 use crate::util::{LOCAL_ICON, WORKTREE_ICON};
+use agents::locals::Local;
+use agents::{Agents, CreateReply, Event};
+use chat::Action;
 use git::github;
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -25,10 +25,10 @@ use gpui_kit::*;
 use machine::{Landing, landing};
 use picker::Picker;
 use serde_json::{Value, json};
-use store::LaunchPick;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
+use store::LaunchPick;
 use theme::*;
 
 pub struct NewForm {
@@ -389,7 +389,11 @@ fn free_name(seed: usize, taken: &HashSet<String>) -> String {
     let words = petname::Petnames::medium();
     let (adjectives, nouns) = (&words.adjectives, &words.nouns);
     let count = adjectives.len() * nouns.len();
-    (0..count).map(|i| (seed + i) % count).map(|n| format!("{}-{}", adjectives[n / nouns.len()], nouns[n % nouns.len()])).find(|n| !is_taken(n, taken)).unwrap_or_else(|| unique("worktree", taken))
+    (0..count)
+        .map(|i| (seed + i) % count)
+        .map(|n| format!("{}-{}", adjectives[n / nouns.len()], nouns[n % nouns.len()]))
+        .find(|n| !is_taken(n, taken))
+        .unwrap_or_else(|| unique("worktree", taken))
 }
 
 /// `base`, or `base-2`, `base-3`… when taken.
@@ -453,21 +457,27 @@ impl NewForm {
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let dropped = composer::drop_handler(cx.entity().downgrade(), move |d| &mut slot(d).draft);
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder(PLACEHOLDER).auto_grow(MIN_ROWS, MAX_ROWS).submit_on_enter(true).on_drop_paths(dropped).decorate(mention::decorations));
+        let prompt = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder(PLACEHOLDER)
+                .auto_grow(MIN_ROWS, MAX_ROWS)
+                .submit_on_enter(true)
+                .on_drop_paths(dropped)
+                .decorate(mention::decorations)
+        });
         let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
-        let composer = Composer::new(prompt.clone(), models.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
+        let composer =
+            Composer::new(prompt.clone(), models.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
         let subs = vec![
-            cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| {
-                match ev {
-                    InputEvent::PressEnter { shift: false, .. } => this.start_session(window, cx),
-                    InputEvent::Change => {
-                        this.pill_typed_command(Prompt::Launch, window, cx);
-                        this.draft_changed(Prompt::Launch, cx);
-                    }
-                    _ => {}
+            cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { shift: false, .. } => this.start_session(window, cx),
+                InputEvent::Change => {
+                    this.pill_typed_command(Prompt::Launch, window, cx);
+                    this.draft_changed(Prompt::Launch, cx);
                 }
+                _ => {}
             }),
             cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
             cx.subscribe(&models, |_, _, _: &InputEvent, cx| cx.notify()),
@@ -557,7 +567,12 @@ impl Desktop {
     /// The projects a session can start in: those with a git checkout. A Scratch folder counts only while it's the one picked.
     pub(crate) fn form_projects(&self) -> Vec<String> {
         let repo = self.new_form.draft.repo.as_deref();
-        self.store.projects.iter().filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty())).cloned().collect()
+        self.store
+            .projects
+            .iter()
+            .filter(|p| (repo == Some(p.as_str()) || !self.store.is_scratch(p)) && self.listed_trees(p).is_some_and(|t| !t.is_empty()))
+            .cloned()
+            .collect()
     }
 
     /// Moves the draft into the space on screen: its project's twin there, else the space's first.
@@ -811,8 +826,7 @@ impl Desktop {
                 self.creates.failed_in_place(&request);
                 if let Some(c) = self.creates.get(&request) {
                     c.fail(message, detail, Instant::now());
-                } else if let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown)
-                {
+                } else if let Some(message) = self.new_form.draft.failed(&request, message, detail, self.new_form.shown) {
                     self.error = Some(message);
                 }
             }
@@ -881,7 +895,18 @@ impl Desktop {
         let checkout = (!scratch).then(|| self.checkout_select(cx));
         let pr = f.linked_pr();
         let branch = match pr {
-            Some(n) => Some(div().h(px(30.)).px(px(6.)).flex().flex_none().items_center().gap(px(7.)).text_color(TEXT_3).child(icon("pull-request", 14., TEXT_3)).child(format!("based off PR #{n}"))),
+            Some(n) => Some(
+                div()
+                    .h(px(30.))
+                    .px(px(6.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(7.))
+                    .text_color(TEXT_3)
+                    .child(icon("pull-request", 14., TEXT_3))
+                    .child(format!("based off PR #{n}")),
+            ),
             None => (!scratch && f.target() == Target::Worktree).then(|| self.branch_select(cx)),
         };
         let link = (!scratch && pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
@@ -889,7 +914,8 @@ impl Desktop {
         let empty = prompt.read(cx).value().trim().is_empty() && !self.new_form.composer.draft.has_attachments();
         let typing = !empty || prompt.read(cx).focus_handle(cx).is_focused(window);
         let ready = self.session_ready();
-        let send = send_button("form-start".into(), Action::Send, empty, !ready).when(ready && !empty, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))));
+        let send = send_button("form-start".into(), Action::Send, empty, !ready)
+            .when(ready && !empty, |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_session(window, cx))));
         let pill = pr.map(|n| {
             let unlink = div()
                 .id("pr-unlink")
@@ -905,7 +931,22 @@ impl Desktop {
                     this.new_form.draft.unlink_pr();
                     cx.notify();
                 }));
-            div().h(px(26.)).pl(px(9.)).pr(px(4.)).flex().flex_none().items_center().gap(px(6.)).rounded(px(8.)).bg(FILL_2).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(icon("pull-request", 13., TEXT_2)).child(format!("#{n}")).child(unlink).into_any_element()
+            div()
+                .h(px(26.))
+                .pl(px(9.))
+                .pr(px(4.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(8.))
+                .bg(FILL_2)
+                .text_size(px(12.5))
+                .font_weight(FontWeight::MEDIUM)
+                .child(icon("pull-request", 13., TEXT_2))
+                .child(format!("#{n}"))
+                .child(unlink)
+                .into_any_element()
         });
         let textarea = Textarea::new(&self.new_form.composer.prompt);
         let trailing = link.map(IntoElement::into_any_element).into_iter().collect();
@@ -944,17 +985,25 @@ impl Desktop {
         // Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
         let drop = drop_zone(move |paths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)));
         let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx).relative().child(drop);
-        div().flex_1().flex().flex_col().child(self.page_bar(spaces::crumbs(self.space_host_name(&self.space()), [name, "New session".into()]), Vec::new(), div(), cx)).child(body)
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .child(self.page_bar(spaces::crumbs(self.space_host_name(&self.space()), [name, "New session".into()]), Vec::new(), div(), cx))
+            .child(body)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, Local, RepoBranches, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, names_folder, parse_pr, taken_names};
+    use super::{
+        Draft, Local, RepoBranches, Source, Target, appended, checkout_choice, default_first, is_taken, listed_branches, name_problem, names_folder, parse_pr,
+        taken_names,
+    };
     use agents::CreateReply;
     use serde_json::json;
-    use store::LaunchPick;
     use std::collections::HashSet;
+    use store::LaunchPick;
 
     fn sent(request: &str) -> CreateReply {
         let mut reply = CreateReply::default();
@@ -1084,7 +1133,13 @@ mod tests {
 
     #[test]
     fn a_local_session_sends_only_its_local_whatever_the_worktree_choices_were() {
-        let draft = Draft { picked_checkout: Target::NewLocal, source: Source::Branch("fix/login".into()), repo: Some("/p".into()), branches: vec![("main".into(), None)], ..Draft::default() };
+        let draft = Draft {
+            picked_checkout: Target::NewLocal,
+            source: Source::Branch("fix/login".into()),
+            repo: Some("/p".into()),
+            branches: vec![("main".into(), None)],
+            ..Draft::default()
+        };
         assert!(draft.ready(""));
         assert_eq!(draft.spec(&claude(), "/p", Some("local-1"), "", "")["checkout"], json!({"local": "local-1"}));
     }
@@ -1092,7 +1147,8 @@ mod tests {
     #[test]
     fn a_new_worktree_needs_a_repository_its_branches_and_a_usable_name() {
         let taken: HashSet<String> = ["main".to_string()].into();
-        let draft = Draft { picked_checkout: Target::Worktree, repo: Some("/src/app".into()), branches: vec![("main".into(), None)], taken, ..Draft::default() };
+        let draft =
+            Draft { picked_checkout: Target::Worktree, repo: Some("/src/app".into()), branches: vec![("main".into(), None)], taken, ..Draft::default() };
         assert!(draft.ready("fix-ci"));
         assert!(!draft.ready("main"));
         assert!(!draft.ready("fix ci"));
@@ -1154,7 +1210,13 @@ mod tests {
 
     #[test]
     fn an_existing_branch_needs_only_a_repository_and_a_branch() {
-        let draft = Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix/login".into()), repo: Some("/src/app".into()), taken: ["main".to_string()].into(), ..Draft::default() };
+        let draft = Draft {
+            picked_checkout: Target::Worktree,
+            source: Source::Branch("fix/login".into()),
+            repo: Some("/src/app".into()),
+            taken: ["main".to_string()].into(),
+            ..Draft::default()
+        };
         assert!(draft.ready("main"));
         assert!(!draft.ready(""));
         assert!(!Draft { repo: None, ..draft }.ready("main"));
@@ -1162,7 +1224,8 @@ mod tests {
 
     #[test]
     fn an_existing_branch_is_sent_without_a_name_or_base_and_lands_in_a_dashed_folder() {
-        let draft = Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], ..Draft::default() };
+        let draft =
+            Draft { picked_checkout: Target::Worktree, source: Source::Branch("fix/login".into()), branches: vec![("main".into(), None)], ..Draft::default() };
         let want = json!({"project": "/p", "checkout": {"new": {"branch": "fix/login"}}, "provider": "claude", "plan": false});
         assert_eq!(draft.spec(&claude(), "/p", None, "fix/login", ""), want);
         assert_eq!(draft.spec(&claude(), "/p", None, "origin/fix/login", ""), want);
@@ -1177,7 +1240,14 @@ mod tests {
 
     #[test]
     fn a_pr_is_a_number_a_hash_number_or_a_pull_url() {
-        for ok in ["123", " #123 ", "https://github.com/acme/app/pull/123", "https://github.com/acme/app/pull/123/files", "https://github.com/acme/app/pull/123?w=1", "https://github.com/acme/app/pull/123#issuecomment-1"] {
+        for ok in [
+            "123",
+            " #123 ",
+            "https://github.com/acme/app/pull/123",
+            "https://github.com/acme/app/pull/123/files",
+            "https://github.com/acme/app/pull/123?w=1",
+            "https://github.com/acme/app/pull/123#issuecomment-1",
+        ] {
             assert_eq!(parse_pr(ok), Some(123), "{ok}");
         }
         for bad in ["", "#", "+5", "0", "abc", "https://github.com/acme/app/issues/123"] {
@@ -1207,7 +1277,12 @@ mod tests {
     }
 
     fn read(branches: &[&str], current: &str) -> RepoBranches {
-        RepoBranches { current: current.into(), branches: branches.iter().map(|b| (b.to_string(), None)).collect(), remote: vec!["origin-only".into()], taken: HashSet::from(["taken".to_string()]) }
+        RepoBranches {
+            current: current.into(),
+            branches: branches.iter().map(|b| (b.to_string(), None)).collect(),
+            remote: vec!["origin-only".into()],
+            taken: HashSet::from(["taken".to_string()]),
+        }
     }
 
     fn listed(draft: &Draft) -> Vec<&str> {
@@ -1222,7 +1297,10 @@ mod tests {
         draft.pick_repo(Some("/b".into()), false);
         assert!(draft.branches.is_empty());
         draft.pick_repo(Some("/a".into()), false);
-        assert_eq!((listed(&draft), draft.base_branch(), draft.remote_branches.clone()), (vec!["main", "dev"], "main".to_string(), vec!["origin-only".to_string()]));
+        assert_eq!(
+            (listed(&draft), draft.base_branch(), draft.remote_branches.clone()),
+            (vec!["main", "dev"], "main".to_string(), vec!["origin-only".to_string()])
+        );
         assert!(draft.taken.contains("taken"));
     }
 
@@ -1277,7 +1355,10 @@ mod tests {
     fn a_search_leads_with_the_exact_branch_then_those_starting_with_it() {
         let local: Vec<(String, Option<i64>)> = ["fix/develop-send", "Develop-tools", "fix/old", "develop"].map(|b| (b.to_string(), None)).to_vec();
         let remote = vec!["ci/develop".to_string(), "develop-next".to_string()];
-        assert_eq!(listed_branches(&local, &remote, "develop"), [(Some(3), "develop"), (Some(1), "Develop-tools"), (Some(0), "fix/develop-send"), (None, "develop-next"), (None, "ci/develop")]);
+        assert_eq!(
+            listed_branches(&local, &remote, "develop"),
+            [(Some(3), "develop"), (Some(1), "Develop-tools"), (Some(0), "fix/develop-send"), (None, "develop-next"), (None, "ci/develop")]
+        );
     }
 
     #[test]

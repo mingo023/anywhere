@@ -52,7 +52,9 @@ impl Filter {
 
 /// Every row `listed` shows that matches the filter, in order.
 fn hits(listed: &Listed) -> Vec<Hit> {
-    let block = |b: &Block| b.named.then(|| (b.project.clone(), None)).into_iter().chain(b.only.iter().flatten().map(|k| (b.project.clone(), Some(k.clone())))).collect::<Vec<_>>();
+    let block = |b: &Block| {
+        b.named.then(|| (b.project.clone(), None)).into_iter().chain(b.only.iter().flatten().map(|k| (b.project.clone(), Some(k.clone())))).collect::<Vec<_>>()
+    };
     let pinned = listed.pinned.iter().flat_map(|i| match i {
         Item::Project(b) => block(b),
         Item::Tree { project, key } => vec![(project.clone(), Some(key.clone()))],
@@ -81,7 +83,9 @@ impl Desktop {
 
     /// The filter's field, close button inside, growing leftwards out of the search button.
     pub(super) fn filter_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let close = icon_button_sized("aside-filter-close", "x", 20., TEXT_3).rounded(px(5.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_filter(window, cx)));
+        let close = icon_button_sized("aside-filter-close", "x", 20., TEXT_3)
+            .rounded(px(5.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_filter(window, cx)));
         div()
             .ml_auto()
             .mr(px(2.))
@@ -102,7 +106,9 @@ impl Desktop {
             .child(Input::new(&self.sidebar.filter.input).appearance(false).p_0().text_size(px(13.)))
             .child(close)
             .overflow_hidden()
-            .with_animation("aside-filter-in", Animation::new(FILTER_IN).with_easing(|t: f32| 1. - (1. - t).powi(3)), |d, t| d.min_w(px(28.)).max_w(relative(t)).opacity(t))
+            .with_animation("aside-filter-in", Animation::new(FILTER_IN).with_easing(|t: f32| 1. - (1. - t).powi(3)), |d, t| {
+                d.min_w(px(28.)).max_w(relative(t)).opacity(t)
+            })
     }
 
     pub(crate) fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -185,13 +191,15 @@ mod tests {
             other: vec![block("/d", &[])],
         };
         let got = hits(&listed);
-        let want: Vec<(String, Option<String>)> = vec![("/a".into(), Some("/wt".into())), ("/b".into(), None), ("/c".into(), None), ("/c".into(), Some("/c".into())), ("/d".into(), None)];
+        let want: Vec<(String, Option<String>)> =
+            vec![("/a".into(), Some("/wt".into())), ("/b".into(), None), ("/c".into(), None), ("/c".into(), Some("/c".into())), ("/d".into(), None)];
         assert_eq!(got, want);
     }
 
     #[test]
     fn a_project_listed_only_for_its_matching_trees_is_not_a_hit_itself() {
-        let listed = Listed { pinned: vec![], groups: vec![], other: vec![Block { ix: 0, project: "/a".into(), only: Some(vec!["/wt".into()]), named: false }] };
+        let listed =
+            Listed { pinned: vec![], groups: vec![], other: vec![Block { ix: 0, project: "/a".into(), only: Some(vec!["/wt".into()]), named: false }] };
         let got = hits(&listed);
         let want: Vec<(String, Option<String>)> = vec![("/a".into(), Some("/wt".into()))];
         assert_eq!(got, want);

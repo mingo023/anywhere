@@ -49,7 +49,13 @@ impl Entry {
 
 /// `current` first, then the rest in sidebar order, each followed by its trees: `(key, texts it's found by)`, the key a worktree's path or a Local's id.
 /// A project stays while `query` is in one of its `search_texts`, its path or a tree's texts; its trees all stay when the project matches, else only those that match.
-pub(crate) fn listed(projects: Vec<String>, current: Option<&str>, query: &str, search_texts: impl Fn(&str) -> Vec<String>, trees: impl Fn(&str) -> Vec<(String, Vec<String>)>) -> Vec<Entry> {
+pub(crate) fn listed(
+    projects: Vec<String>,
+    current: Option<&str>,
+    query: &str,
+    search_texts: impl Fn(&str) -> Vec<String>,
+    trees: impl Fn(&str) -> Vec<(String, Vec<String>)>,
+) -> Vec<Entry> {
     let query = query.trim().to_lowercase();
     let hit = |text: &str| text.to_lowercase().contains(&query);
     let (mut first, rest): (Vec<String>, Vec<String>) = projects.into_iter().partition(|p| Some(p.as_str()) == current);
@@ -201,9 +207,19 @@ impl Desktop {
             .child(icon("search", 15., TEXT_3))
             .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.sidebar.picker.search).appearance(false).p_0().text_size(px(13.))));
         let empty = div().h(px(36.)).px(px(10.)).flex().items_center().text_size(px(13.)).text_color(TEXT_3).child("No projects found");
-        let list = div().id("projects-list").max_h(px(290.)).overflow_y_scroll().p(px(5.)).flex().flex_col().when(entries.is_empty(), |d| d.child(empty)).children(rows);
-        let new = ui::menu_row("projects-new", "plus", "New project", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
-        let host = ui::menu_row("projects-host-folder", "globe", "Open folder on a host…", None).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
+        let list = div()
+            .id("projects-list")
+            .max_h(px(290.))
+            .overflow_y_scroll()
+            .p(px(5.))
+            .flex()
+            .flex_col()
+            .when(entries.is_empty(), |d| d.child(empty))
+            .children(rows);
+        let new = ui::menu_row("projects-new", "plus", "New project", None)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
+        let host = ui::menu_row("projects-host-folder", "globe", "Open folder on a host…", None)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_host_folder(window, cx)));
         ui::pop(div().id("projects-menu"))
             .w(px(286.))
             .overflow_hidden()

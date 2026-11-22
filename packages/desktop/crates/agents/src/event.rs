@@ -4,8 +4,8 @@ use crate::hosts;
 use crate::ids::{AUTO, BOARD, BTW, COMMANDS, CREATE, MCP, MCP_ACT, REGISTRY, REMOTE_CONTROL, SETTINGS};
 use crate::locals::Local;
 use crate::providers::ProviderInfo;
-use crate::registry;
 use crate::queue::Entry;
+use crate::registry;
 use crate::tickets::{self, Ticket};
 use crate::{Command, Item, McpServer, Permission, Summary};
 use serde::Deserialize;
@@ -79,24 +79,55 @@ pub enum Event {
     Agent(Box<Summary>),
     Items(String, Vec<Item>),
     /// The newest of a chat's items, which pocketd sends on each connect; `max_seq` is the newest seq it had then.
-    Page { agent: String, items: Vec<Item>, max_seq: i64 },
+    Page {
+        agent: String,
+        items: Vec<Item>,
+        max_seq: i64,
+    },
     Asked(Permission),
     Resolved(String),
     /// hello.ok arrived with the scopes pocketd granted this conn, the caps both sides speak and pocketd's build.
-    Connected { scopes: Vec<String>, caps: Vec<String>, version: String },
+    Connected {
+        scopes: Vec<String>,
+        caps: Vec<String>,
+        version: String,
+    },
     Host(Host),
     /// A pairing code from `Outbox::pair_begin`; `expires_at` is Unix ms.
-    PairCode { url: String, code: String, expires_at: i64 },
+    PairCode {
+        url: String,
+        code: String,
+        expires_at: i64,
+    },
     /// The phone redeemed the code; carries the device's name.
     Paired(String),
     PairFailed(String),
     /// pocketd made the Terminal for a create; `setup` runs before the agent.
-    Creating { request: String, terminal: String, cwd: String, setup: bool },
+    Creating {
+        request: String,
+        terminal: String,
+        cwd: String,
+        setup: bool,
+    },
     /// The step a create has reached; a step sent again carries a note on how it went.
-    Progress { request: String, step: String, note: String },
-    Created { request: String, agent: String },
-    CreateFailed { request: String, code: String, message: String, detail: String },
-    Providers { providers: Vec<ProviderInfo> },
+    Progress {
+        request: String,
+        step: String,
+        note: String,
+    },
+    Created {
+        request: String,
+        agent: String,
+    },
+    CreateFailed {
+        request: String,
+        code: String,
+        message: String,
+        detail: String,
+    },
+    Providers {
+        providers: Vec<ProviderInfo>,
+    },
     /// pocketd couldn't switch an agent's model or effort.
     SettingsFailed(String),
     /// Every worktree's display name by path, sent whole.
@@ -110,41 +141,100 @@ pub enum Event {
     /// pocketd refused a change to them; the list it sends next undoes it.
     RegistryFailed(String),
     /// Every automation and run, sent whole.
-    Automations { automations: Vec<Automation>, runs: Vec<Run> },
+    Automations {
+        automations: Vec<Automation>,
+        runs: Vec<Run>,
+    },
     /// pocketd refused an automation message.
     AutomationError(String),
     /// Every ticket and the limit, sent whole.
-    Board { tickets: Vec<Ticket>, limit: usize },
+    Board {
+        tickets: Vec<Ticket>,
+        limit: usize,
+    },
     /// pocketd refused a board message.
     BoardError(String),
     /// pocketd refused the prompt sent under `request`, or the socket never took it; it isn't sent again, so it can't be typed twice.
-    PromptFailed { agent: String, request: String },
+    PromptFailed {
+        agent: String,
+        request: String,
+    },
     /// pocketd refused to stop the agent's turn, or the socket never took the stop; `reason` says why.
-    InterruptFailed { agent: String, reason: String },
+    InterruptFailed {
+        agent: String,
+        reason: String,
+    },
     /// The slash commands the agent offers; empty when pocketd couldn't list them.
-    Commands { agent: String, commands: Vec<Command> },
+    Commands {
+        agent: String,
+        commands: Vec<Command>,
+    },
     /// The slash commands `provider` offers in `project` on `account`, read before any agent runs there.
-    Skills { provider: String, account: String, project: String, commands: Vec<Command> },
+    Skills {
+        provider: String,
+        account: String,
+        project: String,
+        commands: Vec<Command>,
+    },
     /// The answer to the side question `request` asked, or why there's none.
-    Btw { request: String, answer: Result<String, String> },
+    Btw {
+        request: String,
+        answer: Result<String, String>,
+    },
     /// Remote Control turned on, with the link the agent's session continues at, off with none, or why it didn't.
-    RemoteControl { agent: String, url: Result<String, String> },
+    RemoteControl {
+        agent: String,
+        url: Result<String, String>,
+    },
     /// How the agent's MCP servers stand, or why pocketd couldn't tell; after a sign-in starts, the URL the user
     /// finishes it at.
     /// `acted` when it answers an action rather than a plain ask, as replies can cross.
-    Mcp { agent: String, servers: Result<Vec<McpServer>, String>, auth_url: String, acted: bool },
+    Mcp {
+        agent: String,
+        servers: Result<Vec<McpServer>, String>,
+        auth_url: String,
+        acted: bool,
+    },
     /// Every session `agent` delegated to, sent whole.
-    Delegations { agent: String, items: Vec<Delegation> },
+    Delegations {
+        agent: String,
+        items: Vec<Delegation>,
+    },
     /// One of `agent`'s delegations changed.
-    Delegated { agent: String, delegation: Delegation },
-    Queue { agent: String, entries: Vec<Entry> },
+    Delegated {
+        agent: String,
+        delegation: Delegation,
+    },
+    Queue {
+        agent: String,
+        entries: Vec<Entry>,
+    },
     /// pocketd refused a queue change or a queued send, or the socket never took it; `text` is what the user had typed for it, if anything.
-    QueueFailed { agent: String, reason: String, text: Option<String> },
-    McpActFailed { agent: String, reason: String },
+    QueueFailed {
+        agent: String,
+        reason: String,
+        text: Option<String>,
+    },
+    McpActFailed {
+        agent: String,
+        reason: String,
+    },
     Hosts(Vec<hosts::Entry>),
-    HostUpdate { request: String, host: hosts::Entry },
-    HostProgress { host: String, update: bool, progress: hosts::Progress },
-    HostError { request: String, code: String, detail: Option<hosts::Failure>, message: String },
+    HostUpdate {
+        request: String,
+        host: hosts::Entry,
+    },
+    HostProgress {
+        host: String,
+        update: bool,
+        progress: hosts::Progress,
+    },
+    HostError {
+        request: String,
+        code: String,
+        detail: Option<hosts::Failure>,
+        message: String,
+    },
     HostDone(String),
 }
 
@@ -155,7 +245,12 @@ pub(super) fn launch_event(f: &Frame) -> Option<Event> {
         "agent.created" => Event::Created { request: f.request_id.clone(), agent: f.agent_id.clone() },
         "agent.providers" => Event::Providers { providers: f.providers.clone() },
         "error" if f.id == SETTINGS => Event::SettingsFailed(f.message.clone()),
-        "error" => Event::CreateFailed { request: f.id.strip_prefix(CREATE)?.to_string(), code: f.code.clone(), message: readable(&f.message), detail: f.detail.clone() },
+        "error" => Event::CreateFailed {
+            request: f.id.strip_prefix(CREATE)?.to_string(),
+            code: f.code.clone(),
+            message: readable(&f.message),
+            detail: f.detail.clone(),
+        },
         _ => return None,
     })
 }
@@ -173,13 +268,21 @@ pub(super) fn names_event(f: &Frame) -> Option<Event> {
         "naming.failed" => Some(Event::NamingFailed(f.agent_id.clone())),
         "local.list" => Some(Event::Locals(f.locals.clone())),
         "agent.commands" => Some(Event::Commands { agent: f.agent_id.clone(), commands: f.commands.clone() }),
-        "skills.list" => Some(Event::Skills { provider: f.provider.clone(), account: f.account.clone(), project: f.project.clone(), commands: f.commands.clone() }),
+        "skills.list" => {
+            Some(Event::Skills { provider: f.provider.clone(), account: f.account.clone(), project: f.project.clone(), commands: f.commands.clone() })
+        }
         "agent.btw" => Some(Event::Btw { request: f.id.clone(), answer: Ok(f.answer.clone()) }),
         "error" if f.id.starts_with(BTW) => Some(Event::Btw { request: f.id.clone(), answer: Err(readable(&f.message)) }),
         "agent.remote_control" => Some(Event::RemoteControl { agent: f.agent_id.clone(), url: Ok(f.url.clone()) }),
-        "error" if f.id.starts_with(REMOTE_CONTROL) => Some(Event::RemoteControl { agent: f.id[REMOTE_CONTROL.len()..].to_string(), url: Err(readable(&f.message)) }),
-        "agent.mcp" => Some(Event::Mcp { agent: f.agent_id.clone(), servers: Ok(f.servers.clone()), auth_url: f.auth_url.clone(), acted: f.id.starts_with(MCP_ACT) }),
-        "error" if f.id.starts_with(MCP) => Some(Event::Mcp { agent: f.id[MCP.len()..].to_string(), servers: Err(readable(&f.message)), auth_url: String::new(), acted: false }),
+        "error" if f.id.starts_with(REMOTE_CONTROL) => {
+            Some(Event::RemoteControl { agent: f.id[REMOTE_CONTROL.len()..].to_string(), url: Err(readable(&f.message)) })
+        }
+        "agent.mcp" => {
+            Some(Event::Mcp { agent: f.agent_id.clone(), servers: Ok(f.servers.clone()), auth_url: f.auth_url.clone(), acted: f.id.starts_with(MCP_ACT) })
+        }
+        "error" if f.id.starts_with(MCP) => {
+            Some(Event::Mcp { agent: f.id[MCP.len()..].to_string(), servers: Err(readable(&f.message)), auth_url: String::new(), acted: false })
+        }
         "error" if f.id.starts_with(MCP_ACT) => Some(Event::McpActFailed { agent: f.id[MCP_ACT.len()..].to_string(), reason: readable(&f.message) }),
         "error" => Some(Event::Commands { agent: f.id.strip_prefix(COMMANDS)?.to_string(), commands: Vec::new() }),
         _ => None,
@@ -250,9 +353,13 @@ mod tests {
 
     #[test]
     fn a_delegations_reply_and_an_update_decode_into_their_chat() {
-        let Some(Event::Delegations { agent, items }) = delegation_event("agent.delegations", golden_text!("server/agent_delegations.json")) else { panic!("no delegations") };
+        let Some(Event::Delegations { agent, items }) = delegation_event("agent.delegations", golden_text!("server/agent_delegations.json")) else {
+            panic!("no delegations")
+        };
         assert_eq!((agent.as_str(), items.len(), items[0].child_id.as_str()), ("a1", 2, "a2"));
-        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else { panic!("no update") };
+        let Some(Event::Delegated { agent, delegation }) = delegation_event("delegation.update", golden_text!("server/delegation_update.json")) else {
+            panic!("no update")
+        };
         assert_eq!((agent.as_str(), delegation.question.as_str()), ("a1", "Which test runner?"));
         assert!(delegation_event("agent.list", "{}").is_none());
     }
@@ -264,14 +371,18 @@ mod tests {
         assert_eq!((a.parent.as_str(), a.relationship.as_str()), ("a1", "subagent"));
         let f: Frame = serde_json::from_str(golden_text!("server/stream_delivery.json")).unwrap();
         let i = f.item.unwrap();
-        assert_eq!((i.kind.as_str(), i.titles, i.child_ids, i.agents, i.outcome.as_str()), ("delivery", vec!["Write the tests".to_string()], vec!["a2".to_string()], vec!["codex".to_string()], "done"));
+        assert_eq!(
+            (i.kind.as_str(), i.titles, i.child_ids, i.agents, i.outcome.as_str()),
+            ("delivery", vec!["Write the tests".to_string()], vec!["a2".to_string()], vec!["codex".to_string()], "done")
+        );
     }
 
     #[test]
     fn a_burst_of_items_for_one_chat_lands_as_one_event_with_the_last_draft_winning() {
         let item = |id: &str, seq, text: &str| Item { id: id.into(), seq, kind: "assistant".into(), text: text.into(), ..Default::default() };
         let items = |id: &str, it: Item| Event::Items(id.into(), vec![it]);
-        let events = coalesce(vec![items("a", item("1", 1, "h")), items("a", item("1", 1, "hi")), items("b", item("1", 1, "x")), items("a", item("2", 2, "yo"))]);
+        let events =
+            coalesce(vec![items("a", item("1", 1, "h")), items("a", item("1", 1, "hi")), items("b", item("1", 1, "x")), items("a", item("2", 2, "yo"))]);
         assert_eq!(events.len(), 3, "a different chat between keeps the order");
         let mut a = Agents::default();
         events.into_iter().for_each(|ev| a.apply(ev));
@@ -298,13 +409,18 @@ mod tests {
         let created = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_created.json");
         let providers = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/agent_providers.json");
         let failed = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/error_detail.json");
-        assert!(matches!(ev(creating), Some(Event::Creating { request, terminal, cwd, setup: true }) if request == "r1" && terminal == "t1" && cwd == "/w/fix"));
+        assert!(
+            matches!(ev(creating), Some(Event::Creating { request, terminal, cwd, setup: true }) if request == "r1" && terminal == "t1" && cwd == "/w/fix")
+        );
         assert!(matches!(ev(progress), Some(Event::Progress { request, step, note })
             if request == "r1" && step == "fetch" && note == "Couldn't fetch, using local main"));
         assert!(matches!(ev(created), Some(Event::Created { request, agent }) if request == "r1" && agent == "a1"));
         let Some(Event::Providers { providers }) = ev(providers) else { panic!("not providers") };
         assert_eq!(providers[0].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: true, send_now: true }));
-        assert_eq!(providers[1].chat, Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: false, send_now: false }));
+        assert_eq!(
+            providers[1].chat,
+            Some(providers::ChatCaps { interrupt: true, compact: true, send_while_working: true, sub_agents: false, send_now: false })
+        );
         assert!(providers[1].efforts.is_empty());
         assert!(matches!(ev(failed), Some(Event::CreateFailed { request, code, message, detail })
             if request == "r1" && code == "spawn_failed" && message == "Setup exited 1" && detail == "npm ERR! missing script: setup"));
@@ -339,8 +455,12 @@ mod tests {
     #[test]
     fn registry_frames_become_registry_events() {
         let ev = |raw: &str| registry_event(&serde_json::from_str::<Frame>(raw).unwrap(), raw);
-        assert!(matches!(ev(r#"{"type":"registry.list","projects":[{"id":"p1","path":"/app","repo":{}}],"tracked":[],"settings":{}}"#), Some(Event::Registry(l)) if l.projects[0].path == "/app"));
-        assert!(matches!(ev(r#"{"type":"error","id":"registry-3","code":"unknown_project","message":"No such project"}"#), Some(Event::RegistryFailed(m)) if m == "No such project"));
+        assert!(
+            matches!(ev(r#"{"type":"registry.list","projects":[{"id":"p1","path":"/app","repo":{}}],"tracked":[],"settings":{}}"#), Some(Event::Registry(l)) if l.projects[0].path == "/app")
+        );
+        assert!(
+            matches!(ev(r#"{"type":"error","id":"registry-3","code":"unknown_project","message":"No such project"}"#), Some(Event::RegistryFailed(m)) if m == "No such project")
+        );
         assert!(ev(r#"{"type":"error","id":"board-3","message":"Nope"}"#).is_none());
     }
 
@@ -348,8 +468,12 @@ mod tests {
     fn board_frames_become_board_events() {
         let ev = |raw: &str| board_event(&serde_json::from_str::<Frame>(raw).unwrap());
         let snapshot = include_str!("../../../../pocketd/internal/proto/testdata/golden/server/board.json");
-        assert!(matches!(ev(snapshot), Some(Event::Board { ref tickets, limit: 4 }) if (tickets[0].number, tickets[0].priority, tickets[0].labels.as_slice()) == (7, 2, ["Bug".to_string()].as_slice()) && (tickets[1].number, tickets[1].priority) == (0, 0)));
-        assert!(matches!(ev(snapshot), Some(Event::Board { tickets, limit: 4 }) if tickets.len() == 2 && tickets[0].status == tickets::Status::NeedsYou && tickets[1].closed_why == tickets::ClosedWhy::Merged));
+        assert!(
+            matches!(ev(snapshot), Some(Event::Board { ref tickets, limit: 4 }) if (tickets[0].number, tickets[0].priority, tickets[0].labels.as_slice()) == (7, 2, ["Bug".to_string()].as_slice()) && (tickets[1].number, tickets[1].priority) == (0, 0))
+        );
+        assert!(
+            matches!(ev(snapshot), Some(Event::Board { tickets, limit: 4 }) if tickets.len() == 2 && tickets[0].status == tickets::Status::NeedsYou && tickets[1].closed_why == tickets::ClosedWhy::Merged)
+        );
         let newer = r#"{"type":"board","limit":2,"tickets":[{"id":"t2","state":"nonsense"}]}"#;
         assert!(matches!(ev(newer), Some(Event::Board { tickets, limit: 2 }) if tickets.is_empty()));
         assert!(matches!(ev(r#"{"type":"error","id":"board-3","message":"Nope"}"#), Some(Event::BoardError(m)) if m == "Nope"));
@@ -440,11 +564,16 @@ mod tests {
     #[test]
     fn remote_control_brings_its_link_none_once_off_or_why_it_failed() {
         let f: Frame = serde_json::from_value(golden!("server/agent_remote_control.json")).unwrap();
-        assert!(matches!(names_event(&f), Some(Event::RemoteControl { agent, url: Ok(u) }) if agent == "a1" && u == "https://claude.ai/code/session_01La8mPYSeyy7PpSsj7a8Yjq"));
+        assert!(
+            matches!(names_event(&f), Some(Event::RemoteControl { agent, url: Ok(u) }) if agent == "a1" && u == "https://claude.ai/code/session_01La8mPYSeyy7PpSsj7a8Yjq")
+        );
         let f: Frame = serde_json::from_value(golden!("server/agent_remote_control_off.json")).unwrap();
         assert!(matches!(names_event(&f), Some(Event::RemoteControl { url: Ok(u), .. }) if u.is_empty()));
-        let f: Frame = serde_json::from_str(r#"{"type":"error","id":"remotecontrol-a1","message":"Remote Control requires a claude.ai subscription"}"#).unwrap();
-        assert!(matches!(names_event(&f), Some(Event::RemoteControl { agent, url: Err(e) }) if agent == "a1" && e == "Remote Control requires a claude.ai subscription"));
+        let f: Frame =
+            serde_json::from_str(r#"{"type":"error","id":"remotecontrol-a1","message":"Remote Control requires a claude.ai subscription"}"#).unwrap();
+        assert!(
+            matches!(names_event(&f), Some(Event::RemoteControl { agent, url: Err(e) }) if agent == "a1" && e == "Remote Control requires a claude.ai subscription")
+        );
     }
 
     #[test]

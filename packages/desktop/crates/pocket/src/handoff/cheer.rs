@@ -22,7 +22,14 @@ const fn pose(y: f32, sx: f32, sy: f32) -> Pose {
 }
 
 /// Falls, squashes from its feet, rebounds once and settles.
-const DROP: [(f32, Pose); 6] = [(0., pose(-64., 0.92, 1.1)), (0.34, pose(0., 1.14, 0.8)), (0.52, pose(-26., 0.96, 1.05)), (0.66, pose(0., 1.06, 0.93)), (0.8, pose(0., 0.98, 1.02)), (1., pose(0., 1., 1.))];
+const DROP: [(f32, Pose); 6] = [
+    (0., pose(-64., 0.92, 1.1)),
+    (0.34, pose(0., 1.14, 0.8)),
+    (0.52, pose(-26., 0.96, 1.05)),
+    (0.66, pose(0., 1.06, 0.93)),
+    (0.8, pose(0., 0.98, 1.02)),
+    (1., pose(0., 1., 1.)),
+];
 const HOP: [(f32, Pose); 4] = [(0., pose(0., 1.12, 0.84)), (0.35, pose(-34., 0.94, 1.08)), (0.7, pose(0., 1.08, 0.92)), (1., pose(0., 1., 1.))];
 
 /// The pose `t` of the way through `keys`, eased in and out between each pair.
@@ -39,7 +46,16 @@ fn at(keys: &[(f32, Pose)], t: f32) -> Pose {
 fn stage(p: Pose, t: f32, first: bool, still: bool) -> Div {
     let feet = MASCOT * (FEET - 0.5) * (1. - p.sy);
     let body = Transformation::scale(size(p.sx, p.sy)).with_translation(point(px(0.), px(p.y + feet)));
-    let layer = |name: &str, color: Hsla| svg().path(format!("icons/mascot-{name}.svg")).absolute().left(px((STAGE_W - MASCOT) / 2.)).bottom(px(8.)).size(px(MASCOT)).text_color(color).with_transformation(body);
+    let layer = |name: &str, color: Hsla| {
+        svg()
+            .path(format!("icons/mascot-{name}.svg"))
+            .absolute()
+            .left(px((STAGE_W - MASCOT) / 2.))
+            .bottom(px(8.))
+            .size(px(MASCOT))
+            .text_color(color)
+            .with_transformation(body)
+    };
     let shade = |hex: u32, alpha: f32| Hsla::from(rgb(hex)).opacity(alpha);
     let shown = if first { (t / 0.12).min(1.) } else { 1. };
     let near = 1. - (-p.y / 64.).clamp(0., 1.);
@@ -59,8 +75,16 @@ fn stage(p: Pose, t: f32, first: bool, still: bool) -> Div {
         .w(px(STAGE_W))
         .h(px(STAGE_H))
         .opacity(shown)
-        .child(div().absolute().left(px((STAGE_W - 150.) / 2.)).top(px(STAGE_H * 0.58 - 75.)).size(px(150.)).rounded_full().shadow(vec![ui::shadow(shade(GLOW, 0.4 * shown), 0., 60.)]))
-        .child(div().absolute().bottom(px(14.)).left(px((STAGE_W - shadow_w) / 2.)).w(px(shadow_w)).h(px(6.)).rounded_full().shadow(vec![ui::shadow(shade(0x000000, 0.25 * near), 0., 6.)]))
+        .child(div().absolute().left(px((STAGE_W - 150.) / 2.)).top(px(STAGE_H * 0.58 - 75.)).size(px(150.)).rounded_full().shadow(vec![ui::shadow(
+            shade(GLOW, 0.4 * shown),
+            0.,
+            60.,
+        )]))
+        .child(div().absolute().bottom(px(14.)).left(px((STAGE_W - shadow_w) / 2.)).w(px(shadow_w)).h(px(6.)).rounded_full().shadow(vec![ui::shadow(
+            shade(0x000000, 0.25 * near),
+            0.,
+            6.,
+        )]))
         .child(layer("halo", shade(LIGHT, 0.55)))
         .child(layer("body", rgb(BODY).into()))
         .child(layer("sheen", shade(0xffffff, 0.08)))

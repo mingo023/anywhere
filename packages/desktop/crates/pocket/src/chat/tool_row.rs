@@ -159,7 +159,13 @@ fn run_detail(call: &ToolCall, failed: bool, open: bool, toggled: Option<Instant
         return Some(view.into_any_element());
     }
     let (from, to) = if open { (0., height) } else { (height, 0.) };
-    Some(div().overflow_hidden().child(view).with_animation(SharedString::from(format!("run-{id}-{open}")), grow(height), move |d, t| d.h(px(from + (to - from) * t))).into_any_element())
+    Some(
+        div()
+            .overflow_hidden()
+            .child(view)
+            .with_animation(SharedString::from(format!("run-{id}-{open}")), grow(height), move |d, t| d.h(px(from + (to - from) * t)))
+            .into_any_element(),
+    )
 }
 
 fn verb(name: &str) -> &'static str {
@@ -266,12 +272,17 @@ pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &Ap
             let base = if failed { FAILED } else { TEXT_BODY };
             let shown = div().min_w_0().when(lead, |d| d.pl(px(2.))).truncate().text_color(base);
             // A row with a verb shimmers that; one without, as a command its agent described, shimmers this.
-            if running && !lead { shown.child(shimmer(SharedString::from(format!("text-{}", call.id)), text, base)) } else { shown.child(text) }.into_any_element()
+            if running && !lead { shown.child(shimmer(SharedString::from(format!("text-{}", call.id)), text, base)) } else { shown.child(text) }
+                .into_any_element()
         }
         Arg::Raw(label) => {
             let base = if failed { FAILED } else { TEXT_2 };
             let raw = div().min_w_0().overflow_hidden().whitespace_nowrap().font_family(code_font()).text_size(px(13.)).text_color(base);
-            if running { raw.child(shimmer(SharedString::from(format!("raw-{}", call.id)), label, base)).into_any_element() } else { raw.truncate().child(label).into_any_element() }
+            if running {
+                raw.child(shimmer(SharedString::from(format!("raw-{}", call.id)), label, base)).into_any_element()
+            } else {
+                raw.truncate().child(label).into_any_element()
+            }
         }
     };
     let command = matches!(call.kind, ToolKind::Shell { .. });
@@ -294,7 +305,13 @@ pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &Ap
             .on_click(toggle(false, None))
             .child(chevron(FAILED))
     });
-    let run_caret = command.then(|| div().flex_none().opacity(if open || failed { 0.7 } else { 0. }).group_hover("tool-head", |s| s.opacity(0.7)).child(chevron(if failed { FAILED } else { TEXT_3 })));
+    let run_caret = command.then(|| {
+        div().flex_none().opacity(if open || failed { 0.7 } else { 0. }).group_hover("tool-head", |s| s.opacity(0.7)).child(chevron(if failed {
+            FAILED
+        } else {
+            TEXT_3
+        }))
+    });
     let head = div()
         .id(SharedString::from(format!("head-{}", call.id)))
         .py(px(4.))
@@ -314,7 +331,9 @@ pub(crate) fn row(call: &ToolCall, settled: bool, tools: &Entity<Tools>, cx: &Ap
     let body = match (open, error, edit(call)) {
         _ if command => run_detail(call, failed, open, toggled),
         (true, Some(text), _) => Some(tool_detail::pre(&tool_detail::output(text), FAILED, 0.88).into_any_element()),
-        (true, None, Some((_, d))) => Some(div().py(px(4.)).child(diff::body(&diff::lines(d), state.highlights.get(&call.id).as_deref().map(Vec::as_slice))).into_any_element()),
+        (true, None, Some((_, d))) => {
+            Some(div().py(px(4.)).child(diff::body(&diff::lines(d), state.highlights.get(&call.id).as_deref().map(Vec::as_slice))).into_any_element())
+        }
         _ => None,
     };
     div().w_full().min_w_0().flex().flex_col().child(head).children(body)
@@ -342,14 +361,30 @@ mod tests {
             (call("Grep", ToolKind::Search { query: "fn  group\n".into() }), "Find", Arg::Text("fn group".into())),
             (call("Bash", ToolKind::Shell { command: "\ncargo test\nmore".into(), description: String::new() }), "", Arg::Raw("cargo test".into())),
             (call("Bash", ToolKind::Shell { command: String::new(), description: String::new() }), "", Arg::Raw("Shell".into())),
-            (call("Bash", ToolKind::Shell { command: "cd /r && go test ./...".into(), description: "Run the  Go tests".into() }), "", Arg::Text("Run the Go tests".into())),
+            (
+                call("Bash", ToolKind::Shell { command: "cd /r && go test ./...".into(), description: "Run the  Go tests".into() }),
+                "",
+                Arg::Text("Run the Go tests".into()),
+            ),
             (call("mcp__linear__list", other("")), "", Arg::Raw("linear · list".into())),
-            (call("Skill", ToolKind::Other { input: r#"{"skill": "apple-design"}"#.into(), description: String::new() }), "Skill", Arg::Text("/apple-design".into())),
+            (
+                call("Skill", ToolKind::Other { input: r#"{"skill": "apple-design"}"#.into(), description: String::new() }),
+                "Skill",
+                Arg::Text("/apple-design".into()),
+            ),
             (call("NotebookEdit", other("")), "", Arg::Raw("NotebookEdit".into())),
-            (call("Monitor", ToolKind::Shell { command: "tail -f build.log".into(), description: String::new() }), "Watch", Arg::Raw("tail -f build.log".into())),
+            (
+                call("Monitor", ToolKind::Shell { command: "tail -f build.log".into(), description: String::new() }),
+                "Watch",
+                Arg::Raw("tail -f build.log".into()),
+            ),
             (call("TaskStop", other("Standards review\nof quit diff")), "Stop", Arg::Text("Standards review of quit diff".into())),
             (call("TaskStop", ToolKind::Shell { command: "bun run dev".into(), description: String::new() }), "Stop", Arg::Raw("bun run dev".into())),
-            (call("TaskOutput", ToolKind::Shell { command: "bun run dev".into(), description: String::new() }), "Read output of", Arg::Raw("bun run dev".into())),
+            (
+                call("TaskOutput", ToolKind::Shell { command: "bun run dev".into(), description: String::new() }),
+                "Read output of",
+                Arg::Raw("bun run dev".into()),
+            ),
         ];
         for (c, verb, arg) in cases {
             assert_eq!(line(&c), (verb, arg), "{}", c.name);

@@ -244,7 +244,10 @@ mod tests {
 
     fn custom(name: &str, dark: bool) -> Custom {
         let appearance = if dark { "dark" } else { "light" };
-        Custom { slug: store::themes::slug(name), theme: Theme::parse(&format!(r##"{{ "name": "{name}", "appearance": "{appearance}", "colors": {{ "text": "#102030" }} }}"##)).unwrap() }
+        Custom {
+            slug: store::themes::slug(name),
+            theme: Theme::parse(&format!(r##"{{ "name": "{name}", "appearance": "{appearance}", "colors": {{ "text": "#102030" }} }}"##)).unwrap(),
+        }
     }
 
     fn appearance(theme: &str) -> Appearance {
@@ -386,7 +389,10 @@ mod tests {
     #[test]
     fn a_theme_goes_by_its_name_and_one_whose_file_is_gone_by_its_file_s() {
         let mine = [custom("My Theme", true)];
-        assert_eq!([name(&mine, "custom/my-theme"), name(&mine, "dracula"), name(&mine, SYSTEM), name(&[], "custom/my-theme"), name(&[], "nothing")], ["My Theme", "Dracula", "System", "my-theme", "nothing"]);
+        assert_eq!(
+            [name(&mine, "custom/my-theme"), name(&mine, "dracula"), name(&mine, SYSTEM), name(&[], "custom/my-theme"), name(&[], "nothing")],
+            ["My Theme", "Dracula", "System", "my-theme", "nothing"]
+        );
     }
 
     #[test]

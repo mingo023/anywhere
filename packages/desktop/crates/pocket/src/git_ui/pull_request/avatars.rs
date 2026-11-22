@@ -33,7 +33,8 @@ impl Desktop {
             let Some(url) = github::avatar_url(&pr.url, &login) else { continue };
             let path = dir.join(format!("{login}.png"));
             let dir = dir.clone();
-            let task = cx.background_executor().spawn(async move { (std::fs::create_dir_all(&dir).is_ok() && github::fetch_avatar(&url, &path)).then_some(path) });
+            let task =
+                cx.background_executor().spawn(async move { (std::fs::create_dir_all(&dir).is_ok() && github::fetch_avatar(&url, &path)).then_some(path) });
             cx.spawn(async move |this, cx| {
                 let Some(path) = task.await else { return };
                 this.update(cx, |d, cx| {

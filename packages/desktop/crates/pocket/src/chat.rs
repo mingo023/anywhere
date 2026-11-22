@@ -34,8 +34,8 @@ pub(crate) mod user_bubble;
 mod working;
 
 use crate::composer::Draft;
-use crate::explorer::mermaid::{Diagrams, Resized};
 use crate::desktop::Desktop;
+use crate::explorer::mermaid::{Diagrams, Resized};
 use crate::region::{self, Region};
 use agents::Summary;
 use gpui_kit::component::input::TextareaState;
@@ -113,7 +113,25 @@ impl ChatState {
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         subs.push(cx.subscribe(&diagrams, |d, _, _: &Resized, _| d.chats.views.values().for_each(transcript::View::remeasure_under_pin)));
-        (Self { input, drafts: Default::default(), views: HashMap::new(), transcripts: HashMap::new(), composer, files: None, select: Default::default(), unsent: None, copying: HashSet::new(), copied: HashMap::new(), map: agent_map::AgentMap::new(cx), dock: agent_dock::AgentDock::new(cx), diagrams, editing: HashMap::new() }, subs)
+        (
+            Self {
+                input,
+                drafts: Default::default(),
+                views: HashMap::new(),
+                transcripts: HashMap::new(),
+                composer,
+                files: None,
+                select: Default::default(),
+                unsent: None,
+                copying: HashSet::new(),
+                copied: HashMap::new(),
+                map: agent_map::AgentMap::new(cx),
+                dock: agent_dock::AgentDock::new(cx),
+                diagrams,
+                editing: HashMap::new(),
+            },
+            subs,
+        )
     }
 }
 
@@ -210,21 +228,38 @@ impl Desktop {
         };
         let stage = div().relative().flex_1().min_h_0().children(left).child(shown);
         let backdrop = self.store.appearance.background.clone().map(|path| crate::field::backdrop(path, crate::field::CHAT_TINT));
-        let column = div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().children(backdrop).child(stage).child(composer).children(files).children(drop);
+        let column =
+            div().relative().flex_1().min_w_0().min_h_0().flex().flex_col().children(backdrop).child(stage).child(composer).children(files).children(drop);
         div().relative().flex_1().min_h_0().flex().border_t(px(0.5)).border_color(SEPARATOR).child(column).children(dock)
     }
 
     /// The chat `from` as it was, sliding and fading out under the one arriving: the transcript as last drawn, with its breadcrumb and panel. None where it also shows in a pane, which draws it once.
     fn chat_left(&mut self, from: &str, (across, shown): (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> Option<Div> {
         let terminal = self.agents.get(from)?.terminal_id.clone();
-        let on_screen = self.session_tree().and_then(|t| self.workspaces.get(&t)).is_some_and(|w| w.shown().iter().any(|(_, tab)| matches!(tab, Tab::Term(id) if self.delegated_term(id) == terminal)));
+        let on_screen = self
+            .session_tree()
+            .and_then(|t| self.workspaces.get(&t))
+            .is_some_and(|w| w.shown().iter().any(|(_, tab)| matches!(tab, Tab::Term(id) if self.delegated_term(id) == terminal)));
         if on_screen {
             return None;
         }
         let transcript = region::cached(&self.chats.transcripts.get(from)?.1, StyleRefinement::default().flex_1().min_h_0());
         let crumb = self.delegated_crumb(from, cx);
         let panel = self.delegated_panel(from, window, cx);
-        Some(div().absolute().top_0().bottom_0().left(px(across)).right(px(-across)).flex().flex_col().opacity(shown).child(transcript).children(crumb).children(panel))
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(across))
+                .right(px(-across))
+                .flex()
+                .flex_col()
+                .opacity(shown)
+                .child(transcript)
+                .children(crumb)
+                .children(panel),
+        )
     }
 }
 

@@ -12,7 +12,8 @@ fn file(home: &Path, slug: &str) -> PathBuf {
 /// The file name a theme called `name` is kept under: its words, lowercased, with dashes between and without the
 /// characters a path gives meaning to or Windows refuses.
 pub fn slug(name: &str) -> String {
-    let words: Vec<String> = name.split(|c: char| c.is_whitespace() || c.is_control() || "/\\:.<>\"|?*".contains(c)).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    let words: Vec<String> =
+        name.split(|c: char| c.is_whitespace() || c.is_control() || "/\\:.<>\"|?*".contains(c)).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
     if words.is_empty() { "theme".into() } else { words.join("-") }
 }
 

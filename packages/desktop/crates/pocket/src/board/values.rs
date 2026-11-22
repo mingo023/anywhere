@@ -23,7 +23,15 @@ impl Values {
     }
 
     pub(super) fn of(t: &Ticket) -> Self {
-        Self { id: Some(t.id.clone()), state: Some(t.state), folder: t.folder.clone(), provider: t.provider.clone(), base: t.base.clone(), priority: t.priority, labels: t.labels.clone() }
+        Self {
+            id: Some(t.id.clone()),
+            state: Some(t.state),
+            folder: t.folder.clone(),
+            provider: t.provider.clone(),
+            base: t.base.clone(),
+            priority: t.priority,
+            labels: t.labels.clone(),
+        }
     }
 
     /// A queued ticket has already been started.
@@ -69,7 +77,16 @@ impl Values {
     }
 
     pub(super) fn draft(&self, title: &str, prompt: &str) -> TicketDraft {
-        TicketDraft { id: self.id.clone(), title: title.trim().to_string(), prompt: prompt.trim().to_string(), provider: self.provider.clone(), folder: self.folder.clone(), base: self.base.clone(), priority: self.priority, labels: self.labels.clone() }
+        TicketDraft {
+            id: self.id.clone(),
+            title: title.trim().to_string(),
+            prompt: prompt.trim().to_string(),
+            provider: self.provider.clone(),
+            folder: self.folder.clone(),
+            base: self.base.clone(),
+            priority: self.priority,
+            labels: self.labels.clone(),
+        }
     }
 }
 

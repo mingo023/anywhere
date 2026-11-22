@@ -9,8 +9,8 @@ pub(crate) mod recap;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
-use crate::util::first_line;
 use crate::status::{self, Status};
+use crate::util::first_line;
 use agents::Summary;
 use git::github::PrState;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -50,7 +50,16 @@ impl ActivityState {
                 }
             }),
         ];
-        let state = Self { previewed: None, filters: Filters::default(), menu: None, grouped: Grouped::default(), lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(), motion: Rc::default(), search, reply };
+        let state = Self {
+            previewed: None,
+            filters: Filters::default(),
+            menu: None,
+            grouped: Grouped::default(),
+            lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(),
+            motion: Rc::default(),
+            search,
+            reply,
+        };
         (state, subs)
     }
 
@@ -226,7 +235,13 @@ impl Desktop {
 
     fn activity_note(&self, a: &Summary, status: Option<Status>) -> String {
         match status {
-            Some(Status::NeedsYou) => self.agents.pending.iter().find(|p| p.agent_id == a.id).map(|p| p.ask()).unwrap_or_else(|| first_line(self.agents.last_text(&a.id).unwrap_or_default())),
+            Some(Status::NeedsYou) => self
+                .agents
+                .pending
+                .iter()
+                .find(|p| p.agent_id == a.id)
+                .map(|p| p.ask())
+                .unwrap_or_else(|| first_line(self.agents.last_text(&a.id).unwrap_or_default())),
             Some(Status::Failed) => first_line(self.agents.last_result(&a.id).map_or("", |r| r.error.as_str())),
             Some(Status::Working) => a.activity.clone(),
             Some(Status::Done) => first_line(self.agents.last_text(&a.id).unwrap_or_default()),

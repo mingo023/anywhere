@@ -92,7 +92,14 @@ mod tests {
 
     fn working() -> Filters {
         let one = |v: &str| Choice { values: vec![v.to_string()], not: false };
-        Filters { status: Choice { values: vec![Col::Working, Col::Done], not: true }, agent: one("claude"), project: one("/app"), priority: Choice { values: vec![1, 2], not: false }, label: one("Bug"), query: String::new() }
+        Filters {
+            status: Choice { values: vec![Col::Working, Col::Done], not: true },
+            agent: one("claude"),
+            project: one("/app"),
+            priority: Choice { values: vec![1, 2], not: false },
+            label: one("Bug"),
+            query: String::new(),
+        }
     }
 
     #[test]

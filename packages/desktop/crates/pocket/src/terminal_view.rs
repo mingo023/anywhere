@@ -44,7 +44,23 @@ pub struct TerminalViewState {
 
 impl TerminalViewState {
     pub fn new(cx: &mut Context<Desktop>) -> Self {
-        Self { focus: cx.focus_handle(), focused: None, marked: None, selection: None, reporting: Reporting::default(), wheel: WheelRows::default(), autoscroll: None, blink: None, blink_on: true, keyboard: false, cursor_blinks: false, caret: None, menu: None, link_hover: None, dismissed: pane::DismissedBanners::default() }
+        Self {
+            focus: cx.focus_handle(),
+            focused: None,
+            marked: None,
+            selection: None,
+            reporting: Reporting::default(),
+            wheel: WheelRows::default(),
+            autoscroll: None,
+            blink: None,
+            blink_on: true,
+            keyboard: false,
+            cursor_blinks: false,
+            caret: None,
+            menu: None,
+            link_hover: None,
+            dismissed: pane::DismissedBanners::default(),
+        }
     }
 }
 
@@ -441,14 +457,7 @@ impl EntityInputHandler for Desktop {
         }
     }
 
-    fn replace_and_mark_text_in_range(
-        &mut self,
-        _: Option<Range<usize>>,
-        text: &str,
-        _: Option<Range<usize>>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn replace_and_mark_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: Option<Range<usize>>, _: &mut Window, cx: &mut Context<Self>) {
         self.terminal.marked = (!text.is_empty() && self.overlay.is_none()).then(|| text.to_string());
         cx.notify();
     }
@@ -465,8 +474,8 @@ impl EntityInputHandler for Desktop {
 #[cfg(test)]
 mod tests {
     use super::{Drag, Pasted, Release, asks_before_paste, click_opens_link, pasted, release, tick_rows};
-    use store::prefs::Terminal;
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
+    use store::prefs::Terminal;
     use term::Pointer;
 
     fn at(row: u16, col: u16) -> Pointer {

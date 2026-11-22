@@ -11,7 +11,15 @@ use workspace::Place;
 
 /// A create for a chat on the (provider, model) in `s`'s folder, opening with `prompt`. It takes `s`'s access rather than
 /// Settings', so moving to another agent never grants more.
-fn switched_spec(s: &Summary, project: &str, (provider, model): (&str, &str), prompt: &str, prefs: &Agents, live: &agents::Agents, efforts: &[String]) -> Value {
+fn switched_spec(
+    s: &Summary,
+    project: &str,
+    (provider, model): (&str, &str),
+    prompt: &str,
+    prefs: &Agents,
+    live: &agents::Agents,
+    efforts: &[String],
+) -> Value {
     let access = s.access.clone().unwrap_or_else(|| "settings".into());
     let pick = LaunchPick { provider: provider.into(), model: model.into(), access, ..LaunchPick::default() };
     let mut spec = pick.spec(project, json!({"worktree": s.cwd}), prompt);
@@ -92,7 +100,15 @@ mod tests {
     use super::{Agents, Summary, Switch, json, switched_spec, switching};
 
     fn chat(access: Option<&str>) -> Summary {
-        Summary { provider: "claude".into(), cwd: "/w/tree".into(), access: access.map(Into::into), model: Some("opus".into()), effort: Some("max".into()), account: "work".into(), ..Default::default() }
+        Summary {
+            provider: "claude".into(),
+            cwd: "/w/tree".into(),
+            access: access.map(Into::into),
+            model: Some("opus".into()),
+            effort: Some("max".into()),
+            account: "work".into(),
+            ..Default::default()
+        }
     }
 
     #[test]

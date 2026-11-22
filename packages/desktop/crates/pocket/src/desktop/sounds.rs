@@ -4,8 +4,8 @@ use crate::util::now_ms;
 use agents::Summary;
 use gpui_kit::*;
 use std::collections::HashMap;
-use std::time::Duration;
 use std::path::PathBuf;
+use std::time::Duration;
 use store::{Sound, Sounds};
 
 /// A sound, ordered by priority: when several land in one window, the first wins.
@@ -70,12 +70,60 @@ pub struct Builtin {
 }
 
 pub const BUILT_IN: &[Builtin] = &[
-    Builtin { sound: Sound::Chime, name: "Chime", hint: "Light notification", emoji: "\u{1f390}", length: "0.8s", file: "chime.mp3", bytes: include_bytes!("../../assets/sounds/chime.mp3") },
-    Builtin { sound: Sound::Ping, name: "Ping", hint: "Short alert tone", emoji: "\u{1f4cd}", length: "0.7s", file: "ping.mp3", bytes: include_bytes!("../../assets/sounds/ping.mp3") },
-    Builtin { sound: Sound::Gasp, name: "Gasp", hint: "Bright UI alert", emoji: "\u{1f4ab}", length: "1.1s", file: "gasp.mp3", bytes: include_bytes!("../../assets/sounds/gasp.mp3") },
-    Builtin { sound: Sound::HighDing, name: "High Ding", hint: "Soft bell", emoji: "\u{1f514}", length: "0.8s", file: "high-ding.mp3", bytes: include_bytes!("../../assets/sounds/high-ding.mp3") },
-    Builtin { sound: Sound::Shimmer, name: "Shimmer", hint: "Quick sparkle", emoji: "\u{2728}", length: "0.3s", file: "shimmer.mp3", bytes: include_bytes!("../../assets/sounds/shimmer.mp3") },
-    Builtin { sound: Sound::DingDong, name: "Ding Dong", hint: "Soft two-note bell", emoji: "\u{1f6ce}\u{fe0f}", length: "0.9s", file: "ding-dong.mp3", bytes: include_bytes!("../../assets/sounds/ding-dong.mp3") },
+    Builtin {
+        sound: Sound::Chime,
+        name: "Chime",
+        hint: "Light notification",
+        emoji: "\u{1f390}",
+        length: "0.8s",
+        file: "chime.mp3",
+        bytes: include_bytes!("../../assets/sounds/chime.mp3"),
+    },
+    Builtin {
+        sound: Sound::Ping,
+        name: "Ping",
+        hint: "Short alert tone",
+        emoji: "\u{1f4cd}",
+        length: "0.7s",
+        file: "ping.mp3",
+        bytes: include_bytes!("../../assets/sounds/ping.mp3"),
+    },
+    Builtin {
+        sound: Sound::Gasp,
+        name: "Gasp",
+        hint: "Bright UI alert",
+        emoji: "\u{1f4ab}",
+        length: "1.1s",
+        file: "gasp.mp3",
+        bytes: include_bytes!("../../assets/sounds/gasp.mp3"),
+    },
+    Builtin {
+        sound: Sound::HighDing,
+        name: "High Ding",
+        hint: "Soft bell",
+        emoji: "\u{1f514}",
+        length: "0.8s",
+        file: "high-ding.mp3",
+        bytes: include_bytes!("../../assets/sounds/high-ding.mp3"),
+    },
+    Builtin {
+        sound: Sound::Shimmer,
+        name: "Shimmer",
+        hint: "Quick sparkle",
+        emoji: "\u{2728}",
+        length: "0.3s",
+        file: "shimmer.mp3",
+        bytes: include_bytes!("../../assets/sounds/shimmer.mp3"),
+    },
+    Builtin {
+        sound: Sound::DingDong,
+        name: "Ding Dong",
+        hint: "Soft two-note bell",
+        emoji: "\u{1f6ce}\u{fe0f}",
+        length: "0.9s",
+        file: "ding-dong.mp3",
+        bytes: include_bytes!("../../assets/sounds/ding-dong.mp3"),
+    },
 ];
 
 /// What the settings call `sound`: a built-in's name, else its file's, which the copy into Pocket's folder keeps unique.

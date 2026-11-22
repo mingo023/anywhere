@@ -1,16 +1,32 @@
 use super::Menu;
 use super::logic::values;
-use ui::value_row;
 use crate::desktop::Desktop;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
+use ui::value_row;
 
 impl Desktop {
     pub(super) fn activity_filters(&self, cx: &mut Context<Self>) -> Div {
-        let search = div().w(px(220.)).h(px(26.)).px(px(8.)).flex().items_center().gap(px(6.)).rounded(px(7.)).bg(FILL_1).child(icon("search", 12., TEXT_3)).child(div().flex_1().min_w_0().text_size(px(12.5)).child(Input::new(&self.activity.search).appearance(false).p_0()));
-        div().flex().items_center().gap(px(6.)).child(search).child(self.activity_filter_chip(Menu::Project, cx)).child(self.activity_filter_chip(Menu::Agent, cx))
+        let search = div()
+            .w(px(220.))
+            .h(px(26.))
+            .px(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(7.))
+            .bg(FILL_1)
+            .child(icon("search", 12., TEXT_3))
+            .child(div().flex_1().min_w_0().text_size(px(12.5)).child(Input::new(&self.activity.search).appearance(false).p_0()));
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(search)
+            .child(self.activity_filter_chip(Menu::Project, cx))
+            .child(self.activity_filter_chip(Menu::Agent, cx))
     }
 
     fn activity_filter_chip(&self, menu: Menu, cx: &mut Context<Self>) -> Div {

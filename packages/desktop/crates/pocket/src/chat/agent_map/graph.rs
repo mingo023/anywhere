@@ -65,11 +65,13 @@ fn elbow(from: Pt, to: Pt) -> Vec<Pt> {
     let mid = from.0 + GAP / 2.;
     let r = 8f32.min(dy.abs() / 2.);
     let dir = dy.signum();
-    let bend = |a: Pt, corner: Pt, b: Pt| (1..=4).map(move |i| {
-        let t = i as f32 / 4.;
-        let u = 1. - t;
-        (u * u * a.0 + 2. * u * t * corner.0 + t * t * b.0, u * u * a.1 + 2. * u * t * corner.1 + t * t * b.1)
-    });
+    let bend = |a: Pt, corner: Pt, b: Pt| {
+        (1..=4).map(move |i| {
+            let t = i as f32 / 4.;
+            let u = 1. - t;
+            (u * u * a.0 + 2. * u * t * corner.0 + t * t * b.0, u * u * a.1 + 2. * u * t * corner.1 + t * t * b.1)
+        })
+    };
     let mut points = vec![from, (mid - r, from.1)];
     points.extend(bend((mid - r, from.1), (mid, from.1), (mid, from.1 + dir * r)));
     points.push((mid, to.1 - dir * r));
@@ -170,7 +172,13 @@ fn card(key: String, (x, y): Pt, selected: bool, failed: bool) -> Stateful<Div> 
 }
 
 fn title(glyph: impl IntoElement, text: String, color: Token) -> Div {
-    div().min_w_0().flex().items_center().gap(px(7.)).child(glyph).child(div().min_w_0().truncate().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(text))
+    div()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .child(glyph)
+        .child(div().min_w_0().truncate().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(text))
 }
 
 fn sub(text: String) -> Div {
@@ -190,11 +198,25 @@ impl Desktop {
         let (at, size) = layout(&parents);
         let selected = self.chats.map.nav.selected;
         let center = |(x, y): Pt, right: bool| (if right { x + W } else { x }, y + H / 2.);
-        let edges: Vec<Edge> = map.iter().enumerate().map(|(i, s)| Edge { points: elbow(center(at[s.parent.map_or(0, |p| p + 1)], true), center(at[i + 1], false)), status: s.call.status }).collect();
+        let edges: Vec<Edge> = map
+            .iter()
+            .enumerate()
+            .map(|(i, s)| Edge { points: elbow(center(at[s.parent.map_or(0, |p| p + 1)], true), center(at[i + 1], false)), status: s.call.status })
+            .collect();
         let flowing = edges.iter().any(|e| e.status == ToolStatus::Running);
         let layer = if flowing {
             let edges = edges.clone();
-            div().absolute().top_0().left_0().size_full().with_animation(id(format!("chat-map-flow:{}", agent.id)), Animation::new(Duration::from_millis(900)).repeat_synced().with_max_fps(30.), move |d, p| d.child(edges_layer(edges.clone(), p * (DASH + DASH_GAP), size))).into_any_element()
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .with_animation(
+                    id(format!("chat-map-flow:{}", agent.id)),
+                    Animation::new(Duration::from_millis(900)).repeat_synced().with_max_fps(30.),
+                    move |d, p| d.child(edges_layer(edges.clone(), p * (DASH + DASH_GAP), size)),
+                )
+                .into_any_element()
         } else {
             edges_layer(edges, 0., size).into_any_element()
         };
@@ -212,7 +234,9 @@ impl Desktop {
             let failed = m == Mark::Failed;
             let third = match m {
                 Mark::Running | Mark::Starting => line(sub_agent::latest(s.agent).map_or_else(|| "Starting…".into(), sub_agent::step), true, TEXT_2),
-                Mark::Failed => line(sub_agent::report(s.call, s.agent).and_then(|r| r.lines().next().map(str::to_string)).unwrap_or_else(|| "Failed".into()), true, FAILED),
+                Mark::Failed => {
+                    line(sub_agent::report(s.call, s.agent).and_then(|r| r.lines().next().map(str::to_string)).unwrap_or_else(|| "Failed".into()), true, FAILED)
+                }
                 Mark::Done => {
                     let n = agent_detail::calls(s.agent).count();
                     line(format!("Done · {n} tool call{}", if n == 1 { "" } else { "s" }), false, TEXT_4)
@@ -223,7 +247,11 @@ impl Desktop {
                 .child(title(sub_agent::glyph(&s.call.id, m), name(s), if failed { FAILED } else { TEXT }))
                 .child(sub(meta(s.call, s.agent.tokens, now)))
                 .child(third)
-                .when(live, |d| d.cursor_pointer().hover(|s| s.bg(AGENT_CARD_HOVER)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_map_show(node, &call, cx))))
+                .when(live, |d| {
+                    d.cursor_pointer()
+                        .hover(|s| s.bg(AGENT_CARD_HOVER))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_map_show(node, &call, cx)))
+                })
                 // A node new to the map slides in from its parent's side as it fades in.
                 .with_spring(id(format!("chat-map-in:{}", s.call.id)), SpringAnimation::new(SPRING).to(true).from(false), move |d, t| {
                     d.opacity(t.0.clamp(0., 1.)).left(px(x - ENTER * (1. - t.0)))

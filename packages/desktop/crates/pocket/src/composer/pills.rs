@@ -75,7 +75,8 @@ mod tests {
         assert_eq!(pills(&first), ["/prototype"]);
         let second = kept_pills(&first, "/prototype /apple-design ".into(), Some((11, command_token("apple-design"))));
         assert_eq!(pills(&second), ["/prototype", "/apple-design"]);
-        let mentioned = kept_pills(&InputContent::new("a /prototype").with_token(2..12, command_token("prototype")).unwrap(), "@x.rs a /prototype".into(), None);
+        let mentioned =
+            kept_pills(&InputContent::new("a /prototype").with_token(2..12, command_token("prototype")).unwrap(), "@x.rs a /prototype".into(), None);
         assert_eq!(pills(&mentioned), ["/prototype"]);
         assert_eq!(mentioned.tokens()[0].range(), 8..18);
     }

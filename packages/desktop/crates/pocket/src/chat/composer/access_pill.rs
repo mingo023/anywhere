@@ -1,6 +1,6 @@
 use super::{chip_menu, close_menu};
-use crate::composer::{self, Menu};
 use crate::composer::launch::{self, Pick};
+use crate::composer::{self, Menu};
 use crate::desktop::Desktop;
 use agents::Summary;
 use gpui_kit::*;

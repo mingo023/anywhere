@@ -76,11 +76,19 @@ pub(super) fn strip(draft: &Draft, cx: &mut Context<Desktop>) -> Option<Div> {
             .child(remove("chat-image-remove", |d, i| _ = d.images.remove(i), i))
     });
     let files = draft.files.iter().enumerate().map(|(i, path)| {
-        div().group(SharedString::from(format!("chat-file-remove:{i}"))).relative().flex_none().child(file_card(("chat-file", i), path)).child(remove("chat-file-remove", |d, i| _ = d.files.remove(i), i))
+        div().group(SharedString::from(format!("chat-file-remove:{i}"))).relative().flex_none().child(file_card(("chat-file", i), path)).child(remove(
+            "chat-file-remove",
+            |d, i| _ = d.files.remove(i),
+            i,
+        ))
     });
     let elements = draft.elements.iter().enumerate().map(|(i, e)| {
         let card = element_card(("chat-element", i), &(i + 1).to_string(), web::host(&e.url), &elements::title(e), Some(e.clone()));
-        div().group(SharedString::from(format!("chat-element-remove:{i}"))).relative().flex_none().child(card).child(remove("chat-element-remove", |d, i| _ = d.elements.remove(i), i))
+        div().group(SharedString::from(format!("chat-element-remove:{i}"))).relative().flex_none().child(card).child(remove(
+            "chat-element-remove",
+            |d, i| _ = d.elements.remove(i),
+            i,
+        ))
     });
     Some(div().w_full().flex().flex_wrap().gap(px(8.)).px(px(16.)).pt(px(12.)).children(images).children(files).children(elements))
 }

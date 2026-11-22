@@ -100,7 +100,11 @@ impl LaunchPick {
     /// This pick on `model`, keeping the picked settings that are among `settings`, the model's own.
     pub fn on_model(&self, model: &str, settings: &[agents::ModelSetting]) -> Self {
         let has = |id: &String, value: &String| settings.iter().any(|s| s.id == *id && s.choices.iter().any(|(v, _)| v == value));
-        Self { model: model.into(), options: self.options.iter().filter(|(id, value)| has(id, value)).map(|(id, value)| (id.clone(), value.clone())).collect(), ..self.clone() }
+        Self {
+            model: model.into(),
+            options: self.options.iter().filter(|(id, value)| has(id, value)).map(|(id, value)| (id.clone(), value.clone())).collect(),
+            ..self.clone()
+        }
     }
 
     /// This pick with the model setting `id` on `value`.
@@ -679,7 +683,11 @@ mod tests {
         store.repos.get_mut("/app").unwrap().hidden.insert("claude".into());
         assert_eq!(store.launch_pick(Some("/app"), &live), LaunchPick { provider: "codex".into(), access: "auto".into(), ..LaunchPick::default() });
         assert_eq!(store.agents.shown(&live, store.hidden(Some("/app"))), ["codex"]);
-        assert_eq!((store.launch_pick(Some("/other"), &live).provider.as_str(), store.launch_pick(None, &live).provider.as_str()), ("claude", "claude"), "it hides them for itself only");
+        assert_eq!(
+            (store.launch_pick(Some("/other"), &live).provider.as_str(), store.launch_pick(None, &live).provider.as_str()),
+            ("claude", "claude"),
+            "it hides them for itself only"
+        );
         store.repos.get_mut("/app").unwrap().hidden.insert("codex".into());
         assert_eq!(store.launch_pick(Some("/app"), &live), last);
         let codex = LaunchPick { provider: "codex".into(), ..last };
@@ -703,7 +711,10 @@ mod tests {
     #[test]
     fn an_agent_this_app_does_not_know_starts_claude() {
         let pick = LaunchPick { provider: "gemini".into(), model: "pro".into(), effort: String::new(), access: String::new(), ..LaunchPick::default() };
-        assert_eq!(pick.known(), LaunchPick { provider: "claude".into(), model: "pro".into(), effort: String::new(), access: String::new(), ..LaunchPick::default() });
+        assert_eq!(
+            pick.known(),
+            LaunchPick { provider: "claude".into(), model: "pro".into(), effort: String::new(), access: String::new(), ..LaunchPick::default() }
+        );
         assert_eq!(LaunchPick::known_provider("codex"), "codex");
     }
 
@@ -719,7 +730,12 @@ mod tests {
     }
 
     fn setting(id: &str, choices: &[&str]) -> agents::ModelSetting {
-        agents::ModelSetting { id: id.into(), name: id.into(), choices: choices.iter().map(|c| (c.to_string(), c.to_string())).collect(), default: choices[0].into() }
+        agents::ModelSetting {
+            id: id.into(),
+            name: id.into(),
+            choices: choices.iter().map(|c| (c.to_string(), c.to_string())).collect(),
+            default: choices[0].into(),
+        }
     }
 
     #[test]
@@ -732,7 +748,12 @@ mod tests {
 
     #[test]
     fn another_model_keeps_only_the_settings_it_has_and_another_agent_none() {
-        let pick = LaunchPick { provider: "cursor".into(), model: "gpt-5.4".into(), options: [("fast", "true"), ("reasoning", "xhigh"), ("context", "1m")].map(|(k, v)| (k.to_string(), v.to_string())).into(), ..LaunchPick::default() };
+        let pick = LaunchPick {
+            provider: "cursor".into(),
+            model: "gpt-5.4".into(),
+            options: [("fast", "true"), ("reasoning", "xhigh"), ("context", "1m")].map(|(k, v)| (k.to_string(), v.to_string())).into(),
+            ..LaunchPick::default()
+        };
         let other = pick.on_model("claude-opus-4-8", &[setting("fast", &["false", "true"]), setting("reasoning", &["medium", "high"])]);
         assert_eq!((other.model.as_str(), other.options), ("claude-opus-4-8", [("fast".to_string(), "true".to_string())].into()));
         assert!(pick.on_model("composer-2.5", &[]).options.is_empty());
@@ -913,7 +934,9 @@ mod tests {
 
     #[test]
     fn an_old_desktop_json_loads_with_empty_launch_picks() {
-        let old: Store = serde_json::from_str(r#"{"projects":["/w"],"repos":{"/w":{"name":"w","color":0,"base":"main","worktrees":"","setup":"make","copy":[".env"]}}}"#).unwrap();
+        let old: Store =
+            serde_json::from_str(r#"{"projects":["/w"],"repos":{"/w":{"name":"w","color":0,"base":"main","worktrees":"","setup":"make","copy":[".env"]}}}"#)
+                .unwrap();
         assert_eq!(old.repos["/w"].launch, LaunchPick::default());
         assert_eq!(old.repos["/w"].setup, "make");
         let picked = RepoConfig { launch: LaunchPick { provider: "codex".into(), ..Default::default() }, ..Default::default() };
@@ -962,7 +985,10 @@ mod tests {
     #[test]
     fn appearance_fields_of_the_wrong_kind_fall_back_and_code_size_stays_in_range() {
         let s: Store = serde_json::from_str(r#"{"appearance":{"accent":"blue","ui_font":3,"code_font":"Menlo","code_size":99}}"#).unwrap();
-        assert_eq!((s.appearance.accent, s.appearance.ui_font.as_deref(), s.appearance.code_font.as_deref(), s.appearance.code_size()), (None, None, Some("Menlo"), 20));
+        assert_eq!(
+            (s.appearance.accent, s.appearance.ui_font.as_deref(), s.appearance.code_font.as_deref(), s.appearance.code_size()),
+            (None, None, Some("Menlo"), 20)
+        );
         assert_eq!([Appearance::default().code_size(), Appearance { code_size: Some(3), ..Appearance::default() }.code_size()], [12, 10]);
     }
 
@@ -1034,7 +1060,10 @@ mod tests {
     #[test]
     fn a_desktop_json_from_before_the_sound_list_keeps_todays_sounds_and_badge() {
         let s: Store = serde_json::from_str(r#"{"sounds":{"done":false,"done_tone":"Glass"},"notifications":{"banners":false}}"#).unwrap();
-        assert_eq!((s.sounds.done, s.sounds.sound, s.sounds.volume, s.notifications.banners, s.notifications.done, s.notifications.badge), (false, Sound::Chime, 100, false, true, DockBadge::Inbox));
+        assert_eq!(
+            (s.sounds.done, s.sounds.sound, s.sounds.volume, s.notifications.banners, s.notifications.done, s.notifications.badge),
+            (false, Sound::Chime, 100, false, true, DockBadge::Inbox)
+        );
         let s: Store = serde_json::from_str(r#"{"projects":["/w"],"sounds":{"sound":"Kazoo"},"notifications":{"badge":"everything"}}"#).unwrap();
         assert_eq!((s.projects.len(), s.sounds.sound, s.notifications.badge), (1, Sound::Chime, DockBadge::Inbox));
     }

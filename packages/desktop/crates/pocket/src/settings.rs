@@ -25,15 +25,15 @@ mod themes;
 
 pub(crate) use appearance::{reduce_motion, show_background};
 
-use ::agents::providers;
 use crate::actions::OpenSettings;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen, drag_area};
+use ::agents::providers;
 use catalog::{Control, Look, Setting};
-use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::*;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::slider::SliderState;
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
 use std::collections::HashMap;
 use store::Store;
 use theme::*;
@@ -293,7 +293,27 @@ impl SettingsState {
         let (glass, glass_sub) = appearance::glass_slider(store, window, cx);
         subs.push(glass_sub);
         appearance::load_fonts(cx);
-        let state = Self { section: Section::General, back: Return::default(), fixed_open: false, search, found: None, fields, menu: None, account_menu: None, host, banners_denied: false, dev_urls: HashMap::new(), keyboard, fonts: Vec::new(), swatch: None, menu_rows: Default::default(), menu_scroll: Default::default(), launch, starting: None, glass };
+        let state = Self {
+            section: Section::General,
+            back: Return::default(),
+            fixed_open: false,
+            search,
+            found: None,
+            fields,
+            menu: None,
+            account_menu: None,
+            host,
+            banners_denied: false,
+            dev_urls: HashMap::new(),
+            keyboard,
+            fonts: Vec::new(),
+            swatch: None,
+            menu_rows: Default::default(),
+            menu_scroll: Default::default(),
+            launch,
+            starting: None,
+            glass,
+        };
         (state, subs)
     }
 
@@ -354,13 +374,22 @@ fn group(title: &str, rows: Vec<Div>) -> Div {
     div()
         .flex()
         .flex_col()
-        .child(div().mb(px(7.)).ml(px(2.)).text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(title.to_string()))
+        .child(
+            div().mb(px(7.)).ml(px(2.)).text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT_2).child(title.to_string()),
+        )
         .child(card(rows))
 }
 
 fn card(rows: Vec<Div>) -> Div {
     let rows = rows.into_iter().enumerate().map(|(i, r)| r.when(i > 0, |r| r.border_t(px(0.5)).border_color(SEPARATOR)));
-    div().flex().flex_col().rounded(px(12.)).bg(SURFACE).shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x00000009), 1., 2.)]).overflow_hidden().children(rows)
+    div()
+        .flex()
+        .flex_col()
+        .rounded(px(12.))
+        .bg(SURFACE)
+        .shadow(vec![ui::ring(SEPARATOR, 0.5), ui::shadow(rgba(0x00000009), 1., 2.)])
+        .overflow_hidden()
+        .children(rows)
 }
 
 fn action(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
@@ -408,14 +437,19 @@ fn field_box() -> Div {
     div().w(px(220.)).h(px(26.)).px(px(9.)).flex().items_center().gap(px(6.)).rounded(px(7.)).bg(FILL_2)
 }
 
-fn dropdown_menu(setting: &'static Setting, options: &'static [&'static str], chosen: usize, store: &Store, live: &::agents::Agents, cx: &mut Context<Desktop>) -> impl IntoElement {
+fn dropdown_menu(
+    setting: &'static Setting,
+    options: &'static [&'static str],
+    chosen: usize,
+    store: &Store,
+    live: &::agents::Agents,
+    cx: &mut Context<Desktop>,
+) -> impl IntoElement {
     let rows = options.iter().enumerate().filter(|(i, _)| setting.lists(store, live, *i)).map(|(i, label)| {
-        dropdown::pick_row((setting.id, i), i == chosen)
-            .child(*label)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.settings.menu = None;
-                this.choose(setting, i, cx);
-            }))
+        dropdown::pick_row((setting.id, i), i == chosen).child(*label).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.settings.menu = None;
+            this.choose(setting, i, cx);
+        }))
     });
     ui::menu_in(SharedString::from(format!("{}-menu-in", setting.id)), ui::pop(div()).min_w(px(160.)).p(px(4.)).flex().flex_col().children(rows))
 }
@@ -594,11 +628,18 @@ impl Desktop {
         match setting.control {
             Control::Switch { get, .. } => {
                 let on = get(&self.store);
-                div().id(setting.id).flex_none().cursor_pointer().child(ui::toggle("switch", on)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_switch(setting, !on, cx))).into_any_element()
+                div()
+                    .id(setting.id)
+                    .flex_none()
+                    .cursor_pointer()
+                    .child(ui::toggle("switch", on))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_switch(setting, !on, cx)))
+                    .into_any_element()
             }
-            Control::Choice { options, look: Look::Segmented, get, .. } => {
-                div().id(setting.id).child(ui::segmented(segments(options), get(&self.store), true, false, move |this: &mut Self, i, cx| this.choose(setting, i, cx), cx)).into_any_element()
-            }
+            Control::Choice { options, look: Look::Segmented, get, .. } => div()
+                .id(setting.id)
+                .child(ui::segmented(segments(options), get(&self.store), true, false, move |this: &mut Self, i, cx| this.choose(setting, i, cx), cx))
+                .into_any_element(),
             Control::Choice { options, look: Look::Dropdown, .. } => {
                 let chosen = setting.chosen(&self.store, &self.agents);
                 let open = self.settings.menu == Some(setting.id);
@@ -609,7 +650,11 @@ impl Desktop {
                         this.settings.menu = (!open).then_some(setting.id);
                         cx.notify();
                     }));
-                div().relative().child(button).when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, &self.agents, cx)))).into_any_element()
+                div()
+                    .relative()
+                    .child(button)
+                    .when(open, |d| d.child(ui::dropdown_right(30., dropdown_menu(setting, options, chosen, &self.store, &self.agents, cx))))
+                    .into_any_element()
             }
             Control::Stepper { min, max, step, unit, get, .. } => {
                 let n = get(&self.store);
@@ -640,26 +685,43 @@ impl Desktop {
                     .rounded(px(7.))
                     .bg(FILL_2)
                     .child(button("less", "\u{2212}", -step, n > min))
-                    .child(div().min_w(px(56.)).flex().justify_center().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(format!("{n}{unit}")))
+                    .child(
+                        div()
+                            .min_w(px(56.))
+                            .flex()
+                            .justify_center()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(TEXT)
+                            .child(format!("{n}{unit}")),
+                    )
                     .child(button("more", "+", step, n < max))
                     .into_any_element()
             }
             Control::Text { .. } => match self.settings.fields.get(setting.id) {
-                Some(field) => field_box().child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.)))).into_any_element(),
+                Some(field) => field_box()
+                    .child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.))))
+                    .into_any_element(),
                 None => div().into_any_element(),
             },
             Control::Path { get, .. } => {
                 let path = get(&self.store);
                 let custom = path != get(catalog::defaults());
-                let shown = field_box().child(icon("folder", 13., TEXT_3)).child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(crate::util::tilde(&path)));
-                let choose = action(SharedString::from(format!("{}-choose", setting.id)), "Choose…").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.pick_path(true, window, cx, move |d, paths, _, cx| {
-                        if let Some(p) = paths.into_iter().next() {
-                            d.set_path(setting, p.to_string_lossy().into_owned(), cx);
-                        }
-                    });
-                }));
-                let reset = custom.then(|| ui::link(SharedString::from(format!("{}-default", setting.id)), "Use default").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_path(setting, String::new(), cx))));
+                let shown = field_box()
+                    .child(icon("folder", 13., TEXT_3))
+                    .child(div().flex_1().min_w_0().truncate().font_family(MONO).text_size(px(12.)).text_color(TEXT).child(crate::util::tilde(&path)));
+                let choose =
+                    action(SharedString::from(format!("{}-choose", setting.id)), "Choose…").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.pick_path(true, window, cx, move |d, paths, _, cx| {
+                            if let Some(p) = paths.into_iter().next() {
+                                d.set_path(setting, p.to_string_lossy().into_owned(), cx);
+                            }
+                        });
+                    }));
+                let reset = custom.then(|| {
+                    ui::link(SharedString::from(format!("{}-default", setting.id)), "Use default")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_path(setting, String::new(), cx)))
+                });
                 div().flex().items_center().gap(px(6.)).child(shown).child(choose).children(reset).into_any_element()
             }
             Control::Custom(_) => div().into_any_element(),
@@ -692,7 +754,8 @@ impl Desktop {
             return None;
         }
         if hidden > 0 {
-            let more = more_in_advanced(SharedString::from(format!("settings-more-{title}")), hidden).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_advanced(section, true, cx)));
+            let more = more_in_advanced(SharedString::from(format!("settings-more-{title}")), hidden)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_advanced(section, true, cx)));
             rows.push(div().child(more));
         }
         Some(group(title, rows))
@@ -778,8 +841,10 @@ impl Desktop {
                 .into_any_element()
         });
         let body = std::iter::once(div().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_2).child(lead).into_any_element()).chain(lines);
-        let cancel = ui::button("confirm-cancel", ui::Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let reset = ui::button("confirm-go", ui::Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
+        let cancel = ui::button("confirm-cancel", ui::Variant::Secondary, None, "Cancel")
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let reset =
+            ui::button("confirm-go", ui::Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
         ui::dialog(&format!("Reset {} to defaults?", section.label()), body, [cancel, reset])
     }
 

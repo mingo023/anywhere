@@ -54,7 +54,13 @@ mod tests {
 
     #[test]
     fn the_badge_counts_what_the_bell_counts_and_clears_at_zero() {
-        let noted = [agent("a", "needsYou"), agent("b", "done"), Summary { failed: true, ..agent("c", "done") }, agent("w", "working"), Summary { attached: false, ..agent("d", "needsYou") }];
+        let noted = [
+            agent("a", "needsYou"),
+            agent("b", "done"),
+            Summary { failed: true, ..agent("c", "done") },
+            agent("w", "working"),
+            Summary { attached: false, ..agent("d", "needsYou") },
+        ];
         assert_eq!(badge_label(&noted, DockBadge::Inbox).as_deref(), Some("3"));
         assert_eq!(badge_label(&[agent("a", "working")], DockBadge::Inbox), None);
     }

@@ -3,10 +3,10 @@
 use crate::desktop::Desktop;
 use crate::spaces::{Space, flash_key};
 use agents::hosts::{Entry, Failure, Link, Progress};
+use daemon::{Daemon, Endpoint};
 use futures::StreamExt;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
-use daemon::{Daemon, Endpoint};
 use hosts::Host;
 use hosts::checklist::{Checklist, Outcome};
 use hosts::remote::{Client, HostInfo};
@@ -133,7 +133,9 @@ impl Hosts {
 /// What a host message sent to pocketd was for, until it answers.
 enum Asked {
     /// With the password to sign in with if the host refuses the user's keys.
-    Add { password: String },
+    Add {
+        password: String,
+    },
     Install(String),
     Uninstall(String),
     SignIn(String),
@@ -408,7 +410,13 @@ impl Desktop {
                 Turn::Gone(id) => self.forget_host(&id, cx),
             }
         }
-        let refused: Vec<(String, String)> = self.fleet.hosts.list.iter().filter_map(|h| Some((h.id.clone(), self.fleet.pending.take_for(&h.id, self.fleet.hosts.links.get(&h.id)?)?))).collect();
+        let refused: Vec<(String, String)> = self
+            .fleet
+            .hosts
+            .list
+            .iter()
+            .filter_map(|h| Some((h.id.clone(), self.fleet.pending.take_for(&h.id, self.fleet.hosts.links.get(&h.id)?)?)))
+            .collect();
         for (id, password) in refused {
             self.sign_in(id, password, cx);
         }

@@ -29,7 +29,10 @@ enum CommitStep {
     /// Nothing is staged and the settings say to commit only what is.
     StageFirst,
     /// `stage` holds every changed path when none is staged, so the commit takes them all.
-    Run { stage: Vec<String>, busy: &'static str },
+    Run {
+        stage: Vec<String>,
+        busy: &'static str,
+    },
 }
 
 /// Commits the staged files, or with `commit_all` every change when none is staged. Amending keeps the last message unless a new one is typed.
@@ -226,7 +229,12 @@ impl Desktop {
         } else {
             self.rows_list(change_rows(&repo.files, self.store.diff.tree, &self.changes.folded), cx)
         };
-        let notice = self.compare.view.notice(&cwd).filter(|_| scope.compare).map(|n| div().px(px(16.)).pb(px(6.)).text_size(px(12.)).text_color(TEXT_3).child(n.to_string()));
+        let notice = self
+            .compare
+            .view
+            .notice(&cwd)
+            .filter(|_| scope.compare)
+            .map(|n| div().px(px(16.)).pb(px(6.)).text_size(px(12.)).text_color(TEXT_3).child(n.to_string()));
         panel
             .child(self.changes_header(&repo, cx))
             .child(self.scope_bar(&scope, against.as_deref(), cx))
@@ -439,7 +447,10 @@ pub(crate) fn push(cwd: &str, argv: &[String]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommitKind, CommitStep, Item, Row, Section, change_rows, commit_label, commit_ready, commit_step, compare_rows, flip_staged, renamed_from, toggle_fold, tree};
+    use super::{
+        CommitKind, CommitStep, Item, Row, Section, change_rows, commit_label, commit_ready, commit_step, compare_rows, flip_staged, renamed_from, toggle_fold,
+        tree,
+    };
     use git::FileStat;
     use std::collections::HashSet;
 
@@ -491,7 +502,15 @@ mod tests {
         let files = [file("a.rs"), staged("b.rs"), both, untracked];
         assert_eq!(
             rows(&files, false, &[]),
-            ["staged: b.rs both.rs", "  staged:b.rs", "  staged:both.rs", "changes: a.rs both.rs new.rs", "  changes:a.rs", "  changes:both.rs", "  changes:new.rs"]
+            [
+                "staged: b.rs both.rs",
+                "  staged:b.rs",
+                "  staged:both.rs",
+                "changes: a.rs both.rs new.rs",
+                "  changes:a.rs",
+                "  changes:both.rs",
+                "  changes:new.rs"
+            ]
         );
     }
 
@@ -542,8 +561,14 @@ mod tests {
     #[test]
     fn a_commit_takes_every_change_when_none_is_staged_and_only_the_staged_otherwise() {
         let loose = [file("a.rs"), FileStat { status: 'A', ..file("new.rs") }];
-        assert_eq!(commit_step(&loose, CommitKind::Commit, "Edit", false, true), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
-        assert_eq!(commit_step(&loose, CommitKind::Push, "Edit", false, true), CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" });
+        assert_eq!(
+            commit_step(&loose, CommitKind::Commit, "Edit", false, true),
+            CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" }
+        );
+        assert_eq!(
+            commit_step(&loose, CommitKind::Push, "Edit", false, true),
+            CommitStep::Run { stage: vec!["a.rs".into(), "new.rs".into()], busy: "Committing…" }
+        );
         assert_eq!(commit_step(&loose, CommitKind::Amend, "Edit", false, true), CommitStep::Run { stage: vec![], busy: "Amending…" });
         let mixed = [file("a.rs"), staged("b.rs")];
         assert_eq!(commit_step(&mixed, CommitKind::Commit, "Edit", false, true), CommitStep::Run { stage: vec![], busy: "Committing…" });
@@ -603,7 +628,10 @@ mod tests {
     #[test]
     fn tree_lists_folders_first_and_merges_single_folder_chains() {
         let files = [file("README.md"), file("src/hooks/use-a.ts"), file("src/hooks/use-b.ts"), file("src/app/main.ts"), file("docs/x/y/z.md")];
-        assert_eq!(labels(&files, &HashSet::new()), ["docs/x/y/", "  z.md", "src/", "  app/", "    main.ts", "  hooks/", "    use-a.ts", "    use-b.ts", "README.md"]);
+        assert_eq!(
+            labels(&files, &HashSet::new()),
+            ["docs/x/y/", "  z.md", "src/", "  app/", "    main.ts", "  hooks/", "    use-a.ts", "    use-b.ts", "README.md"]
+        );
     }
 
     #[test]

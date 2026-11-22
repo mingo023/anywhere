@@ -1,12 +1,12 @@
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextViewState, markdown_ast as mdast};
 use gpui_kit::*;
+use hud::Act;
 use resvg::usvg::{Options, Tree};
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use theme::*;
-use hud::Act;
 use viewport::Viewport;
 
 mod hud;
@@ -284,7 +284,15 @@ struct Fullscreen {
 
 /// Mermaid `source` drawn in the current scheme once laid out, in the card at `place`; its error and source if it doesn't parse.
 /// `heading` finds the nearest heading above it, asked only while its buttons show.
-pub(crate) fn diagram(diagrams: &Entity<Diagrams>, key: u64, place: u64, source: &SharedString, heading: impl FnOnce() -> Option<SharedString>, window: &Window, cx: &mut App) -> Stateful<Div> {
+pub(crate) fn diagram(
+    diagrams: &Entity<Diagrams>,
+    key: u64,
+    place: u64,
+    source: &SharedString,
+    heading: impl FnOnce() -> Option<SharedString>,
+    window: &Window,
+    cx: &mut App,
+) -> Stateful<Div> {
     if diagrams.read(cx).sources.contains(&place) {
         return div().id(SharedString::from(format!("mermaid-{place}"))).child(source::block(diagrams, place, source, cx));
     }
@@ -521,7 +529,8 @@ impl MarkdownPlugin for Mermaid {
         }
         let at = code.position.as_ref().map(|p| p.start.offset);
         let heading = at.and_then(|at| heading_above(cx.source(), at));
-        let fence = Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into(), heading };
+        let fence =
+            Fence { keys: [key(&code.value, false), key(&code.value, true)], place: place((at, &code.value)), source: code.value.clone().into(), heading };
         Some(MarkdownNode::new("mermaid", fence).text(code.value.clone()).markdown(cx.node_source(node).unwrap_or(&code.value).to_string()))
     }
 

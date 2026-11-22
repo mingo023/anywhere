@@ -311,10 +311,7 @@ fn marks_json(marks: &[(usize, String)]) -> String {
 
 #[cfg(target_os = "windows")]
 fn bounds(rect: Rect) -> wry::Rect {
-    wry::Rect {
-        position: LogicalPosition::new(rect.x, rect.y).into(),
-        size: LogicalSize::new(rect.width, rect.height).into(),
-    }
+    wry::Rect { position: LogicalPosition::new(rect.x, rect.y).into(), size: LogicalSize::new(rect.width, rect.height).into() }
 }
 
 #[cfg(test)]

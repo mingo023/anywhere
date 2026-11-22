@@ -1,9 +1,9 @@
+use super::Menu;
 use super::glyph::glyph;
 use super::logic::{Tab, created_by_line, next_run_text, run_age_text, session_text, strip, trigger_text, when_label};
 use super::parts::{card, crumbs, details, section};
-use crate::desktop::chrome::pill;
-use super::Menu;
 use crate::desktop::Desktop;
+use crate::desktop::chrome::pill;
 use crate::desktop::chrome::{Confirm, Overlay, drag_area};
 use crate::util::{initials, now_ms, tilde};
 use agents::automations::{Automation, Run, RunStatus, Schedule};
@@ -97,7 +97,10 @@ impl Desktop {
             .text_color(TEXT_3)
             .child(icon("bolt", 22., TEXT_4))
             .child("No automations yet.")
-            .child(ui::button("automation-empty-new", Variant::Primary, Some("plus"), "New automation").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_automation(None, window, cx))))
+            .child(
+                ui::button("automation-empty-new", Variant::Primary, Some("plus"), "New automation")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.edit_automation(None, window, cx))),
+            )
     }
 
     pub(super) fn ask_delete_automation(&mut self, id: String, cx: &mut Context<Self>) {
@@ -114,8 +117,10 @@ impl Desktop {
         div().relative().child(button).when(open, |d| {
             let menu = ui::menu_in(
                 "automation-more-in",
-                self.popup("automation-more-menu", 180., cx)
-                    .child(ui::danger_row("automation-delete", "trash", "Delete").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.ask_delete_automation(target.clone(), cx)))),
+                self.popup("automation-more-menu", 180., cx).child(
+                    ui::danger_row("automation-delete", "trash", "Delete")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.ask_delete_automation(target.clone(), cx))),
+                ),
             );
             d.child(ui::dropdown(32., menu))
         })
@@ -144,7 +149,10 @@ impl Desktop {
             .items_center()
             .gap(px(8.))
             .child(toggle)
-            .child(pill("automation-edit", Variant::Secondary, Some("pencil"), "Edit").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_automation(Some(&edit_id), window, cx))))
+            .child(
+                pill("automation-edit", Variant::Secondary, Some("pencil"), "Edit")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_automation(Some(&edit_id), window, cx))),
+            )
             .child(pill("automation-run", Variant::Primary, Some("play"), "Run now").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.run_automation(&run_id);
                 cx.notify();
@@ -152,12 +160,8 @@ impl Desktop {
             .child(self.automation_menu(&auto.id, cx));
         let bar = self.detail_bar(crumbs("Automations", auto.name.clone()), right, cx);
 
-        let title = div()
-            .flex()
-            .items_center()
-            .gap(px(14.))
-            .child(ui::repo_tile(&self.project_mark(&auto.folder, initials(&project)), 40., false, None))
-            .child(
+        let title =
+            div().flex().items_center().gap(px(14.)).child(ui::repo_tile(&self.project_mark(&auto.folder, initials(&project)), 40., false, None)).child(
                 div()
                     .flex_1()
                     .min_w_0()
@@ -187,7 +191,10 @@ impl Desktop {
             ("Next run", next.into_any_element()),
         ];
         if !auto.bound.is_empty() {
-            rows.push(("Posts into", div().truncate().child(session_text(self.agents.get(&auto.bound).map(|s| s.title.as_str())).to_string()).into_any_element()));
+            rows.push((
+                "Posts into",
+                div().truncate().child(session_text(self.agents.get(&auto.bound).map(|s| s.title.as_str())).to_string()).into_any_element(),
+            ));
         }
         if !auto.webhook_url.is_empty() {
             rows.push(("Webhook", webhook_url(&auto.webhook_url, cx).into_any_element()));
@@ -200,7 +207,7 @@ impl Desktop {
         let body = [title.into_any_element()]
             .into_iter()
             .chain(waiting.map(IntoElement::into_any_element))
-        .chain([section("Details", facts).into_any_element(), recent.into_any_element()]);
+            .chain([section("Details", facts).into_any_element(), recent.into_any_element()]);
         div().flex_1().min_w_0().flex().flex_col().child(bar).child(self.detail_body("automation-detail", 18., body))
     }
 
@@ -257,10 +264,12 @@ impl Desktop {
             .text_color(TEXT_3)
             .child("Recent runs")
             .child(div().flex().gap(px(3.)).children(bars))
-            .child(div().ml_auto().child(ui::link("automation-all-runs", "All runs").text_size(px(12.)).text_color(ACCENT_LINK).px(px(4.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.automations.tab = Tab::Runs;
-                this.set_only(Some(id.clone()), cx);
-            }))));
+            .child(div().ml_auto().child(ui::link("automation-all-runs", "All runs").text_size(px(12.)).text_color(ACCENT_LINK).px(px(4.)).on_click(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.automations.tab = Tab::Runs;
+                    this.set_only(Some(id.clone()), cx);
+                }),
+            )));
         let body = if runs.is_empty() {
             let when = match &auto.schedule {
                 Schedule::Webhook => "when its webhook is called".to_string(),
@@ -300,7 +309,11 @@ impl Desktop {
             .items_baseline()
             .gap(px(8.))
             .child(div().flex_none().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(trigger_text(r, &Local)))
-            .child(div().min_w_0().truncate().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(tone).child(if r.why.is_empty() { label.to_string() } else { format!("{label} · {}", r.why) }));
+            .child(div().min_w_0().truncate().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(tone).child(if r.why.is_empty() {
+                label.to_string()
+            } else {
+                format!("{label} · {}", r.why)
+            }));
         div()
             .py(px(11.))
             .pr(px(14.))
@@ -320,6 +333,15 @@ impl Desktop {
                     .child(first)
                     .children((!r.summary.is_empty()).then(|| div().line_clamp(2).text_size(px(12.5)).text_color(TEXT_2).child(r.summary.clone()))),
             )
-            .child(div().flex().flex_col().items_end().gap(px(2.)).flex_none().child(div().text_size(px(12.)).text_color(TEXT_3).child(run_age_text(r, now, &Local))).children(open))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap(px(2.))
+                    .flex_none()
+                    .child(div().text_size(px(12.)).text_color(TEXT_3).child(run_age_text(r, now, &Local)))
+                    .children(open),
+            )
     }
 }

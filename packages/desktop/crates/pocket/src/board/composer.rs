@@ -83,24 +83,53 @@ impl Desktop {
         let ready = self.composer_ready(cx);
         let text_size = px(if hero { 14. } else { 13. });
         // The input draws its placeholder in the theme's muted colour, too bright for this field.
-        let placeholder = c.text.read(cx).value().is_empty().then(|| div().absolute().top(px(8.)).left(px(10.)).text_size(text_size).text_color(TEXT_4).child(PLACEHOLDER));
-        let field = flush_textarea(div().relative()).when(hero, |d| d.min_h(px(76.))).when(!hero, |d| d.line_height(px(18.))).child(Textarea::new(&c.text).appearance(false).text_size(text_size)).children(placeholder);
+        let placeholder =
+            c.text.read(cx).value().is_empty().then(|| div().absolute().top(px(8.)).left(px(10.)).text_size(text_size).text_color(TEXT_4).child(PLACEHOLDER));
+        let field = flush_textarea(div().relative())
+            .when(hero, |d| d.min_h(px(76.)))
+            .when(!hero, |d| d.line_height(px(18.)))
+            .child(Textarea::new(&c.text).appearance(false).text_size(text_size))
+            .children(placeholder);
         let chips = [Field::Project, Field::Agent, Field::Priority, Field::Labels, Field::Base].map(|f| self.field_chip(Surface::Composer, f, cx));
         let hint = c.picks.values.hint(self.folder_is_repo(&c.picks.values.folder), busy(&self.agents.board.tickets), self.agents.board.limit);
         let spot = div().flex_1().min_w_0().px(px(8.)).truncate().text_right().text_size(px(12.)).text_color(TEXT_3).children(hint);
         let dim = |b: Stateful<Div>| b.when(!ready, |d| d.opacity(0.4).cursor_default());
-        let add = dim(bar_button("board-add", Variant::Ghost, None, "Add to To do")).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_ticket(false, window, cx)));
+        let add = dim(bar_button("board-add", Variant::Ghost, None, "Add to To do"))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_ticket(false, window, cx)));
         // A whole-element opacity fades the label with its fill and washes it out.
-        let start = bar_button("board-start", Variant::Primary, None, "Start").child(start_kbd()).when(!ready, |d| d.bg(Hsla::from(PRIMARY).opacity(0.4)).shadow(Vec::new()).cursor_default()).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_ticket(true, window, cx)));
+        let start = bar_button("board-start", Variant::Primary, None, "Start")
+            .child(start_kbd())
+            .when(!ready, |d| d.bg(Hsla::from(PRIMARY).opacity(0.4)).shadow(Vec::new()).cursor_default())
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create_ticket(true, window, cx)));
         let foot = div().flex().items_center().gap(px(2.)).mt(px(if hero { 9. } else { 5. })).mx(px(-4.)).children(chips).child(spot).child(add).child(start);
         let (side, top, bottom) = if hero { (12., 12., 9.) } else { (10., 9., 6.) };
         div().px(px(side)).pt(px(top)).pb(px(bottom)).rounded(px(12.)).bg(FILL_1).border_1().border_color(SEPARATOR).child(field).child(foot)
     }
 
     pub(super) fn board_hero(&self, cx: &mut Context<Self>) -> Div {
-        let heading = div().mb(px(16.)).text_center().text_size(px(19.)).line_height(px(24.)).font_weight(FontWeight::SEMIBOLD).child("What should an agent do?");
-        let hint = div().mt(px(12.)).flex().items_center().justify_center().gap(px(5.)).text_size(px(12.)).text_color(TEXT_4).child(key_chip("↵", FILL_2)).child("adds to To do").child("·").child(key_chip("⌘↵", FILL_2)).child("starts right away");
-        div().flex_1().min_h_0().flex().items_center().justify_center().p(px(24.)).child(div().w_full().max_w(px(HERO_WIDTH)).flex().flex_col().child(heading).child(self.board_composer(true, cx)).child(hint))
+        let heading =
+            div().mb(px(16.)).text_center().text_size(px(19.)).line_height(px(24.)).font_weight(FontWeight::SEMIBOLD).child("What should an agent do?");
+        let hint = div()
+            .mt(px(12.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(5.))
+            .text_size(px(12.))
+            .text_color(TEXT_4)
+            .child(key_chip("↵", FILL_2))
+            .child("adds to To do")
+            .child("·")
+            .child(key_chip("⌘↵", FILL_2))
+            .child("starts right away");
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p(px(24.))
+            .child(div().w_full().max_w(px(HERO_WIDTH)).flex().flex_col().child(heading).child(self.board_composer(true, cx)).child(hint))
     }
 
     pub(super) fn board_dock(&self, cx: &mut Context<Self>) -> Div {

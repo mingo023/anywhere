@@ -1,8 +1,8 @@
 mod column;
 mod detail;
 mod editor;
-mod glyph;
 mod form;
+mod glyph;
 pub(crate) mod logic;
 mod parts;
 mod rows;

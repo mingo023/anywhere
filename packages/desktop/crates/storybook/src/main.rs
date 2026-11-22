@@ -55,7 +55,10 @@ impl Render for Storybook {
             Segment { icon: None, value: Tab::Explore, label: "Explore".into(), badge: None },
             Segment { icon: None, value: Tab::Changes, label: "Changes".into(), badge: Some("3".into()) },
         ];
-        let modes = vec![Segment { icon: None, value: Mode::Unified, label: "Unified".into(), badge: None }, Segment { icon: None, value: Mode::Split, label: "Split".into(), badge: None }];
+        let modes = vec![
+            Segment { icon: None, value: Mode::Unified, label: "Unified".into(), badge: None },
+            Segment { icon: None, value: Mode::Split, label: "Split".into(), badge: None },
+        ];
         let board = div()
             .flex()
             .flex_col()
@@ -86,14 +89,28 @@ impl Render for Storybook {
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(ui::segmented(tabs, self.tab, false, false, |this: &mut Self, v, cx| {
-                        this.tab = v;
-                        cx.notify();
-                    }, cx))
-                    .child(ui::segmented(modes, self.mode, true, false, |this: &mut Self, v, cx| {
-                        this.mode = v;
-                        cx.notify();
-                    }, cx)),
+                    .child(ui::segmented(
+                        tabs,
+                        self.tab,
+                        false,
+                        false,
+                        |this: &mut Self, v, cx| {
+                            this.tab = v;
+                            cx.notify();
+                        },
+                        cx,
+                    ))
+                    .child(ui::segmented(
+                        modes,
+                        self.mode,
+                        true,
+                        false,
+                        |this: &mut Self, v, cx| {
+                            this.mode = v;
+                            cx.notify();
+                        },
+                        cx,
+                    )),
             ))
             .child(story(
                 "Status",
@@ -110,16 +127,7 @@ impl Render for Storybook {
                     .child(ui::status("idle", State::Idle(84, 51)))
                     .child(ui::status("not-attached", State::NotAttached)),
             ))
-            .child(story(
-                "Tags, keys",
-                "Hairline tags",
-                div()
-                    .flex()
-                    .gap(px(12.))
-                    .child(ui::tag("2 sub-agents"))
-                    .child(ui::kbd("⌘ K"))
-                    .child(ui::kbd("↑ ↓")),
-            ))
+            .child(story("Tags, keys", "Hairline tags", div().flex().gap(px(12.)).child(ui::tag("2 sub-agents")).child(ui::kbd("⌘ K")).child(ui::kbd("↑ ↓"))))
             .child(story(
                 "Project mark",
                 "Filled dark when selected, dot for needs you / done / working",
@@ -136,26 +144,90 @@ impl Render for Storybook {
                 "Project row",
                 "Sidebar rail",
                 list()
-                    .child(ui::repo_row("repo-android", Some(ui::chevron("chev-android", true)), "app-android", &ui::Mark::Letters(ui::mark_letter("app-android")), true, None))
-                    .child(ui::repo_row("repo-ios", Some(ui::chevron("chev-ios", false)), "app-ios", &ui::Mark::Letters(ui::mark_letter("app-ios")), false, Some(State::NeedsYou)))
+                    .child(ui::repo_row(
+                        "repo-android",
+                        Some(ui::chevron("chev-android", true)),
+                        "app-android",
+                        &ui::Mark::Letters(ui::mark_letter("app-android")),
+                        true,
+                        None,
+                    ))
+                    .child(ui::repo_row(
+                        "repo-ios",
+                        Some(ui::chevron("chev-ios", false)),
+                        "app-ios",
+                        &ui::Mark::Letters(ui::mark_letter("app-ios")),
+                        false,
+                        Some(State::NeedsYou),
+                    ))
                     .child(ui::repo_row("repo-scratch", None, "scratch", &ui::Mark::Letters(ui::mark_letter("scratch")), false, Some(State::Working))),
             ))
             .child(story(
                 "Session row",
                 "Sessions tab of the column",
                 list()
-                    .child(ui::session_row("s1", true, ui::provider_label("codex", false), "2m", "Fix stale terminal reveal".into(), None, Some("fix/restore-handoff".into()), Some(State::NeedsYou), true))
-                    .child(ui::session_row("s2", false, ui::provider_label("claude", false), "now", "Split restore hook into two files".into(), None, Some("refactor/restore-hook".into()), Some(State::Working), true))
-                    .child(ui::session_row("s3", false, ui::provider_label("codex", false), "3h", "Upgrade to RN 0.81".into(), None, Some("chore/rn-081".into()), Some(State::Failed), true))
-                    .child(ui::session_row("s4", false, ui::provider_label("codex", true), "6m", "Migrate legacy hooks".into(), None, Some("chore/migrate-hooks".into()), Some(State::Idle(28, 11)), true)),
+                    .child(ui::session_row(
+                        "s1",
+                        true,
+                        ui::provider_label("codex", false),
+                        "2m",
+                        "Fix stale terminal reveal".into(),
+                        None,
+                        Some("fix/restore-handoff".into()),
+                        Some(State::NeedsYou),
+                        true,
+                    ))
+                    .child(ui::session_row(
+                        "s2",
+                        false,
+                        ui::provider_label("claude", false),
+                        "now",
+                        "Split restore hook into two files".into(),
+                        None,
+                        Some("refactor/restore-hook".into()),
+                        Some(State::Working),
+                        true,
+                    ))
+                    .child(ui::session_row(
+                        "s3",
+                        false,
+                        ui::provider_label("codex", false),
+                        "3h",
+                        "Upgrade to RN 0.81".into(),
+                        None,
+                        Some("chore/rn-081".into()),
+                        Some(State::Failed),
+                        true,
+                    ))
+                    .child(ui::session_row(
+                        "s4",
+                        false,
+                        ui::provider_label("codex", true),
+                        "6m",
+                        "Migrate legacy hooks".into(),
+                        None,
+                        Some("chore/migrate-hooks".into()),
+                        Some(State::Idle(28, 11)),
+                        true,
+                    )),
             ))
             .child(story(
                 "Agents",
                 "Each agent's mark at 12, 14 and 16, in a tile, and as a session's label",
                 list().children(BRANDS.iter().map(|b| {
-                    let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(b.id, 15., TEXT));
+                    let tile =
+                        div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(provider_icon(b.id, 15., TEXT));
                     let marks = [12., 14., 16.].map(|size| div().w(px(16.)).flex().flex_none().justify_center().child(provider_icon(b.id, size, TEXT_2)));
-                    div().h(px(36.)).px(px(8.)).flex().items_center().gap(px(10.)).text_size(px(13.)).children(marks).child(tile).child(ui::provider_label(b.id, false))
+                    div()
+                        .h(px(36.))
+                        .px(px(8.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .text_size(px(13.))
+                        .children(marks)
+                        .child(tile)
+                        .child(ui::provider_label(b.id, false))
                 })),
             ))
             .child(story(
@@ -171,11 +243,15 @@ impl Render for Storybook {
                             .child(ui::tree_row("t2", "use-restore-preview.ts".into(), false, false, 1, true, true, Some('M')))
                             .child(ui::tree_row("t3", "use-terminal-settled.ts".into(), false, false, 1, false, false, Some('A'))),
                     )
-                    .child(
-                        list()
-                            .child(ui::change_row("c1", ui::checkbox(true), "src/hooks/use-restore-preview.ts", true, 28, 11, 2))
-                            .child(ui::change_row("c2", ui::checkbox(false), "src/components/terminal-view.tsx", false, 11, 5, 0)),
-                    ),
+                    .child(list().child(ui::change_row("c1", ui::checkbox(true), "src/hooks/use-restore-preview.ts", true, 28, 11, 2)).child(ui::change_row(
+                        "c2",
+                        ui::checkbox(false),
+                        "src/components/terminal-view.tsx",
+                        false,
+                        11,
+                        5,
+                        0,
+                    ))),
             ))
             .child(story(
                 "Rail",
@@ -196,7 +272,11 @@ impl Render for Storybook {
                 "Nested under the selected project",
                 list()
                     .child(ui::worktree_row("w1", "worktree", "fix-login", true, None))
-                    .child(ui::worktree_row("w2", "worktree", "brave-otter", false, ui::indicator("w2-spin", Some(State::NeedsYou))).child(ui::row_trail(None, vec![ui::icon_button_sized("w2-more", "more", 22., TEXT_3).rounded(px(6.)).into_any_element()], false)))
+                    .child(ui::worktree_row("w2", "worktree", "brave-otter", false, ui::indicator("w2-spin", Some(State::NeedsYou))).child(ui::row_trail(
+                        None,
+                        vec![ui::icon_button_sized("w2-more", "more", 22., TEXT_3).rounded(px(6.)).into_any_element()],
+                        false,
+                    )))
                     .child(ui::worktree_row("w3", "worktree", "add-dark-mode", false, ui::indicator("w3-spin", Some(State::Working)))),
             ))
             .child(story(
@@ -231,16 +311,11 @@ impl Render for Storybook {
                 "page · side · pop",
                 div().flex().gap(px(16.)).child(swatch("page", ui::page)).child(swatch("side", ui::side)).child(swatch("pop", ui::pop)),
             ));
-        div()
-            .id("storybook")
-            .size_full()
-            .overflow_y_scroll()
-            .p(px(24.))
-            .bg(WINDOW)
-            .font_family(SANS)
-            .line_height(relative(1.2))
-            .text_color(TEXT)
-            .child(ui::page(div().px(px(40.)).pt(px(40.)).pb(px(20.))).child(div().pb(px(20.)).text_size(px(28.)).font_weight(FontWeight::BOLD).child("Components")).child(board))
+        div().id("storybook").size_full().overflow_y_scroll().p(px(24.)).bg(WINDOW).font_family(SANS).line_height(relative(1.2)).text_color(TEXT).child(
+            ui::page(div().px(px(40.)).pt(px(40.)).pb(px(20.)))
+                .child(div().pb(px(20.)).text_size(px(28.)).font_weight(FontWeight::BOLD).child("Components"))
+                .child(board),
+        )
     }
 }
 

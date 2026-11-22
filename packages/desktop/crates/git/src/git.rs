@@ -115,7 +115,8 @@ fn checking_out(run: &Runner, cwd: &str) -> bool {
     let Ok(file) = run.read(&root.join(".git").to_string_lossy(), 4096) else { return false };
     let file = String::from_utf8_lossy(&file);
     let Some(dir) = file.strip_prefix("gitdir: ") else { return false };
-    matches!(run.stat(&root.join(dir.trim()).join("index").to_string_lossy()), Ok(None)) && git(run, cwd, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_some()
+    matches!(run.stat(&root.join(dir.trim()).join("index").to_string_lossy()), Ok(None))
+        && git(run, cwd, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_some()
 }
 
 fn changes(run: &Runner, cwd: &str, untracked: bool) -> Vec<FileStat> {
@@ -341,7 +342,20 @@ pub const INIT_BRANCH: &str = "main";
 /// Makes the folder `dir` a repository on `INIT_BRANCH` with an empty first commit, so it has a HEAD to diff against.
 /// The identity is given and hooks are skipped because the user's git config may have neither set up for this.
 pub fn init_empty(run: &Runner, dir: &str) -> Result<(), String> {
-    let commit = ["-c", "user.name=Anywhere", "-c", "user.email=anywhere@localhost", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "--no-verify", "-m", "Start"];
+    let commit = [
+        "-c",
+        "user.name=Anywhere",
+        "-c",
+        "user.email=anywhere@localhost",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "--no-verify",
+        "-m",
+        "Start",
+    ];
     let head = format!("refs/heads/{INIT_BRANCH}");
     // `git init -b` needs git 2.28, newer than some hosts have.
     for args in [&["init", "-q"][..], &["symbolic-ref", "HEAD", &head], &commit] {
@@ -513,7 +527,11 @@ fn commit_blobs(run: &Runner, cwd: &str, sha: &str, parent: Option<&str>, file: 
 /// The file at `path` before and after commit `sha`, following a rename back to the old name.
 pub fn blobs_at(run: &Runner, cwd: &str, sha: &str, path: &str) -> Blobs {
     let parent = first_parent(run, cwd, sha);
-    commit_files(run, cwd, sha, parent.as_deref()).into_iter().find(|f| f.path == path).map(|f| commit_blobs(run, cwd, sha, parent.as_deref(), &f)).unwrap_or_default()
+    commit_files(run, cwd, sha, parent.as_deref())
+        .into_iter()
+        .find(|f| f.path == path)
+        .map(|f| commit_blobs(run, cwd, sha, parent.as_deref(), &f))
+        .unwrap_or_default()
 }
 
 pub fn short_sha(sha: &str) -> &str {
@@ -639,7 +657,10 @@ mod tests {
     #[test]
     fn a_hosts_worktree_is_one_anywhere_made_when_its_git_folder_there_holds_the_marker() {
         let host = Files(std::collections::HashMap::from([
-            ("worktree list", "worktree /r\nbranch refs/heads/main\n\nworktree /w/ours\nbranch refs/heads/ours\n\nworktree /w/near\nbranch refs/heads/near\n\nworktree /w/theirs\nbranch refs/heads/theirs\n"),
+            (
+                "worktree list",
+                "worktree /r\nbranch refs/heads/main\n\nworktree /w/ours\nbranch refs/heads/ours\n\nworktree /w/near\nbranch refs/heads/near\n\nworktree /w/theirs\nbranch refs/heads/theirs\n",
+            ),
             ("//box/w/ours/.git", "gitdir: /r/.git/worktrees/ours\n"),
             ("//box/r/.git/worktrees/ours/anywhere", ""),
             ("//box/w/near/.git", "gitdir: ../../r/.git/worktrees/near\n"),
@@ -992,7 +1013,18 @@ mod tests {
         let dir = scratch_repo("dated");
         let repo = dir.join("repo");
         committer(&repo);
-        let commit_at = |when: &str| assert!(Command::new("git").arg("-C").arg(&repo).args(["commit", "-q", "--allow-empty", "-m", when]).env("GIT_COMMITTER_DATE", when).status().unwrap().success());
+        let commit_at = |when: &str| {
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(&repo)
+                    .args(["commit", "-q", "--allow-empty", "-m", when])
+                    .env("GIT_COMMITTER_DATE", when)
+                    .status()
+                    .unwrap()
+                    .success()
+            )
+        };
         sh(&repo, &["branch", "-M", "main"]);
         sh(&repo, &["checkout", "-qb", "old"]);
         commit_at("@978307200 +0000");

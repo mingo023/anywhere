@@ -1,9 +1,9 @@
 use crate::desktop::Desktop;
 use crate::spaces::Space;
-use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::*;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
 use hosts::remote::{self, Entry};
 use std::ops::Range;
 use theme::*;
@@ -128,8 +128,13 @@ impl Desktop {
         let chips = div().flex().flex_wrap().gap(px(6.)).children(online.iter().enumerate().map(|(i, h)| {
             let on = picked.as_deref() == Some(h.id.as_str());
             let id = h.id.clone();
-            ui::button(("host-pick", i), if on { Variant::Secondary } else { Variant::Ghost }, Some(self.space_glyph(&Space::Host(h.id.clone()))), self.host_name(&h.id))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.browse_host(id.clone(), window, cx)))
+            ui::button(
+                ("host-pick", i),
+                if on { Variant::Secondary } else { Variant::Ghost },
+                Some(self.space_glyph(&Space::Host(h.id.clone()))),
+                self.host_name(&h.id),
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.browse_host(id.clone(), window, cx)))
         }));
         let Some(b) = browse else { return div().flex().flex_col().gap(px(8.)).child(chips) };
         let path = ui::field_box()
@@ -137,9 +142,14 @@ impl Desktop {
             .child(div().flex_1().font_family(MONO).child(Input::new(&self.repo_form.host_path).appearance(false).p_0().text_size(px(13.))))
             .child(ui::button("host-finder", Variant::Ghost, None, "Browse\u{2026}").on_click({
                 let (host, dir) = (b.host.clone(), b.dir.clone());
-                cx.listener(move |this, _: &ClickEvent, window, cx| this.open_host_finder(host.clone(), Some(dir.clone()), crate::modals::host_finder::Opener::AddProject, window, cx))
+                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.open_host_finder(host.clone(), Some(dir.clone()), crate::modals::host_finder::Opener::AddProject, window, cx)
+                })
             }))
-            .child(ui::button("host-open", Variant::Secondary, None, "Open").when(!b.dir.is_empty(), |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_browsed(window, cx)))));
+            .child(
+                ui::button("host-open", Variant::Secondary, None, "Open")
+                    .when(!b.dir.is_empty(), |d| d.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_browsed(window, cx)))),
+            );
         let rows = b.rows();
         let height = px((rows.len() as f32 * ROW).min(200.));
         let list = uniform_list(

@@ -48,7 +48,25 @@ impl Values {
         let mut days = [false; 7];
         d.days.iter().filter(|&&d| d < 7).for_each(|&d| days[d as usize] = true);
         let provider = PROVIDERS.into_iter().find(|p| *p == d.agent).unwrap_or(PROVIDERS[0]);
-        Self { id: None, title: String::new(), prompt: String::new(), provider, folder, scheduled: false, repeat: false, days, time: d.time.clone(), every: d.every.to_string(), enabled: true, access: d.access.clone(), new_worktree: d.new_worktree, base: String::new(), model: String::new(), effort: String::new(), webhook_only: false }
+        Self {
+            id: None,
+            title: String::new(),
+            prompt: String::new(),
+            provider,
+            folder,
+            scheduled: false,
+            repeat: false,
+            days,
+            time: d.time.clone(),
+            every: d.every.to_string(),
+            enabled: true,
+            access: d.access.clone(),
+            new_worktree: d.new_worktree,
+            base: String::new(),
+            model: String::new(),
+            effort: String::new(),
+            webhook_only: false,
+        }
     }
 
     pub fn add_schedule(&mut self, d: &Defaults) {
@@ -58,7 +76,21 @@ impl Values {
 
     pub fn of(a: &Automation) -> Self {
         let provider = PROVIDERS.into_iter().find(|p| *p == a.provider).unwrap_or(PROVIDERS[0]);
-        let base = Self { id: Some(a.id.clone()), title: a.name.clone(), prompt: a.prompt.clone(), provider, folder: a.folder.clone(), scheduled: true, enabled: a.enabled, access: a.access.clone(), new_worktree: a.new_worktree, base: a.base.clone(), model: a.model.clone(), effort: a.effort.clone(), ..Self::new(String::new()) };
+        let base = Self {
+            id: Some(a.id.clone()),
+            title: a.name.clone(),
+            prompt: a.prompt.clone(),
+            provider,
+            folder: a.folder.clone(),
+            scheduled: true,
+            enabled: a.enabled,
+            access: a.access.clone(),
+            new_worktree: a.new_worktree,
+            base: a.base.clone(),
+            model: a.model.clone(),
+            effort: a.effort.clone(),
+            ..Self::new(String::new())
+        };
         match &a.schedule {
             Schedule::Days { days, time } => {
                 let mut on = [false; 7];
@@ -108,7 +140,20 @@ impl Values {
         let schedule = self.schedule().ok_or("Add a trigger")?;
         let title = self.title.trim();
         let name = if title.is_empty() { fallback_name(prompt) } else { title.to_string() };
-        let draft = AutomationDraft { id: self.id.clone(), name, prompt: prompt.into(), provider: self.provider.into(), folder: self.folder.clone(), schedule, enabled: self.enabled, access: self.access.clone(), new_worktree: self.new_worktree, base: if self.new_worktree { self.base.clone() } else { String::new() }, model: self.model.clone(), effort: self.effort.clone() };
+        let draft = AutomationDraft {
+            id: self.id.clone(),
+            name,
+            prompt: prompt.into(),
+            provider: self.provider.into(),
+            folder: self.folder.clone(),
+            schedule,
+            enabled: self.enabled,
+            access: self.access.clone(),
+            new_worktree: self.new_worktree,
+            base: if self.new_worktree { self.base.clone() } else { String::new() },
+            model: self.model.clone(),
+            effort: self.effort.clone(),
+        };
         draft.problem().map_or(Ok(draft), Err)
     }
 
@@ -220,7 +265,25 @@ mod tests {
     }
 
     fn automation(schedule: Schedule) -> Automation {
-        Automation { id: "a1".into(), name: "Review".into(), prompt: "Look".into(), provider: "codex".into(), folder: "/code/app".into(), schedule, enabled: false, access: String::new(), new_worktree: false, base: String::new(), model: String::new(), effort: String::new(), next_run_at: 0, created_by: String::new(), bound: String::new(), webhook: false, webhook_url: String::new() }
+        Automation {
+            id: "a1".into(),
+            name: "Review".into(),
+            prompt: "Look".into(),
+            provider: "codex".into(),
+            folder: "/code/app".into(),
+            schedule,
+            enabled: false,
+            access: String::new(),
+            new_worktree: false,
+            base: String::new(),
+            model: String::new(),
+            effort: String::new(),
+            next_run_at: 0,
+            created_by: String::new(),
+            bound: String::new(),
+            webhook: false,
+            webhook_url: String::new(),
+        }
     }
 
     #[test]
@@ -297,7 +360,13 @@ mod tests {
 
     #[test]
     fn a_webhook_automation_opens_as_webhook_and_saves_as_one() {
-        let made = Automation { created_by: "a7".into(), bound: "a7".into(), webhook: true, webhook_url: "http://127.0.0.1:4321/hooks/a1".into(), ..automation(Schedule::Webhook) };
+        let made = Automation {
+            created_by: "a7".into(),
+            bound: "a7".into(),
+            webhook: true,
+            webhook_url: "http://127.0.0.1:4321/hooks/a1".into(),
+            ..automation(Schedule::Webhook)
+        };
         let v = Values::of(&made);
         assert_eq!((v.webhook_only, v.label().as_deref()), (true, Some("Webhook")));
         assert_eq!(v.draft().unwrap().schedule, Schedule::Webhook);
@@ -317,7 +386,10 @@ mod tests {
         assert_eq!(Values { time: "25:00".into(), ..ready() }.field_error(), Some(TIME_ERROR));
         assert_eq!(Values { time: String::new(), ..ready() }.field_error(), None);
         let every = |n: &str| Values { repeat: true, every: n.into(), ..ready() };
-        assert_eq!([every("2").field_error(), every("").field_error(), every("20000").field_error(), every("60").field_error()], [Some(EVERY_ERROR), None, Some(EVERY_ERROR), None]);
+        assert_eq!(
+            [every("2").field_error(), every("").field_error(), every("20000").field_error(), every("60").field_error()],
+            [Some(EVERY_ERROR), None, Some(EVERY_ERROR), None]
+        );
     }
 
     #[test]
@@ -342,7 +414,15 @@ mod tests {
 
     #[test]
     fn a_new_automation_starts_from_the_settings_defaults() {
-        let d = Defaults { agent: "codex".into(), time: "07:15".into(), days: vec![0, 6], every: 30, access: "ask".into(), new_worktree: true, ..Defaults::default() };
+        let d = Defaults {
+            agent: "codex".into(),
+            time: "07:15".into(),
+            days: vec![0, 6],
+            every: 30,
+            access: "ask".into(),
+            new_worktree: true,
+            ..Defaults::default()
+        };
         let mut v = Values::from_defaults("/f".into(), &d);
         v.add_schedule(&d);
         assert_eq!((v.provider, v.time.as_str(), v.every.as_str(), v.has_days(&WEEKENDS), v.has_days(&[1])), ("codex", "07:15", "30", true, false));
@@ -375,7 +455,14 @@ mod tests {
     #[test]
     fn a_pick_from_the_chips_sets_the_agent_model_effort_and_access() {
         let mut v = ready();
-        v.set_pick(&LaunchPick { provider: "codex".into(), model: "gpt-5.5".into(), effort: String::new(), access: "auto".into(), account: "x".into(), ..LaunchPick::default() });
+        v.set_pick(&LaunchPick {
+            provider: "codex".into(),
+            model: "gpt-5.5".into(),
+            effort: String::new(),
+            access: "auto".into(),
+            account: "x".into(),
+            ..LaunchPick::default()
+        });
         let d = v.draft().unwrap();
         assert_eq!((d.provider.as_str(), d.model.as_str(), d.effort.as_str(), d.access.as_str()), ("codex", "gpt-5.5", "", "auto"));
         v.set_pick(&LaunchPick { provider: "gemini".into(), ..LaunchPick::default() });

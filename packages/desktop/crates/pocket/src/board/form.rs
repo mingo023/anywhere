@@ -30,7 +30,11 @@ impl Form {
                 cx.stop_propagation();
             }
         });
-        let subs = vec![cx.subscribe(&title, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)), cx.subscribe(&prompt, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)), start];
+        let subs = vec![
+            cx.subscribe(&title, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)),
+            cx.subscribe(&prompt, |this, _, ev: &InputEvent, cx| this.ticket_page_typed(ev, cx)),
+            start,
+        ];
         (Self { title, prompt, picks: Picks::new(Values::new_in(String::new())), saving: None }, subs)
     }
 

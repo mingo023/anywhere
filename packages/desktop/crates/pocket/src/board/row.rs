@@ -1,12 +1,12 @@
 use super::logic::{Action, Col, Row, Slot, action_field, activity, change_reaches, column, opens, stuck_head};
 use super::parts::{col_heading, prop_chip};
-use ui::agent_avatar;
 use crate::desktop::Desktop;
 use crate::util::{ago_long, now_ms};
 use agents::tickets::Ticket;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
+use ui::agent_avatar;
 
 impl Desktop {
     fn section_bar(&self, col: Col, cx: &mut Context<Self>) -> Div {
@@ -18,7 +18,19 @@ impl Desktop {
             this.board_changed();
             cx.notify();
         }));
-        div().h(px(32.)).pl(px(4.)).pr(px(6.)).flex().items_center().gap(px(8.)).rounded(px(7.)).bg(FILL_1).child(fold).child(col_heading(col, n.to_string())).child(div().flex_1()).children(add)
+        div()
+            .h(px(32.))
+            .pl(px(4.))
+            .pr(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(7.))
+            .bg(FILL_1)
+            .child(fold)
+            .child(col_heading(col, n.to_string()))
+            .child(div().flex_1())
+            .children(add)
     }
 
     fn section_head(&self, col: Col, first: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -77,15 +89,38 @@ impl Desktop {
         let Some(t) = self.shown_ticket(slot.col, slot.index) else { return div().into_any_element() };
         let col = slot.col;
         let props = self.board.props;
-        let title = div().min_w_0().flex_1().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(if col.finished() { TEXT_3 } else { TEXT }).child(t.title.clone());
-        let note = self.ticket_note(t, slot).map(|(text, color)| div().flex_shrink(1.).min_w_0().max_w(px(320.)).truncate().text_size(px(12.)).text_color(color).child(text));
+        let title = div()
+            .min_w_0()
+            .flex_1()
+            .truncate()
+            .text_size(px(13.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if col.finished() { TEXT_3 } else { TEXT })
+            .child(t.title.clone());
+        let note = self
+            .ticket_note(t, slot)
+            .map(|(text, color)| div().flex_shrink(1.).min_w_0().max_w(px(320.)).truncate().text_size(px(12.)).text_color(color).child(text));
         let quick = self.ticket_quick(t, slot, cx);
         let labels = self.ticket_labels(t);
         let labels = (!labels.is_empty()).then(|| self.row_prop(t, Action::Labels, div().flex().items_center().gap(px(8.)).children(labels), cx));
         let (picked, at_cursor) = (self.board.selection.picked.contains(&t.id), self.board.selection.cursor.as_ref() == Some(&t.id));
         let quick = quick.map(|q| if at_cursor { q } else { q.opacity(0.).group_hover("ticket-row", |s| s.opacity(1.)) });
-        let project = props.project.then(|| self.row_prop(t, Action::Project, prop_chip().child(self.repo_tile_for(&t.folder, 14.)).child(div().min_w_0().truncate().child(self.repo_name(&t.folder))), cx));
-        let agent = props.agent.then(|| self.row_prop(t, Action::Agent, agent_avatar(SharedString::from(format!("ticket-row-agent-{}", t.id)), &t.provider, self.agent_name(&t.provider)), cx));
+        let project = props.project.then(|| {
+            self.row_prop(
+                t,
+                Action::Project,
+                prop_chip().child(self.repo_tile_for(&t.folder, 14.)).child(div().min_w_0().truncate().child(self.repo_name(&t.folder))),
+                cx,
+            )
+        });
+        let agent = props.agent.then(|| {
+            self.row_prop(
+                t,
+                Action::Agent,
+                agent_avatar(SharedString::from(format!("ticket-row-agent-{}", t.id)), &t.provider, self.agent_name(&t.provider)),
+                cx,
+            )
+        });
         let row = div()
             .id(SharedString::from(format!("ticket-row-{}", t.id)))
             .group("ticket-row")
@@ -111,16 +146,21 @@ impl Desktop {
             .children(labels)
             .children(project)
             .children(agent)
-            .children(props.updated.then(|| div().flex_none().w(px(52.)).text_right().text_size(px(12.)).text_color(TEXT_3).child(ago_long(activity(t), now_ms()))));
+            .children(
+                props.updated.then(|| div().flex_none().w(px(52.)).text_right().text_size(px(12.)).text_color(TEXT_3).child(ago_long(activity(t), now_ms()))),
+            );
         div().w_full().px(px(8.)).child(self.ticket_shell(row, t, cx)).into_any_element()
     }
 
     pub(super) fn board_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let rows = list(self.board.rows_list.clone(), cx.processor(|this, ix, _, cx| match this.board.rows.get(ix).copied() {
-            Some(Row::Head(col)) => this.section_head(col, ix == 0, cx),
-            Some(Row::Ticket(slot)) => this.ticket_row(slot, cx),
-            None => div().into_any_element(),
-        }))
+        let rows = list(
+            self.board.rows_list.clone(),
+            cx.processor(|this, ix, _, cx| match this.board.rows.get(ix).copied() {
+                Some(Row::Head(col)) => this.section_head(col, ix == 0, cx),
+                Some(Row::Ticket(slot)) => this.ticket_row(slot, cx),
+                None => div().into_any_element(),
+            }),
+        )
         .size_full();
         let top = self.board.rows_list.logical_scroll_top();
         let stuck = stuck_head(&self.board.rows, top.item_ix, top.offset_in_item > px(0.)).map(|col| self.stuck_section(col, cx));

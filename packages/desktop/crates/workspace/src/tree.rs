@@ -901,7 +901,10 @@ mod tests {
         let c = t.split(0, Edge::Bottom, "c").unwrap();
         t.toggle_zoom();
         let back: Tree<String> = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
-        assert_eq!((back.panes().iter().map(|p| p.tabs.clone()).collect::<Vec<_>>(), back.focused, back.zoomed), (vec![vec!["a".to_string(), "b".into()], vec!["c".into()]], c, None));
+        assert_eq!(
+            (back.panes().iter().map(|p| p.tabs.clone()).collect::<Vec<_>>(), back.focused, back.zoomed),
+            (vec![vec!["a".to_string(), "b".into()], vec!["c".into()]], c, None)
+        );
     }
 
     fn pane(id: PaneId, tabs: &[&'static str]) -> Node<&'static str> {

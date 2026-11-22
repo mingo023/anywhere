@@ -112,7 +112,17 @@ impl Desktop {
                     .child(div().max_w(relative(0.5)).flex_none().truncate().text_color(TEXT_BODY).child(name(call)))
                     .child(line(div().flex_1()).children(doing(call)))
                     .child(div().flex_none().text_size(px(12.)).text_color(TEXT_4).child(format_elapsed((now - call.at) / 1000)))
-                    .child(div().flex_none().flex().items_center().gap(px(3.)).text_size(px(12.)).text_color(TEXT_4).child("Show").child(icon("arrow-up", 11., TEXT_4)))
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .gap(px(3.))
+                            .text_size(px(12.))
+                            .text_color(TEXT_4)
+                            .child("Show")
+                            .child(icon("arrow-up", 11., TEXT_4)),
+                    )
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_show_block(&agent, turn, block, cx)))
             })
         });
@@ -136,7 +146,8 @@ mod tests {
 
     #[test]
     fn a_task_says_what_it_does_now_and_a_command_just_its_name() {
-        let reading = agent("Review the spec", vec![call(ToolKind::Search { query: "fold".into() }, 1), call(ToolKind::Read { path: "docs/spec.md".into() }, 2)]);
+        let reading =
+            agent("Review the spec", vec![call(ToolKind::Search { query: "fold".into() }, 1), call(ToolKind::Read { path: "docs/spec.md".into() }, 2)]);
         assert_eq!((name(&reading), doing(&reading).as_deref()), ("Review the spec".into(), Some("Read docs/spec.md")));
         assert_eq!(doing(&agent("Review the spec", vec![])).as_deref(), Some("Starting…"));
         let server = call(ToolKind::Shell { command: "bun run dev\n".into(), description: String::new() }, 0);

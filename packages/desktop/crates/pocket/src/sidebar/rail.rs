@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
-use crate::desktop::pages;
 use crate::desktop::chrome::{HEADER, Overlay, RAIL, Screen, drag_area};
+use crate::desktop::pages;
 use crate::terminal_view::context;
 use agents::Level;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -51,7 +51,8 @@ impl Desktop {
         let pages: Vec<_> = pages::offered(&self.agents)
             .map(|p| {
                 let screen = p.screen;
-                rail_button(SharedString::from(format!("nav-{}", p.name.to_lowercase())), p.icon, self.screen == screen).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.toggle_screen(screen, window, cx)))
+                rail_button(SharedString::from(format!("nav-{}", p.name.to_lowercase())), p.icon, self.screen == screen)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.toggle_screen(screen, window, cx)))
             })
             .collect();
         let settings = rail_button("nav-settings", "settings", self.screen == Screen::Settings)
@@ -92,4 +93,3 @@ impl Desktop {
             )
     }
 }
-

@@ -73,10 +73,7 @@ mod tests {
     #[test]
     fn release_keeps_the_names_installed_copies_depend_on() {
         let r = identity(true);
-        assert_eq!(
-            (r.home_dir_name, r.bundle_id, r.daemon_label),
-            (".anywhere", "dev.mingo.anywhere", "dev.mingo.anywhere.pocketd")
-        );
+        assert_eq!((r.home_dir_name, r.bundle_id, r.daemon_label), (".anywhere", "dev.mingo.anywhere", "dev.mingo.anywhere.pocketd"));
     }
 
     #[test]

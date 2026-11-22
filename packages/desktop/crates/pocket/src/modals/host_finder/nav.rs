@@ -406,7 +406,13 @@ pub(crate) fn ask(clone: Option<&str>, online: bool, dir: &str, taken: bool, rep
     match clone {
         Some(name) => Ask { title: "Clone into", primary: "Clone here", hint: picked.then(|| Hint::Clones(name.to_string())), ready: picked },
         None => {
-            let hint = picked.then_some(if taken { Hint::Taken } else if repo { Hint::Repo } else { Hint::Plain });
+            let hint = picked.then_some(if taken {
+                Hint::Taken
+            } else if repo {
+                Hint::Repo
+            } else {
+                Hint::Plain
+            });
             Ask { title: "Choose a folder", primary: "Use this folder", hint, ready: picked && !taken }
         }
     }
@@ -583,7 +589,8 @@ mod tests {
     fn the_branch_comes_from_head_and_the_remote_prefers_origin() {
         assert_eq!(branch_of("ref: refs/heads/feat/x\n").as_deref(), Some("feat/x"));
         assert_eq!(branch_of("3f2a9c1\n"), None);
-        let config = "[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = git@github.com:up/app.git\n[remote \"origin\"]\n\turl = https://github.com/me/app.git\n";
+        let config =
+            "[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = git@github.com:up/app.git\n[remote \"origin\"]\n\turl = https://github.com/me/app.git\n";
         assert_eq!(remote_of(config).as_deref(), Some("https://github.com/me/app.git"));
         assert_eq!(remote_of("[remote \"fork\"]\n url=git@x:y.git\n").as_deref(), Some("git@x:y.git"));
         assert_eq!(remote_of("[core]\n\turl = nope\n"), None);

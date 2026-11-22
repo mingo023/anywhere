@@ -11,8 +11,8 @@ use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
 use agents::locals::is_local;
 use daemon::{Info, Msg};
-use hosts::session::{Lists, untag};
 use gpui_kit::*;
+use hosts::session::{Lists, untag};
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -67,7 +67,24 @@ pub(crate) struct Created {
 
 impl Terminals {
     pub fn new(config: term::Config) -> Self {
-        Self { sessions: Sessions { config, ..Sessions::default() }, intents: VecDeque::new(), closed: HashSet::new(), sized: HashMap::new(), pending: HashMap::new(), settle: None, setups: HashMap::new(), created: HashMap::new(), tab_chats: HashMap::new(), tab_terms: HashMap::new(), requests: HashSet::new(), reattach: HashSet::new(), link: Link::default(), bell: Bell::default(), killed: HashSet::new(), lists: Lists::default() }
+        Self {
+            sessions: Sessions { config, ..Sessions::default() },
+            intents: VecDeque::new(),
+            closed: HashSet::new(),
+            sized: HashMap::new(),
+            pending: HashMap::new(),
+            settle: None,
+            setups: HashMap::new(),
+            created: HashMap::new(),
+            tab_chats: HashMap::new(),
+            tab_terms: HashMap::new(),
+            requests: HashSet::new(),
+            reattach: HashSet::new(),
+            link: Link::default(),
+            bell: Bell::default(),
+            killed: HashSet::new(),
+            lists: Lists::default(),
+        }
     }
 
     /// The listed terminals closed here that still run, because their close never reached pocketd.
@@ -415,7 +432,14 @@ impl Desktop {
 
     /// Spawns `op` in the worktree's folder; a host's folder gets its login shell running `argv` instead.
     /// Naming `agent`, the provider `argv` runs, lets pocketd start it on the account a new session there would.
-    pub(crate) fn run_in_tree(&mut self, place: Place, argv: &[String], agent: Option<&str>, op: impl FnOnce(&str) -> serde_json::Value, cx: &mut Context<Self>) {
+    pub(crate) fn run_in_tree(
+        &mut self,
+        place: Place,
+        argv: &[String],
+        agent: Option<&str>,
+        op: impl FnOnce(&str) -> serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
         let Some(tree) = self.place() else { return };
         let Some(cwd) = self.folder_of(&tree) else { return };
         let mut op = match hosts::split(&cwd) {
@@ -565,7 +589,12 @@ mod tests {
 
     #[test]
     fn a_new_tab_opens_the_default_agent_only_when_one_is_installed() {
-        let pocketd = |installed: bool| agents::Agents { providers: ["claude", "codex", "pi"].map(|id| agents::providers::ProviderInfo { id: id.into(), available: installed && id != "claude", ..Default::default() }).to_vec(), ..Default::default() };
+        let pocketd = |installed: bool| agents::Agents {
+            providers: ["claude", "codex", "pi"]
+                .map(|id| agents::providers::ProviderInfo { id: id.into(), available: installed && id != "claude", ..Default::default() })
+                .to_vec(),
+            ..Default::default()
+        };
         let mut prefs = store::prefs::agents::Agents::default();
         assert_eq!(tab_agent(&prefs, &pocketd(true)), None, "Settings open a shell");
         prefs.tabs_open_agent = true;

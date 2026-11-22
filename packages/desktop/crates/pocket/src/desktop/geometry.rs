@@ -10,13 +10,18 @@ const SAVE_DELAY: Duration = Duration::from_millis(500);
 
 /// The saved bounds on their display, or the default size centered on the first display.
 pub fn restore(saved: Option<&WindowGeometry>, displays: &[(Option<String>, Bounds<Pixels>)]) -> (usize, Bounds<Pixels>) {
-    let fit = |want: Size<Pixels>, area: Size<Pixels>| size(want.width.max(MIN_WINDOW.width).min(area.width), want.height.max(MIN_WINDOW.height).min(area.height));
+    let fit =
+        |want: Size<Pixels>, area: Size<Pixels>| size(want.width.max(MIN_WINDOW.width).min(area.width), want.height.max(MIN_WINDOW.height).min(area.height));
     let known = saved.and_then(|g| displays.iter().position(|(uuid, _)| uuid.is_some() && *uuid == g.display).map(|i| (g, i)));
     if let Some((g, i)) = known {
         let area = displays[i].1;
         let rect = Bounds::new(area.origin + point(px(g.x), px(g.y)), fit(size(px(g.width), px(g.height)), area.size));
         let slack = px(1.);
-        if rect.left() + slack >= area.left() && rect.top() + slack >= area.top() && rect.right() <= area.right() + slack && rect.bottom() <= area.bottom() + slack {
+        if rect.left() + slack >= area.left()
+            && rect.top() + slack >= area.top()
+            && rect.right() <= area.right() + slack
+            && rect.bottom() <= area.bottom() + slack
+        {
             return (i, rect);
         }
     }

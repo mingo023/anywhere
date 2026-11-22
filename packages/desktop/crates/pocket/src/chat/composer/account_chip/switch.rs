@@ -35,11 +35,22 @@ impl Desktop {
                 this.chats.composer.draft.menu = Some(Menu::Usage { back: true });
                 cx.notify();
             }));
-        let title = div().absolute().left_0().right_0().flex().justify_center().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Switch account");
+        let title = div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .text_size(px(13.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(TEXT)
+            .child("Switch account");
         let head = div().relative().h(px(46.)).px(px(8.)).flex().items_center().child(title).child(back);
         // The account it runs on stays listed while it switches away, as picking it calls the switch off.
         let running = if agent.account.is_empty() { BUILT_IN } else { &agent.account };
-        let rows = accounts::choices(self.accounts.list(host), &agent.provider, &[&current.id, running]).map(|x| self.chat_account_row(agent, host, x, x.id == current.id, cx)).collect::<Vec<_>>();
+        let rows = accounts::choices(self.accounts.list(host), &agent.provider, &[&current.id, running])
+            .map(|x| self.chat_account_row(agent, host, x, x.id == current.id, cx))
+            .collect::<Vec<_>>();
         let manage = div()
             .id("chat-account-manage")
             .h(px(24.))
@@ -57,7 +68,20 @@ impl Desktop {
                 this.show_section(Section::Accounts, cx);
             }));
         let only = format!("Only {} accounts on {}", provider_name(&agent.provider), self.machine_name(host));
-        let foot = div().pl(px(16.)).pr(px(10.)).pt(px(8.)).pb(px(10.)).flex().items_center().justify_between().border_t(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child(only).child(manage);
+        let foot = div()
+            .pl(px(16.))
+            .pr(px(10.))
+            .pt(px(8.))
+            .pb(px(10.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .border_t(px(0.5))
+            .border_color(SEPARATOR)
+            .text_size(px(12.))
+            .text_color(TEXT_3)
+            .child(only)
+            .child(manage);
         div().flex().flex_col().child(head).child(div().px(px(6.)).pt(px(2.)).pb(px(4.)).flex().flex_col().children(rows)).child(foot)
     }
 
@@ -89,7 +113,17 @@ impl Desktop {
                 .child(bar(accounts::peak(a).unwrap_or(0), 64., 4.))
         });
         let check = div().w(px(14.)).flex_none().when(current, |d| d.child(icon("check", 13., TEXT)));
-        let row = div().id(SharedString::from(format!("chat-account-row-{}", a.id))).px(px(10.)).py(px(7.)).flex().items_center().gap(px(10.)).rounded(px(8.)).child(check).child(who).children(usage);
+        let row = div()
+            .id(SharedString::from(format!("chat-account-row-{}", a.id)))
+            .px(px(10.))
+            .py(px(7.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .rounded(px(8.))
+            .child(check)
+            .child(who)
+            .children(usage);
         if !a.signed_in {
             return row.opacity(0.5);
         }

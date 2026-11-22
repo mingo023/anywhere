@@ -29,7 +29,9 @@ pub(crate) fn value(call: &ToolCall) -> String {
 /// Each question asked and what the user answered it, once answered.
 pub(crate) fn answered(call: &ToolCall) -> Vec<(String, String)> {
     match (&call.kind, &call.output) {
-        (ToolKind::Question(qs), Some(out)) if call.status == ToolStatus::Ok => chat::answers(qs, out).into_iter().map(|(q, a)| (q.question.clone(), a)).collect(),
+        (ToolKind::Question(qs), Some(out)) if call.status == ToolStatus::Ok => {
+            chat::answers(qs, out).into_iter().map(|(q, a)| (q.question.clone(), a)).collect()
+        }
         _ => Vec::new(),
     }
 }
@@ -59,23 +61,37 @@ pub(crate) fn marker(id: &str, call: &ToolCall, width: f32, open: Open<impl Fn(&
         .child(div().flex_none().font_weight(FontWeight::MEDIUM).text_color(TEXT_2).child("Question"))
         .child(div().flex_1().min_w_0().truncate().text_color(Hsla::from(TEXT).opacity(0.9)).child(value(call)))
         .when(opens, |d| {
-            let chevron = icon("chevron-down", 12., TEXT_3).when(open.expanded, |i| i.with_transformation(Transformation::rotate(radians(std::f32::consts::PI))));
+            let chevron =
+                icon("chevron-down", 12., TEXT_3).when(open.expanded, |i| i.with_transformation(Transformation::rotate(radians(std::f32::consts::PI))));
             d.cursor_pointer().group("question-head").child(chevron.group_hover("question-head", |s| s.text_color(TEXT))).on_click(open.on_click)
         });
     let text_width = width - INSET - 12.;
-    let body_height = pairs.iter().map(|(q, a)| (text_lines(q, TEXT_SIZE, text_width, window) + text_lines(a, TEXT_SIZE, text_width, window)) as f32 * LINE).sum::<f32>()
-        + PAIR_GAP * pairs.len().saturating_sub(1) as f32
-        + BOTTOM;
+    let body_height =
+        pairs.iter().map(|(q, a)| (text_lines(q, TEXT_SIZE, text_width, window) + text_lines(a, TEXT_SIZE, text_width, window)) as f32 * LINE).sum::<f32>()
+            + PAIR_GAP * pairs.len().saturating_sub(1) as f32
+            + BOTTOM;
     let moving = open.toggled.is_some_and(|at| at.elapsed() < tween(body_height));
     let body = (opens && (open.expanded || moving)).then(|| {
         let pair = |(q, a): (String, String)| div().flex().flex_col().child(div().text_color(TEXT_3).child(q)).child(div().text_color(TEXT).child(a));
         div().pl(px(INSET)).pr(px(12.)).pb(px(BOTTOM)).flex().flex_col().gap(px(PAIR_GAP)).line_height(px(LINE)).children(pairs.into_iter().map(pair))
     });
-    let card = div().flex().flex_col().overflow_hidden().rounded(px(10.)).border_1().border_color(hairline(0.08)).bg(ink(0.045)).text_size(px(TEXT_SIZE)).child(head).children(body);
+    let card = div()
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .rounded(px(10.))
+        .border_1()
+        .border_color(hairline(0.08))
+        .bg(ink(0.045))
+        .text_size(px(TEXT_SIZE))
+        .child(head)
+        .children(body);
     let card = if moving {
         let (from, to) = if open.expanded { (HEAD, HEAD + body_height) } else { (HEAD + body_height, HEAD) };
         // The border sits outside the eased height, so the card ends exactly where its natural height starts.
-        div().child(card.with_animation(SharedString::from(format!("{id}-question-{}", open.expanded)), grow(body_height), move |d, t| d.h(px(from + (to - from) * t + 2.))))
+        div().child(card.with_animation(SharedString::from(format!("{id}-question-{}", open.expanded)), grow(body_height), move |d, t| {
+            d.h(px(from + (to - from) * t + 2.))
+        }))
     } else {
         card
     };

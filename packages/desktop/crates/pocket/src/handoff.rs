@@ -354,7 +354,13 @@ impl Desktop {
             messages: timeline.iter().filter(|i| i.kind == "user" || i.kind == "assistant").count(),
         };
         let recap = crate::activity::recap::recap(timeline);
-        let known = handoff::summary::Known { title: &source.title, branch: &source.branch, files: source.files, asked: Some(recap.asked.as_str()).filter(|a| !a.is_empty()), replied: Some(recap.said.as_str()) };
+        let known = handoff::summary::Known {
+            title: &source.title,
+            branch: &source.branch,
+            files: source.files,
+            asked: Some(recap.asked.as_str()).filter(|a| !a.is_empty()),
+            replied: Some(recap.said.as_str()),
+        };
         let draft = handoff::summary::draft(&known);
         self.handoff.summary.update(cx, |t, cx| t.set_value(draft, window, cx));
         self.handoff.open = Some(Handoff::new(source));
@@ -440,7 +446,13 @@ impl Desktop {
             Step::Stop => {
                 self.outbox.interrupt(&source.agent);
                 let agent = source.agent.clone();
-                self.wait_for(generation, STOP, "The turn didn’t stop", move |d| d.agents.get(&agent).is_none_or(|s| s.status != "working").then_some(Landed::Stopped), cx);
+                self.wait_for(
+                    generation,
+                    STOP,
+                    "The turn didn’t stop",
+                    move |d| d.agents.get(&agent).is_none_or(|s| s.status != "working").then_some(Landed::Stopped),
+                    cx,
+                );
             }
             Step::Pack => self.in_background(generation, move || handoff::pack::pack(&source.cwd, &id).map(Landed::Packed), cx),
             Step::Send => {
@@ -448,7 +460,9 @@ impl Desktop {
                 self.in_background(generation, move || handoff::place::send(&*client, &pack, &id).map(Landed::Sent), cx);
             }
             Step::Worktree => {
-                let (Some(pack), Some(bundle), Some(project)) = (run.pack.clone(), run.bundle.clone(), h.probe().and_then(|p| p.project.clone())) else { return };
+                let (Some(pack), Some(bundle), Some(project)) = (run.pack.clone(), run.bundle.clone(), h.probe().and_then(|p| p.project.clone())) else {
+                    return;
+                };
                 let name = basename(&source.cwd);
                 let given = self.tree_of(&source.cwd).and_then(|t| self.agents.given_name(&t).map(String::from));
                 let task = cx.background_executor().spawn({
@@ -490,10 +504,12 @@ impl Desktop {
                 self.in_background(
                     generation,
                     move || {
-                        let t = handoff::transcript::find(&source.provider, &session, std::path::Path::new(&home)).ok_or_else(|| "This Mac has no copy of the conversation".to_string())?;
+                        let t = handoff::transcript::find(&source.provider, &session, std::path::Path::new(&home))
+                            .ok_or_else(|| "This Mac has no copy of the conversation".to_string())?;
                         let from = mac_paths(&source.cwd);
                         let mut sent = |done, of| _ = tx.unbounded_send((done, of));
-                        handoff::transcript::carry(&*client, &t, &from.iter().map(String::as_str).collect::<Vec<_>>(), &placed.path, framed, &mut sent).map(|_| Landed::Carried)
+                        handoff::transcript::carry(&*client, &t, &from.iter().map(String::as_str).collect::<Vec<_>>(), &placed.path, framed, &mut sent)
+                            .map(|_| Landed::Carried)
                     },
                     cx,
                 );
@@ -506,7 +522,13 @@ impl Desktop {
                     return self.step_landed(generation, Landed::Started(found), cx);
                 }
                 let prompt = if source.conversation() { String::new() } else { self.handoff.summary.read(cx).value().trim().to_string() };
-                let pick = LaunchPick { provider: source.provider.clone(), model: source.model.clone(), effort: source.effort.clone(), account: crate::accounts::BUILT_IN.into(), ..LaunchPick::default() };
+                let pick = LaunchPick {
+                    provider: source.provider.clone(),
+                    model: source.model.clone(),
+                    effort: source.effort.clone(),
+                    account: crate::accounts::BUILT_IN.into(),
+                    ..LaunchPick::default()
+                };
                 let mut spec = pick.spec(&hosts::place(&host, &placed.project), json!({"worktree": hosts::place(&host, &placed.path)}), &prompt);
                 self.store.agents.launch(&mut spec, &self.agents, &self.efforts_on(&source.provider, &source.model));
                 if let Some(session) = source.session.clone().filter(|_| source.conversation()) {

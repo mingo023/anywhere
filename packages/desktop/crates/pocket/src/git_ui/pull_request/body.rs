@@ -122,12 +122,20 @@ pub(crate) fn body_view(selection_scope: &str, md: &str) -> Div {
     let views = blocks.iter().enumerate().map(|(i, b)| {
         let text = |t: String| selectable_text(SharedString::from(format!("{selection_scope}:{i}")), t);
         let view = match b.clone() {
-        Block::Heading(t) => div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(text(t)),
-        Block::Para(t) => div().child(text(t)),
-        Block::Task(done, t) => div().py(px(2.)).flex().items_start().gap(px(8.)).child(ui::checkbox(done).mt(px(3.))).child(div().flex_1().min_w_0().child(text(t))),
-        Block::Bullet(t) => div().py(px(2.)).flex().items_start().gap(px(8.)).child(div().flex_none().text_color(TEXT_4).child("•")).child(div().flex_1().min_w_0().child(text(t))),
-        Block::Quote(t) => div().pl(px(8.)).border_l_2().border_color(SEPARATOR_STRONG).text_color(TEXT_3).child(text(t)),
-        Block::Code(t) => div().px(px(8.)).py(px(6.)).rounded(px(7.)).bg(FILL_2).font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(text(t)),
+            Block::Heading(t) => div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(text(t)),
+            Block::Para(t) => div().child(text(t)),
+            Block::Task(done, t) => {
+                div().py(px(2.)).flex().items_start().gap(px(8.)).child(ui::checkbox(done).mt(px(3.))).child(div().flex_1().min_w_0().child(text(t)))
+            }
+            Block::Bullet(t) => div()
+                .py(px(2.))
+                .flex()
+                .items_start()
+                .gap(px(8.))
+                .child(div().flex_none().text_color(TEXT_4).child("•"))
+                .child(div().flex_1().min_w_0().child(text(t))),
+            Block::Quote(t) => div().pl(px(8.)).border_l_2().border_color(SEPARATOR_STRONG).text_color(TEXT_3).child(text(t)),
+            Block::Code(t) => div().px(px(8.)).py(px(6.)).rounded(px(7.)).bg(FILL_2).font_family(MONO).text_size(px(11.5)).text_color(TEXT_2).child(text(t)),
         };
         view.mt(px(space(i.checked_sub(1).map(|k| &blocks[k]), b)))
     });

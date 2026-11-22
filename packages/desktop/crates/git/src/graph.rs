@@ -142,13 +142,14 @@ impl Tips {
 /// The worktree's tips, with every branch and remote branch when `all`; `None` before its first commit.
 pub fn tips(run: &Runner, cwd: &str, all: bool) -> Option<Tips> {
     let head = git(run, cwd, &["rev-parse", "--verify", "-q", "HEAD"])?.trim().to_string();
-    let refs: Vec<(String, String, String)> = lines(git(run, cwd, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads", "refs/remotes"]))
-        .into_iter()
-        .filter_map(|l| {
-            let mut p = l.splitn(3, '\0');
-            Some((p.next()?.to_string(), p.next()?.to_string(), p.next()?.to_string()))
-        })
-        .collect();
+    let refs: Vec<(String, String, String)> =
+        lines(git(run, cwd, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream)", "refs/heads", "refs/remotes"]))
+            .into_iter()
+            .filter_map(|l| {
+                let mut p = l.splitn(3, '\0');
+                Some((p.next()?.to_string(), p.next()?.to_string(), p.next()?.to_string()))
+            })
+            .collect();
     let tip = |name: &str| {
         refs.iter().find(|(r, ..)| r == name).map(|(r, sha, _)| {
             let short = r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/")).unwrap_or(r);
@@ -161,7 +162,9 @@ pub fn tips(run: &Runner, cwd: &str, all: bool) -> Option<Tips> {
     let name = current.as_deref().and_then(|c| c.strip_prefix("refs/heads/")).unwrap_or_default();
     let base = match name {
         "main" | "master" => None,
-        _ => base_of(run, cwd, name).filter(|b| github::base_branch(b) != name).and_then(|b| tip(&format!("refs/remotes/{b}")).or_else(|| tip(&format!("refs/heads/{b}")))),
+        _ => base_of(run, cwd, name)
+            .filter(|b| github::base_branch(b) != name)
+            .and_then(|b| tip(&format!("refs/remotes/{b}")).or_else(|| tip(&format!("refs/heads/{b}")))),
     };
     let others = if all { refs.into_iter().map(|(_, sha, _)| sha).collect() } else { Vec::new() };
     Some(Tips { head, branch, upstream, base, others })
@@ -263,7 +266,11 @@ mod tests {
         sh(&repo, &["branch", "-M", "main"]);
         sh(&repo, &["checkout", "-qb", "feature"]);
         sh(&repo, &["update-ref", "refs/remotes/origin/feature", "HEAD"]);
-        for (k, v) in [("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"), ("branch.feature.remote", "origin"), ("branch.feature.merge", "refs/heads/feature")] {
+        for (k, v) in [
+            ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+            ("branch.feature.remote", "origin"),
+            ("branch.feature.merge", "refs/heads/feature"),
+        ] {
             sh(&repo, &["config", k, v]);
         }
         std::fs::write(repo.join("b"), "b\n").unwrap();

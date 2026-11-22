@@ -9,11 +9,11 @@ use crate::fs::fs_for;
 use crate::syntax::language_for;
 use crate::util::basename;
 use code::{Mark, code_pane, gutter};
-use markdown::markdown_pane;
 use git::Line;
 use gpui_kit::component::input::{EditorState, InputEvent, TabSize};
 use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
+use markdown::markdown_pane;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -131,9 +131,8 @@ pub struct Views {
 
 impl Views {
     fn new(pane: PaneId, look @ (wrap, numbers, tab): Look, window: &mut Window, cx: &mut Context<Desktop>) -> Self {
-        let code = cx.new(|cx| {
-            EditorState::new(window, cx).line_number(numbers).searchable(true).soft_wrap(wrap).tab_size(TabSize { tab_size: tab, hard_tabs: false })
-        });
+        let code = cx
+            .new(|cx| EditorState::new(window, cx).line_number(numbers).searchable(true).soft_wrap(wrap).tab_size(TabSize { tab_size: tab, hard_tabs: false }));
         let md = cx.new(|cx| TextViewState::markdown("", cx).shared_code_block_highlighter(markdown::code_highlighter()));
         let diagrams = cx.new(|_| Diagrams::new(&md));
         md.update(cx, |md, cx| md.set_markdown_extensions(Arc::new(markdown::extensions(&diagrams)), cx));
@@ -439,7 +438,10 @@ impl Desktop {
         let Some(file @ FilePane { views: Some(views), marks, .. }) = self.preview.pane(pane) else { return div() };
         let switch = file.markdown().then(|| {
             div().absolute().top(px(8.)).right(px(16.)).child(div().id("md-mode").child(ui::segmented(
-                vec![Segment { icon: None, value: false, label: "Preview".into(), badge: None }, Segment { icon: None, value: true, label: "Source".into(), badge: None }],
+                vec![
+                    Segment { icon: None, value: false, label: "Preview".into(), badge: None },
+                    Segment { icon: None, value: true, label: "Source".into(), badge: None },
+                ],
                 file.md_source,
                 true,
                 false,
@@ -463,7 +465,12 @@ impl Desktop {
                 .items_center()
                 .justify_center()
                 .bg(SURFACE_SUNKEN)
-                .child(img(bytes.map_or_else(|| ImageSource::from(PathBuf::from(&path)), ImageSource::from)).max_w_full().max_h_full().object_fit(ObjectFit::Contain))
+                .child(
+                    img(bytes.map_or_else(|| ImageSource::from(PathBuf::from(&path)), ImageSource::from))
+                        .max_w_full()
+                        .max_h_full()
+                        .object_fit(ObjectFit::Contain),
+                )
                 .into_any_element(),
             Body::Note(note) => empty(note).into_any_element(),
             Body::Blank => div().flex_1().into_any_element(),

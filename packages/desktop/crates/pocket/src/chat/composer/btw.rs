@@ -47,7 +47,15 @@ impl Desktop {
             Some(Ok(answer)) => (answer.clone(), TEXT_BODY),
             Some(Err(why)) => (why.clone(), TEXT_3),
         };
-        let body = div().id(SharedString::from(format!("chat-btw:{agent}"))).mt(px(6.)).max_h(px(220.)).overflow_y_scroll().text_size(px(13.)).line_height(px(19.)).text_color(color).child(text);
+        let body = div()
+            .id(SharedString::from(format!("chat-btw:{agent}")))
+            .mt(px(6.))
+            .max_h(px(220.))
+            .overflow_y_scroll()
+            .text_size(px(13.))
+            .line_height(px(19.))
+            .text_color(color)
+            .child(text);
         Some(surface().child(head).child(body))
     }
 }

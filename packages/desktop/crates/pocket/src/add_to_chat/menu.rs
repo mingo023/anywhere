@@ -185,7 +185,9 @@ impl Desktop {
                             .flex()
                             .flex_col()
                             .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(marked(c.title.clone(), &words)))
-                            .child(div().truncate().text_size(px(11.5)).text_color(TEXT_3).child(marked(subtitle(&self.agent_name(&c.provider), &c.note), &words))),
+                            .child(
+                                div().truncate().text_size(px(11.5)).text_color(TEXT_3).child(marked(subtitle(&self.agent_name(&c.provider), &c.note), &words)),
+                            ),
                     )
                     .child(shortcut)
                     .when(!c.ready, |d| d.opacity(0.5))
@@ -195,7 +197,9 @@ impl Desktop {
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_chat_target(id.clone(), window, cx)))
                     })
             });
-            let empty = (rows.is_empty() && !words.is_empty()).then(|| div().px(px(10.)).pt(px(10.)).pb(px(6.)).text_size(px(12.5)).text_color(TEXT_3).child(format!("No session matches “{}”.", query.trim())));
+            let empty = (rows.is_empty() && !words.is_empty()).then(|| {
+                div().px(px(10.)).pt(px(10.)).pb(px(6.)).text_size(px(12.5)).text_color(TEXT_3).child(format!("No session matches “{}”.", query.trim()))
+            });
             let new = div()
                 .id("chat-new-session")
                 .h(px(34.))
@@ -268,7 +272,19 @@ impl Desktop {
                             });
                         }))
                         .child(search)
-                        .child(div().id("chat-menu-list").max_h(px(260.)).overflow_y_scroll().track_scroll(&self.chat.scroll).p(px(5.)).flex().flex_col().children(items).children(empty).child(new))
+                        .child(
+                            div()
+                                .id("chat-menu-list")
+                                .max_h(px(260.))
+                                .overflow_y_scroll()
+                                .track_scroll(&self.chat.scroll)
+                                .p(px(5.))
+                                .flex()
+                                .flex_col()
+                                .children(items)
+                                .children(empty)
+                                .child(new),
+                        )
                         .child(keys),
                 )),
             )
@@ -292,7 +308,11 @@ mod tests {
     }
 
     fn sessions() -> Vec<Choice> {
-        vec![choice("a", "claude", "Fix markdown glass", true), choice("b", "codex", "Audit sign-out paths", false), choice("c", "codex", "Virtualize the Explorer", true)]
+        vec![
+            choice("a", "claude", "Fix markdown glass", true),
+            choice("b", "codex", "Audit sign-out paths", false),
+            choice("c", "codex", "Virtualize the Explorer", true),
+        ]
     }
 
     fn ids(rows: Vec<&Choice>) -> Vec<&str> {

@@ -60,7 +60,8 @@ fn oneshot(agent: &str) -> &'static providers::Oneshot {
 }
 
 const RECENT: &str = "Write a git commit message for the diff on stdin, in the style of the recent subjects. Reply with the message only.";
-const CONVENTIONAL: &str = "Write a git commit message for the diff on stdin as a Conventional Commit, like `feat(scope): summary`. Reply with the message only.";
+const CONVENTIONAL: &str =
+    "Write a git commit message for the diff on stdin as a Conventional Commit, like `feat(scope): summary`. Reply with the message only.";
 const PLAIN: &str = "Write a git commit message for the diff on stdin: one plain sentence saying what changed, with no prefix. Reply with the message only.";
 const PR: &str = "Write a pull request title and description for the commits and diff on stdin. Reply with the title alone on the first line, a blank line, then the description in Markdown: what changed and why, briefly. Nothing else.";
 

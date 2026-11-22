@@ -14,8 +14,7 @@ fn main() {
     let lib = format!("{ghostty}/{lib}");
     let out = std::env::var("OUT_DIR").unwrap();
     // Copied alone into OUT_DIR: next to the .dylib the linker would pick the dylib.
-    std::fs::copy(&lib, format!("{out}/libghostty-vt.a"))
-        .unwrap_or_else(|e| panic!("{lib}: {e}; run scripts/build-ghostty.sh for this target"));
+    std::fs::copy(&lib, format!("{out}/libghostty-vt.a")).unwrap_or_else(|e| panic!("{lib}: {e}; run scripts/build-ghostty.sh for this target"));
     cc::Build::new()
         .file("src/shim.c")
         .include(format!("{ghostty}/include"))

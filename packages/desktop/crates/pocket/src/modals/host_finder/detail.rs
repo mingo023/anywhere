@@ -20,7 +20,14 @@ impl Desktop {
                 .items_center()
                 .gap(px(10.))
                 .child(div().size(px(36.)).flex_none().flex().items_center().justify_center().rounded(px(9.)).bg(FILL_3).child(icon(glyph, 18., TEXT_2)))
-                .child(div().min_w_0().flex().flex_col().child(div().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(title)).child(div().truncate().text_size(px(12.)).text_color(TEXT_3).child(sub)))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(title))
+                        .child(div().truncate().text_size(px(12.)).text_color(TEXT_3).child(sub)),
+                )
         };
         if let Some(file) = &f.file {
             let row_size = f.listing(&f.dir).and_then(|l| l.as_ref().ok()).and_then(|l| l.shown.iter().find(|r| &r.name == file)).map_or(0, |r| r.size);
@@ -46,12 +53,21 @@ impl Desktop {
         let title = if title.is_empty() { f.dir.clone() } else { title };
         if f.is_repo(&f.dir) {
             let repo = f.repo.as_ref().filter(|(d, _)| *d == f.dir).and_then(|(_, r)| r.clone());
-            let fact = |k: &str, v: String| div().flex().gap(px(14.)).text_size(px(12.5)).child(div().w(px(56.)).flex_none().text_color(TEXT_3).child(k.to_string())).child(div().min_w_0().truncate().font_family(MONO).child(v));
+            let fact = |k: &str, v: String| {
+                div()
+                    .flex()
+                    .gap(px(14.))
+                    .text_size(px(12.5))
+                    .child(div().w(px(56.)).flex_none().text_color(TEXT_3).child(k.to_string()))
+                    .child(div().min_w_0().truncate().font_family(MONO).child(v))
+            };
             let (branch, remote) = match repo {
                 Some(r) => (r.branch.unwrap_or_else(|| "detached".into()), r.remote.unwrap_or_else(|| "none".into())),
                 None => ("\u{2026}".into(), "\u{2026}".into()),
             };
-            return pane.child(head("branch", title, "Git repository".into())).child(div().flex().flex_col().gap(px(6.)).child(fact("Branch", branch)).child(fact("Remote", remote)).child(fact("Path", f.pretty(&f.dir))));
+            return pane
+                .child(head("branch", title, "Git repository".into()))
+                .child(div().flex().flex_col().gap(px(6.)).child(fact("Branch", branch)).child(fact("Remote", remote)).child(fact("Path", f.pretty(&f.dir))));
         }
         let count = match f.listing(&f.dir) {
             Some(Ok(l)) => format!("{} items", l.shown.len()),

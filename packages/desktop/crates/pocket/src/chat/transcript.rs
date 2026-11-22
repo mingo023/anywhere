@@ -1,7 +1,7 @@
 use super::fold::{self, Live};
 use super::jump::{self, Glide, Seek};
-use super::pin::{self, Pin};
 use super::markdown::{self, Docs, Highlights};
+use super::pin::{self, Pin};
 use super::reveal::{self, Reveal};
 use super::tool_row::Tools;
 use super::working::{self, format_elapsed};
@@ -104,7 +104,33 @@ impl View {
                 view.remeasure_under_pin();
             }
         });
-        Self { session: Session::default(), list, tools, _tools, jump: false, glide: None, seek: None, inset: 0., pin: None, sent: None, flash: None, scrolled, settled: None, copied: None, expanded: HashSet::new(), toggled: None, held: None, code: Highlights::default(), docs: Docs::default(), reveals: HashMap::new(), sticky_open: None, pointer, lit: None, primed: false, arrivals: Default::default() }
+        Self {
+            session: Session::default(),
+            list,
+            tools,
+            _tools,
+            jump: false,
+            glide: None,
+            seek: None,
+            inset: 0.,
+            pin: None,
+            sent: None,
+            flash: None,
+            scrolled,
+            settled: None,
+            copied: None,
+            expanded: HashSet::new(),
+            toggled: None,
+            held: None,
+            code: Highlights::default(),
+            docs: Docs::default(),
+            reveals: HashMap::new(),
+            sticky_open: None,
+            pointer,
+            lit: None,
+            primed: false,
+            arrivals: Default::default(),
+        }
     }
 
     /// How far the list sits above its end.
@@ -253,12 +279,20 @@ impl View {
 
     /// Refolds the session when its timeline moved, or the sessions it delegated to did, and lays out what changed;
     /// returns the queued sends it let go.
-    fn refresh(&mut self, agent: &agents::Summary, revision: u64, items: &[agents::Item], delegations: &[agents::delegations::Delegation]) -> Vec<(u64, String)> {
+    fn refresh(
+        &mut self,
+        agent: &agents::Summary,
+        revision: u64,
+        items: &[agents::Item],
+        delegations: &[agents::delegations::Delegation],
+    ) -> Vec<(u64, String)> {
         self.session.delegated(&crate::delegated::spans(delegations));
         let before: HashMap<String, usize> = latest_texts(&self.session.transcript).map(|m| (m.id.clone(), m.text.len())).collect();
         let tail = self.session.live_tail().map(|f| self.session.transcript.turns[f].id.clone());
         self.session.outgoing.set_compacting(agent.compacting);
-        if let Some((changed, range, count)) = self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms()) {
+        if let Some((changed, range, count)) =
+            self.session.update(chat::for_provider(&agent.provider), revision, items, super::composer::working(agent), now_ms())
+        {
             if let Some(turn) = chat::settled_tail(tail.as_deref(), &self.session.transcript) {
                 self.settled = Some((format!("{turn}#fold"), Instant::now()));
             }
@@ -388,7 +422,9 @@ fn taking_in(t: &Transcript, turns: &Range<usize>, closes: bool, ask: Option<boo
 /// A reply's answer: the text each of its turns ends on, after its work.
 fn answer(t: &Transcript, turns: Range<usize>) -> String {
     let tail = |turn: &Turn| turn.blocks.iter().rposition(chat::is_work).map_or(0, |b| b + 1);
-    let texts = t.turns[turns].iter().flat_map(|turn| turn.blocks[tail(turn)..].iter().filter_map(|b| if let Block::Text(m) | Block::Plan(m) = b { Some(m.text.as_str()) } else { None }));
+    let texts = t.turns[turns]
+        .iter()
+        .flat_map(|turn| turn.blocks[tail(turn)..].iter().filter_map(|b| if let Block::Text(m) | Block::Plan(m) = b { Some(m.text.as_str()) } else { None }));
     texts.collect::<Vec<_>>().join("\n\n")
 }
 
@@ -467,7 +503,19 @@ fn copy(agent: &str, key: String, text: String, cx: &mut Context<Desktop>) -> im
 /// A prompt's bubble with its copy and time, or `under` in their place. A send shows as its echo will, so the echo
 /// replacing it doesn't show.
 #[allow(clippy::too_many_arguments)]
-fn prompt_bubble(view: &View, agent: &str, id: &str, text: &str, at: i64, dim: bool, under: Option<Div>, width: f32, here: &std::path::Path, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
+fn prompt_bubble(
+    view: &View,
+    agent: &str,
+    id: &str,
+    text: &str,
+    at: i64,
+    dim: bool,
+    under: Option<Div>,
+    width: f32,
+    here: &std::path::Path,
+    window: &mut Window,
+    cx: &mut Context<Desktop>,
+) -> Div {
     let lines = user_bubble::lines(text, width, window);
     let toggle = user_bubble::needs_collapse(lines).then(|| {
         let toggled = view.toggled.as_ref().filter(|(row, _)| row == id).map(|(_, at)| *at);
@@ -500,7 +548,9 @@ impl Desktop {
         for (id, view) in self.chats.views.iter_mut() {
             let Some(agent) = self.agents.get(id) else { continue };
             let items = self.agents.timelines.get(id).map_or(&[][..], Vec::as_slice);
-            released.extend(view.refresh(agent, self.agents.revision(id), items, self.agents.delegations.of(id)).into_iter().map(|(send, text)| (id.clone(), send, text)));
+            released.extend(
+                view.refresh(agent, self.agents.revision(id), items, self.agents.delegations.of(id)).into_iter().map(|(send, text)| (id.clone(), send, text)),
+            );
         }
         for id in self.chats.views.keys().filter(|id| self.agents.holds_queue(id)).cloned().collect::<Vec<_>>() {
             if self.agents.queues.ask(&id) {
@@ -556,7 +606,10 @@ impl Desktop {
         let spacer = view.pin.as_ref().map_or(0., |p| p.spacer);
         let rows = {
             let id = id.clone();
-            list(view.list.clone(), cx.processor(move |this, ix, window, cx| this.chat_row(&id, ix, window, cx))).size_full().pt(px(pin::TOP + inset)).pb(px(pin::BOTTOM + spacer))
+            list(view.list.clone(), cx.processor(move |this, ix, window, cx| this.chat_row(&id, ix, window, cx)))
+                .size_full()
+                .pt(px(pin::TOP + inset))
+                .pb(px(pin::BOTTOM + spacer))
         };
         let pill = view.jump.then(|| {
             let id = id.clone();
@@ -587,7 +640,11 @@ impl Desktop {
         s.toggle(id, default);
         if let Some(ix) = s.ids.iter().position(|i| i == id) {
             let end = match s.rows[ix] {
-                Row::Fold { .. } => (ix + 1..s.rows.len()).find(|&i| matches!(s.rows[i], Row::Prompt { .. } | Row::Notice { .. } | Row::Fold { .. } | Row::Live { .. } | Row::Pending(_) | Row::Working)).unwrap_or(s.rows.len()),
+                Row::Fold { .. } => (ix + 1..s.rows.len())
+                    .find(|&i| {
+                        matches!(s.rows[i], Row::Prompt { .. } | Row::Notice { .. } | Row::Fold { .. } | Row::Live { .. } | Row::Pending(_) | Row::Working)
+                    })
+                    .unwrap_or(s.rows.len()),
                 _ => ix + 1,
             };
             view.list.remeasure_items(ix..end);
@@ -803,7 +860,11 @@ impl Desktop {
             Some(Row::Text { turn, block, .. }) => message(&v.session.transcript, *turn, *block),
             _ => None,
         });
-        let fix_to = links_pr.is_some_and(|m| m.text.contains("/pull/")).then(|| pr_link::FixTo { tree: self.cwd(), agent: self.fix_agent(), can_send: !self.agents.observe_only() });
+        let fix_to = links_pr.is_some_and(|m| m.text.contains("/pull/")).then(|| pr_link::FixTo {
+            tree: self.cwd(),
+            agent: self.fix_agent(),
+            can_send: !self.agents.observe_only(),
+        });
         let desktop = cx.weak_entity();
         let diagrams = self.chats.diagrams.clone();
         let Some(view) = self.chats.views.get_mut(agent) else { return div().into_any_element() };
@@ -820,7 +881,8 @@ impl Desktop {
             return div().id(SharedString::from(id)).into_any_element();
         }
         let rail = in_fold(t, s.live_tail(), &row, fold_open);
-        let last_on_rail = rail && !s.rows[ix + 1..].iter().find(|next| !same_message(&row, next)).is_some_and(|next| in_fold(t, s.live_tail(), next, fold_open));
+        let last_on_rail =
+            rail && !s.rows[ix + 1..].iter().find(|next| !same_message(&row, next)).is_some_and(|next| in_fold(t, s.live_tail(), next, fold_open));
         let elbow = !ix.checked_sub(1).and_then(|i| s.rows.get(i)).is_some_and(|prev| same_message(prev, &row));
         let gap = if rail { 0. } else { chat::top_gap(ix.checked_sub(1).and_then(|i| s.rows.get(i)), &row) };
         let width = content_width(WIDTH);
@@ -838,7 +900,22 @@ impl Desktop {
                 Some(p) => {
                     let bubble = prompt_bubble(view, agent, &id, &p.text, p.at, false, None, width, &here, window, cx);
                     match delegated_by.filter(|_| *turn == 0) {
-                        Some((by, label)) => div().flex().flex_col().items_end().gap(px(6.)).child(div().flex().items_center().gap(px(6.)).text_size(px(12.)).text_color(TEXT_4).child(provider_icon(&by, 11., TEXT_4)).child(label)).child(bubble),
+                        Some((by, label)) => div()
+                            .flex()
+                            .flex_col()
+                            .items_end()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .text_size(px(12.))
+                                    .text_color(TEXT_4)
+                                    .child(provider_icon(&by, 11., TEXT_4))
+                                    .child(label),
+                            )
+                            .child(bubble),
                         None => bubble,
                     }
                 }
@@ -890,7 +967,11 @@ impl Desktop {
                 match at {
                     Some((turn, block)) => {
                         let agent = agent.to_string();
-                        div().child(line.cursor_pointer().hover(|s| s.text_color(TEXT_2)).on_click(cx.listener(move |this, _, _, cx| this.chat_show_block(&agent, turn, block, cx))))
+                        div().child(
+                            line.cursor_pointer()
+                                .hover(|s| s.text_color(TEXT_2))
+                                .on_click(cx.listener(move |this, _, _, cx| this.chat_show_block(&agent, turn, block, cx))),
+                        )
                     }
                     None => div().child(line),
                 }
@@ -936,7 +1017,8 @@ impl Desktop {
                         }
                         let block = div().child(markdown::code_block(&view.docs.code(&id, lang, &code, cx), colours));
                         let block = match reveal {
-                            Some(_) => div().child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
+                            Some(_) => div()
+                                .child(block.with_animation(SharedString::from(format!("code-in-{id}")), Animation::new(reveal::FADE), |b, t| b.opacity(t))),
                             None => block,
                         };
                         // An indented fence belongs to the list item above it.
@@ -945,10 +1027,16 @@ impl Desktop {
                     None => {
                         let peeks = fix_to.as_ref().map(|to| pr_link::peeks(text, &self.prs, &self.pr, to)).unwrap_or_default();
                         let doc = view.docs.get(&id, text, reveal.is_some() || live(t, *turn), cx);
-                        div().child(markdown::block(TextView::new(&doc), open.clone()).plugin(pr_link::PrLinks { peeks, open: open.clone(), desktop: desktop.clone() }))
+                        div().child(markdown::block(TextView::new(&doc), open.clone()).plugin(pr_link::PrLinks {
+                            peeks,
+                            open: open.clone(),
+                            desktop: desktop.clone(),
+                        }))
                     }
                 };
-                let plan = range.start == 0 && !text.trim_start().starts_with('#') && matches!(t.turns.get(*turn).and_then(|t| t.blocks.get(*block)), Some(Block::Plan(_)));
+                let plan = range.start == 0
+                    && !text.trim_start().starts_with('#')
+                    && matches!(t.turns.get(*turn).and_then(|t| t.blocks.get(*block)), Some(Block::Plan(_)));
                 div().flex().flex_col().gap(px(8.)).children(plan.then(todos::plan_header)).child(body)
             }
             Row::Question { turn, block } => match t.turns.get(*turn).and_then(|t| t.blocks.get(*block)) {
@@ -1020,15 +1108,26 @@ impl Desktop {
                 },
                 None => div(),
             },
-            Row::Live { turn } if s.rows.iter().rev().find_map(|r| if let Row::Reports { turns, closes } = r { Some((turns, *closes)) } else { None }).is_some_and(|(turns, closes)| turns.contains(turn) && taking_in(t, turns, closes, ask)) => div(),
-            Row::Live { turn } => fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms()))),
+            Row::Live { turn }
+                if s.rows
+                    .iter()
+                    .rev()
+                    .find_map(|r| if let Row::Reports { turns, closes } = r { Some((turns, *closes)) } else { None })
+                    .is_some_and(|(turns, closes)| turns.contains(turn) && taking_in(t, turns, closes, ask)) =>
+            {
+                div()
+            }
+            Row::Live { turn } => {
+                fold::live(&id, &provider, fold::live_label(who, &model, &live_state(t, chat::folded(t, *turn), ask, s.outgoing.stopping(), now_ms())))
+            }
             Row::Working if s.outgoing.compacting() => working::compacting(),
             Row::Working => working::sending(),
             Row::Pending(i) => match s.outgoing.echoed().nth(*i) {
                 Some((_, p)) => {
                     let retry = (p.delivery == Delivery::Failed).then(|| {
                         let (agent, send) = (agent.to_string(), p.id);
-                        working::not_delivered(SharedString::from(format!("retry-{id}"))).on_click(cx.listener(move |this, _, window, cx| this.chat_retry(&agent, send, window, cx)))
+                        working::not_delivered(SharedString::from(format!("retry-{id}")))
+                            .on_click(cx.listener(move |this, _, window, cx| this.chat_retry(&agent, send, window, cx)))
                     });
                     // What waits for the agent's next step goes all at once, so only the last of it says so.
                     let waiting: Vec<u64> = s.outgoing.waiting().map(|w| w.id).collect();
@@ -1041,7 +1140,9 @@ impl Desktop {
                         } else {
                             send_now.then(|| {
                                 let agent = agent.to_string();
-                                user_bubble::send_now(&id).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_command(&agent, Command::SendNow, cx))).into_any_element()
+                                user_bubble::send_now(&id)
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.chat_command(&agent, Command::SendNow, cx)))
+                                    .into_any_element()
                             })
                         };
                         user_bubble::waiting(who, waiting.len(), action)
@@ -1055,7 +1156,8 @@ impl Desktop {
         };
         let inner = if rail { phase::in_fold(last_on_rail, elbow, inner) } else { inner };
         let prompt = |r: &Row| matches!(r, Row::Prompt { .. } | Row::Pending(_));
-        let rising = view.sent.and_then(|at| creating::rise(at.elapsed(), SENT, cx.reduce_motion())).filter(|_| prompt(&row) && !s.rows[ix + 1..].iter().any(prompt));
+        let rising =
+            view.sent.and_then(|at| creating::rise(at.elapsed(), SENT, cx.reduce_motion())).filter(|_| prompt(&row) && !s.rows[ix + 1..].iter().any(prompt));
         let inner = match rising {
             Some(r) => {
                 window.request_animation_frame();
@@ -1066,7 +1168,11 @@ impl Desktop {
         let inner = match &view.flash {
             // A prompt lights its bubble instead.
             Some(_) if view.flashing(&id) && !prompt(&row) => {
-                let flash = inner.rounded(px(8.)).with_animation(SharedString::from(format!("flash-{id}")), Animation::new(FLASH).with_easing(ease_out_quint()), |d, t| d.bg(Hsla::from(FILL_4).opacity(1. - t)));
+                let flash = inner.rounded(px(8.)).with_animation(
+                    SharedString::from(format!("flash-{id}")),
+                    Animation::new(FLASH).with_easing(ease_out_quint()),
+                    |d, t| d.bg(Hsla::from(FILL_4).opacity(1. - t)),
+                );
                 div().child(flash)
             }
             _ => inner,

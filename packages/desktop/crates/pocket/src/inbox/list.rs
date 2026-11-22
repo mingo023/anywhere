@@ -4,8 +4,8 @@ use crate::desktop::chrome::{column, drag_area, empty, past_lights, state};
 use crate::util::{ago, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use theme::*;
 use store::prefs::sidebar::{InboxFilter, InboxSort};
+use theme::*;
 use ui::{self, Variant};
 
 impl Desktop {
@@ -31,15 +31,13 @@ impl Desktop {
             .gap(px(4.))
             .child(div().flex_1().text_size(px(17.)).font_weight(FontWeight::BOLD).child("Inbox"))
             .child(self.inbox_filter(cx))
-            .child(
-                ui::button("mark-seen", Variant::Ghost, None, "Mark all seen").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        let ids = readable(crate::inbox::notes(&this.agents));
-                        if !ids.is_empty() {
-                            this.outbox.seen(&ids);
-                        }
-                        this.select_note(0, cx);
-                    })),
-            );
+            .child(ui::button("mark-seen", Variant::Ghost, None, "Mark all seen").on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                let ids = readable(crate::inbox::notes(&this.agents));
+                if !ids.is_empty() {
+                    this.outbox.seen(&ids);
+                }
+                this.select_note(0, cx);
+            })));
         let section = |label: &str, count: usize| {
             div()
                 .pt(px(12.))
@@ -76,10 +74,12 @@ impl Desktop {
 
     fn inbox_filter(&mut self, cx: &mut Context<Self>) -> Div {
         let (chosen, open) = (self.inbox.filter, self.inbox.filter_open);
-        let button = ui::icon_button_sized("inbox-filter", "filter", 28., if chosen == InboxFilter::All { TEXT_2 } else { ACCENT }).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.inbox.filter_open = !open;
-            cx.notify();
-        }));
+        let button = ui::icon_button_sized("inbox-filter", "filter", 28., if chosen == InboxFilter::All { TEXT_2 } else { ACCENT }).on_click(cx.listener(
+            move |this, _: &ClickEvent, _, cx| {
+                this.inbox.filter_open = !open;
+                cx.notify();
+            },
+        ));
         let rows = FILTERS.into_iter().map(|(filter, label)| {
             div()
                 .id(label)

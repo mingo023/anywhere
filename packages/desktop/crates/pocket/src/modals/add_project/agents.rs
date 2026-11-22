@@ -20,13 +20,15 @@ impl Desktop {
 
     fn project_agent_row(&self, provider: &'static str, cx: &mut Context<Self>) -> Div {
         let shown = !self.repo_form.draft.hidden.contains(provider);
-        let toggle = div().id(SharedString::from(format!("repo-agent-{provider}"))).flex_none().cursor_pointer().child(ui::toggle("switch", shown)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            let hidden = &mut this.repo_form.draft.hidden;
-            if !hidden.remove(provider) {
-                hidden.insert(provider.into());
-            }
-            cx.notify();
-        }));
+        let toggle = div().id(SharedString::from(format!("repo-agent-{provider}"))).flex_none().cursor_pointer().child(ui::toggle("switch", shown)).on_click(
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let hidden = &mut this.repo_form.draft.hidden;
+                if !hidden.remove(provider) {
+                    hidden.insert(provider.into());
+                }
+                cx.notify();
+            }),
+        );
         super::agent_row(provider, self.agent_name(provider)).child(toggle)
     }
 }

@@ -78,23 +78,21 @@ impl Desktop {
     pub(super) fn chat_files_menu(&self, agent: &str, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let (_, at, paths) = self.chats.files.as_ref().filter(|(a, ..)| a == agent)?;
         let cwd = self.agents.get(agent).map(|a| format!("{}/", a.cwd)).unwrap_or_default();
-        let mut menu = ui::pop(div().id("chat-files"))
-            .w(px(360.))
-            .p(px(6.))
-            .flex()
-            .flex_col()
-            .occlude()
-            .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+        let mut menu = ui::pop(div().id("chat-files")).w(px(360.)).p(px(6.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(
+            |this, _: &MouseDownEvent, _, cx| {
                 this.chats.files = None;
                 cx.notify();
-            }));
+            },
+        ));
         for (i, path) in paths.iter().enumerate() {
             let label = path.strip_prefix(&cwd).unwrap_or(path);
             let path = path.clone();
-            menu = menu.child(ui::menu_pick(("chat-file", i), file_icon(&path, false, false, 14.), label, false).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.chats.files = None;
-                this.open_doc(Doc::File(path.clone()), false, cx);
-            })));
+            menu = menu.child(ui::menu_pick(("chat-file", i), file_icon(&path, false, false, 14.), label, false).on_click(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.chats.files = None;
+                    this.open_doc(Doc::File(path.clone()), false, cx);
+                },
+            )));
         }
         Some(deferred(anchored().position(*at).snap_to_window_with_margin(px(8.)).child(ui::menu_in("chat-files-in", menu))).with_priority(1))
     }
@@ -120,7 +118,13 @@ mod tests {
     #[test]
     fn touched_files_come_latest_first_once_each_with_a_sub_agents() {
         let sub = transcript(vec![call(ToolKind::Edit { path: "/r/b.rs".into(), diff: None })]);
-        let t = transcript(vec![read("/r/a.rs"), call(ToolKind::Agent(SubAgent { transcript: sub, ..Default::default() })), call(ToolKind::Shell { command: "ls".into(), description: String::new() }), read("/r/a.rs"), call(ToolKind::Write { path: "/r/c.rs".into(), diff: None })]);
+        let t = transcript(vec![
+            read("/r/a.rs"),
+            call(ToolKind::Agent(SubAgent { transcript: sub, ..Default::default() })),
+            call(ToolKind::Shell { command: "ls".into(), description: String::new() }),
+            read("/r/a.rs"),
+            call(ToolKind::Write { path: "/r/c.rs".into(), diff: None }),
+        ]);
         assert_eq!(touched(&t), ["/r/c.rs", "/r/a.rs", "/r/b.rs"]);
     }
 

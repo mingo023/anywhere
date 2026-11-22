@@ -117,10 +117,20 @@ pub(crate) fn step(call: &ToolCall) -> String {
 }
 
 pub(crate) fn glyph(id: &str, mark: Mark) -> AnyElement {
-    let spin = |svg: Svg| svg.with_animation(SharedString::from(format!("agent-spin-{id}")), Animation::new(Duration::from_secs(1)).repeat_synced().with_max_fps(20.), |s, t| s.with_transformation(Transformation::rotate(percentage(t))));
+    let spin = |svg: Svg| {
+        svg.with_animation(SharedString::from(format!("agent-spin-{id}")), Animation::new(Duration::from_secs(1)).repeat_synced().with_max_fps(20.), |s, t| {
+            s.with_transformation(Transformation::rotate(percentage(t)))
+        })
+    };
     match mark {
         Mark::Starting => icon("agent-starting", 14., TEXT_2).into_any_element(),
-        Mark::Running => div().size(px(14.)).flex_none().relative().child(icon("agent-ring", 14., RAIL).absolute()).child(spin(icon("agent-arc", 14., TEXT_2).absolute())).into_any_element(),
+        Mark::Running => div()
+            .size(px(14.))
+            .flex_none()
+            .relative()
+            .child(icon("agent-ring", 14., RAIL).absolute())
+            .child(spin(icon("agent-arc", 14., TEXT_2).absolute()))
+            .into_any_element(),
         Mark::Done => icon("agent-done", 14., TEXT_4).into_any_element(),
         Mark::Failed => icon("agent-failed", 14., FAILED).into_any_element(),
     }
@@ -144,7 +154,9 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, model: bool, picks: &Picks)
     let line = match m {
         Mark::Running => latest(agent).map(|c| div().font_family(code_font()).text_size(px(12.)).text_color(TEXT_3).child(step(c))),
         Mark::Starting => None,
-        Mark::Done | Mark::Failed => report_text(call, agent).and_then(first_line).map(|f| div().text_size(px(13.)).text_color(if m == Mark::Failed { FAILED_TEXT } else { TEXT_3 }).child(f)),
+        Mark::Done | Mark::Failed => report_text(call, agent)
+            .and_then(first_line)
+            .map(|f| div().text_size(px(13.)).text_color(if m == Mark::Failed { FAILED_TEXT } else { TEXT_3 }).child(f)),
     };
     let name = name(agent);
     let color = match m {
@@ -155,7 +167,8 @@ pub(crate) fn row(call: &ToolCall, agent: &SubAgent, model: bool, picks: &Picks)
     };
     let label = div().min_w_0().overflow_hidden().text_color(color);
     let label = if line.is_some() { label.flex_none().max_w(relative(0.44)) } else { label.flex_1() };
-    let label = if running { label.child(shimmer(SharedString::from(format!("agent-name-{}", call.id)), name, TEXT_BODY)) } else { label.truncate().child(name) };
+    let label =
+        if running { label.child(shimmer(SharedString::from(format!("agent-name-{}", call.id)), name, TEXT_BODY)) } else { label.truncate().child(name) };
     let line = line.map(|l| l.flex_1().min_w_0().truncate());
     let side = div()
         .flex_none()
@@ -199,11 +212,23 @@ mod tests {
     use chat::{Block, Message, SubAgent, ToolCall, ToolKind, ToolStatus, Transcript, Turn};
 
     fn tool(id: &str, status: ToolStatus) -> Block {
-        Block::Tool(ToolCall { id: id.into(), name: "Bash".into(), kind: ToolKind::Shell { command: "ls".into(), description: String::new() }, status, output: None, duration_ms: None, at: 0 })
+        Block::Tool(ToolCall {
+            id: id.into(),
+            name: "Bash".into(),
+            kind: ToolKind::Shell { command: "ls".into(), description: String::new() },
+            status,
+            output: None,
+            duration_ms: None,
+            at: 0,
+        })
     }
 
     fn agent(blocks: Vec<Block>) -> SubAgent {
-        SubAgent { description: "Audit deps".into(), transcript: Transcript { turns: vec![Turn { id: "t".into(), prompt: None, blocks, end: None }] }, ..Default::default() }
+        SubAgent {
+            description: "Audit deps".into(),
+            transcript: Transcript { turns: vec![Turn { id: "t".into(), prompt: None, blocks, end: None }] },
+            ..Default::default()
+        }
     }
 
     fn call(a: &SubAgent, status: ToolStatus, output: Option<&str>) -> ToolCall {
@@ -222,7 +247,10 @@ mod tests {
     #[test]
     fn a_sub_agent_starts_until_it_does_something_then_counts_its_steps_and_time() {
         let quiet = agent(vec![]);
-        assert_eq!((mark(&call(&quiet, ToolStatus::Running, None), &quiet), meta(&call(&quiet, ToolStatus::Running, None), &quiet, 5_000).as_str()), (Mark::Starting, "starting"));
+        assert_eq!(
+            (mark(&call(&quiet, ToolStatus::Running, None), &quiet), meta(&call(&quiet, ToolStatus::Running, None), &quiet, 5_000).as_str()),
+            (Mark::Starting, "starting")
+        );
         let busy = agent(vec![tool("a", ToolStatus::Ok), tool("b", ToolStatus::Failed), tool("c", ToolStatus::Running)]);
         assert_eq!(mark(&call(&busy, ToolStatus::Running, None), &busy), Mark::Running);
         assert_eq!(meta(&call(&busy, ToolStatus::Running, None), &busy, 74_000), "3 steps · 1m 14s");
@@ -267,7 +295,10 @@ mod tests {
     #[test]
     fn a_sub_agent_waiting_on_its_own_work_shows_what_it_said_so_far() {
         let a = agent(vec![tool("a", ToolStatus::Running)]);
-        assert_eq!(report(&call(&a, ToolStatus::Running, Some(" Started the build; waiting on it.\n")), &a).as_deref(), Some("Started the build; waiting on it."));
+        assert_eq!(
+            report(&call(&a, ToolStatus::Running, Some(" Started the build; waiting on it.\n")), &a).as_deref(),
+            Some("Started the build; waiting on it.")
+        );
         assert_eq!(report(&call(&a, ToolStatus::Running, Some("  ")), &a), None);
     }
 
@@ -283,7 +314,15 @@ mod tests {
 
     #[test]
     fn a_running_sub_agent_shows_its_newest_call_as_a_step() {
-        let mut read = ToolCall { id: "r".into(), name: "Read".into(), kind: ToolKind::Read { path: "docs/spec.md".into() }, status: ToolStatus::Ok, output: None, duration_ms: None, at: 0 };
+        let mut read = ToolCall {
+            id: "r".into(),
+            name: "Read".into(),
+            kind: ToolKind::Read { path: "docs/spec.md".into() },
+            status: ToolStatus::Ok,
+            output: None,
+            duration_ms: None,
+            at: 0,
+        };
         let a = agent(vec![tool("a", ToolStatus::Ok), Block::Tool(read.clone()), Block::Text(Message::default())]);
         assert_eq!(latest(&a).map(step).as_deref(), Some("Read docs/spec.md"));
         read.kind = ToolKind::Shell { command: "\ncargo test\n".into(), description: String::new() };

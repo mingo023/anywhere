@@ -78,17 +78,40 @@ impl Desktop {
             .into_iter()
             .filter(|(action, ..)| can(*action))
             .map(|(action, label)| {
-                bulk_button(SharedString::from(format!("board-bulk-{label}")), field_lead(action), label).on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                    this.close_menus();
-                    this.board.menu = Some(Menu::Bulk { action, at: e.position() });
-                    cx.notify();
-                }))
+                bulk_button(SharedString::from(format!("board-bulk-{label}")), field_lead(action), label).on_click(cx.listener(
+                    move |this, e: &ClickEvent, _, cx| {
+                        this.close_menus();
+                        this.board.menu = Some(Menu::Bulk { action, at: e.position() });
+                        cx.notify();
+                    },
+                ))
             })
             .collect();
-        let start = can(Action::Start).then(|| bulk_button("board-bulk-start", icon("play", 11., TEXT_2), "Start").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.bulk_start(cx))));
-        let close = can(Action::Close).then(|| bulk_button("board-bulk-close", icon("status-closed", 14., TEXT_4), "Close").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.bulk_close(cx))));
+        let start = can(Action::Start).then(|| {
+            bulk_button("board-bulk-start", icon("play", 11., TEXT_2), "Start").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.bulk_start(cx)))
+        });
+        let close = can(Action::Close).then(|| {
+            bulk_button("board-bulk-close", icon("status-closed", 14., TEXT_4), "Close")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.bulk_close(cx)))
+        });
         let divider = div().w(px(1.)).h(px(16.)).mx(px(5.)).bg(SEPARATOR);
-        let bar = div().h(px(38.)).pl(px(12.)).pr(px(5.)).flex().items_center().gap(px(3.)).rounded(px(11.)).bg(POPOVER).shadow(vec![ui::ring(SEPARATOR_STRONG, 1.), ui::shadow(rgba(0x00000073), 14., 34.)]).text_size(px(12.5)).child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).mr(px(2.)).child(format!("{} selected", picked.len()))).child(clear).child(divider).children(fields).children(start).children(close);
+        let bar = div()
+            .h(px(38.))
+            .pl(px(12.))
+            .pr(px(5.))
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .rounded(px(11.))
+            .bg(POPOVER)
+            .shadow(vec![ui::ring(SEPARATOR_STRONG, 1.), ui::shadow(rgba(0x00000073), 14., 34.)])
+            .text_size(px(12.5))
+            .child(div().font_weight(FontWeight::MEDIUM).text_color(TEXT).mr(px(2.)).child(format!("{} selected", picked.len())))
+            .child(clear)
+            .child(divider)
+            .children(fields)
+            .children(start)
+            .children(close);
         let above_notice = self.board.hidden > 0;
         Some(div().absolute().left_0().right_0().bottom(px(if above_notice { 48. } else { 3. })).flex().justify_center().child(bar))
     }

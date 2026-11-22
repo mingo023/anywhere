@@ -20,12 +20,32 @@ fn sized(b: Stateful<Div>) -> Stateful<Div> {
 }
 
 pub(super) fn pill(label: impl Into<SharedString>, bg: Token, fg: Token) -> Div {
-    div().h(px(18.)).px(px(6.)).flex().flex_none().items_center().rounded(px(5.)).bg(bg).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(fg).child(label.into())
+    div()
+        .h(px(18.))
+        .px(px(6.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .rounded(px(5.))
+        .bg(bg)
+        .text_size(px(11.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(fg)
+        .child(label.into())
 }
 
 /// Marks an item handed to the agent; the card's header carries who and the spinner.
 fn fixing_mark() -> Div {
-    div().flex().flex_none().items_center().gap(px(5.)).text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(WAITING_TEXT).child(ui::dot(6., WAITING)).child("Fixing")
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(5.))
+        .text_size(px(11.5))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(WAITING_TEXT)
+        .child(ui::dot(6., WAITING))
+        .child("Fixing")
 }
 
 /// How far a thread has got, beside where it is; nothing while it's open.
@@ -95,11 +115,34 @@ pub(super) fn card() -> Div {
 
 /// A row of a list card, under a hairline unless it is the first.
 pub(super) fn list_row(i: usize) -> Div {
-    div().w_full().h(px(34.)).flex_none().pl(px(10.)).pr(px(8.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(TEXT_2).when(i > 0, |d| d.border_t(px(0.5)).border_color(HAIRLINE))
+    div()
+        .w_full()
+        .h(px(34.))
+        .flex_none()
+        .pl(px(10.))
+        .pr(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .text_size(px(12.5))
+        .text_color(TEXT_2)
+        .when(i > 0, |d| d.border_t(px(0.5)).border_color(HAIRLINE))
 }
 
 pub(super) fn list_head(left: impl IntoElement, right: impl IntoElement) -> Div {
-    div().flex_none().px(px(14.)).pt(px(4.)).pb(px(8.)).flex().items_center().justify_between().gap(px(8.)).text_size(px(12.)).text_color(TEXT_3).child(left).child(right)
+    div()
+        .flex_none()
+        .px(px(14.))
+        .pt(px(4.))
+        .pb(px(8.))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(8.))
+        .text_size(px(12.))
+        .text_color(TEXT_3)
+        .child(left)
+        .child(right)
 }
 
 impl Desktop {
@@ -123,9 +166,16 @@ impl Desktop {
             .when(!rest.is_empty() && failed + pending > 0, |d| d.child("·"))
             .child(rest);
         let rows = by_outcome(pr).into_iter().enumerate().map(|(i, c)| self.check_row(i, c, !unsent.iter().any(|u| u.name == c.name), can_send, cx));
-        let list = if pr.runs.is_empty() { card().child(list_row(0).text_color(TEXT_3).child(glyph_slot(ui::dot(6., TEXT_4))).child("No checks on this branch")) } else { card().children(rows) };
-        let reviews = review_lines(pr).into_iter().map(|(r, text)| row().min_h(px(22.)).child(glyph_slot(review_icon(r))).child(div().flex_1().min_w_0().truncate().child(text)));
-        let gate = (pr.state == PrState::Open).then(|| self.pr_gate(pr, resolving, self.fix_agent()).min_h(px(22.)).pt(px(6.)).border_t(px(0.5)).border_color(HAIRLINE));
+        let list = if pr.runs.is_empty() {
+            card().child(list_row(0).text_color(TEXT_3).child(glyph_slot(ui::dot(6., TEXT_4))).child("No checks on this branch"))
+        } else {
+            card().children(rows)
+        };
+        let reviews = review_lines(pr)
+            .into_iter()
+            .map(|(r, text)| row().min_h(px(22.)).child(glyph_slot(review_icon(r))).child(div().flex_1().min_w_0().truncate().child(text)));
+        let gate = (pr.state == PrState::Open)
+            .then(|| self.pr_gate(pr, resolving, self.fix_agent()).min_h(px(22.)).pt(px(6.)).border_t(px(0.5)).border_color(HAIRLINE));
         div()
             .id("pr-checks")
             .flex_1()
@@ -151,9 +201,23 @@ impl Desktop {
                     .flex()
                     .flex_none()
                     .gap(px(4.))
-                    .when(!log.is_empty(), |d| d.child(small(("pr-check-log", i), Variant::Ghost, "Log").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(log.clone(), window, cx)))))
-                    .when(can_send, |d| d.child(small(("pr-check-send", i), Variant::Secondary, "Send").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(std::slice::from_ref(&send), &[], cx)))));
-                list_row(i).child(glyph_slot(icon("x", 13., FAILED))).child(name(FAILED_TEXT).font_weight(FontWeight::MEDIUM)).child(if sent { fixing_mark() } else { acts })
+                    .when(!log.is_empty(), |d| {
+                        d.child(
+                            small(("pr-check-log", i), Variant::Ghost, "Log")
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_pr(log.clone(), window, cx))),
+                        )
+                    })
+                    .when(can_send, |d| {
+                        d.child(
+                            small(("pr-check-send", i), Variant::Secondary, "Send")
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.send_fix(std::slice::from_ref(&send), &[], cx))),
+                        )
+                    });
+                list_row(i).child(glyph_slot(icon("x", 13., FAILED))).child(name(FAILED_TEXT).font_weight(FontWeight::MEDIUM)).child(if sent {
+                    fixing_mark()
+                } else {
+                    acts
+                })
             }
             Outcome::Pending => list_row(i).child(glyph_slot(spinner(("pr-run", i), 11., WAITING))).child(name(TEXT_2)).child(meta("in progress")),
             Outcome::Skipped => list_row(i).text_color(TEXT_4).child(glyph_slot(icon("chevron-right", 12., TEXT_4))).child(name(TEXT_4)).child(meta("skipped")),
@@ -184,7 +248,8 @@ mod tests {
     fn checks_list_what_failed_then_what_runs_then_what_passed_then_what_was_skipped() {
         use Outcome::*;
         let runs = [Passed, Skipped, Pending, Failed, Passed];
-        let pr = Pr { runs: runs.iter().enumerate().map(|(i, o)| Check { name: format!("c{i}"), outcome: *o, url: String::new() }).collect(), ..Default::default() };
+        let pr =
+            Pr { runs: runs.iter().enumerate().map(|(i, o)| Check { name: format!("c{i}"), outcome: *o, url: String::new() }).collect(), ..Default::default() };
         let names: Vec<&str> = by_outcome(&pr).iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["c3", "c2", "c0", "c4", "c1"]);
     }

@@ -13,7 +13,13 @@ pub(crate) fn element_card(id: impl Into<ElementId>, number: &str, host: &str, t
         .font_weight(FontWeight::MEDIUM)
         .child(div().flex_none().text_color(MENTION).child(number.to_string()))
         .child(div().min_w_0().truncate().text_color(TEXT).child(host.to_string()));
-    let words = div().min_w_0().flex().flex_col().gap(px(1.)).child(top).child(div().truncate().text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_3).child(title.to_string()));
+    let words = div()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap(px(1.))
+        .child(top)
+        .child(div().truncate().text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_3).child(title.to_string()));
     let card = div()
         .id(id)
         .h(px(56.))

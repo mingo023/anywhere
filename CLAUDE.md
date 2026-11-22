@@ -20,7 +20,7 @@ Follow `docs/adr/0003-desktop-code-layout.md` (Zed's split); its map says where 
 
 UI follows the interaction rules in `docs/DESIGN.md` (a popover's trigger shuts it on a second press).
 
-Before committing, from `packages/desktop`: `cargo build --workspace`, `cargo clippy --workspace --all-targets` with no new warnings, `cargo test --workspace`. For view changes, capture screens before and after with `.ui-review/fixture/capture.sh <dir> <name>=<steps>…` and compare.
+Before committing, from `packages/desktop`: `cargo fmt --all`, `cargo build --workspace`, `cargo clippy --workspace --all-targets` with no new warnings, `cargo test --workspace`. For view changes, capture screens before and after with `.ui-review/fixture/capture.sh <dir> <name>=<steps>…` and compare.
 
 ## Desktop performance
 

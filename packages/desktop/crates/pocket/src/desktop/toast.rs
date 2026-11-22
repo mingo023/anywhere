@@ -17,7 +17,8 @@ impl Desktop {
     /// The last error, floated over the main area's corner until dismissed or replaced.
     pub(crate) fn error_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let error = self.error.clone()?;
-        let mark = div().mt(px(1.)).size(px(18.)).flex().flex_none().items_center().justify_center().rounded(px(9.)).bg(FAILED).child(icon("x-bold", 9., WHITE));
+        let mark =
+            div().mt(px(1.)).size(px(18.)).flex().flex_none().items_center().justify_center().rounded(px(9.)).bg(FAILED).child(icon("x-bold", 9., WHITE));
         let dismiss = div()
             .id("error-toast-dismiss")
             .size(px(20.))

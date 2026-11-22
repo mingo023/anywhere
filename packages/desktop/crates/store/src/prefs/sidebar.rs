@@ -138,7 +138,10 @@ mod tests {
     fn a_sidebar_from_before_these_settings_keeps_todays_list() {
         let s: Sidebar = serde_json::from_str("{}").unwrap();
         assert_eq!(s, Sidebar::default());
-        assert_eq!((s.sort, s.details, s.external_worktrees, s.warn_at, s.critical_at, s.hint_delay_ms), (SessionSort::Newest, Details::default(), false, 75, 90, 280));
+        assert_eq!(
+            (s.sort, s.details, s.external_worktrees, s.warn_at, s.critical_at, s.hint_delay_ms),
+            (SessionSort::Newest, Details::default(), false, 75, 90, 280)
+        );
     }
 
     #[test]

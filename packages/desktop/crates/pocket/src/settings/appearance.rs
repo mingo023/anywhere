@@ -8,8 +8,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::rc::Rc;
+use std::sync::Mutex;
 use store::{Appearance, DiffColors, Store, SyntaxTheme};
 use theme::*;
 
@@ -43,9 +43,15 @@ pub(super) const ROWS: &[Setting] = &[
         .effect(apply_accent),
     GLASS,
     BACKGROUND,
-    Setting::choice("reduce-motion", "Theme", "Reduce motion", &["System", "On", "Off"], Look::Segmented, |s| MOTION.iter().position(|m| *m == s.appearance.reduce_motion).unwrap_or(0), |s, i| {
-        s.appearance.reduce_motion = MOTION[i]
-    })
+    Setting::choice(
+        "reduce-motion",
+        "Theme",
+        "Reduce motion",
+        &["System", "On", "Off"],
+        Look::Segmented,
+        |s| MOTION.iter().position(|m| *m == s.appearance.reduce_motion).unwrap_or(0),
+        |s, i| s.appearance.reduce_motion = MOTION[i],
+    )
     .hint("System follows the macOS accessibility setting")
     .effect(apply_motion),
     Setting::custom("ui-font", "Fonts", "Interface font", |d, s, cx| font_row(d, s, &UI_FONT, cx))
@@ -55,18 +61,38 @@ pub(super) const ROWS: &[Setting] = &[
         .hint("Diffs, the editor and file previews")
         .resets(|s| CODE_FONT.name(s), |s, d| s.appearance.code_font = d.appearance.code_font.clone())
         .effect(apply_fonts),
-    Setting::stepper("code-size", "Fonts", "Code size", (Appearance::CODE_SIZES.0 as i32, Appearance::CODE_SIZES.1 as i32, 1), " pt", |s| s.appearance.code_size() as i32, |s, n| {
-        s.appearance.code_size = Some(n as u32)
-    })
+    Setting::stepper(
+        "code-size",
+        "Fonts",
+        "Code size",
+        (Appearance::CODE_SIZES.0 as i32, Appearance::CODE_SIZES.1 as i32, 1),
+        " pt",
+        |s| s.appearance.code_size() as i32,
+        |s, n| s.appearance.code_size = Some(n as u32),
+    )
     .effect(apply_fonts),
     Setting::custom("font-preview", "Fonts", "Preview", |d, s, _| preview(d, s)),
-    Setting::choice("syntax-theme", "Code colors", "Syntax theme", &["From theme", "GitHub", "One", "Solarized"], Look::Dropdown, |s| s.appearance.syntax as usize, |s, i| {
-        s.appearance.syntax = SYNTAXES[i]
-    })
+    Setting::choice(
+        "syntax-theme",
+        "Code colors",
+        "Syntax theme",
+        &["From theme", "GitHub", "One", "Solarized"],
+        Look::Dropdown,
+        |s| s.appearance.syntax as usize,
+        |s, i| s.appearance.syntax = SYNTAXES[i],
+    )
     .effect(apply_syntax),
-    Setting::choice("diff-colors", "Code colors", "Diff colors", &["From theme", "Blue & orange"], Look::Segmented, |s| s.appearance.diff_colors as usize, |s, i| s.appearance.diff_colors = DIFF_COLORS[i])
-        .hint("Blue and orange are easier to tell apart with red\u{2013}green color blindness")
-        .effect(apply_diff_colors),
+    Setting::choice(
+        "diff-colors",
+        "Code colors",
+        "Diff colors",
+        &["From theme", "Blue & orange"],
+        Look::Segmented,
+        |s| s.appearance.diff_colors as usize,
+        |s, i| s.appearance.diff_colors = DIFF_COLORS[i],
+    )
+    .hint("Blue and orange are easier to tell apart with red\u{2013}green color blindness")
+    .effect(apply_diff_colors),
     Setting::custom("custom-diff-colors", "Code colors", "Custom diff colors", custom_diff_colors)
         .hint("Override the added and removed colors")
         .advanced()
@@ -83,8 +109,20 @@ pub(crate) struct FontMenu {
     pub set: fn(&mut Store, Option<String>),
 }
 
-const UI_FONT: FontMenu = FontMenu { default: "System (SF Pro)", curated: &["Geist", "Inter"], offers: |_| true, get: |s| s.appearance.ui_font.as_deref(), set: |s, f| s.appearance.ui_font = f };
-const CODE_FONT: FontMenu = FontMenu { default: "Geist Mono", curated: &["SF Mono", "JetBrains Mono", "Menlo"], offers: monospaced, get: |s| s.appearance.code_font.as_deref(), set: |s, f| s.appearance.code_font = f };
+const UI_FONT: FontMenu = FontMenu {
+    default: "System (SF Pro)",
+    curated: &["Geist", "Inter"],
+    offers: |_| true,
+    get: |s| s.appearance.ui_font.as_deref(),
+    set: |s, f| s.appearance.ui_font = f,
+};
+const CODE_FONT: FontMenu = FontMenu {
+    default: "Geist Mono",
+    curated: &["SF Mono", "JetBrains Mono", "Menlo"],
+    offers: monospaced,
+    get: |s| s.appearance.code_font.as_deref(),
+    set: |s, f| s.appearance.code_font = f,
+};
 
 impl FontMenu {
     pub fn name(&self, s: &Store) -> String {
@@ -195,7 +233,11 @@ fn choose_background(setting: &'static Setting, cx: &mut Context<Desktop>) {
         let kept = match (store::backgrounds::is_image(&from), home) {
             (false, _) => Err("Pick a PNG, JPEG, WebP or GIF image.".into()),
             (true, None) => Err("Couldn't find your home folder to keep the image in.".into()),
-            (true, Some(home)) => cx.background_executor().spawn(async move { store::backgrounds::keep(&home, &from, replaced.as_deref()) }).await.map_err(|e| format!("Couldn't use the image: {e}")),
+            (true, Some(home)) => cx
+                .background_executor()
+                .spawn(async move { store::backgrounds::keep(&home, &from, replaced.as_deref()) })
+                .await
+                .map_err(|e| format!("Couldn't use the image: {e}")),
         };
         this.update(cx, |d, cx| match kept {
             // A Remove or Reset while the copy ran wins over it.
@@ -218,10 +260,10 @@ fn set_background(d: &mut Desktop, path: Option<String>, setting: &'static Setti
 
 fn background_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
     let set = d.store.appearance.background.is_some();
-    let choose = action("background-choose", if set { background_name(&d.store) } else { "Choose…".into() }).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| choose_background(setting, cx)));
-    let remove = set.then(|| {
-        action("background-remove", "Remove").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| set_background(this, None, setting, cx)))
-    });
+    let choose = action("background-choose", if set { background_name(&d.store) } else { "Choose…".into() })
+        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| choose_background(setting, cx)));
+    let remove =
+        set.then(|| action("background-remove", "Remove").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| set_background(this, None, setting, cx))));
     row(setting.label, setting.hint, div().flex().items_center().gap(px(6.)).child(choose).children(remove))
 }
 
@@ -247,10 +289,12 @@ fn swatch(id: impl Into<ElementId>, fill: u32, chosen: bool) -> Stateful<Div> {
 fn accent_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
     let chosen = d.store.appearance.accent;
     let dots = std::iter::once(None).chain(ACCENT_SWATCHES.map(Some)).enumerate().map(|(i, c)| {
-        swatch(("accent", i), c.or(theme_accent()).map_or(0x71717aff, |c| (c << 8) | 0xff), c == chosen).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.store.appearance.accent = c;
-            this.changed(setting, cx);
-        }))
+        swatch(("accent", i), c.or(theme_accent()).map_or(0x71717aff, |c| (c << 8) | 0xff), c == chosen).on_click(cx.listener(
+            move |this, _: &ClickEvent, _, cx| {
+                this.store.appearance.accent = c;
+                this.changed(setting, cx);
+            },
+        ))
     });
     row(setting.label, setting.hint, div().flex().items_center().gap(px(2.)).children(dots))
 }
@@ -259,10 +303,12 @@ fn accent_row(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Deskt
 pub(super) fn font_row(d: &mut Desktop, setting: &'static Setting, menu: &'static FontMenu, cx: &mut Context<Desktop>) -> Div {
     let chosen = (menu.get)(&d.store).map(str::to_string);
     let open = d.settings.menu == Some(setting.id);
-    let button = action(setting.id, "").gap(px(6.)).child(menu.name(&d.store)).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-        this.settings.menu = (!open).then_some(setting.id);
-        cx.notify();
-    }));
+    let button = action(setting.id, "").gap(px(6.)).child(menu.name(&d.store)).child(icon("chevron-down", 12., TEXT_3)).on_click(cx.listener(
+        move |this, _: &ClickEvent, _, cx| {
+            this.settings.menu = (!open).then_some(setting.id);
+            cx.notify();
+        },
+    ));
     if !open {
         return row(setting.label, setting.hint, button);
     }
@@ -306,12 +352,22 @@ pub(super) fn font_row(d: &mut Desktop, setting: &'static Setting, menu: &'stati
 }
 
 /// The sample the Preview row shows: a file name, then a removed, an added and an unchanged line.
-const SAMPLE: [(Kind, &str); 3] = [(Kind::Del, "const ready = isRestored;"), (Kind::Add, "const ready = useTerminalSettled(session.id);"), (Kind::Context, "return ready ? 'reveal' : 'wait';")];
+const SAMPLE: [(Kind, &str); 3] = [
+    (Kind::Del, "const ready = isRestored;"),
+    (Kind::Add, "const ready = useTerminalSettled(session.id);"),
+    (Kind::Context, "return ready ? 'reveal' : 'wait';"),
+];
 
 /// Byte ranges of the sample's keywords, functions and strings, coloured by hand so the preview needs no parser.
 fn sample_spans(text: &str, palette: &Syntax) -> Vec<(Range<usize>, HighlightStyle)> {
     let mut spans: Vec<(Range<usize>, Token)> = Vec::new();
-    for (word, color) in [("const", palette.keyword), ("return", palette.keyword), ("useTerminalSettled", palette.function), ("'reveal'", palette.string), ("'wait'", palette.string)] {
+    for (word, color) in [
+        ("const", palette.keyword),
+        ("return", palette.keyword),
+        ("useTerminalSettled", palette.function),
+        ("'reveal'", palette.string),
+        ("'wait'", palette.string),
+    ] {
         spans.extend(text.match_indices(word).map(|(i, _)| (i..i + word.len(), color)));
     }
     spans.sort_by_key(|(r, _)| r.start);
@@ -435,7 +491,10 @@ mod tests {
     #[test]
     fn a_saved_font_the_system_lacks_falls_back_once_the_list_loads() {
         let families = vec!["Inter".to_string(), "Menlo".to_string()];
-        assert_eq!([installed(Some("Inter"), &families), installed(Some("Gone"), &families), installed(Some("Gone"), &[])], [Some("Inter"), None, Some("Gone")]);
+        assert_eq!(
+            [installed(Some("Inter"), &families), installed(Some("Gone"), &families), installed(Some("Gone"), &[])],
+            [Some("Inter"), None, Some("Gone")]
+        );
     }
 
     #[test]
@@ -450,7 +509,10 @@ mod tests {
     fn accent_and_fonts_name_their_choice_and_reset_to_the_defaults() {
         let row = |id| super::ROWS.iter().find(|r| r.id == id).unwrap();
         let mut store = store::Store::default();
-        assert_eq!(["accent", "ui-font", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()), ["From theme", "System (SF Pro)", "Geist Mono", "12 pt"]);
+        assert_eq!(
+            ["accent", "ui-font", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()),
+            ["From theme", "System (SF Pro)", "Geist Mono", "12 pt"]
+        );
         (store.appearance.accent, store.appearance.code_font, store.appearance.code_size) = (Some(0x3e8ef7), Some("Menlo".into()), Some(14));
         assert_eq!(["accent", "code-font", "code-size"].map(|id| row(id).value(&store).unwrap()), ["#3E8EF7", "Menlo", "14 pt"]);
         super::super::catalog::reset(super::ROWS, &mut store);

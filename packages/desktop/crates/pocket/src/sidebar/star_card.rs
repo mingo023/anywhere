@@ -37,7 +37,10 @@ impl Desktop {
             .child(div().h(px(18.)).truncate().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child("Enjoying Anywhere?"))
             .child(div().h(px(16.)).truncate().text_size(px(12.)).text_color(TEXT_2).child("A star helps others find it."));
         let label = if thanked {
-            div().child("Thank you!").with_animation("aside-star-thanks", Animation::new(std::time::Duration::from_millis(180)), |d, t| d.opacity(t)).into_any_element()
+            div()
+                .child("Thank you!")
+                .with_animation("aside-star-thanks", Animation::new(std::time::Duration::from_millis(180)), |d, t| d.opacity(t))
+                .into_any_element()
         } else {
             div().flex().items_center().gap(px(6.)).child(icon("star-fill", 12., ui::Variant::Primary.fg())).child("Star on GitHub").into_any_element()
         };
@@ -66,7 +69,15 @@ impl Desktop {
             .rounded(px(12.))
             .bg(SIDE_NOTICE)
             .shadow(vec![ui::ring(FILL_3, 0.5)])
-            .child(div().flex().items_start().gap(px(8.)).child(div().mt(px(1.)).child(glyph("aside-star-pop", thanked, 16., reduce_motion))).child(copy).child(dismiss))
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(8.))
+                    .child(div().mt(px(1.)).child(glyph("aside-star-pop", thanked, 16., reduce_motion)))
+                    .child(copy)
+                    .child(dismiss),
+            )
             .child(star);
         // Clipped only while it grows or shrinks, so the settled card keeps its ring.
         Some(div().flex_none().when(at < 1., |d| d.h(px((GAP + CARD + 1.) * at)).overflow_hidden()).child(card).into_any_element())

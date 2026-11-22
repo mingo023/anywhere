@@ -16,10 +16,12 @@ impl Desktop {
             }))
         });
         let handoff = self.can_hand_off(s).then(|| {
-            ui::menu_row("top-handoff", "server", crate::handoff::menu_label(self.handoff.moving(&agent)), None).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.panels.top_actions = None;
-                this.open_handoff(&agent, window, cx);
-            }))
+            ui::menu_row("top-handoff", "server", crate::handoff::menu_label(self.handoff.moving(&agent)), None).on_click(cx.listener(
+                move |this, _: &ClickEvent, window, cx| {
+                    this.panels.top_actions = None;
+                    this.open_handoff(&agent, window, cx);
+                },
+            ))
         });
         if fork.is_none() && handoff.is_none() {
             return None;

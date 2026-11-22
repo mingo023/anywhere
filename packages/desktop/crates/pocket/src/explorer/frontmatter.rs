@@ -104,13 +104,15 @@ impl MarkdownPlugin for Frontmatter {
                     .child(item)
             })),
         };
-        div().mb(px(16.8)).pb(px(14.)).border_b_1().border_color(MD_GRID).text_size(px(em)).line_height(relative(1.5)).children(fields.into_iter().map(|(key, v)| {
-            div()
-                .flex()
-                .py(px(em * 0.28))
-                .child(div().w(relative(0.26)).flex_none().pr(px(em * 1.4)).font_weight(FontWeight::MEDIUM).text_color(MD_TEXT_2).child(key))
-                .child(value(v).flex_1().min_w_0())
-        }))
+        div().mb(px(16.8)).pb(px(14.)).border_b_1().border_color(MD_GRID).text_size(px(em)).line_height(relative(1.5)).children(fields.into_iter().map(
+            |(key, v)| {
+                div()
+                    .flex()
+                    .py(px(em * 0.28))
+                    .child(div().w(relative(0.26)).flex_none().pr(px(em * 1.4)).font_weight(FontWeight::MEDIUM).text_color(MD_TEXT_2).child(key))
+                    .child(value(v).flex_1().min_w_0())
+            },
+        ))
     }
 }
 
@@ -124,13 +126,19 @@ mod tests {
 
     #[test]
     fn scalars_lose_their_quotes() {
-        assert_eq!(fields("title: \"Hello\"\nauthor: 'Ann'\ndraft: false").unwrap(), [("title".into(), text("Hello")), ("author".into(), text("Ann")), ("draft".into(), text("false"))]);
+        assert_eq!(
+            fields("title: \"Hello\"\nauthor: 'Ann'\ndraft: false").unwrap(),
+            [("title".into(), text("Hello")), ("author".into(), text("Ann")), ("draft".into(), text("false"))]
+        );
     }
 
     #[test]
     fn block_and_flow_sequences_become_lists() {
         let list = |items: &[&str]| Value::List(items.iter().map(|s| s.to_string()).collect());
-        assert_eq!(fields("tags:\n  - layout\n  - \"regression\"\nother: [a, 'b']").unwrap(), [("tags".into(), list(&["layout", "regression"])), ("other".into(), list(&["a", "b"]))]);
+        assert_eq!(
+            fields("tags:\n  - layout\n  - \"regression\"\nother: [a, 'b']").unwrap(),
+            [("tags".into(), list(&["layout", "regression"])), ("other".into(), list(&["a", "b"]))]
+        );
         assert_eq!(fields("tags:\n- flush").unwrap(), [("tags".into(), list(&["flush"]))]);
     }
 

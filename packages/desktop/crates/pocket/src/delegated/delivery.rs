@@ -45,7 +45,13 @@ fn faded_in(age: Duration) -> f32 {
 
 /// What pocketd told the chat of the sessions it delegated to, one quiet line each: their logo and title, then how it went. A click opens the session.
 pub(crate) fn delivered(id: &str, d: &Delivered, age: Option<Duration>, window: &mut Window, cx: &mut Context<Desktop>) -> Div {
-    div().flex().flex_col().items_start().gap(px(1.)).ml(px(-8.)).children(d.children.iter().enumerate().map(|(i, child)| line(&format!("{id}-{i}"), child, d, age, window, cx)))
+    div()
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(px(1.))
+        .ml(px(-8.))
+        .children(d.children.iter().enumerate().map(|(i, child)| line(&format!("{id}-{i}"), child, d, age, window, cx)))
 }
 
 fn verb(d: &Delivered) -> (String, Token) {
@@ -56,15 +62,24 @@ fn verb(d: &Delivered) -> (String, Token) {
     }
 }
 
-fn line(key: &str, child: &Child, d: &Delivered, age: Option<Duration>, window: &mut Window, cx: &mut Context<Desktop>) -> SpringAnimationElement<Stateful<Div>> {
+fn line(
+    key: &str,
+    child: &Child,
+    d: &Delivered,
+    age: Option<Duration>,
+    window: &mut Window,
+    cx: &mut Context<Desktop>,
+) -> SpringAnimationElement<Stateful<Div>> {
     let (said, colour) = verb(d);
     let open = child.id.clone();
     let title = if child.title.is_empty() { "Session".to_string() } else { child.title.clone() };
     let hover = window.use_keyed_state(SharedString::from(format!("delivery-hover-{key}")), cx, |_, _| false);
     let hovered = *hover.read(cx);
-    let chevron = div().flex_none().text_color(TEXT_4).child(icon("chevron-right", 12., TEXT_4)).with_spring(SharedString::from(format!("delivery-chevron-{key}")), SpringAnimation::new(SPRING).to(hovered), |d, t| {
-        d.relative().left(px(-SLIDE * (1. - t.0))).opacity(t.0.clamp(0., 1.))
-    });
+    let chevron = div().flex_none().text_color(TEXT_4).child(icon("chevron-right", 12., TEXT_4)).with_spring(
+        SharedString::from(format!("delivery-chevron-{key}")),
+        SpringAnimation::new(SPRING).to(hovered),
+        |d, t| d.relative().left(px(-SLIDE * (1. - t.0))).opacity(t.0.clamp(0., 1.)),
+    );
     let rise = SpringAnimation::new(SPRING).to(true);
     let rise = if age.is_some() { rise.from(false) } else { rise };
     // A spring snaps under reduced motion, so the fade there is timed by hand.
@@ -98,7 +113,9 @@ fn line(key: &str, child: &Child, d: &Delivered, age: Option<Duration>, window: 
         .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).text_color(TEXT_BODY).child(title))
         .child(div().min_w_0().truncate().text_color(colour).when(d.outcome == Outcome::Asks, |s| s.max_w(px(340.))).child(said))
         .child(chevron)
-        .with_spring(SharedString::from(format!("delivery-rise-{key}")), rise, move |d, t| d.relative().top(px(RISE * (1. - t.0))).opacity(t.0.clamp(0., 1.).min(fade)))
+        .with_spring(SharedString::from(format!("delivery-rise-{key}")), rise, move |d, t| {
+            d.relative().top(px(RISE * (1. - t.0))).opacity(t.0.clamp(0., 1.).min(fade))
+        })
 }
 
 #[cfg(test)]

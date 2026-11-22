@@ -475,31 +475,35 @@ impl Desktop {
             .child(mono(c.name()))
             .when(!c.base().is_empty(), |d| d.child("from").child(mono(c.base().to_string())));
         let (title, branch) = (rising(title, TITLE), rising(branch, BRANCH));
-        let rows: Vec<_> = c.steps().enumerate().map(|(i, (step, mark, spent, note))| {
-            let lead = match mark {
-                Mark::Done => icon("check", 14., SUCCESS).into_any_element(),
-                Mark::Active => spinner(("create-step", step as usize), 14., TEXT_3).into_any_element(),
-                Mark::Failed => icon("x-bold", 12., FAILED).into_any_element(),
-                Mark::Pending => div().size(px(6.)).rounded_full().bg(TEXT_5).into_any_element(),
-            };
-            let row = div()
-                .flex()
-                .gap(px(10.))
-                .py(px(7.))
-                .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(lead))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(3.))
-                        .child(div().text_size(px(13.5)).text_color(if mark == Mark::Pending { TEXT_4 } else { TEXT }).child(step.label()))
-                        .when(!note.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(TEXT_3).child(note.to_string()))),
-                )
-                .children(spent.map(|t| div().font_family(MONO).text_size(px(12.)).text_color(TEXT_4).child(took(t))));
-            rising(row, (STEP.0 + STAGGER * i as f32, STEP.1))
-        }).collect();
+        let rows: Vec<_> = c
+            .steps()
+            .enumerate()
+            .map(|(i, (step, mark, spent, note))| {
+                let lead = match mark {
+                    Mark::Done => icon("check", 14., SUCCESS).into_any_element(),
+                    Mark::Active => spinner(("create-step", step as usize), 14., TEXT_3).into_any_element(),
+                    Mark::Failed => icon("x-bold", 12., FAILED).into_any_element(),
+                    Mark::Pending => div().size(px(6.)).rounded_full().bg(TEXT_5).into_any_element(),
+                };
+                let row = div()
+                    .flex()
+                    .gap(px(10.))
+                    .py(px(7.))
+                    .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(lead))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.))
+                            .child(div().text_size(px(13.5)).text_color(if mark == Mark::Pending { TEXT_4 } else { TEXT }).child(step.label()))
+                            .when(!note.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(TEXT_3).child(note.to_string()))),
+                    )
+                    .children(spent.map(|t| div().font_family(MONO).text_size(px(12.)).text_color(TEXT_4).child(took(t))));
+                rising(row, (STEP.0 + STAGGER * i as f32, STEP.1))
+            })
+            .collect();
         let steps = div()
             .flex()
             .flex_col()
@@ -545,9 +549,15 @@ impl Desktop {
                     cx.notify();
                 })))
                 .when(!c.made(), |d| {
-                    d.child(ui::button("create-edit", ui::Variant::Secondary, None, "Edit").on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_create(&edit, window, cx))))
+                    d.child(
+                        ui::button("create-edit", ui::Variant::Secondary, None, "Edit")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_create(&edit, window, cx))),
+                    )
                 })
-                .child(ui::button("create-retry", ui::Variant::Primary, None, "Try again").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.retry_create(&retry, cx))))
+                .child(
+                    ui::button("create-retry", ui::Variant::Primary, None, "Try again")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.retry_create(&retry, cx))),
+                )
         });
         let footer = div().flex().items_center().min_h(px(32.)).children(output).children(actions);
         let gone = c.leaving(now, reduce).map(|t| ease_out_quint()(t));

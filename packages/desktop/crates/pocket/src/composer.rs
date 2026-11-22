@@ -12,10 +12,10 @@ use crate::chat::composer::attachments::attach_button;
 use crate::chat::composer::suggest::Suggest;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
-use hosts::remote::Client;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use hosts::remote::Client;
 use launch::Pick;
 use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -44,7 +44,13 @@ pub(crate) struct Composer {
 }
 
 impl Composer {
-    pub(crate) fn new(prompt: Entity<TextareaState>, search: Entity<InputState>, slot: Slot, opened: fn(&mut Desktop), unsaved: fn(&mut Desktop, (String, String))) -> Self {
+    pub(crate) fn new(
+        prompt: Entity<TextareaState>,
+        search: Entity<InputState>,
+        slot: Slot,
+        opened: fn(&mut Desktop),
+        unsaved: fn(&mut Desktop, (String, String)),
+    ) -> Self {
         Self { prompt, search, draft: Draft::default(), suggest: Suggest::default(), slot, opened, unsaved }
     }
 }
@@ -56,7 +62,9 @@ pub(crate) enum Menu {
     Model,
     Access,
     /// The chat's account popover on its usage, slid `back` to from its accounts.
-    Usage { back: bool },
+    Usage {
+        back: bool,
+    },
     /// The chat's account popover on the accounts to switch to.
     Switch,
     /// The chat's goal, opened from its pill.
@@ -231,10 +239,17 @@ impl Draft {
     /// `prompt` for an agent on a host, naming each file in `copies` by its copy there.
     pub(crate) fn prompt_with(&self, typed: &str, copies: &[(PathBuf, String)]) -> String {
         let named = |p: &Path| copies.iter().find(|(from, _)| from == p).map_or_else(|| p.display().to_string(), |(_, to)| hosts::split(to).1.to_string());
-        let block = |title: &str, paths: Vec<&Path>| (!paths.is_empty()).then(|| format!("{title}{}", paths.iter().map(|p| format!("- {}", named(p))).collect::<Vec<_>>().join("\n")));
+        let block = |title: &str, paths: Vec<&Path>| {
+            (!paths.is_empty()).then(|| format!("{title}{}", paths.iter().map(|p| format!("- {}", named(p))).collect::<Vec<_>>().join("\n")))
+        };
         let typed = typed.trim();
         let elements = (!self.elements.is_empty()).then(|| elements::block(&self.elements));
-        let parts = [(!typed.is_empty()).then(|| typed.to_string()), block(FILES, self.files.iter().map(PathBuf::as_path).collect()), block(IMAGES, self.images.iter().map(|a| a.path.as_path()).collect()), elements];
+        let parts = [
+            (!typed.is_empty()).then(|| typed.to_string()),
+            block(FILES, self.files.iter().map(PathBuf::as_path).collect()),
+            block(IMAGES, self.images.iter().map(|a| a.path.as_path()).collect()),
+            elements,
+        ];
         parts.into_iter().flatten().collect::<Vec<_>>().join("\n\n")
     }
 
@@ -407,7 +422,11 @@ fn save_behind(
 }
 
 /// For `save_behind`: an attachment that couldn't be written leaves the draft, and `unsaved` shows why under `title`.
-fn left_out(title: &'static str, draft: impl Fn(&mut Desktop) -> &mut Draft + 'static, unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static) -> impl FnOnce(&mut Desktop, &Path, String) + 'static {
+fn left_out(
+    title: &'static str,
+    draft: impl Fn(&mut Desktop) -> &mut Draft + 'static,
+    unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static,
+) -> impl FnOnce(&mut Desktop, &Path, String) + 'static {
     move |d, path, error| {
         if draft(d).unsaved(path) {
             unsaved(d, (title.into(), error));
@@ -473,7 +492,14 @@ pub(crate) fn paste(
                 cx.notify();
                 draft(d).attach_file(path.clone())
             }) {
-                save_behind(desktop.clone(), path, move |path| save_private(text.as_bytes(), path), left_out("Couldn't save the pasted text", draft, unsaved), window, cx);
+                save_behind(
+                    desktop.clone(),
+                    path,
+                    move |path| save_private(text.as_bytes(), path),
+                    left_out("Couldn't save the pasted text", draft, unsaved),
+                    window,
+                    cx,
+                );
             }
             true
         }
@@ -484,7 +510,14 @@ pub(crate) fn paste(
                 cx.notify();
                 draft(d).attach(Attachment { path: path.clone(), image: image.clone().into() })
             }) {
-                save_behind(desktop.clone(), path, move |path| save_private(&image.bytes, path), left_out("Couldn't save the pasted image", draft, unsaved), window, cx);
+                save_behind(
+                    desktop.clone(),
+                    path,
+                    move |path| save_private(&image.bytes, path),
+                    left_out("Couldn't save the pasted image", draft, unsaved),
+                    window,
+                    cx,
+                );
             }
             true
         }
@@ -492,7 +525,10 @@ pub(crate) fn paste(
 }
 
 /// For a prompt's `on_drop_paths`: dropped files attach to the draft `draft` picks, so none is typed in as its path.
-pub(crate) fn drop_handler(desktop: WeakEntity<Desktop>, draft: impl Fn(&mut Desktop) -> &mut Draft + 'static) -> impl Fn(&[PathBuf], &mut Window, &mut App) -> Vec<PathBuf> {
+pub(crate) fn drop_handler(
+    desktop: WeakEntity<Desktop>,
+    draft: impl Fn(&mut Desktop) -> &mut Draft + 'static,
+) -> impl Fn(&[PathBuf], &mut Window, &mut App) -> Vec<PathBuf> {
     move |paths, _, cx| match desktop.upgrade() {
         Some(d) => d.update(cx, |d, cx| {
             cx.notify();
@@ -507,7 +543,17 @@ impl Desktop {
     /// The box around `textarea`, as the chat's; `pills` lead the attachments above it, `trailing` comes before the +
     /// and `send`.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn composer(&self, c: &Composer, project: Option<String>, textarea: Textarea, typing: bool, pills: Vec<AnyElement>, trailing: Vec<AnyElement>, send: Stateful<Div>, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn composer(
+        &self,
+        c: &Composer,
+        project: Option<String>,
+        textarea: Textarea,
+        typing: bool,
+        pills: Vec<AnyElement>,
+        trailing: Vec<AnyElement>,
+        send: Stateful<Div>,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
         let (slot, desktop) = (c.slot, cx.entity().downgrade());
         let remove = |id: ElementId, take: fn(&mut Draft, usize), i: usize| {
@@ -534,19 +580,25 @@ impl Desktop {
         let attached = (!pills.is_empty() || c.draft.has_attachments()).then(|| {
             let images = c.draft.images.iter().enumerate().map(|(i, a)| {
                 let image = img(a.image.clone()).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover);
-                div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(image).child(remove(("image-remove", i).into(), |d, i| _ = d.images.remove(i), i))
+                div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(image).child(remove(
+                    ("image-remove", i).into(),
+                    |d, i| _ = d.images.remove(i),
+                    i,
+                ))
             });
-            let files = c.draft.files.iter().enumerate().map(|(i, path)| div().relative().flex_none().child(file_card::file_card(("composer-file", i), path)).child(remove(("file-remove", i).into(), |d, i| _ = d.files.remove(i), i)));
+            let files = c.draft.files.iter().enumerate().map(|(i, path)| {
+                div().relative().flex_none().child(file_card::file_card(("composer-file", i), path)).child(remove(
+                    ("file-remove", i).into(),
+                    |d, i| _ = d.files.remove(i),
+                    i,
+                ))
+            });
             div().flex().flex_wrap().items_center().gap(px(8.)).pt(px(14.)).px(px(16.)).children(pills).children(images).children(files)
         });
-        let textarea = pills::with_pills(textarea, &c.prompt)
-            .appearance(false)
-            .text_size(px(INPUT_TEXT_SIZE))
-            .line_height(px(INPUT_LINE_HEIGHT))
-            .on_paste({
-                let prompt = c.prompt.clone();
-                move |item, window, cx| paste(&desktop, &prompt, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx)
-            });
+        let textarea = pills::with_pills(textarea, &c.prompt).appearance(false).text_size(px(INPUT_TEXT_SIZE)).line_height(px(INPUT_LINE_HEIGHT)).on_paste({
+            let prompt = c.prompt.clone();
+            move |item, window, cx| paste(&desktop, &prompt, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx)
+        });
         let bar = prompt_bar()
             .child(self.model_pill(c, &pick, project.clone(), cx))
             .child(self.access_chip(c, &pick, project, cx))
@@ -561,7 +613,10 @@ impl Desktop {
         });
         frame(typing)
             .children(handoff)
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))),
+            )
             .children(attached)
             .child(prompt_text().child(textarea).child(marks_overlay(c.prompt.clone())))
             .child(bar)
@@ -596,7 +651,14 @@ impl Desktop {
         let menu = open.then(|| {
             let current = pick.clone();
             let choose: Pick = Rc::new(move |this, access, cx| this.choose_launch(slot, project.clone(), LaunchPick { access, ..current.clone() }, cx));
-            menu("composer-access-menu", "Access", 300., launch::access_rows("composer-access-row", launch::access_choices(app), &pick.access, choose, cx), slot, cx)
+            menu(
+                "composer-access-menu",
+                "Access",
+                300.,
+                launch::access_rows("composer-access-row", launch::access_choices(app), &pick.access, choose, cx),
+                slot,
+                cx,
+            )
         });
         div().relative().child(chip).children(menu)
     }
@@ -628,7 +690,12 @@ pub(crate) fn picker(pill: Div, id: impl Into<ElementId>, open: bool) -> Statefu
 }
 
 /// A menu's `rows` under `title`.
-pub(crate) fn menu_list(id: impl Into<ElementId>, title: impl Into<SharedString>, width: f32, rows: impl IntoIterator<Item = impl IntoElement>) -> Stateful<Div> {
+pub(crate) fn menu_list(
+    id: impl Into<ElementId>,
+    title: impl Into<SharedString>,
+    width: f32,
+    rows: impl IntoIterator<Item = impl IntoElement>,
+) -> Stateful<Div> {
     ui::pop(div().id(id))
         .w(px(width))
         .max_h(px(360.))
@@ -656,8 +723,8 @@ pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<
 #[cfg(test)]
 mod tests {
     use super::{Attachment, Draft, Menu, Pasted, Sent, attachment_path, copied_files, pasted, pasted_image, pasted_path, save_private, split_attachments};
-    use std::path::Path;
     use gpui_kit::{ClipboardEntry, ClipboardItem, ClipboardString, ExternalPaths, Image, ImageFormat};
+    use std::path::Path;
     use store::LaunchPick;
 
     fn codex() -> LaunchPick {
@@ -765,7 +832,6 @@ mod tests {
         assert_eq!(draft.viewing, None);
     }
 
-
     #[test]
     fn an_image_paste_is_saved_to_a_private_file_and_text_pastes_as_itself() {
         #[cfg(unix)]
@@ -785,7 +851,8 @@ mod tests {
     fn a_copied_file_pastes_as_its_path_even_beside_its_pixels() {
         let shot = ExternalPaths(vec!["/r/shot.png".into()].into());
         let png = ClipboardEntry::Image(Image::from_bytes(ImageFormat::Png, vec![1]));
-        let item = ClipboardItem { entries: vec![ClipboardEntry::ExternalPaths(shot.clone()), ClipboardEntry::String(ClipboardString::new("shot.png".into())), png] };
+        let item =
+            ClipboardItem { entries: vec![ClipboardEntry::ExternalPaths(shot.clone()), ClipboardEntry::String(ClipboardString::new("shot.png".into())), png] };
         assert_eq!(copied_files(&item).map(|p| p.paths()), Some(shot.paths()));
         assert!(copied_files(&ClipboardItem::new_image(&Image::from_bytes(ImageFormat::Png, vec![1]))).is_none());
     }
@@ -870,13 +937,24 @@ mod tests {
         let image = std::sync::Arc::new(Image::from_bytes(ImageFormat::Png, vec![1]));
         let files = vec!["/r/main.rs".into(), "/r/a b.pdf".into()];
         let both = Draft { files: files.clone(), images: vec![Attachment { path: "/h/a.png".into(), image: image.into() }], ..Draft::default() };
-        assert_eq!(split_attachments(&both.prompt("Fix CI")), Sent { text: "Fix CI", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec!["/h/a.png"], elements: vec![] });
+        assert_eq!(
+            split_attachments(&both.prompt("Fix CI")),
+            Sent { text: "Fix CI", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec!["/h/a.png"], elements: vec![] }
+        );
         let only = Draft { files, ..Draft::default() };
         assert_eq!(split_attachments(&only.prompt("")), Sent { text: "", files: vec!["/r/main.rs", "/r/a b.pdf"], images: vec![], elements: vec![] });
     }
 
     fn element(url: &str, text: &str, html: &str) -> web::Element {
-        web::Element { url: url.into(), selector: "form > input".into(), name: "input.email".into(), text: text.into(), html: html.into(), width: 420, height: 41 }
+        web::Element {
+            url: url.into(),
+            selector: "form > input".into(),
+            name: "input.email".into(),
+            text: text.into(),
+            html: html.into(),
+            width: 420,
+            height: 41,
+        }
     }
 
     #[test]
@@ -900,10 +978,19 @@ mod tests {
 
     #[test]
     fn a_sent_prompt_splits_back_into_its_elements_headings() {
-        let draft = Draft { files: vec!["/r/main.rs".into()], elements: vec![element("https://github.com/", "Enter your email", "<p>\n## not a heading\n</p>"), element("https://github.com/", "", "<div>")], ..Draft::default() };
+        let draft = Draft {
+            files: vec!["/r/main.rs".into()],
+            elements: vec![element("https://github.com/", "Enter your email", "<p>\n## not a heading\n</p>"), element("https://github.com/", "", "<div>")],
+            ..Draft::default()
+        };
         let prompt = draft.prompt("Fix");
         let sent = split_attachments(&prompt);
-        assert_eq!(sent, Sent { text: "Fix", files: vec!["/r/main.rs"], images: vec![], elements: vec!["1 github.com › Enter your email", "2 github.com › input.email"] });
+        assert_eq!(
+            sent,
+            Sent {
+                text: "Fix", files: vec!["/r/main.rs"], images: vec![], elements: vec!["1 github.com › Enter your email", "2 github.com › input.email"]
+            }
+        );
         let only = Draft { elements: vec![element("https://a.dev/", "Hi", "<b>")], ..Draft::default() };
         assert_eq!(split_attachments(&only.prompt("")).elements, vec!["1 a.dev › Hi"]);
         assert_eq!(split_attachments(&only.prompt("")).text, "");
@@ -922,7 +1009,10 @@ mod tests {
         assert_eq!(named[0], "42.png");
         assert!(named[1].ends_with("-notes.md") && named[1].len() == "notes.md".len() + 17, "{}", named[1]);
         let prompt = draft.prompt_with("Look", &copies);
-        assert!(prompt.contains("- /home/dev/.pocket/attachments/42.png") && prompt.contains(&format!("- /home/dev/.pocket/attachments/{}", named[1])), "{prompt}");
+        assert!(
+            prompt.contains("- /home/dev/.pocket/attachments/42.png") && prompt.contains(&format!("- /home/dev/.pocket/attachments/{}", named[1])),
+            "{prompt}"
+        );
         assert!(prompt.contains("- //devbox/home/dev/code/app/README.md") && !prompt.contains("/Users/me"), "{prompt}");
         assert!(draft.prompt("Look").contains("- /Users/me/notes.md"), "a send to this Mac after a copy for devbox names devbox's path");
     }
@@ -949,7 +1039,12 @@ mod tests {
                         let op: serde_json::Value = serde_json::from_str(&line).unwrap();
                         if op["op"] == "status" {
                             // A host whose pocketd hasn't moved to ~/.anywhere yet names its old folder.
-                            writeln!(writer, "{}", serde_json::json!({"ev": "status", "status": {"userHome": "/home/dev", "home": "/home/dev/.coding-pocket"}})).unwrap();
+                            writeln!(
+                                writer,
+                                "{}",
+                                serde_json::json!({"ev": "status", "status": {"userHome": "/home/dev", "home": "/home/dev/.coding-pocket"}})
+                            )
+                            .unwrap();
                             continue;
                         }
                         writeln!(writer, "{}", serde_json::json!({"id": op["id"], "ev": op["op"]})).unwrap();

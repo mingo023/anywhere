@@ -43,7 +43,11 @@ impl Desktop {
         let (fill, hover, mark, text) = if active { (GOAL_BG, GOAL_BG_STRONG, GOAL_TEXT, GOAL_TEXT) } else { (FILL_2, FILL_3, TEXT_3, TEXT_2) };
         let words = div().whitespace_nowrap().font_weight(FontWeight::MEDIUM).text_color(text);
         // At work for as long as it's active, like the agent's other live labels.
-        let words = if active && !cx.reduce_motion() { words.child(shimmer(SharedString::from(format!("chat-goal-shimmer:{}", agent.id)), label, text)) } else { words.child(label) };
+        let words = if active && !cx.reduce_motion() {
+            words.child(shimmer(SharedString::from(format!("chat-goal-shimmer:{}", agent.id)), label, text))
+        } else {
+            words.child(label)
+        };
         let chip = ui::popover_trigger(
             composer::pill()
                 .id("chat-goal")
@@ -83,7 +87,13 @@ impl Desktop {
         });
         let clear = row("chat-goal-clear", false).child(icon("x", 13., TEXT_2)).child("Clear the goal").on_click(send("/goal clear"));
         let rule = div().h(px(1.)).mx(px(4.)).my(px(3.)).bg(SEPARATOR);
-        let rows = [Some(objective.into_any_element()), tokens.map(IntoElement::into_any_element), Some(rule.into_any_element()), pause_or_resume.map(IntoElement::into_any_element), Some(clear.into_any_element())];
+        let rows = [
+            Some(objective.into_any_element()),
+            tokens.map(IntoElement::into_any_element),
+            Some(rule.into_any_element()),
+            pause_or_resume.map(IntoElement::into_any_element),
+            Some(clear.into_any_element()),
+        ];
         chip_menu("chat-goal-menu", "Goal", 340., rows.into_iter().flatten(), cx)
     }
 }

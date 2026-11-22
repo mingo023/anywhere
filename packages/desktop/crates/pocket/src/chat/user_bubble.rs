@@ -1,5 +1,5 @@
 use super::composer::{RADIUS, block_shade, code_shade};
-use super::mention::{paint_icons, hidden, tint};
+use super::mention::{hidden, paint_icons, tint};
 use super::selectable::selectable;
 use crate::composer::element_card::element_card;
 use crate::composer::elements::heading_parts;
@@ -92,7 +92,8 @@ fn shown(text: &str) -> Shown {
         out.code.push((placed(&c.range()), matches!(c, chat::Code::Block { .. })));
     }
     let rich = chat::rich::spans(text);
-    out.links = rich.iter().filter(|(_, style)| *style == Style::Link).map(|(r, _)| (placed(r), chat::rich::link_target(text, r.clone()).to_string())).collect();
+    out.links =
+        rich.iter().filter(|(_, style)| *style == Style::Link).map(|(r, _)| (placed(r), chat::rich::link_target(text, r.clone()).to_string())).collect();
     out.highlights = combine_highlights(std::mem::take(&mut out.highlights), rich.iter().map(|(r, style)| (placed(r), highlight(*style)))).collect();
     out
 }
@@ -109,11 +110,15 @@ pub(super) fn styled(id: &str, text: &str) -> Div {
         let layout = layout.clone();
         move |within, _, window, cx| {
             let line = layout.line_height();
-            let span = |r: &Range<usize>| Some(Bounds::from_corners(layout.position_for_index(r.start)?, layout.position_for_index(r.end)? + point(px(0.), line)));
+            let span =
+                |r: &Range<usize>| Some(Bounds::from_corners(layout.position_for_index(r.start)?, layout.position_for_index(r.end)? + point(px(0.), line)));
             for pill in pills.iter().filter_map(&span) {
                 paint_pill(pill, line, window, cx);
             }
-            for shade in code.iter().filter_map(|(r, block)| if *block { span(r).map(|s| block_shade(s.top(), s.bottom(), within)) } else { span(r).and_then(code_shade) }) {
+            for shade in code
+                .iter()
+                .filter_map(|(r, block)| if *block { span(r).map(|s| block_shade(s.top(), s.bottom(), within)) } else { span(r).and_then(code_shade) })
+            {
                 window.paint_quad(shade);
             }
             let found: Vec<(Bounds<Pixels>, &str)> = slots.iter().filter_map(|(at, path)| Some((span(&(*at..*at + SLOT.len()))?, path.as_str()))).collect();
@@ -124,9 +129,12 @@ pub(super) fn styled(id: &str, text: &str) -> Div {
     .top_0()
     .left_0()
     .size_full();
-    let tip = move |ix: usize, window: &mut Window, cx: &mut App| mentions.iter().find(|(r, _)| r.contains(&ix)).map(|(_, path)| Tooltip::new(path.clone()).build(window, cx));
+    let tip = move |ix: usize, window: &mut Window, cx: &mut App| {
+        mentions.iter().find(|(r, _)| r.contains(&ix)).map(|(_, path)| Tooltip::new(path.clone()).build(window, cx))
+    };
     let (ranges, targets): (Vec<Range<usize>>, Vec<String>) = links.into_iter().unzip();
-    let interactive = InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip).on_click(ranges, move |ix, _, cx| cx.open_url(&targets[ix]));
+    let interactive =
+        InteractiveText::new(SharedString::from(format!("{id}-text")), styled).tooltip(tip).on_click(ranges, move |ix, _, cx| cx.open_url(&targets[ix]));
     let shown = selectable(SharedString::from(format!("{id}-select")), text, layout.clone(), interactive);
     div().relative().child(shown).child(marks)
 }
@@ -247,7 +255,16 @@ pub(super) fn send_now(id: &str) -> Stateful<Div> {
 /// `lit` brightens its wash and ring, fading back, to show the prompt the timeline landed on.
 /// An image sent to a host shows from this Mac's copy of it in `here`, its attachments folder.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expanded: bool, lit: bool, here: &Path, toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>) -> Div {
+pub(super) fn bubble(
+    id: &str,
+    prompt: String,
+    width: f32,
+    pending: bool,
+    expanded: bool,
+    lit: bool,
+    here: &Path,
+    toggle: Option<(Fold, impl Fn(&ClickEvent, &mut Window, &mut App) + 'static)>,
+) -> Div {
     let Sent { text, files, images, elements } = split_attachments(&prompt);
     let text = text.to_string();
     let attached = (!images.is_empty() || !files.is_empty() || !elements.is_empty()).then(|| {
@@ -285,7 +302,12 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
             .with_animation(SharedString::from(format!("{id}-{expanded}")), grow(delta), move |d, t| d.h(px(from + (to - from) * t)))
             .into_any_element()
     } else if collapsed {
-        div().flex().flex_col().child(div().h(px(LINE_HEIGHT * COLLAPSED_LINES as f32)).overflow_hidden().child(styled(id, &text))).child(div().h(px(LINE_HEIGHT)).child("...")).into_any_element()
+        div()
+            .flex()
+            .flex_col()
+            .child(div().h(px(LINE_HEIGHT * COLLAPSED_LINES as f32)).overflow_hidden().child(styled(id, &text)))
+            .child(div().h(px(LINE_HEIGHT)).child("..."))
+            .into_any_element()
     } else {
         div().whitespace_normal().child(styled(id, &text)).into_any_element()
     };
@@ -327,7 +349,11 @@ pub(super) fn bubble(id: &str, prompt: String, width: f32, pending: bool, expand
         .children(expander);
     let bubble = if lit {
         let fade = Animation::new(super::transcript::FLASH).with_easing(ease_in_out);
-        bubble.with_animation(SharedString::from(format!("{id}-lit")), fade, |d, t| d.bg(Hsla::from(BUBBLE).blend(ink(0.08 * (1. - t)))).border_color(Hsla::from(HAIRLINE).blend(hairline(0.4 * (1. - t))))).into_any_element()
+        bubble
+            .with_animation(SharedString::from(format!("{id}-lit")), fade, |d, t| {
+                d.bg(Hsla::from(BUBBLE).blend(ink(0.08 * (1. - t)))).border_color(Hsla::from(HAIRLINE).blend(hairline(0.4 * (1. - t))))
+            })
+            .into_any_element()
     } else {
         bubble.into_any_element()
     };
@@ -398,4 +424,3 @@ mod tests {
         assert_eq!(tween(5000.), Duration::from_millis(850));
     }
 }
-
