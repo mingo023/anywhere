@@ -65,7 +65,7 @@ impl Desktop {
         let (body, alpha, entrance) = match o {
             Overlay::Palette => (self.palette_view(cx), 0x1f, None),
             Overlay::AddRepo => (self.repo_view(window, cx), 0x40, Some((200, 8.))),
-            Overlay::Clone => (self.clone_view(window, cx), 0x40, Some((200, 8.))),
+            Overlay::Clone => (self.clone_view(cx), 0x40, Some((200, 8.))),
             Overlay::More => (self.more_menu(cx), 0, Some((150, -4.))),
             Overlay::Confirm => (self.confirm_view(cx), 0x2e, Some((200, 8.))),
             Overlay::PairPhone => (self.pair_view(), 0x2e, Some((200, 8.))),

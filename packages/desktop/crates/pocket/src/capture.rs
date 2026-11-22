@@ -850,14 +850,14 @@ const STEPS: [(&str, Step); 302] = [
     ("add-repo", |d, window, cx| d.edit_project(d.projects().into_iter().next(), window, cx)),
     ("clone", |d, window, cx| {
         d.clone_project(window, cx);
-        d.clone_form.url.update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
-        d.clone_url_changed(window, cx);
+        d.clone_form.read(cx).url.clone().update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
+        d.clone_form.update(cx, |f, cx| f.url_changed(window, cx));
     }),
     // Clone from URL on the space on screen, then cloning (FIXTURE_HOST_FILES=1; devbox's git holds the clone until it is let go).
     ("clone-host", |d, window, cx| {
         d.clone_project(window, cx);
-        d.clone_form.url.update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
-        d.clone_url_changed(window, cx);
+        d.clone_form.read(cx).url.clone().update(cx, |s, cx| s.set_value("https://github.com/zed-industries/zed", window, cx));
+        d.clone_form.update(cx, |f, cx| f.url_changed(window, cx));
     }),
     ("clone-host-progress", |d, window, cx| d.start_clone(window, cx)),
     ("finder-open-host", |d, window, cx| d.open_folder(crate::modals::host_finder::Opener::Sidebar, window, cx)),

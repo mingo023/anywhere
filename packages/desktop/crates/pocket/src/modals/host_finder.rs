@@ -114,7 +114,7 @@ impl Desktop {
         match self.host_finder.opener {
             Opener::AddProject | Opener::Sidebar => window.focus(&self.root, cx),
             Opener::NewSession => self.focus_prompt(window, cx),
-            Opener::CloneInto => self.clone_form.url.update(cx, |s, cx| s.focus(window, cx)),
+            Opener::CloneInto => self.clone_form.read(cx).url.clone().update(cx, |s, cx| s.focus(window, cx)),
         }
         true
     }
@@ -199,7 +199,7 @@ impl Desktop {
     fn finder_ask(&self, cx: &App) -> Option<Ask> {
         let f = self.host_finder.finder.as_ref()?;
         let taken = self.projects().contains(&hosts::place(&f.host, &f.dir));
-        let clone = (self.host_finder.opener == Opener::CloneInto).then(|| self.clone_repo_name(cx));
+        let clone = (self.host_finder.opener == Opener::CloneInto).then(|| self.clone_form.read(cx).repo_name(cx));
         Some(ask(clone.as_deref(), remote::connected(&f.host).is_some(), &f.dir, taken, f.is_repo(&f.dir)))
     }
 

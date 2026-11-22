@@ -144,7 +144,7 @@ pub struct Desktop {
     pub(crate) new_form: new_session::NewForm,
     pub(crate) repo_form: add_project::RepoForm,
     pub(crate) host_finder: crate::modals::host_finder::HostFinder,
-    pub(crate) clone_form: clone_project::CloneForm,
+    pub(crate) clone_form: Entity<clone_project::CloneForm>,
     pub(crate) pair: Entity<PairPhone>,
     pub(crate) capturing: bool,
     pub(crate) geometry: Geometry,
@@ -169,7 +169,8 @@ impl Desktop {
         let (new_form, new_subs) = new_session::NewForm::new(window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let host_finder = crate::modals::host_finder::HostFinder::new(cx);
-        let (clone_form, clone_subs) = clone_project::CloneForm::new(window, cx);
+        let clone_form = cx.new(|cx| clone_project::CloneForm::new(window, cx));
+        let clone_subs = cx.subscribe_in(&clone_form, window, Self::on_clone_event);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
         let board_start = Self::board_start_hook(cx);
@@ -241,7 +242,7 @@ impl Desktop {
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
-        _subs.extend(clone_subs);
+        _subs.push(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
         _subs.push(board_start);
@@ -548,7 +549,7 @@ impl Desktop {
             || self.explorer.menu.is_some()
             || self.terminal.menu.is_some()
             || self.accounts.menu.is_some()
-            || self.clone_form.machine_menu
+            || self.clone_form.read(cx).machine_menu
             || self.chats.files.is_some()
             || self.chats.select.menu_open()
             || self.open_in.read(cx).menu.is_some()
@@ -571,7 +572,7 @@ impl Desktop {
         self.board.update(cx, |b, _| b.menu = None);
         self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
-        self.clone_form.machine_menu = false;
+        self.clone_form.update(cx, |f, _| f.close_menus());
         self.explorer.close_menu();
         self.terminal.menu = None;
         self.chats.files = None;
