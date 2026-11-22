@@ -444,10 +444,8 @@ mod tests {
             v["seq"] = json!(*seq);
             v["ts"] = json!(*seq);
             v["id"] = json!(format!("{prefix}{}", v["id"].as_str().unwrap()));
-            for key in ["parentToolUseId"] {
-                if let Some(p) = v[key].as_str() {
-                    v[key] = json!(format!("{prefix}{p}"));
-                }
+            if let Some(p) = v["parentToolUseId"].as_str() {
+                v["parentToolUseId"] = json!(format!("{prefix}{p}"));
             }
             if let Some(id) = v["call"]["toolUseId"].as_str() {
                 v["call"]["toolUseId"] = json!(format!("{prefix}{id}"));
