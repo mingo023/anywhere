@@ -42,14 +42,12 @@ impl Render for Board {
 }
 
 impl Board {
-    /// The bar's crumb, and what sits at its right: the search, or the ticket page's steps.
     pub(crate) fn bar(&self, cx: &mut Context<Self>) -> (Div, Div) {
         if self.page.is_some() { self.ticket_page_bar(cx) } else { self.board_bar(cx) }
     }
 }
 
 impl Desktop {
-    /// The page: its bar over the Board or the ticket's page.
     pub(crate) fn board_page(&mut self, cx: &mut Context<Self>) -> Div {
         let side = self.board_side(cx);
         let (crumb, right) = self.board.update(cx, |b, cx| {

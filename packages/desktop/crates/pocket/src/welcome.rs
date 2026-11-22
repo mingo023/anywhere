@@ -119,7 +119,6 @@ pub(crate) struct Pose {
 }
 
 pub(crate) enum WelcomeEvent {
-    /// Return or Get started: the install has had its welcome.
     Taken,
 }
 
@@ -144,7 +143,6 @@ pub(crate) struct Welcome {
     /// Where the mascot stands on screen, from its last layout: what the eyes look from.
     pub(crate) center: Option<(f32, f32)>,
     wake: Option<(Instant, gpui_kit::Task<()>)>,
-    /// What the last `step` left to draw.
     drawn: Option<Pose>,
     _keys: Option<Subscription>,
 }

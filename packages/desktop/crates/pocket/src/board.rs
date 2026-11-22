@@ -37,6 +37,7 @@ use logic::{
 use selection::{Selection, walk};
 use side::{Extra, Pr, Project, Side};
 use std::collections::HashSet;
+use std::sync::Arc;
 use toast::Toast;
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -58,7 +59,6 @@ pub(crate) enum Menu {
     Bulk { action: Action, at: Point<Pixels> },
 }
 
-/// What the Board asks of pocketd.
 pub(crate) enum Message {
     Start(String),
     Reopen(String),
@@ -78,58 +78,36 @@ impl Message {
 }
 
 pub(crate) enum BoardEvent {
-    /// What the page groups by changed; `Desktop` regroups the tickets.
     Changed,
-    /// A control was pressed: the other menus shut, then `show` opens this one.
     OpenMenu(Menu),
-    /// As `OpenMenu`, shutting the menu instead when it is the one open.
     ToggleMenu(Menu),
     CloseMenus,
-    /// The filter menu, on a field's values when it names one.
     OpenFilter(Option<FilterCat>),
     FocusRoot,
     Send(Message),
-    /// The layout was picked; `Desktop` keeps it for the next launch.
     Layout(Layout),
     Open(String),
-    Action {
-        action: Action,
-        id: String,
-    },
+    Action { action: Action, id: String },
     Close(Vec<String>),
-    SetProps {
-        ids: Vec<String>,
-        change: PropChange,
-    },
-    Answer {
-        request: String,
-        decision: Decision,
-    },
-    /// The composer's Add or Start, with a ticket to make of it.
-    Create {
-        start: bool,
-    },
-    LoadBranches {
-        surface: Surface,
-        folder: String,
-    },
+    SetProps { ids: Vec<String>, change: PropChange },
+    Answer { request: String, decision: Decision },
+    Create { start: bool },
+    LoadBranches { surface: Surface, folder: String },
     EditTicket(String),
     LeavePage,
     StartPage,
     MovePageBack,
     SavePage,
     SaveView,
-    /// A filter was picked; `Desktop` regroups and aims the composer at what it filters to.
     Filtered,
     ApplyView(usize),
     RemoveView(usize),
 }
 
-/// The Board screen's page, and the ticket's page over it, over what `Desktop` hands down each time it draws them; `Desktop` draws the bar.
 pub struct Board {
-    pub(crate) layout: Layout,
+    layout: Layout,
     tab: Tab,
-    pub(crate) order: Order,
+    order: Order,
     pub(crate) show_closed: bool,
     pub(crate) filters: Filters,
     columns: Columns,
@@ -143,7 +121,7 @@ pub struct Board {
     tucked: [bool; COLS.len()],
     /// The list's sections showing only their heads.
     folded: [bool; COLS.len()],
-    pub(crate) props: Props,
+    props: Props,
     pub(crate) searching: bool,
     /// The tickets the open ticket page steps through; `None` shows the Board.
     page: Option<Vec<String>>,
@@ -152,15 +130,14 @@ pub struct Board {
     pub(crate) rows_list: ListState,
     columns_scroll: ScrollHandle,
     selection: Selection,
-    pub(crate) menu: Option<Menu>,
+    menu: Option<Menu>,
     search: Entity<InputState>,
     filter_search: Entity<InputState>,
     form: form::Form,
     composer: composer::Composer,
     toast: Option<Toast>,
     toasts: u64,
-    /// The tickets as of the last regroup, which the columns index into.
-    tickets: Snapshot,
+    tickets: Arc<Snapshot>,
     side: Side,
     _subs: Vec<Subscription>,
 }
@@ -208,7 +185,7 @@ impl Board {
             composer,
             toast: None,
             toasts: 0,
-            tickets: Snapshot::default(),
+            tickets: Arc::default(),
             side: Side::default(),
             _subs: subs,
         }
@@ -218,8 +195,7 @@ impl Board {
         self.side = side;
     }
 
-    /// Takes the tickets as they are now and groups them for the page.
-    fn regroup(&mut self, board: Snapshot) {
+    fn regroup(&mut self, board: Arc<Snapshot>) {
         self.tickets = board;
         let board = &self.tickets;
         self.columns = arrange(&board.tickets, &self.filters, self.order);
@@ -271,7 +247,6 @@ impl Board {
         self.tickets.tickets.get(index).filter(|t| column(t) == col)
     }
 
-    /// A floating menu a click outside closes.
     pub(super) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         popup_closing(id, width, cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(BoardEvent::CloseMenus)))
     }
@@ -303,7 +278,6 @@ impl Board {
         index.and_then(|i| self.side.extras.get(&i)).unwrap_or(&side::NO_EXTRA)
     }
 
-    /// The places in the snapshot the page needs `Desktop`'s word on: the tickets it draws, the menu's and the page's.
     fn wanted(&self) -> Vec<usize> {
         let drawn: Vec<usize> = if self.layout == Layout::List {
             self.rows.iter().filter_map(|r| if let Row::Ticket(slot) = r { Some(slot.index) } else { None }).collect()
@@ -322,7 +296,6 @@ impl Board {
         wanted
     }
 
-    /// The folders the page will name.
     fn named(&self, wanted: &[usize]) -> HashSet<String> {
         let tickets = wanted.iter().filter_map(|&i| self.tickets.tickets.get(i)).map(|t| t.folder.clone());
         tickets
@@ -335,14 +308,65 @@ impl Board {
         self.menu.is_some()
     }
 
-    /// Esc lets go of a focused field first, then a page, a pick, the search, and last the Board; `Desktop` acts on it.
+    pub(crate) fn menu(&self) -> Option<&Menu> {
+        self.menu.as_ref()
+    }
+
+    pub(crate) fn close_menu(&mut self) {
+        self.menu = None;
+    }
+
+    pub(crate) fn toggle_menu(&mut self, menu: Menu, was: Option<Menu>) {
+        self.menu = (was.as_ref() != Some(&menu)).then_some(menu);
+    }
+
+    pub(crate) fn set_layout(&mut self, layout: Layout) {
+        self.layout = layout;
+    }
+
+    pub(crate) fn apply_filters(&mut self, filters: impl FnOnce(String) -> Filters) {
+        self.filters = filters(std::mem::take(&mut self.filters.query));
+        self.tab = Tab::All;
+    }
+
+    pub(crate) fn has_page(&self) -> bool {
+        self.page.is_some()
+    }
+
+    pub(crate) fn close_page(&mut self) {
+        self.page = None;
+    }
+
+    pub(crate) fn cursor(&self) -> Option<String> {
+        self.selection.cursor.clone()
+    }
+
+    pub(crate) fn toggle_picked(&mut self, id: &str) {
+        self.selection.toggle(id);
+    }
+
+    pub(crate) fn composer_folder(&self) -> &str {
+        &self.composer.picks.values.folder
+    }
+
+    pub(crate) fn page_folder(&self) -> &str {
+        &self.form.picks.values.folder
+    }
+
+    pub(crate) fn page_ticket_id(&self) -> Option<String> {
+        self.form.picks.values.id.clone()
+    }
+
+    pub(crate) fn page_ticket_moved_back(&mut self) {
+        self.form.picks.values.state = Some(State::Todo);
+    }
+
     pub(crate) fn escape(&self, window: &Window, cx: &App) -> Escape {
         let fields = [self.composer.text.focus_handle(cx), self.form.title.focus_handle(cx), self.form.prompt.focus_handle(cx), self.search.focus_handle(cx)];
         let typing = fields.iter().any(|field| field.is_focused(window));
         escape(self.page.is_some(), self.searching, typing, !self.selection.picked.is_empty())
     }
 
-    /// Whether the keyboard is free for the Board's keys: `root` has it, or a field a closed menu or page left it in.
     fn keys_free(&self, root_focused: bool, window: &Window, cx: &App) -> bool {
         // A field keeps the keyboard's focus after what held it closes: the filter menu's search, a ticket page that went away.
         let stranded = self.page.is_none() && (self.form.title.focus_handle(cx).is_focused(window) || self.form.prompt.focus_handle(cx).is_focused(window));
@@ -359,7 +383,6 @@ impl Board {
         cx.notify();
     }
 
-    /// Opens the page of a ticket that has not started; its folder, whose branches the page lists.
     fn open_page(&mut self, t: &Ticket, window: &mut Window, cx: &mut Context<Self>) -> String {
         self.page = Some(page_ids(&self.tickets.tickets, &self.columns));
         let f = &mut self.form;
@@ -399,9 +422,9 @@ impl Desktop {
         }
         self.screen = Screen::Board;
         let layout = if self.store.board_list { Layout::List } else { Layout::Board };
-        self.board.update(cx, |b, _| b.layout = layout);
+        self.board.update(cx, |b, _| b.set_layout(layout));
         self.aim_board_composer(cx);
-        if self.board.read(cx).page.is_some() {
+        if self.board.read(cx).has_page() {
             self.leave_ticket_page(window, cx);
         }
         self.board_changed(cx);
@@ -412,7 +435,7 @@ impl Desktop {
     /// Off the screen nothing reads the columns; opening it regroups.
     pub(crate) fn board_changed(&mut self, cx: &mut App) {
         if self.screen == Screen::Board {
-            let tickets = self.agents.board.clone();
+            let tickets = Arc::clone(&self.agents.board);
             self.board.update(cx, |b, _| b.regroup(tickets));
             self.drop_stale_ticket_page(cx);
         }
@@ -446,7 +469,7 @@ impl Desktop {
     }
 
     pub(crate) fn leave_board(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.board.read(cx).page.is_some() {
+        if self.board.read(cx).has_page() {
             self.leave_ticket_page(window, cx);
         }
         self.screen = Screen::Sessions;
@@ -458,10 +481,10 @@ impl Desktop {
         let command = key.modifiers == Modifiers::command();
         let b = self.board.read(cx);
         let free = b.keys_free(self.root.is_focused(window), window, cx);
-        if self.screen != Screen::Board || self.overlay.is_some() || b.menu.is_some() || (!command && key.modifiers.modified()) || !free {
+        if self.screen != Screen::Board || self.overlay.is_some() || b.menu_open() || (!command && key.modifiers.modified()) || !free {
             return false;
         }
-        let on_page = b.page.is_some();
+        let on_page = b.has_page();
         match board_key(&key.key, command, on_page) {
             Some(Key::Compose) => self.board.update(cx, |b, cx| b.focus_composer(window, cx)),
             Some(Key::Search) => self.board.update(cx, |b, cx| b.set_search(true, window, cx)),
@@ -469,7 +492,7 @@ impl Desktop {
             Some(Key::Next) => self.step_board(1, window, cx),
             Some(Key::Previous) => self.step_board(-1, window, cx),
             Some(Key::Open) => {
-                if let Some(id) = self.board.read(cx).selection.cursor.clone() {
+                if let Some(id) = self.board.read(cx).cursor() {
                     self.open_ticket(&id, window, cx);
                 }
             }
@@ -481,14 +504,13 @@ impl Desktop {
         true
     }
 
-    /// The Filter menu, with its search emptied and focused.
     fn open_filter_menu(&mut self, cat: Option<FilterCat>, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
         self.board.update(cx, |b, cx| b.open_filter(cat, window, cx));
     }
 
     fn step_board(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.board.read(cx).page.is_some() {
+        if self.board.read(cx).has_page() {
             if let Some(next) = self.board.read(cx).stepped_page(delta) {
                 self.edit_ticket(&next, window, cx);
             }
@@ -556,7 +578,7 @@ impl Desktop {
                 self.open_ticket(id, window, cx);
                 self.open_pr_composer(window, cx);
             }
-            Action::Select | Action::Deselect => self.board.update(cx, |b, _| b.selection.toggle(id)),
+            Action::Select | Action::Deselect => self.board.update(cx, |b, _| b.toggle_picked(id)),
             Action::Priority | Action::Labels | Action::Agent | Action::Project | Action::SetStatus | Action::Separator => {}
         }
         cx.notify();
@@ -587,9 +609,9 @@ impl Desktop {
                 self.board.update(cx, |b, cx| b.show(menu.clone(), cx));
             }
             BoardEvent::ToggleMenu(menu) => {
-                let was = self.board.read(cx).menu.clone();
+                let was = self.board.read(cx).menu().cloned();
                 self.close_menus(cx);
-                self.board.update(cx, |b, _| b.menu = (was != Some(menu.clone())).then(|| menu.clone()));
+                self.board.update(cx, |b, _| b.toggle_menu(menu.clone(), was));
             }
             BoardEvent::CloseMenus => _ = self.close_menus(cx),
             BoardEvent::OpenFilter(cat) => self.open_filter_menu(*cat, window, cx),
@@ -619,7 +641,6 @@ impl Desktop {
         cx.notify();
     }
 
-    /// What the page reads of `Desktop` to draw: each ticket's PR, diff, ask and reach, the projects' and agents' names, and the saved views.
     pub(crate) fn board_side(&self, cx: &App) -> Side {
         let b = self.board.read(cx);
         let wanted = b.wanted();

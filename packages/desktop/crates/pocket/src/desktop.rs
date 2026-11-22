@@ -571,7 +571,7 @@ impl Desktop {
         self.sidebar.organize.menu = false;
         self.spaces.menu = false;
         self.automations.menu = None;
-        self.board.update(cx, |b, _| b.menu = None);
+        self.board.update(cx, |b, _| b.close_menu());
         self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
         self.clone_form.update(cx, |f, _| f.close_menus());

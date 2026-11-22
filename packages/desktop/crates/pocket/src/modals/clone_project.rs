@@ -88,7 +88,6 @@ fn check(url: &str, dest: &str, host: Option<&str>, projects: &[String]) -> Chec
     }
 }
 
-/// A machine as the menu and chip draw it; `Desktop` names each again every time it draws the form.
 #[derive(Clone)]
 pub(crate) struct Machine {
     pub space: Space,
@@ -98,39 +97,23 @@ pub(crate) struct Machine {
     pub reach: Reach,
 }
 
-/// What `Desktop` hands the form, as it stands when the form draws or is asked to act.
 pub(crate) struct CloneInputs {
     pub projects: Vec<String>,
-    /// Each project's name, by its key.
     pub names: HashMap<String, String>,
-    /// Where a clone on this Mac starts, from Settings.
     pub mac_root: String,
-    /// Every machine, in the switcher's order.
     pub machines: Vec<Machine>,
-    /// The machine cloned onto.
     pub chosen: Machine,
 }
 
-/// What the form asks of `Desktop`, which owns the overlay, the projects and the host finder.
 pub(crate) enum CloneEvent {
     Close,
-    /// Enter, or Clone: `Desktop` hands the form its inputs again, then it starts.
     Submit,
     ShowProject(String),
-    /// Choose… on a host: its folders in the host finder.
-    ChooseOnHost {
-        host: String,
-        start: Option<String>,
-    },
-    /// Choose… on this Mac: Finder's folder picker.
+    ChooseOnHost { host: String, start: Option<String> },
     ChooseOnMac,
-    Cloned {
-        dest: String,
-        host: Option<String>,
-    },
+    Cloned { dest: String, host: Option<String> },
 }
 
-/// Clone from URL as its own `Entity`: the URL and folder, the machine cloned onto and the clone's run.
 pub struct CloneForm {
     pub(crate) url: Entity<InputState>,
     path: Entity<InputState>,
@@ -274,7 +257,6 @@ impl CloneForm {
         self.url_changed(window, cx);
     }
 
-    /// The folder Choose… picked on this Mac.
     pub(crate) fn root_chosen(&mut self, dir: String, window: &mut Window, cx: &mut Context<Self>) {
         (self.root, self.path_edited) = (Some(dir), false);
         self.url_changed(window, cx);
@@ -476,7 +458,6 @@ impl Desktop {
         }
     }
 
-    /// Hands the form what it reads of `Desktop`, for the machine it clones onto.
     fn show_clone(&mut self, cx: &mut Context<Self>) {
         let machine = self.clone_form.read(cx).machine.clone();
         let inputs = self.clone_inputs(&machine);
@@ -503,7 +484,6 @@ impl Desktop {
         self.clone_form.update(cx, |f, cx| f.start(window, cx));
     }
 
-    /// Clones into the folder the host finder picked, on `host`.
     pub(crate) fn clone_into(&mut self, host: String, dir: String, window: &mut Window, cx: &mut Context<Self>) {
         self.show_clone(cx);
         self.clone_form.update(cx, |f, cx| f.clone_into(host, dir, window, cx));

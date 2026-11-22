@@ -280,7 +280,6 @@ pub(crate) fn mark(open: Option<&Handoff>, agent: &str) -> Option<Mark> {
     Some(if h.run.as_ref()?.failed.is_some() { Mark::Stopped } else { Mark::Moving(h.host.clone()?) })
 }
 
-/// What the sheet asks of `Desktop`, which owns the overlay, the hosts and the run's steps.
 pub(crate) enum HandoffEvent {
     Close,
     AddHost,
@@ -292,7 +291,6 @@ pub(crate) enum HandoffEvent {
     OpenHandedOff,
 }
 
-/// A host as the sheet draws it; `Desktop` lists every host again each time it draws the sheet.
 pub(crate) struct HostRow {
     pub id: String,
     pub name: String,
@@ -302,7 +300,6 @@ pub(crate) struct HostRow {
     pub online: bool,
 }
 
-/// The Hand off sheet as its own `Entity`: the handoff open, its summary box and the sheet's clicks.
 pub(crate) struct HandoffState {
     pub open: Option<Handoff>,
     pub summary: Entity<TextareaState>,

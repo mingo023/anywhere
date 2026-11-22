@@ -15,7 +15,6 @@ pub const ALLOW: &str = "allow";
 pub const DENY: &str = "deny";
 const LINE_MAX: usize = 240;
 
-/// Deny and Allow once buttons, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`, each with the decision its click makes.
 pub(crate) fn answer_row(scope: &str, id: &str) -> [(Stateful<Div>, Decision); 2] {
     let button = |name: &str| SharedString::from(format!("{scope}-{name}-{id}"));
     [

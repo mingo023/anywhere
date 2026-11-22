@@ -53,7 +53,6 @@ impl Board {
         ))
     }
 
-    /// `action` on ticket `id`: a card's menu goes on to the choices of its field; the rest is `Desktop`'s.
     pub(super) fn act(&mut self, action: Action, id: &str, cx: &mut Context<Self>) {
         if let (Some(field), Some(Menu::Card { sub, .. })) = (action_field(action), self.menu.as_mut()) {
             *sub = Some(field);

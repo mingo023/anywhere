@@ -265,7 +265,6 @@ pub(crate) enum CreatesEvent {
 #[derive(Default)]
 pub(crate) struct Creates {
     pub(crate) list: Vec<Create>,
-    /// The create whose page is drawn, and whether its worktree has a terminal to show instead; `Desktop` hands both down each time it draws the page.
     shown: Option<String>,
     has_terminal: bool,
     /// A timer redraws the clock while a running create is on screen.

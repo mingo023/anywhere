@@ -78,7 +78,6 @@ impl Activity {
         ui::dropdown_right(30., ui::menu_in("activity-filter-in", popup.children(rows)))
     }
 
-    /// The name `Desktop` handed down for a menu's value.
     fn name_of(&self, value: &str) -> String {
         self.side.names.get(value).cloned().unwrap_or_else(|| value.to_string())
     }

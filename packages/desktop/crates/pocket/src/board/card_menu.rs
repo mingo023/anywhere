@@ -8,6 +8,7 @@ use agents::tickets::Ticket;
 use gpui_kit::*;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Arc;
 use theme::*;
 
 fn action_row(a: Action) -> Option<(&'static str, &'static str, bool)> {
@@ -35,7 +36,6 @@ fn action_row(a: Action) -> Option<(&'static str, &'static str, bool)> {
     })
 }
 
-/// A change to the tickets a menu was opened for.
 pub(crate) enum PropChange {
     Priority(u8),
     Label { label: &'static str, on: bool },
@@ -58,7 +58,7 @@ impl Desktop {
     /// Saves a change to each ticket, a started one taking only its priority and labels.
     pub(super) fn set_tickets_props(&mut self, ids: &[String], change: &PropChange, cx: &mut App) {
         for id in ids {
-            let Some(t) = self.agents.board.tickets.iter_mut().find(|t| t.id == *id) else { continue };
+            let Some(t) = Arc::make_mut(&mut self.agents.board).tickets.iter_mut().find(|t| t.id == *id) else { continue };
             let mut v = Values::of(t);
             change.apply(&mut v);
             let draft = v.draft(&t.title, &t.prompt);

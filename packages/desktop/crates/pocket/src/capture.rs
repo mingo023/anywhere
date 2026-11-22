@@ -24,6 +24,7 @@ use gpui_kit::component::Root;
 use gpui_kit::*;
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use workspace::{Doc, Tab};
 
@@ -528,7 +529,7 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("board", |d, window, cx| d.open_board(window, cx)),
     ("board-list", |d, _, cx| {
-        d.board.update(cx, |b, _| b.layout = crate::board::Layout::List);
+        d.board.update(cx, |b, _| b.set_layout(crate::board::Layout::List));
         cx.notify();
     }),
     ("board-search", |d, _, cx| {
@@ -540,7 +541,7 @@ const STEPS: [(&str, Step); 302] = [
             .flat_map(|n| d.agents.board.tickets.iter().map(move |t| (n, t.clone())))
             .map(|(n, t)| agents::tickets::Ticket { id: format!("{}-{n}", t.id), ..t })
             .collect();
-        d.agents.board.tickets.extend(more);
+        Arc::make_mut(&mut d.agents.board).tickets.extend(more);
         d.board_changed(cx);
         d.board.update(cx, |b, _| b.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) }));
         cx.notify();
@@ -552,7 +553,7 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("board-new", |d, window, cx| d.board.update(cx, |b, cx| b.focus_composer(window, cx))),
     ("board-empty", |d, _, cx| {
-        d.agents.board.tickets.clear();
+        Arc::make_mut(&mut d.agents.board).tickets.clear();
         d.board_changed(cx);
         cx.notify();
     }),
@@ -565,15 +566,15 @@ const STEPS: [(&str, Step); 302] = [
     ("board-card-menu", |d, _, cx| {
         let tickets = &d.agents.board.tickets;
         let Some(id) = tickets.iter().find(|t| t.id == "t5").or(tickets.last()).map(|t| t.id.clone()) else { return };
-        d.board.update(cx, |b, _| b.menu = Some(crate::board::Menu::Card { id, at: point(px(700.), px(300.)), sub: None }));
+        d.board.update(cx, |b, _| b.toggle_menu(crate::board::Menu::Card { id, at: point(px(700.), px(300.)), sub: None }, None));
         cx.notify();
     }),
     ("board-display", |d, _, cx| {
-        d.board.update(cx, |b, _| b.menu = Some(crate::board::Menu::Display));
+        d.board.update(cx, |b, _| b.toggle_menu(crate::board::Menu::Display, None));
         cx.notify();
     }),
     ("board-filter", |d, _, cx| {
-        d.board.update(cx, |b, _| b.menu = Some(crate::board::Menu::Filter));
+        d.board.update(cx, |b, _| b.toggle_menu(crate::board::Menu::Filter, None));
         cx.notify();
     }),
     ("board-filtered", |d, _, cx| {

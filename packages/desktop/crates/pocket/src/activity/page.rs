@@ -46,7 +46,6 @@ impl Activity {
 }
 
 impl Desktop {
-    /// The page: its bar, with the filters the page draws in it, over the page.
     pub(crate) fn activity_page(&mut self, cx: &mut Context<Self>) -> Div {
         let side = self.activity_side(cx);
         self.activity.update(cx, |a, _| a.set(side));

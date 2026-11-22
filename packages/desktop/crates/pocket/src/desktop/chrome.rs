@@ -301,7 +301,6 @@ pub fn pill(id: impl Into<ElementId>, v: ui::Variant, icon_name: Option<&str>, l
     ui::button(id, v, icon_name, label.to_string()).h(px(28.)).px(px(12.)).rounded(px(14.)).font_weight(FontWeight::MEDIUM)
 }
 
-/// A floating menu of `width` that `on_out` hears a press outside of.
 pub(crate) fn popup_closing(id: &'static str, width: f32, on_out: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> Stateful<Div> {
     ui::pop(div().id(id)).w(px(width)).p(px(5.)).flex().flex_col().occlude().on_mouse_down_out(on_out)
 }
@@ -413,7 +412,6 @@ impl Desktop {
         self.widths[col as usize].map_or(fallback, |w| w.clamp(min, max))
     }
 
-    /// `seam_handle`, or `None` while an overlay is open.
     pub(crate) fn seam(
         &self,
         id: impl Into<ElementId>,

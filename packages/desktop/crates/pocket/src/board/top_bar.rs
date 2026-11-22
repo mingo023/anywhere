@@ -5,7 +5,6 @@ use gpui_kit::*;
 use theme::*;
 
 impl Board {
-    /// The bar's title and the search beside it.
     pub(super) fn board_bar(&self, cx: &mut Context<Self>) -> (Div, Div) {
         let searching = self.searching || !self.filters.query.is_empty();
         let field = searching.then(|| {

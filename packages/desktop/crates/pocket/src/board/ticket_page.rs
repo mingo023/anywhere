@@ -10,7 +10,6 @@ use ui::Variant;
 use ui::card_pill as pill;
 
 impl Board {
-    /// The bar's crumb and the page's actions beside it.
     pub(super) fn ticket_page_bar(&self, cx: &mut Context<Self>) -> (Div, Div) {
         let f = &self.form;
         let id = f.picks.values.id.clone().unwrap_or_default();

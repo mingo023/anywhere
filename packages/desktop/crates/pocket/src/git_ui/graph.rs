@@ -79,18 +79,13 @@ pub struct Graph {
     files: HashMap<String, Vec<CommitFile>>,
     items: Vec<Item>,
     reveal: Option<(String, Option<Instant>)>,
-    /// The worktree on screen, which the graph shown must match.
     here: Option<String>,
-    /// Whether the Changes panel is the side on show.
     active: bool,
-    /// Whether the seam may take presses: not under an overlay.
     seamed: bool,
-    /// The commit and file the focused pane's diff shows.
     viewing: Option<(String, String)>,
 }
 
 pub enum GraphEvent {
-    /// The dragged share changed, `None` for an even split.
     Share(Option<f32>),
     Open(Doc, bool),
 }
@@ -241,12 +236,10 @@ impl Graph {
 }
 
 impl Graph {
-    /// What the graph needs of `Desktop` to draw: the worktree on screen, whether the seam takes presses, and the file the focused pane's diff shows.
     pub fn show(&mut self, here: Option<String>, active: bool, seamed: bool, viewing: Option<(String, String)>) {
         (self.here, self.active, self.seamed, self.viewing) = (here, active, seamed, viewing);
     }
 
-    /// Whether the open graph holds a dragged share, which sets a floor on the list above it.
     pub fn splits(&self) -> bool {
         self.open && self.share.is_some()
     }
@@ -448,7 +441,6 @@ impl Desktop {
         }
     }
 
-    /// The commit and path of the file the focused pane's diff shows, if it is a commit's.
     fn viewing_commit_file(&self) -> Option<(String, String)> {
         let v = self.diff.view(self.focused_pane())?;
         let At::Commit(sha) = &v.at else { return None };

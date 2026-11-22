@@ -18,7 +18,7 @@ impl Activity {
             .child(column_heading(col_glyph(col, count > 0), col.name(), count.to_string()))
             .children(col.why().map(|why| div().ml_auto().text_size(px(11.)).text_color(TEXT_4).child(why)));
         let empty = (count == 0).then(|| div().px(px(14.)).pt(px(6.)).pb(px(12.)).text_size(px(12.)).line_height(px(18.)).text_color(TEXT_4).child(col.hint()));
-        let cards = list(self.lists[col as usize].clone(), cx.processor(move |this, ix, _, cx| this.activity_card(col, ix, cx))).flex_1().w_full();
+        let cards = list(self.lists[col as usize].clone(), cx.processor(move |this, ix, window, cx| this.activity_card(col, ix, window, cx))).flex_1().w_full();
         div()
             .id(("activity-col", col as usize))
             .flex_1()

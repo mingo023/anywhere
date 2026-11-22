@@ -96,8 +96,13 @@ impl Activity {
         div().flex().flex_none().items_center().gap(px(4.)).child(provider_icon(provider, 11., TEXT_3)).child(provider.to_string())
     }
 
-    pub(super) fn activity_card(&self, col: Col, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some((item, extra)) = self.grouped.shown(col, ix).and_then(|item| Some((item, self.side.extras.get(&item.id)?))) else {
+    pub(super) fn activity_card(&self, col: Col, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(item) = self.grouped.shown(col, ix) else {
+            return div().into_any_element();
+        };
+        let Some(extra) = self.side.extras.get(&item.id) else {
+            // Scrolled past what was asked for last frame; the next one asks again.
+            window.request_animation_frame();
             return div().into_any_element();
         };
         let (motion, id) = (self.motion.clone(), item.id.clone());
@@ -253,7 +258,6 @@ impl Activity {
         })
     }
 
-    /// Deny and Allow once for the session's permission ask; `None` while observing, which answers nothing.
     fn activity_answers(&self, id: &str, ask: &Permission, cx: &mut Context<Self>) -> Option<Div> {
         if self.side.observe_only {
             return None;

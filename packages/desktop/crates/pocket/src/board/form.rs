@@ -47,7 +47,6 @@ impl Board {
         }
     }
 
-    /// What the open page would change in `ticket`, the one it edits as it is now.
     pub(super) fn page_draft(&self, ticket: Option<&Ticket>, cx: &App) -> Option<TicketDraft> {
         self.page.as_ref()?;
         let (title, prompt) = self.form.texts(cx);
@@ -58,13 +57,11 @@ impl Board {
         self.page.as_ref().and(self.form.picks.values.id.as_deref())
     }
 
-    /// The ticket `delta` places along the page's steps.
     pub(crate) fn stepped_page(&self, delta: isize) -> Option<String> {
         let (ids, at) = (self.page.as_ref()?, self.form.picks.values.id.as_deref()?);
         stepped(ids, at, delta).map(str::to_string)
     }
 
-    /// The draft Start sends, when the ticket on the page can start and has what it needs.
     pub(super) fn start_draft(&self, is_repo: bool, cx: &App) -> Option<TicketDraft> {
         let (title, prompt) = self.form.texts(cx);
         let ready = self.form.picks.values.ready(&title, &prompt, is_repo);
@@ -138,17 +135,17 @@ impl Desktop {
 
     pub(crate) fn leave_ticket_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.save_ticket_page(cx);
-        self.board.update(cx, |b, _| b.page = None);
+        self.board.update(cx, |b, _| b.close_page());
         window.focus(&self.root, cx);
         self.board_changed(cx);
         cx.notify();
     }
 
     pub(super) fn start_from_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let is_repo = self.folder_is_repo(&self.board.read(cx).form.picks.values.folder);
+        let is_repo = self.folder_is_repo(self.board.read(cx).page_folder());
         let Some(draft) = self.board.read(cx).start_draft(is_repo, cx) else { return };
         self.outbox.local.board_save(draft, true);
-        self.board.update(cx, |b, _| b.page = None);
+        self.board.update(cx, |b, _| b.close_page());
         window.focus(&self.root, cx);
         self.board_changed(cx);
         cx.notify();
@@ -156,9 +153,9 @@ impl Desktop {
 
     pub(super) fn move_page_ticket_back(&mut self, cx: &mut Context<Self>) {
         self.save_ticket_page(cx);
-        if let Some(id) = self.board.read(cx).form.picks.values.id.clone() {
+        if let Some(id) = self.board.read(cx).page_ticket_id() {
             self.outbox.local.board_move(&id, State::Todo, None);
-            self.board.update(cx, |b, _| b.form.picks.values.state = Some(State::Todo));
+            self.board.update(cx, |b, _| b.page_ticket_moved_back());
         }
         cx.notify();
     }

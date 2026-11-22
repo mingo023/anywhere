@@ -111,23 +111,17 @@ fn step(key: &str, selected: usize) -> Option<usize> {
     }
 }
 
-/// A note as the list draws it: `Desktop` hands over the names it looked up.
 pub(crate) struct Row {
     pub(crate) note: Note,
     pub(crate) project: String,
     pub(crate) provider: String,
-    /// The heading this row opens, when the list is in urgent order.
     pub(crate) heading: Option<(String, usize)>,
 }
 
 pub(crate) enum InboxEvent {
-    /// A key or a filter pick moved the selection to this note; `Desktop` clamps it and focuses its terminal.
     Select(usize),
     MarkAllSeen,
-    Open {
-        agent: String,
-        mark_seen: bool,
-    },
+    Open { agent: String, mark_seen: bool },
 }
 
 pub struct Inbox {
@@ -184,7 +178,6 @@ impl Desktop {
         arrange(notes(&self.agents), self.store.sidebar.inbox_sort, self.inbox.read(cx).filter)
     }
 
-    /// The list left of the page, handed its notes and the column's width.
     pub(crate) fn inbox_list(&self, width: f32, cx: &mut Context<Self>) -> Entity<Inbox> {
         let notes = self.shown_notes(cx);
         let urgent = self.store.sidebar.inbox_sort == InboxSort::Urgent;

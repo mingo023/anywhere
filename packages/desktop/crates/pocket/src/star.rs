@@ -66,7 +66,6 @@ impl Star {
     }
 }
 
-/// Starred or closed: it is never asked again.
 fn answered(store: &mut Store) {
     store.star_asked = true;
 }

@@ -31,7 +31,6 @@ impl Render for Welcome {
 }
 
 impl Welcome {
-    /// A welcome that takes Return while it covers the app.
     pub(crate) fn entity<T: 'static>(cx: &mut Context<T>) -> Entity<Self> {
         cx.new(|cx| Self { _keys: Some(Self::on_enter(cx)), ..Self::new() })
     }

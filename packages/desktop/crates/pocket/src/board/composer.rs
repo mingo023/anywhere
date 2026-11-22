@@ -31,7 +31,6 @@ impl Composer {
 }
 
 impl Board {
-    /// Points the composer at the filtered project, or another when its own was removed; the folder it moved to, whose branches to read.
     pub(super) fn aim(&mut self, projects: &[String], current: Option<&str>) -> Option<String> {
         let filter = aim_filter(self.filters.project.only().map(String::as_str), projects);
         if !needs_aim(&self.composer.picks.values.folder, filter, projects) {
@@ -50,14 +49,12 @@ impl Board {
         cx.notify();
     }
 
-    /// The ticket the composer's text and choices make, once they are enough for one.
     pub(super) fn composer_draft(&self, is_repo: bool, cx: &App) -> Option<TicketDraft> {
         let c = &self.composer;
         let (title, prompt) = split_draft(&c.text.read(cx).value());
         c.picks.values.ready(&title, &prompt, is_repo).then(|| c.picks.values.draft(&title, &prompt))
     }
 
-    /// Clears what a ticket was made of, and the filters and tab that could hide it.
     pub(super) fn created(&mut self, start: bool, window: &mut Window, cx: &mut Context<Self>) {
         let c = &mut self.composer;
         (c.picks.values.priority, c.picks.values.labels) = (0, Vec::new());
@@ -138,13 +135,13 @@ impl Desktop {
 
     /// After a refresh a project picked by hand stays, even off the filter; only one that's gone is replaced.
     pub(crate) fn rescue_board_composer(&mut self, cx: &mut Context<Self>) {
-        if !self.board_projects().contains(&self.board.read(cx).composer.picks.values.folder) {
+        if !self.board_projects().iter().any(|p| p == self.board.read(cx).composer_folder()) {
             self.aim_board_composer(cx);
         }
     }
 
     pub(super) fn create_ticket(&mut self, start: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let is_repo = self.folder_is_repo(&self.board.read(cx).composer.picks.values.folder);
+        let is_repo = self.folder_is_repo(self.board.read(cx).composer_folder());
         let Some(draft) = self.board.read(cx).composer_draft(is_repo, cx) else {
             return self.board.update(cx, |b, cx| b.focus_composer(window, cx));
         };

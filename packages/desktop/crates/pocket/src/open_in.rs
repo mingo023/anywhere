@@ -36,7 +36,6 @@ impl Flyouts {
 }
 
 pub(crate) enum OpenInEvent {
-    /// The chevron was pressed: the other menus shut, then `show` opens this one.
     Open,
     Picked(&'static str),
     CopyPath,
@@ -49,7 +48,6 @@ pub(crate) struct OpenIn {
     apps: Installed,
     icons: HashMap<&'static str, PathBuf>,
     pub(crate) menu: Option<Flyouts>,
-    /// The folder the button opens and the app remembered, handed down by `Desktop` each time it draws the button.
     folder: Option<String>,
     choice: String,
 }
@@ -138,7 +136,6 @@ fn flyout(id: &'static str, rows: Vec<Stateful<Div>>) -> Stateful<Div> {
 }
 
 impl Render for OpenIn {
-    /// The top bar's button: the icon opens the selected tree's folder in the last app picked, the chevron opens the menu.
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let flyouts = self.menu;
         let open = div()

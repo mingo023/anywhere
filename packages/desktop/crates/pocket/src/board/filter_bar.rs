@@ -33,7 +33,6 @@ impl Board {
         cx.emit(BoardEvent::ToggleMenu(menu));
     }
 
-    /// Shows the Filter menu, or `cat`'s values in it, with its search emptied and focused.
     pub(super) fn open_filter(&mut self, cat: Option<FilterCat>, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = Some(Menu::Filter);
         self.focus_filter_search(window, cx);

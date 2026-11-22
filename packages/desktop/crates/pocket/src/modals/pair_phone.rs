@@ -34,7 +34,6 @@ fn countdown(left: Duration) -> String {
     format!("Expires in {}:{:02}", s / 60, s % 60)
 }
 
-/// The Pair phone sheet as its own `Entity`: the code on offer, its countdown and the sheet's clicks.
 pub struct PairPhone {
     stage: Stage,
     _ticking: Option<Task<()>>,
@@ -91,7 +90,6 @@ impl PairPhone {
     }
 }
 
-/// What the sheet asks of `Desktop`, which owns the overlay and talks to pocketd.
 pub(crate) enum PairEvent {
     Close,
     NewCode,

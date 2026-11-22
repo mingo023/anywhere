@@ -18,44 +18,31 @@ use git::github::PrState;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 pub(crate) use logic::Menu;
-use logic::{COLS, Escape, Filters, Grouped, Item, escape, marks_seen, opens_preview, values};
+use logic::{COLS, Escape, Filters, Grouped, Item, drawn_cards, escape, marks_seen, opens_preview, values};
 use motion::Motion;
 use side::{Drawer, Extra, Side};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
+const OVERDRAW: f32 = 400.;
+const MIN_CARD_HEIGHT: f32 = 56.;
+
 pub(crate) enum ActivityEvent {
-    /// The search or a filter pick changed what the columns keep; `Desktop` gathers the sessions again.
     Changed,
-    /// A chip was pressed: the other menus shut, then `show` opens this one.
     OpenMenu(Menu),
     CloseMenus,
     Preview(String),
     Open(String),
-    Reply {
-        id: String,
-        text: String,
-    },
-    Answer {
-        request: String,
-        decision: Decision,
-    },
-    AnswerQuestion {
-        request: String,
-        question: String,
-        label: String,
-    },
+    Reply { id: String, text: String },
+    Answer { request: String, decision: Decision },
+    AnswerQuestion { request: String, question: String, label: String },
     Retry(String),
     Seen(String),
     CreatePr(String),
-    OpenPr {
-        id: String,
-        url: String,
-    },
+    OpenPr { id: String, url: String },
 }
 
-/// The Activity page's columns and the drawer beside them, over what `Desktop` hands down each time it draws them; the bar's filters are `filters`.
 pub struct Activity {
     pub(crate) previewed: Option<String>,
     filters: Filters,
@@ -93,7 +80,7 @@ impl Activity {
             filters: Filters::default(),
             menu: None,
             grouped: Grouped::default(),
-            lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(400.))).collect(),
+            lists: COLS.iter().map(|_| ListState::new(0, ListAlignment::Top, px(OVERDRAW))).collect(),
             motion: Rc::default(),
             search,
             reply,
@@ -102,24 +89,28 @@ impl Activity {
         }
     }
 
-    pub(crate) fn items(&self) -> &[Item] {
-        &self.grouped.items
-    }
-
     pub(crate) fn item(&self, id: &str) -> Option<&Item> {
         self.grouped.item(id)
     }
 
-    /// What the menu offers, each value with how many sessions have it.
     pub(crate) fn values(&self, menu: Menu) -> Vec<(String, usize)> {
         values(&self.grouped.items, menu)
+    }
+
+    pub(crate) fn wanted(&self) -> Vec<&Item> {
+        let drawn = COLS.iter().flat_map(|&col| {
+            let list = &self.lists[col as usize];
+            let line = &self.grouped.columns[col as usize];
+            let range = drawn_cards(list.logical_scroll_top().item_ix, f32::from(list.viewport_bounds().size.height), OVERDRAW, MIN_CARD_HEIGHT, line.len());
+            line[range].iter().filter_map(|&i| self.grouped.items.get(i))
+        });
+        drawn.chain(self.previewed.as_deref().and_then(|id| self.grouped.item(id))).collect()
     }
 
     pub(crate) fn set(&mut self, side: Side) {
         self.side = side;
     }
 
-    /// The page opens with nothing previewed, and no place to fly cards from: where they were drawn last time it showed is none.
     pub(crate) fn open(&mut self) {
         self.previewed = None;
         self.motion.borrow_mut().clear();
@@ -139,7 +130,6 @@ impl Activity {
         cx.notify();
     }
 
-    /// Esc lets go of a focused search field first, then closes the preview; leaving the page is `Desktop`'s.
     pub(crate) fn escape(&mut self, window: &Window, cx: &App) -> Escape {
         let typing = self.search.focus_handle(cx).is_focused(window) || self.reply.focus_handle(cx).is_focused(window);
         let esc = escape(typing, self.previewed.is_some());
@@ -149,7 +139,6 @@ impl Activity {
         esc
     }
 
-    /// Previews `id`, its reply field asking for what `to` answers.
     pub(crate) fn preview(&mut self, id: &str, to: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.reply.update(cx, |s, cx| {
             s.set_value("", window, cx);
@@ -167,7 +156,6 @@ impl Activity {
         self.reply.update(cx, |s, cx| s.set_value("", window, cx));
     }
 
-    /// Takes the sessions as they are now; the previewed one, when its turn ended while you were looking.
     pub(crate) fn gather(&mut self, items: Vec<Item>) -> Option<String> {
         self.regroup(items);
         self.grouped.ended_in_view(self.previewed.as_deref())
@@ -326,12 +314,11 @@ impl Desktop {
         }
     }
 
-    /// What the page reads of `Desktop` to draw: each session's project tile, PR, diff and ask, the open menu's names, and the drawer's session.
     pub(crate) fn activity_side(&self, cx: &App) -> Side {
         let a = self.activity.read(cx);
         let extras = a
-            .items()
-            .iter()
+            .wanted()
+            .into_iter()
             .map(|item| {
                 let tree = self.prs.get(&item.tree);
                 let repo = self.repos.get(&item.tree).filter(|r| !r.files.is_empty());

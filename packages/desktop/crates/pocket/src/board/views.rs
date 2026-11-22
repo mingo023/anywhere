@@ -71,10 +71,7 @@ impl Desktop {
 
     pub(super) fn apply_board_view(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(view) = self.store.board_views.get(index).cloned() else { return };
-        self.board.update(cx, |b, _| {
-            b.filters = filters_of(&view, std::mem::take(&mut b.filters.query));
-            b.tab = Tab::All;
-        });
+        self.board.update(cx, |b, _| b.apply_filters(|query| filters_of(&view, query)));
         self.board_changed(cx);
         self.aim_board_composer(cx);
         cx.notify();
