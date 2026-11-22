@@ -270,6 +270,10 @@ func findTree(f registry.File, path string) (linkedTree, error) {
 func (s *Server) SubagentWorktrees(path string) ([]ops.Tree, error) {
 	f := s.Registry.Load()
 	tree, err := findTree(f, path)
+	if errors.Is(err, worktree.ErrUnknownWorktree) {
+		// The lineage places sessions by the same lookup, so none can be under it.
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

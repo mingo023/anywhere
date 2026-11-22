@@ -630,13 +630,14 @@ impl Desktop {
     /// `leftover` is the host folder the sweep asks about, for a sheet the user didn't ask for.
     fn ask_delete(&mut self, removal: Removal, leftover: Option<String>, cx: &mut Context<Self>) {
         let (mut subtrees, on_hosts) = self.subagent_removals(&removal);
+        let shells = self.shells();
         let main = removal.clone();
         let task = cx.background_executor().spawn(async move {
             // A delete that can't read it refuses; the sheet shows what it can.
             let named = lineage(std::slice::from_ref(&main.tree)).unwrap_or_default();
             let mut on_hosts = on_hosts;
             on_hosts.folders.extend(hosted(named.clone()).filter(|(f, _)| !on_hosts.folders.iter().any(|(o, _)| o == f)).collect::<Vec<_>>());
-            for r in local_removals(&named, main.delete_branch) {
+            for r in unoccupied(local_removals(&named, main.delete_branch), &shells) {
                 if r.tree != main.tree && !subtrees.iter().any(|s| s.tree == r.tree) {
                     subtrees.push(r);
                 }
@@ -684,8 +685,9 @@ impl Desktop {
         // The rest of this Mac's go if its pocketd's lineage still names them, read off the UI thread.
         let (subagents, unsure): (Vec<Removal>, Vec<Removal>) = confirmed.into_iter().filter(|c| known(c) || hosts::split(&c.tree).0.is_none()).partition(known);
         let subagents: Vec<Removal> = subagents.into_iter().filter(|c| self.removals.start(&c.tree)).collect();
-        let unsure: Vec<Removal> = unsure.into_iter().filter(|c| self.removals.start(&c.tree)).collect();
-        let started: Vec<String> = subagents.iter().chain(&unsure).map(|s| s.tree.clone()).chain(std::iter::once(removal.tree.clone())).collect();
+        let unsure: Vec<Removal> = unoccupied(unsure, &self.shells()).into_iter().filter(|c| self.removals.start(&c.tree)).collect();
+        let scheduled: Vec<Removal> = subagents.iter().chain(&unsure).cloned().collect();
+        let started: Vec<String> = scheduled.iter().map(|s| s.tree.clone()).chain(std::iter::once(removal.tree.clone())).collect();
         let teardown = |r: &Removal| self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let jobs: Vec<(Removal, String)> = subagents.iter().map(|r| (r.clone(), teardown(r))).collect();
         let unsure: Vec<(Removal, String)> = unsure.into_iter().map(|r| { let t = teardown(&r); (r, t) }).collect();
@@ -716,7 +718,7 @@ impl Desktop {
                 for t in &started {
                     d.removals.running.remove(t);
                 }
-                let rest: Vec<Removal> = subagents.into_iter().filter(|s| !done.iter().any(|(r, _)| r.tree == s.tree)).collect();
+                let rest: Vec<Removal> = scheduled.into_iter().filter(|s| !done.iter().any(|(r, _)| r.tree == s.tree)).collect();
                 for (r, Removed { aside, kept }) in done {
                     if let Some(aside) = aside {
                         cx.background_executor().spawn(async move { dispose(&aside, trash) }).detach();

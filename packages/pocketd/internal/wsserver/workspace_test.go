@@ -421,8 +421,8 @@ func TestADesktopIsToldEachSubagentWorktreeWithTheStartOfTheSessionsThatWorkedTh
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, %v; want %+v", got, err, want)
 	}
-	if _, err := b.s.SubagentWorktrees(tree("nowhere")); err == nil {
-		t.Fatal("a folder that's no worktree was answered")
+	if got, err := b.s.SubagentWorktrees(tree("nowhere")); err != nil || len(got) != 0 {
+		t.Fatalf("a folder that's no worktree: %v, %v; want none", got, err)
 	}
 }
 
@@ -447,6 +447,17 @@ func TestAWorktreeWhoseLineageCantBeReadStaysAsWhatWouldNameItsSubagents(t *test
 	}
 	if _, err := os.Stat(tree); err != nil {
 		t.Fatalf("the worktree went: %v", err)
+	}
+}
+
+func TestAWorktreeOutsideTheRootHasNoSubagentWorktreesRatherThanAnError(t *testing.T) {
+	var b bench
+	local(t, aPhone, withWorkspace(t, &b))
+	elsewhere := filepath.Join(filepath.Dir(b.root), "elsewhere")
+	gitOut(t, b.project, "worktree", "add", "-q", "-b", "x", elsewhere)
+	trees, err := b.s.SubagentWorktrees(elsewhere)
+	if err != nil || len(trees) != 0 {
+		t.Fatalf("trees %v, %v; want none", trees, err)
 	}
 }
 
