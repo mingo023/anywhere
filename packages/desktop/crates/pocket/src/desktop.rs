@@ -535,7 +535,7 @@ impl Desktop {
 
     /// The worktree whose panes the main view shows.
     pub(crate) fn session_tree(&self) -> Option<String> {
-        if self.terminals.link.is_down() || self.screen != Screen::Sessions || self.new_form.shown {
+        if self.terminals.link.is_down() || self.terminals.link.update(Instant::now()).is_some() || self.screen != Screen::Sessions || self.new_form.shown {
             return None;
         }
         self.place()

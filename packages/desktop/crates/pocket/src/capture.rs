@@ -1075,7 +1075,10 @@ const STEPS: [(&str, Step); 303] = [
     ("service-off", |d, _, _| d.terminals.link.service = Some(daemon::service::Service::RequiresApproval)),
     ("service-updating", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now())),
     ("service-stale", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER)),
-    ("service-back", |d, _, _| d.terminals.link.connected("0.2.0", "0.2.0", true, Instant::now())),
+    ("service-back", |d, _, _| {
+        d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now());
+        d.terminals.link.connected("0.2.0", "0.2.0", true, Instant::now());
+    }),
 ];
 
 /// Steps that drive real input through the window, each taking its next argument from the environment:
