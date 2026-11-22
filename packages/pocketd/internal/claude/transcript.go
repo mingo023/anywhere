@@ -140,6 +140,8 @@ type Turns struct {
 	hooked, retime bool
 	// erred is when the turn an API error ended began, until the next line shows whether Claude went on.
 	erred *time.Time
+	// typed is the last prompt written as a slash command; Claude answers it as a prompt when it knows no such command.
+	typed string
 }
 
 func (t *Turns) Map(raw []byte) []timeline.Event {
@@ -148,8 +150,13 @@ func (t *Turns) Map(raw []byte) []timeline.Event {
 		return nil
 	}
 	events := l.events()
-	if l.Type == "system" && l.Subtype == "agents_killed" {
+	switch {
+	case l.Type == "system" && l.Subtype == "agents_killed":
 		events = t.killed()
+	case l.Type == "user":
+		t.typed = l.slashPrompt()
+	case l.Type == "attachment" && l.Attachment.Type == "unknown_command_fallback" && t.typed != "":
+		events, t.typed = []timeline.Event{{Kind: "user", Text: t.typed}}, ""
 	}
 	t.follow(l, events)
 	if t.running {
@@ -403,6 +410,13 @@ func (l line) localOutput() (string, bool) {
 		return out, true
 	}
 	return tag(text, "local-command-stderr"), true
+}
+
+func (l line) slashPrompt() string {
+	if text := textOf(l.Message.Content); !l.IsMeta && Command(text) {
+		return unwrapPastes(text)
+	}
+	return ""
 }
 
 func (l line) caveat() bool {
