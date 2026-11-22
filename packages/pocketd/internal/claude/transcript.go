@@ -812,6 +812,30 @@ func tailFrom(ctx context.Context, path string, from int64, fn func([]byte)) {
 	}
 }
 
+// LastUUID is the uuid of the last line within the first end bytes of the
+// transcript at path that has one, or "".
+func LastUUID(path string, end int64) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	var last string
+	r := bufio.NewReader(io.LimitReader(f, end))
+	for {
+		raw, err := r.ReadBytes('\n')
+		if err != nil {
+			return last
+		}
+		var l struct {
+			UUID string `json:"uuid"`
+		}
+		if json.Unmarshal(raw, &l) == nil && l.UUID != "" {
+			last = l.UUID
+		}
+	}
+}
+
 // readLines calls fn with each whole line written to path so far, and
 // returns how far they reach.
 func readLines(path string, fn func([]byte)) (n int64) {

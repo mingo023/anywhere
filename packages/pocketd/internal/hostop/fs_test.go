@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 func write(t *testing.T, path, body string) {
@@ -163,5 +165,32 @@ func TestTrashXDGWritesTheTrashInfo(t *testing.T) {
 	write(t, path, "y")
 	if got, err := trashXDG(path, data); err != nil || filepath.Base(got) != "my file 2" {
 		t.Fatalf("%q %v", got, err)
+	}
+}
+
+func TestAppendAddsWhatEachFrameDecodesTo(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "t.jsonl")
+	write(t, f, "one\n")
+	enc, _ := zstd.NewWriter(nil)
+	for _, part := range []string{"two\n", "three\n"} {
+		if err := Append(f, enc.EncodeAll([]byte(part), nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := os.ReadFile(f); string(got) != "one\ntwo\nthree\n" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestAppendLeavesTheFileAsItWasWhenTheFrameIsCutShort(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "t.jsonl")
+	write(t, f, "one\n")
+	enc, _ := zstd.NewWriter(nil)
+	frame := enc.EncodeAll([]byte(strings.Repeat("two\n", 1000)), nil)
+	if err := Append(f, frame[:len(frame)/2]); err == nil {
+		t.Fatal("a cut frame was taken")
+	}
+	if got, _ := os.ReadFile(f); string(got) != "one\n" {
+		t.Fatalf("%q", got)
 	}
 }

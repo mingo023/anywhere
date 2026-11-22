@@ -91,38 +91,6 @@ fn meta(text: String) -> AnyElement {
 }
 
 impl Desktop {
-    /// What stands in for the composer of session `agent` once its conversation went on at a host.
-    pub(crate) fn moved_banner(&self, agent: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let host = self.store.moved.get(agent)?.host.clone();
-        let name = self.host_name(&host);
-        let id = agent.to_string();
-        let open = ui::button(SharedString::from(format!("handoff-open-moved:{agent}")), Variant::Primary, None, format!("Open on {name}"))
-            .on_click(cx.listener(move |d, _: &ClickEvent, window, cx| d.open_moved(&id, window, cx)));
-        let words = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .child(div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(format!("This session moved to {name}")))
-            .child(div().text_size(px(12.5)).text_color(TEXT_3).child("The worktree stays here."));
-        Some(
-            div()
-                .w_full()
-                .px(px(16.))
-                .py(px(14.))
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .rounded(px(16.))
-                .bg(SURFACE)
-                .shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5), ui::shadow(rgba(0x0000000a), 1., 2.)])
-                .child(icon("server", 18., TEXT_2))
-                .child(words)
-                .child(open),
-        )
-    }
-
     pub(crate) fn handoff_view(&mut self, cx: &mut Context<Self>) -> Div {
         let Some(h) = self.handoff.open.as_ref() else { return div() };
         match (&h.stage, h.run.as_ref().map(|r| r.failed.is_some())) {
@@ -384,14 +352,20 @@ impl Desktop {
             .map(|(i, step)| {
                 let failed = run.failed.as_ref().filter(|_| i == run.at);
                 let (now, todo) = (i == run.at && !done && failed.is_none(), i > run.at && !done);
+                let sending = run.sent.filter(|_| now && *step == Step::Conversation);
                 let detail = match (failed, step) {
                     (Some(_), _) if !online => Some(format!("{host} went offline")),
                     (Some(e), _) => Some(e.clone()),
                     (_, Step::Pack) => Some(format!("{} · {}", plural(s.files, "file", "files"), plural(s.commits, "commit", "commits"))),
                     (_, Step::Send) => run.pack.as_ref().map(|p| megabytes(p.bundle.len())),
+                    (_, Step::Conversation) if sending.is_some() => sending.map(|(done, of)| sent(done, of)),
                     (_, Step::Conversation) if s.messages > 0 => Some(plural(s.messages, "message", "messages")),
                     _ => None,
                 };
+                let bar = sending.map(|(done, of)| {
+                    let fill = div().h_full().w(relative(done as f32 / of.max(1) as f32)).rounded(px(2.)).bg(TEXT_2);
+                    div().mt(px(4.)).w_full().h(px(4.)).rounded(px(2.)).bg(FILL_4).overflow_hidden().child(fill)
+                });
                 let mark = if failed.is_some() {
                     icon("x", 13., FAILED).into_any_element()
                 } else if now {
@@ -418,7 +392,8 @@ impl Desktop {
                             .flex_col()
                             .gap(px(2.))
                             .child(div().when(now, |d| d.font_weight(FontWeight::MEDIUM)).when(failed.is_some(), |d| d.text_color(FAILED_TEXT)).child(step.label(&host, &s.agent_name)))
-                            .children(detail.map(|t| div().text_size(px(12.)).text_color(if todo { TEXT_5 } else { TEXT_3 }).child(t))),
+                            .children(detail.map(|t| div().text_size(px(12.)).text_color(if todo { TEXT_5 } else { TEXT_3 }).child(t)))
+                            .children(bar),
                     )
                     .into_any_element()
             })
@@ -512,6 +487,10 @@ fn back_to_pick(d: &mut Desktop, _: &ClickEvent, _: &mut Window, cx: &mut Contex
     cx.notify();
 }
 
+fn sent(done: usize, of: usize) -> String {
+    format!("{} of {}", megabytes(done), megabytes(of))
+}
+
 fn megabytes(bytes: usize) -> String {
     let mb = bytes as f64 / 1_000_000.;
     if mb < 0.1 { format!("{} KB", (bytes / 1000).max(1)) } else { format!("{mb:.1} MB") }
@@ -519,12 +498,17 @@ fn megabytes(bytes: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::megabytes;
+    use super::{megabytes, sent};
 
     #[test]
     fn a_bundle_size_reads_in_megabytes_down_to_a_tenth_then_kilobytes() {
         assert_eq!(megabytes(1_420_000), "1.4 MB");
         assert_eq!(megabytes(42_000), "42 KB");
         assert_eq!(megabytes(10), "1 KB");
+    }
+
+    #[test]
+    fn the_conversation_reads_how_much_of_it_is_on_the_host() {
+        assert_eq!(sent(4_194_304, 118_300_000), "4.2 MB of 118.3 MB");
     }
 }

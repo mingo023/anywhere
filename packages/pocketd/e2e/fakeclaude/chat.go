@@ -50,7 +50,7 @@ func chat() {
 	if i := slices.Index(os.Args, "--permission-mode"); i > 0 && i+1 < len(os.Args) {
 		c.mode = os.Args[i+1]
 	}
-	c.s.hook("SessionStart", map[string]any{"source": "startup", "model": c.model})()
+	c.s.hook("SessionStart", map[string]any{"source": c.s.source(), "model": c.model})()
 	note("fake claude ready")
 	prompts := make(chan string, 16)
 	go c.read(prompts)

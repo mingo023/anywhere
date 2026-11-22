@@ -11,3 +11,4 @@ path = "src/handoff.rs"
 git.workspace = true
 hosts.workspace = true
 serde_json.workspace = true
+zstd.workspace = true

@@ -126,6 +126,7 @@ var Needs = map[string]Scope{
 	"ops:fs.stat":             Own,
 	"ops:fs.read":             Own,
 	"ops:fs.write":            Own,
+	"ops:fs.append":           Own,
 	"ops:fs.mkdir":            Own,
 	"ops:fs.rename":           Own,
 	"ops:fs.remove":           Own,

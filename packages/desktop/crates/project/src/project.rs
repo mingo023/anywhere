@@ -85,6 +85,32 @@ pub fn refreshed(mut listed: Worktrees, old: &Worktrees, unread: &[String]) -> W
     listed
 }
 
+/// The folders of sessions no project held, each listed on its own once, and when each project was last listed that
+/// way, so a `refresh_git` begun before doesn't bring back what it read then.
+#[derive(Default)]
+pub struct Lookups {
+    asked: HashSet<String>,
+    listed: HashMap<String, u64>,
+}
+
+impl Lookups {
+    /// The `cwds` no project in `projects` holds, by its folder or a worktree, and not asked of before.
+    pub fn ask<'a>(&mut self, cwds: impl IntoIterator<Item = &'a str>, projects: &[String], worktrees: &Worktrees) -> Vec<String> {
+        cwds.into_iter().filter(|c| project_of(c, projects, worktrees).is_none() && self.asked.insert(c.to_string())).map(str::to_string).collect()
+    }
+
+    /// `project`'s worktrees were listed while `run` was the latest `refresh_git`.
+    pub fn listed(&mut self, project: &str, run: u64) {
+        self.listed.insert(project.to_string(), run);
+    }
+
+    /// The projects listed since `refresh_git` run `run` began; those listed before it are forgotten.
+    pub fn since(&mut self, run: u64) -> Vec<String> {
+        self.listed.retain(|_, at| *at >= run);
+        self.listed.keys().cloned().collect()
+    }
+}
+
 /// The worktree a folder belongs to: the listed worktree holding it, else the project it is in.
 /// `projects` runs only when no worktree holds `cwd`, as listing them walks every terminal.
 pub fn tree_of(cwd: &str, worktrees: &Worktrees, tracked: impl Fn(&str) -> bool, projects: impl FnOnce() -> Vec<String>) -> Option<String> {
@@ -110,6 +136,24 @@ mod tests {
         let trees = trees("//devbox/app", &["//devbox/app", "//devbox/wt/feat"]);
         let cwds = ["/tmp/scratch", "//mini/Users/me/.anywhere/worktrees/api/brave-otter", "//devbox/wt/feat/src", "//devbox/app"];
         assert_eq!(projects(&saved, cwds, &trees), list(&["/a/foo", "//devbox/app", "/tmp/scratch"]));
+    }
+
+    #[test]
+    fn a_session_folder_no_project_holds_is_looked_up_once() {
+        let projects = list(&["/a/foo"]);
+        let worktrees = trees("/a/foo", &["/a/foo", "/w/foo-fix"]);
+        let mut l = Lookups::default();
+        assert_eq!(l.ask(["/a/foo/src", "/w/foo-fix", "/w/foo-new", "/w/foo-new"], &projects, &worktrees), list(&["/w/foo-new"]));
+        assert_eq!(l.ask(["/w/foo-new"], &projects, &worktrees), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_refresh_begun_before_a_lookup_keeps_what_the_lookup_listed() {
+        let mut l = Lookups::default();
+        l.listed("/a/foo", 7);
+        assert_eq!(l.since(7), list(&["/a/foo"]), "run 7 read git before the lookup listed it");
+        assert_eq!(l.since(8), Vec::<String>::new(), "run 8 began after, so it reads what git has now");
+        assert_eq!(l.since(7), Vec::<String>::new());
     }
 
     #[test]

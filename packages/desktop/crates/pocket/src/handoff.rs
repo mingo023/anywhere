@@ -6,6 +6,8 @@ mod view;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
 use crate::util::basename;
+use futures::StreamExt;
+use futures::channel::mpsc;
 use gpui_kit::component::input::TextareaState;
 use gpui_kit::*;
 use handoff::Step;
@@ -13,7 +15,7 @@ use handoff::checks::{Probe, Problem, Wanted};
 use handoff::pack::Pack;
 use handoff::place::Placed;
 use serde_json::json;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use store::LaunchPick;
@@ -25,6 +27,8 @@ const START: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(500);
 /// How many polls a connected host's pocketd gets to answer before it reads as not ready.
 const CONNECT_TRIES: usize = 20;
+const FORK_HISTORY_CAP: &str = "fork.history.v1";
+const APPEND_CAP: &str = "fs.append.v1";
 
 /// The session handed off, as it was when the sheet opened.
 #[derive(Clone, Debug, Default)]
@@ -54,6 +58,12 @@ pub(crate) struct Source {
 impl Source {
     pub fn conversation(&self) -> bool {
         self.why_not.is_none()
+    }
+
+    /// Whether the host's session is checked for this one's messages. Only a pocketd with `caps` naming fork history
+    /// shows it before the first prompt, and Codex forks in its TUI.
+    pub fn awaits_history(&self, caps: &[String]) -> bool {
+        caps.iter().any(|c| c == FORK_HISTORY_CAP) && self.provider == "claude" && self.messages > 0
     }
 }
 
@@ -120,11 +130,13 @@ pub(crate) struct Run {
     pub bundle: Option<String>,
     pub placed: Option<Placed>,
     pub started: Option<String>,
+    /// Bytes of the conversation on the host, of its whole.
+    pub sent: Option<(usize, usize)>,
 }
 
 impl Run {
     pub fn new(working: bool, conversation: bool) -> Self {
-        Self { steps: handoff::steps(working, conversation), at: 0, failed: None, pack: None, bundle: None, placed: None, started: None }
+        Self { steps: handoff::steps(working, conversation), at: 0, failed: None, pack: None, bundle: None, placed: None, started: None, sent: None }
     }
 
     pub fn step(&self) -> Option<Step> {
@@ -145,6 +157,7 @@ impl Run {
     /// A retry starts again at the failed step; making the worktree uses up the bundle, so it is sent again first.
     pub fn retry(&mut self) {
         self.failed = None;
+        self.sent = None;
         if self.step() == Some(Step::Worktree) {
             self.at -= 1;
         }
@@ -185,11 +198,13 @@ pub(crate) struct Handoff {
     pub generation: u64,
     /// Each click on the mascot cheers again.
     pub cheers: usize,
+    /// What each probed host's pocketd can do.
+    pub caps: HashMap<String, Vec<String>>,
 }
 
 impl Handoff {
     pub fn new(source: Source) -> Self {
-        Self { source, host: None, probes: HashMap::new(), stage: Stage::Pick, run: None, generation: 0, cheers: 0 }
+        Self { source, host: None, probes: HashMap::new(), stage: Stage::Pick, run: None, generation: 0, cheers: 0, caps: HashMap::new() }
     }
 
     pub fn probe(&self) -> Option<&Probe> {
@@ -221,14 +236,12 @@ pub(crate) enum Mark {
     Moving(String),
     /// Stopped at a failed step; the session is still here.
     Stopped,
-    /// Its conversation went on at the host, by id.
-    Moved(String),
 }
 
 impl Mark {
     pub fn host(&self) -> Option<&str> {
         match self {
-            Mark::Moving(h) | Mark::Moved(h) => Some(h),
+            Mark::Moving(h) => Some(h),
             Mark::Stopped => None,
         }
     }
@@ -238,7 +251,6 @@ impl Mark {
         let (icon, text, warn) = match self {
             Mark::Moving(_) => ("server", format!("Moving to {host}…"), false),
             Mark::Stopped => ("warning", "Handoff stopped · still here".into(), true),
-            Mark::Moved(_) => ("server", format!("Moved to {host}"), false),
         };
         ui::Notice { icon: Some(icon), text: text.into(), warn }
     }
@@ -248,7 +260,6 @@ impl Mark {
         match self {
             Mark::Moving(_) => format!("{agent} · moving to {host}"),
             Mark::Stopped => agent.to_string(),
-            Mark::Moved(_) => format!("Moved to {host}"),
         }
     }
 
@@ -261,11 +272,9 @@ impl Mark {
     }
 }
 
-/// How session `agent` reads, given the handoff open and the sessions that moved.
-pub(crate) fn mark(open: Option<&Handoff>, moved: &BTreeMap<String, store::Moved>, agent: &str) -> Option<Mark> {
-    if let Some(m) = moved.get(agent) {
-        return Some(Mark::Moved(m.host.clone()));
-    }
+/// How session `agent` reads, given the handoff open. Once the handoff is done it reads as before: its conversation
+/// goes on here too, apart from the host's copy.
+pub(crate) fn mark(open: Option<&Handoff>, agent: &str) -> Option<Mark> {
     let h = open.filter(|h| h.source.agent == agent && h.stage == Stage::Moving)?;
     Some(if h.run.as_ref()?.failed.is_some() { Mark::Stopped } else { Mark::Moving(h.host.clone()?) })
 }
@@ -295,6 +304,11 @@ fn mac_paths(cwd: &str) -> Vec<String> {
         list.push(real);
     }
     list
+}
+
+/// Whether the host's session shows the conversation: open under its id, and holding its messages when they're awaited.
+fn shows_conversation(opened: bool, awaits: bool, items: usize) -> bool {
+    opened && (!awaits || items > 0)
 }
 
 impl Desktop {
@@ -373,15 +387,17 @@ impl Desktop {
                     executor.timer(POLL).await;
                     client = hosts::remote::connected(&host);
                 }
-                let Some(client) = client else { return Probe { project: None, problems: vec![Problem::Offline] } };
+                let Some(client) = client else { return (Probe { project: None, problems: vec![Problem::Offline] }, vec![]) };
                 let origin = handoff::pack::origin(&s.cwd);
                 let w = Wanted { origin: origin.as_deref(), repo: &s.repo, branch: &s.branch, agent: Some(&s.provider) };
-                handoff::checks::probe(&*client, &on_host, &w, &|oid| handoff::pack::holds(&s.cwd, oid))
+                let caps = client.status().map(|i| i.caps).unwrap_or_default();
+                (handoff::checks::probe(&*client, &on_host, &w, &|oid| handoff::pack::holds(&s.cwd, oid)), caps)
             });
             cx.spawn(async move |this, cx| {
-                let probe = task.await;
+                let (probe, caps) = task.await;
                 this.update(cx, |d, cx| {
                     if let Some(h) = d.handoff.open.as_mut().filter(|h| h.generation == generation) {
+                        h.caps.insert(id.clone(), caps);
                         h.probes.insert(id, probe);
                         cx.notify();
                     }
@@ -408,16 +424,13 @@ impl Desktop {
         let generation = h.generation;
         let Some(step) = run.step() else {
             h.stage = Stage::Done;
-            if let Some(agent) = run.started.clone().filter(|_| h.source.conversation()) {
-                self.store.moved.insert(h.source.agent.clone(), store::Moved { host, agent });
-                self.store.save();
-            }
             if self.overlay.is_none() {
                 self.overlay = Some(Overlay::Handoff);
             }
             return cx.notify();
         };
         let source = h.source.clone();
+        let caps = h.caps.get(&host).cloned().unwrap_or_default();
         let id = format!("{}-{}", basename(&source.cwd), crate::util::now_ms());
         let Some(client) = hosts::remote::connected(&host) else {
             let name = self.host_name(&host);
@@ -437,6 +450,7 @@ impl Desktop {
             Step::Worktree => {
                 let (Some(pack), Some(bundle), Some(project)) = (run.pack.clone(), run.bundle.clone(), h.probe().and_then(|p| p.project.clone())) else { return };
                 let name = basename(&source.cwd);
+                let given = self.tree_of(&source.cwd).and_then(|t| self.agents.given_name(&t).map(String::from));
                 let task = cx.background_executor().spawn({
                     let client = client.clone();
                     async move { handoff::place::worktree(&*client, &project, &source.repo, &name, &bundle, &pack) }
@@ -444,7 +458,14 @@ impl Desktop {
                 cx.spawn(async move |this, cx| {
                     let placed = task.await;
                     this.update(cx, |d, cx| match placed {
-                        Ok(p) if d.handoff.open.as_ref().is_some_and(|h| h.generation == generation) => d.step_landed(generation, Landed::Placed(p), cx),
+                        Ok(p) if d.handoff.open.as_ref().is_some_and(|h| h.generation == generation) => {
+                            if let Some(given) = &given {
+                                let tree = hosts::place(&host, &p.path);
+                                d.outbox.rename(&tree, given);
+                                d.agents.set_name(&tree, given);
+                            }
+                            d.step_landed(generation, Landed::Placed(p), cx)
+                        }
                         // Cancelled while the worktree was being made: take it back.
                         Ok(p) => cx.background_executor().spawn(async move { handoff::place::undo(&*client, &p) }).detach(),
                         Err(e) => d.step_failed(generation, e, cx),
@@ -456,12 +477,23 @@ impl Desktop {
             Step::Conversation => {
                 let (Some(placed), Some(session)) = (run.placed.clone(), source.session.clone()) else { return };
                 let home = crate::modals::form::home();
+                let framed = caps.iter().any(|c| c == APPEND_CAP);
+                let (tx, mut rx) = mpsc::unbounded();
+                cx.spawn(async move |this, cx| {
+                    while let Some(sent) = rx.next().await {
+                        if this.update(cx, |d, cx| d.conversation_sent(generation, sent, cx)).is_err() {
+                            break;
+                        }
+                    }
+                })
+                .detach();
                 self.in_background(
                     generation,
                     move || {
                         let t = handoff::transcript::find(&source.provider, &session, std::path::Path::new(&home)).ok_or_else(|| "This Mac has no copy of the conversation".to_string())?;
                         let from = mac_paths(&source.cwd);
-                        handoff::transcript::carry(&*client, &t, &from.iter().map(String::as_str).collect::<Vec<_>>(), &placed.path).map(|_| Landed::Carried)
+                        let mut sent = |done, of| _ = tx.unbounded_send((done, of));
+                        handoff::transcript::carry(&*client, &t, &from.iter().map(String::as_str).collect::<Vec<_>>(), &placed.path, framed, &mut sent).map(|_| Landed::Carried)
                     },
                     cx,
                 );
@@ -497,8 +529,19 @@ impl Desktop {
             }
             Step::Check => {
                 let Some(started) = run.started.clone() else { return };
+                let awaits = source.awaits_history(&caps);
                 let failure = format!("The conversation didn’t open on {}", self.host_name(&host));
-                self.wait_for(generation, START, &failure, move |d| d.agents.get(&started).and_then(|s| s.provider_session_id.as_ref()).map(|_| Landed::Checked), cx);
+                self.wait_for(
+                    generation,
+                    START,
+                    &failure,
+                    move |d| {
+                        let opened = d.agents.get(&started).is_some_and(|s| s.provider_session_id.is_some());
+                        let items = d.agents.timelines.get(&started).map_or(0, Vec::len);
+                        shows_conversation(opened, awaits, items).then_some(Landed::Checked)
+                    },
+                    cx,
+                );
             }
         }
         cx.notify();
@@ -541,6 +584,13 @@ impl Desktop {
             }
         })
         .detach();
+    }
+
+    fn conversation_sent(&mut self, generation: u64, sent: (usize, usize), cx: &mut Context<Self>) {
+        if let Some(run) = self.handoff.open.as_mut().filter(|h| h.generation == generation).and_then(|h| h.run.as_mut()) {
+            run.sent = Some(sent);
+            cx.notify();
+        }
     }
 
     fn step_landed(&mut self, generation: u64, l: Landed, cx: &mut Context<Self>) {
@@ -621,7 +671,7 @@ impl Desktop {
 
     /// What session `agent` shows of a handoff of it.
     pub(crate) fn handoff_mark(&self, agent: &str) -> Option<Mark> {
-        mark(self.handoff.open.as_ref(), &self.store.moved, agent)
+        mark(self.handoff.open.as_ref(), agent)
     }
 
     /// What session `agent`'s card says of a handoff of it.
@@ -638,13 +688,6 @@ impl Desktop {
         m.host().map(|h| self.host_name(h)).unwrap_or_default()
     }
 
-    /// Goes to the session that took over from `agent` on its host.
-    pub(crate) fn open_moved(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(m) = self.store.moved.get(agent).cloned() {
-            self.focus_agent(&m.agent, window, cx);
-        }
-    }
-
     /// A shell on host `id` for fixing what the check found, in its checkout of the project, else any project there.
     pub(crate) fn open_host_shell(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let found = self.handoff.open.as_ref().and_then(|h| h.probes.get(id)).and_then(|p| p.project.clone()).map(|p| hosts::place(id, &p));
@@ -657,8 +700,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Handoff, Landed, Mark, Primary, Run, Source, Stage, Tag, mark, primary, tag};
-    use std::collections::BTreeMap;
+    use super::{FORK_HISTORY_CAP, Handoff, Landed, Mark, Primary, Run, Source, Stage, Tag, mark, primary, shows_conversation, tag};
     use handoff::Step;
     use handoff::checks::{Probe, Problem};
 
@@ -708,6 +750,9 @@ mod tests {
         assert!(!run.cancellable());
         run.retry();
         assert_eq!((run.step(), run.failed.as_deref()), (Some(Step::Send), None));
+        run.sent = Some((4, 9));
+        run.retry();
+        assert_eq!(run.sent, None, "a retry sends the conversation again from its start");
         run.at = 5;
         run.retry();
         assert_eq!(run.step(), Some(Step::Start));
@@ -738,20 +783,20 @@ mod tests {
     }
 
     #[test]
-    fn a_session_reads_moving_then_stopped_on_a_failure_and_moved_once_recorded() {
+    fn a_session_reads_moving_then_stopped_on_a_failure_and_as_before_once_done() {
         let mut h = Handoff::new(Source { agent: "a1".into(), ..Source::default() });
         h.host = Some("devbox".into());
-        let none = BTreeMap::new();
-        assert_eq!(mark(Some(&h), &none, "a1"), None, "picking a host moves nothing yet");
+        assert_eq!(mark(Some(&h), "a1"), None, "picking a host moves nothing yet");
         h.stage = Stage::Moving;
         h.run = Some(Run::new(false, true));
-        assert_eq!(mark(Some(&h), &none, "a1"), Some(Mark::Moving("devbox".into())));
-        assert_eq!(mark(Some(&h), &none, "a2"), None);
+        assert_eq!(mark(Some(&h), "a1"), Some(Mark::Moving("devbox".into())));
+        assert_eq!(mark(Some(&h), "a2"), None);
         h.run.as_mut().unwrap().failed = Some("offline".into());
-        assert_eq!(mark(Some(&h), &none, "a1"), Some(Mark::Stopped));
+        assert_eq!(mark(Some(&h), "a1"), Some(Mark::Stopped));
         assert_eq!(Mark::Stopped.composer(), "Prompts wait until you retry or close the handoff");
-        let moved = BTreeMap::from([("a1".to_string(), store::Moved { host: "devbox".into(), agent: "devbox/b1".into() })]);
-        assert_eq!(mark(None, &moved, "a1"), Some(Mark::Moved("devbox".into())));
+        h.run.as_mut().unwrap().failed = None;
+        h.stage = Stage::Done;
+        assert_eq!(mark(Some(&h), "a1"), None, "its conversation goes on here once the host has its copy");
     }
 
     #[test]
@@ -763,6 +808,24 @@ mod tests {
         h.run.as_mut().unwrap().failed = Some("devbox went offline".into());
         assert!(h.stopped_on("devbox"));
         assert!(!h.stopped_on("mac-mini"));
+    }
+
+    #[test]
+    fn only_a_claude_conversation_with_messages_on_a_host_that_shows_fork_history_is_checked_for_it() {
+        let claude = Source { provider: "claude".into(), messages: 3, ..Source::default() };
+        let new = [FORK_HISTORY_CAP.to_string()];
+        assert!(claude.awaits_history(&new));
+        assert!(!claude.awaits_history(&[]), "an older host shows the history only after the first prompt");
+        assert!(!Source { provider: "codex".into(), ..claude.clone() }.awaits_history(&new));
+        assert!(!Source { messages: 0, ..claude }.awaits_history(&new));
+    }
+
+    #[test]
+    fn the_host_shows_the_conversation_once_it_opened_and_has_messages_if_they_are_awaited() {
+        assert!(!shows_conversation(false, false, 5));
+        assert!(shows_conversation(true, false, 0));
+        assert!(!shows_conversation(true, true, 0));
+        assert!(shows_conversation(true, true, 1));
     }
 
     #[test]

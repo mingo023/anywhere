@@ -238,6 +238,11 @@ impl Client {
         self.fs("fs.write", json!({"path": self.host_path(path), "data": STANDARD.encode(data), "create": create})).map(drop)
     }
 
+    /// Adds what zstd `frame` decodes to at the end of `path`; needs `fs.append.v1`.
+    pub fn append_frame(&self, path: &str, frame: &[u8]) -> io::Result<()> {
+        self.fs("fs.append", json!({"path": self.host_path(path), "data": STANDARD.encode(frame)})).map(drop)
+    }
+
     pub fn mkdir(&self, path: &str, parents: bool) -> io::Result<()> {
         self.fs("fs.mkdir", json!({"path": self.host_path(path), "parents": parents})).map(drop)
     }

@@ -393,7 +393,7 @@ func (s *Server) handle(c *Conn, who peer.Principal) {
 				c.Send(Msg{Ev: m.Op, ID: m.ID, Trees: trees})
 			}()
 			continue
-		case "exec", "fs.list", "fs.stat", "fs.read", "fs.write", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
+		case "exec", "fs.list", "fs.stat", "fs.read", "fs.write", "fs.append", "fs.mkdir", "fs.rename", "fs.remove", "fs.trash":
 			go func() { c.Send(s.hostOp(ctx, m)) }()
 			continue
 		}

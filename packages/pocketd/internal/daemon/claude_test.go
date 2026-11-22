@@ -1708,6 +1708,55 @@ func TestAResumedSessionEndsTheBackgroundCallsItsEarlierClaudeLeft(t *testing.T)
 	}
 }
 
+func lined(line, uuid string) string {
+	return `{"uuid":"` + uuid + `",` + line[1:]
+}
+
+func TestAForkShowsTheHistoryItInheritsUntilClaudeWritesItsOwnTranscript(t *testing.T) {
+	d := newDaemon(t)
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "claude"), Args: []string{"--resume", "p1", "--fork-session"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	waitAgent(t, d, term)
+	pr := d.presentIn(term.Info().ID)
+	asked := lined(userLine("fix the login bug"), "u1")
+	call := lined(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}`, "u2")
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "p1.jsonl")
+	os.WriteFile(parent, []byte(asked+"\n"+call+"\n"), 0o600)
+	own := filepath.Join(dir, "f1.jsonl")
+	hookFrom(d, pr, strings.Replace(sessionStart("f1", own), `"startup"`, `"fork"`, 1))
+	texts := func() []string {
+		items, _ := pr.a.Timeline.Page(0, 10)
+		var out []string
+		for _, i := range items {
+			if i.Call == nil {
+				out = append(out, i.Text)
+			}
+		}
+		return out
+	}
+	eventually(t, "the inherited prompt", func() bool {
+		return slices.Equal(texts(), []string{"fix the login bug"}) && callOf(pr, "t1").Status != "running"
+	})
+	appendLine(t, parent, userLine("the parent goes on"))
+	time.Sleep(3 * forkPoll)
+	if got := texts(); !slices.Equal(got, []string{"fix the login bug"}) {
+		t.Fatalf("the fork shows what its parent said after it: %q", got)
+	}
+	// Claude writes the fork's transcript on its first prompt, the history copied into it, maybe over several writes.
+	os.WriteFile(own, []byte(asked+"\n"), 0o600)
+	time.Sleep(3 * forkPoll)
+	appendLine(t, own, call)
+	appendLine(t, own, lined(userLine("hi"), "u3"))
+	eventually(t, "the fork's own transcript", func() bool { return slices.Equal(texts(), []string{"fix the login bug", "hi"}) })
+	if s := callOf(pr, "t1").Status; s == "running" {
+		t.Fatalf("the call the history left running is %s", s)
+	}
+}
+
 func TestRetitleNamesTheConversationOfEachClaudeThatMatches(t *testing.T) {
 	d := newDaemon(t)
 	cfg := t.TempDir()
