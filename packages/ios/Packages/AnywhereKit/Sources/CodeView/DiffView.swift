@@ -310,8 +310,9 @@ struct DiffBlock: View {
         let (i, part) = index(row)
         let line = lines[i]
         if line.kind == .hunk { return [Cell(fill: DiffRow.fill(.hunk, dark: dark), text: texts.hunk(line), inset: Space.xs + Space.m)] }
-        let row = [Cell(fill: DiffRow.fill(line.kind, dark: dark)), numbersCell(line.kind, gutter, x: 0), Cell(text: texts.row(line, gutter, part: part), inset: Space.xs)]
-        return isPicked(i) ? [Cell(fill: selection)] + row : row
+        // The selection goes over the line's tints, which are opaque in light mode.
+        let tints = [Cell(fill: DiffRow.fill(line.kind, dark: dark)), numbersCell(line.kind, gutter, x: 0)] + (isPicked(i) ? [Cell(fill: selection)] : [])
+        return tints + [Cell(text: texts.row(line, gutter, part: part), inset: Space.xs)]
     }
 
     /// GitHub's stronger tint behind an added or deleted line's numbers.
@@ -337,8 +338,8 @@ struct DiffBlock: View {
         let line = lines[i]
         let fill = DiffRow.fill(line.kind, dark: dark)
         guard line.kind != .hunk else { return [Cell(fill: fill)] }
-        let numbers = [Cell(fill: fill), numbersCell(line.kind, gutter, x: 0), Cell(text: texts.numbers(line, gutter), inset: Space.xs)]
-        return isPicked(i) ? [Cell(fill: selection)] + numbers : numbers
+        let tints = [Cell(fill: fill), numbersCell(line.kind, gutter, x: 0)] + (isPicked(i) ? [Cell(fill: selection)] : [])
+        return tints + [Cell(text: texts.numbers(line, gutter), inset: Space.xs)]
     }
 
     private func pair(_ pair: SplitRow, _ texts: DiffTexts) -> [Cell] {
@@ -348,11 +349,8 @@ struct DiffBlock: View {
         func half(_ index: Int?, _ side: CodeStyle.Gutter, x: CGFloat) -> [Cell] {
             guard let index else { return [Cell(x: x, width: column, fill: DrawnText.cgColor(Palette.fill1.rgba(dark: dark)))] }
             let line = lines[index]
-            let cells = [
-                Cell(x: x, width: column, fill: DiffRow.fill(line.kind, dark: dark)), numbersCell(line.kind, side, x: x),
-                Cell(x: x, width: column, text: texts.row(line, side), inset: Space.xs),
-            ]
-            return isPicked(index) ? [Cell(x: x, width: column, fill: selection)] + cells : cells
+            let tints = [Cell(x: x, width: column, fill: DiffRow.fill(line.kind, dark: dark)), numbersCell(line.kind, side, x: x)]
+            return tints + (isPicked(index) ? [Cell(x: x, width: column, fill: selection)] : []) + [Cell(x: x, width: column, text: texts.row(line, side), inset: Space.xs)]
         }
         return half(pair.left, .old, x: 0) + [Cell(x: column, width: 1, fill: DrawnText.cgColor(Palette.separator.rgba(dark: dark)))]
             + half(pair.right, .new, x: column + 1)

@@ -29,7 +29,7 @@ struct LaunchProgress: View {
                 }
                 .multilineTextAlignment(.center)
             }
-            LaunchMeter(rows: rows, progress: LaunchRow.progress(creation), failed: failed)
+            if !rows.isEmpty { LaunchMeter(rows: rows, progress: LaunchRow.progress(creation), failed: failed) }
             if let detail = creation?.error?.detail {
                 Text(detail)
                     .font(Typography.codeSmall)
@@ -38,7 +38,7 @@ struct LaunchProgress: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
             }
-            LaunchSteps(rows: rows)
+            if !rows.isEmpty { LaunchSteps(rows: rows) }
             Spacer(minLength: Space.l)
             if failed {
                 HStack(spacing: Space.s) {
