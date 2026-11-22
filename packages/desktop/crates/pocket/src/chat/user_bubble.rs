@@ -67,7 +67,8 @@ fn shown(text: &str) -> Shown {
             out.mentions.push((start..out.text.len(), path.to_string()));
         } else {
             out.text.push_str(PILL_HEAD);
-            out.text.push_str(&text[m.start + 1..m.end]);
+            // Non-breaking hyphens keep a pill on one line, as the composer's is.
+            out.text.push_str(&text[m.start + 1..m.end].replace('-', "\u{2011}"));
             out.highlights.push((start..start + PILL_HEAD.len(), hidden()));
             out.highlights.push((start + PILL_HEAD.len()..out.text.len(), tint(COMMAND)));
             out.text.push_str(PILL_TAIL);
@@ -356,7 +357,7 @@ mod tests {
     fn a_bubble_tints_each_skill_name_where_it_shows_after_a_mention() {
         let s = shown("/prototype @src/parser.rs with /apple-design");
         let tinted: Vec<&str> = s.highlights.iter().filter(|(_, h)| h.color.is_some()).map(|(r, _)| &s.text[r.clone()]).collect();
-        assert_eq!(tinted, ["prototype", "parser.rs", "apple-design"]);
+        assert_eq!(tinted, ["prototype", "parser.rs", "apple\u{2011}design"]);
     }
 
     #[test]
