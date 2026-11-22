@@ -981,7 +981,11 @@ const STEPS: [(&str, Step); 302] = [
     ("whats-new", |d, _, _| d.updates.update = Update::WhatsNew { version: "0.2.0".into() }),
     ("star", |d, _, cx| d.star.update(cx, |s, _| s.shown = true)),
     ("star-thanked", |d, _, cx| d.star.update(cx, |s, _| (s.shown, s.thanked) = (true, true))),
-    ("welcome", |d, _, _| d.welcome = Some(crate::welcome::Welcome::new())),
+    ("welcome", |d, window, cx| {
+        let (welcome, sub) = Desktop::greet(window, cx);
+        d._subs.push(sub);
+        d.welcome = Some(welcome);
+    }),
     ("prs", |d, _, _| {
         let Some(trees) = d.project.as_ref().and_then(|p| d.listed_trees(p)) else { return };
         let trees: Vec<String> = trees.into_iter().filter(|w| !w.main).map(|w| w.path).collect();

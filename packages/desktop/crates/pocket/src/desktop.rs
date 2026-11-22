@@ -131,7 +131,7 @@ pub struct Desktop {
     pub(crate) accounts: Accounts,
     pub(crate) updates: Updates,
     pub(crate) star: Entity<Star>,
-    pub(crate) welcome: Option<Welcome>,
+    pub(crate) welcome: Option<Entity<Welcome>>,
     pub(crate) chips: Chips,
     pub(crate) delegated: crate::delegated::DelegatedState,
     pub(crate) overlay: Option<Overlay>,
@@ -178,7 +178,10 @@ impl Desktop {
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         // Read before updates and the star record this launch.
-        let welcome = crate::welcome::greets(&store).then(Welcome::new);
+        let (welcome, welcome_subs) = match crate::welcome::greets(&store).then(|| Self::greet(window, cx)) {
+            Some((welcome, subs)) => (Some(welcome), Some(subs)),
+            None => (None, None),
+        };
         let updates = Updates::new(&mut store, cx);
         let star = cx.new(|_| Star::new(&mut store, &updates.update, crate::star::unix_now()));
         let star_subs = cx.subscribe_in(&star, window, Self::on_star_event);
@@ -209,7 +212,7 @@ impl Desktop {
             cx.on_focus_lost(window, |this, window, cx| window.focus(&this.root, cx)),
         ];
         _subs.push(Self::confirm_on_enter(cx));
-        _subs.push(Self::welcome_on_enter(cx));
+        _subs.extend(welcome_subs);
         _subs.push(palette_subs);
         _subs.push(star_subs);
         _subs.extend(sidebar_subs);
@@ -759,7 +762,7 @@ impl Render for Desktop {
         self.sync_browser(window);
         let welcome = self.welcome_view(now, reduce_motion, window, cx);
         // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.
-        let shown = !self.welcome.as_ref().is_some_and(crate::welcome::Welcome::covers);
+        let shown = !self.welcome.as_ref().is_some_and(|w| w.read(cx).covers());
         let settings = self.screen == Screen::Settings;
         let lead = (shown && !settings).then(|| self.lead());
         let column = if !shown {
