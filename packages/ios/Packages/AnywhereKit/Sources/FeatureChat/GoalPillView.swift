@@ -4,11 +4,13 @@ import SwiftUI
 import Wire
 
 /// The agent's `/goal` as a pill, while it's active or paused: its objective and tokens, then Pause or Resume where
-/// the agent can hold it, and Clear. A rule sets it apart from the model, as on the desktop.
+/// the agent can hold it, and Clear. A rule sets it apart from the model, as on the desktop. Short of room, only its
+/// sparkles show.
 @MainActor
 struct GoalPillView: View {
     let goal: Goal
     let pauses: Bool
+    var fit = PillFit.full
     let send: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -31,8 +33,9 @@ struct GoalPillView: View {
             } label: {
                 PillLabel(opens: false, fill: active ? Palette.goalBackground : Palette.fill2) {
                     Image(systemName: "sparkles").font(.system(size: 11))
-                    Text(words).shimmer(active && !reduceMotion)
+                    if fit == .full { Text(words).shimmer(active && !reduceMotion) }
                 }
+                .accessibilityLabel(words)
                 .foregroundStyle((active ? Palette.goalText : Palette.text2).color)
             }
             .menuStyle(.button)

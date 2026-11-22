@@ -259,27 +259,19 @@ struct ComposerView: View {
         #endif
     }
 
-    /// The desktop's bar: the settings lead, scrolling sideways when a phone is too narrow for them, and the context
-    /// ring, attach, Stop and Send stay in view under the thumb at the right.
+    /// The desktop's bar: the settings lead, shortened when a phone is too narrow for them, and the context ring, attach,
+    /// Stop and Send stay in view under the thumb at the right.
     private var bar: some View {
         HStack(spacing: 2) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    if let agent = store.summary {
-                        if let goal = agent.goal { GoalPillView(goal: goal, pauses: store.adapter.pausesGoal) { store.goal($0) } }
-                        ModelPillView(agent: agent, efforts: efforts, editable: store.hasCap(Caps.settings)) { model, effort in
-                            store.settings(model: model, effort: effort)
-                        }
-                        if let access = agent.access, !access.isEmpty {
-                            AccessPillView(
-                                access: access, editable: store.setsAccess, who: AgentName.who(agent.provider)) { store.settings(access: $0) }
-                        }
-                    }
-                    agentsChip
-                }
+            ViewThatFits(in: .horizontal) {
+                settings(.full)
+                settings(.short)
+                settings(.compact)
+                ScrollView(.horizontal) { settings(.icons) }
+                    .scrollIndicators(.never)
+                    .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             }
-            .scrollIndicators(.never)
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let agent = store.summary, let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
             AttachMenu(enabled: !store.armed, attach: attach, unreadable: { store.attachUnreadable() })
             HStack(spacing: Space.s) {
@@ -296,10 +288,27 @@ struct ComposerView: View {
         }
     }
 
+    private func settings(_ fit: PillFit) -> some View {
+        HStack(spacing: 6) {
+            if let agent = store.summary {
+                if let goal = agent.goal { GoalPillView(goal: goal, pauses: store.adapter.pausesGoal, fit: fit) { store.goal($0) } }
+                ModelPillView(agent: agent, efforts: efforts, editable: store.hasCap(Caps.settings), fit: fit) { model, effort in
+                    store.settings(model: model, effort: effort)
+                }
+                if let access = agent.access, !access.isEmpty {
+                    AccessPillView(
+                        access: access, editable: store.setsAccess, who: AgentName.who(agent.provider), fit: fit) { store.settings(access: $0) }
+                }
+            }
+            agentsChip(fit)
+        }
+    }
+
     @ViewBuilder
-    private var agentsChip: some View {
+    private func agentsChip(_ fit: PillFit) -> some View {
         let map = store.agents
-        let (live, label) = AgentMap.chipLabel(map)
+        let (live, full) = AgentMap.chipLabel(map)
+        let label = fit == .full ? full : AgentMap.chipCount(map)
         if !map.isEmpty && (live || mapOpen) {
             Button {
                 Haptics.tap()
@@ -316,6 +325,7 @@ struct ComposerView: View {
                 .hitTarget()
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(full)
         }
     }
 

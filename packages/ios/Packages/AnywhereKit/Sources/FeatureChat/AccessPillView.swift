@@ -10,6 +10,7 @@ struct AccessPillView: View {
     let editable: Bool
     /// The agent, as the confirmation names it.
     let who: String
+    var fit = PillFit.full
     let pick: (String) -> Void
     @State private var confirming = false
 
@@ -44,7 +45,7 @@ struct AccessPillView: View {
         let warns = AccessPill.warns(access)
         return PillLabel(opens: editable) {
             Image(systemName: warns ? "exclamationmark.shield" : "shield").font(.system(size: 12)).foregroundStyle(Palette.text2.color)
-            Text(AccessPill.label(access)).foregroundStyle((warns ? Palette.waitingText : Palette.text).color)
+            if fit <= .short { Text(AccessPill.label(access)).foregroundStyle((warns ? Palette.waitingText : Palette.text).color) }
         }
         .accessibilityLabel("Access: \(AccessPill.label(access))")
     }
