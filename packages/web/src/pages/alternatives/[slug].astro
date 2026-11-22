@@ -1,0 +1,54 @@
+---
+import Alternatives from "../../layouts/Alternatives.astro";
+import DesktopDemo from "../../components/DesktopDemo.astro";
+import { alternatives, alternativeGraph, type Alternative } from "../../data/alternatives";
+
+export function getStaticPaths() {
+	return alternatives.map((alt) => ({ params: { slug: alt.slug }, props: { alt } }));
+}
+
+const { alt } = Astro.props as { alt: Alternative };
+const path = `/alternatives/${alt.slug}`;
+const others = alternatives.filter((o) => o !== alt);
+---
+<Alternatives title={alt.title} description={alt.description} path={path} graph={alternativeGraph(alt)} faq={alt.faq}>
+	<nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="/">Anywhere</a></li><li><a href="/alternatives/">Alternatives</a></li><li><a href={path} aria-current="page">{alt.name}</a></li></ol></nav>
+	<h1 set:html={alt.h1} />
+	<p class="checked">Last checked: November 2026. {alt.name} facts come from <Fragment set:html={alt.sources} />. Something out of date? <a href="https://github.com/mingo023/anywhere/issues">Open an issue</a>.</p>
+	<p class="lede" set:html={alt.lede} />
+	<Fragment set:html={alt.intro} />
+	<figure class="aw-embed">
+		<DesktopDemo screen={alt.screen} alt={alt.screenAlt} />
+		<figcaption set:html={alt.caption} />
+	</figure>
+
+	{alt.sections.map((s) => <><h2 id={s.id} set:html={s.title} /><Fragment set:html={s.html} /></>)}
+	<h2 id="side-by-side">Anywhere vs {alt.name} at a glance</h2>
+	<div class="table-wrap">
+	<table>
+		<thead>
+			<tr><th></th><th>Anywhere</th><th>{alt.name}</th></tr>
+		</thead>
+		<tbody>
+			{alt.table.map((row) => <tr>{row.map((cell) => <td set:html={cell} />)}</tr>)}
+		</tbody>
+	</table>
+	</div>
+
+	<h2 id={`when-${alt.slug}-fits-better`}>{alt.betterPickTitle ?? `When ${alt.name} is the better pick`}</h2>
+	<ul>
+		{alt.betterPick.map((item) => <li set:html={item} />)}
+	</ul>
+	<h2 id="why-anywhere">Why people pick Anywhere</h2>
+	<ul>
+		{alt.whyAnywhere.map((item) => <li set:html={item} />)}
+	</ul>
+	<Fragment slot="cta" set:html={alt.cta} />
+	<section slot="after-cta" class="alt-others" aria-labelledby="other-comparisons">
+		<h2 id="other-comparisons">Other comparisons</h2>
+		<ul>
+			{others.map((o) => <li><a href={`/alternatives/${o.slug}`}><b>Anywhere vs {o.name}</b><Fragment set:html={o.summary} /></a></li>)}
+		</ul>
+		<p>All of them on one page: <a href="/alternatives/">Anywhere alternatives</a>.</p>
+	</section>
+</Alternatives>
