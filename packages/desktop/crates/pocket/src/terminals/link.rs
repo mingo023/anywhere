@@ -82,6 +82,9 @@ impl Link {
         if let Some((_, since)) = &self.stale_since {
             return Some(if self.hint(now) == Some(Hint::Stale) { Update::Stuck } else { Update::Waiting(now.duration_since(*since)) });
         }
+        if self.down_since.is_some() {
+            return None;
+        }
         let t = now.duration_since(self.back?).as_secs_f32() / HAND_BACK.as_secs_f32();
         (t < 1.).then_some(Update::Back(t))
     }
@@ -177,6 +180,10 @@ mod tests {
         l.connected("0.2.0", "0.2.0", true, t + Duration::from_secs(4));
         assert_eq!(l.update(t + Duration::from_secs(4)), Some(Update::Back(0.)));
         assert_eq!(l.update(t + Duration::from_secs(4) + HAND_BACK), None);
+        l.connected("0.2.0", "0.1.0", true, t + Duration::from_secs(5));
+        l.connected("0.2.0", "0.2.0", true, t + Duration::from_secs(6));
+        l.down(t + Duration::from_secs(6));
+        assert_eq!(l.update(t + Duration::from_secs(6)), None, "a pocketd gone again isn't updated");
     }
 
     #[test]

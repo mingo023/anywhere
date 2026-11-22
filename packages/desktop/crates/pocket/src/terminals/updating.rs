@@ -109,7 +109,7 @@ fn hand_back_opacity(t: f32) -> f32 {
 
 impl Desktop {
     /// The page for `update`; `stale` is the build pocketd still runs and `tip` what to try when it doesn't come back.
-    pub(crate) fn updating_page(&self, update: Update, stale: &str, tip: Vec<AnyElement>, window: &mut Window, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn updating_page(&self, update: Update, stale: &str, tip: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
         let reduce = cx.reduce_motion();
         let since = if let Update::Waiting(s) = update { Some(s) } else { None };
         let rising = |el: Div, part: Part| match since.and_then(|s| rise(s, part, reduce)) {
@@ -117,7 +117,7 @@ impl Desktop {
             None => el,
         };
         let face = match update {
-            Update::Waiting(_) if !reduce => div().with_animation("updating-mascot", Animation::new(BEAT).repeat_synced().with_max_fps(20.), |d, t| d.child(mascot(waiting(t)))).into_any_element(),
+            Update::Waiting(_) if !reduce => div().with_animation("updating-mascot", Animation::new(BEAT).repeat_synced().with_max_fps(10.), |d, t| d.child(mascot(waiting(t)))).into_any_element(),
             Update::Waiting(_) => mascot(STILL).into_any_element(),
             Update::Stuck => mascot(Look { eyes: DOWN, lit: false, ..STILL }).into_any_element(),
             Update::Back(_) => mascot(Look { eyes: (0., 0.), happy: true, ..STILL }).into_any_element(),
@@ -143,9 +143,6 @@ impl Desktop {
             ),
             Update::Back(_) => ("Updating Anywhere", vec![installed, done("Background service updated")]),
         };
-        if matches!(update, Update::Back(_)) {
-            window.request_animation_frame();
-        }
         let opacity = if let Update::Back(t) = update { hand_back_opacity(t) } else { 1. };
         let text = div()
             .w(px(340.))
