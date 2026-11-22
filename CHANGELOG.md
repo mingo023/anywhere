@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.59
+
+- Model picker sets effort with an animated slider (#343): (ee4e20d2)
+- Handoff sends less, and the host shows the chat and workspace at once (#342): (65772a44)
+- Updating Anywhere shows the mascot beside the update's steps (#340): (1de4c725)
+- Web: Anywhere alternatives pages (#335): (aab861e3)
+- iOS app gets a darker, roomier look and says when a load fails or the Mac drops (#339): (43cc5d8b)
+- Sent prompts show skills as the composer's pills (#338): (50749d7d)
+- Sidebar no longer shows a "Drop to pin" box while dragging (#336): (3483fd11)
+
 ## 0.1.58
 
 - Add favicon.ico and use absolute icon links on the site (#334): (6f4cdac0)
