@@ -1,5 +1,4 @@
-use crate::actions::{CopySelection, Paste};
-use crate::desktop::Desktop;
+use super::pane::{Look, PaneEvent, TerminalPane};
 use gpui_kit::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,31 +50,23 @@ fn group(item: Item) -> u8 {
     }
 }
 
-impl Desktop {
-    pub(crate) fn open_term_menu(&mut self, pane: &str, at: Point<Pixels>, cx: &mut Context<Self>) {
-        self.close_menus(cx);
-        self.terminal.menu = Some((pane.to_string(), at));
-        cx.notify();
-    }
-
-    /// `pane`'s right-click menu, while it is open there.
-    pub(crate) fn term_menu(&self, pane: &str, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (_, at) = self.terminal.menu.as_ref().filter(|(p, _)| p == pane)?;
-        let session = self.terminals.sessions.get(pane);
-        let term = session.and_then(|s| s.term.as_ref());
-        let observe = self.agents.observe_only();
+impl TerminalPane {
+    /// The right-click menu, open at `at`.
+    pub(super) fn menu(at: Point<Pixels>, look: &Look, cx: &mut Context<Self>) -> AnyElement {
+        let term = look.grid.as_ref();
         let facts = Pane {
-            selected: term.is_some_and(|t| t.selection_text().is_some()),
-            writable: session.is_some() && self.terminals.may_send(pane, observe),
-            closable: self.terminals.may_close(pane, observe),
-            owns_screen: term.is_some_and(|t| t.alt_screen()) || self.summary(pane).is_some(),
+            selected: term.is_some_and(|t| t.get().selection_text().is_some()),
+            writable: look.known && look.may_send,
+            closable: look.may_close,
+            owns_screen: term.is_some_and(|t| t.get().alt_screen()) || look.has_agent,
         };
-        let mut menu = ui::pop(div().id("term-menu")).w(px(200.)).p(px(6.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(
-            |this, _: &MouseDownEvent, _, cx| {
-                this.terminal.menu = None;
-                cx.notify();
-            },
-        ));
+        let mut menu = ui::pop(div().id("term-menu"))
+            .w(px(200.))
+            .p(px(6.))
+            .flex()
+            .flex_col()
+            .occlude()
+            .on_mouse_down_out(cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(PaneEvent::CloseMenu)));
         let mut prev = None;
         for item in items(facts) {
             if prev.is_some_and(|p| p != group(item)) {
@@ -89,20 +80,9 @@ impl Desktop {
                 Item::Close => ui::menu_row("term-menu-close", "x", "Close terminal", Some("⌘W")),
                 Item::Kill => ui::danger_row("term-menu-kill", "stop", "Kill session"),
             };
-            let pane = pane.to_string();
-            menu = menu.child(row.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.terminal.menu = None;
-                match item {
-                    Item::Copy => this.copy_selection(&CopySelection, window, cx),
-                    Item::Paste => this.paste(&Paste, window, cx),
-                    Item::Clear => this.clear_pane(&pane, cx),
-                    Item::Close => this.close_terminal(&pane, cx),
-                    Item::Kill => this.kill_pane(&pane),
-                }
-                cx.notify();
-            })));
+            menu = menu.child(row.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(PaneEvent::Pick(item)))));
         }
-        Some(deferred(anchored().position(*at).snap_to_window_with_margin(px(8.)).child(ui::menu_in("term-menu-in", menu))).with_priority(1))
+        deferred(anchored().position(at).snap_to_window_with_margin(px(8.)).child(ui::menu_in("term-menu-in", menu))).with_priority(1).into_any_element()
     }
 }
 

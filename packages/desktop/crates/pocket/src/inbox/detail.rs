@@ -1,7 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::drag_area;
 use crate::status::Status;
-use crate::terminal_view::surface;
 use crate::util::{basename, now_ms};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -43,7 +42,8 @@ impl Desktop {
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.focus_agent(&agent, window, cx))),
                 );
         let chat = self.chat_shown(&n.terminal);
-        let pane = if chat { self.chat_view(&n.terminal, window, cx) } else { self.pane(&n.terminal, &surface::Metrics::of(&self.store.terminal), cx) };
+        let pane =
+            if chat { self.chat_view(&n.terminal, window, cx).into_any_element() } else { self.terminal_pane(&n.terminal, window, cx).into_any_element() };
         let hints = div()
             .h(px(36.))
             .flex_none()

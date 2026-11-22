@@ -787,7 +787,6 @@ impl Render for Desktop {
         }
         self.sync_code(window, cx);
         self.sync_view(window, cx);
-        self.sync_cursor(window, cx);
         self.sync_browser(window, cx);
         let welcome = self.welcome_view(now, reduce_motion, window, cx);
         // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.

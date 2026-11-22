@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use super::pane::{PaneEvent, TerminalPane};
 use gpui_kit::*;
 use std::sync::Arc;
 use term::{Cell, Frame, Pointer, WIDE_SPACER_TAIL};
@@ -39,9 +39,8 @@ pub fn grid_top(bounds: Bounds<Pixels>, rows: u16, line: f32) -> Pixels {
 
 /// Sizes the pane's session to its bounds, selects its text with the mouse over the `grid` on screen
 /// or hands the mouse to a program tracking it, and, for the focused pane, takes the IME input.
-pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16, u16)>, focus: Option<FocusHandle>) -> impl IntoElement {
+pub fn surface(view: Entity<TerminalPane>, m: &Metrics, grid: Option<(u16, u16)>, focus: Option<FocusHandle>) -> impl IntoElement {
     let fit_view = view.clone();
-    let pane = id.clone();
     let (fnt, size, line) = (m.font.clone(), m.size, m.line);
     canvas(
         move |bounds, window, cx| {
@@ -49,7 +48,7 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
             let cell = cell_width(window, &fnt, size)?;
             let cols = (f32::from(bounds.size.width) / cell).max(1.) as u16;
             let rows = (f32::from(bounds.size.height) / line).max(1.) as u16;
-            fit_view.update(cx, |d, cx| d.fit(&id, cols, rows, cx));
+            fit_view.update(cx, |_, cx| cx.emit(PaneEvent::Fit(cols, rows)));
             Some((hitbox, cell))
         },
         move |bounds, prepaint, window, cx| {
@@ -57,29 +56,28 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
                 window.handle_input(&focus, ElementInputHandler::new(bounds, view.clone()), cx);
             }
             let (Some((hitbox, cell)), Some((cols, rows))) = (prepaint, grid) else { return };
-            let on_link = view.read(cx).terminal.link_hover.as_ref() == Some(&pane);
+            let on_link = view.read(cx).link_hover;
             window.set_cursor_style(if on_link { CursorStyle::PointingHand } else { CursorStyle::IBeam }, &hitbox);
             let top = grid_top(bounds, rows, line);
             let at = move |p: Point<Pixels>| Pointer::at(f32::from(p.x - bounds.origin.x), f32::from(p.y - top), cell, line, cols, rows);
             let (down, moved, up, wheel, mods) = (view.clone(), view.clone(), view.clone(), view.clone(), view);
-            let (down_pane, moved_pane, up_pane, wheel_pane, mods_pane) = (pane.clone(), pane.clone(), pane.clone(), pane.clone(), pane);
             let (moved_hitbox, wheel_hitbox, mods_hitbox) = (hitbox.clone(), hitbox.clone(), hitbox.clone());
             window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
-                    down.update(cx, |d, cx| {
+                    down.update(cx, |p, cx| {
                         let left = e.button == MouseButton::Left;
-                        if left && e.modifiers.secondary(cx) && d.open_link(&down_pane, at(e.position), window, cx) {
+                        if left && e.modifiers.secondary(cx) && p.open_link(at(e.position), cx) {
                             cx.stop_propagation();
                             return;
                         }
                         // Never reported, even to a program tracking the mouse: agents like Claude Code track it, and would hide the menu.
                         if e.button == MouseButton::Right {
-                            d.open_term_menu(&down_pane, e.position, cx);
+                            cx.emit(PaneEvent::OpenMenu(e.position));
                             return;
                         }
-                        let taken = term_button(e.button).is_some_and(|b| d.mouse_press(&down_pane, at(e.position), b, e.modifiers, cx));
+                        let taken = term_button(e.button).is_some_and(|b| p.mouse_press(at(e.position), b, e.modifiers, cx));
                         if left && !taken {
-                            d.select_start(&down_pane, at(e.position), e.click_count, e.modifiers.shift, line, cx);
+                            p.select_start(at(e.position), e.click_count, e.modifiers.shift, line, cx);
                         }
                     });
                 }
@@ -87,12 +85,12 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
             window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble {
                     let hovered = moved_hitbox.is_hovered(window);
-                    moved.update(cx, |d, cx| {
-                        d.mouse_motion(&moved_pane, at(e.position), hovered, e.pressed_button.is_some(), e.modifiers);
+                    moved.update(cx, |p, cx| {
+                        p.mouse_motion(at(e.position), hovered, e.pressed_button.is_some(), e.modifiers, cx);
                         let pointer = (hovered && e.pressed_button.is_none()).then(|| at(e.position));
-                        d.hover_link(&moved_pane, pointer, e.modifiers, cx);
+                        p.hover_link(pointer, e.modifiers, cx);
                         if e.pressed_button == Some(MouseButton::Left) {
-                            d.select_extend(&moved_pane, at(e.position), cx);
+                            p.select_extend(at(e.position), cx);
                         }
                     });
                 }
@@ -100,24 +98,24 @@ pub fn surface(view: Entity<Desktop>, id: String, m: &Metrics, grid: Option<(u16
             window.on_key_event(move |e: &ModifiersChangedEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble {
                     let pointer = mods_hitbox.is_hovered(window).then(|| at(window.mouse_position()));
-                    mods.update(cx, |d, cx| d.hover_link(&mods_pane, pointer, e.modifiers, cx));
+                    mods.update(cx, |p, cx| p.hover_link(pointer, e.modifiers, cx));
                 }
             });
-            window.on_mouse_event(move |e: &MouseUpEvent, phase, window, cx| {
+            window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
                 if phase == DispatchPhase::Bubble {
-                    up.update(cx, |d, cx| {
+                    up.update(cx, |p, cx| {
                         if let Some(b) = term_button(e.button) {
-                            d.mouse_release(&up_pane, at(e.position), b, e.modifiers);
+                            p.mouse_release(at(e.position), b, e.modifiers, cx);
                         }
                         if e.button == MouseButton::Left {
-                            d.select_release(window, cx);
+                            p.select_release(cx);
                         }
                     });
                 }
             });
             window.on_mouse_event(move |e: &ScrollEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && wheel_hitbox.is_hovered(window) {
-                    wheel.update(cx, |d, cx| d.wheel(&wheel_pane, e, at(e.position), line, cx));
+                    wheel.update(cx, |p, cx| p.wheel(e, at(e.position), line, cx));
                 }
             });
         },

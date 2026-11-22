@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use crate::terminal_view::pane::TerminalPane;
 use crate::terminal_view::surface::{self, Metrics};
 use gpui_kit::*;
 use term::{CURSOR_BAR, CURSOR_UNDERLINE, Frame};
@@ -33,7 +33,7 @@ pub fn blinks(frame_blink: bool, reduce_motion: bool, window_active: bool) -> bo
 
 /// Draws the caret, or the IME's uncommitted text in its place even while the program hides the caret, at cell `at` of a grid of `rows` rows.
 /// The focused pane also records the caret's cell so the IME can place its candidate window there.
-pub fn overlay(view: Option<Entity<Desktop>>, at: (u16, u16), rows: u16, c: Option<Cursor>, preedit: Option<String>, m: &Metrics) -> impl IntoElement {
+pub fn overlay(view: Option<Entity<TerminalPane>>, at: (u16, u16), rows: u16, c: Option<Cursor>, preedit: Option<String>, m: &Metrics) -> impl IntoElement {
     let (fnt, font_size, line) = (m.font.clone(), m.size, m.line);
     let cell_font = fnt.clone();
     canvas(
@@ -42,7 +42,7 @@ pub fn overlay(view: Option<Entity<Desktop>>, at: (u16, u16), rows: u16, c: Opti
             let Some(cell) = cell else { return };
             let origin = point(bounds.origin.x + px(at.0 as f32 * cell), surface::grid_top(bounds, rows, line) + px(at.1 as f32 * line));
             if let Some(view) = view {
-                view.update(cx, |d, _| d.terminal.caret = Some(Bounds::new(origin, size(px(cell), px(line)))));
+                view.update(cx, |p, _| p.set_caret(Bounds::new(origin, size(px(cell), px(line)))));
             }
             if let Some(text) = preedit {
                 let run = TextRun {

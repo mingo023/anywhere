@@ -1,10 +1,26 @@
 use daemon::{Info, Msg};
+use std::cell::{RefCell, RefMut};
+use std::rc::Rc;
 use store::prefs::terminal::{self as prefs, Cursor};
 use term::{CURSOR_BAR, CURSOR_BLOCK, CURSOR_UNDERLINE, Config, Term};
 
+/// A terminal's screen, shared by its session and the pane that draws it. Hold a borrow only within one call: a second one panics.
+#[derive(Clone)]
+pub struct Grid(Rc<RefCell<Term>>);
+
+impl Grid {
+    pub fn new(term: Term) -> Self {
+        Self(Rc::new(RefCell::new(term)))
+    }
+
+    pub fn get(&self) -> RefMut<'_, Term> {
+        self.0.borrow_mut()
+    }
+}
+
 pub struct Session {
     pub info: Info,
-    pub term: Option<Term>,
+    pub term: Option<Grid>,
     pub exit: Option<i32>,
 }
 
@@ -52,15 +68,16 @@ impl Sessions {
                 t.configure(&self.config);
                 t.write(&m.bytes());
                 t.take_bell();
-                s.term = Some(t);
+                s.term = Some(Grid::new(t));
             }
             "output" => {
-                return s.term.as_mut().is_some_and(|t| {
+                return s.term.as_ref().is_some_and(|t| {
+                    let mut t = t.get();
                     t.write(&m.bytes());
                     t.take_bell()
                 });
             }
-            "resize" => s.term.iter_mut().for_each(|t| t.resize(m.cols.max(1), m.rows.max(1))),
+            "resize" => s.term.iter().for_each(|t| t.get().resize(m.cols.max(1), m.rows.max(1))),
             "exit" => s.exit = Some(m.code),
             "foreground" => s.info.foreground = m.text.clone(),
             _ => {}
@@ -69,7 +86,7 @@ impl Sessions {
     }
 
     pub fn configure(&mut self, c: Config) {
-        self.items.iter_mut().filter_map(|s| s.term.as_mut()).for_each(|t| t.configure(&c));
+        self.items.iter().filter_map(|s| s.term.as_ref()).for_each(|t| t.get().configure(&c));
         self.config = c;
     }
 
@@ -81,8 +98,12 @@ impl Sessions {
         self.items.iter_mut().find(|s| s.info.id == id)
     }
 
-    pub fn term(&mut self, id: &str) -> Option<&mut Term> {
-        self.get_mut(id).and_then(|s| s.term.as_mut())
+    pub fn term(&self, id: &str) -> Option<RefMut<'_, Term>> {
+        self.grid(id).map(|t| t.get())
+    }
+
+    pub fn grid(&self, id: &str) -> Option<&Grid> {
+        self.get(id)?.term.as_ref()
     }
 
     pub fn remove(&mut self, id: &str) {
@@ -132,7 +153,8 @@ mod tests {
         s.sync(vec![info("a")]);
         s.apply(&msg("snapshot", "a", "hi"));
         s.apply(&msg("output", "a", "!"));
-        let (f, cells) = s.get_mut("a").unwrap().term.as_mut().unwrap().frame();
+        let mut term = s.term("a").unwrap();
+        let (f, cells) = term.frame();
         let text: String = cells[..3].iter().map(|c| char::from_u32(c.cp).unwrap()).collect();
         assert_eq!((text.as_str(), f.cols, f.cursor_x), ("hi!", 20, 3));
     }
@@ -195,8 +217,8 @@ mod tests {
         s.apply(&msg("snapshot", "a", ""));
         s.configure(Config { cursor: CURSOR_BAR, ..Config::default() });
         s.apply(&msg("snapshot", "b", ""));
-        let style = |s: &mut Sessions, id| s.term(id).unwrap().frame().0.cursor_style;
-        assert_eq!((style(&mut s, "a"), style(&mut s, "b")), (CURSOR_BAR, CURSOR_BAR));
+        let style = |s: &Sessions, id| s.term(id).unwrap().frame().0.cursor_style;
+        assert_eq!((style(&s, "a"), style(&s, "b")), (CURSOR_BAR, CURSOR_BAR));
     }
 
     #[test]

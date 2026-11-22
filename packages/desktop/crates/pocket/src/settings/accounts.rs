@@ -293,7 +293,7 @@ impl Desktop {
             .terminal
             .clone()
             .and_then(|id| {
-                self.terminals.sessions.term(&id).map(|t| {
+                self.terminals.sessions.term(&id).map(|mut t| {
                     let (f, cells) = t.frame();
                     accounts::screen_lines(cells, f.cols)
                 })

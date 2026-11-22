@@ -132,6 +132,7 @@ pub(crate) fn head(t: &Tree<Tab>, pane: PaneId) -> Head {
 impl Desktop {
     /// Points keys at the focused pane's terminal, and forgets what closed panes held.
     pub(crate) fn sync_panels(&mut self, cx: &App) {
+        self.terminal.forget_panes(|id| self.terminals.sessions.get(id).is_some());
         let Some(tree) = self.session_tree(cx) else {
             self.panels.drag = None;
             return;
@@ -404,7 +405,7 @@ impl Desktop {
                 if self.chat_shown(&id) {
                     return self.chat_view(&id, window, cx);
                 }
-                self.term_body(&id, focused, cx)
+                self.term_body(&id, focused, window, cx)
             }
             Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
             Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => {

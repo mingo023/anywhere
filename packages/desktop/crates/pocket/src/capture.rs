@@ -743,7 +743,7 @@ const STEPS: [(&str, Step); 302] = [
         term.write(b"Opening browser to sign in\xe2\x80\xa6\r\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&scope=user%3Ainference&state=Nwd_oVnDKfPnpygUrKjXPJ00\r\nPaste code here if prompted > ");
         d.terminals.sessions.items.push(crate::terminals::sessions::Session {
             info: daemon::Info { id: id.clone(), ..Default::default() },
-            term: Some(term),
+            term: Some(crate::terminals::sessions::Grid::new(term)),
             exit: None,
         });
         let mut signin = d.new_sign_in(crate::accounts::Key { host: None, provider: "claude".into(), id: String::new() }, window, cx);

@@ -327,7 +327,7 @@ impl Desktop {
             ("down", Some(h)) => self.terminals.host_down(h),
             ("up", None) => {
                 self.terminals.reconnected();
-                self.terminal.selection = None;
+                self.terminal.forget_selections(cx);
                 self.daemon.send(json!({"op": "list"}));
             }
             ("down", None) => {
