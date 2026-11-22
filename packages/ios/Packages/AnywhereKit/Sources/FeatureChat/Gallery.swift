@@ -80,7 +80,7 @@ public enum ChatGallery {
         let chats = (transcripts + composer).flatMap { scene in
             [false, true].map { dark in
                 GalleryScene(dark ? "\(scene.name)-dark" : scene.name, dark: dark) {
-                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", host: scene.host?(), openLink: { _ in }, live: false) })
+                    AnyView(NavigationStack { ChatScreen(store: scene.make(), machine: "Mingo's MacBook Pro", host: scene.host?() ?? HostModel.offline(hello: Sample.hello, messages: []), openLink: { _ in }, live: false) })
                 }
             }
         }
@@ -101,6 +101,7 @@ public enum ChatGallery {
 
     struct Entry {
         let name: String
+        /// Connected unless given.
         var host: (@MainActor () -> HostModel)?
         let make: @MainActor () -> ChatStore
     }

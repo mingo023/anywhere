@@ -18,11 +18,11 @@ struct Stale: ViewModifier {
             }
             .task(id: host.link) {
                 asOf = nil
-                guard host.link != .online, let since = host.offlineSince else { return }
+                guard host.link != .online, host.hello != nil, let since = host.offlineSince else { return }
                 let wait = Reachability.reconnectingAfter - Date().timeIntervalSince(since)
                 if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
                 guard !Task.isCancelled else { return }
-                asOf = host.staleAsOf(at: .now)
+                asOf = Int(since.timeIntervalSince1970 * 1000)
             }
     }
 }
