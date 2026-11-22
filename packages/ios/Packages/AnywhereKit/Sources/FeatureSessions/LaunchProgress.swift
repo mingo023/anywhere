@@ -12,42 +12,55 @@ struct LaunchProgress: View {
     let requestId: String
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    /// The launch as it started its agent, kept while the sheet closes on it once the store has let it go.
+    @State private var started: Creation?
 
     private var workspace: WorkspaceStore { host.workspace }
 
     var body: some View {
-        let creation = workspace.creations[requestId]
+        let creation = workspace.creations[requestId] ?? started
         let rows = LaunchRow.rows(creation)
         let failed = creation?.error != nil
-        VStack(spacing: Space.xl) {
-            Spacer(minLength: Space.l)
-            VStack(spacing: Space.m) {
-                Mascot(failed ? .stuck : creation?.agentId != nil ? .happy : .waiting, size: 112)
-                VStack(spacing: Space.xs) {
-                    Text(creation?.error?.message ?? "Starting session").font(Typography.title).foregroundStyle(Palette.text.color)
-                    if let place { Text(place).font(Typography.subheadline).foregroundStyle(Palette.text3.color) }
+        GeometryReader { screen in
+        ScrollView {
+            VStack(spacing: Space.xl) {
+                VStack(spacing: Space.m) {
+                    Mascot(failed ? .stuck : creation?.agentId != nil ? .happy : .waiting, size: 112)
+                    VStack(spacing: Space.xs) {
+                        Text(creation?.error?.message ?? "Starting session").font(Typography.title).foregroundStyle(Palette.text.color)
+                        if let place { Text(place).font(Typography.subheadline).foregroundStyle(Palette.text3.color) }
+                    }
+                    .multilineTextAlignment(.center)
                 }
-                .multilineTextAlignment(.center)
-            }
-            if !rows.isEmpty { LaunchMeter(rows: rows, progress: LaunchRow.progress(creation), failed: failed) }
-            if let detail = creation?.error?.detail {
-                Text(detail)
-                    .font(Typography.codeSmall)
-                    .foregroundStyle(Palette.text3.color)
-                    .padding(Space.m)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
-            }
-            if !rows.isEmpty { LaunchSteps(rows: rows) }
-            Spacer(minLength: Space.l)
-            if failed {
-                HStack(spacing: Space.s) {
-                    Button { dismissFailed() } label: { Text("Dismiss").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle(primary: false))
-                    Button { workspace.runKept(requestId) } label: { Text("Try Again").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle())
+                if !rows.isEmpty { LaunchMeter(rows: rows, progress: LaunchRow.progress(creation), failed: failed) }
+                if let detail = creation?.error?.detail {
+                    Text(detail)
+                        .font(Typography.codeSmall)
+                        .foregroundStyle(Palette.text3.color)
+                        .padding(Space.m)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Palette.fill2.color, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
-            } else {
-                Button { dismiss() } label: { Text("Hide").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle(primary: false))
+                if !rows.isEmpty { LaunchSteps(rows: rows) }
             }
+            .padding(.vertical, Space.l)
+            // Centred while it fits, scrolling on a small phone or at a large text size.
+            .frame(minHeight: screen.size.height)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Group {
+                if failed {
+                    HStack(spacing: Space.s) {
+                        Button { dismissFailed() } label: { Text("Dismiss").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle(primary: false))
+                        Button { workspace.runKept(requestId) } label: { Text("Try Again").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle())
+                    }
+                } else {
+                    Button { dismiss() } label: { Text("Hide").frame(maxWidth: .infinity) }.buttonStyle(CapsuleButtonStyle(primary: false))
+                }
+            }
+            .padding(.top, Space.s)
         }
         .padding(.horizontal, Space.xl)
         .padding(.bottom, Space.l)
@@ -63,6 +76,7 @@ struct LaunchProgress: View {
         .onChange(of: workspace.creations[requestId]?.agentId, initial: true) { _, agentId in
             guard let agentId else { return }
             Haptics.success()
+            started = workspace.creations[requestId]
             workspace.forget(creation: requestId)
             dismiss()
             openURL(DeepLink.agent(mac: mac, agentId: agentId).url)
@@ -102,7 +116,15 @@ struct LaunchRow: Hashable {
             rows.append(LaunchRow(label: SessionText.step(step.step), note: step.note, mark: mark))
         }
         if let creation, waiting { rows.append(LaunchRow(label: SessionText.creating(creation), mark: .running)) }
-        return rows + SessionText.stepsLeft(after: steps.last?.step).map { LaunchRow(label: SessionText.step($0), mark: .later) }
+        return rows + SessionText.stepsLeft(after: steps.last?.step, order: order(creation)).map { LaunchRow(label: SessionText.step($0), mark: .later) }
+    }
+
+    /// The steps pocketd sends, as the desktop lists them (`Create::new`): a new worktree's, less copy or setup when off;
+    /// only Preparing and Starting agent in an existing worktree or Local.
+    nonisolated static func order(_ creation: Creation?) -> [String] {
+        guard let plan = creation?.plan, plan.worktree == nil else { return SessionText.launchSteps }
+        guard case .new(let new) = plan.spec.checkout else { return ["prepare", "agent"] }
+        return SessionText.launchSteps.filter { !($0 == "copy" && new.copy == false || $0 == "setup" && new.setup == false) }
     }
 
     /// How far along it is, 0...1: the steps done and half the running one, of all it will take; nothing before the

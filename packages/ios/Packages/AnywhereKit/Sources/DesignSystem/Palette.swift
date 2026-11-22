@@ -77,7 +77,7 @@ public enum Palette {
     public static let diffDelBackground = Token(0xffebe9ff, 0xf851491a)
     public static let diffDelGutter = Token(0xffcecbff, 0xf851494d)
     public static let diffDelText = Token(0xd1242fff, 0xf85149ff)
-    public static let diffAddWord = Token(0xaceebbff, 0x2ea04366)
+    public static let diffAddWord = Token(0x2da44e40, 0x2ea04366)
     public static let diffDelWord = Token(0xff818266, 0xf8514966)
     public static let diffHunkBackground = Token(0xddf4ffff, 0x388bfd1a)
     public static let diffHunkText = Token(0x59636eff, 0x9198a1ff)

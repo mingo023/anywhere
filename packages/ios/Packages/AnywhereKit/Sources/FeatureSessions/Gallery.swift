@@ -19,13 +19,17 @@ public enum SessionsGallery {
                 AnyView(BranchPicker(title: "Base", branches: nil, error: "\(Sample.mac) didn't answer in time", retry: {}, allowDefault: true, selection: .constant(nil)))
             }),
         ]
+        // An iPhone SE's sheet, where the launch has to scroll.
+        let small = GalleryScene("sessions-launch-small", size: CGSize(width: 320, height: 568)) {
+            AnyView(NavigationStack { launch(host(), steps: ["prepare", "verify", "fetch"]) }.screenBackground())
+        }
         return screens.flatMap { name, screen in
             [false, true].map { dark in
                 GalleryScene(dark ? "\(name)-dark" : name, dark: dark) {
                     AnyView(NavigationStack { screen(host()) }.screenBackground().preferredColorScheme(dark ? .dark : .light))
                 }
             }
-        }
+        } + [small]
     }
 
     /// A launch into a new worktree of the first project, `steps` into it.

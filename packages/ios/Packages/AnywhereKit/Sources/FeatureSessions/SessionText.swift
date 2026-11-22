@@ -104,9 +104,11 @@ enum SessionText {
         return (["#\(item.number)"] + (item.draft ? ["Draft"] : []) + checks).joined(separator: " · ")
     }
 
-    /// The steps of a launch still to come after `last`, in pocketd's order.
-    static func stepsLeft(after last: String?) -> [String] {
-        let order = ["prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"]
+    /// Every step of a launch that makes a worktree, in pocketd's order.
+    static let launchSteps = ["prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"]
+
+    /// The steps of a launch still to come after `last`, in `order`.
+    static func stepsLeft(after last: String?, order: [String] = launchSteps) -> [String] {
         guard let last, let at = order.firstIndex(of: last) else { return [] }
         return Array(order[(at + 1)...])
     }

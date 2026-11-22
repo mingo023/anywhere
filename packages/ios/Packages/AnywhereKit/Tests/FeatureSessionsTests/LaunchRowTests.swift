@@ -28,4 +28,13 @@ struct LaunchRowTests {
         #expect(LaunchRow.progress(creation(["prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"], done: true)) == 1)
         #expect(LaunchRow.progress(creation(["prepare", "verify"], failed: true)) == 2.0 / 7, "a failed step counts as reached")
     }
+
+    @Test("a launch into an existing place lists only Preparing and Starting agent, and a new worktree drops copy or setup when off")
+    func order() {
+        let into = LaunchPlan(spec: LaunchSpec(project: "/p", checkout: .worktree("/p"), provider: .claude, access: .edits, plan: false))
+        let new = LaunchPlan(spec: LaunchSpec(project: "/p", checkout: .new(.init(name: "otter", setup: false)), provider: .claude, access: .edits, plan: false))
+        #expect(LaunchRow.order(Creation(kind: .session, plan: into)) == ["prepare", "agent"])
+        #expect(LaunchRow.order(Creation(kind: .session, plan: new)) == ["prepare", "verify", "fetch", "worktree", "copy", "agent"])
+        #expect(LaunchRow.rows(Creation(kind: .session, steps: [.init(step: "prepare")], plan: into)).map(\.label) == ["Preparing", "Starting agent"])
+    }
 }
