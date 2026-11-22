@@ -450,6 +450,22 @@ func TestAWorktreeWhoseLineageCantBeReadStaysAsWhatWouldNameItsSubagents(t *test
 	}
 }
 
+func TestABranchRenamedFromItsPromptAfterItsWorktreeWentIsStillDeleted(t *testing.T) {
+	var b bench
+	local(t, aPhone, withWorkspace(t, &b))
+	gitOut(t, b.project, "branch", "notes")
+	gitOut(t, b.project, "branch", "-m", "notes", "write-the-notes")
+	if err := dropBranch(b.project, "notes", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOut(t, b.project, "branch", "--format=%(refname:short)"); strings.TrimSpace(got) != "main" {
+		t.Fatalf("branches %q, want main alone", got)
+	}
+	if err := dropBranch(b.project, "never", false); err == nil {
+		t.Fatal("a branch that never was went unreported")
+	}
+}
+
 func TestAWorktreeOutsideTheRootHasNoSubagentWorktreesRatherThanAnError(t *testing.T) {
 	var b bench
 	local(t, aPhone, withWorkspace(t, &b))

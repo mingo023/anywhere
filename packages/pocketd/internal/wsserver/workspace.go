@@ -454,11 +454,36 @@ func (c *conn) removeTree(f registry.File, t linkedTree, deleteBranch, force boo
 		defer p.Scan()
 	}
 	if branch := t.Branch; deleteBranch && branch != "" {
-		if out, err := exec.Command("git", "-C", project, "branch", "-D", "--", branch).CombinedOutput(); err != nil {
-			return branchFailed{strings.TrimSpace(string(out))}
-		}
+		return dropBranch(project, branch, force)
 	}
 	return nil
+}
+
+// dropBranch deletes branch, or what naming its worktree from its prompt
+// renamed it to since it was checked, which may land after its worktree went.
+func dropBranch(project, branch string, force bool) error {
+	out, err := exec.Command("git", "-C", project, "branch", "-D", "--", branch).CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	failed := branchFailed{strings.TrimSpace(string(out))}
+	if exec.Command("git", "-C", project, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil {
+		return failed
+	}
+	refs, _ := exec.Command("git", "-C", project, "for-each-ref", "--format=%(refname:short)", "refs/heads").Output()
+	for _, b := range strings.Fields(string(refs)) {
+		if !renamedFrom(project, b, branch) {
+			continue
+		}
+		if !force && worktree.LostCommits(project, b) > 0 {
+			return nil
+		}
+		if out, err := exec.Command("git", "-C", project, "branch", "-D", "--", b).CombinedOutput(); err != nil {
+			return branchFailed{strings.TrimSpace(string(out))}
+		}
+		return nil
+	}
+	return failed
 }
 
 // branchToDelete is the branch that goes with the worktree at path, whose
