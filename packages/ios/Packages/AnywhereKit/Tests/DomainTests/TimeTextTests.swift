@@ -20,6 +20,7 @@ struct TimeTextTests {
         #expect(TimeText.stopwatch(seconds: 750) == "12:30")
         #expect(TimeText.took(seconds: 0.44) == "0.4s")
         #expect(TimeText.took(seconds: 59.9) == "59.9s")
+        #expect(TimeText.took(seconds: 59.96) == "1:00", "rounds before it picks the form")
         #expect(TimeText.took(seconds: 75) == "1:15")
     }
 

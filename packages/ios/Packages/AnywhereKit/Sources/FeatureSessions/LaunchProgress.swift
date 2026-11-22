@@ -119,9 +119,8 @@ struct LaunchRow: Hashable {
     }
 
     /// The steps pocketd sends, as the desktop lists them (`Create::new`): a new worktree's, less copy or setup when off;
-    /// only Preparing and Starting agent in an existing worktree or Local, or once the launch has made its worktree.
+    /// only Preparing and Starting agent in an existing worktree or Local.
     nonisolated static func order(_ creation: Creation?) -> [String] {
-        if creation?.madeTree != nil { return ["prepare", "agent"] }
         guard let plan = creation?.plan, plan.worktree == nil else { return SessionText.launchSteps }
         guard case .new(let new) = plan.spec.checkout else { return ["prepare", "agent"] }
         return SessionText.launchSteps.filter { !($0 == "copy" && new.copy == false || $0 == "setup" && new.setup == false) }

@@ -131,6 +131,6 @@ struct BranchRoute: View {
         }
         .font(Typography.footnote)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(head.map { "\($0) into \(PullRequestText.baseBranch(base))" } ?? "Into \(PullRequestText.baseBranch(base))")
+        .accessibilityLabel((head.map { "\($0) into \(PullRequestText.baseBranch(base))" } ?? "Into \(PullRequestText.baseBranch(base))") + (commits.map { ", \(PullRequestText.commits($0))" } ?? ""))
     }
 }

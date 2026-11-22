@@ -20,7 +20,8 @@ public enum TimeText {
 
     /// "0.4s" under a minute, else the stopwatch, as the desktop's `took`.
     public static func took(seconds: Double) -> String {
-        seconds < 60 ? String(format: "%.1fs", max(seconds, 0)) : stopwatch(seconds: Int(seconds))
+        let tenths = (max(seconds, 0) * 10).rounded() / 10
+        return tenths < 60 ? String(format: "%.1fs", tenths) : stopwatch(seconds: Int(tenths))
     }
 
     /// "now", "12m", "3h", "yesterday", "4d", as the desktop's `util::ago`; empty for no time.
