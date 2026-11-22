@@ -376,7 +376,7 @@ impl Desktop {
             RowMenu::Session(id) => {
                 let Some(s) = self.agents.get(&id) else { return vec![] };
                 let mut rows = vec![];
-                let handoff = self.can_hand_off(s).then(|| self.handoff.moving(&id));
+                let handoff = self.can_hand_off(s).then(|| self.handoff.read(cx).moving(&id));
                 for item in session_items(s, self.agents.observe_only(), &self.store.agents, self.agents.fork_offered(), handoff) {
                     let row = match item {
                         SessionItem::Pin(pin) => {

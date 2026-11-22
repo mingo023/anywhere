@@ -1,6 +1,4 @@
-use super::{Primary, Run, Stage, Tag, primary, tag};
-use crate::desktop::Desktop;
-use crate::spaces::Space;
+use super::{HandoffEvent, HandoffState, HostRow, Primary, Run, Stage, Tag, primary, tag};
 use crate::spaces::header::tile;
 use crate::util::plural;
 use gpui_kit::component::input::Textarea;
@@ -107,9 +105,9 @@ fn meta(text: String) -> AnyElement {
     div().flex_none().text_size(px(12.)).text_color(TEXT_3).whitespace_nowrap().child(text).into_any_element()
 }
 
-impl Desktop {
-    pub(crate) fn handoff_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let Some(h) = self.handoff.open.as_ref() else { return div() };
+impl Render for HandoffState {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(h) = self.open.as_ref() else { return div() };
         match (&h.stage, h.run.as_ref().map(|r| r.failed.is_some())) {
             (Stage::Pick, _) => self.pick_sheet(cx),
             (Stage::Summary, _) => self.summary_sheet(cx),
@@ -118,14 +116,16 @@ impl Desktop {
             (Stage::Done, _) => self.done_sheet(cx),
         }
     }
+}
 
+impl HandoffState {
     fn close_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        x_button("handoff-close", "x").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx)))
+        x_button("handoff-close", "x").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Close)))
     }
 
     fn pick_sheet(&mut self, cx: &mut Context<Self>) -> Div {
-        let online = self.online_hosts();
-        let h = self.handoff.open.as_ref().expect("open");
+        let online: Vec<&HostRow> = self.hosts.iter().filter(|h| h.online).collect();
+        let h = self.open.as_ref().expect("open");
         let s = &h.source;
         let title = header("Hand off to a host".into(), self.close_button(cx));
         if online.is_empty() {
@@ -140,24 +140,21 @@ impl Desktop {
                 .child(icon("server", 22., TEXT_4))
                 .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child("No host is connected"))
                 .child(div().max_w(px(320.)).text_size(px(12.5)).text_color(TEXT_3).child("Hosts you add in Settings show here while they’re connected."))
-                .child(ui::button("handoff-add-host", Variant::Secondary, Some("plus"), "Add a host…").mt(px(6.)).on_click(cx.listener(
-                    |d, _: &ClickEvent, window, cx| {
-                        d.close_overlay(window, cx);
-                        d.show_hosts(window, cx);
-                    },
-                )));
-            let close = button("handoff-cancel", Variant::Ghost, "Close").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx)));
+                .child(
+                    ui::button("handoff-add-host", Variant::Secondary, Some("plus"), "Add a host…")
+                        .mt(px(6.))
+                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::AddHost))),
+                );
+            let close = button("handoff-cancel", Variant::Ghost, "Close").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Close)));
             return sheet([title, boxed(vec![empty.into_any_element()]), foot(vec![close])]);
         }
         let conversation = s.conversation();
-        let drafted = !self.handoff.summary.read(cx).value().trim().is_empty();
+        let drafted = !self.summary.read(cx).value().trim().is_empty();
         let picked = h.host.clone().unwrap_or_default();
-        let order = self.space_order();
         let rows = online
             .iter()
-            .map(|id| {
-                let host = self.fleet.hosts.list.iter().find(|x| &x.id == id);
-                let space = Space::on(Some(id));
+            .map(|row| {
+                let id = &row.id;
                 let dot = div().absolute().right(px(-2.)).bottom(px(-2.)).size(px(9.)).rounded(px(5.)).bg(SUCCESS).shadow(vec![ui::ring(SURFACE, 1.5)]);
                 let pick = id.clone();
                 div()
@@ -171,7 +168,7 @@ impl Desktop {
                     .when(*id == picked, |d| d.bg(FILL_2))
                     .when(*id != picked, |d| d.hover(|s| s.bg(FILL_1)))
                     .child(ui::radio(*id == picked))
-                    .child(tile(self.space_glyph(&space), self.space_colour(&space, &order), 28.).relative().child(dot))
+                    .child(tile(row.glyph, row.colour, 28.).relative().child(dot))
                     .child(
                         div()
                             .flex_1()
@@ -179,12 +176,12 @@ impl Desktop {
                             .flex()
                             .flex_col()
                             .gap(px(1.))
-                            .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(self.host_name(id)))
-                            .child(div().truncate().text_size(px(12.)).text_color(TEXT_3).child(host.map(|h| h.address()).unwrap_or_default())),
+                            .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(row.name.clone()))
+                            .child(div().truncate().text_size(px(12.)).text_color(TEXT_3).child(row.address.clone())),
                     )
                     .child(tag_view(tag(h.probes.get(id), conversation)))
                     .on_click(cx.listener(move |d, _: &ClickEvent, _, cx| {
-                        if let Some(h) = d.handoff.open.as_mut() {
+                        if let Some(h) = d.open.as_mut() {
                             h.host = Some(pick.clone());
                         }
                         cx.notify();
@@ -192,7 +189,7 @@ impl Desktop {
                     .into_any_element()
             })
             .collect();
-        let host_name = self.host_name(&picked);
+        let host_name = self.name(&picked);
         let t = tag(h.probe(), conversation);
         let mut body = vec![title, sub(format!("“{}” · {}", s.title, s.agent_name)), label("Host".into()), boxed(rows)];
         if let Some(p) = h.probe().filter(|p| !p.problems.is_empty()) {
@@ -249,17 +246,21 @@ impl Desktop {
             moves_row("file", files, ui::diffstat(s.added, s.removed).flex_none().into_any_element()),
             moves_row("comment", div().when(!conversation, |d| d.text_color(TEXT_3)).child("Conversation").into_any_element(), conv),
         ]));
-        let cancel = button("handoff-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx)));
+        let cancel = button("handoff-cancel", Variant::Ghost, "Cancel").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Close)));
         let go = match primary(t, drafted) {
-            Primary::CheckAgain => button("handoff-go", Variant::Primary, "Check again").on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.check_hosts(cx))),
-            Primary::HandOff => button("handoff-go", Variant::Primary, "Hand off").on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.start_handoff(cx))),
+            Primary::CheckAgain => {
+                button("handoff-go", Variant::Primary, "Check again").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Check)))
+            }
+            Primary::HandOff => {
+                button("handoff-go", Variant::Primary, "Hand off").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Start)))
+            }
             Primary::ReviewSummary | Primary::WriteSummary => {
                 let text = if primary(t, drafted) == Primary::ReviewSummary { "Review summary…" } else { "Write summary…" };
                 button("handoff-go", Variant::Primary, text).on_click(cx.listener(|d, _: &ClickEvent, window, cx| {
-                    if let Some(h) = d.handoff.open.as_mut() {
+                    if let Some(h) = d.open.as_mut() {
                         h.stage = Stage::Summary;
                     }
-                    d.handoff.summary.update(cx, |t, cx| t.focus(window, cx));
+                    d.summary.update(cx, |t, cx| t.focus(window, cx));
                     cx.notify();
                 }))
             }
@@ -306,7 +307,7 @@ impl Desktop {
         let terminal = ui::button(SharedString::from(format!("handoff-terminal-{i}")), Variant::Secondary, Some("terminal"), "Open terminal")
             .h(px(26.))
             .text_size(px(12.))
-            .on_click(cx.listener(move |d, _: &ClickEvent, window, cx| d.open_host_shell(&host, window, cx)));
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::OpenShell(host.clone()))));
         div()
             .flex()
             .gap(px(10.))
@@ -328,7 +329,7 @@ impl Desktop {
     }
 
     fn summary_sheet(&mut self, cx: &mut Context<Self>) -> Div {
-        let h = self.handoff.open.as_ref().expect("open");
+        let h = self.open.as_ref().expect("open");
         let agent = h.source.agent_name.clone();
         let from_conversation = h.source.session.is_some();
         let head = div()
@@ -345,10 +346,10 @@ impl Desktop {
             .items_start()
             .text_size(px(13.))
             .line_height(px(20.))
-            .child(Textarea::new(&self.handoff.summary).appearance(false));
-        let empty = self.handoff.summary.read(cx).value().trim().is_empty();
+            .child(Textarea::new(&self.summary).appearance(false));
+        let empty = self.summary.read(cx).value().trim().is_empty();
         let go = button("handoff-go", Variant::Primary, "Move code & start");
-        let go = if empty { go.opacity(0.4).cursor_default() } else { go.on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.start_handoff(cx))) };
+        let go = if empty { go.opacity(0.4).cursor_default() } else { go.on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Start))) };
         sheet([
             head.into_any_element(),
             sub(if from_conversation { "It becomes the new session’s first prompt.".into() } else { "What should the new session know?".into() }),
@@ -358,12 +359,12 @@ impl Desktop {
     }
 
     fn steps_box(&self) -> AnyElement {
-        let h = self.handoff.open.as_ref().expect("open");
+        let h = self.open.as_ref().expect("open");
         let Some(run) = h.run.as_ref() else { return div().into_any_element() };
-        let host = self.host_name(h.host.as_deref().unwrap_or_default());
+        let host = self.name(h.host.as_deref().unwrap_or_default());
         let s = &h.source;
         let done = h.stage == Stage::Done;
-        let online = self.fleet.hosts.links.online(h.host.as_deref().unwrap_or_default());
+        let online = self.online(h.host.as_deref().unwrap_or_default());
         let rows = run
             .steps
             .iter()
@@ -426,10 +427,10 @@ impl Desktop {
     }
 
     fn progress_sheet(&mut self, cx: &mut Context<Self>) -> Div {
-        let h = self.handoff.open.as_ref().expect("open");
-        let host = self.host_name(h.host.as_deref().unwrap_or_default());
+        let h = self.open.as_ref().expect("open");
+        let host = self.name(h.host.as_deref().unwrap_or_default());
         let cancellable = h.run.as_ref().is_some_and(|r| r.cancellable());
-        let hide = |d: &mut Desktop, _: &ClickEvent, window: &mut Window, cx: &mut Context<Desktop>| d.close_overlay(window, cx);
+        let hide = |_: &mut Self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>| cx.emit(HandoffEvent::Close);
         let safe = div()
             .flex()
             .items_center()
@@ -441,7 +442,7 @@ impl Desktop {
         let mut buttons = vec![];
         if cancellable {
             buttons.push(
-                button("handoff-cancel", Variant::Ghost, "Cancel handoff").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.cancel_handoff(window, cx))),
+                button("handoff-cancel", Variant::Ghost, "Cancel handoff").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Cancel))),
             );
         }
         buttons.push(button("handoff-hide", Variant::Secondary, "Hide").on_click(cx.listener(hide)));
@@ -454,13 +455,13 @@ impl Desktop {
     }
 
     fn failed_sheet(&mut self, cx: &mut Context<Self>) -> Div {
-        let h = self.handoff.open.as_ref().expect("open");
+        let h = self.open.as_ref().expect("open");
         let id = h.host.clone().unwrap_or_default();
-        let host = self.host_name(&id);
+        let host = self.name(&id);
         let agent = h.source.agent_name.clone();
         let step = h.run.as_ref().and_then(|r| r.step());
         let mac = if h.run.as_ref().is_some_and(Run::stopped_turn) { "This session is still here; its turn stopped." } else { "Nothing changed on this Mac." };
-        let online = self.fleet.hosts.links.online(&id);
+        let online = self.online(&id);
         let (title, body) = if !online {
             (format!("{host} went offline"), format!("{mac} It retries when {host} is back."))
         } else if step == Some(Step::Check) {
@@ -473,16 +474,16 @@ impl Desktop {
             self.steps_box(),
             div().text_size(px(13.5)).line_height(px(20.)).text_color(TEXT_2).child(body).into_any_element(),
             foot(vec![
-                button("handoff-cancel", Variant::Ghost, "Close").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx))),
+                button("handoff-cancel", Variant::Ghost, "Close").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Close))),
                 button("handoff-go", Variant::Primary, if online { "Retry" } else { "Retry now" })
-                    .on_click(cx.listener(|d, _: &ClickEvent, _, cx| d.retry_handoff(cx))),
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Retry))),
             ]),
         ])
     }
 
     fn done_sheet(&mut self, cx: &mut Context<Self>) -> Div {
-        let h = self.handoff.open.as_ref().expect("open");
-        let host = self.host_name(h.host.as_deref().unwrap_or_default());
+        let h = self.open.as_ref().expect("open");
+        let host = self.name(h.host.as_deref().unwrap_or_default());
         let agent = h.source.agent_name.clone();
         let (title, lede) = if h.source.conversation() {
             (format!("{agent} made it to {host}!"), "It picks up where you left off. You can close this Mac.".to_string())
@@ -501,7 +502,7 @@ impl Desktop {
             .gap(px(6.))
             .text_center()
             .child(super::cheer::mascot(cheers, still).on_click(cx.listener(|d, _: &ClickEvent, _, cx| {
-                if let Some(h) = d.handoff.open.as_mut() {
+                if let Some(h) = d.open.as_mut() {
                     h.cheers += 1;
                 }
                 cx.notify();
@@ -512,16 +513,16 @@ impl Desktop {
             div().mb(px(-14.)).flex().justify_end().child(self.close_button(cx).mr(px(-4.))).into_any_element(),
             cheer.into_any_element(),
             foot(vec![
-                button("handoff-cancel", Variant::Ghost, "Done").on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.close_overlay(window, cx))),
+                button("handoff-cancel", Variant::Ghost, "Done").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::Close))),
                 button("handoff-go", Variant::Primary, format!("Open on {host}"))
-                    .on_click(cx.listener(|d, _: &ClickEvent, window, cx| d.open_handed_off(window, cx))),
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(HandoffEvent::OpenHandedOff))),
             ]),
         ])
     }
 }
 
-fn back_to_pick(d: &mut Desktop, _: &ClickEvent, _: &mut Window, cx: &mut Context<Desktop>) {
-    if let Some(h) = d.handoff.open.as_mut() {
+fn back_to_pick(d: &mut HandoffState, _: &ClickEvent, _: &mut Window, cx: &mut Context<HandoffState>) {
+    if let Some(h) = d.open.as_mut() {
         h.stage = Stage::Pick;
     }
     cx.notify();

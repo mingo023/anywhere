@@ -123,7 +123,7 @@ impl Desktop {
         let meta = match (meta, head) {
             (Some(m), _) => self.tab_text(m),
             _ if panes > 1 => format!("{panes} panes"),
-            (None, Some(h)) => self.tab_kind(h),
+            (None, Some(h)) => self.tab_kind(h, cx),
             (None, None) => String::new(),
         };
         let close = ui::control(div().id(("close-top", i)))
@@ -245,13 +245,13 @@ impl Desktop {
     }
 
     /// What kind of tab a lone tab is: its agent, a terminal, the folder of its file, its changes, or a page.
-    fn tab_kind(&self, tab: &Tab) -> String {
+    fn tab_kind(&self, tab: &Tab, cx: &App) -> String {
         match tab {
             Tab::Term(id) => self.summary(id).map_or_else(
                 || "Terminal".to_string(),
                 |a| {
                     let name = self.agent_name(&a.provider);
-                    self.handoff_tab(&a.id, &name).unwrap_or(name)
+                    self.handoff_tab(&a.id, &name, cx).unwrap_or(name)
                 },
             ),
             Tab::Doc(Doc::File(p)) => {

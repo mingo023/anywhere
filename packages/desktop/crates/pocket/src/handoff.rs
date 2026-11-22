@@ -5,6 +5,7 @@ mod view;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Overlay;
+use crate::spaces::Space;
 use crate::util::basename;
 use futures::StreamExt;
 use futures::channel::mpsc;
@@ -279,22 +280,77 @@ pub(crate) fn mark(open: Option<&Handoff>, agent: &str) -> Option<Mark> {
     Some(if h.run.as_ref()?.failed.is_some() { Mark::Stopped } else { Mark::Moving(h.host.clone()?) })
 }
 
+/// What the sheet asks of `Desktop`, which owns the overlay, the hosts and the run's steps.
+pub(crate) enum HandoffEvent {
+    Close,
+    AddHost,
+    Check,
+    Start,
+    OpenShell(String),
+    Cancel,
+    Retry,
+    OpenHandedOff,
+}
+
+/// A host as the sheet draws it; `Desktop` lists every host again each time it draws the sheet.
+pub(crate) struct HostRow {
+    pub id: String,
+    pub name: String,
+    pub address: String,
+    pub glyph: &'static str,
+    pub colour: Option<u32>,
+    pub online: bool,
+}
+
+/// The Hand off sheet as its own `Entity`: the handoff open, its summary box and the sheet's clicks.
 pub(crate) struct HandoffState {
     pub open: Option<Handoff>,
     pub summary: Entity<TextareaState>,
+    hosts: Vec<HostRow>,
+    names: HashMap<String, String>,
+    capturing: bool,
+    _subs: Vec<Subscription>,
 }
 
+impl EventEmitter<HandoffEvent> for HandoffState {}
+
 impl HandoffState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let summary = cx.new(|cx| TextareaState::new(window, cx).placeholder("What were you doing, what's done, what's next?").auto_grow(7, 14));
         let subs = vec![cx.observe(&summary, |_, _, cx| cx.notify())];
-        (Self { open: None, summary }, subs)
+        Self { open: None, summary, hosts: Vec::new(), names: HashMap::new(), capturing: false, _subs: subs }
+    }
+
+    pub fn show(&mut self, hosts: Vec<HostRow>, names: HashMap<String, String>, capturing: bool) {
+        (self.hosts, self.names, self.capturing) = (hosts, names, capturing);
     }
 
     /// Whether a handoff of agent `id` is underway.
     pub fn moving(&self, id: &str) -> bool {
         self.open.as_ref().is_some_and(|h| h.source.agent == id && h.stage == Stage::Moving)
     }
+
+    fn name(&self, id: &str) -> String {
+        self.hosts.iter().find(|h| h.id == id).map(|h| h.name.clone()).or_else(|| self.names.get(id).cloned()).unwrap_or_else(|| id.to_string())
+    }
+
+    fn online(&self, id: &str) -> bool {
+        self.hosts.iter().any(|h| h.id == id && h.online)
+    }
+}
+
+/// What `next_step` reads of the handoff before running its step, so the step runs with the sheet's `Entity` free.
+struct Now {
+    step: Option<Step>,
+    generation: u64,
+    source: Source,
+    caps: Vec<String>,
+    pack: Option<Pack>,
+    bundle: Option<String>,
+    placed: Option<Placed>,
+    started: Option<String>,
+    project: Option<String>,
+    host: String,
 }
 
 /// A host's own path for this Mac's `path` in a moved transcript: the path as given, and as it resolves.
@@ -322,10 +378,50 @@ impl Desktop {
         self.fleet.hosts.list.iter().filter(|h| self.fleet.hosts.links.online(&h.id)).map(|h| h.id.clone()).collect()
     }
 
+    pub(crate) fn handoff_view(&mut self, cx: &mut Context<Self>) -> Div {
+        let order = self.space_order();
+        let hosts = self
+            .fleet
+            .hosts
+            .list
+            .iter()
+            .map(|h| {
+                let space = Space::on(Some(&h.id));
+                HostRow {
+                    id: h.id.clone(),
+                    name: self.host_name(&h.id),
+                    address: h.address(),
+                    glyph: self.space_glyph(&space),
+                    colour: self.space_colour(&space, &order),
+                    online: self.fleet.hosts.links.online(&h.id),
+                }
+            })
+            .collect();
+        let (names, capturing) = (self.store.sidebar.space_names.clone(), self.capturing);
+        self.handoff.update(cx, |h, _| h.show(hosts, names, capturing));
+        div().absolute().inset_0().child(self.handoff.clone())
+    }
+
+    pub(crate) fn on_handoff_event(&mut self, _: &Entity<HandoffState>, ev: &HandoffEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            HandoffEvent::Close => self.close_overlay(window, cx),
+            HandoffEvent::AddHost => {
+                self.close_overlay(window, cx);
+                self.show_hosts(window, cx);
+            }
+            HandoffEvent::Check => self.check_hosts(cx),
+            HandoffEvent::Start => self.start_handoff(cx),
+            HandoffEvent::OpenShell(id) => self.open_host_shell(id, window, cx),
+            HandoffEvent::Cancel => self.cancel_handoff(window, cx),
+            HandoffEvent::Retry => self.retry_handoff(cx),
+            HandoffEvent::OpenHandedOff => self.open_handed_off(window, cx),
+        }
+    }
+
     /// Opens the sheet for agent `id`, or brings back the handoff of it underway.
     pub(crate) fn open_handoff(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         // One handoff runs at a time: a session's menu brings back the one underway rather than dropping it.
-        if self.handoff.open.as_ref().is_some_and(|h| h.run.is_some() && (h.source.agent == id || h.stage == Stage::Moving)) {
+        if self.handoff.read(cx).open.as_ref().is_some_and(|h| h.run.is_some() && (h.source.agent == id || h.stage == Stage::Moving)) {
             return self.open(Overlay::Handoff, window, cx);
         }
         let Some(s) = self.agents.get(id).filter(|s| self.can_hand_off(s)) else { return };
@@ -362,8 +458,10 @@ impl Desktop {
             replied: Some(recap.said.as_str()),
         };
         let draft = handoff::summary::draft(&known);
-        self.handoff.summary.update(cx, |t, cx| t.set_value(draft, window, cx));
-        self.handoff.open = Some(Handoff::new(source));
+        self.handoff.update(cx, |h, cx| {
+            h.summary.update(cx, |t, cx| t.set_value(draft, window, cx));
+            h.open = Some(Handoff::new(source));
+        });
         self.open(Overlay::Handoff, window, cx);
         self.check_hosts(cx);
     }
@@ -372,12 +470,14 @@ impl Desktop {
     pub(crate) fn check_hosts(&mut self, cx: &mut Context<Self>) {
         let online = self.online_hosts();
         let projects = self.projects();
-        let Some(h) = self.handoff.open.as_mut() else { return };
-        h.keep_host(&online);
-        h.probes.clear();
-        h.generation = next_generation();
-        let generation = h.generation;
-        let source = h.source.clone();
+        let checking = self.handoff.update(cx, |h, _| {
+            let h = h.open.as_mut()?;
+            h.keep_host(&online);
+            h.probes.clear();
+            h.generation = next_generation();
+            Some((h.generation, h.source.clone()))
+        });
+        let Some((generation, source)) = checking else { return };
         for id in online {
             let on_host: Vec<String> = projects.iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).map(|p| hosts::split(p).1.to_string()).collect();
             let s = source.clone();
@@ -402,11 +502,13 @@ impl Desktop {
             cx.spawn(async move |this, cx| {
                 let (probe, caps) = task.await;
                 this.update(cx, |d, cx| {
-                    if let Some(h) = d.handoff.open.as_mut().filter(|h| h.generation == generation) {
-                        h.caps.insert(id.clone(), caps);
-                        h.probes.insert(id, probe);
-                        cx.notify();
-                    }
+                    d.handoff.update(cx, |h, cx| {
+                        if let Some(h) = h.open.as_mut().filter(|h| h.generation == generation) {
+                            h.caps.insert(id.clone(), caps);
+                            h.probes.insert(id, probe);
+                            cx.notify();
+                        }
+                    });
                 })
                 .ok();
             })
@@ -416,27 +518,51 @@ impl Desktop {
     }
 
     pub(crate) fn start_handoff(&mut self, cx: &mut Context<Self>) {
-        let Some(h) = self.handoff.open.as_mut() else { return };
-        h.run = Some(Run::new(h.source.working, h.source.conversation()));
-        h.stage = Stage::Moving;
-        self.next_step(cx);
+        let started = self.handoff.update(cx, |h, _| {
+            let h = h.open.as_mut()?;
+            h.run = Some(Run::new(h.source.working, h.source.conversation()));
+            h.stage = Stage::Moving;
+            Some(())
+        });
+        if started.is_some() {
+            self.next_step(cx);
+        }
     }
 
     /// Runs the step the handoff is at, or finishes it.
     fn next_step(&mut self, cx: &mut Context<Self>) {
-        let Some(h) = self.handoff.open.as_mut() else { return };
-        let (Some(host), Some(run)) = (h.host.clone(), h.run.as_ref()) else { return };
-        h.generation = next_generation();
-        let generation = h.generation;
-        let Some(step) = run.step() else {
-            h.stage = Stage::Done;
+        let now = self.handoff.update(cx, |s, _| {
+            let h = s.open.as_mut()?;
+            let host = h.host.clone()?;
+            h.run.as_ref()?;
+            h.generation = next_generation();
+            let run = h.run.as_ref()?;
+            let step = run.step();
+            let needs_pack = matches!(step, Some(Step::Send | Step::Worktree));
+            let now = Now {
+                step,
+                generation: h.generation,
+                source: h.source.clone(),
+                caps: h.caps.get(&host).cloned().unwrap_or_default(),
+                pack: run.pack.clone().filter(|_| needs_pack),
+                bundle: run.bundle.clone(),
+                placed: run.placed.clone(),
+                started: run.started.clone(),
+                project: h.probe().and_then(|p| p.project.clone()),
+                host,
+            };
+            if step.is_none() {
+                h.stage = Stage::Done;
+            }
+            Some(now)
+        });
+        let Some(Now { step, generation, source, caps, pack, bundle, placed, started, project, host }) = now else { return };
+        let Some(step) = step else {
             if self.overlay.is_none() {
                 self.overlay = Some(Overlay::Handoff);
             }
             return cx.notify();
         };
-        let source = h.source.clone();
-        let caps = h.caps.get(&host).cloned().unwrap_or_default();
         let id = format!("{}-{}", basename(&source.cwd), crate::util::now_ms());
         let Some(client) = hosts::remote::connected(&host) else {
             let name = self.host_name(&host);
@@ -456,13 +582,11 @@ impl Desktop {
             }
             Step::Pack => self.in_background(generation, move || handoff::pack::pack(&source.cwd, &id).map(Landed::Packed), cx),
             Step::Send => {
-                let Some(pack) = run.pack.clone() else { return };
+                let Some(pack) = pack else { return };
                 self.in_background(generation, move || handoff::place::send(&*client, &pack, &id).map(Landed::Sent), cx);
             }
             Step::Worktree => {
-                let (Some(pack), Some(bundle), Some(project)) = (run.pack.clone(), run.bundle.clone(), h.probe().and_then(|p| p.project.clone())) else {
-                    return;
-                };
+                let (Some(pack), Some(bundle), Some(project)) = (pack, bundle, project) else { return };
                 let name = basename(&source.cwd);
                 let given = self.tree_of(&source.cwd).and_then(|t| self.agents.given_name(&t).map(String::from));
                 let task = cx.background_executor().spawn({
@@ -472,7 +596,7 @@ impl Desktop {
                 cx.spawn(async move |this, cx| {
                     let placed = task.await;
                     this.update(cx, |d, cx| match placed {
-                        Ok(p) if d.handoff.open.as_ref().is_some_and(|h| h.generation == generation) => {
+                        Ok(p) if d.handoff.read(cx).open.as_ref().is_some_and(|h| h.generation == generation) => {
                             if let Some(given) = &given {
                                 let tree = hosts::place(&host, &p.path);
                                 d.outbox.rename(&tree, given);
@@ -489,7 +613,7 @@ impl Desktop {
                 .detach();
             }
             Step::Conversation => {
-                let (Some(placed), Some(session)) = (run.placed.clone(), source.session.clone()) else { return };
+                let (Some(placed), Some(session)) = (placed, source.session.clone()) else { return };
                 let home = crate::modals::form::home();
                 let framed = caps.iter().any(|c| c == APPEND_CAP);
                 let (tx, mut rx) = mpsc::unbounded();
@@ -515,13 +639,13 @@ impl Desktop {
                 );
             }
             Step::Start => {
-                let Some(placed) = run.placed.clone() else { return };
+                let Some(placed) = placed else { return };
                 let cwd = hosts::place(&host, &placed.path);
                 // A retry takes up the agent a slow first try started rather than starting a second.
                 if let Some(found) = self.agents.list.iter().find(|s| s.cwd == cwd).map(|s| s.id.clone()) {
                     return self.step_landed(generation, Landed::Started(found), cx);
                 }
-                let prompt = if source.conversation() { String::new() } else { self.handoff.summary.read(cx).value().trim().to_string() };
+                let prompt = if source.conversation() { String::new() } else { self.handoff.read(cx).summary.read(cx).value().trim().to_string() };
                 let pick = LaunchPick {
                     provider: source.provider.clone(),
                     model: source.model.clone(),
@@ -551,7 +675,7 @@ impl Desktop {
                 self.wait_for(generation, START, &failure, move |d| d.agents.list.iter().find(|s| s.cwd == cwd).map(|s| Landed::Started(s.id.clone())), cx);
             }
             Step::Check => {
-                let Some(started) = run.started.clone() else { return };
+                let Some(started) = started else { return };
                 let awaits = source.awaits_history(&caps);
                 let failure = format!("The conversation didn’t open on {}", self.host_name(&host));
                 self.wait_for(
@@ -590,7 +714,7 @@ impl Desktop {
         cx.spawn(async move |this, cx| {
             loop {
                 let waiting = this.update(cx, |d, cx| {
-                    if d.handoff.open.as_ref().is_none_or(|h| h.generation != generation) {
+                    if d.handoff.read(cx).open.as_ref().is_none_or(|h| h.generation != generation) {
                         return false;
                     }
                     match found(d) {
@@ -610,21 +734,34 @@ impl Desktop {
     }
 
     fn conversation_sent(&mut self, generation: u64, sent: (usize, usize), cx: &mut Context<Self>) {
-        if let Some(run) = self.handoff.open.as_mut().filter(|h| h.generation == generation).and_then(|h| h.run.as_mut()) {
-            run.sent = Some(sent);
-            cx.notify();
-        }
+        self.handoff.update(cx, |s, cx| {
+            if let Some(run) = s.open.as_mut().filter(|h| h.generation == generation).and_then(|h| h.run.as_mut()) {
+                run.sent = Some(sent);
+                cx.notify();
+            }
+        });
     }
 
     fn step_landed(&mut self, generation: u64, l: Landed, cx: &mut Context<Self>) {
-        let Some(run) = self.handoff.open.as_mut().filter(|h| h.generation == generation).and_then(|h| h.run.as_mut()) else { return };
-        run.land(l);
-        self.next_step(cx);
+        let landed = self.handoff.update(cx, |s, _| {
+            let run = s.open.as_mut().filter(|h| h.generation == generation).and_then(|h| h.run.as_mut())?;
+            run.land(l);
+            Some(())
+        });
+        if landed.is_some() {
+            self.next_step(cx);
+        }
     }
 
     fn step_failed(&mut self, generation: u64, message: String, cx: &mut Context<Self>) {
-        let Some(run) = self.handoff.open.as_mut().filter(|h| h.generation == generation).and_then(|h| h.run.as_mut()) else { return };
-        run.failed = Some(message);
+        let failed = self.handoff.update(cx, |s, _| {
+            let run = s.open.as_mut().filter(|h| h.generation == generation).and_then(|h| h.run.as_mut())?;
+            run.failed = Some(message);
+            Some(())
+        });
+        if failed.is_none() {
+            return;
+        }
         if self.overlay.is_none() {
             self.overlay = Some(Overlay::Handoff);
         }
@@ -632,21 +769,24 @@ impl Desktop {
     }
 
     pub(crate) fn retry_handoff(&mut self, cx: &mut Context<Self>) {
-        if let Some(run) = self.handoff.open.as_mut().and_then(|h| h.run.as_mut()) {
-            run.retry();
+        let retried = self.handoff.update(cx, |s, _| {
+            s.open.as_mut().and_then(|h| h.run.as_mut())?.retry();
+            Some(())
+        });
+        if retried.is_some() {
             self.next_step(cx);
         }
     }
 
     pub(crate) fn handoff_host_back(&mut self, host: &str, cx: &mut Context<Self>) {
-        if self.handoff.open.as_ref().is_some_and(|h| h.stopped_on(host)) {
+        if self.handoff.read(cx).open.as_ref().is_some_and(|h| h.stopped_on(host)) {
             self.retry_handoff(cx);
         }
     }
 
     /// Stops the handoff and takes back the worktree it made on the host, unless the host's agent started in it.
     pub(crate) fn cancel_handoff(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(h) = self.handoff.open.take() {
+        if let Some(h) = self.handoff.update(cx, |s, _| s.open.take()) {
             self.undo_handoff(h, cx);
         }
         self.close_overlay(window, cx);
@@ -674,8 +814,11 @@ impl Desktop {
 
     /// The sheet going away: a handoff underway keeps going, out of sight; any other is over.
     pub(crate) fn handoff_closed(&mut self, cx: &mut Context<Self>) {
-        let underway = self.handoff.open.as_ref().is_some_and(|h| h.stage == Stage::Moving && h.run.as_ref().is_some_and(|r| r.failed.is_none()));
-        if !underway && let Some(h) = self.handoff.open.take() {
+        let over = self.handoff.update(cx, |s, _| {
+            let underway = s.open.as_ref().is_some_and(|h| h.stage == Stage::Moving && h.run.as_ref().is_some_and(|r| r.failed.is_none()));
+            if underway { None } else { s.open.take() }
+        });
+        if let Some(h) = over {
             let failed = h.run.as_ref().is_some_and(|r| r.failed.is_some());
             if failed {
                 self.undo_handoff(h, cx);
@@ -685,7 +828,7 @@ impl Desktop {
 
     /// Goes to the session that took over on the host.
     pub(crate) fn open_handed_off(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let started = self.handoff.open.take().and_then(|h| h.run).and_then(|r| r.started);
+        let started = self.handoff.update(cx, |s, _| s.open.take()).and_then(|h| h.run).and_then(|r| r.started);
         self.close_overlay(window, cx);
         if let Some(id) = started {
             self.focus_agent(&id, window, cx);
@@ -693,18 +836,18 @@ impl Desktop {
     }
 
     /// What session `agent` shows of a handoff of it.
-    pub(crate) fn handoff_mark(&self, agent: &str) -> Option<Mark> {
-        mark(self.handoff.open.as_ref(), agent)
+    pub(crate) fn handoff_mark(&self, agent: &str, cx: &App) -> Option<Mark> {
+        mark(self.handoff.read(cx).open.as_ref(), agent)
     }
 
     /// What session `agent`'s card says of a handoff of it.
-    pub(crate) fn handoff_notice(&self, agent: &str) -> Option<ui::Notice> {
-        self.handoff_mark(agent).map(|m| m.notice(&self.mark_host(&m)))
+    pub(crate) fn handoff_notice(&self, agent: &str, cx: &App) -> Option<ui::Notice> {
+        self.handoff_mark(agent, cx).map(|m| m.notice(&self.mark_host(&m)))
     }
 
     /// What session `agent`'s tab says under its title, `name` being its agent's.
-    pub(crate) fn handoff_tab(&self, agent: &str, name: &str) -> Option<String> {
-        self.handoff_mark(agent).map(|m| m.tab(name, &self.mark_host(&m)))
+    pub(crate) fn handoff_tab(&self, agent: &str, name: &str, cx: &App) -> Option<String> {
+        self.handoff_mark(agent, cx).map(|m| m.tab(name, &self.mark_host(&m)))
     }
 
     fn mark_host(&self, m: &Mark) -> String {
@@ -713,7 +856,7 @@ impl Desktop {
 
     /// A shell on host `id` for fixing what the check found, in its checkout of the project, else any project there.
     pub(crate) fn open_host_shell(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let found = self.handoff.open.as_ref().and_then(|h| h.probes.get(id)).and_then(|p| p.project.clone()).map(|p| hosts::place(id, &p));
+        let found = self.handoff.read(cx).open.as_ref().and_then(|h| h.probes.get(id)).and_then(|p| p.project.clone()).map(|p| hosts::place(id, &p));
         let Some(project) = found.or_else(|| self.projects().into_iter().find(|p| hosts::split(p).0 == Some(id))) else { return };
         self.close_overlay(window, cx);
         self.select_tree(project, None, cx);

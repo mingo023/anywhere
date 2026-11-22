@@ -115,7 +115,7 @@ pub struct Desktop {
     pub(crate) git_done: u64,
     pub(crate) inbox: Entity<Inbox>,
     pub(crate) activity: ActivityState,
-    pub(crate) handoff: crate::handoff::HandoffState,
+    pub(crate) handoff: Entity<crate::handoff::HandoffState>,
     pub(crate) automations: AutomationsState,
     pub(crate) board: BoardState,
     pub(crate) error: Option<String>,
@@ -174,7 +174,8 @@ impl Desktop {
         let (automations, automations_subs) = AutomationsState::new(window, cx);
         let (board, board_subs) = BoardState::new(window, cx);
         let (activity, activity_subs) = ActivityState::new(window, cx);
-        let (handoff, handoff_subs) = crate::handoff::HandoffState::new(window, cx);
+        let handoff = cx.new(|cx| crate::handoff::HandoffState::new(window, cx));
+        let handoff_subs = cx.subscribe_in(&handoff, window, Self::on_handoff_event);
         let notch = Notch::new(window, cx);
         let browsers = Browsers::new(window, cx);
         // Read before updates and the star record this launch.
@@ -240,7 +241,7 @@ impl Desktop {
         _subs.extend(automations_subs);
         _subs.extend(board_subs);
         _subs.extend(activity_subs);
-        _subs.extend(handoff_subs);
+        _subs.push(handoff_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
         let graph = GraphState::new(store.graph_share, &store.diff);
         let diff = DiffState::new(&store.diff);
