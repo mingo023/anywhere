@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Schedule an automation – Anywhere, coding agent workspace</title>
+	<meta name="description" content="Run a prompt on a schedule with Anywhere automations, and answer a run that needs you.">
+	<link rel="canonical" href="https://getanywhere.dev/docs/automations">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="Anywhere, coding agent workspace">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Schedule an automation – Anywhere, coding agent workspace">
+	<meta property="og:description" content="Run a prompt on a schedule with Anywhere automations, and answer a run that needs you.">
+	<meta property="og:url" content="https://getanywhere.dev/docs/automations">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Schedule an automation – Anywhere, coding agent workspace">
+	<meta name="twitter:description" content="Run a prompt on a schedule with Anywhere automations, and answer a run that needs you.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="/assets/icon.png" type="image/png" sizes="256x256">
+	<link rel="icon" href="/favicon.ico" sizes="any">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script is:inline src="docs.js" defer></script>
+	<script is:inline type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/automations#article",
+			"headline": "Schedule an automation",
+			"description": "Run a prompt on a schedule with Anywhere automations, and answer a run that needs you.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/automations" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Schedule an automation", "item": "https://getanywhere.dev/docs/automations" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">How-to guide</p>
+				<h1>Schedule an automation</h1>
+				<p class="lede">An automation is a prompt that pocketd starts in an agent on a schedule: on chosen weekdays at a time, or every few minutes. Each run is an ordinary session, and runs keep firing while the desktop app is closed.</p>
+				<p>To open Automations, click <strong>Automations</strong> in the sidebar, or press <kbd>⌘⇧A</kbd>.</p>
+
+				<h2 id="create-an-automation">Create an automation</h2>
+				<ol>
+					<li>Click the <strong>+</strong> in the list header, or <strong>New automation</strong> on the empty page.</li>
+					<li>Type a name. If you leave it empty, the name is the start of the prompt.</li>
+					<li>Under <strong>Trigger</strong>, click <strong>Add trigger</strong> and choose <strong>Schedule</strong>. Then pick one:
+						<ul>
+							<li><strong>Days and time</strong>: select the days, or a preset such as <strong>Weekdays</strong>, and enter a <strong>Time</strong> in 24-hour <code>HH:MM</code>.</li>
+							<li><strong>Repeat</strong>: enter a number of minutes, or pick a preset such as <strong>1 hour</strong>. The interval is from 5 minutes to 7 days.</li>
+						</ul>
+					</li>
+					<li>Under <strong>Instructions</strong>, write the prompt.</li>
+					<li>Pick the agent, and the access mode on the access chip.</li>
+					<li>Pick the project. Choose <strong>Worktree</strong> to start each run on a new branch off the branch you pick, or <strong>Local</strong> to run in the project's checkout.</li>
+					<li>Click <strong>Create</strong>.</li>
+				</ol>
+				<p>The automation's page shows its trigger, folder, agent, and <strong>Next run</strong>. To try it now, click <strong>Run now</strong>.</p>
+				<p>New automations use <strong>Edits</strong> access by default. To change the default, go to Settings › <strong>Automations</strong> › <strong>Permission mode</strong>. With <strong>Ask</strong>, a run pauses until you approve its actions from the Mac or the phone.</p>
+
+				<h2 id="pause-edit-or-delete-an-automation">Pause, edit, or delete an automation</h2>
+				<p>On the automation's page:</p>
+				<ul>
+					<li>To stop it from firing, switch <strong>Active</strong> to <strong>Paused</strong>.</li>
+					<li>To change it, click <strong>Edit</strong>, make the changes, and click <strong>Save</strong>.</li>
+					<li>To delete it, open the <strong>⋯</strong> menu and click <strong>Delete</strong>.</li>
+				</ul>
+
+				<h2 id="answer-a-run-that-needs-you">Answer a run that needs you</h2>
+				<p>A run whose agent asks for a permission or an answer has the status <span class="status needs-you">Needs you</span>, like any other session. It waits until you answer.</p>
+				<ul>
+					<li>The Automations list shows a banner with the automation's name and <strong>Answer</strong>.</li>
+					<li>The automation's page says that the automation is paused until you answer.</li>
+					<li>The run's page shows the request, with <strong>Allow once</strong>, <strong>Deny</strong>, and <strong>Reply in session</strong>.</li>
+				</ul>
+				<p>Click <strong>Answer</strong> to open the run's session and reply there. An automation has one active run at a time, so the next scheduled run is skipped while this one waits.</p>
+
+				<h2 id="read-past-runs">Read past runs</h2>
+				<p>The automation's page lists its <strong>Recent runs</strong>. Click <strong>All runs</strong> for the rest. Each run shows one of these statuses:</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Status</th><th>Meaning</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><strong>Working</strong></td><td>The run's agent is running a turn.</td></tr>
+						<tr><td><strong>Needs you</strong></td><td>The run waits for your answer.</td></tr>
+						<tr><td><strong>Done</strong></td><td>The run ended.</td></tr>
+						<tr><td><strong>Failed</strong></td><td>The run ended with an error.</td></tr>
+						<tr><td><strong>Stopped</strong></td><td>The run's session closed before the run ended.</td></tr>
+						<tr><td><strong>Skipped</strong></td><td>The run never started: the Mac was asleep past the grace window, or the last run was still working.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>Settings › <strong>Automations</strong> › <strong>Keep run history</strong> sets how many runs to keep. The default is 50.</p>
+
+				<h2 id="choose-what-happens-to-missed-runs">Choose what happens to missed runs</h2>
+				<p>pocketd fires runs only while it is running and the machine is awake. A run that comes due while the Mac sleeps starts when it wakes, if it is late by less than the grace window. Otherwise the run is skipped. The grace window is 12 hours by default.</p>
+				<p>To change it, go to Settings › <strong>Automations</strong> and set <strong>Run late if missed by less than</strong>. To turn late runs off, turn off <strong>Catch up after sleep</strong>.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/docs/board"><span>Previous</span>Plan work on the Board</a>
+				<a class="next" href="/docs/delegation"><span>Next</span>Delegate work from a chat</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>

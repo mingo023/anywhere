@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Supported agents – Anywhere, coding agent workspace</title>
+	<meta name="description" content="Each coding agent Anywhere runs: its command, install and sign-in commands, and what status it reports.">
+	<link rel="canonical" href="https://getanywhere.dev/docs/agents">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="Anywhere, coding agent workspace">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Supported agents – Anywhere, coding agent workspace">
+	<meta property="og:description" content="Each coding agent Anywhere runs: its command, install and sign-in commands, and what status it reports.">
+	<meta property="og:url" content="https://getanywhere.dev/docs/agents">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Supported agents – Anywhere, coding agent workspace">
+	<meta name="twitter:description" content="Each coding agent Anywhere runs: its command, install and sign-in commands, and what status it reports.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="/assets/icon.png" type="image/png" sizes="256x256">
+	<link rel="icon" href="/favicon.ico" sizes="any">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script is:inline src="docs.js" defer></script>
+	<script is:inline type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/agents#article",
+			"headline": "Supported agents",
+			"description": "Each coding agent Anywhere runs: its command, install and sign-in commands, and what status it reports.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/agents" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Supported agents", "item": "https://getanywhere.dev/docs/agents" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">Reference</p>
+				<h1>Supported agents</h1>
+				<p class="lede">Anywhere runs ten coding agents. It doesn't include any of them: it runs the agent command line tools it finds on your login <code>PATH</code>.</p>
+
+				<h2 id="install-and-sign-in">Install and sign in</h2>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Agent</th><th>Command</th><th>Install</th><th>Sign in</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>Claude Code</td><td><code>claude</code></td><td><a href="https://claude.com/product/claude-code">Claude Code install page</a></td><td><code>claude auth login</code></td></tr>
+						<tr><td>Codex</td><td><code>codex</code></td><td><a href="https://developers.openai.com/codex/cli">Codex CLI install page</a></td><td><code>codex login</code></td></tr>
+						<tr><td>Cursor</td><td><code>cursor-agent</code></td><td><code>curl https://cursor.com/install -fsS | bash</code></td><td><code>cursor-agent login</code></td></tr>
+						<tr><td>Grok Build</td><td><code>grok</code></td><td><code>curl -fsSL https://x.ai/cli/install.sh | bash</code></td><td><code>grok login</code></td></tr>
+						<tr><td>OpenCode</td><td><code>opencode</code></td><td><code>npm i -g opencode-ai</code></td><td><code>opencode auth login</code></td></tr>
+						<tr><td>Pi</td><td><code>pi</code></td><td><code>npm i -g @earendil-works/pi-coding-agent</code></td><td>Run <code>pi</code> and type <code>/login</code></td></tr>
+						<tr><td>omp</td><td><code>omp</code></td><td><code>curl -fsSL https://omp.sh/install | sh</code></td><td>Run <code>omp</code> once</td></tr>
+						<tr><td>fx</td><td><code>fx</code></td><td><code>curl -fsSL https://fx.sh/setup.sh | bash</code></td><td><code>fx login</code></td></tr>
+						<tr><td>Hermes Agent</td><td><code>hermes</code></td><td><code>curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash</code></td><td><code>hermes model</code></td></tr>
+						<tr><td>Antigravity</td><td><code>agy</code></td><td><code>curl -fsSL https://antigravity.google/cli/install.sh | bash</code></td><td>Run <code>agy</code> once</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>If Anywhere doesn't find an agent, Settings › <strong>Agents</strong> says <code>&lt;Agent&gt; not found</code>, followed by its install command. If the agent is already installed, restart Anywhere.</p>
+				<p>Settings › <strong>Accounts</strong> can hold more than one account each for Claude Code and Codex, and shows their usage.</p>
+
+				<h2 id="chat-terminal-and-status">Chat, terminal, and status</h2>
+				<p>Every agent runs as a chat or in a terminal. In a chat, pocketd drives the agent through the protocol in the last column. Whether the agent reports its status from a terminal decides whether it is <a href="/docs/sessions#attached-agents">attached</a> there.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>Agent</th><th><code>&lt;agent&gt;</code> id</th><th>Status in a chat</th><th>Status in a terminal</th><th>Chat protocol</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>Claude Code</td><td><code>claude</code></td><td>Yes</td><td>Yes, through Claude Code hooks</td><td>Claude Code stream JSON</td></tr>
+						<tr><td>Codex</td><td><code>codex</code></td><td>Yes</td><td>Yes, from Codex session events</td><td>Codex app-server</td></tr>
+						<tr><td>Cursor</td><td><code>cursor</code></td><td>Yes</td><td>No</td><td>Agent Client Protocol</td></tr>
+						<tr><td>Grok Build</td><td><code>grok</code></td><td>Yes</td><td>No</td><td>Agent Client Protocol</td></tr>
+						<tr><td>OpenCode</td><td><code>opencode</code></td><td>Yes</td><td>No</td><td>Agent Client Protocol</td></tr>
+						<tr><td>Pi</td><td><code>pi</code></td><td>Yes</td><td>No</td><td>Pi RPC mode</td></tr>
+						<tr><td>omp</td><td><code>omp</code></td><td>Yes</td><td>No</td><td>Pi RPC mode</td></tr>
+						<tr><td>fx</td><td><code>fx</code></td><td>Yes</td><td>No</td><td>Agent Client Protocol</td></tr>
+						<tr><td>Hermes Agent</td><td><code>hermes</code></td><td>Yes</td><td>No</td><td>Agent Client Protocol</td></tr>
+						<tr><td>Antigravity</td><td><code>antigravity</code></td><td>Yes</td><td>No</td><td>Agent Client Protocol</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>Where an agent reports its status, it shows all five: <span class="status needs-you">Needs you</span>, <span class="status failed">Failed</span>, <span class="status done">Done</span>, <span class="status working">Working</span>, and <span class="status">Idle</span>. In a terminal, an agent that doesn't report its status shows only terminal activity. The <code>&lt;agent&gt;</code> id is the value for <code>--provider</code> in <a href="/docs/cli">the anywhere command</a>.</p>
+				<p>The new session page starts Claude Code and Codex as a chat when Settings › <strong>Agents</strong> › <strong>Start as a chat</strong> is on, and in a terminal when it is off. It always starts the other agents as a chat. Every agent can run in a terminal from a tab's <strong>+</strong> menu.</p>
+
+				<h2 id="access-and-delegation">Access and delegation</h2>
+				<ul>
+					<li>Pi and omp never ask before they use a tool, so their sessions always run with <strong>Full</strong> access.</li>
+					<li>Codex doesn't start in plan mode. The other agents can.</li>
+					<li>Claude Code and Codex chats can <a href="/docs/delegation">delegate work to other sessions</a>. Cursor, Grok Build, OpenCode, fx, Hermes Agent, and Antigravity chats can when the agent supports MCP servers over HTTP. Pi and omp can't.</li>
+				</ul>
+
+				<h2 id="agent-settings">Agent settings</h2>
+				<p>Settings › <strong>Agents</strong> lists each agent under <strong>Providers</strong>. Click an agent to open its page:</p>
+				<ul>
+					<li><strong>Enabled</strong>: whether the agent shows in the default agent choice, the new session page, automations, and AI commit messages.</li>
+					<li><strong>Set as default</strong>: makes it the agent new sessions start with.</li>
+					<li><strong>Defaults</strong>: the label, model, and effort a new session starts with.</li>
+					<li><strong>Launch</strong>: the command Anywhere runs and the arguments it adds to send a prompt, resume, and fork.</li>
+				</ul>
+				<p>pocketd also takes the command as a setting: <code>pocketd config set &lt;agent&gt;.command &lt;command&gt;</code>.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/docs/iphone"><span>Previous</span>Pair an iPhone</a>
+				<a class="next" href="/docs/cli"><span>Next</span>The anywhere command</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>

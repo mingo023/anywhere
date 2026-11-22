@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>How Anywhere runs on your machines – Anywhere, coding agent workspace</title>
+	<meta name="description" content="What runs where in Anywhere: pocketd, the desktop app, the iPhone app, the protocol, and the push relay.">
+	<link rel="canonical" href="https://getanywhere.dev/docs/architecture">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="Anywhere, coding agent workspace">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="How Anywhere runs on your machines – Anywhere, coding agent workspace">
+	<meta property="og:description" content="What runs where in Anywhere: pocketd, the desktop app, the iPhone app, the protocol, and the push relay.">
+	<meta property="og:url" content="https://getanywhere.dev/docs/architecture">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="How Anywhere runs on your machines – Anywhere, coding agent workspace">
+	<meta name="twitter:description" content="What runs where in Anywhere: pocketd, the desktop app, the iPhone app, the protocol, and the push relay.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="/assets/icon.png" type="image/png" sizes="256x256">
+	<link rel="icon" href="/favicon.ico" sizes="any">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script is:inline src="docs.js" defer></script>
+	<script is:inline type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/architecture#article",
+			"headline": "About how Anywhere runs on your machines",
+			"description": "What runs where in Anywhere: pocketd, the desktop app, the iPhone app, the protocol, and the push relay.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/architecture" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "About how Anywhere runs on your machines", "item": "https://getanywhere.dev/docs/architecture" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">Explanation</p>
+				<h1>About how Anywhere runs on your machines</h1>
+				<p class="lede">Anywhere has no Anywhere account and no Anywhere server that your sessions pass through. The program that runs your agents runs on your own machine, and the apps talk to it directly. The one service the project runs is a push relay for iPhone notifications, and it stores no device tokens.</p>
+				<p>All of it is in one MIT-licensed repository, <a href="https://github.com/mingo023/anywhere">mingo023/anywhere</a>. There is no paid tier and no license check in the code. This page says what runs where, and lists every connection Anywhere makes to the network, so you can check that against the source.</p>
+
+				<h2 id="pocketd-runs-the-sessions">pocketd runs the sessions</h2>
+				<p>pocketd is a Go program, in <code>packages/pocketd</code>. It owns the terminals, the sessions, the Board, the automations, and the connection to the phone. The desktop app shows what pocketd runs. It doesn't run agents itself.</p>
+				<p>That split is why agents keep running after you close the window, and why automations fire while the app is closed. pocketd starts at login as a background service, and it outlives the app:</p>
+				<ul>
+					<li>On macOS it ships inside the app as <code>Contents/Library/Helpers/AnywhereDaemon.app</code>, registered as a login item. A moved or deleted app takes its service along.</li>
+					<li>On Linux it is a systemd user service.</li>
+					<li>On Windows it is a scheduled task.</li>
+				</ul>
+				<p>pocketd keeps its data in <code>~/.anywhere</code>. It listens in three places, all on your machine or your tailnet:</p>
+				<ul>
+					<li>A Unix socket, <code>~/.anywhere/pocketd.sock</code>, for the desktop app and the <code>anywhere</code> command. On Windows, also <code>127.0.0.1</code> port 4519.</li>
+					<li>Port 4517 on <code>127.0.0.1</code> and on the machine's Tailscale addresses, for phones. Set <code>listen</code> to <code>loopback</code> to keep it off the tailnet.</li>
+					<li>A port on <code>127.0.0.1</code> for the orchestrator's MCP server, which chat agents use to <a href="/docs/delegation">delegate work</a>.</li>
+				</ul>
+				<p>When an update replaces pocketd, it hands its live terminals and agents to the new program inside the same process instead of restarting. Clients see a reconnect, and no terminal or agent stops. The cost is that a bug in that handover path would kill the terminals, so it is dry-run first. Windows can't do this, so updating pocketd on a Windows host closes its terminals.</p>
+
+				<h2 id="the-desktop-app-is-a-client">The desktop app is a client</h2>
+				<p>The desktop app, <code>pocket-desktop</code>, is written in Rust with <a href="https://www.gpui.rs">GPUI</a>, in <code>packages/desktop</code>. It talks to pocketd over the Unix socket. It reads git itself, and it calls the <code>gh</code> command for pull requests.</p>
+				<p>A host you add over SSH runs its own pocketd. pocketd on your machine reaches it through an <code>ssh</code> tunnel to the host's pocketd, and the host's projects show in the same sidebar.</p>
+
+				<h2 id="the-phone-connects-straight-to-the-mac">The phone connects straight to the Mac</h2>
+				<p>The iPhone and iPad app, coming soon, is native SwiftUI, in <code>packages/ios</code>. It connects to pocketd on your Mac over Tailscale, with no Anywhere server in between. pocketd refuses to pair a phone until Tailscale is running.</p>
+				<p>A phone gets less than the desktop app. It never gets to run arbitrary commands or read arbitrary files. Every git, GitHub, and file request names a registered project, worktree, or Local, and pocketd runs a fixed command for it.</p>
+
+				<h2 id="one-protocol">One protocol</h2>
+				<p>The desktop app, the phone, and the <code>anywhere</code> command all speak the same WebSocket protocol to pocketd. <code>packages/protocol</code> is its TypeScript schema, kept in step with pocketd's Go types and the iPhone app's Swift types. It is a specification, not a running service. Each release still speaks the protocol of the release before it, so a phone and a Mac don't have to update at the same moment.</p>
+
+				<h2 id="the-push-relay">The push relay</h2>
+				<p>A push notification to an iPhone has to go through Apple, signed with the app's Apple push key. Putting that key in every copy of pocketd would hand it to every user, so pocketd never holds it. A small relay, <code>packages/pushrelay</code>, holds the key instead. The project runs it at <code>https://push.getanywhere.dev</code>.</p>
+				<p>The relay is built to know as little as possible:</p>
+				<ul>
+					<li>It stores no device tokens. The phone registers its token with the relay and gets back a handle, which carries the token sealed under a key only the relay has. The phone gives that handle to pocketd.</li>
+					<li>Alert text is encrypted with a key that only the phone and pocketd share. The relay forwards it without being able to read it.</li>
+					<li>It keeps only rate counters, in memory. Its logs hold each send's kind, status, size, and Apple id, never its content.</li>
+					<li>Live Activity updates are the exception to the encryption. They pass through Apple unencrypted.</li>
+				</ul>
+				<p>The relay's source and an example deployment are in <code>packages/pushrelay</code>. <code>pocketd config set push.relay https://&lt;host&gt;</code> sends pocketd's pushes to another relay. The iPhone app registers with <code>https://push.getanywhere.dev</code> and has no setting for another relay.</p>
+				<p>pocketd sends a push only to a handle that a paired phone registered. Without a paired phone, it has nothing to send.</p>
+
+				<h2 id="every-network-connection">Every network connection</h2>
+				<p>This is every connection that Anywhere's own code makes, apart from links you open yourself. The agents you run make their own connections to their providers. Those are the agents' business, not Anywhere's.</p>
+				<div class="table-wrap">
+				<table>
+					<thead>
+						<tr><th>From</th><th>To</th><th>Why</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>pocketd</td><td>The push relay</td><td>To send a push to a paired phone.</td></tr>
+						<tr><td>pocketd</td><td><code>api.anthropic.com</code> and <code>chatgpt.com</code></td><td>To read the usage of your Claude Code and Codex accounts for the meters in Settings › <strong>Accounts</strong>, with the agents' own sign-in.</td></tr>
+						<tr><td>pocketd and the desktop app</td><td>Your git remotes</td><td>To fetch the base branch when creating a worktree, and to push when you push.</td></tr>
+						<tr><td>pocketd and the desktop app, through <code>gh</code></td><td>GitHub</td><td>To show and act on pull requests and checks.</td></tr>
+						<tr><td>The macOS app</td><td>GitHub Releases</td><td>To check for updates, at launch and every 6 hours by default. Change it in Settings › <strong>General</strong> › <strong>Check for updates</strong>.</td></tr>
+						<tr><td>pocketd, through <code>ssh</code></td><td>Hosts you add</td><td>To reach their pocketd, and to install it.</td></tr>
+						<tr><td>A host you add</td><td>GitHub Releases</td><td>To download pocketd during install or update.</td></tr>
+						<tr><td>pocketd and the desktop app</td><td>The agent command line tools you installed</td><td>To list each agent's models, to name a new branch from the prompt, and to write commit messages when you turn that on. The agents then reach their own providers.</td></tr>
+						<tr><td>The iPhone app</td><td>Your Mac, over Tailscale</td><td>Everything the app shows and does.</td></tr>
+						<tr><td>The iPhone app</td><td>The push relay</td><td>To register for notifications.</td></tr>
+					</tbody>
+				</table>
+				</div>
+				<p>Anywhere's own code has no analytics, telemetry, or crash reporting.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/docs/cli"><span>Previous</span>The anywhere command</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>

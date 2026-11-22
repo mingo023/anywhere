@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Pair an iPhone – Anywhere, coding agent workspace</title>
+	<meta name="description" content="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.">
+	<link rel="canonical" href="https://getanywhere.dev/docs/iphone">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="Anywhere, coding agent workspace">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Pair an iPhone – Anywhere, coding agent workspace">
+	<meta property="og:description" content="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.">
+	<meta property="og:url" content="https://getanywhere.dev/docs/iphone">
+	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Pair an iPhone – Anywhere, coding agent workspace">
+	<meta name="twitter:description" content="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.">
+	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="/assets/icon.png" type="image/png" sizes="256x256">
+	<link rel="icon" href="/favicon.ico" sizes="any">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="docs.css">
+	<script is:inline src="docs.js" defer></script>
+	<script is:inline type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "TechArticle",
+			"@id": "https://getanywhere.dev/docs/iphone#article",
+			"headline": "Pair an iPhone",
+			"description": "Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.",
+			"inLanguage": "en",
+			"publisher": { "@type": "Organization", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/", "logo": { "@type": "ImageObject", "url": "https://getanywhere.dev/assets/icon.png" } },
+			"image": "https://getanywhere.dev/assets/og.png",
+			"mainEntityOfPage": { "@type": "WebPage", "@id": "https://getanywhere.dev/docs/iphone" },
+			"about": { "@type": "SoftwareApplication", "name": "Anywhere", "alternateName": "Anywhere coding agent workspace", "url": "https://getanywhere.dev/" }
+		},
+		{
+			"@type": "BreadcrumbList",
+			"itemListElement": [
+				{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://getanywhere.dev/" },
+				{ "@type": "ListItem", "position": 2, "name": "Docs", "item": "https://getanywhere.dev/docs/" },
+				{ "@type": "ListItem", "position": 3, "name": "Pair an iPhone", "item": "https://getanywhere.dev/docs/iphone" }
+			]
+		}
+	]
+}
+	</script>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+		</button>
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<div class="layout">
+		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
+			<p class="nav-group">Get started</p>
+			<ul>
+				<li><a href="/docs/">Run your first agent</a></li>
+				<li><a href="/docs/install">Install Anywhere</a></li>
+			</ul>
+			<p class="nav-group">Use Anywhere</p>
+			<ul>
+				<li><a href="/docs/sessions">Sessions and status</a></li>
+				<li><a href="/docs/worktrees">Work in worktrees</a></li>
+				<li><a href="/docs/review">Review and commit changes</a></li>
+				<li><a href="/docs/board">Plan work on the Board</a></li>
+				<li><a href="/docs/automations">Schedule automations</a></li>
+				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
+				<li><a href="/docs/hosts">Run agents on another machine</a></li>
+				<li><a href="/docs/iphone">Pair an iPhone</a></li>
+			</ul>
+			<p class="nav-group">Reference</p>
+			<ul>
+				<li><a href="/docs/agents">Supported agents</a></li>
+				<li><a href="/docs/cli">The anywhere command</a></li>
+			</ul>
+			<p class="nav-group">Explanation</p>
+			<ul>
+				<li><a href="/docs/architecture">How Anywhere runs</a></li>
+			</ul>
+		</nav>
+		<main id="main">
+			<article>
+				<p class="eyebrow">How-to guide</p>
+				<h1>Pair an iPhone <span class="badge-soon">Coming soon</span></h1>
+				<p class="lede">The Anywhere iPhone app shows your sessions, lets you answer agents that need you, and sends push notifications. It connects straight to the Mac over Tailscale.</p>
+				<div class="callout warning">
+					<p><span class="callout-title">Coming soon</span>The iPhone app isn't publicly available yet. This page describes how pairing works so you are ready when it is.</p>
+				</div>
+
+				<h2 id="before-you-start">Before you start</h2>
+				<ul>
+					<li>Tailscale runs on the Mac and on the iPhone, signed in to the same tailnet. pocketd refuses to pair without it.</li>
+					<li>In Settings › <strong>Phone &amp; Remote</strong>, <strong>Reachable from</strong> is set to <strong>Tailnet</strong>, the default. The <strong>Tailscale</strong> row shows <strong>Connected</strong> and the Mac's Tailscale address. If it doesn't, click <strong>Set up Tailscale</strong>.</li>
+				</ul>
+
+				<h2 id="pair-the-phone">Pair the phone</h2>
+				<ol>
+					<li>On the Mac, open Settings with <kbd>⌘,</kbd> and select <strong>Phone &amp; Remote</strong>.</li>
+					<li>Click <strong>Pair a phone</strong>. The <strong>Pair phone</strong> dialog shows a QR code and a code. Both expire after 5 minutes.</li>
+					<li>On the iPhone, open the Anywhere app and tap <strong>Scan pairing code</strong>. Point the camera at the QR code.</li>
+					<li>Confirm the pairing on the iPhone.</li>
+				</ol>
+				<p>The Mac's dialog says <strong>Paired</strong> and closes. The phone shows in the <strong>Paired phones</strong> list.</p>
+
+				<h3>Enter the code instead</h3>
+				<ol>
+					<li>On the iPhone, tap <strong>Enter code instead</strong>.</li>
+					<li>In <strong>Mac address</strong>, enter the Mac's Tailscale address, such as <code>100.101.102.103</code>. If you leave out the port, the app adds 4517.</li>
+					<li>In <strong>Code</strong>, enter the code that the Mac shows under the QR code.</li>
+				</ol>
+				<p>Five wrong codes in a row lock pairing for one minute.</p>
+
+				<h3>Pair from a terminal</h3>
+				<p>On the Mac, <code>pocketd pair</code> prints the same QR code, the address, and the code.</p>
+
+				<h2 id="get-push-notifications">Get push notifications</h2>
+				<p>The iPhone can get a notification when a session needs you, fails, or is done, and when an automation run ends. Turn each kind on or off in the app's notification settings.</p>
+				<p>Notifications go from pocketd through the Anywhere push relay at <code>https://push.getanywhere.dev</code> to Apple. pocketd encrypts each alert so only your phone can read it. The relay stores no device tokens: the phone gives pocketd a sealed handle that only the relay can open. Live Activity updates are the exception: they pass through Apple unencrypted.</p>
+				<p>To send pocketd's pushes through a relay you run yourself, see <a href="/docs/architecture#the-push-relay">The push relay</a>.</p>
+
+				<h2 id="remove-a-phone">Remove a phone</h2>
+				<ol>
+					<li>On the Mac, open Settings › <strong>Phone &amp; Remote</strong>.</li>
+					<li>Under <strong>Paired phones</strong>, click <strong>Revoke</strong> on the phone's row.</li>
+				</ol>
+				<p>The phone disconnects at once and has to pair again.</p>
+
+				<h2 id="change-the-port">Change the port</h2>
+				<p>pocketd listens for phones on port 4517. Change it only if another app already uses 4517. In Settings › <strong>Phone &amp; Remote</strong>, click <strong>Show advanced settings</strong> and set <strong>Port</strong> to a number from 1024 to 65535.</p>
+			</article>
+			<nav class="pager" aria-label="Previous and next">
+				<a class="prev" href="/docs/hosts"><span>Previous</span>Run agents on another machine</a>
+				<a class="next" href="/docs/agents"><span>Next</span>Supported agents</a>
+			</nav>
+		</main>
+		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
+	</div>
+</body>
+</html>
