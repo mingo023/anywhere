@@ -136,7 +136,7 @@ var hostVerbs = map[string]verbDecoder{
 	},
 	"host.retry": func(f fields, m *ClientMessage) bool { return f.text("hostId", &m.HostID) },
 	"host.install": func(f fields, m *ClientMessage) bool {
-		return f.text("hostId", &m.HostID) && f.optionalBool("update", &m.Update) && f.optionalString("archiveDir", &m.ArchiveDir)
+		return f.text("hostId", &m.HostID) && f.optionalBool("update", &m.Update) && f.optionalBool("latest", &m.Latest) && f.optionalString("archiveDir", &m.ArchiveDir)
 	},
 	"host.sign_in": func(f fields, m *ClientMessage) bool {
 		return f.text("hostId", &m.HostID) && f.text("password", &m.Password)

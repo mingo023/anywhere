@@ -113,6 +113,7 @@ type ClientMessage struct {
 	HostTarget *HostTarget
 	Password   string
 	Update     bool
+	Latest     bool
 	Uninstall  bool
 	ArchiveDir string
 }

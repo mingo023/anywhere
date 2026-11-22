@@ -587,12 +587,12 @@ const STEPS: [(&str, Step); 302] = [
     ("wait", |_, _, _| {}),
     ("vm-install", |d, _, cx| {
         if let Some(id) = d.fleet.hosts.list.first().map(|h| h.id.clone()) {
-            d.install_host(&id, false, cx);
+            d.install_host(&id, false, false, cx);
         }
     }),
     ("vm-update", |d, _, _| {
         if let Some(h) = d.fleet.hosts.list.first() {
-            (d.confirm, d.overlay) = (Some(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false }), Some(Overlay::Confirm));
+            (d.confirm, d.overlay) = (Some(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false, latest: false }), Some(Overlay::Confirm));
         }
     }),
     ("vm-remove", |d, _, _| {
@@ -682,7 +682,7 @@ const STEPS: [(&str, Step); 302] = [
     ("hosts-retry", |d, _, _| d.retry_host("10-0-4-12")),
     ("hosts-password", |d, window, cx| d.open_password("10-0-4-12".into(), window, cx)),
     ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
-    ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
+    ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, false, cx)),
     // The Hosts page with each host's space colour and Open; and an install that has finished.
     ("hosts-spaces", |d, _, _| d.settings.section = Section::Hosts),
     ("hosts-installed", |d, window, cx| {

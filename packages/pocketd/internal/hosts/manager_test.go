@@ -31,10 +31,10 @@ func TestAnInstallAlreadyUnderWayIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	progress := make(chan Progress, 8)
-	if err := m.Install(devbox.ID, false, "", func(p Progress) { progress <- p }); err != nil {
+	if err := m.Install(devbox.ID, false, false, "", func(p Progress) { progress <- p }); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Install(devbox.ID, true, "", func(Progress) {}); !errors.Is(err, ErrBusy) {
+	if err := m.Install(devbox.ID, true, false, "", func(Progress) {}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("a second install: %v", err)
 	}
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
@@ -103,7 +103,7 @@ func filesOf(t *testing.T, home, id string) []string {
 func TestRemovingAHostMidInstallOrSignInLeavesNoneOfItsFiles(t *testing.T) {
 	for name, start := range map[string]func(*Manager, string, chan<- struct{}){
 		"install": func(m *Manager, id string, ended chan<- struct{}) {
-			m.Install(id, false, "", func(p Progress) {
+			m.Install(id, false, false, "", func(p Progress) {
 				if p.Kind == ProgressError {
 					close(ended)
 				}
@@ -166,7 +166,7 @@ func TestAHostAddedAgainBeforeItsRemovalFinishesKeepsItsFiles(t *testing.T) {
 	ended := make(chan struct{})
 	// The desktop's conn holds a lock while it removes that its pushes of the install's progress take.
 	var conn sync.Mutex
-	m.Install(devbox.ID, false, "", func(p Progress) {
+	m.Install(devbox.ID, false, false, "", func(p Progress) {
 		conn.Lock()
 		defer conn.Unlock()
 		if p.Kind == ProgressError {

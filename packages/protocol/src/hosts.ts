@@ -79,6 +79,7 @@ export const HostsClient = [
     id: Schema.String,
     hostId: Schema.NonEmptyString,
     update: Schema.optional(Schema.Boolean),
+    latest: Schema.optional(Schema.Boolean),
     archiveDir: Schema.optional(Schema.String),
   }),
   Schema.Struct({ type: Schema.Literal("host.sign_in"), id: Schema.String, hostId: Schema.NonEmptyString, password: Schema.NonEmptyString }),

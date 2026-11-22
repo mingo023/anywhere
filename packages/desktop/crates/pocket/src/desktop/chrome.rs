@@ -86,7 +86,7 @@ pub enum Confirm {
     ResetSection(Section),
     RevokeDevice { id: String, name: String },
     RemoveHost { id: String, name: String },
-    UpdateHost { id: String, name: String, windows: bool },
+    UpdateHost { id: String, name: String, windows: bool, latest: bool },
     RemoveAccount { key: Key, name: String },
     SignOutAccount { key: Key, name: String },
     /// A model from another provider, picked in the chat `agent`.

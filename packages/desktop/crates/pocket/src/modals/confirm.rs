@@ -143,9 +143,10 @@ impl ConfirmText {
     }
 
     /// Windows' pocketd restarts to update; elsewhere it hands its terminals to the new one.
-    fn update_host(name: &str, windows: bool) -> Self {
+    fn update_host(name: &str, windows: bool, latest: bool) -> Self {
         let fact = if windows { format!("pocketd restarts, so terminals on {name} close") } else { format!("Terminals on {name} stay open") };
-        Self { title: format!("Update {name}?"), action: "Update", facts: vec![fact], dirty: 0, lost: 0, danger: windows }
+        let (title, action) = if latest { (format!("Upgrade {name} to the latest version?"), "Upgrade") } else { (format!("Update {name}?"), "Update") };
+        Self { title, action, facts: vec![fact], dirty: 0, lost: 0, danger: windows }
     }
 
     fn remove_account(name: &str, machine: &str) -> Self {
@@ -229,7 +230,7 @@ impl Desktop {
                 let projects = self.projects().iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).count();
                 ConfirmText::remove_host(name, projects)
             }
-            Some(Confirm::UpdateHost { name, windows, .. }) => ConfirmText::update_host(name, *windows),
+            Some(Confirm::UpdateHost { name, windows, latest, .. }) => ConfirmText::update_host(name, *windows, *latest),
             Some(Confirm::RemoveAccount { key, name }) => ConfirmText::remove_account(name, &self.machine_name(&key.host)),
             Some(Confirm::SignOutAccount { name, .. }) => ConfirmText::sign_out_account(name),
             Some(Confirm::SwitchAgent { agent, provider, .. }) => {
@@ -336,7 +337,7 @@ impl Desktop {
             Some(Confirm::ResetSection(section)) => self.reset_section(section, window, cx),
             Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),
             Some(Confirm::RemoveHost { id, .. }) => self.remove_host(&id, false, cx),
-            Some(Confirm::UpdateHost { id, .. }) => self.install_host(&id, true, cx),
+            Some(Confirm::UpdateHost { id, latest, .. }) => self.install_host(&id, true, latest, cx),
             Some(Confirm::RemoveAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.remove"), cx),
             Some(Confirm::SignOutAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.signout"), cx),
             None => {}
@@ -521,9 +522,11 @@ mod tests {
 
     #[test]
     fn updating_a_windows_host_warns_its_terminals_close() {
-        assert_eq!(ConfirmText::update_host("pc", true), text("Update pc?", "Update", &["pocketd restarts, so terminals on pc close"], 0));
-        let mac = ConfirmText::update_host("devbox", false);
+        assert_eq!(ConfirmText::update_host("pc", true, false), text("Update pc?", "Update", &["pocketd restarts, so terminals on pc close"], 0));
+        let mac = ConfirmText::update_host("devbox", false, false);
         assert_eq!((mac.facts[0].as_str(), mac.danger), ("Terminals on devbox stay open", false));
+        let latest = ConfirmText::update_host("devbox", false, true);
+        assert_eq!((latest.title.as_str(), latest.action), ("Upgrade devbox to the latest version?", "Upgrade"));
     }
 
     #[test]

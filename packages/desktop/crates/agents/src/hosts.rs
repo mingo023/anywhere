@@ -258,7 +258,8 @@ mod tests {
         let retry: Value = rx.try_recv().unwrap();
         assert!(retry["id"].as_str().unwrap().starts_with(HOST));
         assert_eq!(json!({"type": retry["type"], "hostId": retry["hostId"]}), json!({"type": "host.retry", "hostId": "devbox"}));
-        assert_eq!(sent(out.host_install("devbox", true, Some("/Users/me/src/anywhere/packages/pocketd/dist"))), golden(golden_text!("client/host_install_update.json")));
+        assert_eq!(sent(out.host_install("devbox", true, false, Some("/Users/me/src/anywhere/packages/pocketd/dist"))), golden(golden_text!("client/host_install_update.json")));
+        assert_eq!(sent(out.host_install("devbox", true, true, None)), golden(golden_text!("client/host_install_latest.json")));
         assert_eq!(sent(out.host_sign_in("10-0-4-12", "hunter2")), golden(golden_text!("client/host_sign_in.json")));
     }
 }

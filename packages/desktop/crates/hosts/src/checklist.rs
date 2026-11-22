@@ -36,6 +36,8 @@ pub enum Outcome {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Checklist {
     pub update: bool,
+    /// To the newest release, so a retry asks for it again.
+    pub latest: bool,
     marks: [Mark; Step::ALL.len()],
     pub warnings: Vec<String>,
     pub outcome: Option<Outcome>,
@@ -43,7 +45,7 @@ pub struct Checklist {
 
 impl Checklist {
     pub fn new(update: bool) -> Self {
-        Self { update, marks: [Mark::Pending; Step::ALL.len()], warnings: Vec::new(), outcome: None }
+        Self { update, latest: false, marks: [Mark::Pending; Step::ALL.len()], warnings: Vec::new(), outcome: None }
     }
 
     /// Records `progress`; what comes after the outcome is dropped.

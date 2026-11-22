@@ -255,8 +255,9 @@ func (m *Manager) Retry(id string) error {
 }
 
 // Install puts pocketd on the host, or with update installs over the one there, in its own goroutine; on gets
-// each step. Once pocketd runs there the link reconnects rather than wait out its backoff.
-func (m *Manager) Install(id string, update bool, archiveDir string, on func(Progress)) error {
+// each step. With latest it installs the newest release rather than this pocketd's version. Once pocketd runs
+// there the link reconnects rather than wait out its backoff.
+func (m *Manager) Install(id string, update, latest bool, archiveDir string, on func(Progress)) error {
 	m.mu.Lock()
 	h, ok := m.hostLocked(id)
 	busy := m.installs[id]
@@ -276,7 +277,7 @@ func (m *Manager) Install(id string, update bool, archiveDir string, on func(Pro
 	go func() {
 		// Finding the platform and uploading the archive come before bootstrap says it checks the host.
 		on(Progress{Kind: ProgressStep, Step: StepDetect})
-		err := m.install(ctx, h, update, archiveDir, on)
+		err := m.install(ctx, h, update, latest, archiveDir, on)
 		m.mu.Lock()
 		delete(m.installs, id)
 		m.mu.Unlock()

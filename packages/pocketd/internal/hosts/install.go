@@ -6,10 +6,12 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"pocketd/internal/config"
@@ -23,9 +25,10 @@ var bootstrapSh string
 var bootstrapPs1 string
 
 const (
-	releases  = "https://github.com/mingo023/anywhere/releases/download"
-	upload    = "upload.tar.gz"
-	uploadZip = "upload.zip"
+	releases      = "https://github.com/mingo023/anywhere/releases/download"
+	latestRelease = "https://github.com/mingo023/anywhere/releases/latest"
+	upload        = "upload.tar.gz"
+	uploadZip     = "upload.zip"
 )
 
 // Step is a line of the install checklist, in the order bootstrap.sh and bootstrap.ps1 report them.
@@ -207,6 +210,25 @@ func label(remoteDir string) string {
 	return config.HostLabel() + "." + strings.TrimLeft(remoteDir, ".")
 }
 
+// newest is the newest release's version, read off the tag page GitHub redirects url to.
+func newest(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Couldn't look up the newest release: %v", err)
+	}
+	resp.Body.Close()
+	_, tag, _ := strings.Cut(resp.Header.Get("Location"), "/releases/tag/v")
+	if tag == "" || strings.Contains(tag, "/") {
+		return "", fmt.Errorf("Couldn't look up the newest release: GitHub answered %s", resp.Status)
+	}
+	return tag, nil
+}
+
 // fill refuses values holding anything but safe characters rather than escape them: the placeholders sit in quoted literals.
 func fill(script, version, url, dir, label string) (string, error) {
 	safe := func(v string) bool {
@@ -238,12 +260,19 @@ func installPlan(h Host, platform Platform, version, dist string) (Host, Source,
 	return h, src, nil
 }
 
-func (m *Manager) install(ctx context.Context, h Host, update bool, dist string, on func(Progress)) error {
+func (m *Manager) install(ctx context.Context, h Host, update, latest bool, dist string, on func(Progress)) error {
 	platform, err := m.platform(ctx, h)
 	if err != nil {
 		return err
 	}
-	h, src, err := installPlan(h, platform, m.version, dist)
+	version := m.version
+	if latest {
+		if version, err = newest(ctx, latestRelease); err != nil {
+			return err
+		}
+		dist = ""
+	}
+	h, src, err := installPlan(h, platform, version, dist)
 	if err != nil {
 		return err
 	}

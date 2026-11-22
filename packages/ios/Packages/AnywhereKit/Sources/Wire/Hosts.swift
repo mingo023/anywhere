@@ -197,10 +197,12 @@ extension ClientMessage {
     public struct HostInstall: Codable, Hashable, Sendable {
         public var hostId: String
         public var update: Bool?
+        public var latest: Bool?
         public var archiveDir: String?
-        public init(hostId: String, update: Bool? = nil, archiveDir: String? = nil) {
+        public init(hostId: String, update: Bool? = nil, latest: Bool? = nil, archiveDir: String? = nil) {
             self.hostId = hostId
             self.update = update
+            self.latest = latest
             self.archiveDir = archiveDir
         }
     }

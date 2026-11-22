@@ -54,6 +54,22 @@ fn just_installed(was_open: bool, list: &Checklist) -> bool {
     was_open && !list.update && list.outcome == Some(Outcome::Installed)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum UpdateTo {
+    /// The one this app ships, while the host's is older.
+    ThisMac,
+    /// The newest release, for a host that isn't behind this Mac.
+    Latest,
+}
+
+pub(crate) fn update_to(link: Option<&Link>, app: &str) -> Option<UpdateTo> {
+    match link {
+        _ if needs_update(link, app) => Some(UpdateTo::ThisMac),
+        Some(Link::Online { .. }) => Some(UpdateTo::Latest),
+        _ => None,
+    }
+}
+
 /// Whether the host's pocketd is older than the one this app ships; one that didn't say its version is left alone.
 /// A version that isn't numbers, as a dev build's, only has to differ.
 pub(crate) fn needs_update(link: Option<&Link>, app: &str) -> bool {
@@ -366,7 +382,7 @@ impl Desktop {
                     self.close_add_host(window, cx);
                     // A password signs in first; until then ssh can't reach the host to install.
                     match password.is_empty() {
-                        true => self.install_host(&id, false, cx),
+                        true => self.install_host(&id, false, false, cx),
                         false => self.fleet.pending.hold(id, password),
                     }
                 }
@@ -569,13 +585,16 @@ impl Desktop {
         cx.notify();
     }
 
-    pub(crate) fn install_host(&mut self, id: &str, update: bool, cx: &mut Context<Self>) {
+    pub(crate) fn install_host(&mut self, id: &str, update: bool, latest: bool, cx: &mut Context<Self>) {
         if self.fleet.installs.get(id).is_some_and(|l| l.outcome.is_none()) {
             return;
         }
-        self.fleet.installs.insert(id.into(), Checklist::new(update));
-        let archives = hosts::dist_dir().map(|d| d.display().to_string());
-        let request = self.outbox.local.host_install(id, update, archives.as_deref());
+        let mut list = Checklist::new(update);
+        list.latest = latest;
+        self.fleet.installs.insert(id.into(), list);
+        // The newest release is downloaded, never this Mac's archive.
+        let archives = hosts::dist_dir().filter(|_| !latest).map(|d| d.display().to_string());
+        let request = self.outbox.local.host_install(id, update, latest, archives.as_deref());
         self.fleet.asked.insert(request, Asked::Install(id.into()));
         cx.notify();
     }
@@ -686,7 +705,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, Hosts, Leave, Link, Links, Pending, Removing, Status, Tries, Turn, just_installed, needs_update, on_status, removal, sign_in_error};
+    use super::{Failure, Hosts, Leave, Link, Links, Pending, Removing, Status, Tries, Turn, UpdateTo, just_installed, needs_update, on_status, removal, sign_in_error, update_to};
     use agents::hosts::{Entry, Target};
     use hosts::remote::HostInfo;
     use std::time::{Duration, Instant};
@@ -800,6 +819,17 @@ mod tests {
         assert!(!needs_update(Some(&online("")), "1.5.0"), "an old pocketd that didn't say");
         assert!(!needs_update(Some(&Link::Retrying(Failure::NotRunning)), "1.5.0"));
         assert!(!needs_update(None, "1.5.0"));
+    }
+
+    #[test]
+    fn a_host_behind_this_mac_is_offered_its_version_and_any_other_online_host_the_latest() {
+        let online = |version: &str| Link::Online { version: version.into(), uptime: 0 };
+        assert_eq!(update_to(Some(&online("1.4.2")), "1.5.0"), Some(UpdateTo::ThisMac));
+        assert_eq!(update_to(Some(&online("1.5.0")), "1.5.0"), Some(UpdateTo::Latest));
+        assert_eq!(update_to(Some(&online("1.6.0")), "1.5.0"), Some(UpdateTo::Latest));
+        assert_eq!(update_to(Some(&online("")), "1.5.0"), Some(UpdateTo::Latest));
+        assert_eq!(update_to(Some(&Link::Connecting), "1.5.0"), None);
+        assert_eq!(update_to(None, "1.5.0"), None);
     }
 
     #[test]

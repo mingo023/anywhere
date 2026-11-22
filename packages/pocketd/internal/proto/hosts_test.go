@@ -91,6 +91,10 @@ func TestTheHostGoldensDecodeToTheirFields(t *testing.T) {
 	if err != nil || m.HostID != "devbox" || !m.Update || m.ArchiveDir != "/Users/me/src/anywhere/packages/pocketd/dist" {
 		t.Fatalf("%+v %v", m, err)
 	}
+	m, err = DecodeClient(golden(t, "client", "host_install_latest.json"))
+	if err != nil || !m.Update || !m.Latest || m.ArchiveDir != "" {
+		t.Fatalf("%+v %v", m, err)
+	}
 	m, err = DecodeClient(golden(t, "client", "host_sign_in.json"))
 	if err != nil || m.HostID != "10-0-4-12" || m.Password != "hunter2" {
 		t.Fatalf("%+v %v", m, err)

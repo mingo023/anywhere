@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,6 +104,28 @@ func TestAnInstallRunsAsThePlatformTheProbeFound(t *testing.T) {
 	host.Windows = true
 	if on, _, err := installPlan(host, Platform{"linux", "arm64"}, "1.2.0", ""); err != nil || on.Windows {
 		t.Errorf("%+v %v", on, err)
+	}
+}
+
+func TestTheNewestReleaseIsTheTagGitHubRedirectsTo(t *testing.T) {
+	location := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if location == "" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		http.Redirect(w, r, location, http.StatusFound)
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	location = "https://github.com/mingo023/anywhere/releases/tag/v0.1.59"
+	if v, err := newest(ctx, srv.URL); err != nil || v != "0.1.59" {
+		t.Fatalf("%q %v", v, err)
+	}
+	for _, location = range []string{"", "https://github.com/mingo023/anywhere/releases", "https://github.com/mingo023/anywhere/releases/tag/v1/x"} {
+		if v, err := newest(ctx, srv.URL); err == nil {
+			t.Errorf("%q gave %q", location, v)
+		}
 	}
 }
 
@@ -396,7 +420,7 @@ func TestPocketdInstallsOnARealLinuxHostThenIsFoundRunning(t *testing.T) {
 	cleanup()
 	install := func(update bool) []Progress {
 		var seen []Progress
-		if err := m.install(ctx, h, update, filepath.Join("..", "..", "dist"), func(p Progress) { seen = append(seen, p) }); err != nil {
+		if err := m.install(ctx, h, update, false, filepath.Join("..", "..", "dist"), func(p Progress) { seen = append(seen, p) }); err != nil {
 			t.Fatalf("%v, after %+v", err, seen)
 		}
 		return seen

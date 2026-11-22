@@ -264,9 +264,12 @@ impl Outbox {
         self.send(json!({"type": "host.retry", "id": self::host_id(), "hostId": host_id}));
     }
 
-    pub fn host_install(&self, host_id: &str, update: bool, archive_dir: Option<&str>) -> String {
+    pub fn host_install(&self, host_id: &str, update: bool, latest: bool, archive_dir: Option<&str>) -> String {
         let id = self::host_id();
         let mut m = json!({"type": "host.install", "id": id, "hostId": host_id, "update": update});
+        if latest {
+            m["latest"] = true.into();
+        }
         if let Some(dir) = archive_dir {
             m["archiveDir"] = dir.into();
         }

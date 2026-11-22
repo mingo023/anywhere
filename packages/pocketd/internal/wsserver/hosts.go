@@ -120,7 +120,7 @@ func (c *conn) host(m proto.ClientMessage) error {
 	case "host.retry":
 		err = hs.Retry(m.HostID)
 	case "host.install":
-		err = hs.Install(m.HostID, m.Update, m.ArchiveDir, hs.progress(m.HostID, m.Update))
+		err = hs.Install(m.HostID, m.Update, m.Latest, m.ArchiveDir, hs.progress(m.HostID, m.Update))
 	}
 	c.reply(m, err)
 	return nil

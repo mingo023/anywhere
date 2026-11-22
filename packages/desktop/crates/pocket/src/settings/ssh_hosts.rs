@@ -3,7 +3,7 @@ use super::host::{service_line, uptime};
 use super::{field_box, row};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
-use crate::fleet::needs_update;
+use crate::fleet::{UpdateTo, update_to};
 use crate::spaces::Space;
 use crate::spaces::header::tile;
 use crate::util::LOCAL_ICON;
@@ -101,12 +101,12 @@ impl Desktop {
             let not_running = matches!(link, Some(Link::Retrying(Failure::NotRunning) | Link::Failed(Failure::NotRunning)));
             let install = (not_running && list.is_none()).then(|| {
                 let id = h.id.clone();
-                super::action(("host-install", i), "Install").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, false, cx)))
+                super::action(("host-install", i), "Install").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, false, false, cx)))
             });
-            let update = (list.is_none() && needs_update(link, channel::version())).then(|| {
-                let (id, name, windows) = (h.id.clone(), shown.clone(), h.windows);
-                super::action(("host-update", i), "Update").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }), Some(Overlay::Confirm));
+            let update = list.is_none().then(|| update_to(link, channel::version())).flatten().map(|to| {
+                let (id, name, windows, latest) = (h.id.clone(), shown.clone(), h.windows, to == UpdateTo::Latest);
+                super::action(("host-update", i), if latest { "Upgrade" } else { "Update" }).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows, latest }), Some(Overlay::Confirm));
                     cx.notify();
                 }))
             });
@@ -156,9 +156,9 @@ impl Desktop {
             Some(Outcome::Failed(e)) => Some(div().text_size(px(12.)).text_color(FAILED_TEXT).child(e.clone())),
             _ => None,
         };
-        let (id, update) = (id.to_string(), list.update);
+        let (id, update, latest) = (id.to_string(), list.update, list.latest);
         let (open, button) = match &list.outcome {
-            Some(Outcome::Failed(_)) => (None, Some(super::action(("host-install-retry", i), "Retry").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, cx))))),
+            Some(Outcome::Failed(_)) => (None, Some(super::action(("host-install-retry", i), "Retry").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.install_host(&id, update, latest, cx))))),
             Some(_) => {
                 let (space, done_id) = (Space::Host(id.clone()), id.clone());
                 let open = (!update).then(|| {
