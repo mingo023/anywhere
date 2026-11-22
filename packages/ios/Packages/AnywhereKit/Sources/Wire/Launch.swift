@@ -39,18 +39,18 @@ public struct NewWorktree: Codable, Hashable, Sendable {
 
 /// Where a new agent runs.
 public enum Checkout: Codable, Hashable, Sendable {
-    case worktree(String)
+    case worktree(String, autoName: Bool = false)
     case new(NewWorktree)
     case local(String)
 
     enum Keys: String, CodingKey {
-        case worktree, new, local
+        case worktree, new, local, autoName
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         if let path = try c.decodeIfPresent(String.self, forKey: .worktree) {
-            self = .worktree(path)
+            self = .worktree(path, autoName: try c.decodeIfPresent(Bool.self, forKey: .autoName) ?? false)
         } else if let new = try c.decodeIfPresent(NewWorktree.self, forKey: .new) {
             self = .new(new)
         } else if let local = try c.decodeIfPresent(String.self, forKey: .local) {
@@ -63,7 +63,9 @@ public enum Checkout: Codable, Hashable, Sendable {
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
-        case .worktree(let path): try c.encode(path, forKey: .worktree)
+        case .worktree(let path, let autoName):
+            try c.encode(path, forKey: .worktree)
+            if autoName { try c.encode(true, forKey: .autoName) }
         case .new(let new): try c.encode(new, forKey: .new)
         case .local(let id): try c.encode(id, forKey: .local)
         }

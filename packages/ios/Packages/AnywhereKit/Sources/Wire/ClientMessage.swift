@@ -13,6 +13,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
     case skillsList(ClientMessage.SkillsList)
     case agentMcp(ClientMessage.AgentMcp)
     case agentBtw(ClientMessage.AgentText)
+    case agentRemoteControl(ClientMessage.AgentRemoteControl)
     case agentSettings(ClientMessage.AgentSettings)
     case agentPin(ClientMessage.AgentPin)
     case agentView(ClientMessage.AgentView)
@@ -99,6 +100,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case "skills.list": self = .skillsList(try ClientMessage.SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try ClientMessage.AgentMcp(from: decoder))
         case "agent.btw": self = .agentBtw(try ClientMessage.AgentText(from: decoder))
+        case "agent.remote_control": self = .agentRemoteControl(try ClientMessage.AgentRemoteControl(from: decoder))
         case "agent.settings": self = .agentSettings(try ClientMessage.AgentSettings(from: decoder))
         case "agent.pin": self = .agentPin(try ClientMessage.AgentPin(from: decoder))
         case "agent.view": self = .agentView(try ClientMessage.AgentView(from: decoder))
@@ -190,6 +192,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
         case .agentBtw(let m): try m.encode(to: encoder)
+        case .agentRemoteControl(let m): try m.encode(to: encoder)
         case .agentSettings(let m): try m.encode(to: encoder)
         case .agentPin(let m): try m.encode(to: encoder)
         case .agentView(let m): try m.encode(to: encoder)
@@ -276,6 +279,7 @@ public enum ClientMessage: Codable, Hashable, Sendable {
         case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"
         case .agentBtw: "agent.btw"
+        case .agentRemoteControl: "agent.remote_control"
         case .agentSettings: "agent.settings"
         case .agentPin: "agent.pin"
         case .agentView: "agent.view"

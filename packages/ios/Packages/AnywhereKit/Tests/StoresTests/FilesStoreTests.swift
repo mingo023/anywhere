@@ -122,7 +122,7 @@ struct FilesStoreTests {
     func filter() {
         let store = FilesStore()
         let model = store.tree(Sample.fileTree)
-        store.apply(.fsList(FsList(tree: Sample.fileTree, dir: "", entries: Sample.listings[""]!)))
+        _ = store.apply(.fsList(FsList(tree: Sample.fileTree, dir: "", entries: Sample.listings[""]!)))
         let shown = model.rows.count
         store.filter.hideIgnored = false
         #expect(model.rows.count == Sample.listings[""]!.count)
@@ -193,9 +193,9 @@ struct FilesStoreTests {
         let store = FilesStore()
         let code = store.preview(tree: Sample.fileTree, path: "src/explorer.rs")
         let image = store.preview(tree: Sample.fileTree, path: "docs/logo.png")
-        store.apply(.fsRead(Sample.fileRead("src/explorer.rs")))
-        store.apply(.fsRead(Sample.fileRead("docs/logo.png")))
-        store.apply(.gitChanged(GitChanged(tree: Sample.fileTree, rev: "r2")))
+        _ = store.apply(.fsRead(Sample.fileRead("src/explorer.rs")))
+        _ = store.apply(.fsRead(Sample.fileRead("docs/logo.png")))
+        _ = store.apply(.gitChanged(GitChanged(tree: Sample.fileTree, rev: "r2")))
         // With no connection the read fails, which shows it was asked for.
         try await waitFor { code.notice != nil }
         #expect(image.notice == nil)

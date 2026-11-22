@@ -11,6 +11,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case skillsList(SkillsList)
     case agentMcp(AgentMcp)
     case agentBtw(AgentBtwAnswer)
+    case agentRemoteControl(AgentRemoteLink)
     case agentStream(AgentStream)
     case agentTimeline(AgentTimeline)
     case permissionRequest(PermissionAsk)
@@ -26,6 +27,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
     case namingFailed(NamingFailed)
     case localList(LocalList)
     case automations(Automations)
+    case board(Board)
     case projectList(ProjectList)
     case terminalList(TerminalList)
     case terminalAttached(TerminalAttached)
@@ -74,6 +76,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "skills.list": self = .skillsList(try SkillsList(from: decoder))
         case "agent.mcp": self = .agentMcp(try AgentMcp(from: decoder))
         case "agent.btw": self = .agentBtw(try AgentBtwAnswer(from: decoder))
+        case "agent.remote_control": self = .agentRemoteControl(try AgentRemoteLink(from: decoder))
         case "agent.stream": self = .agentStream(try AgentStream(from: decoder))
         case "agent.timeline": self = .agentTimeline(try AgentTimeline(from: decoder))
         case "permission.request": self = .permissionRequest(try PermissionAsk(from: decoder))
@@ -89,6 +92,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case "naming.failed": self = .namingFailed(try NamingFailed(from: decoder))
         case "local.list": self = .localList(try LocalList(from: decoder))
         case "automations": self = .automations(try Automations(from: decoder))
+        case "board": self = .board(try Board(from: decoder))
         case "project.list": self = .projectList(try ProjectList(from: decoder))
         case "terminal.list": self = .terminalList(try TerminalList(from: decoder))
         case "terminal.attached": self = .terminalAttached(try TerminalAttached(from: decoder))
@@ -140,6 +144,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .skillsList(let m): try m.encode(to: encoder)
         case .agentMcp(let m): try m.encode(to: encoder)
         case .agentBtw(let m): try m.encode(to: encoder)
+        case .agentRemoteControl(let m): try m.encode(to: encoder)
         case .agentStream(let m): try m.encode(to: encoder)
         case .agentTimeline(let m): try m.encode(to: encoder)
         case .permissionRequest(let m): try m.encode(to: encoder)
@@ -155,6 +160,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .namingFailed(let m): try m.encode(to: encoder)
         case .localList(let m): try m.encode(to: encoder)
         case .automations(let m): try m.encode(to: encoder)
+        case .board(let m): try m.encode(to: encoder)
         case .projectList(let m): try m.encode(to: encoder)
         case .terminalList(let m): try m.encode(to: encoder)
         case .terminalAttached(let m): try m.encode(to: encoder)
@@ -203,6 +209,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .skillsList: "skills.list"
         case .agentMcp: "agent.mcp"
         case .agentBtw: "agent.btw"
+        case .agentRemoteControl: "agent.remote_control"
         case .agentStream: "agent.stream"
         case .agentTimeline: "agent.timeline"
         case .permissionRequest: "permission.request"
@@ -218,6 +225,7 @@ public enum ServerMessage: Codable, Hashable, Sendable {
         case .namingFailed: "naming.failed"
         case .localList: "local.list"
         case .automations: "automations"
+        case .board: "board"
         case .projectList: "project.list"
         case .terminalList: "terminal.list"
         case .terminalAttached: "terminal.attached"

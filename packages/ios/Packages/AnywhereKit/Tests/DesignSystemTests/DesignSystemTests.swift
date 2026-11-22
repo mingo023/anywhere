@@ -171,7 +171,7 @@ struct DesignSystemTests {
     }
 
     @Test("the shimmer band sweeps from before the leading edge to past the trailing one")
-    func shimmer() {
+    @MainActor func shimmer() {
         let phases = stride(from: 0.0, to: 1.6, by: 0.05).map { Shimmer.phase(at: Date(timeIntervalSinceReferenceDate: $0)) }
         #expect(phases.min()! >= -0.2)
         #expect(phases.max()! <= 1.2)
