@@ -32,6 +32,7 @@
 // FIXTURE_HANDOFF_PROVIDER=<agent> runs it on that agent instead.
 // FIXTURE_EXTRA_HOSTS=n adds n more hosts, box-1…box-n, all retrying.
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
+// FIXTURE_HOST_APP=1 makes devbox's pocketd older than the app's, and its update end because an Anywhere app on devbox runs it.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
 // FIXTURE_BACKGROUND=<image path> saves it as the background image in desktop.json.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
@@ -305,7 +306,7 @@ write(join(pocket, "desktop.json"), JSON.stringify({ projects: [...scenario.repo
 type HostTarget = { kind: "alias"; name: string } | { kind: "address"; addr: string; port: number; user?: string; keyFile?: string };
 type Host = { id: string; name: string; target: HostTarget; socket: string; link: { state: string; version?: string; uptime?: number; failure?: string } };
 const hostEntry = (id: string, name: string, target: HostTarget, link: Host["link"]): Host => ({ id, name, target, socket: join(pocket, "hosts", `${id}.sock`), link });
-const ONLINE = { state: "online", version: "1.4.2", uptime: 3 * 86_400 };
+const ONLINE = { state: "online", version: process.env.FIXTURE_HOST_APP ? "0.0.1" : "1.4.2", uptime: 3 * 86_400 };
 const hosts: Host[] = [
   hostEntry("devbox", "devbox", { kind: "alias", name: "devbox" }, ONLINE),
   hostEntry("10-0-4-12", "10.0.4.12", { kind: "address", addr: "10.0.4.12", port: 2222, user: "dev" }, { state: "retrying", failure: "not_running" }),
@@ -342,7 +343,10 @@ const hostVerb = (ws: Ws, f: { type: string; id: string; hostId: string; target:
   } else if (f.type === "host.sign_in") ws.send(JSON.stringify({ type: "error", id: f.id, code: "host_ssh", detail: "auth", message: "Wrong password." }));
   if (f.type === "host.install") {
     ack();
-    for (const progress of [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }]) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
+    const app = "/Applications/Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd";
+    const appThenError = [{ kind: "step", step: "unpack" }, { kind: "app", text: app }, { kind: "error", text: `pocketd there runs from ${app}, which an update can't replace; update the Anywhere app on that Mac instead` }];
+    const steps = [{ kind: "step", step: "detect" }, { kind: "step", step: "verify" }, ...(process.env.FIXTURE_HOST_APP ? appThenError : [])];
+    for (const progress of steps) ws.send(JSON.stringify({ type: "host.progress", hostId: f.hostId, update: !!f.update, progress }));
   }
   if (f.type === "host.remove") {
     const at = hosts.findIndex((h) => h.id === f.hostId);

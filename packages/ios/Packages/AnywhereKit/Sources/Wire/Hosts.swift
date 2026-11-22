@@ -111,7 +111,7 @@ public struct HostUpdate: Codable, Hashable, Sendable {
     public init(host: Host) { self.host = host }
 }
 
-/// A step of a `host.install`. `running`, `done` and `error` end it.
+/// A step of a `host.install`. `running`, `app`, `done` and `error` end it.
 public struct InstallProgress: Codable, Hashable, Sendable {
     public struct Kind: OpenString {
         public let rawValue: String

@@ -6,7 +6,7 @@
 # Downloads are https only; ANYWHERE_ALLOW_HTTP=1 lets scripts/test-bootstrap.sh serve them from this Mac.
 # ANYWHERE_FORCE=1 updates: installs the archive even over a running pocketd, which hands off to it in place,
 # unless an Anywhere app on the host runs it.
-# Lines for the desktop: ANYWHERE step <name> | warn <msg> | error <msg> | running | done. Others are log.
+# Lines for the desktop: ANYWHERE step <name> | warn <msg> | error <msg> | app <path> | running | done. Others are log.
 set -u
 umask 077
 
@@ -123,10 +123,12 @@ main() {
     exit 0
   fi
 
-  say step link
   if [ -n "$force" ] && running "$bin" && app_owned "$bin"; then
-    fail "pocketd here runs from $from, which an update can't replace; update the Anywhere app on this Mac instead"
+    say app "$from"
+    exit 0
   fi
+
+  say step link
   # A copy, not a symlink: the service runs this path, and a running pocketd hands off in place
   # when the file it runs from changes, so replacing it is the update.
   mkdir -p "$DIR/bin" && cp "$bin" "$DIR/bin/pocketd.new" && mv -f "$DIR/bin/pocketd.new" "$DIR/bin/pocketd" || fail "can't install $DIR/bin/pocketd"

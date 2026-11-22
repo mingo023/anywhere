@@ -114,6 +114,8 @@ pub enum Progress {
     Step(Step),
     Warn(String),
     Running,
+    /// An Anywhere app on the host runs its pocketd, from this path, so an update can't replace it.
+    App(String),
     Done,
     Error(String),
 }
@@ -134,6 +136,7 @@ impl TryFrom<ProgressWire> for Progress {
             ("step", Some(step)) => Progress::Step(step),
             ("warn", _) => Progress::Warn(w.text),
             ("running", _) => Progress::Running,
+            ("app", _) => Progress::App(w.text),
             ("done", _) => Progress::Done,
             ("error", _) => Progress::Error(w.text),
             (kind, _) => return Err(format!("unknown progress {kind}")),
@@ -209,6 +212,8 @@ mod tests {
         assert_eq!((host.as_str(), update, progress), ("devbox", true, Progress::Step(Step::Download)));
         let Some(Event::HostProgress { progress, .. }) = event(golden_text!("server/host_progress_error.json")) else { panic!("no error") };
         assert_eq!(progress, Progress::Error("No release for linux/arm".into()));
+        let Some(Event::HostProgress { progress, .. }) = event(golden_text!("server/host_progress_app.json")) else { panic!("no app") };
+        assert_eq!(progress, Progress::App("/Applications/Anywhere.app/Contents/Library/Helpers/AnywhereDaemon.app/Contents/MacOS/pocketd".into()));
         let f: Value = serde_json::from_str(golden_text!("server/stream_host_link.json")).unwrap();
         let item: crate::Item = serde_json::from_value(f["item"].clone()).unwrap();
         assert_eq!((item.kind.as_str(), item.hint.as_str(), item.reason.as_str()), ("host_link", "vps", "The build needs the GPU box."));

@@ -30,6 +30,8 @@ pub enum Outcome {
     Installed,
     /// A pocketd was already running there.
     Reused,
+    /// An Anywhere app there runs pocketd, from this path; the app's own update updates it.
+    App(String),
     Failed(String),
 }
 
@@ -59,6 +61,7 @@ impl Checklist {
             }
             Progress::Warn(text) => self.warnings.push(text),
             Progress::Running => self.finish(Outcome::Reused),
+            Progress::App(path) => self.finish(Outcome::App(path)),
             Progress::Done => self.finish(Outcome::Installed),
             Progress::Error(text) => self.fail(text),
         }
@@ -141,6 +144,15 @@ mod tests {
         assert_eq!(marks(&list)[..2], [(Step::Detect, Mark::Done), (Step::Service, Mark::Failed)]);
         assert_eq!(list.warnings, ["linger is off"]);
         assert_eq!(list.outcome, Some(Outcome::Failed("systemctl failed".into())));
+        assert!(!list.succeeded());
+    }
+
+    #[test]
+    fn an_update_an_anywhere_app_blocks_ends_without_a_failed_step() {
+        let mut list = run(&[Progress::Step(Step::Detect), Progress::Step(Step::Unpack), Progress::App("/Applications/Anywhere.app/pocketd".into())]);
+        list.fail("pocketd there runs from /Applications/Anywhere.app/pocketd".into());
+        assert_eq!(marks(&list), [(Step::Detect, Mark::Done), (Step::Unpack, Mark::Done)]);
+        assert_eq!(list.outcome, Some(Outcome::App("/Applications/Anywhere.app/pocketd".into())));
         assert!(!list.succeeded());
     }
 

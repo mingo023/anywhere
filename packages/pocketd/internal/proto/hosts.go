@@ -85,7 +85,7 @@ type HostLink struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
-// InstallProgress is a step of a host.install: Step is set for kind step, Text for warn and error; running, done and error end it.
+// InstallProgress is a step of a host.install: Step is set for kind step, Text for warn, app and error; running, app, done and error end it.
 type InstallProgress struct {
 	Kind string `json:"kind"`
 	Step string `json:"step,omitempty"`

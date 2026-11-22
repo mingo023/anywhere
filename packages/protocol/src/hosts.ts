@@ -53,9 +53,9 @@ export type Host = typeof Host.Type;
 
 export const InstallStep = Schema.Literal("detect", "download", "verify", "unpack", "link", "service", "start");
 
-/** `running`, `done` and `error` end an install. */
+/** `running`, `app`, `done` and `error` end an install; `app` is a pocketd an Anywhere app on the host runs, from the path in `text`. */
 export const InstallProgress = Schema.Struct({
-  kind: Schema.Literal("step", "warn", "running", "done", "error"),
+  kind: Schema.Literal("step", "warn", "running", "app", "done", "error"),
   step: Schema.optional(InstallStep),
   text: Schema.optional(Schema.String),
 });

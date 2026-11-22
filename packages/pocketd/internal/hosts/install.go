@@ -50,11 +50,13 @@ const (
 	ProgressWarn ProgressKind = "warn"
 	// ProgressRunning is a pocketd already running there, reused as it is.
 	ProgressRunning ProgressKind = "running"
-	ProgressDone    ProgressKind = "done"
-	ProgressError   ProgressKind = "error"
+	// ProgressApp is a pocketd that an Anywhere app on the host runs, from the path in Text; an update can't replace it.
+	ProgressApp   ProgressKind = "app"
+	ProgressDone  ProgressKind = "done"
+	ProgressError ProgressKind = "error"
 )
 
-// Progress is what an install reports; Step is set for a step, Text for a warn or an error.
+// Progress is what an install reports; Step is set for a step, Text for a warn, an app or an error.
 type Progress struct {
 	Kind ProgressKind
 	Step Step
@@ -78,6 +80,8 @@ func parseProgress(line string) (Progress, bool) {
 		return Progress{Kind: ProgressWarn, Text: text}, true
 	case word == "error":
 		return Progress{Kind: ProgressError, Text: text}, true
+	case word == "app" && text != "":
+		return Progress{Kind: ProgressApp, Text: text}, true
 	case word == "running" && text == "":
 		return Progress{Kind: ProgressRunning}, true
 	case word == "done" && text == "":
@@ -346,7 +350,7 @@ func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool,
 	lines := bufio.NewScanner(stdout)
 	for lines.Scan() {
 		if p, ok := parseProgress(lines.Text()); ok {
-			if p.Kind == ProgressDone || p.Kind == ProgressRunning || p.Kind == ProgressError {
+			if p.Kind == ProgressDone || p.Kind == ProgressRunning || p.Kind == ProgressError || p.Kind == ProgressApp {
 				last = p
 			}
 			on(p)
@@ -358,6 +362,8 @@ func (m *Manager) bootstrap(ctx context.Context, h Host, src Source, force bool,
 		return nil
 	case last.Kind == ProgressError:
 		return errors.New(last.Text)
+	case last.Kind == ProgressApp:
+		return fmt.Errorf("pocketd there runs from %s, which an update can't replace; update the Anywhere app on that Mac instead", last.Text)
 	case cmd.ProcessState.ExitCode() == 255:
 		return &SSHError{classify(stderr.String())}
 	}

@@ -46,6 +46,7 @@ fn checklist_title(list: &Checklist, name: &str) -> String {
         (None, true) => "Updating pocketd".into(),
         (Some(Outcome::Failed(_)), false) => "Couldn't install pocketd".into(),
         (Some(Outcome::Failed(_)), true) => "Couldn't update pocketd".into(),
+        (Some(Outcome::App(_)), _) => format!("Update Anywhere on {name}"),
         (Some(_), false) => format!("{name} is ready."),
         (Some(_), true) => "pocketd is updated".into(),
     }
@@ -154,6 +155,7 @@ impl Desktop {
         let warnings = list.warnings.iter().map(|w| div().text_size(px(12.)).text_color(TEXT_3).child(w.clone()));
         let error = match &list.outcome {
             Some(Outcome::Failed(e)) => Some(div().text_size(px(12.)).text_color(FAILED_TEXT).child(e.clone())),
+            Some(Outcome::App(path)) => Some(div().text_size(px(12.)).text_color(TEXT_3).child(format!("pocketd there runs from {path}, so it updates with the Anywhere app on {name}."))),
             _ => None,
         };
         let (id, update) = (id.to_string(), list.update);
