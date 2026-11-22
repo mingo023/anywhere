@@ -4,6 +4,7 @@ mod style;
 
 use super::launch;
 use crate::desktop::Desktop;
+use crate::chat::composer::hand_focus;
 use crate::glide::Glide;
 use crate::models::effort_label;
 use effects::{EffortAnimation, Light};
@@ -13,6 +14,11 @@ use std::rc::Rc;
 use std::time::Instant;
 use style::EffortStyle;
 use theme::*;
+
+/// Hands the keys to `to` from the slider, for when the panel stops showing it.
+pub(crate) fn hand_back(slider: &RefCell<EffortSlider>, to: FocusHandle) -> Option<impl IntoElement> {
+    slider.borrow().focus.clone().map(|f| hand_focus(vec![f], to))
+}
 
 pub(crate) const HEIGHT: f32 = PAD_Y * 2. + HEADER + GAP + paint::HEIGHT + GAP + ABOUT;
 const PAD_Y: f32 = 10.;

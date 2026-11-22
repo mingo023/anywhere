@@ -471,6 +471,7 @@ impl Desktop {
             let on = effort_shown(pick, &self.store.agents.provider(&pick.provider), levels, names).cloned();
             effort_slider("composer-effort", providers::known(&pick.provider).effort_word, (levels, on.as_ref()), &c.draft.slider, choose, cx)
         });
+        let hidden = effort.is_none().then(|| effort_slider::hand_back(&c.draft.slider, c.search.read(cx).focus_handle(cx))).flatten();
         let settings = if own { self.launch_settings(&pick.provider, &pick.model) } else { &[] };
         let settings = settings.iter().enumerate().map(|(i, s)| {
             let (current, project, id) = (pick.clone(), project.clone(), s.id.clone());
@@ -478,7 +479,7 @@ impl Desktop {
             let on = pick.options.get(&s.id).unwrap_or(&s.default);
             choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &c.draft.effort, move |d: &mut Desktop| &mut slot(d).draft, choose, cx)
         });
-        panel(rail, &c.search, list, self.models_note(viewed), effort, settings.collect())
+        panel(rail, &c.search, list, self.models_note(viewed), effort, settings.collect()).children(hidden)
     }
 }
 

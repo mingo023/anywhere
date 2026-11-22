@@ -121,7 +121,10 @@ impl Draft {
         self.viewing = None;
         (self.scroll, self.rail) = Default::default();
         self.effort = Default::default();
+        // The slider may hold the keys: its handle outlives the reset so the prompt's handoff can still take them back.
+        let focus = self.slider.borrow_mut().focus.take();
         self.slider = Default::default();
+        self.slider.borrow_mut().focus = focus;
         self.menu.is_some()
     }
 

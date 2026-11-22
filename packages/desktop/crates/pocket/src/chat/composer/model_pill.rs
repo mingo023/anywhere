@@ -1,7 +1,7 @@
 use super::{close_menu, hang};
 use crate::composer::{self, Menu, launch};
 use crate::composer::effort_menu::{Effort, choice_menu};
-use crate::composer::effort_slider::effort_slider;
+use crate::composer::effort_slider::{self, effort_slider};
 use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
 use crate::pick_menu::{Line, checked};
 use crate::desktop::Desktop;
@@ -84,7 +84,9 @@ impl Desktop {
             let own = viewed == agent.provider;
             let effort = (own && !levels.is_empty()).then(|| self.chat_effort_slider(agent, &levels, default, cx));
             let settings = if own { self.chat_setting_menus(agent, cx) } else { Vec::new() };
-            hang("chat-model-menu", panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort, settings), cx)
+            let hidden = effort.is_none().then(|| effort_slider::hand_back(&self.chats.composer.draft.slider, self.chats.composer.search.read(cx).focus_handle(cx))).flatten();
+            let panel = panel(rail, &self.chats.composer.search, self.chat_models(agent, viewed, project.as_deref(), cx), self.models_note(viewed), effort, settings);
+            hang("chat-model-menu", panel.children(hidden), cx)
         });
         div().relative().min_w_0().flex_shrink(1.).child(chip).children(menu)
     }
