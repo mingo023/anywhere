@@ -154,10 +154,10 @@ func (o *orchestrator) run(ctx context.Context) {
 	defer prune.Stop()
 	for {
 		now := time.Now()
+		// What Prune drops unarchived, no lineage would hold again.
 		if err := o.store.Archive(now, worktree.InMade); err != nil {
 			log.Printf("orch: archive: %v", err)
-		}
-		if err := o.store.Prune(now); err != nil {
+		} else if err := o.store.Prune(now); err != nil {
 			log.Printf("orch: prune: %v", err)
 		}
 		select {

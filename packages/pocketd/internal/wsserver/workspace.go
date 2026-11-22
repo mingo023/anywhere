@@ -186,7 +186,10 @@ func (c *conn) removeWorktree(path string, subagents []string, deleteBranch, for
 	if at := worktree.MadeAt(tree.Path); subagents != nil && (at == 0 || at > c.madeBy(tree.Path, subagents)) {
 		return worktree.ErrUnknownWorktree
 	}
-	subtrees, onHosts := c.subagentTrees(f, tree.Path)
+	subtrees, onHosts, err := c.subagentTrees(f, tree.Path)
+	if err != nil {
+		return err
+	}
 	line := append(slices.Clone(subagents), c.openIn(tree.Path)...)
 	subtrees = slices.DeleteFunc(subtrees, func(t linkedTree) bool { return c.othersIn(t.Path, line) })
 	trees := append(subtrees, tree)
@@ -271,7 +274,10 @@ func (s *Server) SubagentWorktrees(path string) ([]ops.Tree, error) {
 		return nil, err
 	}
 	c := &conn{s: s}
-	subtrees, onHosts := c.subagentTrees(f, tree.Path)
+	subtrees, onHosts, err := c.subagentTrees(f, tree.Path)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]ops.Tree, 0, len(subtrees)+len(onHosts))
 	for _, t := range subtrees {
 		out = append(out, ops.Tree{Path: t.Path, Since: worktree.MadeAt(t.Path)})
@@ -286,9 +292,11 @@ func (s *Server) SubagentWorktrees(path string) ([]ops.Tree, error) {
 	return out, nil
 }
 
-func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch.HostTree) {
+// subagentTrees fails when the lineage can't be read: the tree at path is what
+// would name them again, so it must stay.
+func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch.HostTree, error) {
 	if c.s.Workspace.SubagentTrees == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	listed := map[string][]worktree.Worktree{}
 	treeOf := func(cwd string, at int64) string {
@@ -315,7 +323,7 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 	}
 	found, err := c.s.Workspace.SubagentTrees(path, treeOf)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 	var out []linkedTree
 	for _, p := range found.Local {
@@ -323,7 +331,7 @@ func (c *conn) subagentTrees(f registry.File, path string) ([]linkedTree, []orch
 			out = append(out, t)
 		}
 	}
-	return out, found.Hosts
+	return out, found.Hosts, nil
 }
 
 // madeBy is when the worktree at tree was made by, on this machine's clock, if

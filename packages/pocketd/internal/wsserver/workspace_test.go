@@ -3,6 +3,7 @@ package wsserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -422,6 +423,30 @@ func TestADesktopIsToldEachSubagentWorktreeWithTheStartOfTheSessionsThatWorkedTh
 	}
 	if _, err := b.s.SubagentWorktrees(tree("nowhere")); err == nil {
 		t.Fatal("a folder that's no worktree was answered")
+	}
+}
+
+func TestAWorktreeWhoseLineageCantBeReadStaysAsWhatWouldNameItsSubagents(t *testing.T) {
+	var b bench
+	_, _, p := local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+		s.Workspace.SubagentTrees = func(string, func(string, int64) string) (orch.Subtrees, error) {
+			return orch.Subtrees{}, errors.New("database is locked")
+		}
+	})
+	tree := filepath.Join(b.root, "pocket", "parent")
+	if _, err := worktree.Add(b.s.Registry.Load(), b.project, "parent", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.s.SubagentWorktrees(tree); err == nil {
+		t.Fatal("an unread lineage was answered as none")
+	}
+	helloWith(p, proto.CapWorkspace)
+	p.send(`{"type":"worktree.delete","id":"wd","path":"` + tree + `","force":true}`)
+	if m := p.reply("wd"); m["type"] != "error" {
+		t.Fatalf("deleted with its lineage unread: %v", m)
+	}
+	if _, err := os.Stat(tree); err != nil {
+		t.Fatalf("the worktree went: %v", err)
 	}
 }
 
