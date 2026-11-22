@@ -60,6 +60,11 @@ impl CommitState {
         self.restart()
     }
 
+    /// Shows commit `sha` unless it is shown already; the returned run tags the reads for it.
+    pub fn select_new(&mut self, sha: String) -> Option<u64> {
+        (self.sha.as_ref() != Some(&sha)).then(|| self.select(sha))
+    }
+
     /// Reads the shown commit again, dropping the reads already running.
     pub fn restart(&mut self) -> u64 {
         self.run += 1;
@@ -101,114 +106,29 @@ impl CommitState {
     }
 }
 
-/// The commit each pane shows.
-#[derive(Default)]
-pub struct Commits {
-    pub(crate) panes: HashMap<PaneId, CommitState>,
+pub(crate) enum CommitEvent {
+    /// A file's header clicked: open that file alone, pinned on a double click.
+    OpenFile(Doc, bool),
 }
 
-impl Commits {
-    pub fn get(&self, pane: PaneId) -> Option<&CommitState> {
-        self.panes.get(&pane)
-    }
-
-    /// Shows commit `sha` in `pane`; the run tags the reads for it, none when the pane shows it already.
-    pub fn select(&mut self, pane: PaneId, sha: String) -> Option<u64> {
-        let c = self.panes.entry(pane).or_default();
-        (c.sha.as_ref() != Some(&sha)).then(|| c.select(sha))
-    }
-
-    pub fn retain_panes(&mut self, panes: &[PaneId]) {
-        self.panes.retain(|p, _| panes.contains(p));
-    }
+/// One pane's commit: its files diffed one under another over `Desktop`'s window; `Desktop` hands it the commit's subject and the code size each frame.
+pub struct CommitView {
+    pub(crate) state: CommitState,
+    subject: Option<String>,
+    code_size: u32,
 }
 
-impl Desktop {
-    pub(crate) fn show_commit(&mut self, pane: PaneId, sha: String, cx: &mut Context<Self>) {
-        if let Some(run) = self.commit.select(pane, sha) {
-            self.load_commit(pane, run, cx);
-        }
+impl EventEmitter<CommitEvent> for CommitView {}
+
+impl CommitView {
+    fn new() -> Self {
+        Self { state: CommitState::default(), subject: None, code_size: 0 }
     }
 
-    /// Reads every pane's commit again, for a new appearance or diff option.
-    pub(crate) fn recolor_commit(&mut self, cx: &mut Context<Self>) {
-        let shown: Vec<(PaneId, u64)> = self.commit.panes.iter_mut().filter(|(_, c)| c.sha.is_some()).map(|(p, c)| (*p, c.restart())).collect();
-        for (pane, run) in shown {
-            self.load_commit(pane, run, cx);
-        }
-    }
-
-    fn load_commit(&mut self, pane: PaneId, run: u64, cx: &mut Context<Self>) {
-        let Some((cwd, sha)) = self.cwd().zip(self.commit.get(pane).and_then(|c| c.sha.clone())) else { return };
-        let options = self.diff.options;
-        cx.spawn(async move |this, cx| {
-            let (parent, files) = cx
-                .background_executor()
-                .spawn({
-                    let (cwd, sha) = (cwd.clone(), sha.clone());
-                    async move {
-                        let runner = hosts::runner_for(&cwd);
-                        let parent = git::first_parent(&runner, &cwd, &sha);
-                        let files = git::commit_files(&runner, &cwd, &sha, parent.as_deref());
-                        (parent, files)
-                    }
-                })
-                .await;
-            let shown = this.update(cx, |d, cx| {
-                let ok = d.commit.panes.get_mut(&pane).is_some_and(|c| c.set_files(run, files.clone()));
-                if ok {
-                    cx.notify();
-                }
-                ok
-            });
-            if !matches!(shown, Ok(true)) {
-                return;
-            }
-            for start in (0..files.len()).step_by(CHUNK) {
-                let chunk = files[start..(start + CHUNK).min(files.len())].to_vec();
-                let (cwd, sha, parent) = (cwd.clone(), sha.clone(), parent.clone());
-                let diffs = cx
-                    .background_executor()
-                    .spawn(async move { chunk.iter().map(|f| read_file(&cwd, &sha, parent.as_deref(), f, options)).collect::<Vec<_>>() })
-                    .await;
-                let shown = this.update(cx, |d, cx| {
-                    let ok = d.commit.panes.get_mut(&pane).is_some_and(|c| c.set_diffs(run, start, diffs));
-                    if ok {
-                        cx.notify();
-                    }
-                    ok
-                });
-                if !matches!(shown, Ok(true)) {
-                    return;
-                }
-            }
-        })
-        .detach();
-    }
-
-    pub fn commit_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
-        let Some((sha, n, state)) = self.commit.get(pane).and_then(|c| Some((c.sha.clone()?, c.files.len(), c.list.clone()))) else {
-            return empty("No commit.");
-        };
-        let meta = vec![ui::meta_item().child(ui::meta_value(format!("{n} file{}", if n == 1 { "" } else { "s" }))).into_any_element()];
-        let crumbs = std::iter::once(git::short_sha(&sha).to_string()).chain(self.graph.read(cx).commit(&sha).map(|c| c.subject.clone())).collect();
-        let rows = list(state, cx.processor(move |this, ix, _, cx| this.commit_diff_row(pane, ix, cx))).pb(px(8.));
-        div().flex_1().min_h_0().flex().flex_col().child(doc_bar(crumbs, meta, div())).child(
-            code_text(div(), self.store.appearance.code_size())
-                .flex_1()
-                .min_h_0()
-                .bg(PAGE)
-                .border_t(px(0.5))
-                .border_color(SEPARATOR)
-                .overflow_hidden()
-                .child(rows.size_full()),
-        )
-    }
-
-    fn commit_diff_row(&self, pane: PaneId, ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(c) = self.commit.get(pane) else { return Empty.into_any_element() };
+    fn row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let c = &self.state;
         match c.rows.get(ix).copied() {
-            Some(Row::Header(f)) => self.commit_file_header(c, f, cx).into_any_element(),
+            Some(Row::Header(f)) => self.file_header(f, cx).into_any_element(),
             Some(Row::Code(f, j)) => {
                 let d = &c.diffs[f];
                 let l = &d.lines[j];
@@ -220,7 +140,8 @@ impl Desktop {
     }
 
     /// A file's name over its diff; clicking it opens that file alone.
-    fn commit_file_header(&self, c: &CommitState, f: usize, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn file_header(&self, f: usize, cx: &mut Context<Self>) -> Stateful<Div> {
+        let c = &self.state;
         let file = &c.files[f];
         let (dir, name) = file.path.rsplit_once('/').unwrap_or(("", &file.path));
         let doc = c.sha.clone().map(|sha| Doc::CommitFile { sha, path: file.path.clone() });
@@ -259,18 +180,152 @@ impl Desktop {
                     .text_color(ui::git_color(file.status))
                     .child(file.status.to_string()),
             )
-            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+            .on_click(cx.listener(move |_, ev: &ClickEvent, _, cx| {
                 if let Some(doc) = doc.clone() {
-                    this.open_doc(doc, ev.click_count() > 1, cx);
+                    cx.emit(CommitEvent::OpenFile(doc, ev.click_count() > 1));
                 }
             }))
     }
 }
 
+impl Render for CommitView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some((sha, n, state)) = self.state.sha.clone().map(|sha| (sha, self.state.files.len(), self.state.list.clone())) else {
+            return empty("No commit.");
+        };
+        let meta = vec![ui::meta_item().child(ui::meta_value(format!("{n} file{}", if n == 1 { "" } else { "s" }))).into_any_element()];
+        let crumbs = std::iter::once(git::short_sha(&sha).to_string()).chain(self.subject.clone()).collect();
+        let rows = list(state, cx.processor(|this, ix, _, cx| this.row(ix, cx))).pb(px(8.));
+        div().flex_1().min_h_0().flex().flex_col().child(doc_bar(crumbs, meta, div())).child(
+            code_text(div(), self.code_size).flex_1().min_h_0().bg(PAGE).border_t(px(0.5)).border_color(SEPARATOR).overflow_hidden().child(rows.size_full()),
+        )
+    }
+}
+
+/// A commit view and what keeps its events coming.
+pub(crate) struct Slot {
+    pub(crate) view: Entity<CommitView>,
+    _sub: Subscription,
+}
+
+/// The commit each pane shows.
+#[derive(Default)]
+pub struct Commits {
+    pub(crate) panes: HashMap<PaneId, Slot>,
+}
+
+impl Commits {
+    pub fn get(&self, pane: PaneId) -> Option<&Entity<CommitView>> {
+        self.panes.get(&pane).map(|s| &s.view)
+    }
+
+    pub fn shows(&self, pane: PaneId, sha: &str, cx: &App) -> bool {
+        self.get(pane).is_some_and(|v| v.read(cx).state.sha.as_deref() == Some(sha))
+    }
+
+    pub fn retain_panes(&mut self, panes: &[PaneId]) {
+        self.panes.retain(|p, _| panes.contains(p));
+    }
+}
+
+impl Desktop {
+    fn commit_entity(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Entity<CommitView> {
+        if let Some(view) = self.commit.get(pane) {
+            return view.clone();
+        }
+        let view = cx.new(|_| CommitView::new());
+        let sub = cx.subscribe(&view, |this, _, ev: &CommitEvent, cx| match ev {
+            CommitEvent::OpenFile(doc, pin) => this.open_doc(doc.clone(), *pin, cx),
+        });
+        self.commit.panes.insert(pane, Slot { view: view.clone(), _sub: sub });
+        view
+    }
+
+    pub(crate) fn show_commit(&mut self, pane: PaneId, sha: String, cx: &mut Context<Self>) {
+        let view = self.commit_entity(pane, cx);
+        if let Some(run) = view.update(cx, |v, _| v.state.select_new(sha)) {
+            self.load_commit(pane, run, cx);
+        }
+    }
+
+    /// Reads every pane's commit again, for a new appearance or diff option.
+    pub(crate) fn recolor_commit(&mut self, cx: &mut Context<Self>) {
+        let shown: Vec<(PaneId, u64)> =
+            self.commit.panes.iter().filter_map(|(p, s)| Some((*p, s.view.update(cx, |v, _| v.state.sha.is_some().then(|| v.state.restart()))?))).collect();
+        for (pane, run) in shown {
+            self.load_commit(pane, run, cx);
+        }
+    }
+
+    fn load_commit(&mut self, pane: PaneId, run: u64, cx: &mut Context<Self>) {
+        let Some((cwd, sha)) = self.cwd().zip(self.commit.get(pane).and_then(|v| v.read(cx).state.sha.clone())) else { return };
+        let options = self.diff.options;
+        cx.spawn(async move |this, cx| {
+            let (parent, files) = cx
+                .background_executor()
+                .spawn({
+                    let (cwd, sha) = (cwd.clone(), sha.clone());
+                    async move {
+                        let runner = hosts::runner_for(&cwd);
+                        let parent = git::first_parent(&runner, &cwd, &sha);
+                        let files = git::commit_files(&runner, &cwd, &sha, parent.as_deref());
+                        (parent, files)
+                    }
+                })
+                .await;
+            let shown = this.update(cx, |d, cx| {
+                d.commit.get(pane).is_some_and(|v| {
+                    v.update(cx, |v, cx| {
+                        let ok = v.state.set_files(run, files.clone());
+                        if ok {
+                            cx.notify();
+                        }
+                        ok
+                    })
+                })
+            });
+            if !matches!(shown, Ok(true)) {
+                return;
+            }
+            for start in (0..files.len()).step_by(CHUNK) {
+                let chunk = files[start..(start + CHUNK).min(files.len())].to_vec();
+                let (cwd, sha, parent) = (cwd.clone(), sha.clone(), parent.clone());
+                let diffs = cx
+                    .background_executor()
+                    .spawn(async move { chunk.iter().map(|f| read_file(&cwd, &sha, parent.as_deref(), f, options)).collect::<Vec<_>>() })
+                    .await;
+                let shown = this.update(cx, |d, cx| {
+                    d.commit.get(pane).is_some_and(|v| {
+                        v.update(cx, |v, cx| {
+                            let ok = v.state.set_diffs(run, start, diffs);
+                            if ok {
+                                cx.notify();
+                            }
+                            ok
+                        })
+                    })
+                });
+                if !matches!(shown, Ok(true)) {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub fn commit_view(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Div {
+        let Some(view) = self.commit.get(pane).cloned() else { return empty("No commit.") };
+        let Some(sha) = view.read(cx).state.sha.clone() else { return empty("No commit.") };
+        let subject = self.graph.read(cx).commit(&sha).map(|c| c.subject.clone());
+        let code_size = self.store.appearance.code_size();
+        view.update(cx, |v, _| (v.subject, v.code_size) = (subject, code_size));
+        div().flex_1().min_h_0().flex().flex_col().child(view)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CommitState, Commits, FileDiff, Row};
-    use crate::desktop::MAIN;
+    use super::{CommitState, FileDiff, Row};
     use git::{CommitFile, parse};
 
     fn file(path: &str) -> CommitFile {
@@ -318,14 +373,13 @@ mod tests {
     }
 
     #[test]
-    fn showing_a_commit_in_one_pane_leaves_another_alone() {
-        let mut commits = Commits::default();
-        let run = commits.select(MAIN, "a".into()).unwrap();
-        commits.panes.get_mut(&MAIN).unwrap().set_files(run, vec![file("x")]);
-        assert!(commits.select(1, "b".into()).is_some());
-        assert!(commits.select(MAIN, "a".into()).is_none());
-        assert_eq!(commits.get(MAIN).unwrap().rows, [Row::Header(0)]);
-        commits.retain_panes(&[MAIN]);
-        assert!(commits.get(1).is_none());
+    fn showing_the_commit_already_shown_reads_nothing_again() {
+        let mut c = CommitState::default();
+        let run = c.select_new("a".into()).unwrap();
+        c.set_files(run, vec![file("x")]);
+        assert!(c.select_new("a".into()).is_none());
+        assert_eq!(c.rows, [Row::Header(0)]);
+        assert!(c.select_new("b".into()).is_some());
+        assert!(c.rows.is_empty());
     }
 }

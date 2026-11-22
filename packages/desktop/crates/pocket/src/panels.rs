@@ -407,11 +407,11 @@ impl Desktop {
                 }
                 self.term_body(&id, focused, window, cx)
             }
-            Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
-            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => {
+            Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc, cx) => self.file_view(p, cx),
+            Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc, cx) => {
                 self.diff_view(p, cx)
             }
-            Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc) => self.commit_view(p, cx),
+            Some(Tab::Doc(doc @ Doc::Commit(_))) if self.loaded(p, &doc, cx) => self.commit_view(p, cx),
             Some(Tab::Web(id)) => self.browser_view(p, id, window, cx),
             Some(Tab::Doc(_)) => div().flex_1(),
             None => self.empty_pane(p, cx),

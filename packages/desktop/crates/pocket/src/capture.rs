@@ -1775,8 +1775,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     for v in d.diff.panes.values_mut() {
         (v.file, v.at) = (None, At::Working);
     }
-    for c in d.commit.panes.values_mut() {
-        c.sha = None;
+    for s in d.commit.panes.values() {
+        s.view.update(cx, |v, _| v.state.sha = None);
     }
     d.workspaces.clear();
     d.creates.update(cx, |c, _| c.list.clear());

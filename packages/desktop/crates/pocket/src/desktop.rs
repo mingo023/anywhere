@@ -508,7 +508,7 @@ impl Desktop {
         cx.notify();
     }
 
-    pub fn loaded(&self, pane: PaneId, doc: &Doc) -> bool {
+    pub fn loaded(&self, pane: PaneId, doc: &Doc, cx: &App) -> bool {
         let diff = self.diff.view(pane);
         match doc {
             Doc::File(p) => self.preview.file(pane) == Some(p.as_str()),
@@ -516,7 +516,7 @@ impl Desktop {
             Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, &At::Commit(sha.clone()))),
             Doc::PrFile { base, path } => diff.is_some_and(|v| v.shows(path, &At::Base(base.clone()))),
             Doc::CompareFile { against, path } => diff.is_some_and(|v| v.shows(path, &At::Compare(against.clone()))),
-            Doc::Commit(sha) => self.commit.get(pane).is_some_and(|c| c.sha.as_ref() == Some(sha)),
+            Doc::Commit(sha) => self.commit.shows(pane, sha, cx),
         }
     }
 
@@ -529,7 +529,7 @@ impl Desktop {
         self.browsers.retain_panes(&panes);
         for pane in panes {
             if let Some(Tab::Doc(doc)) = self.pane_tab(pane)
-                && !self.loaded(pane, &doc)
+                && !self.loaded(pane, &doc, cx)
             {
                 self.show_doc(pane, doc, cx);
             }
