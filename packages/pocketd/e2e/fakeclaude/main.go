@@ -31,28 +31,49 @@ import (
 
 type session struct {
 	id, cwd, transcript string
-	entrypoint          string
-	f                   *os.File
-	hooks               map[string]string
+	// parent is the conversation a fork copies, as Claude does into the
+	// fork's own transcript only once something is written there.
+	parent     string
+	entrypoint string
+	f          *os.File
+	hooks      map[string]string
 }
 
 func start() *session {
 	cwd, _ := os.Getwd()
 	s := &session{id: uuid(), cwd: cwd, hooks: pluginHooks()}
 	if i := slices.Index(os.Args, "--resume"); i > 0 && i+1 < len(os.Args) {
-		s.id = os.Args[i+1]
+		if slices.Contains(os.Args, "--fork-session") {
+			s.parent = os.Args[i+1]
+		} else {
+			s.id = os.Args[i+1]
+		}
 	}
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" && !slices.Contains(os.Args, "--no-session-persistence") {
 		slug := regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(cwd, "-")
 		s.transcript = filepath.Join(dir, "projects", slug, s.id+".jsonl")
 		os.MkdirAll(filepath.Dir(s.transcript), 0o700)
-		f, err := os.OpenFile(s.transcript, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		if err != nil {
-			panic(err)
+		if s.parent == "" {
+			s.open(nil)
 		}
-		s.f = f
 	}
 	return s
+}
+
+func (s *session) open(history []byte) {
+	f, err := os.OpenFile(s.transcript, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		panic(err)
+	}
+	f.Write(history)
+	s.f = f
+}
+
+func (s *session) source() string {
+	if s.parent != "" {
+		return "fork"
+	}
+	return "startup"
 }
 
 func pluginHooks() map[string]string {
@@ -102,6 +123,10 @@ func uuid() string {
 }
 
 func (s *session) write(line map[string]any) {
+	if s.f == nil && s.parent != "" && s.transcript != "" {
+		history, _ := os.ReadFile(filepath.Join(filepath.Dir(s.transcript), s.parent+".jsonl"))
+		s.open(bytes.ReplaceAll(history, []byte(`"sessionId":"`+s.parent+`"`), []byte(`"sessionId":"`+s.id+`"`)))
+	}
 	if s.f == nil {
 		return
 	}
@@ -189,7 +214,7 @@ func main() {
 		return
 	}
 	s := start()
-	s.hook("SessionStart", map[string]any{"source": "startup", "model": "fake-model"})()
+	s.hook("SessionStart", map[string]any{"source": s.source(), "model": "fake-model"})()
 	fmt.Println("fake claude ready")
 
 	sc := bufio.NewScanner(os.Stdin)

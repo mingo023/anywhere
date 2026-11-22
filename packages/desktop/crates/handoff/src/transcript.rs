@@ -106,8 +106,18 @@ fn destination(host: &dyn Host, t: &Transcript, cwd: &str) -> Result<String, Str
     }
 }
 
+/// How much of a transcript goes to the host in one write when it isn't framed. A transcript runs to a hundred
+/// megabytes, and one write holding it all keeps every other call to the host waiting, with nothing to show how far it
+/// got.
+pub const CHUNK: usize = 4 << 20;
+
+/// How much of a transcript one zstd frame holds. Its images come twice, in a message and in its tool result, too far
+/// apart for zstd's usual window; a window as big as the frame finds them, which makes it about 4× smaller.
+pub const FRAME: usize = 16 << 20;
+
 /// Writes `t` on the host for a session in `to` there, moved from `from` on this Mac, and checks every byte landed.
-pub fn carry(host: &dyn Host, t: &Transcript, from: &[&str], to: &str) -> Result<String, String> {
+/// `framed` sends it as zstd frames, for a host whose pocketd has `fs.append`. `sent(done, total)` after each write.
+pub fn carry(host: &dyn Host, t: &Transcript, from: &[&str], to: &str, framed: bool, sent: &mut dyn FnMut(usize, usize)) -> Result<String, String> {
     let mut text = String::from_utf8(std::fs::read(&t.file).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     for f in from {
         text = moved(&text, f, to);
@@ -115,16 +125,29 @@ pub fn carry(host: &dyn Host, t: &Transcript, from: &[&str], to: &str) -> Result
     let path = destination(host, t, to)?;
     let parent = path.rsplit_once('/').map_or("", |(dir, _)| dir);
     host.mkdir(parent).map_err(|e| e.to_string())?;
-    host.write(&path, text.as_bytes()).map_err(|e| e.to_string())?;
+    host.write(&path, &[]).map_err(|e| e.to_string())?;
+    let mut done = 0;
+    for piece in text.as_bytes().chunks(if framed { FRAME } else { CHUNK }) {
+        if framed { frame(piece).and_then(|f| host.append_frame(&path, &f)) } else { host.append(&path, piece) }.map_err(|e| e.to_string())?;
+        done += piece.len();
+        sent(done, text.len());
+    }
     match host.size(&path).map_err(|e| e.to_string())? {
         Some(n) if n == text.len() as u64 => Ok(path),
         _ => Err("The conversation didn’t arrive whole".into()),
     }
 }
 
+fn frame(piece: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut zstd = zstd::bulk::Compressor::new(1)?;
+    zstd.set_parameter(zstd::zstd_safe::CParameter::WindowLog(FRAME.ilog2()))?;
+    zstd.set_parameter(zstd::zstd_safe::CParameter::EnableLongDistanceMatching(true))?;
+    zstd.compress(piece)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{carry, claude_slug, find, moved};
+    use super::{CHUNK, FRAME, carry, claude_slug, find, moved};
     use crate::testing::{Folder, scratch};
 
     #[test]
@@ -166,8 +189,48 @@ mod tests {
         let t = find("codex", "th1", &mac).unwrap();
         let host_home = scratch("carry-host");
         let host = Folder { home: host_home.to_str().unwrap().into() };
-        let path = carry(&host, &t, &["/Users/me/app"], "/home/dev/w").unwrap();
+        let path = carry(&host, &t, &["/Users/me/app"], "/home/dev/w", false, &mut |_, _| {}).unwrap();
         assert_eq!(path, format!("{}/.codex/sessions/2026/11/21/rollout-x-th1.jsonl", host_home.display()));
         assert_eq!(std::fs::read_to_string(path).unwrap(), "{\"cwd\":\"/home/dev/w\"}\n");
+    }
+
+    #[test]
+    fn a_transcript_longer_than_one_write_lands_whole_and_says_how_far_it_got() {
+        let mac = scratch("chunks-mac");
+        let dir = mac.join(".codex/sessions/2026/11/22");
+        std::fs::create_dir_all(&dir).unwrap();
+        let line = format!("{{\"cwd\":\"/Users/me/app\",\"pad\":\"{}\"}}\n", "x".repeat(1000));
+        let body = line.repeat(2 * CHUNK / line.len() + 100);
+        std::fs::write(dir.join("rollout-x-th2.jsonl"), &body).unwrap();
+        let t = find("codex", "th2", &mac).unwrap();
+        let host_home = scratch("chunks-host");
+        let host = Folder { home: host_home.to_str().unwrap().into() };
+        let mut heard = vec![];
+        let path = carry(&host, &t, &["/Users/me/app"], "/home/dev/w", false, &mut |done, of| heard.push((done, of))).unwrap();
+        let landed = std::fs::read_to_string(path).unwrap();
+        assert_eq!(landed, moved(&body, "/Users/me/app", "/home/dev/w"));
+        let total = landed.len();
+        assert!(total > 2 * CHUNK);
+        assert_eq!(heard, vec![(CHUNK, total), (2 * CHUNK, total), (total, total)]);
+    }
+
+    #[test]
+    fn a_framed_transcript_lands_whole_and_says_how_far_it_got() {
+        let mac = scratch("frames-mac");
+        let dir = mac.join(".codex/sessions/2026/11/22");
+        std::fs::create_dir_all(&dir).unwrap();
+        let line = format!("{{\"cwd\":\"/Users/me/app\",\"pad\":\"{}\"}}\n", "x".repeat(1000));
+        let body = line.repeat(FRAME / line.len() + 100);
+        std::fs::write(dir.join("rollout-x-th3.jsonl"), &body).unwrap();
+        let t = find("codex", "th3", &mac).unwrap();
+        let host_home = scratch("frames-host");
+        let host = Folder { home: host_home.to_str().unwrap().into() };
+        let mut heard = vec![];
+        let path = carry(&host, &t, &["/Users/me/app"], "/home/dev/w", true, &mut |done, of| heard.push((done, of))).unwrap();
+        let landed = std::fs::read_to_string(path).unwrap();
+        assert_eq!(landed, moved(&body, "/Users/me/app", "/home/dev/w"));
+        let total = landed.len();
+        assert!(total > FRAME);
+        assert_eq!(heard, vec![(FRAME, total), (total, total)]);
     }
 }

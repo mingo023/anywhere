@@ -16,6 +16,9 @@ pub use git::Output;
 pub trait Host: Send + Sync {
     fn exec(&self, cwd: &str, argv: &[&str], timeout: Duration) -> io::Result<Output>;
     fn write(&self, path: &str, data: &[u8]) -> io::Result<()>;
+    fn append(&self, path: &str, data: &[u8]) -> io::Result<()>;
+    /// Adds what zstd `frame` decodes to at the end of the file at `path`.
+    fn append_frame(&self, path: &str, frame: &[u8]) -> io::Result<()>;
     fn mkdir(&self, path: &str) -> io::Result<()>;
     /// The size of the file at `path`, `None` when nothing is there.
     fn size(&self, path: &str) -> io::Result<Option<u64>>;
@@ -30,6 +33,16 @@ impl Host for hosts::remote::Client {
 
     fn write(&self, path: &str, data: &[u8]) -> io::Result<()> {
         hosts::remote::Client::write(self, path, data, false)
+    }
+
+    // A pocketd without fs.append only replaces a file with fs.write, so the bytes go through a shell's stdin.
+    fn append(&self, path: &str, data: &[u8]) -> io::Result<()> {
+        let out = git::Exec::exec(self, "", &["sh", "-c", r#"cat >> "$1""#, "sh", path], Some(data), TIMEOUT)?;
+        if out.success() { Ok(()) } else { Err(io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_string())) }
+    }
+
+    fn append_frame(&self, path: &str, frame: &[u8]) -> io::Result<()> {
+        hosts::remote::Client::append_frame(self, path, frame)
     }
 
     fn mkdir(&self, path: &str) -> io::Result<()> {
@@ -158,6 +171,15 @@ pub(crate) mod testing {
 
         fn write(&self, path: &str, data: &[u8]) -> io::Result<()> {
             std::fs::write(path, data)
+        }
+
+        fn append(&self, path: &str, data: &[u8]) -> io::Result<()> {
+            use std::io::Write;
+            std::fs::OpenOptions::new().append(true).open(path)?.write_all(data)
+        }
+
+        fn append_frame(&self, path: &str, frame: &[u8]) -> io::Result<()> {
+            self.append(path, &zstd::decode_all(frame)?)
         }
 
         fn mkdir(&self, path: &str) -> io::Result<()> {

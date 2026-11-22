@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"math"
@@ -282,7 +283,66 @@ func (d *Daemon) sessionStart(pr *presence, in hookInput) {
 		if same && moving {
 			shown = written(in.TranscriptPath)
 		}
-		pr.transcript, pr.stopTail = in.TranscriptPath, d.tail(pr, in.TranscriptPath, in.Model, in.Source == "resume", shown)
+		pr.transcript = in.TranscriptPath
+		if parent := forkedFrom(pr.argv, in); parent != "" {
+			pr.stopTail = d.inherit(pr, parent, in.TranscriptPath, in.Model)
+		} else {
+			pr.stopTail = d.tail(pr, in.TranscriptPath, in.Model, in.Source == "resume", shown)
+		}
+	}
+}
+
+// forkedFrom is the transcript holding the history of the fork that in
+// started, while the fork has none of its own: Claude writes that only on
+// the first prompt. "" for anything else.
+func forkedFrom(argv []string, in hookInput) string {
+	if in.Source != "fork" || written(in.TranscriptPath) > 0 || !slices.Contains(argv, "--fork-session") {
+		return ""
+	}
+	i := slices.Index(argv, "--resume")
+	if i < 0 || i+1 >= len(argv) || strings.ContainsAny(argv[i+1], `/\`) {
+		return ""
+	}
+	path := filepath.Join(filepath.Dir(in.TranscriptPath), argv[i+1]+".jsonl")
+	if written(path) == 0 {
+		return ""
+	}
+	return path
+}
+
+const forkPoll = 100 * time.Millisecond
+
+// inherit feeds pr's timeline from parent, as far as it was written when
+// the fork started, until the fork's own transcript appears at path. That one
+// opens with the same history, through parent's last line, so the timeline
+// starts over from it.
+func (d *Daemon) inherit(pr *presence, parent, path, hookModel string) (stop func()) {
+	ctx, cancel := context.WithCancel(pr.ctx)
+	end := written(parent)
+	stopParent := d.tailWithin(pr, parent, hookModel, true, 0, span{upTo: end})
+	last := claude.LastUUID(parent, end)
+	done := make(chan struct{})
+	var stopOwn func()
+	go func() {
+		defer close(done)
+		for written(path) == 0 {
+			select {
+			case <-ctx.Done():
+				stopParent()
+				return
+			case <-time.After(forkPoll):
+			}
+		}
+		stopParent()
+		pr.a.ClearTimeline()
+		stopOwn = d.tailWithin(pr, path, hookModel, true, 0, span{through: last})
+	}()
+	return func() {
+		cancel()
+		<-done
+		if stopOwn != nil {
+			stopOwn()
+		}
 	}
 }
 
@@ -455,9 +515,27 @@ func tidy(text string) string {
 // shows the lines in the first shown bytes, as a moved agent's does, so only
 // later ones go in, and its sub-agents' lines past what it shows.
 func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool, shown int64) (stop func()) {
+	return d.tailWithin(pr, path, hookModel, resumed, shown, span{})
+}
+
+// span bounds what tailWithin reads of a transcript shared with a fork.
+type span struct {
+	// upTo, when set, is where the lines followed end: a forked transcript
+	// goes on with its own conversation past where the fork copied it.
+	upTo int64
+	// through, when set, is the uuid of the last line replayed: Claude may
+	// still be copying a fork's history when its transcript appears.
+	through string
+}
+
+func (d *Daemon) tailWithin(pr *presence, path, hookModel string, resumed bool, shown int64, s span) (stop func()) {
 	ctx, cancel := context.WithCancel(pr.ctx)
 	done := make(chan struct{})
 	replay := written(path)
+	through := []byte(`"uuid":"` + s.through + `"`)
+	if s.through != "" {
+		replay = math.MaxInt64
+	}
 	resumed = resumed && replay > 0
 	go func() {
 		defer close(done)
@@ -491,6 +569,12 @@ func (d *Daemon) tail(pr *presence, path, hookModel string, resumed bool, shown 
 			pr.tailing.Lock()
 			defer pr.tailing.Unlock()
 			read += int64(len(line)) + 1
+			if s.upTo > 0 && read > s.upTo {
+				return
+			}
+			if replay == math.MaxInt64 && bytes.Contains(line, through) {
+				replay = read
+			}
 			pr.tailed.Store(read)
 			events := turns.Map(line)
 			if g, ok := claude.Goal(line); ok {

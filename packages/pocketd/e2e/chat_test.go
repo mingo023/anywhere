@@ -49,6 +49,39 @@ func TestAChatAgentAnswersInItsTranscriptAndEndsItsTurn(t *testing.T) {
 	)
 }
 
+func TestAForkedChatShowsTheConversationItForkedBeforeItsFirstPrompt(t *testing.T) {
+	h, phone, _, parent := chatClaude(t)
+	phone.Prompt(parent, "hello")
+	var session string
+	phone.WaitAll("the parent's turn",
+		streamOf(parent, "assistant", "echo: hello"),
+		func(m Message) bool {
+			if m.Type == "agent.update" && m.Agent.ID == parent && m.Agent.ProviderSessionID != "" {
+				session = m.Agent.ProviderSessionID
+			}
+			return session != ""
+		},
+		statusOf(parent, "done"),
+	)
+	create(phone, "r2", inRepo(h, map[string]any{"chat": true, "fork": session}))
+	done := reply(phone, "agent.created", "error")
+	if done.Type != "agent.created" {
+		t.Fatalf("got %s", done.Raw)
+	}
+	fork := done.AgentID
+	h.WaitScreen(done.TerminalID, "fake claude ready")
+	h.eventually("the inherited conversation", func() bool {
+		got := timelineOf(phone, fork)
+		return slices.Contains(got, "user hello") && slices.Contains(got, "assistant echo: hello")
+	})
+	phone.Prompt(fork, "again")
+	phone.WaitAll("the fork's own turn", streamOf(fork, "assistant", "echo: again"), statusOf(fork, "done"))
+	h.eventually("both conversations", func() bool {
+		got := timelineOf(phone, fork)
+		return slices.Contains(got, "user hello") && slices.Contains(got, "user again") && slices.Contains(got, "assistant echo: again")
+	})
+}
+
 func TestAChatClaudesNotesToTheUserShowAsItsWords(t *testing.T) {
 	_, phone, _, id := chatClaude(t)
 	phone.Prompt(id, "narrate Found the cause.")

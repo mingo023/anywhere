@@ -717,9 +717,6 @@ impl Desktop {
     pub(crate) fn chat_composer(&self, terminal: &str, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let Some(agent) = self.summary(terminal) else { return div() };
         let dock = div().flex_none().flex().justify_center().px(px(32.)).pb(px(16.));
-        if let Some(banner) = self.moved_banner(&agent.id, cx) {
-            return dock.child(div().w_full().max_w(px(MAX_WIDTH)).child(banner));
-        }
         let ask = self.chat_ask(terminal);
         let mark = self.handoff_mark(&agent.id);
         let mode = self.chat_mode(terminal);

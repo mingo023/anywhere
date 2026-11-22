@@ -573,16 +573,16 @@ let subagentReads = 0;
 let devboxDown = false;
 // devbox's agent websockets, which a real link drop closes.
 const devboxSockets = new Set<{ close(): void }>();
-const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
+const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; data: string; stdin?: string; parents: boolean; recursive: boolean }, reply: (msg: object) => void, h = handoffHosts[0]) => {
   const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
   const fail = (e: unknown) => reply({ ev: "error", error: String((e as Error).message ?? e) });
   if (devboxDown) reply({ ev: "error", error: "host offline" });
-  else if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1"] } });
+  else if (op.op === "status") reply({ ev: "status", status: { hostId: h.id, os: h.os, arch: "arm64", userHome: h.home, shell: "/bin/bash", name: h.id, caps: ["exec.v1", "fs.v1", "fork.history.v1"] } });
   else if (op.op === "exec" && ["codex", "claude"].includes(op.argv[0])) {
     const out = op.argv[0] === "claude" ? JSON.stringify({ loggedIn: true, projectsDirectory: join(h.home, ".claude", "projects") }) : "Logged in using ChatGPT";
     reply(h.signedOut ? { ev: "exec", code: 1, stderr: b64("Not logged in\n") } : { ev: "exec", stdout: b64(out) });
   } else if (op.op === "exec") {
-    const r = Bun.spawnSync(op.argv, { cwd: op.cwd, env: { ...process.env, HOME: h.home, GIT_CONFIG_NOSYSTEM: "1" } });
+    const r = Bun.spawnSync(op.argv, { cwd: op.cwd, stdin: op.stdin ? Buffer.from(op.stdin, "base64") : undefined, env: { ...process.env, HOME: h.home, GIT_CONFIG_NOSYSTEM: "1" } });
     reply({ ev: "exec", code: r.exitCode, stdout: b64(r.stdout), stderr: b64(r.stderr) });
     const drop = Number(process.env.FIXTURE_DEVBOX_DROP_MS ?? 0);
     if (drop && op.argv.includes("worktree") && op.argv.includes("list") && op.argv.some((a) => a.endsWith("delegate-host-notes")) && ++subagentReads === 2) {
@@ -743,6 +743,7 @@ if (process.env.FIXTURE_HOST_AGENTS) {
           ws.send(JSON.stringify({ type: "agent.list", agents }));
           ws.send(JSON.stringify({ type: "agent.created", id: f.id, requestId: f.requestId, agentId: id }));
           if (prompt) item(ws, id, { id: `u-${Date.now()}`, kind: "user", text: prompt });
+          if (process.env.FIXTURE_HANDOFF && fork && conversation.providerSessionId) handoffTurns.forEach((t, i) => item(ws, id, { id: `h-${i}`, kind: t.kind, text: t.text }));
         }
       },
     },

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // ReadMax is what Read returns of a file when the caller names no max.
@@ -123,6 +125,28 @@ func Write(path string, data []byte, create bool) error {
 		flag = os.O_WRONLY | os.O_CREATE | os.O_EXCL
 	}
 	f, err := os.OpenFile(path, flag, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// unzstd decodes the frames fs.append carries. The desktop's hold 16MB, so a
+// frame needing more than four times that is refused.
+var unzstd, _ = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(64<<20))
+
+// Append adds what the zstd frame decodes to at the end of path, and leaves
+// path as it was when the frame doesn't decode whole.
+func Append(path string, frame []byte) error {
+	data, err := unzstd.DecodeAll(frame, nil)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return err
 	}

@@ -398,8 +398,7 @@ impl Desktop {
                 if self.chat_shown(&id) {
                     return self.chat_view(&id, window, cx);
                 }
-                let moved = self.summary(&id).and_then(|s| self.moved_banner(&s.id, cx));
-                self.term_body(&id, focused, cx).children(moved.map(|b| div().flex_none().p(px(12.)).flex().justify_center().child(b.max_w(px(690.)))))
+                self.term_body(&id, focused, cx)
             }
             Some(Tab::Doc(doc @ Doc::File(_))) if self.loaded(p, &doc) => self.file_view(p, cx),
             Some(Tab::Doc(doc @ (Doc::Diff(_) | Doc::CommitFile { .. } | Doc::PrFile { .. } | Doc::CompareFile { .. }))) if self.loaded(p, &doc) => self.diff_view(p, cx),

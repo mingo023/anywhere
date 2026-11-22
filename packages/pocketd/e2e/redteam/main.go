@@ -66,6 +66,7 @@ func inside(out, claudeTerm, agentID, requestID string) {
 		{"ops.exec", ops.Msg{Op: "exec", Cwd: "/", Argv: []string{"true"}}},
 		{"ops.fs.read", ops.Msg{Op: "fs.read", Path: "/etc/hosts"}},
 		{"ops.fs.write", ops.Msg{Op: "fs.write", Path: out + ".forged", Data: []byte("x")}},
+		{"ops.fs.append", ops.Msg{Op: "fs.append", Path: out + ".forged", Data: []byte("x")}},
 	} {
 		note(p.name, opsOutcome(sock, p.m))
 	}

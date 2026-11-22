@@ -103,6 +103,30 @@ impl Desktop {
         }
     }
 
+    /// Lists the worktrees of each session's repo that no project holds yet, as one a handoff or a host's own desktop
+    /// made, so its session shows in its project without waiting for `refresh_git` to read every tree.
+    pub(crate) fn look_up_trees(&mut self, cx: &mut Context<Self>) {
+        // Until every project is listed, each session would look unheld.
+        if self.git_done == 0 && !project::all_listed(&self.store.projects, &self.worktrees, readable) {
+            return;
+        }
+        let cwds: Vec<&str> = self.terminals.sessions.items.iter().map(|s| s.info.cwd.as_str()).filter(|c| readable(c)).collect();
+        for cwd in self.tree_lookups.ask(cwds, &self.store.projects, &self.worktrees) {
+            let task = cx.background_executor().spawn(async move { git::worktrees(&hosts::runner_for(&cwd), &cwd) });
+            cx.spawn(async move |this, cx| {
+                let trees = task.await;
+                this.update(cx, |d, cx| {
+                    let Some(main) = trees.iter().find(|w| w.main).map(|w| w.path.clone()).filter(|m| d.store.projects.contains(m)) else { return };
+                    d.tree_lookups.listed(&main, d.git_run);
+                    d.worktrees.insert(main, trees);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+    }
+
     pub fn project_of<'a>(&self, cwd: &str, projects: &'a [String]) -> Option<&'a String> {
         project::project_of(cwd, projects, &self.worktrees)
     }
@@ -288,7 +312,9 @@ impl Desktop {
                         d.forget_tree(t, cx);
                     }
                 }
-                let worktrees = project::refreshed(worktrees, &d.worktrees, &unread);
+                let mut keep = unread;
+                keep.extend(d.tree_lookups.since(run));
+                let worktrees = project::refreshed(worktrees, &d.worktrees, &keep);
                 d.renames.relisted(d.worktrees.values().flatten(), worktrees.values().flatten(), Instant::now());
                 let repos_changed = merge_repos(&mut d.repos, repos);
                 let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || worktrees != d.worktrees;

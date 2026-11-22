@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/klauspost/compress/zstd"
+
 	"pocketd/internal/terminal"
 )
 
@@ -22,6 +24,21 @@ func TestExecGivesMinusOneOnTimeout(t *testing.T) {
 	c.Send(Msg{Op: "exec", ID: "1", Cwd: t.TempDir(), Argv: []string{"sleep", "10"}, TimeoutMs: 100})
 	if m := recv(t, c, "exec"); m.Code != -1 {
 		t.Fatalf("%+v", m)
+	}
+}
+
+func TestFsAppendAddsAFramesBytesToAFile(t *testing.T) {
+	c := start(t, &Server{Terminals: terminal.NewManager()})
+	f := filepath.Join(t.TempDir(), "t.jsonl")
+	enc, _ := zstd.NewWriter(nil)
+	for _, part := range []string{"one\n", "two\n"} {
+		c.Send(Msg{Op: "fs.append", Path: f, Data: enc.EncodeAll([]byte(part), nil)})
+		if r := recv(t, c, "fs.append"); r.Error != "" {
+			t.Fatalf("%+v", r)
+		}
+	}
+	if got, _ := os.ReadFile(f); string(got) != "one\ntwo\n" {
+		t.Fatalf("%q", got)
 	}
 }
 

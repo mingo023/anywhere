@@ -38,6 +38,8 @@ func (s *Server) hostOp(ctx context.Context, m Msg) Msg {
 		r.Data, r.Size, r.Truncated, err = hostop.Read(m.Path, m.Max)
 	case "fs.write":
 		err = hostop.Write(m.Path, m.Data, m.Create)
+	case "fs.append":
+		err = hostop.Append(m.Path, m.Data)
 	case "fs.mkdir":
 		err = hostop.Mkdir(m.Path, m.Parents)
 	case "fs.rename":

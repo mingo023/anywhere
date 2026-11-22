@@ -39,7 +39,10 @@ type Status struct {
 }
 
 // HostCaps are the ops a desktop may use on a project that lives on this host.
-var HostCaps = []string{"host.v2", "fs.v1", "exec.v1"}
+// fork.history.v1: a Claude fork's timeline shows the history it inherits
+// before its first prompt. fs.append.v1: fs.append adds a zstd frame's bytes to
+// a file.
+var HostCaps = []string{"host.v2", "fs.v1", "exec.v1", "fork.history.v1", "fs.append.v1"}
 
 func (s Status) Text() string {
 	agents := "none"

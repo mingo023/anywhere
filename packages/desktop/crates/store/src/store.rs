@@ -471,18 +471,8 @@ pub struct Store {
     /// Terminals of sessions started as a chat, which show their agent's chat for good.
     #[serde(deserialize_with = "lenient")]
     pub chats: BTreeSet<String>,
-    /// Sessions handed off to a host with their conversation, by this Mac's session id.
-    #[serde(deserialize_with = "lenient")]
-    pub moved: BTreeMap<String, Moved>,
     #[serde(skip)]
     path: PathBuf,
-}
-
-/// Where a handed-off session went on: the host, and the session there.
-#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
-pub struct Moved {
-    pub host: String,
-    pub agent: String,
 }
 
 impl Store {
