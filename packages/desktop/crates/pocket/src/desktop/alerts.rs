@@ -193,7 +193,7 @@ impl Desktop {
             self.sweep_host_leftovers(cx);
         }
         if let Some(parent) = delegating {
-            self.delegated_changed(&parent, cx);
+            self.delegated_changed(&parent, window, cx);
             // A host's child may be listed before its delegation names its parent.
             self.remember_subtrees(cx);
         }

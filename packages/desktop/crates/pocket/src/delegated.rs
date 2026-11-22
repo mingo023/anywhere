@@ -19,9 +19,15 @@ use hosts::Host;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+/// A chat's panel and what keeps its events coming.
+struct Slot {
+    view: Entity<panel::PanelView>,
+    _sub: Subscription,
+}
+
 pub(crate) struct DelegatedState {
     /// Each delegating chat's panel, by agent id.
-    panels: HashMap<String, panel::Panel>,
+    panels: HashMap<String, Slot>,
     /// The chats whose delegations were asked for on this connection.
     asked: HashSet<String>,
     /// Tasks the user cleared from a panel: pocketd lists them again after a reconnect, and they stay hidden.
