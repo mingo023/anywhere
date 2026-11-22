@@ -33,9 +33,6 @@ const LIFTED: f32 = 1.055;
 /// In levels, past halfway to the next.
 const HYSTERESIS: f32 = 0.15;
 const LABEL_MS: f32 = 200.;
-const BAR_MS: f32 = 200.;
-const BAR_STAGGER_MS: f32 = 40.;
-const BARS: usize = 5;
 
 /// A drag in progress: where on the thumb it was grabbed, as a share of the track, and the level it started on.
 #[derive(Clone, Copy)]
@@ -52,7 +49,7 @@ pub(crate) struct EffortSlider {
     /// The level last committed here. It outlives the drag: a chat's effort takes a poll to come back, and the thumb
     /// would spring back to the old one until then.
     picked: Option<String>,
-    /// The level the label, bars and colour name: the committed one, or the one under a drag.
+    /// The level the labels and colour name: the committed one, or the one under a drag.
     shown: Option<usize>,
     was: Option<(Option<usize>, Instant)>,
     thumb: Glide,
@@ -72,9 +69,8 @@ pub(crate) struct Frame {
     lift: f32,
     shown: Option<usize>,
     was: Option<usize>,
-    /// 0 to 1, as are `bars`.
+    /// 0 to 1.
     label: f32,
-    bars: [f32; BARS],
     lights: [Option<Light>; 2],
     keyed: bool,
     /// Reduced motion: things fade but don't move.
@@ -191,7 +187,7 @@ impl EffortSlider {
         }
     }
 
-    /// Steps everything that moves to `now`. With reduced motion the thumb jumps and no burst plays; the label and bars
+    /// Steps everything that moves to `now`. With reduced motion the thumb jumps and no burst plays; the labels
     /// still fade, as a fade moves nothing.
     pub(crate) fn frame(&mut self, now: Instant, reduce_motion: bool) -> Frame {
         let dragging = self.drag.is_some();
@@ -203,30 +199,15 @@ impl EffortSlider {
         let lights = self.animation.sample(now);
         moving |= self.animation.busy();
         let since = self.was.map_or(f32::INFINITY, |(_, at)| now.saturating_duration_since(at).as_secs_f32() * 1000.);
-        let (was, n) = (self.was.and_then(|(w, _)| w), self.levels.len());
-        let bars = bar_light(self.shown.map_or(0, |i| bars_lit(i, n)), was.map_or(0, |i| bars_lit(i, n)), since);
-        moving |= since < LABEL_MS.max(BAR_MS + BAR_STAGGER_MS * BARS as f32);
-        Frame { thumb: self.thumb.at().clamp(0., 1.), lift: self.lift.at(), shown: self.shown, was, label: ease((since / LABEL_MS).min(1.)), bars, lights, keyed: self.keyed, still: reduce_motion, moving }
+        let was = self.was.and_then(|(w, _)| w);
+        moving |= since < LABEL_MS;
+        Frame { thumb: self.thumb.at().clamp(0., 1.), lift: self.lift.at(), shown: self.shown, was, label: ease((since / LABEL_MS).min(1.)), lights, keyed: self.keyed, still: reduce_motion, moving }
     }
 }
 
-/// How far up the scale level `i` of `n` sits, 0 to 1: what its colour, burst and bars come from.
+/// How far up the scale level `i` of `n` sits, 0 to 1: what its colour and burst come from.
 fn intensity(i: usize, n: usize) -> f32 {
     i as f32 / n.saturating_sub(1).max(1) as f32
-}
-
-fn bars_lit(i: usize, n: usize) -> usize {
-    1 + (intensity(i, n) * (BARS - 1) as f32).round() as usize
-}
-
-/// Each bar's light `ms` after the lit count went from `was` to `now`: new ones light in turn, dropped ones dim together.
-fn bar_light(now: usize, was: usize, ms: f32) -> [f32; BARS] {
-    std::array::from_fn(|k| match (k < now, k < was) {
-        (true, true) => 1.,
-        (true, false) => ease(((ms - (k - was) as f32 * BAR_STAGGER_MS) / BAR_MS).clamp(0., 1.)),
-        (false, true) => 1. - ease((ms / BAR_MS).min(1.)),
-        (false, false) => 0.,
-    })
 }
 
 fn ease(t: f32) -> f32 {
@@ -250,13 +231,12 @@ fn describe(level: &str) -> &'static str {
 /// of a drag, clicking a label, or a key hands the new level to `pick`; nothing is sent while a drag moves.
 pub(crate) fn effort_slider(id: &'static str, word: &'static str, (levels, on): (&[String], Option<&String>), slider: &Rc<RefCell<EffortSlider>>, pick: launch::Pick, cx: &mut Context<Desktop>) -> Stateful<Div> {
     let now = Instant::now();
-    let (frame, focus, title, about) = {
+    let (frame, focus, about) = {
         let mut s = slider.borrow_mut();
         s.sync(levels, on, now);
         let frame = s.frame(now, cx.reduce_motion());
         let focus = s.focus.get_or_insert_with(|| cx.focus_handle()).clone();
-        let title = frame.shown.map_or_else(|| SharedString::from("Default"), |i| s.labels[i].clone());
-        (frame, focus, title, frame.shown.map_or("The agent picks", |i| describe(&s.levels[i])))
+        (frame, focus, frame.shown.map_or("The agent picks", |i| describe(&s.levels[i])))
     };
     let style = EffortStyle::at(frame.thumb);
     let wiring = {
@@ -269,16 +249,7 @@ pub(crate) fn effort_slider(id: &'static str, word: &'static str, (levels, on): 
             redraw: Rc::new(move |cx| _ = redraw.update(cx, |_, cx| cx.notify())),
         }
     };
-    let rise = if frame.still { 0. } else { 3. * (1. - frame.label) };
-    let value = div().relative().top(px(rise)).opacity(0.4 + 0.6 * frame.label).text_color(TEXT_2).child(title);
-    let header = div()
-        .h(px(HEADER))
-        .flex()
-        .items_center()
-        .justify_between()
-        .text_size(px(13.))
-        .child(div().font_weight(FontWeight::MEDIUM).child(word))
-        .child(div().flex().items_center().gap(px(8.)).child(value).child(indicator(&frame.bars, style.track)));
+    let header = div().h(px(HEADER)).flex().items_center().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(word);
     let about = div().h(px(ABOUT)).text_size(px(11.)).line_height(px(ABOUT)).text_color(TEXT_4).opacity(0.4 + 0.6 * frame.label).truncate().child(about);
     let keys = slider.clone();
     div()
@@ -309,15 +280,9 @@ pub(crate) fn effort_slider(id: &'static str, word: &'static str, (levels, on): 
         .child(about)
 }
 
-fn indicator(lit: &[f32; BARS], color: Hsla) -> Div {
-    let off = ink(0.14);
-    let bars = lit.iter().enumerate().map(|(k, &on)| div().w(px(3.)).h(px(4. + 2. * k as f32)).rounded(px(1.)).bg(style::mix(off, color, on)));
-    div().h(px(12.)).flex().items_end().gap(px(2.)).children(bars)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{BAR_MS, EffortSlider, bar_light, bars_lit};
+    use super::EffortSlider;
     use std::time::{Duration, Instant};
 
     fn levels() -> Vec<String> {
@@ -409,7 +374,6 @@ mod tests {
         s.press(0., true, now);
         s.drag_to(1., now);
         assert_eq!(s.release(), Some("high".to_string()));
-        assert_eq!((bars_lit(2, 3), bars_lit(1, 3), bars_lit(0, 1)), (5, 3, 1));
         let mut one = EffortSlider::default();
         one.sync(&["high".to_string()], None, now);
         assert_eq!(one.choose(0, now, true), Some("high".to_string()));
@@ -433,15 +397,5 @@ mod tests {
         s.choose(4, now, true);
         let frame = s.frame(now, true);
         assert_eq!((frame.thumb, frame.lights, frame.still), (1., [None, None], true));
-    }
-
-    #[test]
-    fn new_bars_light_in_turn_and_dropped_ones_dim_together() {
-        assert_eq!(bar_light(3, 1, 0.), [1., 0., 0., 0., 0.]);
-        let mid = bar_light(3, 1, BAR_MS / 2.);
-        assert!(mid[1] > mid[2] && mid[2] > 0.);
-        assert_eq!(bar_light(3, 1, 1000.), [1., 1., 1., 0., 0.]);
-        let dim = bar_light(1, 3, BAR_MS / 2.);
-        assert!(dim[1] == dim[2] && dim[1] > 0. && dim[1] < 1.);
     }
 }
