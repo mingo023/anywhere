@@ -25,6 +25,8 @@ struct SessionTextTests {
         #expect(SessionText.detail(working, .working) == "Opus 5.5")
         let idle = Sample.agents.first { $0.id == "a-chat" }!
         #expect(SessionText.detail(idle, .idle) == "Sonnet 5")
+        #expect(SessionText.detail(idle, .idle, model: false) == nil, "a row that names its model on its own line")
+        #expect(SessionText.detail(needs, .needsYou, model: false) == "Approve Bash: rm -rf build")
     }
 
     @Test("pocketd's steps read as what is happening, and an unknown one as itself")
@@ -194,6 +196,22 @@ struct WorkspacesTests {
         #expect(TreeHeader.branchLine(branch: nil, head: head) == nil)
         #expect(TreeHeader.branchLine(branch: "fix", head: nil) == "fix")
         #expect(TreeHeader.branchLine(branch: "fix", head: head) == "fix from main · 4 ahead")
+    }
+
+    @Test("the first load waits while the banner says reconnecting, and says why once it says it can't reach the Mac")
+    func firstLoad() {
+        #expect(FirstLoad.waits(.connecting))
+        #expect(FirstLoad.waits(.reconnecting))
+        #expect(!FirstLoad.waits(.unreachable))
+    }
+
+    @Test("a tree with no pull request says what one would hold, and nothing when it holds nothing or git hasn't answered")
+    func unopened() {
+        var head = GitHead(Sample.gitStatus(files: 1))
+        #expect(TreeLinks.unopened(head) == "4 ahead of main")
+        head.ahead = 0
+        #expect(TreeLinks.unopened(head) == nil)
+        #expect(TreeLinks.unopened(nil) == nil)
     }
 }
 

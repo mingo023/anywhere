@@ -9,6 +9,8 @@ import SwiftUI
 struct ChatScreen: View {
     let store: ChatStore
     let machine: String
+    /// The chat's Mac; gallery scenes have none.
+    var host: HostModel?
     /// Opens the screen of the sub-agent a call spawned.
     var openAgent: (_ callId: String) -> Void = { _ in }
     /// A link the transcript or the composer names: a file, or a web page.
@@ -39,7 +41,11 @@ struct ChatScreen: View {
                             if focus != nil && Composer.hidesKeyboard(dragged: drag.translation.height) { focus = nil }
                         }
                     )
-                if !store.online { StaleStrip(mac: machine) }
+                if let host {
+                    TimelineView(.explicit(host.reachabilityMarks)) { _ in
+                        if let asOf = host.staleAsOf(at: .now) { StaleStrip(mac: machine, asOf: asOf) }
+                    }
+                }
                 ComposerView(
                     store: store, machine: machine, height: screen.size.height, outsideTaps: outsideTaps, show: show, mapOpen: $mapOpen,
                     openLink: openLink, focus: $focus)

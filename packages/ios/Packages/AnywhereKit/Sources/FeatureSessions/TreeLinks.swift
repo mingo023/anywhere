@@ -39,7 +39,7 @@ struct TreeLinks: View {
                             }
                         } else {
                             // Keeps the tile as tall as those with a line here.
-                            Text(" ")
+                            Text(Self.unopened(head) ?? " ")
                         }
                     }
                 }
@@ -65,6 +65,12 @@ struct TreeLinks: View {
     /// "No changes", "1 file", "12 files"; nil before the status loads.
     nonisolated static func changes(_ files: Int?) -> String? {
         files.map { $0 == 0 ? "No changes" : $0 == 1 ? "1 file" : "\($0) files" }
+    }
+
+    /// What a pull request would hold, before there is one: "3 ahead of main".
+    nonisolated static func unopened(_ head: GitHead?) -> String? {
+        guard let head, let base = head.base, head.ahead > 0 else { return nil }
+        return "\(head.ahead) ahead of \(base)"
     }
 
     /// The pull request tile's title: "Create pull request" once gh can make one. Nil hides the tile, for a repository with
@@ -108,6 +114,7 @@ private struct TileLink<Detail: View>: View {
 
     private var tile: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
+            Image(systemName: systemImage).font(.system(size: 17)).foregroundStyle(Palette.text2.color).frame(height: 22).padding(.bottom, Space.xs)
             HStack {
                 Text(title).font(Typography.subheadline.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
                 Spacer(minLength: Space.xs)

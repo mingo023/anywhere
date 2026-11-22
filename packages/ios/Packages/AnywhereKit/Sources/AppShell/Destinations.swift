@@ -20,6 +20,8 @@ struct Destination: View {
     let pair: @MainActor () -> Void
     let open: @MainActor (Route) -> Void
     let leave: @MainActor (String) -> Void
+    /// Shows the reconnecting banner under the bar; the iPad's column shows its own.
+    var banner = false
 
     var body: some View {
         switch route {
@@ -32,7 +34,12 @@ struct Destination: View {
                 // A Mac dialed again is a new host, so the screen's stores bind to it afresh.
                 Self.screen(route, host, open: open, leave: leave)
                     .id(ObjectIdentifier(host))
-                    .safeAreaInset(edge: .top, spacing: 0) { EndedStrip(app: app, host: host) }
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        VStack(spacing: 0) {
+                            if banner { ConnectionBanner(host: host) }
+                            EndedStrip(app: app, host: host)
+                        }
+                    }
             } else {
                 Placeholder("This Mac isn't paired", systemImage: "laptopcomputer.slash", detail: "Pair it again from Settings.")
             }
@@ -102,10 +109,10 @@ struct Destination: View {
 
 extension View {
     /// Every `Route` a stack can push.
-    func routeDestinations(app: AppModel, navigator: Navigator, pair: @escaping @MainActor () -> Void) -> some View {
+    func routeDestinations(app: AppModel, navigator: Navigator, banner: Bool = false, pair: @escaping @MainActor () -> Void) -> some View {
         navigationDestination(for: Route.self) {
             // The iPad swaps the route in place: without the id, the next chat keeps the last one's store.
-            Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave).id($0)
+            Destination(route: $0, app: app, pair: pair, open: navigator.push, leave: navigator.leave, banner: banner).id($0)
         }
     }
 }

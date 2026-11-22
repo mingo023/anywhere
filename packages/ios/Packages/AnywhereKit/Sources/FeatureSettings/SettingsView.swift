@@ -107,21 +107,12 @@ struct MacRow: View {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(host.name).font(Typography.body.weight(.semibold)).foregroundStyle(Palette.text.color).lineLimit(1)
                 HStack(spacing: Space.xs + 2) {
-                    Circle().fill(Self.dot(reachability).color).frame(width: 7, height: 7)
+                    LinkDot(reachability.tone)
                     Text(MacFacts.status(reachability, version: host.hello?.version))
                         .font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
                 }
             }
             .accessibilityElement(children: .combine)
-        }
-    }
-
-    nonisolated static func dot(_ reachability: Reachability) -> Token {
-        switch reachability {
-        case .online: Palette.success
-        case .connecting, .reconnecting: Palette.waitingDot
-        case .unreachable, .revoked, .updateMac, .updatePhone: Palette.failed
-        case .stopped: Palette.text4
         }
     }
 }

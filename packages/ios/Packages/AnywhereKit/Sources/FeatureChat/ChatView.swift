@@ -39,7 +39,7 @@ private struct HostedChat: View {
     var body: some View {
         if let store {
             let cwd = store.summary?.cwd
-            ChatScreen(store: store, machine: host.name, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }, openLink: {
+            ChatScreen(store: store, machine: host.name, host: host, openAgent: { open(.subAgent(mac: mac, agentId: agentId, callId: $0)) }, openLink: {
                 follow($0, in: store)
             }, git: cwd.map(host.git.changes))
             .task(id: cwd) {

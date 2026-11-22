@@ -82,7 +82,7 @@ struct PadSidebar: View {
                     Image(systemName: "laptopcomputer").font(.system(size: 14)).foregroundStyle(Palette.text3.color)
                     HStack(spacing: narrow ? 6 : Space.s) {
                         Text(host.name).font(Typography.body.bold()).foregroundStyle(Palette.text.color).lineLimit(1)
-                        if reach == .online { Circle().fill(Palette.success.color).frame(width: 6, height: 6) }
+                        LinkDot(reach.tone)
                     }
                     Spacer(minLength: 0)
                     if !isOpen {

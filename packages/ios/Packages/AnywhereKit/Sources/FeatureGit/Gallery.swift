@@ -38,10 +38,7 @@ public enum GitGallery {
     }
 
     @MainActor private static func screen(online: Bool = true, status: Bool = true, @ViewBuilder _ content: (HostModel) -> some View) -> AnyView {
-        let host =
-            online
-            ? HostModel.offline(hello: Sample.hello, messages: [])
-            : HostModel(credentials: Credentials(host: "127.0.0.1:9", deviceToken: "t", deviceId: "gallery", macName: "Mac", clientId: "gallery"))
+        let host = HostModel.offline(hello: Sample.hello, messages: [], droppedFor: online ? nil : 60)
         if status { host.git.take(Sample.gitStatus(files: 40)) }
         host.git.take(Sample.log(commits: 50), tree: Sample.tree)
         host.git.take(Sample.smallDiff, at: .working)

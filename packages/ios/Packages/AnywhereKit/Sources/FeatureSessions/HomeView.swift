@@ -264,7 +264,7 @@ struct HomeHeader: View {
             }
             TimelineView(.explicit(host.reachabilityMarks)) { _ in
                 HStack(spacing: Space.xs + 2) {
-                    Circle().fill((host.link == .online ? Palette.success : Palette.text4).color).frame(width: 7, height: 7)
+                    LinkDot(host.reachability(at: .now).tone)
                     Text(Self.status(host.reachability(at: .now), sessions: host.sessions.sessions.count))
                         .font(Typography.footnote).foregroundStyle(Palette.text3.color).lineLimit(1)
                 }

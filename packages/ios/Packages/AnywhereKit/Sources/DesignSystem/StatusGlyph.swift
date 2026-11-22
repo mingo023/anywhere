@@ -1,9 +1,8 @@
 import Domain
 import SwiftUI
 
-/// A session's status, as the desktop's tones draw it: an ink halo for Needs you, a green one for Done, a bold cross for
-/// Failed, the gradient spinner for Working and a ring for Idle. `size` is the spinner's and the cross's; a halo runs a
-/// little wider, so the box holds it.
+/// A session's status, as the desktop's tones draw it: the gradient spinner for Working, its grid lit amber for Needs you
+/// and green for Done, a red cross of it for Failed, and a ring for Idle.
 @MainActor
 public struct StatusGlyph: View {
     let status: Status
@@ -23,12 +22,9 @@ public struct StatusGlyph: View {
             case .idle:
                 Circle().strokeBorder(Palette.text5.color, lineWidth: 1.5).padding(size / 14)
             case .failed:
-                Image(systemName: "xmark").font(.system(size: size * 0.86, weight: .heavy)).foregroundStyle(Palette.failed.color)
+                DotMatrix(DotMatrix.cross, color: Self.color(status), size: size)
             case .needsYou, .done:
-                ZStack {
-                    Circle().fill(Self.halo(status).color)
-                    Circle().fill(Self.color(status).color).frame(width: size * 9 / 14, height: size * 9 / 14)
-                }
+                DotMatrix(DotMatrix.full, color: Self.color(status), size: size)
             }
         }
         .frame(width: box, height: box)
@@ -38,15 +34,11 @@ public struct StatusGlyph: View {
 
     public nonisolated static func color(_ status: Status) -> Token {
         switch status {
-        case .needsYou: Palette.text
+        case .needsYou: Palette.waiting
         case .failed: Palette.failed
         case .done: Palette.success
         case .working: Palette.accent
         case .idle: Palette.text5
         }
-    }
-
-    nonisolated static func halo(_ status: Status) -> Token {
-        status == .done ? Palette.successBackground : Palette.accentBackground
     }
 }

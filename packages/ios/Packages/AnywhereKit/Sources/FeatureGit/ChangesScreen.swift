@@ -62,8 +62,10 @@ struct ChangesScreen: View {
         .screenBackground()
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
-                if offline, changes.head != nil {
-                    StaleStrip(mac: host.name, asOf: host.offlineSince.map { Int($0.timeIntervalSince1970 * 1000) })
+                if changes.head != nil {
+                    TimelineView(.explicit(host.reachabilityMarks)) { _ in
+                        if let asOf = host.staleAsOf(at: .now) { StaleStrip(mac: host.name, asOf: asOf) }
+                    }
                 }
                 if let against, changes.head != nil {
                     ScopeBar(comparing: $comparing, against: against, picked: picked != nil, choose: { choosing = true }, reset: { picked = nil })
