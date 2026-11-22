@@ -101,7 +101,7 @@ struct PullRequestCard: View {
                     .font(Typography.title)
                 HStack(spacing: Space.s) {
                     PrStateBadge(state: pr.state, draft: pr.draft)
-                    BranchRoute(base: pr.base, head: newPr.branch, commits: newPr.branch == nil ? nil : newPr.ahead)
+                    BranchRoute(base: pr.base, head: newPr.branch, commits: commits)
                 }
                 if pr.state == "OPEN", model.busy != nil || pr.gate != .draft {
                     let (tone, text) = PullRequestText.verdict(pr, busy: model.busy)
@@ -112,6 +112,14 @@ struct PullRequestCard: View {
         }
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: 0, leading: Space.xs, bottom: 0, trailing: Space.xs))
+    }
+
+    /// The branch's commits ahead, which are the PR's only while it is open into the base they were counted from.
+    private var commits: Int? {
+        guard pr.state == "OPEN", newPr.branch != nil, let base = newPr.base,
+            PullRequestText.baseBranch(base) == PullRequestText.baseBranch(pr.base)
+        else { return nil }
+        return newPr.ahead
     }
 
     private var threads: some View {
