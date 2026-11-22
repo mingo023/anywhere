@@ -3,22 +3,22 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Paseo alternative: Anywhere vs Paseo – Anywhere, coding agent workspace</title>
-	<meta name="description" content="Anywhere, the open-source coding agent workspace, vs Paseo: architecture, remote machines, phone and web clients, agents and automation, compared.">
+	<title>Paseo alternative: Anywhere vs Paseo – coding agent app</title>
+	<meta name="description" content="Paseo alternative: Anywhere, the open-source coding agent workspace, vs Paseo on architecture, remote machines, phone and web clients, agents and automation.">
 	<link rel="canonical" href="https://getanywhere.dev/alternatives/paseo">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="Anywhere, coding agent workspace">
 	<meta property="og:locale" content="en_US">
-	<meta property="og:title" content="Paseo alternative: Anywhere vs Paseo – Anywhere, coding agent workspace">
-	<meta property="og:description" content="Anywhere, the open-source coding agent workspace, vs Paseo: architecture, remote machines, phone and web clients, agents and automation, compared.">
+	<meta property="og:title" content="Paseo alternative: Anywhere vs Paseo – coding agent app">
+	<meta property="og:description" content="Paseo alternative: Anywhere, the open-source coding agent workspace, vs Paseo on architecture, remote machines, phone and web clients, agents and automation.">
 	<meta property="og:url" content="https://getanywhere.dev/alternatives/paseo">
 	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
 	<meta name="twitter:card" content="summary_large_image">
-	<meta name="twitter:title" content="Paseo alternative: Anywhere vs Paseo – Anywhere, coding agent workspace">
-	<meta name="twitter:description" content="Anywhere, the open-source coding agent workspace, vs Paseo: architecture, remote machines, phone and web clients, agents and automation, compared.">
+	<meta name="twitter:title" content="Paseo alternative: Anywhere vs Paseo – coding agent app">
+	<meta name="twitter:description" content="Paseo alternative: Anywhere, the open-source coding agent workspace, vs Paseo on architecture, remote machines, phone and web clients, agents and automation.">
 	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
 	<meta name="theme-color" content="#0a0a0b">
 	<link rel="icon" href="../assets/icon.png">
@@ -82,8 +82,8 @@
 			"@type": "WebPage",
 			"@id": "https://getanywhere.dev/alternatives/paseo",
 			"url": "https://getanywhere.dev/alternatives/paseo",
-			"name": "Paseo alternative: Anywhere vs Paseo – Anywhere, coding agent workspace",
-			"description": "Anywhere, the open-source coding agent workspace, vs Paseo: architecture, remote machines, phone and web clients, agents and automation, compared.",
+			"name": "Paseo alternative: Anywhere vs Paseo",
+			"description": "Paseo alternative: Anywhere, the open-source coding agent workspace, vs Paseo on architecture, remote machines, phone and web clients, agents and automation.",
 			"inLanguage": "en",
 			"dateModified": "2026-11-22",
 			"isPartOf": {
@@ -145,10 +145,10 @@
 				},
 				{
 					"@type": "Question",
-					"name": "Does Anywhere run on Windows?",
+					"name": "Can Anywhere's service run on a server, like Paseo's daemon?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar."
+						"text": "On machines you reach over SSH, yes. Paseo's daemon can run on a laptop, a VM, a home server or in Docker. Anywhere installs its background service on any Mac, Linux or Windows machine you add as an SSH host, and that host's sessions show in your desktop sidebar. There is no web client to reach it from a browser."
 					}
 				},
 				{
@@ -156,7 +156,7 @@
 					"name": "Can I use my Claude Code subscription with Anywhere?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn't proxy models or resell tokens, and the same goes for the other nine agents it supports."
+						"text": "Yes. Paseo and Anywhere both drive the agent CLIs you already installed and signed in to, so your Claude Code plan or API key pays in either. Anywhere adds no model fees and resells no tokens."
 					}
 				},
 				{
@@ -172,7 +172,7 @@
 					"name": "Do Anywhere sessions keep running when I close the window?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Yes. A background service owns the terminals, so sessions keep running after you close the window, and automations keep firing on schedule."
+						"text": "Yes. Like Paseo's daemon, Anywhere's background service owns the sessions, not the window. Close it and sessions keep running and automations keep firing; reopen it and they are still there."
 					}
 				}
 			]
@@ -199,12 +199,12 @@
 				<h1>Anywhere vs Paseo: a Paseo alternative for running coding agents</h1>
 				<p class="checked">Last checked: November 2026. Paseo facts come from paseo.sh and the getpaseo/paseo README. Something out of date? <a href="https://github.com/mingo023/anywhere/issues">Open an issue</a>.</p>
 				<p class="lede">Paseo describes itself as an open source agentic development environment for desktop, mobile, web and CLI. Its desktop app starts a local daemon, and every client connects to it: directly, over SSH, or through an optional end-to-end encrypted relay that needs no account. Agents run in parallel, each in its own worktree, with an editor, terminals, diffs, pull requests and a browser in one window. The mobile app is native on iOS and Android.</p>
-				<p><a href="/">Anywhere</a>, the open-source coding agent workspace, is a native macOS app with a Linux build. It runs ten agent CLIs side by side, groups sessions by project and git worktree, tells you which one needs you, and keeps the diff and the pull request beside the session. It is MIT licensed, with no account and no paid tier.</p>
+				<p><a href="/">Anywhere</a>, the open-source coding agent workspace, is a desktop app: native on macOS, with a Linux build. It runs ten agent CLIs side by side, groups sessions by project and git worktree, tells you which one needs you, and keeps the diff and the pull request beside the session. The license is MIT, and there is no account and no paid tier.</p>
 				<figure class="aw-embed">
 					<div class="aw-desktop" data-screen="hosts">
 						<noscript><img class="aw-fallback" src="../assets/og.png" alt="The Anywhere desktop app showing Hosts settings with machines connected over SSH" width="1200" height="630"></noscript>
 					</div>
-					<figcaption>Anywhere's Hosts settings: this Mac, a Linux box and a Windows machine, connected over SSH. This is the real Anywhere interface running in your browser, so click inside the window to try it.</figcaption>
+					<figcaption>Anywhere's Hosts settings: this Mac, a Linux box and a Windows machine, connected over SSH. Press Reconnect on a host to watch each step.</figcaption>
 				</figure>
 
 				<h2 id="main-difference">The main difference</h2>
@@ -222,7 +222,7 @@
 				<p>In Anywhere, a session runs as a chat or in a real terminal with the agent's own interface. Claude Code and Codex report their status from both, so a terminal session still shows Needs you or Done. Sessions sit in tabs and splits, grouped by project and worktree. The Needs you inbox, the Dock badge and notifications cover every project at once. See <a href="/docs/sessions">Sessions and status</a>.</p>
 				<h2 id="agents">Agents</h2>
 				<p>Paseo runs Claude Code, Codex, Copilot, OpenCode, Pi, Antigravity and Muse Code through structured harnesses, more than thirty others through an ACP catalog, and custom CLI agents.</p>
-				<p>Anywhere runs a fixed list of ten: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Both apps use the agent CLIs you already installed and signed in to.</p>
+				<p>Anywhere's list is ten agent CLIs: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Both apps use the agent CLIs you already installed and signed in to.</p>
 				<h2 id="planning-and-automation">Planning and automation</h2>
 				<p>Paseo has schedules and heartbeats, a CLI, a TypeScript SDK, an MCP server, and skills that let agents hand work to each other.</p>
 				<p>Anywhere has <a href="/docs/automations">automations</a> that keep firing while the window is closed, a <a href="/docs/board">Board</a> where starting a ticket creates a worktree and a session, and <a href="/docs/delegation">delegated work</a>, where a chat hands tasks to other sessions and waits for the results. The <a href="/docs/cli">anywhere command</a> scripts it:</p>
@@ -276,14 +276,14 @@ anywhere ticket create --project app --start "Cache the avatar images"</code></p
 					<h2 id="faq">FAQ</h2>
 					<h3>Is Anywhere a free Paseo alternative?</h3>
 					<p>Yes. Anywhere is a free, MIT-licensed coding agent workspace with no account and no paid tier. Paseo is also open source and needs no account, so the choice comes down to clients and workflow: Paseo has desktop, web, mobile and CLI clients, and Anywhere is a desktop app with SSH hosts, terminal sessions with status, and a Board.</p>
-					<h3>Does Anywhere run on Windows?</h3>
-					<p>Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar.</p>
+					<h3>Can Anywhere&#x27;s service run on a server, like Paseo&#x27;s daemon?</h3>
+					<p>On machines you reach over SSH, yes. Paseo&#x27;s daemon can run on a laptop, a VM, a home server or in Docker. Anywhere installs its background service on any Mac, Linux or Windows machine you add as an SSH host, and that host&#x27;s sessions show in your desktop sidebar. There is no web client to reach it from a browser.</p>
 					<h3>Can I use my Claude Code subscription with Anywhere?</h3>
-					<p>Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn&#x27;t proxy models or resell tokens, and the same goes for the other nine agents it supports.</p>
+					<p>Yes. Paseo and Anywhere both drive the agent CLIs you already installed and signed in to, so your Claude Code plan or API key pays in either. Anywhere adds no model fees and resells no tokens.</p>
 					<h3>Does Anywhere have a phone app like Paseo?</h3>
 					<p>Not yet. Anywhere&#x27;s native iPhone and iPad app is coming soon. It pairs with your Mac over Tailscale, with push notifications and Live Activities. Paseo&#x27;s iOS and Android apps are available now.</p>
 					<h3>Do Anywhere sessions keep running when I close the window?</h3>
-					<p>Yes. A background service owns the terminals, so sessions keep running after you close the window, and automations keep firing on schedule.</p>
+					<p>Yes. Like Paseo&#x27;s daemon, Anywhere&#x27;s background service owns the sessions, not the window. Close it and sessions keep running and automations keep firing; reopen it and they are still there.</p>
 				</section>
 				<div class="cta">
 					<p>Try a desktop workspace built around status and review. Free, MIT, no account.</p>
@@ -299,7 +299,7 @@ anywhere ticket create --project app --start "Cache the avatar images"</code></p
 						<li><a href="/alternatives/t3-code"><b>Anywhere vs T3 Code</b>Open-source control plane for coding agents, with one server and desktop, web and phone clients.</a></li>
 						<li><a href="/alternatives/vibe-kanban"><b>Anywhere vs Vibe Kanban</b>Kanban board in the browser for planning, running and reviewing agent work. Community maintained.</a></li>
 						<li><a href="/alternatives/claude-squad"><b>Anywhere vs Claude Squad</b>Terminal app that runs several agents in tmux sessions and git worktrees, driven from a TUI.</a></li>
-						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favour of Nimbalyst.</a></li>
+						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favor of Nimbalyst.</a></li>
 						<li><a href="/alternatives/monocode"><b>Anywhere vs MonoCode</b>&quot;A GUI for your coding agents&quot;: tabs are sessions, eleven agent CLIs, apps for macOS, Windows and Linux.</a></li>
 						<li><a href="/alternatives/paradev"><b>Anywhere vs Paradev</b>Open-source workspace for any CLI agent, formerly Superset, with paid plans for remote, automations, mobile and cloud.</a></li>
 						<li><a href="/alternatives/zeron"><b>Anywhere vs Zeron</b>Native, local-first agent workspace with themes and plugins, phone apps, a headless server and Zeron Cloud.</a></li>

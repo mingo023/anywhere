@@ -3,22 +3,22 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Crystal alternative: Anywhere vs Crystal – coding agent workspace</title>
-	<meta name="description" content="Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, runs Claude Code, Codex and eight more agents in their own git worktrees.">
+	<title>Crystal alternative: Anywhere vs Crystal – coding agent app</title>
+	<meta name="description" content="Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, keeps its idea: Claude Code, Codex and eight more agents, each in its own worktree.">
 	<link rel="canonical" href="https://getanywhere.dev/alternatives/crystal">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="Anywhere, coding agent workspace">
 	<meta property="og:locale" content="en_US">
-	<meta property="og:title" content="Crystal alternative: Anywhere vs Crystal – coding agent workspace">
-	<meta property="og:description" content="Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, runs Claude Code, Codex and eight more agents in their own git worktrees.">
+	<meta property="og:title" content="Crystal alternative: Anywhere vs Crystal – coding agent app">
+	<meta property="og:description" content="Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, keeps its idea: Claude Code, Codex and eight more agents, each in its own worktree.">
 	<meta property="og:url" content="https://getanywhere.dev/alternatives/crystal">
 	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
 	<meta name="twitter:card" content="summary_large_image">
-	<meta name="twitter:title" content="Crystal alternative: Anywhere vs Crystal – coding agent workspace">
-	<meta name="twitter:description" content="Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, runs Claude Code, Codex and eight more agents in their own git worktrees.">
+	<meta name="twitter:title" content="Crystal alternative: Anywhere vs Crystal – coding agent app">
+	<meta name="twitter:description" content="Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, keeps its idea: Claude Code, Codex and eight more agents, each in its own worktree.">
 	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
 	<meta name="theme-color" content="#0a0a0b">
 	<link rel="icon" href="../assets/icon.png">
@@ -82,8 +82,8 @@
 			"@type": "WebPage",
 			"@id": "https://getanywhere.dev/alternatives/crystal",
 			"url": "https://getanywhere.dev/alternatives/crystal",
-			"name": "Crystal alternative: Anywhere vs Crystal – coding agent workspace",
-			"description": "Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, runs Claude Code, Codex and eight more agents in their own git worktrees.",
+			"name": "Crystal alternative: Anywhere vs Crystal",
+			"description": "Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, keeps its idea: Claude Code, Codex and eight more agents, each in its own worktree.",
 			"inLanguage": "en",
 			"dateModified": "2026-11-22",
 			"isPartOf": {
@@ -161,18 +161,18 @@
 				},
 				{
 					"@type": "Question",
-					"name": "Does Anywhere run on Windows?",
+					"name": "Can I bring my Crystal worktrees into Anywhere?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar."
+						"text": "Yes. Crystal kept each session in a git worktree. If git has worktrees of a project that Anywhere's sidebar doesn't list, the project's menu offers to import them, and they appear in the sidebar."
 					}
 				},
 				{
 					"@type": "Question",
-					"name": "Can I use my Claude Code subscription with Anywhere?",
+					"name": "Can I use my Claude Code and Codex subscriptions with Anywhere?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn't proxy models or resell tokens, and the same goes for the other nine agents it supports."
+						"text": "Yes, for both agents Crystal ran. Anywhere starts the claude and codex CLIs you signed in to, so your own plans or API keys pay. Settings › Accounts can hold more than one account for each and shows their usage."
 					}
 				}
 			]
@@ -204,12 +204,12 @@
 					<div class="aw-desktop" data-screen="worktrees">
 						<noscript><img class="aw-fallback" src="../assets/og.png" alt="The Anywhere desktop app creating a new git worktree for an agent session" width="1200" height="630"></noscript>
 					</div>
-					<figcaption>Anywhere's worktree flow: pick a branch or a pull request, and the agent starts in its own worktree. This is the real Anywhere interface running in your browser, so click inside the window to try it.</figcaption>
+					<figcaption>Anywhere's worktree flow: pick a branch or a pull request, and the agent starts in its own worktree. Open the branch list and pick one to start from it.</figcaption>
 				</figure>
 
 				<h2 id="main-difference">The main difference</h2>
 				<p>Crystal's authors point its users to Nimbalyst. This page doesn't compare Nimbalyst, because we haven't checked its features. It compares what Crystal did with what Anywhere does today.</p>
-				<p>Crystal centred on parallel sessions in worktrees. Anywhere does that, and adds what comes after: a status for every session, review beside it, and a pull request card.</p>
+				<p>Crystal centered on parallel sessions in worktrees. Anywhere does that, and adds what comes after: a status for every session, review beside it, and a pull request card.</p>
 				<h2 id="worktree-per-session">A worktree per session</h2>
 				<p>Press <kbd>⌘⇧N</kbd> and the new session page opens with Worktree picked. Pick a branch, or enter a pull request number to start from that pull request. Anywhere shows each step: Fetching latest changes, Creating git worktree, Copying configuration, Setting up, Starting agent.</p>
 				<p>A new worktree has the committed files only, so setup commands install what the agent needs first. Commit them with the repository in <code>.anywhere/config.json</code>, or use <code>.anywhere/setup.sh</code>:</p>
@@ -221,7 +221,7 @@
 				<p>Both run in a real terminal or as a chat, and both report their status from either. Eight more agents run as a chat: Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity.</p>
 				<p>A chat can also <a href="/docs/delegation">delegate work</a>: ask Claude Code to split a task, and it starts Codex sessions in their own worktrees, waits for them and reads their results.</p>
 				<h2 id="which-finished">Knowing which session finished</h2>
-				<p>Every session is Working, Needs you, Done, Failed or Idle. Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications. Sessions keep running after you close the window.</p>
+				<p>Every session is Working, Needs you, Done, Failed or Idle. The three that matter once you look away, Needs you, Failed and Done, reach the sidebar, the inbox, the Dock badge and notifications. Closing the window doesn't end a session.</p>
 				<h2 id="review-and-clean-up">Review, compare and clean up</h2>
 				<p><a href="/docs/review">Changes</a> shows a session's diff beside it. The scope switch compares the worktree with its base branch, the way the pull request will show it. Commit, push and create the pull request from the commit box, then watch checks and merge from the pull request card.</p>
 				<p>When the work is merged, delete the worktree, and its branch if you want, from the sidebar. The longer guide for Crystal users is <a href="/blog/crystal-alternative">Crystal is now Nimbalyst</a>.</p>
@@ -279,10 +279,10 @@
 					<p>Nimbalyst. Crystal&#x27;s README says Crystal is deprecated and replaced by Nimbalyst, and gives February 2026 as the deprecation date.</p>
 					<h3>Can I run Claude Code and Codex side by side like in Crystal?</h3>
 					<p>Yes. In Anywhere, start each agent in its own worktree of the same project. Claude Code and Codex both run in a real terminal or as a chat, and both report Working, Needs you, Done, Failed or Idle from either.</p>
-					<h3>Does Anywhere run on Windows?</h3>
-					<p>Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar.</p>
-					<h3>Can I use my Claude Code subscription with Anywhere?</h3>
-					<p>Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn&#x27;t proxy models or resell tokens, and the same goes for the other nine agents it supports.</p>
+					<h3>Can I bring my Crystal worktrees into Anywhere?</h3>
+					<p>Yes. Crystal kept each session in a git worktree. If git has worktrees of a project that Anywhere&#x27;s sidebar doesn&#x27;t list, the project&#x27;s menu offers to import them, and they appear in the sidebar.</p>
+					<h3>Can I use my Claude Code and Codex subscriptions with Anywhere?</h3>
+					<p>Yes, for both agents Crystal ran. Anywhere starts the claude and codex CLIs you signed in to, so your own plans or API keys pay. Settings › Accounts can hold more than one account for each and shows their usage.</p>
 				</section>
 				<div class="cta">
 					<p>Keep parallel Claude Code and Codex in worktrees, in a maintained open-source app.</p>

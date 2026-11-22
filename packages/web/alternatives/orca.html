@@ -3,22 +3,22 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Orca alternative: Anywhere vs Orca – Anywhere, coding agent workspace</title>
-	<meta name="description" content="Anywhere, the open-source coding agent workspace, vs Orca: scope, remote machines, agents, accounts and what each one does when you close the window.">
+	<title>Orca alternative: Anywhere vs Orca – coding agent workspace</title>
+	<meta name="description" content="Orca alternative: Anywhere, the open-source coding agent workspace, vs Orca the agent IDE: scope, remote machines, agents, accounts and closing the window.">
 	<link rel="canonical" href="https://getanywhere.dev/alternatives/orca">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="Anywhere, coding agent workspace">
 	<meta property="og:locale" content="en_US">
-	<meta property="og:title" content="Orca alternative: Anywhere vs Orca – Anywhere, coding agent workspace">
-	<meta property="og:description" content="Anywhere, the open-source coding agent workspace, vs Orca: scope, remote machines, agents, accounts and what each one does when you close the window.">
+	<meta property="og:title" content="Orca alternative: Anywhere vs Orca – coding agent workspace">
+	<meta property="og:description" content="Orca alternative: Anywhere, the open-source coding agent workspace, vs Orca the agent IDE: scope, remote machines, agents, accounts and closing the window.">
 	<meta property="og:url" content="https://getanywhere.dev/alternatives/orca">
 	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
 	<meta name="twitter:card" content="summary_large_image">
-	<meta name="twitter:title" content="Orca alternative: Anywhere vs Orca – Anywhere, coding agent workspace">
-	<meta name="twitter:description" content="Anywhere, the open-source coding agent workspace, vs Orca: scope, remote machines, agents, accounts and what each one does when you close the window.">
+	<meta name="twitter:title" content="Orca alternative: Anywhere vs Orca – coding agent workspace">
+	<meta name="twitter:description" content="Orca alternative: Anywhere, the open-source coding agent workspace, vs Orca the agent IDE: scope, remote machines, agents, accounts and closing the window.">
 	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
 	<meta name="theme-color" content="#0a0a0b">
 	<link rel="icon" href="../assets/icon.png">
@@ -82,8 +82,8 @@
 			"@type": "WebPage",
 			"@id": "https://getanywhere.dev/alternatives/orca",
 			"url": "https://getanywhere.dev/alternatives/orca",
-			"name": "Orca alternative: Anywhere vs Orca – Anywhere, coding agent workspace",
-			"description": "Anywhere, the open-source coding agent workspace, vs Orca: scope, remote machines, agents, accounts and what each one does when you close the window.",
+			"name": "Orca alternative: Anywhere vs Orca",
+			"description": "Orca alternative: Anywhere, the open-source coding agent workspace, vs Orca the agent IDE: scope, remote machines, agents, accounts and closing the window.",
 			"inLanguage": "en",
 			"dateModified": "2026-11-22",
 			"isPartOf": {
@@ -148,7 +148,7 @@
 					"name": "Does Anywhere run on Windows?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar."
+						"text": "Not as a desktop app yet. Orca ships a Windows desktop app; Anywhere's desktop app runs on macOS 13 or later and Linux x86_64. A Windows machine can still join Anywhere as an SSH host, and its projects and sessions show in your sidebar."
 					}
 				},
 				{
@@ -156,7 +156,7 @@
 					"name": "Can I use my Claude Code subscription with Anywhere?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn't proxy models or resell tokens, and the same goes for the other nine agents it supports."
+						"text": "Yes. Both apps work this way: Orca asks you to bring your own agent subscriptions, and Anywhere runs the Claude Code CLI you already signed in to, so your plan or API key does the work. Neither resells model access."
 					}
 				},
 				{
@@ -204,7 +204,7 @@
 					<div class="aw-desktop" data-screen="hosts">
 						<noscript><img class="aw-fallback" src="../assets/og.png" alt="The Anywhere desktop app showing Hosts settings with machines connected over SSH" width="1200" height="630"></noscript>
 					</div>
-					<figcaption>Anywhere's Hosts settings: this Mac and the machines it reaches over SSH, each with its connection state. This is the real Anywhere interface running in your browser, so click inside the window to try it.</figcaption>
+					<figcaption>Anywhere's Hosts settings: this Mac and the machines it reaches over SSH, each with its connection state. Press Add host to see what Anywhere asks for.</figcaption>
 				</figure>
 
 				<h2 id="main-difference">The main difference</h2>
@@ -215,10 +215,10 @@
 				<p>Anywhere has one remote path: SSH. Add a Mac, Linux or Windows machine as a <a href="/docs/hosts">host</a>, and Anywhere installs its background service there over SSH, with your keys and <code>~/.ssh/config</code>. The host's projects and sessions show in the same sidebar, and their agents run on the host. You can also hand a running session to a connected host, with its code and conversation.</p>
 				<h2 id="agents">Agents</h2>
 				<p>Orca works with any CLI agent: "if it runs in a terminal, it runs in Orca." Its site names more than twenty, and it can move a session between chat and terminal without losing context.</p>
-				<p>Anywhere supports a fixed list of ten: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Each one runs as a chat. Claude Code and Codex also run in a real terminal and still report Working, Needs you or Done from there. Anywhere uses the CLIs you already signed in to; see <a href="/docs/agents">Supported agents</a>.</p>
+				<p>Anywhere runs ten agent CLIs, each by name: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Each one runs as a chat. Claude Code and Codex also run in a real terminal and still report Working, Needs you or Done from there. Anywhere uses the CLIs you already signed in to; see <a href="/docs/agents">Supported agents</a>.</p>
 				<h2 id="status">Status across every session</h2>
 				<p>Orca's mobile companion notifies you when an agent needs you.</p>
-				<p>In Anywhere, status is the core of the window. Each session is Working, Needs you, Done, Failed or Idle. Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications, and Activity lists every session across projects. With a dozen agents running, that is the view you work from. See <a href="/docs/sessions">Sessions and status</a>.</p>
+				<p>In Anywhere, status is the core of the window. Each session is Working, Needs you, Done, Failed or Idle. Sessions that need you, failed or finished light up in the sidebar, gather in the inbox, add to the Dock badge and send a notification, while Activity lists every session across projects. With a dozen agents running, that is the view you work from. See <a href="/docs/sessions">Sessions and status</a>.</p>
 				<h2 id="accounts-and-closing">Accounts and closing the window</h2>
 				<p>Orca needs no account for local use. Its relay, which reaches the phone when it is not on the same network as the desktop, uses an Orca account; without it the phone connects over a LAN or Tailscale. Orca's mobile docs also say closing the desktop app drops the phone connection.</p>
 				<p>Anywhere has no account at all. Sessions keep running after you close the window, because a background service owns the terminals. Anywhere's iPhone app is coming soon; it pairs with your Mac over Tailscale.</p>
@@ -266,7 +266,7 @@ anywhere ticket create --project app --start "Cache the avatar images"</code></p
 				<ul>
 					<li>No account, no cloud tier, no premium tier.</li>
 					<li>Status you can scan: Needs you inbox, Dock badge, notifications and Activity.</li>
-					<li>Sessions and automations keep running after you close the window.</li>
+					<li>Sessions and automations carry on when you close the window.</li>
 					<li>SSH hosts on Mac, Linux and Windows, with session handoff.</li>
 					<li>A Board and delegated work, so one chat can split a task across sessions.</li>
 				</ul>
@@ -275,9 +275,9 @@ anywhere ticket create --project app --start "Cache the avatar images"</code></p
 					<h3>Is Anywhere a free Orca alternative?</h3>
 					<p>Yes. Anywhere is a free, MIT-licensed coding agent workspace with no account and no paid tier. Orca is also free and MIT licensed, so the difference is scope: Anywhere focuses on running, watching and reviewing many agent sessions, and Orca is a broader agent IDE.</p>
 					<h3>Does Anywhere run on Windows?</h3>
-					<p>Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar.</p>
+					<p>Not as a desktop app yet. Orca ships a Windows desktop app; Anywhere&#x27;s desktop app runs on macOS 13 or later and Linux x86_64. A Windows machine can still join Anywhere as an SSH host, and its projects and sessions show in your sidebar.</p>
 					<h3>Can I use my Claude Code subscription with Anywhere?</h3>
-					<p>Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn&#x27;t proxy models or resell tokens, and the same goes for the other nine agents it supports.</p>
+					<p>Yes. Both apps work this way: Orca asks you to bring your own agent subscriptions, and Anywhere runs the Claude Code CLI you already signed in to, so your plan or API key does the work. Neither resells model access.</p>
 					<h3>Can Anywhere run agents on another machine like Orca?</h3>
 					<p>Yes, over SSH. Add a Mac, Linux or Windows machine as a host and Anywhere installs its background service there. The host&#x27;s projects and sessions show in the same sidebar. Anywhere has no cloud VMs.</p>
 					<h3>Does Anywhere have a mobile app?</h3>
@@ -297,7 +297,7 @@ anywhere ticket create --project app --start "Cache the avatar images"</code></p
 						<li><a href="/alternatives/t3-code"><b>Anywhere vs T3 Code</b>Open-source control plane for coding agents, with one server and desktop, web and phone clients.</a></li>
 						<li><a href="/alternatives/vibe-kanban"><b>Anywhere vs Vibe Kanban</b>Kanban board in the browser for planning, running and reviewing agent work. Community maintained.</a></li>
 						<li><a href="/alternatives/claude-squad"><b>Anywhere vs Claude Squad</b>Terminal app that runs several agents in tmux sessions and git worktrees, driven from a TUI.</a></li>
-						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favour of Nimbalyst.</a></li>
+						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favor of Nimbalyst.</a></li>
 						<li><a href="/alternatives/monocode"><b>Anywhere vs MonoCode</b>&quot;A GUI for your coding agents&quot;: tabs are sessions, eleven agent CLIs, apps for macOS, Windows and Linux.</a></li>
 						<li><a href="/alternatives/paradev"><b>Anywhere vs Paradev</b>Open-source workspace for any CLI agent, formerly Superset, with paid plans for remote, automations, mobile and cloud.</a></li>
 						<li><a href="/alternatives/zeron"><b>Anywhere vs Zeron</b>Native, local-first agent workspace with themes and plugins, phone apps, a headless server and Zeron Cloud.</a></li>

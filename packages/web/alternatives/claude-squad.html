@@ -3,22 +3,22 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Claude Squad alternative: Anywhere vs Claude Squad – coding agent app</title>
-	<meta name="description" content="Anywhere, the open-source coding agent workspace, vs Claude Squad: a desktop app with a Needs you inbox, compared with a tmux-based terminal app.">
+	<title>Claude Squad alternative: Anywhere vs Claude Squad</title>
+	<meta name="description" content="Claude Squad alternative: Anywhere, the open-source coding agent workspace, is a desktop app with a Needs you inbox and review, while Claude Squad uses tmux.">
 	<link rel="canonical" href="https://getanywhere.dev/alternatives/claude-squad">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="Anywhere, coding agent workspace">
 	<meta property="og:locale" content="en_US">
-	<meta property="og:title" content="Claude Squad alternative: Anywhere vs Claude Squad – coding agent app">
-	<meta property="og:description" content="Anywhere, the open-source coding agent workspace, vs Claude Squad: a desktop app with a Needs you inbox, compared with a tmux-based terminal app.">
+	<meta property="og:title" content="Claude Squad alternative: Anywhere vs Claude Squad">
+	<meta property="og:description" content="Claude Squad alternative: Anywhere, the open-source coding agent workspace, is a desktop app with a Needs you inbox and review, while Claude Squad uses tmux.">
 	<meta property="og:url" content="https://getanywhere.dev/alternatives/claude-squad">
 	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
 	<meta name="twitter:card" content="summary_large_image">
-	<meta name="twitter:title" content="Claude Squad alternative: Anywhere vs Claude Squad – coding agent app">
-	<meta name="twitter:description" content="Anywhere, the open-source coding agent workspace, vs Claude Squad: a desktop app with a Needs you inbox, compared with a tmux-based terminal app.">
+	<meta name="twitter:title" content="Claude Squad alternative: Anywhere vs Claude Squad">
+	<meta name="twitter:description" content="Claude Squad alternative: Anywhere, the open-source coding agent workspace, is a desktop app with a Needs you inbox and review, while Claude Squad uses tmux.">
 	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
 	<meta name="theme-color" content="#0a0a0b">
 	<link rel="icon" href="../assets/icon.png">
@@ -82,8 +82,8 @@
 			"@type": "WebPage",
 			"@id": "https://getanywhere.dev/alternatives/claude-squad",
 			"url": "https://getanywhere.dev/alternatives/claude-squad",
-			"name": "Claude Squad alternative: Anywhere vs Claude Squad – coding agent app",
-			"description": "Anywhere, the open-source coding agent workspace, vs Claude Squad: a desktop app with a Needs you inbox, compared with a tmux-based terminal app.",
+			"name": "Claude Squad alternative: Anywhere vs Claude Squad",
+			"description": "Claude Squad alternative: Anywhere, the open-source coding agent workspace, is a desktop app with a Needs you inbox and review, while Claude Squad uses tmux.",
 			"inLanguage": "en",
 			"dateModified": "2026-11-22",
 			"isPartOf": {
@@ -145,10 +145,10 @@
 				},
 				{
 					"@type": "Question",
-					"name": "Does Anywhere run on Windows?",
+					"name": "Do I need tmux for Anywhere?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar."
+						"text": "No. Claude Squad needs tmux and gh; Anywhere is a desktop app you download, and its background service owns each session's terminal. A Claude Code or Codex session can still run in a real terminal with the agent's own interface."
 					}
 				},
 				{
@@ -156,7 +156,7 @@
 					"name": "Can I use my Claude Code subscription with Anywhere?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn't proxy models or resell tokens, and the same goes for the other nine agents it supports."
+						"text": "Yes. Claude Squad starts the claude you installed, and Anywhere does the same: it runs your own Claude Code CLI, signed in with claude auth login, so your plan or API key pays for the work. Anywhere doesn't proxy models or resell tokens."
 					}
 				},
 				{
@@ -172,7 +172,7 @@
 					"name": "Do Anywhere sessions keep running when I close the window?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Yes. A background service owns the terminals, so sessions keep running after you close the window, and automations keep firing on schedule."
+						"text": "Yes. Claude Squad keeps each agent in a tmux session; Anywhere keeps them in a background service that owns the terminals. Close the window and sessions keep running, and automations still fire on schedule."
 					}
 				}
 			]
@@ -204,7 +204,7 @@
 					<div class="aw-desktop" data-screen="inbox">
 						<noscript><img class="aw-fallback" src="../assets/og.png" alt="The Anywhere desktop app showing the Needs you inbox with sessions waiting on an answer" width="1200" height="630"></noscript>
 					</div>
-					<figcaption>Anywhere's Needs you inbox: every agent waiting on an answer, across projects. This is the real Anywhere interface running in your browser, so click inside the window to try it.</figcaption>
+					<figcaption>Anywhere's Needs you inbox: the agents waiting on you, from every project, without attaching to each one. Pick a row to answer it from the inbox.</figcaption>
 				</figure>
 
 				<h2 id="main-difference">The main difference</h2>
@@ -215,13 +215,13 @@
 				<p>Anywhere is an app you download. Sessions sit in tabs and splits, grouped by project and git worktree. A session runs as a chat or in a real terminal with the agent's own interface, so you still get the terminal when you want it. <kbd>⌘⇧N</kbd> starts a session in a new worktree.</p>
 				<h2 id="who-needs-you">Knowing who needs you</h2>
 				<p>Claude Squad completes tasks in the background, and its experimental <code>--autoyes</code> flag accepts prompts automatically for every instance.</p>
-				<p>Anywhere takes the other route: it tells you when an agent stops. Needs you, Failed and Done show in the sidebar, the inbox, the Dock badge and notifications, and Activity lists every session across projects. When you do want an agent to run unattended, each session has an access mode, from Ask to Full. See <a href="/docs/sessions">Sessions and status</a>.</p>
+				<p>Anywhere takes the other route: it tells you when an agent stops. When a session needs you, fails or finishes, the sidebar, the inbox, the Dock badge and a notification all say so, and Activity lists every session across projects. When you do want an agent to run unattended, each session has an access mode, from Ask to Full. See <a href="/docs/sessions">Sessions and status</a>.</p>
 				<h2 id="review-and-push">Review and push</h2>
 				<p>In Claude Squad, <kbd>tab</kbd> switches to the diff, <kbd>s</kbd> commits and pushes the branch to GitHub, and <kbd>c</kbd> commits and pauses the session until you resume it with <kbd>r</kbd>.</p>
 				<p>In Anywhere, <a href="/docs/review">Changes</a> opens beside the session. Stage or discard per file, commit, compare the worktree with any branch, then push and create the pull request in one step. The pull request card shows checks, reviews and merge state.</p>
 				<h2 id="agents">Agents</h2>
 				<p>Claude Squad starts <code>claude</code> by default and runs any program you pass with <code>-p</code>, such as <code>codex</code>, <code>gemini</code> or <code>aider</code>. Profiles in its config file let you pick one per session.</p>
-				<p>Anywhere supports a fixed list of ten: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. Claude Code and Codex report their status from a terminal or a chat; the others report it from a chat. See <a href="/docs/agents">Supported agents</a>.</p>
+				<p>Anywhere runs ten agent CLIs by name: Claude Code, Codex, Cursor, Grok Build, OpenCode, Pi, omp, fx, Hermes Agent and Antigravity. It doesn't run any program the way <code>-p</code> does. Claude Code and Codex report their status from a terminal or a chat; the others report it from a chat. See <a href="/docs/agents">Supported agents</a>.</p>
 				<h2 id="license">License</h2>
 				<p>Both are open source. Claude Squad uses AGPL-3.0, a copyleft license. Anywhere uses MIT, a permissive one, and its code is at <a href="https://github.com/mingo023/anywhere">github.com/mingo023/anywhere</a>. If you plan to fork or embed either, read the license.</p>
 				<h2 id="side-by-side">Anywhere vs Claude Squad at a glance</h2>
@@ -260,21 +260,21 @@
 					<li>A Needs you inbox, Dock badge and notifications, so you see which agent is waiting.</li>
 					<li>Review, commit and pull request beside each session.</li>
 					<li>Real terminal sessions when you want them, chat when you don't.</li>
-					<li>Sessions keep running after you close the window.</li>
+					<li>Closing the window leaves every session running, with nothing to detach from.</li>
 					<li>A Board, automations and SSH hosts in the same free app.</li>
 				</ul>
 				<section class="faq" aria-labelledby="faq">
 					<h2 id="faq">FAQ</h2>
 					<h3>Is Anywhere a free Claude Squad alternative?</h3>
 					<p>Yes. Anywhere is a free, MIT-licensed coding agent workspace. Like Claude Squad, it gives each session its own git worktree; unlike it, it runs in a desktop window with a Needs you inbox, notifications and review beside each session.</p>
-					<h3>Does Anywhere run on Windows?</h3>
-					<p>Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar.</p>
+					<h3>Do I need tmux for Anywhere?</h3>
+					<p>No. Claude Squad needs tmux and gh; Anywhere is a desktop app you download, and its background service owns each session&#x27;s terminal. A Claude Code or Codex session can still run in a real terminal with the agent&#x27;s own interface.</p>
 					<h3>Can I use my Claude Code subscription with Anywhere?</h3>
-					<p>Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn&#x27;t proxy models or resell tokens, and the same goes for the other nine agents it supports.</p>
+					<p>Yes. Claude Squad starts the claude you installed, and Anywhere does the same: it runs your own Claude Code CLI, signed in with claude auth login, so your plan or API key pays for the work. Anywhere doesn&#x27;t proxy models or resell tokens.</p>
 					<h3>Can I run Claude Code and Codex side by side in Anywhere?</h3>
 					<p>Yes. Start each one in its own worktree of the same project. Both run in a real terminal or as a chat, and both report Working, Needs you, Done, Failed or Idle from either.</p>
 					<h3>Do Anywhere sessions keep running when I close the window?</h3>
-					<p>Yes. A background service owns the terminals, so sessions keep running after you close the window, and automations keep firing on schedule.</p>
+					<p>Yes. Claude Squad keeps each agent in a tmux session; Anywhere keeps them in a background service that owns the terminals. Close the window and sessions keep running, and automations still fire on schedule.</p>
 				</section>
 				<div class="cta">
 					<p>Keep worktree-per-agent, add an inbox and review. Free and MIT.</p>
@@ -290,7 +290,7 @@
 						<li><a href="/alternatives/paseo"><b>Anywhere vs Paseo</b>Open source agent environment: one daemon with desktop, web, mobile and CLI clients, plus plugins.</a></li>
 						<li><a href="/alternatives/t3-code"><b>Anywhere vs T3 Code</b>Open-source control plane for coding agents, with one server and desktop, web and phone clients.</a></li>
 						<li><a href="/alternatives/vibe-kanban"><b>Anywhere vs Vibe Kanban</b>Kanban board in the browser for planning, running and reviewing agent work. Community maintained.</a></li>
-						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favour of Nimbalyst.</a></li>
+						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favor of Nimbalyst.</a></li>
 						<li><a href="/alternatives/monocode"><b>Anywhere vs MonoCode</b>&quot;A GUI for your coding agents&quot;: tabs are sessions, eleven agent CLIs, apps for macOS, Windows and Linux.</a></li>
 						<li><a href="/alternatives/paradev"><b>Anywhere vs Paradev</b>Open-source workspace for any CLI agent, formerly Superset, with paid plans for remote, automations, mobile and cloud.</a></li>
 						<li><a href="/alternatives/zeron"><b>Anywhere vs Zeron</b>Native, local-first agent workspace with themes and plugins, phone apps, a headless server and Zeron Cloud.</a></li>

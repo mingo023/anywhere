@@ -3,22 +3,22 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Conductor alternative: Anywhere vs Conductor – coding agent workspace</title>
-	<meta name="description" content="Anywhere, the open-source coding agent workspace, vs Conductor: license, platforms, agents, review, and what happens to sessions when you close the app.">
+	<title>Conductor alternative: Anywhere vs Conductor</title>
+	<meta name="description" content="Conductor alternative: Anywhere is an open-source coding agent workspace for Mac and Linux. License, agents, review, and what happens when you close the app.">
 	<link rel="canonical" href="https://getanywhere.dev/alternatives/conductor">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="Anywhere, coding agent workspace">
 	<meta property="og:locale" content="en_US">
-	<meta property="og:title" content="Conductor alternative: Anywhere vs Conductor – coding agent workspace">
-	<meta property="og:description" content="Anywhere, the open-source coding agent workspace, vs Conductor: license, platforms, agents, review, and what happens to sessions when you close the app.">
+	<meta property="og:title" content="Conductor alternative: Anywhere vs Conductor">
+	<meta property="og:description" content="Conductor alternative: Anywhere is an open-source coding agent workspace for Mac and Linux. License, agents, review, and what happens when you close the app.">
 	<meta property="og:url" content="https://getanywhere.dev/alternatives/conductor">
 	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
 	<meta name="twitter:card" content="summary_large_image">
-	<meta name="twitter:title" content="Conductor alternative: Anywhere vs Conductor – coding agent workspace">
-	<meta name="twitter:description" content="Anywhere, the open-source coding agent workspace, vs Conductor: license, platforms, agents, review, and what happens to sessions when you close the app.">
+	<meta name="twitter:title" content="Conductor alternative: Anywhere vs Conductor">
+	<meta name="twitter:description" content="Conductor alternative: Anywhere is an open-source coding agent workspace for Mac and Linux. License, agents, review, and what happens when you close the app.">
 	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
 	<meta name="theme-color" content="#0a0a0b">
 	<link rel="icon" href="../assets/icon.png">
@@ -82,8 +82,8 @@
 			"@type": "WebPage",
 			"@id": "https://getanywhere.dev/alternatives/conductor",
 			"url": "https://getanywhere.dev/alternatives/conductor",
-			"name": "Conductor alternative: Anywhere vs Conductor – coding agent workspace",
-			"description": "Anywhere, the open-source coding agent workspace, vs Conductor: license, platforms, agents, review, and what happens to sessions when you close the app.",
+			"name": "Conductor alternative: Anywhere vs Conductor",
+			"description": "Conductor alternative: Anywhere is an open-source coding agent workspace for Mac and Linux. License, agents, review, and what happens when you close the app.",
 			"inLanguage": "en",
 			"dateModified": "2026-11-22",
 			"isPartOf": {
@@ -145,18 +145,18 @@
 				},
 				{
 					"@type": "Question",
-					"name": "Does Anywhere run on Windows?",
+					"name": "Does Anywhere run on Linux?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar."
+						"text": "Yes. Besides the Mac app for macOS 13 or later, Anywhere publishes a Linux x86_64 build. Conductor's desktop app is macOS only. A Linux or Windows machine can also join Anywhere as an SSH host."
 					}
 				},
 				{
 					"@type": "Question",
-					"name": "Can I use my Claude Code subscription with Anywhere?",
+					"name": "Can I use my Cursor account with Anywhere?",
 					"acceptedAnswer": {
 						"@type": "Answer",
-						"text": "Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn't proxy models or resell tokens, and the same goes for the other nine agents it supports."
+						"text": "Yes. Conductor's Cursor sessions use a Cursor API key; Anywhere runs the cursor-agent CLI you installed and signed in to with cursor-agent login. Claude Code, Codex and OpenCode work the same way: Anywhere bundles none of them and resells no tokens."
 					}
 				},
 				{
@@ -204,7 +204,7 @@
 					<div class="aw-desktop" data-screen="review">
 						<noscript><img class="aw-fallback" src="../assets/og.png" alt="The Anywhere desktop app showing a diff beside an agent session" width="1200" height="630"></noscript>
 					</div>
-					<figcaption>Anywhere's Review screen: the diff, the changed files and the commit box sit beside the session. This is the real Anywhere interface running in your browser, so click inside the window to try it.</figcaption>
+					<figcaption>Anywhere's Review screen: the diff, the changed files and the commit box sit beside the session. Click a file to open its diff, or stage it for the commit.</figcaption>
 				</figure>
 
 				<h2 id="main-difference">The main difference</h2>
@@ -263,7 +263,7 @@
 				<ul>
 					<li>Open source under MIT, with no account and no paid tier.</li>
 					<li>Ten agent CLIs, signed in with your own accounts.</li>
-					<li>Sessions and automations keep running after you close the window.</li>
+					<li>Local sessions and automations outlive the window, with no cloud workspace needed.</li>
 					<li>A Linux build, and SSH hosts on Mac, Linux and Windows.</li>
 					<li>A <a href="/docs/board">Board</a>, automations and the <a href="/docs/cli">anywhere command</a> in the same free app.</li>
 				</ul>
@@ -271,10 +271,10 @@
 					<h2 id="faq">FAQ</h2>
 					<h3>Is Anywhere a free Conductor alternative?</h3>
 					<p>Yes. Anywhere is a free, MIT-licensed coding agent workspace for running agents in parallel git worktrees with diff review. There is no account, no cloud tier and no premium tier.</p>
-					<h3>Does Anywhere run on Windows?</h3>
-					<p>Not as a desktop app yet. The Anywhere desktop app runs on macOS 13 or later and on Linux x86_64. You can connect a Windows machine as a host over SSH, and its projects and sessions show in the same sidebar.</p>
-					<h3>Can I use my Claude Code subscription with Anywhere?</h3>
-					<p>Yes. Anywhere runs the Claude Code CLI you already installed and signed in to, so your existing plan or API key does the work. Anywhere doesn&#x27;t proxy models or resell tokens, and the same goes for the other nine agents it supports.</p>
+					<h3>Does Anywhere run on Linux?</h3>
+					<p>Yes. Besides the Mac app for macOS 13 or later, Anywhere publishes a Linux x86_64 build. Conductor&#x27;s desktop app is macOS only. A Linux or Windows machine can also join Anywhere as an SSH host.</p>
+					<h3>Can I use my Cursor account with Anywhere?</h3>
+					<p>Yes. Conductor&#x27;s Cursor sessions use a Cursor API key; Anywhere runs the cursor-agent CLI you installed and signed in to with cursor-agent login. Claude Code, Codex and OpenCode work the same way: Anywhere bundles none of them and resells no tokens.</p>
 					<h3>Do agents keep running if I close the app?</h3>
 					<p>In Anywhere, yes. A background service owns the terminals, so sessions keep running after you close the window, and automations keep firing. Conductor&#x27;s docs say local workspace sessions end when you close the app, while Conductor Cloud workspaces keep working.</p>
 					<h3>Can I move a Conductor workflow to Anywhere?</h3>
@@ -294,7 +294,7 @@
 						<li><a href="/alternatives/t3-code"><b>Anywhere vs T3 Code</b>Open-source control plane for coding agents, with one server and desktop, web and phone clients.</a></li>
 						<li><a href="/alternatives/vibe-kanban"><b>Anywhere vs Vibe Kanban</b>Kanban board in the browser for planning, running and reviewing agent work. Community maintained.</a></li>
 						<li><a href="/alternatives/claude-squad"><b>Anywhere vs Claude Squad</b>Terminal app that runs several agents in tmux sessions and git worktrees, driven from a TUI.</a></li>
-						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favour of Nimbalyst.</a></li>
+						<li><a href="/alternatives/crystal"><b>Anywhere vs Crystal</b>App for parallel Claude Code and Codex sessions in git worktrees, deprecated in favor of Nimbalyst.</a></li>
 						<li><a href="/alternatives/monocode"><b>Anywhere vs MonoCode</b>&quot;A GUI for your coding agents&quot;: tabs are sessions, eleven agent CLIs, apps for macOS, Windows and Linux.</a></li>
 						<li><a href="/alternatives/paradev"><b>Anywhere vs Paradev</b>Open-source workspace for any CLI agent, formerly Superset, with paid plans for remote, automations, mobile and cloud.</a></li>
 						<li><a href="/alternatives/zeron"><b>Anywhere vs Zeron</b>Native, local-first agent workspace with themes and plugins, phone apps, a headless server and Zeron Cloud.</a></li>
