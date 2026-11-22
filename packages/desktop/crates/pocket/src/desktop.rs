@@ -546,7 +546,7 @@ impl Desktop {
             || self.sidebar.picker.open
             || self.sidebar.add_menu
             || self.sidebar.organize.menu
-            || self.spaces.menu
+            || self.sidebar.space_header.read(cx).menu_open()
             || self.automations.menu.is_some()
             || self.explorer.menu.is_some()
             || self.terminal.menu.is_some()
@@ -569,7 +569,7 @@ impl Desktop {
         self.sidebar.picker.open = false;
         self.sidebar.add_menu = false;
         self.sidebar.organize.menu = false;
-        self.spaces.menu = false;
+        self.sidebar.space_header.update(cx, |h, _| h.shut());
         self.automations.menu = None;
         self.board.update(cx, |b, _| b.close_menu());
         self.activity.update(cx, |a, _| a.menu = None);
@@ -824,7 +824,7 @@ impl Render for Desktop {
                     || this.cancel_drag()
                     || this.explorer.cancel_edit()
                     || this.sidebar.cancel_rename()
-                    || this.spaces.rename.take().is_some()
+                    || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
                     || this.close_picker()
                     || this.escape_composer_menu()
                     || this.close_menus(cx)

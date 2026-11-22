@@ -654,7 +654,7 @@ const STEPS: [(&str, Step); 302] = [
     ("space-devbox", |d, window, cx| d.switch_space(Space::Host("devbox".into()), window, cx)),
     ("space-menu", |d, window, cx| {
         d.switch_space(Space::Host("devbox".into()), window, cx);
-        d.spaces.menu = true;
+        d.sidebar.space_header.update(cx, |h, cx| h.open(cx));
     }),
     ("space-offline", |d, window, cx| d.switch_space(Space::Host("10-0-4-12".into()), window, cx)),
     ("space-empty", |d, window, cx| {
@@ -1774,6 +1774,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.agents.locals.clear();
     d.sidebar.rename = None;
     d.spaces.reset();
+    d.sidebar.space_header.update(cx, |h, _| h.reset());
     d.updates.update = Update::Idle;
     d.terminals.link.up();
     d.terminals.link.service = None;

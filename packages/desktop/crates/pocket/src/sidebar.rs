@@ -29,6 +29,7 @@ use crate::sidebar::project_picker::ProjectPicker;
 use crate::sidebar::rename::Rename;
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
+use crate::spaces::header::SpaceHeader;
 use crate::spaces::{SLIDE_MS, on_host};
 use crate::status::{self, Card};
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
@@ -166,6 +167,8 @@ struct DragTree {
 
 pub struct SidebarState {
     pub(crate) search: Entity<InputState>,
+    /// The aside's space header and its menu.
+    pub(crate) space_header: Entity<SpaceHeader>,
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: ProjectPicker,
@@ -193,12 +196,15 @@ impl SidebarState {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions…"));
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let (filter, filter_subs) = Filter::new(window, cx);
-        let mut subs = vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())];
+        let space_header = cx.new(|_| SpaceHeader::new());
+        let mut subs =
+            vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()), cx.subscribe_in(&space_header, window, Desktop::on_space_header_event)];
         subs.extend(picker_subs);
         subs.extend(filter_subs);
         (
             Self {
                 search,
+                space_header,
                 menu_at: None,
                 picker,
                 add_menu: false,
@@ -346,7 +352,7 @@ impl Desktop {
             None => list.into_any_element(),
         };
         let body = div().id("aside-repos").flex_1().min_h_0().overflow_y_scroll().flex().flex_col().child(list);
-        let space_header = self.space_header(&space, &order, cx);
+        self.space_header_set(&space, &order, cx);
         let switcher = self.space_switcher(&order, &space, cx);
         let aside = ui::side(div())
             .bg(nav_fill())
@@ -360,7 +366,7 @@ impl Desktop {
             .child(top)
             .child(search)
             .children(pages)
-            .child(space_header)
+            .child(self.sidebar.space_header.clone())
             .children(self.scratch_section(cx))
             .child(header)
             .child(body)

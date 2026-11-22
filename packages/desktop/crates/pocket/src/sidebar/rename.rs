@@ -25,11 +25,11 @@ impl SidebarState {
 }
 
 /// A field holding `text`, focused and all selected, that calls `done` on Enter or blur.
-pub(crate) fn rename_field(
+pub(crate) fn rename_field<T: 'static>(
     text: String,
     window: &mut Window,
-    cx: &mut Context<Desktop>,
-    done: fn(&mut Desktop, &mut Context<Desktop>),
+    cx: &mut Context<T>,
+    done: fn(&mut T, &mut Context<T>),
 ) -> (Entity<InputState>, Subscription) {
     let input = cx.new(|cx| InputState::new(window, cx));
     input.update(cx, |s, cx| {
