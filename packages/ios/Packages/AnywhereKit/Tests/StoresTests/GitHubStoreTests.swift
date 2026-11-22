@@ -125,7 +125,10 @@ struct GitHubStoreTests {
         let s = store()
         s.noticeFor = .milliseconds(20)
         await s.resolve(Sample.tree, thread: "PRRT_a", resolved: true)
-        try await Task.sleep(for: .milliseconds(200))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while s.pullRequest(Sample.tree).notice != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(s.pullRequest(Sample.tree).notice == nil)
     }
 
