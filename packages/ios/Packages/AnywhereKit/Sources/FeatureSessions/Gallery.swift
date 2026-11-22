@@ -13,6 +13,8 @@ public enum SessionsGallery {
             ("sessions-new", { AnyView(NewSessionView(host: $0, mac: Sample.mac, project: nil, place: nil)) }),
             ("sessions-new-worktree", { AnyView(NewWorktreeView(host: $0, project: Sample.projects[0].path)) }),
             ("sessions-automations", { AnyView(AutomationsView(host: $0, mac: Sample.mac)) }),
+            ("sessions-launch", { AnyView(launch($0, steps: ["prepare", "verify", "fetch"])) }),
+            ("sessions-launch-asking", { AnyView(launch($0, steps: [])) }),
             ("sessions-branches-failed", { _ in
                 AnyView(BranchPicker(title: "Base", branches: nil, error: "\(Sample.mac) didn't answer in time", retry: {}, allowDefault: true, selection: .constant(nil)))
             }),
@@ -24,6 +26,16 @@ public enum SessionsGallery {
                 }
             }
         }
+    }
+
+    /// A launch into a new worktree of the first project, `steps` into it.
+    @MainActor static func launch(_ host: HostModel, steps: [String]) -> LaunchProgress {
+        let project = Sample.projects[0].path
+        var draft = NewSessionDraft(project: project, place: .newWorktree)
+        draft.prompt = "Fix the build"
+        host.workspace.add(draft.plan(taken: [], localId: "", localName: "", neverAsks: false), requestId: "launch", title: draft.prompt, place: nil)
+        host.apply(steps.map { .message(.agentProgress(.init(requestId: "launch", step: $0))) })
+        return LaunchProgress(host: host, mac: Sample.mac, requestId: "launch")
     }
 
     @MainActor static func host() -> HostModel {
