@@ -842,11 +842,11 @@ const STEPS: [(&str, Step); 302] = [
     ("form-model", |d, window, cx| {
         let (pick, repo) = (d.new_form_pick(cx), d.new_form.project().map(str::to_string));
         let composer = d.new_form.composer.clone();
-        d.toggle_model_menu(&composer, &pick.provider, repo.as_deref(), window, cx);
+        composer.update(cx, |c, cx| c.toggle_model(&pick.provider, repo.as_deref(), window, cx));
     }),
     ("form-access", |d, _, cx| {
         let composer = d.new_form.composer.clone();
-        d.toggle_composer(&composer, Menu::Access, cx)
+        composer.update(cx, |c, cx| _ = c.toggle(Menu::Access, cx))
     }),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| {

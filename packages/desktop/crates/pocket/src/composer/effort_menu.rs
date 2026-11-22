@@ -1,6 +1,5 @@
 use super::model_menu::{GAP, PAD, check, row};
-use super::{Held, launch};
-use crate::desktop::Desktop;
+use super::{Draft, launch};
 use gpui_kit::*;
 use theme::*;
 
@@ -44,20 +43,19 @@ pub(crate) struct Effort {
 
 /// A row headed `word`, a model's setting, naming the value in use, `on` unless `menu` holds a newer one, that opens
 /// `levels`, each value it takes and what the list calls it, beside the panel. Picking one hands it to `pick`.
-pub(crate) fn choice_menu(
+pub(crate) fn choice_menu<V: 'static>(
     id: impl Into<ElementId>,
     word: SharedString,
     (levels, on): (&[(String, String)], Option<&String>),
     menu: &EffortMenu,
-    held: Held,
-    pick: launch::Pick,
-    cx: &mut Context<Desktop>,
+    draft: fn(&mut V) -> &mut Draft,
+    pick: launch::Pick<V>,
+    cx: &mut Context<V>,
 ) -> Effort {
     let at = menu.shown(&word, levels, on);
     let name = at.map_or_else(|| "Default".to_string(), |i| levels[i].1.clone());
     let open = menu.open.as_ref() == Some(&word);
     let heads = word.clone();
-    let toggled = held.clone();
     let trigger = row(id, open)
         .gap(px(6.))
         .pr(px(8.))
@@ -65,16 +63,16 @@ pub(crate) fn choice_menu(
         .child(div().text_color(TEXT_3).child(name))
         .child(icon("chevron-right", 14., TEXT_3))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            toggled.edit(this, cx, |d| d.effort.toggle(&heads));
+            draft(this).effort.toggle(&heads);
             cx.notify();
         }));
     let list = open.then(|| {
         let rows = levels.iter().enumerate().map(|(i, (level, label))| {
-            let (pick, level, word, held) = (pick.clone(), level.clone(), word.clone(), held.clone());
+            let (pick, level, word) = (pick.clone(), level.clone(), word.clone());
             let on = at == Some(i);
             row(("effort-level", i), on).pr(px(6.)).child(div().flex_1().font_weight(FontWeight::MEDIUM).child(label.clone())).child(check(on)).on_click(
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    held.edit(this, cx, |d| d.effort.pick(word.clone(), level.clone()));
+                    draft(this).effort.pick(word.clone(), level.clone());
                     pick(this, level.clone(), cx);
                     cx.notify();
                 }),

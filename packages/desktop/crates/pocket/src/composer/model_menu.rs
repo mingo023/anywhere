@@ -1,6 +1,6 @@
 use super::effort_menu::{Effort, choice_menu};
 use super::effort_slider::{self, effort_slider};
-use super::{Composer, Held, Menu, launch};
+use super::{Composer, ComposerEvent, Draft, Held, Menu, launch};
 use crate::desktop::Desktop;
 use crate::modals::new_session::picker::menu_input;
 use crate::models::{by_upstream, couldnt_list, effort_label, listed_agents, model_options, model_or_default, not_found};
@@ -81,6 +81,7 @@ pub(crate) fn model_effort_pill(provider: &str, model: String, effort: Option<St
 }
 
 /// A model the panel lists; the favorites mix providers.
+#[derive(Clone)]
 pub(crate) struct Entry {
     pub(crate) provider: String,
     pub(crate) value: String,
@@ -89,6 +90,7 @@ pub(crate) struct Entry {
     pub(crate) upstream: String,
     /// Its agent isn't installed, so it's listed but can't be picked.
     pub(crate) missing: bool,
+    pub(crate) starred: bool,
 }
 
 /// What the panel lists, models under who serves them, and the line of the model in use.
@@ -101,7 +103,20 @@ pub(crate) struct Listed {
 pub(crate) type KeptList = Memo<Listed>;
 
 /// Picks the model of a line that was clicked.
-pub(crate) type Choose = Rc<dyn Fn(&mut Desktop, &Entry, &mut Context<Desktop>)>;
+pub(crate) type Choose<V = Desktop> = Rc<dyn Fn(&mut V, &Entry, &mut Context<V>)>;
+
+/// Stars the model of a row, or takes its star off.
+pub(crate) type Star<V = Desktop> = Rc<dyn Fn(&mut V, &Entry, &mut Context<V>)>;
+
+/// Lists the models of the rail entry pointed at.
+pub(crate) type View<V = Desktop> = Rc<dyn Fn(&mut V, &'static str, &mut Context<V>)>;
+
+/// An agent's tab in the rail.
+pub(crate) struct RailTab {
+    pub(crate) id: &'static str,
+    pub(crate) name: String,
+    pub(crate) dim: bool,
+}
 
 /// The panel the model pill opens: `rail` beside a search, the models, a `note` on them, the effort slider and a row
 /// for each of the model's settings.
@@ -123,22 +138,22 @@ pub(crate) fn empty_list(note: String) -> Div {
 
 /// The panel's list. An agent can list hundreds of models, so only the lines in view are built: `mixed` is whether each
 /// row names its agent, and `choose` what a click on a model does.
-pub(crate) fn model_list(
+pub(crate) fn model_list<V: 'static>(
     id: &'static str,
     listed: Rc<Listed>,
     mixed: bool,
     scroll: &UniformListScrollHandle,
-    choose: Choose,
-    cx: &mut Context<Desktop>,
+    (choose, star): (Choose<V>, Star<V>),
+    cx: &mut Context<V>,
 ) -> Div {
     let pitch = ROW + GAP;
     let count = listed.lines.len();
-    let line = move |this: &mut Desktop, i: usize, cx: &mut Context<Desktop>| {
+    let line = move |_: &mut V, i: usize, cx: &mut Context<V>| {
         let line = div().w_full().h(px(pitch));
         match &listed.lines[i] {
             Line::Heading(name) => line.child(header(name)),
             Line::Pick(entry) => {
-                let row = model_row(id, i, entry, listed.on == Some(i), mixed, this.store.agents.is_favorite(&entry.provider, &entry.value), cx);
+                let row = model_row(id, i, entry, listed.on == Some(i), mixed, star.clone(), cx);
                 let (choose, listed) = (choose.clone(), listed.clone());
                 line.child(row.when(!entry.missing, |row| {
                     row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -162,9 +177,10 @@ fn header(name: &str) -> Div {
 
 /// A model's row, checked if it's the one in use, its star showing if set, on the row in use, or under the pointer.
 /// The favorites mix providers, so `mixed` names the row's. One whose agent isn't installed is dimmed and says why.
-pub(crate) fn model_row(id: &'static str, i: usize, entry: &Entry, on: bool, mixed: bool, starred: bool, cx: &mut Context<Desktop>) -> Stateful<Div> {
-    let (provider, model) = (entry.provider.clone(), entry.value.clone());
-    let star = (!entry.value.is_empty()).then(|| {
+pub(crate) fn model_row<V: 'static>(id: &'static str, i: usize, entry: &Entry, on: bool, mixed: bool, star: Star<V>, cx: &mut Context<V>) -> Stateful<Div> {
+    let starred = entry.starred;
+    let picked = entry.clone();
+    let toggle = (!entry.value.is_empty()).then(|| {
         div()
             .id(("model-star", i))
             .size(px(22.))
@@ -178,9 +194,7 @@ pub(crate) fn model_row(id: &'static str, i: usize, entry: &Entry, on: bool, mix
             .child(icon(if starred { "star-fill" } else { "star" }, 14., if starred { WAITING_DOT } else { TEXT_3 }))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                this.store.agents.toggle_favorite(&provider, &model);
-                this.store.save();
-                cx.notify();
+                star(this, &picked, cx);
             }))
     });
     let label = div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(entry.label.clone());
@@ -195,14 +209,14 @@ pub(crate) fn model_row(id: &'static str, i: usize, entry: &Entry, on: bool, mix
             .cursor_default()
             .child(dimmed)
             .child(check(on))
-            .children(star)
+            .children(toggle)
             .tooltip(move |window, cx| Tooltip::new(why.clone()).build(window, cx));
     }
-    row((id, i), on).group(ROW_GROUP).pr(px(6.)).children(lead).child(label).child(check(on)).children(star)
+    row((id, i), on).group(ROW_GROUP).pr(px(6.)).children(lead).child(label).child(check(on)).children(toggle)
 }
 
 /// Empties the panel's search and gives it the keys.
-pub(crate) fn focus_search(search: &Entity<InputState>, window: &mut Window, cx: &mut Context<Desktop>) {
+pub(crate) fn focus_search(search: &Entity<InputState>, window: &mut Window, cx: &mut App) {
     search.update(cx, |s, cx| {
         s.set_value("", window, cx);
         s.focus(window, cx);
@@ -234,6 +248,7 @@ fn entries(provider: &str, models: &[ListedModel], current: &str) -> Vec<Entry> 
             label: label.into(),
             upstream: upstream.into(),
             missing: false,
+            starred: false,
         })
         .collect()
 }
@@ -246,7 +261,7 @@ fn saved_entries<'m>(saved: &[(String, String)], shown: &[&str], models: impl Fn
         .map(|(provider, model)| {
             let listed = models(provider).iter().find(|m| m.value == *model);
             let (label, upstream) = listed.map_or_else(|| (model_or_default(model), String::new()), |m| (m.name.clone(), m.upstream.clone()));
-            Entry { provider: provider.clone(), value: model.clone(), label, upstream, missing: false }
+            Entry { provider: provider.clone(), value: model.clone(), label, upstream, missing: false, starred: false }
         })
         .collect()
 }
@@ -325,109 +340,219 @@ pub(crate) fn check(on: bool) -> Div {
     div().w(px(16.)).flex().flex_none().justify_end().when(on, |d| d.child(icon("check", 14., TEXT)))
 }
 
-impl Desktop {
-    /// The agent, model and effort a session starts with, and the panel that picks them.
-    pub(crate) fn model_pill(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let names = self.offered_models(&pick.provider);
-        let levels = self.launch_efforts(&pick.provider, &pick.model);
-        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &levels, names);
-        let detail: Vec<String> = effort.into_iter().chain(settings_shown(pick, self.launch_settings(&pick.provider, &pick.model))).collect();
-        let (open, provider, opened_in) = (c.read(cx).draft.menu == Some(Menu::Model), pick.provider.clone(), project.clone());
+/// What a composer's model pill draws from, gathered by `Desktop` before the pill draws.
+pub(crate) struct Launch {
+    pub(crate) pick: LaunchPick,
+    pub(crate) project: Option<String>,
+    pub(crate) model: String,
+    pub(crate) detail: Option<String>,
+    /// The panel, while it is open.
+    pub(crate) panel: Option<PanelData>,
+}
+
+/// What the open model panel shows.
+pub(crate) struct PanelData {
+    viewed: String,
+    tabs: Vec<RailTab>,
+    models: Models,
+    effort: Option<EffortData>,
+    settings: Vec<ModelSetting>,
+    note: Option<String>,
+}
+
+enum Models {
+    Listed(Rc<Listed>),
+    Nothing(String),
+}
+
+struct EffortData {
+    word: &'static str,
+    levels: Vec<String>,
+    on: Option<String>,
+}
+
+impl Composer {
+    /// The pill that opens the model panel; `launch` says what both draw.
+    pub(crate) fn model_pill(&mut self, launch: &Launch, cx: &mut Context<Self>) -> Div {
+        let open = self.draft.menu == Some(Menu::Model);
+        let (provider, project) = (launch.pick.provider.clone(), launch.project.clone());
         let chip = ui::popover_trigger(
-            super::picker(model_effort_pill(&pick.provider, model, (!detail.is_empty()).then(|| detail.join(" \u{b7} "))), "composer-model", open),
+            super::picker(model_effort_pill(&launch.pick.provider, launch.model.clone(), launch.detail.clone()), "composer-model", open),
             open,
-            {
-                let c = c.clone();
-                cx.listener(move |this, _: &MouseDownEvent, window, cx| this.toggle_model_menu(&c, &provider, opened_in.as_deref(), window, cx))
-            },
+            cx.listener(move |this, _: &MouseDownEvent, window, cx| this.toggle_model(&provider, project.as_deref(), window, cx)),
         );
-        let menu = open.then(|| {
+        let menu = launch.panel.as_ref().map(|data| {
             let menu = div()
                 .id("composer-model-menu")
                 // Menus hang over the page; without this a click on one also lands on what it covers.
                 .occlude()
-                .child(self.launch_panel(c, pick, project, &levels, names, cx))
-                .on_mouse_down_out({
-                    let c = c.clone();
-                    cx.listener(move |_, _: &MouseDownEvent, _, cx| {
-                        c.update(cx, |c, _| c.draft.menu = None);
-                        cx.notify();
-                    })
-                });
+                .child(self.model_panel(launch, data, cx))
+                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                    this.draft.menu = None;
+                    cx.notify();
+                }));
             ui::dropdown(36., ui::menu_in("composer-model-menu-in", menu))
         });
         div().relative().child(chip).children(menu)
     }
 
-    /// Opens `c`'s model panel on `provider` in `project`, or closes it.
-    pub(crate) fn toggle_model_menu(&mut self, c: &Entity<Composer>, provider: &str, project: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        self.toggle_composer(c, Menu::Model, cx);
-        let (open, search) = {
-            let c = c.read(cx);
-            (c.draft.menu == Some(Menu::Model), c.search.clone())
-        };
-        if open {
-            focus_search(&search, window, cx);
-            self.models_opened(&Held::Composer(c.clone()), provider, project, cx);
+    /// Opens the model panel on `provider` in `project`, or closes it.
+    pub(crate) fn toggle_model(&mut self, provider: &str, project: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.toggle(Menu::Model, cx) {
+            focus_search(&self.search, window, cx);
+            cx.emit(ComposerEvent::ModelsOpened { provider: provider.into(), project: project.map(Into::into) });
         }
     }
 
-    /// Favorites over the agents `project` shows and `current`, the one in use; pointing at one lists its models, and
-    /// only picking a model acts on it. More agents than fit scroll.
-    pub(crate) fn model_rail(&self, viewed: &str, current: &str, project: Option<&str>, scroll: &ScrollHandle, held: &Held, cx: &mut Context<Self>) -> Div {
-        let tab = |id: &'static str, glyph: Svg, name: String, cx: &mut Context<Self>| {
-            let (over, hovered_held, clicked_held) = (id != viewed, held.clone(), held.clone());
-            div()
-                .id(id)
-                .size(px(TAB))
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .rounded(px(9.))
-                .cursor_pointer()
-                .when(id == viewed, |d| d.bg(FILL_3))
-                .when(id != viewed, |d| d.hover(|s| s.bg(FILL_2)))
-                .child(glyph)
-                .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
-                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                    if *hovered && over {
-                        this.view_models(&hovered_held, id, cx);
-                    }
-                }))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.view_models(&clicked_held, id, cx)))
+    /// The rail, the viewed entry's models and the picked model's efforts and settings; only picking a model switches agent.
+    fn model_panel(&self, launch: &Launch, data: &PanelData, cx: &mut Context<Self>) -> Div {
+        let (pick, project) = (&launch.pick, &launch.project);
+        let (search, view) = (self.search.clone(), self.draft.view_of());
+        let rail = model_rail(&data.viewed, &data.tabs, &view.rail, Rc::new(|_: &mut Self, entry, cx| cx.emit(ComposerEvent::Viewed(entry))), cx);
+        let list = match &data.models {
+            Models::Nothing(note) => empty_list(note.clone()),
+            Models::Listed(listed) => {
+                let (from, project) = (pick.clone(), project.clone());
+                let choose: Choose<Self> = Rc::new(move |_, entry, cx| {
+                    cx.emit(ComposerEvent::Picked {
+                        provider: entry.provider.clone(),
+                        model: entry.value.clone(),
+                        from: from.clone(),
+                        project: project.clone(),
+                    })
+                });
+                let star: Star<Self> = Rc::new(|_, entry, cx| cx.emit(ComposerEvent::Starred { provider: entry.provider.clone(), model: entry.value.clone() }));
+                model_list("composer-model-row", listed.clone(), data.viewed == FAVORITES, &view.scroll, (choose, star), cx)
+            }
         };
-        let favorites = tab(FAVORITES, icon("star", 16., TEXT_2), "Favorites and recent".into(), cx);
-        let agents: Vec<_> = listed_agents(&self.offered_in(project), &[current])
-            .into_iter()
-            .map(|p| tab(p, provider_icon(p, 16., TEXT), self.agent_name(p), cx).when(!self.installed(p), |d| d.opacity(0.4)))
-            .collect();
-        let extent = rail_extent(agents.len() + 1);
-        // The rail's height is fixed, so how far it scrolls is known before its first layout.
-        let (offset, max) = (-f32::from(scroll.offset().y), (extent - RAIL_HEIGHT).max(0.));
-        let bar = if extent > RAIL_HEIGHT { RAIL_BAR } else { 0. };
-        let column = div()
-            .id("model-rail")
-            .size_full()
-            .overflow_y_scroll()
-            .track_scroll(scroll)
-            .p(px(RAIL_PAD))
-            .pr(px(RAIL_PAD + bar))
+        let effort = data.effort.as_ref().map(|e| {
+            let (current, project) = (pick.clone(), project.clone());
+            let choose: launch::Pick<Self> = Rc::new(move |this, effort, cx| this.adjusted(project.clone(), LaunchPick { effort, ..current.clone() }, cx));
+            effort_slider("composer-effort", e.word, (&e.levels, e.on.as_ref()), &view.slider, choose, cx)
+        });
+        let hidden = effort.is_none().then(|| effort_slider::hand_back(&view.slider, search.read(cx).focus_handle(cx))).flatten();
+        let settings = data.settings.iter().enumerate().map(|(i, s)| {
+            let (current, project, id) = (pick.clone(), project.clone(), s.id.clone());
+            let choose: launch::Pick<Self> = Rc::new(move |this, value, cx| this.adjusted(project.clone(), current.with_option(&id, value), cx));
+            let on = pick.options.get(&s.id).unwrap_or(&s.default);
+            choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &view.effort, draft_of, choose, cx)
+        });
+        panel(rail, &search, list, data.note.clone(), effort, settings.collect()).children(hidden)
+    }
+
+    /// Sets the pick with the panel left open.
+    fn adjusted(&mut self, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
+        self.draft.adjust(project, pick);
+        cx.notify();
+    }
+}
+
+fn draft_of(c: &mut Composer) -> &mut Draft {
+    &mut c.draft
+}
+
+/// Favorites over the agents of `tabs`; pointing at one asks `view` to list its models, and only picking a model acts
+/// on it. More agents than fit scroll.
+pub(crate) fn model_rail<V: 'static>(viewed: &str, tabs: &[RailTab], scroll: &ScrollHandle, view: View<V>, cx: &mut Context<V>) -> Div {
+    let tab = |id: &'static str, glyph: Svg, name: String, cx: &mut Context<V>| {
+        let (over, hover, click) = (id != viewed, view.clone(), view.clone());
+        div()
+            .id(id)
+            .size(px(TAB))
             .flex()
-            .flex_col()
-            .gap(px(TAB_GAP))
-            .child(favorites)
-            .children(agents);
-        // Whole tabs only, and a line at an edge past which more of them scroll.
-        let line = |more: bool| more.then(|| div().absolute().left_0().right_0().h(px(0.5)).bg(SEPARATOR));
-        let tabs = div()
-            .relative()
-            .h(px(extent.min(RAIL_HEIGHT)))
-            .child(column)
-            .children(line(offset > 0.).map(|l| l.top_0()))
-            .children(line(offset < max).map(|l| l.bottom_0()))
-            .vertical_scrollbar(scroll);
-        div().flex_none().w(px(TAB + 2. * RAIL_PAD + bar)).border_r(px(0.5)).border_color(SEPARATOR).child(tabs)
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(px(9.))
+            .cursor_pointer()
+            .when(id == viewed, |d| d.bg(FILL_3))
+            .when(id != viewed, |d| d.hover(|s| s.bg(FILL_2)))
+            .child(glyph)
+            .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                if *hovered && over {
+                    hover(this, id, cx);
+                }
+            }))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| click(this, id, cx)))
+    };
+    let favorites = tab(FAVORITES, icon("star", 16., TEXT_2), "Favorites and recent".into(), cx);
+    let agents: Vec<_> = tabs.iter().map(|t| tab(t.id, provider_icon(t.id, 16., TEXT), t.name.clone(), cx).when(t.dim, |d| d.opacity(0.4))).collect();
+    let extent = rail_extent(agents.len() + 1);
+    // The rail's height is fixed, so how far it scrolls is known before its first layout.
+    let (offset, max) = (-f32::from(scroll.offset().y), (extent - RAIL_HEIGHT).max(0.));
+    let bar = if extent > RAIL_HEIGHT { RAIL_BAR } else { 0. };
+    let column = div()
+        .id("model-rail")
+        .size_full()
+        .overflow_y_scroll()
+        .track_scroll(scroll)
+        .p(px(RAIL_PAD))
+        .pr(px(RAIL_PAD + bar))
+        .flex()
+        .flex_col()
+        .gap(px(TAB_GAP))
+        .child(favorites)
+        .children(agents);
+    // Whole tabs only, and a line at an edge past which more of them scroll.
+    let line = |more: bool| more.then(|| div().absolute().left_0().right_0().h(px(0.5)).bg(SEPARATOR));
+    let tabs = div()
+        .relative()
+        .h(px(extent.min(RAIL_HEIGHT)))
+        .child(column)
+        .children(line(offset > 0.).map(|l| l.top_0()))
+        .children(line(offset < max).map(|l| l.bottom_0()))
+        .vertical_scrollbar(scroll);
+    div().flex_none().w(px(TAB + 2. * RAIL_PAD + bar)).border_r(px(0.5)).border_color(SEPARATOR).child(tabs)
+}
+
+impl Desktop {
+    /// The agent, model and effort a session starts with, and the panel that picks them.
+    pub(crate) fn model_pill(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
+        let launch = self.launch(c, pick, project, cx);
+        c.update(cx, |c, cx| c.model_pill(&launch, cx))
+    }
+
+    fn launch(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &App) -> Launch {
+        let names = self.offered_models(&pick.provider);
+        let levels = self.launch_efforts(&pick.provider, &pick.model);
+        let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &levels, names);
+        let detail: Vec<String> = effort.into_iter().chain(settings_shown(pick, self.launch_settings(&pick.provider, &pick.model))).collect();
+        let open = c.read(cx).draft.menu == Some(Menu::Model);
+        let panel = open.then(|| self.launch_panel(c, pick, project.as_deref(), &levels, names, cx));
+        Launch { pick: pick.clone(), project, model, detail: (!detail.is_empty()).then(|| detail.join(" \u{b7} ")), panel }
+    }
+
+    /// The agents of the rail: those `project` shows, and `current`, the one in use.
+    pub(crate) fn rail_tabs(&self, project: Option<&str>, current: &str) -> Vec<RailTab> {
+        listed_agents(&self.offered_in(project), &[current]).into_iter().map(|p| RailTab { id: p, name: self.agent_name(p), dim: !self.installed(p) }).collect()
+    }
+
+    /// What a composer's events ask of the app; the owner answers `Opened` itself.
+    pub(crate) fn composer_event(&mut self, c: &Entity<Composer>, event: &ComposerEvent, cx: &mut Context<Self>) {
+        let held = Held::Composer(c.clone());
+        match event {
+            ComposerEvent::Opened => {}
+            ComposerEvent::ModelsOpened { provider, project } => self.models_opened(&held, provider, project.as_deref(), cx),
+            ComposerEvent::Viewed(entry) => self.view_models(&held, entry, cx),
+            ComposerEvent::Picked { provider, model, from, project } => {
+                let base = from.switched(provider);
+                // An effort the new model lacks would still be sent, though its chip no longer shows it.
+                let effort = if self.launch_efforts(provider, model).contains(&base.effort) { base.effort.clone() } else { String::new() };
+                self.model_used(provider, model, cx);
+                let pick = LaunchPick { effort, ..base.on_model(model, self.launch_settings(provider, model)) };
+                c.update(cx, |c, _| c.draft.choose(project.clone(), pick));
+                cx.notify();
+            }
+            ComposerEvent::Starred { provider, model } => self.star_model(provider, model, cx),
+        }
+    }
+
+    /// Stars `provider`'s `model`, or takes its star off.
+    pub(crate) fn star_model(&mut self, provider: &str, model: &str, cx: &mut Context<Self>) {
+        self.store.agents.toggle_favorite(provider, model);
+        self.store.save();
+        cx.notify();
     }
 
     /// Lists `entry`'s models, asking an agent's CLI for them once. The favorites ask nobody: pointing at them would
@@ -474,7 +599,14 @@ impl Desktop {
     /// under the names their agents give them.
     pub(crate) fn model_lines(&self, viewed: &str, current: &str, query: &str, project: Option<&str>) -> Vec<Line<Entry>> {
         let found = |entries: Vec<Entry>| {
-            matching(entries.into_iter().map(|e| Entry { missing: !self.installed(&e.provider), ..e }).collect(), query, viewed == FAVORITES)
+            matching(
+                entries
+                    .into_iter()
+                    .map(|e| Entry { missing: !self.installed(&e.provider), starred: self.store.agents.is_favorite(&e.provider, &e.value), ..e })
+                    .collect(),
+                query,
+                viewed == FAVORITES,
+            )
         };
         if viewed != FAVORITES {
             return lines(viewed, found(entries(viewed, self.offered_models(viewed), current)));
@@ -486,7 +618,11 @@ impl Desktop {
 
     /// What the panel says while `viewed` lists nothing for `query`.
     pub(crate) fn no_models(&self, viewed: &str, query: &str) -> Div {
-        empty_list(empty_note(viewed, &self.agent_name(viewed), !query.trim().is_empty(), self.installed(viewed), self.models.loading(viewed)))
+        empty_list(self.no_models_note(viewed, query))
+    }
+
+    fn no_models_note(&self, viewed: &str, query: &str) -> String {
+        empty_note(viewed, &self.agent_name(viewed), !query.trim().is_empty(), self.installed(viewed), self.models.loading(viewed))
     }
 
     /// What the panel says under `viewed`'s list: that its CLI listed no models, and why.
@@ -494,58 +630,27 @@ impl Desktop {
         self.models.failure(viewed).map(|why| couldnt_list(&self.agent_name(viewed), why))
     }
 
-    /// The rail, the viewed entry's models and the picked model's efforts and settings; only picking a model switches agent.
-    fn launch_panel(
-        &self,
-        c: &Entity<Composer>,
-        pick: &LaunchPick,
-        project: Option<String>,
-        levels: &[String],
-        names: &[ListedModel],
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let (held, search, view) = (Held::Composer(c.clone()), c.read(cx).search.clone(), c.read(cx).draft.view_of());
-        let viewed = view.viewing.unwrap_or(&pick.provider);
-        let rail = self.model_rail(viewed, &pick.provider, project.as_deref(), &view.rail, &held, cx);
-        let query = search.read(cx).value();
+    /// What the panel shows: the viewed entry's models and the picked model's efforts and settings.
+    fn launch_panel(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<&str>, levels: &[String], names: &[ListedModel], cx: &App) -> PanelData {
+        let draft = &c.read(cx).draft;
+        let viewed = draft.viewing.unwrap_or(&pick.provider);
+        let query = c.read(cx).search.read(cx).value();
         // With no pick, the session starts on Settings' model.
         let settings = self.store.agents.provider(&pick.provider).model;
-        let listed = c.read(cx).draft.listed.get((viewed, &*query, &pick.provider, &pick.model, &settings, self.lines_from(project.as_deref())), || {
-            let lines = self.model_lines(viewed, if viewed == pick.provider { &pick.model } else { "" }, &query, project.as_deref());
+        let listed = draft.listed.get((viewed, &*query, &pick.provider, &pick.model, &settings, self.lines_from(project)), || {
+            let lines = self.model_lines(viewed, if viewed == pick.provider { &pick.model } else { "" }, &query, project);
             Listed { on: launching_line(&lines, pick, &settings), lines }
         });
-        let list = if listed.lines.is_empty() {
-            self.no_models(viewed, &query)
-        } else {
-            let (current, project, c) = (pick.clone(), project.clone(), c.clone());
-            let choose: Choose = Rc::new(move |this, entry, cx| {
-                let base = current.switched(&entry.provider);
-                // An effort the new model lacks would still be sent, though its chip no longer shows it.
-                let effort = if this.launch_efforts(&entry.provider, &entry.value).contains(&base.effort) { base.effort.clone() } else { String::new() };
-                this.model_used(&entry.provider, &entry.value, cx);
-                let pick = LaunchPick { effort, ..base.on_model(&entry.value, this.launch_settings(&entry.provider, &entry.value)) };
-                this.choose_launch(&c, project.clone(), pick, cx)
-            });
-            model_list("composer-model-row", listed, viewed == FAVORITES, &view.scroll, choose, cx)
-        };
-
+        let models = if listed.lines.is_empty() { Models::Nothing(self.no_models_note(viewed, &query)) } else { Models::Listed(listed) };
         // Another entry lists other models, but the efforts and settings below would still be the picked model's.
         let own = viewed == pick.provider;
-        let effort = (own && !levels.is_empty()).then(|| {
-            let (current, project, c) = (pick.clone(), project.clone(), c.clone());
-            let choose: launch::Pick = Rc::new(move |this, effort, cx| this.adjust_launch(&c, project.clone(), LaunchPick { effort, ..current.clone() }, cx));
-            let on = effort_shown(pick, &self.store.agents.provider(&pick.provider), levels, names).cloned();
-            effort_slider("composer-effort", providers::known(&pick.provider).effort_word, (levels, on.as_ref()), &view.slider, choose, cx)
+        let effort = (own && !levels.is_empty()).then(|| EffortData {
+            word: providers::known(&pick.provider).effort_word,
+            levels: levels.to_vec(),
+            on: effort_shown(pick, &self.store.agents.provider(&pick.provider), levels, names).cloned(),
         });
-        let hidden = effort.is_none().then(|| effort_slider::hand_back(&view.slider, search.read(cx).focus_handle(cx))).flatten();
-        let settings = if own { self.launch_settings(&pick.provider, &pick.model) } else { &[] };
-        let settings = settings.iter().enumerate().map(|(i, s)| {
-            let (current, project, id, c) = (pick.clone(), project.clone(), s.id.clone(), c.clone());
-            let choose: launch::Pick = Rc::new(move |this, value, cx| this.adjust_launch(&c, project.clone(), current.with_option(&id, value), cx));
-            let on = pick.options.get(&s.id).unwrap_or(&s.default);
-            choice_menu(("composer-setting", i), s.name.clone().into(), (&s.choices, Some(on)), &view.effort, held.clone(), choose, cx)
-        });
-        panel(rail, &search, list, self.models_note(viewed), effort, settings.collect()).children(hidden)
+        let settings = if own { self.launch_settings(&pick.provider, &pick.model).to_vec() } else { Vec::new() };
+        PanelData { viewed: viewed.into(), tabs: self.rail_tabs(project, &pick.provider), models, effort, settings, note: self.models_note(viewed) }
     }
 }
 
@@ -561,7 +666,7 @@ mod tests {
 
     fn entry(provider: &str, value: &str, label: &str) -> Entry {
         let upstream = value.split_once('/').map_or("", |(who, _)| who).into();
-        Entry { provider: provider.into(), value: value.into(), label: label.into(), upstream, missing: false }
+        Entry { provider: provider.into(), value: value.into(), label: label.into(), upstream, missing: false, starred: false }
     }
 
     fn listed(upstream: &str, value: &str, name: &str) -> ListedModel {

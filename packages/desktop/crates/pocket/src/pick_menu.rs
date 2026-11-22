@@ -1,6 +1,5 @@
 //! A menu of picks under headings, which an agent's models can make a thousand lines long.
 
-use crate::desktop::Desktop;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
 use std::cell::RefCell;
@@ -54,14 +53,14 @@ impl<T> Memo<T> {
 }
 
 /// `count` lines in `frame`, with its scrollbar, of which `line` builds only those in view; `fit` sizes the list.
-pub(crate) fn pick_list<R: IntoElement>(
+pub(crate) fn pick_list<V: 'static, R: IntoElement>(
     id: impl Into<ElementId>,
     count: usize,
     scroll: &UniformListScrollHandle,
     frame: Div,
     fit: impl FnOnce(UniformList) -> UniformList,
-    line: impl Fn(&mut Desktop, usize, &mut Context<Desktop>) -> R + 'static,
-    cx: &mut Context<Desktop>,
+    line: impl Fn(&mut V, usize, &mut Context<V>) -> R + 'static,
+    cx: &mut Context<V>,
 ) -> Div {
     let list = uniform_list(id, count, cx.processor(move |this, range: Range<usize>, _, cx| range.map(|i| line(this, i, cx)).collect::<Vec<_>>()))
         .track_scroll(scroll);

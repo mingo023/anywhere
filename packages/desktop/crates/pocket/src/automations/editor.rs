@@ -63,11 +63,12 @@ impl Form {
         let mut subs: Vec<_> =
             [&title, &time, &every, &models, &branch_search].into_iter().map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())).collect();
         subs.push(cx.subscribe(&prompt, |_, _, _: &InputEvent, cx| cx.notify()));
-        subs.push(cx.subscribe_in(&composer, window, |this, _, ev: &ComposerEvent, _, cx| match ev {
+        subs.push(cx.subscribe_in(&composer, window, |this, c, ev: &ComposerEvent, _, cx| match ev {
             ComposerEvent::Opened => {
                 this.automations.menu = None;
                 cx.notify();
             }
+            _ => this.composer_event(c, ev, cx),
         }));
         subs.push(cx.observe(&composer, |_, _, cx| cx.notify()));
         (Self { title, time, every, composer, branch_search, branches: None, v: Values::new(String::new()), open: false }, subs)

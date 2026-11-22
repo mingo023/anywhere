@@ -4,7 +4,6 @@ mod style;
 
 use super::launch;
 use crate::chat::composer::hand_focus;
-use crate::desktop::Desktop;
 use crate::glide::Glide;
 use crate::models::effort_label;
 use effects::{EffortAnimation, Light};
@@ -239,13 +238,13 @@ fn describe(level: &str) -> &'static str {
 
 /// The slider for `levels`, at `on` unless one was picked here, headed `word`, the agent's name for effort. Letting go
 /// of a drag, clicking a label, or a key hands the new level to `pick`; nothing is sent while a drag moves.
-pub(crate) fn effort_slider(
+pub(crate) fn effort_slider<V: 'static>(
     id: &'static str,
     word: &'static str,
     (levels, on): (&[String], Option<&String>),
     slider: &Rc<RefCell<EffortSlider>>,
-    pick: launch::Pick,
-    cx: &mut Context<Desktop>,
+    pick: launch::Pick<V>,
+    cx: &mut Context<V>,
 ) -> Stateful<Div> {
     let now = Instant::now();
     let (frame, focus, about) = {

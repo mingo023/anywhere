@@ -37,6 +37,24 @@ pub(crate) struct Composer {
 pub(crate) enum ComposerEvent {
     /// One of its menus opened: the owner closes its own.
     Opened,
+    /// The model panel opened on `provider` in `project`.
+    ModelsOpened {
+        provider: String,
+        project: Option<String>,
+    },
+    /// The model panel points at a rail entry.
+    Viewed(&'static str),
+    /// A model was clicked; `from` is the pick it changes.
+    Picked {
+        provider: String,
+        model: String,
+        from: LaunchPick,
+        project: Option<String>,
+    },
+    Starred {
+        provider: String,
+        model: String,
+    },
 }
 
 impl EventEmitter<ComposerEvent> for Composer {}
@@ -44,6 +62,38 @@ impl EventEmitter<ComposerEvent> for Composer {}
 impl Composer {
     pub(crate) fn new(prompt: Entity<TextareaState>, search: Entity<InputState>) -> Self {
         Self { prompt, search, draft: Draft::default() }
+    }
+
+    /// Opens or closes `menu`, saying whether it is open now.
+    pub(crate) fn toggle(&mut self, menu: Menu, cx: &mut Context<Self>) -> bool {
+        let open = self.draft.toggle(menu);
+        if open {
+            cx.emit(ComposerEvent::Opened);
+        }
+        cx.notify();
+        open
+    }
+
+    /// Sets the pick and closes the menu.
+    fn choose(&mut self, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
+        self.draft.choose(project, pick);
+        cx.notify();
+    }
+
+    /// The access the launch starts with, and the menu that picks it; `chip` says what both draw.
+    pub(crate) fn access_chip(&self, pick: &LaunchPick, project: Option<String>, chip: &AccessChip, cx: &mut Context<Self>) -> Div {
+        let (app, choices) = match chip {
+            AccessChip::Full(agent) => return div().child(launch::full_access_chip("composer-access", agent.clone())),
+            AccessChip::Choices { app, choices } => (app, choices),
+        };
+        let open = self.draft.menu == Some(Menu::Access);
+        let trigger = launch::access_chip("composer-access", open, &pick.access, app, |this: &mut Self, cx| _ = this.toggle(Menu::Access, cx), cx);
+        let menu = open.then(|| {
+            let current = pick.clone();
+            let choose: Pick<Self> = Rc::new(move |this, access, cx| this.choose(project.clone(), LaunchPick { access, ..current.clone() }, cx));
+            menu("composer-access-menu", "Access", 300., launch::access_rows("composer-access-row", choices.clone(), &pick.access, choose, cx), cx)
+        });
+        div().relative().child(trigger).children(menu)
     }
 
     /// For a prompt's `on_drop_paths`: dropped files attach to this composer's draft, so none is typed in as its path.
@@ -56,6 +106,12 @@ impl Composer {
             Err(_) => paths.to_vec(),
         }
     }
+}
+
+/// What the access chip draws: the access of an agent that never asks, or the choices of one that does.
+pub(crate) enum AccessChip {
+    Full(String),
+    Choices { app: String, choices: Vec<(String, String, String)> },
 }
 
 /// Whose draft a helper edits: the chat's, which `Desktop` holds, or a composer's.
@@ -118,7 +174,6 @@ pub(crate) struct Draft {
 
 /// A `Draft`'s model panel as it stands: the handles it draws with, which share the draft's.
 pub(crate) struct PanelView {
-    pub(crate) viewing: Option<&'static str>,
     pub(crate) scroll: UniformListScrollHandle,
     pub(crate) rail: ScrollHandle,
     pub(crate) slider: Rc<RefCell<effort_slider::EffortSlider>>,
@@ -149,7 +204,7 @@ impl Draft {
 
     /// What the model panel draws from, to hold while the panel draws.
     pub(crate) fn view_of(&self) -> PanelView {
-        PanelView { viewing: self.viewing, scroll: self.scroll.clone(), rail: self.rail.clone(), slider: self.slider.clone(), effort: self.effort.clone() }
+        PanelView { scroll: self.scroll.clone(), rail: self.rail.clone(), slider: self.slider.clone(), effort: self.effort.clone() }
     }
 
     /// Lists `entry`'s models in the model panel; the efforts are the last entry's.
@@ -664,51 +719,14 @@ impl Desktop {
             .child(bar)
     }
 
-    pub(crate) fn toggle_composer(&mut self, c: &Entity<Composer>, menu: Menu, cx: &mut Context<Self>) {
-        c.update(cx, |c, cx| {
-            if c.draft.toggle(menu) {
-                cx.emit(ComposerEvent::Opened);
-            }
-        });
-        cx.notify();
-    }
-
-    fn choose_launch(&mut self, c: &Entity<Composer>, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
-        c.update(cx, |c, _| c.draft.choose(project, pick));
-        cx.notify();
-    }
-
-    fn adjust_launch(&mut self, c: &Entity<Composer>, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
-        c.update(cx, |c, _| c.draft.adjust(project, pick));
-        cx.notify();
-    }
-
     pub(crate) fn access_chip(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        if self.agents.provider_info(&pick.provider).never_asks() {
-            return div().child(launch::full_access_chip("composer-access", self.agent_name(&pick.provider)));
-        }
-        let open = c.read(cx).draft.menu == Some(Menu::Access);
-        let app = self.store.agents.access();
-        let chip = {
-            let c = c.clone();
-            launch::access_chip("composer-access", open, &pick.access, app, move |this, cx| this.toggle_composer(&c, Menu::Access, cx), cx)
+        let chip = if self.agents.provider_info(&pick.provider).never_asks() {
+            AccessChip::Full(self.agent_name(&pick.provider))
+        } else {
+            let app = self.store.agents.access();
+            AccessChip::Choices { app: app.into(), choices: launch::access_choices(app) }
         };
-        let menu = open.then(|| {
-            let (current, c) = (pick.clone(), c.clone());
-            let choose: Pick = {
-                let c = c.clone();
-                Rc::new(move |this, access, cx| this.choose_launch(&c, project.clone(), LaunchPick { access, ..current.clone() }, cx))
-            };
-            menu(
-                "composer-access-menu",
-                "Access",
-                300.,
-                launch::access_rows("composer-access-row", launch::access_choices(app), &pick.access, choose, cx),
-                c,
-                cx,
-            )
-        });
-        div().relative().child(chip).children(menu)
+        c.update(cx, |c, cx| c.access_chip(pick, project, &chip, cx))
     }
 }
 
@@ -757,12 +775,12 @@ pub(crate) fn menu_list(
 }
 
 /// A chip's menu, closed by a press outside it.
-pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<AnyElement>, c: Entity<Composer>, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<AnyElement>, cx: &mut Context<Composer>) -> Div {
     let menu = menu_list(id, title, width, rows)
         // Menus hang over the page; without this a click on one also lands on what it covers.
         .occlude()
-        .on_mouse_down_out(cx.listener(move |_, _: &MouseDownEvent, _, cx| {
-            c.update(cx, |c, _| c.draft.menu = None);
+        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.draft.menu = None;
             cx.notify();
         }));
     ui::dropdown(36., ui::menu_in(SharedString::from(format!("{id}-in")), menu))

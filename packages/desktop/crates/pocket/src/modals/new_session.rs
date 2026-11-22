@@ -479,11 +479,12 @@ impl NewForm {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
         let subs = vec![
-            cx.subscribe_in(&composer, window, |this, _, ev: &ComposerEvent, _, cx| match ev {
+            cx.subscribe_in(&composer, window, |this, c, ev: &ComposerEvent, _, cx| match ev {
                 ComposerEvent::Opened => {
                     this.new_form.draft.picker = None;
                     cx.notify();
                 }
+                _ => this.composer_event(c, ev, cx),
             }),
             cx.observe(&composer, |_, _, cx| cx.notify()),
             cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| match ev {

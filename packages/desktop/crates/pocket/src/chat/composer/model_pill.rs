@@ -1,7 +1,7 @@
 use super::{close_menu, hang};
 use crate::composer::effort_menu::{Effort, choice_menu};
 use crate::composer::effort_slider::{self, effort_slider};
-use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
+use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, Star, View, focus_search, model_effort_pill, model_list, model_rail, panel};
 use crate::composer::{self, Held, Menu, launch};
 use crate::desktop::Desktop;
 use crate::models::effort_label;
@@ -80,7 +80,8 @@ impl Desktop {
         let menu = open.then(|| {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
             let project = self.chat_project(agent);
-            let rail = self.model_rail(viewed, &agent.provider, project.as_deref(), &self.chats.composer.draft.rail, &Held::Chat, cx);
+            let view: View = Rc::new(|this, entry, cx| this.view_models(&Held::Chat, entry, cx));
+            let rail = model_rail(viewed, &self.rail_tabs(project.as_deref(), &agent.provider), &self.chats.composer.draft.rail, view, cx);
             let own = viewed == agent.provider;
             let effort = (own && !levels.is_empty()).then(|| self.chat_effort_slider(agent, &levels, default, cx));
             let settings = if own { self.chat_setting_menus(agent, cx) } else { Vec::new() };
@@ -137,7 +138,8 @@ impl Desktop {
                 this.switch_chat_agent(&id, entry.provider.clone(), entry.value.clone(), cx);
             }
         });
-        model_list("chat-model-row", listed, viewed == FAVORITES, &draft.scroll, choose, cx)
+        let star: Star = Rc::new(|this, entry, cx| this.star_model(&entry.provider, &entry.value, cx));
+        model_list("chat-model-row", listed, viewed == FAVORITES, &draft.scroll, (choose, star), cx)
     }
 
     /// The model's efforts, naming the one it runs on, else `default`; picking one switches it.
@@ -160,7 +162,7 @@ impl Desktop {
                 s.name.clone().into(),
                 (&s.choices, Some(running_option(agent, s))),
                 &self.chats.composer.draft.effort,
-                Held::Chat,
+                |d| &mut d.chats.composer.draft,
                 pick,
                 cx,
             )
@@ -177,7 +179,7 @@ mod tests {
     fn the_line_checked_is_the_model_the_chat_runs() {
         let listed = |value: &str, resolved: &str| ListedModel { value: value.into(), resolved: resolved.into(), ..ListedModel::default() };
         let line = |provider: &str, value: &str| {
-            Line::Pick(Entry { provider: provider.into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false })
+            Line::Pick(Entry { provider: provider.into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false, starred: false })
         };
         let agent = Summary { provider: "claude".into(), model: Some("claude-opus-5-5".into()), ..Default::default() };
         let own = [listed("sonnet", "claude-sonnet-5"), listed("opus", "claude-opus-5-5")];
@@ -194,8 +196,9 @@ mod tests {
         assert_eq!(unlisted_running(&agent, &[listed("")]), "claude-sonnet-4-6");
         assert_eq!(unlisted_running(&agent, &[listed("claude-sonnet-4-6")]), "", "a listed one needs no extra line");
         assert_eq!(unlisted_running(&Summary { model: None, ..agent.clone() }, &[]), "");
-        let line =
-            |value: &str| Line::Pick(Entry { provider: "pi".into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false });
+        let line = |value: &str| {
+            Line::Pick(Entry { provider: "pi".into(), value: value.into(), label: String::new(), upstream: String::new(), missing: false, starred: false })
+        };
         assert_eq!(running_line(&[line("claude-sonnet-4-6"), line("")], &agent, &[listed("")]), Some(0));
     }
 
