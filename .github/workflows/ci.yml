@@ -35,7 +35,7 @@ jobs:
           echo "go=$(touched '^packages/pocketd/')" >> "$GITHUB_OUTPUT"
           echo "pushrelay=$(touched '^packages/pushrelay/')" >> "$GITHUB_OUTPUT"
           # The protocol and iOS tests decode every golden frame pocketd writes.
-          echo "protocol=$(touched '^(packages/protocol|packages/pocketd/internal/proto/testdata)/')" >> "$GITHUB_OUTPUT"
+          echo "protocol=$(touched '^((packages/protocol|packages/pocketd/internal/proto/testdata)/|(tsconfig\.base\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$)')" >> "$GITHUB_OUTPUT"
           echo "ios=$(touched '^(packages/ios/Packages|packages/pocketd/internal/proto/testdata)/')" >> "$GITHUB_OUTPUT"
           # Desktop tests read pocketd's golden frames and the chat fixture.
           echo "desktop=$(touched '^(packages/desktop|packages/pocketd/internal/proto/testdata|\.ui-review/fixture)/')" >> "$GITHUB_OUTPUT"
