@@ -525,6 +525,11 @@ fn remember(subtrees: &mut BTreeMap<String, Subtree>, links: Vec<(String, Subtre
 
 /// Whether a worktree made at `created` can be the one a subagent that started at `started` worked in: one made
 /// since is someone else's.
+/// Whether this Mac's worktree at `tree`, as `ws` lists it now, is gone or was made after its subagent `started`.
+fn replaced(ws: &[git::Worktree], tree: &str, started: u64) -> bool {
+    !ws.iter().any(|w| w.path == tree && there_when_started(w.created, started))
+}
+
 fn there_when_started(created: Option<SystemTime>, started: u64) -> bool {
     let created = created.and_then(|c| c.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
     created.is_none_or(|c| c <= started)
@@ -682,11 +687,12 @@ impl Desktop {
         let (still, on_hosts) = self.subagent_removals(&removal);
         let known = |c: &Removal| still.iter().any(|s| s.tree == c.tree) || on_hosts.folders.iter().any(|(f, _)| holds(&c.tree, f));
         let confirmed: Vec<Removal> = confirmed.iter().map(|c| Removal { delete_branch: removal.delete_branch && c.branch.is_some(), ..c.clone() }).collect();
-        // The rest of this Mac's go if its pocketd's lineage still names them, read off the UI thread.
-        let (subagents, unsure): (Vec<Removal>, Vec<Removal>) = confirmed.into_iter().filter(|c| known(c) || hosts::split(&c.tree).0.is_none()).partition(known);
+        // The rest go if the lineage, read off the UI thread, still names them.
+        let (subagents, unsure): (Vec<Removal>, Vec<Removal>) = confirmed.into_iter().partition(known);
         let subagents: Vec<Removal> = subagents.into_iter().filter(|c| self.removals.start(&c.tree)).collect();
         let unsure: Vec<Removal> = unoccupied(unsure, &self.shells()).into_iter().filter(|c| self.removals.start(&c.tree)).collect();
         let scheduled: Vec<Removal> = subagents.iter().chain(&unsure).cloned().collect();
+        let starts: Vec<(String, u64)> = subagents.iter().filter(|r| hosts::split(&r.tree).0.is_none()).filter_map(|r| Some((r.tree.clone(), self.saved_start(&r.tree)?))).collect();
         let started: Vec<String> = scheduled.iter().map(|s| s.tree.clone()).chain(std::iter::once(removal.tree.clone())).collect();
         let teardown = |r: &Removal| self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let jobs: Vec<(Removal, String)> = subagents.iter().map(|r| (r.clone(), teardown(r))).collect();
@@ -695,15 +701,18 @@ impl Desktop {
         let (limit, trash) = (Duration::from_secs(self.store.worktree.teardown_secs.into()), self.store.worktree.trash);
         let delete_branch = removal.delete_branch;
         let task = cx.background_executor().spawn(async move {
-            // Read again: a host's worktree may have changed hands since the sheet read it.
-            let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
             let trees: Vec<String> = jobs.iter().chain(&unsure).chain(std::iter::once(&main)).map(|(r, _)| r.tree.clone()).collect();
             let theirs = match lineage(&trees) {
                 Ok(theirs) => theirs,
                 Err(e) => return ((vec![], Some((main.0, Failure::Remove(e)))), vec![], vec![]),
             };
-            let named = |r: &Removal| theirs.iter().any(|(_, (f, _))| *f == r.tree);
-            let jobs: Vec<(Removal, String)> = jobs.into_iter().chain(unsure.into_iter().filter(|(r, _)| named(r))).chain(std::iter::once(main)).collect();
+            // Read again: a worktree may have changed hands since the sheet read it.
+            let named_hosts = OnHosts { folders: hosted(theirs.clone()).collect(), others: on_hosts.others.clone(), unready: on_hosts.unready.clone() };
+            let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().chain(host_removals(&named_hosts, false)).map(|r| r.tree).collect();
+            let stale = |r: &Removal| starts.iter().find(|(t, _)| *t == r.tree).is_some_and(|(t, s)| replaced(&git::worktrees(&git::Runner::Local, t), t, *s));
+            let named = |r: &Removal| theirs.iter().any(|(_, (f, _))| holds(&r.tree, f));
+            let jobs = jobs.into_iter().filter(|(r, _)| !stale(r)).chain(unsure.into_iter().filter(|(r, _)| named(r)));
+            let jobs: Vec<(Removal, String)> = jobs.chain(std::iter::once(main)).collect();
             let jobs = still_theirs(jobs, &reached);
             let (done, failed) = remove_in_order(jobs, limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
@@ -937,7 +946,7 @@ impl Desktop {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, below, named_by, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, sweep_one, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started};
+    use super::{CONFIG_FILE, Failure, Removal, Removals, Removed, TEARDOWN_SCRIPT, branch_deletable, dispose, Found, below, named_by, host_found, host_removal, leftovers, nearest, lost_together, reparent, still_theirs, remove_in_order, run, settle, sweep_one, unoccupied, OnHosts, run_script, folder, remember, saved_links, subagent_removals, subtree_links, teardown_for, there_when_started, replaced};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use store::Leftover;
@@ -1064,6 +1073,14 @@ mod tests {
         assert!(there_when_started(at(10), 10));
         assert!(!there_when_started(at(11), 10));
         assert!(there_when_started(None, 10));
+    }
+
+    #[test]
+    fn a_subagents_worktree_made_again_since_the_sheet_read_it_is_left_alone() {
+        let made = |ms: u64| git::Worktree { path: "/wt/c".into(), branch: "c".into(), main: false, made: true, created: Some(std::time::UNIX_EPOCH + Duration::from_millis(ms)) };
+        assert!(!replaced(&[made(10)], "/wt/c", 10));
+        assert!(replaced(&[made(11)], "/wt/c", 10));
+        assert!(replaced(&[], "/wt/c", 10));
     }
 
     #[test]
