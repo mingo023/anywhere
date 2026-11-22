@@ -42,6 +42,21 @@
 - [Script coding agents from your shell](https://getanywhere.dev/blog/script-claude-code-codex-from-cli): Start sessions, send prompts and branch on the exit codes of anywhere session wait, with recipes for tickets and cron.
 - [Clean up the git worktrees your coding agents leave behind](https://getanywhere.dev/blog/clean-up-coding-agent-worktrees): Find, measure and remove agent worktrees with git, what Claude Code, Codex and Cursor clean up on their own, and how Anywhere deletes them.
 
+## Comparisons
+
+- [Anywhere alternatives](https://getanywhere.dev/alternatives/): Anywhere compared with other apps for running coding agents, one page per tool, each with when the other tool fits better.
+- [Anywhere vs Conductor](https://getanywhere.dev/alternatives/conductor): Anywhere, the open-source coding agent workspace, vs Conductor: license, platforms, agents, review, and what happens to sessions when you close the app.
+- [Anywhere vs Orca](https://getanywhere.dev/alternatives/orca): Anywhere, the open-source coding agent workspace, vs Orca: scope, remote machines, agents, accounts and what each one does when you close the window.
+- [Anywhere vs Paseo](https://getanywhere.dev/alternatives/paseo): Anywhere, the open-source coding agent workspace, vs Paseo: architecture, remote machines, phone and web clients, agents and automation, compared.
+- [Anywhere vs T3 Code](https://getanywhere.dev/alternatives/t3-code): Anywhere, the open-source coding agent workspace, vs T3 Code: closing the window, other machines, accounts, phone and web clients, agents and pull requests.
+- [Anywhere vs Vibe Kanban](https://getanywhere.dev/alternatives/vibe-kanban): Anywhere, the open-source coding agent workspace, vs Vibe Kanban: a native Board where each ticket gets a worktree and agent, compared with a browser kanban.
+- [Anywhere vs Claude Squad](https://getanywhere.dev/alternatives/claude-squad): Anywhere, the open-source coding agent workspace, vs Claude Squad: a desktop app with a Needs you inbox, compared with a tmux-based terminal app.
+- [Anywhere vs Crystal (now Nimbalyst)](https://getanywhere.dev/alternatives/crystal): Crystal is now Nimbalyst. Anywhere, the open-source coding agent workspace, runs Claude Code, Codex and eight more agents in their own git worktrees.
+- [Anywhere vs MonoCode](https://getanywhere.dev/alternatives/monocode): Anywhere, the open-source coding agent workspace, vs MonoCode: sessions and status, agents managing agents, schedules, remote machines and platforms.
+- [Anywhere vs Paradev](https://getanywhere.dev/alternatives/paradev): Anywhere, the open-source coding agent workspace, vs Paradev (formerly Superset): what is free, automations, agents, remote, mobile and platforms.
+- [Anywhere vs Zeron](https://getanywhere.dev/alternatives/zeron): Anywhere, the open-source coding agent workspace, vs Zeron: accounts and sync, servers and cloud, customisation, planning and automation, and agents.
+- [Anywhere vs Synara](https://getanywhere.dev/alternatives/synara): Anywhere, the open-source coding agent workspace, vs Synara: pricing, alerts when an agent needs you, remote access, review and agents compared.
+
 ## Download
 
 - [Source on GitHub](https://github.com/mingo023/anywhere): Code, issues, releases and the MIT license.

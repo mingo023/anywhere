@@ -94,9 +94,9 @@ const tab = (r) => {
 
 const screens = {};
 const listeners = new Set();
-const state = { screen: 'sessions', sel: PROJECTS[0].rows[0] };
-
 const win = document.querySelector('.window.desktop');
+const state = { screen: win.dataset.screen || 'sessions', sel: PROJECTS[0].rows[0] };
+
 const app = document.createElement('div');
 app.className = 'app';
 const $ = (q) => app.querySelector(q);
