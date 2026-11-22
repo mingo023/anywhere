@@ -513,7 +513,7 @@ impl Desktop {
         c.update(cx, |c, cx| c.model_pill(&launch, cx))
     }
 
-    fn launch(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &App) -> Launch {
+    pub(crate) fn launch(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &App) -> Launch {
         let names = self.offered_models(&pick.provider);
         let levels = self.launch_efforts(&pick.provider, &pick.model);
         let (model, effort) = pill_label(&self.agent_name(&pick.provider), pick, &self.store.agents.provider(&pick.provider), &levels, names);

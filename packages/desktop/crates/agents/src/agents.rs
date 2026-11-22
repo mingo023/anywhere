@@ -64,7 +64,7 @@ pub struct Agents {
     pub locals: Vec<Local>,
     /// pocketd's build from `hello.ok`: the release tag, or a VCS stamp in dev.
     pub version: String,
-    pub automations: Automations,
+    pub automations: Arc<Automations>,
     pub board: Arc<Board>,
     pub delegations: Delegations,
     pub queues: Queues,
@@ -188,7 +188,11 @@ impl Agents {
             }
             Event::Locals(locals) => self.locals = locals,
             Event::Registry(_) | Event::RegistryFailed(_) => {}
-            Event::Automations { automations, runs } => self.automations.apply(automations, runs),
+            Event::Automations { automations, runs } => {
+                let mut snapshot = Automations::default();
+                snapshot.apply(automations, runs);
+                self.automations = Arc::new(snapshot);
+            }
             Event::Board { tickets, limit } => self.board = Arc::new(Board { tickets, limit }),
             Event::Delegations { agent, items } => self.delegations.replace(&agent, items),
             Event::Delegated { agent, delegation } => self.delegations.update(&agent, delegation),

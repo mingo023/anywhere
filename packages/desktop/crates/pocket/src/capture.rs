@@ -583,15 +583,15 @@ const STEPS: [(&str, Step); 302] = [
         cx.notify();
     }),
     ("automations", |d, window, cx| d.open_automations(window, cx)),
-    ("automations-runs", |d, _, _| d.automations.tab = crate::automations::logic::Tab::Runs),
-    ("automations-done-run", |d, _, _| d.automations.selected_run = Some("r5".into())),
+    ("automations-runs", |d, _, cx| d.automations.update(cx, |a, _| a.tab = crate::automations::logic::Tab::Runs)),
+    ("automations-done-run", |d, _, cx| d.automations.update(cx, |a, _| a.selected_run = Some("r5".into()))),
     ("automations-editor", |d, window, cx| {
         let first = d.agents.automations.items.first().map(|a| a.id.clone());
         d.edit_automation(first.as_deref(), window, cx);
     }),
     ("automations-new", |d, window, cx| d.edit_automation(None, window, cx)),
-    ("automations-webhook", |d, _, _| d.automations.selected = Some("au5".into())),
-    ("automations-closed-creator", |d, _, _| d.automations.selected = Some("au6".into())),
+    ("automations-webhook", |d, _, cx| d.automations.update(cx, |a, _| a.selected = Some("au5".into()))),
+    ("automations-closed-creator", |d, _, cx| d.automations.update(cx, |a, _| a.selected = Some("au6".into()))),
     ("automations-webhook-editor", |d, window, cx| d.edit_automation(Some("au5"), window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
     ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
@@ -1407,7 +1407,7 @@ fn point_arg(s: &str) -> Option<Point<Pixels>> {
 /// Lists `entry`'s models in whichever model panel is open, its tab in the rail's view.
 fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) {
     let tab = d.offered().iter().position(|p| *p == entry).map_or(0, |at| at + 1);
-    let homes = [Held::Composer(d.new_form.composer.clone()), Held::Chat, Held::Composer(d.automations.form.composer.clone())];
+    let homes = [Held::Composer(d.new_form.composer.clone()), Held::Chat, Held::Composer(d.automations.read(cx).form.composer.clone())];
     for held in homes {
         if held.edit(d, cx, |draft| draft.menu == Some(Menu::Model)) {
             held.edit(d, cx, |draft| {
@@ -1757,7 +1757,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.store.chats.clear();
     d.set_chat_text("", window, cx);
     d.close_overlay(window, cx);
-    d.automations.reset();
+    d.automations.update(cx, |a, _| a.reset());
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
     d.settings.reset(window, cx);
     d.settings.menu = None;

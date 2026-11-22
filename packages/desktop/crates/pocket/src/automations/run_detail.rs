@@ -1,7 +1,7 @@
 use super::glyph::status_pill;
 use super::logic::{access_label, duration_text, run_age_text, run_reason, stamp, when_label};
 use super::parts::{card, crumbs, details, section};
-use crate::desktop::Desktop;
+use super::{Automations, AutomationsEvent};
 use crate::desktop::chrome::pill;
 use crate::util::{now_ms, tilde};
 use agents::Decision;
@@ -11,18 +11,21 @@ use gpui_kit::*;
 use theme::*;
 use ui::{self, Variant};
 
-impl Desktop {
-    pub(super) fn run_detail(&mut self, run: Run, cx: &mut Context<Self>) -> Div {
-        let now = now_ms();
-        let auto = self.agents.automations.items.iter().find(|a| a.id == run.automation_id).cloned();
-        let reason = run_reason(&run, &Local);
+impl Automations {
+    pub(super) fn run_bar(&mut self, run: &Run, cx: &mut Context<Self>) -> (Div, Div) {
         let agent = run.agent_id.clone();
         let open = (!agent.is_empty()).then(|| {
             pill("run-open-session", Variant::Secondary, None, "Open session")
                 .child(icon("external", 12., TEXT))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_run_session(&agent, window, cx)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_run_session(&agent, cx)))
         });
-        let bar = self.detail_bar(crumbs("Runs", reason.clone()), div().children(open), cx);
+        (crumbs("Runs", run_reason(run, &Local)), div().children(open))
+    }
+
+    pub(super) fn run_body(&mut self, run: Run, cx: &mut Context<Self>) -> Stateful<Div> {
+        let now = now_ms();
+        let auto = self.data.items.iter().find(|a| a.id == run.automation_id).cloned();
+        let reason = run_reason(&run, &Local);
 
         let provider = auto.as_ref().map_or("claude", |a| a.provider.as_str());
         let project = auto.as_ref().map(|a| self.repo_name(&a.folder));
@@ -95,12 +98,12 @@ impl Desktop {
             .chain(failure.map(IntoElement::into_any_element))
             .chain(summary.map(IntoElement::into_any_element))
             .chain([section("Details", details(rows)).into_any_element()]);
-        div().flex_1().min_w_0().flex().flex_col().child(bar).child(self.detail_body("run-detail", 18., body))
+        self.detail_body("run-detail", 18., body)
     }
 
     /// Asks to allow what a waiting run's agent wants to do; answering resolves the request itself.
     fn approval_card(&self, run: &Run, provider: &str, cx: &mut Context<Self>) -> Div {
-        let pending = self.agents.pending.iter().find(|p| !run.agent_id.is_empty() && p.agent_id == run.agent_id).cloned();
+        let pending = self.pending_of(run).cloned();
         let agent = run.agent_id.clone();
         let reply = (!agent.is_empty()).then(|| {
             div()
@@ -115,7 +118,7 @@ impl Desktop {
                 .text_color(TEXT_2)
                 .child("Reply in session")
                 .child(icon("external", 11., TEXT_2))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_run_session(&agent, window, cx)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_run_session(&agent, cx)))
         });
         let command = pending.as_ref().map(|p| {
             let text = if p.detail.kind == "shell" { format!("$ {}", p.detail.command) } else { p.ask() };
@@ -137,13 +140,13 @@ impl Desktop {
                     .px(px(14.))
                     .rounded(px(15.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.outbox.resolve(&allow, Decision::Allow);
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(AutomationsEvent::Resolve { request: allow.clone(), decision: Decision::Allow });
                         cx.notify();
                     })),
                 pill("approval-deny", Variant::Ghost, None, "Deny").h(px(30.)).rounded(px(15.)).text_color(FAILED).on_click(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        this.outbox.resolve(&deny, Decision::Deny);
+                    move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(AutomationsEvent::Resolve { request: deny.clone(), decision: Decision::Deny });
                         cx.notify();
                     },
                 )),

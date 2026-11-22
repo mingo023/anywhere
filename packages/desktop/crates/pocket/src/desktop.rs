@@ -14,7 +14,7 @@ pub(crate) mod toast;
 use crate::accounts::Accounts;
 use crate::activity::Activity;
 use crate::add_to_chat::ChatComposer;
-use crate::automations::AutomationsState;
+use crate::automations::Automations;
 use crate::board::Board;
 use crate::browser::Browsers;
 use crate::chat::ChatState;
@@ -116,7 +116,7 @@ pub struct Desktop {
     pub(crate) inbox: Entity<Inbox>,
     pub(crate) activity: Entity<Activity>,
     pub(crate) handoff: Entity<crate::handoff::HandoffState>,
-    pub(crate) automations: AutomationsState,
+    pub(crate) automations: Entity<Automations>,
     pub(crate) board: Entity<Board>,
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
@@ -174,7 +174,8 @@ impl Desktop {
         let clone_form = cx.new(|cx| clone_project::CloneForm::new(window, cx));
         let clone_subs = cx.subscribe_in(&clone_form, window, Self::on_clone_event);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
-        let (automations, automations_subs) = AutomationsState::new(window, cx);
+        let automations = cx.new(|cx| Automations::new(window, cx));
+        let automations_subs = Self::watch_automations(&automations, window, cx);
         let board_start = Self::board_start_hook(cx);
         let board = cx.new(|cx| Board::new(window, cx));
         let board_subs = cx.subscribe_in(&board, window, Self::on_board_event);
@@ -547,7 +548,7 @@ impl Desktop {
             || self.sidebar.add_menu
             || self.sidebar.organize.menu
             || self.sidebar.space_header.read(cx).menu_open()
-            || self.automations.menu.is_some()
+            || self.automations.read(cx).menu.is_some()
             || self.explorer.menu.is_some()
             || self.terminal.menu.is_some()
             || self.accounts.menu.is_some()
@@ -570,7 +571,7 @@ impl Desktop {
         self.sidebar.add_menu = false;
         self.sidebar.organize.menu = false;
         self.sidebar.space_header.update(cx, |h, _| h.shut());
-        self.automations.menu = None;
+        self.automations.update(cx, |a, _| a.menu = None);
         self.board.update(cx, |b, _| b.close_menu());
         self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;

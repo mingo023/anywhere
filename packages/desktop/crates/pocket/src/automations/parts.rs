@@ -1,5 +1,4 @@
-use super::Menu;
-use crate::desktop::Desktop;
+use super::{Automations, Menu};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -24,8 +23,8 @@ pub fn segmented(
     labels: &[&'static str],
     selected: usize,
     roomy: bool,
-    on: fn(&mut Desktop, usize, &mut Context<Desktop>),
-    cx: &mut Context<Desktop>,
+    on: fn(&mut Automations, usize, &mut Context<Automations>),
+    cx: &mut Context<Automations>,
 ) -> Div {
     let (pad, h, gutter, inner, outer, size) = if roomy { (3., 26., 12., 8., 11., 12.5) } else { (2., 24., 9., 7., 9., 12.) };
     div().flex().flex_none().p(px(pad)).gap(px(2.)).rounded(px(outer)).bg(FILL_3).children(labels.iter().enumerate().map(|(i, label)| {
@@ -75,7 +74,7 @@ pub fn details(rows: Vec<(&str, AnyElement)>) -> Div {
     }))
 }
 
-impl Desktop {
+impl Automations {
     pub(super) fn menu_toggle(&self, button: Stateful<Div>, menu: Menu, open: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         ui::popover_trigger(button, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| this.toggle_menu(menu, cx)))
     }

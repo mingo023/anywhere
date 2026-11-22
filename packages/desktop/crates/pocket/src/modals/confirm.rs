@@ -427,7 +427,7 @@ impl Desktop {
             Some(Confirm::Quit(_)) => cx.quit(),
             Some(Confirm::Relaunch(_)) => cx.restart(),
             Some(Confirm::OpenExternal(url)) => cx.open_url(&url),
-            Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id),
+            Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id, cx),
             Some(Confirm::DeleteTicket(id)) => self.delete_ticket(&id),
             Some(Confirm::ResetSection(section)) => self.reset_section(section, window, cx),
             Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),

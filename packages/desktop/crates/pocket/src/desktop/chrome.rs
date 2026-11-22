@@ -331,18 +331,6 @@ pub(crate) fn seam_handle<T: 'static>(
 }
 
 impl Desktop {
-    /// A floating menu of `width` that a click outside closes.
-    pub(crate) fn popup(&self, id: &'static str, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        popup_closing(
-            id,
-            width,
-            cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.close_menus(cx);
-                cx.notify();
-            }),
-        )
-    }
-
     pub(crate) fn detail_bar(&self, crumb: Div, right: impl IntoElement, cx: &mut Context<Self>) -> Div {
         let (pad, toggle) = self.bar_start(14., cx);
         drag_area(div())

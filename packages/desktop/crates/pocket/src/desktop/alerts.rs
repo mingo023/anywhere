@@ -231,7 +231,7 @@ impl Desktop {
             self.terminal.focused = focused;
         }
         if automations {
-            self.automations_changed();
+            self.automations_changed(cx);
         }
         if board {
             self.board_changed(cx);

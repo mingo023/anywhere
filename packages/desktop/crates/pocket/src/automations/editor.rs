@@ -1,14 +1,13 @@
-use super::Menu;
 use super::form::{TEMPLATES, Values};
 use super::logic::{DEFAULT_EVERY, DEFAULT_TIME, Tab};
 use super::parts::{crumbs, section};
+use super::{Automations, AutomationsEvent, Menu};
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame};
 use crate::composer::launch::access_row;
 use crate::composer::{Composer, ComposerEvent};
-use crate::desktop::Desktop;
 use crate::desktop::chrome::pill;
+use crate::modals::new_session::listed_branches;
 use crate::modals::new_session::picker::{menu_input, pick_head};
-use crate::modals::new_session::{default_first, listed_branches};
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, now_ms};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -46,7 +45,7 @@ fn project_key(folder: &str) -> Option<String> {
 }
 
 impl Form {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(window: &mut Window, cx: &mut Context<Automations>) -> (Self, Vec<Subscription>) {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Untitled automation"));
         let composer = cx.new(|cx| {
             let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Tell the agent what to do when this automation runs…").auto_grow(5, 14));
@@ -63,12 +62,11 @@ impl Form {
         let mut subs: Vec<_> =
             [&title, &time, &every, &models, &branch_search].into_iter().map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())).collect();
         subs.push(cx.subscribe(&prompt, |_, _, _: &InputEvent, cx| cx.notify()));
-        subs.push(cx.subscribe_in(&composer, window, |this, c, ev: &ComposerEvent, _, cx| match ev {
-            ComposerEvent::Opened => {
-                this.automations.menu = None;
+        subs.push(cx.subscribe(&composer, |this, _, ev: &ComposerEvent, cx| {
+            if matches!(ev, ComposerEvent::Opened) {
+                this.menu = None;
                 cx.notify();
             }
-            _ => this.composer_event(c, ev, cx),
         }));
         subs.push(cx.observe(&composer, |_, _, cx| cx.notify()));
         (Self { title, time, every, composer, branch_search, branches: None, v: Values::new(String::new()), open: false }, subs)
@@ -102,7 +100,7 @@ impl Form {
         Some(self.v.base.clone()).filter(|b| !b.is_empty()).or_else(|| self.branches().first().map(|(b, _)| b.clone()))
     }
 
-    fn load(&mut self, window: &mut Window, cx: &mut Context<Desktop>) {
+    fn load(&mut self, window: &mut Window, cx: &mut Context<Automations>) {
         let v = self.v.clone();
         self.title.update(cx, |s, cx| s.set_value(v.title.clone(), window, cx));
         self.time.update(cx, |s, cx| s.set_value(v.time.clone(), window, cx));
@@ -115,91 +113,62 @@ impl Form {
     }
 }
 
-impl Desktop {
+impl Automations {
     /// Opens the editor on automation `id`, or on a new one.
-    pub(crate) fn edit_automation(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        self.close_menus(cx);
-        let existing = id.and_then(|id| self.agents.automations.items.iter().find(|a| a.id == id));
-        let folder = self
-            .project
-            .clone()
-            .filter(|p| !self.store.is_scratch(p))
-            .or_else(|| self.store.without_scratch(self.projects()).into_iter().next())
-            .unwrap_or_default();
-        let f = &mut self.automations.form;
-        f.v = existing.map_or_else(|| Values::from_defaults(folder, &self.store.automations), Values::of);
+    pub(crate) fn edit(&mut self, id: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        self.shut(cx);
+        let existing = id.and_then(|id| self.data.items.iter().find(|a| a.id == id));
+        let f = &mut self.form;
+        f.v = existing.map_or_else(|| Values::from_defaults(self.side.folder.clone(), &self.side.defaults), Values::of);
         f.open = true;
         f.load(window, cx);
         f.title.update(cx, |s, cx| s.focus(window, cx));
         let folder = f.v.folder.clone();
-        self.automations.tab = Tab::Automations;
-        self.screen = crate::desktop::chrome::Screen::Automations;
-        self.load_branches(folder, cx);
+        self.tab = Tab::Automations;
+        cx.emit(AutomationsEvent::LoadBranches(folder));
         cx.notify();
     }
 
-    /// Reads `folder`'s local branches off the UI thread, for the branch menu while the editor is still on it.
-    fn load_branches(&mut self, folder: String, cx: &mut Context<Self>) {
-        if folder.is_empty() {
-            return;
+    /// `folder`'s branches, read off the UI thread, for the branch menu while the editor is still on it.
+    pub(crate) fn set_branches(&mut self, folder: String, branches: Branches, cx: &mut Context<Self>) {
+        if self.form.v.folder == folder {
+            self.form.branches = Some((folder, branches));
+            cx.notify();
         }
-        let (runner, dir) = (hosts::runner_for(&folder), folder.clone());
-        let task = cx.background_executor().spawn(async move {
-            let current = git::read(&runner, &dir, false).map(|r| r.branch).unwrap_or_default();
-            let mut branches = git::dated_branches(&runner, &dir);
-            default_first(&mut branches, "", &current);
-            branches
-        });
-        cx.spawn(async move |this, cx| {
-            let branches = task.await;
-            this.update(cx, |d, cx| {
-                if d.automations.form.v.folder == folder {
-                    d.automations.form.branches = Some((folder, branches));
-                    cx.notify();
-                }
-            })
-            .ok();
-        })
-        .detach();
+    }
+
+    /// The composer the editor holds, the project its chips pick for, and the pick they show; none while the editor is shut.
+    pub(crate) fn chip_inputs(&self, cx: &App) -> Option<(Entity<Composer>, LaunchPick, Option<String>)> {
+        self.form.open.then(|| (self.form.composer.clone(), self.form.pick(cx), project_key(&self.form.v.folder)))
     }
 
     /// Moves the draft to `folder`, keeping what its chips picked; its branch is the new folder's default.
     fn set_folder(&mut self, folder: String, cx: &mut Context<Self>) {
-        let f = &mut self.automations.form;
+        let f = &mut self.form;
         let pick = f.pick(cx);
         (f.v.folder, f.v.base) = (folder.clone(), String::new());
         f.composer.update(cx, |c, _| c.draft.choose(project_key(&folder), pick));
-        self.close_menus(cx);
-        self.load_branches(folder, cx);
-        cx.notify();
-    }
-
-    fn save_automation(&mut self, cx: &mut Context<Self>) {
-        let v = self.automations.form.values(cx);
-        let (own, efforts) = (self.store.agents.provider(v.provider), self.launch_efforts(v.provider, &v.model));
-        let v = v.settled(self.store.agents.access(), &own.model, &own.effort, &efforts);
-        let Ok(draft) = v.draft() else { return };
-        self.outbox.local.automation_save(draft);
-        self.automations.form.open = false;
+        self.shut(cx);
+        cx.emit(AutomationsEvent::LoadBranches(folder));
         cx.notify();
     }
 
     fn close_editor(&mut self, cx: &mut Context<Self>) {
-        self.close_menus(cx);
-        self.automations.form.open = false;
+        self.shut(cx);
+        self.form.open = false;
         cx.notify();
     }
 
     fn folder_choices(&self, current: &str) -> Vec<String> {
-        let mut folders = self.store.without_scratch(self.projects());
+        let mut folders = self.side.folders.clone();
         if !current.is_empty() && !folders.iter().any(|f| f == current) {
             folders.push(current.to_string());
         }
         folders
     }
 
-    pub(super) fn automation_editor_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let v = self.automations.form.values(cx);
+    pub(super) fn editor_bar(&mut self, cx: &mut Context<Self>) -> (Div, Div) {
+        let v = self.form.values(cx);
         let draft = v.draft();
         let editing = v.id.is_some();
         let crumb =
@@ -213,12 +182,16 @@ impl Desktop {
             .child(pill("editor-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_editor(cx))))
             .child(
                 pill("editor-save", Variant::Primary, None, if editing { "Save" } else { "Create" })
-                    .when(ready, |d| d.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.save_automation(cx))))
+                    .when(ready, |d| d.on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(AutomationsEvent::Save))))
                     .when(!ready, |d| d.bg(FILL_4).text_color(TEXT_3).shadow(vec![]).cursor_default()),
             );
-        let bar = self.detail_bar(crumbs("Automations", crumb), right, cx);
+        (crumbs("Automations", crumb), right)
+    }
 
-        let f = &self.automations.form;
+    pub(super) fn editor_body(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let v = self.form.values(cx);
+        let editing = v.id.is_some();
+        let f = &self.form;
         // The input's line box is a fixed 1.25rem, so a larger size clips descenders.
         let title = div().font_weight(FontWeight::BOLD).child(Input::new(&f.title).appearance(false).p_0().text_size(px(20.)));
         let enabled = v.enabled;
@@ -233,7 +206,7 @@ impl Desktop {
             .child(ui::toggle("switch", enabled))
             .child(if enabled { "Active" } else { "Paused" })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.automations.form.v.enabled = !enabled;
+                this.form.v.enabled = !enabled;
                 cx.notify();
             }));
         let meta = div().flex().items_center().child(status);
@@ -256,7 +229,7 @@ impl Desktop {
                     .child(icon(t.icon, 14., TEXT_3))
                     .child(t.title)
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        let f = &mut this.automations.form;
+                        let f = &mut this.form;
                         f.v = f.values(cx);
                         f.v.fill(&TEMPLATES[i]);
                         f.load(window, cx);
@@ -270,12 +243,12 @@ impl Desktop {
             .into_iter()
             .chain(templates.map(IntoElement::into_any_element))
             .chain([section("Trigger", trigger).into_any_element(), section("Instructions", instructions).into_any_element()]);
-        div().flex_1().min_w_0().flex().flex_col().child(bar).child(self.detail_body("editor-body", 24., body))
+        self.detail_body("editor-body", 24., body)
     }
 
     /// The instructions in a session's prompt box: access on the left, agent, model and effort on the right.
     fn instructions_box(&self, v: &Values, cx: &mut Context<Self>) -> Div {
-        let c = &self.automations.form.composer;
+        let c = &self.form.composer;
         let prompt = c.read(cx).prompt.clone();
         let (project, pick) = (project_key(&v.folder), v.pick());
         let textarea = Textarea::new(&prompt).appearance(false).text_size(px(INPUT_TEXT_SIZE)).line_height(px(INPUT_LINE_HEIGHT));
@@ -286,9 +259,9 @@ impl Desktop {
             .pt(px(4.))
             .px(px(7.))
             .pb(px(7.))
-            .child(self.access_chip(c, &pick, project.clone(), cx))
+            .children(self.chips.as_ref().map(|chips| c.update(cx, |c, cx| c.access_chip(&pick, project.clone(), &chips.access, cx))))
             .child(div().flex_1())
-            .child(self.model_pill(c, &pick, project, cx));
+            .children(self.chips.as_ref().map(|chips| c.update(cx, |c, cx| c.model_pill(&chips.launch, cx))));
         frame(!v.prompt.trim().is_empty())
             .on_mouse_down(MouseButton::Left, move |_, window, cx| prompt.update(cx, |s, cx| s.focus(window, cx)))
             .child(div().pt(px(5.)).px(px(5.)).child(textarea))
@@ -309,7 +282,7 @@ impl Desktop {
     }
 
     fn project_chip(&self, folder: &str, cx: &mut Context<Self>) -> Div {
-        let open = self.automations.menu == Some(Menu::Project);
+        let open = self.menu == Some(Menu::Project);
         let name = if folder.is_empty() { "Pick a project".to_string() } else { self.repo_name(folder) };
         let chip = ui::menu_chip("editor-project", open)
             .children((!folder.is_empty()).then(|| self.repo_tile_for(folder, 16.)))
@@ -335,7 +308,7 @@ impl Desktop {
     }
 
     fn checkout_chip(&self, worktree: bool, cx: &mut Context<Self>) -> Div {
-        let open = self.automations.menu == Some(Menu::Checkout);
+        let open = self.menu == Some(Menu::Checkout);
         let (_, glyph, label, _) = CHECKOUTS[!worktree as usize];
         let chip = ui::menu_chip("editor-checkout", open)
             .child(icon(glyph, 14., TEXT_3))
@@ -347,8 +320,8 @@ impl Desktop {
             .map(|(i, &(on, glyph, label, hint))| {
                 access_row(("editor-checkout-row", i), on == worktree, Some(glyph), label, hint, TEXT).on_click(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
-                        this.automations.form.v.new_worktree = on;
-                        this.close_menus(cx);
+                        this.form.v.new_worktree = on;
+                        this.shut(cx);
                         cx.notify();
                     },
                 ))
@@ -360,27 +333,14 @@ impl Desktop {
 
     /// The branch each run's new worktree starts from; the menu lists the folder's local branches, as a session's base.
     fn branch_chip(&self, cx: &mut Context<Self>) -> Div {
-        let f = &self.automations.form;
-        let open = self.automations.menu == Some(Menu::Branch);
+        let f = &self.form;
+        let open = self.menu == Some(Menu::Branch);
         let label = f.base_label();
-        let search_input = f.branch_search.clone();
         let chip = ui::menu_chip("editor-branch", open)
             .child(icon("branch", 14., TEXT_3))
             .child(div().font_family(MONO).text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(label.clone().unwrap_or_else(|| "Default branch".into())))
             .child(icon("chevron-down", 12., TEXT_4));
-        let chip = ui::popover_trigger(
-            chip,
-            open,
-            cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                this.toggle_menu(Menu::Branch, cx);
-                if this.automations.menu == Some(Menu::Branch) {
-                    search_input.update(cx, |s, cx| {
-                        s.set_value("", window, cx);
-                        s.focus(window, cx);
-                    });
-                }
-            }),
-        );
+        let chip = ui::popover_trigger(chip, open, cx.listener(move |this, _: &MouseDownEvent, _, cx| this.toggle_menu(Menu::Branch, cx)));
         let menu = open.then(|| {
             let search = f.branch_search.read(cx).value().to_string();
             let now = now_ms();
@@ -407,8 +367,8 @@ impl Desktop {
                     meta,
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.automations.form.v.base = branch.clone();
-                    this.close_menus(cx);
+                    this.form.v.base = branch.clone();
+                    this.shut(cx);
                     cx.notify();
                 }));
                 rows.push(row.into_any_element());

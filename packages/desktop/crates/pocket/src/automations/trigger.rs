@@ -1,9 +1,8 @@
-use super::Menu;
 use super::editor::Form;
 use super::form::{EVERY_DAY, Values, WEEKDAYS, WEEKENDS};
 use super::logic::{WEEK, next_fire, stamp, when_label};
 use super::parts::{card, segmented};
-use crate::desktop::Desktop;
+use super::{Automations, Menu};
 use crate::util::now_ms;
 use chrono::Local;
 use gpui_kit::component::input::Input;
@@ -57,7 +56,7 @@ fn webhook_trigger() -> Div {
         .child(div().text_size(px(12.5)).text_color(TEXT_3).child("Runs when its webhook is called. Its address is on the automation's page."))
 }
 
-impl Desktop {
+impl Automations {
     /// The editor's trigger card: the way to add one, or the one added.
     pub(super) fn trigger_card(&self, v: &Values, cx: &mut Context<Self>) -> Div {
         if !v.scheduled {
@@ -81,8 +80,8 @@ impl Desktop {
             )
             .children(next.map(|t| div().text_size(px(12.5)).text_color(TEXT_3).child(t)))
             .child(div().ml_auto().child(icon_button_sized("trigger-remove", "x", 24., TEXT_3).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.automations.form.v.scheduled = false;
-                this.close_menus(cx);
+                this.form.v.scheduled = false;
+                this.shut(cx);
                 cx.notify();
             }))));
         let mode = segmented(
@@ -91,12 +90,12 @@ impl Desktop {
             v.repeat as usize,
             true,
             |this, i, cx| {
-                this.automations.form.v.repeat = i == 1;
+                this.form.v.repeat = i == 1;
                 cx.notify();
             },
             cx,
         );
-        let f = &self.automations.form;
+        let f = &self.form;
         let body = if v.repeat { self.repeat_fields(v, f, cx) } else { self.day_fields(v, f, cx) };
         card()
             .pt(px(12.))
@@ -112,7 +111,7 @@ impl Desktop {
     }
 
     fn add_trigger(&self, cx: &mut Context<Self>) -> Div {
-        let open = self.automations.menu == Some(Menu::Add);
+        let open = self.menu == Some(Menu::Add);
         let button = self.menu_toggle(
             div()
                 .id("trigger-add")
@@ -153,8 +152,8 @@ impl Desktop {
             self.popup("trigger-menu", 260., cx)
                 .rounded(px(12.))
                 .child(ui::menu_row("trigger-schedule", "clock", "Schedule", None).h(px(30.)).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.automations.form.v.add_schedule(&this.store.automations);
-                    this.close_menus(cx);
+                    this.form.v.add_schedule(&this.side.defaults);
+                    this.shut(cx);
                     cx.notify();
                 })))
                 .child(ui::menu_divider())
@@ -184,13 +183,13 @@ impl Desktop {
                 .when(!on, |d| d.bg(FILL_2).text_color(TEXT_2).hover(|s| s.bg(FILL_3)))
                 .child(DAY_LETTERS[day as usize])
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.automations.form.v.toggle_day(day);
+                    this.form.v.toggle_day(day);
                     cx.notify();
                 }))
         });
         let presets = PRESETS.iter().enumerate().map(|(i, (name, set))| {
             chip(("trigger-preset", i), name, v.has_days(set)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.automations.form.v.set_days(set);
+                this.form.v.set_days(set);
                 cx.notify();
             }))
         });
@@ -219,7 +218,7 @@ impl Desktop {
         let presets = EVERIES.iter().enumerate().map(|(i, (name, minutes))| {
             let minutes = *minutes;
             chip(("trigger-every", i), name, current == Some(minutes)).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.automations.form.every.update(cx, |s, cx| s.set_value(minutes.to_string(), window, cx));
+                this.form.every.update(cx, |s, cx| s.set_value(minutes.to_string(), window, cx));
                 cx.notify();
             }))
         });

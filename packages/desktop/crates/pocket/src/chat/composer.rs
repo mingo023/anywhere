@@ -510,7 +510,7 @@ impl Desktop {
             ("sidebar.picker", self.sidebar.picker.open),
             ("sidebar.add_menu", self.sidebar.add_menu),
             ("sidebar.organize", self.sidebar.organize.menu),
-            ("automations.menu", self.automations.menu.is_some()),
+            ("automations.menu", self.automations.read(cx).menu.is_some()),
             ("explorer.menu", self.explorer.menu.is_some()),
             ("terminal.menu", self.terminal.menu.is_some()),
             ("accounts.menu", self.accounts.menu.is_some()),

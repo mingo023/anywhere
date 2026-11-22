@@ -720,13 +720,22 @@ impl Desktop {
     }
 
     pub(crate) fn access_chip(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
-        let chip = if self.agents.provider_info(&pick.provider).never_asks() {
+        let chip = self.access_chip_of(pick);
+        c.update(cx, |c, cx| c.access_chip(pick, project, &chip, cx))
+    }
+
+    fn access_chip_of(&self, pick: &LaunchPick) -> AccessChip {
+        if self.agents.provider_info(&pick.provider).never_asks() {
             AccessChip::Full(self.agent_name(&pick.provider))
         } else {
             let app = self.store.agents.access();
             AccessChip::Choices { app: app.into(), choices: launch::access_choices(app) }
-        };
-        c.update(cx, |c, cx| c.access_chip(pick, project, &chip, cx))
+        }
+    }
+
+    /// What `c`'s model pill and access chip draw from, for an owner that draws them itself.
+    pub(crate) fn composer_chips(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &App) -> (model_menu::Launch, AccessChip) {
+        (self.launch(c, pick, project, cx), self.access_chip_of(pick))
     }
 }
 
