@@ -281,7 +281,7 @@ func (s *Server) SubagentWorktrees(path string) ([]ops.Tree, error) {
 		for i, id := range h.Sessions {
 			ids[i] = h.Host + "/" + id
 		}
-		out = append(out, ops.Tree{Host: h.Host, Path: h.Path, Since: c.startedBy(ids)})
+		out = append(out, ops.Tree{Host: h.Host, Path: h.Path, Since: c.madeBy(h.Path, ids)})
 	}
 	return out, nil
 }
@@ -346,22 +346,6 @@ func (c *conn) madeBy(tree string, sessions []string) int64 {
 			cwd = real
 		}
 		if inside(cwd, tree) {
-			by = max(by, s.CreatedAt)
-		}
-	}
-	return by
-}
-
-// startedBy is when the last of the sessions named started, by this machine's
-// record: a worktree made at their folder after it is a newer one. 0 when none
-// is known.
-func (c *conn) startedBy(sessions []string) int64 {
-	by := int64(0)
-	for _, id := range sessions {
-		if c.s.Workspace.Session == nil {
-			break
-		}
-		if s, _ := c.s.Workspace.Session(id); s != nil {
 			by = max(by, s.CreatedAt)
 		}
 	}

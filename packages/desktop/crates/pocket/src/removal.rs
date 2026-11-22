@@ -297,15 +297,23 @@ fn sweep_one(r: Removal, own: String, limit: Duration) -> Result<Ordered, Remova
 /// The worktrees the hosts holding `trees` say their subagents worked in, as their lineage holds them, with when each
 /// was made, for the sweep to tell from a newer one at the same path. That lineage also knows the ones that started and
 /// closed while a host's link was down, never listed here. Saved links follow these, as they know when each started.
-/// Each comes with the tree whose lineage named it.
-fn host_lineage(trees: &[String]) -> Vec<(String, (String, Option<u64>))> {
-    let host = |t: &String| Some((t.clone(), hosts::split(t).0.and_then(hosts::remote::connected)?));
-    let below = |(t, h): (String, std::sync::Arc<hosts::remote::Client>)| h.subagent_worktrees(&t).unwrap_or_default().into_iter().map(move |f| (t.clone(), f));
-    trees.iter().filter_map(host).flat_map(below).map(|(of, (f, since))| (of, (f, Some(since).filter(|s| *s > 0)))).collect()
+/// Each comes with the tree whose lineage named it. A host that couldn't say fails the lot: once the tree goes, nothing
+/// would name them again.
+fn host_lineage(trees: &[String]) -> Result<Vec<Named>, String> {
+    let mut out = Vec::new();
+    for t in trees {
+        let Some(host) = hosts::split(t).0.and_then(hosts::remote::connected) else { continue };
+        let below = host.subagent_worktrees(t).map_err(|e| format!("Kept {}, as its subagents there couldn't be read: {e}", basename(t)))?;
+        out.extend(below.into_iter().map(|(f, since)| (t.clone(), (f, Some(since).filter(|s| *s > 0)))));
+    }
+    Ok(out)
 }
 
+/// A folder a tree's lineage named, with that tree: `(tree, (folder, since))`.
+type Named = (String, (String, Option<u64>));
+
 /// The ones of `lineage` that `trees` named.
-fn named_by(lineage: &[(String, (String, Option<u64>))], trees: &[String]) -> Vec<(String, Option<u64>)> {
+fn named_by(lineage: &[Named], trees: &[String]) -> Vec<(String, Option<u64>)> {
     lineage.iter().filter(|(of, _)| trees.contains(of)).map(|(_, f)| f.clone()).collect()
 }
 
@@ -382,6 +390,14 @@ enum Swept {
     Done,
     /// The subagent's, clean, to delete.
     Delete(Removal),
+}
+
+/// Why the sweep kept a leftover it meant to delete.
+enum Held {
+    /// Its branch now holds commits alone.
+    Ask(Removal),
+    /// Its host couldn't say what its subagents left.
+    Unread(String),
 }
 
 /// The deletions done, and the one that failed with why.
@@ -644,7 +660,10 @@ impl Desktop {
             // Read again: a host's worktree may have changed hands since the sheet read it.
             let reached: Vec<String> = host_removals(&on_hosts, false).into_iter().map(|r| r.tree).collect();
             let jobs = still_theirs(jobs, &reached);
-            let theirs = host_lineage(&jobs.iter().map(|(r, _)| r.tree.clone()).collect::<Vec<_>>());
+            let theirs = match host_lineage(&jobs.iter().map(|(r, _)| r.tree.clone()).collect::<Vec<_>>()) {
+                Ok(theirs) => theirs,
+                Err(e) => return ((vec![], jobs.last().map(|(r, _)| (r.clone(), Failure::Remove(e)))), vec![], vec![]),
+            };
             let (done, failed) = remove_in_order(jobs, limit);
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
             // Named only by a tree now gone: nothing could find them again once a later job fails.
@@ -779,8 +798,8 @@ impl Desktop {
         let own = self.store.repos.get(&r.project).map(|x| x.teardown.clone()).unwrap_or_default();
         let delete_branch = r.delete_branch;
         let task = cx.background_executor().spawn(async move {
-            let theirs = host_lineage(std::slice::from_ref(&r.tree));
-            let (done, failed) = sweep_one(r, own, limit)?;
+            let theirs = host_lineage(std::slice::from_ref(&r.tree)).map_err(Held::Unread)?;
+            let (done, failed) = sweep_one(r, own, limit).map_err(Held::Ask)?;
             let trees: Vec<String> = done.iter().map(|(r, _)| r.tree.clone()).collect();
             let folders = theirs.into_iter().map(|(_, f)| f).chain(on_hosts.folders).collect();
             Ok(((done, failed), leftovers(folders, &trees, delete_branch)))
@@ -791,10 +810,17 @@ impl Desktop {
                 d.removals.running.remove(&f);
                 let ((done, failed), below) = match swept {
                     Ok(swept) => swept,
-                    Err(r) => {
+                    Err(Held::Ask(r)) => {
                         if d.overlay.is_none() && d.removals.ask(&f) {
                             d.ask_delete(r, Some(f), cx);
                         }
+                        return;
+                    }
+                    // Tried again once its host comes back.
+                    Err(Held::Unread(e)) => {
+                        d.error = Some(e);
+                        d.removals.failed.insert(f);
+                        cx.notify();
                         return;
                     }
                 };

@@ -261,7 +261,11 @@ impl Client {
             path: String,
             since: u64,
         }
-        let reply = self.fs("worktree.subagents", json!({"path": self.host_path(tree)}))?;
+        let reply = match self.fs("worktree.subagents", json!({"path": self.host_path(tree)})) {
+            // A pocketd from before the op, which keeps no lineage to name any by.
+            Err(e) if ["is not a known verb", "no such terminal"].iter().any(|s| e.to_string().contains(s)) => return Ok(vec![]),
+            reply => reply?,
+        };
         let trees: Vec<Tree> = serde_json::from_value(reply["trees"].clone()).unwrap_or_default();
         let key = |t: &Tree| if t.host.is_empty() { self.key(&t.path) } else { crate::place(&t.host, &t.path) };
         Ok(trees.iter().map(|t| (key(t), t.since)).collect())
@@ -564,17 +568,19 @@ mod tests {
     }
 
     #[test]
-    fn a_trees_subagent_worktrees_come_back_as_keys_and_a_pocketd_without_the_op_refuses() {
+    fn a_trees_subagent_worktrees_come_back_as_keys_and_a_pocketd_without_the_op_names_none() {
         let sock = temp_sock("subagents");
         serve_with(&sock, |m| match (m["op"].as_str(), m["path"].as_str()) {
             (Some("worktree.subagents"), Some("/wt")) => json!({"ev": "worktree.subagents", "id": m["id"], "trees": [{"path": "/wt-c", "since": 5}, {"host": "lab", "path": "/wt-g", "since": 7}]}),
             (Some("worktree.subagents"), Some("/wt-c")) => json!({"ev": "worktree.subagents", "id": m["id"]}),
+            (Some("worktree.subagents"), Some("/busy")) => json!({"ev": "error", "id": m["id"], "error": "database is locked"}),
             _ => json!({"ev": "error", "id": m["id"], "error": "no such terminal"}),
         });
         let client = Client::new("devbox", sock.clone());
+        assert!(client.subagent_worktrees("//devbox/busy").is_err(), "a failed read isn't an empty lineage");
         assert_eq!(client.subagent_worktrees("//devbox/wt").unwrap(), [("//devbox/wt-c".to_string(), 5), ("//lab/wt-g".to_string(), 7)]);
         assert_eq!(client.subagent_worktrees("//devbox/wt-c").unwrap(), vec![]);
-        assert!(client.subagent_worktrees("//devbox/old").is_err());
+        assert_eq!(client.subagent_worktrees("//devbox/old").unwrap(), vec![], "a pocketd without the op names none");
         let _ = std::fs::remove_file(sock);
     }
 

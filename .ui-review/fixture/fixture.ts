@@ -607,7 +607,9 @@ const handoffOp = (op: { op: string; path: string; cwd: string; argv: string[]; 
         setTimeout(() => [`${child.id}2`, child.id].filter((id) => summaries.some((s) => s.id === id)).forEach((id) => exit(ws, id)), 3000);
       }, drop);
     }
-  } else if (op.op === "worktree.subagents") {
+  } else if (op.op === "worktree.subagents" && process.env.FIXTURE_DEVBOX_LINEAGE_FAILS) reply({ ev: "error", error: "database is locked" });
+  // FIXTURE_DEVBOX_LINEAGE_FAILS=1: devbox can't read its lineage, so the subagent's worktree waits rather than going without its own.
+  else if (op.op === "worktree.subagents") {
     // As devbox's lineage holds it: the deeper worktree is its child's subagent's.
     const deeper = op.path.replace(/delegate-host-notes$/, "delegate-host-deeper");
     const marker = join(deeper.replace(/\.worktrees\/delegate-host-deeper$/, ""), ".git", "worktrees", "delegate-host-deeper", "anywhere");

@@ -21,6 +21,7 @@ import (
 	"pocketd/internal/launch"
 	"pocketd/internal/locals"
 	"pocketd/internal/names"
+	"pocketd/internal/ops"
 	"pocketd/internal/orch"
 	"pocketd/internal/peer"
 	"pocketd/internal/proto"
@@ -393,6 +394,34 @@ func TestAHostThatCannotDeleteASubagentsWorktreeRefusesTheDeleteUnlessForced(t *
 	}
 	if want := []string{"devbox /home/dev/wt/notes [hc] false", "devbox /home/dev/wt/notes [hc] true"}; !slices.Equal(asked, want) {
 		t.Fatalf("asked the host %q, want %q", asked, want)
+	}
+}
+
+func TestADesktopIsToldEachSubagentWorktreeWithTheStartOfTheSessionsThatWorkedThere(t *testing.T) {
+	var b bench
+	tree := func(name string) string { return filepath.Join(b.root, "pocket", name) }
+	local(t, aPhone, withWorkspace(t, &b), func(s *Server) {
+		s.Workspace.SubagentTrees = func(string, func(string, int64) string) (orch.Subtrees, error) {
+			return orch.Subtrees{Local: []string{tree("child")}, Hosts: []orch.HostTree{{Host: "devbox", Path: "/home/a", Sessions: []string{"a", "b"}}}}, nil
+		}
+		s.Workspace.Session = func(id string) (*orch.Session, error) {
+			// b started later, in a worktree of its own.
+			at := map[string]*orch.Session{"devbox/a": {ID: id, Cwd: "/home/a", CreatedAt: 5}, "devbox/b": {ID: id, Cwd: "/home/b", CreatedAt: 9}}
+			return at[id], nil
+		}
+	})
+	for _, name := range []string{"parent", "child"} {
+		if _, err := worktree.Add(b.s.Registry.Load(), b.project, name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := b.s.SubagentWorktrees(tree("parent"))
+	want := []ops.Tree{{Path: tree("child"), Since: worktree.MadeAt(tree("child"))}, {Host: "devbox", Path: "/home/a", Since: 5}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, %v; want %+v", got, err, want)
+	}
+	if _, err := b.s.SubagentWorktrees(tree("nowhere")); err == nil {
+		t.Fatal("a folder that's no worktree was answered")
 	}
 }
 
