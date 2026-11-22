@@ -173,9 +173,8 @@ struct ComposerView: View {
                 }
             bar
         }
-        .padding(8)
-        .background(Palette.surface.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.separator.color))
+        .padding(12)
+        .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
         .background {
             GeometryReader { g in
                 let top = g.frame(in: .named(Self.space)).minY
@@ -265,7 +264,7 @@ struct ComposerView: View {
     private var bar: some View {
         HStack(spacing: 2) {
             ScrollView(.horizontal) {
-                HStack(spacing: 2) {
+                HStack(spacing: 6) {
                     if let agent = store.summary {
                         if let goal = agent.goal { GoalPillView(goal: goal, pauses: store.adapter.pausesGoal) { store.goal($0) } }
                         ModelPillView(agent: agent, efforts: efforts, editable: store.hasCap(Caps.settings)) { model, effort in
@@ -282,7 +281,7 @@ struct ComposerView: View {
             .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             if let agent = store.summary, let (used, window) = ContextMeter.context(agent) { ContextRing(used: used, window: window) }
-            AttachMenu(enabled: !store.armed, attach: attach)
+            AttachMenu(enabled: !store.armed, attach: attach, unreadable: { store.attachUnreadable() })
             HStack(spacing: Space.s) {
                 if Composer.stopBesideSteer(store.action, interrupt: caps.interrupt) { GhostStop(enabled: store.online) { store.stop() } }
                 SendButton(

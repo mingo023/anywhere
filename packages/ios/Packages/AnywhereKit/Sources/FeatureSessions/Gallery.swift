@@ -13,6 +13,9 @@ public enum SessionsGallery {
             ("sessions-new", { AnyView(NewSessionView(host: $0, mac: Sample.mac, project: nil, place: nil)) }),
             ("sessions-new-worktree", { AnyView(NewWorktreeView(host: $0, project: Sample.projects[0].path)) }),
             ("sessions-automations", { AnyView(AutomationsView(host: $0, mac: Sample.mac)) }),
+            ("sessions-branches-failed", { _ in
+                AnyView(BranchPicker(title: "Base", branches: nil, error: "\(Sample.mac) didn't answer in time", retry: {}, allowDefault: true, selection: .constant(nil)))
+            }),
         ]
         return screens.flatMap { name, screen in
             [false, true].map { dark in

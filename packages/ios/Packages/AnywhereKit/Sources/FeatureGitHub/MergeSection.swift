@@ -134,7 +134,7 @@ struct MergeBar: View {
         .padding(.leading, Space.l)
         .padding(.trailing, Space.s)
         .padding(.vertical, Space.s)
-        .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .raised(in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous), fill: Palette.surfaceRaised)
         .padding(.horizontal, Space.l)
         .padding(.bottom, Space.xs)
         .confirmationDialog("Merge #\(pr.number) into \(pr.base)?", isPresented: $merging, titleVisibility: .visible) {

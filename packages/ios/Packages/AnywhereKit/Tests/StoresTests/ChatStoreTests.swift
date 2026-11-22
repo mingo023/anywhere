@@ -564,6 +564,17 @@ struct ChatStoreTests {
         #expect(c.draft.images.first?.reason == "Not connected to Studio")
     }
 
+    @Test("an image picked that couldn't be read says so under the box until the next send")
+    func unreadableImage() {
+        let c = chat([])
+        c.attachUnreadable()
+        #expect(c.notice == "Couldn't read that image")
+        #expect(c.draft.images.isEmpty)
+        c.draft.text = "hi"
+        c.send()
+        #expect(c.notice == nil)
+    }
+
     @Test("retrying an undelivered send brings back its images as landed tiles")
     func retryKeepsImages() async {
         let c = chat([])

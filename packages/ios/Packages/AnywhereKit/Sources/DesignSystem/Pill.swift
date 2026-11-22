@@ -34,7 +34,7 @@ public struct Pill: View {
 
     public static func colors(_ tone: Tone) -> (text: Token, fill: Token) {
         switch tone {
-        case .neutral: (Palette.text2, Palette.fill3)
+        case .neutral: (Palette.text2, Palette.fill2)
         case .waiting: (Palette.waitingText, Palette.waitingBackground)
         case .failed: (Palette.failedText, Palette.failedBackground)
         case .success: (Palette.successText, Palette.successBackground)

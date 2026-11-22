@@ -208,5 +208,14 @@ struct WorkspaceStoreTests {
         try? await s.renameLocal(id: "review", title: "  ")
         #expect(s.locals == Sample.locals)
     }
+
+    @Test("branches that couldn't be listed say why, so the picker stops waiting")
+    func branchesFailed() async {
+        let s = store()
+        let tree = Sample.projects[0].path
+        await #expect(throws: DaemonError.self) { try await s.loadBranches(tree: tree) }
+        #expect(s.branches[tree] == nil)
+        #expect(s.branchErrors[tree] == "Not connected to your Mac")
+    }
 }
 

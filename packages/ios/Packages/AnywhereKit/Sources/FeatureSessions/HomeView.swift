@@ -30,6 +30,7 @@ struct HomeView: View {
     @AppStorage("sessions.folds") private var folds = Folds()
     @State private var action: RowAction?
     @State private var making: Making?
+    @State private var toast: Toast?
 
     var body: some View {
         let built = host.homeList(query: query, sort: sort, projectSort: projectSort)
@@ -42,7 +43,7 @@ struct HomeView: View {
         let now = Int(Date().timeIntervalSince1970 * 1000)
         List {
             Section {
-                VStack(alignment: .leading, spacing: Space.m) {
+                VStack(alignment: .leading, spacing: 20) {
                     if only == nil { HomeHeader(host: host) }
                     SearchField("Search sessions, branches", text: $query)
                 }
@@ -101,14 +102,17 @@ struct HomeView: View {
         #endif
         .toolbar { toolbar }
         .refreshable {
-            try? await host.sessions.refresh()
-            try? await host.workspace.refreshProjects()
+            var failed: (any Error)?
+            do { try await host.sessions.refresh() } catch { failed = error }
+            do { try await host.workspace.refreshProjects() } catch { failed = failed ?? error }
+            if let note = Self.refreshNote(failed, mac: host.name, online: host.link == .online) { toast = Toast(note) }
         }
         .task(id: pullRequestProjects(sections, searching: searching)) {
             guard host.hello?.has(Caps.gh) == true else { return }
             for project in pullRequestProjects(sections, searching: searching) { try? await host.github.refreshList(project) }
         }
         .stale(host)
+        .toast($toast)
         .sheet(item: $making) { making in MakingSheet(host: host, mac: mac, making: making) }
         .rowActions(host, $action)
     }
@@ -168,6 +172,12 @@ struct HomeView: View {
         {
             ContentUnavailableView("Nothing needs you", systemImage: "checkmark.circle", description: Text("Sessions that need you, fail or finish show here."))
         }
+    }
+
+    /// What a pull to refresh that failed says; nothing while offline, which the stale strip already says, or when cancelled.
+    nonisolated static func refreshNote(_ error: (any Error)?, mac: String, online: Bool) -> String? {
+        guard let error, online, let why = ErrorText.describe(error, mac: mac) else { return nil }
+        return "Couldn't refresh · \(why)"
     }
 
     /// The open projects with worktrees, whose pull requests badge their rows.
@@ -243,7 +253,7 @@ struct HomeHeader: View {
     @Environment(\.macSwitch) private var macSwitch
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
+        VStack(alignment: .leading, spacing: 6) {
             if let macSwitch {
                 Menu { macSwitch.menu() } label: { title }
                     .buttonStyle(.plain)
@@ -264,7 +274,7 @@ struct HomeHeader: View {
 
     private var title: some View {
         HStack(spacing: Space.s) {
-            Text(host.name).font(Typography.largeTitle).foregroundStyle(Palette.text.color).lineLimit(1).minimumScaleFactor(0.7)
+            Text(host.name).font(.system(.title, weight: .bold)).foregroundStyle(Palette.text.color).lineLimit(2)
             if macSwitch?.othersWaiting == true { Circle().fill(Palette.text.color).frame(width: 7, height: 7) }
             if macSwitch != nil { Image(systemName: "chevron.down").font(Typography.caption.weight(.semibold)).foregroundStyle(Palette.text3.color) }
         }

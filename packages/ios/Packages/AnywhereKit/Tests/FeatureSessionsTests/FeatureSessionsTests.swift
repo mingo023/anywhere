@@ -1,3 +1,4 @@
+import Client
 import Domain
 import Fixtures
 import Foundation
@@ -84,6 +85,15 @@ struct RowActionsTests {
         #expect(RowActions.lostTitle(3, branch: "fix-login") == "Delete fix-login and its 3 unpushed commits?")
         #expect(RowActions.lostMessage(1) == "That commit is on no other branch, remote or tag, so it will be lost.")
         #expect(RowActions.lostMessage(3) == "Those 3 commits are on no other branch, remote or tag, so they will be lost.")
+    }
+
+    @Test("a pull to refresh that failed says why, but not while offline or once cancelled")
+    func refreshNote() {
+        #expect(HomeView.refreshNote(DaemonError.timedOut, mac: "Studio", online: true) == "Couldn't refresh · Studio didn't answer in time")
+        #expect(HomeView.refreshNote(DaemonError.offline, mac: "Studio", online: false) == nil)
+        #expect(HomeView.refreshNote(DaemonError.cancelled, mac: "Studio", online: true) == nil)
+        #expect(HomeView.refreshNote(CancellationError(), mac: "Studio", online: true) == nil)
+        #expect(HomeView.refreshNote(nil, mac: "Studio", online: true) == nil)
     }
 }
 

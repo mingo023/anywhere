@@ -4,6 +4,7 @@ import Wire
 /// The composer under the transcript: what it offers and says, from the agent's state.
 public enum Composer {
     public static let placeholder = "Ask, build, / for commands, @ for files"
+    public static let unreadableImage = "Couldn't read that image"
     static let busyPlaceholder = "Send a follow-up into this turn…"
     static let stoppingPlaceholder = "Queue a follow-up…"
     public static let lineHeight: Double = 22

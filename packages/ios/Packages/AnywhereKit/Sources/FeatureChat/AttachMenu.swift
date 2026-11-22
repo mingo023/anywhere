@@ -13,6 +13,8 @@ struct AttachMenu: View {
 
     let enabled: Bool
     let attach: Attach
+    /// A picked image whose bytes couldn't be read, as a photo still in iCloud while offline.
+    var unreadable: () -> Void = {}
     #if os(iOS)
         @State private var photos: [PhotosPickerItem] = []
         @State private var choosingPhotos = false
@@ -49,7 +51,7 @@ struct AttachMenu: View {
                 for item in items {
                     let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                     Task { @MainActor in
-                        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+                        guard let data = try? await item.loadTransferable(type: Data.self) else { return unreadable() }
                         add(ext: ext) { data }
                     }
                 }
@@ -58,7 +60,7 @@ struct AttachMenu: View {
                 CameraPicker { image in add(ext: "jpg") { image.jpegData(compressionQuality: 0.85) } }.ignoresSafeArea()
             }
             .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
-                guard case .success(let urls) = result else { return }
+                guard case .success(let urls) = result else { return unreadable() }
                 for url in urls {
                     add(ext: url.pathExtension.isEmpty ? "jpg" : url.pathExtension) {
                         let scoped = url.startAccessingSecurityScopedResource()
@@ -85,17 +87,17 @@ struct AttachMenu: View {
     #endif
 
     private func add(ext: String, _ load: @escaping @Sendable () -> Data?) {
-        Self.add(ext: ext, load, to: attach)
+        Self.add(ext: ext, load, to: attach, unreadable: unreadable)
     }
 
-    static func add(ext: String, _ load: @escaping @Sendable () -> Data?, to attach: @escaping Attach) {
+    static func add(ext: String, _ load: @escaping @Sendable () -> Data?, to attach: @escaping Attach, unreadable: @escaping () -> Void = {}) {
         let name = "\(UUID().uuidString.prefix(8)).\(ext)"
         Task {
             let loaded = await Task.detached(priority: .userInitiated) { () -> (Data, Data?)? in
                 guard let data = load() else { return nil }
                 return (data, Thumbnail.make(data))
             }.value
-            guard let (data, thumbnail) = loaded else { return }
+            guard let (data, thumbnail) = loaded else { return unreadable() }
             attach(data, name, thumbnail)
         }
     }

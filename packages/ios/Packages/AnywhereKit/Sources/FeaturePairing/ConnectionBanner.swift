@@ -64,8 +64,7 @@ extension View {
     fileprivate func bannerChrome() -> some View {
         padding(.horizontal, Space.l)
             .padding(.vertical, Space.s + 2)
-            .glass(in: Capsule())
-            .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+            .raised(in: RoundedRectangle(cornerRadius: Radius.float, style: .continuous))
             .padding(.horizontal, Space.l)
             .padding(.top, Space.xs)
     }
