@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 pub(crate) const HINT_AFTER: Duration = Duration::from_secs(10);
 /// How long pocketd gets to upgrade itself in place before the page offers a restart.
 pub(crate) const STALE_AFTER: Duration = Duration::from_secs(15);
+/// How long the page stays after pocketd answers as this build, to show the update done.
+pub(crate) const HAND_BACK: Duration = Duration::from_millis(700);
 pub(crate) const UPDATING: &str = "Anywhere's background service is updating; try again in a moment.";
 
 /// What the page tells the user once pocketd has been gone a while.
@@ -19,6 +21,17 @@ pub(crate) enum Hint {
     Stale,
 }
 
+/// Where an update of pocketd to this app's build stands, as its page shows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Update {
+    /// Waiting this long for pocketd to come back as this build.
+    Waiting(Duration),
+    /// pocketd couldn't update in place and needs a restart.
+    Stuck,
+    /// pocketd answered as this build; how far through the hand-back, 0 to 1.
+    Back(f32),
+}
+
 /// Whether the connection to pocketd is up, and since when it isn't.
 #[derive(Default)]
 pub(crate) struct Link {
@@ -27,6 +40,8 @@ pub(crate) struct Link {
     stale_since: Option<(String, Instant)>,
     /// pocketd went away since it last answered as another build: it is likely exec'ing the new one.
     dropped: bool,
+    /// When pocketd last answered as this build after being another.
+    back: Option<Instant>,
     /// The bundled service's state; only release builds read it.
     pub(crate) service: Option<Service>,
 }
@@ -34,6 +49,7 @@ pub(crate) struct Link {
 impl Link {
     pub(crate) fn down(&mut self, now: Instant) {
         self.down_since.get_or_insert(now);
+        self.back = None;
         self.dropped |= self.stale_since.is_some();
     }
 
@@ -44,8 +60,12 @@ impl Link {
     /// hello.ok arrived: a release app expects the pocketd it ships, which upgrades itself in place within seconds.
     pub(crate) fn connected(&mut self, ours: &str, theirs: &str, release: bool, now: Instant) {
         self.dropped = false;
-        let since = self.stale_since.take().map_or(now, |(_, t)| t);
+        let was = self.stale_since.take();
+        let since = was.as_ref().map_or(now, |(_, t)| *t);
         self.stale_since = (release && ours != theirs).then(|| (theirs.to_string(), since));
+        if was.is_some() && self.stale_since.is_none() {
+            self.back = Some(now);
+        }
     }
 
     /// Down, or up on a pocketd whose protocol may not be this app's.
@@ -56,6 +76,18 @@ impl Link {
     /// The build pocketd runs while the app waits for it to update.
     pub(crate) fn stale(&self) -> Option<&str> {
         self.stale_since.as_ref().map(|(v, _)| v.as_str())
+    }
+
+    /// The update's stage at `now`; none when pocketd is just down, or answers as this build and the hand-back is over.
+    pub(crate) fn update(&self, now: Instant) -> Option<Update> {
+        if let Some((_, since)) = &self.stale_since {
+            return Some(if self.hint(now) == Some(Hint::Stale) { Update::Stuck } else { Update::Waiting(now.duration_since(*since)) });
+        }
+        if self.down_since.is_some() {
+            return None;
+        }
+        let t = now.duration_since(self.back?).as_secs_f32() / HAND_BACK.as_secs_f32();
+        (t < 1.).then_some(Update::Back(t))
     }
 
     pub(crate) fn hint(&self, now: Instant) -> Option<Hint> {
@@ -135,6 +167,39 @@ mod tests {
         assert_eq!((l.is_down(), l.hint(t + Duration::from_secs(60))), (true, None));
         l.connected("0.2.0", "0.1.0", true, t + Duration::from_secs(61));
         assert_eq!(l.hint(t + Duration::from_secs(61)), Some(Hint::Stale));
+    }
+
+    #[test]
+    fn an_update_waits_then_hands_back_once_pocketd_answers_as_this_build() {
+        let t = Instant::now();
+        let mut l = Link::default();
+        assert_eq!(l.update(t), None);
+        l.connected("0.2.0", "0.1.0", true, t);
+        l.down(t + Duration::from_secs(1));
+        assert_eq!(l.update(t + Duration::from_secs(3)), Some(Update::Waiting(Duration::from_secs(3))));
+        l.up();
+        l.connected("0.2.0", "0.2.0", true, t + Duration::from_secs(4));
+        assert_eq!(l.update(t + Duration::from_secs(4)), Some(Update::Back(0.)));
+        assert_eq!(l.update(t + Duration::from_secs(4) + HAND_BACK), None);
+        l.connected("0.2.0", "0.1.0", true, t + Duration::from_secs(5));
+        l.connected("0.2.0", "0.2.0", true, t + Duration::from_secs(6));
+        l.down(t + Duration::from_secs(6));
+        assert_eq!(l.update(t + Duration::from_secs(6)), None, "a pocketd gone again isn't updated");
+        l.up();
+        assert_eq!(l.update(t + Duration::from_secs(6)), None, "nor once it answers again");
+    }
+
+    #[test]
+    fn an_update_that_cant_happen_in_place_is_stuck_and_a_plain_restart_hands_nothing_back() {
+        let t = Instant::now();
+        let mut l = Link::default();
+        l.connected("0.2.0", "0.1.0", true, t);
+        assert_eq!(l.update(t + STALE_AFTER), Some(Update::Stuck));
+        let mut fresh = Link::default();
+        fresh.down(t);
+        fresh.up();
+        fresh.connected("0.2.0", "0.2.0", true, t);
+        assert_eq!((fresh.update(t), fresh.update(t + HINT_AFTER)), (None, None));
     }
 
     #[test]

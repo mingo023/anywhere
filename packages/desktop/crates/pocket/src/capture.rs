@@ -34,7 +34,7 @@ const RICH: &str = "Plan for the **parser** fix, see https://docs.rs/nom and [th
 const RICH_SENT: &str = "Fix the **parser**, see [the notes](https://example.com/notes)\n- [x] read `lexer.rs`\n```rust\nfn quiet() {}\n```";
 const RICH_FILE: &str = "/repo/docs/Parser notes.pdf";
 
-const STEPS: [(&str, Step); 302] = [
+const STEPS: [(&str, Step); 303] = [
     ("session", session),
     ("chat", chat_session),
     ("delegate", |d, window, cx| {
@@ -1075,6 +1075,10 @@ const STEPS: [(&str, Step); 302] = [
     ("service-off", |d, _, _| d.terminals.link.service = Some(daemon::service::Service::RequiresApproval)),
     ("service-updating", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now())),
     ("service-stale", |d, _, _| d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now() - crate::terminals::link::STALE_AFTER)),
+    ("service-back", |d, _, _| {
+        d.terminals.link.connected("0.2.0", "0.1.0", true, Instant::now());
+        d.terminals.link.connected("0.2.0", "0.2.0", true, Instant::now());
+    }),
 ];
 
 /// Steps that drive real input through the window, each taking its next argument from the environment:

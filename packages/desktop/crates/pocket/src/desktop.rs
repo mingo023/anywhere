@@ -54,7 +54,7 @@ use crate::spaces::Spaces;
 use crate::terminal_view::TerminalViewState;
 use crate::terminals::Terminals;
 use crate::themes::Themes;
-use crate::terminals::link::Hint;
+use crate::terminals::link::{Hint, Update};
 use crate::star::Star;
 use crate::welcome::Welcome;
 use crate::updates::Updates;
@@ -535,7 +535,7 @@ impl Desktop {
 
     /// The worktree whose panes the main view shows.
     pub(crate) fn session_tree(&self) -> Option<String> {
-        if self.terminals.link.is_down() || self.screen != Screen::Sessions || self.new_form.shown {
+        if self.terminals.link.is_down() || self.terminals.link.update(Instant::now()).is_some() || self.screen != Screen::Sessions || self.new_form.shown {
             return None;
         }
         self.place()
@@ -554,6 +554,11 @@ impl Desktop {
     }
 
     fn main_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let now = Instant::now();
+        // The hand-back ends on time even when another page covers it, since it keeps the panes hidden.
+        if matches!(self.terminals.link.update(now), Some(Update::Back(_))) {
+            window.request_animation_frame();
+        }
         let body = match self.session_tree() {
             _ if self.shown_create().is_some() => self.creating_page(window, cx),
             Some(_) if self.idle_main() => {
@@ -566,7 +571,7 @@ impl Desktop {
                 div()
             }
             Some(tree) => self.panels_view(&tree, window, cx),
-            None if self.terminals.link.is_down() => self.link_page(cx),
+            None if self.terminals.link.is_down() || self.terminals.link.update(now).is_some() => self.link_page(now, window, cx),
             None if self.new_form.shown && self.screen == Screen::Sessions => self.new_session_page(window, cx),
             None => match self.screen_view(window, cx) {
                 Some(page) => page,
@@ -576,21 +581,31 @@ impl Desktop {
         ui::page(div()).relative().flex_1().min_w_0().h_full().flex().flex_col().overflow_hidden().child(body).children(self.error_toast(cx)).children(self.deleting_toast()).children(self.added_toast()).children(self.tree_toast(cx)).children(self.pr_notice(cx))
     }
 
-    fn link_page(&self, cx: &mut Context<Self>) -> Div {
+    fn link_page(&self, now: Instant, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let link = &self.terminals.link;
-        let starting = if link.stale().is_some() { "Updating Anywhere's background service…" } else { "Starting Anywhere's terminal service…" };
-        let body = div().flex_1().flex().flex_col().items_center().justify_center().gap(px(6.)).text_size(px(14.)).text_color(TEXT_3);
-        let body = match link.hint(Instant::now()) {
-            None => body.child(starting),
-            Some(Hint::Install) => body.child(starting).child("Not starting? In Terminal:").child(div().font_family(MONO).child("pocketd daemon install")),
-            Some(Hint::LoginItems) => body
-                .child("Anywhere's background service is off.")
-                .child(ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items").mt(px(6.)).on_click(|_, _, _| daemon::service::open_login_items())),
-            Some(Hint::Reopen) => body.child(starting).child("Not starting? Quit and reopen Anywhere."),
-            Some(Hint::Stale) => body
-                .child(format!("Anywhere's background service is {}; this app is {}.", link.stale().unwrap_or_default(), channel::version()))
-                .child("It couldn't update in place. A restart interrupts open sessions, which then resume.")
-                .child(ui::button("restart-service", ui::Variant::Primary, None, "Restart service").mt(px(6.)).on_click(cx.listener(|this, _, _, cx| this.restart_service(cx)))),
+        let hint = link.hint(now);
+        let tip = match hint {
+            None | Some(Hint::Stale) => Vec::new(),
+            Some(Hint::Install) => vec![div().child("Not starting? In Terminal:").into_any_element(), div().font_family(MONO).child("pocketd daemon install").into_any_element()],
+            Some(Hint::LoginItems) => vec![
+                div().child("Anywhere's background service is off.").into_any_element(),
+                ui::button("open-login-items", ui::Variant::Primary, None, "Open Login Items").mt(px(6.)).on_click(|_, _, _| daemon::service::open_login_items()).into_any_element(),
+            ],
+            Some(Hint::Reopen) => vec![div().child("Not starting? Quit and reopen Anywhere.").into_any_element()],
+        };
+        let body = match link.update(now) {
+            Some(update) => self.updating_page(update, link.stale().unwrap_or_default(), tip, window, cx),
+            None => div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(6.))
+                .text_size(px(14.))
+                .text_color(TEXT_3)
+                .when(hint != Some(Hint::LoginItems), |d| d.child("Starting Anywhere's terminal service…"))
+                .children(tip),
         };
         div().flex_1().flex().flex_col().child(self.page_bar(vec!["Sessions".into()], Vec::new(), div(), cx)).child(body)
     }

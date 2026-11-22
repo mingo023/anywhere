@@ -2,6 +2,7 @@ pub(crate) mod bell;
 pub(crate) mod close;
 pub(crate) mod link;
 pub(crate) mod sessions;
+pub(crate) mod updating;
 
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay};
