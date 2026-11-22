@@ -43,6 +43,8 @@ public struct Creation: Hashable, Sendable {
     public var started = Date()
     /// When it failed, which stops its clock.
     public var ended: Date?
+    /// It was tried again in the worktree it made, so pocketd runs only the agent's steps.
+    public private(set) var agentOnly = false
 
     /// The step running now, or the last one.
     public var current: String? { steps.last?.step }
@@ -70,6 +72,7 @@ public struct Creation: Hashable, Sendable {
 
     /// Trying again after a failure runs it from the start under a new request id, so its steps and clock start again.
     mutating func again() {
+        agentOnly = madeTree != nil
         steps = []
         started = Date()
         error = nil

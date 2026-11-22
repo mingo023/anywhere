@@ -37,6 +37,11 @@ struct LaunchRowTests {
         #expect(LaunchRow.order(Creation(kind: .session, plan: into)) == ["prepare", "agent"])
         #expect(LaunchRow.order(Creation(kind: .session, plan: new)) == ["prepare", "verify", "fetch", "worktree", "copy", "agent"])
         #expect(LaunchRow.rows(Creation(kind: .session, steps: [.init(step: "prepare")], plan: into)).map(\.label) == ["Preparing", "Starting agent"])
+        var made = Creation(kind: .session, steps: [.init(step: "prepare")], madeTree: "/p.worktrees/otter", plan: new)
+        #expect(LaunchRow.rows(made).count == 6, "making its worktree on the first run, it lists them all")
+        made.again()
+        made.reach("prepare", note: nil)
+        #expect(LaunchRow.rows(made).map(\.label) == ["Preparing", "Starting agent"], "trying again in the worktree it made runs only the agent's steps")
     }
 
     @Test("a done step reads how long it took, up to when the next began; the running one has no time yet")

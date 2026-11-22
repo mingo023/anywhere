@@ -13,7 +13,7 @@ struct LaunchProgress: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     var shown: Creation?
-    /// The launch as it started its agent, kept while the sheet closes on it once the store has let it go.
+    /// The launch as the sheet last showed it, kept while the sheet closes once the store has let it go.
     @State private var started: Creation?
 
     private var workspace: WorkspaceStore { host.workspace }
@@ -89,6 +89,7 @@ struct LaunchProgress: View {
     }
 
     private func dismissFailed() {
+        started = workspace.creations[requestId]
         workspace.forget(creation: requestId)
         dismiss()
     }
@@ -119,8 +120,9 @@ struct LaunchRow: Hashable {
     }
 
     /// The steps pocketd sends, as the desktop lists them (`Create::new`): a new worktree's, less copy or setup when off;
-    /// only Preparing and Starting agent in an existing worktree or Local.
+    /// only Preparing and Starting agent in an existing worktree or Local, or tried again in the worktree it made.
     nonisolated static func order(_ creation: Creation?) -> [String] {
+        if creation?.agentOnly == true { return ["prepare", "agent"] }
         guard let plan = creation?.plan, plan.worktree == nil else { return SessionText.launchSteps }
         guard case .new(let new) = plan.spec.checkout else { return ["prepare", "agent"] }
         return SessionText.launchSteps.filter { !($0 == "copy" && new.copy == false || $0 == "setup" && new.setup == false) }
