@@ -551,8 +551,11 @@ impl Desktop {
             .children(trailing)
             .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
             .child(send);
-        // The search takes the keys while the model panel is open; closing it would leave them nowhere.
-        let handoff = (c.draft.menu != Some(Menu::Model)).then(|| hand_focus(vec![c.search.read(cx).focus_handle(cx)], c.prompt.read(cx).focus_handle(cx)));
+        // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
+        let handoff = (c.draft.menu != Some(Menu::Model)).then(|| {
+            let from = std::iter::once(c.search.read(cx).focus_handle(cx)).chain(c.draft.slider.borrow().focus.clone()).collect();
+            hand_focus(from, c.prompt.read(cx).focus_handle(cx))
+        });
         frame(typing)
             .children(handoff)
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))))

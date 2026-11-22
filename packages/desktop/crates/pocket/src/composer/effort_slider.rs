@@ -56,7 +56,7 @@ pub(crate) struct EffortSlider {
     animation: EffortAnimation,
     /// Shows the focus ring.
     keyed: bool,
-    focus: Option<FocusHandle>,
+    pub(crate) focus: Option<FocusHandle>,
 }
 
 /// One frame of the slider, read off its state.
