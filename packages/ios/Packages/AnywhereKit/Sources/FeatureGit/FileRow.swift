@@ -71,7 +71,7 @@ struct LineCounts: View, Equatable {
             } else {
                 if let added, added > 0 { Text("+\(added)").foregroundStyle(Palette.diffAddText.color) }
                 if let removed, removed > 0 { Text("−\(removed)").foregroundStyle(Palette.diffDelText.color) }
-                if added != nil || removed != nil { Diffstat(added: added ?? 0, removed: removed ?? 0) }
+                if (added ?? 0) + (removed ?? 0) > 0 { Diffstat(added: added ?? 0, removed: removed ?? 0) }
             }
         }
         .font(Typography.digits)

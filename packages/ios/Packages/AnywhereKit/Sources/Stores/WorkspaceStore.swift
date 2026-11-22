@@ -61,6 +61,13 @@ public struct Creation: Hashable, Sendable {
         return .init(requestId: requestId, spec: spec)
     }
 
+    /// pocketd sends a step again with a note, and a launch that makes its worktree first sends Preparing again for its
+    /// agent; as the desktop's `Create::reach`, a step already listed only takes the note.
+    mutating func reach(_ step: String, note: String?) {
+        guard let i = steps.firstIndex(where: { $0.step == step }) else { return steps.append(Step(step: step, note: note)) }
+        if let note, !note.isEmpty { steps[i].note = note }
+    }
+
     /// Trying again after a failure runs it from the start under a new request id, so its steps and clock start again.
     mutating func again() {
         steps = []
@@ -168,7 +175,7 @@ public final class WorkspaceStore: HostStore {
             return set(\.terminalCwds, cwds) || placed
         case .worktreeProgress(let p), .agentProgress(let p):
             guard let id = creation(sentAs: p.requestId) else { return false }
-            creations[id]?.steps.append(.init(step: p.step, note: p.note))
+            creations[id]?.reach(p.step, note: p.note)
             return true
         case .agentCreating(let m):
             guard let id = creation(sentAs: m.requestId) else { return false }

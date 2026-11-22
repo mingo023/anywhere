@@ -115,6 +115,18 @@ struct WorkspaceStoreTests {
         #expect(c.agentCreate(requestId: "x")?.spec.checkout == .worktree("/w/calm-otter"))
     }
 
+    @Test("a step pocketd sends again only takes its note, so a worktree made before the agent doesn't list Preparing twice")
+    func reach() {
+        let s = store()
+        var plan = LaunchPlan(spec: .init(project: "/p", checkout: .worktree("/p"), provider: .claude, access: .edits, plan: false))
+        plan.worktree = .init(requestId: "", project: "/p", name: "fix-it", base: "main")
+        s.add(plan, requestId: "r1", title: "", place: nil)
+        let sent: [(String, String?)] = [("prepare", nil), ("verify", nil), ("fetch", nil), ("fetch", "Couldn't fetch, using local main"), ("worktree", nil), ("copy", nil), ("setup", nil), ("prepare", nil), ("agent", nil)]
+        for (step, note) in sent { _ = s.apply(.agentProgress(.init(requestId: "r1", step: step, note: note))) }
+        #expect(s.creations["r1"]?.steps.map(\.step) == ["prepare", "verify", "fetch", "worktree", "copy", "setup", "agent"])
+        #expect(s.creations["r1"]?.steps[2].note == "Couldn't fetch, using local main")
+    }
+
     @Test("a failed launch stops its clock, and trying again starts its clock and steps afresh")
     func again() {
         var c = Creation(kind: .session, steps: [.init(step: "prepare"), .init(step: "setup")], started: Date(timeIntervalSince1970: 0))
