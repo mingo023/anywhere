@@ -1,7 +1,7 @@
-use super::Menu;
 use super::logic::{Action, Field, LABELS, PRIORITIES, action_field, column, menu_items, priority_name, status_actions};
 use super::parts::{label_dot, priority_glyph};
 use super::values::Values;
+use super::{Board, BoardEvent, Menu};
 use crate::desktop::Desktop;
 use crate::models::listed_agents;
 use agents::tickets::Ticket;
@@ -35,13 +35,32 @@ fn action_row(a: Action) -> Option<(&'static str, &'static str, bool)> {
     })
 }
 
+/// A change to the tickets a menu was opened for.
+pub(crate) enum PropChange {
+    Priority(u8),
+    Label { label: &'static str, on: bool },
+    Agent(String),
+    Project(String),
+}
+
+impl PropChange {
+    fn apply(&self, v: &mut Values) {
+        match self {
+            PropChange::Priority(p) => v.priority = *p,
+            PropChange::Label { label, on } => v.set_label(label, *on),
+            PropChange::Agent(provider) => v.provider = provider.clone(),
+            PropChange::Project(folder) => v.set_folder(folder.clone()),
+        }
+    }
+}
+
 impl Desktop {
     /// Saves a change to each ticket, a started one taking only its priority and labels.
-    fn set_tickets_props(&mut self, ids: &[String], change: impl Fn(&mut Values), cx: &mut App) {
+    pub(super) fn set_tickets_props(&mut self, ids: &[String], change: &PropChange, cx: &mut App) {
         for id in ids {
             let Some(t) = self.agents.board.tickets.iter_mut().find(|t| t.id == *id) else { continue };
             let mut v = Values::of(t);
-            change(&mut v);
+            change.apply(&mut v);
             let draft = v.draft(&t.title, &t.prompt);
             // The menu can stay open, so the next toggle must build on this one before the daemon echoes it.
             (t.priority, t.labels, t.provider, t.folder, t.base) = (v.priority, v.labels, v.provider, v.folder, v.base);
@@ -49,15 +68,18 @@ impl Desktop {
         }
         self.board_changed(cx);
     }
+}
 
+impl Board {
     /// The choices for `field`, applied to every one of `ids`; a choice shows as made when all of them have it.
     fn prop_rows(&self, field: Field, ids: Vec<String>, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
-        let tickets: Vec<&Ticket> = self.agents.board.tickets.iter().filter(|t| wanted.contains(t.id.as_str())).collect();
+        let tickets: Vec<&Ticket> = self.tickets.tickets.iter().filter(|t| wanted.contains(t.id.as_str())).collect();
         let all = |has: &dyn Fn(&Ticket) -> bool| !tickets.is_empty() && tickets.iter().all(|t| has(t));
         let ids = Rc::new(ids);
-        let settle = |this: &mut Self, cx: &mut Context<Self>| {
-            this.close_menus(cx);
+        let change = |ids: &Rc<Vec<String>>, change: PropChange, cx: &mut Context<Self>| cx.emit(BoardEvent::SetProps { ids: ids.to_vec(), change });
+        let settle = |cx: &mut Context<Self>| {
+            cx.emit(BoardEvent::CloseMenus);
             cx.notify();
         };
         match field {
@@ -67,9 +89,9 @@ impl Desktop {
                 .map(|(i, p)| {
                     let ids = ids.clone();
                     ui::menu_pick(("board-priority", i), priority_glyph(p), priority_name(p), all(&|t| t.priority == p))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.set_tickets_props(&ids, |v| v.priority = p, cx);
-                            settle(this, cx);
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                            change(&ids, PropChange::Priority(p), cx);
+                            settle(cx);
                         }))
                         .into_any_element()
                 })
@@ -81,14 +103,14 @@ impl Desktop {
                     let ids = ids.clone();
                     let on = all(&|t| t.labels.iter().any(|l| l == label));
                     ui::menu_pick(("board-label", i), label_dot(label), label, on)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.set_tickets_props(&ids, |v| v.set_label(label, !on), cx);
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                            change(&ids, PropChange::Label { label, on: !on }, cx);
                             cx.notify();
                         }))
                         .into_any_element()
                 })
                 .collect(),
-            Field::Agent => listed_agents(&self.offered(), tickets.first().map(|t| t.provider.as_str()).filter(|p| all(&|t| t.provider == *p)).as_slice())
+            Field::Agent => listed_agents(&self.side.offered, tickets.first().map(|t| t.provider.as_str()).filter(|p| all(&|t| t.provider == *p)).as_slice())
                 .into_iter()
                 .enumerate()
                 .map(|(i, provider)| {
@@ -102,24 +124,26 @@ impl Desktop {
                             all(&|t| t.provider == provider),
                         ),
                     )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.set_tickets_props(&ids, |v| v.provider = provider.to_string(), cx);
-                        settle(this, cx);
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        change(&ids, PropChange::Agent(provider.to_string()), cx);
+                        settle(cx);
                     }))
                     .into_any_element()
                 })
                 .collect(),
             Field::Project => self
-                .board_projects()
-                .into_iter()
+                .side
+                .pickable
+                .iter()
+                .cloned()
                 .enumerate()
                 .map(|(i, folder)| {
                     let ids = ids.clone();
                     let chosen = all(&|t| t.folder == folder);
                     let row = ui::menu_pick(("board-project", i), self.repo_tile_for(&folder, 14.), &self.repo_name(&folder), chosen);
-                    row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.set_tickets_props(&ids, |v| v.set_folder(folder.clone()), cx);
-                        settle(this, cx);
+                    row.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        change(&ids, PropChange::Project(folder.clone()), cx);
+                        settle(cx);
                     }))
                     .into_any_element()
                 })
@@ -136,7 +160,7 @@ impl Desktop {
                 let Some((name, label, danger)) = action_row(a) else { return ui::menu_divider().into_any_element() };
                 let id = id.to_string();
                 let row = if danger { ui::danger_row(("board-action", i), name, label) } else { ui::menu_row(("board-action", i), name, label, None) };
-                row.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.run_action(a, &id, window, cx))).into_any_element()
+                row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.act(a, &id, cx))).into_any_element()
             })
             .collect()
     }
@@ -150,12 +174,12 @@ impl Desktop {
     }
 
     pub(super) fn card_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (at, rows) = match self.board.menu.as_ref()? {
+        let (at, rows) = match self.menu.as_ref()? {
             Menu::Card { id, at, sub } => {
                 let t = self.ticket(id)?;
                 let rows = match sub {
                     Some(field) => self.prop_rows(*field, vec![id.clone()], cx),
-                    None => self.action_rows(menu_items(t, self.ticket_reach(t), self.board.selection.picked.contains(id)), id, cx),
+                    None => self.action_rows(menu_items(t, self.extra(t).reach, self.selection.picked.contains(id)), id, cx),
                 };
                 (at, rows)
             }

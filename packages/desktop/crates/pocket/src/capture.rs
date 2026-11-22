@@ -528,11 +528,11 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("board", |d, window, cx| d.open_board(window, cx)),
     ("board-list", |d, _, cx| {
-        d.board.layout = crate::board::Layout::List;
+        d.board.update(cx, |b, _| b.layout = crate::board::Layout::List);
         cx.notify();
     }),
     ("board-search", |d, _, cx| {
-        d.board.searching = true;
+        d.board.update(cx, |b, _| b.searching = true);
         cx.notify();
     }),
     ("board-list-scrolled", |d, _, cx| {
@@ -542,15 +542,15 @@ const STEPS: [(&str, Step); 302] = [
             .collect();
         d.agents.board.tickets.extend(more);
         d.board_changed(cx);
-        d.board.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) });
+        d.board.update(cx, |b, _| b.rows_list.scroll_to(ListOffset { item_ix: 2, offset_in_item: px(6.) }));
         cx.notify();
     }),
     ("board-closed", |d, _, cx| {
-        d.board.show_closed = true;
+        d.board.update(cx, |b, _| b.show_closed = true);
         d.board_changed(cx);
         cx.notify();
     }),
-    ("board-new", |d, window, cx| d.focus_board_composer(window, cx)),
+    ("board-new", |d, window, cx| d.board.update(cx, |b, cx| b.focus_composer(window, cx))),
     ("board-empty", |d, _, cx| {
         d.agents.board.tickets.clear();
         d.board_changed(cx);
@@ -558,26 +558,26 @@ const STEPS: [(&str, Step); 302] = [
     }),
     ("board-ticket", |d, window, cx| d.edit_ticket("t1", window, cx)),
     ("board-nomatch", |d, _, cx| {
-        d.board.filters.query = "nothing is called this".into();
+        d.board.update(cx, |b, _| b.filters.query = "nothing is called this".into());
         d.board_changed(cx);
         cx.notify();
     }),
     ("board-card-menu", |d, _, cx| {
         let tickets = &d.agents.board.tickets;
         let Some(id) = tickets.iter().find(|t| t.id == "t5").or(tickets.last()).map(|t| t.id.clone()) else { return };
-        d.board.menu = Some(crate::board::Menu::Card { id, at: point(px(700.), px(300.)), sub: None });
+        d.board.update(cx, |b, _| b.menu = Some(crate::board::Menu::Card { id, at: point(px(700.), px(300.)), sub: None }));
         cx.notify();
     }),
     ("board-display", |d, _, cx| {
-        d.board.menu = Some(crate::board::Menu::Display);
+        d.board.update(cx, |b, _| b.menu = Some(crate::board::Menu::Display));
         cx.notify();
     }),
     ("board-filter", |d, _, cx| {
-        d.board.menu = Some(crate::board::Menu::Filter);
+        d.board.update(cx, |b, _| b.menu = Some(crate::board::Menu::Filter));
         cx.notify();
     }),
     ("board-filtered", |d, _, cx| {
-        d.board.filters.priority.toggle(1);
+        d.board.update(cx, |b, _| b.filters.priority.toggle(1));
         d.board_changed(cx);
         cx.notify();
     }),

@@ -15,7 +15,7 @@ use crate::accounts::Accounts;
 use crate::activity::Activity;
 use crate::add_to_chat::ChatComposer;
 use crate::automations::AutomationsState;
-use crate::board::BoardState;
+use crate::board::Board;
 use crate::browser::Browsers;
 use crate::chat::ChatState;
 use crate::creating::Creates;
@@ -117,7 +117,7 @@ pub struct Desktop {
     pub(crate) activity: Entity<Activity>,
     pub(crate) handoff: Entity<crate::handoff::HandoffState>,
     pub(crate) automations: AutomationsState,
-    pub(crate) board: BoardState,
+    pub(crate) board: Entity<Board>,
     pub(crate) error: Option<String>,
     pub(crate) root: FocusHandle,
     pub(crate) palette: Entity<Palette>,
@@ -172,7 +172,9 @@ impl Desktop {
         let (clone_form, clone_subs) = clone_project::CloneForm::new(window, cx);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
         let (automations, automations_subs) = AutomationsState::new(window, cx);
-        let (board, board_subs) = BoardState::new(window, cx);
+        let board_start = Self::board_start_hook(cx);
+        let board = cx.new(|cx| Board::new(window, cx));
+        let board_subs = cx.subscribe_in(&board, window, Self::on_board_event);
         let activity = cx.new(|cx| Activity::new(window, cx));
         let activity_subs = cx.subscribe_in(&activity, window, Self::on_activity_event);
         let handoff = cx.new(|cx| crate::handoff::HandoffState::new(window, cx));
@@ -240,7 +242,8 @@ impl Desktop {
         _subs.extend(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
-        _subs.extend(board_subs);
+        _subs.push(board_start);
+        _subs.push(board_subs);
         _subs.push(activity_subs);
         _subs.push(handoff_subs);
         let (layout, widths) = (store.general.launch_layout.unwrap_or(store.layout), [store.widths.projects, store.widths.sessions]);
@@ -523,7 +526,7 @@ impl Desktop {
     }
 
     pub(crate) fn menu_open(&self, cx: &App) -> bool {
-        self.board.menu.is_some()
+        self.board.read(cx).menu_open()
             || self.panels.menu.is_some()
             || self.panels.actions.is_some()
             || self.panels.top_actions.is_some()
@@ -562,7 +565,7 @@ impl Desktop {
         self.sidebar.organize.menu = false;
         self.spaces.menu = false;
         self.automations.menu = None;
-        self.board.menu = None;
+        self.board.update(cx, |b, _| b.menu = None);
         self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
         self.clone_form.machine_menu = false;

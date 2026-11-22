@@ -1,7 +1,6 @@
-use super::Layout;
 use super::logic::{Order, Props};
 use super::parts::choice;
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent, Layout, Message};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
@@ -25,13 +24,13 @@ fn section(label: &'static str) -> Div {
     div().flex().flex_col().gap(px(5.)).child(div().text_size(px(11.5)).font_weight(FontWeight::MEDIUM).text_color(TEXT_3).child(label))
 }
 
-impl Desktop {
+impl Board {
     pub(super) fn display_menu(&self, cx: &mut Context<Self>) -> Div {
         let layouts = [(Layout::List, "list", "List"), (Layout::Board, "blocks", "Board")]
             .into_iter()
             .enumerate()
             .map(|(i, (l, glyph, label))| {
-                let on = self.board.layout == l;
+                let on = self.layout == l;
                 div()
                     .id(("board-layout", i))
                     .flex_1()
@@ -50,10 +49,8 @@ impl Desktop {
                     .child(icon(glyph, 14., if on { TEXT } else { TEXT_3 }))
                     .child(label)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.board.layout = l;
-                        this.store.board_list = l == Layout::List;
-                        this.store.save();
-                        this.board_changed(cx);
+                        this.layout = l;
+                        cx.emit(BoardEvent::Layout(l));
                         cx.notify();
                     }))
             })
@@ -62,9 +59,9 @@ impl Desktop {
             .into_iter()
             .enumerate()
             .map(|(i, (o, label))| {
-                choice(("board-order", i), label, self.board.order == o).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.board.order = o;
-                    this.board_changed(cx);
+                choice(("board-order", i), label, self.order == o).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.order = o;
+                    cx.emit(BoardEvent::Changed);
                     cx.notify();
                 }))
             })
@@ -73,30 +70,30 @@ impl Desktop {
             .into_iter()
             .enumerate()
             .map(|(i, (label, pick))| {
-                let mut current = self.board.props;
+                let mut current = self.props;
                 choice(("board-prop", i), label, *pick(&mut current)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let on = pick(&mut this.board.props);
+                    let on = pick(&mut this.props);
                     *on = !*on;
                     cx.notify();
                 }))
             })
             .collect::<Vec<_>>();
-        let limit = self.agents.board.limit;
+        let limit = self.tickets.limit;
         let step = |id: &'static str, name: &'static str, next: usize| {
-            ui::icon_button_sized(id, name, 22., TEXT_2).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.outbox.local.board_limit(next.clamp(1, 8));
+            ui::icon_button_sized(id, name, 22., TEXT_2).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.emit(BoardEvent::Send(Message::Limit(next.clamp(1, 8))));
                 cx.notify();
             }))
         };
         let (less, more) = (step("board-limit-less", "minus", limit.saturating_sub(1)), step("board-limit-more", "plus", limit + 1));
         let stepper = div().flex().items_center().text_color(TEXT).child(less).child(div().w(px(20.)).text_center().child(limit.to_string())).child(more);
-        let closed = div().id("board-show-closed").cursor_pointer().child(ui::toggle("board-show-closed-switch", self.board.show_closed)).on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.board.show_closed = !this.board.show_closed;
-                this.board_changed(cx);
+        let closed = div().id("board-show-closed").cursor_pointer().child(ui::toggle("board-show-closed-switch", self.show_closed)).on_click(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
+                this.show_closed = !this.show_closed;
+                cx.emit(BoardEvent::Changed);
                 cx.notify();
-            }),
-        );
+            },
+        ));
         let body = div()
             .p(px(7.))
             .flex()

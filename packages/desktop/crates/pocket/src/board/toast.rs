@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent, Message};
 use gpui_kit::*;
 use std::time::Duration;
 use theme::*;
@@ -14,16 +14,16 @@ pub(super) struct Toast {
     undo: Vec<String>,
 }
 
-impl Desktop {
-    pub(super) fn show_board_toast(&mut self, message: String, undo: Vec<String>, cx: &mut Context<Self>) {
-        self.board.toasts += 1;
-        let seq = self.board.toasts;
-        self.board.toast = Some(Toast { seq, message, undo });
+impl Board {
+    pub(super) fn toast(&mut self, message: String, undo: Vec<String>, cx: &mut Context<Self>) {
+        self.toasts += 1;
+        let seq = self.toasts;
+        self.toast = Some(Toast { seq, message, undo });
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SHOWN_FOR).await;
             this.update(cx, |d, cx| {
-                if d.board.toast.as_ref().is_some_and(|t| t.seq == seq) {
-                    d.board.toast = None;
+                if d.toast.as_ref().is_some_and(|t| t.seq == seq) {
+                    d.toast = None;
                     cx.notify();
                 }
             })
@@ -33,14 +33,14 @@ impl Desktop {
     }
 
     fn undo_close(&mut self, cx: &mut Context<Self>) {
-        for id in self.board.toast.take().map(|t| t.undo).unwrap_or_default() {
-            self.outbox.local.board_reopen(&id);
+        for id in self.toast.take().map(|t| t.undo).unwrap_or_default() {
+            cx.emit(BoardEvent::Send(Message::Reopen(id)));
         }
         cx.notify();
     }
 
     pub(super) fn board_toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let toast = self.board.toast.as_ref()?;
+        let toast = self.toast.as_ref()?;
         let undo = (!toast.undo.is_empty()).then(|| {
             ui::button("board-undo", Variant::Ghost, None, "Undo")
                 .h(px(24.))
@@ -62,7 +62,7 @@ impl Desktop {
             .child(icon("check", 13., SUCCESS))
             .child(div().flex_1().min_w_0().line_height(px(17.)).line_clamp(2).child(toast.message.clone()))
             .children(undo);
-        let above_notice = self.board.hidden > 0;
+        let above_notice = self.hidden > 0;
         Some(div().absolute().bottom(px(if above_notice { 54. } else { 14. })).right(px(16.)).child(card))
     }
 }

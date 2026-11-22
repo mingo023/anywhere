@@ -355,20 +355,6 @@ impl Desktop {
         self.agents.pending.iter().find(|p| p.agent_id == agent).filter(|p| p.questions().is_empty() && !self.agents.observe_only())
     }
 
-    /// Deny and Allow once for a card's permission ask, with ids `{scope}-deny-{id}` and `{scope}-allow-{id}`.
-    pub(crate) fn answer_buttons(&self, scope: &str, id: &str, request: &str, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
-        answer_row(scope, id)
-            .into_iter()
-            .map(|(row, decision)| {
-                let request = request.to_string();
-                row.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.answer_pending(&request, decision, cx);
-                }))
-            })
-            .collect()
-    }
-
     /// Answers the ask the button was drawn for, never one that has replaced it since.
     pub(crate) fn answer_pending(&mut self, request: &str, decision: Decision, cx: &mut Context<Self>) {
         if self.agents.pending.iter().any(|p| p.request_id == request) {

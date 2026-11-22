@@ -1,16 +1,16 @@
 use super::card::DragTicket;
 use super::logic::{Col, set_away};
 use super::parts::status_glyph;
-use crate::desktop::Desktop;
+use super::{Board, BoardEvent};
 use agents::tickets::Status;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use theme::*;
 
-impl Desktop {
+impl Board {
     fn hidden_row(&self, col: Col, cx: &mut Context<Self>) -> Stateful<Div> {
-        let n = self.board.columns[col as usize].len();
-        let unfolds = col == Col::Closed || self.board.tucked[col as usize];
+        let n = self.columns[col as usize].len();
+        let unfolds = col == Col::Closed || self.tucked[col as usize];
         div()
             .id(("board-hidden", col as usize))
             .h(px(30.))
@@ -23,17 +23,17 @@ impl Desktop {
             .text_color(TEXT_2)
             .when(unfolds, |d| {
                 d.cursor_pointer().hover(|s| s.bg(FILL_2)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    set_away(col, false, &mut this.board.tucked, &mut this.board.show_closed);
-                    this.board_changed(cx);
+                    set_away(col, false, &mut this.tucked, &mut this.show_closed);
+                    cx.emit(BoardEvent::Changed);
                     cx.notify();
                 }))
             })
             .drag_over::<DragTicket>(move |s, d, _, _| if col.takes(d.from) { s.bg(FILL_3) } else { s })
             .on_drop(cx.listener(move |this, d: &DragTicket, _, cx| {
                 this.drop_ticket(&d.id, d.from, col, None, cx);
-                if col.takes(d.from) && this.board.tucked[col as usize] {
-                    set_away(col, false, &mut this.board.tucked, &mut this.board.show_closed);
-                    this.board_changed(cx);
+                if col.takes(d.from) && this.tucked[col as usize] {
+                    set_away(col, false, &mut this.tucked, &mut this.show_closed);
+                    cx.emit(BoardEvent::Changed);
                 }
             }))
             .child(status_glyph(col, Status::None))
@@ -42,7 +42,7 @@ impl Desktop {
     }
 
     pub(super) fn hidden_columns(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let away = &self.board.away;
+        let away = &self.away;
         (!away.is_empty()).then(|| {
             let rows: Vec<_> = away.iter().map(|c| self.hidden_row(*c, cx)).collect();
             div()
