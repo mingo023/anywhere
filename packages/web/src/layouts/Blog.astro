@@ -1,0 +1,47 @@
+---
+import Head from "../components/Head.astro";
+
+type Props = {
+	title: string;
+	description: string;
+	path: string;
+	article?: { author: string; published: string; modified: string };
+};
+---
+<!doctype html>
+<html lang="en">
+<head>
+	<Head {...Astro.props} rss themeColor="#0a0a0b">
+		<link rel="stylesheet" href="/docs/docs.css">
+		<link rel="stylesheet" href="/blog/blog.css">
+		<script is:inline src="/docs/docs.js" defer></script>
+		<slot name="head" />
+	</Head>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+	<header class="topbar">
+		<a class="brand" href="/" aria-label="Anywhere home"><img src="/assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
+		<nav class="top-links" aria-label="Site">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+		</nav>
+		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
+	</header>
+	<slot />
+	<footer class="site-footer">
+		<span>Anywhere · MIT licensed. Free forever.</span>
+		<nav aria-label="Footer">
+			<a href="/">Home</a>
+			<a href="/docs/">Docs</a>
+			<a href="/blog/">Blog</a>
+			<a href="https://github.com/mingo023/anywhere">GitHub</a>
+			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/support">Support</a>
+		</nav>
+	</footer>
+</body>
+</html>

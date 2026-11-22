@@ -1,40 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Native, not Electron – Anywhere, coding agent workspace</title>
-	<meta name="description" content="Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare.">
-	<meta name="author" content="Minh Ngo">
-	<link rel="canonical" href="https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui">
-	<link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
-	<meta property="og:type" content="article">
-	<meta property="og:site_name" content="Anywhere, coding agent workspace">
-	<meta property="og:locale" content="en_US">
-	<meta property="og:title" content="Native, not Electron – Anywhere, coding agent workspace">
-	<meta property="og:description" content="Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare.">
-	<meta property="og:url" content="https://getanywhere.dev/blog/native-mac-app-coding-agents-rust-gpui">
-	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
-	<meta property="og:image:width" content="1200">
-	<meta property="og:image:height" content="630">
-	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
-	<meta property="article:published_time" content="2026-11-18">
-	<meta property="article:modified_time" content="2026-11-18">
-	<meta property="article:author" content="Minh Ngo">
-	<meta name="twitter:card" content="summary_large_image">
-	<meta name="twitter:title" content="Native, not Electron – Anywhere, coding agent workspace">
-	<meta name="twitter:description" content="Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare.">
-	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
-	<meta name="theme-color" content="#0a0a0b">
-	<link rel="icon" href="/assets/icon.png" type="image/png" sizes="256x256">
-	<link rel="icon" href="/favicon.ico" sizes="any">
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-	<link rel="stylesheet" href="../docs/docs.css">
-	<link rel="stylesheet" href="blog.css">
-	<script is:inline src="../docs/docs.js" defer></script>
-	<script is:inline type="application/ld+json">
+---
+import Blog from "../../layouts/Blog.astro";
+---
+<Blog title="Native, not Electron – Anywhere, coding agent workspace" description="Why Anywhere's desktop app is Rust on GPUI with a Go daemon and no Electron or Tauri, and how other native-minded agent apps compare." path="/blog/native-mac-app-coding-agents-rust-gpui" article={{author: "Minh Ngo", published: "2026-11-18", modified: "2026-11-18"}}>
+	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
@@ -73,19 +41,6 @@
 	]
 }
 	</script>
-</head>
-<body>
-	<a class="skip" href="#main">Skip to content</a>
-	<header class="topbar">
-		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
-		<nav class="top-links" aria-label="Site">
-			<a href="/">Home</a>
-			<a href="/docs/">Docs</a>
-			<a href="/blog/">Blog</a>
-			<a href="https://github.com/mingo023/anywhere">GitHub</a>
-		</nav>
-		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
-	</header>
 	<div class="post-layout">
 		<main id="main">
 			<article>
@@ -174,17 +129,4 @@
 		</main>
 		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
 	</div>
-	<footer class="site-footer">
-		<span>Anywhere · MIT licensed. Free forever.</span>
-		<nav aria-label="Footer">
-			<a href="/">Home</a>
-			<a href="/docs/">Docs</a>
-			<a href="/blog/">Blog</a>
-			<a href="https://github.com/mingo023/anywhere">GitHub</a>
-			<a href="https://github.com/mingo023/anywhere/blob/main/CHANGELOG.md">Changelog</a>
-			<a href="/privacy">Privacy</a>
-			<a href="/support">Support</a>
-		</nav>
-	</footer>
-</body>
-</html>
+</Blog>

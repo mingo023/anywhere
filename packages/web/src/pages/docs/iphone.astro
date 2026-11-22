@@ -1,34 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Pair an iPhone – Anywhere, coding agent workspace</title>
-	<meta name="description" content="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.">
-	<link rel="canonical" href="https://getanywhere.dev/docs/iphone">
-	<meta property="og:type" content="website">
-	<meta property="og:site_name" content="Anywhere, coding agent workspace">
-	<meta property="og:locale" content="en_US">
-	<meta property="og:title" content="Pair an iPhone – Anywhere, coding agent workspace">
-	<meta property="og:description" content="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.">
-	<meta property="og:url" content="https://getanywhere.dev/docs/iphone">
-	<meta property="og:image" content="https://getanywhere.dev/assets/og.png">
-	<meta property="og:image:width" content="1200">
-	<meta property="og:image:height" content="630">
-	<meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
-	<meta name="twitter:card" content="summary_large_image">
-	<meta name="twitter:title" content="Pair an iPhone – Anywhere, coding agent workspace">
-	<meta name="twitter:description" content="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications.">
-	<meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
-	<meta name="theme-color" content="#0a0a0b">
-	<link rel="icon" href="/assets/icon.png" type="image/png" sizes="256x256">
-	<link rel="icon" href="/favicon.ico" sizes="any">
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-	<link rel="stylesheet" href="docs.css">
-	<script is:inline src="docs.js" defer></script>
-	<script is:inline type="application/ld+json">
+---
+import Docs from "../../layouts/Docs.astro";
+---
+<Docs title="Pair an iPhone – Anywhere, coding agent workspace" description="Pair the Anywhere iPhone app with your Mac over Tailscale and get push notifications." path="/docs/iphone">
+	<script is:inline slot="head" type="application/ld+json">
 {
 	"@context": "https://schema.org",
 	"@graph": [
@@ -54,51 +28,6 @@
 	]
 }
 	</script>
-</head>
-<body>
-	<a class="skip" href="#main">Skip to content</a>
-	<header class="topbar">
-		<button class="menu-button" type="button" aria-controls="docs-nav" aria-expanded="false" aria-label="Open navigation">
-			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
-		</button>
-		<a class="brand" href="/" aria-label="Anywhere home"><img src="../assets/icon.png" alt="" width="24" height="24"><span>Anywhere</span></a>
-		<nav class="top-links" aria-label="Site">
-			<a href="/">Home</a>
-			<a href="/docs/">Docs</a>
-			<a href="/blog/">Blog</a>
-			<a href="https://github.com/mingo023/anywhere">GitHub</a>
-		</nav>
-		<a class="download" href="https://github.com/mingo023/anywhere/releases/latest/download/Anywhere.dmg">Download</a>
-	</header>
-	<div class="layout">
-		<nav class="sidebar" id="docs-nav" aria-label="Documentation">
-			<p class="nav-group">Get started</p>
-			<ul>
-				<li><a href="/docs/">Run your first agent</a></li>
-				<li><a href="/docs/install">Install Anywhere</a></li>
-			</ul>
-			<p class="nav-group">Use Anywhere</p>
-			<ul>
-				<li><a href="/docs/sessions">Sessions and status</a></li>
-				<li><a href="/docs/worktrees">Work in worktrees</a></li>
-				<li><a href="/docs/review">Review and commit changes</a></li>
-				<li><a href="/docs/board">Plan work on the Board</a></li>
-				<li><a href="/docs/automations">Schedule automations</a></li>
-				<li><a href="/docs/delegation">Delegate work from a chat</a></li>
-				<li><a href="/docs/hosts">Run agents on another machine</a></li>
-				<li><a href="/docs/iphone">Pair an iPhone</a></li>
-			</ul>
-			<p class="nav-group">Reference</p>
-			<ul>
-				<li><a href="/docs/agents">Supported agents</a></li>
-				<li><a href="/docs/cli">The anywhere command</a></li>
-			</ul>
-			<p class="nav-group">Explanation</p>
-			<ul>
-				<li><a href="/docs/architecture">How Anywhere runs</a></li>
-			</ul>
-		</nav>
-		<main id="main">
 			<article>
 				<p class="eyebrow">How-to guide</p>
 				<h1>Pair an iPhone <span class="badge-soon">Coming soon</span></h1>
@@ -152,8 +81,4 @@
 				<a class="prev" href="/docs/hosts"><span>Previous</span>Run agents on another machine</a>
 				<a class="next" href="/docs/agents"><span>Next</span>Supported agents</a>
 			</nav>
-		</main>
-		<aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p></aside>
-	</div>
-</body>
-</html>
+</Docs>

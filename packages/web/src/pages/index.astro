@@ -1,58 +1,37 @@
+---
+import Head from "../components/Head.astro";
+---
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Anywhere – run many coding agents in one app (open source)</title>
-  <meta name="description" content="Anywhere is a free, open-source coding agent workspace: run Claude Code, Codex, Cursor and seven more agents side by side, and review diffs in git worktrees.">
-  <link rel="canonical" href="https://getanywhere.dev/">
-  <link rel="alternate" type="application/rss+xml" title="Anywhere blog" href="https://getanywhere.dev/blog/rss.xml">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Anywhere, coding agent workspace">
-  <meta property="og:locale" content="en_US">
-  <meta property="og:title" content="Anywhere – run many coding agents in one app (open source)">
-  <meta property="og:description" content="Anywhere is a free, open-source coding agent workspace: run Claude Code, Codex, Cursor and seven more agents side by side, and review diffs in git worktrees.">
-  <meta property="og:url" content="https://getanywhere.dev/">
-  <meta property="og:image" content="https://getanywhere.dev/assets/og.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Anywhere on macOS, with agent sessions grouped by project and worktree">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Anywhere – run many coding agents in one app (open source)">
-  <meta name="twitter:description" content="Anywhere is a free, open-source coding agent workspace: run Claude Code, Codex, Cursor and seven more agents side by side, and review diffs in git worktrees.">
-  <meta name="twitter:image" content="https://getanywhere.dev/assets/og.png">
-  <meta name="theme-color" content="#09090a">
-  <link rel="icon" href="/assets/icon.png" type="image/png" sizes="256x256">
-  <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="apple-touch-icon" href="/assets/icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="demo/desktop.css">
-  <link rel="stylesheet" href="demo/phone.css">
-  <link rel="stylesheet" href="demo/screens/inbox.css">
-  <link rel="stylesheet" href="demo/screens/review.css">
-  <link rel="stylesheet" href="demo/screens/worktrees.css">
-  <link rel="stylesheet" href="demo/screens/board.css">
-  <link rel="stylesheet" href="demo/screens/automations.css">
-  <link rel="stylesheet" href="demo/screens/delegated.css">
-  <link rel="stylesheet" href="demo/screens/hosts.css">
-  <link rel="stylesheet" href="demo/screens/palette.css">
-  <script is:inline src="demo/icons.js" defer></script>
-  <script is:inline src="demo/kit.js" defer></script>
-  <script is:inline src="demo/desktop.js" defer></script>
-  <script is:inline src="demo/screens/sessions.js" defer></script>
-  <script is:inline src="demo/screens/inbox.js" defer></script>
-  <script is:inline src="demo/screens/review.js" defer></script>
-  <script is:inline src="demo/screens/worktrees.js" defer></script>
-  <script is:inline src="demo/screens/board.js" defer></script>
-  <script is:inline src="demo/screens/automations.js" defer></script>
-  <script is:inline src="demo/screens/delegated.js" defer></script>
-  <script is:inline src="demo/screens/hosts.js" defer></script>
-  <script is:inline src="demo/screens/palette.js" defer></script>
-  <script is:inline src="demo/phone.js" defer></script>
-  <script is:inline src="site.js" defer></script>
+  <Head title="Anywhere – run many coding agents in one app (open source)" description="Anywhere is a free, open-source coding agent workspace: run Claude Code, Codex, Cursor and seven more agents side by side, and review diffs in git worktrees." path="/" rss themeColor="#09090a" fonts="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+    <link slot="icons" rel="apple-touch-icon" href="/assets/icon.png">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="demo/desktop.css">
+    <link rel="stylesheet" href="demo/phone.css">
+    <link rel="stylesheet" href="demo/screens/inbox.css">
+    <link rel="stylesheet" href="demo/screens/review.css">
+    <link rel="stylesheet" href="demo/screens/worktrees.css">
+    <link rel="stylesheet" href="demo/screens/board.css">
+    <link rel="stylesheet" href="demo/screens/automations.css">
+    <link rel="stylesheet" href="demo/screens/delegated.css">
+    <link rel="stylesheet" href="demo/screens/hosts.css">
+    <link rel="stylesheet" href="demo/screens/palette.css">
+    <script is:inline src="demo/icons.js" defer></script>
+    <script is:inline src="demo/kit.js" defer></script>
+    <script is:inline src="demo/desktop.js" defer></script>
+    <script is:inline src="demo/screens/sessions.js" defer></script>
+    <script is:inline src="demo/screens/inbox.js" defer></script>
+    <script is:inline src="demo/screens/review.js" defer></script>
+    <script is:inline src="demo/screens/worktrees.js" defer></script>
+    <script is:inline src="demo/screens/board.js" defer></script>
+    <script is:inline src="demo/screens/automations.js" defer></script>
+    <script is:inline src="demo/screens/delegated.js" defer></script>
+    <script is:inline src="demo/screens/hosts.js" defer></script>
+    <script is:inline src="demo/screens/palette.js" defer></script>
+    <script is:inline src="demo/phone.js" defer></script>
+    <script is:inline src="site.js" defer></script>
+  </Head>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
