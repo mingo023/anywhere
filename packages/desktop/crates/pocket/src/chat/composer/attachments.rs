@@ -1,13 +1,13 @@
-use crate::composer::Draft;
 use crate::composer::element_card::element_card;
 use crate::composer::elements;
 use crate::composer::file_card::file_card;
+use crate::composer::{Draft, Held};
 use crate::desktop::Desktop;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 use theme::*;
 
-pub(crate) fn attach_button(id: impl Into<ElementId>, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, cx: &mut Context<Desktop>) -> Stateful<Div> {
+pub(crate) fn attach_button(id: impl Into<ElementId>, held: Held, cx: &mut Context<Desktop>) -> Stateful<Div> {
     div()
         .id(id)
         .size(px(32.))
@@ -23,14 +23,14 @@ pub(crate) fn attach_button(id: impl Into<ElementId>, draft: impl Fn(&mut Deskto
         .tooltip(|window, cx| Tooltip::new("Attach files").build(window, cx))
         .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, window, cx| {
             cx.stop_propagation();
-            attach_files(this, draft, window, cx);
+            attach_files(this, held.clone(), window, cx);
         }))
 }
 
-fn attach_files(d: &mut Desktop, draft: impl Fn(&mut Desktop) -> &mut Draft + Copy + 'static, window: &mut Window, cx: &mut Context<Desktop>) {
-    draft(d).menu = None;
-    d.pick_path(false, window, cx, move |d, paths, _, _| {
-        draft(d).drop_files(&paths);
+fn attach_files(d: &mut Desktop, held: Held, window: &mut Window, cx: &mut Context<Desktop>) {
+    held.edit(d, cx, |draft| draft.menu = None);
+    d.pick_path(false, window, cx, move |d, paths, _, cx| {
+        held.edit(d, cx, |draft| draft.drop_files(&paths));
     });
     cx.notify();
 }

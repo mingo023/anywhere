@@ -8,7 +8,7 @@ impl Desktop {
     /// Open folder for the space on screen: Finder's picker on This Mac, the host finder on a host.
     pub(crate) fn open_folder(&mut self, opener: Opener, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
-        self.close_picker();
+        self.close_picker(cx);
         if let Some(host) = self.space().host().map(str::to_string) {
             return self.open_host_finder(host, None, opener, window, cx);
         }

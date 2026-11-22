@@ -324,25 +324,25 @@ impl Desktop {
     pub(crate) fn suggest_input(&self, p: Prompt) -> &Entity<TextareaState> {
         match p {
             Prompt::Chat => &self.chats.input,
-            Prompt::Launch => &self.new_form.composer.prompt,
+            Prompt::Launch => &self.new_form.prompt,
         }
     }
 
     fn suggest_state(&self, p: Prompt) -> &Suggest {
         match p {
             Prompt::Chat => &self.chats.composer.suggest,
-            Prompt::Launch => &self.new_form.composer.suggest,
+            Prompt::Launch => &self.new_form.suggest,
         }
     }
 
     fn suggest_state_mut(&mut self, p: Prompt) -> &mut Suggest {
         match p {
             Prompt::Chat => &mut self.chats.composer.suggest,
-            Prompt::Launch => &mut self.new_form.composer.suggest,
+            Prompt::Launch => &mut self.new_form.suggest,
         }
     }
 
-    fn suggest_target(&self, p: Prompt) -> Option<Target> {
+    fn suggest_target(&self, p: Prompt, cx: &App) -> Option<Target> {
         match p {
             Prompt::Chat => self.chats.drafts.owner().and_then(|id| self.agents.get(id)).map(|a| Target {
                 key: a.id.clone(),
@@ -351,7 +351,7 @@ impl Desktop {
                 cwd: a.cwd.clone(),
             }),
             Prompt::Launch => {
-                let pick = self.new_form_pick();
+                let pick = self.new_form_pick(cx);
                 self.new_form.project().map(|cwd| Target {
                     key: launch_key(&pick.provider, &pick.account, cwd),
                     provider: pick.provider,
@@ -367,7 +367,7 @@ impl Desktop {
     /// files each time another `@` does.
     pub(crate) fn draft_changed(&mut self, p: Prompt, cx: &mut Context<Self>) {
         self.suggest_state_mut(p).selected = 0;
-        let Some(t) = self.suggest_target(p) else { return self.suggest(p, cx) };
+        let Some(t) = self.suggest_target(p, cx) else { return self.suggest(p, cx) };
         let input = self.suggest_input(p).read(cx);
         let (text, cursor) = (input.value().to_string(), input.cursor());
         let s = self.suggest_state_mut(p);
@@ -389,7 +389,7 @@ impl Desktop {
 
     /// A command or skill the list offers, typed out and ended with a space, turns into a pill as picking it does.
     pub(crate) fn pill_typed_command(&mut self, p: Prompt, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(t) = self.suggest_target(p) else { return };
+        let Some(t) = self.suggest_target(p, cx) else { return };
         let input = self.suggest_input(p).clone();
         let (text, cursor) = (input.read(cx).value().to_string(), input.read(cx).cursor());
         let pills: Vec<Range<usize>> = input.read(cx).tokens().iter().map(|s| s.range()).collect();
@@ -407,7 +407,7 @@ impl Desktop {
     /// nothing runs yet; a `/` past the draft's start lists those and `/mcp`, as another command runs only from the
     /// start.
     pub(crate) fn suggest(&mut self, p: Prompt, cx: &mut Context<Self>) {
-        let t = self.suggest_target(p);
+        let t = self.suggest_target(p, cx);
         let input = self.suggest_input(p).read(cx);
         let (text, cursor) = (input.value().to_string(), input.cursor());
         let s = self.suggest_state(p);
@@ -462,7 +462,7 @@ impl Desktop {
     /// or when none fit, to say so.
     fn suggestions(&self, p: Prompt, cx: &App) -> Option<&List> {
         let list = self.suggest_state(p).list.as_ref()?;
-        let current = self.suggest_target(p).is_some_and(|t| t.key == list.agent) && *self.suggest_input(p).read(cx).value() == *list.text;
+        let current = self.suggest_target(p, cx).is_some_and(|t| t.key == list.agent) && *self.suggest_input(p).read(cx).value() == *list.text;
         (current && (list.rows.len() > 0 || matches!(list.rows, Rows::Servers { .. }))).then_some(list)
     }
 
@@ -508,7 +508,7 @@ impl Desktop {
             Rows::Commands { rows, .. } => {
                 let Some(c) = rows.get(ix) else { return true };
                 let arg = chat::slash(&list.text).map_or("", |(_, arg)| arg);
-                let provider = self.suggest_target(p).map(|t| t.provider).unwrap_or_default();
+                let provider = self.suggest_target(p, cx).map(|t| t.provider).unwrap_or_default();
                 // The list sorted it without an argument, which can change it: Claude sends `/compact` with one.
                 match chat::for_provider(&provider).command(&c.name, arg) {
                     Kind::Local(local) if p == Prompt::Chat && local != Local::Compact => {
@@ -538,7 +538,7 @@ impl Desktop {
 
     /// Has `agent` sign in to, reconnect or enable `s`, the list staying open to show how it went; one at a time.
     fn mcp_act(&mut self, p: Prompt, agent: &str, s: &McpServer, cx: &mut Context<Self>) {
-        let Some(t) = self.suggest_target(p) else { return };
+        let Some(t) = self.suggest_target(p, cx) else { return };
         let Some(action) = self.suggest_state_mut(p).act(agent, &t.provider, s) else { return };
         self.outbox.mcp_act(agent, action, &s.name);
         cx.notify();
@@ -632,7 +632,7 @@ impl Desktop {
                 })
                 .collect(),
             Rows::Servers { query, servers, .. } => {
-                let provider = self.suggest_target(p).map(|t| t.provider).unwrap_or_default();
+                let provider = self.suggest_target(p, cx).map(|t| t.provider).unwrap_or_default();
                 let s = self.suggest_state(p);
                 let acting = |name: &str| s.acting.get(&list.agent).filter(|(server, _)| server == name).map(|(_, a)| *a);
                 match servers {

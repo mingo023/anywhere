@@ -2,7 +2,7 @@ use crate::actions::{ToggleFocus, ToggleRail, ToggleSidebar, TreeMenuArrow};
 use crate::add_to_chat::Quote;
 use crate::chat::composer::suggest::Prompt;
 use crate::chat::tool_row::{self, Tools};
-use crate::composer::Menu;
+use crate::composer::{Held, Menu};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Layout, Overlay, RowMenu, Screen, Side};
@@ -807,7 +807,7 @@ const STEPS: [(&str, Step); 302] = [
             ..Default::default()
         };
         let repo = d.project.clone();
-        crate::modals::new_session::slot(d).draft.choose(repo, pick);
+        d.new_form.composer.update(cx, |c, _| c.draft.choose(repo, pick));
         cx.notify();
     }),
     // Hermes still listing its models, and this Mac's agents: the others say how to install them.
@@ -840,10 +840,14 @@ const STEPS: [(&str, Step); 302] = [
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
     ("new-scratch", |d, window, cx| d.new_session_without_project(window, cx)),
     ("form-model", |d, window, cx| {
-        let (pick, repo) = (d.new_form_pick(), d.new_form.project().map(str::to_string));
-        d.toggle_model_menu(crate::modals::new_session::slot, &pick.provider, repo.as_deref(), window, cx);
+        let (pick, repo) = (d.new_form_pick(cx), d.new_form.project().map(str::to_string));
+        let composer = d.new_form.composer.clone();
+        d.toggle_model_menu(&composer, &pick.provider, repo.as_deref(), window, cx);
     }),
-    ("form-access", |d, _, cx| d.toggle_composer(crate::modals::new_session::slot, Menu::Access, cx)),
+    ("form-access", |d, _, cx| {
+        let composer = d.new_form.composer.clone();
+        d.toggle_composer(&composer, Menu::Access, cx)
+    }),
     ("new-worktree", |d, window, cx| d.new_worktree(&crate::actions::NewWorktree, window, cx)),
     ("prompt", |d, window, cx| {
         d.reset_new_form(Some("The RestoreView snapshot fails on CI about 1 in 5 runs. Find out why and fix it, then run the tests.".into()), false, window, cx)
@@ -1403,10 +1407,13 @@ fn point_arg(s: &str) -> Option<Point<Pixels>> {
 /// Lists `entry`'s models in whichever model panel is open, its tab in the rail's view.
 fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) {
     let tab = d.offered().iter().position(|p| *p == entry).map_or(0, |at| at + 1);
-    for draft in [&mut d.new_form.composer.draft, &mut d.chats.composer.draft, &mut d.automations.form.composer.draft] {
-        if draft.menu == Some(Menu::Model) {
-            draft.view(entry);
-            crate::composer::model_menu::show_rail_tab(&draft.rail, tab);
+    let homes = [Held::Composer(d.new_form.composer.clone()), Held::Chat, Held::Composer(d.automations.form.composer.clone())];
+    for held in homes {
+        if held.edit(d, cx, |draft| draft.menu == Some(Menu::Model)) {
+            held.edit(d, cx, |draft| {
+                draft.view(entry);
+                crate::composer::model_menu::show_rail_tab(&draft.rail, tab);
+            });
         }
     }
     cx.notify();

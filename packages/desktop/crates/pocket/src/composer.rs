@@ -9,7 +9,6 @@ pub(crate) mod pills;
 pub(crate) mod rich;
 
 use crate::chat::composer::attachments::attach_button;
-use crate::chat::composer::suggest::Suggest;
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame, hand_focus, marks_overlay};
 use crate::desktop::Desktop;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
@@ -25,33 +24,56 @@ use std::sync::Arc;
 use store::LaunchPick;
 use theme::*;
 
-/// Where a composer lives in `Desktop`, so its listeners can reach it.
-pub(crate) type Slot = fn(&mut Desktop) -> &mut Composer;
-
 /// The prompt box that starts an agent: the words, the agent, model and access to start it with, and attached files
 /// and images.
 pub(crate) struct Composer {
     pub(crate) prompt: Entity<TextareaState>,
     /// Narrows the model menu's list.
-    search: Entity<InputState>,
+    pub(crate) search: Entity<InputState>,
     pub(crate) draft: Draft,
-    pub(crate) suggest: Suggest,
-    slot: Slot,
-    /// Closes the host's own menus as one of the composer's opens.
-    opened: fn(&mut Desktop),
-    /// Shows why a pasted image or long text couldn't be saved.
-    unsaved: fn(&mut Desktop, (String, String)),
 }
 
+/// What a composer tells its owner.
+pub(crate) enum ComposerEvent {
+    /// One of its menus opened: the owner closes its own.
+    Opened,
+}
+
+impl EventEmitter<ComposerEvent> for Composer {}
+
 impl Composer {
-    pub(crate) fn new(
-        prompt: Entity<TextareaState>,
-        search: Entity<InputState>,
-        slot: Slot,
-        opened: fn(&mut Desktop),
-        unsaved: fn(&mut Desktop, (String, String)),
-    ) -> Self {
-        Self { prompt, search, draft: Draft::default(), suggest: Suggest::default(), slot, opened, unsaved }
+    pub(crate) fn new(prompt: Entity<TextareaState>, search: Entity<InputState>) -> Self {
+        Self { prompt, search, draft: Draft::default() }
+    }
+
+    /// For a prompt's `on_drop_paths`: dropped files attach to this composer's draft, so none is typed in as its path.
+    pub(crate) fn dropped(this: WeakEntity<Self>) -> impl Fn(&[PathBuf], &mut Window, &mut App) -> Vec<PathBuf> {
+        move |paths, _, cx| match this.update(cx, |c, cx| {
+            c.draft.drop_files(paths);
+            cx.notify();
+        }) {
+            Ok(()) => Vec::new(),
+            Err(_) => paths.to_vec(),
+        }
+    }
+}
+
+/// Whose draft a helper edits: the chat's, which `Desktop` holds, or a composer's.
+#[derive(Clone)]
+pub(crate) enum Held {
+    Chat,
+    Composer(Entity<Composer>),
+}
+
+impl Held {
+    pub(crate) fn edit<R>(&self, d: &mut Desktop, cx: &mut App, f: impl FnOnce(&mut Draft) -> R) -> R {
+        match self {
+            Held::Chat => f(&mut d.chats.composer.draft),
+            Held::Composer(c) => c.update(cx, |c, cx| {
+                cx.notify();
+                f(&mut c.draft)
+            }),
+        }
     }
 }
 
@@ -94,6 +116,15 @@ pub(crate) struct Draft {
     pub(crate) elements: Vec<web::Element>,
 }
 
+/// A `Draft`'s model panel as it stands: the handles it draws with, which share the draft's.
+pub(crate) struct PanelView {
+    pub(crate) viewing: Option<&'static str>,
+    pub(crate) scroll: UniformListScrollHandle,
+    pub(crate) rail: ScrollHandle,
+    pub(crate) slider: Rc<RefCell<effort_slider::EffortSlider>>,
+    pub(crate) effort: effort_menu::EffortMenu,
+}
+
 /// A pasted or dropped image and the file the agent reads it from.
 pub(crate) struct Attachment {
     pub(crate) path: PathBuf,
@@ -114,6 +145,11 @@ impl Draft {
     /// `choose`, with the menu left open.
     fn adjust(&mut self, project: Option<String>, pick: LaunchPick) {
         self.chosen = Some((project, pick));
+    }
+
+    /// What the model panel draws from, to hold while the panel draws.
+    pub(crate) fn view_of(&self) -> PanelView {
+        PanelView { viewing: self.viewing, scroll: self.scroll.clone(), rail: self.rail.clone(), slider: self.slider.clone(), effort: self.effort.clone() }
     }
 
     /// Lists `entry`'s models in the model panel; the efforts are the last entry's.
@@ -399,7 +435,7 @@ fn save_behind(
     desktop: WeakEntity<Desktop>,
     path: PathBuf,
     save: impl FnOnce(&Path) -> std::io::Result<()> + Send + 'static,
-    failed: impl FnOnce(&mut Desktop, &Path, String) + 'static,
+    failed: impl FnOnce(&mut Desktop, &Path, String, &mut Context<Desktop>) + 'static,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -412,7 +448,7 @@ fn save_behind(
             if let Err(e) = save.await {
                 desktop
                     .update(cx, |d, cx| {
-                        failed(d, &path, e.to_string());
+                        failed(d, &path, e.to_string(), cx);
                         cx.notify();
                     })
                     .ok();
@@ -424,11 +460,11 @@ fn save_behind(
 /// For `save_behind`: an attachment that couldn't be written leaves the draft, and `unsaved` shows why under `title`.
 fn left_out(
     title: &'static str,
-    draft: impl Fn(&mut Desktop) -> &mut Draft + 'static,
+    held: Held,
     unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static,
-) -> impl FnOnce(&mut Desktop, &Path, String) + 'static {
-    move |d, path, error| {
-        if draft(d).unsaved(path) {
+) -> impl FnOnce(&mut Desktop, &Path, String, &mut Context<Desktop>) + 'static {
+    move |d, path, error, cx| {
+        if held.edit(d, cx, |draft| draft.unsaved(path)) {
             unsaved(d, (title.into(), error));
         }
     }
@@ -461,12 +497,12 @@ fn pasted<'a>(item: &'a ClipboardItem, picked: &str) -> Pasted<'a> {
     }
 }
 
-/// Takes a paste into the draft `draft` picks, as `pasted` reads it, and says whether it did; text that pastes as
+/// Takes a paste into the draft `held` names, as `pasted` reads it, and says whether it did; text that pastes as
 /// itself is left to the input.
 pub(crate) fn paste(
     desktop: &WeakEntity<Desktop>,
     input: &Entity<TextareaState>,
-    draft: impl Fn(&mut Desktop) -> &mut Draft + 'static,
+    held: Held,
     unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static,
     item: &ClipboardItem,
     window: &mut Window,
@@ -490,13 +526,13 @@ pub(crate) fn paste(
             let path = pasted_path(&text, &dir);
             if d.update(cx, |d, cx| {
                 cx.notify();
-                draft(d).attach_file(path.clone())
+                held.edit(d, cx, |draft| draft.attach_file(path.clone()))
             }) {
                 save_behind(
                     desktop.clone(),
                     path,
                     move |path| save_private(text.as_bytes(), path),
-                    left_out("Couldn't save the pasted text", draft, unsaved),
+                    left_out("Couldn't save the pasted text", held, unsaved),
                     window,
                     cx,
                 );
@@ -508,13 +544,13 @@ pub(crate) fn paste(
             let path = attachment_path(&image, &dir);
             if d.update(cx, |d, cx| {
                 cx.notify();
-                draft(d).attach(Attachment { path: path.clone(), image: image.clone().into() })
+                held.edit(d, cx, |draft| draft.attach(Attachment { path: path.clone(), image: image.clone().into() }))
             }) {
                 save_behind(
                     desktop.clone(),
                     path,
                     move |path| save_private(&image.bytes, path),
-                    left_out("Couldn't save the pasted image", draft, unsaved),
+                    left_out("Couldn't save the pasted image", held, unsaved),
                     window,
                     cx,
                 );
@@ -541,22 +577,27 @@ pub(crate) fn drop_handler(
 
 impl Desktop {
     /// The box around `textarea`, as the chat's; `pills` lead the attachments above it, `trailing` comes before the +
-    /// and `send`.
+    /// and `send`. `unsaved` shows why a pasted image or long text couldn't be saved.
     #[expect(clippy::too_many_arguments, reason = "a view helper takes each part it draws")]
     pub(crate) fn composer(
         &self,
-        c: &Composer,
+        c: &Entity<Composer>,
         project: Option<String>,
         textarea: Textarea,
         typing: bool,
         pills: Vec<AnyElement>,
         trailing: Vec<AnyElement>,
         send: Stateful<Div>,
+        unsaved: fn(&mut Desktop, (String, String)),
         cx: &mut Context<Self>,
     ) -> Div {
-        let pick = c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref()));
-        let (slot, desktop) = (c.slot, cx.entity().downgrade());
+        let (prompt, search, menu, slider, pick) = {
+            let c = c.read(cx);
+            (c.prompt.clone(), c.search.clone(), c.draft.menu, c.draft.slider.clone(), c.draft.pick(project.as_deref(), || self.last_pick(project.as_deref())))
+        };
+        let (held, desktop) = (Held::Composer(c.clone()), cx.entity().downgrade());
         let remove = |id: ElementId, take: fn(&mut Draft, usize), i: usize| {
+            let c = c.clone();
             div()
                 .id(id)
                 .absolute()
@@ -572,13 +613,14 @@ impl Desktop {
                 .cursor_pointer()
                 .active(|s| s.opacity(0.6))
                 .child(icon("x", 10., TEXT_2))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    take(&mut slot(this).draft, i);
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    c.update(cx, |c, _| take(&mut c.draft, i));
                     cx.notify();
                 }))
         };
-        let attached = (!pills.is_empty() || c.draft.has_attachments()).then(|| {
-            let images = c.draft.images.iter().enumerate().map(|(i, a)| {
+        let draft = &c.read(cx).draft;
+        let attached = (!pills.is_empty() || draft.has_attachments()).then(|| {
+            let images = draft.images.iter().enumerate().map(|(i, a)| {
                 let image = img(a.image.clone()).size_full().rounded(px(10.)).object_fit(ObjectFit::Cover);
                 div().relative().size(px(56.)).flex_none().rounded(px(10.)).shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(image).child(remove(
                     ("image-remove", i).into(),
@@ -586,7 +628,7 @@ impl Desktop {
                     i,
                 ))
             });
-            let files = c.draft.files.iter().enumerate().map(|(i, path)| {
+            let files = draft.files.iter().enumerate().map(|(i, path)| {
                 div().relative().flex_none().child(file_card::file_card(("composer-file", i), path)).child(remove(
                     ("file-remove", i).into(),
                     |d, i| _ = d.files.remove(i),
@@ -595,68 +637,74 @@ impl Desktop {
             });
             div().flex().flex_wrap().items_center().gap(px(8.)).pt(px(14.)).px(px(16.)).children(pills).children(images).children(files)
         });
-        let textarea = pills::with_pills(textarea, &c.prompt).appearance(false).text_size(px(INPUT_TEXT_SIZE)).line_height(px(INPUT_LINE_HEIGHT)).on_paste({
-            let prompt = c.prompt.clone();
-            move |item, window, cx| paste(&desktop, &prompt, move |d| &mut slot(d).draft, move |d, e| (slot(d).unsaved)(d, e), item, window, cx)
+        let textarea = pills::with_pills(textarea, &prompt).appearance(false).text_size(px(INPUT_TEXT_SIZE)).line_height(px(INPUT_LINE_HEIGHT)).on_paste({
+            let (prompt, held) = (prompt.clone(), held.clone());
+            move |item, window, cx| paste(&desktop, &prompt, held.clone(), unsaved, item, window, cx)
         });
         let bar = prompt_bar()
             .child(self.model_pill(c, &pick, project.clone(), cx))
             .child(self.access_chip(c, &pick, project, cx))
             .child(div().flex_1())
             .children(trailing)
-            .child(attach_button("composer-attach", move |d| &mut slot(d).draft, cx))
+            .child(attach_button("composer-attach", held, cx))
             .child(send);
         // The search or the effort slider takes the keys while the model panel is open; closing it would leave them nowhere.
-        let handoff = (c.draft.menu != Some(Menu::Model)).then(|| {
-            let from = std::iter::once(c.search.read(cx).focus_handle(cx)).chain(c.draft.slider.borrow().focus.clone()).collect();
-            hand_focus(from, c.prompt.read(cx).focus_handle(cx))
+        let handoff = (menu != Some(Menu::Model)).then(|| {
+            let from = std::iter::once(search.read(cx).focus_handle(cx)).chain(slider.borrow().focus.clone()).collect();
+            hand_focus(from, prompt.read(cx).focus_handle(cx))
         });
         frame(typing)
             .children(handoff)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _: &MouseDownEvent, window, cx| slot(this).prompt.update(cx, |s, cx| s.focus(window, cx))),
-            )
+            .on_mouse_down(MouseButton::Left, {
+                let prompt = prompt.clone();
+                move |_, window, cx| prompt.update(cx, |s, cx| s.focus(window, cx))
+            })
             .children(attached)
-            .child(prompt_text().child(textarea).child(marks_overlay(c.prompt.clone())))
+            .child(prompt_text().child(textarea).child(marks_overlay(prompt)))
             .child(bar)
     }
 
-    pub(crate) fn toggle_composer(&mut self, slot: Slot, menu: Menu, cx: &mut Context<Self>) {
-        let c = slot(self);
-        let opened = c.opened;
-        if c.draft.toggle(menu) {
-            opened(self);
-        }
+    pub(crate) fn toggle_composer(&mut self, c: &Entity<Composer>, menu: Menu, cx: &mut Context<Self>) {
+        c.update(cx, |c, cx| {
+            if c.draft.toggle(menu) {
+                cx.emit(ComposerEvent::Opened);
+            }
+        });
         cx.notify();
     }
 
-    fn choose_launch(&mut self, slot: Slot, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
-        slot(self).draft.choose(project, pick);
+    fn choose_launch(&mut self, c: &Entity<Composer>, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
+        c.update(cx, |c, _| c.draft.choose(project, pick));
         cx.notify();
     }
 
-    fn adjust_launch(&mut self, slot: Slot, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
-        slot(self).draft.adjust(project, pick);
+    fn adjust_launch(&mut self, c: &Entity<Composer>, project: Option<String>, pick: LaunchPick, cx: &mut Context<Self>) {
+        c.update(cx, |c, _| c.draft.adjust(project, pick));
         cx.notify();
     }
 
-    pub(crate) fn access_chip(&self, c: &Composer, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn access_chip(&self, c: &Entity<Composer>, pick: &LaunchPick, project: Option<String>, cx: &mut Context<Self>) -> Div {
         if self.agents.provider_info(&pick.provider).never_asks() {
             return div().child(launch::full_access_chip("composer-access", self.agent_name(&pick.provider)));
         }
-        let (slot, open) = (c.slot, c.draft.menu == Some(Menu::Access));
+        let open = c.read(cx).draft.menu == Some(Menu::Access);
         let app = self.store.agents.access();
-        let chip = launch::access_chip("composer-access", open, &pick.access, app, move |this, cx| this.toggle_composer(slot, Menu::Access, cx), cx);
+        let chip = {
+            let c = c.clone();
+            launch::access_chip("composer-access", open, &pick.access, app, move |this, cx| this.toggle_composer(&c, Menu::Access, cx), cx)
+        };
         let menu = open.then(|| {
-            let current = pick.clone();
-            let choose: Pick = Rc::new(move |this, access, cx| this.choose_launch(slot, project.clone(), LaunchPick { access, ..current.clone() }, cx));
+            let (current, c) = (pick.clone(), c.clone());
+            let choose: Pick = {
+                let c = c.clone();
+                Rc::new(move |this, access, cx| this.choose_launch(&c, project.clone(), LaunchPick { access, ..current.clone() }, cx))
+            };
             menu(
                 "composer-access-menu",
                 "Access",
                 300.,
                 launch::access_rows("composer-access-row", launch::access_choices(app), &pick.access, choose, cx),
-                slot,
+                c,
                 cx,
             )
         });
@@ -709,12 +757,12 @@ pub(crate) fn menu_list(
 }
 
 /// A chip's menu, closed by a press outside it.
-pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<AnyElement>, slot: Slot, cx: &mut Context<Desktop>) -> Div {
+pub(crate) fn menu(id: &'static str, title: &'static str, width: f32, rows: Vec<AnyElement>, c: Entity<Composer>, cx: &mut Context<Desktop>) -> Div {
     let menu = menu_list(id, title, width, rows)
         // Menus hang over the page; without this a click on one also lands on what it covers.
         .occlude()
-        .on_mouse_down_out(cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-            slot(this).draft.menu = None;
+        .on_mouse_down_out(cx.listener(move |_, _: &MouseDownEvent, _, cx| {
+            c.update(cx, |c, _| c.draft.menu = None);
             cx.notify();
         }));
     ui::dropdown(36., ui::menu_in(SharedString::from(format!("{id}-in")), menu))

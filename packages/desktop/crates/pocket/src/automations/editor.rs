@@ -3,8 +3,8 @@ use super::form::{TEMPLATES, Values};
 use super::logic::{DEFAULT_EVERY, DEFAULT_TIME, Tab};
 use super::parts::{crumbs, section};
 use crate::chat::composer::{INPUT_LINE_HEIGHT, INPUT_TEXT_SIZE, frame};
-use crate::composer::Composer;
 use crate::composer::launch::access_row;
+use crate::composer::{Composer, ComposerEvent};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::pill;
 use crate::modals::new_session::picker::{menu_input, pick_head};
@@ -31,17 +31,13 @@ pub struct Form {
     pub(super) time: Entity<InputState>,
     pub(super) every: Entity<InputState>,
     /// The instructions, with the agent, model and access chips a session's prompt box has.
-    pub(crate) composer: Composer,
+    pub(crate) composer: Entity<Composer>,
     pub(super) branch_search: Entity<InputState>,
     /// A folder's local branches, its default first, as last read.
     pub(super) branches: Option<(String, Branches)>,
     /// The choices; its texts and chips only count as of the last `load`, see `values`.
     pub(super) v: Values,
     pub(crate) open: bool,
-}
-
-fn slot(d: &mut Desktop) -> &mut Composer {
-    &mut d.automations.form.composer
 }
 
 /// The key the composer remembers its pick under.
@@ -52,15 +48,28 @@ fn project_key(folder: &str) -> Option<String> {
 impl Form {
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let title = cx.new(|cx| InputState::new(window, cx).placeholder("Untitled automation"));
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Tell the agent what to do when this automation runs…").auto_grow(5, 14));
+        let composer = cx.new(|cx| {
+            let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Tell the agent what to do when this automation runs…").auto_grow(5, 14));
+            let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
+            Composer::new(prompt, models)
+        });
+        let (prompt, models) = {
+            let c = composer.read(cx);
+            (c.prompt.clone(), c.search.clone())
+        };
         let time = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_TIME));
         let every = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_EVERY));
-        let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
         let branch_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let mut subs: Vec<_> =
             [&title, &time, &every, &models, &branch_search].into_iter().map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())).collect();
         subs.push(cx.subscribe(&prompt, |_, _, _: &InputEvent, cx| cx.notify()));
-        let composer = Composer::new(prompt, models, slot, |d| d.automations.menu = None, |_, _| {});
+        subs.push(cx.subscribe_in(&composer, window, |this, _, ev: &ComposerEvent, _, cx| match ev {
+            ComposerEvent::Opened => {
+                this.automations.menu = None;
+                cx.notify();
+            }
+        }));
+        subs.push(cx.observe(&composer, |_, _, cx| cx.notify()));
         (Self { title, time, every, composer, branch_search, branches: None, v: Values::new(String::new()), open: false }, subs)
     }
 
@@ -68,18 +77,18 @@ impl Form {
     pub fn values(&self, cx: &App) -> Values {
         let mut v = Values {
             title: self.title.read(cx).value().to_string(),
-            prompt: self.composer.prompt.read(cx).value().to_string(),
+            prompt: self.composer.read(cx).prompt.read(cx).value().to_string(),
             time: self.time.read(cx).value().to_string(),
             every: self.every.read(cx).value().to_string(),
             ..self.v.clone()
         };
-        v.set_pick(&self.pick());
+        v.set_pick(&self.pick(cx));
         v
     }
 
     /// The agent, model, effort and access the chips show: picked there, else as loaded.
-    fn pick(&self) -> LaunchPick {
-        self.composer.draft.pick(project_key(&self.v.folder).as_deref(), || self.v.pick())
+    fn pick(&self, cx: &App) -> LaunchPick {
+        self.composer.read(cx).draft.pick(project_key(&self.v.folder).as_deref(), || self.v.pick())
     }
 
     /// The folder's branches once read, its default first.
@@ -95,11 +104,13 @@ impl Form {
     fn load(&mut self, window: &mut Window, cx: &mut Context<Desktop>) {
         let v = self.v.clone();
         self.title.update(cx, |s, cx| s.set_value(v.title.clone(), window, cx));
-        self.composer.prompt.update(cx, |s, cx| s.set_value(v.prompt.clone(), window, cx));
         self.time.update(cx, |s, cx| s.set_value(v.time.clone(), window, cx));
         self.every.update(cx, |s, cx| s.set_value(v.every.clone(), window, cx));
-        self.composer.draft.clear();
-        self.composer.draft.choose(project_key(&v.folder), v.pick());
+        self.composer.update(cx, |c, cx| {
+            c.prompt.update(cx, |s, cx| s.set_value(v.prompt.clone(), window, cx));
+            c.draft.clear();
+            c.draft.choose(project_key(&v.folder), v.pick());
+        });
     }
 }
 
@@ -154,9 +165,9 @@ impl Desktop {
     /// Moves the draft to `folder`, keeping what its chips picked; its branch is the new folder's default.
     fn set_folder(&mut self, folder: String, cx: &mut Context<Self>) {
         let f = &mut self.automations.form;
-        let pick = f.pick();
+        let pick = f.pick(cx);
         (f.v.folder, f.v.base) = (folder.clone(), String::new());
-        f.composer.draft.choose(project_key(&folder), pick);
+        f.composer.update(cx, |c, _| c.draft.choose(project_key(&folder), pick));
         self.close_menus(cx);
         self.load_branches(folder, cx);
         cx.notify();
@@ -264,8 +275,9 @@ impl Desktop {
     /// The instructions in a session's prompt box: access on the left, agent, model and effort on the right.
     fn instructions_box(&self, v: &Values, cx: &mut Context<Self>) -> Div {
         let c = &self.automations.form.composer;
+        let prompt = c.read(cx).prompt.clone();
         let (project, pick) = (project_key(&v.folder), v.pick());
-        let textarea = Textarea::new(&c.prompt).appearance(false).text_size(px(INPUT_TEXT_SIZE)).line_height(px(INPUT_LINE_HEIGHT));
+        let textarea = Textarea::new(&prompt).appearance(false).text_size(px(INPUT_TEXT_SIZE)).line_height(px(INPUT_LINE_HEIGHT));
         let bar = div()
             .flex()
             .items_center()
@@ -276,7 +288,6 @@ impl Desktop {
             .child(self.access_chip(c, &pick, project.clone(), cx))
             .child(div().flex_1())
             .child(self.model_pill(c, &pick, project, cx));
-        let prompt = c.prompt.clone();
         frame(!v.prompt.trim().is_empty())
             .on_mouse_down(MouseButton::Left, move |_, window, cx| prompt.update(cx, |s, cx| s.focus(window, cx)))
             .child(div().pt(px(5.)).px(px(5.)).child(textarea))

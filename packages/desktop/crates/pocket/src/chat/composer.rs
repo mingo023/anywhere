@@ -12,7 +12,7 @@ mod switch_agent;
 
 use super::question::Wizard;
 use crate::composer::model_menu::focus_search;
-use crate::composer::{Draft, Menu};
+use crate::composer::{Draft, Held, Menu};
 use crate::desktop::Desktop;
 use crate::desktop::chrome::id;
 use crate::explorer::toast::Notice;
@@ -917,7 +917,7 @@ impl Desktop {
                 .on_mouse_up_out(MouseButton::Left, released())
                 .when(!blocked, |b| b.on_click(press(terminal)))
         });
-        let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), |d| &mut d.chats.composer.draft, cx));
+        let attach = (!view_only).then(|| attachments::attach_button(id(format!("chat-attach:{terminal}")), Held::Chat, cx));
         let strip = draft.and_then(|d| attachments::strip(d, cx));
         let input = if let Some(why) = locked {
             div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child(why).into_any_element()
@@ -940,7 +940,7 @@ impl Desktop {
                 .line_height(px(INPUT_LINE_HEIGHT))
                 .on_paste(move |item, window, cx| {
                     let unsaved = |d: &mut Desktop, (title, detail): (String, String)| d.error = Some(format!("{title}: {detail}"));
-                    crate::composer::paste(&desktop, &input, |d| &mut d.chats.composer.draft, unsaved, item, window, cx)
+                    crate::composer::paste(&desktop, &input, Held::Chat, unsaved, item, window, cx)
                 });
             div().child(textarea).child(marks_overlay(self.chats.input.clone())).into_any_element()
         };

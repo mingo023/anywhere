@@ -146,7 +146,7 @@ impl Desktop {
     pub(super) fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
         let was = self.automations.menu;
         self.close_menus(cx);
-        self.automations.form.composer.draft.menu = None;
+        self.automations.form.composer.update(cx, |c, _| c.draft.menu = None);
         self.automations.menu = (was != Some(menu)).then_some(menu);
         cx.notify();
     }

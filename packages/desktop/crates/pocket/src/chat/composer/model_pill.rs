@@ -2,7 +2,7 @@ use super::{close_menu, hang};
 use crate::composer::effort_menu::{Effort, choice_menu};
 use crate::composer::effort_slider::{self, effort_slider};
 use crate::composer::model_menu::{Choose, Entry, FAVORITES, Listed, focus_search, model_effort_pill, model_list, panel};
-use crate::composer::{self, Menu, launch};
+use crate::composer::{self, Held, Menu, launch};
 use crate::desktop::Desktop;
 use crate::models::effort_label;
 use crate::pick_menu::{Line, checked};
@@ -80,14 +80,7 @@ impl Desktop {
         let menu = open.then(|| {
             let viewed = self.chats.composer.draft.viewing.unwrap_or(agent.provider.as_str());
             let project = self.chat_project(agent);
-            let rail = self.model_rail(
-                viewed,
-                &agent.provider,
-                project.as_deref(),
-                &self.chats.composer.draft.rail,
-                |d: &mut Desktop| &mut d.chats.composer.draft,
-                cx,
-            );
+            let rail = self.model_rail(viewed, &agent.provider, project.as_deref(), &self.chats.composer.draft.rail, &Held::Chat, cx);
             let own = viewed == agent.provider;
             let effort = (own && !levels.is_empty()).then(|| self.chat_effort_slider(agent, &levels, default, cx));
             let settings = if own { self.chat_setting_menus(agent, cx) } else { Vec::new() };
@@ -110,7 +103,7 @@ impl Desktop {
     /// The chat's model panel just opened on the agent with this `id`.
     pub(super) fn chat_models_opened(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some((provider, project)) = self.agents.get(id).map(|a| (a.provider.clone(), self.chat_project(a))) else { return };
-        self.models_opened(|d| &mut d.chats.composer.draft, &provider, project.as_deref(), cx);
+        self.models_opened(&Held::Chat, &provider, project.as_deref(), cx);
         let Some(agent) = self.agents.get(id) else { return };
         if let Some(on) = self.chat_listed(agent, &provider, "", project.as_deref()).on {
             self.chats.composer.draft.scroll.scroll_to_item(on, ScrollStrategy::Center);
@@ -167,7 +160,7 @@ impl Desktop {
                 s.name.clone().into(),
                 (&s.choices, Some(running_option(agent, s))),
                 &self.chats.composer.draft.effort,
-                |d: &mut Desktop| &mut d.chats.composer.draft,
+                Held::Chat,
                 pick,
                 cx,
             )

@@ -825,7 +825,7 @@ impl Render for Desktop {
                     || this.explorer.cancel_edit()
                     || this.sidebar.cancel_rename()
                     || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
-                    || this.close_picker()
+                    || this.close_picker(cx)
                     || this.escape_composer_menu()
                     || this.close_menus(cx)
                     || this.chat_escape_dock(window, cx)

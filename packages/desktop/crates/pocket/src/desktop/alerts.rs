@@ -285,7 +285,7 @@ impl Desktop {
                 self.suggest(crate::chat::composer::suggest::Prompt::Chat, cx);
             }
             Event::Skills { provider, account, project, commands } => {
-                self.new_form.composer.suggest.listed(crate::chat::composer::suggest::launch_key(&provider, &account, &project), commands);
+                self.new_form.suggest.listed(crate::chat::composer::suggest::launch_key(&provider, &account, &project), commands);
                 self.suggest(crate::chat::composer::suggest::Prompt::Launch, cx);
             }
             Event::Mcp { agent, servers, auth_url, acted } => {

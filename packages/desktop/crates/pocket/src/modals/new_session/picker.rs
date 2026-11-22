@@ -96,10 +96,9 @@ pub(crate) fn menu_input(glyph: &str, input: &Entity<InputState>) -> Div {
 }
 
 impl Desktop {
-    pub fn close_picker(&mut self) -> bool {
+    pub fn close_picker(&mut self, cx: &mut Context<Self>) -> bool {
         let picker = self.new_form.draft.picker.take().is_some();
-        let draft = &mut self.new_form.composer.draft;
-        let menu = draft.escape_model() || draft.menu.take().is_some();
+        let menu = self.new_form.composer.update(cx, |c, _| c.draft.escape_model() || c.draft.menu.take().is_some());
         picker || menu
     }
 
@@ -107,7 +106,7 @@ impl Desktop {
     pub(crate) fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
         let f = &mut self.new_form.draft;
         f.picker = (f.picker != Some(picker)).then_some(picker);
-        self.new_form.composer.draft.menu = None;
+        self.new_form.composer.update(cx, |c, _| c.draft.menu = None);
         cx.notify();
     }
 

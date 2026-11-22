@@ -2,10 +2,10 @@ pub(crate) mod machine;
 pub(crate) mod picker;
 
 use crate::chat::composer::send_button::send_button;
-use crate::chat::composer::suggest::Prompt;
+use crate::chat::composer::suggest::{Prompt, Suggest};
 use crate::chat::composer::{MAX_ROWS, MIN_ROWS, PLACEHOLDER, drop_zone};
 use crate::chat::mention;
-use crate::composer::{self, Composer};
+use crate::composer::{Composer, ComposerEvent};
 use crate::creating::Create;
 use crate::desktop::Desktop;
 use crate::desktop::chrome::Screen;
@@ -34,7 +34,10 @@ use theme::*;
 pub struct NewForm {
     /// The new-session page fills the main area.
     pub(crate) shown: bool,
-    pub(crate) composer: Composer,
+    pub(crate) composer: Entity<Composer>,
+    /// The composer's prompt, shared with it.
+    pub(crate) prompt: Entity<TextareaState>,
+    pub(crate) suggest: Suggest,
     search: Entity<InputState>,
     pr: Entity<InputState>,
     draft: Draft,
@@ -456,21 +459,33 @@ impl NewForm {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let dropped = composer::drop_handler(cx.entity().downgrade(), move |d| &mut slot(d).draft);
-        let prompt = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .placeholder(PLACEHOLDER)
-                .auto_grow(MIN_ROWS, MAX_ROWS)
-                .submit_on_enter(true)
-                .on_drop_paths(dropped)
-                .decorate(mention::decorations)
+        let composer = cx.new(|cx| {
+            let dropped = Composer::dropped(cx.weak_entity());
+            let prompt = cx.new(|cx| {
+                TextareaState::new(window, cx)
+                    .placeholder(PLACEHOLDER)
+                    .auto_grow(MIN_ROWS, MAX_ROWS)
+                    .submit_on_enter(true)
+                    .on_drop_paths(dropped)
+                    .decorate(mention::decorations)
+            });
+            let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
+            Composer::new(prompt, models)
         });
-        let models = cx.new(|cx| InputState::new(window, cx).placeholder("Search models"));
-        let composer =
-            Composer::new(prompt.clone(), models.clone(), slot, |d| d.new_form.draft.picker = None, |d, error| d.new_form.draft.reply.error = Some(error));
+        let (prompt, models) = {
+            let c = composer.read(cx);
+            (c.prompt.clone(), c.search.clone())
+        };
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
         let pr = cx.new(|cx| InputState::new(window, cx).placeholder("123, #123 or a PR URL"));
         let subs = vec![
+            cx.subscribe_in(&composer, window, |this, _, ev: &ComposerEvent, _, cx| match ev {
+                ComposerEvent::Opened => {
+                    this.new_form.draft.picker = None;
+                    cx.notify();
+                }
+            }),
+            cx.observe(&composer, |_, _, cx| cx.notify()),
             cx.subscribe_in(&prompt, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::PressEnter { shift: false, .. } => this.start_session(window, cx),
                 InputEvent::Change => {
@@ -492,12 +507,8 @@ impl NewForm {
                 cx.notify()
             }),
         ];
-        (Self { shown: false, composer, search, pr, draft: Draft::default(), field: Field::default() }, subs)
+        (Self { shown: false, composer, prompt, suggest: Suggest::default(), search, pr, draft: Draft::default(), field: Field::default() }, subs)
     }
-}
-
-pub(crate) fn slot(d: &mut Desktop) -> &mut Composer {
-    &mut d.new_form.composer
 }
 
 impl Desktop {
@@ -511,22 +522,22 @@ impl Desktop {
     pub fn reset_new_form(&mut self, prompt: Option<String>, worktree: bool, window: &mut Window, cx: &mut Context<Self>) {
         let worktree = worktree || self.store.agents.new_worktree;
         let f = &mut self.new_form;
-        let typed = f.composer.prompt.read(cx).value().to_string();
-        let keep = !typed.trim().is_empty() || f.composer.draft.has_attachments();
+        let typed = f.prompt.read(cx).value().to_string();
+        let keep = !typed.trim().is_empty() || f.composer.read(cx).draft.has_attachments();
         let keep_project = keep && prompt.is_none();
         let text = appended(&typed, prompt);
         f.draft.seed = crate::util::now_ms() as usize;
         f.field.hide();
-        f.composer.prompt.update(cx, |s, cx| {
+        f.prompt.update(cx, |s, cx| {
             s.set_value(text, window, cx);
             s.focus(window, cx);
         });
         if !keep {
-            f.composer.draft.clear();
+            f.composer.update(cx, |c, _| c.draft.clear());
             f.draft.copied = None;
         }
         f.draft.reopen(keep, worktree, self.agents.locals_offered());
-        f.composer.draft.menu = None;
+        f.composer.update(cx, |c, _| c.draft.menu = None);
         if keep_project && f.draft.no_project() {
             return;
         }
@@ -607,9 +618,9 @@ impl Desktop {
     }
 
     /// The agent the page starts, picked here or the Project's last.
-    pub(crate) fn new_form_pick(&self) -> LaunchPick {
+    pub(crate) fn new_form_pick(&self, cx: &App) -> LaunchPick {
         let repo = self.new_form.draft.repo.as_deref();
-        self.new_form.composer.draft.pick(repo, || self.last_pick(repo))
+        self.new_form.composer.read(cx).draft.pick(repo, || self.last_pick(repo))
     }
 
     fn session_ready(&self) -> bool {
@@ -619,7 +630,7 @@ impl Desktop {
 
     /// The menu held the focus; Enter in the prompt is what starts the session.
     pub(crate) fn focus_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_form.composer.prompt.update(cx, |s, cx| s.focus(window, cx));
+        self.new_form.prompt.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
 
@@ -640,7 +651,7 @@ impl Desktop {
             return cx.notify();
         }
         let name = self.new_form.draft.name();
-        let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
+        let prompt = self.new_form.prompt.read(cx).value().to_string();
         let local = match self.new_form.draft.target() {
             Target::NewLocal => {
                 let id = self.new_form.draft.retry_local(self.agents.locals_in(&project)).unwrap_or_else(|| self.new_local(&project));
@@ -651,7 +662,7 @@ impl Desktop {
             }
             Target::Worktree => None,
         };
-        let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt_with(&prompt, self.new_form.draft.copied_for(&project)));
+        let (pick, sent) = (self.new_form_pick(cx), self.new_form.composer.read(cx).draft.prompt_with(&prompt, self.new_form.draft.copied_for(&project)));
         let f = &self.new_form.draft;
         let (mut spec, worktree, folder) = (f.spec(&pick, &project, local.as_deref(), &name, &sent), f.in_worktree(), f.folder(&name));
         if f.auto_names(&prompt, self.agents.names_offered()) {
@@ -678,7 +689,7 @@ impl Desktop {
     /// Copies the draft's attachments to `project`'s host, then starts the session again, so the agent there can read them.
     /// False when nothing needs copying.
     fn copy_attachments_first(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let copies = crate::composer::host_copies(&self.new_form.composer.draft, project, &self.store.home().join("attachments"));
+        let copies = crate::composer::host_copies(&self.new_form.composer.read(cx).draft, project, &self.store.home().join("attachments"));
         let copies = match copies {
             Ok(Some(copies)) if copies.files != self.new_form.draft.copied_for(project) => copies,
             Ok(_) => return false,
@@ -697,7 +708,7 @@ impl Desktop {
                 match copied {
                     Ok(files) => {
                         let picked = d.new_form.draft.repo.as_deref() == Some(project.as_str());
-                        let held = files.iter().all(|(from, _)| d.new_form.composer.draft.holds(from));
+                        let held = files.iter().all(|(from, _)| d.new_form.composer.read(cx).draft.holds(from));
                         if !held {
                             return cx.notify();
                         }
@@ -722,8 +733,8 @@ impl Desktop {
             if self.copy_attachments_first(&folder, window, cx) {
                 return cx.notify();
             }
-            let prompt = self.new_form.composer.prompt.read(cx).value().to_string();
-            let (pick, sent) = (self.new_form_pick(), self.new_form.composer.draft.prompt_with(&prompt, self.new_form.draft.copied_for(&folder)));
+            let prompt = self.new_form.prompt.read(cx).value().to_string();
+            let (pick, sent) = (self.new_form_pick(cx), self.new_form.composer.read(cx).draft.prompt_with(&prompt, self.new_form.draft.copied_for(&folder)));
             return self.send_in_scratch(folder, pick, sent, cx);
         }
         self.new_form.draft.making_scratch = true;
@@ -734,11 +745,11 @@ impl Desktop {
                 d.new_form.draft.making_scratch = false;
                 match made {
                     Ok(folder) => {
-                        let pick = d.new_form_pick();
+                        let pick = d.new_form_pick(cx);
                         d.adopt_scratch(&folder);
                         // A send pocketd refuses is retried here, not in yet another new folder.
                         d.new_form.draft.pick_repo(Some(folder.clone()), true);
-                        d.new_form.composer.draft.choose(Some(folder), pick);
+                        d.new_form.composer.update(cx, |c, _| c.draft.choose(Some(folder), pick));
                         d.start_session(window, cx);
                     }
                     Err(e) => {
@@ -800,7 +811,7 @@ impl Desktop {
                     }
                     self.refresh_git(cx);
                 } else if self.new_form.draft.reply.answer(&request, None) {
-                    if self.store.agents.starts_as_chat(&self.new_form_pick().provider) {
+                    if self.store.agents.starts_as_chat(&self.new_form_pick(cx).provider) {
                         self.store.chats.insert(terminal);
                         self.save_soon(cx);
                     }
@@ -853,9 +864,9 @@ impl Desktop {
     }
 
     fn clear_new_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_form.composer.draft.clear();
+        self.new_form.composer.update(cx, |c, _| c.draft.clear());
         self.new_form.draft.copied = None;
-        self.new_form.composer.prompt.update(cx, |s, cx| s.set_value("", window, cx));
+        self.new_form.prompt.update(cx, |s, cx| s.set_value("", window, cx));
     }
 
     pub(crate) fn leave_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -913,8 +924,8 @@ impl Desktop {
             None => (!scratch && f.target() == Target::Worktree).then(|| self.branch_select(cx)),
         };
         let link = (!scratch && pr.is_none() && self.agents.opens()).then(|| self.pr_select(cx));
-        let prompt = &self.new_form.composer.prompt;
-        let empty = prompt.read(cx).value().trim().is_empty() && !self.new_form.composer.draft.has_attachments();
+        let prompt = &self.new_form.prompt;
+        let empty = prompt.read(cx).value().trim().is_empty() && !self.new_form.composer.read(cx).draft.has_attachments();
         let typing = !empty || prompt.read(cx).focus_handle(cx).is_focused(window);
         let ready = self.session_ready();
         let send = send_button("form-start".into(), Action::Send, empty, !ready)
@@ -951,9 +962,19 @@ impl Desktop {
                 .child(unlink)
                 .into_any_element()
         });
-        let textarea = Textarea::new(&self.new_form.composer.prompt);
+        let textarea = Textarea::new(&self.new_form.prompt);
         let trailing = link.map(IntoElement::into_any_element).into_iter().collect();
-        let composer = self.composer(&self.new_form.composer, f.repo.clone(), textarea, typing, pill.into_iter().collect(), trailing, send, cx);
+        let composer = self.composer(
+            &self.new_form.composer,
+            f.repo.clone(),
+            textarea,
+            typing,
+            pill.into_iter().collect(),
+            trailing,
+            send,
+            |d, error| d.new_form.draft.reply.error = Some(error),
+            cx,
+        );
         let composer = self.suggest_keys(Prompt::Launch, composer, cx);
         let composer = self.rich_keys(Prompt::Launch, composer, cx).children(self.suggest_list(Prompt::Launch, cx));
         let image = self.store.appearance.background.is_some();
@@ -984,7 +1005,7 @@ impl Desktop {
             .children(error)
             .child(footer)
             .children(notice);
-        let prompt = self.new_form.composer.prompt.clone();
+        let prompt = self.new_form.prompt.clone();
         // Not a `cx.listener`: the prompt's drop handler updates `Desktop`.
         let drop = drop_zone(move |paths, window, cx| prompt.update(cx, |s, cx| s.drop_paths(paths, window, cx)));
         let body = self.with_field(|d| &mut d.new_form.field, "new-session-body", content, cx).relative().child(drop);
