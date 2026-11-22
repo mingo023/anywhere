@@ -26,11 +26,12 @@ var bootstrapSh string
 var bootstrapPs1 string
 
 const (
-	releases      = "https://github.com/mingo023/anywhere/releases/download"
-	latestRelease = "https://github.com/mingo023/anywhere/releases/latest"
-	upload        = "upload.tar.gz"
-	uploadZip     = "upload.zip"
+	releases  = "https://github.com/mingo023/anywhere/releases/download"
+	upload    = "upload.tar.gz"
+	uploadZip = "upload.zip"
 )
+
+var latestRelease = "https://github.com/mingo023/anywhere/releases/latest"
 
 // Step is a line of the install checklist, in the order bootstrap.sh and bootstrap.ps1 report them.
 type Step string

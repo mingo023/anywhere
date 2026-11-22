@@ -3,9 +3,12 @@ package hosts
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -249,5 +252,49 @@ func TestAHostWaitingOutABackoffRetriesWhenTheClockJumpsPastASleep(t *testing.T)
 	}
 	if n := len(m.sups["refused"].events); n != 0 {
 		t.Fatalf("a failed host retried %d times", n)
+	}
+}
+
+func TestAnUpgradeToAReleaseThatIsNotNewerNeverReachesTheHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in ssh is a shell script")
+	}
+	bin := t.TempDir()
+	called := filepath.Join(bin, "called")
+	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte("#!/bin/sh\n/usr/bin/touch '"+called+"'\nexit 255\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tag := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://github.com/mingo023/anywhere/releases/tag/v"+tag, http.StatusFound)
+	}))
+	defer srv.Close()
+	was := latestRelease
+	latestRelease = srv.URL
+	defer func() { latestRelease = was }()
+	m, err := Open(Paths{Home: t.TempDir(), RemoteDir: ".cp"}, func() []string { return []string{"PATH=" + bin} }, "0.1.58", "Mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	devbox, err := m.Add(alias("devbox"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.links[devbox.ID] = Link{State: StateOnline, Version: "0.1.58"}
+	ctx := context.Background()
+
+	tag = "0.1.58"
+	if err := m.install(ctx, devbox.Host, true, true, "", func(Progress) {}); err == nil || !strings.Contains(err.Error(), "already runs 0.1.58") {
+		t.Fatalf("the same release: %v", err)
+	}
+	if _, err := os.Stat(called); err == nil {
+		t.Fatal("ssh ran for a release that isn't newer")
+	}
+	tag = "0.1.59"
+	if err := m.install(ctx, devbox.Host, true, true, "", func(Progress) {}); err == nil || strings.Contains(err.Error(), "already runs") {
+		t.Fatalf("a newer release: %v", err)
+	}
+	if _, err := os.Stat(called); err != nil {
+		t.Fatal("a newer release didn't go on to the host")
 	}
 }
