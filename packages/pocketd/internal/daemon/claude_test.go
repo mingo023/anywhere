@@ -1791,3 +1791,41 @@ func TestRetitleLeavesATranscriptOutsideClaudesProjectsAlone(t *testing.T) {
 		t.Fatalf("%s", raw)
 	}
 }
+
+func chatIn(t *testing.T, d *Daemon) *presence {
+	t.Helper()
+	term, err := d.Terminals.Spawn(terminal.Spec{Cmd: fakeAgent(t, "pocketd"), Args: []string{"pipe", "claude", "-p"}, Env: []string{"PATH=/bin:/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(term.Close)
+	waitAgent(t, d, term)
+	return d.presentIn(term.Info().ID)
+}
+
+const chatAsk = `{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"touch x"}}}`
+
+func TestAChatAskClaudeWithdrawsGoesBackToWorking(t *testing.T) {
+	d := newDaemon(t)
+	pr := chatIn(t, d)
+	pr.working("")
+	d.streamLine(pr, chatAsk)
+	eventually(t, "the ask", func() bool { return pr.a.Summary().Status == "needsYou" && len(d.Broker.Open()) == 1 })
+	d.streamLine(pr, `{"type":"control_cancel_request","request_id":"r1"}`)
+	eventually(t, "working again", func() bool { return len(d.Broker.Open()) == 0 && pr.a.Summary().Status == "working" })
+}
+
+func TestAChatAskWithdrawnAfterTheTurnEndedLeavesItEnded(t *testing.T) {
+	d := newDaemon(t)
+	pr := chatIn(t, d)
+	pr.working("")
+	d.streamLine(pr, chatAsk)
+	eventually(t, "the ask", func() bool { return pr.a.Summary().Status == "needsYou" && len(d.Broker.Open()) == 1 })
+	d.cleared(pr)
+	d.streamLine(pr, `{"type":"control_cancel_request","request_id":"r1"}`)
+	eventually(t, "the ask closed", func() bool { return len(d.Broker.Open()) == 0 })
+	time.Sleep(100 * time.Millisecond)
+	if s := pr.a.Summary().Status; s != "idle" {
+		t.Fatalf("status = %q; a withdrawn ask revived a stopped turn", s)
+	}
+}

@@ -193,6 +193,19 @@ func TestAToolTheChatAllowsRunsAndIsAskedOnce(t *testing.T) {
 	}
 }
 
+func TestAToolAHookAllowsWhileTheChatAsksGoesBackToWorking(t *testing.T) {
+	_, phone, _, id := chatClaude(t)
+	phone.Prompt(id, "settled ls")
+	phone.WaitFor("permission.request", asked)
+	phone.WaitFor("working again before the turn ends", func(m Message) bool {
+		if statusOf(id, "done")(m) {
+			t.Fatalf("the turn ended still waiting on the user: %s", m.Raw)
+		}
+		return statusOf(id, "working")(m)
+	})
+	phone.WaitAll("the turn", streamOf(id, "assistant", "echo: ran ls"), statusOf(id, "done"))
+}
+
 func TestAToolTheChatDeniesStopsTheTurn(t *testing.T) {
 	h, phone, term, id := chatClaude(t)
 	phone.Prompt(id, "run rm -rf build")

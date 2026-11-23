@@ -19,6 +19,7 @@ import (
 //
 //	<text>       reply "echo: <text>"
 //	run <cmd>    ask can_use_tool, then run a Bash tool with its answer
+//	settled <cmd>  ask can_use_tool, withdraw it as a hook's answer settles it, run the tool, then go on as slow
 //	ask <q>      ask AskUserQuestion through can_use_tool, then reply the answers
 //	slow <text>  reply after 3s, unless interrupted
 //	await <name>  stay in the turn until $HOME/<name> exists, then reply "echo: released"
@@ -175,6 +176,8 @@ func (c *chatter) turn(text string) {
 		note("compacted")
 	case strings.HasPrefix(text, "run "):
 		failed = c.run(model, id, strings.TrimPrefix(text, "run "))
+	case strings.HasPrefix(text, "settled "):
+		failed = c.settled(model, id, strings.TrimPrefix(text, "settled "))
 	case strings.HasPrefix(text, "ask "):
 		c.askUser(model, id, strings.TrimPrefix(text, "ask "))
 	case strings.HasPrefix(text, "bg "):
@@ -310,6 +313,22 @@ func (c *chatter) reply(model, text string) {
 	a["message"].(map[string]any)["model"] = model
 	c.s.write(a)
 	c.send(map[string]any{"type": "assistant", "message": a["message"], "session_id": c.s.id})
+}
+
+// settled asks to run cmd, then withdraws the ask as claude does when a
+// PermissionRequest hook allows it first, and runs it.
+func (c *chatter) settled(model, id, cmd string) (failed bool) {
+	input := map[string]any{"command": cmd}
+	c.s.write(assistant(map[string]any{"type": "tool_use", "id": id, "name": "Bash", "input": input}))
+	c.mu.Lock()
+	c.next++
+	req := fmt.Sprintf("req_%d", c.next)
+	c.mu.Unlock()
+	c.send(map[string]any{"type": "control_request", "request_id": req, "request": map[string]any{"subtype": "can_use_tool", "tool_name": "Bash", "input": input, "tool_use_id": id}})
+	time.Sleep(500 * time.Millisecond)
+	c.send(map[string]any{"type": "control_cancel_request", "request_id": req})
+	c.s.write(toolResult(id, "ran: "+cmd, false))
+	return c.slow(model, "ran "+cmd)
 }
 
 // ask sends a control request and waits for pocketd's answer to it.

@@ -384,6 +384,14 @@ func (pr *presence) working(key string) {
 	}
 }
 
+func (pr *presence) unblocked() {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	if len(pr.asks) == 0 {
+		pr.a.Unblocked()
+	}
+}
+
 func (pr *presence) setMode(permissionMode string) {
 	pr.mu.Lock()
 	pr.launch = state.Mode(pr.launch, permissionMode)

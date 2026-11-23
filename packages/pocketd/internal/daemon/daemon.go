@@ -344,6 +344,10 @@ func (d *Daemon) decide(ctx context.Context, pr *presence, in hookInput) *hookDe
 		if pr.isReported() {
 			d.catchUp(pr)
 		}
+		// claude cancels an ask a PermissionRequest hook settled first, then carries on; an ended agent stays ended.
+		if pr.stream != nil && pr.ctx.Err() == nil {
+			pr.unblocked()
+		}
 		return nil
 	case "allow":
 		decision = hookDecision{Behavior: "allow", UpdatedInput: in.withAnswers(a.Answers), UpdatedPermissions: in.updates(a.Option)}
