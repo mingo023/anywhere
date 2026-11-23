@@ -1220,7 +1220,7 @@ const STEPS: [(&str, Step); 303] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file"), `right-click` from `CAPTURE_CLICKS`; `clipboard` prints the clipboard's text.
-const INPUT_STEPS: [(&str, Step); 20] = [
+const INPUT_STEPS: [(&str, Step); 21] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1282,6 +1282,35 @@ const INPUT_STEPS: [(&str, Step); 20] = [
         });
     }),
     ("clipboard", |_, _, cx| eprintln!("[clipboard] {:?}", cx.read_from_clipboard().and_then(|c| c.text()))),
+    // Times 300 frames, each after a trackpad scroll of `dy` points at `x,y` (CAPTURE_SCROLLS `x,y,dx,dy`), event dispatch included, and prints their spread and how many took over 8.3ms.
+    ("bench-scroll", |_, window, cx| {
+        let Some(arg) = next_arg("CAPTURE_SCROLLS", ';') else { return };
+        let Some((at, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
+        window.defer(cx, move |window, cx| {
+            let frames = 300usize;
+            let modifiers = Modifiers::default();
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers }), cx);
+            let mut took: Vec<Duration> = (0..frames)
+                .map(|_| {
+                    let t = Instant::now();
+                    let phases = [TouchPhase::Started, TouchPhase::Moved, TouchPhase::Ended];
+                    for (i, touch_phase) in phases.into_iter().enumerate() {
+                        let delta = if i == 2 { point(px(0.), px(0.)) } else { by };
+                        window.dispatch_event(
+                            PlatformInput::Scroll(ScrollEvent { position: at, delta: ScrollDelta::Pixels(delta), modifiers, touch_phase, source: ScrollSource::Pointer }),
+                            cx,
+                        );
+                    }
+                    draw(window, cx);
+                    t.elapsed()
+                })
+                .collect();
+            took.sort();
+            let over = took.iter().filter(|d| d.as_secs_f64() * 1e3 > 8.3).count();
+            let ms = |d: Duration| d.as_secs_f64() * 1e3;
+            eprintln!("[bench-scroll] frames={frames} p50={:.2}ms p90={:.2}ms max={:.2}ms over8.3={over}", ms(took[frames / 2]), ms(took[frames * 9 / 10]), ms(took[frames - 1]));
+        });
+    }),
     // A click with a frame drawn while the button is down, as a hand's gets: what the press changed shows before the release lands.
     ("hand-click", |_, window, cx| {
         let Some(at) = next_arg("CAPTURE_CLICKS", ';').and_then(|a| point_arg(&a)) else { return };
