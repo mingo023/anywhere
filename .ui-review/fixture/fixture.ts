@@ -462,6 +462,12 @@ const ops = (c: Socket, first: Buffer) => {
       if (op.op === "worktree.subagents") reply({ ev: "worktree.subagents", trees: (macLineage.get(op.path) ?? []).map((path) => ({ path, since: 0 })) });
       if (op.op === "accounts" || op.op === "accounts.usage") reply({ ev: "accounts", accounts: ACCOUNTS, autoSwitch: true });
       if (op.op === "attach") reply({ ev: "snapshot", id: op.id, cols: 140, rows: ROWS, data: Buffer.from(screen(op.id)).toString("base64") });
+      if (op.op === "accounts.signin") {
+        const id = `signin-${op.key}`;
+        sessions.push({ id, cmd: "/bin/zsh", args: ["-l", "-c", `${op.key} auth login`], cwd: home, signin: true });
+        reply({ ev: "spawned", id, text: op.id || "added" });
+        announce();
+      }
     }
   };
   read(first);

@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"pocketd/internal/ops"
 	"pocketd/internal/registry"
+	"pocketd/internal/terminal"
 )
 
 // resumingAccounts resumes agents and lists a claude account "work", with it and the built-in login signed in.
@@ -233,5 +235,30 @@ func TestAnAgentTabTheDesktopOpensStartsOnItsProjectsAccount(t *testing.T) {
 func between(agent string) func(Message) bool {
 	return func(m Message) bool {
 		return m.Type == "agent.update" && m.Agent.ID == agent && (m.Agent.Status == "idle" || m.Agent.Status == "done")
+	}
+}
+
+func TestASignInTerminalIsListedAsOne(t *testing.T) {
+	h := Start(t, launchReady(""))
+	c := h.Ops()
+	c.Send(ops.Msg{Op: "accounts.signin", Key: "claude"})
+	r, err := c.Recv()
+	if err != nil || r.Ev != "spawned" {
+		t.Fatalf("signin: %+v %v", r, err)
+	}
+	c.Send(ops.Msg{Op: "list"})
+	for {
+		m, err := c.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Ev != "terminals" {
+			continue
+		}
+		i := slices.IndexFunc(m.Items, func(info terminal.Info) bool { return info.ID == r.ID })
+		if i < 0 || !m.Items[i].SignIn {
+			t.Fatalf("listed %+v", m.Items)
+		}
+		return
 	}
 }

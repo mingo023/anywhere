@@ -25,6 +25,8 @@ pub struct Info {
     pub foreground: String,
     /// The Local the terminal was opened in; empty when it belongs to the worktree holding `cwd`.
     pub local: String,
+    /// An account's sign-in, kept out of projects and tabs.
+    pub signin: bool,
 }
 
 #[derive(Deserialize, Default, Debug)]

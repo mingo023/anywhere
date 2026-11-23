@@ -103,7 +103,7 @@ func (l *Launcher) signIn(provider, id string) ops.Msg {
 	home, _ := os.UserHomeDir()
 	account := s.Env(provider, id)
 	argv := inAccount(shellenv.LoginShell(), login, account)
-	t, err := l.d.Spawn(ops.Msg{Cmd: argv[0], Args: argv[1:], Cwd: home, Env: slices.Concat(env, account), Cols: 100, Rows: 30})
+	t, err := l.d.Spawn(ops.Msg{Cmd: argv[0], Args: argv[1:], Cwd: home, Env: slices.Concat(env, account), Cols: 100, Rows: 30, SignIn: true})
 	if err != nil {
 		s.Finish(provider, id, func() {})
 		return ops.Msg{Ev: "error", Error: err.Error()}
