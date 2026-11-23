@@ -36,7 +36,7 @@ impl Desktop {
     pub(crate) fn workspace_column(&mut self, cx: &mut Context<Self>) -> Div {
         let body = match self.side {
             Side::Sessions => self.session_list(cx).into_any_element(),
-            Side::Explorer => self.explorer(cx).into_any_element(),
+            Side::Explorer => self.explorer_view(cx).into_any_element(),
             Side::Changes => self.changes_list(cx).into_any_element(),
             Side::PullRequest => self.pr_side(cx).into_any_element(),
         };

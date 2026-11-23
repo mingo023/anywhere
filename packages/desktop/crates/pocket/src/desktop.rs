@@ -25,7 +25,7 @@ use crate::desktop::dock::Badge;
 use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
 use crate::desktop::sounds::Chime;
-use crate::explorer::ExplorerState;
+use crate::explorer::Explorer;
 use crate::explorer::preview::PreviewState;
 use crate::fleet::Fleet;
 use crate::git_ui::changes::Changes;
@@ -109,7 +109,7 @@ pub struct Desktop {
     pub(crate) panels: Panels,
     pub(crate) open_in: Entity<OpenIn>,
     pub(crate) browsers: Browsers,
-    pub(crate) explorer: ExplorerState,
+    pub(crate) explorer: Entity<Explorer>,
     pub(crate) git_run: u64,
     pub(crate) git_done: u64,
     pub(crate) inbox: Entity<Inbox>,
@@ -166,6 +166,8 @@ impl Desktop {
         let regions = Regions::new(cx);
         let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
         let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
+        let explorer = cx.new(|_| Explorer::new());
+        let explorer_subs = cx.subscribe_in(&explorer, window, Self::on_explorer_event);
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
         let new_subs = Self::watch_new_form(&new_form, window, cx);
@@ -242,6 +244,7 @@ impl Desktop {
         _subs.extend(chat_subs);
         _subs.extend(chats_subs);
         _subs.push(changes_subs);
+        _subs.push(explorer_subs);
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
@@ -288,7 +291,7 @@ impl Desktop {
             pr,
             graph,
             commit: Commits::default(),
-            explorer: ExplorerState::new(),
+            explorer,
             git_run: 0,
             git_done: 0,
             error: None,
@@ -384,7 +387,7 @@ impl Desktop {
         for p in self.preview.panes.values_mut() {
             p.file = None;
         }
-        self.explorer.tree.clear();
+        self.explorer.update(cx, |e, _| e.clear_tree());
     }
 
     /// Shows worktree `tree` of project `p`; `None` is the project's main worktree.
@@ -548,7 +551,7 @@ impl Desktop {
             || self.sidebar.organize.menu
             || self.sidebar.space_header.read(cx).menu_open()
             || self.automations.read(cx).menu.is_some()
-            || self.explorer.menu.is_some()
+            || self.explorer.read(cx).menu_open()
             || self.terminal.menu.is_some()
             || self.accounts.menu.is_some()
             || self.clone_form.read(cx).machine_menu
@@ -574,7 +577,7 @@ impl Desktop {
         self.activity.update(cx, |a, _| a.menu = None);
         self.accounts.menu = None;
         self.clone_form.update(cx, |f, _| f.close_menus());
-        self.explorer.close_menu();
+        self.explorer.update(cx, |e, _| _ = e.close_menu());
         self.terminal.menu = None;
         self.chats.files = None;
         self.chats.select.close_menu();
@@ -808,7 +811,7 @@ impl Render for Desktop {
             .text_color(TEXT)
             .when(self.screen == Screen::Inbox, |d| d.key_context(crate::inbox::CONTEXT))
             .when(self.screen == Screen::Settings, |d| d.key_context(crate::settings::CONTEXT))
-            .when(self.explorer.menu.is_some(), |d| d.key_context(crate::explorer::menu::CONTEXT))
+            .when(self.explorer.read(cx).menu_open(), |d| d.key_context(crate::explorer::menu::CONTEXT))
             .track_focus(&self.root)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.log_focus_miss(&ev.keystroke, window, cx); // [DEBUG-focus]
@@ -824,7 +827,7 @@ impl Render for Desktop {
                 }
                 if this.close_host_finder(window, cx)
                     || this.cancel_drag()
-                    || this.explorer.cancel_edit()
+                    || this.explorer.update(cx, |e, _| e.cancel_edit())
                     || this.sidebar.cancel_rename()
                     || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())
                     || this.new_form.update(cx, |f, cx| f.close_picker(cx))

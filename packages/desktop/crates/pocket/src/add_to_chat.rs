@@ -160,7 +160,7 @@ pub fn input_bytes(payload: &str, question: &str) -> Vec<u8> {
     out
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Choice {
     pub id: String,
     pub provider: String,

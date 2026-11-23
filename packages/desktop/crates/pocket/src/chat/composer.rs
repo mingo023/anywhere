@@ -511,7 +511,7 @@ impl Desktop {
             ("sidebar.add_menu", self.sidebar.add_menu),
             ("sidebar.organize", self.sidebar.organize.menu),
             ("automations.menu", self.automations.read(cx).menu.is_some()),
-            ("explorer.menu", self.explorer.menu.is_some()),
+            ("explorer.menu", self.explorer.read(cx).menu_open()),
             ("terminal.menu", self.terminal.menu.is_some()),
             ("accounts.menu", self.accounts.menu.is_some()),
             ("chats.files", self.chats.files.is_some()),
@@ -805,7 +805,8 @@ impl Desktop {
         let (typed, draft) = self.chat_draft(&agent.id, cx);
         let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
         let asking = matches!(mode, Mode::Permission { .. } | Mode::Question { .. });
-        let said = said_in_chat(self.explorer.notice.as_ref().map(|(n, _)| n), &agent.id);
+        let notice = self.explorer.read(cx).notice.as_ref().map(|(n, _)| n.clone());
+        let said = said_in_chat(notice.as_ref(), &agent.id);
         let account = (mode != Mode::ViewOnly).then(|| self.chat_account_chip(agent, cx)).flatten();
         let footer = self.composer_footer(agent, account, hint(mode, busy, stopping, empty, can_queue), said, asking, cx.reduce_motion());
         let map = view.and_then(|v| self.chat_agent_map(agent, &v.session.transcript, cx));

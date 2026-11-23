@@ -170,6 +170,11 @@ for (const r of [...scenario.repos, ...(process.env.FIXTURE_REGISTRY ? ["app-ext
   git(p, "config", "user.email", "dev@example.com");
   for (const a of scenario.agents.filter((a) => a.repo === r)) for (const [f, , removed] of a.diff ?? []) write(join(p, f), lines("base", removed + 10));
   write(join(p, "README.md"), `# ${r}\n`);
+  // FIXTURE_PREVIEWS=1 adds a markdown file with a mermaid diagram and a PNG to the first repo, for previewing.
+  if (process.env.FIXTURE_PREVIEWS && r === scenario.repos[0]) {
+    write(join(p, "docs/diagram.md"), "# Flow\n\n```mermaid\nflowchart LR\n  A[Start] --> B[Build]\n  B --> C[Ship]\n```\n\nAfter the diagram.\n");
+    writeFileSync(join(p, "docs/logo.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR4nGP4z8DwH4YZRgUBAEZbCf8w0yX9AAAAAElFTkSuQmCC", "base64"));
+  }
   if (CHANGED && r === scenario.repos[0]) for (let i = 0; i < CHANGED; i++) write(join(p, changedFile(i)), lines("base", 6));
   git(p, "add", "-A");
   git(p, "commit", "-q", "-m", "Initial commit");

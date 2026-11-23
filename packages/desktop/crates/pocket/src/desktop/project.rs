@@ -1,6 +1,6 @@
 use crate::desktop::Desktop;
 use crate::desktop::chrome::{Confirm, Overlay, Screen, Side, state};
-use crate::explorer::{self, preview};
+use crate::explorer::preview;
 use crate::fs::fs_for;
 use crate::git_ui::diff;
 use crate::status::{self, Card, Status};
@@ -11,7 +11,7 @@ use agents::locals::is_local;
 use git::Repo;
 use gpui_kit::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use store::prefs::sidebar::SessionSort;
@@ -309,8 +309,7 @@ impl Desktop {
         let (untracked, options) = (self.store.git.untracked, self.diff.options);
         let diffs: Vec<_> =
             self.diff.views(cx).filter_map(|(p, v)| Some((p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
-        let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
-        dirs.extend(self.explore_root().map(PathBuf::from));
+        let dirs = self.explorer.read(cx).listed_dirs(self.explore_root().as_deref());
         self.git_run += 1;
         let run = self.git_run;
         let task = cx.background_executor().spawn(async move {
@@ -344,7 +343,6 @@ impl Desktop {
                     return;
                 }
                 d.git_done = run;
-                let tree = explorer::merge_tree(tree, &d.explorer.tree, d.explore_root().as_deref().map(std::path::Path::new));
                 // Before `worktrees` is replaced, while it still places their terminals.
                 for t in &gone {
                     if d.store.is_scratch(t) {
@@ -358,8 +356,10 @@ impl Desktop {
                 let worktrees = project::refreshed(worktrees, &d.worktrees, &keep);
                 d.renames.relisted(d.worktrees.values().flatten(), worktrees.values().flatten(), Instant::now());
                 let repos_changed = merge_repos(&mut d.repos, repos);
-                let mut changed = !gone.is_empty() || repos_changed || tree != d.explorer.tree || worktrees != d.worktrees;
-                (d.explorer.tree, d.worktrees) = (tree, worktrees);
+                let root = d.explore_root();
+                let tree_changed = d.explorer.update(cx, |e, _| e.land_tree(tree, root.as_deref().map(std::path::Path::new)));
+                let mut changed = !gone.is_empty() || repos_changed || tree_changed || worktrees != d.worktrees;
+                d.worktrees = worktrees;
                 d.activity_changed(cx);
                 if d.screen == Screen::Board {
                     d.rescue_board_composer(cx);

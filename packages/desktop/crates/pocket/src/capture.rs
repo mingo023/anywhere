@@ -435,9 +435,11 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("tree-menu", |d, window, cx| {
         let Some(root) = d.explore_root().map(PathBuf::from) else { return };
-        let target = d.explorer.tree.get(&root).and_then(|l| l.first()).map(|(dir, p)| (p.clone(), *dir));
-        d.explorer.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, true, window.viewport_size().width));
-        cx.notify();
+        d.explorer.update(cx, |e, cx| {
+            let target = e.tree.get(&root).and_then(|l| l.first()).map(|(dir, p)| (p.clone(), *dir));
+            e.menu = Some(TreeMenu::new(target, point(px(1150.), px(112.)), false, true, window.viewport_size().width));
+            cx.notify();
+        });
     }),
     ("tree-menu-down", |d, window, cx| d.tree_menu_arrow(&TreeMenuArrow(Arrow::Down), window, cx)),
     ("tree-mentioned", |d, _, cx| {
