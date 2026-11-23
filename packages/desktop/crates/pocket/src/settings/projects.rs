@@ -1,9 +1,7 @@
-use super::action;
 use super::catalog::{Look, Setting};
-use crate::accounts;
-use crate::desktop::Desktop;
+use super::{Settings, SettingsEvent, action};
 use crate::modals::form::home;
-use crate::util::{initials, tilde};
+use crate::util::tilde;
 use gpui_kit::*;
 use theme::*;
 
@@ -42,18 +40,11 @@ pub(super) const ROWS: &[Setting] = &[
     .advanced(),
 ];
 
-impl Desktop {
-    pub(super) fn project_tile(&self, p: &str, size: f32) -> Div {
-        ui::colour_tile(&self.project_mark(p, initials(&self.repo_name(p))), self.repo_color(p), size, size / 4.)
-    }
-
-    fn project_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let rows = self.store.without_scratch(self.store.projects.clone()).into_iter().enumerate().map(|(i, p)| {
-            let name = self.repo_name(&p);
-            let tile = self.project_tile(&p, 24.);
-            let picks =
-                self.store.repos.get(&p).map(|r| accounts::project_picks(self.accounts.list(&accounts::host_of(Some(&p))), &r.accounts)).unwrap_or_default();
-            let picks = picks.into_iter().map(|(provider, name)| {
+impl Settings {
+    pub(super) fn project_list(&mut self, cx: &mut Context<Self>) -> Div {
+        let rows = self.side.projects.iter().enumerate().map(|(i, card)| {
+            let p = card.path.clone();
+            let picks = card.picks.iter().map(|(provider, name)| {
                 div()
                     .flex()
                     .flex_none()
@@ -61,8 +52,8 @@ impl Desktop {
                     .gap(px(3.))
                     .font_family(SANS)
                     .text_color(TEXT_2)
-                    .child(provider_icon(&provider, 10., TEXT_3))
-                    .child(name)
+                    .child(provider_icon(provider, 10., TEXT_3))
+                    .child(name.clone())
             });
             let text = div()
                 .flex_1()
@@ -70,7 +61,7 @@ impl Desktop {
                 .flex()
                 .flex_col()
                 .gap(px(1.))
-                .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(name))
+                .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(TEXT).child(card.name.clone()))
                 .child(
                     div()
                         .flex()
@@ -79,10 +70,9 @@ impl Desktop {
                         .min_w_0()
                         .text_size(px(11.5))
                         .text_color(TEXT_3)
-                        .child(div().min_w_0().truncate().font_family(MONO).child(tilde(&p)))
+                        .child(div().min_w_0().truncate().font_family(MONO).child(tilde(&card.path)))
                         .children(picks.map(|pick| div().flex().flex_none().items_center().gap(px(6.)).child("\u{b7}").child(pick))),
                 );
-            let count = self.worktrees.get(&p).map(Vec::len);
             div()
                 .id(("settings-project", i))
                 .px(px(14.))
@@ -94,19 +84,19 @@ impl Desktop {
                 .border_color(SEPARATOR)
                 .cursor_pointer()
                 .hover(|d| d.bg(FILL_1))
-                .child(tile)
+                .child(card.tile(24.))
                 .child(text)
-                .children(count.map(|n| div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(worktree_count(n))))
+                .children(card.worktrees.map(|n| div().flex_none().text_size(px(12.)).text_color(TEXT_3).child(worktree_count(n))))
                 .child(icon("chevron-right", 13., TEXT_4))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.edit_project(Some(p.clone()), window, cx)))
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::EditProject(p.clone()))))
         });
         let add = action("settings-add-project", "")
             .pl(px(4.))
             .gap(px(6.))
             .child(icon("plus", 13., TEXT_2))
             .child("Add project…")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_local_project(window, cx)));
-        let clone = ui::link("settings-clone-project", "Clone…").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.clone_project(window, cx)));
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::AddProject)));
+        let clone = ui::link("settings-clone-project", "Clone…").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::CloneProject)));
         let foot = div().px(px(14.)).py(px(8.)).flex().items_center().gap(px(12.)).bg(FILL_1).child(add).child(clone);
         div().flex().flex_col().children(rows).child(foot)
     }

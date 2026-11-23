@@ -1,6 +1,6 @@
 use super::catalog::Setting;
 use super::dropdown::{Choice, Row, dropdown};
-use super::{action, row, sub_title};
+use super::{Settings, SettingsEvent, action, row, sub_title};
 use crate::desktop::Desktop;
 use crate::pick_menu::grouped;
 use crate::themes::{Custom, SYSTEM, chosen, find, in_use, name, system_theme};
@@ -107,15 +107,15 @@ fn system_chip(a: &Appearance, custom: &[Custom]) -> Div {
     div().size(px(18.)).flex_none().flex().rounded(px(5.)).overflow_hidden().shadow(vec![ui::ring(SEPARATOR_STRONG, 0.5)]).child(half(false)).child(half(true))
 }
 
-fn picker(d: &mut Desktop, setting: &'static Setting, holds: Holds, cx: &mut Context<Desktop>) -> Div {
-    let (a, custom) = (&d.store.appearance, &d.themes.custom);
+fn picker(d: &mut Settings, setting: &'static Setting, holds: Holds, cx: &mut Context<Settings>) -> Div {
+    let (a, custom) = (&d.store.appearance, &d.side.themes);
     let held = holds.held(a, custom);
     let chip = match find(custom, &held) {
         Some(theme) => Some(chip(theme)),
         None => (held == SYSTEM).then(|| system_chip(a, custom)),
     };
     let trigger = action(setting.id, "").gap(px(6.)).children(chip).child(name(custom, &held)).child(icon("chevron-down", 12., TEXT_3));
-    let from = (holds.only(), d.themes.edits);
+    let from = (holds.only(), d.side.theme_edits);
     let menu = dropdown(
         setting.id,
         trigger,
@@ -123,10 +123,7 @@ fn picker(d: &mut Desktop, setting: &'static Setting, holds: Holds, cx: &mut Con
         || menu(custom, holds.only()),
         &held,
         d,
-        move |d, id, cx| {
-            holds.hold(&mut d.store.appearance, id);
-            d.apply_theme(cx);
-        },
+        move |d, id, cx| d.set(setting, cx, move |s| holds.hold(&mut s.appearance, id.clone())),
         cx,
     );
     let title = if holds == Holds::Theme { setting.label.into_any_element() } else { sub_title(setting.label).into_any_element() };
@@ -134,14 +131,14 @@ fn picker(d: &mut Desktop, setting: &'static Setting, holds: Holds, cx: &mut Con
 }
 
 /// Where to start a theme and how to bring one in, over the themes imported so far.
-fn custom_themes(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<Desktop>) -> Div {
+fn custom_themes(d: &mut Settings, setting: &'static Setting, cx: &mut Context<Settings>) -> Div {
     let starter = action("theme-starter", "Starter on GitHub")
         .gap(px(6.))
         .child(icon("external", 12., TEXT_3))
         .on_click(|_: &ClickEvent, _: &mut Window, cx: &mut App| cx.open_url(&crate::updates::themes_url(channel::version())));
-    let import = action("theme-import", "Import").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_theme_file(window, cx)));
-    let error = d.themes.error.clone().map(|why| div().px(px(14.)).pb(px(10.)).text_size(px(12.)).line_height(px(16.)).text_color(FAILED_TEXT).child(why));
-    let (a, custom) = (&d.store.appearance, &d.themes.custom);
+    let import = action("theme-import", "Import").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::ImportTheme)));
+    let error = d.side.theme_error.clone().map(|why| div().px(px(14.)).pb(px(10.)).text_size(px(12.)).line_height(px(16.)).text_color(FAILED_TEXT).child(why));
+    let (a, custom) = (&d.store.appearance, &d.side.themes);
     let imported: Vec<Div> = custom
         .iter()
         .enumerate()
@@ -162,7 +159,7 @@ fn custom_themes(d: &mut Desktop, setting: &'static Setting, cx: &mut Context<De
                 .when(in_use(a, custom, &c.id()), |d| d.child(ui::tag("In use")))
                 .child(
                     ui::icon_button_sized(("theme-remove", i), "trash", 24., TEXT_3)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_theme(&slug, cx))),
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::RemoveTheme(slug.clone())))),
                 )
         })
         .collect();

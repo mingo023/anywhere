@@ -1,7 +1,6 @@
 use super::{ROWS, SOUND};
-use crate::desktop::Desktop;
 use crate::desktop::sounds::{BUILT_IN, play, sound_name};
-use crate::settings::card;
+use crate::settings::{Settings, SettingsEvent, card};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::{Path, PathBuf};
@@ -74,7 +73,7 @@ fn not_added(skipped: &[String], failed: &[String]) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(". "))
 }
 
-impl Desktop {
+impl Settings {
     /// The sound list under a header holding its hint and the add button, as the group title can't.
     pub(super) fn sound_group(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let setting = ROWS.iter().find(|r| r.group == SOUND)?;
@@ -163,33 +162,33 @@ impl Desktop {
             .children(remove)
             .child(play_button)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.store.sounds.sound = sound.clone();
-                this.save_soon(cx);
-                cx.notify();
+                this.write(None, cx, {
+                    let sound = sound.clone();
+                    move |s, _| s.sounds.sound = sound.clone()
+                })
             }))
     }
 
     /// Copies the picked audio files into Pocket's folder, so moving the originals keeps them playing.
     fn add_sounds(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.pick_path(false, window, cx, |d, paths, _, cx| {
+        self.pick_paths(false, window, cx, |s, paths, cx| {
             let (audio, other): (Vec<PathBuf>, Vec<PathBuf>) = paths.into_iter().partition(|p| playable(p));
             let skipped: Vec<String> = other.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect();
-            let dir = sounds_dir(&d.store);
+            let dir = sounds_dir(&s.store);
             cx.spawn(async move |this, cx| {
                 let copied = cx.background_executor().spawn(async move { copy_into(&dir, audio) }).await;
-                this.update(cx, |d, cx| {
-                    let mut failed = vec![];
+                this.update(cx, |s, cx| {
+                    let (mut added, mut failed) = (vec![], vec![]);
                     for c in copied {
                         match c {
-                            Ok(path) => d.store.sounds.add(path),
+                            Ok(path) => added.push(path),
                             Err(name) => failed.push(name),
                         }
                     }
                     if let Some(error) = not_added(&skipped, &failed) {
-                        d.error = Some(error);
+                        cx.emit(SettingsEvent::Error(error));
                     }
-                    d.save_soon(cx);
-                    cx.notify();
+                    s.write(None, cx, move |s, _| added.iter().for_each(|p| s.sounds.add(p.clone())));
                 })
                 .ok();
             })
@@ -198,13 +197,12 @@ impl Desktop {
     }
 
     fn remove_sound(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.store.sounds.remove(path);
+        let owned = path.to_string();
+        self.write(None, cx, move |s, _| s.sounds.remove(&owned));
         if Path::new(path).starts_with(sounds_dir(&self.store)) {
             let path = path.to_string();
             cx.background_executor().spawn(async move { std::fs::remove_file(path).ok() }).detach();
         }
-        self.save_soon(cx);
-        cx.notify();
     }
 }
 

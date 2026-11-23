@@ -506,6 +506,40 @@ impl Store {
         }
     }
 
+    /// A copy of what Settings reads, leaving out the panel layouts, scopes, subtree records, window and Board views, which
+    /// are large, not `Clone` or never shown there.
+    pub fn settings_view(&self) -> Store {
+        Store {
+            projects: self.projects.clone(),
+            repos: self.repos.clone(),
+            collapsed: self.collapsed.clone(),
+            layout: self.layout,
+            widths: self.widths,
+            sounds: self.sounds.clone(),
+            notifications: self.notifications,
+            appearance: self.appearance.clone(),
+            worktree: self.worktree.clone(),
+            tracked: self.tracked.clone(),
+            scratch: self.scratch.clone(),
+            scratch_folded: self.scratch_folded,
+            advanced: self.advanced.clone(),
+            general: self.general.clone(),
+            agents: self.agents.clone(),
+            automations: self.automations.clone(),
+            phone: self.phone.clone(),
+            sidebar: self.sidebar.clone(),
+            terminal: self.terminal.clone(),
+            files: self.files.clone(),
+            browser: self.browser.clone(),
+            git: self.git.clone(),
+            diff: self.diff.clone(),
+            keys: self.keys.clone(),
+            sections: self.sections.clone(),
+            path: self.path.clone(),
+            ..Store::default()
+        }
+    }
+
     /// The file and bytes `save` would write, for writing off the UI thread.
     pub fn encode(&self) -> Option<(PathBuf, Vec<u8>)> {
         serde_json::to_vec_pretty(self).ok().map(|raw| (self.path.clone(), raw))
@@ -662,6 +696,18 @@ fn write_private(path: &Path, raw: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_settings_view_keeps_what_settings_shows_and_drops_the_rest() {
+        let mut store = Store::default();
+        store.add("/w/app");
+        store.advanced.insert("general".into());
+        store.keys.insert("desktop::NewTab".into(), "cmd-t".into());
+        store.scopes.insert("/w/app".into(), scope::Scope { compare: true, against: scope::Against::Ref("origin/dev".into()) });
+        let view = store.settings_view();
+        assert_eq!((&view.projects, &view.advanced, &view.keys), (&store.projects, &store.advanced, &store.keys));
+        assert!(view.scopes.is_empty());
+    }
 
     #[test]
     fn a_worktrees_compare_scope_is_remembered() {

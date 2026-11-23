@@ -3,11 +3,11 @@ use crate::modals::form::home;
 use agents::providers;
 use agents::{ListedModel, ModelSetting};
 use gpui_kit::*;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 /// What one provider's CLI listed, once asked.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Listing {
     models: Option<Vec<ListedModel>>,
     loading: bool,
@@ -19,10 +19,11 @@ struct Listing {
 }
 
 /// Each provider's models, in `providers::ALL`'s order.
+#[derive(Clone)]
 pub(crate) struct Models {
-    lists: [Listing; providers::COUNT],
+    lists: Arc<[Listing; providers::COUNT]>,
     /// What each falls back on, named as a picker lists them.
-    fallback: [Vec<ListedModel>; providers::COUNT],
+    fallback: Arc<[Vec<ListedModel>; providers::COUNT]>,
     /// Counts the changes to any list, for what a `Memo` builds from them.
     pub(crate) revision: u64,
 }
@@ -37,7 +38,7 @@ impl Default for Models {
                 .map(|m| ListedModel { value: m.to_string(), name: model_or_default(m), resolved: m.to_string(), ..ListedModel::default() })
                 .collect()
         };
-        Self { lists: Default::default(), fallback: std::array::from_fn(fallback), revision: 0 }
+        Self { lists: Default::default(), fallback: Arc::new(std::array::from_fn(fallback)), revision: 0 }
     }
 }
 
@@ -74,7 +75,7 @@ impl Models {
     /// Marks `provider` as being asked and returns what `answer` takes back; `None` when there is nothing to ask: it
     /// has listed, is being asked, or failed since the last `retry`.
     pub(crate) fn ask(&mut self, provider: &str) -> Option<u32> {
-        let l = &mut self.lists[providers::index(provider)?];
+        let l = &mut Arc::make_mut(&mut self.lists)[providers::index(provider)?];
         if l.models.is_some() || l.loading || l.failed.is_some() {
             return None;
         }
@@ -85,7 +86,7 @@ impl Models {
     /// Takes what `provider`'s CLI said, unless `forget` came after the `ask`. No models is a failure too: it lists
     /// nothing to keep, and may list some once the agent is signed in.
     pub(crate) fn answer(&mut self, provider: &str, asked: u32, read: Result<Vec<ListedModel>, String>) -> bool {
-        let Some(l) = providers::index(provider).map(|i| &mut self.lists[i]).filter(|l| l.asked == asked) else { return false };
+        let Some(l) = providers::index(provider).map(|i| &mut Arc::make_mut(&mut self.lists)[i]).filter(|l| l.asked == asked) else { return false };
         l.loading = false;
         match read {
             Ok(models) if models.is_empty() => l.failed = Some("it listed none".into()),
@@ -98,7 +99,7 @@ impl Models {
 
     /// Lets each agent whose last read failed be asked again, as when a menu that lists models opens.
     pub(crate) fn retry(&mut self) {
-        for l in &mut self.lists {
+        for l in Arc::make_mut(&mut self.lists).iter_mut() {
             l.failed = None;
         }
     }
@@ -106,7 +107,8 @@ impl Models {
     /// Asks `provider` again, as after its command changes.
     pub(crate) fn forget(&mut self, provider: &str) {
         if let Some(i) = providers::index(provider) {
-            self.lists[i] = Listing { asked: self.lists[i].asked.wrapping_add(1), ..Listing::default() };
+            let asked = self.lists[i].asked.wrapping_add(1);
+            Arc::make_mut(&mut self.lists)[i] = Listing { asked, ..Listing::default() };
             self.revision += 1;
         }
     }
@@ -114,7 +116,7 @@ impl Models {
     /// Stands in for `provider`'s CLI, which a capture never runs: its list, or with none that it's still being asked.
     pub(crate) fn set(&mut self, provider: &str, models: Option<Vec<ListedModel>>) {
         if let Some(i) = providers::index(provider) {
-            self.lists[i] = Listing { loading: models.is_none(), models, ..Listing::default() };
+            Arc::make_mut(&mut self.lists)[i] = Listing { loading: models.is_none(), models, ..Listing::default() };
             self.revision += 1;
         }
     }

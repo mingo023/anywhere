@@ -1,6 +1,5 @@
 use super::catalog::{Look, Setting};
-use super::field_box;
-use crate::desktop::Desktop;
+use super::{Settings, field_box};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 use store::Store;
@@ -66,7 +65,7 @@ pub(super) const ROWS: &[Setting] = &[
         .resets(dev_urls, |s, _| s.repos.values_mut().for_each(|r| r.dev_url.clear())),
 ];
 
-impl Desktop {
+impl Settings {
     /// Builds each project's dev server field afresh when Settings opens, since fields need the window.
     pub(crate) fn load_dev_urls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let fields = self.store.projects.iter().filter(|p| !self.store.is_scratch(p)).map(|p| {
@@ -75,20 +74,21 @@ impl Desktop {
             let path = p.clone();
             let sub = cx.subscribe(&field, move |this, field, ev: &InputEvent, cx| {
                 if let InputEvent::Change = ev {
-                    this.store.repos.entry(path.clone()).or_default().dev_url = field.read(cx).value().to_string();
-                    this.save_soon(cx);
+                    let url = field.read(cx).value().to_string();
+                    let path = path.clone();
+                    this.write(None, cx, move |s, _| s.repos.entry(path.clone()).or_default().dev_url = url.clone());
                 }
             });
             (p.clone(), (field, sub))
         });
-        self.settings.dev_urls = fields.collect();
+        self.dev_urls = fields.collect();
     }
 
     fn dev_servers(&mut self) -> Div {
         let caption =
             div().px(px(14.)).py(px(9.)).border_b(px(0.5)).border_color(SEPARATOR).text_size(px(12.)).text_color(TEXT_3).child("One URL per project.");
-        let rows = self.store.projects.iter().filter_map(|p| {
-            let (field, _) = self.settings.dev_urls.get(p)?;
+        let rows = self.side.projects.iter().filter_map(|p| {
+            let (field, _) = self.dev_urls.get(&p.path)?;
             let input =
                 field_box().w(px(180.)).child(div().flex_1().min_w_0().font_family(MONO).child(Input::new(field).appearance(false).p_0().text_size(px(12.))));
             Some(
@@ -100,8 +100,8 @@ impl Desktop {
                     .gap(px(10.))
                     .border_b(px(0.5))
                     .border_color(SEPARATOR)
-                    .child(self.project_tile(p, 20.))
-                    .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(self.repo_name(p)))
+                    .child(p.tile(20.))
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).text_color(TEXT).child(p.name.clone()))
                     .child(input),
             )
         });

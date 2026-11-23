@@ -47,7 +47,7 @@ use crate::panels::Panels;
 use crate::region::Regions;
 use crate::removal::Removals;
 use crate::renames::Renames;
-use crate::settings::SettingsState;
+use crate::settings::Settings;
 use crate::sidebar::SidebarState;
 use crate::spaces::Spaces;
 use crate::star::Star;
@@ -123,7 +123,7 @@ pub struct Desktop {
     pub(crate) sidebar: SidebarState,
     pub(crate) spaces: Spaces,
     pub(crate) regions: Regions,
-    pub(crate) settings: SettingsState,
+    pub(crate) settings: Entity<Settings>,
     pub(crate) fleet: Fleet,
     pub(crate) host_agents: HostAgents,
     pub(crate) registry: crate::registry::Registry,
@@ -158,7 +158,8 @@ impl Desktop {
         let graph_subs = cx.subscribe_in(&graph, window, Self::on_graph_event);
         let (sidebar, sidebar_subs) = SidebarState::new(store.general.panel_open, window, cx);
         let spaces = Spaces::new(store.sidebar.space.as_deref());
-        let (settings, settings_subs) = SettingsState::new(&store, window, cx);
+        let settings = cx.new(|cx| Settings::new(&store, window, cx));
+        let settings_subs = [cx.subscribe_in(&settings, window, Self::on_settings_event), cx.observe(&settings, |_, _, cx| cx.notify())];
         let (fleet, fleet_subs) = Fleet::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
         let chat = cx.new(|cx| ChatComposer::new(window, cx));
@@ -226,7 +227,7 @@ impl Desktop {
                 // Render tells alerts which panes are seen, but a hidden window renders no frame.
                 this.sync_view(window, cx);
                 if this.screen == Screen::Settings {
-                    this.load_banner_permission(cx);
+                    this.settings.update(cx, |s, cx| s.load_banner_permission(cx));
                 }
                 if window.is_window_active() {
                     this.reload_themes(cx);
@@ -797,15 +798,19 @@ impl Render for Desktop {
         // The welcome hides the app until it fades, so the app isn't built, and what animates in it asks for no frames.
         let shown = !self.welcome.as_ref().is_some_and(|w| w.read(cx).covers());
         let settings = self.screen == Screen::Settings;
+        if settings {
+            self.sync_settings(cx);
+        }
         let lead = (shown && !settings).then(|| self.lead());
         let column = if !shown {
             None
         } else if settings {
-            Some(self.settings_nav(cx))
+            let width = self.width(crate::desktop::chrome::Column::Projects, 272.);
+            Some(self.settings.update(cx, |s, cx| s.nav(width, cx)))
         } else {
             crate::sidebar::column_shown(self.layout, self.screen).then(|| self.column_view(cx))
         };
-        let page = shown.then(|| if settings { self.settings_page(cx) } else { self.main_view(window, cx) });
+        let page = shown.then(|| if settings { self.settings.clone().into_any_element() } else { self.main_view(window, cx).into_any_element() });
         let workspace = (shown && self.screen == Screen::Sessions && self.sidebar.unfocused() > 0.).then(|| self.workspace_side());
         // The finder opened from the new-session page has no overlay under it.
         let overlay = if shown { self.overlay_view(cx).or_else(|| self.host_finder_view(cx)) } else { None };

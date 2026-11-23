@@ -616,14 +616,14 @@ const STEPS: [(&str, Step); 303] = [
     ("automations-closed-creator", |d, _, cx| d.automations.update(cx, |a, _| a.selected = Some("au6".into()))),
     ("automations-webhook-editor", |d, window, cx| d.edit_automation(Some("au5"), window, cx)),
     ("settings", |d, window, cx| d.open_settings(&crate::actions::OpenSettings, window, cx)),
-    ("settings-appearance", |d, _, _| d.settings.section = Section::Appearance),
-    ("settings-notifications", |d, _, _| d.settings.section = Section::Notifications),
-    ("settings-keyboard", |d, _, _| d.settings.section = Section::Keyboard),
-    ("settings-projects", |d, _, _| d.settings.section = Section::Projects),
-    ("settings-agents", |d, _, _| d.settings.section = Section::Agents),
-    ("settings-automations", |d, _, _| d.settings.section = Section::Automations),
-    ("settings-phone", |d, _, _| d.settings.section = Section::Phone),
-    ("settings-hosts", |d, _, _| d.settings.section = Section::Hosts),
+    ("settings-appearance", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Appearance)),
+    ("settings-notifications", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Notifications)),
+    ("settings-keyboard", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Keyboard)),
+    ("settings-projects", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Projects)),
+    ("settings-agents", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Agents)),
+    ("settings-automations", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Automations)),
+    ("settings-phone", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Phone)),
+    ("settings-hosts", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Hosts)),
     // The real host the remote hosts e2e runs against; see `.ui-review/remote-hosts/`.
     ("vm", |d, _, _| {
         let target =
@@ -734,9 +734,9 @@ const STEPS: [(&str, Step); 303] = [
     ("hosts-wrong-password", |d, _, cx| d.sign_in("10-0-4-12".into(), "wrong".into(), cx)),
     ("hosts-install", |d, _, cx| d.install_host("10-0-4-12", false, cx)),
     // The Hosts page with each host's space colour and Open; and an install that has finished.
-    ("hosts-spaces", |d, _, _| d.settings.section = Section::Hosts),
+    ("hosts-spaces", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Hosts)),
     ("hosts-installed", |d, window, cx| {
-        d.settings.section = Section::Hosts;
+        d.settings.update(cx, |s, _| s.section = Section::Hosts);
         for progress in [
             agents::hosts::Progress::Step(agents::hosts::Step::Detect),
             agents::hosts::Progress::Step(agents::hosts::Step::Start),
@@ -751,13 +751,13 @@ const STEPS: [(&str, Step); 303] = [
         let name = "devbox".to_string();
         d.ask(Confirm::RemoveHost { id: name.clone(), name }, cx);
     }),
-    ("settings-sidebar", |d, _, _| d.settings.section = Section::Sidebar),
-    ("settings-terminal", |d, _, _| d.settings.section = Section::Terminal),
-    ("settings-files", |d, _, _| d.settings.section = Section::Files),
-    ("settings-browser", |d, _, _| d.settings.section = Section::Browser),
-    ("settings-git", |d, _, _| d.settings.section = Section::Git),
-    ("settings-diff", |d, _, _| d.settings.section = Section::Diff),
-    ("settings-accounts", |d, _, _| d.settings.section = Section::Accounts),
+    ("settings-sidebar", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Sidebar)),
+    ("settings-terminal", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Terminal)),
+    ("settings-files", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Files)),
+    ("settings-browser", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Browser)),
+    ("settings-git", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Git)),
+    ("settings-diff", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Diff)),
+    ("settings-accounts", |d, _, cx| d.settings.update(cx, |s, _| s.section = Section::Accounts)),
     ("accounts-sample", |d, _, _| _ = d.accounts.lists.insert(None, accounts_sample())),
     ("account-signin", |d, window, cx| {
         let id = "fx-signin".to_string();
@@ -795,11 +795,14 @@ const STEPS: [(&str, Step); 303] = [
             d.store.repos.entry(p).or_default().accounts.insert("claude".into(), "work".into());
         }
     }),
-    ("model-menu", |d, _, _| {
-        d.settings.menu = Some(match (d.overlay, d.settings.section) {
-            (_, Section::Git) => "ai-model",
-            (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
-            _ => crate::settings::provider::model_menu(0),
+    ("model-menu", |d, _, cx| {
+        let overlay = d.overlay;
+        d.settings.update(cx, |s, _| {
+            s.menu = Some(match (overlay, s.section) {
+                (_, Section::Git) => "ai-model",
+                (_, Section::Provider(i)) => crate::settings::provider::model_menu(i),
+                _ => crate::settings::provider::model_menu(0),
+            })
         })
     }),
     ("model-favorites", |d, _, cx| view_models(d, crate::composer::model_menu::FAVORITES, cx)),
@@ -847,17 +850,27 @@ const STEPS: [(&str, Step); 303] = [
         }
     }),
     ("service-down", |d, _, _| d.terminals.link.down(Instant::now())),
-    ("service-starting", |d, _, _| d.settings.starting = Some(Instant::now())),
-    ("settings-search", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("sound", window, cx))),
-    ("settings-search-chat", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("chat", window, cx))),
-    ("settings-search-shell", |d, window, cx| d.settings.search.update(cx, |s, cx| s.set_value("shell", window, cx))),
-    ("settings-advanced", |d, _, _| {
-        let id = d.settings.section.id();
+    ("service-starting", |d, _, cx| d.settings.update(cx, |s, _| s.starting = Some(Instant::now()))),
+    ("settings-search", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("sound", window, cx))
+    }),
+    ("settings-search-chat", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("chat", window, cx))
+    }),
+    ("settings-search-shell", |d, window, cx| {
+        let search = d.settings.read(cx).search.clone();
+        search.update(cx, |s, cx| s.set_value("shell", window, cx))
+    }),
+    ("settings-advanced", |d, _, cx| {
+        let id = d.settings.read(cx).section.id();
         d.store.advanced.insert(id.into());
     }),
     ("settings-reset", |d, _, cx| {
         (d.store.sounds.all, d.store.notifications.banners) = (false, false);
-        d.ask(crate::desktop::chrome::Confirm::ResetSection(d.settings.section), cx);
+        let section = d.settings.read(cx).section;
+        d.ask(crate::desktop::chrome::Confirm::ResetSection(section), cx);
     }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
@@ -907,7 +920,7 @@ const STEPS: [(&str, Step); 303] = [
             version: String::new(),
         });
     }),
-    ("phones", |d, _, _| {
+    ("phones", |d, _, cx| {
         let hour = 3_600_000;
         let phone = |id: &str, name: &str, platform: &str, ago: i64| daemon::Device {
             id: id.into(),
@@ -916,34 +929,37 @@ const STEPS: [(&str, Step); 303] = [
             last_seen_at: crate::util::now_ms() - ago,
             legacy: false,
         };
-        d.settings.host.devices = Some(vec![phone("p1", "Minh's iPhone 16 Pro", "iOS 26.1", 0), phone("p2", "iPad Air", "iPadOS 26.0", 72 * hour)]);
+        let devices = vec![phone("p1", "Minh's iPhone 16 Pro", "iOS 26.1", 0), phone("p2", "iPad Air", "iPadOS 26.0", 72 * hour)];
+        d.settings.update(cx, |s, _| s.host.devices = Some(devices));
     }),
-    ("no-phones", |d, _, _| d.settings.host.devices = Some(Vec::new())),
+    ("no-phones", |d, _, cx| d.settings.update(cx, |s, _| s.host.devices = Some(Vec::new()))),
     ("custom-shell", |d, window, cx| {
         (d.store.terminal.shell, d.store.terminal.shell_path) = (store::prefs::terminal::Shell::Custom, "/opt/homebrew/bin/fish".into());
-        if let Some(field) = d.settings.fields.get("shell-args").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("shell-args").cloned() {
             field.update(cx, |f, cx| f.set_value("--login --private", window, cx));
         }
-        d.edit_terminal_color(9, window, cx);
+        d.settings.update(cx, |s, cx| s.edit_terminal_color(9, window, cx));
     }),
     ("custom-search", |d, window, cx| {
         d.store.browser.engine = store::prefs::browser::Engine::Custom;
-        if let Some(field) = d.settings.fields.get("custom-search").cloned() {
+        if let Some(field) = d.settings.read(cx).fields.get("custom-search").cloned() {
             field.update(cx, |f, cx| f.set_value("search.brave.com/search?q=", window, cx));
         }
     }),
-    ("rename-phone", |d, window, cx| d.start_phone_rename("p1".into(), "Minh's iPhone 16 Pro", window, cx)),
-    ("tailnet", |d, _, _| {
+    ("rename-phone", |d, window, cx| d.settings.update(cx, |s, cx| s.start_phone_rename("p1".into(), "Minh's iPhone 16 Pro", window, cx))),
+    ("tailnet", |d, _, cx| {
         d.agents.host = Some(agents::Host { tailnet: true, ..Default::default() });
-        d.settings.host.status = Some(daemon::Status { listen: vec!["127.0.0.1:4517".into(), "100.88.12.4:4517".into()], ..Default::default() });
+        let status = daemon::Status { listen: vec!["127.0.0.1:4517".into(), "100.88.12.4:4517".into()], ..Default::default() };
+        d.settings.update(cx, |s, _| s.host.status = Some(status));
     }),
-    ("advanced", |d, _, _| {
-        d.store.advanced.insert(d.settings.section.id().to_string());
+    ("advanced", |d, _, cx| {
+        let id = d.settings.read(cx).section.id().to_string();
+        d.store.advanced.insert(id);
     }),
     ("custom-keys", |d, _, _| {
         d.store.keys.insert("desktop::NextNeedsYou".into(), "cmd-shift-u".into());
     }),
-    ("key-clash", |d, _, _| d.settings.keyboard.recording = Some(("desktop::NewWorktree".into(), Some("cmd-k".into())))),
+    ("key-clash", |d, _, cx| d.settings.update(cx, |s, _| s.keyboard.recording = Some(("desktop::NewWorktree".into(), Some("cmd-k".into()))))),
     ("dark", |d, window, cx| d.set_appearance(WindowAppearance::Dark, window, cx)),
     ("syntax-github", |d, _, cx| syntax(d, store::SyntaxTheme::Github, cx)),
     ("syntax-one", |d, _, cx| syntax(d, store::SyntaxTheme::One, cx)),
@@ -969,7 +985,7 @@ const STEPS: [(&str, Step); 303] = [
         d.store.appearance.code_size = Some(14);
         d.diff.relayout(true, cx);
     }),
-    ("code-font-menu", |d, _, _| d.settings.menu = Some("code-font")),
+    ("code-font-menu", |d, _, cx| d.settings.update(cx, |s, _| s.menu = Some("code-font"))),
     ("creating", |d, _, cx| {
         let Some(p) = d.project.clone() else { return };
         let now = Instant::now();
@@ -1443,8 +1459,8 @@ fn view_models(d: &mut Desktop, entry: &'static str, cx: &mut Context<Desktop>) 
     cx.notify();
 }
 
-fn provider_page<const P: usize>(d: &mut Desktop, _: &mut Window, _: &mut Context<Desktop>) {
-    d.settings.section = Section::Provider(P);
+fn provider_page<const P: usize>(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
+    d.settings.update(cx, |s, _| s.section = Section::Provider(P));
 }
 
 fn model_tab<const P: usize>(d: &mut Desktop, _: &mut Window, cx: &mut Context<Desktop>) {
@@ -1783,8 +1799,10 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.close_overlay(window, cx);
     d.automations.update(cx, |a, _| a.reset());
     (d.screen, d.side) = (Screen::Sessions, Side::Sessions);
-    d.settings.reset(window, cx);
-    d.settings.menu = None;
+    d.settings.update(cx, |s, cx| {
+        s.reset(window, cx);
+        s.menu = None;
+    });
     (d.layout, d.widths, d.sidebar.panel_open, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
     (d.worktree, d.terminal.focused) = (None, None);
     d.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));

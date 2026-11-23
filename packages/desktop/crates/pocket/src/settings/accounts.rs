@@ -1,7 +1,7 @@
 use super::catalog::Setting;
-use super::{action, field_box, group, row};
-use crate::accounts::{self, BUILT_IN, Host, Key, Tone};
-use crate::desktop::Desktop;
+use super::side::{MachineSide, SignInSide};
+use super::{AccountsAct, Settings, SettingsEvent, action, field_box, group, row};
+use crate::accounts::{self, BUILT_IN, Key, Tone};
 use crate::desktop::chrome::Confirm;
 use crate::util::now_ms;
 use chrono::Local;
@@ -71,15 +71,15 @@ fn menu_row(id: impl Into<ElementId>, icon: &str, label: &str, enabled: bool) ->
     ui::menu_row(id, icon, label, None).when(!enabled, |d| d.opacity(0.45).cursor_default())
 }
 
-impl Desktop {
-    pub(crate) fn accounts_settings(&mut self, cx: &mut Context<Self>) -> Div {
+impl Settings {
+    pub(crate) fn accounts_settings(&self, cx: &mut Context<Self>) -> Div {
         let now = now_ms();
-        let checking = !self.accounts.checking.is_empty();
+        let checking = self.side.accounts.checking;
         let reload = if checking {
             div().size(px(26.)).flex().items_center().justify_center().child(spinner("accounts-checking", 14., TEXT_3)).into_any_element()
         } else {
             ui::icon_button_sized("accounts-reload", "reload", 26., TEXT_3)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh_accounts(cx)))
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::Reload))))
                 .into_any_element()
         };
         let toolbar = div()
@@ -88,14 +88,11 @@ impl Desktop {
             .gap(px(6.))
             .text_size(px(12.))
             .text_color(TEXT_3)
-            .child(accounts::checked(checking, self.accounts.checked_at, now))
+            .child(accounts::checked(checking, self.side.accounts.checked_at, now))
             .child(reload);
-        let machines: Vec<Host> =
-            std::iter::once(None).chain(self.fleet.hosts.list.iter().map(|h| Some(h.id.clone()))).filter(|h| self.accounts.lists.contains_key(h)).collect();
-        let groups = machines.into_iter().map(|host| {
-            let title = host.as_deref().map_or_else(|| "This Mac".into(), |id| self.host_name(id));
-            let auto = self.accounts.auto_switch.contains_key(&host).then(|| self.auto_switch_row(&host, cx));
-            group(&title, auto.into_iter().chain(self.machine_rows(&host, now, cx)).collect())
+        let groups = self.side.accounts.machines.iter().map(|m| {
+            let auto = m.auto_switch.is_some().then(|| self.auto_switch_row(m, cx));
+            group(&m.title, auto.into_iter().chain(self.machine_rows(m, now, cx)).collect())
         });
         let caption = div()
             .text_size(px(12.))
@@ -106,10 +103,10 @@ impl Desktop {
     }
 
     /// Whether the machine moves a session at its account's limit to another; off while no agent has a second account there.
-    fn auto_switch_row(&mut self, host: &Host, cx: &mut Context<Self>) -> Div {
-        let list = self.accounts.list(host);
+    fn auto_switch_row(&self, m: &MachineSide, cx: &mut Context<Self>) -> Div {
+        let (host, list) = (&m.host, m.list.as_slice());
         let many = LaunchPick::PROVIDERS.into_iter().any(|p| accounts::shared(list, p));
-        let on = many && self.accounts.auto_switch.get(host) == Some(&true);
+        let on = many && m.auto_switch == Some(true);
         let hint = if many {
             "A session that hits its limit resumes on the account with the most left"
         } else {
@@ -117,18 +114,16 @@ impl Desktop {
         };
         let id = SharedString::from(format!("accounts-auto-{}", host.as_deref().unwrap_or_default()));
         let host = host.clone();
-        let toggle = div()
-            .id(id)
-            .flex_none()
-            .child(ui::toggle("switch", on))
-            .when(!many, |d| d.opacity(0.45))
-            .when(many, |d| d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_auto_switch(host.clone(), !on, cx))));
+        let toggle = div().id(id).flex_none().child(ui::toggle("switch", on)).when(!many, |d| d.opacity(0.45)).when(many, |d| {
+            d.cursor_pointer()
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SetAuto { host: host.clone(), on: !on }))))
+        });
         row("Switch accounts at a limit", Some(hint), toggle)
     }
 
     /// Each provider's caption, then its accounts.
-    fn machine_rows(&mut self, host: &Host, now: i64, cx: &mut Context<Self>) -> Vec<Div> {
-        let list = self.accounts.lists.get(host).cloned().unwrap_or_default();
+    fn machine_rows(&self, m: &MachineSide, now: i64, cx: &mut Context<Self>) -> Vec<Div> {
+        let (host, list) = (&m.host, &m.list);
         let mut rows = Vec::new();
         for provider in LaunchPick::PROVIDERS {
             let of: Vec<&Account> = list.iter().filter(|a| a.provider == provider && accounts::on_page(a)).collect();
@@ -136,10 +131,12 @@ impl Desktop {
                 continue;
             }
             let key = Key { host: host.clone(), provider: provider.into(), id: String::new() };
-            let signing = self.accounts.signins.iter().position(|s| s.on(host, provider));
+            let signing = m.signins.iter().find(|s| s.provider == provider);
             let add = action(SharedString::from(format!("account-add-{}-{provider}", host.as_deref().unwrap_or_default())), "Add account")
                 .when(signing.is_some(), |d| d.opacity(0.45).cursor_default())
-                .when(signing.is_none(), |d| d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx))));
+                .when(signing.is_none(), |d| {
+                    d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone())))))
+                });
             rows.push(
                 div()
                     .px(px(14.))
@@ -155,33 +152,33 @@ impl Desktop {
                     .child(div().flex_1().child(provider_name(provider)))
                     .child(add),
             );
-            let shared = accounts::shared(&list, provider);
+            let shared = accounts::shared(list, provider);
             for a in of {
                 match a.pending {
                     // The panel below stands for a sign-in still running here.
                     true if signing.is_some() && a.error.is_empty() => {}
                     true => rows.push(self.pending_row(host, a, cx)),
-                    false => rows.push(self.account_row(host, a, shared, now, cx)),
+                    false => rows.push(self.account_row(m, a, shared, now, cx)),
                 }
             }
-            rows.extend(signing.map(|i| self.sign_in_panel(i, cx)));
+            rows.extend(signing.map(|s| self.sign_in_panel(m, s, cx)));
         }
         rows
     }
 
-    fn account_row(&mut self, host: &Host, a: &Account, shared: bool, now: i64, cx: &mut Context<Self>) -> Div {
+    fn account_row(&self, m: &MachineSide, a: &Account, shared: bool, now: i64, cx: &mut Context<Self>) -> Div {
+        let host = &m.host;
         let key = Key::of(host, a);
         let id = SharedString::from(format!("account-{}-{}-{}", host.as_deref().unwrap_or_default(), a.provider, a.id));
         let name = accounts::name(a).to_string();
-        let renaming = self.accounts.rename.as_ref().filter(|r| r.key == key).map(|r| r.input.clone());
+        let renaming = self.side.accounts.rename.as_ref().filter(|(k, _)| *k == key).map(|(_, input)| input.clone());
         let title = match renaming {
             Some(input) => div().flex_1().min_w_0().child(Input::new(&input).appearance(false).p_0().text_size(px(13.))),
             None => div().truncate().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(TEXT).child(name.clone()),
         };
         let tags = accounts::tags(a, shared, now, &Local).into_iter().map(|(label, tone)| tag(label, tone));
         let line = div().flex().items_center().gap(px(6.)).min_w_0().child(title).children(tags.collect::<Vec<_>>());
-        let sub =
-            div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(accounts::subline(a, provider_name(&a.provider), &self.machine_name(host)));
+        let sub = div().text_size(px(12.)).line_height(px(16.)).text_color(TEXT_3).child(accounts::subline(a, provider_name(&a.provider), &m.name));
         let who = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(line).child(sub);
         let side = if a.signed_in {
             meters(a, now)
@@ -189,29 +186,26 @@ impl Desktop {
             let key = key.clone();
             div().w(px(228.)).flex_none().flex().justify_end().child(
                 action(SharedString::from(format!("{id}-sign-in")), "Sign in\u{2026}")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx))),
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone()))))),
             )
         };
-        let open = self.accounts.menu.as_ref() == Some(&key);
+        let open = self.side.accounts.menu.as_ref() == Some(&key);
         let toggle = key.clone();
         let more = ui::popover_trigger(
             ui::icon_button_sized(SharedString::from(format!("{id}-more")), "more", 26., TEXT_3),
             open,
-            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                this.accounts.menu = Some(toggle.clone());
-                cx.notify();
-            }),
+            cx.listener(move |_, _: &MouseDownEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(Some(toggle.clone()))))),
         );
-        let menu = open.then(|| self.account_menu(&id, key.clone(), a, name, cx));
+        let menu = open.then(|| account_menu(&id, key.clone(), a, name, cx));
         let can_default = !a.default && a.signed_in;
-        let radio = div()
-            .id(SharedString::from(format!("{id}-default")))
-            .flex_none()
-            .child(ui::radio(a.default))
-            .when(!a.signed_in, |d| d.opacity(0.35))
-            .when(can_default, |d| {
-                d.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.account_op(key.host.clone(), key.op("accounts.default"), cx)))
-            });
+        let radio = div().id(SharedString::from(format!("{id}-default"))).flex_none().child(ui::radio(a.default)).when(!a.signed_in, |d| d.opacity(0.35)).when(
+            can_default,
+            |d| {
+                d.cursor_pointer().on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.emit(SettingsEvent::Accounts(AccountsAct::Op { host: key.host.clone(), msg: key.op("accounts.default") }))
+                }))
+            },
+        );
         div()
             .px(px(14.))
             .py(px(10.))
@@ -224,51 +218,8 @@ impl Desktop {
             .child(div().relative().flex_none().child(more).children(menu.map(|m| ui::dropdown_right(30., m))))
     }
 
-    fn account_menu(&mut self, id: &SharedString, key: Key, a: &Account, name: String, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let rename = (a.id != BUILT_IN).then(|| {
-            let (key, name) = (key.clone(), name.clone());
-            ui::menu_row(SharedString::from(format!("{id}-rename")), "pencil", "Rename", None)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_account_rename(key.clone(), name.clone(), window, cx)))
-        });
-        let sign = if a.signed_in {
-            let (key, name) = (key.clone(), name.clone());
-            ui::menu_row(SharedString::from(format!("{id}-sign-out")), "x", "Sign out", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.accounts.menu = None;
-                this.ask(Confirm::SignOutAccount { key: key.clone(), name: name.clone() }, cx);
-                cx.notify();
-            }))
-        } else {
-            let key = key.clone();
-            ui::menu_row(SharedString::from(format!("{id}-sign-in-menu")), "arrow-right", "Sign in\u{2026}", None)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(key.clone(), window, cx)))
-        };
-        let why = match a.running {
-            _ if a.id == BUILT_IN => Some("The built-in login stays. Sign out instead.".to_string()),
-            0 => None,
-            1 => Some("Close its session first.".into()),
-            n => Some(format!("Close its {n} sessions first.")),
-        };
-        let remove = match why {
-            Some(_) => menu_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}", false),
-            None => ui::danger_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}").on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    this.accounts.menu = None;
-                    this.ask(Confirm::RemoveAccount { key: key.clone(), name: name.clone() }, cx);
-                    cx.notify();
-                },
-            )),
-        };
-        let why = why.map(|w| div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child(w));
-        let rows = div().children(rename).when(a.id != BUILT_IN, |d| d.child(ui::menu_divider())).child(sign).child(remove).children(why);
-        let menu = ui::pop(div()).min_w(px(220.)).p(px(4.)).flex().flex_col().occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-            this.accounts.menu = None;
-            cx.notify();
-        }));
-        ui::menu_in(SharedString::from(format!("{id}-menu-in")), menu.child(rows))
-    }
-
     /// A sign-in still running in its terminal, or the reason it failed.
-    fn pending_row(&mut self, host: &Host, a: &Account, cx: &mut Context<Self>) -> Div {
+    fn pending_row(&self, host: &crate::accounts::Host, a: &Account, cx: &mut Context<Self>) -> Div {
         let row = div().px(px(14.)).py(px(10.)).flex().items_center().gap(px(10.)).text_size(px(12.5));
         if a.error.is_empty() {
             return row
@@ -278,27 +229,17 @@ impl Desktop {
         let key = Key::of(host, a);
         let again = Key { id: String::new(), ..key.clone() };
         let retry = action(SharedString::from(format!("account-retry-{}", a.id)), "Try again")
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.sign_in_account(again.clone(), window, cx)));
-        let dismiss = action(SharedString::from(format!("account-dismiss-{}", a.id)), "Dismiss")
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.account_op(key.host.clone(), key.op("accounts.remove"), cx)));
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(again.clone())))));
+        let dismiss = action(SharedString::from(format!("account-dismiss-{}", a.id)), "Dismiss").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            cx.emit(SettingsEvent::Accounts(AccountsAct::Op { host: key.host.clone(), msg: key.op("accounts.remove") }))
+        }));
         row.child(icon("warning", 13., FAILED)).child(div().flex_1().min_w_0().text_color(FAILED_TEXT).child(a.error.clone())).child(retry).child(dismiss)
     }
 
     /// A sign-in running out of sight: what it waits for, the link and code it printed, a field for a code to type back, and its terminal's lines on demand.
-    fn sign_in_panel(&mut self, i: usize, cx: &mut Context<Self>) -> Div {
-        let s = &self.accounts.signins[i];
-        let (host, provider) = (s.key.host.clone(), s.key.provider.clone());
-        let (code_input, output_open) = (s.code.clone(), s.output_open);
-        let lines = s
-            .terminal
-            .clone()
-            .and_then(|id| {
-                self.terminals.sessions.term(&id).map(|mut t| {
-                    let (f, cells) = t.frame();
-                    accounts::screen_lines(cells, f.cols)
-                })
-            })
-            .unwrap_or_default();
+    fn sign_in_panel(&self, m: &MachineSide, s: &SignInSide, cx: &mut Context<Self>) -> Div {
+        let (host, provider) = (m.host.clone(), s.provider.clone());
+        let (code_input, output_open, lines) = (s.code.clone(), s.output_open, s.lines.clone());
         let (link, device) = (accounts::sign_in_link(&lines), accounts::device_code(&lines));
         let id = |part: &str| SharedString::from(format!("signin-{}-{provider}-{part}", host.as_deref().unwrap_or_default()));
         let waiting = match &device {
@@ -314,7 +255,7 @@ impl Desktop {
             .text_color(TEXT)
             .child(spinner(id("spin"), 13., TEXT_3))
             .child(div().min_w_0().truncate().child(waiting))
-            .child(div().flex_none().font_weight(FontWeight::NORMAL).text_size(px(12.)).text_color(TEXT_3).child(self.machine_name(&host)));
+            .child(div().flex_none().font_weight(FontWeight::NORMAL).text_size(px(12.)).text_color(TEXT_3).child(m.name.clone()));
         let device = device.map(|code| {
             let copy = code.clone();
             div()
@@ -341,9 +282,12 @@ impl Desktop {
         });
         let cancel = {
             let (host, provider) = (host.clone(), provider.clone());
-            action(id("cancel"), "Cancel").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.cancel_sign_in(&host, &provider, cx)))
+            action(id("cancel"), "Cancel").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.emit(SettingsEvent::Accounts(AccountsAct::Cancel { host: host.clone(), provider: provider.clone() }))
+            }))
         };
         let actions = div().flex().items_center().gap(px(6.)).children(links.into_iter().flatten()).children(paste).child(div().flex_1()).child(cancel);
+        let (open_host, open_provider) = (host.clone(), provider.clone());
         let toggle = div()
             .id(id("output"))
             .flex()
@@ -355,11 +299,8 @@ impl Desktop {
             .hover(|d| d.text_color(TEXT))
             .child(icon(if output_open { "chevron-down" } else { "chevron-right" }, 11., TEXT_4))
             .child("Terminal output")
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if let Some(s) = this.accounts.signins.get_mut(i) {
-                    s.output_open = !s.output_open;
-                }
-                cx.notify();
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.emit(SettingsEvent::Accounts(AccountsAct::ToggleOutput { host: open_host.clone(), provider: open_provider.clone() }))
             }));
         let output = output_open.then(|| {
             div()
@@ -385,4 +326,47 @@ impl Desktop {
             .child(div().flex().child(toggle))
             .children(output)
     }
+}
+
+fn account_menu(id: &SharedString, key: Key, a: &Account, name: String, cx: &mut Context<Settings>) -> impl IntoElement + use<> {
+    let rename = (a.id != BUILT_IN).then(|| {
+        let (key, name) = (key.clone(), name.clone());
+        ui::menu_row(SharedString::from(format!("{id}-rename")), "pencil", "Rename", None).on_click(
+            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::Rename { key: key.clone(), name: name.clone() }))),
+        )
+    });
+    let sign = if a.signed_in {
+        let (key, name) = (key.clone(), name.clone());
+        ui::menu_row(SharedString::from(format!("{id}-sign-out")), "x", "Sign out", None).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(None)));
+            cx.emit(SettingsEvent::Ask(Confirm::SignOutAccount { key: key.clone(), name: name.clone() }));
+        }))
+    } else {
+        let key = key.clone();
+        ui::menu_row(SharedString::from(format!("{id}-sign-in-menu")), "arrow-right", "Sign in\u{2026}", None)
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::SignIn(key.clone())))))
+    };
+    let why = match a.running {
+        _ if a.id == BUILT_IN => Some("The built-in login stays. Sign out instead.".to_string()),
+        0 => None,
+        1 => Some("Close its session first.".into()),
+        n => Some(format!("Close its {n} sessions first.")),
+    };
+    let remove = match why {
+        Some(_) => menu_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}", false),
+        None => ui::danger_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}").on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+            cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(None)));
+            cx.emit(SettingsEvent::Ask(Confirm::RemoveAccount { key: key.clone(), name: name.clone() }));
+        })),
+    };
+    let why = why.map(|w| div().px(px(10.)).pb(px(6.)).max_w(px(220.)).text_size(px(11.5)).line_height(px(15.)).text_color(TEXT_4).child(w));
+    let rows = div().children(rename).when(a.id != BUILT_IN, |d| d.child(ui::menu_divider())).child(sign).child(remove).children(why);
+    let menu = ui::pop(div())
+        .min_w(px(220.))
+        .p(px(4.))
+        .flex()
+        .flex_col()
+        .occlude()
+        .on_mouse_down_out(cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(SettingsEvent::Accounts(AccountsAct::Menu(None)))));
+    ui::menu_in(SharedString::from(format!("{id}-menu-in")), menu.child(rows))
 }

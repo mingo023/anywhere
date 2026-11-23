@@ -699,7 +699,7 @@ impl Desktop {
             Some(p) => self.repo_color(p),
             None => self.next_color(),
         };
-        self.settings.menu = None;
+        self.settings.update(cx, |s, _| s.menu = None);
         self.repo_form.update(cx, |f, cx| f.reset(editing, stored, color, window, cx));
     }
 
@@ -728,7 +728,7 @@ impl Desktop {
         if self.screen != Screen::Settings {
             self.select_project(path, cx);
         } else {
-            self.load_dev_urls(window, cx);
+            self.settings.update(cx, |s, cx| s.load_dev_urls(window, cx));
         }
         self.refresh_git(cx);
     }

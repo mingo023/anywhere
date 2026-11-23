@@ -1,10 +1,11 @@
 use super::Section;
+use super::Settings;
 use crate::desktop::Desktop;
 use gpui_kit::{Context, Div};
 use store::Store;
 
 /// Draws a custom row.
-pub(crate) type Draw = fn(&mut Desktop, &'static Setting, &mut Context<Desktop>) -> Div;
+pub(crate) type Draw = fn(&mut Settings, &'static Setting, &mut Context<Settings>) -> Div;
 
 /// Carries a row's stored value out to where it acts.
 pub(crate) type Apply = fn(&mut Desktop, &mut Context<Desktop>);

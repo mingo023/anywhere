@@ -1,5 +1,5 @@
 use super::catalog::{Look, Setting};
-use super::{action, card, field_box, row};
+use super::{Settings, SettingsEvent, action, card, field_box, row};
 use crate::automations::logic::{stamp, up_next};
 use crate::desktop::Desktop;
 use crate::util::now_ms;
@@ -133,20 +133,20 @@ fn off_line(missed: usize, catch_up: bool) -> String {
     }
 }
 
-impl Desktop {
+impl Settings {
     fn start_service(&mut self, cx: &mut Context<Self>) {
-        self.settings.starting = Some(Instant::now());
-        self.restart_service(cx);
+        self.starting = Some(Instant::now());
+        cx.emit(SettingsEvent::RestartService);
         cx.notify();
     }
 
     /// pocketd is off: what that means for runs, and a button to start it.
     fn service_off(&mut self, cx: &mut Context<Self>) -> Div {
-        let starting = self.settings.starting.is_some_and(|t| t.elapsed() < STARTING);
+        let starting = self.starting.is_some_and(|t| t.elapsed() < STARTING);
         let (title, line) = if starting {
             ("Starting Anywhere\u{2019}s background service\u{2026}".to_string(), "This usually takes a few seconds".to_string())
         } else {
-            let missed = missed(&self.agents.automations.items, now_ms());
+            let missed = missed(&self.side.automations.items, now_ms());
             ("Anywhere\u{2019}s background service is off".to_string(), off_line(missed, self.store.automations.grace_hours > 0))
         };
         let start =
@@ -175,26 +175,26 @@ impl Desktop {
     }
 
     pub(crate) fn automations_settings(&mut self, cx: &mut Context<Self>) -> Div {
-        let service = if self.terminals.link.is_down() { self.service_off(cx) } else { card(vec![self.runs_row(cx)]) };
+        let service = if self.side.link_down { self.service_off(cx) } else { card(vec![self.runs_row(cx)]) };
         div().flex().flex_col().gap(px(22.)).child(service).children(self.setting_groups(super::Section::Automations, cx))
     }
 
     fn runs_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let items = &self.agents.automations.items;
+        let items = &self.side.automations.items;
         let next = up_next(items, 1).first().map(|&i| stamp(items[i].next_run_at, now_ms(), &Local));
         let title = div().flex().items_center().gap(px(8.)).child(ui::dot(8., SUCCESS)).child("Anywhere's background service is on");
-        let open = self.agents.automations_offered().then(|| {
+        let open = self.side.can_open_automations.then(|| {
             action("settings-open-automations", "Open Automations")
                 .gap(px(6.))
                 .child(icon("external", 12., TEXT_3))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_automations(window, cx)))
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::OpenAutomations)))
         });
         let line = service_line(items.len(), next);
         row(title, Some(&line), div().children(open))
     }
 
     fn schedule_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
-        let time = field_box().w(px(64.)).child(Input::new(&self.settings.host.time).appearance(false).p_0().font_family(MONO).text_size(px(12.)));
+        let time = field_box().w(px(64.)).child(Input::new(&self.host.time).appearance(false).p_0().font_family(MONO).text_size(px(12.)));
         let days = WEEK.map(|(day, letter)| {
             let on = self.store.automations.days.contains(&day);
             div()
@@ -211,9 +211,7 @@ impl Desktop {
                 .when(!on, |d| d.bg(FILL_3).text_color(TEXT_3))
                 .child(letter)
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.store.automations.toggle_day(day);
-                    this.save_soon(cx);
-                    cx.notify();
+                    this.write(None, cx, move |s, _| s.automations.toggle_day(day));
                 }))
         });
         row(setting.label, setting.hint, div().flex().items_center().gap(px(10.)).child(time).child(div().flex().gap(px(4.)).children(days)))

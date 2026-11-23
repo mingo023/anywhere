@@ -1,6 +1,5 @@
 use super::catalog::{self, Setting};
-use super::{Section, card, keybindings};
-use crate::desktop::Desktop;
+use super::{Section, Settings, SettingsEvent, card, keybindings};
 use crate::palette::runs;
 use gpui_kit::*;
 use theme::*;
@@ -47,11 +46,11 @@ fn detail(setting: &Setting) -> String {
     }
 }
 
-impl Desktop {
+impl Settings {
     pub(super) fn search_results(&mut self, words: &[String], cx: &mut Context<Self>) -> Div {
-        let hits = catalog::search(words, &self.store, &self.agents);
+        let hits = catalog::search(words, &self.store, &self.live);
         let keys = keybindings::search(words, &self.store.keys);
-        let query = self.settings.search.read(cx).value().trim().to_string();
+        let query = self.search.read(cx).value().trim().to_string();
         let n = hits.iter().map(|(_, rows)| rows.len()).sum::<usize>() + keys.len();
         let sections = hits.len() + usize::from(!keys.is_empty());
         let mut column = div().child(div().text_size(px(13.)).text_color(TEXT_2).child(summary(&query, n, sections)));
@@ -129,21 +128,22 @@ impl Desktop {
     /// Shows the row's section with the row tinted, unfolding Advanced if it lives there.
     fn open_result(&mut self, section: Section, setting: &'static Setting, window: &mut Window, cx: &mut Context<Self>) {
         if setting.advanced {
-            self.store.advanced.insert(section.id().to_string());
-            self.save_soon(cx);
+            self.write(None, cx, move |s, _| {
+                s.advanced.insert(section.id().to_string());
+            });
         }
         self.open_section_result(section, window, cx);
-        self.settings.found = Some(setting.id);
+        self.found = Some(setting.id);
     }
 
     fn open_section_result(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
         self.show_section(section, cx);
-        self.settings.search.update(cx, |s, cx| s.set_value("", window, cx));
-        window.focus(&self.root, cx);
+        self.search.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.emit(SettingsEvent::FocusRoot);
         cx.notify();
     }
     pub(super) fn open_first_result(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let first = catalog::search(&self.settings.query(cx), &self.store, &self.agents).into_iter().find_map(|(s, rows)| Some((s, *rows.first()?)));
+        let first = catalog::search(&self.query(cx), &self.store, &self.live).into_iter().find_map(|(s, rows)| Some((s, *rows.first()?)));
         if let Some((section, setting)) = first {
             self.open_result(section, setting, window, cx);
         }

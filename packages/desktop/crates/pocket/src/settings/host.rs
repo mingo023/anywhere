@@ -1,3 +1,4 @@
+use super::{Settings, SettingsEvent};
 use crate::desktop::Desktop;
 use agents::automations::valid_time;
 use daemon::Device;
@@ -28,15 +29,14 @@ pub(crate) struct Rename {
 }
 
 impl Host {
-    pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+    pub fn new(store: &Store, window: &mut Window, cx: &mut Context<Settings>) -> (Self, Vec<Subscription>) {
         let time = cx.new(|cx| InputState::new(window, cx).placeholder("09:00").default_value(store.automations.time.clone()));
         let port = cx.new(|cx| InputState::new(window, cx).placeholder(channel::phone_port().to_string()).default_value(port_field(store.phone.port)));
         let subs = vec![
             cx.subscribe_in(&time, window, |this, field, ev: &InputEvent, _, cx| {
                 let time = field.read(cx).value().trim().to_string();
                 if matches!(ev, InputEvent::Change) && valid_time(&time) && time != this.store.automations.time {
-                    this.store.automations.time = time;
-                    this.save_soon(cx);
+                    this.write(None, cx, move |s, _| s.automations.time = time.clone());
                 }
             }),
             cx.subscribe_in(&port, window, |this, _, ev: &InputEvent, window, cx| {
@@ -135,7 +135,92 @@ pub(super) fn uptime(secs: u64) -> String {
     }
 }
 
+impl Settings {
+    /// pocketd keeps its old port when the new one won't bind, so a refusal puts the field and store back.
+    fn commit_port(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let before = self.store.phone.port;
+        let port = match parse_port(&self.host.port.read(cx).value(), channel::phone_port()) {
+            Ok(port) => port,
+            Err(e) => {
+                cx.emit(SettingsEvent::Error(e.into()));
+                self.host.port.update(cx, |f, cx| f.set_value(port_field(before), window, cx));
+                cx.notify();
+                return;
+            }
+        };
+        self.host.port.update(cx, |f, cx| f.set_value(port_field(port), window, cx));
+        if port != before {
+            cx.emit(SettingsEvent::Port { port, before });
+        }
+    }
+
+    /// Opens a phone's name for editing; Enter or leaving the field saves it.
+    pub(crate) fn start_phone_rename(&mut self, id: String, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.commit_phone_rename(cx);
+        let field = cx.new(|cx| InputState::new(window, cx).placeholder("Phone name").default_value(name.to_string()));
+        let commits = cx.subscribe_in(&field, window, |this, _, ev: &InputEvent, _, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                this.commit_phone_rename(cx);
+            }
+        });
+        field.update(cx, |f, cx| f.focus(window, cx));
+        self.host.renaming = Some(Rename { id, field, _commits: commits });
+        cx.notify();
+    }
+
+    /// pocketd trims the name and refuses an empty one; the list rereads either way.
+    fn commit_phone_rename(&mut self, cx: &mut Context<Self>) {
+        let Some(r) = self.host.renaming.take() else { return };
+        let name = r.field.read(cx).value().trim().to_string();
+        let unchanged = self.host.devices.iter().flatten().any(|d| d.id == r.id && d.name == name);
+        cx.notify();
+        if !unchanged {
+            cx.emit(SettingsEvent::RenamePhone { id: r.id, name });
+        }
+    }
+}
+
 impl Desktop {
+    /// pocketd keeps its old port when the new one won't bind, so a refusal puts the field and store back.
+    pub(crate) fn set_port(&mut self, port: u32, before: u32, window: &mut Window, cx: &mut Context<Self>) {
+        if self.capturing {
+            return;
+        }
+        self.store.phone.port = port;
+        self.save_soon(cx);
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let text = port_text(port);
+            let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "config-set", "key": "port", "text": text})) }).await;
+            this.update_in(cx, |d, window, cx| {
+                if let Err(e) = result {
+                    d.error = Some(format!("Anywhere kept port {}: {e}", port_field(before)));
+                    d.store.phone.port = before;
+                    d.settings.update(cx, |s, cx| s.host.port.update(cx, |f, cx| f.set_value(port_field(before), window, cx)));
+                }
+                d.load_host(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn rename_phone(&mut self, id: String, name: String, cx: &mut Context<Self>) {
+        if self.capturing {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "devices.rename", "id": id, "text": name})) }).await;
+            this.update(cx, |d, cx| {
+                if let Err(e) = result {
+                    d.error = Some(format!("Couldn't rename the phone: {e}"));
+                }
+                d.load_host(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
     /// Reads pocketd's status and paired phones for Settings, off the UI thread.
     pub(crate) fn load_host(&mut self, cx: &mut Context<Self>) {
         if self.capturing {
@@ -147,18 +232,21 @@ impl Desktop {
                 .spawn(async { (daemon::request(&json!({"op": "status"})), daemon::request(&json!({"op": "devices"})), daemon::cli::installed()) })
                 .await;
             this.update(cx, |d, cx| {
-                d.settings.host.cli = cli;
-                if let Ok(reply) = status {
-                    if let Some(config) = reply.status.as_ref().and_then(|s| s.config.as_ref())
-                        && mirror(&mut d.store, config)
-                    {
-                        d.save_soon(cx);
+                if let Ok(reply) = &status
+                    && let Some(config) = reply.status.as_ref().and_then(|s| s.config.as_ref())
+                    && mirror(&mut d.store, config)
+                {
+                    d.save_soon(cx);
+                }
+                d.settings.update(cx, |s, _| {
+                    s.host.cli = cli;
+                    if let Ok(reply) = status {
+                        s.host.status = reply.status;
                     }
-                    d.settings.host.status = reply.status;
-                }
-                if let Ok(m) = devices {
-                    d.settings.host.devices = Some(m.devices);
-                }
+                    if let Ok(m) = devices {
+                        s.host.devices = Some(m.devices);
+                    }
+                });
                 cx.notify();
             })
             .ok();
@@ -196,78 +284,6 @@ impl Desktop {
             this.update(cx, |d, cx| {
                 if let Err(e) = result {
                     d.error = Some(format!("The background service didn't save that setting: {e}"));
-                }
-                d.load_host(cx);
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// pocketd keeps its old port when the new one won't bind, so a refusal puts the field and store back.
-    fn commit_port(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let before = self.store.phone.port;
-        let port = match parse_port(&self.settings.host.port.read(cx).value(), channel::phone_port()) {
-            Ok(port) => port,
-            Err(e) => {
-                self.error = Some(e.into());
-                self.settings.host.port.update(cx, |f, cx| f.set_value(port_field(before), window, cx));
-                cx.notify();
-                return;
-            }
-        };
-        self.settings.host.port.update(cx, |f, cx| f.set_value(port_field(port), window, cx));
-        if port == before || self.capturing {
-            return;
-        }
-        self.store.phone.port = port;
-        self.save_soon(cx);
-        cx.notify();
-        cx.spawn_in(window, async move |this, cx| {
-            let text = port_text(port);
-            let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "config-set", "key": "port", "text": text})) }).await;
-            this.update_in(cx, |d, window, cx| {
-                if let Err(e) = result {
-                    d.error = Some(format!("Anywhere kept port {}: {e}", port_field(before)));
-                    d.store.phone.port = before;
-                    d.settings.host.port.update(cx, |f, cx| f.set_value(port_field(before), window, cx));
-                }
-                d.load_host(cx);
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// Opens a phone's name for editing; Enter or leaving the field saves it.
-    pub(crate) fn start_phone_rename(&mut self, id: String, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.commit_phone_rename(cx);
-        let field = cx.new(|cx| InputState::new(window, cx).placeholder("Phone name").default_value(name.to_string()));
-        let commits = cx.subscribe_in(&field, window, |this, _, ev: &InputEvent, _, cx| {
-            if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                this.commit_phone_rename(cx);
-            }
-        });
-        field.update(cx, |f, cx| f.focus(window, cx));
-        self.settings.host.renaming = Some(Rename { id, field, _commits: commits });
-        cx.notify();
-    }
-
-    /// pocketd trims the name and refuses an empty one; the list rereads either way.
-    fn commit_phone_rename(&mut self, cx: &mut Context<Self>) {
-        let Some(r) = self.settings.host.renaming.take() else { return };
-        let name = r.field.read(cx).value().trim().to_string();
-        let unchanged = self.settings.host.devices.iter().flatten().any(|d| d.id == r.id && d.name == name);
-        cx.notify();
-        if unchanged || self.capturing {
-            return;
-        }
-        let id = r.id;
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { daemon::request(&json!({"op": "devices.rename", "id": id, "text": name})) }).await;
-            this.update(cx, |d, cx| {
-                if let Err(e) = result {
-                    d.error = Some(format!("Couldn't rename the phone: {e}"));
                 }
                 d.load_host(cx);
             })

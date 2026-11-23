@@ -1,4 +1,4 @@
-use crate::desktop::Desktop;
+use super::Settings;
 use crate::pick_menu::{Line, pick_list};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -61,22 +61,22 @@ pub(crate) fn dropdown(
     from: impl Hash,
     rows: impl FnOnce() -> Vec<Row>,
     chosen: &str,
-    d: &Desktop,
-    pick: impl Fn(&mut Desktop, String, &mut Context<Desktop>) + 'static,
-    cx: &mut Context<Desktop>,
+    d: &Settings,
+    pick: impl Fn(&mut Settings, String, &mut Context<Settings>) + 'static,
+    cx: &mut Context<Settings>,
 ) -> Div {
-    let open = d.settings.menu == Some(id);
+    let open = d.menu == Some(id);
     let trigger = trigger.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-        this.settings.menu = (!open).then_some(id);
-        this.settings.menu_scroll = Default::default();
+        this.menu = (!open).then_some(id);
+        this.menu_scroll = Default::default();
         cx.notify();
     }));
     if !open {
         return div().relative().child(trigger);
     }
-    let rows = d.settings.menu_rows.get((id, from), rows);
+    let rows = d.menu_rows.get((id, from), rows);
     let (pick, chosen, widest, count) = (Rc::new(pick), chosen.to_string(), widest(&rows), rows.len());
-    let line = move |_: &mut Desktop, i: usize, cx: &mut Context<Desktop>| match &rows[i] {
+    let line = move |_: &mut Settings, i: usize, cx: &mut Context<Settings>| match &rows[i] {
         Row::Heading(name) => div()
             .id((id, i))
             .w_full()
@@ -93,16 +93,15 @@ pub(crate) fn dropdown(
             let (pick, value) = (pick.clone(), value.clone());
             pick_row((id, i), value == chosen).w_full().child(div().whitespace_nowrap().child(label.clone())).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
-                    this.settings.menu = None;
+                    this.menu = None;
                     pick(this, value.clone(), cx);
-                    this.save_soon(cx);
                     cx.notify();
                 },
             ))
         }
     };
     let fit = |list: UniformList| list.with_sizing_behavior(ListSizingBehavior::Infer).with_width_from_item(widest).min_w(px(172.)).max_h(px(ROW * ROWS));
-    let list = pick_list(SharedString::from(format!("{id}-options")), count, &d.settings.menu_scroll, ui::pop(div()).p(px(4.)), fit, line, cx);
+    let list = pick_list(SharedString::from(format!("{id}-options")), count, &d.menu_scroll, ui::pop(div()).p(px(4.)), fit, line, cx);
     let menu = ui::menu_in(SharedString::from(format!("{id}-menu-in")), list);
     div().relative().child(trigger).child(ui::dropdown_right(30., menu))
 }

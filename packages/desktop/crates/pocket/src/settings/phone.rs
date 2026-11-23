@@ -1,9 +1,7 @@
 use super::catalog::{Look, Setting};
 use super::host::{port_text, tailnet_line};
-use super::{action, field_box, row};
-use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
-use crate::modals::may_open;
+use super::{Settings, SettingsEvent, action, field_box, row};
+use crate::desktop::chrome::Confirm;
 use crate::util::{ago_long, now_ms};
 use daemon::Device;
 use gpui_kit::component::input::Input;
@@ -43,21 +41,21 @@ fn device_line(d: &Device, now: i64) -> String {
     if d.platform.is_empty() { seen } else { format!("{seen} · {}", d.platform) }
 }
 
-impl Desktop {
+impl Settings {
     fn pair_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
-        let pair = may_open(Overlay::PairPhone, &self.agents).then(|| {
+        let pair = self.side.can_pair.then(|| {
             ui::button("settings-pair-phone", ui::Variant::Primary, Some("plus"), "Pair a phone")
                 .h(px(28.))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::PairPhone, window, cx)))
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(SettingsEvent::PairPhone)))
         });
         row(setting.label, setting.hint, div().children(pair))
     }
 
     /// pocketd listens on the tailnet when Tailscale runs; without it a phone can't reach this Mac.
     fn tailscale_row(&mut self, setting: &'static Setting, cx: &mut Context<Self>) -> Div {
-        let value = match self.agents.host.as_ref().map(|h| h.tailnet) {
+        let value = match self.side.tailnet {
             Some(true) => {
-                let listen = self.settings.host.status.as_ref().map(|s| s.listen.as_slice()).unwrap_or_default();
+                let listen = self.host.status.as_ref().map(|s| s.listen.as_slice()).unwrap_or_default();
                 div()
                     .flex()
                     .items_center()
@@ -77,15 +75,11 @@ impl Desktop {
     }
 
     fn port_row(&mut self, setting: &'static Setting) -> Div {
-        row(
-            setting.label,
-            setting.hint,
-            field_box().w(px(72.)).child(Input::new(&self.settings.host.port).appearance(false).p_0().font_family(MONO).text_size(px(12.))),
-        )
+        row(setting.label, setting.hint, field_box().w(px(72.)).child(Input::new(&self.host.port).appearance(false).p_0().font_family(MONO).text_size(px(12.))))
     }
 
     fn devices_rows(&mut self, cx: &mut Context<Self>) -> Div {
-        let Some(devices) = self.settings.host.devices.clone() else {
+        let Some(devices) = self.host.devices.clone() else {
             return div().px(px(14.)).py(px(18.)).text_size(px(12.5)).text_color(TEXT_3).child("Paired phones show here once the background service answers.");
         };
         if devices.is_empty() {
@@ -109,7 +103,7 @@ impl Desktop {
                 );
         }
         let now = now_ms();
-        let renaming = self.settings.host.renaming.as_ref().map(|r| (r.id.clone(), r.field.clone()));
+        let renaming = self.host.renaming.as_ref().map(|r| (r.id.clone(), r.field.clone()));
         let rows = devices.into_iter().enumerate().map(|(i, d)| {
             let editing = renaming.as_ref().filter(|(id, _)| *id == d.id).map(|(_, field)| field.clone());
             let tile = div().size(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(7.)).bg(FILL_2).child(icon("phone", 14., TEXT_2));
@@ -133,9 +127,8 @@ impl Desktop {
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.start_phone_rename(id.clone(), &name, window, cx)))
             });
             let revoke = (!d.legacy).then(|| {
-                ui::button(("settings-revoke", i), ui::Variant::Danger, None, "Revoke").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.ask(Confirm::RevokeDevice { id: d.id.clone(), name: d.name.clone() }, cx);
-                    cx.notify();
+                ui::button(("settings-revoke", i), ui::Variant::Danger, None, "Revoke").h(px(26.)).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.emit(SettingsEvent::Ask(Confirm::RevokeDevice { id: d.id.clone(), name: d.name.clone() }));
                 }))
             });
             div()

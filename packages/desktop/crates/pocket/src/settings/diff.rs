@@ -1,3 +1,4 @@
+use super::Settings;
 use super::catalog::{Look, Setting};
 use crate::desktop::Desktop;
 use crate::git_ui::diff::{self, code, hunk};
@@ -72,7 +73,7 @@ fn preview_lines(options: git::Options) -> Vec<Line> {
     out
 }
 
-impl Desktop {
+impl Settings {
     fn diff_preview(&self, setting: &'static Setting) -> Div {
         let lines = preview_lines(diff::options(&self.store.diff));
         let side = |i: Option<usize>| match i {
