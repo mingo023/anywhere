@@ -4,9 +4,10 @@ use crate::modals::form::home;
 use crate::removal::dispose;
 use crate::sidebar::fold::{self, Fold};
 use crate::sidebar::sections::{matches, section_head};
-use crate::sidebar::{done_name, rolled_state, row_name};
+use crate::sidebar::{done_name, rolled_state, row_name, with_sub};
 use crate::spaces::space_of;
-use crate::util::now_ms;
+use crate::status::Card;
+use crate::util::{now_ms, tilde};
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -25,12 +26,14 @@ struct DragScratch {
 }
 
 impl Desktop {
-    /// The Sessions section above Projects; `None` when the sidebar's filter leaves nothing in it.
+    /// The Threads section above Projects; `None` when the sidebar's filter leaves nothing in it.
     pub(super) fn scratch_section(&self, cx: &mut Context<Self>) -> Option<Div> {
         let query = self.sidebar.filter.query(cx);
         let filtering = !query.is_empty();
         let space = self.space();
         let rows: Vec<String> = self.store.scratches().into_iter().filter(|p| space_of(p) == space && (!filtering || matches(&self.place_name(p), &query))).collect();
+        let loose: Vec<String> = self.loose_folders(&space).into_iter().filter(|p| !filtering || matches(&thread_title(&self.cards(p)), &query) || matches(p, &query)).collect();
+        let rows: Vec<String> = rows.into_iter().chain(loose.iter().cloned()).collect();
         if filtering && rows.is_empty() {
             return None;
         }
@@ -50,7 +53,7 @@ impl Desktop {
             .text_size(px(11.))
             .font_weight(FontWeight::BOLD)
             .text_color(TEXT_3)
-            .child("SESSIONS")
+            .child("THREADS")
             .child(chevron)
             .children(roll)
             .when(!open && !rows.is_empty(), |d| d.child(ui::group_count(rows.len())))
@@ -65,10 +68,26 @@ impl Desktop {
         let new = icon_button_sized("aside-scratch-new", "plus", 22., TEXT_3).rounded(px(6.)).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.new_session_without_project(window, cx)));
         let head = section_head().pl(px(6.)).child(toggle).child(new);
         let height = fold::stacked(rows.iter().map(|_| ui::SIDEBAR_ROW_H), 1.).min(ui::SIDEBAR_ROW_H * MAX_ROWS);
-        let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref().is_some_and(|p| self.store.is_scratch(p)));
-        let drawn: Vec<AnyElement> = if self.sidebar.closing.drawn(&Fold::Scratch, open) { rows.iter().enumerate().map(|(ix, p)| self.scratch_row(ix, p, current.as_deref(), cx)).collect() } else { vec![] };
+        let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref().is_some_and(|p| rows.iter().any(|r| r == p)));
+        let drawn: Vec<AnyElement> = if self.sidebar.closing.drawn(&Fold::Scratch, open) {
+            rows.iter().enumerate().map(|(ix, p)| if loose.contains(p) { self.loose_row(p, current.as_deref(), cx) } else { self.scratch_row(ix, p, current.as_deref(), cx) }).collect()
+        } else {
+            vec![]
+        };
         let list = div().id("aside-scratch-rows").max_h(px(height)).overflow_y_scroll().flex().flex_col().gap(px(1.)).children(drawn);
         Some(div().flex().flex_col().flex_none().child(head).child(fold::springing("aside-scratch-fold", open, height, div().child(list))))
+    }
+
+    fn loose_row(&self, path: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
+        let cards = self.cards(path);
+        let (selected, state) = (current == Some(path), rolled_state(&cards));
+        let mark = ui::indicator(id(format!("aside-spin:{path}")), state);
+        let label = with_sub(done_name(row_name(&self.renames, path, thread_title(&cards), state, selected, cx.reduce_motion()), state), Some(tilde(path)), false);
+        let key = path.to_string();
+        ui::worktree_row(id(format!("aside-tree:{path}")), "terminal", label, selected, mark)
+            .pl(px(6.))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select_tree(key.clone(), None, cx)))
+            .into_any_element()
     }
 
     fn scratch_row(&self, ix: usize, path: &str, current: Option<&str>, cx: &mut Context<Self>) -> AnyElement {
@@ -183,5 +202,26 @@ fn dispose_scratch(key: &str, trash: bool) {
                 _ = host.remove(path, true);
             }
         }
+    }
+}
+
+fn thread_title(cards: &[Card]) -> String {
+    cards.iter().max_by_key(|c| c.at).map(|c| c.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| "Terminal".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::thread_title;
+    use crate::status::Card;
+
+    fn card(title: &str, at: i64) -> Card {
+        Card { title: title.into(), at, ..crate::status::card(&agents::Summary::default(), "/w") }
+    }
+
+    #[test]
+    fn a_thread_is_named_by_its_newest_session_else_as_a_terminal() {
+        assert_eq!(thread_title(&[card("Old", 1), card("Fix login redirect", 9)]), "Fix login redirect");
+        assert_eq!(thread_title(&[card("", 9)]), "Terminal");
+        assert_eq!(thread_title(&[]), "Terminal");
     }
 }

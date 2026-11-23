@@ -502,29 +502,9 @@ fn sidebar_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
 
 const ROW_MARK_SIZE: f32 = 20.;
 
-/// `kept` is false for a project Pocket shows only while it has terminals: its mark is dashed and its name dim.
 /// A `chevron` takes the mark's place while the row is hovered. A `state` badges the mark.
-pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: &str, mark: &Mark, selected: bool, kept: bool, state: Option<State>) -> Stateful<Div> {
-    let mark = if kept {
-        repo_tile(mark, ROW_MARK_SIZE, false, state)
-    } else {
-        div()
-            .relative()
-            .size(px(ROW_MARK_SIZE))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .rounded(px(5.))
-            .border(px(1.))
-            .border_dashed()
-            .border_color(TEXT_5)
-            .text_size(px((ROW_MARK_SIZE * mark.scale(0.5)).round()))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(TEXT_3)
-            .child(mark.fill(5.))
-            .children(corner_badges(state))
-    };
+pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: &str, mark: &Mark, selected: bool, state: Option<State>) -> Stateful<Div> {
+    let mark = repo_tile(mark, ROW_MARK_SIZE, false, state);
     let lead = match chevron {
         Some(c) => div()
             .relative()
@@ -535,7 +515,7 @@ pub fn repo_row(id: impl Into<ElementId>, chevron: Option<Stateful<Div>>, name: 
     };
     sidebar_row(id, selected)
         .child(lead)
-        .child(div().flex_1().min_w_0().truncate().when(!kept, |d| d.text_color(TEXT_3)).child(name.to_string()))
+        .child(div().flex_1().min_w_0().truncate().child(name.to_string()))
 }
 
 pub fn chevron(id: impl Into<ElementId>, open: bool) -> Stateful<Div> {

@@ -333,7 +333,11 @@ impl Desktop {
 
     /// The projects the sidebar lists in `space`: not its Scratch folders.
     pub(crate) fn space_projects(&self, space: &Space) -> Vec<String> {
-        in_space(&self.store.without_scratch(self.projects()), space)
+        in_space(&self.store.without_scratch(self.store.projects.clone()), space)
+    }
+
+    pub(crate) fn loose_folders(&self, space: &Space) -> Vec<String> {
+        in_space(&unadded(self.projects(), &self.store.projects), space)
     }
 
     /// The projects of the sessions waiting on the user, one entry each.
@@ -438,9 +442,14 @@ impl Desktop {
     }
 }
 
+/// The folders in `projects` the user never added: those only a terminal brought.
+fn unadded(projects: Vec<String>, added: &[String]) -> Vec<String> {
+    projects.into_iter().filter(|p| !added.contains(p)).collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FLASH, HOST_ICONS, arrival, Heading, Reach, Space, Spaces, SLIDE, Swipe, colour, crumbs, flash_key, glyph, heading, in_space, kept_name, labelled, nth, offline_note, offline_title, on_host, order, reach, resolve, space_of, step, twin, waiting};
+    use super::{FLASH, HOST_ICONS, arrival, Heading, Reach, Space, Spaces, SLIDE, Swipe, colour, crumbs, flash_key, glyph, heading, in_space, kept_name, labelled, nth, offline_note, offline_title, on_host, order, reach, resolve, space_of, step, twin, unadded, waiting};
     use agents::hosts::{Failure, Link};
     use std::collections::HashMap;
     use std::time::Instant;
@@ -640,5 +649,11 @@ mod tests {
         assert_eq!(arrival(None, &devbox, &projects), Some("//devbox/code/api".into()));
         assert_eq!(arrival(Some("//devbox/code/app"), &devbox, &projects), None);
         assert_eq!(arrival(Some("/Users/me/app"), &devbox, &[]), None);
+    }
+
+    #[test]
+    fn only_a_folder_never_added_is_a_thread_of_its_own() {
+        let projects = ["/w/app", "/Users/me/Downloads"].map(String::from).to_vec();
+        assert_eq!(unadded(projects, &["/w/app".to_string()]), ["/Users/me/Downloads"]);
     }
 }

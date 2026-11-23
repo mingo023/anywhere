@@ -34,6 +34,7 @@
 // FIXTURE_HOST_STATUS_FAILS=n refuses devbox's first n status asks, as a pocketd still starting does.
 // FIXTURE_FIRST_LAUNCH=<unix seconds> saves that first launch in desktop.json; three days back makes the sidebar ask for a star.
 // FIXTURE_BACKGROUND=<image path> saves it as the background image in desktop.json.
+// FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
@@ -51,7 +52,7 @@ type Provider = (typeof PROVIDER_IDS)[number];
 type Agent = {
   id: string; title: string; provider: Provider; repo: string; branch?: string;
   status: "running" | "idle"; ago: number; waiting?: string; failed?: boolean; model?: string; effort?: string; pinned?: boolean; activity?: string;
-  diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string;
+  diff?: [string, number, number][]; children?: string[][]; term?: string; restore?: string; cwd?: string;
 };
 type Scenario = { repos: string[]; merged?: string[]; agents: Agent[] };
 
@@ -260,7 +261,11 @@ if (chatWorking && scenario.agents[0]?.id === CHAT_AGENT) scenario.agents[0].sta
 if (process.env.FIXTURE_IDLE) for (const a of scenario.agents) a.status = "idle";
 
 const now = Date.now();
-const cwd = (a: Agent) => (a.branch ? treePath(a.repo, a.branch) : repoPath(a.repo));
+if (process.env.FIXTURE_LOOSE) {
+  for (const d of ["Downloads", "notes"]) mkdirSync(join(home, d), { recursive: true });
+  scenario.agents.push({ id: "loose", title: "Sort the downloads folder", provider: "claude", repo: "", cwd: join(home, "Downloads"), status: "running", ago: 2 });
+}
+const cwd = (a: Agent) => a.cwd ?? (a.branch ? treePath(a.repo, a.branch) : repoPath(a.repo));
 const status = (a: Agent) => (a.waiting ? "needsYou" : a.failed ? "done" : a.status === "running" ? "working" : "idle");
 const left: Record<Provider, number> = { claude: 62, codex: 41, cursor: 77, grok: 58, opencode: 49, pi: 83, omp: 91, fx: 66, hermes: 35, antigravity: 72 };
 const summaries = scenario.agents.map((a) => ({
@@ -291,6 +296,7 @@ const children = scenario.agents.flatMap((a) => (a.children ?? []).map((argv, i)
 const sessions = [
   ...scenario.agents.map((a) => ({ id: a.id, cmd: a.term ?? a.provider, args: [], cwd: cwd(a) })),
   ...children.map((c) => ({ id: c.id, cmd: c.argv[0], args: c.argv.slice(1), cwd: c.cwd })),
+  ...(process.env.FIXTURE_LOOSE ? [{ id: "loose-shell", cmd: "/bin/zsh", args: ["-l"], cwd: join(home, "notes") }] : []),
 ];
 
 const SCOPES = process.env.FIXTURE_OBSERVE ? ["observe"] : ["observe", "drive", "approve", "spawn", "owner"];
