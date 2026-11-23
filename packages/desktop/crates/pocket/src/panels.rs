@@ -8,6 +8,7 @@ mod strip;
 mod tab_actions;
 mod tab_menu;
 mod top_actions;
+mod top_bar;
 mod top_tabs;
 
 use crate::desktop::Desktop;
@@ -21,6 +22,7 @@ use pane_drag::{DragPane, Source};
 use std::collections::HashMap;
 use std::time::Instant;
 use theme::*;
+use top_bar::TopBar;
 use workspace::tree::{Axis, Divider, Node, Pane, PaneId, Rect, Target, Tree};
 use workspace::{Doc, Place, Tab};
 
@@ -32,7 +34,6 @@ pub(crate) struct Strip {
 }
 
 /// The main area's panes: their strips, menus and the tab held on one.
-#[derive(Default)]
 pub(crate) struct Panels {
     strips: HashMap<PaneId, Strip>,
     /// Where the open + menu's new tabs go: its pane, or a new top tab.
@@ -59,15 +60,10 @@ pub(crate) struct Panels {
     pub(crate) restored: bool,
     /// Panels saved last launch for worktrees on hosts, until each host first lists its terminals.
     pub(crate) waiting: std::collections::BTreeMap<String, workspace::Workspace>,
-    top_scroll: ScrollHandle,
-    /// The worktree and top tab last scrolled into view, so it is revealed once per switch rather than every frame.
-    top_revealed: Option<(String, usize)>,
-    /// The top tab held on the bar.
-    top_drag: Option<strip::TabDrag>,
+    /// The bar over the panes: the top tabs.
+    pub(crate) top: Entity<TopBar>,
     /// The pane held by its head, and where it would drop.
     pane_drag: Option<pane_drag::Held>,
-    /// The top bar as last drawn, in window pixels.
-    bar: Rect,
     /// The panes last synced, to tell when a split makes one.
     panes: Vec<PaneId>,
     /// The pane a split just made, and how far it has grown to its share.
@@ -75,6 +71,31 @@ pub(crate) struct Panels {
 }
 
 impl Panels {
+    pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
+        let top = cx.new(|_| TopBar::default());
+        let subs = vec![cx.subscribe_in(&top, window, Desktop::on_top_event), cx.observe(&top, |_, _, cx| cx.notify())];
+        let panels = Self {
+            strips: HashMap::new(),
+            menu: None,
+            actions: None,
+            top_actions: None,
+            drag: None,
+            more_at: None,
+            bounds: Rect::default(),
+            aim: None,
+            at: None,
+            slots: Default::default(),
+            tree: None,
+            restored: false,
+            waiting: Default::default(),
+            top,
+            pane_drag: None,
+            panes: Vec::new(),
+            born: None,
+        };
+        (panels, subs)
+    }
+
     /// Whether a held tab, pane or top tab may drop over a page, whose native view would hide the marks.
     pub(crate) fn parks_pages(&self) -> bool {
         self.drag.as_ref().is_some_and(|(_, d)| d.away) || self.pane_drag.is_some()
@@ -90,8 +111,15 @@ impl Panels {
     }
 
     /// Whether a tab, pane or top tab is held, so the pictures of pages taken for it are still wanted.
-    pub(crate) fn holding(&self) -> bool {
-        self.drag.is_some() || self.pane_drag.is_some() || self.top_drag.is_some()
+    pub(crate) fn holding(&self, cx: &App) -> bool {
+        self.drag.is_some() || self.pane_drag.is_some() || self.top.read(cx).holding()
+    }
+
+    /// Lets go of a held pane, top tab or tab without moving it; true if one was held.
+    pub(crate) fn cancel_drag(&mut self, cx: &mut App) -> bool {
+        let tab = self.drag.take_if(|(_, d)| !d.released).is_some();
+        let top = self.top.update(cx, |b, _| b.cancel());
+        self.pane_drag.take().is_some() | tab | top
     }
 }
 
@@ -191,15 +219,6 @@ impl Desktop {
         )
         .absolute()
         .size_full();
-        let this = cx.weak_entity();
-        let measure_bar = canvas(
-            move |b, _, cx| {
-                this.update(cx, |this, _| this.panels.bar = rect(b)).ok();
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .inset_0();
         let observe = self.agents.observe_only();
         let drag_tree = tree.to_string();
         div()
@@ -209,10 +228,10 @@ impl Desktop {
             .flex()
             .flex_col()
             .bg(SURFACE_SUNKEN)
-            .child(self.top_bar(tree, window, cx).child(measure_bar))
+            .child(self.top_bar(tree, window, cx))
             .child(div().relative().flex_1().min_h_0().flex().child(measure).child(body).children(self.drop_marks(tree, cx)))
             .when(observe, |d| d.child(observe_banner()))
-            .children(self.pane_marks(tree))
+            .children(self.pane_marks(tree, cx))
             .on_drag_move(
                 cx.listener(|this, e: &DragMoveEvent<strip::DragTab>, _, cx| this.aim_tab((e.event.position.x.into(), e.event.position.y.into()), cx)),
             )
@@ -448,7 +467,7 @@ impl Desktop {
         if self.panels.at == Some(at) {
             return;
         }
-        let top = self.bar_index(&tree, at);
+        let top = self.bar_index(&tree, at, cx);
         let Some((from, d)) = self.panels.drag.as_mut() else { return };
         let Some(w) = self.workspaces.get(&tree) else { return };
         let t = &w.tree;

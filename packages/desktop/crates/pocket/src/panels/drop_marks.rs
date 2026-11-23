@@ -16,7 +16,7 @@ impl Desktop {
         let o = self.panels.bounds;
         let mark = match self.panels.aim {
             Some(Aim::To(target)) => self.drop_mark(t, target, y),
-            Some(Aim::Top(i)) => self.top_caret(tree, i, o),
+            Some(Aim::Top(i)) => self.top_caret(tree, i, o, cx),
             _ => None,
         };
         let tab = t.pane(*from)?.tabs.get(d.from)?;

@@ -165,6 +165,7 @@ impl Desktop {
         let chat = cx.new(|cx| ChatComposer::new(window, cx));
         let chat_subs = [cx.subscribe_in(&chat, window, Self::on_chat_event), cx.observe(&chat, |_, _, cx| cx.notify())];
         let (chats, chats_subs) = ChatState::new(window, cx);
+        let (panels, panels_subs) = Panels::new(window, cx);
         let regions = Regions::new(cx);
         let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
         let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
@@ -255,6 +256,7 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(chats_subs);
+        _subs.extend(panels_subs);
         _subs.extend(terminals_subs);
         _subs.push(changes_subs);
         _subs.push(explorer_subs);
@@ -313,7 +315,7 @@ impl Desktop {
             error: None,
             root,
             terminal: TerminalViewState::new(cx),
-            panels: Panels::default(),
+            panels,
             open_in,
             browsers,
             inbox,
@@ -846,7 +848,7 @@ impl Render for Desktop {
                     return;
                 }
                 if this.close_host_finder(cx)
-                    || this.cancel_drag()
+                    || this.panels.cancel_drag(cx)
                     || this.explorer.update(cx, |e, _| e.cancel_edit())
                     || this.sidebar.cancel_rename()
                     || this.sidebar.space_header.update(cx, |h, _| h.cancel_rename())

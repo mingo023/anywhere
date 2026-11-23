@@ -1,5 +1,4 @@
 use super::drop::{caret, half, pane_aim, top_index};
-use super::strip::slots;
 use crate::desktop::Desktop;
 use gpui_kit::*;
 use theme::*;
@@ -57,7 +56,7 @@ impl Desktop {
             Source::Top(_) => None,
         };
         let Some(w) = self.workspaces.get(tree) else { return };
-        let aim = match self.bar_index(tree, at) {
+        let aim = match self.bar_index(tree, at, cx) {
             Some(i) => Some(Drop::Top(i)),
             None => pane_aim(&w.tree.drawn_layout(self.panels.bounds), at, from).map(|(p, e)| Drop::Pane(p, e)),
         };
@@ -107,35 +106,28 @@ impl Desktop {
         true
     }
 
-    /// Lets go of a held pane, top tab or tab without moving it; true if one was held.
-    pub(crate) fn cancel_drag(&mut self) -> bool {
-        let tab = self.panels.drag.take_if(|(_, d)| !d.released).is_some();
-        let top = self.panels.top_drag.take_if(|d| !d.released).is_some();
-        self.panels.pane_drag.take().is_some() | tab | top
-    }
-
     /// Which top tab of worktree `tree` a drop at `(x, y)` lands before, if the pointer is on the bar.
-    pub(super) fn bar_index(&self, tree: &str, (x, y): (f32, f32)) -> Option<usize> {
-        let b = self.panels.bar;
-        (b.x <= x && x < b.x + b.w && b.y <= y && y < b.y + b.h).then(|| top_index(&self.top_slots(tree), x))
+    pub(super) fn bar_index(&self, tree: &str, (x, y): (f32, f32), cx: &App) -> Option<usize> {
+        let b = self.panels.top.read(cx).bounds;
+        (b.x <= x && x < b.x + b.w && b.y <= y && y < b.y + b.h).then(|| top_index(&self.top_slots(tree, cx), x))
     }
 
-    fn top_slots(&self, tree: &str) -> Vec<(f32, f32)> {
-        self.workspaces.get(tree).map(|w| slots(&self.panels.top_scroll, w.others.len() + 1)).unwrap_or_default()
+    fn top_slots(&self, tree: &str, cx: &App) -> Vec<(f32, f32)> {
+        self.workspaces.get(tree).map(|w| self.panels.top.read(cx).slots(w.others.len() + 1)).unwrap_or_default()
     }
 
     /// The caret before top tab `i` of worktree `tree`, within the box whose origin is `o`.
-    pub(super) fn top_caret(&self, tree: &str, i: usize, o: Rect) -> Option<Div> {
-        let x = caret(&self.top_slots(tree), i)?;
-        let b = self.panels.bar;
+    pub(super) fn top_caret(&self, tree: &str, i: usize, o: Rect, cx: &App) -> Option<Div> {
+        let x = caret(&self.top_slots(tree, cx), i)?;
+        let b = self.panels.top.read(cx).bounds;
         Some(div().absolute().left(px(x - 1. - o.x)).top(px(b.y + 7. - o.y)).w(px(2.)).h(px(26.)).rounded(px(1.)).bg(ACCENT))
     }
 
     /// Where the held pane would drop in worktree `tree`: the half of the pane it would take, edged on its side, or a caret between top tabs.
     /// Drawn within the box that starts at the bar.
-    pub(super) fn pane_marks(&self, tree: &str) -> Option<Deferred> {
+    pub(super) fn pane_marks(&self, tree: &str, cx: &App) -> Option<Deferred> {
         let aim = self.panels.pane_drag.as_ref()?.aim?;
-        let (o, w) = (self.panels.bar, self.workspaces.get(tree)?);
+        let (o, w) = (self.panels.top.read(cx).bounds, self.workspaces.get(tree)?);
         let place = |r: Rect| div().absolute().left(px(r.x - o.x)).top(px(r.y - o.y)).w(px(r.w)).h(px(r.h));
         let mark = match aim {
             Drop::Pane(p, edge) => {
@@ -148,7 +140,7 @@ impl Desktop {
                 };
                 div().absolute().inset_0().child(place(half(r, edge)).bg(Hsla::from(ACCENT).opacity(0.15))).child(place(line).bg(ACCENT))
             }
-            Drop::Top(i) => self.top_caret(tree, i, o)?,
+            Drop::Top(i) => self.top_caret(tree, i, o, cx)?,
         };
         Some(deferred(div().absolute().inset_0().child(mark)))
     }
