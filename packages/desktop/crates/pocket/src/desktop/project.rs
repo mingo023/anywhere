@@ -289,6 +289,7 @@ impl Desktop {
         let shown = self.store.files.clone();
         let files: Vec<_> = self
             .preview
+            .read(cx)
             .panes
             .iter()
             .filter_map(|(p, f)| {
@@ -370,7 +371,7 @@ impl Desktop {
                     d.load_compare(cx);
                 }
                 for (pane, file) in files {
-                    changed |= d.preview.apply(pane, file);
+                    changed |= d.preview.update(cx, |p, _| p.state.apply(pane, file));
                 }
                 for (pane, load) in diffs {
                     changed |= d.diff.apply(pane, load, cx);

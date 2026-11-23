@@ -397,7 +397,7 @@ impl Desktop {
 
     fn close_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(Confirm::CloseFile(path)) = self.confirm.take() {
-            self.preview.discard(&path);
+            self.preview.update(cx, |p, _| p.state.discard(&path));
             self.close_doc(&Doc::File(path), cx);
         }
         self.close_overlay(window, cx);

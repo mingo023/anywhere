@@ -493,7 +493,7 @@ impl Desktop {
         let Some(tree) = self.place() else { return };
         let ids = match self.workspace(&tree).tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned() {
             Some(Tab::Term(id)) => vec![id],
-            Some(Tab::Doc(Doc::File(path))) if self.preview.dirty(&path) => {
+            Some(Tab::Doc(Doc::File(path))) if self.preview.read(cx).dirty(&path) => {
                 self.confirm = Some(Confirm::CloseFile(path));
                 self.overlay = Some(Overlay::Confirm);
                 cx.notify();
@@ -519,7 +519,7 @@ impl Desktop {
         let Some(tree) = self.place() else { return };
         let Some(tabs) = self.workspace(&tree).tops().get(i).map(|t| t.panes().iter().flat_map(|p| p.tabs.clone()).collect::<Vec<_>>()) else { return };
         let unsaved = tabs.iter().find_map(|t| match t {
-            Tab::Doc(Doc::File(path)) if self.preview.dirty(path) => Some(path.clone()),
+            Tab::Doc(Doc::File(path)) if self.preview.read(cx).dirty(path) => Some(path.clone()),
             _ => None,
         });
         if let Some(path) = unsaved {

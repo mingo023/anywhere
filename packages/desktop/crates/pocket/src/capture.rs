@@ -507,9 +507,9 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("pill", |d, _, _| d.chat.pill = Quote::prose("README.md", "", "Add to chat").map(|q| (point(px(420.), px(260.)), q))),
     ("chat-menu", |d, window, cx| d.open_chat_menu(window, cx)),
-    ("ask-file", |d, _, _| {
+    ("ask-file", |d, _, cx| {
         let pane = d.focused_pane();
-        let Some((path, text)) = d.preview.pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };
+        let Some((path, text)) = d.preview.read(cx).pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };
         let end = text.match_indices('\n').nth(2).map_or(text.len(), |(i, _)| i);
         d.chat.file = Quote::code(&crate::util::basename(&path), &text, 0..end).map(|q| (point(px(420.), px(260.)), q));
     }),
@@ -1776,9 +1776,7 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     d.settings.menu = None;
     (d.layout, d.widths, d.sidebar.panel_open, d.panels.menu) = (Layout::Sidebars, [None; 2], false, None);
     (d.worktree, d.terminal.focused) = (None, None);
-    for p in d.preview.panes.values_mut() {
-        p.file = None;
-    }
+    d.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
     for s in d.diff.panes.values() {
         s.view.update(cx, |p, _| (p.view.file, p.view.at) = (None, At::Working));
     }

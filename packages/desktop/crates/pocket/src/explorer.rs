@@ -436,7 +436,7 @@ impl Desktop {
         let root = self.explore_root();
         let repo = root.as_ref().and_then(|r| self.repos.get(r)).cloned();
         let local = root.as_deref().is_some_and(|r| fs_for(r).local().is_ok());
-        let selected = self.preview.file(self.focused_pane()).map(str::to_string);
+        let selected = self.preview.read(cx).file(self.focused_pane()).map(str::to_string);
         let stamp = self.agents.edits_stamp();
         let (menu_open, touched_at) = {
             let e = self.explorer.read(cx);

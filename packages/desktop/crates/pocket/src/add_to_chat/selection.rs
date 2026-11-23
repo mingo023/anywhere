@@ -5,20 +5,8 @@ use gpui_kit::*;
 use theme::*;
 use workspace::tree::PaneId;
 
-/// Offers the pill where a mouse selection in `pane`'s file ends.
-pub(crate) fn offers_chat(pane: PaneId, body: Div, cx: &Context<Desktop>) -> Div {
-    body.capture_any_mouse_up(cx.listener(move |_, ev: &MouseUpEvent, window, cx| {
-        if ev.button != MouseButton::Left {
-            return;
-        }
-        let at = ev.position;
-        // The view settles its selection in its own mouse-up, which runs after this capture.
-        cx.defer_in(window, move |this, _, cx| this.offer_chat(pane, at, cx));
-    }))
-}
-
 impl Desktop {
-    fn offer_chat(&mut self, pane: PaneId, at: Point<Pixels>, cx: &mut Context<Self>) {
+    pub(crate) fn offer_chat(&mut self, pane: PaneId, at: Point<Pixels>, cx: &mut Context<Self>) {
         if self.chat.file.is_some() {
             return;
         }
@@ -31,10 +19,11 @@ impl Desktop {
 
     /// What's selected in `pane`'s file, and where on screen it ends when the view can tell.
     fn selection_quote(&self, pane: PaneId, cx: &App) -> Option<(Quote, Option<Point<Pixels>>)> {
-        let f = self.preview.pane(pane)?;
+        let preview = self.preview.read(cx);
+        let f = preview.pane(pane)?;
         let (file, views) = (f.file.as_deref()?, f.views.as_ref()?);
         let path = || self.cwd().map_or_else(|| file.to_string(), |root| relative(file, &root));
-        match self.preview.body(pane) {
+        match preview.body(pane) {
             View::Code => {
                 let code = views.code.read(cx);
                 let range = code.selected_range();

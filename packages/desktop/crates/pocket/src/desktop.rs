@@ -26,7 +26,7 @@ use crate::desktop::geometry::Geometry;
 use crate::desktop::jump::Chips;
 use crate::desktop::sounds::Chime;
 use crate::explorer::Explorer;
-use crate::explorer::preview::PreviewState;
+use crate::explorer::preview::Previews;
 use crate::fleet::Fleet;
 use crate::git_ui::changes::Changes;
 use crate::git_ui::commit::Commits;
@@ -139,7 +139,7 @@ pub struct Desktop {
     pub(crate) worktree: Option<String>,
     pub(crate) confirm: Option<Confirm>,
     pub(crate) row_menu: Option<RowMenu>,
-    pub(crate) preview: PreviewState,
+    pub(crate) preview: Entity<Previews>,
     pub(crate) new_form: Entity<new_session::NewForm>,
     pub(crate) repo_form: add_project::RepoForm,
     pub(crate) host_finder: crate::modals::host_finder::HostFinder,
@@ -167,6 +167,8 @@ impl Desktop {
         let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
         let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
         let explorer = cx.new(|_| Explorer::new());
+        let preview = cx.new(|_| Previews::new());
+        let preview_subs = cx.subscribe(&preview, Self::on_preview_event);
         let explorer_subs = cx.subscribe_in(&explorer, window, Self::on_explorer_event);
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
@@ -245,6 +247,7 @@ impl Desktop {
         _subs.extend(chats_subs);
         _subs.push(changes_subs);
         _subs.push(explorer_subs);
+        _subs.push(preview_subs);
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
@@ -324,7 +327,7 @@ impl Desktop {
             worktree: None,
             confirm: None,
             row_menu: None,
-            preview: PreviewState::default(),
+            preview,
             new_form,
             repo_form,
             host_finder,
@@ -384,9 +387,7 @@ impl Desktop {
         for s in self.diff.panes.values() {
             s.view.update(cx, |p, _| p.view.file = None);
         }
-        for p in self.preview.panes.values_mut() {
-            p.file = None;
-        }
+        self.preview.update(cx, |p, _| p.state.panes.values_mut().for_each(|f| f.file = None));
         self.explorer.update(cx, |e, _| e.clear_tree());
     }
 
@@ -482,7 +483,8 @@ impl Desktop {
     fn show_doc(&mut self, pane: PaneId, doc: Doc, cx: &mut Context<Self>) {
         match doc {
             Doc::File(path) => {
-                self.preview.open(pane, path, self.store.files.markdown_source);
+                let source = self.store.files.markdown_source;
+                self.preview.update(cx, |p, _| p.state.open(pane, path, source));
                 self.load_file(pane, cx);
             }
             Doc::Diff(path) => {
@@ -511,7 +513,7 @@ impl Desktop {
     pub fn loaded(&self, pane: PaneId, doc: &Doc, cx: &App) -> bool {
         let diff = self.diff.view(pane, cx);
         match doc {
-            Doc::File(p) => self.preview.file(pane) == Some(p.as_str()),
+            Doc::File(p) => self.preview.read(cx).file(pane) == Some(p.as_str()),
             Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, &At::Working)),
             Doc::CommitFile { sha, path } => diff.is_some_and(|v| v.shows(path, &At::Commit(sha.clone()))),
             Doc::PrFile { base, path } => diff.is_some_and(|v| v.shows(path, &At::Base(base.clone()))),
@@ -525,7 +527,7 @@ impl Desktop {
         let panes = self.pane_ids();
         self.diff.retain_panes(&panes);
         self.commit.retain_panes(&panes);
-        self.preview.retain_panes(&panes);
+        self.preview.update(cx, |p, _| p.retain_panes(&panes));
         self.browsers.retain_panes(&panes);
         for pane in panes {
             if let Some(Tab::Doc(doc)) = self.pane_tab(pane)
@@ -782,7 +784,6 @@ impl Render for Desktop {
         {
             window.request_animation_frame();
         }
-        self.sync_code(window, cx);
         self.sync_view(window, cx);
         self.sync_browser(window, cx);
         let welcome = self.welcome_view(now, reduce_motion, window, cx);

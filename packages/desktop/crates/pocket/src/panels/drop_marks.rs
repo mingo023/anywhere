@@ -7,7 +7,7 @@ use workspace::tree::{Target, Tree};
 
 impl Desktop {
     /// The caret or lit pane where the held tab would drop, and the tab itself under the pointer.
-    pub(super) fn drop_marks(&self, tree: &str) -> Option<Deferred> {
+    pub(super) fn drop_marks(&self, tree: &str, cx: &App) -> Option<Deferred> {
         let ((from, d), (x, y)) = (self.panels.drag.as_ref()?, self.panels.at?);
         if !d.away {
             return None;
@@ -35,7 +35,7 @@ impl Desktop {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(TEXT)
             .whitespace_nowrap()
-            .child(self.tab_lead(tab, false, true));
+            .child(self.tab_lead(tab, false, true, cx));
         Some(deferred(div().absolute().inset_0().children(mark).child(ghost)))
     }
 

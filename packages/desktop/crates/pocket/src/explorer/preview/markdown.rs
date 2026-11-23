@@ -1,9 +1,10 @@
-use super::{Views, frame};
+use super::frame;
 use crate::explorer::frontmatter::Frontmatter;
 use crate::explorer::mermaid::{Diagrams, Mermaid};
 use gpui_kit::base::text::{CodeBlock, CodeBlockHighlighterFn, MarkdownExtensions, TextView, TextViewStyle};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::input::Rope;
+use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::path::Path;
@@ -75,14 +76,14 @@ fn image_base(path: &str) -> Option<&Path> {
 }
 
 /// A markdown file rendered like pluk-inc/markdown-preview, with its mermaid fences drawn as diagrams.
-pub(super) fn markdown_pane(views: &Views, path: &str) -> Div {
-    let text = TextView::new(&views.md);
+pub(super) fn markdown_pane(md: &Entity<TextViewState>, diagrams: &Entity<Diagrams>, path: &str) -> Div {
+    let text = TextView::new(md);
     let text = match image_base(path) {
         Some(dir) => text.image_base(dir),
         None => text,
     };
     frame().bg(MD_PAGE).child(
-        text.markdown_extensions(extensions(&views.diagrams))
+        text.markdown_extensions(extensions(diagrams))
             .shared_code_block_highlighter(code_highlighter())
             .selectable(true)
             .scrollable(true)

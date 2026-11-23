@@ -32,7 +32,7 @@ fn ask(unsaved: usize, alert_up: bool, confirm: bool) -> Ask {
 impl Desktop {
     pub fn quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
         let working = self.agents.list.iter().filter(|a| Status::of(a) == Some(Status::Working)).count();
-        match ask(self.preview.drafts.len(), ALERT_UP.load(Ordering::Relaxed), self.store.general.confirm_quit.asks(working)) {
+        match ask(self.preview.read(cx).drafts.len(), ALERT_UP.load(Ordering::Relaxed), self.store.general.confirm_quit.asks(working)) {
             Ask::DiscardEdits(unsaved) => {
                 self.confirm = Some(Confirm::Quit(unsaved));
                 self.overlay = Some(Overlay::Confirm);

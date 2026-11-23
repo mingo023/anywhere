@@ -3,8 +3,6 @@ mod menu;
 mod selection;
 mod toast;
 
-pub(crate) use selection::offers_chat;
-
 use crate::actions::AddToChat;
 use crate::chat::Route;
 use crate::desktop::Desktop;

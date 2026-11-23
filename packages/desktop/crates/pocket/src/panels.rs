@@ -210,7 +210,7 @@ impl Desktop {
             .flex_col()
             .bg(SURFACE_SUNKEN)
             .child(self.top_bar(tree, window, cx).child(measure_bar))
-            .child(div().relative().flex_1().min_h_0().flex().child(measure).child(body).children(self.drop_marks(tree)))
+            .child(div().relative().flex_1().min_h_0().flex().child(measure).child(body).children(self.drop_marks(tree, cx)))
             .when(observe, |d| d.child(observe_banner()))
             .children(self.pane_marks(tree))
             .on_drag_move(

@@ -148,7 +148,7 @@ impl Desktop {
     }
 
     /// A tab's icon, dimmed unless `selected`, then its name and marks.
-    pub(super) fn tab_lead(&self, tab: &Tab, preview: bool, selected: bool) -> Div {
+    pub(super) fn tab_lead(&self, tab: &Tab, preview: bool, selected: bool, cx: &App) -> Div {
         let ink = if selected { TEXT } else { TEXT_3 };
         let row = div().flex().items_center().gap(px(6.));
         let lead = |el: AnyElement| div().flex_none().flex().when(!selected, |d| d.opacity(0.55)).child(el);
@@ -176,7 +176,7 @@ impl Desktop {
                     Doc::Diff(p) => self.repo().and_then(|r| r.files.iter().find(|f| f.path == *p)).map(|f| ui::meta_diff(f.added, f.removed, 11.)),
                     _ => None,
                 };
-                let unsaved = matches!(doc, Doc::File(p) if self.preview.dirty(p)).then(|| dot(6., TEXT_2));
+                let unsaved = matches!(doc, Doc::File(p) if self.preview.read(cx).dirty(p)).then(|| dot(6., TEXT_2));
                 return row
                     .child(lead(file_icon(path, false, false, 14.).into_any_element()))
                     .child(label(text).when(preview, |d| d.italic()))
@@ -329,7 +329,7 @@ impl Desktop {
                     .cursor_pointer()
                     .when(selected, |d| d.bg(FILL_3).text_color(TEXT))
                     .when(!selected, |d| d.text_color(TEXT_3).hover(|s| s.bg(FILL_1).text_color(TEXT)))
-                    .child(self.tab_lead(tab, doc.is_some() && doc == preview, selected).flex_1().min_w_0())
+                    .child(self.tab_lead(tab, doc.is_some() && doc == preview, selected, cx).flex_1().min_w_0())
                     .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                         this.select_tab(p, i, window, cx);
                         if ev.click_count() > 1
