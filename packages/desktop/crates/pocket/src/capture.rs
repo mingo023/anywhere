@@ -1244,7 +1244,7 @@ const STEPS: [(&str, Step); 303] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file"), `right-click` from `CAPTURE_CLICKS`; `clipboard` prints the clipboard's text.
-const INPUT_STEPS: [(&str, Step); 21] = [
+const INPUT_STEPS: [(&str, Step); 24] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1431,6 +1431,15 @@ const INPUT_STEPS: [(&str, Step); 21] = [
                 window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: left, modifiers }), cx);
             }
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
+        });
+    }),
+    // `pan` with a frame drawn after the press and each move, so what the press picks up is laid out before it moves; `hand-hold` stops before the release and `hand-release` lets go where the pointer is.
+    ("hand-pan", |_, window, cx| hand_drag(window, cx, true)),
+    ("hand-hold", |_, window, cx| hand_drag(window, cx, false)),
+    ("hand-release", |_, window, cx| {
+        window.defer(cx, |window, cx| {
+            let position = window.mouse_position();
+            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position, modifiers: Modifiers::default(), click_count: 1 }), cx);
         });
     }),
     // A two-finger trackpad scroll: touch down, four moves of a quarter `dx`, `dy` each, then lift.
@@ -1930,6 +1939,26 @@ async fn settle(cx: &mut AsyncApp, window: AnyWindowHandle, desktop: &Entity<Des
         cx.background_executor().timer(Duration::from_millis(100)).await;
     }
     cx.update_window(window, |_, window, cx| draw(window, cx)).ok();
+}
+
+/// Presses at `x,y` of the next CAPTURE_PANS, moves by `dx,dy` in four steps drawing a frame at each, and lets go if `release`.
+fn hand_drag(window: &mut Window, cx: &mut App, release: bool) {
+    let Some(arg) = next_arg("CAPTURE_PANS", ';') else { return };
+    let Some((from, by)) = arg.match_indices(',').nth(1).and_then(|(i, _)| Some((point_arg(&arg[..i])?, point_arg(&arg[i + 1..])?))) else { return };
+    window.defer(cx, move |window, cx| {
+        let (modifiers, left) = (Modifiers::default(), Some(MouseButton::Left));
+        window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: from, pressed_button: None, modifiers }), cx);
+        window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: from, modifiers, click_count: 1, first_mouse: false }), cx);
+        draw(window, cx);
+        for step in 1..=4 {
+            let position = from + by * (step as f32 / 4.);
+            window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position, pressed_button: left, modifiers }), cx);
+            draw(window, cx);
+        }
+        if release {
+            window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: from + by, modifiers, click_count: 1 }), cx);
+        }
+    });
 }
 
 fn draw(window: &mut Window, cx: &mut App) {
