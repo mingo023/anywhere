@@ -681,6 +681,38 @@ func TestAnAgentTheUserStartsWhereAHandedDownOneFailedGetsItsOwnSession(t *testi
 	}
 }
 
+func TestAnAgentTheUserStartsAfterASlowResumeExitedGetsItsOwnSession(t *testing.T) {
+	old := RestoreWait
+	RestoreWait = 10 * time.Millisecond
+	t.Cleanup(func() { RestoreWait = old })
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh", "-c", "sleep 0.5; exec "+fakeAgent(t, "claude"))
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	term, _ := restoredIn(t, d)
+	d.poll()
+	report(t, reports)
+	d.RestoreExited("t-1")
+
+	if pr := waitPresent(t, d, term); pr.a.ID() == "a-1" {
+		t.Fatal("an agent after the resumed one exited took its session")
+	}
+}
+
+func TestAPinOnAFailedRestoreOutlivesARestart(t *testing.T) {
+	d := newDaemon(t)
+	reports := resuming(d, "/bin/sh", "-c", "exit 1")
+	d.Restore(savedAgent(t.TempDir(), "claude"), "/bin/sh")
+	report(t, reports)
+	a, err := d.Agents.Get("a-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.SetPinned(true)
+	if got := d.Snapshot().Terminals; len(got) != 1 || !got[0].Pinned {
+		t.Fatalf("Snapshot = %+v", got)
+	}
+}
+
 // handedDown is a Terminal running script whose saved claude a-1 the pocketd before handed down.
 func handedDown(t *testing.T, d *Daemon, script string) *terminal.Terminal {
 	t.Helper()

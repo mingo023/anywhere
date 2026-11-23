@@ -149,6 +149,7 @@ type Client struct {
 	queued  int64  // the output offset after the last byte queued
 	sized   []byte // the last resize and stop asked, sent again to a holder redialed
 	stopped []byte
+	typed   []byte // input the dropped connection didn't take, sent once redialed
 }
 
 // The holder drops a client that takes more than its write deadline, as a
@@ -325,11 +326,15 @@ func (c *Client) resume(conn net.Conn, rp replayed) bool {
 	}
 	c.queued = max(c.queued, rp.From+int64(len(rp.tail)))
 	c.cond.Broadcast()
-	sized, stopped := c.sized, c.stopped
+	sized, stopped, typed := c.sized, c.stopped, c.typed
+	c.typed = nil
 	c.mu.Unlock()
 	c.conn.Close()
 	c.conn = conn
-	// Either may have gone to the dropped connection.
+	// Each may have gone to the dropped connection.
+	if typed != nil {
+		writeFrame(conn, kInput, typed)
+	}
 	if sized != nil {
 		writeFrame(conn, kResize, sized)
 	}
@@ -362,9 +367,23 @@ func (c *Client) send(k kind, p []byte) error {
 }
 
 func (c *Client) Write(p []byte) (int, error) {
-	if err := c.send(kInput, p); err != nil {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	err := writeFrame(c.conn, kInput, p)
+	if err == nil {
+		return len(p), nil
+	}
+	// A timeout may have written part of the frame on a connection still up.
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
 		return 0, err
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closing || c.exited || c.ended {
+		return 0, err
+	}
+	c.typed = append(c.typed, p...)
 	return len(p), nil
 }
 

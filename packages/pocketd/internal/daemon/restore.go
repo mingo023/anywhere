@@ -98,13 +98,19 @@ func (d *Daemon) Snapshot() state.File {
 		}
 		f.Terminals = append(f.Terminals, e)
 	}
+	var placeholders []*hint
 	d.mu.Lock()
 	for id, h := range d.restoring {
 		if !slices.ContainsFunc(f.Terminals, func(e state.Terminal) bool { return e.TerminalID == id }) {
-			f.Terminals = append(f.Terminals, h.saved)
+			placeholders = append(placeholders, h)
 		}
 	}
 	d.mu.Unlock()
+	for _, h := range placeholders {
+		e := h.saved
+		e.Pinned = h.a.Summary().Pinned
+		f.Terminals = append(f.Terminals, e)
+	}
 	slices.SortFunc(f.Terminals, func(a, b state.Terminal) int { return strings.Compare(a.TerminalID, b.TerminalID) })
 	return f
 }
@@ -321,6 +327,10 @@ func (d *Daemon) RestoreExited(id string) {
 func (d *Daemon) finish(h *hint, reason string) {
 	d.mu.Lock()
 	if h.over || reason == "resume_timeout" && h.pr != nil {
+		if reason == "agent_exited" {
+			// What shows up in its Terminal now is an agent the user started.
+			h.late = false
+		}
 		d.mu.Unlock()
 		return
 	}

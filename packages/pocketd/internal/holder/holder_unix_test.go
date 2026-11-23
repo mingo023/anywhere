@@ -351,3 +351,17 @@ func TestAStopSentWhileTheClientRedialsStillEndsTheProcess(t *testing.T) {
 	}
 	c.Close()
 }
+
+func TestInputTypedWhileTheClientRedialsReachesTheProcess(t *testing.T) {
+	sock, _ := serve(t, `echo ready; read x; echo "got $x"; sleep 60`)
+	c := dial(t, sock)
+	defer c.Stop(0)
+	readUntil(t, c, "ready")
+	c.wmu.Lock()
+	c.conn.Close()
+	c.wmu.Unlock()
+	if _, err := c.Write([]byte("abc\r")); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, c, "got abc")
+}
