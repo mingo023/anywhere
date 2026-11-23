@@ -428,7 +428,11 @@ impl Render for CloneForm {
             .when(ready, |d| d.on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(CloneEvent::Submit))))
             .when(!ready, |d| d.opacity(0.5).cursor_default());
         let close = ui::icon_button("clone-close", "x").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(CloneEvent::Close)));
-        let body = vec![field("Repository URL", url).child(self.hint(&check, cx)).into_any_element(), field("Clone into", path).children(cloning).into_any_element(), footer(div(), cancel, submit).into_any_element()];
+        let body = vec![
+            field("Repository URL", url).child(self.hint(&check, cx)).into_any_element(),
+            field("Clone into", path).children(cloning).into_any_element(),
+            footer(div(), cancel, submit).into_any_element(),
+        ];
         ui::modal("Clone from URL", 480., 96., close, body)
     }
 }
