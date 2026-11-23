@@ -342,7 +342,9 @@ pub const INIT_BRANCH: &str = "main";
 /// The identity is given and hooks are skipped because the user's git config may have neither set up for this.
 pub fn init_empty(run: &Runner, dir: &str) -> Result<(), String> {
     let commit = ["-c", "user.name=Anywhere", "-c", "user.email=anywhere@localhost", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "--no-verify", "-m", "Start"];
-    for args in [&["init", "-q", "-b", INIT_BRANCH][..], &commit] {
+    let head = format!("refs/heads/{INIT_BRANCH}");
+    // `git init -b` needs git 2.28, newer than some hosts have.
+    for args in [&["init", "-q"][..], &["symbolic-ref", "HEAD", &head], &commit] {
         git_result(run, dir, args)?;
     }
     Ok(())

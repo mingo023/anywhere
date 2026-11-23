@@ -219,7 +219,7 @@ impl Draft {
 
     fn ready(&self, name: &str) -> bool {
         if self.scratch {
-            return !self.making_scratch && !self.reply.waiting();
+            return !self.making_scratch && !self.copying && !self.reply.waiting();
         }
         let place = match (self.in_worktree(), &self.source) {
             (false, _) => self.repo.is_some(),
@@ -713,9 +713,11 @@ impl Desktop {
                 d.new_form.draft.making_scratch = false;
                 match made {
                     Ok(folder) => {
+                        let pick = d.new_form_pick();
                         d.adopt_scratch(&folder);
                         // A send pocketd refuses is retried here, not in yet another new folder.
-                        d.new_form.draft.pick_repo(Some(folder), true);
+                        d.new_form.draft.pick_repo(Some(folder.clone()), true);
+                        d.new_form.composer.draft.choose(Some(folder), pick);
                         d.start_session(window, cx);
                     }
                     Err(e) => {
@@ -1011,11 +1013,12 @@ mod tests {
     }
 
     #[test]
-    fn a_scratch_folder_starts_at_once_but_not_while_a_send_is_out_or_its_folder_is_being_made() {
+    fn a_scratch_folder_starts_at_once_but_not_while_a_send_is_out_its_folder_is_being_made_or_attachments_copy() {
         let scratch = Draft { repo: Some("/s".into()), scratch: true, ..Draft::default() };
         assert!(scratch.ready("") && !scratch.no_project());
         assert!(!Draft { reply: sent("r1"), repo: Some("/s".into()), scratch: true, ..Draft::default() }.ready(""));
         assert!(!Draft { making_scratch: true, scratch: true, ..Draft::default() }.ready(""));
+        assert!(!Draft { copying: true, repo: Some("//devbox/s".into()), scratch: true, ..Draft::default() }.ready(""));
     }
 
     #[test]
