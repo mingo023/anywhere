@@ -136,6 +136,11 @@
     <changefreq>monthly</changefreq>
   </url>
   <url>
+    <loc>https://getanywhere.dev/blog/move-claude-code-session-to-remote-server</loc>
+    <lastmod>2026-11-23</lastmod>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
     <loc>https://getanywhere.dev/privacy</loc>
     <lastmod>2026-11-18</lastmod>
     <changefreq>monthly</changefreq>

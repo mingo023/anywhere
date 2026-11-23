@@ -7,6 +7,13 @@
 		<language>en-us</language>
 		<atom:link href="https://getanywhere.dev/blog/rss.xml" rel="self" type="application/rss+xml"/>
 		<item>
+			<title>How to move a Claude Code session to a remote server, conversation included</title>
+			<link>https://getanywhere.dev/blog/move-claude-code-session-to-remote-server</link>
+			<guid isPermaLink="true">https://getanywhere.dev/blog/move-claude-code-session-to-remote-server</guid>
+			<pubDate>Mon, 23 Nov 2026 00:00:00 +0000</pubDate>
+			<description>Move a running Claude Code or Codex session from your Mac to a Linux box over SSH, with the branch, uncommitted files and conversation. DIY and Anywhere.</description>
+		</item>
+		<item>
 			<title>Vibe Kanban alternative: a local Board for coding agents</title>
 			<link>https://getanywhere.dev/blog/vibe-kanban-alternative</link>
 			<guid isPermaLink="true">https://getanywhere.dev/blog/vibe-kanban-alternative</guid>

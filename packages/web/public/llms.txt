@@ -29,6 +29,7 @@
 ## Blog
 
 - [Blog](https://getanywhere.dev/blog/): Guides and fair comparisons for running coding agents in parallel.
+- [Move a Claude Code session to a remote server](https://getanywhere.dev/blog/move-claude-code-session-to-remote-server): Move the branch, uncommitted files and the conversation from your Mac to a server over SSH, by hand with git and the transcript, or with Anywhere's Hand off to a host for Claude Code and Codex.
 - [Vibe Kanban alternative](https://getanywhere.dev/blog/vibe-kanban-alternative): What Vibe Kanban's shutdown changed, whether you need to switch, how Anywhere's Board starts each ticket in its own worktree, and when Vibe Kanban fits better.
 - [How to run multiple Claude Code agents in parallel](https://getanywhere.dev/blog/run-multiple-claude-code-agents-in-parallel): One git worktree per agent, by hand with git or in Anywhere, with status, diffs and sessions that keep running.
 - [Anywhere vs Conductor](https://getanywhere.dev/blog/conductor-alternative): An open-source Conductor alternative: license, price, platforms, agents and local sessions compared, and when Conductor fits better.
