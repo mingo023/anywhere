@@ -27,8 +27,8 @@ fn block(title: &'static str, w: &daemon::Window, now: i64) -> Div {
 }
 
 impl Desktop {
-    /// The account in use and its two limits, then the way to the others.
-    pub(super) fn chat_account_usage(&self, agent: &Summary, host: &Host, a: &Account, cx: &mut Context<Self>) -> Div {
+    /// The account in use and its two limits, then the way to the others while there are any.
+    pub(super) fn chat_account_usage(&self, agent: &Summary, host: &Host, a: &Account, switch: bool, cx: &mut Context<Self>) -> Div {
         let now = now_ms();
         let checking = self.accounts.checking.contains(host);
         let reload = if checking {
@@ -69,6 +69,11 @@ impl Desktop {
             .child(div().flex_none().child(label))
             .when(!a.email.is_empty(), |d| d.child(self.chat_account_email(a, 12.5, TEXT_2, cx)));
         let windows = a.usage.as_ref().into_iter().flat_map(|u| [("5-hour limit", &u.session), ("Weekly limit", &u.week)]).filter_map(|(t, w)| w.as_ref().map(|w| block(t, w, now)));
+        let hero = div().px(px(12.)).flex().flex_col().gap(px(8.)).child(div().px(px(2.)).child(in_use)).children(windows.collect::<Vec<_>>());
+        let page = div().flex().flex_col().child(head);
+        if !switch {
+            return page.child(hero.pb(px(12.)));
+        }
         let list = self.accounts.list(host);
         let more = accounts::choices(list, &agent.provider, &[]).filter(|x| x.id != a.id && x.signed_in).count();
         let next = div()
@@ -97,7 +102,6 @@ impl Desktop {
                 this.chats.composer.draft.menu = Some(Menu::Switch);
                 cx.notify();
             }));
-        let hero = div().px(px(12.)).flex().flex_col().gap(px(8.)).child(div().px(px(2.)).child(in_use)).children(windows.collect::<Vec<_>>());
-        div().flex().flex_col().child(head).child(hero).child(next)
+        page.child(hero).child(next)
     }
 }

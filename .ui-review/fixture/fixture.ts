@@ -36,6 +36,7 @@
 // FIXTURE_BACKGROUND=<image path> saves it as the background image in desktop.json.
 // FIXTURE_LOOSE=1 runs a Claude session in ~/Downloads and a shell in ~/notes, folders no project holds.
 // FIXTURE_EXPIRED=1 adds two Claude accounts whose login expired: one never read, one with stale usage.
+// FIXTURE_ONE_ACCOUNT=1 lists only the built-in Claude login.
 // "/compact" works for 4s, then compacts. FIXTURE_REFUSE=1 refuses every other prompt with pocketd's error frame;
 // FIXTURE_SEND_NOW=1 says Claude's chat takes Send now, which ends the step underway so a steer runs at once;
 // FIXTURE_ECHO_MS delays a new session's prompt reaching its transcript, as Claude takes seconds to start;
@@ -441,7 +442,7 @@ const RUNS = [
 const usage = (session: number, week: number) => ({ session: { percent: session, resetsAt: now + 120 * MIN }, week: { percent: week, resetsAt: now + 4 * 1440 * MIN }, at: now });
 const ACCOUNTS = [
   { id: "builtin", provider: "claude", email: "me@example.com", plan: "Max", signedIn: true, default: true, usage: usage(42, 72) },
-  { id: "work", provider: "claude", label: "Work", email: "work@example.com", plan: "Team", signedIn: true, usage: usage(100, 64) },
+  ...(process.env.FIXTURE_ONE_ACCOUNT ? [] : [{ id: "work", provider: "claude", label: "Work", email: "work@example.com", plan: "Team", signedIn: true, usage: usage(100, 64) }]),
   ...(process.env.FIXTURE_EXPIRED
     ? [
         { id: "old", provider: "claude", label: "Personal", email: "old@example.com", plan: "Pro", signedIn: true, expired: true },
