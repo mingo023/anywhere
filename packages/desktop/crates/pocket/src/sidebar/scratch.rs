@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, RowMenu, Screen, id};
+use crate::desktop::chrome::{Confirm, RowMenu, Screen, id};
 use crate::modals::form::home;
 use crate::removal::dispose;
 use crate::sidebar::fold::{self, Fold};
@@ -190,8 +190,7 @@ impl Desktop {
                     return d.delete_scratch(&path, cx);
                 }
                 let (dirty, lost) = work.unwrap_or_default();
-                d.confirm = Some(Confirm::DeleteScratch { path, dirty, lost });
-                d.overlay = Some(Overlay::Confirm);
+                d.ask(Confirm::DeleteScratch { path, dirty, lost }, cx);
                 cx.notify();
             })
             .ok();

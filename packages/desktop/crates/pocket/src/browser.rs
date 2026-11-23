@@ -234,7 +234,7 @@ impl Desktop {
             // wry reports frame and script navigations too, so a page could launch apps unasked, or swap out a sheet the user is answering.
             web::Event::External(url) => {
                 if self.overlay.is_none() {
-                    self.confirm = Some(Confirm::OpenExternal(url));
+                    self.hold_confirm(Confirm::OpenExternal(url), cx);
                     self.open(Overlay::Confirm, window, cx);
                 }
             }

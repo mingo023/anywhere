@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::status::Status;
 use crate::terminals::sessions::Session;
 use agents::Summary;
@@ -28,8 +28,7 @@ impl Desktop {
         }
         let Some((id, busy)) = ids.iter().find_map(|id| Some((id, busy(self.summary(id), self.terminals.sessions.get(id))?))) else { return false };
         let worktree = self.terminals.sessions.get(id).and_then(|s| self.place_of(&s.info)).map(|t| self.place_name(&t)).unwrap_or_default();
-        self.confirm = Some(Confirm::CloseTerminals { ids, busy, worktree });
-        self.overlay = Some(Overlay::Confirm);
+        self.ask(Confirm::CloseTerminals { ids, busy, worktree }, cx);
         cx.notify();
         true
     }

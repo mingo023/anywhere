@@ -13,7 +13,7 @@ mod trigger;
 
 use crate::composer::{Chips, ComposerEvent};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, Screen, popup_closing};
+use crate::desktop::chrome::{Confirm, Screen, popup_closing};
 use crate::modals::new_session::default_first;
 use crate::util::now_ms;
 use agents::automations::{Automation, Automations as Snapshot, Run};
@@ -361,8 +361,7 @@ impl Desktop {
 
     pub(crate) fn ask_delete_automation(&mut self, id: String, cx: &mut Context<Self>) {
         self.close_menus(cx);
-        self.confirm = Some(Confirm::DeleteAutomation(id));
-        self.overlay = Some(Overlay::Confirm);
+        self.ask(Confirm::DeleteAutomation(id), cx);
         cx.notify();
     }
 

@@ -609,7 +609,7 @@ impl Desktop {
     }
 
     fn ask_delete_ticket(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::DeleteTicket(id));
+        self.hold_confirm(Confirm::DeleteTicket(id), cx);
         self.open(Overlay::Confirm, window, cx);
     }
 

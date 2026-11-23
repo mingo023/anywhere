@@ -137,7 +137,7 @@ pub struct Desktop {
     pub(crate) worktrees: HashMap<String, Vec<git::Worktree>>,
     pub(crate) tree_lookups: ::project::Lookups,
     pub(crate) worktree: Option<String>,
-    pub(crate) confirm: Option<Confirm>,
+    pub(crate) confirm: Entity<crate::modals::confirm::ConfirmSheet>,
     pub(crate) row_menu: Option<RowMenu>,
     pub(crate) preview: Entity<Previews>,
     pub(crate) new_form: Entity<new_session::NewForm>,
@@ -175,6 +175,8 @@ impl Desktop {
         let new_subs = Self::watch_new_form(&new_form, window, cx);
         let (repo_form, repo_subs) = add_project::RepoForm::new(window, cx);
         let host_finder = crate::modals::host_finder::HostFinder::new(cx);
+        let confirm = cx.new(|_| crate::modals::confirm::ConfirmSheet::default());
+        let confirm_subs = cx.subscribe_in(&confirm, window, Self::on_confirm_event);
         let clone_form = cx.new(|cx| clone_project::CloneForm::new(window, cx));
         let clone_subs = cx.subscribe_in(&clone_form, window, Self::on_clone_event);
         let (geometry, geometry_subs) = Geometry::new(window, cx);
@@ -251,6 +253,7 @@ impl Desktop {
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
+        _subs.push(confirm_subs);
         _subs.push(clone_subs);
         _subs.extend(geometry_subs);
         _subs.extend(automations_subs);
@@ -325,7 +328,7 @@ impl Desktop {
             worktrees: HashMap::new(),
             tree_lookups: ::project::Lookups::default(),
             worktree: None,
-            confirm: None,
+            confirm,
             row_menu: None,
             preview,
             new_form,
@@ -711,8 +714,8 @@ impl Desktop {
             if replaced.await {
                 this.update(cx, |d, cx| {
                     if !d.relaunch(cx) {
-                        d.confirm = Some(Confirm::Relaunch(d.preview.drafts.len()));
-                        d.overlay = Some(Overlay::Confirm);
+                        let unsaved = d.preview.read(cx).drafts.len();
+                        d.ask(Confirm::Relaunch(unsaved), cx);
                         cx.notify();
                     }
                 })
@@ -726,7 +729,7 @@ impl Desktop {
 
     /// Unsaved edits live only in memory, so a relaunch waits for them as quitting does.
     fn relaunch(&mut self, cx: &mut Context<Self>) -> bool {
-        let clean = self.preview.drafts.is_empty();
+        let clean = self.preview.read(cx).drafts.is_empty();
         if clean {
             cx.restart();
         }

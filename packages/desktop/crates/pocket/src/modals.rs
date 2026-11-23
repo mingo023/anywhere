@@ -1,6 +1,6 @@
 pub(crate) mod add_project;
 pub(crate) mod clone_project;
-mod confirm;
+pub(crate) mod confirm;
 pub(crate) mod form;
 pub(crate) mod host_finder;
 mod more;
@@ -41,7 +41,8 @@ impl Desktop {
         match self.overlay.take() {
             Some(Overlay::Handoff) => self.handoff_closed(cx),
             Some(Overlay::Confirm) => {
-                self.sheet_closed();
+                let left = self.confirm.update(cx, |c, _| c.clear());
+                self.sheet_closed(left);
                 self.sweep_host_leftovers(cx);
             }
             _ => {}

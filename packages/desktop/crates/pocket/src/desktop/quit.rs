@@ -1,6 +1,6 @@
 use crate::actions::Quit;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::status::Status;
 use gpui_kit::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,8 +34,7 @@ impl Desktop {
         let working = self.agents.list.iter().filter(|a| Status::of(a) == Some(Status::Working)).count();
         match ask(self.preview.read(cx).drafts.len(), ALERT_UP.load(Ordering::Relaxed), self.store.general.confirm_quit.asks(working)) {
             Ask::DiscardEdits(unsaved) => {
-                self.confirm = Some(Confirm::Quit(unsaved));
-                self.overlay = Some(Overlay::Confirm);
+                self.ask(Confirm::Quit(unsaved), cx);
                 cx.notify();
             }
             Ask::Alert => {

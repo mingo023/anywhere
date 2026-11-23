@@ -1,6 +1,6 @@
 use super::{HOST_ICONS, Reach, Space, colour, glyph, kept_name, space_of};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::settings::ssh_hosts::link_color;
 use crate::sidebar::rename::rename_field;
 use gpui_kit::component::input::{Input, InputState};
@@ -305,7 +305,7 @@ impl Desktop {
                 self.save_soon(cx);
             }
             HeaderEvent::Remove { id, name } => {
-                (self.confirm, self.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
+                self.ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }, cx);
             }
         }
         cx.notify();

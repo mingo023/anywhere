@@ -2,7 +2,7 @@ use super::catalog::Setting;
 use super::host::{service_line, uptime};
 use super::{field_box, row};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::fleet::needs_update;
 use crate::spaces::Space;
 use crate::spaces::header::tile;
@@ -131,7 +131,7 @@ impl Desktop {
             let update = (list.is_none() && needs_update(link, channel::version())).then(|| {
                 let (id, name, windows) = (h.id.clone(), shown.clone(), h.windows);
                 super::action(("host-update", i), "Update").on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }), Some(Overlay::Confirm));
+                    this.ask(Confirm::UpdateHost { id: id.clone(), name: name.clone(), windows }, cx);
                     cx.notify();
                 }))
             });
@@ -149,7 +149,7 @@ impl Desktop {
             let (id, name) = (h.id.clone(), shown.clone());
             let remove =
                 ui::button(("host-remove", i), ui::Variant::Danger, None, "Remove").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::RemoveHost { id: id.clone(), name: name.clone() }), Some(Overlay::Confirm));
+                    this.ask(Confirm::RemoveHost { id: id.clone(), name: name.clone() }, cx);
                     cx.notify();
                 }));
             let row = host_row(i + 1, tile(self.space_glyph(&space), self.space_colour(&space, &order), 28.), shown, line, link_color(link))

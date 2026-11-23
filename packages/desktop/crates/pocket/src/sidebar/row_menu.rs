@@ -1,6 +1,6 @@
 use crate::accounts;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, RowMenu, id};
+use crate::desktop::chrome::{Confirm, RowMenu, id};
 use crate::modals::add_project::icon::EMOJI;
 use crate::sidebar::sections::group_mark;
 use crate::terminals::link;
@@ -114,8 +114,7 @@ impl Desktop {
     }
 
     fn ask_close_session(&mut self, id: String, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::CloseSession(id));
-        self.overlay = Some(Overlay::Confirm);
+        self.ask(Confirm::CloseSession(id), cx);
         cx.notify();
     }
 

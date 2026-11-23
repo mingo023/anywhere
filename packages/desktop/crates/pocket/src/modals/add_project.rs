@@ -465,7 +465,7 @@ impl Desktop {
         let remove = row("repo-remove", "trash", "Remove from Anywhere\u{2026}", FAILED, "Files and worktrees stay on disk".into())
             .rounded_b(px(12.))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                (this.confirm, this.overlay) = (Some(Confirm::RemoveProject(p.clone())), Some(Overlay::Confirm));
+                this.ask(Confirm::RemoveProject(p.clone()), cx);
                 cx.notify();
             }));
         let mut rows = vec![reset.into_any_element()];

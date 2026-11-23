@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::fs::fs_for;
 use crate::util::basename;
 use agents::{Agents, Summary};
@@ -683,8 +683,7 @@ impl Desktop {
                     return;
                 }
                 let requested = leftover.is_none();
-                d.confirm = Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, requested });
-                d.overlay = Some(Overlay::Confirm);
+                d.ask(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, requested }, cx);
                 cx.notify();
             })
             .ok();
@@ -779,8 +778,7 @@ impl Desktop {
                         d.sweep_host_leftovers(cx);
                     }
                     Some((r, Failure::Teardown(tail))) => {
-                        d.confirm = Some(Confirm::TeardownFailed { removal: removal.clone(), failed: r.tree, tail, subtrees: rest });
-                        d.overlay = Some(Overlay::Confirm);
+                        d.ask(Confirm::TeardownFailed { removal: removal.clone(), failed: r.tree, tail, subtrees: rest }, cx);
                     }
                     Some((r, Failure::Remove(e))) if r.tree == removal.tree => d.error = Some(e),
                     Some((r, Failure::Remove(e))) => {
@@ -920,8 +918,7 @@ impl Desktop {
                     }
                     // Its sheet offers to delete it without the teardown, as for a tree the user deleted.
                     Some((r, Failure::Teardown(tail))) if d.overlay.is_none() && d.removals.ask(&f) => {
-                        d.confirm = Some(Confirm::TeardownFailed { failed: r.tree.clone(), removal: r, tail, subtrees: vec![] });
-                        d.overlay = Some(Overlay::Confirm);
+                        d.ask(Confirm::TeardownFailed { failed: r.tree.clone(), removal: r, tail, subtrees: vec![] }, cx);
                     }
                     Some((r, Failure::Teardown(e) | Failure::Remove(e))) => {
                         d.error = Some(format!("Couldn't delete {}: {e}", basename(&r.tree)));
@@ -937,9 +934,9 @@ impl Desktop {
     }
 
     /// A sheet closed. Still holding a delete, the user cancelled it: a host leftover it asked about stays.
-    pub(crate) fn sheet_closed(&mut self) {
+    pub(crate) fn sheet_closed(&mut self, left: Option<Confirm>) {
         self.removals.asking = None;
-        if let Some(Confirm::DeleteWorktree { removal, .. } | Confirm::TeardownFailed { removal, .. }) = &self.confirm {
+        if let Some(Confirm::DeleteWorktree { removal, .. } | Confirm::TeardownFailed { removal, .. }) = &left {
             settle(&mut self.store.host_leftovers, &removal.tree);
         }
     }

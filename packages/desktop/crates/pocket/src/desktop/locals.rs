@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use agents::locals::{self, Local};
 use gpui_kit::*;
 
@@ -24,8 +24,7 @@ impl Desktop {
     }
 
     pub(crate) fn ask_delete_local(&mut self, id: String, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::DeleteLocal(id));
-        self.overlay = Some(Overlay::Confirm);
+        self.ask(Confirm::DeleteLocal(id), cx);
         cx.notify();
     }
 

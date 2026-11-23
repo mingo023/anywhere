@@ -10,7 +10,7 @@ pub(crate) mod surface;
 
 use crate::actions::{CopySelection, NewTab, Paste, SelectAll};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use gpui_kit::*;
 use std::collections::HashMap;
 use term::{Pointer, Scroll};
@@ -221,8 +221,7 @@ impl Desktop {
         if !asks_before_paste(self.store.terminal.confirm_paste, bracketed, &text) {
             self.paste_into(&pane, &text, cx);
         } else {
-            self.confirm = Some(Confirm::Paste { pane, text });
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::Paste { pane, text }, cx);
             cx.notify();
         }
     }

@@ -5,7 +5,7 @@ mod rows;
 mod scope;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, empty};
+use crate::desktop::chrome::{Confirm, empty};
 use crate::git_ui::diff::At;
 use crate::git_ui::graph::{Graph, with_graph};
 use crate::git_ui::pull_requests::PrItem;
@@ -595,8 +595,7 @@ impl Desktop {
     }
 
     fn ask_discard(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        self.confirm = Some(Confirm::Discard(paths));
-        self.overlay = Some(Overlay::Confirm);
+        self.ask(Confirm::Discard(paths), cx);
         cx.notify();
     }
 

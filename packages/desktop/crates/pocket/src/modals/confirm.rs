@@ -29,7 +29,7 @@ struct Takes {
 }
 
 #[derive(Debug, PartialEq)]
-struct ConfirmText {
+pub(crate) struct ConfirmText {
     title: String,
     action: &'static str,
     facts: Vec<String>,
@@ -239,70 +239,92 @@ fn enter_confirms(key: &Keystroke, confirm: &Confirm) -> bool {
         )
 }
 
-impl Desktop {
-    /// Ahead of the keymap: a text field behind the sheet keeps focus, and its Enter would send its draft as well.
-    pub(crate) fn confirm_on_enter(cx: &mut Context<Self>) -> Subscription {
-        let desktop = cx.entity().downgrade();
-        cx.intercept_keystrokes(move |ev, window, cx| {
-            if desktop.update(cx, |d, cx| d.take_enter(&ev.keystroke, window, cx)).unwrap_or(false) {
-                cx.stop_propagation();
-            }
-        })
+/// What a sheet says, built by `Desktop` from its own state.
+pub(crate) enum Sheet {
+    Alert(ConfirmText),
+    /// A section's reset: what goes back, as (setting, "now → default").
+    Reset {
+        title: String,
+        lead: String,
+        lines: Vec<(String, String)>,
+    },
+}
+
+/// The open confirm sheet and its render. `Desktop` hands down what it says and runs what it confirms.
+#[derive(Default)]
+pub(crate) struct ConfirmSheet {
+    confirm: Option<Confirm>,
+    sheet: Option<Sheet>,
+}
+
+pub(crate) enum ConfirmEvent {
+    Confirmed(Confirm),
+    /// The sheet's second action: Don't save, Uninstall and remove, Start fresh.
+    Alternate(Confirm),
+    Cancelled,
+}
+
+impl EventEmitter<ConfirmEvent> for ConfirmSheet {}
+
+impl ConfirmSheet {
+    pub(crate) fn ask(&mut self, confirm: Confirm) {
+        self.confirm = Some(confirm);
+        self.sheet = None;
     }
 
-    fn take_enter(&mut self, key: &Keystroke, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let open = self.confirm.as_ref().filter(|_| self.overlay == Some(Overlay::Confirm));
-        if !open.is_some_and(|c| enter_confirms(key, c)) {
-            return false;
-        }
-        self.confirmed(window, cx);
-        true
+    pub(crate) fn kind(&self) -> Option<&Confirm> {
+        self.confirm.as_ref()
     }
 
-    pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let text = match &self.confirm {
-            Some(Confirm::ResetSection(section)) => return self.reset_sheet(*section, cx),
-            Some(Confirm::RemoveProject(p)) => ConfirmText::remove_project(
-                &self.repo_name(p),
-                Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() },
-            ),
-            Some(Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, .. }) => {
-                let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t).len()).sum();
-                ConfirmText::delete_worktree(removal, *dirty, *lost, *lost_anyway, terminals, subtrees.len())
-            }
-            Some(Confirm::DeleteLocal(id)) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),
-            Some(Confirm::DeleteScratch { path, dirty, lost }) => {
-                ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path).len())
-            }
-            Some(Confirm::TeardownFailed { failed, .. }) => ConfirmText::teardown_failed(failed),
-            Some(Confirm::Discard(paths)) => ConfirmText::discard(paths, self.repo().map_or(&[], |r| r.files.as_slice())),
-            Some(Confirm::CloseSession(id)) => {
-                let Some(a) = self.agents.get(id) else { return div() };
-                let card = status::card(a, &a.cwd);
-                ConfirmText::close_session(&card.title, card.status == Status::Working)
-            }
-            Some(Confirm::Paste { pane, text }) => ConfirmText::paste(text, &self.pane_label(pane)),
-            Some(Confirm::CloseTerminals { ids, busy, worktree }) => ConfirmText::close_terminals(busy, worktree, ids.len()),
-            Some(Confirm::CloseFile(path)) => ConfirmText::close_file(path),
-            Some(Confirm::Quit(n)) => ConfirmText::quit(*n),
-            Some(Confirm::Relaunch(n)) => ConfirmText::relaunch(*n),
-            Some(Confirm::OpenExternal(url)) => ConfirmText::open_external(url),
-            Some(Confirm::DeleteAutomation(id)) => {
-                ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str()))
-            }
-            Some(Confirm::DeleteTicket(id)) => ConfirmText::delete_ticket(&self.delete_ticket_title(id)),
-            Some(Confirm::RevokeDevice { name, .. }) => ConfirmText::revoke_device(name),
-            Some(Confirm::RemoveHost { id, name }) => {
-                let projects = self.projects().iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).count();
-                ConfirmText::remove_host(name, projects)
-            }
-            Some(Confirm::UpdateHost { name, windows, .. }) => ConfirmText::update_host(name, *windows),
-            Some(Confirm::RemoveAccount { key, name }) => ConfirmText::remove_account(name, &self.machine_name(&key.host)),
-            Some(Confirm::SignOutAccount { name, .. }) => ConfirmText::sign_out_account(name),
-            Some(Confirm::SwitchAgent { agent, provider, .. }) => {
-                let from = self.agents.get(agent).map_or_else(String::new, |a| self.agent_name(&a.provider));
-                ConfirmText::switch_agent(&self.agent_name(provider), &from)
-            }
+    pub(crate) fn show(&mut self, sheet: Option<Sheet>) {
+        self.sheet = sheet;
+    }
+
+    /// What was still held: a sheet closed without its action was cancelled.
+    pub(crate) fn clear(&mut self) -> Option<Confirm> {
+        self.sheet = None;
+        self.confirm.take()
+    }
+
+    pub(crate) fn takes_enter(&self, key: &Keystroke) -> bool {
+        self.confirm.as_ref().is_some_and(|c| enter_confirms(key, c))
+    }
+
+    pub(crate) fn accept(&mut self, cx: &mut Context<Self>) {
+        cx.emit(self.confirm.take().map_or(ConfirmEvent::Cancelled, ConfirmEvent::Confirmed));
+    }
+
+    fn alternate(&mut self, cx: &mut Context<Self>) {
+        cx.emit(self.confirm.take().map_or(ConfirmEvent::Cancelled, ConfirmEvent::Alternate));
+    }
+
+    fn reset(title: &str, lead: &str, lines: &[(String, String)], cx: &mut Context<Self>) -> Div {
+        let lines = lines.iter().map(|(label, change)| {
+            div()
+                .py(px(5.))
+                .flex()
+                .justify_between()
+                .gap(px(12.))
+                .border_b(px(0.5))
+                .border_color(SEPARATOR)
+                .text_size(px(12.5))
+                .child(div().text_color(TEXT).child(label.clone()))
+                .child(div().flex_none().text_color(TEXT_3).child(change.clone()))
+                .into_any_element()
+        });
+        let body = std::iter::once(div().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_2).child(lead.to_string()).into_any_element()).chain(lines);
+        let cancel =
+            ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ConfirmEvent::Cancelled)));
+        let reset = ui::button("confirm-go", Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.accept(cx)));
+        ui::dialog(title, body, [cancel, reset])
+    }
+}
+
+impl Render for ConfirmSheet {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let text = match &self.sheet {
+            Some(Sheet::Alert(text)) => text,
+            Some(Sheet::Reset { title, lead, lines }) => return Self::reset(title, lead, lines, cx),
             None => return div(),
         };
         let mut body = Vec::new();
@@ -366,78 +388,159 @@ impl Desktop {
             );
         }
         let variant = if text.danger { Variant::Danger } else { Variant::Primary };
-        let action = ui::button("confirm-go", variant, None, text.action).on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
-        let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_))).then(|| {
-            ui::button("confirm-dont-save", Variant::Secondary, None, "Don't save")
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_unsaved(window, cx)))
-        });
-        let uninstall = matches!(self.confirm, Some(Confirm::RemoveHost { .. })).then(|| {
-            ui::button("confirm-uninstall", Variant::Danger, None, "Uninstall and remove").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                if let Some(Confirm::RemoveHost { id, .. }) = this.confirm.take() {
-                    this.remove_host(&id, true, cx);
-                }
-                this.close_overlay(window, cx);
-            }))
-        });
-        let fresh = matches!(self.confirm, Some(Confirm::SwitchAgent { .. })).then(|| {
-            ui::button("confirm-start-fresh", Variant::Secondary, None, "Start fresh").on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                if let Some(Confirm::SwitchAgent { agent, provider, model }) = this.confirm.take() {
-                    this.open_switched_chat(&agent, &provider, &model, false, cx);
-                }
-                this.close_overlay(window, cx);
-            }))
-        });
-        let cancel = ui::button("confirm-cancel", Variant::Secondary, None, "Cancel")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
+        let action = ui::button("confirm-go", variant, None, text.action).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.accept(cx)));
+        let second =
+            |id: &'static str, variant, label| ui::button(id, variant, None, label).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.alternate(cx)));
+        let dont_save = matches!(self.confirm, Some(Confirm::CloseFile(_))).then(|| second("confirm-dont-save", Variant::Secondary, "Don't save"));
+        let uninstall = matches!(self.confirm, Some(Confirm::RemoveHost { .. })).then(|| second("confirm-uninstall", Variant::Danger, "Uninstall and remove"));
+        let fresh = matches!(self.confirm, Some(Confirm::SwitchAgent { .. })).then(|| second("confirm-start-fresh", Variant::Secondary, "Start fresh"));
+        let cancel =
+            ui::button("confirm-cancel", Variant::Secondary, None, "Cancel").on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ConfirmEvent::Cancelled)));
         if worktree {
             return ui::dialog(&text.title, body, [cancel, action]);
         }
         ui::alert(&text.title, body, std::iter::once(action).chain(dont_save).chain(uninstall).chain(fresh).chain([cancel]))
     }
+}
 
-    fn close_unsaved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(Confirm::CloseFile(path)) = self.confirm.take() {
-            self.preview.update(cx, |p, _| p.state.discard(&path));
-            self.close_doc(&Doc::File(path), cx);
+impl Desktop {
+    /// Opens `confirm`'s sheet; the caller shows it.
+    pub(crate) fn ask(&mut self, confirm: Confirm, cx: &mut Context<Self>) {
+        self.hold_confirm(confirm, cx);
+        self.overlay = Some(Overlay::Confirm);
+    }
+
+    pub(crate) fn hold_confirm(&mut self, confirm: Confirm, cx: &mut Context<Self>) {
+        self.confirm.update(cx, |c, _| c.ask(confirm));
+    }
+
+    /// Ahead of the keymap: a text field behind the sheet keeps focus, and its Enter would send its draft as well.
+    pub(crate) fn confirm_on_enter(cx: &mut Context<Self>) -> Subscription {
+        let desktop = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |ev, _, cx| {
+            if desktop.update(cx, |d, cx| d.take_enter(&ev.keystroke, cx)).unwrap_or(false) {
+                cx.stop_propagation();
+            }
+        })
+    }
+
+    fn take_enter(&mut self, key: &Keystroke, cx: &mut Context<Self>) -> bool {
+        if self.overlay != Some(Overlay::Confirm) || !self.confirm.read(cx).takes_enter(key) {
+            return false;
+        }
+        self.confirm.update(cx, |c, cx| c.accept(cx));
+        true
+    }
+
+    fn confirm_text(&self, confirm: &Confirm) -> Option<Sheet> {
+        let text = match confirm {
+            Confirm::ResetSection(section) => return Some(self.reset_sheet(*section)),
+            Confirm::RemoveProject(p) => ConfirmText::remove_project(
+                &self.repo_name(p),
+                Takes { terminals: self.project_terminals(p).len(), locals: self.agents.locals_removed_with(p).count() },
+            ),
+            Confirm::DeleteWorktree { removal, dirty, lost, lost_anyway, subtrees, .. } => {
+                let terminals = std::iter::once(&removal.tree).chain(subtrees.iter().map(|r| &r.tree)).map(|t| self.tree_terminals(t).len()).sum();
+                ConfirmText::delete_worktree(removal, *dirty, *lost, *lost_anyway, terminals, subtrees.len())
+            }
+            Confirm::DeleteLocal(id) => ConfirmText::delete_local(&self.local_name(id), self.tree_terminals(id).len()),
+            Confirm::DeleteScratch { path, dirty, lost } => {
+                ConfirmText::delete_scratch(&self.place_name(path), path, *dirty, *lost, self.tree_terminals(path).len())
+            }
+            Confirm::TeardownFailed { failed, .. } => ConfirmText::teardown_failed(failed),
+            Confirm::Discard(paths) => ConfirmText::discard(paths, self.repo().map_or(&[], |r| r.files.as_slice())),
+            Confirm::CloseSession(id) => {
+                let a = self.agents.get(id)?;
+                let card = status::card(a, &a.cwd);
+                ConfirmText::close_session(&card.title, card.status == Status::Working)
+            }
+            Confirm::Paste { pane, text } => ConfirmText::paste(text, &self.pane_label(pane)),
+            Confirm::CloseTerminals { ids, busy, worktree } => ConfirmText::close_terminals(busy, worktree, ids.len()),
+            Confirm::CloseFile(path) => ConfirmText::close_file(path),
+            Confirm::Quit(n) => ConfirmText::quit(*n),
+            Confirm::Relaunch(n) => ConfirmText::relaunch(*n),
+            Confirm::OpenExternal(url) => ConfirmText::open_external(url),
+            Confirm::DeleteAutomation(id) => {
+                ConfirmText::delete_automation(self.agents.automations.items.iter().find(|a| &a.id == id).map_or("this automation", |a| a.name.as_str()))
+            }
+            Confirm::DeleteTicket(id) => ConfirmText::delete_ticket(&self.delete_ticket_title(id)),
+            Confirm::RevokeDevice { name, .. } => ConfirmText::revoke_device(name),
+            Confirm::RemoveHost { id, name } => {
+                let projects = self.projects().iter().filter(|p| hosts::split(p).0 == Some(id.as_str())).count();
+                ConfirmText::remove_host(name, projects)
+            }
+            Confirm::UpdateHost { name, windows, .. } => ConfirmText::update_host(name, *windows),
+            Confirm::RemoveAccount { key, name } => ConfirmText::remove_account(name, &self.machine_name(&key.host)),
+            Confirm::SignOutAccount { name, .. } => ConfirmText::sign_out_account(name),
+            Confirm::SwitchAgent { agent, provider, .. } => {
+                let from = self.agents.get(agent).map_or_else(String::new, |a| self.agent_name(&a.provider));
+                ConfirmText::switch_agent(&self.agent_name(provider), &from)
+            }
+        };
+        Some(Sheet::Alert(text))
+    }
+
+    /// The sheet over everything, saying what `confirm_text` makes of the open confirm now.
+    pub(super) fn confirm_view(&mut self, cx: &mut Context<Self>) -> Div {
+        let sheet = self.confirm.read(cx).kind().and_then(|c| self.confirm_text(c));
+        self.confirm.update(cx, |c, _| c.show(sheet));
+        div().absolute().inset_0().child(self.confirm.clone())
+    }
+
+    pub(crate) fn on_confirm_event(&mut self, _: &Entity<ConfirmSheet>, ev: &ConfirmEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match ev {
+            ConfirmEvent::Confirmed(confirm) => self.confirmed(confirm.clone(), window, cx),
+            ConfirmEvent::Alternate(confirm) => self.confirmed_otherwise(confirm.clone(), cx),
+            ConfirmEvent::Cancelled => {}
         }
         self.close_overlay(window, cx);
     }
 
-    pub(crate) fn confirmed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.confirm.take() {
-            Some(Confirm::RemoveProject(p)) => self.remove_project(&p, cx),
-            Some(Confirm::DeleteWorktree { removal, subtrees, .. }) => self.delete_worktree(removal, &subtrees, cx),
-            Some(Confirm::DeleteLocal(id)) => self.delete_local(&id, cx),
-            Some(Confirm::DeleteScratch { path, .. }) => self.delete_scratch(&path, cx),
-            Some(Confirm::TeardownFailed { removal, failed, subtrees, .. }) => {
+    fn confirmed_otherwise(&mut self, confirm: Confirm, cx: &mut Context<Self>) {
+        match confirm {
+            Confirm::CloseFile(path) => {
+                self.preview.update(cx, |p, _| p.state.discard(&path));
+                self.close_doc(&Doc::File(path), cx);
+            }
+            Confirm::RemoveHost { id, .. } => self.remove_host(&id, true, cx),
+            Confirm::SwitchAgent { agent, provider, model } => _ = self.open_switched_chat(&agent, &provider, &model, false, cx),
+            _ => {}
+        }
+    }
+
+    fn confirmed(&mut self, confirm: Confirm, window: &mut Window, cx: &mut Context<Self>) {
+        match confirm {
+            Confirm::RemoveProject(p) => self.remove_project(&p, cx),
+            Confirm::DeleteWorktree { removal, subtrees, .. } => self.delete_worktree(removal, &subtrees, cx),
+            Confirm::DeleteLocal(id) => self.delete_local(&id, cx),
+            Confirm::DeleteScratch { path, .. } => self.delete_scratch(&path, cx),
+            Confirm::TeardownFailed { removal, failed, subtrees, .. } => {
                 let skip = |r: Removal| Removal { teardown: r.teardown && r.tree != failed, ..r };
                 let subtrees: Vec<Removal> = subtrees.into_iter().map(skip).collect();
                 self.delete_worktree(skip(removal), &subtrees, cx)
             }
-            Some(Confirm::Discard(paths)) => self.discard(paths, cx),
-            Some(Confirm::SwitchAgent { agent, provider, model }) => _ = self.open_switched_chat(&agent, &provider, &model, true, cx),
-            Some(Confirm::CloseSession(id)) => {
+            Confirm::Discard(paths) => self.discard(paths, cx),
+            Confirm::SwitchAgent { agent, provider, model } => _ = self.open_switched_chat(&agent, &provider, &model, true, cx),
+            Confirm::CloseSession(id) => {
                 if let Some(term) = self.agents.get(&id).map(|a| a.terminal_id.clone()) {
                     self.close_pane(&term, cx);
                 }
             }
-            Some(Confirm::Paste { pane, text }) => self.paste_into(&pane, &text, cx),
-            Some(Confirm::CloseTerminals { ids, .. }) => ids.iter().for_each(|id| self.close_pane(id, cx)),
-            Some(Confirm::CloseFile(path)) => self.save_file(path, true, cx),
-            Some(Confirm::Quit(_)) => cx.quit(),
-            Some(Confirm::Relaunch(_)) => cx.restart(),
-            Some(Confirm::OpenExternal(url)) => cx.open_url(&url),
-            Some(Confirm::DeleteAutomation(id)) => self.delete_automation(&id, cx),
-            Some(Confirm::DeleteTicket(id)) => self.delete_ticket(&id),
-            Some(Confirm::ResetSection(section)) => self.reset_section(section, window, cx),
-            Some(Confirm::RevokeDevice { id, .. }) => self.revoke_device(id, cx),
-            Some(Confirm::RemoveHost { id, .. }) => self.remove_host(&id, false, cx),
-            Some(Confirm::UpdateHost { id, .. }) => self.install_host(&id, true, cx),
-            Some(Confirm::RemoveAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.remove"), cx),
-            Some(Confirm::SignOutAccount { key, .. }) => self.account_op(key.host.clone(), key.op("accounts.signout"), cx),
-            None => {}
+            Confirm::Paste { pane, text } => self.paste_into(&pane, &text, cx),
+            Confirm::CloseTerminals { ids, .. } => ids.iter().for_each(|id| self.close_pane(id, cx)),
+            Confirm::CloseFile(path) => self.save_file(path, true, cx),
+            Confirm::Quit(_) => cx.quit(),
+            Confirm::Relaunch(_) => cx.restart(),
+            Confirm::OpenExternal(url) => cx.open_url(&url),
+            Confirm::DeleteAutomation(id) => self.delete_automation(&id, cx),
+            Confirm::DeleteTicket(id) => self.delete_ticket(&id),
+            Confirm::ResetSection(section) => self.reset_section(section, window, cx),
+            Confirm::RevokeDevice { id, .. } => self.revoke_device(id, cx),
+            Confirm::RemoveHost { id, .. } => self.remove_host(&id, false, cx),
+            Confirm::UpdateHost { id, .. } => self.install_host(&id, true, cx),
+            Confirm::RemoveAccount { key, .. } => self.account_op(key.host.clone(), key.op("accounts.remove"), cx),
+            Confirm::SignOutAccount { key, .. } => self.account_op(key.host.clone(), key.op("accounts.signout"), cx),
         }
-        self.close_overlay(window, cx);
     }
 }
 

@@ -134,7 +134,7 @@ impl Desktop {
             });
             let revoke = (!d.legacy).then(|| {
                 ui::button(("settings-revoke", i), ui::Variant::Danger, None, "Revoke").h(px(26.)).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::RevokeDevice { id: d.id.clone(), name: d.name.clone() }), Some(Overlay::Confirm));
+                    this.ask(Confirm::RevokeDevice { id: d.id.clone(), name: d.name.clone() }, cx);
                     cx.notify();
                 }))
             });

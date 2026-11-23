@@ -1,7 +1,7 @@
 use super::catalog::Setting;
 use super::{Section, card, group, row};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, Screen};
+use crate::desktop::chrome::{Confirm, Screen};
 use crate::desktop::pages;
 use crate::{actions, browser, inbox, settings};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -470,7 +470,7 @@ impl Desktop {
         );
         let reset = super::action("keys-reset-all", "").gap(px(6.)).child(icon("discard", 12., TEXT_2)).child("Reset all…").on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                (this.confirm, this.overlay) = (Some(Confirm::ResetSection(Section::Keyboard)), Some(Overlay::Confirm));
+                this.ask(Confirm::ResetSection(Section::Keyboard), cx);
                 cx.notify();
             },
         ));

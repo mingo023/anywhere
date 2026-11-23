@@ -1,5 +1,5 @@
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, Screen, Side, state};
+use crate::desktop::chrome::{Confirm, Screen, Side, state};
 use crate::explorer::preview;
 use crate::fs::fs_for;
 use crate::git_ui::diff;
@@ -465,8 +465,7 @@ impl Desktop {
         if self.project_terminals(&p).is_empty() && self.agents.locals_removed_with(&p).next().is_none() {
             self.remove_project(&p, cx);
         } else {
-            self.confirm = Some(Confirm::RemoveProject(p));
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::RemoveProject(p), cx);
         }
         cx.notify();
     }

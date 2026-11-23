@@ -5,7 +5,7 @@ pub(crate) mod sessions;
 pub(crate) mod updating;
 
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::terminals::bell::Bell;
 use crate::terminals::link::Link;
 use crate::terminals::sessions::Sessions;
@@ -494,8 +494,7 @@ impl Desktop {
         let ids = match self.workspace(&tree).tree.pane(pane).and_then(|p| p.tabs.get(i)).cloned() {
             Some(Tab::Term(id)) => vec![id],
             Some(Tab::Doc(Doc::File(path))) if self.preview.read(cx).dirty(&path) => {
-                self.confirm = Some(Confirm::CloseFile(path));
-                self.overlay = Some(Overlay::Confirm);
+                self.ask(Confirm::CloseFile(path), cx);
                 cx.notify();
                 return;
             }
@@ -529,8 +528,7 @@ impl Desktop {
                 w.tree.select(pane, j);
             }
             self.load_active(cx);
-            self.confirm = Some(Confirm::CloseFile(path));
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::CloseFile(path), cx);
             cx.notify();
             return;
         }

@@ -1,6 +1,6 @@
 use super::close_menu;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::terminals::link;
 use agents::Summary;
 use gpui_kit::*;
@@ -59,8 +59,7 @@ impl Desktop {
         let switch = switching(!self.chat_conversation(agent).is_empty(), self.chat_busy(agent), agent.tokens_used);
         let terminal = agent.terminal_id.clone();
         if switch == Switch::Ask {
-            self.confirm = Some(Confirm::SwitchAgent { agent: id.to_string(), provider, model });
-            self.overlay = Some(Overlay::Confirm);
+            self.ask(Confirm::SwitchAgent { agent: id.to_string(), provider, model }, cx);
             return cx.notify();
         }
         if self.open_switched_chat(id, &provider, &model, false, cx) && switch == Switch::Replace {

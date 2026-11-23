@@ -27,7 +27,7 @@ pub(crate) use appearance::{reduce_motion, show_background};
 
 use crate::actions::OpenSettings;
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay, Screen, drag_area};
+use crate::desktop::chrome::{Confirm, Screen, drag_area};
 use ::agents::providers;
 use catalog::{Control, Look, Setting};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -813,7 +813,7 @@ impl Desktop {
                 .child(icon("discard", 13., TEXT_2))
                 .child(format!("Reset {} to defaults…", section.label()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    (this.confirm, this.overlay) = (Some(Confirm::ResetSection(section)), Some(Overlay::Confirm));
+                    this.ask(Confirm::ResetSection(section), cx);
                     cx.notify();
                 }))
         });
@@ -821,32 +821,15 @@ impl Desktop {
     }
 
     /// The sheet listing what Reset would put back.
-    pub(crate) fn reset_sheet(&mut self, section: Section, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn reset_sheet(&self, section: Section) -> crate::modals::confirm::Sheet {
         let changes = catalog::changed(section.rows(), &self.store);
         let lead = match changes.len() {
             0 => "Every setting here is already at its default.".to_string(),
             1 => "Only this section changes. 1 setting you changed will go back:".to_string(),
             n => format!("Only this section changes. {n} settings you changed will go back:"),
         };
-        let lines = changes.into_iter().map(|c| {
-            div()
-                .py(px(5.))
-                .flex()
-                .justify_between()
-                .gap(px(12.))
-                .border_b(px(0.5))
-                .border_color(SEPARATOR)
-                .text_size(px(12.5))
-                .child(div().text_color(TEXT).child(c.label))
-                .child(div().flex_none().text_color(TEXT_3).child(format!("{} → {}", c.from, c.to)))
-                .into_any_element()
-        });
-        let body = std::iter::once(div().text_size(px(12.5)).line_height(px(18.)).text_color(TEXT_2).child(lead).into_any_element()).chain(lines);
-        let cancel = ui::button("confirm-cancel", ui::Variant::Secondary, None, "Cancel")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)));
-        let reset =
-            ui::button("confirm-go", ui::Variant::Primary, None, "Reset").on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.confirmed(window, cx)));
-        ui::dialog(&format!("Reset {} to defaults?", section.label()), body, [cancel, reset])
+        let lines = changes.into_iter().map(|c| (c.label.to_string(), format!("{} → {}", c.from, c.to))).collect();
+        crate::modals::confirm::Sheet::Reset { title: format!("Reset {} to defaults?", section.label()), lead, lines }
     }
 
     pub(crate) fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {

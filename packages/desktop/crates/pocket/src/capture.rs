@@ -628,14 +628,14 @@ const STEPS: [(&str, Step); 303] = [
             d.install_host(&id, false, cx);
         }
     }),
-    ("vm-update", |d, _, _| {
+    ("vm-update", |d, _, cx| {
         if let Some(h) = d.fleet.hosts.list.first() {
-            (d.confirm, d.overlay) = (Some(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false }), Some(Overlay::Confirm));
+            d.ask(Confirm::UpdateHost { id: h.id.clone(), name: h.name.clone(), windows: false }, cx);
         }
     }),
-    ("vm-remove", |d, _, _| {
+    ("vm-remove", |d, _, cx| {
         if let Some(h) = d.fleet.hosts.list.first() {
-            (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: h.id.clone(), name: h.name.clone() }), Some(Overlay::Confirm));
+            d.ask(Confirm::RemoveHost { id: h.id.clone(), name: h.name.clone() }, cx);
         }
     }),
     ("vm-uninstall", |d, _, cx| {
@@ -737,9 +737,9 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("host-link-add", |d, window, cx| d.link_host("vps".into(), window, cx)),
     ("hosts-pick", |d, window, cx| d.suggest_host("devbox".into(), window, cx)),
-    ("hosts-remove", |d, _, _| {
+    ("hosts-remove", |d, _, cx| {
         let name = "devbox".to_string();
-        (d.confirm, d.overlay) = (Some(Confirm::RemoveHost { id: name.clone(), name }), Some(Overlay::Confirm));
+        d.ask(Confirm::RemoveHost { id: name.clone(), name }, cx);
     }),
     ("settings-sidebar", |d, _, _| d.settings.section = Section::Sidebar),
     ("settings-terminal", |d, _, _| d.settings.section = Section::Terminal),
@@ -845,9 +845,9 @@ const STEPS: [(&str, Step); 303] = [
         let id = d.settings.section.id();
         d.store.advanced.insert(id.into());
     }),
-    ("settings-reset", |d, _, _| {
+    ("settings-reset", |d, _, cx| {
         (d.store.sounds.all, d.store.notifications.banners) = (false, false);
-        (d.confirm, d.overlay) = (Some(crate::desktop::chrome::Confirm::ResetSection(d.settings.section)), Some(Overlay::Confirm));
+        d.ask(crate::desktop::chrome::Confirm::ResetSection(d.settings.section), cx);
     }),
     ("palette", |d, window, cx| d.open(Overlay::Palette, window, cx)),
     ("new-session", |d, window, cx| d.new_session(None, false, window, cx)),
@@ -992,8 +992,7 @@ const STEPS: [(&str, Step); 303] = [
     ("delete-worktree", |d, _, cx| {
         let Some((project, w)) = d.project.clone().and_then(|p| d.listed_trees(&p)?.into_iter().find(|w| !w.main).map(|w| (p, w))) else { return };
         let removal = crate::removal::Removal { project, tree: w.path, branch: Some(w.branch), delete_branch: true, teardown: true };
-        d.confirm = Some(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![], requested: true });
-        d.overlay = Some(Overlay::Confirm);
+        d.ask(Confirm::DeleteWorktree { removal, dirty: 2, lost: 3, lost_anyway: 0, subtrees: vec![], requested: true }, cx);
         cx.notify();
     }),
     ("error", |d, _, _| d.error = Some("Couldn't save placeholder.tsx: Permission denied (os error 13)".into())),

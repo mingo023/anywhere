@@ -2,7 +2,7 @@ use super::catalog::Setting;
 use super::{action, field_box, group, row};
 use crate::accounts::{self, BUILT_IN, Host, Key, Tone};
 use crate::desktop::Desktop;
-use crate::desktop::chrome::{Confirm, Overlay};
+use crate::desktop::chrome::Confirm;
 use crate::util::now_ms;
 use chrono::Local;
 use daemon::Account;
@@ -234,7 +234,7 @@ impl Desktop {
             let (key, name) = (key.clone(), name.clone());
             ui::menu_row(SharedString::from(format!("{id}-sign-out")), "x", "Sign out", None).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.accounts.menu = None;
-                (this.confirm, this.overlay) = (Some(Confirm::SignOutAccount { key: key.clone(), name: name.clone() }), Some(Overlay::Confirm));
+                this.ask(Confirm::SignOutAccount { key: key.clone(), name: name.clone() }, cx);
                 cx.notify();
             }))
         } else {
@@ -253,7 +253,7 @@ impl Desktop {
             None => ui::danger_row(SharedString::from(format!("{id}-remove")), "trash", "Remove\u{2026}").on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.accounts.menu = None;
-                    (this.confirm, this.overlay) = (Some(Confirm::RemoveAccount { key: key.clone(), name: name.clone() }), Some(Overlay::Confirm));
+                    this.ask(Confirm::RemoveAccount { key: key.clone(), name: name.clone() }, cx);
                     cx.notify();
                 },
             )),
