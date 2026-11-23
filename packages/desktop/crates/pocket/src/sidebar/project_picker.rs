@@ -105,7 +105,7 @@ impl Desktop {
             locals.chain(worktrees).map(|t| (t.clone(), tree_texts(&t, self.agents.given_name(&t)))).collect()
         };
         let search_texts = |p: &str| project_texts(&self.repo_name(p), self.tree_of(p).as_deref().and_then(|t| self.agents.given_name(t)));
-        listed(self.projects(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_texts, trees)
+        listed(self.store.projects.clone(), self.project.as_deref(), &self.sidebar.picker.search.read(cx).value(), search_texts, trees)
     }
 
     pub(crate) fn toggle_project_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {

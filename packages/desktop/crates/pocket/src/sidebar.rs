@@ -494,7 +494,6 @@ impl Desktop {
     /// Returns its height once its fold settles, so a section around it can spring to it.
     fn project_block(&self, i: usize, p: &str, only: Option<&[String]>, section: Section, cx: &mut Context<Self>) -> (AnyElement, f32) {
         let current = self.place().filter(|_| self.screen == Screen::Sessions && self.project.as_deref() == Some(p));
-        let kept = self.store.projects.iter().any(|k| k == p);
         let trees = self.trees_shown(p);
         let setups = self.creates.setups(&self.terminals.setups);
         let fold = ProjectRow::new(trees.as_deref(), only.is_none() && self.store.collapsed.contains(p), &setups);
@@ -523,7 +522,7 @@ impl Desktop {
         let name = self.repo_name(p);
         let host = hosts::split(p).0;
         let offline = host.is_some_and(|h| !self.fleet.hosts.links.online(h));
-        let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, kept, state)
+        let row = ui::repo_row(("aside-repo", i), chevron, &name, &self.project_mark(p, ui::mark_letter(&name)), selected, state)
             .child(trail)
             .when(offline, |row| row.opacity(0.5))
             .when(self.sidebar.filter.lit(p, None), |row| row.bg(FILL_3))
@@ -545,7 +544,7 @@ impl Desktop {
                 }
             }))
             .on_mouse_down(MouseButton::Right, Self::open_row_menu(menu, cx))
-            .when(kept, |row| row.on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView)));
+            .on_drag(DragProject { path: p.to_string(), ix: i }, |_, _, _, cx| cx.new(|_| EmptyView));
         let mut out = Vec::new();
         if self.sidebar.closing.drawn(&Fold::Project(p.to_string()), open) {
             let rows = self.tree_rows(p, trees.as_deref().unwrap_or_default());
@@ -563,15 +562,14 @@ impl Desktop {
             .flex_col()
             .child(row)
             .child(rows)
-            .when(kept, |d| {
-                d.drag_over::<DragProject>(move |s, d, _, _| if d.ix == i || !manual { s } else { s.shadow(ui::drop_line(d.ix < i)) }).on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
-                    if manual {
-                        this.store.move_project(&d.path, &to);
-                    }
-                    this.drop_into(&d.path, section);
-                    cx.notify();
-                }))
-            });
+            .drag_over::<DragProject>(move |s, d, _, _| if d.ix == i || !manual { s } else { s.shadow(ui::drop_line(d.ix < i)) })
+            .on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
+                if manual {
+                    this.store.move_project(&d.path, &to);
+                }
+                this.drop_into(&d.path, section);
+                cx.notify();
+            }));
         (block.into_any_element(), ui::SIDEBAR_ROW_H + if open { height } else { 0. })
     }
 

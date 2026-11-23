@@ -410,7 +410,7 @@ pub struct Store {
     /// The entries of `projects` that are Scratch folders. pocketd only starts sessions in `projects`, so they stay in it.
     #[serde(deserialize_with = "lenient")]
     pub scratch: BTreeSet<String>,
-    /// The sidebar's Sessions section is folded.
+    /// The sidebar's Threads section is folded.
     pub scratch_folded: bool,
     /// Each worktree's panels, keyed by the worktree's path.
     #[serde(deserialize_with = "readable_layouts")]
