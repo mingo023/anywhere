@@ -204,6 +204,45 @@ func TestACommandClaudeRunsItselfAnswersWithItsOutputAndOneThatAsksTheModelDoesN
 	}
 }
 
+func TestASwitchOfModelOrEffortShowsNothingAndLeavesNoTurnOpen(t *testing.T) {
+	caveat := `{"type":"user","isMeta":true,"entrypoint":"sdk-cli","message":{"role":"user","content":"<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request.</local-command-caveat>"}}`
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		// Claude writes a set_model as it writes the next prompt, its output as a user line.
+		caveat,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"role":"user","content":"<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args>claude-opus-5</command-args>"}}`,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"role":"user","content":"<local-command-stdout>Set model to ` + "`claude-opus-5`" + `</local-command-stdout>"}}`,
+		caveat,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"role":"user","content":"<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>low</command-args>"}}`,
+		`{"type":"system","subtype":"local_command","entrypoint":"sdk-cli","content":"<local-command-stdout>Set effort level to low (this session only)</local-command-stdout>"}`,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"role":"user","content":"Reply with just: ok"}}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+}
+
+func TestACommandWhoseOutputClaudeWritesAsAUserLineEndsItsTurn(t *testing.T) {
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		`{"type":"user","isMeta":true,"entrypoint":"sdk-cli","message":{"content":"<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request.</local-command-caveat>"}}`,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"content":"<command-name>/goal</command-name>\n            <command-message>goal</command-message>\n            <command-args>clear</command-args>"}}`,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"content":"<local-command-stdout>Goal cleared</local-command-stdout>"}}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user", "assistant_text", "result"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+	if got[1].Text != "Goal cleared" {
+		t.Fatalf("reply %+v", got[1])
+	}
+}
+
 func TestAPromptStartingWithACommandClaudeDoesNotKnowShowsAsSent(t *testing.T) {
 	for _, content := range []string{
 		`"/gial /brainless fix the composer"`,
