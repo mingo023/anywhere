@@ -41,7 +41,7 @@ impl Desktop {
         let project = div().relative().child(button).when(open, |d| d.child(ui::dropdown(36., ui::menu_in("projects-menu-in", self.project_picker(cx)))));
         let order = self.space_order();
         let current = self.space();
-        let spaces = (order.len() > 1).then(|| div().flex().flex_col().items_center().gap(px(6.)).children(self.space_buttons("nav", &order, &current, cx)));
+        let spaces = (order.len() > 1).then(|| self.rail_spaces(&order, &current, cx));
         let search = rail_button("nav-search", "search", self.overlay == Some(Overlay::Palette))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open(Overlay::Palette, window, cx)));
         let unseen = crate::inbox::count(&self.agents);

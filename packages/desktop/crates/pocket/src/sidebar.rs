@@ -30,6 +30,7 @@ use crate::sidebar::rename::Rename;
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
 use crate::spaces::header::SpaceHeader;
+use crate::spaces::switcher::Switcher;
 use crate::spaces::{SLIDE_MS, on_host};
 use crate::status::{self, Card};
 use crate::util::{LOCAL_ICON, WORKTREE_ICON, ago_long, basename, now_ms};
@@ -168,6 +169,9 @@ struct DragTree {
 pub struct SidebarState {
     pub(crate) search: Entity<InputState>,
     pub(crate) space_header: Entity<SpaceHeader>,
+    /// The space buttons in the aside's foot and in the compact rail, which can be on screen together while the layout animates.
+    pub(crate) aside_spaces: Entity<Switcher>,
+    pub(crate) rail_spaces: Entity<Switcher>,
     /// Where a right-click opened the row menu; `None` drops it under its `···` button.
     pub(crate) menu_at: Option<Point<Pixels>>,
     pub(crate) picker: ProjectPicker,
@@ -196,14 +200,22 @@ impl SidebarState {
         let (picker, picker_subs) = ProjectPicker::new(window, cx);
         let (filter, filter_subs) = Filter::new(window, cx);
         let space_header = cx.new(|_| SpaceHeader::new());
-        let mut subs =
-            vec![cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()), cx.subscribe_in(&space_header, window, Desktop::on_space_header_event)];
+        let aside_spaces = cx.new(|_| Switcher::new("aside", false));
+        let rail_spaces = cx.new(|_| Switcher::new("nav", true));
+        let mut subs = vec![
+            cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe_in(&space_header, window, Desktop::on_space_header_event),
+            cx.subscribe_in(&aside_spaces, window, Desktop::on_switcher_event),
+            cx.subscribe_in(&rail_spaces, window, Desktop::on_switcher_event),
+        ];
         subs.extend(picker_subs);
         subs.extend(filter_subs);
         (
             Self {
                 search,
                 space_header,
+                aside_spaces,
+                rail_spaces,
                 menu_at: None,
                 picker,
                 add_menu: false,
