@@ -303,7 +303,7 @@ impl Desktop {
             .collect();
         let (untracked, options) = (self.store.git.untracked, self.diff.options);
         let diffs: Vec<_> =
-            self.diff.panes.iter().filter_map(|(p, v)| Some((*p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
+            self.diff.views(cx).filter_map(|(p, v)| Some((p, v.followed_file()?.to_string(), v.at.clone(), v.open.clone(), v.lines.clone()))).collect();
         let mut dirs: Vec<PathBuf> = self.explorer.tree.keys().cloned().collect();
         dirs.extend(self.explore_root().map(PathBuf::from));
         self.git_run += 1;
@@ -368,7 +368,7 @@ impl Desktop {
                     changed |= d.preview.apply(pane, file);
                 }
                 for (pane, load) in diffs {
-                    changed |= d.diff.apply(pane, load);
+                    changed |= d.diff.apply(pane, load, cx);
                 }
                 if changed {
                     cx.notify();

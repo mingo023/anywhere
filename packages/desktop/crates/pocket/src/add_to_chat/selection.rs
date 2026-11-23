@@ -58,7 +58,7 @@ impl Desktop {
     }
 
     fn ask_about(&mut self, at: Point<Pixels>, quote: Quote, window: &mut Window, cx: &mut Context<Self>) {
-        self.diff.cancel_draft();
+        self.diff.cancel_draft(cx);
         (self.chat.file, self.chat.menu) = (Some((at, quote)), false);
         self.chat.input.update(cx, |s, cx| {
             s.set_value("", window, cx);

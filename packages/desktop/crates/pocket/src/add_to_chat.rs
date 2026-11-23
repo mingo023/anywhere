@@ -243,7 +243,7 @@ impl Desktop {
         match self.pane_tab(pane) {
             Some(Tab::Doc(Doc::Diff(_) | Doc::CompareFile { .. })) => {
                 let quotable = |v: &&DiffView| v.followed_file().is_some() && v.pick.range.is_some_and(|r| span(&v.lines, ordered(r)).is_some());
-                if let Some(i) = self.diff.view(pane).filter(quotable).and_then(|v| v.pick.last()) {
+                if let Some(i) = self.diff.view(pane, cx).filter(quotable).and_then(|v| v.pick.last()) {
                     self.open_composer(pane, i, window, cx);
                 }
             }
@@ -264,15 +264,15 @@ impl Desktop {
         target_for(self.store.agents.chat_to(), self.chat.target.as_deref(), self.session(), recent, choices)
     }
 
-    fn chat_quote(&self) -> Option<Quote> {
-        self.chat.file.as_ref().map(|(_, q)| q.clone()).or_else(|| self.diff.draft_quote())
+    fn chat_quote(&self, cx: &App) -> Option<Quote> {
+        self.chat.file.as_ref().map(|(_, q)| q.clone()).or_else(|| self.diff.draft_quote(cx))
     }
 
     pub fn add_to_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.agents.observe_only() {
             return;
         }
-        let (Some(quote), Some(target)) = (self.chat_quote(), self.chat_target(&self.chat_choices())) else { return };
+        let (Some(quote), Some(target)) = (self.chat_quote(cx), self.chat_target(&self.chat_choices())) else { return };
         let Some((terminal, provider)) = self.agents.get(&target).map(|a| (a.terminal_id.clone(), a.provider.clone())) else { return };
         let question = self.chat.input.read(cx).value().to_string();
         match self.route(&terminal) {
@@ -311,7 +311,7 @@ impl Desktop {
     }
 
     pub fn cancel_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.diff.cancel_draft();
+        self.diff.cancel_draft(cx);
         self.chat.menu = false;
         (self.chat.file, self.chat.pill) = (None, None);
         if self.store.agents.chat_to() == "ask" {
@@ -323,7 +323,7 @@ impl Desktop {
     }
 
     fn chat_in_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(quote) = self.chat_quote() else { return };
+        let Some(quote) = self.chat_quote(cx) else { return };
         let prompt = quote.prompt(&self.chat.input.read(cx).value());
         self.cancel_chat(window, cx);
         self.new_session(Some(prompt), false, window, cx);

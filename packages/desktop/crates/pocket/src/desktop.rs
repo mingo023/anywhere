@@ -381,8 +381,8 @@ impl Desktop {
         }
         self.project = p;
         self.worktree = None;
-        for v in self.diff.panes.values_mut() {
-            v.file = None;
+        for s in self.diff.panes.values() {
+            s.view.update(cx, |p, _| p.view.file = None);
         }
         for p in self.preview.panes.values_mut() {
             p.file = None;
@@ -486,21 +486,21 @@ impl Desktop {
                 self.load_file(pane, cx);
             }
             Doc::Diff(path) => {
-                self.diff.select(pane, path, At::Working);
+                self.select_diff(pane, path, At::Working, cx);
                 self.load_diff(pane, cx);
             }
             Doc::CommitFile { sha, path } => {
-                self.diff.select(pane, path, At::Commit(sha));
+                self.select_diff(pane, path, At::Commit(sha), cx);
                 self.load_diff(pane, cx);
             }
             Doc::PrFile { base, path } => {
-                self.diff.select(pane, path, At::Base(base));
-                self.pin_threads();
+                self.select_diff(pane, path, At::Base(base), cx);
+                self.pin_threads(cx);
                 self.load_diff(pane, cx);
             }
             Doc::CompareFile { against, path } => {
-                self.diff.select(pane, path, At::Compare(against));
-                self.pin_threads();
+                self.select_diff(pane, path, At::Compare(against), cx);
+                self.pin_threads(cx);
                 self.load_diff(pane, cx);
             }
             Doc::Commit(sha) => self.show_commit(pane, sha, cx),
@@ -509,7 +509,7 @@ impl Desktop {
     }
 
     pub fn loaded(&self, pane: PaneId, doc: &Doc, cx: &App) -> bool {
-        let diff = self.diff.view(pane);
+        let diff = self.diff.view(pane, cx);
         match doc {
             Doc::File(p) => self.preview.file(pane) == Some(p.as_str()),
             Doc::Diff(p) => diff.is_some_and(|v| v.shows(p, &At::Working)),

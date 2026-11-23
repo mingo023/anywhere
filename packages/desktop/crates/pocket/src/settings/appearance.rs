@@ -174,7 +174,7 @@ fn apply_accent(d: &mut Desktop, cx: &mut Context<Desktop>) {
 fn apply_fonts(d: &mut Desktop, cx: &mut Context<Desktop>) {
     let (a, fonts) = (&d.store.appearance, &d.settings.fonts);
     theme::set_fonts(installed(a.ui_font.as_deref(), fonts), installed(a.code_font.as_deref(), fonts), cx);
-    d.diff.relayout(true);
+    d.diff.relayout(true, cx);
     d.recolor_commit(cx);
 }
 

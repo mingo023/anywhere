@@ -115,7 +115,7 @@ impl Desktop {
     fn change_row(&self, s: Section, f: &FileStat, depth: usize, in_tree: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let compared = s == Section::Compared;
         let at = if compared { self.compare.view.against().map(|a| At::Compare(a.to_string())) } else { Some(At::Working) };
-        let selected = at.is_some_and(|at| self.diff.view(self.focused_pane()).is_some_and(|v| v.shows(&f.path, &at)));
+        let selected = at.is_some_and(|at| self.diff.view(self.focused_pane(), cx).is_some_and(|v| v.shows(&f.path, &at)));
         let (dir, name) = f.path.rsplit_once('/').unwrap_or(("", &f.path));
         let label = match &f.old_path {
             Some(old) => format!("{} → {name}", renamed_from(old, &f.path)),

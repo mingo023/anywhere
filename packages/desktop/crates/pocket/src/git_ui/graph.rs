@@ -441,15 +441,15 @@ impl Desktop {
         }
     }
 
-    fn viewing_commit_file(&self) -> Option<(String, String)> {
-        let v = self.diff.view(self.focused_pane())?;
+    fn viewing_commit_file(&self, cx: &App) -> Option<(String, String)> {
+        let v = self.diff.view(self.focused_pane(), cx)?;
         let At::Commit(sha) = &v.at else { return None };
         Some((sha.clone(), v.file.clone()?))
     }
 
     /// `changes` above the collapsible graph, splitting the height between them while it's open; drag the seam between to resize.
     pub(crate) fn with_graph(&mut self, changes: Div, cx: &mut Context<Self>) -> Div {
-        let (cwd, active, seamed, viewing) = (self.cwd(), self.side == Side::Changes, self.overlay.is_none(), self.viewing_commit_file());
+        let (cwd, active, seamed, viewing) = (self.cwd(), self.side == Side::Changes, self.overlay.is_none(), self.viewing_commit_file(cx));
         self.graph.update(cx, |g, _| g.show(cwd, active, seamed, viewing));
         // A share dragged in a taller window would squeeze the list below its floor once the window shrinks.
         let changes = if self.graph.read(cx).splits() { changes.min_h(px(MIN_CHANGES)) } else { changes };

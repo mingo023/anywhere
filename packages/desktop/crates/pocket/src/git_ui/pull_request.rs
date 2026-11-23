@@ -796,16 +796,16 @@ impl Desktop {
     }
 
     /// Pins the threads of the PR on screen to the PR diffs.
-    pub(crate) fn pin_threads(&mut self) {
+    pub(crate) fn pin_threads(&mut self, cx: &mut App) {
         let pr = self.cwd().and_then(|tree| self.prs.get(&tree));
         let base = pr.map(|pr| self.pr_base(pr));
-        self.diff.pin(pr.map_or(&[][..], |pr| pr.threads.as_slice()), base.as_deref());
+        self.diff.pin(pr.map_or(&[][..], |pr| pr.threads.as_slice()), base.as_deref(), cx);
     }
 
     /// Pins the threads again and reads the PR diffs again, for what was pushed or said since.
     pub(crate) fn refresh_pr_diffs(&mut self, cx: &mut Context<Self>) {
-        self.pin_threads();
-        let panes: Vec<PaneId> = self.diff.panes.iter().filter(|(_, v)| matches!(v.at, At::Base(_))).map(|(p, _)| *p).collect();
+        self.pin_threads(cx);
+        let panes: Vec<PaneId> = self.diff.views(cx).filter(|(_, v)| matches!(v.at, At::Base(_))).map(|(p, _)| p).collect();
         for pane in panes {
             self.load_diff(pane, cx);
         }

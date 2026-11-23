@@ -508,7 +508,7 @@ const STEPS: [(&str, Step); 303] = [
     }),
     ("add-to-chat", |d, window, cx| {
         let pane = d.focused_pane();
-        if let Some(i) = d.diff.view(pane).and_then(|v| v.lines.iter().position(|l| l.kind == Kind::Add)) {
+        if let Some(i) = d.diff.view(pane, cx).and_then(|v| v.lines.iter().position(|l| l.kind == Kind::Add)) {
             d.open_composer(pane, i, window, cx);
         }
     }),
@@ -946,11 +946,11 @@ const STEPS: [(&str, Step); 303] = [
     ("code-font-menlo", |d, _, cx| {
         d.store.appearance.code_font = Some("Menlo".into());
         theme::set_fonts(d.store.appearance.ui_font.as_deref(), Some("Menlo"), cx);
-        d.diff.relayout(true);
+        d.diff.relayout(true, cx);
     }),
-    ("code-size-14", |d, _, _| {
+    ("code-size-14", |d, _, cx| {
         d.store.appearance.code_size = Some(14);
-        d.diff.relayout(true);
+        d.diff.relayout(true, cx);
     }),
     ("code-font-menu", |d, _, _| d.settings.menu = Some("code-font")),
     ("creating", |d, _, cx| {
@@ -1772,8 +1772,8 @@ fn reset(d: &mut Desktop, window: &mut Window, cx: &mut Context<Desktop>) {
     for p in d.preview.panes.values_mut() {
         p.file = None;
     }
-    for v in d.diff.panes.values_mut() {
-        (v.file, v.at) = (None, At::Working);
+    for s in d.diff.panes.values() {
+        s.view.update(cx, |p, _| (p.view.file, p.view.at) = (None, At::Working));
     }
     for s in d.commit.panes.values() {
         s.view.update(cx, |v, _| v.state.sha = None);

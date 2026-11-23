@@ -266,7 +266,7 @@ impl Desktop {
                             // The press then focuses what it lands on; take focus back unless that's something else, like a terminal.
                             cx.defer_in(window, |this, window, cx| {
                                 let stayed = this.root.is_focused(window) || this.chat.search.focus_handle(cx).is_focused(window);
-                                if stayed && this.chat_quote().is_some() {
+                                if stayed && this.chat_quote(cx).is_some() {
                                     this.chat.input.update(cx, |s, cx| s.focus(window, cx));
                                 }
                             });

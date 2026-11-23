@@ -29,7 +29,7 @@ fn reread(d: &mut Desktop, cx: &mut Context<Desktop>) {
 
 pub(super) const ROWS: &[Setting] = &[
     Setting::choice("diff-style", "Diff", "Diff style", &["Unified", "Split"], Look::Segmented, |s| usize::from(s.diff.split), |s, i| s.diff.split = i == 1)
-        .effect(|d, _| d.apply_diff_style()),
+        .effect(|d, cx| d.apply_diff_style(cx)),
     Setting::choice("changes-list", "Diff", "Changes list", &["List", "Tree"], Look::Segmented, |s| usize::from(s.diff.tree), |s, i| s.diff.tree = i == 1),
     Setting::stepper("context", "Diff", "Context lines", (0, 20, 1), " lines", |s| s.diff.context as i32, |s, n| s.diff.context = n as usize)
         .hint("Unchanged lines shown around each change")
