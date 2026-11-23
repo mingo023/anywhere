@@ -5,7 +5,7 @@ mod background;
 pub(crate) mod btw;
 mod goal;
 mod model_pill;
-mod queue;
+pub(crate) mod queue;
 pub(crate) mod send_button;
 pub(crate) mod suggest;
 mod switch_agent;
@@ -177,6 +177,10 @@ pub(crate) enum ChatBoxEvent {
         agent: String,
         turn: usize,
         block: usize,
+    },
+    Queue {
+        agent: String,
+        what: queue::Queue,
     },
 }
 
@@ -428,12 +432,13 @@ impl Desktop {
         Some((chat::for_provider(&a.provider).ask(p), p.feedback))
     }
 
-    pub(super) fn on_chat_box_event(&mut self, ev: &ChatBoxEvent, cx: &mut Context<Self>) {
+    pub(super) fn on_chat_box_event(&mut self, ev: &ChatBoxEvent, window: &mut Window, cx: &mut Context<Self>) {
         match ev {
             ChatBoxEvent::Prompt { agent, text } => _ = self.outbox.prompt(agent, text),
             ChatBoxEvent::Access { agent, access } => self.outbox.access(agent, access),
             ChatBoxEvent::Interrupt(agent) => self.chat_command(agent, Command::Interrupt, cx),
             ChatBoxEvent::ShowBlock { agent, turn, block } => self.chat_show_block(agent, *turn, *block, cx),
+            ChatBoxEvent::Queue { agent, what } => self.on_queue(agent, what, window, cx),
         }
         cx.notify();
     }
@@ -840,7 +845,8 @@ impl Desktop {
         });
         let (pending, paused) = held.as_ref().map_or((&[][..], false), |(pending, paused, _)| (pending.as_slice(), *paused));
         let transcript = held.as_ref().map(|(_, _, t)| t);
-        let tray = (mode == Mode::Prompt).then(|| self.queue_tray(&agent.id, pending, paused, cx)).flatten();
+        let tray = (mode == Mode::Prompt).then(|| self.queue_of(&agent.id, pending, paused));
+        let tray = tray.and_then(|t| composer.update(cx, |c, cx| c.queue_tray(&t, cx)));
         let tray = tray.map(|t| fade_in(id(format!("chat-queue:{terminal}")), t));
         let interrupt = self.chat_caps(&agent.provider).interrupt;
         let stop = |tasks: &[&chat::ToolCall]| mode == Mode::Prompt && background::stops(agent.chat_only, interrupt, busy, tasks);

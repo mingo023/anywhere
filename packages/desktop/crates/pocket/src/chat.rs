@@ -114,7 +114,7 @@ impl ChatState {
         let input = composer::input(window, cx);
         let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
         subs.push(cx.observe(&composer, |_, _, cx| cx.notify()));
-        subs.push(cx.subscribe(&composer, |this, _, ev: &composer::ChatBoxEvent, cx| this.on_chat_box_event(ev, cx)));
+        subs.push(cx.subscribe_in(&composer, window, |this, _, ev: &composer::ChatBoxEvent, window, cx| this.on_chat_box_event(ev, window, cx)));
         let map = cx.new(|cx| agent_map::AgentMap::new(cx));
         subs.push(cx.subscribe_in(&map, window, |this, _, ev: &agent_map::MapEvent, window, cx| this.on_map_event(ev, window, cx)));
         subs.push(cx.observe(&map, |_, _, cx| cx.notify()));
