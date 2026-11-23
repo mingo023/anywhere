@@ -116,7 +116,7 @@ impl Sections {
     }
 
     /// Moves each group on this Mac whose projects are all on one host to that host, as only groups saved before groups
-    /// had a machine can hold a host's projects.
+    /// had a machine can hold a host's projects, then drops the projects left in a group on another machine.
     pub fn settle_hosts(&mut self) {
         for g in self.groups.iter_mut().filter(|g| g.host.is_none()) {
             let mut machines = self.members.iter().filter(|(_, id)| **id == g.id).map(|(p, _)| hosts::split(p).0);
@@ -124,6 +124,8 @@ impl Sections {
                 g.host = Some(host.to_string());
             }
         }
+        let members = std::mem::take(&mut self.members);
+        self.members = members.into_iter().filter(|(p, id)| self.can_hold(*id, p)).collect();
     }
 
     fn can_hold(&self, id: u32, project: &str) -> bool {
@@ -257,6 +259,9 @@ mod tests {
         let hosts: Vec<_> = s.groups.iter().map(|g| g.host.as_deref()).collect();
         assert_eq!(hosts, [None, Some("devbox"), None]);
         assert_eq!((s.group_of("/a"), s.group_of("//devbox/api"), s.group_of("//devbox/web")), (Some(1), None, Some(2)));
+        s.set_group("/a", None);
+        s.settle_hosts();
+        assert_eq!(s.group(1).unwrap().host, None, "a later load doesn't move it for the host project it once held");
     }
 
     #[test]

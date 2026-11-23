@@ -133,6 +133,10 @@ impl Desktop {
 
     /// Deletes a folder with nothing to lose straight away, and asks about any other.
     pub(super) fn ask_delete_scratch(&mut self, path: String, cx: &mut Context<Self>) {
+        if let Some(host) = hosts::split(&path).0.filter(|h| hosts::remote::connected(h).is_none()) {
+            self.error = Some(format!("{} isn't connected", self.host_name(host)));
+            return cx.notify();
+        }
         let job = path.clone();
         let task = cx.background_executor().spawn(async move { project::scratch::work(&hosts::runner_for(&job), &job) });
         cx.spawn(async move |this, cx| {
