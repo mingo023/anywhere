@@ -238,7 +238,7 @@ func between(agent string) func(Message) bool {
 	}
 }
 
-func TestASignInTerminalIsListedAsOne(t *testing.T) {
+func TestASignInStaysMarkedAcrossAnUpgradeAndIsGoneAfterAReboot(t *testing.T) {
 	h := Start(t, launchReady(""))
 	c := h.Ops()
 	c.Send(ops.Msg{Op: "accounts.signin", Key: "claude"})
@@ -246,19 +246,35 @@ func TestASignInTerminalIsListedAsOne(t *testing.T) {
 	if err != nil || r.Ev != "spawned" {
 		t.Fatalf("signin: %+v %v", r, err)
 	}
+	if got := h.terminal(r.ID); got == nil || !got.SignIn {
+		t.Fatalf("listed %+v", got)
+	}
+	h.Upgrade()
+	if got := h.terminal(r.ID); got == nil || !got.SignIn {
+		t.Fatalf("after the upgrade, listed %+v", got)
+	}
+	h.Restart()
+	if got := h.terminal(r.ID); got != nil {
+		t.Fatalf("after a reboot, listed %+v", got)
+	}
+}
+
+// terminal is Terminal id as pocketd lists it, or nil.
+func (h *Harness) terminal(id string) *terminal.Info {
+	h.t.Helper()
+	c := h.Ops()
 	c.Send(ops.Msg{Op: "list"})
 	for {
 		m, err := c.Recv()
 		if err != nil {
-			t.Fatal(err)
+			h.t.Fatal(err)
 		}
 		if m.Ev != "terminals" {
 			continue
 		}
-		i := slices.IndexFunc(m.Items, func(info terminal.Info) bool { return info.ID == r.ID })
-		if i < 0 || !m.Items[i].SignIn {
-			t.Fatalf("listed %+v", m.Items)
+		if i := slices.IndexFunc(m.Items, func(info terminal.Info) bool { return info.ID == id }); i >= 0 {
+			return &m.Items[i]
 		}
-		return
+		return nil
 	}
 }

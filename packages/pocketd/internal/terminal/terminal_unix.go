@@ -44,7 +44,7 @@ func (s ptySession) Wait() int {
 func (m *Manager) open(bin string, spec Spec) (session, error) {
 	if m.Holder != nil {
 		return m.Holder.Start(holder.Spec{ID: spec.ID, Cmd: spec.Cmd, Bin: bin, Args: spec.Args, Cwd: spec.Cwd, Env: spec.Env,
-			Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local}, nil)
+			Cols: spec.Cols, Rows: spec.Rows, Local: spec.Local, SignIn: spec.SignIn}, nil)
 	}
 	f, p, err := start(bin, spec)
 	if err != nil {

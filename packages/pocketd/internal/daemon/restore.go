@@ -78,6 +78,10 @@ func (p pending) Close()                             { p.d.drop(p.h) }
 func (d *Daemon) Snapshot() state.File {
 	f := state.File{Version: state.Version, Terminals: []state.Terminal{}}
 	for _, info := range d.Terminals.List() {
+		// A sign-in brought back would be a bare login shell in the home folder.
+		if info.SignIn {
+			continue
+		}
 		e := state.Terminal{TerminalID: info.ID, LaunchDir: info.Cwd, Cols: info.Cols, Rows: info.Rows, Local: info.Local}
 		var resuming *agent.Agent
 		d.mu.Lock()

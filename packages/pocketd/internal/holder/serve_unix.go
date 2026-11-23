@@ -201,7 +201,7 @@ func (s *server) attach(conn net.Conn) {
 	s.client = conn
 	start := s.n - int64(len(s.ring))
 	from := max(s.at, start)
-	hello, _ := json.Marshal(Hello{Version: Version, ID: s.spec.ID, Cmd: s.spec.Cmd, Args: s.spec.Args, Cwd: s.spec.Cwd, Local: s.spec.Local,
+	hello, _ := json.Marshal(Hello{Version: Version, ID: s.spec.ID, Cmd: s.spec.Cmd, Args: s.spec.Args, Cwd: s.spec.Cwd, Local: s.spec.Local, SignIn: s.spec.SignIn,
 		Cols: s.cols, Rows: s.rows, Pid: s.pid, Started: s.started, Exited: s.exited, Code: s.code, From: from})
 	s.sendLocked(kHello, hello)
 	s.sendLocked(kSnapshot, s.screen)

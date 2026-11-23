@@ -226,7 +226,7 @@ func (m *Manager) Adopt(a Adopted) (*Terminal, error) {
 
 // Reattach takes over the Terminal a holder kept running while no pocketd was there.
 func (m *Manager) Reattach(c *holder.Client) (*Terminal, error) {
-	return m.attach(Info{ID: c.ID, Cmd: c.Cmd, Args: c.Args, Cwd: c.Cwd, Cols: c.Cols, Rows: c.Rows, Local: c.Local}, c, c.Snapshot, c.Tail)
+	return m.attach(Info{ID: c.ID, Cmd: c.Cmd, Args: c.Args, Cwd: c.Cwd, Cols: c.Cols, Rows: c.Rows, Local: c.Local, SignIn: c.SignIn}, c, c.Snapshot, c.Tail)
 }
 
 // attach lists a Terminal whose process already runs, its screen redrawn from
