@@ -1204,7 +1204,7 @@ const STEPS: [(&str, Step); 303] = [
 /// `CAPTURE_CLICKS` ("x,y;x,y" in window points), `move` from `CAPTURE_MOVES` (the same), `drop` from `CAPTURE_DROPS` ("x,y,file;…"), `drag` from `CAPTURE_DRAGS` (the same), `paste-image` from `CAPTURE_PASTE` (a PNG),
 /// `pan` from `CAPTURE_PANS` ("x,y,dx,dy;…", a left-button drag), `pinch` from `CAPTURE_PINCHES` ("x,y,delta;…"),
 /// `import-theme` from `CAPTURE_THEMES` ("file;file"), `right-click` from `CAPTURE_CLICKS`; `clipboard` prints the clipboard's text.
-const INPUT_STEPS: [(&str, Step); 19] = [
+const INPUT_STEPS: [(&str, Step); 20] = [
     ("key", |_, window, cx| {
         let Some(k) = next_arg("CAPTURE_KEYS", ';').and_then(|k| Keystroke::parse_with_os(&k, keys::OS).ok()) else { return };
         window.defer(cx, move |window, cx| _ = window.dispatch_keystroke(k, cx));
@@ -1232,6 +1232,8 @@ const INPUT_STEPS: [(&str, Step); 19] = [
             window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers, click_count: 1 }), cx);
         });
     }),
+    // Prints the store as one `[store]` line, which `save_soon` doesn't write in capture mode.
+    ("dump-store", |d, _, _| eprintln!("[store] {}", serde_json::to_string(&d.store).unwrap_or_default())),
     // Times 60 whole-window frames, each after a notify as the daemon poll and git refresh send, and prints their spread.
     ("bench", |_, window, cx| {
         let desktop = cx.entity();
