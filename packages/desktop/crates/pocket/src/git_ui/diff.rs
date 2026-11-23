@@ -782,7 +782,7 @@ impl Desktop {
         let entity = match self.diff.get(pane) {
             Some(entity) => entity.clone(),
             None => {
-                let chat = self.chat.input.clone();
+                let chat = self.chat.read(cx).input.clone();
                 let entity = cx.new(|_| DiffPane::new(chat));
                 let sub = cx.subscribe(&entity, move |this, _, ev: &DiffEvent, cx| this.on_diff_pane(pane, ev, cx));
                 self.diff.panes.insert(pane, Slot { view: entity.clone(), _sub: sub });
@@ -796,7 +796,7 @@ impl Desktop {
     fn on_diff_pane(&mut self, pane: PaneId, ev: &DiffEvent, cx: &mut Context<Self>) {
         match ev {
             DiffEvent::Claimed => {
-                self.chat.file = None;
+                self.chat.update(cx, |c, cx| c.clear_file(cx));
                 self.diff.draft_in(pane, cx);
             }
         }
@@ -894,7 +894,7 @@ impl Desktop {
         let composer = composing
             .then(|| self.diff.draft_quote(cx))
             .flatten()
-            .map(|q| self.chat_card(&q, false, cx).mt(px(6.)).mb(px(10.)).mr(px(20.)).ml(px(margin)).into_any_element());
+            .map(|q| self.chat_card(&q, cx).mt(px(6.)).mb(px(10.)).mr(px(20.)).ml(px(margin)).into_any_element());
         let threads = threads
             .into_iter()
             .filter_map(|(k, id)| {

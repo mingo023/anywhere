@@ -1,4 +1,4 @@
-use super::Quote;
+use super::{ChatComposer, ChatEvent, Quote};
 use crate::desktop::Desktop;
 use crate::explorer::preview::{Body as View, relative};
 use gpui_kit::*;
@@ -7,14 +7,11 @@ use workspace::tree::PaneId;
 
 impl Desktop {
     pub(crate) fn offer_chat(&mut self, pane: PaneId, at: Point<Pixels>, cx: &mut Context<Self>) {
-        if self.chat.file.is_some() {
+        if self.chat.read(cx).file.is_some() {
             return;
         }
         let pill = self.selection_quote(pane, cx).map(|(quote, _)| (at, quote));
-        if pill != self.chat.pill {
-            self.chat.pill = pill;
-            cx.notify();
-        }
+        self.chat.update(cx, |c, cx| c.offer(pill, cx));
     }
 
     /// What's selected in `pane`'s file, and where on screen it ends when the view can tell.
@@ -40,24 +37,30 @@ impl Desktop {
     }
 
     pub(crate) fn ask_about_text(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
-        let pill = self.chat.pill.take();
+        let pill = self.chat.update(cx, |c, _| c.pill.take());
         let Some((quote, near)) = self.selection_quote(pane, cx) else { return cx.notify() };
         let at = pill.map(|(at, _)| at).or(near).unwrap_or_else(|| window.mouse_position());
-        self.ask_about(at, quote, window, cx);
-    }
-
-    fn ask_about(&mut self, at: Point<Pixels>, quote: Quote, window: &mut Window, cx: &mut Context<Self>) {
-        self.diff.cancel_draft(cx);
-        (self.chat.file, self.chat.menu) = (Some((at, quote)), false);
-        self.chat.input.update(cx, |s, cx| {
-            s.set_value("", window, cx);
-            s.focus(window, cx);
-        });
-        cx.notify();
+        self.chat.update(cx, |c, cx| c.ask(at, quote, window, cx));
     }
 
     pub(crate) fn chat_pill(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let at = self.chat.pill.as_ref()?.0;
+        self.chat.read(cx).pill.as_ref()?;
+        self.chat.update(cx, |c, cx| c.pill_view(cx))
+    }
+
+    pub(crate) fn chat_popover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        self.chat.read(cx).file.as_ref()?;
+        let side = self.chat_side(cx);
+        self.chat.update(cx, |c, cx| {
+            c.hand(side);
+            c.popover(cx)
+        })
+    }
+}
+
+impl ChatComposer {
+    fn pill_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let at = self.pill.as_ref()?.0;
         let pill = div()
             .id("chat-pill")
             .h(px(36.))
@@ -75,12 +78,12 @@ impl Desktop {
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                if let Some((at, quote)) = this.chat.pill.take() {
-                    this.ask_about(at, quote, window, cx);
+                if let Some((at, quote)) = this.pill.take() {
+                    this.ask(at, quote, window, cx);
                 }
             }))
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.chat.pill = None;
+                this.pill = None;
                 cx.notify();
             }));
         Some(
@@ -88,12 +91,12 @@ impl Desktop {
         )
     }
 
-    pub(crate) fn chat_popover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (at, quote) = self.chat.file.as_ref()?;
-        let card = self.chat_card(quote, true, cx).w(px(420.)).occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| {
+    fn popover(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let (at, quote) = self.file.as_ref()?;
+        let card = self.card(quote, true, cx).w(px(420.)).occlude().on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
             // The agent menu floats outside the card, so a press in it lands here too.
-            if !this.chat.menu {
-                this.cancel_chat(window, cx);
+            if !this.menu {
+                cx.emit(ChatEvent::Cancel);
             }
         }));
         Some(deferred(anchored().position(*at + point(px(0.), px(8.))).snap_to_window_with_margin(px(8.)).child(card)).with_priority(2))

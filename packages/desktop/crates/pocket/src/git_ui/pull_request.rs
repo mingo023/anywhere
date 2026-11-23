@@ -550,9 +550,9 @@ impl Desktop {
     }
 
     /// Where the PR of `tree` stands, in its colour, as its card's header says it.
-    pub(crate) fn pr_verdict(&self, tree: &str, pr: &Pr) -> (Token, String) {
+    pub(crate) fn pr_verdict(&self, tree: &str, pr: &Pr, cx: &App) -> (Token, String) {
         let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), tree);
-        verdict(pr, self.pr.track.fixing(tree, pr).as_ref(), busy, self.fix_agent())
+        verdict(pr, self.pr.track.fixing(tree, pr).as_ref(), busy, self.fix_agent(cx))
     }
 
     /// Opens the composer for the worktree on screen, filled by the agent picked for commit messages or from the commits.
@@ -747,8 +747,8 @@ impl Desktop {
     }
 
     /// The name of the agent fixes go to.
-    pub(crate) fn fix_agent(&self) -> &'static str {
-        self.chat_target(&self.chat_choices()).and_then(|id| self.agents.get(&id)).map_or("agent", |a| theme::provider_name(&a.provider))
+    pub(crate) fn fix_agent(&self, cx: &App) -> &'static str {
+        self.chat_target(&self.chat_choices(), cx).and_then(|id| self.agents.get(&id)).map_or("agent", |a| theme::provider_name(&a.provider))
     }
 
     /// Deletes a merged PR's worktree and its subagents', keeping their branches; asks first if any has changes.
@@ -816,7 +816,7 @@ impl Desktop {
         if self.agents.observe_only() {
             return None;
         }
-        let Some(target) = self.chat_target(&self.chat_choices()) else {
+        let Some(target) = self.chat_target(&self.chat_choices(), cx) else {
             self.error = Some("Start an agent in this worktree to send it this.".into());
             cx.notify();
             return None;

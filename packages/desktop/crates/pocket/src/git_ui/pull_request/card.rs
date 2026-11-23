@@ -175,7 +175,7 @@ impl Desktop {
             .into_iter()
             .map(|(r, text)| row().min_h(px(22.)).child(glyph_slot(review_icon(r))).child(div().flex_1().min_w_0().truncate().child(text)));
         let gate = (pr.state == PrState::Open)
-            .then(|| self.pr_gate(pr, resolving, self.fix_agent()).min_h(px(22.)).pt(px(6.)).border_t(px(0.5)).border_color(HAIRLINE));
+            .then(|| self.pr_gate(pr, resolving, self.fix_agent(cx)).min_h(px(22.)).pt(px(6.)).border_t(px(0.5)).border_color(HAIRLINE));
         div()
             .id("pr-checks")
             .flex_1()

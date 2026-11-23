@@ -505,13 +505,23 @@ const STEPS: [(&str, Step); 303] = [
             d.open_file(path, false, cx);
         }
     }),
-    ("pill", |d, _, _| d.chat.pill = Quote::prose("README.md", "", "Add to chat").map(|q| (point(px(420.), px(260.)), q))),
-    ("chat-menu", |d, window, cx| d.open_chat_menu(window, cx)),
+    ("pill", |d, _, cx| {
+        let pill = Quote::prose("README.md", "", "Add to chat").map(|q| (point(px(420.), px(260.)), q));
+        d.chat.update(cx, |c, cx| c.offer(pill, cx));
+    }),
+    ("chat-menu", |d, window, cx| {
+        let side = d.chat_side(cx);
+        d.chat.update(cx, |c, cx| {
+            c.hand(side);
+            c.open_menu(window, cx);
+        });
+    }),
     ("ask-file", |d, _, cx| {
         let pane = d.focused_pane();
         let Some((path, text)) = d.preview.read(cx).pane(pane).and_then(|f| Some((f.file.clone()?, f.text()?.to_string()))) else { return };
         let end = text.match_indices('\n').nth(2).map_or(text.len(), |(i, _)| i);
-        d.chat.file = Quote::code(&crate::util::basename(&path), &text, 0..end).map(|q| (point(px(420.), px(260.)), q));
+        let file = Quote::code(&crate::util::basename(&path), &text, 0..end).map(|q| (point(px(420.), px(260.)), q));
+        d.chat.update(cx, |c, cx| c.set_file(file, cx));
     }),
     ("add-to-chat", |d, window, cx| {
         let pane = d.focused_pane();

@@ -569,7 +569,7 @@ impl Desktop {
                     });
                     self.preview.update(cx, |p, _| p.set_autosave(task));
                 }
-                if self.chat.pill.take().is_some() {
+                if self.chat.update(cx, |c, _| c.drop_pill()) {
                     cx.notify();
                 }
             }

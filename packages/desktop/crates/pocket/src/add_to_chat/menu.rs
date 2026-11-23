@@ -1,6 +1,5 @@
-use super::{ChatComposer, Choice};
+use super::{ChatComposer, ChatEvent, Choice};
 use crate::actions::JumpToTab;
-use crate::desktop::Desktop;
 use crate::palette::{hint, marked, matches};
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -52,61 +51,59 @@ impl ChatComposer {
         self.highlight = row;
         self.scroll.scroll_to_item(row);
     }
-}
 
-impl Desktop {
-    fn chat_rows<'a>(&self, choices: &'a [Choice], cx: &App) -> Vec<&'a Choice> {
-        matching(choices, &words(&self.chat.search.read(cx).value()), |p| self.agent_name(p))
+    fn rows(&self, cx: &App) -> Vec<&Choice> {
+        matching(&self.side.choices, &words(&self.search.read(cx).value()), |p| self.side.agent_name(p))
     }
 
-    pub(super) fn reset_chat_highlight(&mut self, cx: &App) {
-        let choices = self.chat_choices();
-        let row = first_row(&self.chat_rows(&choices, cx), self.chat_target(&choices).as_deref());
-        self.chat.highlight_row(row);
+    pub(super) fn reset_highlight(&mut self, cx: &App) {
+        let row = first_row(&self.rows(cx), self.side.target.as_deref());
+        self.highlight_row(row);
     }
 
-    pub(crate) fn open_chat_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.menu = true;
-        self.chat.search.update(cx, |s, cx| {
+    pub(crate) fn open_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu = true;
+        self.search.update(cx, |s, cx| {
             s.set_value("", window, cx);
             s.focus(window, cx);
         });
-        self.chat.scroll.set_offset(Point::default());
-        self.reset_chat_highlight(cx);
+        self.scroll.set_offset(Point::default());
+        self.reset_highlight(cx);
         // A scroll is dropped until the list has been laid out once: the next frame lays it out, the one after can scroll it.
         cx.on_next_frame(window, |_, window, cx| {
             cx.on_next_frame(window, |this, _, cx| {
-                this.chat.highlight_row(this.chat.highlight);
+                this.highlight_row(this.highlight);
                 cx.notify();
             })
         });
         cx.notify();
     }
 
-    pub(super) fn close_chat_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.menu = false;
-        self.chat.input.update(cx, |s, cx| s.focus(window, cx));
+    pub(super) fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu = false;
+        self.input.update(cx, |s, cx| s.focus(window, cx));
         cx.notify();
     }
 
-    fn pick_chat_target(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.target = Some(id);
-        self.close_chat_menu(window, cx);
+    fn pick_target(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.target = Some(id);
+        self.close_menu(window, cx);
     }
 
-    fn on_chat_menu_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let choices = self.chat_choices();
-        let rows = self.chat_rows(&choices, cx);
-        let ix = self.chat.highlighted_row(rows.len());
+    fn on_menu_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let (ix, ready, row) = {
+            let rows = self.rows(cx);
+            let ix = self.highlighted_row(rows.len());
+            (ix, rows.iter().map(|c| c.ready).chain([true]).collect::<Vec<_>>(), rows.get(ix).map(|c| (c.id.clone(), c.ready)))
+        };
         match ev.keystroke.key.as_str() {
-            "enter" => match rows.get(ix) {
-                Some(c) if c.ready => self.pick_chat_target(c.id.clone(), window, cx),
+            "enter" => match row {
+                Some((id, true)) => self.pick_target(id, window, cx),
                 Some(_) => return,
-                None => self.chat_in_new_session(window, cx),
+                None => cx.emit(ChatEvent::NewSession),
             },
             key @ ("up" | "down") => {
-                let ready: Vec<bool> = rows.iter().map(|c| c.ready).chain([true]).collect();
-                self.chat.highlight_row(next_ready(&ready, ix, key == "down"));
+                self.highlight_row(next_ready(&ready, ix, key == "down"));
                 cx.notify();
             }
             _ => return,
@@ -116,15 +113,15 @@ impl Desktop {
 
     fn highlight_on_hover(row: usize, cx: &Context<Self>) -> impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static {
         cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
-            if this.chat.highlight != row {
-                this.chat.highlight = row;
+            if this.highlight != row {
+                this.highlight = row;
                 cx.notify();
             }
         })
     }
 
-    pub(super) fn chat_target_picker(&self, chosen: Option<&Choice>, choices: &[Choice], cx: &mut Context<Self>) -> Div {
-        let open = self.chat.menu;
+    pub(super) fn target_picker(&self, chosen: Option<&Choice>, cx: &mut Context<Self>) -> Div {
+        let open = self.menu;
         let pill = ui::popover_trigger(
             div()
                 .id("chat-target")
@@ -141,21 +138,21 @@ impl Desktop {
                 .when(open, |d| d.bg(FILL_4))
                 .text_size(px(13.)),
             open,
-            cx.listener(|this, _: &MouseDownEvent, window, cx| this.open_chat_menu(window, cx)),
+            cx.listener(|this, _: &MouseDownEvent, window, cx| this.open_menu(window, cx)),
         );
         let pill = match chosen {
             Some(c) => pill
                 .child(provider_icon(&c.provider, 13., TEXT))
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(self.agent_name(&c.provider)))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child(self.side.agent_name(&c.provider)))
                 .child(div().text_color(TEXT_6).child("·"))
                 .child(div().max_w(px(160.)).truncate().text_color(TEXT_2).child(c.title.clone())),
             None => pill.text_color(TEXT_2).child("No agent"),
         };
         let menu = open.then(|| {
-            let query = self.chat.search.read(cx).value();
+            let query = self.search.read(cx).value();
             let words = words(&query);
-            let rows = self.chat_rows(choices, cx);
-            let highlight = self.chat.highlighted_row(rows.len());
+            let rows = self.rows(cx);
+            let highlight = self.highlighted_row(rows.len());
             let picked = chosen.map(|c| c.id.clone());
             let items = rows.iter().enumerate().map(|(i, c)| {
                 let id = c.id.clone();
@@ -186,7 +183,11 @@ impl Desktop {
                             .flex_col()
                             .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(marked(c.title.clone(), &words)))
                             .child(
-                                div().truncate().text_size(px(11.5)).text_color(TEXT_3).child(marked(subtitle(&self.agent_name(&c.provider), &c.note), &words)),
+                                div()
+                                    .truncate()
+                                    .text_size(px(11.5))
+                                    .text_color(TEXT_3)
+                                    .child(marked(subtitle(&self.side.agent_name(&c.provider), &c.note), &words)),
                             ),
                     )
                     .child(shortcut)
@@ -194,7 +195,7 @@ impl Desktop {
                     .when(c.ready, |d| {
                         d.cursor_pointer()
                             .on_mouse_move(Self::highlight_on_hover(i, cx))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_chat_target(id.clone(), window, cx)))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_target(id.clone(), window, cx)))
                     })
             });
             let empty = (rows.is_empty() && !words.is_empty()).then(|| {
@@ -215,7 +216,7 @@ impl Desktop {
                 .child(icon("plus", 15., TEXT_2))
                 .child("New session…")
                 .on_mouse_move(Self::highlight_on_hover(rows.len(), cx))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.chat_in_new_session(window, cx)));
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatEvent::NewSession)));
             let search = div()
                 .h(px(42.))
                 .px(px(14.))
@@ -226,7 +227,7 @@ impl Desktop {
                 .border_b(px(0.5))
                 .border_color(SEPARATOR)
                 .child(icon("search", 14., TEXT_3))
-                .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.chat.search).appearance(false).p_0().text_size(px(13.))));
+                .child(div().flex_1().text_size(px(13.)).child(Input::new(&self.search).appearance(false).p_0().text_size(px(13.))));
             let keys = div()
                 .h(px(32.))
                 .px(px(14.))
@@ -251,25 +252,17 @@ impl Desktop {
                         .flex()
                         .flex_col()
                         .occlude()
-                        .capture_key_down(cx.listener(Self::on_chat_menu_key))
+                        .capture_key_down(cx.listener(Self::on_menu_key))
                         // ⌘1–9 jump to a tab elsewhere; here they pick the nth row.
                         .on_action(cx.listener(|this, a: &JumpToTab, window, cx| {
-                            let choices = this.chat_choices();
-                            let rows = this.chat_rows(&choices, cx);
-                            if let Some(c) = jump_target(&rows, a.0) {
-                                this.pick_chat_target(c.id.clone(), window, cx);
+                            if let Some(id) = jump_target(&this.rows(cx), a.0).map(|c| c.id.clone()) {
+                                this.pick_target(id, window, cx);
                             }
                         }))
-                        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                            this.chat.menu = false;
+                        .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.menu = false;
                             cx.notify();
-                            // The press then focuses what it lands on; take focus back unless that's something else, like a terminal.
-                            cx.defer_in(window, |this, window, cx| {
-                                let stayed = this.root.is_focused(window) || this.chat.search.focus_handle(cx).is_focused(window);
-                                if stayed && this.chat_quote(cx).is_some() {
-                                    this.chat.input.update(cx, |s, cx| s.focus(window, cx));
-                                }
-                            });
+                            cx.emit(ChatEvent::MenuDismissed);
                         }))
                         .child(search)
                         .child(
@@ -277,7 +270,7 @@ impl Desktop {
                                 .id("chat-menu-list")
                                 .max_h(px(260.))
                                 .overflow_y_scroll()
-                                .track_scroll(&self.chat.scroll)
+                                .track_scroll(&self.scroll)
                                 .p(px(5.))
                                 .flex()
                                 .flex_col()

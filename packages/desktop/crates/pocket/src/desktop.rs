@@ -97,7 +97,7 @@ pub struct Desktop {
     pub(crate) workspaces: HashMap<String, Workspace>,
     pub(crate) repos: HashMap<String, Arc<Repo>>,
     pub(crate) diff: DiffState,
-    pub(crate) chat: ChatComposer,
+    pub(crate) chat: Entity<ChatComposer>,
     pub(crate) chats: ChatState,
     pub(crate) changes: Entity<Changes>,
     pub(crate) prs: PullRequests,
@@ -161,7 +161,8 @@ impl Desktop {
         let (settings, settings_subs) = SettingsState::new(&store, window, cx);
         let (fleet, fleet_subs) = Fleet::new(window, cx);
         let (chips, chips_subs) = Chips::new(window, cx);
-        let (chat, chat_subs) = ChatComposer::new(window, cx);
+        let chat = cx.new(|cx| ChatComposer::new(window, cx));
+        let chat_subs = [cx.subscribe_in(&chat, window, Self::on_chat_event), cx.observe(&chat, |_, _, cx| cx.notify())];
         let (chats, chats_subs) = ChatState::new(window, cx);
         let regions = Regions::new(cx);
         let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));

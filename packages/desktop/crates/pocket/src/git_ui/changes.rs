@@ -536,7 +536,7 @@ impl Desktop {
         let shown = self.diff.view(self.focused_pane(), cx).and_then(|v| Some((v.file.clone()?, v.at.clone())));
         let pr = cwd.as_deref().and_then(|tree| {
             let pr = self.prs.get(tree)?;
-            Some((pr.clone(), self.pr_verdict(tree, pr).0))
+            Some((pr.clone(), self.pr_verdict(tree, pr, cx).0))
         });
         let offer = cwd.as_deref().zip(repo.as_deref()).and_then(|(tree, r)| self.prs.item(tree, &r.branch, r.base.as_deref())).map(Offer::of);
         let branch_was = cwd

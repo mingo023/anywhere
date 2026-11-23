@@ -862,7 +862,7 @@ impl Desktop {
         });
         let fix_to = links_pr.is_some_and(|m| m.text.contains("/pull/")).then(|| pr_link::FixTo {
             tree: self.cwd(),
-            agent: self.fix_agent(),
+            agent: self.fix_agent(cx),
             can_send: !self.agents.observe_only(),
         });
         let desktop = cx.weak_entity();

@@ -4,7 +4,7 @@ use theme::*;
 
 impl Desktop {
     pub(crate) fn added_toast(&self, cx: &App) -> Option<impl IntoElement> {
-        let (provider, _) = self.chat.added.as_ref()?;
+        let provider = self.chat.read(cx).added()?;
         let toast = self
             .float(ui::pop(div()), 16., cx)
             .h(px(32.))

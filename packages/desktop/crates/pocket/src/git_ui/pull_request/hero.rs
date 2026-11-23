@@ -76,7 +76,7 @@ fn reviewer(face: Div, verdict: Review) -> Div {
 impl Desktop {
     /// The PR at a glance: its title, where it stands and the next step, its branches, people and labels, and what the agent is doing for it.
     pub(crate) fn pr_hero(&self, tree: &str, pr: &Pr, repo: &Repo, cx: &mut Context<Self>) -> Div {
-        let (fg, said) = self.pr_verdict(tree, pr);
+        let (fg, said) = self.pr_verdict(tree, pr, cx);
         let num = format!("#{}", pr.number);
         let title = StyledText::new(format!("{} {num}", pr.title)).with_highlights([(
             pr.title.len() + 1..pr.title.len() + 1 + num.len(),
@@ -165,7 +165,7 @@ impl Desktop {
         if pr.state != PrState::Open {
             return None;
         }
-        let agent = self.fix_agent();
+        let agent = self.fix_agent(cx);
         let fixing = self.pr.track.fixing(tree, pr);
         let can_send = !self.agents.observe_only() && fixing.is_none();
         let busy = card_busy(self.pr.busy.as_ref(), self.pr.composing.as_deref(), tree);
@@ -315,7 +315,7 @@ impl Desktop {
             );
         }
         let fixing = self.pr.track.fixing(tree, pr)?;
-        let agent = self.fix_agent();
+        let agent = self.fix_agent(cx);
         let title = if fixing.items() > 0 { fixing_text(agent, fixing.items()) } else { resolving_text(agent) };
         Some(banner(spinner("pr-banner", 13., WAITING).into_any_element(), WAITING_BG, title, "The checks run again once it pushes".into()))
     }

@@ -99,16 +99,16 @@ fn comment_text(t: &Thread, c: &Comment) -> impl IntoElement {
 
 impl Desktop {
     /// Threads of `pr` can go to the agent when sessions aren't only watched and it isn't fixing this PR already.
-    pub(super) fn shown<'a>(&self, tree: &'a str, pr: &'a Pr) -> Shown<'a> {
+    pub(super) fn shown<'a>(&self, tree: &'a str, pr: &'a Pr, cx: &App) -> Shown<'a> {
         let can_send = !self.agents.observe_only() && self.pr.track.fixing(tree, pr).is_none();
-        Shown { tree, pr, agent: self.fix_agent(), can_send }
+        Shown { tree, pr, agent: self.fix_agent(cx), can_send }
     }
 
     /// Thread `id` of the PR on screen, as a card under its line in the PR diff.
     pub(crate) fn pinned_thread(&self, k: usize, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (tree, pr) = self.shown_pr()?;
         let t = pr.threads.iter().find(|t| t.id == id)?;
-        Some(self.pr_thread(k, &self.shown(&tree, pr), t, cx))
+        Some(self.pr_thread(k, &self.shown(&tree, pr, cx), t, cx))
     }
 
     /// A thread on its own card under its line in the diff. A long one folds its middle replies.

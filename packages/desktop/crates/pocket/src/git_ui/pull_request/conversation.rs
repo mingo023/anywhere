@@ -130,7 +130,7 @@ impl Desktop {
         });
         let all = self.pr.track.all;
         let unresolved = pr.unresolved().count();
-        let shown = self.shown(tree, pr);
+        let shown = self.shown(tree, pr, cx);
         let fixing = self.pr.track.fixing(tree, pr);
         let (_, open_threads) = to_fix(pr, fixing.as_ref());
         let bulk = (shown.can_send && open_threads.len() > 1).then(|| {
