@@ -106,6 +106,15 @@ impl Accounts {
         session_label(self.list(&host), provider, account)
     }
 
+    /// The account an agent's composer shows, and whether it can switch to another; none until it has usage to show or another to switch to.
+    pub(crate) fn chip(&self, host: &Host, provider: &str, account: &str) -> Option<(&Account, bool)> {
+        let list = self.list(host);
+        let a = in_use(list, provider, account)?;
+        // A pocketd that names no switching at a limit is too old to switch by hand either.
+        let switch = shared(list, provider) && self.auto_switch.contains_key(host);
+        (switch || a.usage.is_some()).then_some((a, switch))
+    }
+
     /// Drops a create's account unless its machine lists it: an older pocketd refuses keys it doesn't know.
     pub(crate) fn offer(&self, spec: &mut Value) {
         let host = host_of(spec["project"].as_str());
@@ -738,6 +747,23 @@ mod tests {
         let unused = Account { signed_in: false, email: String::new(), ..account("claude", BUILT_IN) };
         let list = [unused, account("claude", "work")];
         assert!(!shared(&list, "claude"));
+    }
+
+    #[test]
+    fn a_lone_account_shows_its_usage_but_offers_no_switch() {
+        let mut accounts = Accounts::default();
+        let read = Account { usage: Some(Usage { session: window(12., NOW), ..Default::default() }), ..account("claude", BUILT_IN) };
+        accounts.lists.insert(None, vec![read.clone()]);
+        accounts.auto_switch.insert(None, true);
+        assert_eq!(accounts.chip(&None, "claude", "").map(|(a, switch)| (a.id.as_str(), switch)), Some((BUILT_IN, false)));
+        accounts.lists.insert(None, vec![account("claude", BUILT_IN)]);
+        assert!(accounts.chip(&None, "claude", "").is_none());
+        accounts.lists.insert(None, vec![account("claude", BUILT_IN), account("claude", "work")]);
+        assert_eq!(accounts.chip(&None, "claude", "work").map(|(_, switch)| switch), Some(true));
+        accounts.auto_switch.clear();
+        assert!(accounts.chip(&None, "claude", "work").is_none());
+        accounts.lists.insert(None, vec![read, account("claude", "work")]);
+        assert_eq!(accounts.chip(&None, "claude", "").map(|(_, switch)| switch), Some(false));
     }
 
     #[test]

@@ -35,18 +35,13 @@ fn slide(id: &'static str, from: f32, page: Div) -> AnyElement {
 }
 
 impl Desktop {
-    /// The chat agent's account with its fuller limit, opening its usage and the accounts it can switch to; only while its agent has others on its machine.
+    /// The chat agent's account with its fuller limit, opening its usage and, while its machine has others, the accounts it can switch to.
     pub(super) fn chat_account_chip(&self, agent: &Summary, cx: &mut Context<Self>) -> Option<Div> {
         if !agent.chat_only {
             return None;
         }
         let host: Host = hosts::session::untag(&agent.id).0.map(str::to_string);
-        let list = self.accounts.list(&host);
-        // A pocketd that names no switching at a limit is too old to switch by hand either.
-        if !accounts::shared(list, &agent.provider) || !self.accounts.auto_switch.contains_key(&host) {
-            return None;
-        }
-        let a = accounts::in_use(list, &agent.provider, agent.shown_account())?;
+        let (a, switch) = self.accounts.chip(&host, &agent.provider, agent.shown_account())?;
         let meter = accounts::peak(a).map(|p| {
             let pct = div().text_color(ink(accounts::tone(p))).font_weight(FontWeight::MEDIUM).child(format!("{p}%"));
             div().flex().items_center().gap(px(5.)).child(bar(p, 22., 4.)).child(pct)
@@ -73,15 +68,15 @@ impl Desktop {
                 cx.notify();
             }),
         );
-        let menu = open.then(|| self.chat_account_menu(agent, &host, a, cx));
+        let menu = open.then(|| self.chat_account_menu(agent, &host, a, switch, cx));
         Some(div().relative().flex_none().child(chip).children(menu))
     }
 
-    fn chat_account_menu(&self, agent: &Summary, host: &Host, a: &Account, cx: &mut Context<Self>) -> Div {
+    fn chat_account_menu(&self, agent: &Summary, host: &Host, a: &Account, switch: bool, cx: &mut Context<Self>) -> Div {
         let page = match self.chats.composer.draft.menu {
-            Some(Menu::Switch) => slide("chat-account-switch-in", SLIDE, self.chat_account_switch(agent, host, a, cx)),
-            Some(Menu::Usage { back: true }) => slide("chat-account-usage-back", -SLIDE, self.chat_account_usage(agent, host, a, cx)),
-            _ => self.chat_account_usage(agent, host, a, cx).into_any_element(),
+            Some(Menu::Switch) if switch => slide("chat-account-switch-in", SLIDE, self.chat_account_switch(agent, host, a, cx)),
+            Some(Menu::Usage { back: true }) => slide("chat-account-usage-back", -SLIDE, self.chat_account_usage(agent, host, a, switch, cx)),
+            _ => self.chat_account_usage(agent, host, a, switch, cx).into_any_element(),
         };
         let pop = ui::pop(div().id("chat-account-menu")).w(px(WIDTH)).overflow_hidden().occlude().child(page).on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
             this.chats.composer.draft.menu = None;
