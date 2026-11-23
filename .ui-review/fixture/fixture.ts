@@ -4,6 +4,7 @@
 // prompting it "/fixture <name>" plays chat/<name>.json, perf-<items> (perf-1200, perf-5000), the "permission"/"question" ask,
 // "exit" (the agent closes), "clear" (a new conversation, as after /clear), "restart" (pocketd restarts mid-turn), "stream-code" (a reply whose code block streams in over 4.5s)
 // or "delegate" (the agent hands three sessions to others: they appear under it, one asks "Which test runner?", one finishes, one fails, and pocketd tells the chat of each).
+// FIXTURE_CHILD_ASK=1: the session that asks also asks to run a long Bash command, so its chat shows the permission card.
 // FIXTURE_DELEGATE_WAKE=1: each delivery wakes the agent into a short reply, as pocketd does, and the session that asked finishes last, waking it to sum all three up.
 // A prompt sent with the queue mode while the agent works waits in pocketd's queue (queue.list, queue.update, edit, cancel, reorder, send_now) and runs once the turn ends; a Stop holds it.
 // FIXTURE_NO_ORCHESTRATOR=1 leaves out the orchestrator capability, as an older pocketd does: the desktop then holds sends to a busy agent itself.
@@ -1008,6 +1009,10 @@ const delegate = (ws: Ws, parentId: string) => {
   }
   at(1300, () => {
     setTask(ws, list[0], { question: "Which test runner?" });
+    if (process.env.FIXTURE_CHILD_ASK) {
+      const command = "cd /tmp/wt/delegate-write-the-tests && pnpm vitest run src/auth/redirect.test.ts --reporter=verbose --coverage --coverage.include='src/auth/**' --testNamePattern='redirects to next only when it stays on this origin'";
+      ws.send(JSON.stringify({ type: "permission.request", request: { requestId: `permission-${list[0].childId}`, agentId: list[0].childId, toolName: "Bash", detail: { kind: "shell", command, description: "Run the redirect tests" }, feedback: true } }));
+    }
     deliver(ws, list[0], "asks");
   });
   at(1700, () => {
