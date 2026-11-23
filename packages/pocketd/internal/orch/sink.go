@@ -199,10 +199,10 @@ func (k *Sink) putSummary(tx *Tx, s proto.AgentSummary) (*TurnChange, error) {
 	}
 	if seen && s.Resets > before.Resets {
 		// The conversation was cleared: what it held is gone for clients, so it goes here too.
-		if _, err := tx.Exec(`DELETE FROM items WHERE session_id = ?`, s.ID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM items_fts WHERE rowid IN (SELECT rowid FROM items WHERE session_id = ?)`, s.ID); err != nil {
 			return nil, err
 		}
-		if _, err := tx.Exec(`DELETE FROM items_fts WHERE session_id = ?`, s.ID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM items WHERE session_id = ?`, s.ID); err != nil {
 			return nil, err
 		}
 	}
@@ -279,9 +279,12 @@ func putItem(tx *Tx, session string, epoch int64, it proto.Item) error {
 		return err
 	}
 	text := itemText(it)
-	_, err = tx.Exec(`INSERT INTO items (session_id, item_id, seq, epoch, kind, parent_tool, text, body, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (session_id, item_id) DO UPDATE SET seq = excluded.seq, epoch = excluded.epoch, kind = excluded.kind, text = excluded.text, body = excluded.body, ts = excluded.ts`,
-		session, it.ID, it.Seq, epoch, it.Kind, it.ParentToolUseID, text, body, it.Ts)
+	// Its search row shares its rowid, which only an update in place keeps; a VACUUM could renumber it.
+	var row int64
+	err = tx.QueryRow(`INSERT INTO items (session_id, item_id, seq, epoch, kind, parent_tool, text, body, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (session_id, item_id) DO UPDATE SET seq = excluded.seq, epoch = excluded.epoch, kind = excluded.kind, text = excluded.text, body = excluded.body, ts = excluded.ts
+		RETURNING rowid`,
+		session, it.ID, it.Seq, epoch, it.Kind, it.ParentToolUseID, text, body, it.Ts).Scan(&row)
 	if err != nil {
 		return err
 	}
@@ -291,10 +294,10 @@ func putItem(tx *Tx, session string, epoch int64, it proto.Item) error {
 	if it.ParentToolUseID != "" || text == "" {
 		return nil
 	}
-	if _, err := tx.Exec(`DELETE FROM items_fts WHERE session_id = ? AND item_id = ?`, session, it.ID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM items_fts WHERE rowid = ?`, row); err != nil {
 		return err
 	}
-	_, err = tx.Exec(`INSERT INTO items_fts (session_id, item_id, text) VALUES (?, ?, ?)`, session, it.ID, text)
+	_, err = tx.Exec(`INSERT INTO items_fts (rowid, session_id, item_id, text) VALUES (?, ?, ?, ?)`, row, session, it.ID, text)
 	return err
 }
 

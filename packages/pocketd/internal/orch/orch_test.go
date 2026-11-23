@@ -241,6 +241,8 @@ func TestAClearedConversationDropsItsItems(t *testing.T) {
 	s := openTest(t)
 	k := NewSink(s)
 	k.Summary(proto.AgentSummary{ID: "a", Status: "idle"})
+	// Two, so the next item can't take the one rowid a clear frees.
+	k.Item("a", 1, proto.Item{ID: "i0", Seq: 0, Kind: "user", Text: "old"})
 	k.Item("a", 1, proto.Item{ID: "i1", Seq: 1, Kind: "user", Text: "old"})
 	k.Summary(proto.AgentSummary{ID: "a", Status: "idle", Resets: 1})
 	k.Item("a", 2, proto.Item{ID: "i2", Seq: 2, Kind: "user", Text: "new"})
@@ -248,6 +250,9 @@ func TestAClearedConversationDropsItsItems(t *testing.T) {
 	items, _ := s.Items("a")
 	if len(items) != 1 || items[0].Text != "new" {
 		t.Fatalf("items after a clear = %+v", items)
+	}
+	if n := countRows(s, `SELECT COUNT(*) FROM items_fts WHERE items_fts MATCH 'old'`); n != 0 {
+		t.Fatalf("a cleared item is still found %d times", n)
 	}
 }
 
