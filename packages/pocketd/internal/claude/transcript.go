@@ -646,8 +646,9 @@ func userEvents(content json.RawMessage) []timeline.Event {
 	case strings.HasPrefix(text, "[Request interrupted by user"):
 		return append(events, timeline.Event{Kind: "result", OK: false, Error: "interrupted"})
 	// A /clear opens the conversation it starts, which has nothing of the one before to answer. Claude writes a
-	// /compact after the compaction it ran, and nothing answers it either.
-	case strings.HasPrefix(text, "<command-") && name != "" && name != "/clear" && name != "/compact":
+	// /compact after the compaction it ran, and nothing answers it either. A /model or /effort is the chat's own
+	// switch, which Claude writes with its next prompt, its output as a user line that ends no turn.
+	case strings.HasPrefix(text, "<command-") && name != "" && !slices.Contains([]string{"/clear", "/compact", "/model", "/effort"}, name):
 		return append(events, timeline.Event{Kind: "user", Text: strings.TrimSpace(name + " " + tag(text, "command-args"))})
 	case strings.HasPrefix(text, "<command-"), strings.HasPrefix(text, "<local-command-"), Command(text), text == "":
 		return events
