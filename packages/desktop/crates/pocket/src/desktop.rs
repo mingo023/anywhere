@@ -566,7 +566,7 @@ impl Desktop {
             || self.accounts.menu.is_some()
             || self.clone_form.read(cx).machine_menu
             || self.chats.files.is_some()
-            || self.chats.select.menu_open()
+            || self.chats.select.read(cx).menu_open()
             || self.open_in.read(cx).menu.is_some()
             || self.activity.read(cx).menu.is_some()
     }
@@ -590,7 +590,7 @@ impl Desktop {
         self.explorer.update(cx, |e, _| _ = e.close_menu());
         self.terminal.menu = None;
         self.chats.files = None;
-        self.chats.select.close_menu();
+        self.chats.select.update(cx, |s, _| s.close_menu());
         self.open_in.update(cx, |o, _| o.menu = None);
         open
     }

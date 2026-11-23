@@ -95,7 +95,7 @@ pub(crate) struct ChatState {
     transcripts: HashMap<String, (String, Entity<Region>)>,
     pub(crate) composer: composer::ComposerState,
     pub(crate) files: Option<locate::Choice>,
-    pub(crate) select: selection::Select,
+    pub(crate) select: Entity<selection::Select>,
     /// The error toast that tells of a closed chat's unsent text, and that text, which the toast copies.
     pub(crate) unsent: Option<(String, String)>,
     /// The chats whose attachments are being copied to their host; each sends nothing until its copy is done.
@@ -113,7 +113,10 @@ pub(crate) struct ChatState {
 impl ChatState {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
         let input = composer::input(window, cx);
-        let (composer, subs) = composer::ComposerState::new(&input, window, cx);
+        let (composer, mut subs) = composer::ComposerState::new(&input, window, cx);
+        let select = cx.new(|_| selection::Select::default());
+        subs.push(cx.subscribe_in(&select, window, |this, _, ev: &selection::SelectEvent, window, cx| this.on_select_event(ev, window, cx)));
+        subs.push(cx.observe(&select, |_, _, cx| cx.notify()));
         let diagrams = cx.new(|_| Diagrams::standalone(MD_CODE_BG));
         (
             Self {
@@ -124,7 +127,7 @@ impl ChatState {
                 transcripts: HashMap::new(),
                 composer,
                 files: None,
-                select: Default::default(),
+                select,
                 unsent: None,
                 copying: HashSet::new(),
                 copied: HashMap::new(),
