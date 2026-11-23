@@ -82,7 +82,7 @@ impl Desktop {
         let cards = self.cards(path);
         let (selected, state) = (current == Some(path), rolled_state(&cards));
         let mark = ui::indicator(id(format!("aside-spin:{path}")), state);
-        let label = with_sub(done_name(row_name(&self.renames, path, thread_title(&cards), state, selected, cx.reduce_motion()), state), Some(tilde(path)), false);
+        let label = with_sub(done_name(row_name(&self.renames, path, thread_title(&cards), state, selected, cx.reduce_motion()), state), Some(short_folder(&tilde(path))), false);
         let key = path.to_string();
         ui::worktree_row(id(format!("aside-tree:{path}")), "terminal", label, selected, mark)
             .pl(px(6.))
@@ -205,13 +205,21 @@ fn dispose_scratch(key: &str, trash: bool) {
     }
 }
 
+/// `~/Downloads` stays whole; a deeper folder keeps only its own name, so the title beside it isn't squeezed out.
+fn short_folder(path: &str) -> String {
+    match path.rsplit_once('/') {
+        Some((parent, name)) if !matches!(parent, "~" | "") => format!("…/{name}"),
+        _ => path.to_string(),
+    }
+}
+
 fn thread_title(cards: &[Card]) -> String {
     cards.iter().max_by_key(|c| c.at).map(|c| c.title.clone()).filter(|t| !t.is_empty()).unwrap_or_else(|| "Terminal".into())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::thread_title;
+    use super::{short_folder, thread_title};
     use crate::status::Card;
 
     fn card(title: &str, at: i64) -> Card {
@@ -223,5 +231,13 @@ mod tests {
         assert_eq!(thread_title(&[card("Old", 1), card("Fix login redirect", 9)]), "Fix login redirect");
         assert_eq!(thread_title(&[card("", 9)]), "Terminal");
         assert_eq!(thread_title(&[]), "Terminal");
+    }
+
+    #[test]
+    fn a_thread_shows_a_folder_under_home_whole_and_a_deeper_one_by_its_name() {
+        assert_eq!(short_folder("~/Downloads"), "~/Downloads");
+        assert_eq!(short_folder("~/code/clients/acme/api"), "…/api");
+        assert_eq!(short_folder("/tmp/x"), "…/x");
+        assert_eq!(short_folder("/opt"), "/opt");
     }
 }
