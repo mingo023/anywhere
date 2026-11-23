@@ -1,18 +1,18 @@
-use crate::desktop::Desktop;
-use crate::git_ui::compare::{Choice, switch_label};
+use super::Changes;
+use super::compare::{Choice, switch_label};
 use crate::modals::new_session::picker::{menu_input, pick_head};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use store::scope::Scope;
 use theme::*;
 
-impl Desktop {
+impl Changes {
     /// The switch between Uncommitted and a Compare, with a Compare's line totals.
     pub(super) fn scope_bar(&self, scope: &Scope, against: Option<&str>, cx: &mut Context<Self>) -> Div {
-        let cwd = self.cwd().unwrap_or_default();
-        let read = against.and_then(|a| self.compare.view.get(&cwd, a)).and_then(|s| s.files.as_ref());
+        let cwd = self.inputs.cwd.clone().unwrap_or_default();
+        let read = against.and_then(|a| self.view.get(&cwd, a)).and_then(|s| s.files.as_ref());
         let label = switch_label(scope, against);
-        let open = self.compare.menu;
+        let open = self.compare_menu;
         let switch = ui::popover_trigger(
             div()
                 .id("changes-scope")
@@ -77,7 +77,7 @@ impl Desktop {
         }
         let uncommitted = ui::menu_pick("compare-uncommitted", icon("list-flat", 13., TEXT_3), "Uncommitted", !scope.compare).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
-                this.compare.menu = false;
+                this.compare_menu = false;
                 this.change_scope(|s| s.compare = false, cx);
             },
         ));
@@ -88,11 +88,11 @@ impl Desktop {
             .overflow_hidden()
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.compare.menu = false;
+                this.compare_menu = false;
                 cx.notify();
             }))
             .child(div().p(px(5.)).child(uncommitted))
-            .child(menu_input("search", &self.compare.search))
+            .child(menu_input("search", &self.search))
             .child(div().id("compare-refs").max_h(px(280.)).overflow_y_scroll().p(px(5.)).flex().flex_col().children(rows))
     }
 }

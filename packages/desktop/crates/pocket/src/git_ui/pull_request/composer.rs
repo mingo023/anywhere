@@ -74,7 +74,7 @@ impl Desktop {
                         cx.notify();
                     }))
             }));
-        let create = split_button(
+        let create = split_button::<Desktop>(
             "pr-create",
             lead,
             label,

@@ -264,7 +264,7 @@ impl Desktop {
             }))
             .children(methods)
             .children(after);
-        split_button(
+        split_button::<Desktop>(
             "merge",
             lead,
             "Merge",

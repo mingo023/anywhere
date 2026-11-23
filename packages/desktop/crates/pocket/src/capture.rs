@@ -456,12 +456,17 @@ const STEPS: [(&str, Step); 303] = [
             d.refresh_git(cx);
         }
     }),
-    ("compare", |d, _, cx| d.change_scope(|s| s.compare = true, cx)),
-    ("compare-menu", |d, window, cx| d.toggle_compare_menu(window, cx)),
+    ("compare", |d, _, cx| {
+        d.sync_changes(cx);
+        d.changes.update(cx, |c, cx| c.change_scope(|s| s.compare = true, cx));
+    }),
+    ("compare-menu", |d, window, cx| {
+        d.sync_changes(cx);
+        d.changes.update(cx, |c, cx| c.toggle_compare_menu(window, cx));
+    }),
     ("compare-file", |d, _, cx| {
-        let first = d.compare.view.shown.as_ref().and_then(|s| s.files.as_ref()?.first()).map(|f| f.path.clone());
-        if let Some(path) = first {
-            d.open_compare_file(path, false, cx);
+        if let Some(path) = d.changes.read(cx).compared_first() {
+            d.changes.update(cx, |c, cx| c.open_compare_file(path, false, cx));
         }
     }),
     ("graph-expand", |d, _, cx| d.graph.update(cx, |g, cx| g.toggle_commit(0, cx))),

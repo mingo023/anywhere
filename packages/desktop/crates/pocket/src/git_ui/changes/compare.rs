@@ -1,7 +1,7 @@
+use super::{Changes, ChangesEvent};
 use crate::desktop::Desktop;
 use crate::modals::new_session::listed_branches;
 use git::FileStat;
-use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use store::scope::{Against, Scope};
 use workspace::Doc;
@@ -126,37 +126,12 @@ impl CompareView {
     }
 }
 
-pub struct CompareState {
-    pub(crate) view: CompareView,
-    pub(crate) menu: bool,
-    pub(crate) search: Entity<InputState>,
-    /// The local branches, with their last commit's time, and origin's, of the worktree the menu last opened in.
-    pub(crate) branches: Vec<(String, Option<i64>)>,
-    pub(crate) remote: Vec<String>,
-}
-
-impl CompareState {
-    pub fn new(window: &mut Window, cx: &mut Context<Desktop>) -> (Self, Vec<Subscription>) {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches…"));
-        let subs = vec![cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, _, cx| match ev {
-            InputEvent::PressEnter { .. } => {
-                if let Some(choice) = this.compare_choices(cx).into_iter().next() {
-                    this.pick_compare(choice, cx);
-                }
-            }
-            InputEvent::Change => cx.notify(),
-            _ => {}
-        })];
-        (Self { view: CompareView::default(), menu: false, search, branches: Vec::new(), remote: Vec::new() }, subs)
-    }
-}
-
 impl Desktop {
     pub(crate) fn scope(&self, cwd: &str) -> Scope {
         self.store.scopes.get(cwd).cloned().unwrap_or_default()
     }
 
-    fn set_scope(&mut self, cwd: String, scope: Scope, cx: &mut Context<Self>) {
+    pub(super) fn set_scope(&mut self, cwd: String, scope: Scope, cx: &mut Context<Self>) {
         if scope == Scope::default() {
             self.store.scopes.remove(&cwd);
         } else {
@@ -164,36 +139,40 @@ impl Desktop {
         }
         self.save_soon(cx);
     }
+}
 
-    /// The branch `cwd`'s Compare is against; `None` in Uncommitted, or against a base it doesn't have.
-    pub(crate) fn compare_branch(&self, cwd: &str) -> Option<String> {
-        let scope = self.scope(cwd);
-        scope.compare.then(|| branch_named(&scope.against, self.repos.get(cwd).and_then(|r| r.base.as_deref()))).flatten()
+impl Changes {
+    /// The branch the shown worktree's Compare is against; `None` in Uncommitted, or against a base it doesn't have.
+    pub(super) fn compare_branch(&self) -> Option<String> {
+        let scope = &self.inputs.scope;
+        let base = self.inputs.repo.as_ref().and_then(|r| r.base.as_deref());
+        scope.compare.then(|| branch_named(&scope.against, base)).flatten()
     }
 
     /// Reads the shown worktree's Compare off the UI thread.
     pub(crate) fn load_compare(&mut self, cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
-        let Some(against) = self.compare_branch(&cwd) else { return };
-        self.compare.view.pending = Some((cwd.clone(), against.clone()));
+        let Some(cwd) = self.inputs.cwd.clone() else { return };
+        let Some(against) = self.compare_branch() else { return };
+        self.view.pending = Some((cwd.clone(), against.clone()));
         let task = cx.background_executor().spawn({
             let (cwd, against) = (cwd.clone(), against.clone());
             async move { git::compare::read(&hosts::runner_for(&cwd), &cwd, &against) }
         });
         cx.spawn(async move |this, cx| {
             let read = task.await;
-            this.update(cx, |d, cx| {
-                if d.cwd().as_ref() != Some(&cwd) || d.compare_branch(&cwd).as_ref() != Some(&against) {
+            this.update(cx, |c, cx| {
+                if c.inputs.cwd.as_ref() != Some(&cwd) || c.compare_branch().as_ref() != Some(&against) {
                     return;
                 }
-                let mut scope = d.scope(&cwd);
-                match d.compare.view.land(&cwd, against, read, &mut scope) {
+                let mut scope = c.inputs.scope.clone();
+                match c.view.land(&cwd, against, read, &mut scope) {
                     Landed::Same => {}
                     Landed::Changed => cx.notify(),
                     Landed::Again => {
-                        d.set_scope(cwd, scope, cx);
+                        c.inputs.scope = scope.clone();
+                        cx.emit(ChangesEvent::Scope(cwd, scope));
                         cx.notify();
-                        d.load_compare(cx);
+                        c.load_compare(cx);
                     }
                 }
             })
@@ -204,17 +183,18 @@ impl Desktop {
 
     /// Changes the shown worktree's scope and reads its Compare again.
     pub(crate) fn change_scope(&mut self, change: impl FnOnce(&mut Scope), cx: &mut Context<Self>) {
-        let Some(cwd) = self.cwd() else { return };
-        let mut scope = self.scope(&cwd);
+        let Some(cwd) = self.inputs.cwd.clone() else { return };
+        let mut scope = self.inputs.scope.clone();
         change(&mut scope);
-        self.compare.view.forget_notice(&cwd);
-        self.set_scope(cwd, scope, cx);
+        self.view.forget_notice(&cwd);
+        self.inputs.scope = scope.clone();
+        cx.emit(ChangesEvent::Scope(cwd, scope));
         self.load_compare(cx);
         cx.notify();
     }
 
-    pub(crate) fn pick_compare(&mut self, choice: Choice, cx: &mut Context<Self>) {
-        self.compare.menu = false;
+    pub(super) fn pick_compare(&mut self, choice: Choice, cx: &mut Context<Self>) {
+        self.compare_menu = false;
         self.change_scope(
             |s| {
                 s.compare = true;
@@ -226,11 +206,11 @@ impl Desktop {
 
     /// Opens the branch menu emptied and focused, listing the worktree's branches once git has read them.
     pub(crate) fn toggle_compare_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.compare.menu = !self.compare.menu;
-        (self.changes.menu, self.changes.commit_menu) = (false, false);
+        self.compare_menu = !self.compare_menu;
+        (self.menu, self.commit_menu) = (false, false);
         cx.notify();
-        let Some(cwd) = self.cwd().filter(|_| self.compare.menu) else { return };
-        self.compare.search.update(cx, |s, cx| {
+        let Some(cwd) = self.inputs.cwd.clone().filter(|_| self.compare_menu) else { return };
+        self.search.update(cx, |s, cx| {
             s.set_value("", window, cx);
             s.focus(window, cx);
         });
@@ -243,9 +223,9 @@ impl Desktop {
         });
         cx.spawn(async move |this, cx| {
             let (branches, remote) = task.await;
-            this.update(cx, |d, cx| {
-                if d.cwd().as_ref() == Some(&cwd) {
-                    (d.compare.branches, d.compare.remote) = (branches, remote);
+            this.update(cx, |c, cx| {
+                if c.inputs.cwd.as_ref() == Some(&cwd) {
+                    (c.branches, c.remote) = (branches, remote);
                     cx.notify();
                 }
             })
@@ -255,15 +235,20 @@ impl Desktop {
     }
 
     /// The branches the menu offers for what its search holds.
-    pub(crate) fn compare_choices(&self, cx: &App) -> Vec<Choice> {
-        let Some(repo) = self.repo() else { return Vec::new() };
-        choices(repo.base.as_deref(), &repo.branch, &self.compare.branches, &self.compare.remote, &self.compare.search.read(cx).value())
+    pub(super) fn compare_choices(&self, cx: &App) -> Vec<Choice> {
+        let Some(repo) = self.inputs.repo.as_deref() else { return Vec::new() };
+        choices(repo.base.as_deref(), &repo.branch, &self.branches, &self.remote, &self.search.read(cx).value())
     }
 
     /// Opens `path` as the Compare on screen shows it.
     pub(crate) fn open_compare_file(&mut self, path: String, pin: bool, cx: &mut Context<Self>) {
-        let Some(against) = self.compare.view.against().map(str::to_string) else { return };
-        self.open_doc(Doc::CompareFile { against, path }, pin, cx);
+        let Some(against) = self.view.against().map(str::to_string) else { return };
+        cx.emit(ChangesEvent::OpenDoc(Doc::CompareFile { against, path }, pin));
+    }
+
+    /// The first file of the Compare on screen.
+    pub(crate) fn compared_first(&self) -> Option<String> {
+        self.view.shown.as_ref().and_then(|s| s.files.as_ref()?.first()).map(|f| f.path.clone())
     }
 }
 

@@ -28,9 +28,8 @@ use crate::desktop::sounds::Chime;
 use crate::explorer::ExplorerState;
 use crate::explorer::preview::PreviewState;
 use crate::fleet::Fleet;
-use crate::git_ui::changes::ChangesState;
+use crate::git_ui::changes::Changes;
 use crate::git_ui::commit::Commits;
-use crate::git_ui::compare::CompareState;
 use crate::git_ui::diff::{At, DiffState};
 use crate::git_ui::gh_accounts::GhAccounts;
 use crate::git_ui::graph::Graph;
@@ -100,8 +99,7 @@ pub struct Desktop {
     pub(crate) diff: DiffState,
     pub(crate) chat: ChatComposer,
     pub(crate) chats: ChatState,
-    pub(crate) changes: ChangesState,
-    pub(crate) compare: CompareState,
+    pub(crate) changes: Entity<Changes>,
     pub(crate) prs: PullRequests,
     pub(crate) gh_accounts: GhAccounts,
     pub(crate) pr: PullRequest,
@@ -166,8 +164,8 @@ impl Desktop {
         let (chat, chat_subs) = ChatComposer::new(window, cx);
         let (chats, chats_subs) = ChatState::new(window, cx);
         let regions = Regions::new(cx);
-        let (changes, changes_subs) = ChangesState::new(window, cx);
-        let (compare, compare_subs) = CompareState::new(window, cx);
+        let changes = cx.new(|cx| Changes::new(graph.clone(), window, cx));
+        let changes_subs = cx.subscribe_in(&changes, window, Self::on_changes_event);
         let (pr, pr_subs) = PullRequest::new(window, cx);
         let new_form = cx.new(|cx| new_session::NewForm::new(window, cx));
         let new_subs = Self::watch_new_form(&new_form, window, cx);
@@ -243,8 +241,7 @@ impl Desktop {
         _subs.extend(chips_subs);
         _subs.extend(chat_subs);
         _subs.extend(chats_subs);
-        _subs.extend(changes_subs);
-        _subs.extend(compare_subs);
+        _subs.push(changes_subs);
         _subs.extend(pr_subs);
         _subs.extend(new_subs);
         _subs.extend(repo_subs);
@@ -286,7 +283,6 @@ impl Desktop {
             chats,
             regions,
             changes,
-            compare,
             prs: PullRequests::default(),
             gh_accounts: GhAccounts::default(),
             pr,
@@ -543,9 +539,7 @@ impl Desktop {
             || self.panels.actions.is_some()
             || self.panels.top_actions.is_some()
             || self.row_menu.is_some()
-            || self.changes.commit_menu
-            || self.changes.menu
-            || self.compare.menu
+            || self.changes.read(cx).menu_open()
             || self.pr.ship_menu
             || self.pr.merge_menu
             || self.pr.create_menu
@@ -567,9 +561,8 @@ impl Desktop {
     /// Returns whether a menu was open.
     pub(crate) fn close_menus(&mut self, cx: &mut App) -> bool {
         let open = self.menu_open(cx);
-        (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu, self.changes.commit_menu, self.changes.menu) =
-            (None, None, None, None, false, false);
-        self.compare.menu = false;
+        (self.panels.menu, self.panels.actions, self.panels.top_actions, self.row_menu) = (None, None, None, None);
+        self.changes.update(cx, |c, _| c.shut_menus());
         (self.pr.ship_menu, self.pr.merge_menu, self.pr.create_menu) = (false, false, false);
         self.sidebar.menu_at = None;
         self.sidebar.picker.open = false;

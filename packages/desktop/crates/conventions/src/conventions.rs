@@ -4,7 +4,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     const DRAWING_CRATES: [&str; 4] = ["pocket", "ui", "theme", "storybook"];
-    const DESKTOP_FIELD_CEILING: usize = 74;
+    const DESKTOP_FIELD_CEILING: usize = 73;
 
     fn root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

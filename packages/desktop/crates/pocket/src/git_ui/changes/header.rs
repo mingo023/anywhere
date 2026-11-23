@@ -1,5 +1,5 @@
-use crate::desktop::Desktop;
-use crate::git_ui::pull_requests::{self, PrItem};
+use super::{Changes, ChangesEvent, Offer};
+use crate::git_ui::pull_requests;
 use crate::renames;
 use git::Repo;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -7,32 +7,22 @@ use gpui_kit::*;
 use theme::*;
 use ui::icon_button_sized;
 
-impl Desktop {
+impl Changes {
     pub(super) fn changes_header(&self, repo: &Repo, cx: &mut Context<Self>) -> Div {
-        let view = icon_button_sized("changes-view", if self.store.diff.tree { "list-flat" } else { "list-tree" }, 26., TEXT_3).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.store.diff.tree = !this.store.diff.tree;
-                this.save_soon(cx);
-                cx.notify();
-            },
-        ));
-        let open = self.changes.menu;
+        let view = icon_button_sized("changes-view", if self.inputs.tree { "list-flat" } else { "list-tree" }, 26., TEXT_3)
+            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChangesEvent::ToggleTree)));
+        let open = self.menu;
         let more = ui::popover_trigger(
             icon_button_sized("changes-more", "more", 26., TEXT_3).when(open, |d| d.bg(FILL_3)),
             open,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.changes.menu = true;
-                this.changes.commit_menu = false;
+                this.menu = true;
+                this.commit_menu = false;
                 cx.notify();
             }),
         );
-        let pr = self.cwd().and_then(|tree| {
-            let pr = self.prs.get(&tree)?;
-            Some(
-                pull_requests::chip("changes-pr", pr, self.pr_verdict(&tree, pr).0)
-                    .cursor_pointer()
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.show_pr_side(cx))),
-            )
+        let pr = self.inputs.pr.as_ref().map(|(pr, color)| {
+            pull_requests::chip("changes-pr", pr, *color).cursor_pointer().on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChangesEvent::ShowPr)))
         });
         div()
             .h(px(40.))
@@ -44,8 +34,12 @@ impl Desktop {
             .gap(px(8.))
             .child(div().flex_none().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child("Changes"))
             .child(div().flex_1().min_w_0().flex().items_center().gap(px(4.)).text_color(TEXT_3).child(icon("branch", 12., TEXT_3)).child(
-                div().truncate().font_family(MONO).text_size(px(12.)).child(match self.cwd() {
-                    Some(tree) => renames::branch_label(&self.renames, "changes-branch", &tree, &repo.branch, TEXT_3, cx.reduce_motion()),
+                div().truncate().font_family(MONO).text_size(px(12.)).child(match &self.inputs.cwd {
+                    Some(tree) => {
+                        let was = self.inputs.branch_was.as_ref().map(|(from, at)| (from.as_str(), *at));
+                        renames::decoding(format!("changes-branch:{tree}:{}", repo.branch), was, &repo.branch, TEXT_3, cx.reduce_motion())
+                            .unwrap_or_else(|| repo.branch.clone().into_any_element())
+                    }
                     None => repo.branch.clone().into_any_element(),
                 }),
             ))
@@ -58,21 +52,21 @@ impl Desktop {
         let info = |text: String| div().h(px(26.)).px(px(10.)).flex().items_center().text_size(px(12.5)).text_color(TEXT_3).child(text);
         let base = repo.base.as_ref().map(|b| format!("{} → {b}", repo.branch));
         let counts = repo.base.is_some().then(|| format!("{} ahead · {} behind", repo.ahead, repo.behind));
-        let pr = self.cwd().and_then(|tree| self.prs.item(&tree, &repo.branch, repo.base.as_deref())).map(|item| match item {
-            PrItem::Open(url) => {
-                let url = url.to_string();
+        let pr = self.inputs.offer.as_ref().map(|offer| match offer {
+            Offer::Open(url) => {
+                let url = url.clone();
                 ui::menu_row("changes-open-pr", "external", "Open pull request", None)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.changes.menu = false;
-                        this.open_pr(url.clone(), window, cx);
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.menu = false;
+                        cx.emit(ChangesEvent::OpenPr(url.clone()));
                         cx.notify();
                     }))
                     .into_any_element()
             }
-            PrItem::Create => ui::menu_row("changes-create-pr", "plus", "Create pull request", None)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_pr_composer(window, cx)))
+            Offer::Create => ui::menu_row("changes-create-pr", "plus", "Create pull request", None)
+                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChangesEvent::CreatePr)))
                 .into_any_element(),
-            PrItem::Hint(text) => info(text.to_string()).into_any_element(),
+            Offer::Hint(text) => info(text.to_string()).into_any_element(),
         });
         ui::pop(div().id("changes-menu"))
             .w(px(220.))
@@ -81,7 +75,7 @@ impl Desktop {
             .flex_col()
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                this.changes.menu = false;
+                this.menu = false;
                 cx.notify();
             }))
             .child(ui::menu_row("changes-push", "arrow-up", "Push", None).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.push(cx))))
