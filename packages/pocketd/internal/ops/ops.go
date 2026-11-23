@@ -50,7 +50,8 @@ type Msg struct {
 	Login bool     `json:"login,omitempty"`
 	Argv  []string `json:"argv,omitempty"`
 	// Agent is the provider Argv runs, Cmd being a shell, so it starts on its Project's account.
-	Agent string `json:"agent,omitempty"`
+	Agent  string `json:"agent,omitempty"`
+	SignIn bool   `json:"-"`
 	// The rest are exec's and fs.*'s.
 	Stdin     []byte         `json:"stdin,omitempty"`
 	TimeoutMs int            `json:"timeoutMs,omitempty"`

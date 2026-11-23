@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"pocketd/internal/ops"
 	"pocketd/internal/registry"
+	"pocketd/internal/terminal"
 )
 
 // resumingAccounts resumes agents and lists a claude account "work", with it and the built-in login signed in.
@@ -233,5 +235,46 @@ func TestAnAgentTabTheDesktopOpensStartsOnItsProjectsAccount(t *testing.T) {
 func between(agent string) func(Message) bool {
 	return func(m Message) bool {
 		return m.Type == "agent.update" && m.Agent.ID == agent && (m.Agent.Status == "idle" || m.Agent.Status == "done")
+	}
+}
+
+func TestASignInStaysMarkedAcrossAnUpgradeAndIsGoneAfterAReboot(t *testing.T) {
+	h := Start(t, launchReady(""))
+	c := h.Ops()
+	c.Send(ops.Msg{Op: "accounts.signin", Key: "claude"})
+	r, err := c.Recv()
+	if err != nil || r.Ev != "spawned" {
+		t.Fatalf("signin: %+v %v", r, err)
+	}
+	if got := h.terminal(r.ID); got == nil || !got.SignIn {
+		t.Fatalf("listed %+v", got)
+	}
+	h.Upgrade()
+	if got := h.terminal(r.ID); got == nil || !got.SignIn {
+		t.Fatalf("after the upgrade, listed %+v", got)
+	}
+	h.Restart()
+	if got := h.terminal(r.ID); got != nil {
+		t.Fatalf("after a reboot, listed %+v", got)
+	}
+}
+
+// terminal is Terminal id as pocketd lists it, or nil.
+func (h *Harness) terminal(id string) *terminal.Info {
+	h.t.Helper()
+	c := h.Ops()
+	c.Send(ops.Msg{Op: "list"})
+	for {
+		m, err := c.Recv()
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		if m.Ev != "terminals" {
+			continue
+		}
+		if i := slices.IndexFunc(m.Items, func(info terminal.Info) bool { return info.ID == id }); i >= 0 {
+			return &m.Items[i]
+		}
+		return nil
 	}
 }

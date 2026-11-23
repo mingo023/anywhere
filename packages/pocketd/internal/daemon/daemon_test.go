@@ -279,3 +279,18 @@ func TestAFailedCaptureKeepsTheEnvThatWorked(t *testing.T) {
 		t.Fatal("a timed-out capture replaced the login env")
 	}
 }
+
+func TestASignInIsListedAsOneAndAShellIsNot(t *testing.T) {
+	d := newDaemon(t)
+	for _, signIn := range []bool{true, false} {
+		term, err := d.Spawn(ops.Msg{Cmd: "sh", Args: []string{"-c", "sleep 30"}, Env: []string{"PATH=/usr/bin:/bin"}, SignIn: signIn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer term.Close()
+		i := slices.IndexFunc(d.Terminals.List(), func(info terminal.Info) bool { return info.ID == term.Info().ID })
+		if i < 0 || d.Terminals.List()[i].SignIn != signIn {
+			t.Fatalf("signIn %v: listed %+v", signIn, d.Terminals.List())
+		}
+	}
+}

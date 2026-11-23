@@ -4,6 +4,7 @@ use crate::explorer::{self, preview};
 use crate::fs::fs_for;
 use crate::git_ui::diff;
 use crate::status::{self, Card, Status};
+use crate::terminals::sessions::Session;
 use crate::util;
 use agents::Summary;
 use agents::locals::is_local;
@@ -17,8 +18,14 @@ use ui::State;
 use store::prefs::sidebar::SessionSort;
 use workspace::Workspace;
 
-/// A terminal, the tree it is placed in if any, and whether it is a delegated session, which only its chat shows.
+/// A terminal, the tree it is placed in if any, and whether it is hidden: a delegated session's or a sign-in's.
 type Placed = (String, Option<String>, bool);
+
+fn hidden_terminals<'a>(list: &'a [Summary], sessions: &'a [Session]) -> HashSet<&'a str> {
+    let mut hidden = status::hidden_terminals(list);
+    hidden.extend(sessions.iter().filter(|s| s.info.signin).map(|s| s.info.id.as_str()));
+    hidden
+}
 
 /// The terminals `tree` holds, and those it doesn't: a delegated session is held by no tree, so it never gets a tab there.
 fn held(tree: &str, terminals: &[Placed]) -> (Vec<String>, Vec<String>) {
@@ -71,13 +78,13 @@ impl Desktop {
             return placed.projects.clone();
         }
         let placeable = self.git_done > 0 || project::all_listed(&self.store.projects, &self.worktrees, readable);
-        let hidden = status::hidden_terminals(&self.agents.list);
+        let hidden = hidden_terminals(&self.agents.list, &self.terminals.sessions.items);
         let sessions = if placeable { self.terminals.sessions.items.as_slice() } else { &[] };
         project::projects(&self.store.projects, sessions.iter().filter(|s| !hidden.contains(s.info.id.as_str())).map(|s| s.info.cwd.as_str()), &self.worktrees)
     }
 
     fn placed_terminals(&self) -> Vec<Placed> {
-        let hidden = status::hidden_terminals(&self.agents.list);
+        let hidden = hidden_terminals(&self.agents.list, &self.terminals.sessions.items);
         self.terminals.sessions.items.iter().map(|s| (s.info.id.clone(), self.place_of(&s.info), hidden.contains(s.info.id.as_str()))).collect()
     }
 
@@ -453,7 +460,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
 
 #[cfg(test)]
 mod tests {
-    use super::{HashMap, Placed, Repo, SessionSort, by_project, child_only, held, merge_repos, without_child_only};
+    use super::{HashMap, Placed, Repo, SessionSort, by_project, child_only, held, hidden_terminals, merge_repos, without_child_only};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -518,5 +525,12 @@ mod tests {
     fn a_tree_holding_only_delegated_sessions_exists_for_their_sake() {
         let terminals = [at("a", Some("/w/tests"), true), at("b", Some("/w/docs"), true), at("c", Some("/w/docs"), false), at("d", Some("/w"), false), at("e", None, true)];
         assert_eq!(child_only(&terminals).into_iter().collect::<Vec<_>>(), ["/w/tests"]);
+    }
+
+    #[test]
+    fn a_sign_in_terminal_is_hidden_but_a_shell_in_the_same_folder_is_not() {
+        let session = |id: &str, signin: bool| crate::terminals::sessions::Session { info: daemon::Info { id: id.into(), cwd: "/Users/me".into(), signin, ..Default::default() }, term: None, exit: None };
+        let sessions = [session("login", true), session("shell", false)];
+        assert_eq!(hidden_terminals(&[], &sessions).into_iter().collect::<Vec<_>>(), ["login"]);
     }
 }
