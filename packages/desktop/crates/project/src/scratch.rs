@@ -48,7 +48,7 @@ pub fn create_on(run: &Runner, root: &str, seed: usize, make: impl Fn(&str, bool
 
 /// Whether `path` is a folder directly in `root`, the only kind deleting a scratch folder may remove.
 pub fn holds(root: &str, path: &str) -> bool {
-    path.strip_prefix(root).and_then(|rest| rest.strip_prefix('/')).is_some_and(|name| !name.is_empty() && !name.contains('/') && name != "." && name != "..")
+    path.strip_prefix(root).and_then(|rest| rest.strip_prefix('/')).is_some_and(|name| !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != "..")
 }
 
 /// The folder's uncommitted files and the commits made since `create`'s own; `None` when git can't read it.
@@ -146,7 +146,8 @@ mod tests {
     fn only_a_folder_directly_in_the_root_can_be_deleted() {
         let root = "/home/me/.anywhere/sessions";
         assert!(holds(root, "/home/me/.anywhere/sessions/calm-river"));
-        for path in [root, "/home/me/.anywhere/sessions/", "/home/me/.anywhere/sessions/a/b", "/home/me/.anywhere/sessions/..", "/home/me/.anywhere/sessions-other/a", "/home/me"] {
+        let windows = [r"/home/me/.anywhere/sessions/..\..", "/home/me/.anywhere/sessions/C:"];
+        for path in [root, "/home/me/.anywhere/sessions/", "/home/me/.anywhere/sessions/a/b", "/home/me/.anywhere/sessions/..", "/home/me/.anywhere/sessions-other/a", "/home/me"].into_iter().chain(windows) {
             assert!(!holds(root, path), "{path}");
         }
     }
