@@ -10,7 +10,7 @@ pub(crate) mod send_button;
 pub(crate) mod suggest;
 mod switch_agent;
 
-use super::question::Wizard;
+use super::question::{self, Wizard};
 use crate::composer::model_menu::focus_search;
 use crate::composer::{Draft, Held, Menu};
 use crate::desktop::Desktop;
@@ -26,6 +26,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use suggest::Prompt;
 use theme::*;
 use workspace::Place;
@@ -184,6 +185,16 @@ pub(crate) enum ChatBoxEvent {
     },
     Account(account_chip::Ask),
     Model(model_pill::Model),
+    Command {
+        agent: String,
+        command: Command,
+    },
+    Link {
+        agent: String,
+        link: String,
+        cwd: String,
+        press: super::markdown::Press,
+    },
 }
 
 impl EventEmitter<ChatBoxEvent> for ComposerState {}
@@ -436,6 +447,8 @@ impl Desktop {
             ChatBoxEvent::Queue { agent, what } => self.on_queue(agent, what, window, cx),
             ChatBoxEvent::Account(ask) => self.on_account_ask(ask, window, cx),
             ChatBoxEvent::Model(ev) => self.on_model(ev, cx),
+            ChatBoxEvent::Command { agent, command } => self.chat_command(agent, command.clone(), cx),
+            ChatBoxEvent::Link { agent, link, cwd, press } => self.chat_link(agent, link, cwd, *press, window, cx),
         }
         cx.notify();
     }
@@ -787,11 +800,14 @@ impl Desktop {
 
     fn chat_answer_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.focused_chat() else { return };
-        if self.chats.composer.read(cx).replying.is_some() {
-            self.chat_reply(&t, window, cx);
-        } else {
-            self.wizard_advance(&t, window, cx);
-        }
+        let Some(agent) = self.summary(&t) else { return };
+        let asked = self.chat_ask(&t).map(|(ask, _)| Rc::new(question::Asked { agent: agent.id.clone(), cwd: agent.cwd.clone(), ask }));
+        let agent = agent.id.clone();
+        self.chats.composer.update(cx, |c, cx| match (c.replying.is_some(), &asked) {
+            (true, _) => c.reply(&agent, window, cx),
+            (false, Some(asked)) => c.wizard_advance(asked, window, cx),
+            (false, None) => {}
+        });
     }
 
     /// `terminal`'s chat composer: the prompt box, or the agent's open ask in its place, over where the agent works and what Enter does.
@@ -826,10 +842,15 @@ impl Desktop {
         }
         let body = match (mode, ask) {
             (Mode::Permission { answerable }, Some((ask, feedback))) => {
-                fade_in(id(format!("chat-ask:{}", ask.request_id)), self.permission_card(terminal, &ask, feedback, answerable, cx)).into_any_element()
+                let name = self.agent_name(&agent.provider);
+                let card = composer.update(cx, |c, cx| c.permission_card(&agent.id, &name, &ask, feedback, answerable, cx));
+                fade_in(id(format!("chat-ask:{}", ask.request_id)), card).into_any_element()
             }
             (Mode::Question { answerable }, Some((ask, _))) => {
-                fade_in(id(format!("chat-ask:{}", ask.request_id)), self.question_panel(terminal, &ask, answerable, cx)).into_any_element()
+                let request = ask.request_id.clone();
+                let asked = Rc::new(question::Asked { agent: agent.id.clone(), cwd: agent.cwd.clone(), ask });
+                let panel = composer.update(cx, |c, cx| c.question_panel(&asked, answerable, cx));
+                fade_in(id(format!("chat-ask:{request}")), panel).into_any_element()
             }
             _ => {
                 let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
