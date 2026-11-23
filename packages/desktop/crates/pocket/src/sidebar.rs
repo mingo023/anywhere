@@ -28,7 +28,7 @@ use crate::sidebar::fold::{Closing, Fold};
 use crate::sidebar::sections::{Kind, Organize, Section, TreeRow};
 use crate::sidebar::tree_card::Hover;
 use crate::modals::host_finder::Opener;
-use crate::spaces::{SLIDE_MS, Space, on_host};
+use crate::spaces::{SLIDE_MS, on_host};
 use crate::renames::{self, Renames, Slot};
 use crate::status::{self, Card};
 use crate::git_ui::pull_requests;
@@ -330,7 +330,7 @@ impl Desktop {
             .child(search)
             .children(pages)
             .child(space_header)
-            .children((space == Space::Local).then(|| self.scratch_section(cx)).flatten())
+            .children(self.scratch_section(cx))
             .child(header)
             .child(body)
             .children(self.update_card(cx).or_else(|| self.star_card(cx)))

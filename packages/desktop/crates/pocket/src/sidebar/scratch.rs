@@ -5,6 +5,7 @@ use crate::removal::dispose;
 use crate::sidebar::fold::{self, Fold};
 use crate::sidebar::sections::{matches, section_head};
 use crate::sidebar::{done_name, rolled_state, row_name};
+use crate::spaces::space_of;
 use crate::util::now_ms;
 use gpui_kit::component::input::Input;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -28,7 +29,8 @@ impl Desktop {
     pub(super) fn scratch_section(&self, cx: &mut Context<Self>) -> Option<Div> {
         let query = self.sidebar.filter.query(cx);
         let filtering = !query.is_empty();
-        let rows: Vec<String> = self.store.scratches().into_iter().filter(|p| !filtering || matches(&self.place_name(p), &query)).collect();
+        let space = self.space();
+        let rows: Vec<String> = self.store.scratches().into_iter().filter(|p| space_of(p) == space && (!filtering || matches(&self.place_name(p), &query))).collect();
         if filtering && rows.is_empty() {
             return None;
         }
@@ -105,10 +107,19 @@ impl Desktop {
             .into_any_element()
     }
 
+    /// Makes a Scratch folder on the space on screen and returns its key.
     pub(crate) fn make_scratch(&self, cx: &mut Context<Self>) -> Task<Result<String, String>> {
-        let root = project::scratch::root(&home());
         let seed = now_ms() as usize;
-        cx.background_executor().spawn(async move { project::scratch::create(&root, seed) })
+        let Some(id) = self.space().host().map(str::to_string) else {
+            let root = project::scratch::root(&home());
+            return cx.background_executor().spawn(async move { project::scratch::create(&root, seed) });
+        };
+        cx.background_executor().spawn(async move {
+            let host = hosts::remote::connected(&id).ok_or_else(|| git::NotConnected::error().to_string())?;
+            let root = project::scratch::root(&host.home().map_err(|e| e.to_string())?);
+            let path = project::scratch::create_on(&git::Runner::Remote(host.clone()), &root, seed, |p, parents| host.mkdir(p, parents), |p| _ = host.remove(p, true))?;
+            Ok(host.key(&path))
+        })
     }
 
     pub(crate) fn adopt_scratch(&mut self, path: &str) {
@@ -123,7 +134,7 @@ impl Desktop {
     /// Deletes a folder with nothing to lose straight away, and asks about any other.
     pub(super) fn ask_delete_scratch(&mut self, path: String, cx: &mut Context<Self>) {
         let job = path.clone();
-        let task = cx.background_executor().spawn(async move { project::scratch::work(&job) });
+        let task = cx.background_executor().spawn(async move { project::scratch::work(&hosts::runner_for(&job), &job) });
         cx.spawn(async move |this, cx| {
             let work = task.await;
             this.update(cx, |d, cx| {
@@ -141,17 +152,32 @@ impl Desktop {
     }
 
     pub(crate) fn delete_scratch(&mut self, path: &str, cx: &mut Context<Self>) {
-        let root = project::scratch::root(&home());
         let trash = self.store.worktree.trash;
         self.remove_project(path, cx);
         self.workspaces.remove(path);
         self.store.forget_scratch(path);
         self.store.save();
-        // desktop.json can be edited by hand, and this removes whatever path it names.
-        if project::scratch::holds(&root, path) {
-            let folder = path.to_string();
-            cx.background_executor().spawn(async move { dispose(Path::new(&folder), trash) }).detach();
-        }
+        let folder = path.to_string();
+        cx.background_executor().spawn(async move { dispose_scratch(&folder, trash) }).detach();
         cx.notify();
+    }
+}
+
+/// Removes the Scratch folder `key` from the machine holding it.
+/// Only one directly in that machine's Scratch root goes: desktop.json can be edited by hand, and this removes whatever path it names.
+fn dispose_scratch(key: &str, trash: bool) {
+    match hosts::split(key) {
+        (None, path) => {
+            if project::scratch::holds(&project::scratch::root(&home()), path) {
+                dispose(Path::new(path), trash);
+            }
+        }
+        (Some(id), path) => {
+            let Some(host) = hosts::remote::connected(id) else { return };
+            let Ok(home) = host.home() else { return };
+            if project::scratch::holds(&project::scratch::root(&home), path) && !(trash && host.trash(path).is_ok()) {
+                _ = host.remove(path, true);
+            }
+        }
     }
 }

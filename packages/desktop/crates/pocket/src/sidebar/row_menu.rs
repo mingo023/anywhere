@@ -155,7 +155,7 @@ impl Desktop {
         let sections = &self.store.sections;
         let current = sections.group_of(p);
         let mut rows = vec![ui::menu_label("Move to group").into_any_element()];
-        let picks = sections.groups.iter().map(|g| (Some(g.id), group_mark(g), g.name.clone())).chain([(None, None, "No group".to_string())]);
+        let picks = sections.groups_on(hosts::split(p).0).map(|g| (Some(g.id), group_mark(g), g.name.clone())).chain([(None, None, "No group".to_string())]);
         for (group, lead, name) in picks {
             let target = p.to_string();
             rows.push(

@@ -11,6 +11,9 @@ pub struct Group {
     pub icon: Option<String>,
     #[serde(default)]
     pub folded: bool,
+    /// The host it was made on; `None` for this Mac.
+    #[serde(default)]
+    pub host: Option<String>,
 }
 
 /// A row pinned above the groups.
@@ -56,10 +59,15 @@ pub struct Sections {
 
 impl Sections {
     /// Adds a group named `name` and returns its id.
-    pub fn add_group(&mut self, name: &str) -> u32 {
+    pub fn add_group(&mut self, name: &str, host: Option<&str>) -> u32 {
         let id = self.groups.iter().map(|g| g.id + 1).max().unwrap_or(1);
-        self.groups.push(Group { id, name: name.to_string(), icon: None, folded: false });
+        self.groups.push(Group { id, name: name.to_string(), icon: None, folded: false, host: host.map(str::to_string) });
         id
+    }
+
+    /// The groups made on `host`, `None` for this Mac.
+    pub fn groups_on<'a>(&'a self, host: Option<&'a str>) -> impl Iterator<Item = &'a Group> {
+        self.groups.iter().filter(move |g| g.host.as_deref() == host)
     }
 
     pub fn group(&self, id: u32) -> Option<&Group> {
@@ -107,14 +115,29 @@ impl Sections {
         self.members.retain(|_, g| *g != id);
     }
 
-    /// `project`'s group, if it still exists.
-    pub fn group_of(&self, project: &str) -> Option<u32> {
-        self.members.get(project).copied().filter(|&id| self.group(id).is_some())
+    /// Moves each group on this Mac whose projects are all on one host to that host, as only groups saved before groups
+    /// had a machine can hold a host's projects.
+    pub fn settle_hosts(&mut self) {
+        for g in self.groups.iter_mut().filter(|g| g.host.is_none()) {
+            let mut machines = self.members.iter().filter(|(_, id)| **id == g.id).map(|(p, _)| hosts::split(p).0);
+            if let Some(Some(host)) = machines.next().filter(|first| machines.all(|m| m == *first)) {
+                g.host = Some(host.to_string());
+            }
+        }
     }
 
-    /// `None` ungroups it. Either way it leaves Pinned, which would hide it from its group.
+    fn can_hold(&self, id: u32, project: &str) -> bool {
+        self.group(id).is_some_and(|g| g.host.as_deref() == hosts::split(project).0)
+    }
+
+    /// `project`'s group, if it still exists on its machine.
+    pub fn group_of(&self, project: &str) -> Option<u32> {
+        self.members.get(project).copied().filter(|&id| self.can_hold(id, project))
+    }
+
+    /// `None`, or a group on another machine, ungroups it. Either way it leaves Pinned, which would hide it from its group.
     pub fn set_group(&mut self, project: &str, group: Option<u32>) {
-        match group.filter(|&id| self.group(id).is_some()) {
+        match group.filter(|&id| self.can_hold(id, project)) {
             Some(id) => self.members.insert(project.to_string(), id),
             None => self.members.remove(project),
         };
@@ -179,8 +202,8 @@ impl Sections {
 
     /// `projects`' places as indices into it: the pinned ones' places drop out of the rest, each group in `groups` order, then the ungrouped.
     /// `grouped` says which projects can be grouped or pinned; the others always go with the ungrouped.
-    pub fn arrange(&self, projects: &[String], grouped: impl Fn(&str) -> bool) -> Arrangement {
-        let mut groups: Vec<(u32, Vec<usize>)> = self.groups.iter().map(|g| (g.id, Vec::new())).collect();
+    pub fn arrange(&self, projects: &[String], host: Option<&str>, grouped: impl Fn(&str) -> bool) -> Arrangement {
+        let mut groups: Vec<(u32, Vec<usize>)> = self.groups_on(host).map(|g| (g.id, Vec::new())).collect();
         let mut other = Vec::new();
         for (i, p) in projects.iter().enumerate() {
             let can = grouped(p);
@@ -213,24 +236,48 @@ mod tests {
     }
 
     #[test]
+    fn a_group_shows_only_on_the_machine_it_was_made_on_and_holds_only_its_projects() {
+        let mut s = Sections::default();
+        let (mac, devbox) = (s.add_group("Mac", None), s.add_group("Box", Some("devbox")));
+        s.set_group("//devbox/api", Some(mac));
+        s.set_group("/a", Some(devbox));
+        assert_eq!((s.group_of("//devbox/api"), s.group_of("/a")), (None, None));
+        s.set_group("//devbox/api", Some(devbox));
+        let on_box = s.arrange(&["//devbox/api".to_string(), "//devbox/web".to_string()], Some("devbox"), |_| true);
+        assert_eq!(on_box.groups, vec![(devbox, vec![0])]);
+        assert_eq!(s.arrange(&projects(), None, |_| true).groups, vec![(mac, vec![])]);
+    }
+
+    #[test]
+    fn groups_saved_before_they_had_a_machine_move_to_the_host_holding_all_their_projects_else_stay_on_this_mac() {
+        let raw = r#"{"groups": [{"id": 1, "name": "Mixed"}, {"id": 2, "name": "Box"}, {"id": 3, "name": "Empty"}],
+            "members": {"/a": 1, "//devbox/api": 1, "//devbox/web": 2, "//devbox/db": 2}}"#;
+        let mut s: Sections = serde_json::from_str(raw).unwrap();
+        s.settle_hosts();
+        let hosts: Vec<_> = s.groups.iter().map(|g| g.host.as_deref()).collect();
+        assert_eq!(hosts, [None, Some("devbox"), None]);
+        assert_eq!((s.group_of("/a"), s.group_of("//devbox/api"), s.group_of("//devbox/web")), (Some(1), None, Some(2)));
+    }
+
+    #[test]
     fn projects_sit_in_their_groups_in_list_order_and_the_rest_after() {
         let mut s = Sections::default();
-        let (work, side) = (s.add_group("Work"), s.add_group("Side"));
+        let (work, side) = (s.add_group("Work", None), s.add_group("Side", None));
         s.set_group("/c", Some(work));
         s.set_group("/a", Some(work));
         s.set_group("/b", Some(side));
-        let got = s.arrange(&projects(), |_| true);
+        let got = s.arrange(&projects(), None, |_| true);
         assert_eq!(got, Arrangement { pinned: vec![], groups: vec![(work, vec![0, 2]), (side, vec![1])], other: vec![3] });
     }
 
     #[test]
     fn a_pinned_project_leaves_its_group_and_a_pinned_tree_leaves_its_project_in_place() {
         let mut s = Sections::default();
-        let work = s.add_group("Work");
+        let work = s.add_group("Work", None);
         s.set_group("/a", Some(work));
         s.toggle_pin(Pin::Project("/a".into()));
         s.toggle_pin(Pin::Tree { project: "/b".into(), tree: "/wt".into() });
-        let got = s.arrange(&projects(), |_| true);
+        let got = s.arrange(&projects(), None, |_| true);
         assert_eq!(got.pinned, vec![Pin::Project("/a".into()), Pin::Tree { project: "/b".into(), tree: "/wt".into() }]);
         assert_eq!((got.groups, got.other), (vec![(work, vec![])], vec![1, 2, 3]));
     }
@@ -238,10 +285,10 @@ mod tests {
     #[test]
     fn a_project_that_cant_be_grouped_stays_with_the_rest_and_its_pins_hide() {
         let mut s = Sections::default();
-        let work = s.add_group("Work");
+        let work = s.add_group("Work", None);
         s.set_group("/a", Some(work));
         s.toggle_pin(Pin::Project("/b".into()));
-        let got = s.arrange(&projects(), |p| p == "/c" || p == "/d");
+        let got = s.arrange(&projects(), None, |p| p == "/c" || p == "/d");
         assert_eq!(got, Arrangement { pinned: vec![], groups: vec![(work, vec![])], other: vec![0, 1, 2, 3] });
     }
 
@@ -249,7 +296,7 @@ mod tests {
     fn pins_on_projects_no_longer_listed_hide() {
         let mut s = Sections::default();
         s.toggle_pin(Pin::Project("/gone".into()));
-        assert_eq!(s.arrange(&projects(), |_| true).pinned, vec![]);
+        assert_eq!(s.arrange(&projects(), None, |_| true).pinned, vec![]);
     }
 
     #[test]
@@ -265,7 +312,7 @@ mod tests {
     #[test]
     fn moving_a_pinned_project_to_a_group_or_out_of_one_unpins_it_but_keeps_its_tree_pins() {
         let mut s = Sections::default();
-        let work = s.add_group("Work");
+        let work = s.add_group("Work", None);
         let tree = Pin::Tree { project: "/a".into(), tree: "/wt".into() };
         for group in [Some(work), None] {
             s.pin(Pin::Project("/a".into()));
@@ -286,7 +333,7 @@ mod tests {
     #[test]
     fn revealing_a_row_unfolds_pinned_when_it_sits_there_and_else_its_group() {
         let mut s = Sections { pins_folded: true, ..Default::default() };
-        let work = s.add_group("Work");
+        let work = s.add_group("Work", None);
         s.set_group("/a", Some(work));
         s.toggle_group(work);
         s.pin(Pin::Tree { project: "/a".into(), tree: "/wt".into() });
@@ -310,7 +357,7 @@ mod tests {
     #[test]
     fn deleting_a_group_ungroups_its_projects() {
         let mut s = Sections::default();
-        let (work, side) = (s.add_group("Work"), s.add_group("Side"));
+        let (work, side) = (s.add_group("Work", None), s.add_group("Side", None));
         s.set_group("/a", Some(work));
         s.set_group("/b", Some(side));
         s.delete_group(work);
@@ -321,7 +368,7 @@ mod tests {
     #[test]
     fn picking_a_groups_icon_sets_it_and_picking_it_again_takes_it_off() {
         let mut s = Sections::default();
-        let g = s.add_group("Work");
+        let g = s.add_group("Work", None);
         s.pick_group_icon(g, "🚀");
         assert_eq!(s.group(g).unwrap().icon.as_deref(), Some("🚀"));
         s.pick_group_icon(g, "🔥");
@@ -333,16 +380,16 @@ mod tests {
     #[test]
     fn a_new_group_never_reuses_a_live_groups_id() {
         let mut s = Sections::default();
-        let (a, b) = (s.add_group("A"), s.add_group("B"));
+        let (a, b) = (s.add_group("A", None), s.add_group("B", None));
         s.delete_group(a);
-        let c = s.add_group("C");
+        let c = s.add_group("C", None);
         assert!(a != b && c != b);
     }
 
     #[test]
     fn a_project_joins_only_a_group_that_exists_and_moving_it_leaves_the_old_one() {
         let mut s = Sections::default();
-        let (work, side) = (s.add_group("Work"), s.add_group("Side"));
+        let (work, side) = (s.add_group("Work", None), s.add_group("Side", None));
         s.set_group("/a", Some(99));
         assert_eq!(s.group_of("/a"), None);
         s.set_group("/a", Some(work));
@@ -355,7 +402,7 @@ mod tests {
     #[test]
     fn a_blank_rename_keeps_the_name() {
         let mut s = Sections::default();
-        let id = s.add_group("Work");
+        let id = s.add_group("Work", None);
         s.rename_group(id, "  ");
         s.rename_group(id, " Clients ");
         s.rename_group(id, "");
@@ -365,7 +412,7 @@ mod tests {
     #[test]
     fn forgetting_a_project_drops_its_group_and_every_pin_in_it() {
         let mut s = Sections::default();
-        let work = s.add_group("Work");
+        let work = s.add_group("Work", None);
         s.set_group("/a", Some(work));
         s.toggle_pin(Pin::Project("/a".into()));
         s.toggle_pin(Pin::Tree { project: "/a".into(), tree: "/wt".into() });

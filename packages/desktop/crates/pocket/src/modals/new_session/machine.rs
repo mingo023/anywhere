@@ -7,7 +7,7 @@ use crate::spaces::{Reach, Space, space_of, twin};
 pub(crate) enum Blocker {
     /// The space's host can't be reached.
     Unreachable(Reach),
-    /// The project, or with none a new Scratch folder on this Mac, isn't on the space.
+    /// The project isn't on the space.
     Elsewhere,
 }
 
@@ -16,7 +16,7 @@ pub(crate) fn blocker(repo: Option<&str>, space: &Space, reach: Reach) -> Option
     if reach != Reach::Online {
         return Some(Blocker::Unreachable(reach));
     }
-    (repo.map_or(Space::Local, space_of) != *space).then_some(Blocker::Elsewhere)
+    repo.is_some_and(|r| space_of(r) != *space).then_some(Blocker::Elsewhere)
 }
 
 /// Where a draft goes when the space changes.
@@ -27,16 +27,13 @@ pub(crate) enum Landing {
     Stay,
 }
 
-/// The draft's project in `to` if it has a twin there, else the space's first project, else No project where that is allowed (This Mac only).
+/// The draft's project in `to` if it has a twin there, else the space's first project, else No project; No project stays, as it starts on any space.
 pub(crate) fn landing(drafted: Option<&str>, to: &Space, projects: &[String]) -> Landing {
-    if drafted.map_or(Space::Local, space_of) == *to {
-        return Landing::Stay;
-    }
+    let Some(drafted) = drafted.filter(|p| space_of(p) != *to) else { return Landing::Stay };
     let first = || projects.iter().find(|p| space_of(p) == *to);
-    match drafted.and_then(|p| twin(p, to, projects)).or_else(first) {
+    match twin(drafted, to, projects).or_else(first) {
         Some(p) => Landing::Project(p.clone()),
-        None if *to == Space::Local => Landing::NoProject,
-        None => Landing::Stay,
+        None => Landing::NoProject,
     }
 }
 
@@ -74,25 +71,24 @@ mod tests {
     }
 
     #[test]
-    fn a_space_with_no_projects_leaves_no_project_to_this_mac_and_keeps_the_draft_on_a_host() {
+    fn a_space_with_no_projects_leaves_no_project() {
         let only_mac = ["/me/app-ios".to_string()];
         assert_eq!(landing(Some("//devbox/code/api"), &Space::Local, &[]), Landing::NoProject);
-        assert_eq!(landing(Some("/me/app-ios"), &host("devbox"), &only_mac), Landing::Stay);
-        assert_eq!(landing(None, &host("devbox"), &only_mac), Landing::Stay);
+        assert_eq!(landing(Some("/me/app-ios"), &host("devbox"), &only_mac), Landing::NoProject);
     }
 
     #[test]
-    fn a_draft_already_in_the_space_stays_put() {
+    fn a_draft_already_in_the_space_or_on_no_project_stays_put() {
         let projects = projects();
         assert_eq!(landing(Some("//devbox/code/api"), &host("devbox"), &projects), Landing::Stay);
         assert_eq!(landing(None, &Space::Local, &projects), Landing::Stay);
+        assert_eq!(landing(None, &host("devbox"), &projects), Landing::Stay);
     }
 
     #[test]
-    fn a_project_the_space_lacks_blocks_the_send_and_no_project_belongs_to_this_mac() {
+    fn a_project_the_space_lacks_blocks_the_send_and_no_project_starts_on_any_space() {
         assert_eq!(blocker(Some("/me/app-android"), &host("devbox"), Reach::Online), Some(Blocker::Elsewhere));
-        assert_eq!(blocker(None, &host("devbox"), Reach::Online), Some(Blocker::Elsewhere));
-        assert_eq!([blocker(Some("//devbox/code/api"), &host("devbox"), Reach::Online), blocker(None, &Space::Local, Reach::Online)], [None, None]);
+        assert_eq!([blocker(Some("//devbox/code/api"), &host("devbox"), Reach::Online), blocker(None, &Space::Local, Reach::Online), blocker(None, &host("devbox"), Reach::Online)], [None, None, None]);
     }
 
     #[test]
