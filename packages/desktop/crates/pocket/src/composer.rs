@@ -621,19 +621,6 @@ fn save_behind<T: 'static>(
         .detach();
 }
 
-/// For `save_behind`: an attachment that couldn't be written leaves the draft, and `unsaved` shows why under `title`.
-fn left_out(
-    title: &'static str,
-    held: Held,
-    unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static,
-) -> impl FnOnce(&mut Desktop, &Path, String, &mut Context<Desktop>) + 'static {
-    move |d, path, error, cx| {
-        if held.edit(d, cx, |draft| draft.unsaved(path)) {
-            unsaved(d, (title.into(), error));
-        }
-    }
-}
-
 /// What a paste puts in a prompt.
 #[derive(Debug, PartialEq)]
 enum Pasted<'a> {
@@ -701,48 +688,33 @@ impl Draft {
     }
 }
 
-/// Takes a paste into the draft `held` names, as `pasted` reads it, and says whether it did; text that pastes as
-/// itself is left to the input.
-pub(crate) fn paste(
-    desktop: &WeakEntity<Desktop>,
-    input: &Entity<TextareaState>,
-    held: Held,
-    unsaved: impl FnOnce(&mut Desktop, (String, String)) + 'static,
-    item: &ClipboardItem,
-    window: &mut Window,
-    cx: &mut App,
-) -> bool {
-    let state = input.read(cx);
-    let (pasted, d) = (pasted(item, &state.value()[state.selected_range()]), desktop.upgrade());
-    let dir = d.as_ref().map(|d| d.read(cx).store.home().join("attachments"));
-    match (pasted, d, dir) {
-        (Pasted::Text, ..) => false,
-        (Pasted::Files(paths), ..) => {
-            input.update(cx, |s, cx| s.drop_paths(paths, window, cx));
-            true
-        }
-        (Pasted::Link(link), ..) => {
-            input.update(cx, |s, cx| s.replace_text_in_range(None, &link, window, cx));
-            true
-        }
-        (_, None, _) | (_, _, None) => false,
-        (pasted, Some(d), Some(dir)) => {
-            let Some(kept) = kept(pasted, &dir) else { return false };
-            if d.update(cx, |d, cx| {
-                cx.notify();
-                held.edit(d, cx, |draft| draft.hold(&kept))
-            }) {
-                let Kept { path, save, failed, .. } = kept;
-                save_behind(desktop.clone(), path, save, left_out(failed, held, unsaved), window, cx);
-            }
-            true
-        }
+/// An owner of a draft a paste goes into.
+pub(crate) trait Drafted: Sized + 'static {
+    fn draft(&mut self) -> &mut Draft;
+    /// An attachment that couldn't be written, titled `title`, left the draft.
+    fn unsaved(&mut self, title: &'static str, error: String, cx: &mut Context<Self>);
+}
+
+impl Drafted for Composer {
+    fn draft(&mut self) -> &mut Draft {
+        &mut self.draft
+    }
+
+    fn unsaved(&mut self, title: &'static str, error: String, cx: &mut Context<Self>) {
+        cx.emit(ComposerEvent::Unsaved(title, error));
     }
 }
 
 /// Takes a paste into `this`'s draft as `pasted` reads it, and says whether it did; text that pastes as itself is left
 /// to the input.
-fn paste_in(this: &WeakEntity<Composer>, input: &Entity<TextareaState>, dir: &Path, item: &ClipboardItem, window: &mut Window, cx: &mut App) -> bool {
+pub(crate) fn paste_in<T: Drafted>(
+    this: &WeakEntity<T>,
+    input: &Entity<TextareaState>,
+    dir: &Path,
+    item: &ClipboardItem,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
     let state = input.read(cx);
     match pasted(item, &state.value()[state.selected_range()]) {
         Pasted::Text => false,
@@ -756,16 +728,16 @@ fn paste_in(this: &WeakEntity<Composer>, input: &Entity<TextareaState>, dir: &Pa
         }
         pasted => {
             let Some(kept) = kept(pasted, dir) else { return false };
-            let held = this.update(cx, |c, cx| {
+            let held = this.update(cx, |t, cx| {
                 cx.notify();
-                c.draft.hold(&kept)
+                t.draft().hold(&kept)
             });
             let Ok(held) = held else { return false };
             if held {
                 let Kept { path, save, failed, .. } = kept;
-                let unsaved = move |c: &mut Composer, path: &Path, error: String, cx: &mut Context<Composer>| {
-                    if c.draft.unsaved(path) {
-                        cx.emit(ComposerEvent::Unsaved(failed, error));
+                let unsaved = move |t: &mut T, path: &Path, error: String, cx: &mut Context<T>| {
+                    if t.draft().unsaved(path) {
+                        t.unsaved(failed, error, cx);
                     }
                 };
                 save_behind(this.clone(), path, save, unsaved, window, cx);

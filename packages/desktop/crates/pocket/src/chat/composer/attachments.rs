@@ -1,3 +1,4 @@
+use super::ComposerState;
 use crate::composer::element_card::element_card;
 use crate::composer::elements;
 use crate::composer::file_card::file_card;
@@ -33,7 +34,7 @@ pub(crate) fn attach_files(d: &mut Desktop, held: Held, window: &mut Window, cx:
 }
 
 /// The draft's attached images and files over the input; none when it has none.
-pub(super) fn strip(draft: &Draft, cx: &Context<Desktop>) -> Option<Div> {
+pub(super) fn strip(draft: &Draft, cx: &Context<ComposerState>) -> Option<Div> {
     if !draft.has_attachments() {
         return None;
     }
@@ -56,7 +57,7 @@ pub(super) fn strip(draft: &Draft, cx: &Context<Desktop>) -> Option<Div> {
             .active(|s| s.opacity(0.6))
             .child(icon("circle-x", 14., TEXT_3))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.chats.composer.update(cx, |c, _| take(&mut c.draft, i));
+                take(&mut this.draft, i);
                 cx.notify();
             }))
     };

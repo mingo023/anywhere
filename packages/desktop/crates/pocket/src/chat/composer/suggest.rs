@@ -344,7 +344,7 @@ impl Desktop {
 
     pub(crate) fn suggest_target(&self, p: Prompt, cx: &App) -> Option<Target> {
         match p {
-            Prompt::Chat => self.chats.drafts.owner().and_then(|id| self.agents.get(id)).map(|a| Target {
+            Prompt::Chat => self.chats.composer.read(cx).owner().and_then(|id| self.agents.get(id)).map(|a| Target {
                 key: a.id.clone(),
                 provider: a.provider.clone(),
                 account: a.account.clone(),

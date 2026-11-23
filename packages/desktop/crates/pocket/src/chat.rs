@@ -3,7 +3,7 @@ mod agent_dock;
 mod agent_map;
 pub(crate) mod composer;
 mod diff;
-mod drafts;
+pub(super) mod drafts;
 mod end_row;
 mod fold;
 mod host_link;
@@ -33,7 +33,6 @@ pub(crate) mod transcript;
 pub(crate) mod user_bubble;
 mod working;
 
-use crate::composer::Draft;
 use crate::desktop::Desktop;
 use crate::explorer::mermaid::Diagrams;
 use crate::region::{self, Region};
@@ -85,8 +84,6 @@ fn unsent_notice(who: &str, mut unsent: Vec<String>, typed: String) -> Option<(S
 
 pub(crate) struct ChatState {
     pub(crate) input: Entity<TextareaState>,
-    /// The text and attachments of each chat the input doesn't hold now.
-    drafts: drafts::Drafts<(String, Draft)>,
     /// Each agent's transcript, an entity by agent id, with the subscription that answers it.
     pub(crate) views: HashMap<String, Entity<transcript::View>>,
     view_subs: HashMap<String, Subscription>,
@@ -128,7 +125,6 @@ impl ChatState {
         (
             Self {
                 input,
-                drafts: Default::default(),
                 views: HashMap::new(),
                 view_subs: HashMap::new(),
                 transcripts: HashMap::new(),
@@ -183,22 +179,13 @@ impl Desktop {
 
     /// Hands the input to `agent`'s chat; the chat that had it keeps its draft for when it's back.
     pub(crate) fn chat_take_input(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let ChatState { input, drafts, composer, .. } = &mut self.chats;
-        let Some((text, draft)) = drafts.switch(agent, || (input.read(cx).value().to_string(), composer.update(cx, |c, _| std::mem::take(&mut c.draft))))
-        else {
-            return;
-        };
-        composer.update(cx, |c, _| c.draft = draft);
-        input.update(cx, |s, cx| s.set_value(text, window, cx));
+        self.chats.composer.update(cx, |c, cx| c.take_input(agent, window, cx));
     }
 
     /// Drops a closed agent's chat. What it never sent, and its draft, wait in the error toast to copy: no other chat's composer takes them.
     pub(crate) fn chat_closed(&mut self, agent: &str, who: &str, window: &mut Window, cx: &mut Context<Self>) {
         let (typed, _) = self.chat_draft(agent, cx);
-        if self.chats.drafts.close(agent) {
-            self.chats.composer.update(cx, |c, _| c.draft.clear());
-            self.chats.input.update(cx, |s, cx| s.set_value("", window, cx));
-        }
+        self.chats.composer.update(cx, |c, cx| c.close_draft(agent, window, cx));
         self.chats.transcripts.remove(agent);
         self.chats.view_subs.remove(agent);
         let unsent = self.chats.views.remove(agent).map(|v| v.update(cx, |v, _| v.drain_unsent())).unwrap_or_default();

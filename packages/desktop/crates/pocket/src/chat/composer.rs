@@ -5,6 +5,7 @@ mod background;
 pub(crate) mod btw;
 mod goal;
 pub(crate) mod model_pill;
+pub(crate) mod prompt_box;
 pub(crate) mod queue;
 pub(crate) mod send_button;
 pub(crate) mod suggest;
@@ -21,8 +22,7 @@ use crate::status::Status;
 use crate::util::now_ms;
 use agents::{Decision, Summary};
 use chat::{Action, Ask, Command, Kind, Local, Session};
-use gpui_kit::component::input::{InputEditsEvent, InputEvent, InputState, RopeExt as _, Textarea, TextareaState};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::input::{InputEditsEvent, InputEvent, InputState, RopeExt as _, TextareaState};
 use gpui_kit::*;
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -138,7 +138,11 @@ pub(crate) fn input(window: &mut Window, cx: &mut Context<Desktop>) -> Entity<Te
 
 /// The chat composer's state besides its input (`ChatState::input`), shared by every chat pane.
 pub(crate) struct ComposerState {
+    /// The prompt input, which holds one chat's text at a time.
+    pub(crate) input: Entity<TextareaState>,
     pub(crate) draft: Draft,
+    /// The text and attachments of each chat the input doesn't hold now.
+    drafts: super::drafts::Drafts<(String, Draft)>,
     /// Narrows the model panel's list.
     pub(crate) search: Entity<InputState>,
     /// The free-text answer of a question, or the reply to a permission.
@@ -185,6 +189,17 @@ pub(crate) enum ChatBoxEvent {
     },
     Account(account_chip::Ask),
     Model(model_pill::Model),
+    /// The box's button was clicked, showing `Action` for the chat in `terminal`.
+    Press {
+        terminal: String,
+        action: Action,
+    },
+    /// Esc in the box of the chat in `terminal`, with no menu of the composer's to close.
+    Escape(String),
+    /// The + was pressed: files are asked for.
+    Attach,
+    /// A pasted attachment couldn't be saved and left the draft: its title and the error.
+    Unsaved(&'static str, String),
     Command {
         agent: String,
         command: Command,
@@ -199,10 +214,81 @@ pub(crate) enum ChatBoxEvent {
 
 impl EventEmitter<ChatBoxEvent> for ComposerState {}
 
+impl crate::composer::Drafted for ComposerState {
+    fn draft(&mut self) -> &mut Draft {
+        &mut self.draft
+    }
+
+    fn unsaved(&mut self, title: &'static str, error: String, cx: &mut Context<Self>) {
+        cx.emit(ChatBoxEvent::Unsaved(title, error));
+    }
+}
+
 impl ComposerState {
     pub(crate) fn close_menu(&mut self, cx: &mut Context<Self>) {
         self.draft.menu = None;
         cx.notify();
+    }
+
+    /// Whether the input holds `agent`'s chat.
+    pub(crate) fn holds(&self, agent: &str) -> bool {
+        self.drafts.owner() == Some(agent)
+    }
+
+    /// The agent whose chat the input holds.
+    pub(crate) fn owner(&self) -> Option<&str> {
+        self.drafts.owner()
+    }
+
+    /// Hands the input to `agent`'s chat; the chat that had it keeps its draft for when it's back.
+    pub(crate) fn take_input(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.input.clone();
+        let draft = &mut self.draft;
+        let Some((text, parked)) = self.drafts.switch(agent, || (input.read(cx).value().to_string(), std::mem::take(draft))) else { return };
+        self.draft = parked;
+        self.input.update(cx, |s, cx| s.set_value(text, window, cx));
+    }
+
+    /// Gives up `agent`'s draft with its chat, emptying the input if it held it.
+    pub(crate) fn close_draft(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.drafts.close(agent) {
+            self.draft.clear();
+            self.input.update(cx, |s, cx| s.set_value("", window, cx));
+        }
+    }
+
+    /// What `agent`'s chat has typed and attached: the input's while it holds that chat, else what waits for it.
+    pub(crate) fn draft_of<'a>(&'a self, agent: &str, cx: &'a App) -> (String, Option<&'a Draft>) {
+        if self.holds(agent) {
+            return (self.input.read(cx).value().to_string(), Some(&self.draft));
+        }
+        self.drafts.parked(agent).map_or((String::new(), None), |(text, draft)| (text.clone(), Some(draft)))
+    }
+
+    /// Adds `text` to the end of `agent`'s draft, in the input when its chat holds it.
+    pub(crate) fn add_text(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.holds(agent) {
+            let (draft, _) = self.drafts.parked_mut(agent);
+            *draft = added(draft, text);
+            return;
+        }
+        let value = added(&self.input.read(cx).value(), text);
+        self.input.update(cx, |s, cx| {
+            let end = value.len();
+            s.set_value(crate::composer::pills::kept_pills(&s.content(), value, None), window, cx);
+            let end = s.text().offset_to_position(end);
+            s.set_cursor_position(end, window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Edits `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
+    pub(crate) fn edit_draft<R>(&mut self, agent: &str, cx: &mut Context<Self>, f: impl FnOnce(&mut Draft) -> R) -> R {
+        if self.holds(agent) {
+            cx.notify();
+            return f(&mut self.draft);
+        }
+        f(&mut self.drafts.parked_mut(agent).1)
     }
 
     pub(crate) fn new(input: &Entity<TextareaState>, window: &mut Window, cx: &mut Context<Desktop>) -> (Entity<Self>, Vec<Subscription>) {
@@ -226,7 +312,9 @@ impl ComposerState {
             }),
         ];
         let state = Self {
+            input: input.clone(),
             draft: Draft::default(),
+            drafts: Default::default(),
             search,
             answer,
             wizard: None,
@@ -298,9 +386,13 @@ pub(crate) fn marks_overlay(input: Entity<TextareaState>) -> impl IntoElement {
 
 /// The prompt box, ringed darker while typed into.
 pub(crate) fn frame(typing: bool) -> Div {
+    frame_on(div(), typing)
+}
+
+/// `base` as the prompt box.
+pub(crate) fn frame_on(base: Div, typing: bool) -> Div {
     let (ring, drop) = if typing { (TEXT_4, 0x11111314) } else { (SEPARATOR_STRONG, 0x1111130f) };
-    div()
-        .relative()
+    base.relative()
         .flex()
         .flex_col()
         .rounded(px(RADIUS))
@@ -447,6 +539,13 @@ impl Desktop {
             ChatBoxEvent::Queue { agent, what } => self.on_queue(agent, what, window, cx),
             ChatBoxEvent::Account(ask) => self.on_account_ask(ask, window, cx),
             ChatBoxEvent::Model(ev) => self.on_model(ev, cx),
+            ChatBoxEvent::Press { terminal, action } => self.chat_press(terminal, *action, window, cx),
+            ChatBoxEvent::Escape(terminal) => self.chat_escape(terminal, cx),
+            ChatBoxEvent::Attach => attachments::attach_files(self, Held::Chat, window, cx),
+            ChatBoxEvent::Unsaved(title, detail) => {
+                self.error = Some(format!("{title}: {detail}"));
+                cx.notify();
+            }
             ChatBoxEvent::Command { agent, command } => self.chat_command(agent, command.clone(), cx),
             ChatBoxEvent::Link { agent, link, cwd, press } => self.chat_link(agent, link, cwd, *press, window, cx),
         }
@@ -676,7 +775,7 @@ impl Desktop {
                 d.chats.copying.remove(&agent);
                 match copied {
                     Ok(files) => {
-                        let held = d.chats.drafts.owner() == Some(agent.as_str());
+                        let held = d.chats.composer.read(cx).holds(&agent);
                         d.chats.copied.insert(agent, files);
                         if held {
                             d.chat_send(&terminal, queue, window, cx);
@@ -758,38 +857,18 @@ impl Desktop {
 
     /// What `agent`'s chat has typed and attached: the input's while it holds that chat, else what waits for it.
     pub(crate) fn chat_draft<'a>(&'a self, agent: &str, cx: &'a App) -> (String, Option<&'a Draft>) {
-        if self.chats.drafts.owner() == Some(agent) {
-            return (self.chats.input.read(cx).value().to_string(), Some(&self.chats.composer.read(cx).draft));
-        }
-        self.chats.drafts.parked(agent).map_or((String::new(), None), |(text, draft)| (text.clone(), Some(draft)))
+        self.chats.composer.read(cx).draft_of(agent, cx)
     }
 
     /// Adds `text` to the end of `agent`'s draft, in the input when its chat holds it.
     pub(crate) fn chat_add_text(&mut self, agent: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if self.chats.drafts.owner() != Some(agent) {
-            let (draft, _) = self.chats.drafts.parked_mut(agent);
-            *draft = added(draft, text);
-            return;
-        }
-        let value = added(&self.chats.input.read(cx).value(), text);
-        self.chats.input.update(cx, |s, cx| {
-            let end = value.len();
-            s.set_value(crate::composer::pills::kept_pills(&s.content(), value, None), window, cx);
-            let end = s.text().offset_to_position(end);
-            s.set_cursor_position(end, window, cx);
-        });
+        self.chats.composer.update(cx, |c, cx| c.add_text(agent, text, window, cx));
         cx.notify();
     }
 
     /// Edits `agent`'s draft to attach to: the input's while its chat holds it, else the one parked for it.
     pub(crate) fn chat_draft_edit<R>(&mut self, agent: &str, cx: &mut App, f: impl FnOnce(&mut Draft) -> R) -> R {
-        if self.chats.drafts.owner() == Some(agent) {
-            return self.chats.composer.update(cx, |c, cx| {
-                cx.notify();
-                f(&mut c.draft)
-            });
-        }
-        f(&mut self.chats.drafts.parked_mut(agent).1)
+        self.chats.composer.update(cx, |c, cx| c.edit_draft(agent, cx, f))
     }
 
     /// `set_value` emits no change, so the composer redraws here.
@@ -854,7 +933,8 @@ impl Desktop {
             }
             _ => {
                 let locked = (mode == Mode::ViewOnly).then_some(mark.as_ref().map_or("View only", crate::handoff::Mark::composer));
-                self.prompt_box(terminal, agent, locked, window, cx).into_any_element()
+                let face = self.prompt_face(terminal, agent, locked, cx);
+                composer.update(cx, |c, cx| c.prompt_box(agent, face, window, cx)).into_any_element()
             }
         };
         let held = self.chats.views.get(&agent.id).map(|v| {
@@ -960,104 +1040,6 @@ impl Desktop {
             desktop.update(cx, |d, cx| d.chat_take_input(&agent, window, cx)).ok();
             input.update(cx, |s, cx| s.drop_paths(paths, window, cx));
         }))
-    }
-
-    /// `locked` names why the box takes no prompt; `None` takes one.
-    fn prompt_box(&self, terminal: &str, agent: &Summary, locked: Option<&'static str>, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let view_only = locked.is_some();
-        let composer = self.chats.composer.clone();
-        let caps = self.chat_caps(&agent.provider);
-        let held = self.chats.drafts.owner() == Some(agent.id.as_str());
-        let (typed, draft) = self.chat_draft(&agent.id, cx);
-        let empty = typed.trim().is_empty() && !draft.is_some_and(Draft::has_attachments);
-        let typing = !empty || (held && self.chats.input.read(cx).focus_handle(cx).is_focused(window));
-        let stopping = self.chat_stopping(agent, cx);
-        let action = chat::action(self.chat_busy(agent, cx), stopping, empty);
-        let blocked = !caps.allows(action);
-        let press = |t: &str| {
-            let t = t.to_string();
-            cx.listener(move |this, _: &ClickEvent, window, cx| this.chat_press(&t, action, window, cx))
-        };
-        let left = cx.listener(|this, over: &bool, _, cx| {
-            this.chats.composer.update(cx, |c, _| {
-                if pointer_left(*over, c.pressing_send) {
-                    c.clicked_send = None;
-                }
-            });
-        });
-        let released = || cx.listener(|this, _: &MouseUpEvent, _, cx| this.chats.composer.update(cx, |c, _| c.pressing_send = false));
-        // The id names the action so the tooltip of the button a send was clicked on doesn't stay on the Stop that replaced it.
-        let send = (!view_only && shows_button(action, empty)).then(|| {
-            send_button::send_button(id(format!("chat-send:{terminal}:{action:?}")), action, empty, blocked)
-                .on_hover(left)
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| this.chats.composer.update(cx, |c, _| c.pressing_send = true)))
-                .on_mouse_up(MouseButton::Left, released())
-                .on_mouse_up_out(MouseButton::Left, released())
-                .when(!blocked, |b| b.on_click(press(terminal)))
-        });
-        let attach = (!view_only).then(|| {
-            attachments::attach_button(
-                id(format!("chat-attach:{terminal}")),
-                cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    attachments::attach_files(this, Held::Chat, window, cx);
-                }),
-            )
-        });
-        let strip = draft.and_then(|d| attachments::strip(d, cx));
-        let input = if let Some(why) = locked {
-            div().px(px(10.)).py(px(8.)).text_color(TEXT_3).child(why).into_any_element()
-        } else if !held {
-            // Another chat's draft is in the input; this one's shows until a press here takes the input.
-            let shown = if typed.is_empty() { (self.chats.composer.read(cx).placeholder.get().to_string(), TEXT_3) } else { (typed, TEXT) };
-            div()
-                .px(px(10.))
-                .py(px(8.))
-                .min_h(px(MIN_ROWS as f32 * INPUT_LINE_HEIGHT + 16.))
-                .line_height(px(INPUT_LINE_HEIGHT))
-                .text_color(shown.1)
-                .child(shown.0)
-                .into_any_element()
-        } else {
-            let (desktop, input) = (cx.entity().downgrade(), self.chats.input.clone());
-            let textarea = crate::composer::pills::with_pills(Textarea::new(&self.chats.input), &self.chats.input)
-                .appearance(false)
-                .text_size(px(INPUT_TEXT_SIZE))
-                .line_height(px(INPUT_LINE_HEIGHT))
-                .on_paste(move |item, window, cx| {
-                    let unsaved = |d: &mut Desktop, (title, detail): (String, String)| d.error = Some(format!("{title}: {detail}"));
-                    crate::composer::paste(&desktop, &input, Held::Chat, unsaved, item, window, cx)
-                });
-            div().child(textarea).child(marks_overlay(self.chats.input.clone())).into_any_element()
-        };
-        let (t, a) = (terminal.to_string(), agent.id.clone());
-        let text = crate::composer::prompt_text().child(input);
-        let pill = self.chat_model(agent, view_only, &composer, cx);
-        let bar = crate::composer::prompt_bar()
-            .children(composer.update(cx, |c, cx| c.goal_pill(agent, view_only, cx)))
-            .child(composer.update(cx, |c, cx| c.model_pill(&pill, cx)))
-            .children(self.chat_access(agent, view_only).map(|shown| composer.update(cx, |c, cx| c.access_pill(&agent.id, shown, cx))))
-            .children(self.chats.views.get(&agent.id).map(|v| v.read(cx).transcript()).and_then(|t| self.chats.map.update(cx, |m, cx| m.chip(agent, &t, cx))))
-            .child(div().flex_1())
-            .children(attach)
-            .children(send);
-        let suggestions = (!view_only && held).then(|| self.suggest_list(cx)).flatten();
-        let keyed = self.suggest_keys(Prompt::Chat, frame(typing), cx);
-        crate::composer::rich::rich_keys(&self.chats.input, keyed, cx)
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, window, cx| this.chat_focus_input(&a, window, cx)))
-            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
-                if e.keystroke.key == "escape" {
-                    if this.escape_composer_menu(cx) {
-                        cx.stop_propagation();
-                        return cx.notify();
-                    }
-                    this.chat_escape(&t, cx);
-                }
-            }))
-            .children(suggestions)
-            .children(strip)
-            .child(text)
-            .child(bar)
     }
 }
 
