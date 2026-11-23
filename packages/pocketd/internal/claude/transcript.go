@@ -400,10 +400,17 @@ func firstLine(text string) string {
 	return line
 }
 
-// localOutput is what a command Claude ran itself printed.
+// localOutput is what a command Claude ran itself printed. Claude writes it as a local_command line, or as a user line.
 func (l line) localOutput() (string, bool) {
 	var text string
-	if l.Type != "system" || l.Subtype != "local_command" || json.Unmarshal(l.Content, &text) != nil {
+	switch {
+	case l.Type == "system" && l.Subtype == "local_command":
+		if json.Unmarshal(l.Content, &text) != nil {
+			return "", false
+		}
+	case l.Type == "user" && !l.IsMeta && strings.HasPrefix(textOf(l.Message.Content), "<local-command-std"):
+		text = textOf(l.Message.Content)
+	default:
 		return "", false
 	}
 	if out := tag(text, "local-command-stdout"); out != "" {

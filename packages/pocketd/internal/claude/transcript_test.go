@@ -225,6 +225,24 @@ func TestASwitchOfModelOrEffortShowsNothingAndLeavesNoTurnOpen(t *testing.T) {
 	}
 }
 
+func TestACommandWhoseOutputClaudeWritesAsAUserLineEndsItsTurn(t *testing.T) {
+	var turns Turns
+	var got []timeline.Event
+	for _, l := range []string{
+		`{"type":"user","isMeta":true,"entrypoint":"sdk-cli","message":{"content":"<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request.</local-command-caveat>"}}`,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"content":"<command-name>/goal</command-name>\n            <command-message>goal</command-message>\n            <command-args>clear</command-args>"}}`,
+		`{"type":"user","entrypoint":"sdk-cli","message":{"content":"<local-command-stdout>Goal cleared</local-command-stdout>"}}`,
+	} {
+		got = append(got, turns.Map([]byte(l))...)
+	}
+	if want := []string{"user", "assistant_text", "result"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("got %v want %v", kinds(got), want)
+	}
+	if got[1].Text != "Goal cleared" {
+		t.Fatalf("reply %+v", got[1])
+	}
+}
+
 func TestAPromptStartingWithACommandClaudeDoesNotKnowShowsAsSent(t *testing.T) {
 	for _, content := range []string{
 		`"/gial /brainless fix the composer"`,
