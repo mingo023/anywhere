@@ -558,7 +558,7 @@ impl Desktop {
     /// Opens the composer for the worktree on screen, filled by the agent picked for commit messages or from the commits.
     pub(crate) fn open_pr_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menus(cx);
-        let (Some(tree), Some(repo)) = (self.cwd(), self.repo().cloned()) else { return };
+        let (Some(tree), Some(repo)) = (self.cwd(), self.repo_handle()) else { return };
         self.show_pr_side(cx);
         self.pr.composing = Some(tree);
         self.pr.error = None;

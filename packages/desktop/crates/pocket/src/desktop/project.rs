@@ -12,6 +12,7 @@ use git::Repo;
 use gpui_kit::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 use store::prefs::sidebar::SessionSort;
 use theme::*;
@@ -248,7 +249,11 @@ impl Desktop {
     }
 
     pub fn repo(&self) -> Option<&Repo> {
-        self.repos.get(&self.cwd()?)
+        self.repos.get(&self.cwd()?).map(|r| &**r)
+    }
+
+    pub(crate) fn repo_handle(&self) -> Option<Arc<Repo>> {
+        self.repos.get(&self.cwd()?).cloned()
     }
 
     pub(crate) fn workspace(&mut self, tree: &str) -> &mut Workspace {
@@ -473,12 +478,12 @@ fn readable(p: &str) -> bool {
 
 /// Applies `read`, keeping folders it skipped so switching back shows them at once, and those on a host that went offline,
 /// whose failed read says nothing about the repo. Returns whether anything changed.
-fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo>)>) -> bool {
+fn merge_repos(repos: &mut HashMap<String, Arc<Repo>>, read: Vec<(String, Option<Repo>)>) -> bool {
     let mut changed = false;
     for (cwd, repo) in read {
         changed |= match repo {
-            Some(r) if repos.get(&cwd) != Some(&r) => {
-                repos.insert(cwd, r);
+            Some(r) if repos.get(&cwd).map(|a| &**a) != Some(&r) => {
+                repos.insert(cwd, Arc::new(r));
                 true
             }
             Some(_) => false,
@@ -491,7 +496,7 @@ fn merge_repos(repos: &mut HashMap<String, Repo>, read: Vec<(String, Option<Repo
 
 #[cfg(test)]
 mod tests {
-    use super::{HashMap, Placed, Repo, SessionSort, by_project, child_only, held, hidden_terminals, merge_repos, without_child_only};
+    use super::{Arc, HashMap, Placed, Repo, SessionSort, by_project, child_only, held, hidden_terminals, merge_repos, without_child_only};
 
     fn repo(branch: &str) -> Repo {
         Repo { branch: branch.into(), ..Repo::default() }
@@ -499,28 +504,28 @@ mod tests {
 
     #[test]
     fn a_host_that_cannot_be_reached_keeps_the_repo_it_showed() {
-        let mut repos = HashMap::from([("//devbox/home/me/app".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("//devbox/home/me/app".to_string(), Arc::new(repo("main")))]);
         assert!(!merge_repos(&mut repos, vec![("//devbox/home/me/app".into(), None)]));
         assert_eq!(repos["//devbox/home/me/app"].branch, "main");
     }
 
     #[test]
     fn a_refresh_keeps_the_repos_it_did_not_read() {
-        let mut repos = HashMap::from([("/a".to_string(), repo("main")), ("/b".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("/a".to_string(), Arc::new(repo("main"))), ("/b".to_string(), Arc::new(repo("main")))]);
         assert!(merge_repos(&mut repos, vec![("/a".into(), Some(repo("fix")))]));
         assert_eq!((repos["/a"].branch.as_str(), repos["/b"].branch.as_str()), ("fix", "main"));
     }
 
     #[test]
     fn a_folder_no_longer_a_repo_is_dropped() {
-        let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("/a".to_string(), Arc::new(repo("main")))]);
         assert!(merge_repos(&mut repos, vec![("/a".into(), None)]));
         assert!(repos.is_empty());
     }
 
     #[test]
     fn reading_the_same_state_changes_nothing() {
-        let mut repos = HashMap::from([("/a".to_string(), repo("main"))]);
+        let mut repos = HashMap::from([("/a".to_string(), Arc::new(repo("main")))]);
         assert!(!merge_repos(&mut repos, vec![("/a".into(), Some(repo("main"))), ("/b".into(), None)]));
     }
 

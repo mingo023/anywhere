@@ -21,7 +21,7 @@ impl Desktop {
     /// The worktree's pull request: the composer while one is written, else the PR over its tabs, else how to open one.
     pub(crate) fn pr_side(&mut self, cx: &mut Context<Self>) -> Div {
         let panel = div().flex_1().min_h_0().flex().flex_col();
-        let Some(repo) = self.repo().cloned() else {
+        let Some(repo) = self.repo_handle() else {
             return panel.child(empty("Not a git repository."));
         };
         let panel = panel.child(self.pr_head(cx));

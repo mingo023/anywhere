@@ -64,6 +64,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use hosts::session::{Daemons, Outboxes};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use store::Store;
 use theme::*;
@@ -95,7 +96,7 @@ pub struct Desktop {
     /// Indexed by `Column`; `None` keeps the design's width.
     pub(crate) widths: [Option<f32>; 2],
     pub(crate) workspaces: HashMap<String, Workspace>,
-    pub(crate) repos: HashMap<String, Repo>,
+    pub(crate) repos: HashMap<String, Arc<Repo>>,
     pub(crate) diff: DiffState,
     pub(crate) chat: ChatComposer,
     pub(crate) chats: ChatState,

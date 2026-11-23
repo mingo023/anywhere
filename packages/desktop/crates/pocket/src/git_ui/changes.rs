@@ -11,6 +11,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Range;
+use std::sync::Arc;
 use theme::TEXT_3;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -216,7 +217,7 @@ impl ChangesState {
 impl Desktop {
     pub fn changes_list(&mut self, cx: &mut Context<Self>) -> Div {
         let panel = div().flex_1().min_h_0().flex().flex_col();
-        let Some(repo) = self.repo().cloned() else {
+        let Some(repo) = self.repo_handle() else {
             return panel.child(empty("Not a git repository."));
         };
         let cwd = self.cwd().unwrap_or_default();
@@ -290,7 +291,7 @@ impl Desktop {
     pub fn stage(&mut self, paths: Vec<String>, staged: bool, cx: &mut Context<Self>) {
         let Some(cwd) = self.cwd() else { return };
         if let Some(repo) = self.repos.get_mut(&cwd) {
-            flip_staged(&mut repo.files, &paths, staged);
+            flip_staged(&mut Arc::make_mut(repo).files, &paths, staged);
         }
         // Drops refreshes already running: they read the index from before this change.
         self.git_run += 1;
@@ -360,7 +361,7 @@ impl Desktop {
                 d.changes.error = committed.err().or(pushed.err());
                 if let Some(repo) = shipped {
                     let shown = d.cwd().as_ref() == Some(&tree);
-                    d.repos.insert(tree, repo);
+                    d.repos.insert(tree, Arc::new(repo));
                     if shown {
                         d.open_pr_composer(window, cx);
                     }
